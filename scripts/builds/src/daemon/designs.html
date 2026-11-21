@@ -99,6 +99,9 @@ a.ds-comp:focus-visible { outline: none; }
 @@FRAMES@@
 </script>
 <script>
+@@FILTER@@
+</script>
+<script>
 const data = JSON.parse(document.getElementById("data").textContent);
 const h = (tag, attrs, ...kids) => {
   const el = document.createElement(tag);
@@ -298,25 +301,9 @@ window.addEventListener("resize", () => {
 // The Filter field's text, which every tab uses and which the tabs keep.
 const filterInput = document.getElementById("filter");
 const words = () => filterInput.value.trim().toLowerCase();
-const matches = title => title.toLowerCase().includes(words());
+const matches = title => matchesText(title, words());
 const noMatch = () => h("div", {class: "dz-sub", "data-none": ""}, "Nothing here has \u201c" + filterInput.value.trim() + "\u201d in its title.");
-// Hides the items of the design system tab that the Filter text does not
-// match, and each part that is left with none. The tab keeps its frames, so
-// typing does not load them again.
-function filterSystem() {
-  const main = document.getElementById("main");
-  for (const none of main.querySelectorAll("[data-none]")) none.remove();
-  const items = main.querySelectorAll("[data-name]");
-  let shown = 0;
-  for (const item of items) {
-    item.hidden = !matches(item.dataset.name);
-    if (!item.hidden) shown++;
-  }
-  const all = !words();
-  for (const part of main.querySelectorAll(".ds-cards, .ds-sub, .ds-group, .ds-swatches, .ds-type, .ds-sec"))
-    part.hidden = !all && !part.querySelector("[data-name]:not([hidden])");
-  if (!all && items.length && !shown) main.append(noMatch());
-}
+const filterSystem = () => filterParts(document.getElementById("main"), words(), noMatch);
 function systemView() {
   const out = [];
   const s = data.system;

@@ -249,3 +249,162 @@ fn the_page_offers_publishing_only_where_canvases_toml_names_the_artifacts() {
         json!({ "error": "the store is gone" })
     );
 }
+
+#[test]
+fn the_system_tab_gets_the_groups_and_subgroups_in_the_order_groups_json_lists_them() {
+    let scratch = Scratch::new("designs-groups");
+    let (dir, _) = designs_repo(&scratch);
+    git(&dir, &["checkout", "-q", "origin/main"]);
+    let preview = |name: &str, height: u64| {
+        let path = dir.join(format!("design/system/components/{name}/preview.html"));
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(
+            path,
+            format!("<!-- @dsCard group=\"Mac\" height={height} -->\n<!doctype html>"),
+        )
+        .unwrap();
+    };
+    preview("Button", 60);
+    preview("Avatar", 90);
+    preview("Orphan", 30);
+    std::fs::write(
+        dir.join("design/system/groups.json"),
+        json!([
+            { "name": "Zeta", "about": "Listed first.", "components": ["Row"] },
+            { "name": "Alpha", "about": "Listed second.", "subgroups": [
+                { "name": "Second", "about": "Listed first in Alpha.", "components": ["Button"] },
+                { "name": "First", "about": "Listed last in Alpha.", "components": ["Avatar"] },
+            ] },
+        ])
+        .to_string(),
+    )
+    .unwrap();
+    git(&dir, &["add", "design"]);
+    git(&dir, &["commit", "-q", "-m", "groups"]);
+    let commit = crate::lists::design_paths::full_sha(&dir, "HEAD").unwrap();
+    git(&dir, &["update-ref", "refs/remotes/origin/main", &commit]);
+    let data = page_data(
+        &page(
+            "demo",
+            &dir,
+            &scratch.dir.join("cache"),
+            Ok(Standing::default()),
+            &Value::Null,
+        )
+        .unwrap(),
+    );
+    assert_eq!(
+        data["components"],
+        json!({
+            "groups": [
+                { "name": "Zeta", "about": "Listed first.",
+                  "cards": [{ "name": "Row", "height": 120 }], "subgroups": [] },
+                { "name": "Alpha", "about": "Listed second.", "cards": [], "subgroups": [
+                    { "name": "Second", "about": "Listed first in Alpha.",
+                      "cards": [{ "name": "Button", "height": 60 }] },
+                    { "name": "First", "about": "Listed last in Alpha.",
+                      "cards": [{ "name": "Avatar", "height": 90 }] },
+                ] },
+            ],
+            "problems": ["design/system/groups.json lists no group for Orphan."],
+        })
+    );
+}
+
+/// The nodes of a page's design system tab as the filter's script reads
+/// them: each has classes, an optional `data-name`, and children.
+const FAKE_DOM: &str = r#"
+class Node {
+  constructor(classes, name, children = []) {
+    this.classes = classes; this.dataset = name === undefined ? {} : {name};
+    this.hidden = false; this.children = children; this.attrs = {};
+  }
+  all() { return this.children.flatMap(c => [c, ...c.all()]); }
+  querySelectorAll(selector) {
+    if (selector === "[data-none]") return this.all().filter(n => "none" in n.attrs);
+    if (selector === "[data-name]") return this.all().filter(n => "name" in n.dataset);
+    const wanted = selector.split(",").map(s => s.trim().slice(1));
+    return this.all().filter(n => n.classes.some(c => wanted.includes(c)));
+  }
+  remove() { for (const n of [this, ...this.all()]) n.removed = true; }
+  append(node) { this.children.push(node); }
+}
+const item = name => new Node(["ds-comp"], name);
+const rows = [item("Row"), item("Button"), item("Avatar")];
+const sub = new Node(["ds-sub"], undefined, [new Node(["ds-cards"], undefined, [rows[1]])]);
+const first = new Node(["ds-group"], undefined, [new Node(["ds-cards"], undefined, [rows[0]])]);
+const second = new Node(["ds-group"], undefined, [sub, new Node(["ds-cards"], undefined, [rows[2]])]);
+const main = new Node(["ds-sec"], undefined, [first, second]);
+const none = () => { const n = new Node(["dz-sub"]); n.attrs.none = ""; return n; };
+const shownNames = () => rows.filter(r => !r.hidden).map(r => r.dataset.name);
+const groupsShown = () => [first, second, sub].map(p => !p.hidden);
+"#;
+
+fn filter_run(steps: &str) -> Value {
+    let page_script = include_str!("designs_filter.js");
+    let program = format!(
+        "{page_script}\n{FAKE_DOM}\nconst out = [];\n{steps}\nconsole.log(JSON.stringify(out));"
+    );
+    let out = std::process::Command::new("node")
+        .arg("-e")
+        .arg(program)
+        .output()
+        .expect("these tests run the page's script in node, which must be installed");
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    serde_json::from_slice(&out.stdout).unwrap()
+}
+
+#[test]
+fn the_filter_keeps_the_components_whose_names_hold_the_text_and_hides_empty_groups() {
+    let steps = r#"
+      filterParts(main, "", none);
+      out.push([shownNames(), groupsShown()]);
+      filterParts(main, "butt", none);
+      out.push([shownNames(), groupsShown()]);
+      filterParts(main, "row", none);
+      out.push([shownNames(), groupsShown()]);
+      filterParts(main, "", none);
+      out.push([shownNames(), groupsShown()]);
+    "#;
+    assert_eq!(
+        filter_run(steps),
+        json!([
+            [["Row", "Button", "Avatar"], [true, true, true]],
+            [["Button"], [false, true, true]],
+            [["Row"], [true, false, false]],
+            [["Row", "Button", "Avatar"], [true, true, true]],
+        ])
+    );
+}
+
+#[test]
+fn the_filter_says_so_when_no_component_matches_and_stops_saying_it_when_one_does() {
+    let steps = r#"
+      filterParts(main, "zzz", none);
+      out.push([shownNames(), main.children.filter(c => "none" in c.attrs).length]);
+      filterParts(main, "zzz", none);
+      out.push(main.children.filter(c => "none" in c.attrs && !c.removed).length);
+      filterParts(main, "avatar", none);
+      out.push([shownNames(), main.children.filter(c => "none" in c.attrs && !c.removed).length]);
+    "#;
+    assert_eq!(filter_run(steps), json!([[[], 1], 1, [["Avatar"], 0]]));
+}
+
+#[test]
+fn the_page_carries_the_filter_script_the_tests_run() {
+    let scratch = Scratch::new("designs-filter-page");
+    let (dir, _) = designs_repo(&scratch);
+    let page = page(
+        "demo",
+        &dir,
+        &scratch.dir.join("cache"),
+        Ok(Standing::default()),
+        &Value::Null,
+    )
+    .unwrap();
+    assert!(page.contains(include_str!("designs_filter.js")));
+}

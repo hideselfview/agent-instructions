@@ -43,6 +43,8 @@ const DESIGNS_PAGE: &str = include_str!("designs.html");
 /// preview's own size, up to the width the Designs page gives it, and tells
 /// the page that size.
 const PREVIEW_FIT: &str = include_str!("preview_fit.js");
+/// The Filter field's matching and hiding, which the page's script calls.
+const FILTER: &str = include_str!("designs_filter.js");
 /// The dashboard's colors and fonts, which its page and the Designs page
 /// share.
 pub const PALETTE: &str = include_str!("palette.css");
@@ -169,6 +171,7 @@ pub fn page(
             ("CONTROLS_JS", CONTROLS_JS),
             ("DATA", &data),
             ("FRAMES", FRAMES_SCRIPT),
+            ("FILTER", FILTER),
         ],
     ))
 }
