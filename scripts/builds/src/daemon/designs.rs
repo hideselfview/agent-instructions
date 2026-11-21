@@ -43,6 +43,10 @@ const DESIGNS_PAGE: &str = include_str!("designs.html");
 /// preview's own size, up to the width the Designs page gives it, and tells
 /// the page that size.
 const PREVIEW_FIT: &str = include_str!("preview_fit.js");
+/// The script that answers a review page's question for the boxes of the
+/// elements a CSS selector finds in a component's preview
+/// (`design_render/preview_circles.js`).
+const PREVIEW_CIRCLES: &str = include_str!("../design_render/preview_circles.js");
 /// The Filter field's matching and hiding, which the page's script calls.
 const FILTER: &str = include_str!("designs_filter.js");
 /// The dashboard's colors and fonts, which its page and the Designs page
@@ -245,9 +249,28 @@ pub fn board(repo: &Path, commit: &str, name: &str, cache: &Path) -> Result<Stri
 /// as the Designs page's frame loads it: with `PREVIEW_FIT`, which draws it
 /// at its own size and tells the page that size.
 pub fn preview(repo: &Path, commit: &str, name: &str, cache: &Path) -> Result<String> {
-    let page = render_preview(Source::Commit { repo, rev: commit }, name, cache)?;
+    preview_with(Source::Commit { repo, rev: commit }, name, cache, "")
+}
+
+/// Component <name>'s preview of <from> as a review page's frame loads it:
+/// the Designs page's frame (`preview`), which also answers the page's
+/// question for the boxes of the elements a selector finds
+/// (`PREVIEW_CIRCLES`), as a board's page does.
+pub fn review_preview(from: Source, name: &str, cache: &Path) -> Result<String> {
+    preview_with(
+        from,
+        name,
+        cache,
+        &format!("<script>{PREVIEW_CIRCLES}</script>"),
+    )
+}
+
+/// Component <name>'s preview of <from> with `PREVIEW_FIT` and <more>, which
+/// load after the design system.
+fn preview_with(from: Source, name: &str, cache: &Path, more: &str) -> Result<String> {
+    let page = render_preview(from, name, cache)?;
     Ok(
-        with_loads(&page, &format!("<script>{PREVIEW_FIT}</script>"))
+        with_loads(&page, &format!("<script>{PREVIEW_FIT}</script>{more}"))
             .expect("render_preview's page has a <head>"),
     )
 }

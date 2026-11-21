@@ -254,7 +254,7 @@ impl Server {
 fn design_store(scratch: &Scratch, places: &crate::places::Places) {
     use crate::lists::design::ReviewSection;
     use crate::lists::fixtures::{NOON, design_drawn, make_store, stamp};
-    use crate::lists::{ReviewBoard, Theme};
+    use crate::lists::{ReviewEntry, Shown, Theme};
     let wt = scratch.dir.join("wt");
     std::fs::create_dir_all(wt.join("design/mocks")).unwrap();
     crate::testing::design_system(&wt, "1", "", "window.Bae = {};");
@@ -271,6 +271,12 @@ fn design_store(scratch: &Scratch, places: &crate::places::Places) {
     std::fs::write(
         wt.join("design/mocks/canvas.json"),
         r#"{"boards": {"A.dc.html": {"w": 300, "h": 200}, "B.dc.html": {"w": 30, "h": 20}}}"#,
+    )
+    .unwrap();
+    std::fs::create_dir_all(wt.join("design/system/components/MacRow")).unwrap();
+    std::fs::write(
+        wt.join("design/system/components/MacRow/preview.html"),
+        "<!-- @dsCard height=100 -->\n<html><head></head><body>the row preview</body></html>",
     )
     .unwrap();
     crate::testing::repo(&wt, "");
@@ -299,18 +305,28 @@ fn design_store(scratch: &Scratch, places: &crate::places::Places) {
                 Some(ReviewSection {
                     heading: "The change".into(),
                     boards: vec![
-                        ReviewBoard {
-                            board: "design/mocks/A.dc.html".into(),
+                        ReviewEntry {
+                            shown: Shown::Board {
+                                path: "design/mocks/A.dc.html".into(),
+                                theme: Theme::Light,
+                            },
                             caption: "A".into(),
-                            theme: Theme::Light,
                             show_now: true,
                             circles: vec![],
                         },
-                        ReviewBoard {
-                            board: "design/mocks/Gone.dc.html".into(),
+                        ReviewEntry {
+                            shown: Shown::Board {
+                                path: "design/mocks/Gone.dc.html".into(),
+                                theme: Theme::Dark,
+                            },
                             caption: "Gone".into(),
-                            theme: Theme::Dark,
                             show_now: false,
+                            circles: vec![],
+                        },
+                        ReviewEntry {
+                            shown: Shown::Component("MacRow".into()),
+                            caption: "The row".into(),
+                            show_now: true,
                             circles: vec![],
                         },
                     ],
@@ -366,6 +382,18 @@ fn the_daemon_draws_a_design_changes_review_page_and_its_boards_from_the_changes
     let (status, _, problem) = s.get("/design/demo/1/board/1/proposed");
     assert_eq!(status, 500);
     assert!(problem.contains("Gone.dc.html is not there"), "{problem}");
+    // A component entry draws its preview, on each side, with the script that
+    // sizes the frame and the one that answers the page's circles.
+    for side in ["now", "proposed"] {
+        let (status, kind, preview) = s.get(&format!("/design/demo/1/board/2/{side}"));
+        assert_eq!((status, kind.as_str()), (200, "text/html; charset=utf-8"));
+        assert!(
+            preview.contains("the row preview")
+                && preview.contains("previewWidth")
+                && preview.contains("designCircles"),
+            "{preview}"
+        );
+    }
     // A board the change changes that the page does not show opens from
     // the page's list as its proposal.
     let (status, _, other) = s.get("/design/demo/1/changed/0/proposed");
@@ -378,7 +406,7 @@ fn the_daemon_draws_a_design_changes_review_page_and_its_boards_from_the_changes
         "/design/demo/9",
         "/design/1",
         "/design/other/1",
-        "/design/demo/1/board/2/now",
+        "/design/demo/1/board/3/now",
         "/design/demo/1/board/0",
         "/design/demo/1/deleted/0/now",
         "/design/demo/x",

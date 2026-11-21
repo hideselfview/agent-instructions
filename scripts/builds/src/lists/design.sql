@@ -71,18 +71,23 @@ CREATE TABLE review_section (
     heading TEXT NOT NULL CONSTRAINT review_section_heading_says_something CHECK (trim(heading) <> '')
 ) STRICT;
 
--- A board the review page shows: the recorder picks the fewest boards that
--- show the proposal, and the page lists the change's other boards by name.
+-- An entry the review page shows, a board or a component's preview: the
+-- recorder picks the fewest entries that show the proposal, and the page
+-- lists the change's other boards by name. A board has its theme, and a
+-- component has none.
 CREATE TABLE review_board (
     design_id INTEGER NOT NULL,
     position INTEGER NOT NULL CONSTRAINT review_board_position_not_negative CHECK (position >= 0),
-    board TEXT NOT NULL CONSTRAINT review_board_is_a_board_file CHECK (board NOT GLOB '*#*' AND board NOT GLOB '*/'),
+    board TEXT CONSTRAINT review_board_is_a_board_file CHECK (board NOT GLOB '*#*' AND board NOT GLOB '*/'),
+    component TEXT CONSTRAINT review_board_component_is_a_name CHECK (component <> '' AND component NOT GLOB '*[^A-Za-z0-9]*'),
     caption TEXT NOT NULL CONSTRAINT review_board_caption_says_something CHECK (trim(caption) <> ''),
-    theme TEXT NOT NULL CONSTRAINT review_board_theme_known CHECK (theme IN ('light', 'dark')),
+    theme TEXT CONSTRAINT review_board_theme_known CHECK (theme IN ('light', 'dark')),
     -- 1 when the page shows the board as it stands on origin/main beside the
     -- proposal, which it does only where the recorder asks for it.
     show_now INTEGER NOT NULL CONSTRAINT review_board_show_now_is_a_flag CHECK (show_now IN (0, 1)),
     PRIMARY KEY (design_id, position),
+    CONSTRAINT review_board_shows_a_board_or_a_component CHECK ((board IS NULL) <> (component IS NULL)),
+    CONSTRAINT review_board_has_a_theme_only_on_a_board CHECK ((board IS NULL) = (theme IS NULL)),
     CONSTRAINT review_board_is_on_a_section FOREIGN KEY (design_id) REFERENCES review_section (design_id) ON DELETE CASCADE
 ) STRICT, WITHOUT ROWID;
 

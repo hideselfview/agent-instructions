@@ -201,6 +201,35 @@ fn a_frame_draws_its_board_or_its_preview_at_the_commit_the_page_names() {
     assert!(error.contains("is no component"), "{error}");
 }
 
+/// A review page's frame of a component's preview is the Designs page's
+/// frame, with the script that answers where a selector's elements are.
+#[test]
+fn a_review_frame_draws_the_preview_and_answers_the_pages_circles() {
+    let scratch = Scratch::new("designs-review-preview");
+    let (dir, commit) = designs_repo(&scratch);
+    let cache = scratch.dir.join("cache");
+    let frame = review_preview(
+        Source::Commit {
+            repo: &dir,
+            rev: &commit,
+        },
+        "Row",
+        &cache,
+    )
+    .unwrap();
+    for part in [
+        "previewWidth",
+        "designCircles",
+        "designBoxes",
+        "window.Demo",
+        "draw()",
+    ] {
+        assert!(frame.contains(part), "{part} in {frame}");
+    }
+    let plain = preview(&dir, &commit, "Row", &cache).unwrap();
+    assert!(!plain.contains("designCircles"));
+}
+
 #[test]
 fn a_commit_is_forty_hex_digits() {
     assert!(is_commit(&"a1".repeat(20)));

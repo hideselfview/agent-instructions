@@ -712,6 +712,15 @@ sent again.
       one concern per change, and its boards (optional), each a board file
       of the repo's design places that exists at the range's last commit,
       with its caption, the theme it is drawn in and `show_now` (optional).
+      An entry gives a `component` (the name of a component of the design
+      system, whose folder holds a `preview.html` at the range's last
+      commit) in place of the `board` and its `theme`: the page then draws
+      the component's preview in place of a board, and a `component` entry
+      takes a caption, circles and `show_now` as a board does. A preview
+      has no theme, so an entry with a `component` and a `theme` is refused.
+      With `show_now` the page draws the preview as it stands on
+      origin/main beside the proposal, and a component with no preview
+      there has no now, so record and amend refuse `show_now` on it.
       The recorder picks the fewest boards that show the proposed design,
       each in a situation that fits it, and need not put every board the
       change changes on the page (decision #369). A board may be on the page
@@ -751,8 +760,11 @@ sent again.
       an item is closed or missing, a board of a project that publishes a
       canvas has no link, a project that publishes none gives `boards`,
       `review` is missing or has a heading with no text, a board of it is no
-      file, no board place or has no caption, a board of it that is no file
-      on origin/main has `show_now`, a circle has no selector, an empty label
+      file, no board place or has no caption, a component of it has no
+      preview at the range's last commit, is no component name or has a
+      `theme`, an entry of it gives both or neither of `board` and
+      `component`, a board of it has no `theme`, a board or a component of
+      it that is no file on origin/main has `show_now`, a circle has no selector, an empty label
       or a box with no width or height, or gives both or neither of a
       selector and a box, or the range
       changes no design files. A canvas.json the range changes is a place

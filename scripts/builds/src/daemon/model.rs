@@ -1063,8 +1063,9 @@ impl Model {
         )
     }
 
-    /// <side> of the <n>th board of open design change <id>'s review page,
-    /// drawn now; None when there is no such change or board.
+    /// <side> of the <n>th entry of open design change <id>'s review page,
+    /// drawn now: a board, or a component's preview; None when there is no
+    /// such change or entry.
     pub fn design_board(
         &self,
         project: &str,
@@ -1074,15 +1075,16 @@ impl Model {
     ) -> Option<crate::fail::Result<String>> {
         let (_, snapshot) = self.lists.current();
         let (design, _) = super::lists::open_design(&snapshot, project, id)?;
-        let board = crate::design_render::review_board(&design, n)?;
+        let entry = crate::design_render::review_board(&design, n)?;
+        let cache = self.places.design_system_cache();
         Some(
-            crate::design_render::source_of(&design, side).and_then(|from| {
-                crate::design_render::render_board(
-                    from,
-                    &board.board,
-                    board.theme,
-                    &self.places.design_system_cache(),
-                )
+            crate::design_render::source_of(&design, side).and_then(|from| match &entry.shown {
+                crate::lists::Shown::Board { path, theme } => {
+                    crate::design_render::render_board(from, path, *theme, &cache)
+                }
+                crate::lists::Shown::Component(name) => {
+                    super::designs::review_preview(from, name, &cache)
+                }
             }),
         )
     }

@@ -167,24 +167,30 @@ fn review_of(dir: &Path, tip: &str) -> (DesignChange, DesignView) {
         Some(ReviewSection {
             heading: "A heading".into(),
             boards: vec![
-                ReviewBoard {
-                    board: "design/mocks/A.dc.html".into(),
+                ReviewEntry {
+                    shown: Shown::Board {
+                        path: "design/mocks/A.dc.html".into(),
+                        theme: Theme::Dark,
+                    },
                     caption: "the A </script> caption".into(),
-                    theme: Theme::Dark,
                     show_now: true,
                     circles: vec![],
                 },
-                ReviewBoard {
-                    board: "design/mocks/B.dc.html".into(),
+                ReviewEntry {
+                    shown: Shown::Board {
+                        path: "design/mocks/B.dc.html".into(),
+                        theme: Theme::Light,
+                    },
                     caption: "no size".into(),
-                    theme: Theme::Light,
                     show_now: true,
                     circles: vec![],
                 },
-                ReviewBoard {
-                    board: "design/mocks/Z.dc.html".into(),
+                ReviewEntry {
+                    shown: Shown::Board {
+                        path: "design/mocks/Z.dc.html".into(),
+                        theme: Theme::Light,
+                    },
                     caption: "no file".into(),
-                    theme: Theme::Light,
                     show_now: true,
                     circles: vec![],
                 },
@@ -332,17 +338,21 @@ fn a_board_the_change_adds_has_no_now_and_a_board_it_deletes_has_only_a_now() {
     let tip = commit(&dir);
     let (mut change, _) = review_of(&dir, &tip);
     change.review.as_mut().unwrap().boards = vec![
-        ReviewBoard {
-            board: "design/mocks/A.dc.html".into(),
+        ReviewEntry {
+            shown: Shown::Board {
+                path: "design/mocks/A.dc.html".into(),
+                theme: Theme::Dark,
+            },
             caption: "the A".into(),
-            theme: Theme::Dark,
             show_now: true,
             circles: vec![],
         },
-        ReviewBoard {
-            board: "design/mocks/New.dc.html".into(),
+        ReviewEntry {
+            shown: Shown::Board {
+                path: "design/mocks/New.dc.html".into(),
+                theme: Theme::Light,
+            },
             caption: "the new one".into(),
-            theme: Theme::Light,
             show_now: true,
             circles: vec![],
         },
@@ -383,6 +393,85 @@ fn a_board_the_change_adds_has_no_now_and_a_board_it_deletes_has_only_a_now() {
     assert!(old.contains("the old board"));
 }
 
+/// A component's preview on the page shows its now from origin/main beside
+/// its proposal from the change's last commit, as a board does; a component
+/// the change adds has no now, and one with no preview at the change's last
+/// commit is the change's problem. Each frame loads the same address a board's
+/// does, and the page marks it as a preview that reports its own size.
+#[test]
+fn a_review_page_shows_a_components_preview_now_and_proposed() {
+    let scratch = Scratch::new("render-component");
+    let dir = tree(&scratch);
+    let preview = |name: &str, mark: &str| {
+        let path = dir.join(format!("design/system/components/{name}/preview.html"));
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(
+            path,
+            format!("<!-- @dsCard height=100 -->\n<html><head></head><body>{mark}</body></html>"),
+        )
+        .unwrap();
+    };
+    preview("MacRow", "row as it stands");
+    git(&dir, &["add", "-f", "design"]);
+    let main = commit(&dir);
+    set_origin_main(&dir, &main);
+    git(&dir, &["checkout", "-q", "-b", "change"]);
+    preview("MacRow", "row as proposed");
+    preview("MacNew", "the new row");
+    git(&dir, &["add", "-f", "design"]);
+    let tip = commit(&dir);
+    let (mut change, _) = review_of(&dir, &tip);
+    let component = |name: &str| ReviewEntry {
+        shown: Shown::Component(name.into()),
+        caption: format!("{name}'s preview"),
+        show_now: true,
+        circles: vec![Circle {
+            around: Around::Selector(".row".into()),
+            label: None,
+        }],
+    };
+    change.review.as_mut().unwrap().boards = vec![
+        component("MacRow"),
+        component("MacNew"),
+        component("MacGone"),
+    ];
+    let view = design_view(&read(&db()), &change, None).unwrap();
+    let data = page_data(&review_page(&change, &view, "demo", &Value::Null).unwrap());
+    let id = change.id.0;
+    let entries = &data["section"]["boards"];
+    assert_eq!(entries[0]["component"], json!("MacRow"));
+    assert_eq!(entries[0]["path"], Value::Null);
+    assert_eq!(entries[0]["circles"][0]["selector"], json!(".row"));
+    for side in ["proposed", "now"] {
+        let drawn = &entries[0][side];
+        assert_eq!(drawn["preview"], json!(true), "{side}");
+        assert_eq!(
+            drawn["src"],
+            json!(format!("/design/demo/{id}/board/0/{side}"))
+        );
+        assert_eq!(drawn["w"], json!(PREVIEW_START.0));
+    }
+    assert_eq!(entries[1]["now"], json!({ "absent": true }));
+    assert_eq!(entries[1]["proposed"]["preview"], json!(true));
+    assert_eq!(entries[2]["now"], json!({ "absent": true }));
+    assert_eq!(
+        entries[2]["proposed"]["error"],
+        json!("MacGone has no preview at the change's last commit")
+    );
+    let sides = |side| {
+        crate::daemon::designs::review_preview(
+            source_of(&change, side).unwrap(),
+            "MacRow",
+            &cache(&scratch),
+        )
+        .unwrap()
+    };
+    let now = sides(Side::Now);
+    assert!(now.contains("row as it stands") && now.contains("BUNDLE_MARK"));
+    let proposed = sides(Side::Proposed);
+    assert!(proposed.contains("row as proposed") && !proposed.contains("as it stands"));
+}
+
 /// A board on the page shows its proposal alone unless the recorder asked
 /// for its now, and the page lists each other board the change changes or
 /// deletes by name, with the drawing the reviewer opens it to: a changed
@@ -418,10 +507,12 @@ fn a_review_page_shows_the_proposal_and_lists_the_other_boards_of_the_change() {
         ],
         Some(ReviewSection {
             heading: "A heading".into(),
-            boards: vec![ReviewBoard {
-                board: "design/mocks/A.dc.html".into(),
+            boards: vec![ReviewEntry {
+                shown: Shown::Board {
+                    path: "design/mocks/A.dc.html".into(),
+                    theme: Theme::Dark,
+                },
                 caption: "the A".into(),
-                theme: Theme::Dark,
                 show_now: false,
                 circles: vec![],
             }],

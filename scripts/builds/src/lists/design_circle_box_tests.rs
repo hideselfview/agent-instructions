@@ -1,7 +1,7 @@
 use super::*;
-use crate::lists::ReviewBoard;
 use crate::lists::design::{ReviewSection, Theme};
 use crate::lists::fixtures::{Refusals, db, design_drawn, read, row, v};
+use crate::lists::{ReviewEntry, Shown};
 
 /// A design change whose review page holds one board, and its id.
 fn one_board(db: &Connection) -> Id {
@@ -11,10 +11,12 @@ fn one_board(db: &Connection) -> Id {
         &[],
         Some(ReviewSection {
             heading: "What changed".into(),
-            boards: vec![ReviewBoard {
-                board: "design/mocks/A.dc.html".into(),
+            boards: vec![ReviewEntry {
+                shown: Shown::Board {
+                    path: "design/mocks/A.dc.html".into(),
+                    theme: Theme::Dark,
+                },
                 caption: "the A".into(),
-                theme: Theme::Dark,
                 show_now: false,
                 circles: vec![],
             }],

@@ -15,15 +15,20 @@
 //! branch.
 //!
 //! A design change's review page (`design_render/review.html`) shows the
-//! change's details, one point to a line, and the boards its recorder picks to
-//! show the proposal (decision #369), in frames that load the board's own
+//! change's details, one point to a line, and the boards and component
+//! previews its recorder picks to show the proposal (decision #369; a
+//! component's preview is drawn by `daemon::designs::review_preview`, which
+//! the Designs page's frame also draws, and reports its own size), in frames
+//! that load the board's own
 //! pages: proposed, the board at the last commit of the change's range, and,
 //! beside it where the recorder asks, now, the board as it stands on
 //! origin/main, each drawn with its own commit's design system. The page lists
 //! the change's other boards by name, folded: each changed board opens to its
 //! proposal, and each deleted board to its now. The daemon draws
 //! each frame on every request, so the page shows a redraw on reload. The
-//! sizes of the frames come from each commit's `design/mocks/canvas.json`.
+//! sizes of the frames come from each commit's `design/mocks/canvas.json`; a
+//! preview's frame starts at `PREVIEW_START` and takes the size the preview
+//! reports.
 //! The review page circles only what the designer says changed: it posts each
 //! board's page the CSS selectors of the board's circles, the page answers
 //! with the boxes of the elements each finds, and the review page circles
@@ -42,7 +47,7 @@ use crate::fail::{Context, Result};
 use crate::lists::design::Circle;
 use crate::lists::design_paths::PlaceKind;
 use crate::lists::view::DesignView;
-use crate::lists::{DesignChange, ReviewBoard, Theme};
+use crate::lists::{DesignChange, ReviewEntry, Shown, Theme};
 
 const BOARD_PAGE: &str = include_str!("design_render/board.html");
 const REVIEW_PAGE: &str = include_str!("design_render/review.html");
@@ -246,8 +251,9 @@ pub fn render_preview(from: Source, name: &str, cache: &Path) -> Result<String> 
     }
 }
 
-/// The <n>th board of <design>'s review page.
-pub fn review_board(design: &DesignChange, n: usize) -> Option<&ReviewBoard> {
+/// The <n>th entry of <design>'s review page: a board or a component's
+/// preview.
+pub fn review_board(design: &DesignChange, n: usize) -> Option<&ReviewEntry> {
     design.review.as_ref()?.boards.get(n)
 }
 
@@ -258,7 +264,10 @@ fn other_boards(design: &DesignChange) -> impl Iterator<Item = &String> {
         .review
         .iter()
         .flat_map(|section| &section.boards)
-        .map(|board| board.board.as_str())
+        .filter_map(|entry| match &entry.shown {
+            Shown::Board { path, .. } => Some(path.as_str()),
+            Shown::Component(_) => None,
+        })
         .collect();
     design.places.keys().filter(move |path| {
         PlaceKind::of(path) == PlaceKind::Board && !shown.contains(&path.as_str())
@@ -342,6 +351,33 @@ fn drawing(design: &DesignChange, side: Side, board: &str, src: &str) -> Value {
     }
 }
 
+/// The size a component's preview frame starts at on the review page,
+/// before the preview reports the size it takes (`preview_fit.js`).
+const PREVIEW_START: (u64, u64) = (480, 320);
+
+/// How <side> of component <name>'s preview shows on the review page: its
+/// frame (`w`, `h`, `src` and `preview`, which tells the page that the
+/// preview reports its own size), `absent` (the component has no preview
+/// there), or the `error` that stops it.
+fn preview_drawing(design: &DesignChange, side: Side, name: &str, src: &str) -> Value {
+    let found =
+        source_of(design, side).and_then(|from| Ok(from.has(&preview::preview_path(name))?));
+    match found {
+        Ok(true) => json!({
+            "w": PREVIEW_START.0,
+            "h": PREVIEW_START.1,
+            "preview": true,
+            "src": format!("{src}/{}", side.word()),
+        }),
+        // A component with no preview where the change draws it is that change's fault, not an absence.
+        Ok(false) if side == Side::Proposed => {
+            json!({ "error": format!("{name} has no preview at the change's last commit") })
+        }
+        Ok(false) => json!({ "absent": true }),
+        Err(error) => json!({ "error": error.text() }),
+    }
+}
+
 /// A circle as the review page reads it: its `selector` or `box`, its `label`
 /// and its `name`, which the page shows when the circle has no label.
 fn circle_json(circle: &Circle) -> Value {
@@ -366,18 +402,27 @@ pub fn review_page(
             .boards
             .iter()
             .enumerate()
-            .map(|(n, board)| {
+            .map(|(n, entry)| {
                 let src = format!("/design/{project}/{}/board/{n}", design.id.0);
-                let mut shown = json!({
-                    "path": board.board,
-                    "caption": board.caption,
-                    "theme": board.theme.word(),
-                    "circles": board.circles.iter().map(circle_json).collect::<Vec<_>>(),
-                    "link": design.boards.get(&board.board).map(|b| b.link.clone()),
-                    "proposed": drawing(design, Side::Proposed, &board.board, &src),
-                });
-                if board.show_now {
-                    shown["now"] = drawing(design, Side::Now, &board.board, &src);
+                let (mut shown, draw): (Value, Box<dyn Fn(Side) -> Value>) = match &entry.shown {
+                    Shown::Board { path, theme } => (
+                        json!({
+                            "path": path,
+                            "theme": theme.word(),
+                            "link": design.boards.get(path).map(|b| b.link.clone()),
+                        }),
+                        Box::new(|side| drawing(design, side, path, &src)),
+                    ),
+                    Shown::Component(name) => (
+                        json!({ "component": name }),
+                        Box::new(|side| preview_drawing(design, side, name, &src)),
+                    ),
+                };
+                shown["caption"] = json!(entry.caption);
+                shown["circles"] = entry.circles.iter().map(circle_json).collect();
+                shown["proposed"] = draw(Side::Proposed);
+                if entry.show_now {
+                    shown["now"] = draw(Side::Now);
                 }
                 shown
             })

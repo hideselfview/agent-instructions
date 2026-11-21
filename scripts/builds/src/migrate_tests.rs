@@ -1919,3 +1919,103 @@ fn a_store_from_before_the_unread_columns_keeps_its_acks_and_equals_a_fresh_sche
         assert_eq!(rows, 1, "{table}");
     }
 }
+
+#[test]
+fn the_review_component_stamp_is_the_schema_before_it() {
+    assert_eq!(
+        db::stamp_of_text(&db::schema_before_review_component()),
+        BEFORE_REVIEW_COMPONENT_STAMP
+    );
+}
+
+/// A store from before a review page's entry could be a component's preview
+/// keeps each entry as a board with its theme and its circles, and equals a
+/// fresh schema.
+#[test]
+fn a_store_from_before_review_components_keeps_each_entry_as_a_board() {
+    let scratch = Scratch::new("move-review-component");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&db::schema_before_review_component())
+            .unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_REVIEW_COMPONENT_STAMP)
+            .unwrap();
+        use crate::lists::fixtures::v;
+        crate::lists::project::plant(&conn, "repo", &[("name", v("bae"))]).unwrap();
+        crate::lists::record::plant(
+            &conn,
+            "record",
+            &[
+                ("id", v(1)),
+                ("kind", v("design")),
+                ("opened_at", v(5)),
+                ("opened_by", v("tester")),
+            ],
+        )
+        .unwrap();
+        crate::lists::design::plant(
+            &conn,
+            "design",
+            &[
+                ("id", v(1)),
+                ("title", v("People rows")),
+                ("details", v("d")),
+                ("repo", v("bae")),
+                ("worktree", v("/w")),
+            ],
+        )
+        .unwrap();
+        crate::lists::design::plant(
+            &conn,
+            "review_section",
+            &[("design_id", v(1)), ("heading", v("Rows"))],
+        )
+        .unwrap();
+        crate::lists::design::plant(
+            &conn,
+            "review_board",
+            &[
+                ("design_id", v(1)),
+                ("position", v(0)),
+                ("board", v("design/mocks/A.dc.html")),
+                ("caption", v("A")),
+                ("theme", v("light")),
+                ("show_now", v(0)),
+            ],
+        )
+        .unwrap();
+        crate::lists::design::plant(
+            &conn,
+            "review_circle",
+            &[
+                ("design_id", v(1)),
+                ("board", v(0)),
+                ("position", v(0)),
+                ("selector", v(".row")),
+            ],
+        )
+        .unwrap();
+    }
+    migrate_stores(&places, 0).unwrap();
+    let conn = db::open(&path, db::Make::Never).unwrap();
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    let entries: Vec<String> = conn
+        .prepare("SELECT board || ' ' || ifnull(component, 'no component') || ' ' || theme || ' ' || show_now FROM review_board")
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .collect::<std::result::Result<_, _>>()
+        .unwrap();
+    assert_eq!(entries, ["design/mocks/A.dc.html no component light 0"]);
+    let circles: i64 = conn
+        .query_row("SELECT count(*) FROM review_circle", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(circles, 1);
+}

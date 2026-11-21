@@ -80,28 +80,125 @@ impl Theme {
     }
 }
 
-/// A board on a review page: the board file (a place of the repo's design
-/// places, `design/mocks/<name>.dc.html`), what the caption under it says,
-/// the theme it is drawn in, whether the page shows its now, and the
-/// elements the designer circles on it. The recorder picks the fewest boards
-/// that show the proposal, each in a situation that fits it (decision #369).
+/// What a review page entry shows.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Shown {
+    /// A board file (a place of the repo's design places,
+    /// `design/mocks/<name>.dc.html`), drawn in a theme.
+    Board { path: String, theme: Theme },
+    /// A component of the design system, by name: its preview, which has no
+    /// theme.
+    Component(String),
+}
+
+/// An entry of a review page: a board or a component's preview, what the
+/// caption under it says, whether the page shows its now, and the elements
+/// the designer circles on it. The recorder picks the fewest entries that
+/// show the proposal, each in a situation that fits it (decision #369).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ReviewBoard {
-    pub board: String,
+#[serde(try_from = "ReviewEntryFields", into = "ReviewEntryFields")]
+pub struct ReviewEntry {
+    pub shown: Shown,
     pub caption: String,
-    pub theme: Theme,
-    /// Does the page show the board as it stands on origin/main beside the
+    /// Does the page show the entry as it stands on origin/main beside the
     /// proposal? Only where the recorder asks: the proposal alone is the
     /// page's default (decision #369).
-    #[serde(default)]
     pub show_now: bool,
     /// What changed, as the designer says: the page circles these and
-    /// nothing else, and a board needs none. On a board the change adds, the
+    /// nothing else, and an entry needs none. On a board the change adds, the
     /// circles mark what it adds, and the page draws them on the Proposed
     /// side only.
-    #[serde(default)]
     pub circles: Vec<Circle>,
+}
+
+impl ReviewEntry {
+    /// What the entry shows, as a person reads it: the board file or the
+    /// component's name.
+    pub fn named(&self) -> &str {
+        match &self.shown {
+            Shown::Board { path, .. } => path,
+            Shown::Component(name) => name,
+        }
+    }
+}
+
+impl ReviewEntry {
+    /// The entry in a sentence: "the board <file>" or "the component <name>".
+    pub fn described(&self) -> String {
+        match &self.shown {
+            Shown::Board { path, .. } => format!("the board {path}"),
+            Shown::Component(name) => format!("the component {name}"),
+        }
+    }
+}
+
+/// A review entry's JSON fields: a `board` with its `theme`, or a
+/// `component`, and one of them.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ReviewEntryFields {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    board: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    component: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    theme: Option<Theme>,
+    caption: String,
+    #[serde(default)]
+    show_now: bool,
+    #[serde(default)]
+    circles: Vec<Circle>,
+}
+
+impl TryFrom<ReviewEntryFields> for ReviewEntry {
+    type Error = String;
+
+    /// Refuses an entry that gives both a board and a component, or neither,
+    /// a board with no theme, or a component with a theme.
+    fn try_from(fields: ReviewEntryFields) -> std::result::Result<ReviewEntry, String> {
+        let shown = match (fields.board, fields.component, fields.theme) {
+            (Some(path), None, Some(theme)) => Shown::Board { path, theme },
+            (Some(path), None, None) => {
+                return Err(format!(
+                    "the board {path} of a review page needs its `theme`, light or dark"
+                ));
+            }
+            (None, Some(name), None) => Shown::Component(name),
+            (None, Some(name), Some(_)) => {
+                return Err(format!(
+                    "the component {name} of a review page takes no `theme`: its preview has none"
+                ));
+            }
+            _ => {
+                return Err(
+                    "an entry of a review page gives the `board` file or the `component` name to show, and one of them".to_string(),
+                );
+            }
+        };
+        Ok(ReviewEntry {
+            shown,
+            caption: fields.caption,
+            show_now: fields.show_now,
+            circles: fields.circles,
+        })
+    }
+}
+
+impl From<ReviewEntry> for ReviewEntryFields {
+    fn from(entry: ReviewEntry) -> ReviewEntryFields {
+        let (board, component, theme) = match entry.shown {
+            Shown::Board { path, theme } => (Some(path), None, Some(theme)),
+            Shown::Component(name) => (None, Some(name), None),
+        };
+        ReviewEntryFields {
+            board,
+            component,
+            theme,
+            caption: entry.caption,
+            show_now: entry.show_now,
+            circles: entry.circles,
+        }
+    }
 }
 
 /// A circle the designer draws on a review board: the area it surrounds and
@@ -199,7 +296,7 @@ impl From<Circle> for CircleFields {
 pub struct ReviewSection {
     pub heading: String,
     #[serde(default)]
-    pub boards: Vec<ReviewBoard>,
+    pub boards: Vec<ReviewEntry>,
 }
 
 /// A change to the design files, recorded when its boards are drawn. It
@@ -537,7 +634,10 @@ fn resolve(
     design.places.retain(|path, _| !dropped.contains(path));
     design.boards.retain(|path, _| !dropped.contains(path));
     if let Some(section) = &mut design.review {
-        section.boards.retain(|b| !dropped.contains(&b.board));
+        section.boards.retain(|entry| match &entry.shown {
+            Shown::Board { path, .. } => !dropped.contains(path),
+            Shown::Component(_) => true,
+        });
     }
     design.deleted = changes.deleted.clone();
     design
@@ -618,7 +718,7 @@ fn check_details(details: &str) -> Result<()> {
     Ok(())
 }
 
-/// A review page's own rules: its heading has text, every board on it has a caption, and each circle has a
+/// A review page's own rules: its heading has text, every entry on it has a caption, and each circle has a
 /// selector and, if it has a label, words in it. (That a board is a board file,
 /// one of the repo's board places, and exists in the worktree is the command's,
 /// which reads git and the files.)
@@ -629,32 +729,29 @@ fn check_review(section: &ReviewSection) -> Result<()> {
     for board in &section.boards {
         if board.caption.trim().is_empty() {
             fail!(
-                "the board {} on the review page has an empty caption",
-                board.board
+                "{} on the review page has an empty caption",
+                board.described()
             );
         }
         for circle in &board.circles {
             match &circle.around {
                 Around::Selector(selector) if selector.trim().is_empty() => {
-                    fail!(
-                        "a circle on the board {} has an empty selector",
-                        board.board
-                    );
+                    fail!("a circle on {} has an empty selector", board.described());
                 }
                 Around::Box(b) if b.width <= 0 || b.height <= 0 => {
                     fail!(
-                        "the circle {} on the board {} has no width or no height; a box is at least 1 pixel each way",
+                        "the circle {} on {} has no width or no height; a box is at least 1 pixel each way",
                         circle.named(),
-                        board.board
+                        board.described()
                     );
                 }
                 _ => {}
             }
             if circle.label.as_ref().is_some_and(|l| l.trim().is_empty()) {
                 fail!(
-                    "the circle {} on the board {} has an empty label; leave the label out or say what changed",
+                    "the circle {} on {} has an empty label; leave the label out or say what changed",
                     circle.named(),
-                    board.board
+                    board.described()
                 );
             }
         }
@@ -785,13 +882,17 @@ pub fn save(db: &Connection, design: &DesignChange) -> Result<()> {
             params![design.id, section.heading],
         )
         .sql()?;
-        for (at, board) in section.boards.iter().enumerate() {
+        for (at, entry) in section.boards.iter().enumerate() {
+            let (board, component, theme) = match &entry.shown {
+                Shown::Board { path, theme } => (Some(path), None, Some(theme.word())),
+                Shown::Component(name) => (None, Some(name), None),
+            };
             db.execute(
-                "INSERT INTO review_board (design_id, position, board, caption, theme, show_now) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![design.id, at as i64, board.board, board.caption, board.theme.word(), board.show_now],
+                "INSERT INTO review_board (design_id, position, board, component, caption, theme, show_now) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![design.id, at as i64, board, component, entry.caption, theme, entry.show_now],
             )
             .sql()?;
-            for (n, circle) in board.circles.iter().enumerate() {
+            for (n, circle) in entry.circles.iter().enumerate() {
                 match &circle.around {
                     Around::Selector(selector) => {
                         db.execute(
@@ -1465,8 +1566,11 @@ fn describe(lists: &Lists, design: &DesignChange, closed: Option<&Closed>) -> Re
             let _ = writeln!(
                 out,
                 "    {} ({}{}) {}",
-                board.board,
-                board.theme.word(),
+                board.named(),
+                match &board.shown {
+                    Shown::Board { theme, .. } => theme.word(),
+                    Shown::Component(_) => "component preview",
+                },
                 if board.show_now { ", with its now" } else { "" },
                 board.caption
             );
@@ -1676,31 +1780,38 @@ pub fn read(
         ));
     }
     let mut statement = db
-        .prepare("SELECT design_id, position, board, caption, theme, show_now FROM review_board ORDER BY design_id, position")
+        .prepare("SELECT design_id, position, board, component, caption, theme, show_now FROM review_board ORDER BY design_id, position")
         .sql()?;
     for row in statement
         .query_map([], |row| {
             Ok((
                 row.get::<_, Id>(0)?,
                 row.get::<_, i64>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, String>(3)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, Option<String>>(3)?,
                 row.get::<_, String>(4)?,
-                row.get::<_, bool>(5)?,
+                row.get::<_, Option<String>>(5)?,
+                row.get::<_, bool>(6)?,
             ))
         })
         .sql()?
     {
-        let (design, position, board, caption, theme, show_now) = row.sql()?;
-        let theme = Theme::of_word(&theme)?;
+        let (design, position, board, component, caption, theme, show_now) = row.sql()?;
+        let shown = match (board, component, theme) {
+            (Some(path), None, Some(theme)) => Shown::Board {
+                path,
+                theme: Theme::of_word(&theme)?,
+            },
+            (None, Some(name), None) => Shown::Component(name),
+            _ => unreachable!("review_board_shows_a_board_or_a_component holds"),
+        };
         review
             .get_mut(&design)
             .expect("review_board_is_on_a_section holds")
             .boards
-            .push(ReviewBoard {
-                board,
+            .push(ReviewEntry {
+                shown,
                 caption,
-                theme,
                 show_now,
                 circles: {
                     let mut held = circles.remove(&(design, position)).unwrap_or_default();
@@ -1873,6 +1984,37 @@ pub fn add_review_board_show_now(db: &Connection) -> Result<()> {
         |db| {
             db.execute_batch(
                 "INSERT INTO review_board (design_id, position, board, caption, theme, show_now) SELECT design_id, position, board, caption, theme, 1 FROM review_board_old",
+            )
+            .sql()
+        },
+        &[],
+    )
+}
+
+/// Makes `review_board` again as design.sql writes it, with the column for a
+/// component's name: a store from before kept only boards on a review page,
+/// so each entry keeps its board and theme and has no component. A store that
+/// an earlier move already made the table for, from today's text, has the
+/// column and keeps the table.
+pub fn add_review_component(db: &Connection) -> Result<()> {
+    let has_component: bool = db
+        .query_row(
+            "SELECT count(*) > 0 FROM pragma_table_info('review_board') WHERE name = 'component'",
+            [],
+            |row| row.get(0),
+        )
+        .sql()?;
+    if has_component {
+        return Ok(());
+    }
+    let schema = include_str!("design.sql");
+    crate::db::remake_table(
+        db,
+        "review_board",
+        crate::db::statement(schema, "CREATE TABLE review_board", ";"),
+        |db| {
+            db.execute_batch(
+                "INSERT INTO review_board (design_id, position, board, caption, theme, show_now) SELECT design_id, position, board, caption, theme, show_now FROM review_board_old",
             )
             .sql()
         },

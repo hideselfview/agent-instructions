@@ -361,12 +361,48 @@ CREATE TABLE ack_reading_section (
 
 ";
 
+/// The review page's entry table as it was before an entry could be a
+/// component's preview: every entry is a board with a theme.
+#[cfg(test)]
+const REVIEW_BOARD_ONLY_BOARDS: &str = "CREATE TABLE review_board (
+    design_id INTEGER NOT NULL,
+    position INTEGER NOT NULL CONSTRAINT review_board_position_not_negative CHECK (position >= 0),
+    board TEXT NOT NULL CONSTRAINT review_board_is_a_board_file CHECK (board NOT GLOB '*#*' AND board NOT GLOB '*/'),
+    caption TEXT NOT NULL CONSTRAINT review_board_caption_says_something CHECK (trim(caption) <> ''),
+    theme TEXT NOT NULL CONSTRAINT review_board_theme_known CHECK (theme IN ('light', 'dark')),
+    show_now INTEGER NOT NULL CONSTRAINT review_board_show_now_is_a_flag CHECK (show_now IN (0, 1)),
+    PRIMARY KEY (design_id, position),
+    CONSTRAINT review_board_is_on_a_section FOREIGN KEY (design_id) REFERENCES review_section (design_id) ON DELETE CASCADE
+) STRICT, WITHOUT ROWID;";
+
+/// <schema> as it was before a review page's entry could be a component's
+/// preview. A schema with no such table is returned as it is.
+#[cfg(test)]
+pub fn with_review_boards_only(schema: String) -> String {
+    const START: &str = "CREATE TABLE review_board (";
+    if !schema.contains(START) {
+        return schema;
+    }
+    let table = statement(&schema, START, ") STRICT, WITHOUT ROWID;").to_string();
+    schema.replacen(&table, REVIEW_BOARD_ONLY_BOARDS, 1)
+}
+
+/// The schema as it was before a review page's entry could be a component's
+/// preview.
+#[cfg(test)]
+pub fn schema_before_review_component() -> String {
+    with_review_boards_only(SCHEMA.to_string())
+}
+
 /// <schema> as it was before nothing read the time of an acknowledgement or
 /// the sections of a reading: with the acknowledgements' table keeping the
 /// time and the table of a reading's sections. A schema with no
-/// acknowledgements' table is returned as it is.
+/// acknowledgements' table is returned as it is. Every older schema than
+/// today's goes through this function, so it also puts back the review
+/// page's boards-only entry table (`with_review_boards_only`).
 #[cfg(test)]
 pub fn with_ack_unread(schema: String) -> String {
+    let schema = with_review_boards_only(schema);
     const START: &str = "-- Each agent's last acknowledgement of the text: the version of the text it\n-- read.\nCREATE TABLE ack (";
     const TOKENS: &str = "-- The tokens of a reading.";
     if !schema.contains(START) {

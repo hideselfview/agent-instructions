@@ -643,7 +643,12 @@ already matches (`places`, `builds help lists`).
      with `show_now`, when the before helps the person judge the proposal.
      The page lists the change's other boards by name, folded, and the
      person opens any of them. The shots compare every board with the app
-     later. Circle one area per change (decision #299): one
+     later. An entry of the page can name a component (`component` in place
+     of `board`, with no theme) to show the component's preview: the page
+     draws it as it stands on origin/main beside its preview at the
+     change's last commit, with the same circles, caption and `show_now` as
+     a board, so a change to a component can be reviewed through its
+     preview. Circle one area per change (decision #299): one
      large circle around the area that holds the change, never a circle on
      each element in it. A circle takes the CSS selector of a containing
      element, or a box (x, y, width, height) on the board, and a label if

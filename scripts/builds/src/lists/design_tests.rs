@@ -679,7 +679,7 @@ fn amend_holds_a_change_to_what_its_new_range_changes_so_a_board_renamed_before_
             .review
             .iter()
             .flat_map(|s| &s.boards)
-            .all(|b| b.board != old),
+            .all(|b| b.named() != old),
         "and its place on the page"
     );
 
@@ -1587,7 +1587,7 @@ fn a_project_with_no_canvas_records_and_lands_a_change_with_no_links() {
     let state = w.state();
     assert!(state.designs[0].boards.is_empty());
     assert_eq!(
-        state.designs[0].review.as_ref().unwrap().boards[0].board,
+        state.designs[0].review.as_ref().unwrap().boards[0].named(),
         board
     );
     w.approve(1);
@@ -1612,7 +1612,7 @@ fn the_canvas_index_changed_beside_a_new_board_needs_no_link_and_no_place_on_the
         .review
         .iter()
         .flat_map(|s| &s.boards)
-        .map(|b| b.board.as_str())
+        .map(|b| b.named())
         .collect();
     assert_eq!(on_page, [board]);
     // The index is still a place to answer, and it is no board to link.
@@ -1710,7 +1710,7 @@ fn a_design_change_needs_a_review_page_that_shows_the_boards_its_recorder_picks(
         (page.heading.as_str(), page.boards.len()),
         ("The boards", 2)
     );
-    assert_eq!(page.boards[0].board, b);
+    assert_eq!(page.boards[0].named(), b);
     assert!(
         std::path::Path::new(&design.worktree)
             .join("design/mocks/A.dc.html")
@@ -1802,6 +1802,103 @@ fn a_review_board_shows_its_now_only_where_the_recorder_asks() {
     w.amend(1, request).unwrap();
     let page = w.state().designs[0].review.clone().unwrap();
     assert!(page.boards.iter().all(|b| !b.show_now));
+}
+
+/// A review entry names a board, with its theme, or a component, whose
+/// preview has no theme; the record refuses a component the design system
+/// does not define at the range's last commit, a now for a component the
+/// change adds, and an entry that names both, neither, or a theme the entry
+/// cannot have.
+#[test]
+fn a_review_entry_can_be_a_components_preview() {
+    let w = world("design-review-component");
+    let a = "design/mocks/A.dc.html";
+    let row_preview = "design/system/components/MacRow/preview.html";
+    w.commit(&[a, row_preview]);
+    git(&w.dir, &["tag", "-f", "base"]);
+    git(&w.dir, &["update-ref", "refs/remotes/origin/main", "base"]);
+    // The change redraws MacRow's preview and adds MacNew's.
+    let new_preview = "design/system/components/MacNew/preview.html";
+    w.commit(&[row_preview, new_preview]);
+    let places = json!({
+        "design/system/components/MacRow/": { "matches": "x" },
+        "design/system/components/MacNew/": { "matches": "x" },
+    });
+    let with = |entry: serde_json::Value| {
+        let mut request = base_request(&w, places.clone());
+        request["review"] = json!({ "heading": "Rows", "boards": [entry] });
+        request
+    };
+    let component = |name: &str| {
+        json!({ "component": name, "caption": format!("{name}'s preview"), "show_now": true,
+                "circles": [{ "selector": ".row", "label": "the row" }] })
+    };
+    let before = w.bytes();
+    let refused = message(w.request(with(component("MacMissing"))));
+    assert!(
+        refused.contains("MacMissing") && refused.contains("does not define"),
+        "{refused}"
+    );
+    let refused = message(w.request(with(component("Mac Row"))));
+    assert!(refused.contains("no component name"), "{refused}");
+    let refused = message(w.request(with(component("MacNew"))));
+    assert!(
+        refused.contains("the component MacNew") && refused.contains("no now"),
+        "{refused}"
+    );
+    let mut themed = component("MacRow");
+    themed["theme"] = json!("dark");
+    let refused = message(w.request(with(themed)));
+    assert!(refused.contains("takes no `theme`"), "{refused}");
+    let refused = message(w.request(with(json!({ "board": a, "caption": "A" }))));
+    assert!(refused.contains("needs its `theme`"), "{refused}");
+    let mut both = component("MacRow");
+    both["board"] = json!(a);
+    let refused = message(w.request(with(both)));
+    assert!(
+        refused.contains("`board` file or the `component`"),
+        "{refused}"
+    );
+    let mut nothing = component("MacRow");
+    nothing.as_object_mut().unwrap().remove("component");
+    let refused = message(w.request(with(nothing)));
+    assert!(
+        refused.contains("`board` file or the `component`"),
+        "{refused}"
+    );
+    let mut empty = component("MacRow");
+    empty["caption"] = json!(" ");
+    let refused = message(w.request(with(empty)));
+    assert!(
+        refused.contains("the component MacRow on the review page has an empty caption"),
+        "{refused}"
+    );
+    assert_eq!(w.bytes(), before);
+    // MacRow exists on origin/main and MacNew's preview is new: the page
+    // shows MacRow's now, and MacNew's proposal alone.
+    let mut request = base_request(&w, places.clone());
+    let mut added = component("MacNew");
+    added["show_now"] = json!(false);
+    request["review"] = json!({ "heading": "Rows", "boards": [component("MacRow"), added] });
+    w.request(request).unwrap();
+    let page = w.state().designs[0].review.clone().unwrap();
+    assert_eq!(
+        page.boards
+            .iter()
+            .map(|e| (e.shown.clone(), e.show_now))
+            .collect::<Vec<_>>(),
+        [
+            (Shown::Component("MacRow".into()), true),
+            (Shown::Component("MacNew".into()), false)
+        ]
+    );
+    assert_eq!(page.boards[0].circles.len(), 1);
+    let shown = w.run("show 1").unwrap();
+    assert!(
+        shown.contains("    MacRow (component preview, with its now) MacRow's preview\n")
+            && shown.contains("    MacNew (component preview) MacNew's preview\n"),
+        "{shown}"
+    );
 }
 
 #[test]
@@ -2304,6 +2401,43 @@ fn every_named_constraint_of_the_design_tables_refuses_its_row() {
         plant(&db, "review_board", &row(&review, &[("theme", v("sepia"))])),
     );
     refused.check(
+        "review_board_component_is_a_name",
+        plant(
+            &db,
+            "review_board",
+            &row(
+                &review,
+                &[
+                    ("board", rusqlite::types::Value::Null),
+                    ("component", v("Mac Row")),
+                    ("theme", rusqlite::types::Value::Null),
+                ],
+            ),
+        ),
+    );
+    refused.check(
+        "review_board_shows_a_board_or_a_component",
+        plant(
+            &db,
+            "review_board",
+            &row(&review, &[("component", v("MacRow"))]),
+        ),
+    );
+    refused.check(
+        "review_board_has_a_theme_only_on_a_board",
+        plant(
+            &db,
+            "review_board",
+            &row(
+                &review,
+                &[
+                    ("board", rusqlite::types::Value::Null),
+                    ("component", v("MacRow")),
+                ],
+            ),
+        ),
+    );
+    refused.check(
         "review_board_show_now_is_a_flag",
         plant(&db, "review_board", &row(&review, &[("show_now", v(2))])),
     );
@@ -2355,10 +2489,12 @@ fn dropping_a_place_takes_its_board_with_it_and_a_section_its_review_boards_and_
         &[("design/mocks/A.dc.html", "https://x/#A")],
         Some(ReviewSection {
             heading: "H".into(),
-            boards: vec![ReviewBoard {
-                board: "design/mocks/A.dc.html".into(),
+            boards: vec![ReviewEntry {
+                shown: Shown::Board {
+                    path: "design/mocks/A.dc.html".into(),
+                    theme: Theme::Dark,
+                },
                 caption: "c".into(),
-                theme: Theme::Dark,
                 show_now: false,
                 circles: vec![Circle {
                     around: Around::Selector("#disc-1".into()),

@@ -16,7 +16,7 @@ use crate::fail;
 use crate::fail::{Context, Result};
 use crate::inbox::Messaging;
 use crate::lists::args::{Args, read_request};
-use crate::lists::design::{self, DesignRequest, Drawn, Landed, PlaceAnswer, Settlement};
+use crate::lists::design::{self, DesignRequest, Drawn, Landed, PlaceAnswer, Settlement, Shown};
 use crate::lists::design_paths::{self, Changes, Globs, PlaceKind};
 use crate::lists::design_session;
 use crate::lists::rulings::{self, Source};
@@ -260,40 +260,61 @@ fn affected_components(scope: &Scope, request: &DesignRequest) -> Result<BTreeSe
     Ok(affected)
 }
 
-/// Every board on the request's review page is one of the repo's board
-/// places and a file at the range's last commit, which the dashboard draws it
-/// from. A board that is no file on origin/main is new, and its circles mark
+/// Every entry on the request's review page is a board or a component's
+/// preview that exists at the range's last commit, which the dashboard draws
+/// it from. A board is one of the repo's board places. A component is one
+/// the design system defines: a name whose folder holds a `preview.html`
+/// there. A board that is no file on origin/main is new, and its circles mark
 /// what it adds on the page's Proposed side; it has no now, so the page
-/// cannot show one. The recorder picks the boards and circles that show the
-/// proposal, and a board needs no circle (decision #369).
+/// cannot show one, and the same holds for a component the change adds. The
+/// recorder picks the entries and circles that show the proposal, and an
+/// entry needs no circle (decision #369).
 fn require_review_boards(scope: &Scope, request: &DesignRequest) -> Result<()> {
-    if let Some(section) = &request.review {
-        for board in &section.boards {
-            if PlaceKind::of(&board.board) != PlaceKind::Board {
-                fail!("`review` names {}, which is no board file", board.board);
+    let Some(section) = &request.review else {
+        return Ok(());
+    };
+    for entry in &section.boards {
+        let (file, what) = match &entry.shown {
+            Shown::Board { path, .. } => {
+                if PlaceKind::of(path) != PlaceKind::Board {
+                    fail!("`review` names {path}, which is no board file");
+                }
+                if !scope.globs.names_place(path) {
+                    fail!(
+                        "`review` names {path}, which is no board place of the repo's design places"
+                    );
+                }
+                (path.clone(), "board")
             }
-            if !scope.globs.names_place(&board.board) {
-                fail!(
-                    "`review` names {}, which is no board place of the repo's design places",
-                    board.board
-                );
+            Shown::Component(name) => {
+                if !boards::preview::is_component_name(name) {
+                    fail!(
+                        "`review` names the component {name:?}, which is no component name: a component's name is letters and digits"
+                    );
+                }
+                (boards::preview::preview_path(name), "component")
             }
-            if !boards::exists_in(&scope.checkout.top, &scope.tip, &board.board)? {
-                fail!(
-                    "`review` names {}, which is no file at the range's last commit {}",
-                    board.board,
+        };
+        let named = entry.named();
+        if !boards::exists_in(&scope.checkout.top, &scope.tip, &file)? {
+            match &entry.shown {
+                Shown::Board { .. } => fail!(
+                    "`review` names {named}, which is no file at the range's last commit {}",
                     scope.tip
-                );
+                ),
+                Shown::Component(_) => fail!(
+                    "`review` names the component {named}, which the design system does not define: {file} is no file at the range's last commit {}",
+                    scope.tip
+                ),
             }
-            if board.show_now
-                && !boards::exists_in(&scope.checkout.top, crate::design_render::NOW, &board.board)?
-            {
-                fail!(
-                    "`review` asks for the now of {}, which is no file on {}: a board the change adds has no now, so leave out `show_now`",
-                    board.board,
-                    crate::design_render::NOW
-                );
-            }
+        }
+        if entry.show_now
+            && !boards::exists_in(&scope.checkout.top, crate::design_render::NOW, &file)?
+        {
+            fail!(
+                "`review` asks for the now of the {what} {named}, which is no file on {}: a {what} the change adds has no now, so leave out `show_now`",
+                crate::design_render::NOW
+            );
         }
     }
     Ok(())
