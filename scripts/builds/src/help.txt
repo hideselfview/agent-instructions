@@ -829,9 +829,8 @@ a prefix (mac.welcome. for the Mac welcome screens). CI runs the full suites.
 `builds app-build` refuses a --shots prefix that selects every shot of a lane
 (mac. or android.) and a step that a `ci-only` line names, and says why.
 
-To run every shot of one lane, as CI's screenshot workflow takes them, pass
-`--all-shots mac` or `--all-shots android`. Run it to check a change to the
-shots program or a fix for CI's shot jobs without waiting for CI; for a
+To run every shot of one lane, pass `--all-shots mac` or `--all-shots android`.
+Run it to check a change to the shots program; for a
 change to screens, name their prefixes with --shots instead. builds runs the
 lane's `shots` line once, with the prefix that every shot of the lane starts
 with (mac.), so the run goes where any --shots run of the lane goes: it waits in

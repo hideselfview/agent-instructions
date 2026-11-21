@@ -35,7 +35,7 @@
 //! `--shots` prefix that selects every shot of its lane (`mac.`) and a step
 //! that a `ci-only` line names (app_config.rs); CI runs the full suites.
 //! `--all-shots <lane>` is how a caller asks for a lane's full set of shots,
-//! as CI's screenshot workflow takes them: the run of the lane's `shots` line
+//! to check a change to the shots program: the run of the lane's `shots` line
 //! with the prefix every shot of the lane starts with, cached like any other
 //! shots run under that prefix.
 //!
@@ -191,7 +191,7 @@ pub fn refuse_whole_lane(lane: Lane, prefix: &str) -> Result<()> {
     let word = lane.word();
     if lane.all_shots_prefix().starts_with(prefix) {
         fail!(
-            "the shots prefix {prefix} selects every shot of the {word} lane, and builds refuses it in --shots: {ONLY_WHAT_A_CHANGE_TOUCHES}. Give a prefix that names the screens the change touches, such as {word}.welcome. for the welcome screens. To check a change to the shots program or a fix for CI's shot jobs, {ALL_SHOTS} {word} runs every shot of the lane, as CI's screenshot workflow does"
+            "the shots prefix {prefix} selects every shot of the {word} lane, and builds refuses it in --shots: {ONLY_WHAT_A_CHANGE_TOUCHES}. Give a prefix that names the screens the change touches, such as {word}.welcome. for the welcome screens. To check a change to the shots program, {ALL_SHOTS} {word} runs every shot of the lane"
         );
     }
     Ok(())

@@ -12,7 +12,7 @@
 //! class at <ref>; a `--shots <prefix>` run goes to the lane its prefix starts
 //! with (`mac.welcome.`), and app-build refuses a prefix that selects every
 //! shot of the lane (`mac.`). `--all-shots <lane>` runs that whole set in the
-//! lane, as CI's screenshot workflow takes it. A lane with such a run builds
+//! lane. A lane with such a run builds
 //! what its changed paths need, or, when they need nothing in that lane, what
 //! its `needs` line names, so the run has a build of <ref> to run against. A
 //! `--shots` or `--all-shots` run whose findings for <ref> are already cached
