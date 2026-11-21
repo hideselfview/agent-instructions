@@ -7,9 +7,7 @@
 //! builds it started from into its version's folder when the folder lacks
 //! it, after it checks that the copy says this version (an install that
 //! replaced the program after this build started puts another version
-//! there). When the folder holds a builds already, the build compares its
-//! bytes with the builds it started from and stops when they differ, even
-//! though both say this version. It holds a shared lock on the folder's `.in-use` for its life,
+//! there). It holds a shared lock on the folder's `.in-use` for its life,
 //! starts its lanes from the folder's builds, and puts the folder first on
 //! PATH, so every `builds` its steps run, `builds shots run` among them, is
 //! this version's. A lane's steps on a host run
@@ -130,25 +128,10 @@ fn says(program: &Path) -> Result<String> {
     Ok(String::from_utf8_lossy(&ran.stdout).trim().to_string())
 }
 
-/// Why <builds>, which says <said>, is not the program of <wanted>.
-fn replaced(builds: &Path, said: &str, wanted: &str) -> String {
-    format!(
-        "{} says {said:?}, not {wanted:?}: builds install replaced it after this build started",
-        builds.display()
-    )
-}
-
-/// Whether the files at <a> and <b> hold the same bytes.
-fn same_bytes(a: &Path, b: &Path) -> Result<bool> {
-    let read = |path: &Path| std::fs::read(path).context(|| format!("reading {}", path.display()));
-    Ok(read(a)? == read(b)?)
-}
-
 /// Holds the folder of <version> in <home>, and copies <builds>, the builds
 /// this build started from, into it first when the folder lacks it. Returns
 /// `Replaced`, and copies nothing, when <builds> says another version than
-/// `builds <version>`. Fails when the folder holds a builds that differs
-/// from <builds> in its bytes, though both say <version>.
+/// `builds <version>`.
 pub fn pin(home: &Path, builds: &Path, version: &str) -> Result<Pin> {
     let dir = folder(home, version);
     let in_use_path = dir.join(IN_USE);
@@ -166,26 +149,8 @@ pub fn pin(home: &Path, builds: &Path, version: &str) -> Result<Pin> {
         }
     };
     let into = dir.join("builds");
-    let wanted = format!("builds {version}");
-    if into.is_file() {
-        // The folder holds a program of this version already. The program
-        // this build started from must be that program, byte for byte: two
-        // programs can say one version and differ, and the build would run
-        // the folder's, not the one it started from.
-        match says(builds) {
-            Ok(said) if said == wanted => {}
-            Ok(said) => return Ok(Pin::Replaced(replaced(builds, &said, &wanted))),
-            Err(error) => return Err(error),
-        }
-        if !same_bytes(builds, &into)? {
-            fail!(
-                "{} and {} both say {wanted:?} and differ: the folder holds another program of this version than the one this build started from, so the version does not name the program. Remove {} with no build running, or install again",
-                builds.display(),
-                into.display(),
-                dir.display()
-            );
-        }
-    } else {
+    if !into.is_file() {
+        let wanted = format!("builds {version}");
         let staged = dir.join(format!(".builds.{}", crate::text::staged_suffix()));
         std::fs::copy(builds, &staged)
             .context(|| format!("copying {} to {}", builds.display(), staged.display()))?;
@@ -198,7 +163,10 @@ pub fn pin(home: &Path, builds: &Path, version: &str) -> Result<Pin> {
             let removed =
                 std::fs::remove_file(&staged).context(|| format!("removing {}", staged.display()));
             let said = crate::fail::with_cleanup(said, removed)?;
-            return Ok(Pin::Replaced(replaced(builds, &said, &wanted)));
+            return Ok(Pin::Replaced(format!(
+                "{} says {said:?}, not {wanted:?}: builds install replaced it after this build started",
+                builds.display()
+            )));
         }
         std::fs::rename(&staged, &into)
             .context(|| format!("moving {} to {}", staged.display(), into.display()))?;

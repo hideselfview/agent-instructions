@@ -29,39 +29,33 @@ const SHOTS_PARTS: [(&str, &[&str]); 2] = [
     ("boards", &["Cargo.toml", "src", "runtime"]),
 ];
 
+/// The roots of the crate <name> in the folder <dir>: each of <parts>, as the
+/// name its files carry in the hash and the copy, and its path. Fails when
+/// the crate lacks its Cargo.toml or its src: a folder that holds neither is
+/// not the crate, and a version that hashes nothing of it names every version
+/// alike.
+fn crate_roots(name: &str, dir: &Path, parts: &[&str]) -> Vec<(String, PathBuf)> {
+    for part in ["Cargo.toml", "src"] {
+        assert!(
+            dir.join(part).exists(),
+            "{} is not there: build.rs hashes {name}/{part} from it",
+            dir.join(part).display()
+        );
+    }
+    parts
+        .iter()
+        .map(|part| (format!("{name}/{part}"), dir.join(part)))
+        .collect()
+}
+
 /// Each file or folder that builds is built from, as the name its files
 /// carry in the hash and the copy, and the path: <here>, the builds crate's
-/// folder, and the boards and shots crates in <scripts>. Fails when a crate
-/// lacks its Cargo.toml or its src: a folder that holds neither is not the
-/// crate, and a version that hashes nothing of it names every version alike.
+/// folder, and the boards and shots crates in <scripts>.
 pub fn roots(here: &Path, scripts: &Path) -> Vec<(String, PathBuf)> {
-    let mut roots = Vec::new();
-    for (name, dir) in [
-        ("builds", here.to_path_buf()),
-        ("boards", scripts.join("boards")),
-    ] {
-        for part in PARTS {
-            roots.push((format!("{name}/{part}"), dir.join(part)));
-        }
-    }
     let (shots, shots_parts) = SHOTS_PARTS[0];
-    for part in shots_parts {
-        roots.push((format!("{shots}/{part}"), scripts.join(shots).join(part)));
-    }
-    for crate_name in ["builds", "boards", "shots"] {
-        for part in ["Cargo.toml", "src"] {
-            let shown = format!("{crate_name}/{part}");
-            let (_, path) = roots
-                .iter()
-                .find(|(name, _)| *name == shown)
-                .expect("every crate lists its Cargo.toml and src");
-            assert!(
-                path.exists(),
-                "{} is not there: build.rs hashes {shown} from it",
-                path.display()
-            );
-        }
-    }
+    let mut roots = crate_roots("builds", here, &PARTS);
+    roots.extend(crate_roots("boards", &scripts.join("boards"), &PARTS));
+    roots.extend(crate_roots(shots, &scripts.join(shots), shots_parts));
     roots
 }
 
@@ -78,12 +72,10 @@ pub fn files(roots: &[(String, PathBuf)]) -> Vec<(String, PathBuf)> {
 /// Every file the shots checker is built from, sorted: its shown name and
 /// its path, in the crates of <scripts>.
 pub fn shots_files(scripts: &Path) -> Vec<(String, PathBuf)> {
-    let mut roots = Vec::new();
-    for (name, parts) in SHOTS_PARTS {
-        for part in parts {
-            roots.push((format!("{name}/{part}"), scripts.join(name).join(part)));
-        }
-    }
+    let roots: Vec<_> = SHOTS_PARTS
+        .iter()
+        .flat_map(|(name, parts)| crate_roots(name, &scripts.join(name), parts))
+        .collect();
     files(&roots)
 }
 
