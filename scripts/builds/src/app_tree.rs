@@ -13,6 +13,7 @@ use std::path::Path;
 use sha2::{Digest, Sha256};
 
 use crate::app_config::{CONFIG, Config, Rule, run_git};
+use crate::fail;
 use crate::fail::Result;
 use crate::lane::Lane;
 
@@ -39,7 +40,7 @@ pub fn of(top: &Path, commit: &str, config: &Config, lane: Lane) -> Result<Strin
     let mut hasher = Sha256::new();
     for line in listing.lines() {
         let Some((_, path)) = line.split_once('\t') else {
-            continue;
+            fail!("git ls-tree printed {line:?}, which names no path after a tab");
         };
         if path == CONFIG || rules.iter().any(|rule| rule.matches(path)) {
             hasher.update(line.as_bytes());
