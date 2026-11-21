@@ -77,6 +77,11 @@
             "type": "command",
             "command": "python3 -I \"$HOME/dev/agent-instructions/scripts/hooks/no-unlocked-app-checkout-moves.py\"",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "python3 -I \"$HOME/dev/agent-instructions/scripts/hooks/ack-part-bare.py\"",
+            "timeout": 10
           }
         ]
       }
