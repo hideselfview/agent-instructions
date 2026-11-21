@@ -1315,24 +1315,27 @@ built again.
                               with a lower-case letter and holds only letters,
                               digits, - and _, such as primary or moveFailed)
                               and the component draws it as words on no board
-                              or preview. Children, callbacks, numbers and
-                              words are not state: words are the strings a
-                              component draws as text, an accessible name, a
-                              title, a placeholder, alt text or a field's
-                              value, and every string that is no code word. A
-                              preview row changes one prop of the preview's
-                              example, so a component on a board shows in the
-                              preview when each prop of its state has its
-                              value, or is unset, on the component in one of
-                              the preview's rows, and a false prop counts as
-                              unset. `states` lists each value that no row
-                              shows, and each component whose preview draws it
-                              in no row; a component with no preview has no
-                              component shot, and `states` leaves it out. With
-                              --against <rev>, it lists only the states that
-                              the listing at <rev> does not hold, and fails
-                              when it lists one; without --against, it fails
-                              nothing.
+                              or preview. Children, callbacks, numbers, words,
+                              class names and icon names are not state. Words
+                              are the strings a component draws as text, an
+                              accessible name, a title, a placeholder, alt text
+                              or a field's value, and every string that is no
+                              code word. A class name (className) styles an
+                              element from outside, and an icon's name (a prop
+                              named icon or name, or one whose name ends in
+                              Icon) picks a picture as words do. A preview row
+                              changes one prop of the preview's example, so a
+                              component on a board shows in the preview when
+                              each prop of its state has its value, or is
+                              unset, on the component in one of the preview's
+                              rows, and a false prop counts as unset. `states`
+                              lists each value that no row shows, and each
+                              component whose preview draws it in no row; a
+                              component with no preview has no component shot,
+                              and `states` leaves it out. With --against <rev>,
+                              it lists only the states that the listing at
+                              <rev> does not hold, and fails when it lists one;
+                              without --against, it fails nothing.
                               A web shot is a fixture file that declares one
                               shot by its name, so web has no capture files.
                               `run` and

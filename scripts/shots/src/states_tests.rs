@@ -245,3 +245,16 @@ fn the_last_line_counts_the_states_and_their_components() {
         "The boards draw 1 component state of 1 component that no preview row shows and the listing at origin/main does not hold: add each state as a row of its component's preview."
     );
 }
+
+#[test]
+fn a_class_name_and_an_icon_name_are_no_state() {
+    let previews = vec![("Button", vec![row("Button", json!({"kind": "primary"}))])];
+    let boards = vec![(
+        "mac.one",
+        vec![instance(
+            "Button",
+            json!({"kind": "primary", "className": "bae-accent", "icon": "copy", "leadingIcon": "add", "name": "check"}),
+        )],
+    )];
+    assert_eq!(listed(&drawn(boards, previews)), Vec::<String>::new());
+}

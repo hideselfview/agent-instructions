@@ -13,9 +13,11 @@
 //!
 //! The other props are not state: `children`, callbacks and every prop that
 //! holds a React element, an array or an object; numbers, which measure;
-//! and words, the strings a component draws as text, an accessible name, a
+//! words, the strings a component draws as text, an accessible name, a
 //! title, a placeholder, alt text or a field's value, or that are no code
-//! word. Each preview row shows the component with one value changed from
+//! word; `className`, which styles an element from outside; and an icon's
+//! name (`icon`, `name`, or a prop whose name ends in `Icon`), which picks a
+//! picture as words do. Each preview row shows the component with one value changed from
 //! the preview's example, so a board's instance shows in the preview when
 //! each of its state props has its value, or is unset, on an instance of the
 //! component in one of the preview's rows. The props a component's state
@@ -123,13 +125,22 @@ fn every_instance(drawn: &Drawn) -> impl Iterator<Item = &Instance> {
         .flat_map(|(_, found)| found)
 }
 
+/// Is <prop> a class name, which styles an element from outside, or an
+/// icon's name (`icon`, `name`, or a name that ends in `Icon`), which picks a
+/// picture as words do? Neither is a state of the component.
+fn styles_or_names(prop: &str) -> bool {
+    matches!(prop, "className" | "icon" | "name") || prop.ends_with("Icon")
+}
+
 /// The state props an instance sets, with their values: each prop that is
 /// `true`, or a code word that no instance of the component draws as words
-/// (<words>, by component and prop).
+/// (<words>, by component and prop), other than a class name or an icon's
+/// name.
 fn state(instance: &Instance, words: &BTreeSet<(&str, &str)>) -> BTreeMap<String, Value> {
     instance
         .props
         .iter()
+        .filter(|(prop, _)| !styles_or_names(prop))
         .filter_map(|(prop, value)| {
             let value = match value {
                 serde_json::Value::Bool(true) => Value::On,

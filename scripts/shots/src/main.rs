@@ -101,7 +101,8 @@ enum Action {
     /// component no preview row draws, with the boards that draw it. A prop
     /// is part of a state when it is true, or a code word (a lower-case
     /// letter, then letters, digits, - and _) that the component never draws
-    /// as words; children, callbacks, numbers and words are not. With
+    /// as words; children, callbacks, numbers, words, className and icon
+    /// names (icon, name, or a prop that ends in Icon) are not. With
     /// --against, list only the states that the listing at that revision
     /// does not hold, and fail when there is one.
     States {
