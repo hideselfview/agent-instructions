@@ -54,6 +54,8 @@ fn a_group_draws_its_swatches_in_every_theme_over_the_ground_and_its_scene_once_
     let order: Vec<usize> = [
         "--bg: #111111",
         ".bundle { color: red; }",
+        "react.production.min.js",
+        "window.Demo = {};",
         "--line:",
         "data-themes=\"dark light\" data-ground=\"bg\"",
         "<span data-theme=\"dark\" style=\"background: linear-gradient(var(--bg), var(--bg)), var(--bg)\"></span>\

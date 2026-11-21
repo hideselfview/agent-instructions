@@ -1,7 +1,11 @@
 //! A frame of the Designs page's Colors section
 //! (`/designs/<project>/<commit>/colors/<n>`): the <n>th group of the
 //! design system's colors.json (`boards::colors`), drawn with the commit's
-//! own tokens.css and bundle.css. The frame shows the group's swatches, each
+//! own tokens.css, bundle.css and bundle.js, and React. A scene draws a
+//! component of the design system with an element that names it by its
+//! global name and gives its props as JSON
+//! (`data-component="Bae.StatusGlyph" data-props='{"tone": "danger"}'`),
+//! which the script mounts before it places the chips. The frame shows the group's swatches, each
 //! split into one part per theme of the tokens and laid over the colors'
 //! ground, and the group's scene once per theme. Its script
 //! (`color_group.js`) puts a swatch chip for each element of the first
@@ -19,7 +23,7 @@ use std::path::Path;
 use boards::colors::{self, Cluster, Group, Palette, Table};
 use boards::{Source, escape_html as escape};
 
-use crate::design_render::fill;
+use crate::design_render::{REACT, fill, script_safe};
 use crate::fail;
 use crate::fail::Result;
 
@@ -40,7 +44,7 @@ pub fn frame(from: Source, n: usize, cache: &Path) -> Result<String> {
             palette.colors.groups.len()
         );
     };
-    let [tokens_css, bundle_css, _] = from.design_system(cache)?;
+    let [tokens_css, bundle_css, bundle_js] = from.design_system(cache)?;
     let scene = match &group.scene {
         None => String::new(),
         Some(scene) => match scene_html(&from, &palette, scene) {
@@ -58,6 +62,8 @@ pub fn frame(from: Source, n: usize, cache: &Path) -> Result<String> {
         &[
             ("TOKENS_CSS", &tokens_css),
             ("BUNDLE_CSS", &bundle_css),
+            ("REACT", REACT),
+            ("BUNDLE_JS", &script_safe(&bundle_js)),
             ("PALETTE", super::designs::PALETTE),
             ("THEMES", &escape(&themes.join(" "))),
             ("GROUND", &escape(&palette.colors.ground)),

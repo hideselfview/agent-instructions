@@ -1,5 +1,8 @@
 // Runs in a frame of the Designs page's Colors section (color_group.rs).
-// For each element of the first theme's scene that names a color
+// It first mounts each component a scene names (data-component, a global
+// name such as Bae.StatusGlyph, with its props as JSON in data-props), and
+// an element names a component that the page lacks shows that problem in
+// its place. Then, for each element of the first theme's scene that names a color
 // (data-color), the script puts a chip in the column at the left of the
 // scenes: the color's name and a small swatch with one part per theme. It
 // draws a line from the chip to the element: to the element's left edge, or
@@ -13,6 +16,23 @@
   const themes = body.dataset.themes.split(" ");
   const ground = body.dataset.ground;
   const use = document.querySelector(".cg-use");
+  for (const element of document.querySelectorAll("[data-component]")) {
+    const path = element.dataset.component;
+    const component = path.split(".").reduce((at, key) => at && at[key], window);
+    let problem = typeof component === "function" ? null : path + " is no component of the design system";
+    if (!problem) {
+      try {
+        const props = element.dataset.props ? JSON.parse(element.dataset.props) : {};
+        ReactDOM.flushSync(() => ReactDOM.createRoot(element).render(React.createElement(component, props)));
+      } catch (error) {
+        problem = path + " could not draw: " + error.message;
+      }
+    }
+    if (problem) {
+      element.className = "cg-problem";
+      element.textContent = problem;
+    }
+  }
   const chips = [];
   if (use) {
     const gutter = use.querySelector(".cg-gutter");

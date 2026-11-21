@@ -71,7 +71,7 @@ const PREVIEW_CIRCLES: &str = include_str!("design_render/preview_circles.js");
 
 /// The script tags that load React 18.3.1, which a board page and a
 /// component's preview page draw with.
-const REACT: &str = r#"<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+pub(crate) const REACT: &str = r#"<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>"#;
 
 /// The script that draws a board's page in a frame at the board's own size,
@@ -171,7 +171,7 @@ fn parse_part(from: &Source, rel: &str) -> Result<Part> {
 
 /// Inline in a `<script>`: the one string that would end it early is written
 /// so that it doesn't, which a script's strings read as the same text.
-fn script_safe(js: &str) -> String {
+pub(crate) fn script_safe(js: &str) -> String {
     js.replace("</script", "<\\/script")
 }
 
