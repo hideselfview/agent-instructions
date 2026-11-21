@@ -397,8 +397,8 @@ fn a_picture_folders_parts_go_to_a_temporary_folder_on_the_host_and_come_back() 
 }
 
 /// A lane's step on a host runs this build's programs there: the first step
-/// copies this version's folder to the host, each step marks it used, and
-/// the step runs under `builds programs hold` from that folder.
+/// copies this version's folder to the host, and each step runs under
+/// `builds programs hold` from that folder.
 #[test]
 fn a_step_on_a_host_runs_under_this_builds_programs_there() {
     let s = setup("remote-app-programs");
@@ -414,7 +414,7 @@ fn a_step_on_a_host_runs_under_this_builds_programs_there() {
     let there = s.home.join(crate::programs::FOLDER).join(version);
     let words = |words: &[&str]| words.iter().map(|w| w.to_string()).collect::<Vec<_>>();
     let held = app
-        .with_programs(&words(&["builds", "shots", "run"]))
+        .with_programs(&local, &words(&["builds", "shots", "run"]))
         .unwrap();
     assert_eq!(
         held,
@@ -436,18 +436,11 @@ fn a_step_on_a_host_runs_under_this_builds_programs_there() {
         std::fs::read_to_string(there.join(crate::shots_program::PROGRAM)).unwrap(),
         "its shots"
     );
-    // The next step finds the folder there and copies nothing, but marks it
-    // used.
+    // The next step finds the folder there and copies nothing.
     std::fs::write(there.join("builds"), "kept").unwrap();
-    crate::testing::age(&there.join(crate::programs::IN_USE), 2);
-    app.with_programs(&words(&["true"])).unwrap();
+    app.with_programs(&local, &words(&["true"])).unwrap();
     assert_eq!(
         std::fs::read_to_string(there.join("builds")).unwrap(),
         "kept"
     );
-    let used = std::fs::metadata(there.join(crate::programs::IN_USE))
-        .unwrap()
-        .modified()
-        .unwrap();
-    assert!(used.elapsed().unwrap() < crate::programs::IDLE);
 }

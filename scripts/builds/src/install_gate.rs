@@ -68,7 +68,7 @@ use std::sync::{Arc, Mutex, OnceLock, PoisonError, Weak};
 
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
-use crate::flock::{lock, try_lock};
+use crate::flock::{lock, names, try_lock};
 use crate::places::Places;
 
 /// The variable that names the process whose use covers a builds command.
@@ -191,19 +191,6 @@ impl Drop for Use {
                 self.path.display()
             ));
         }
-    }
-}
-
-/// Whether the path <path> names the open file <file>.
-fn names(file: &File, path: &Path) -> Result<bool> {
-    use std::os::unix::fs::MetadataExt;
-    let open = file
-        .metadata()
-        .context(|| format!("reading {}", path.display()))?;
-    match std::fs::metadata(path) {
-        Ok(named) => Ok(named.dev() == open.dev() && named.ino() == open.ino()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
-        Err(error) => fail!("reading {}: {error}", path.display()),
     }
 }
 

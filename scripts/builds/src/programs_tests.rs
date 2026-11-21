@@ -95,44 +95,32 @@ fn programs_of_another_version_are_not_copied() {
     }
 }
 
-/// An install removes each version's folder that no build holds and that no
-/// build used for a while, and keeps its own version's.
+/// An install removes each version's folder that no build holds and that it
+/// does not keep, a folder a copy has made and not yet put the lock's file in
+/// among them.
 #[test]
-fn an_install_removes_the_folders_no_build_holds_or_used_lately() {
+fn an_install_removes_the_folders_no_build_holds_and_it_does_not_keep() {
     let scratch = Scratch::new("programs-remove");
     let home = scratch.dir.join("home");
-    let now = std::time::SystemTime::now();
-    let long_ago = now - IDLE - std::time::Duration::from_secs(60);
-    let make = |version: &str, used: std::time::SystemTime| {
+    for version in ["installed", "named", "held", "old"] {
         let dir = folder(&home, version);
-        std::fs::create_dir_all(&dir).unwrap();
         program(&dir.join("builds"), version);
-        let in_use = crate::flock::open_creating(&dir.join(IN_USE)).unwrap();
-        in_use.set_modified(used).unwrap();
-    };
-    make("installed", long_ago);
-    make("held", long_ago);
-    make("recent", now);
-    make("old", long_ago);
-    // A folder a copy has just made, before it writes the lock's file,
-    // counts as used when it was made.
-    std::fs::create_dir_all(folder(&home, "just-made")).unwrap();
-    std::fs::create_dir_all(folder(&home, "left-half-made")).unwrap();
-    crate::testing::age(&folder(&home, "left-half-made"), 2);
-    let held = std::fs::File::open(folder(&home, "held").join(IN_USE)).unwrap();
-    crate::flock::lock(&held, libc::LOCK_SH, &folder(&home, "held")).unwrap();
-    let removed = remove_unused(&home, "installed", now).unwrap();
-    assert_eq!(
-        removed,
-        vec!["left-half-made".to_string(), "old".to_string()]
-    );
-    for kept in ["installed", "held", "recent"] {
-        assert!(folder(&home, kept).join("builds").exists(), "{kept}");
+        drop(crate::flock::open_creating(&dir.join(IN_USE)).unwrap());
     }
-    assert!(folder(&home, "just-made").exists());
-    assert!(!folder(&home, "old").exists());
+    std::fs::create_dir_all(folder(&home, "half-made")).unwrap();
+    std::fs::create_dir_all(root(&home).join(".builds.1-0")).unwrap();
+    let held_path = folder(&home, "held").join(IN_USE);
+    let held = std::fs::File::open(&held_path).unwrap();
+    crate::flock::lock(&held, libc::LOCK_SH, &held_path).unwrap();
+    assert_eq!(
+        versions(&home).unwrap(),
+        ["half-made", "held", "installed", "named", "old"]
+    );
+    let removed = remove_unused(&home, &["installed", "named"]).unwrap();
+    assert_eq!(removed, ["half-made", "old"]);
+    assert_eq!(versions(&home).unwrap(), ["held", "installed", "named"]);
     assert!(
-        remove_unused(&scratch.dir.join("nobody"), "x", now)
+        remove_unused(&scratch.dir.join("nobody"), &[])
             .unwrap()
             .is_empty()
     );

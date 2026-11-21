@@ -314,7 +314,8 @@ pub fn derive_and_run(places: &Places, args: &[String]) -> Result<()> {
             return Ok(());
         }
     }
-    app_build::ensure_before_runs(places, repo, &commit, &picks)?;
+    let pinned = app_build::pin(places)?;
+    app_build::ensure_before_runs(places, &pinned, repo, &commit, &picks)?;
     let changed = changed_paths(&top, &commit)?;
     let lanes = plan(&config, &changed, &picks);
     if lanes.is_empty() {
@@ -349,7 +350,7 @@ pub fn derive_and_run(places: &Places, args: &[String]) -> Result<()> {
             }
         ));
     }
-    app_build::run_lanes(places, repo, &commit, &lanes, &picks, &kept)
+    app_build::run_lanes(&pinned, repo, &commit, &lanes, &picks, &kept)
 }
 
 #[cfg(test)]

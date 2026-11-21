@@ -546,7 +546,7 @@ pub fn cmd_install(tool: &Tool, args: &[String]) -> Result<()> {
     }
     crate::cargo_program::install_all(home)?;
     run_sccache_server(home, tool.places.uid)?;
-    crate::programs::remove_others(home)?;
+    crate::programs::remove_others(home, &[])?;
     // xcodebuild runs without -derivedDataPath, and the Xcode app, write
     // here.
     let current = Command::new("defaults")

@@ -339,20 +339,19 @@ impl RemoteApp {
         Ok(start)
     }
 
-    /// <command>, run under this builds' programs on the host: `<folder>/builds
+    /// <command>, run under the build's programs on the host: `<folder>/builds
     /// programs hold -- <command>`, where <folder> is the host's folder of this
-    /// builds' version (programs.rs). The function marks the folder used and,
-    /// when the host lacks a program there, copies it from this Mac's folder
-    /// of the version, which this lane's build holds.
-    pub fn with_programs(&mut self, command: &[String]) -> Result<Vec<String>> {
-        let version = env!("BUILDS_SOURCE");
+    /// builds' version (programs.rs). The function copies each program the
+    /// host's folder lacks from <local>, this Mac's folder of the version,
+    /// which the lane's build holds.
+    pub fn with_programs(&mut self, local: &Path, command: &[String]) -> Result<Vec<String>> {
+        let version = crate::checkout::file_name(local);
         let said = self.transport().capture(
             &format!(
                 r#"dir="$HOME/{folder}/{version}"
-mkdir -p "$dir" && touch "$dir/{in_use}"
+mkdir -p "$dir"
 if [ -x "$dir/builds" ] && [ -x "$dir/{shots}" ]; then echo "present=$dir"; else echo "absent=$dir"; fi"#,
                 folder = crate::programs::FOLDER,
-                in_use = crate::programs::IN_USE,
                 shots = crate::shots_program::PROGRAM,
             ),
             "finding this builds' programs",
@@ -369,7 +368,6 @@ if [ -x "$dir/builds" ] && [ -x "$dir/{shots}" ]; then echo "present=$dir"; else
             ),
         };
         if !present {
-            let local = crate::programs::folder(&self.places.home, version);
             for name in ["builds", crate::shots_program::PROGRAM] {
                 let mut cat = Command::new("cat");
                 cat.arg(local.join(name));

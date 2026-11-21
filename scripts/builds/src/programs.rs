@@ -16,30 +16,26 @@
 //! under `<folder>/builds programs hold`, which holds the host's folder and
 //! puts it first on PATH (app_remote.rs).
 //!
-//! `builds install`, here and on each host, removes each other version's
-//! folder that nothing holds and that nothing used in the last `IDLE`: each
-//! pin and each copy to a host marks the folder used.
+//! `builds install` removes each other version's folder here that no build
+//! holds, then has each host remove each version's folder there that it does
+//! not name: it names the folders left here, which a build here holds or
+//! the installed builds is, so no host loses a folder a build here still
+//! runs steps from.
 
 use std::ffi::{OsStr, OsString};
 use std::fs::File;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime};
 
 use crate::fail;
 use crate::fail::{Context, Result};
-use crate::flock::{lock, open_creating, try_lock};
+use crate::flock::{lock, names, open_creating, try_lock};
 
 /// The folder of the versions' folders, relative to the home folder.
 pub const FOLDER: &str = ".local/lib/builds";
 
 /// The file in a version's folder that each build using it holds a shared
-/// lock on, and whose time says when a build last used it.
+/// lock on.
 pub const IN_USE: &str = ".in-use";
-
-/// How long a version's folder stays after a build last used it, whether or
-/// not a build holds it: longer than the gap between a lane's copy to a host
-/// and its step's hold there.
-pub const IDLE: Duration = Duration::from_secs(60 * 60);
 
 /// The folder of the versions' folders in <home>.
 pub fn root(home: &Path) -> PathBuf {
@@ -68,6 +64,11 @@ pub struct Pinned {
 }
 
 impl Pinned {
+    /// The folder.
+    pub fn dir(&self) -> &Path {
+        &self.dir
+    }
+
     /// The folder's builds.
     pub fn builds(&self) -> PathBuf {
         self.dir.join("builds")
@@ -112,26 +113,22 @@ pub enum Pin {
     Replaced(String),
 }
 
-/// Whether the path <path> names the open file <file>.
-fn names(file: &File, path: &Path) -> Result<bool> {
-    use std::os::unix::fs::MetadataExt;
-    let open = file
-        .metadata()
-        .context(|| format!("reading {}", path.display()))?;
-    match std::fs::metadata(path) {
-        Ok(named) => Ok(named.dev() == open.dev() && named.ino() == open.ino()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
-        Err(error) => fail!("reading {}: {error}", path.display()),
-    }
-}
-
-/// What <program> says when it is run with `version`.
+/// What <program> says when it is run with `version`; fails when it cannot
+/// run or exits with an error.
 fn says(program: &Path) -> Result<String> {
     let ran = std::process::Command::new(program)
         .arg("version")
         .stdin(std::process::Stdio::null())
         .output()
         .context(|| format!("running {} version", program.display()))?;
+    if !ran.status.success() {
+        fail!(
+            "{} version failed ({}): {}",
+            program.display(),
+            ran.status,
+            String::from_utf8_lossy(&ran.stderr).trim()
+        );
+    }
     Ok(String::from_utf8_lossy(&ran.stdout).trim().to_string())
 }
 
@@ -154,9 +151,6 @@ pub fn pin(home: &Path, sources: &Sources) -> Result<Pin> {
             break file;
         }
     };
-    in_use
-        .set_modified(SystemTime::now())
-        .context(|| format!("marking {} used", dir.display()))?;
     let wanted = [
         (
             "builds",
@@ -177,10 +171,15 @@ pub fn pin(home: &Path, sources: &Sources) -> Result<Pin> {
         let staged = dir.join(format!(".{name}.{}", crate::text::staged_suffix()));
         std::fs::copy(source, &staged)
             .context(|| format!("copying {} to {}", source.display(), staged.display()))?;
-        let said = says(&staged);
-        if said.as_deref().ok() != Some(version.as_str()) {
-            let _ = std::fs::remove_file(&staged);
-            let said = said.unwrap_or_else(|error| error.text());
+        let said = match says(&staged) {
+            Ok(said) if said == version => None,
+            Ok(said) => Some(Ok(said)),
+            Err(error) => Some(Err(error)),
+        };
+        if let Some(said) = said {
+            let removed =
+                std::fs::remove_file(&staged).context(|| format!("removing {}", staged.display()));
+            let said = crate::fail::with_cleanup(said, removed)?;
             return Ok(Pin::Replaced(format!(
                 "{} says {said:?}, not {version:?}: builds install replaced it after this build started",
                 source.display()
@@ -208,22 +207,8 @@ pub fn pin_this(home: &Path) -> Result<Pin> {
     )
 }
 
-/// When a build last used the folder <dir>: the time of its `IN_USE`, or of
-/// the folder itself while a copy has made the folder and not yet the file.
-fn used_at(dir: &Path) -> Result<SystemTime> {
-    let file = dir.join(IN_USE);
-    let read = match std::fs::metadata(&file) {
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => std::fs::metadata(dir),
-        other => other,
-    };
-    read.and_then(|meta| meta.modified())
-        .context(|| format!("reading the time of {}", dir.display()))
-}
-
-/// Removes each version's folder in <home> but <keep>'s that no build holds
-/// and that no build used in the `IDLE` before <now>; returns the versions
-/// it removed, in the order of their names.
-pub fn remove_unused(home: &Path, keep: &str, now: SystemTime) -> Result<Vec<String>> {
+/// The versions whose folders <home> holds, in the order of their names.
+pub fn versions(home: &Path) -> Result<Vec<String>> {
     let root = root(home);
     let entries = match std::fs::read_dir(&root) {
         Ok(entries) => entries,
@@ -233,20 +218,28 @@ pub fn remove_unused(home: &Path, keep: &str, now: SystemTime) -> Result<Vec<Str
     let mut names = Vec::new();
     for entry in entries {
         let entry = entry.context(|| format!("listing {}", root.display()))?;
-        if entry.path().is_dir() {
-            names.push(entry.file_name().to_string_lossy().into_owned());
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if entry.path().is_dir() && !name.starts_with('.') {
+            names.push(name);
         }
     }
     names.sort();
+    Ok(names)
+}
+
+/// Removes each version's folder in <home> that <keep> does not name and
+/// that no build holds; returns the versions it removed, in the order of
+/// their names.
+pub fn remove_unused(home: &Path, keep: &[&str]) -> Result<Vec<String>> {
     let mut removed = Vec::new();
-    for name in names {
-        if name == keep {
+    for name in versions(home)? {
+        if keep.contains(&name.as_str()) {
             continue;
         }
-        let dir = root.join(&name);
+        let dir = folder(home, &name);
         let in_use = dir.join(IN_USE);
         // Held while the folder goes: a build that opened the file waits,
-        // then finds the path names no file and makes the folder again.
+        // then finds that the path names no file and makes the folder again.
         let _alone = match File::open(&in_use) {
             Ok(file) => {
                 if !try_lock(&file, libc::LOCK_EX, &in_use)? {
@@ -254,22 +247,25 @@ pub fn remove_unused(home: &Path, keep: &str, now: SystemTime) -> Result<Vec<Str
                 }
                 Some(file)
             }
+            // A build that made the folder and not yet the file finds the
+            // folder gone when it opens the file, and makes it again.
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
             Err(error) => fail!("opening {}: {error}", in_use.display()),
         };
-        if now.duration_since(used_at(&dir)?).unwrap_or_default() < IDLE {
-            continue;
-        }
         std::fs::remove_dir_all(&dir).context(|| format!("removing {}", dir.display()))?;
         removed.push(name);
     }
     Ok(removed)
 }
 
-/// `remove_unused` for this program's version, now, saying each version it
-/// removed: `builds install` here and `builds host setup-here` on each host.
-pub fn remove_others(home: &Path) -> Result<()> {
-    for version in remove_unused(home, env!("BUILDS_SOURCE"), SystemTime::now())? {
+/// `remove_unused` keeping this program's version and <also>, saying each
+/// version it removed: `builds install` here, with nothing in <also>, and
+/// `builds host setup-here` on each host, with the versions left on the Mac
+/// that installs it.
+pub fn remove_others(home: &Path, also: &[String]) -> Result<()> {
+    let mut keep = vec![env!("BUILDS_SOURCE")];
+    keep.extend(also.iter().map(String::as_str));
+    for version in remove_unused(home, &keep)? {
         crate::text::note(format!(
             "removed {}, which no app build uses",
             folder(home, &version).display()

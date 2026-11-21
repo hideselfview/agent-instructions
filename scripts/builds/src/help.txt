@@ -1073,9 +1073,10 @@ folder first on PATH, so `builds shots run` in a `shots` line runs the
 folder's programs. Before each step on a host, the lane copies the folder
 to the same place on the host when the host lacks it, and runs the step
 under `<folder>/builds programs hold`, which holds the host's folder and
-puts it first on PATH there. `builds install`, here and on each host,
-removes each other version's folder that no build holds and that no build
-used in the last hour.
+puts it first on PATH there. `builds install` removes each other version's
+folder here that no build holds, then has each host remove each version's
+folder there that no step holds and that this Mac no longer keeps, so a
+host keeps the folder of every build that runs here.
 
 builds keeps each --shots and --all-shots run on the build volume, in
 /Volumes/Builds/shots/<repo>/runs/<commit>/<lane>/<prefix>/<version>/, so
@@ -3374,15 +3375,18 @@ INSTALLING
                               what launchd and the server's log say, unless
                               launchd's server then listens on the port),
                               remove each other version's folder of programs
-                              that no app build uses (APP BUILDS), point
+                              that no app build holds (APP BUILDS), point
                               Xcode's default DerivedData at the
                               volume, restart a running dashboard so it runs
                               the new code, and copy the same builds and
                               builds-shots to every recorded Mac host (HOSTS),
                               build builds on every Linux host from the
                               sources this builds was built from, and run
-                              `builds host setup-here` on each host to write
-                              the sccache config and run the server under
+                              `builds host setup-here` on each host, naming
+                              the versions whose programs this Mac keeps,
+                              to remove the host's folders of the other
+                              versions that no step holds, write the
+                              sccache config and run the server under
                               launchd or systemd as here. When builds
                               cannot reach a host or install on it, builds
                               installs on every other host first, then fails

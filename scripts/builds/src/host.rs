@@ -1325,7 +1325,7 @@ pub fn probe_all(
     hosts.into_iter().zip(probes).collect()
 }
 
-const USAGE: &str = "usage: builds host add <name> <ssh target> | setup <name> | setup-here | speed-here | band <name> <low> <high> | band <name> clear | list | remove <name> | clear-xcode <name>";
+const USAGE: &str = "usage: builds host add <name> <ssh target> | setup <name> | setup-here [<version>...] | speed-here | band <name> <low> <high> | band <name> clear | list | remove <name> | clear-xcode <name>";
 
 /// The build volume, where a host that has one keeps its builds root, as this
 /// Mac does.
@@ -1351,9 +1351,9 @@ pub fn cmd_host(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
             Ok(())
         }
         [word, name] if word == "setup" => crate::host_setup::cmd_setup(tool, ssh, name),
-        [word] if word == "setup-here" => {
+        [word, kept @ ..] if word == "setup-here" => {
             tool.places.mark_host()?;
-            crate::programs::remove_others(&tool.places.home)?;
+            crate::programs::remove_others(&tool.places.home, kept)?;
             crate::cargo_program::install_all(&tool.places.home)?;
             crate::install::run_sccache_server(&tool.places.home, tool.places.uid)
         }

@@ -99,7 +99,9 @@ pub fn ask_builds_there(
 /// Installs builds on <host>, which runs <os>: the programs <programs>
 /// gives, this Mac's, on a Mac (`install_program`), or a build of this program's sources on Linux
 /// (`host_linux::install_builds`). Then it has that builds run `builds host
-/// setup-here` there, which writes the sccache config with builds' cap and
+/// setup-here` there with the versions whose programs this Mac keeps, which
+/// removes the host's folder of each other version that no step holds
+/// (programs.rs), writes the sccache config with builds' cap and
 /// runs the host's sccache server under its service manager, as `builds
 /// install` does on this Mac. Returns the host's builds root and what
 /// setup-here said. `builds install` runs this for every host, so a change of
@@ -115,7 +117,15 @@ pub fn install_on_host(
         Os::Mac => install_program(ssh, host, &programs()?)?,
         Os::Linux => crate::host_linux::install_builds(ssh, host)?,
     };
-    let said = run_builds_there(places, ssh, host, "host setup-here", "setting up")?;
+    // The host keeps the folder of each version of the programs that this
+    // Mac keeps, which a build here holds or install just installed
+    // (programs.rs), since a lane of that build may run a step there next.
+    let mut setup = "host setup-here".to_string();
+    for version in crate::programs::versions(&places.home)? {
+        setup.push(' ');
+        setup.push_str(&version);
+    }
+    let said = run_builds_there(places, ssh, host, &setup, "setting up")?;
     Ok((root, said))
 }
 

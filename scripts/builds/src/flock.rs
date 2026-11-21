@@ -5,6 +5,7 @@ use std::fs::File;
 use std::os::fd::AsRawFd;
 use std::path::Path;
 
+use crate::fail;
 use crate::fail::{Context, Fail, Result};
 
 /// Calls flock(2) with <operation> on <file>, and calls it again when a
@@ -58,4 +59,19 @@ pub fn open_creating(path: &Path) -> Result<File> {
         .truncate(false)
         .open(path)
         .context(|| format!("opening {}", path.display()))
+}
+
+/// Whether the path <path> names the open file <file>: a lock file that
+/// another process removed, or removed and made again, after this one opened
+/// it names another file or none.
+pub fn names(file: &File, path: &Path) -> Result<bool> {
+    use std::os::unix::fs::MetadataExt;
+    let open = file
+        .metadata()
+        .context(|| format!("reading {}", path.display()))?;
+    match std::fs::metadata(path) {
+        Ok(named) => Ok(named.dev() == open.dev() && named.ino() == open.ino()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => fail!("reading {}: {error}", path.display()),
+    }
 }

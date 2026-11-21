@@ -104,6 +104,7 @@ use crate::install_gate;
 use crate::lane::Lane;
 use crate::lock::{self, Found, Keep, Ran, Within};
 use crate::places::Places;
+use crate::programs::Pinned;
 use crate::run_end::RunEnd;
 use crate::shot_findings;
 use crate::shot_store;
@@ -718,31 +719,46 @@ impl Site {
         }
     }
 
-    /// Runs <steps> in the checkout, as `run_steps_with` does with <watch>;
-    /// after each, a checkout on a host copies <results> back, and a shots run
-    /// keeps its findings in <shots> here.
+    /// Runs <steps> in the checkout with what <with> gives them, as
+    /// `run_steps_with` does with its `watch`.
     fn run_steps(
         &mut self,
         held: &lock::Held,
         steps: &[Step],
-        results: &[String],
-        shots: &ShotsStore,
-        watch: bool,
+        with: &StepsWith,
         log: &mut Vec<StepRecord>,
     ) -> Result<Ended> {
         match self {
-            Site::Local(top) => run_steps(top, held, steps, log, shots, watch),
-            Site::Remote(remote) => {
-                run_steps_with(held, steps, log, watch, &mut |step, kind, fault, read| {
-                    run_remote_step(remote, step, kind, results, shots, fault, read)
-                })
-            }
+            Site::Local(top) => run_steps(top, held, steps, log, with.shots, with.watch),
+            Site::Remote(remote) => run_steps_with(
+                held,
+                steps,
+                log,
+                with.watch,
+                &mut |step, kind, fault, read| {
+                    run_remote_step(remote, step, kind, with, fault, read)
+                },
+            ),
         }
     }
 }
 
-/// Runs <step> (of <kind>) in the checkout on a host, watching for a line of
-/// `HOST_FAULTS` in <fault> and giving each line to <read>; a shots run
+/// What a lane's steps run with.
+struct StepsWith<'a> {
+    /// The folders a step on a host copies back here after it runs.
+    results: &'a [String],
+    /// Where a shots run keeps its findings here.
+    shots: &'a ShotsStore,
+    /// This Mac's folder of the build's programs, which a step on a host
+    /// runs under, copied there (programs.rs).
+    programs: &'a Path,
+    /// Whether each step's run watches for a line of `HOST_FAULTS`.
+    watch: bool,
+}
+
+/// Runs <step> (of <kind>) in the checkout on a host under the build's
+/// programs there, watching for a line of `HOST_FAULTS` in <fault> and
+/// giving each line to <read>; <with> gives what it runs with. A shots run
 /// compares with its before run, which the run copies to a temporary
 /// file on the host and deletes after, and keeps its findings here. Then
 /// copies <results> back, since a step that failed or ran out of time has
@@ -753,11 +769,11 @@ fn run_remote_step(
     remote: &mut RemoteApp,
     step: &Step,
     kind: StepKind,
-    results: &[String],
-    shots: &ShotsStore,
+    with: &StepsWith,
     fault: Option<&Found>,
     read: &lock::EachLine,
 ) -> Result<Within> {
+    let StepsWith { results, shots, .. } = *with;
     let store = (kind == StepKind::Shots).then_some(shots);
     // Held while the copies read the before run and the picture folder,
     // which the prune then leaves.
@@ -775,7 +791,7 @@ fn run_remote_step(
         (Some(store), Some(there)) => store.command(step, placed.as_deref(), there),
         _ => step.command.clone(),
     };
-    let held = remote.with_programs(&command)?;
+    let held = remote.with_programs(with.programs, &command)?;
     let start = remote.step_command(&held)?;
     let kept = lock::Captured::default();
     let keep = keep_for(kind, &kept, fault, read);
@@ -1258,11 +1274,18 @@ fn who_asked() -> Option<String> {
 /// lane that adds a checkout on a host keeps the host's free disk above
 /// the floor of <tool>'s rules. A stop signal ends the lane from the moment
 /// it starts, and a run that one reached before it passed is recorded as
-/// stopped.
-fn run_lane(tool: &Tool, repo: &str, lane: Lane, request: LaneRequest) -> Result<()> {
+/// stopped. <programs> is this Mac's folder of the build's programs, which
+/// the lane copies to each host it runs a step on.
+fn run_lane(
+    tool: &Tool,
+    repo: &str,
+    lane: Lane,
+    request: LaneRequest,
+    programs: &Path,
+) -> Result<()> {
     lock::end_on_stop_signals();
     let mut timing = Timing::start();
-    let result = build_lane(tool, repo, lane, request, &mut timing);
+    let result = build_lane(tool, repo, lane, request, programs, &mut timing);
     let outcome = match &result {
         Ok(()) => RunEnd::Passed,
         Err(_) if lock::stop_signal().is_some() => RunEnd::Stopped,
@@ -1291,6 +1314,7 @@ fn build_lane(
     repo: &str,
     lane: Lane,
     request: LaneRequest,
+    programs: &Path,
     timing: &mut Timing,
 ) -> Result<()> {
     let places = &tool.places;
@@ -1392,10 +1416,15 @@ fn build_lane(
         let shots = ShotsStore::of(
             places, &source, repo, lane, &sha, &config, picks, kept_shots,
         )?;
-        let watch = lane.uses_xcode();
+        let with = |results| StepsWith {
+            results,
+            shots: &shots,
+            programs,
+            watch: lane.uses_xcode(),
+        };
+        let results = config.results_of(lane);
         let ran = (|| {
-            let mut ended =
-                site.run_steps(&held, &builds, &[], &shots, watch, &mut timing.steps)?;
+            let mut ended = site.run_steps(&held, &builds, &with(&[]), &mut timing.steps)?;
             if ended == Ended::Finished && !builds.is_empty() {
                 let steps = builds.iter().map(|step| step.name.clone()).collect();
                 Built {
@@ -1405,14 +1434,7 @@ fn build_lane(
                 .write(&built_file)?;
             }
             if ended == Ended::Finished {
-                ended = site.run_steps(
-                    &held,
-                    &tests,
-                    &config.results_of(lane),
-                    &shots,
-                    watch,
-                    &mut timing.steps,
-                )?;
+                ended = site.run_steps(&held, &tests, &with(&results), &mut timing.steps)?;
             }
             Ok(ended)
         })();
@@ -1515,9 +1537,11 @@ pub fn serve_stored(
 /// of a commit on origin/main compares with none, so its pairs' findings
 /// fail it, and that failure stops nothing here. Fails when a pick still
 /// has no run to compare with, or a stop signal ended the build. A commit on
-/// origin/main is its own merge base and needs no before run.
+/// origin/main is its own merge base and needs no before run. The merge
+/// base's lanes run from <pinned>, the build's programs.
 pub fn ensure_before_runs(
     places: &Places,
+    pinned: &Pinned,
     repo: &str,
     git_ref: &str,
     picks: &[Pick],
@@ -1565,7 +1589,7 @@ pub fn ensure_before_runs(
     ));
     let config = config_at(places, repo, &base)?;
     let lanes = crate::derive::plan(&config, &[], &wanted);
-    let built = run_lanes(places, repo, &base, &lanes, &wanted, &[]);
+    let built = run_lanes(pinned, repo, &base, &lanes, &wanted, &[]);
     if PASSED_ON.load(Ordering::SeqCst) != 0 {
         return built;
     }
@@ -1671,37 +1695,32 @@ fn copy_lines(
     let _ = done.send(());
 }
 
-/// The folder of this build's programs, which this process holds from its
-/// first call to its end (programs.rs). The build's lanes run its builds,
-/// with the folder first on PATH, so an install that puts other programs on
-/// PATH meanwhile changes nothing the build runs. When an install replaced
-/// this program after it started and before it copied it, this process has
-/// started nothing yet, and runs the installed builds in its place.
-fn pinned(places: &Places) -> Result<&'static crate::programs::Pinned> {
-    static PINNED: std::sync::OnceLock<crate::programs::Pinned> = std::sync::OnceLock::new();
-    if let Some(pinned) = PINNED.get() {
-        return Ok(pinned);
-    }
+/// Holds the folder of this build's programs (programs.rs) for as long as the
+/// value returned lives. The build's lanes run its builds, with the folder
+/// first on PATH, so an install that puts other programs on PATH meanwhile
+/// changes nothing the build runs. When an install replaced this program
+/// after it started and before it copied it, this process has started
+/// nothing yet, and runs the installed builds in its place.
+pub fn pin(places: &Places) -> Result<Pinned> {
     match crate::programs::pin_this(&places.home)? {
-        crate::programs::Pin::Pinned(pinned) => Ok(PINNED.get_or_init(|| pinned)),
+        crate::programs::Pin::Pinned(pinned) => Ok(pinned),
         crate::programs::Pin::Replaced(why) => Err(install_gate::run_installed(&format!(
             "{why}, so this build runs the installed builds program in its place"
         ))),
     }
 }
 
-/// Runs the lanes in <lanes> at the same time, each as a process of its own;
-/// fails, naming the lanes, if any does. A stop signal goes on to each lane,
+/// Runs the lanes in <lanes> at the same time, each as a process of its own
+/// from the folder <pinned>; fails, naming the lanes, if any does. A stop signal goes on to each lane,
 /// and the command, once they have ended, fails saying it stopped.
 pub fn run_lanes(
-    places: &Places,
+    pinned: &Pinned,
     repo: &str,
     commit: &str,
     lanes: &[(Lane, Vec<String>)],
     picks: &[Pick],
     kept: &[Lane],
 ) -> Result<()> {
-    let pinned = pinned(places)?;
     unsafe {
         for signal in lock::STOP_SIGNALS {
             libc::signal(signal, pass_to_lanes as *const () as libc::sighandler_t);
@@ -1912,9 +1931,9 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
         let (names, picks) = split_picks(names)?;
         let lane = Lane::parse_or_fail(word)?;
         // A lane that its build started runs from the build's folder, which
-        // holds its programs already; a lane run by hand pins them here, for
-        // the steps it runs on a host.
-        pinned(places)?;
+        // holds its programs already; a lane run by hand copies them there.
+        // The lane copies the folder to each host it runs a step on.
+        let pinned = pin(places)?;
         // A lane's process always says why it ended badly: a bare exit status
         // from a path that noted nothing would reach the parent as no output.
         let request = LaneRequest {
@@ -1923,7 +1942,7 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
             picks: &picks,
             kept_shots,
         };
-        return match run_lane(tool, repo, lane, request) {
+        return match run_lane(tool, repo, lane, request, pinned.dir()) {
             Err(Fail::Exit(code)) => {
                 note(format!(
                     "the {} lane's build failed (exit {code})",
@@ -1967,7 +1986,8 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
             return Ok(());
         }
     }
-    ensure_before_runs(places, repo, commit, &picks)?;
+    let pinned = pin(places)?;
+    ensure_before_runs(places, &pinned, repo, commit, &picks)?;
     // The lanes the steps or picks are in: those with a step named, or with
     // any step when none is named and no pick is, each with its own names.
     let lanes: Vec<(Lane, Vec<String>)> = Lane::ALL
@@ -1985,7 +2005,7 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
     if lanes.is_empty() {
         fail!("{CONFIG} names no step");
     }
-    run_lanes(places, repo, commit, &lanes, &picks, &[])
+    run_lanes(&pinned, repo, commit, &lanes, &picks, &[])
 }
 
 #[cfg(test)]
