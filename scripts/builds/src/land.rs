@@ -404,6 +404,31 @@ pub fn git_text(dir: &Path, args: &[&str]) -> Option<String> {
     })
 }
 
+/// What a landing writes into a turn file once it holds the lock: its process
+/// id and what it lands (`record_pid` reads the id back).
+fn turn_record(pid: u32, what: &str) -> String {
+    format!("process {pid} landing {what}")
+}
+
+/// The process id that the turn file's text <record> names.
+pub fn record_pid(record: &str) -> Option<i32> {
+    record
+        .strip_prefix("process ")?
+        .split(' ')
+        .next()?
+        .parse()
+        .ok()
+}
+
+/// What the landing that holds the turn file <path> wrote there: empty when
+/// it has written nothing yet.
+pub fn read_holder(file: &mut std::fs::File, path: &Path) -> Result<String> {
+    let mut holder = String::new();
+    file.read_to_string(&mut holder)
+        .context(|| format!("reading {}", path.display()))?;
+    Ok(holder.trim().to_string())
+}
+
 /// Waits for, then holds, the exclusive lock in the file <path>, which a
 /// landing holds for its turn. While another landing holds it, says on <out>
 /// that this one waits for <whose> turn and which landing holds it: the
@@ -411,17 +436,14 @@ pub fn git_text(dir: &Path, args: &[&str]) -> Option<String> {
 fn take_turn(path: &Path, whose: &str, me: &str, out: &mut dyn Write) -> Result<std::fs::File> {
     let mut file = crate::flock::open_creating(path)?;
     if !crate::flock::try_lock(&file, libc::LOCK_EX, path)? {
-        let mut holder = String::new();
-        file.read_to_string(&mut holder)
-            .context(|| format!("reading {}", path.display()))?;
-        let holder = holder.trim();
+        let holder = read_holder(&mut file, path)?;
         let _ = writeln!(
             out,
             "waiting for {whose} to finish first: {}",
             if holder.is_empty() {
                 "another landing holds it"
             } else {
-                holder
+                &holder
             }
         );
         let _ = out.flush();
@@ -450,11 +472,7 @@ fn lock_worktree(worktree: &Path, args: &[String], out: &mut dyn Write) -> Resul
     take_turn(
         &PathBuf::from(git_dir).join(WORKTREE_TURN_FILE),
         &format!("the landing in {}", worktree.display()),
-        &format!(
-            "process {} landing {}",
-            std::process::id(),
-            shell_words(args)
-        ),
+        &turn_record(std::process::id(), &shell_words(args)),
         out,
     )
 }
@@ -1336,11 +1354,9 @@ impl Landing<'_> {
             fail!("git finds no checkout at {}", dir.display());
         };
         stores.end();
-        let me = format!(
-            "process {} landing {} from {}",
+        let me = turn_record(
             std::process::id(),
-            shell_words(&self.request.shas),
-            dir.display()
+            &format!("{} from {}", shell_words(&self.request.shas), dir.display()),
         );
         let _timing = self.timing(StepKind::AppWait);
         let turn = take_turn(

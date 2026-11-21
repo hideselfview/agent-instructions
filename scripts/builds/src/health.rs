@@ -492,14 +492,28 @@ pub fn sample(
                 started_from: started_from(places, process.pid),
             });
         } else if let Some(worktree) = crate::land_turns::requested(&argv) {
-            let worktree = crate::procs::cwd(process.pid).map(|dir| dir.join(worktree));
-            if let Some(worktree) = worktree
-                && let Some(place) = crate::procs::place_of(places, &worktree)
-            {
+            let Some(dir) = crate::procs::cwd(process.pid) else {
+                unread.push(format!(
+                    "builds cannot read the working directory of process {}, a `builds land`, so health cannot tell which worktree it lands in",
+                    process.pid
+                ));
+                continue;
+            };
+            let worktree = dir.join(worktree);
+            if let Some(place) = crate::procs::place_of(places, &worktree) {
+                let waits_for = crate::land_turns::waits_for(&worktree, process.pid)
+                    .unwrap_or_else(|error| {
+                        unread.push(format!(
+                            "{}, so health cannot tell whether the landing of process {} waits for another",
+                            error.text(),
+                            process.pid
+                        ));
+                        None
+                    });
                 landings.push(LandingRun {
                     pid: process.pid,
                     place,
-                    waits_for: crate::land_turns::waits_for(&worktree, process.pid),
+                    waits_for,
                 });
             }
         }

@@ -33,7 +33,7 @@ fn card(
         activity: Activity::default(),
         words: Words::default(),
         stalled: false,
-        landings: Vec::new(),
+        landings: None,
         errors: Vec::new(),
     }
 }

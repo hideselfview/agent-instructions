@@ -22,11 +22,15 @@ fn a_landing_waits_for_the_other_process_that_holds_a_turn() {
     assert!(crate::flock::try_lock(&file, libc::LOCK_EX, &path).unwrap());
     std::io::Write::write_all(&mut file, b"process 36208 landing --done 1276 abc").unwrap();
     assert_eq!(
-        held_by_another(&path, 99).as_deref(),
+        held_by_another(&path, 99).unwrap().as_deref(),
         Some("process 36208 landing --done 1276 abc")
     );
-    assert_eq!(held_by_another(&path, 36208), None);
+    assert_eq!(held_by_another(&path, 36208).unwrap(), None);
     drop(file);
-    assert_eq!(held_by_another(&path, 99), None, "a free lock holds nobody");
+    assert_eq!(
+        held_by_another(&path, 99).unwrap(),
+        None,
+        "a free lock holds nobody"
+    );
     std::fs::remove_dir_all(&dir).unwrap();
 }

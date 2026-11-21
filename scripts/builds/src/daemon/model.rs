@@ -1498,7 +1498,7 @@ impl Model {
                         },
                         words: Default::default(),
                         stalled: false,
-                        landings: Vec::new(),
+                        landings: None,
                         errors: Vec::new(),
                     }
                 }
@@ -1519,7 +1519,7 @@ impl Model {
                     activity: Activity::default(),
                     words: Default::default(),
                     stalled: false,
-                    landings: Vec::new(),
+                    landings: None,
                     errors: Vec::new(),
                 },
             };
@@ -1556,8 +1556,7 @@ impl Model {
                         .health
                         .as_ref()
                         .and_then(|h| h.worktrees.iter().find(|w| w.path == checkout.path))
-                        .map(|w| w.landings.clone())
-                        .unwrap_or_default();
+                        .map(|w| w.landings.clone());
                     checkout.errors.extend(judged.errors);
                     checkout.state = Some(judged.state.word());
                     checkout.words = match &judged.kept {
@@ -2153,8 +2152,9 @@ pub struct CheckoutPage {
     /// (health.rs)? The card shows it.
     pub stalled: bool,
     /// The `builds land` processes that land in it, running or waiting for
-    /// another landing (health.rs); the card shows them.
-    pub landings: Vec<crate::health::LandingRun>,
+    /// another landing (health.rs); the card shows them. None until health
+    /// has read the worktree.
+    pub landings: Option<Vec<crate::health::LandingRun>>,
     /// What the daemon could not read to say where the worktree's work
     /// stands, which the card shows: the claim's project, the project's
     /// lists, or its rules review.
