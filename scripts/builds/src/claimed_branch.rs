@@ -25,11 +25,22 @@ const GUARDED: [&str; 6] = ["app-build", "review", "land", "cargo", "checks", "i
 
 /// Fails when an agent runs `builds <command>` in a claimed side worktree that
 /// is off its claim's branch.
-pub fn gate(command: &str) -> Result<()> {
-    if !GUARDED.contains(&command) || Caller::from_env()?.is_none() {
+///
+/// <nested> is whether an agent's builds command started this one: `ack::gate`
+/// marks the environment (`PASSED`) of the commands it lets run, so a command
+/// that `builds land` runs inside the landing, after it detached HEAD itself,
+/// inherits the mark and passes. The caller reads it before `ack::gate` sets it.
+pub fn gate(command: &str, nested: bool) -> Result<()> {
+    if !applies(command, nested) || Caller::from_env()?.is_none() {
         return Ok(());
     }
     require_claimed_branch(&crate::lists::args::current_dir()?)
+}
+
+/// Does the check cover `builds <command>`, which <nested> says another builds
+/// command started?
+fn applies(command: &str, nested: bool) -> bool {
+    !nested && GUARDED.contains(&command)
 }
 
 /// Fails when <dir> is in a claimed side worktree whose running items'

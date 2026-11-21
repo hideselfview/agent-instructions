@@ -190,6 +190,7 @@ fn main() -> ExitCode {
         print!("{}", help::HELP);
         return ExitCode::from(2);
     };
+    let nested = std::env::var_os(ack::PASSED).is_some();
     let _use = match enter_stores(command, &args) {
         Ok(held) => held,
         Err(fail) => return exit_code(fail),
@@ -197,7 +198,7 @@ fn main() -> ExitCode {
     if let Err(fail) = Places::from_env().and_then(|places| ack::gate(&places, command, rest)) {
         return exit_code(fail);
     }
-    if let Err(fail) = claimed_branch::gate(command) {
+    if let Err(fail) = claimed_branch::gate(command, nested) {
         return exit_code(fail);
     }
     match run(command, rest) {

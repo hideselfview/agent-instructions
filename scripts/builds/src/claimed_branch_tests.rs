@@ -37,3 +37,12 @@ fn a_detached_head_is_refused() {
     let text = refusal("/w/side-2", &claim(), &names(&["a"]), None).unwrap();
     assert!(text.contains("detached HEAD"));
 }
+
+/// `builds land` detaches HEAD and runs builds commands (checks, cargo) that
+/// inherit the acknowledgement mark; those pass, an agent's own command does not.
+#[test]
+fn a_command_that_another_builds_command_started_is_not_checked() {
+    assert!(applies("land", false) && applies("cargo", false));
+    assert!(!applies("cargo", true) && !applies("checks", true));
+    assert!(!applies("status", false));
+}
