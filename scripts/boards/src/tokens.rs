@@ -10,10 +10,14 @@
 //!   theme's block on `:root` too. A color token's value is one value for
 //!   every theme, or an object of one value per theme id;
 //! - one `:root` block holding every token of the other families (`spacing`,
-//!   `radius` and the like, in the file's order) and a `--font-<key>`
-//!   property per font stack in `type.families`;
-//! - one class per text style of `type.groups`, in the font family its group
-//!   names unless the style names its own.
+//!   `radius` and the like, in the file's order), a `--font-<key>` property
+//!   per font stack in `type.families`, and for each text style of
+//!   `type.groups` its `--type-<style>-size`, `--type-<style>-weight` and,
+//!   where the style names one, `--type-<style>-line-height`, so that a
+//!   component's CSS takes its text metrics from a style;
+//! - one class per text style, in the font family its group names unless the
+//!   style names its own, which sets the style's metrics from those
+//!   properties.
 
 use std::fmt;
 use std::marker::PhantomData;
@@ -150,16 +154,35 @@ struct Style {
 }
 
 impl Style {
-    /// The style's CSS declarations, with <font_family> as its font-family's
-    /// value.
-    fn declarations(&self, font_family: String) -> Vec<String> {
-        let mut declarations = vec![
-            format!("font-family: {font_family}"),
-            format!("font-size: {}", self.font_size),
-            format!("font-weight: {}", self.font_weight),
+    /// The style's text metrics, each as the CSS property it sets, the
+    /// suffix of its `--type-<style>-` custom property, and its value.
+    fn metrics(&self) -> Vec<(&'static str, &'static str, &Scalar)> {
+        let mut metrics = vec![
+            ("font-size", "size", &self.font_size),
+            ("font-weight", "weight", &self.font_weight),
         ];
         if let Some(height) = &self.line_height {
-            declarations.push(format!("line-height: {height}"));
+            metrics.push(("line-height", "line-height", height));
+        }
+        metrics
+    }
+
+    /// The custom property that holds the style's metric <suffix>.
+    fn property(&self, suffix: &str) -> String {
+        format!("--type-{}-{suffix}", self.name)
+    }
+
+    /// The style's CSS declarations, with <font_family> as its font-family's
+    /// value and <metric> giving each metric's value from its suffix and
+    /// value.
+    fn declarations(
+        &self,
+        font_family: String,
+        metric: impl Fn(&str, &Scalar) -> String,
+    ) -> Vec<String> {
+        let mut declarations = vec![format!("font-family: {font_family}")];
+        for (css, suffix, value) in self.metrics() {
+            declarations.push(format!("{css}: {}", metric(suffix, value)));
         }
         if let Some(spacing) = &self.letter_spacing {
             declarations.push(format!("letter-spacing: {spacing}"));
@@ -248,6 +271,11 @@ pub fn tokens_css(json: &str) -> Result<String> {
     for (key, stack) in &tokens.text.families.0 {
         root.push(format!("  --font-{key}: {stack};"));
     }
+    for style in tokens.text.groups.iter().flat_map(|group| &group.styles) {
+        for (_, suffix, value) in style.metrics() {
+            root.push(format!("  {}: {value};", style.property(suffix)));
+        }
+    }
     root.push("}".to_string());
     out.push(root.join("\n"));
     for group in &tokens.text.groups {
@@ -257,7 +285,9 @@ pub fn tokens_css(json: &str) -> Result<String> {
                 ".{} {{ {}; }}",
                 style.name,
                 style
-                    .declarations(format!("var(--font-{family})"))
+                    .declarations(format!("var(--font-{family})"), |suffix, _| {
+                        format!("var({})", style.property(suffix))
+                    })
                     .join("; ")
             ));
         }
@@ -343,7 +373,9 @@ pub fn specimen(json: &str) -> Result<Specimen> {
             };
             styles.push(TextSpecimen {
                 name: style.name.clone(),
-                css: style.declarations(stack.clone()).join("; "),
+                css: style
+                    .declarations(stack.clone(), |_, value| value.to_string())
+                    .join("; "),
                 words: style
                     .sample
                     .clone()

@@ -32,7 +32,8 @@ const TOKENS: &str = r##"{
 }"##;
 
 #[test]
-fn the_stylesheet_has_a_block_per_theme_then_the_other_tokens_then_a_class_per_text_style() {
+fn the_stylesheet_has_a_block_per_theme_then_the_other_tokens_and_the_text_metrics_then_a_class_per_text_style()
+ {
     assert_eq!(
         tokens_css(TOKENS).unwrap(),
         r#"/* demo: builds design tokens-css writes this file from tokens.json */
@@ -50,9 +51,14 @@ fn the_stylesheet_has_a_block_per_theme_then_the_other_tokens_then_a_class_per_t
   --radius-chip: 999px;
   --font-sans: Inter, sans-serif;
   --font-mono: Menlo, monospace;
+  --type-body-size: 14px;
+  --type-body-weight: 400;
+  --type-body-line-height: 1.45;
+  --type-code-size: 13px;
+  --type-code-weight: 500;
 }
-.body { font-family: var(--font-sans); font-size: 14px; font-weight: 400; line-height: 1.45; }
-.code { font-family: var(--font-mono); font-size: 13px; font-weight: 500; letter-spacing: 0.01em; }
+.body { font-family: var(--font-sans); font-size: var(--type-body-size); font-weight: var(--type-body-weight); line-height: var(--type-body-line-height); }
+.code { font-family: var(--font-mono); font-size: var(--type-code-size); font-weight: var(--type-code-weight); letter-spacing: 0.01em; }
 "#
     );
 }

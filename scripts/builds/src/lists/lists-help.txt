@@ -857,11 +857,15 @@ sent again.
   builds design tokens-css DIR
       Writes worktree DIR's design/system/tokens.css from its tokens.json: a
       block of color properties per theme of `color.themes`, the first on
-      :root too; one :root block of the other families' tokens and a
-      --font-<key> property per stack of `type.families`; and a class per
-      text style of `type.groups`. builds draws boards with the same
-      stylesheet; this command writes it for other tools that load it, such
-      as a repo's screenshot checks. Reads no store.
+      :root too; one :root block of the other families' tokens, a
+      --font-<key> property per stack of `type.families`, and each text
+      style's --type-<style>-size, --type-<style>-weight and, where the
+      style names one, --type-<style>-line-height, which a component's CSS
+      takes its text metrics from; and a class per text style of
+      `type.groups`, which sets the style's metrics from those properties.
+      builds draws boards with the same stylesheet; this command writes it
+      for other tools that load it, such as a repo's screenshot checks.
+      Reads no store.
 
   builds design publish-find DIR --artifacts FILE [--at REV]
       Prints the link of each claude.ai artifact that the designs of DIR's
