@@ -345,22 +345,43 @@ fn read(folder: &Path, key: &Key) -> Result<Option<Stored>> {
     }))
 }
 
+/// Marks <stored> used now, so the cap keeps it longer.
+pub fn mark_used(stored: &Stored) -> Result<()> {
+    capped_store::mark_used(&stored.folder.join(RUN_FILE))
+}
+
 /// The run stored under <key>, if any; reading it marks it used.
 pub fn lookup(places: &Places, key: &Key) -> Result<Option<Stored>> {
     check_prefix(&key.prefix)?;
     let found = read(&run_folder(places, key), key)?;
     if let Some(stored) = &found {
-        capped_store::mark_used(&stored.folder.join(RUN_FILE))?;
+        mark_used(stored)?;
     }
     Ok(found)
 }
 
-/// The run a branch's run of <prefix> on <lane> compares with: the newest
-/// stored run of <repo>'s <commit> on that lane, by shots program <version>,
-/// whose prefix starts <prefix> (a run of `mac.` stands in for one of
-/// `mac.welcome.`) and whose report holds findings.json. Reading it marks it
-/// used.
+/// The run a branch's run of <prefix> on <lane> compares with: the run that
+/// covers <prefix> (`covering_run`). Reading it marks it used.
 pub fn before_run(
+    places: &Places,
+    repo: &str,
+    commit: &str,
+    lane: Lane,
+    prefix: &str,
+    version: &str,
+) -> Result<Option<Stored>> {
+    let found = covering_run(places, repo, commit, lane, prefix, version)?;
+    if let Some(stored) = &found {
+        mark_used(stored)?;
+    }
+    Ok(found)
+}
+
+/// The newest stored run of <repo>'s <commit> on <lane>, by shots program
+/// <version>, whose prefix starts <prefix> (a run of `mac.` stands in for one
+/// of `mac.welcome.`) and whose report holds findings.json. Finding it writes
+/// nothing: a caller that uses the run marks it used (`mark_used`).
+pub fn covering_run(
     places: &Places,
     repo: &str,
     commit: &str,
@@ -394,11 +415,7 @@ pub fn before_run(
             found.push(stored);
         }
     }
-    let newest = found.into_iter().max_by_key(|stored| stored.recorded_at);
-    if let Some(stored) = &newest {
-        capped_store::mark_used(&stored.folder.join(RUN_FILE))?;
-    }
-    Ok(newest)
+    Ok(found.into_iter().max_by_key(|stored| stored.recorded_at))
 }
 
 /// What the folder of <repo> in `shots` holds, as the cap sees it: its

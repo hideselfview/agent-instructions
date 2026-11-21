@@ -2388,7 +2388,37 @@ STATUS, HEALTH AND THE DASHBOARD
                               that groups.json leaves out or lists twice,
                               a name it lists that no component has, and
                               a group or subgroup it gives no components
-                              each show as that problem above the groups. For a project
+                              each show as that problem above the groups.
+                              Each component links to the page of its shots,
+                              /designs/<project>/component/<Component>,
+                              which shows the commit origin/main names: on
+                              each lane that draws the component (mac for a
+                              Mac component, android for an Android one,
+                              both for one the platforms share), each row of
+                              its preview with the row's board beside the
+                              app's shot of that state, each at its size in
+                              points, and the findings and warnings under
+                              them. The page reads the newest run builds
+                              keeps of that commit on the lane, by its shots
+                              version, whose prefix starts the component's
+                              (mac.component.checkbox., or mac.component. or
+                              mac. for a wider run), and that run's
+                              findings.json and report pictures (APP BUILDS).
+                              When builds keeps no such run on a lane, the
+                              page asks the dashboard on this Mac to take
+                              the component's shots of the commit: it starts
+                              `builds app-build <repo> <commit> --shots
+                              <prefix>` for the lane, as the lane's Build
+                              item starts build-app, and the page shows the
+                              run's progress and the end of what it prints
+                              until builds keeps its findings, or why it
+                              ended without them, with a button that takes
+                              the shots again. A lane takes one such run of
+                              a prefix at a time, and a new run in the lane
+                              deletes the record and output of the ended runs
+                              of its other prefixes. On another address the
+                              page shows what builds keeps and starts no
+                              run. For a project
                               whose design places are in several repos, the
                               page says that it draws the boards of one. For
                               a repo whose design/mocks/canvases.toml names

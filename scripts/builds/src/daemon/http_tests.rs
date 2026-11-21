@@ -748,15 +748,56 @@ fn a_designs_path_is_the_page_or_a_board_or_component_at_a_full_commit() {
         designs_route(&format!("bae/{commit}/component/MacRow")),
         Some(DesignsRoute::Component("bae", commit, "MacRow"))
     );
+    assert_eq!(
+        designs_route("bae/component/MacCheckbox"),
+        Some(DesignsRoute::ComponentShots("bae", "MacCheckbox"))
+    );
+    assert_eq!(
+        designs_route(&format!(
+            "bae/{commit}/shot/mac/mac.component.checkbox.on/board.png"
+        )),
+        Some(DesignsRoute::Picture(
+            "bae",
+            commit,
+            Lane::Mac,
+            "mac.component.checkbox.on",
+            PictureSide::Board
+        ))
+    );
     for bad in [
         "".to_string(),
         "bae/".to_string(),
+        "bae/component/".to_string(),
+        format!("bae/{commit}/shot/ios/mac.a.b/board.png"),
+        format!("bae/{commit}/shot/mac/mac.a.b/front.png"),
+        format!("bae/{commit}/shot/mac/mac.a.b/board"),
         "bae/HEAD/board/A".to_string(),
         format!("bae/{commit}/board"),
         format!("bae/{commit}/boards/A"),
         format!("bae/{commit}/board/A/now"),
     ] {
         assert_eq!(designs_route(&bad), None, "{bad:?}");
+    }
+}
+
+#[test]
+fn a_shots_path_names_a_project_commit_component_and_what_it_asks() {
+    let commit = "0123456789abcdef0123456789abcdef01234567";
+    assert_eq!(
+        shots_target(&format!("/designs/bae/{commit}/shots/MacCheckbox/events")),
+        Some(("bae", commit, "MacCheckbox", ShotsAsk::Events))
+    );
+    assert_eq!(
+        shots_target(&format!("/designs/bae/{commit}/shots/MacCheckbox/capture")),
+        Some(("bae", commit, "MacCheckbox", ShotsAsk::Capture))
+    );
+    for bad in [
+        format!("/designs/bae/{commit}/shots/MacCheckbox"),
+        format!("/designs/bae/{commit}/shots/MacCheckbox/run"),
+        "/designs/bae/main/shots/MacCheckbox/events".to_string(),
+        format!("/design/bae/{commit}/shots/MacCheckbox/events"),
+    ] {
+        assert_eq!(shots_target(&bad), None, "{bad:?}");
     }
 }
 

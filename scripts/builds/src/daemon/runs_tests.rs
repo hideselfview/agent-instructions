@@ -67,9 +67,20 @@ impl Setup {
 
     /// Waits for the lane's run to be in <phase>, woken by each change.
     fn until(&self, lane: &str, phase: Phase) -> RunPage {
+        self.until_page(|| self.page(lane), phase)
+    }
+
+    /// Waits for the shots run of <prefix> on the mac lane to be in
+    /// <phase>.
+    fn until_shots(&self, prefix: &str, phase: Phase) -> RunPage {
+        self.until_page(|| self.runs.shots_page("demo", Lane::Mac, prefix), phase)
+    }
+
+    /// Waits for the run <page> gives to be in <phase>, woken by each change.
+    fn until_page(&self, page: impl Fn() -> Option<RunPage>, phase: Phase) -> RunPage {
         let deadline = std::time::Instant::now() + Duration::from_secs(30);
         loop {
-            if let Some(page) = self.page(lane)
+            if let Some(page) = page()
                 && page.phase == phase
             {
                 return page;
@@ -126,6 +137,79 @@ fn a_second_start_in_a_lane_is_refused_and_the_other_lane_starts() {
         .expect("a finished lane starts again");
 }
 
+/// The commit the shots runs of these tests take; the stub's control
+/// files for a shots run are named for it.
+const COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
+
+#[test]
+fn a_shots_run_takes_one_component_s_shots_beside_the_lane_s_build() {
+    let s = setup("runs-shots");
+    let prefix = "mac.component.checkbox.";
+    s.control(&format!("hold-{COMMIT}"));
+    s.runs
+        .start_shots("demo", Lane::Mac, COMMIT, prefix)
+        .unwrap();
+    let again = s
+        .runs
+        .start_shots("demo", Lane::Mac, COMMIT, prefix)
+        .unwrap_err();
+    assert!(matches!(again, StartError::Busy(_)), "{again:?}");
+    assert!(
+        s.runs.pages("demo", &|_| Vec::new()).is_empty(),
+        "the lanes' Build menus show no shots run"
+    );
+    s.runs.start_build("demo", "mac", None).unwrap();
+    s.until("mac", Phase::Succeeded);
+    s.control(&format!("go-{COMMIT}"));
+    let done = s.until_shots(prefix, Phase::Succeeded);
+    assert_eq!(done.reference.as_deref(), Some(COMMIT));
+    assert!(
+        done.output
+            .contains(&format!("args: app-build demo {COMMIT} --shots {prefix}\n")),
+        "{}",
+        done.output
+    );
+}
+
+#[test]
+fn a_new_shots_run_in_a_lane_deletes_the_ended_runs_of_other_prefixes() {
+    let s = setup("runs-shots-ended");
+    let dir = s.scratch.places().daemon_dir().join("runs");
+    let (first, second) = ("mac.component.checkbox.", "mac.component.row.");
+    s.runs
+        .start_shots("demo", Lane::Mac, COMMIT, first)
+        .unwrap();
+    s.until_shots(first, Phase::Succeeded);
+    let record = record_file(&dir, "demo", Lane::Mac, Some(first));
+    assert!(record.is_file(), "{}", record.display());
+    s.runs
+        .start_shots("demo", Lane::Mac, COMMIT, second)
+        .unwrap();
+    assert!(s.runs.shots_page("demo", Lane::Mac, first).is_none());
+    assert!(!record.exists() && !log_file(&dir, "demo", Lane::Mac, Some(first)).exists());
+    s.until_shots(second, Phase::Succeeded);
+}
+
+#[test]
+fn a_shots_run_of_no_commit_or_another_lane_s_prefix_starts_nothing() {
+    let s = setup("runs-shots-invalid");
+    for (commit, prefix) in [
+        ("main", "mac.component.checkbox."),
+        (COMMIT, "android.component.checkbox."),
+        (COMMIT, "mac.component/../x."),
+        (COMMIT, "mac."),
+    ] {
+        let refused = s
+            .runs
+            .start_shots("demo", Lane::Mac, commit, prefix)
+            .unwrap_err();
+        assert!(
+            matches!(refused, StartError::Invalid(_)),
+            "{commit} {prefix}: {refused:?}"
+        );
+    }
+}
+
 #[test]
 fn a_run_in_the_lanes_queue_is_queued() {
     let s = setup("runs-queued");
@@ -161,7 +245,7 @@ fn a_failed_build_is_recorded_with_its_output() {
     // The record on disk says the same, so another daemon reads it so.
     let dir = s.scratch.places().daemon_dir().join("runs");
     let record: Record =
-        serde_json::from_slice(&std::fs::read(record_file(&dir, "demo", Lane::Mac)).unwrap())
+        serde_json::from_slice(&std::fs::read(record_file(&dir, "demo", Lane::Mac, None)).unwrap())
             .unwrap();
     assert_eq!(record.ended.map(|e| e.code), Some(Some(3)));
 }
@@ -178,7 +262,7 @@ fn a_build_a_stop_signal_ended_is_stopped_not_failed() {
     // The record on disk says the same, so another daemon reads it so.
     let dir = s.scratch.places().daemon_dir().join("runs");
     let record: Record =
-        serde_json::from_slice(&std::fs::read(record_file(&dir, "demo", Lane::Mac)).unwrap())
+        serde_json::from_slice(&std::fs::read(record_file(&dir, "demo", Lane::Mac, None)).unwrap())
             .unwrap();
     assert_eq!(record.ended.map(|e| e.outcome), Some(RunEnd::Stopped));
 }
@@ -210,6 +294,7 @@ fn record(pid: i32) -> Record {
         pid,
         started_at: 100,
         ended: None,
+        shots: None,
     }
 }
 
@@ -221,7 +306,11 @@ fn a_run_a_restart_did_not_see_end_is_detached_while_it_runs_and_lost_after() {
     std::fs::write(places.root.join("demo/app-checkouts"), "side-1\n").unwrap();
     let dir = places.daemon_dir().join("runs");
     std::fs::create_dir_all(&dir).unwrap();
-    std::fs::write(log_file(&dir, "demo", Lane::Mac), "before the restart\n").unwrap();
+    std::fs::write(
+        log_file(&dir, "demo", Lane::Mac, None),
+        "before the restart\n",
+    )
+    .unwrap();
 
     // A live build-app: a shell with that word among its arguments. bash,
     // not sh: macOS's /bin/sh execs the shell /private/var/select/sh names

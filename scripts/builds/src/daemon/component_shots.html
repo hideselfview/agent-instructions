@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Component shots</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+@@PALETTE@@
+@@CONTROLS@@
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 var(--sans); }
+.cs { display: flex; flex-direction: column; gap: 20px; max-width: 1200px; padding: 16px 24px 48px; }
+.cs-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.cs-head h1 { margin: 0; font: 600 20px var(--sans); }
+.cs-sub { color: var(--muted); font-size: 13px; }
+.cs-sub code, .cs-meta code { font: 500 12px var(--mono); color: var(--text-2); }
+.cs-head a { color: var(--accent); font-size: 13px; }
+.cs-lane { display: flex; flex-direction: column; gap: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.cs-lane h2 { margin: 0; font: 600 16px var(--sans); }
+.cs-meta { color: var(--muted); font-size: 13px; }
+.cs-row { display: flex; flex-direction: column; gap: 8px; padding: 8px 0 16px; }
+.cs-row h3 { margin: 0; font: 600 14px var(--sans); }
+.cs-row h3 code { font: 500 12px var(--mono); color: var(--muted); margin-left: 8px; }
+.cs-pair { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
+.cs-pair figure { margin: 0; display: flex; flex-direction: column; gap: 4px; flex: 0 1 auto; min-width: 0; max-width: 100%; }
+.cs, .cs > *, .cs-lane, .cs-row { min-width: 0; }
+.cs-meta, .cs-row h3 { overflow-wrap: anywhere; }
+.cs-pair img { display: block; max-width: 100%; height: auto; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); }
+.cs-pair figcaption { color: var(--muted); font-size: 12px; }
+.cs-said { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 2px; }
+.cs-said .finding { color: var(--bad); }
+.cs-said .warning { color: var(--warn); }
+.cs-none { color: var(--muted); }
+.cs-run { display: flex; flex-direction: column; gap: 8px; }
+.cs-run pre { margin: 0; max-height: 360px; overflow: auto; padding: 8px 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; font: 12px/1.4 var(--mono); color: var(--text-2); white-space: pre-wrap; overflow-wrap: anywhere; }
+.problem { color: var(--bad); background: var(--bad-bg); border-radius: 6px; padding: 8px 10px; font-size: 13px; overflow-wrap: anywhere; }
+@media (max-width: 600px) { .cs { padding: 8px 16px 32px; } }
+</style>
+</head>
+<body>
+<div class="cs">
+  <div class="cs-head"><h1 id="title"></h1><span class="cs-sub" id="at"></span><a id="back"></a></div>
+  <div id="main"><div class="cs-sub">Reading the shots builds keeps…</div></div>
+</div>
+<script type="application/json" id="data">@@DATA@@</script>
+<script>
+const data = JSON.parse(document.getElementById("data").textContent);
+const h = (tag, attrs, ...kids) => {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) if (v !== null && v !== undefined) el.setAttribute(k, v);
+  el.append(...kids.flat(Infinity).filter(k => k !== null && k !== undefined));
+  return el;
+};
+const short = commit => h("code", {title: commit}, commit.slice(0, 7));
+document.title = data.component + " shots";
+document.getElementById("title").textContent = data.component + " shots";
+document.getElementById("at").append("main at ", short(data.commit));
+const back = document.getElementById("back");
+back.href = data.designs + "#system";
+back.textContent = "All of " + data.project + "'s designs";
+const LANES = {mac: "Mac", android: "Android"};
+function minute(at) {
+  return new Date(at * 1000).toLocaleString([], {month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false});
+}
+
+// A preview row: its board beside the app's shot of that state, each at its
+// size in points, and the findings and warnings under them.
+function rowView(lane, row) {
+  const title = h("h3", {}, row.state, h("code", {}, row.shot));
+  if (!row.sizes) return h("article", {class: "cs-row"}, title,
+    h("div", {class: "cs-none"}, "The run has no shot of this row: no capture file declares " + row.shot + ", or the run could not take it."));
+  const picture = (side, size, caption) => h("figure", {},
+    h("img", {src: data.base + "/shot/" + lane + "/" + encodeURIComponent(row.shot) + "/" + side + ".png",
+      width: String(Math.round(size.width)), alt: caption + " of " + row.state}),
+    h("figcaption", {}, caption));
+  const said = row.findings.length
+    ? h("ul", {class: "cs-said"}, row.findings.map(f => h("li", {class: f.level}, f.sentence)))
+    : h("div", {class: "cs-none"}, "The shot matches the board.");
+  return h("article", {class: "cs-row"}, title,
+    h("div", {class: "cs-pair"}, picture("board", row.sizes.board, "Board"), picture("shot", row.sizes.shot, "Shot")), said);
+}
+
+// The shots run the dashboard started for a lane: where it is, and the end
+// of what it printed.
+const PHASES = {queued: "waits in the lane's queue", running: "runs", detached: "runs",
+  succeeded: "ended", failed: "failed", stopped: "stopped", lost: "ended, and the dashboard did not see how"};
+function captureView(p) {
+  const c = p.capture;
+  const ended = !["queued", "running", "detached"].includes(c.phase);
+  const of = c.ref === data.commit ? "this commit" : "commit " + c.ref.slice(0, 7);
+  const line = ended
+    ? "builds took the shots of " + p.prefix + " for " + of + " at " + minute(c.started_at) + ", and the run " + PHASES[c.phase]
+      + (c.exit_code !== null ? " with exit status " + c.exit_code : "") + " without keeping its findings."
+    : "builds started taking the shots of " + p.prefix + " for " + of + " at " + minute(c.started_at) + ", and the run " + PHASES[c.phase] + "."
+      + (c.ref === data.commit ? "" : " The page takes this commit's shots once it ends.");
+  const parts = [h("div", {class: ended ? "problem" : "cs-meta"}, line)];
+  if (ended && data.here) {
+    const again = h("button", {type: "button", class: "qbtn"}, "Take the shots again");
+    again.addEventListener("click", () => { again.disabled = true; capture(); });
+    parts.push(h("div", {}, again));
+  }
+  parts.push(h("pre", {}, (c.output_cut ? "…\n" : "") + c.output));
+  return h("div", {class: "cs-run"}, parts);
+}
+
+function laneView(p) {
+  const out = [h("h2", {}, LANES[p.lane] || p.lane)];
+  if (p.run) {
+    out.push(h("div", {class: "cs-meta"}, "From the run of ", h("code", {}, p.run.prefix), " that ended " + minute(p.run.recorded_at) + "."));
+    if (!p.run.rows.length) out.push(h("div", {class: "cs-none"}, "The run lists no preview row of " + data.component + " on this platform."));
+    out.push(p.run.rows.map(row => rowView(p.lane, row)));
+  } else if (p.capture) out.push(captureView(p));
+  else if (data.here) out.push(h("div", {class: "cs-meta"}, "builds keeps no shots of " + p.prefix + " for this commit, so the page asks it to take them."));
+  else out.push(h("div", {class: "cs-meta"}, "builds keeps no shots of " + p.prefix + " for this commit. The dashboard takes them when someone opens this page on its Mac."));
+  return h("section", {class: "cs-lane"}, out);
+}
+
+let failure = null;
+function render(state) {
+  const main = document.getElementById("main");
+  if (state.error) { main.replaceChildren(h("div", {class: "problem"}, state.error)); return; }
+  const parts = [];
+  if (failure) parts.push(h("div", {class: "problem"}, failure));
+  if (!state.platforms.length) parts.push(h("div", {class: "cs-meta"}, "builds takes no shots of " + data.component + ": it takes the shots of mac and Android components only."));
+  parts.push(state.platforms.map(laneView));
+  main.replaceChildren(...parts.flat());
+}
+
+// Asks the daemon to take the component's shots of this commit on each lane
+// where builds keeps none and no run takes them. The page asks once on its
+// own, when it first finds a lane with neither; the person asks again with
+// the button of a run that ended without findings.
+let state = null, asked = false;
+async function capture() {
+  failure = null;
+  try {
+    const response = await fetch(data.base + "/shots/" + encodeURIComponent(data.component) + "/capture",
+      {method: "POST", headers: {"Content-Type": "application/json"}, body: "{}"});
+    if (!response.ok) failure = "Taking the shots failed: " + ((await response.json()).error || response.status);
+  } catch (error) {
+    failure = "Taking the shots failed: " + error;
+  }
+  if (state) render(state);
+}
+const events = new EventSource(data.base + "/shots/" + encodeURIComponent(data.component) + "/events");
+events.addEventListener("shots", e => {
+  state = JSON.parse(e.data);
+  render(state);
+  if (state.error) return;
+  const running = p => p.capture && ["queued", "running", "detached"].includes(p.capture.phase);
+  // A run of another commit holds the lane's prefix: once it ends, the page
+  // asks again.
+  if (state.platforms.some(p => running(p) && p.capture.ref !== data.commit)) asked = false;
+  const missing = state.platforms.some(p => !p.run && !running(p) && (!p.capture || p.capture.ref !== data.commit));
+  if (missing && data.here && !asked) { asked = true; capture(); }
+});
+</script>
+</body>
+</html>

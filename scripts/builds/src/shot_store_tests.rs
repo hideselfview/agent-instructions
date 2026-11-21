@@ -164,6 +164,34 @@ fn the_before_run_is_the_newest_run_of_the_version_whose_prefix_starts_the_runs_
 }
 
 #[test]
+fn the_run_that_covers_a_prefix_is_found_without_marking_it_used() {
+    let scratch = Scratch::new("shot-store-covering");
+    let places = scratch.places();
+    let stored = store_run(&places, &key("mac.component."), 1, "x\n", true);
+    let file = stored.folder.join(RUN_FILE);
+    age(&file, 48);
+    let aged = std::fs::metadata(&file).unwrap().modified().unwrap();
+    let found = covering_run(
+        &places,
+        "demo",
+        &"a".repeat(40),
+        Lane::Mac,
+        "mac.component.checkbox.",
+        "0123456789abcdef",
+    )
+    .unwrap()
+    .expect("the run of mac.component. covers the component");
+    assert_eq!(found.folder, stored.folder);
+    assert_eq!(
+        std::fs::metadata(&file).unwrap().modified().unwrap(),
+        aged,
+        "a page that reads the run again each time the dashboard changes writes nothing"
+    );
+    mark_used(&found).unwrap();
+    assert!(std::fs::metadata(&file).unwrap().modified().unwrap() > aged);
+}
+
+#[test]
 fn a_read_marks_the_run_used() {
     let scratch = Scratch::new("shot-store-used");
     let places = scratch.places();

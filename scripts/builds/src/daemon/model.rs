@@ -1181,6 +1181,77 @@ impl Model {
         }))
     }
 
+    /// The name of the repo that holds project <project>'s design files and
+    /// its main checkout, as `design_repo` finds them.
+    fn design_repo_named(&self, project: &str) -> Option<crate::fail::Result<(String, PathBuf)>> {
+        Some(self.design_checkout(project)?.and_then(|main| {
+            let name = main
+                .file_name()
+                .and_then(|name| name.to_str())
+                .ok_or_else(|| {
+                    crate::fail::Fail::Message(format!("{} names no repo", main.display()))
+                })?
+                .to_string();
+            Ok((name, main))
+        }))
+    }
+
+    /// The page of component <name>'s shots in project <project>, at the
+    /// commit origin/main names; <here> when it is asked for on this Mac.
+    pub fn component_shots_page(
+        &self,
+        project: &str,
+        name: &str,
+        here: bool,
+    ) -> Option<crate::fail::Result<String>> {
+        Some(self.design_repo_named(project)?.and_then(|(repo, main)| {
+            super::component_shots::page(&self.places, project, &repo, &main, name, here)
+        }))
+    }
+
+    /// What the component page shows of component <name> of project
+    /// <project> at <commit> (`component_shots::shots`).
+    pub fn component_shots(
+        &self,
+        project: &str,
+        commit: &str,
+        name: &str,
+    ) -> Option<crate::fail::Result<super::component_shots::Shots>> {
+        Some(self.design_repo_named(project)?.and_then(|(repo, _)| {
+            super::component_shots::shots(&self.places, &repo, commit, name, &|lane, prefix| {
+                self.runs.shots_page(&repo, lane, prefix)
+            })
+        }))
+    }
+
+    /// Takes component <name>'s shots of <commit> of project <project>'s
+    /// repo where builds keeps none (`component_shots::start`).
+    pub fn capture_component(
+        &self,
+        project: &str,
+        commit: &str,
+        name: &str,
+    ) -> Option<crate::fail::Result<()>> {
+        Some(self.design_repo_named(project)?.and_then(|(repo, _)| {
+            super::component_shots::start(&self.places, &self.runs, &repo, commit, name)
+        }))
+    }
+
+    /// The <side> picture of the pair <shot> on <lane> in the run builds
+    /// keeps of <commit> of project <project>'s repo.
+    pub fn shot_picture(
+        &self,
+        project: &str,
+        commit: &str,
+        lane: crate::lane::Lane,
+        shot: &str,
+        side: super::component_shots::Side,
+    ) -> Option<crate::fail::Result<Option<Vec<u8>>>> {
+        Some(self.design_repo_named(project)?.and_then(|(repo, _)| {
+            super::component_shots::picture(&self.places, &repo, commit, lane, shot, side)
+        }))
+    }
+
     /// Where the rules review of each open design change that waits on the
     /// person's approval stands, by project and id (`design_review`).
     fn design_reviews(

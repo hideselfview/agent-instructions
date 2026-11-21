@@ -68,6 +68,18 @@
 //!     /designs/<project>/<commit>/component/<name>
 //!                   a board, or a component's preview, at that commit,
 //!                   drawn now; the Designs page's frames load these
+//!     /designs/<project>/component/<name>
+//!                   the page of a component's shots at the commit
+//!                   origin/main names (component_shots.rs)
+//!     /designs/<project>/<commit>/shots/<name>/events
+//!                   `shots` events: what the component page shows of the
+//!                   component at that commit, on connect and each time it
+//!                   changes
+//!     POST /designs/<project>/<commit>/shots/<name>/capture  takes the
+//!                   component's shots of that commit on each lane where
+//!                   builds keeps none; only from this Mac
+//!     /designs/<project>/<commit>/shot/<lane>/<shot>/board.png and /shot.png
+//!                   a pair's pictures in the run builds keeps of the commit
 //!     /events       `state` events: the whole state on connect and each time
 //!                   it changes, at most four a second; `lists` events: the
 //!                   lists JSON on connect and each time it changes, never
@@ -78,8 +90,10 @@ use std::net::{TcpListener, TcpStream};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use super::component_shots::Side as PictureSide;
 use super::model::Model;
 use crate::design_render::Side;
+use crate::lane::Lane;
 
 /// The page, with the colors and fonts it shares with the Designs page.
 static PAGE: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
@@ -215,6 +229,26 @@ fn handle(mut stream: TcpStream, names: &[String], model: &Model) -> std::io::Re
     {
         return publish_events(stream, model, project);
     }
+    if let Some((project, commit, component, ask)) = shots_target(path) {
+        return match (method, ask) {
+            ("GET", ShotsAsk::Events) => shots_events(stream, model, project, commit, component),
+            ("POST", ShotsAsk::Capture) => json(
+                &mut stream,
+                match model.capture_component(project, commit, component) {
+                    None => Err(crate::fail::Fail::Message(format!(
+                        "project {project} has no design files"
+                    ))),
+                    Some(started) => started.map(|()| b"{}".to_vec()),
+                },
+            ),
+            _ => respond(
+                &mut stream,
+                "405 Method Not Allowed",
+                "text/plain; charset=utf-8",
+                b"GET the events, POST the capture\n",
+            ),
+        };
+    }
     if let Some(project) = publish_target(path) {
         return match method {
             "POST" if length > MAX_BODY => respond(
@@ -237,7 +271,7 @@ fn handle(mut stream: TcpStream, names: &[String], model: &Model) -> std::io::Re
             &mut stream,
             "405 Method Not Allowed",
             "text/plain; charset=utf-8",
-            b"GET only, and POST /api/queue, /api/build-app, /api/question-effect, /design/PROJECT/N/approve and /designs/PROJECT/publish\n",
+            b"GET only, and POST /api/queue, /api/build-app, /api/question-effect, /design/PROJECT/N/approve, /designs/PROJECT/publish and /designs/PROJECT/COMMIT/shots/COMPONENT/capture\n",
         );
     }
     if let Some(route) = super::scratch_view::route(path) {
@@ -282,7 +316,27 @@ fn handle(mut stream: TcpStream, names: &[String], model: &Model) -> std::io::Re
         ),
         "/events" => events(stream, model),
         _ if path.starts_with("/designs/") => {
-            let drawn = designs_route(&path["/designs/".len()..]).and_then(|route| match route {
+            let route = designs_route(&path["/designs/".len()..]);
+            if let Some(DesignsRoute::Picture(project, commit, lane, shot, side)) = route {
+                return match model.shot_picture(project, commit, lane, shot, side) {
+                    Some(Ok(Some(picture))) => {
+                        respond(&mut stream, "200 OK", "image/png", &picture)
+                    }
+                    Some(Err(error)) => respond(
+                        &mut stream,
+                        "500 Internal Server Error",
+                        "text/plain; charset=utf-8",
+                        format!("{}\n", error.text()).as_bytes(),
+                    ),
+                    None | Some(Ok(None)) => respond(
+                        &mut stream,
+                        "404 Not Found",
+                        "text/plain; charset=utf-8",
+                        b"builds keeps no such picture of that commit\n",
+                    ),
+                };
+            }
+            let drawn = route.and_then(|route| match route {
                 DesignsRoute::Page(project) => model.designs_page(project, here),
                 DesignsRoute::Board(project, commit, name) => {
                     model.designs_board(project, commit, name)
@@ -290,6 +344,10 @@ fn handle(mut stream: TcpStream, names: &[String], model: &Model) -> std::io::Re
                 DesignsRoute::Component(project, commit, name) => {
                     model.designs_preview(project, commit, name)
                 }
+                DesignsRoute::ComponentShots(project, name) => {
+                    model.component_shots_page(project, name, here)
+                }
+                DesignsRoute::Picture(..) => unreachable!("answered above"),
             });
             drawn_page(
                 &mut stream,
@@ -355,15 +413,34 @@ enum DesignsRoute<'a> {
     Board(&'a str, &'a str, &'a str),
     /// Component <name>'s preview at the commit.
     Component(&'a str, &'a str, &'a str),
+    /// The page of component <name>'s shots.
+    ComponentShots(&'a str, &'a str),
+    /// A picture of the pair <shot> on the lane, in the run builds keeps of
+    /// the commit.
+    Picture(&'a str, &'a str, Lane, &'a str, PictureSide),
 }
 
 /// <rest> is the path after `/designs/`: `<project>`,
-/// `<project>/<commit>/board/<name>` or `<project>/<commit>/component/<name>`,
-/// where the commit is a full commit id, as the page names it.
+/// `<project>/component/<name>`, `<project>/<commit>/board/<name>`,
+/// `<project>/<commit>/component/<name>` or
+/// `<project>/<commit>/shot/<lane>/<shot>/board.png` (or `shot.png`), where
+/// the commit is a full commit id, as the page names it.
 fn designs_route(rest: &str) -> Option<DesignsRoute<'_>> {
     let parts: Vec<&str> = rest.split('/').collect();
     match parts.as_slice() {
         [project] if !project.is_empty() => Some(DesignsRoute::Page(project)),
+        [project, "component", name] if !name.is_empty() => {
+            Some(DesignsRoute::ComponentShots(project, name))
+        }
+        [project, commit, "shot", lane, shot, file] if super::designs::is_commit(commit) => {
+            Some(DesignsRoute::Picture(
+                project,
+                commit,
+                Lane::parse(lane)?,
+                shot,
+                PictureSide::parse(file.strip_suffix(".png")?)?,
+            ))
+        }
         [project, commit, "board", name] if super::designs::is_commit(commit) => {
             Some(DesignsRoute::Board(project, commit, name))
         }
@@ -480,6 +557,67 @@ fn allowed(method: &str, asker: &Asker<'_>) -> bool {
 /// reaches any route.
 fn changes_state(method: &str) -> bool {
     method != "GET" && method != "HEAD"
+}
+
+/// What a `/designs/<project>/<commit>/shots/<name>/...` path asks for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ShotsAsk {
+    /// The stream of what the component page shows.
+    Events,
+    /// Taking the component's shots where builds keeps none.
+    Capture,
+}
+
+/// The project, commit, component and ask of
+/// `/designs/<project>/<commit>/shots/<name>/events` or `.../capture`.
+fn shots_target(path: &str) -> Option<(&str, &str, &str, ShotsAsk)> {
+    let parts: Vec<&str> = path.strip_prefix("/designs/")?.split('/').collect();
+    match parts.as_slice() {
+        [project, commit, "shots", name, ask] if super::designs::is_commit(commit) => {
+            let ask = match *ask {
+                "events" => ShotsAsk::Events,
+                "capture" => ShotsAsk::Capture,
+                _ => return None,
+            };
+            Some((project, commit, name, ask))
+        }
+        _ => None,
+    }
+}
+
+/// Streams `shots` events of component <component> of project <project> at
+/// <commit> until the page goes: what the component page shows
+/// (`component_shots::shots`) on connect and each time it differs from what
+/// the stream sent last, read again on each change of the dashboard's state,
+/// which a shots run's start, output and end move.
+fn shots_events(
+    mut stream: TcpStream,
+    model: &Model,
+    project: &str,
+    commit: &str,
+    component: &str,
+) -> std::io::Result<()> {
+    write!(
+        stream,
+        "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-store\r\nConnection: keep-alive\r\n\r\n"
+    )?;
+    let mut seen = 0;
+    let mut sent: Option<String> = None;
+    loop {
+        let shots = match model.component_shots(project, commit, component) {
+            Some(shots) => super::component_shots::shots_json(shots),
+            None => {
+                serde_json::json!({ "error": format!("project {project} has no design files") })
+            }
+        }
+        .to_string();
+        if sent.as_ref() != Some(&shots) {
+            write!(stream, "event: shots\ndata: {shots}\n\n")?;
+            stream.flush()?;
+            sent = Some(shots);
+        }
+        seen = model.wait_change(seen);
+    }
 }
 
 /// The project of `/designs/<project>/publish`.
