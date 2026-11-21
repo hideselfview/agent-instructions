@@ -58,6 +58,20 @@ fn the_frame_comes_from_the_canvas() {
 }
 
 #[test]
+fn a_canvas_entry_that_names_no_board_file_fails_the_frames() {
+    let root = tree();
+    std::fs::write(
+        root.path().join(boards::CANVAS),
+        r#"{"boards": {"mac.a.b.dc.html": {"w": 690, "h": 600}, "mac.a.c.png": {"w": 1, "h": 1}}}"#,
+    )
+    .unwrap();
+    assert!(matches!(
+        frames(root.path()),
+        Err(DesignError::NoBoardFile(file)) if file == "mac.a.c.png"
+    ));
+}
+
+#[test]
 fn the_design_system_comes_from_the_repos_sources_and_its_canvas_namespace() {
     let root = tree();
     let r = root.path();

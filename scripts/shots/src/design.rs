@@ -16,6 +16,8 @@ pub(crate) enum DesignError {
     BadCanvas(PathBuf, String),
     #[error("canvas.json has no board {0}")]
     NoFrame(String),
+    #[error("canvas.json has a board {0}, which names no board file (<name>.dc.html)")]
+    NoBoardFile(String),
 }
 
 /// A board's frame on the canvas, in points.
@@ -81,14 +83,16 @@ pub(crate) fn frames(root: &Path) -> Result<BTreeMap<String, Frame>, DesignError
     let path = root.join(boards::CANVAS);
     let canvas: Canvas = serde_json::from_slice(&read(&path)?)
         .map_err(|e| DesignError::BadCanvas(path, e.to_string()))?;
-    Ok(canvas
+    canvas
         .boards
         .into_iter()
-        .filter_map(|(file, frame)| {
-            file.strip_suffix(boards::BOARD_SUFFIX)
-                .map(|name| (name.to_string(), frame))
-        })
-        .collect())
+        .map(
+            |(file, frame)| match file.strip_suffix(boards::BOARD_SUFFIX) {
+                Some(name) => Ok((name.to_string(), frame)),
+                None => Err(DesignError::NoBoardFile(file)),
+            },
+        )
+        .collect()
 }
 
 /// The board's frame from `canvas.json`.

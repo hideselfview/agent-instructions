@@ -297,14 +297,18 @@ pub(crate) fn read(root: &Path, at: Option<&str>, cache: &Path) -> Result<Vec<Un
 }
 
 /// Draws every board and every preview of the repo at <root> and reads the
-/// components each draws.
-/// A repo with no preview has no state to list, so nothing is drawn.
+/// components each draws. A repo with no preview has no state to list, so
+/// nothing is drawn.
 fn draw(root: &Path, settings: &Settings, cache: &Path) -> Result<Drawn, String> {
     let previews = Previews::of(root)?;
     let Some((first, _)) = previews.components.first() else {
         return Ok(Drawn::default());
     };
-    let rows = &settings.preview(first).map_err(|e| e.to_string())?.row;
+    let rows = settings
+        .preview(first)
+        .map_err(|e| e.to_string())?
+        .row
+        .as_str();
     let runtime = runtime::check(root).map_err(|e| e.to_string())?;
     let design = DesignSystem::of(root, cache).map_err(|e| e.to_string())?;
     let frames = design::frames(root).map_err(|e| e.to_string())?;
@@ -313,84 +317,77 @@ fn draw(root: &Path, settings: &Settings, cache: &Path) -> Result<Drawn, String>
         design: &design,
         runtime: runtime.copy.text,
     };
-    let job = Job {
-        rows,
-        previews: &previews,
-        frames: &frames,
-    };
     render::with_browser(tree, cache, async |server, chrome| {
-        job.draw(server, chrome).await
+        let boards = frames.iter().map(|(name, frame)| Sheet {
+            name,
+            url: server.board_url(name),
+            frame: *frame,
+            mounted: board::BOARD_MOUNTED,
+            rows: None,
+            what: name.clone(),
+        });
+        let previews = previews.components.iter().map(|(name, _)| Sheet {
+            name,
+            url: server.preview_url(name),
+            frame: preview::PREVIEW_FRAME,
+            mounted: PREVIEW_LOADED,
+            rows: Some(rows),
+            what: format!("the preview of {name}"),
+        });
+        Ok(Drawn {
+            boards: read_sheets(chrome, boards).await?,
+            previews: read_sheets(chrome, previews).await?,
+        })
     })
 }
 
-/// What one drawing of a repo's boards and previews reads.
-struct Job<'a> {
-    /// The selector of a preview's rows.
-    rows: &'a str,
-    previews: &'a Previews,
-    /// Each board's frame, by board name.
-    frames: &'a BTreeMap<String, Frame>,
+/// One page to draw and read: a board, or a component's preview.
+struct Sheet<'a> {
+    /// The board's name, or the component's.
+    name: &'a str,
+    url: String,
+    frame: Frame,
+    /// The element that says the page has loaded.
+    mounted: &'a str,
+    /// The selector of a preview's rows; none for a board.
+    rows: Option<&'a str>,
+    /// What an error names the page as.
+    what: String,
 }
 
-impl Job<'_> {
-    async fn draw(&self, server: &serve::Server, chrome: &chrome::Chrome) -> Result<Drawn, String> {
-        let boards = futures::stream::iter(self.frames.iter().map(|(name, frame)| async move {
-            let found = chrome
-                .with_page(async |page| {
-                    board::load(
-                        page,
-                        name,
-                        &server.board_url(name),
-                        *frame,
-                        1.0,
-                        board::BOARD_MOUNTED,
-                    )
-                    .await
-                    .map_err(|e| e.to_string())?;
-                    instances::instances(page, None)
-                        .await
-                        .map_err(|e| e.to_string())
-                })
+/// Draws each of <sheets>, several at once, and reads the components each
+/// draws, by name.
+async fn read_sheets(
+    chrome: &chrome::Chrome,
+    sheets: impl Iterator<Item = Sheet<'_>>,
+) -> Result<Vec<(String, Vec<Instance>)>, String> {
+    let read = futures::stream::iter(sheets.map(|sheet| async move {
+        let found = chrome
+            .with_page(async |page| {
+                board::load(
+                    page,
+                    sheet.name,
+                    &sheet.url,
+                    sheet.frame,
+                    1.0,
+                    sheet.mounted,
+                )
                 .await
-                .map_err(|e| format!("{name}: {e}"))?;
-            Ok::<_, String>((name.clone(), found))
-        }))
-        .buffer_unordered(PAGES)
-        .collect::<Vec<_>>()
-        .await;
-        let previews =
-            futures::stream::iter(self.previews.components.iter().map(|(name, _)| async move {
-                let found = chrome
-                    .with_page(async |page| {
-                        board::load(
-                            page,
-                            name,
-                            &server.preview_url(name),
-                            preview::PREVIEW_FRAME,
-                            1.0,
-                            PREVIEW_LOADED,
-                        )
-                        .await
-                        .map_err(|e| e.to_string())?;
-                        instances::instances(page, Some(self.rows))
-                            .await
-                            .map_err(|e| e.to_string())
-                    })
+                .map_err(|e| e.to_string())?;
+                instances::instances(page, sheet.rows)
                     .await
-                    .map_err(|e| format!("the preview of {name}: {e}"))?;
-                Ok::<_, String>((name.clone(), found))
-            }))
-            .buffer_unordered(PAGES)
-            .collect::<Vec<_>>()
-            .await;
-        let mut drawn = Drawn {
-            boards: boards.into_iter().collect::<Result<_, _>>()?,
-            previews: previews.into_iter().collect::<Result<_, _>>()?,
-        };
-        drawn.boards.sort_by(|a, b| a.0.cmp(&b.0));
-        drawn.previews.sort_by(|a, b| a.0.cmp(&b.0));
-        Ok(drawn)
-    }
+                    .map_err(|e| e.to_string())
+            })
+            .await
+            .map_err(|e| format!("{}: {e}", sheet.what))?;
+        Ok::<_, String>((sheet.name.to_string(), found))
+    }))
+    .buffer_unordered(PAGES)
+    .collect::<Vec<_>>()
+    .await;
+    let mut read = read.into_iter().collect::<Result<Vec<_>, _>>()?;
+    read.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(read)
 }
 
 #[cfg(test)]
