@@ -229,7 +229,7 @@ fn names(canvas: Option<&str>) -> Result<bool> {
 }
 
 fn refused(canvas: &str, words: &str) {
-    let error = names(Some(canvas)).unwrap_err();
+    let error = names(Some(canvas)).expect_err(canvas);
     assert!(
         matches!(&error, crate::fail::Fail::Message(m) if m.contains(CANVAS) && m.contains(words)),
         "{canvas}: {error:?}"
@@ -252,23 +252,30 @@ fn only_a_canvas_that_names_no_design_system_answers_false() {
 
 #[test]
 fn every_malformed_canvas_is_an_error_that_names_the_file() {
-    refused("not json", "not JSON");
+    refused("not json", "is not a canvas");
+    for top in ["[]", r#""demo""#, "5", "null"] {
+        refused(top, "is not a canvas");
+    }
     for wrong in [r#""demo""#, "5", r#"{"namespace": "demo"}"#, "true"] {
-        refused(&format!(r#"{{"designSystems": {wrong}}}"#), "is no list");
+        refused(
+            &format!(r#"{{"designSystems": {wrong}}}"#),
+            "is not a canvas",
+        );
     }
     refused(
         r#"{"designSystems": [{"namespace": "a"}, {"namespace": "b"}]}"#,
         "more than one",
     );
-    for entry in [
-        r#"{"namespace": "Bad Name"}"#,
-        r#"{"namespace": ""}"#,
-        "{}",
-        r#""demo""#,
-    ] {
+    for entry in [r#"{"namespace": "Bad Name"}"#, r#"{"namespace": ""}"#] {
         refused(
             &format!(r#"{{"designSystems": [{entry}]}}"#),
             "design system",
+        );
+    }
+    for entry in ["{}", r#""demo""#, r#"{"namespace": 5}"#] {
+        refused(
+            &format!(r#"{{"designSystems": [{entry}]}}"#),
+            "is not a canvas",
         );
     }
 }

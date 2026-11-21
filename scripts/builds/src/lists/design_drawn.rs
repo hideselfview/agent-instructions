@@ -145,23 +145,33 @@ fn names_design_system(top: &Path, rev: &str) -> Result<bool> {
         boards::git(top).args(["show", &format!("{rev}:{}", boards::CANVAS)]),
         &format!("read {} at {rev}", boards::CANVAS),
     )?;
-    let canvas: serde_json::Value = serde_json::from_str(&text).map_err(|e| {
-        crate::fail::Fail::Message(format!("{} at {rev} is not JSON: {e}", boards::CANVAS))
-    })?;
-    match &canvas["designSystems"] {
-        serde_json::Value::Null => return Ok(false),
-        serde_json::Value::Array(systems) if systems.is_empty() => return Ok(false),
-        serde_json::Value::Array(_) => {}
-        _ => fail!(
-            "{} at {rev}: designSystems is no list, so it names no design system the boards load",
-            boards::CANVAS
-        ),
+    let not_a_canvas = |e: serde_json::Error| {
+        crate::fail::Fail::Message(format!("{} at {rev} is not a canvas: {e}", boards::CANVAS))
+    };
+    // serde reads a JSON list as a struct's fields in order, so the canvas is
+    // read as an object first.
+    let mut fields: serde_json::Map<String, serde_json::Value> =
+        serde_json::from_str(&text).map_err(not_a_canvas)?;
+    let systems: Vec<System> = match fields.remove("designSystems") {
+        None => Vec::new(),
+        Some(listed) => serde_json::from_value(listed).map_err(not_a_canvas)?,
+    };
+    if systems.is_empty() {
+        return Ok(false);
     }
     // Two systems, or a namespace that is no folder name, is a broken canvas.
-    boards::design_namespace(&canvas).map_err(|e| {
+    let named = serde_json::json!({ "designSystems": systems });
+    boards::design_namespace(&named).map_err(|e| {
         crate::fail::Fail::Message(format!("{} at {rev}: {}", boards::CANVAS, e.text()))
     })?;
     Ok(true)
+}
+
+/// One entry of canvas.json's `designSystems`: serde refuses an entry with no
+/// namespace and a list that holds anything but entries.
+#[derive(serde::Deserialize, serde::Serialize)]
+struct System {
+    namespace: String,
 }
 
 /// Whether each path a design change shows draws the same at two commits.
