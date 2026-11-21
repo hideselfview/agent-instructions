@@ -264,3 +264,35 @@ fn the_page_names_the_component_and_the_commit_origin_main_names() {
         "{error}"
     );
 }
+
+#[test]
+fn a_kept_run_that_lists_no_rows_of_the_component_fails_the_read() {
+    let scratch = Scratch::new("component-shots-unlisted");
+    let places = scratch.places();
+    let mut findings = checkbox_findings();
+    findings["components"] = json!([]);
+    keep_run(&places, Lane::Mac, "mac.component.", findings, &[]);
+    let error = shots(&places, "demo", COMMIT, "MacCheckbox", &no_capture)
+        .unwrap_err()
+        .text();
+    assert!(
+        error.contains("lists no preview rows of MacCheckbox on mac"),
+        "{error}"
+    );
+}
+
+#[test]
+fn a_listed_row_whose_shot_is_not_the_component_s_fails_the_read() {
+    let scratch = Scratch::new("component-shots-stray-row");
+    let places = scratch.places();
+    let mut findings = checkbox_findings();
+    findings["components"][0]["rows"] = json!(["mac.component.row.plain"]);
+    keep_run(&places, Lane::Mac, "mac.component.", findings, &[]);
+    let error = shots(&places, "demo", COMMIT, "MacCheckbox", &no_capture)
+        .unwrap_err()
+        .text();
+    assert!(
+        error.contains("mac.component.row.plain") && error.contains("mac.component.checkbox."),
+        "{error}"
+    );
+}

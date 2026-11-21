@@ -191,26 +191,6 @@ fn a_new_shots_run_in_a_lane_deletes_the_ended_runs_of_other_prefixes() {
 }
 
 #[test]
-fn a_shots_run_of_no_commit_or_another_lane_s_prefix_starts_nothing() {
-    let s = setup("runs-shots-invalid");
-    for (commit, prefix) in [
-        ("main", "mac.component.checkbox."),
-        (COMMIT, "android.component.checkbox."),
-        (COMMIT, "mac.component/../x."),
-        (COMMIT, "mac."),
-    ] {
-        let refused = s
-            .runs
-            .start_shots("demo", Lane::Mac, commit, prefix)
-            .unwrap_err();
-        assert!(
-            matches!(refused, StartError::Invalid(_)),
-            "{commit} {prefix}: {refused:?}"
-        );
-    }
-}
-
-#[test]
 fn a_run_in_the_lanes_queue_is_queued() {
     let s = setup("runs-queued");
     s.control("hold-mac");

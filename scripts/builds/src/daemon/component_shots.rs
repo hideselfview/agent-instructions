@@ -107,7 +107,6 @@ pub struct Said {
 /// The parts of a run's findings.json that the page reads.
 #[derive(Deserialize)]
 struct File {
-    scenes: Vec<String>,
     sizes: std::collections::BTreeMap<String, Sizes>,
     components: Vec<Listed>,
     findings: Vec<Record>,
@@ -206,31 +205,37 @@ pub fn shots(
 }
 
 /// <component>'s rows on <lane> in the kept run <stored>: the rows its
-/// findings.json lists for the component, with the pairs it checked.
+/// findings.json lists for the component, with the pairs it checked. A run by
+/// this shots version lists each component with a preview, so a run that
+/// lists none of <component>, or a row of it whose shot does not start with
+/// <prefix>, fails the read.
 fn read_run(stored: &Stored, component: &str, lane: Lane, prefix: &str) -> Result<Run> {
     let path = stored.findings_json();
     let text = std::fs::read_to_string(&path).context(|| format!("reading {}", path.display()))?;
     let file: File = serde_json::from_str(&text)
         .map_err(|error| Fail::Message(format!("{}: {error}", path.display())))?;
-    let listed = file
+    let Some(listed) = file
         .components
         .iter()
-        .find(|listed| listed.name == component && listed.platform == lane.word());
-    // A component the run lists no preview of has the rows of the pairs it
-    // checked.
-    let shots: Vec<&String> = match listed {
-        Some(listed) => listed.rows.iter().collect(),
-        None => file
-            .scenes
-            .iter()
-            .filter(|scene| scene.starts_with(prefix))
-            .collect(),
+        .find(|listed| listed.name == component && listed.platform == lane.word())
+    else {
+        fail!(
+            "{} lists no preview rows of {component} on {}, and the commit has its preview",
+            path.display(),
+            lane.word()
+        );
     };
-    let rows = shots
-        .into_iter()
-        .map(|shot| Row {
+    let mut rows = Vec::new();
+    for shot in &listed.rows {
+        let Some(state) = shot.strip_prefix(prefix) else {
+            fail!(
+                "{} lists {shot} as a row of {component}, whose shots start with {prefix}",
+                path.display()
+            );
+        };
+        rows.push(Row {
             shot: shot.clone(),
-            state: shot.strip_prefix(prefix).unwrap_or(shot).to_string(),
+            state: state.to_string(),
             sizes: file.sizes.get(shot).cloned(),
             findings: file
                 .findings
@@ -238,8 +243,8 @@ fn read_run(stored: &Stored, component: &str, lane: Lane, prefix: &str) -> Resul
                 .filter(|record| &record.scene == shot)
                 .map(|record| record.said.clone())
                 .collect(),
-        })
-        .collect();
+        });
+    }
     Ok(Run {
         prefix: stored.key.prefix.clone(),
         recorded_at: stored.recorded_at,

@@ -342,7 +342,10 @@ impl Runs {
     /// Starts `app-build <repo> <commit> --shots <prefix>`, which takes the
     /// shots of <commit> whose names start with <prefix> on <lane>, unless a
     /// shots run of that prefix is running; deletes the ended shots runs of
-    /// the lane's other prefixes. One call starts at most one run.
+    /// the lane's other prefixes. One call starts at most one run. The
+    /// component page is the one caller: its route checked that <commit> is a
+    /// full commit id, and `ComponentKey::prefix` built <prefix> from a
+    /// component's name (component_shots.rs).
     pub fn start_shots(
         self: &Arc<Self>,
         repo: &str,
@@ -352,27 +355,6 @@ impl Runs {
     ) -> std::result::Result<(), StartError> {
         if !plain_name(repo) {
             return Err(StartError::Invalid(format!("{repo:?} is not a repo name")));
-        }
-        if !super::designs::is_commit(commit) {
-            return Err(StartError::Invalid(format!(
-                "{commit:?} is not a full commit id"
-            )));
-        }
-        let own = prefix
-            .strip_prefix(lane.word())
-            .and_then(|rest| rest.strip_prefix('.'));
-        let plain = |rest: &str| {
-            rest.ends_with('.')
-                && !rest.contains("..")
-                && rest
-                    .bytes()
-                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'.')
-        };
-        if !own.is_some_and(plain) {
-            return Err(StartError::Invalid(format!(
-                "{prefix:?} is no prefix of some of the {} lane's shots",
-                lane.word()
-            )));
         }
         let key = (repo.to_string(), lane, Some(prefix.to_string()));
         let mut state = self.state.lock().expect("no panic holding it");
