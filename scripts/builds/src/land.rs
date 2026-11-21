@@ -170,11 +170,16 @@ const USAGE: &str = "usage: builds land <worktree> [--project P] [--done N]... [
 /// How many times a refused push is tried again from a fresh fetch.
 const ATTEMPTS: usize = 5;
 
-pub fn cmd_land(places: &crate::places::Places, args: &[String]) -> Result<()> {
-    let program = crate::this_program()?;
+pub fn cmd_land(tool: &crate::tool::Tool, args: &[String]) -> Result<()> {
     let stores = hold_stores()?;
     let stdout = std::io::stdout();
-    land_recorded(places, &program, args, &mut stdout.lock(), stores)
+    land_recorded(
+        &tool.places,
+        &tool.program,
+        args,
+        &mut stdout.lock(),
+        stores,
+    )
 }
 
 /// Takes the use of the stores that the landing holds until it has written
