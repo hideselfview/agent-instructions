@@ -320,15 +320,24 @@ struct Rechecked<'a> {
 
 /// The text `recheck` prints for the pairs <checked>, which the checker of
 /// comparison version <version> compared again from a run of <commit>, whose
-/// pictures the checker of capture version <capture_version> made.
+/// pictures the checker of capture version <capture_version> made, with the
+/// checker's verdict <passed> on the run.
 pub(crate) fn rechecked(
     version: &str,
     capture_version: &str,
     commit: &str,
     checked: &[Checked],
+    passed: bool,
 ) -> String {
-    serde_json::to_string(&compared(version, capture_version, commit, checked))
-        .expect("the records are plain data")
+    #[derive(Serialize)]
+    struct Printed<'a> {
+        #[serde(flatten)]
+        compared: Rechecked<'a>,
+        /// Whether the checker's verdict on the run is that nothing fails.
+        passed: bool,
+    }
+    let compared = compared(version, capture_version, commit, checked);
+    serde_json::to_string(&Printed { compared, passed }).expect("the records are plain data")
 }
 
 /// The scenes <checked> names and the records of their findings.

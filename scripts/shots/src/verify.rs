@@ -230,7 +230,7 @@ pub(crate) fn verify(job: &Verification) -> Result<Outcome, String> {
         &previews,
         &design,
         runtime.copy.sha256,
-        job.checker.capture_version,
+        &job.checker.versions.capture,
         job.settings,
     )?;
     let to_draw = take_pictures(job.pictures, &hashes, &names, &boards)?;

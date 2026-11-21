@@ -1,5 +1,5 @@
 use super::*;
-use crate::shots_program::Versions;
+use crate::shots_program::{VERSIONS, Versions};
 use crate::testing::Scratch;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::PathBuf;
@@ -12,9 +12,9 @@ fn key(capture: &str, comparison: &str) -> Key {
         COMMIT,
         Lane::Mac,
         "mac.",
-        Versions {
-            capture,
-            comparison,
+        &Versions {
+            capture: capture.to_string(),
+            comparison: comparison.to_string(),
         },
     )
 }
@@ -31,8 +31,8 @@ fn cache_run(places: &Places, key: &Key) -> Cached {
     std::fs::write(
         report.join("findings.json"),
         serde_json::json!({
-            "version": key.comparison_version,
-            "capture_version": key.capture_version,
+            "version": key.versions.comparison,
+            "capture_version": key.versions.capture,
             "commit": "c",
             "scenes": ["mac.a"],
             "failed": [],
@@ -50,12 +50,12 @@ fn cache_run(places: &Places, key: &Key) -> Cached {
 /// A program that records each call in the file `calls` and prints the
 /// findings `builds shots recheck` of <comparison> makes of a run of
 /// <capture>'s pictures: no finding, where the cached run had one.
-fn recheck_program(scratch: &Scratch, capture: &str, comparison: &str) -> PathBuf {
+fn recheck_program(scratch: &Scratch, capture: &str, comparison: &str, passed: bool) -> PathBuf {
     let program = scratch.dir.join("program.sh");
     std::fs::write(
         &program,
         format!(
-            "#!/bin/sh\necho \"$@\" >> \"{}\"\necho '{{\"version\": \"{comparison}\", \"capture_version\": \"{capture}\", \"commit\": \"c\", \"scenes\": [\"mac.a\"], \"findings\": [{{\"scene\": \"mac.a\", \"level\": \"warning\", \"kind\": \"moved\", \"element\": {{\"role\": \"text\", \"words\": \"Beta\"}}, \"dx\": 1.0, \"dy\": 0.0, \"sentence\": \"new sentence\"}}]}}'\n",
+            "#!/bin/sh\necho \"$@\" >> \"{}\"\necho '{{\"version\": \"{comparison}\", \"capture_version\": \"{capture}\", \"commit\": \"c\", \"passed\": {passed}, \"scenes\": [\"mac.a\"], \"findings\": [{{\"scene\": \"mac.a\", \"level\": \"warning\", \"kind\": \"moved\", \"element\": {{\"role\": \"text\", \"words\": \"Beta\"}}, \"dx\": 1.0, \"dy\": 0.0, \"sentence\": \"new sentence\"}}]}}'\n",
             scratch.dir.join("calls").display()
         ),
     )
@@ -72,11 +72,12 @@ fn calls(scratch: &Scratch) -> String {
 fn a_change_to_the_comparison_alone_compares_the_cached_pictures_again_and_takes_no_shot() {
     let scratch = Scratch::new("compare-again");
     let places = scratch.places();
-    let old = cache_run(&places, &key("capture-1", "comparison-1"));
-    let program = recheck_program(&scratch, "capture-1", "comparison-2");
-    let new = key("capture-1", "comparison-2");
+    let capture = VERSIONS.capture.as_str();
+    let old = cache_run(&places, &key(capture, "old-comparison"));
+    let program = recheck_program(&scratch, capture, &VERSIONS.comparison, false);
+    let new = key(capture, &VERSIONS.comparison);
     assert!(shots_cache::lookup(&places, &new).unwrap().is_none());
-    let again = compare_again_with(&places, &new, &program)
+    let again = lookup(&places, &new, &program)
         .unwrap()
         .expect("the run of the other comparison version is the source");
     assert!(
@@ -107,8 +108,8 @@ fn a_change_to_the_comparison_alone_compares_the_cached_pictures_again_and_takes
     // pictures.
     let file: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(again.findings_json()).unwrap()).unwrap();
-    assert_eq!(file["version"], "comparison-2");
-    assert_eq!(file["capture_version"], "capture-1");
+    assert_eq!(file["version"], VERSIONS.comparison.as_str());
+    assert_eq!(file["capture_version"], capture);
     assert_eq!(file["findings"][0]["sentence"], "new sentence");
     assert_eq!(file["findings"].as_array().unwrap().len(), 1);
     assert!(file["sizes"]["mac.a"].is_object(), "{file}");
@@ -118,25 +119,30 @@ fn a_change_to_the_comparison_alone_compares_the_cached_pictures_again_and_takes
         again.findings
     );
     assert_eq!(
-        again.exit_code, 0,
-        "the new findings hold only a warning, whatever the old run exited"
+        again.exit_code, 1,
+        "the exit status is the checker's verdict on the new findings, not the old run's"
     );
-    // The cached run is found by the lookup that serves a branch's run and the
-    // one that finds its base run.
-    let served = shots_cache::before_run(
-        &places,
-        "demo",
-        COMMIT,
-        Lane::Mac,
-        "mac.a.",
-        Versions {
-            capture: "capture-1",
-            comparison: "comparison-2",
-        },
-    )
-    .unwrap()
-    .expect("the run covers its prefix");
-    assert_eq!(served.folder, again.folder);
+}
+
+#[test]
+fn the_run_a_branch_compares_with_is_made_by_comparing_the_base_s_cached_run_again() {
+    let scratch = Scratch::new("compare-again-before");
+    let places = scratch.places();
+    let capture = VERSIONS.capture.as_str();
+    let old = cache_run(&places, &key(capture, "old-comparison"));
+    let program = recheck_program(&scratch, capture, &VERSIONS.comparison, true);
+    let made = before_run(&places, "demo", COMMIT, Lane::Mac, "mac.a.", &program)
+        .unwrap()
+        .expect("the base's run of another comparison version is compared again");
+    assert_eq!(made.key.versions, *VERSIONS);
+    assert_eq!(made.key.prefix, old.key.prefix);
+    assert_eq!(made.exit_code, 0);
+    assert!(made.findings_json().is_file());
+    let before = std::fs::read_to_string(made.findings_json()).unwrap();
+    assert!(
+        before.contains("\"sizes\""),
+        "it keeps what a before file needs"
+    );
 }
 
 #[test]
@@ -144,13 +150,9 @@ fn a_change_to_the_capture_compares_nothing_again() {
     let scratch = Scratch::new("compare-again-capture");
     let places = scratch.places();
     cache_run(&places, &key("capture-1", "comparison-1"));
-    let program = recheck_program(&scratch, "capture-2", "comparison-1");
+    let program = recheck_program(&scratch, "capture-2", "comparison-1", true);
     let new = key("capture-2", "comparison-1");
-    assert!(
-        compare_again_with(&places, &new, &program)
-            .unwrap()
-            .is_none()
-    );
+    assert!(compare_again(&places, &new, &program).unwrap().is_none());
     assert_eq!(calls(&scratch), "", "no program ran");
     assert!(shots_cache::lookup(&places, &new).unwrap().is_none());
 }
@@ -160,11 +162,9 @@ fn a_run_whose_findings_a_program_of_other_versions_made_is_refused() {
     let scratch = Scratch::new("compare-again-mismatch");
     let places = scratch.places();
     cache_run(&places, &key("capture-1", "comparison-1"));
-    let program = recheck_program(&scratch, "capture-1", "comparison-3");
+    let program = recheck_program(&scratch, "capture-1", "comparison-3", true);
     let new = key("capture-1", "comparison-2");
-    let error = compare_again_with(&places, &new, &program)
-        .unwrap_err()
-        .text();
+    let error = compare_again(&places, &new, &program).unwrap_err().text();
     assert!(error.contains("comparison-3"), "{error}");
     assert!(shots_cache::lookup(&places, &new).unwrap().is_none());
 }

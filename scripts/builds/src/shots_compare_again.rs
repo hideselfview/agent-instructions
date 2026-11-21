@@ -33,45 +33,42 @@ use crate::text::note;
 /// and so a run made from another run does not take over.
 const FINDINGS_FILES: [&str; 2] = ["index.html", shot_causes::FILE];
 
-/// The run cached under <key>, or the run that comparing again the cached run
-/// of another comparison version makes, when <key>'s capture version has one.
-/// None when neither exists.
-pub fn lookup(places: &Places, key: &Key) -> Result<Option<Cached>> {
+/// The run cached under <key>, or the run that comparing again, with the
+/// builds program <program>, the cached run of another comparison version
+/// makes, when <key>'s capture version has one. None when neither exists.
+pub fn lookup(places: &Places, key: &Key, program: &Path) -> Result<Option<Cached>> {
     match shots_cache::lookup(places, key)? {
         Some(cached) => Ok(Some(cached)),
-        None => compare_again(places, key),
+        None => compare_again(places, key, program),
     }
 }
 
 /// The run a branch's run of <prefix> on <lane> compares with
-/// (`shots_cache::before_run`), made by comparing again the cached run of
-/// another comparison version when this version has none.
+/// (`shots_cache::before_run`), made by comparing again with the builds
+/// program <program> the cached run of another comparison version when this
+/// version has none.
 pub fn before_run(
     places: &Places,
     repo: &str,
     commit: &str,
     lane: Lane,
     prefix: &str,
+    program: &Path,
 ) -> Result<Option<Cached>> {
-    if let Some(cached) = shots_cache::before_run(places, repo, commit, lane, prefix, VERSIONS)? {
+    if let Some(cached) = shots_cache::before_run(places, repo, commit, lane, prefix, &VERSIONS)? {
         return Ok(Some(cached));
     }
-    for key in shots_cache::covering_keys(places, repo, commit, lane, prefix, VERSIONS)? {
-        compare_again(places, &key)?;
+    for key in shots_cache::covering_keys(places, repo, commit, lane, prefix, &VERSIONS)? {
+        compare_again(places, &key, program)?;
     }
-    shots_cache::before_run(places, repo, commit, lane, prefix, VERSIONS)
+    shots_cache::before_run(places, repo, commit, lane, prefix, &VERSIONS)
 }
 
 /// Compares again the newest cached run that has <key>'s commit, lane, prefix
-/// and capture version and another comparison version, with this program, and
+/// and capture version and another comparison version, with the builds program
+/// <program>, and
 /// caches the result under <key>. None when no such run is cached.
-fn compare_again(places: &Places, key: &Key) -> Result<Option<Cached>> {
-    let program = std::env::current_exe().context(|| "finding this program".to_string())?;
-    compare_again_with(places, key, &program)
-}
-
-/// `compare_again`, comparing with <program>, a builds program.
-fn compare_again_with(places: &Places, key: &Key, program: &Path) -> Result<Option<Cached>> {
+fn compare_again(places: &Places, key: &Key, program: &Path) -> Result<Option<Cached>> {
     let Some(source) = shots_cache::other_comparisons(places, key)?
         .into_iter()
         .next()
@@ -79,7 +76,7 @@ fn compare_again_with(places: &Places, key: &Key, program: &Path) -> Result<Opti
         return Ok(None);
     };
     let again = shots_check_program::recheck(program, &source)?;
-    let findings = findings_from(&source, &again, key)?;
+    let (findings, passed) = findings_from(&source, &again, key)?;
     let run = shot_causes::parse(&findings)?;
     let staging = shots_cache::stage(places, key)?;
     let report = staging.report();
@@ -88,20 +85,20 @@ fn compare_again_with(places: &Places, key: &Key, program: &Path) -> Result<Opti
     std::fs::write(&file, &findings).context(|| format!("writing {}", file.display()))?;
     let text = format!(
         "builds shots: compared again from the run of comparison version {} with the pictures of capture version {}; it has no report page and no verdict against the base run\n{}",
-        short(&source.key.comparison_version),
-        short(&key.capture_version),
+        short(&source.key.versions.comparison),
+        short(&key.versions.capture),
         shot_causes::text(&run)
     );
-    // With no base run to compare with, every finding fails the run, as a run
-    // with no `--before` does.
-    let exit_code = i64::from(run.findings.iter().any(|record| record.level == "finding"));
-    let cached = staging.finish(exit_code, &text)?;
+    // The status is the checker's own verdict on the run (`Outcome::passed`),
+    // which `builds shots recheck` prints: with no base run, every finding
+    // fails the run.
+    let cached = staging.finish(i64::from(!passed), &text)?;
     note(format!(
         "compared the pictures of the cached run of {} {} {} again with comparison version {}: no app build and no shot",
         &key.commit[..key.commit.len().min(12)],
         key.lane.word(),
         key.prefix,
-        short(&key.comparison_version)
+        short(&key.versions.comparison)
     ));
     Ok(Some(cached))
 }
@@ -113,9 +110,10 @@ fn short(version: &str) -> &str {
 
 /// The findings.json of the run made from <source>: its own file, with the
 /// comparison version and the findings that <again>, what `builds shots
-/// recheck` printed, holds. Fails when <again> is not of <key>'s versions: the
+/// recheck` printed, holds, and whether the checker's verdict on the run is
+/// that nothing fails. Fails when <again> is not of <key>'s versions: the
 /// program that compared is not the one that keys <key>.
-fn findings_from(source: &Cached, again: &str, key: &Key) -> Result<String> {
+fn findings_from(source: &Cached, again: &str, key: &Key) -> Result<(String, bool)> {
     let parse = |text: &str, what: &str| -> Result<serde_json::Value> {
         serde_json::from_str(text).context(|| format!("reading {what}"))
     };
@@ -125,19 +123,23 @@ fn findings_from(source: &Cached, again: &str, key: &Key) -> Result<String> {
         "the findings.json of the cached run",
     )?;
     let again = parse(again, "what `builds shots recheck` printed")?;
-    if again["version"] != key.comparison_version || again["capture_version"] != key.capture_version
+    if again["version"] != key.versions.comparison
+        || again["capture_version"] != key.versions.capture
     {
         fail!(
             "`builds shots recheck` made findings of comparison version {} over capture version {}, and the run to cache is of {} over {}",
             again["version"],
             again["capture_version"],
-            key.comparison_version,
-            key.capture_version
+            key.versions.comparison,
+            key.versions.capture
         );
     }
     file["version"] = again["version"].clone();
     file["findings"] = again["findings"].clone();
-    Ok(file.to_string())
+    let Some(passed) = again["passed"].as_bool() else {
+        fail!("`builds shots recheck` printed no verdict (`passed`) on the run");
+    };
+    Ok((file.to_string(), passed))
 }
 
 /// Hard-links each file of the report <from> but the findings files

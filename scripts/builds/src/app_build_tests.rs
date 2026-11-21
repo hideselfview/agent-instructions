@@ -1020,7 +1020,7 @@ fn a_store(places: &Places) -> ShotsCache {
         places: places.clone(),
         repo: "demo".to_string(),
         lane: Lane::Mac,
-        versions: crate::shots_program::VERSIONS,
+        versions: crate::shots_program::VERSIONS.clone(),
         befores: Vec::new(),
         app_tree: "0123456789abcdef".to_string(),
         no_capture: false,
@@ -1055,7 +1055,7 @@ fn shots_key(commit: &str, prefix: &str) -> shots_cache::Key {
         commit,
         Lane::Mac,
         prefix,
-        crate::shots_program::VERSIONS,
+        &crate::shots_program::VERSIONS,
     )
 }
 
@@ -1088,11 +1088,17 @@ fn a_shots_run_that_printed_findings_is_cached_under_its_commit_platform_prefix_
     );
     for other in [
         shots_cache::Key {
-            comparison_version: "0".repeat(16),
+            versions: crate::shots_program::Versions {
+                comparison: "0".repeat(16),
+                ..key.versions.clone()
+            },
             ..key.clone()
         },
         shots_cache::Key {
-            capture_version: "0".repeat(16),
+            versions: crate::shots_program::Versions {
+                capture: "0".repeat(16),
+                ..key.versions.clone()
+            },
             ..key
         },
     ] {
@@ -1220,7 +1226,16 @@ fn a_build_that_reuses_a_cached_run_leaves_the_passing_build_that_land_counts() 
         };
         crate::app_timing::record(&store.database(), &run).unwrap();
     };
-    let serve = || serve_cached(&places, "demo", "HEAD", vec![pick.clone()]).unwrap();
+    let serve = || {
+        serve_cached(
+            &places,
+            "demo",
+            "HEAD",
+            vec![pick.clone()],
+            Path::new("/nonexistent/builds"),
+        )
+        .unwrap()
+    };
     // No build of the commit ran the prefix: the cached run is not enough.
     assert_eq!(serve(), vec![pick.clone()]);
     record(RunEnd::Failed, StepResult::Failed(Default::default()));
@@ -1251,8 +1266,8 @@ fn a_build_that_reuses_a_cached_run_leaves_the_passing_build_that_land_counts() 
 
 /// A shots run that writes a report, with a findings.json that names
 /// shots checker <versions>, and says where it is.
-fn report_run(versions: crate::shots_program::Versions) -> String {
-    let (capture, version) = (versions.capture, versions.comparison);
+fn report_run(versions: &crate::shots_program::Versions) -> String {
+    let (capture, version) = (&versions.capture, &versions.comparison);
     format!(
         "mkdir -p shots/report/img; echo png > shots/report/img/a.png; echo stale > shots/report/img/old.png; echo \"<img src=\\\"img/a.png\\\">\" > shots/report/index.html; echo '{{\"version\": \"{version}\", \"capture_version\": \"{capture}\", \"commit\": \"c\", \"scenes\": [], \"findings\": []}}' > shots/report/findings.json; echo '    Running `target/debug/builds-shots run`' >&2; echo 'builds shots: report at '\"$PWD\"'/shots/report/index.html' >&2; exit 0"
     )
@@ -1265,7 +1280,7 @@ fn a_shots_run_caches_its_report_and_the_pictures_it_shows_under_its_key_in_the_
     let places = scratch.places();
     let top = scratch.dir.join("repo");
     let cached = shots_cache(&top, &places);
-    let run = report_run(crate::shots_program::VERSIONS);
+    let run = report_run(&crate::shots_program::VERSIONS);
     let step = fake("shots mac.a.", &["sh", "-c", &run], None);
     run_steps(&top, &held, &[step], &mut Vec::new(), &cached, false).unwrap();
     let key = shots_key(&resolve(&top, "HEAD").unwrap(), "mac.a.");
@@ -1298,9 +1313,9 @@ fn a_report_whose_findings_name_another_shots_checker_caches_nothing() {
     let places = scratch.places();
     let top = scratch.dir.join("repo");
     let cached = shots_cache(&top, &places);
-    let run = report_run(crate::shots_program::Versions {
-        comparison: "another",
-        ..crate::shots_program::VERSIONS
+    let run = report_run(&crate::shots_program::Versions {
+        comparison: "another".to_string(),
+        ..crate::shots_program::VERSIONS.clone()
     });
     let step = fake("shots mac.a.", &["sh", "-c", &run], None);
     run_steps(&top, &held, &[step], &mut Vec::new(), &cached, false).unwrap();
@@ -1379,6 +1394,7 @@ fn a_lanes_shots_runs_compare_with_the_cached_run_of_the_merge_base_and_a_run_of
             false,
             false,
             false,
+            Path::new("/nonexistent/builds"),
         )
     };
     let on_main = of(&main).unwrap();

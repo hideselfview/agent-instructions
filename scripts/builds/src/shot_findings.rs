@@ -221,7 +221,7 @@ pub fn key_for(
         &commit,
         lane,
         prefix,
-        crate::shots_program::VERSIONS,
+        &crate::shots_program::VERSIONS,
     ))
 }
 
@@ -254,15 +254,14 @@ fn note_run(cached: &Cached) {
         commit,
         lane,
         prefix,
-        capture_version: _,
-        comparison_version,
+        versions,
     } = &cached.key;
     note(format!(
         "{repo} {} {} {prefix}: findings of a run that ended {} ago (shots program version {}), which exited {}",
         &commit[..commit.len().min(12)],
         lane.word(),
         age(now() - cached.recorded_at),
-        &comparison_version[..comparison_version.len().min(12)],
+        &versions.comparison[..versions.comparison.len().min(12)],
         cached.exit_code
     ));
 }
@@ -313,24 +312,27 @@ pub fn how_to_make(repo: &str, git_ref: &str, lane: Lane, prefix: &str) -> Strin
 }
 
 /// The cached run of <prefix> on <lane> for <repo> at <git_ref> by this
-/// builds' shots checker, which it marks used. Fails, naming the app-build
-/// command that makes the run, when none is cached.
+/// builds' shots checker, which it marks used, comparing again with the builds
+/// program <program> the run of another comparison version when this one has
+/// none. Fails, naming the app-build command that makes the run, when none is
+/// cached.
 pub fn cached_run(
     places: &Places,
     repo: &str,
     git_ref: &str,
     lane: Lane,
     prefix: &str,
+    program: &Path,
 ) -> Result<Cached> {
     let key = key_for(places, repo, git_ref, lane, prefix)?;
-    match crate::shots_compare_again::lookup(places, &key)? {
+    match crate::shots_compare_again::lookup(places, &key, program)? {
         Some(cached) => Ok(cached),
         None => fail!(
             "no run of {prefix} on {} is cached for {repo} at {} (shots program capture version {}, comparison version {}); `{}` makes one",
             lane.word(),
             &key.commit[..12.min(key.commit.len())],
-            &key.capture_version[..12.min(key.capture_version.len())],
-            &key.comparison_version[..12.min(key.comparison_version.len())],
+            &key.versions.capture[..12.min(key.versions.capture.len())],
+            &key.versions.comparison[..12.min(key.versions.comparison.len())],
             how_to_make(repo, git_ref, lane, prefix)
         ),
     }
@@ -344,7 +346,8 @@ pub fn cmd_findings(places: &Places, args: &[String]) -> Result<()> {
         fail!("{USAGE}");
     };
     let lane = Lane::parse_or_fail(lane)?;
-    let cached = cached_run(places, repo, git_ref, lane, prefix)?;
+    let program = std::env::current_exe().context(|| "finding this program".to_string())?;
+    let cached = cached_run(places, repo, git_ref, lane, prefix, &program)?;
     if grouped {
         let text = by_cause(&cached, git_ref)?;
         note_run(&cached);

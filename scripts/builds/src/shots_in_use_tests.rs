@@ -22,8 +22,10 @@ fn cache_by(
         commit: commit.to_string(),
         lane: Lane::Mac,
         prefix: prefix.to_string(),
-        capture_version: capture.to_string(),
-        comparison_version: comparison.to_string(),
+        versions: crate::shots_program::Versions {
+            capture: capture.to_string(),
+            comparison: comparison.to_string(),
+        },
     };
     let staging = stage(places, &key).unwrap();
     std::fs::create_dir_all(staging.report()).unwrap();
@@ -36,7 +38,7 @@ fn cache(places: &Places, commit: &str, prefix: &str, comparison: &str) -> PathB
         places,
         commit,
         prefix,
-        crate::shots_program::VERSIONS.capture,
+        &crate::shots_program::VERSIONS.capture,
         comparison,
     )
 }
@@ -90,7 +92,7 @@ fn a_waiting_branchs_builds_name_their_covering_runs_and_their_base_runs() {
     let landed = git_out(&source, &["rev-parse", "HEAD"]);
     git(&source, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
 
-    let version = crate::shots_program::VERSIONS.comparison;
+    let version = crate::shots_program::VERSIONS.comparison.as_str();
     let covering = cache(&places, &waiting, "mac.", version);
     let before = cache(&places, &base, "mac.welcome.", version);
     let other_comparison = cache(&places, &waiting, "mac.welcome.", "0000");
@@ -99,7 +101,7 @@ fn a_waiting_branchs_builds_name_their_covering_runs_and_their_base_runs() {
         &waiting,
         "mac.welcome.",
         "0000",
-        crate::shots_program::VERSIONS.comparison,
+        &crate::shots_program::VERSIONS.comparison,
     );
     let other_prefix = cache(&places, &waiting, "mac.seek.", version);
     let landed_run = cache(&places, &landed, "mac.welcome.", version);

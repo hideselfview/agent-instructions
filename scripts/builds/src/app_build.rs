@@ -1009,7 +1009,7 @@ struct ShotsCache {
     lane: Lane,
     /// The versions of the shots checker the store keys the runs on: the ones
     /// this builds is built with.
-    versions: crate::shots_program::Versions<'static>,
+    versions: crate::shots_program::Versions,
     /// The findings.json of the run each shots prefix of the lane compares
     /// with, by its prefix.
     befores: Vec<(String, std::path::PathBuf)>,
@@ -1047,8 +1047,9 @@ impl ShotsCache {
         cached_shots: bool,
         retake: bool,
         base_run: bool,
+        program: &Path,
     ) -> Result<ShotsCache> {
-        let versions = crate::shots_program::VERSIONS;
+        let versions = &crate::shots_program::VERSIONS;
         let mut befores = Vec::new();
         for (_, _, prefix) in picks
             .iter()
@@ -1058,7 +1059,9 @@ impl ShotsCache {
             if base == commit {
                 continue;
             }
-            match crate::shots_compare_again::before_run(places, repo, &base, lane, prefix)? {
+            match crate::shots_compare_again::before_run(
+                places, repo, &base, lane, prefix, program,
+            )? {
                 Some(before) => befores.push((prefix.clone(), before.findings_json())),
                 None => fail!(
                     "builds holds no run of {prefix} on {} for {}, the merge base of {} with origin/main, by shots checker {} (comparison) over {} (capture), so the run has nothing to compare with; `{}` makes one",
@@ -1075,7 +1078,7 @@ impl ShotsCache {
             places: places.clone(),
             repo: repo.to_string(),
             lane,
-            versions,
+            versions: crate::shots_program::Versions::clone(versions),
             befores,
             app_tree: crate::app_tree::of(source, commit, config, lane)?,
             no_capture: cached_shots,
@@ -1190,7 +1193,7 @@ impl ShotsCache {
             return;
         }
         let staged = site.commit().and_then(|commit| {
-            let key = shots_cache::Key::new(&self.repo, &commit, self.lane, prefix, self.versions);
+            let key = shots_cache::Key::new(&self.repo, &commit, self.lane, prefix, &self.versions);
             shots_cache::stage(&self.places, &key)
         });
         let staging = match staged {
@@ -1546,6 +1549,7 @@ fn build_lane(
             cached_shots,
             fresh,
             base_run,
+            &programs.builds(),
         )?;
         let with = |results| StepsWith {
             results,
@@ -1641,6 +1645,7 @@ pub fn serve_cached(
     repo: &str,
     git_ref: &str,
     picks: Vec<Pick>,
+    program: &Path,
 ) -> Result<Vec<Pick>> {
     if !picks.iter().any(|(_, kind, _)| *kind == PickKind::Shots) {
         return Ok(picks);
@@ -1660,7 +1665,7 @@ pub fn serve_cached(
             continue;
         }
         let key = shot_findings::key_for(places, repo, git_ref, *lane, prefix)?;
-        let Some(cached) = crate::shots_compare_again::lookup(places, &key)? else {
+        let Some(cached) = crate::shots_compare_again::lookup(places, &key, program)? else {
             left.push(pick);
             continue;
         };
@@ -1716,12 +1721,14 @@ pub fn ensure_before_runs(
     if base == commit {
         return Ok(());
     }
-    let versions = crate::shots_program::VERSIONS;
+    let versions = &crate::shots_program::VERSIONS;
+    let program = pinned.builds();
     let missing = |picks: &[Pick]| -> Result<Vec<Pick>> {
         let mut missing = Vec::new();
         for pick in picks {
             let (lane, _, prefix) = pick;
-            if crate::shots_compare_again::before_run(places, repo, &base, *lane, prefix)?.is_none()
+            if crate::shots_compare_again::before_run(places, repo, &base, *lane, prefix, &program)?
+                .is_none()
             {
                 missing.push(pick.clone());
             }
@@ -2153,7 +2160,8 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
         }
     }
     if names.is_empty() && !picks.is_empty() && !fresh {
-        picks = serve_cached(places, repo, commit, picks)?;
+        let program = std::env::current_exe().context(|| "finding this program".to_string())?;
+        picks = serve_cached(places, repo, commit, picks, &program)?;
         if picks.is_empty() {
             return Ok(());
         }

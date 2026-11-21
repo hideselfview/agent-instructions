@@ -102,25 +102,21 @@ pub struct Key {
     pub commit: String,
     pub lane: Lane,
     pub prefix: String,
-    /// The capture version of the shots program that made the run's shots
-    /// and board pictures.
-    pub capture_version: String,
-    /// The comparison version of the shots program that made the run's
-    /// findings.
-    pub comparison_version: String,
+    /// The versions of the shots program that made the run's shots and board
+    /// pictures (capture) and its findings (comparison).
+    pub versions: Versions,
 }
 
 impl Key {
     /// The key of a run of <prefix> on <lane> for <repo>'s <commit> by the
     /// shots program <versions>.
-    pub fn new(repo: &str, commit: &str, lane: Lane, prefix: &str, versions: Versions<'_>) -> Key {
+    pub fn new(repo: &str, commit: &str, lane: Lane, prefix: &str, versions: &Versions) -> Key {
         Key {
             repo: repo.to_string(),
             commit: commit.to_string(),
             lane,
             prefix: prefix.to_string(),
-            capture_version: versions.capture.to_string(),
-            comparison_version: versions.comparison.to_string(),
+            versions: versions.clone(),
         }
     }
 }
@@ -282,12 +278,12 @@ fn prefixes_folder(places: &Places, repo: &str, commit: &str, lane: Lane) -> Pat
 fn captures_folder(places: &Places, key: &Key) -> PathBuf {
     prefixes_folder(places, &key.repo, &key.commit, key.lane)
         .join(&key.prefix)
-        .join(&key.capture_version)
+        .join(&key.versions.capture)
 }
 
 /// The folder of the run <key>.
 pub fn run_folder(places: &Places, key: &Key) -> PathBuf {
-    captures_folder(places, key).join(&key.comparison_version)
+    captures_folder(places, key).join(&key.versions.comparison)
 }
 
 /// A run's folder while the run fills it, beside the folder it replaces.
@@ -313,7 +309,7 @@ pub fn stage(places: &Places, key: &Key) -> Result<Staging> {
     let folder = run_folder(places, key);
     Ok(Staging {
         key: key.clone(),
-        inner: capped_store::stage(&root(places), folder.clone(), &key.comparison_version)?,
+        inner: capped_store::stage(&root(places), folder.clone(), &key.versions.comparison)?,
         folder,
     })
 }
@@ -409,7 +405,7 @@ pub fn before_run(
     commit: &str,
     lane: Lane,
     prefix: &str,
-    versions: Versions<'_>,
+    versions: &Versions,
 ) -> Result<Option<Cached>> {
     let found = covering_run(places, repo, commit, lane, prefix, versions)?;
     if let Some(cached) = &found {
@@ -426,7 +422,7 @@ pub fn covering_keys(
     commit: &str,
     lane: Lane,
     prefix: &str,
-    versions: Versions<'_>,
+    versions: &Versions,
 ) -> Result<Vec<Key>> {
     let folder = prefixes_folder(places, repo, commit, lane);
     let mut found = Vec::new();
@@ -448,7 +444,7 @@ pub fn covering_folders(
     commit: &str,
     lane: Lane,
     prefix: &str,
-    versions: Versions<'_>,
+    versions: &Versions,
 ) -> Result<Vec<PathBuf>> {
     let mut folders = Vec::new();
     for key in covering_keys(places, repo, commit, lane, prefix, versions)? {
@@ -465,11 +461,14 @@ pub fn covering_folders(
 pub fn other_comparisons(places: &Places, key: &Key) -> Result<Vec<Cached>> {
     let mut found = Vec::new();
     for (name, folder) in folders_in(&captures_folder(places, key))? {
-        if name == key.comparison_version {
+        if name == key.versions.comparison {
             continue;
         }
         let other = Key {
-            comparison_version: name,
+            versions: Versions {
+                comparison: name,
+                ..key.versions.clone()
+            },
             ..key.clone()
         };
         if let Some(cached) = read(&folder, &other)?
@@ -492,7 +491,7 @@ pub fn covering_run(
     commit: &str,
     lane: Lane,
     prefix: &str,
-    versions: Versions<'_>,
+    versions: &Versions,
 ) -> Result<Option<Cached>> {
     let mut found: Vec<Cached> = Vec::new();
     for key in covering_keys(places, repo, commit, lane, prefix, versions)? {

@@ -15,8 +15,11 @@ fn cache_run(places: &Places, lane: Lane, prefix: &str, findings: Value, picture
             commit: COMMIT.to_string(),
             lane,
             prefix: prefix.to_string(),
-            capture_version: VERSIONS.capture.to_string(),
-            comparison_version: VERSIONS.comparison.to_string(),
+            versions: crate::shots_program::Versions {
+                capture: VERSIONS.capture.clone(),
+
+                comparison: VERSIONS.comparison.clone(),
+            },
         },
     )
     .unwrap();

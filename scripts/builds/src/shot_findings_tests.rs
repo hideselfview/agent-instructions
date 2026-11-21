@@ -107,8 +107,10 @@ fn a_run_grouped_by_cause_reads_the_records_its_cached_report_holds() {
         commit: "a".repeat(40),
         lane: Lane::Mac,
         prefix: "mac.".to_string(),
-        capture_version: "c".repeat(16),
-        comparison_version: "b".repeat(16),
+        versions: crate::shots_program::Versions {
+            capture: "c".repeat(16),
+            comparison: "b".repeat(16),
+        },
     };
     let cached = shots_cache::stage(&places, &key)
         .unwrap()

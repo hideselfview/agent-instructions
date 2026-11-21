@@ -174,7 +174,8 @@ pub fn cmd(places: &Places, args: &[String]) -> Result<()> {
         fail!("{USAGE}");
     };
     let lane = Lane::parse_or_fail(lane)?;
-    let cached = shot_findings::cached_run(places, repo, git_ref, lane, prefix)?;
+    let me = std::env::current_exe().context(|| "finding this program".to_string())?;
+    let cached = shot_findings::cached_run(places, repo, git_ref, lane, prefix, &me)?;
     let here = std::env::current_dir().context(|| "reading the working directory".to_string())?;
     let top = top_of(&checkout.unwrap_or(here))?;
     if !top.join(PROGRAM_CRATE).join("Cargo.toml").is_file() {
@@ -189,7 +190,7 @@ pub fn cmd(places: &Places, args: &[String]) -> Result<()> {
         "{repo} {} {} {prefix}: findings of the cached run (shots program comparison version {}) beside those of the program built in {}",
         &cached.key.commit[..cached.key.commit.len().min(12)],
         lane.word(),
-        &cached.key.comparison_version[..cached.key.comparison_version.len().min(12)],
+        &cached.key.versions.comparison[..cached.key.versions.comparison.len().min(12)],
         top.display()
     ));
     print!("{report}");

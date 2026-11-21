@@ -52,7 +52,7 @@ pub fn named_in(
     let Some(since) = waiting.values().min() else {
         return Ok(named);
     };
-    let versions = crate::shots_program::VERSIONS;
+    let versions = &crate::shots_program::VERSIONS;
     let mut bases: HashMap<String, Option<String>> = HashMap::new();
     for build in crate::app_timing::shots_builds(conn, repo, *since, path)? {
         match waiting.get(&build.branch) {

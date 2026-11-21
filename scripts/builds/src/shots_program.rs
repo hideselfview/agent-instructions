@@ -9,6 +9,9 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::LazyLock;
+
+pub use shots::Versions;
 
 use crate::fail;
 use crate::fail::{Context, Result};
@@ -17,23 +20,13 @@ use crate::tool::Tool;
 
 /// The two versions of the shots checker this program is built with
 /// (build.rs): the ones `builds shots version` prints and each run's
-/// findings.json names.
-pub const VERSIONS: Versions<'static> = Versions {
-    capture: env!("CAPTURE_SOURCE"),
-    comparison: env!("COMPARISON_SOURCE"),
-};
-
-/// The version of the shots checker's capture side, a hash of the files that
-/// take a shot and draw a board, and of its comparison side, a hash of the
-/// files that compare a shot with its board (build_source.rs). builds caches
-/// shots and board pictures by the capture version and findings by the
-/// comparison version, so a change to the comparison alone makes no run take
-/// its shots again (shots_cache.rs).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Versions<'a> {
-    pub capture: &'a str,
-    pub comparison: &'a str,
-}
+/// findings.json names. builds caches shots and board pictures by the capture
+/// version and findings by the comparison version, so a change to the
+/// comparison alone makes no run take its shots again (shots_cache.rs).
+pub static VERSIONS: LazyLock<Versions> = LazyLock::new(|| Versions {
+    capture: env!("CAPTURE_SOURCE").to_string(),
+    comparison: env!("COMPARISON_SOURCE").to_string(),
+});
 
 const USAGE: &str = "usage: builds shots findings <repo> <ref> mac|android <prefix> [--by-cause] | builds shots check-program <repo> <ref> mac|android <prefix> [--checkout <folder>] | builds shots run|capture|check|lint|runtime|components|states|version [<argument>...] (builds shots <command> --help)";
 
@@ -78,8 +71,7 @@ pub fn cmd_shots(places: &Places, args: &[String]) -> Result<()> {
         Some(_) => {
             places.require_volume()?;
             let checker = shots::Checker {
-                capture_version: VERSIONS.capture,
-                comparison_version: VERSIONS.comparison,
+                versions: &VERSIONS,
                 cache: &cache(places),
             };
             if shots::main(&checker, args) {

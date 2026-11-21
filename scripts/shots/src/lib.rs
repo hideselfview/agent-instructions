@@ -31,19 +31,23 @@ use crate::settings::Settings;
 use clap::{Args, Parser, Subcommand};
 use std::path::{Path, PathBuf};
 
+/// The two versions of the checker. The capture version is a hash of the files
+/// that take a shot and draw a board: it keys the board pictures (design.rs),
+/// and a run's findings.json names it, so that a run compared again
+/// (recheck.rs) keeps naming the version that made its pictures. The
+/// comparison version is a hash of the files that compare a shot with its
+/// board: a run's findings.json names it, and a run compares only with a run
+/// of its own comparison version (before.rs).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Versions {
+    pub capture: String,
+    pub comparison: String,
+}
+
 /// What builds runs the checker with.
 pub struct Checker<'a> {
-    /// The version of the checker's capture side: a hash of the files that
-    /// take a shot and draw a board, which builds computes (builds' build.rs).
-    /// It keys the board pictures (design.rs), and a run's findings.json names
-    /// it, so that a run compared again (recheck.rs) keeps naming the version
-    /// that made its pictures.
-    pub capture_version: &'a str,
-    /// The version of the checker's comparison side: a hash of the files that
-    /// compare a shot with its board, which builds computes. A run's
-    /// findings.json names it, and a run compares only with a run of its own
-    /// comparison version (before.rs).
-    pub comparison_version: &'a str,
+    /// The checker's versions, which builds computes (builds' build.rs).
+    pub versions: &'a Versions,
     /// The cache folder, which builds keeps on its build volume. It holds
     /// pinned Chrome and the scratch folders the design system is built in.
     pub cache: &'a Path,
@@ -365,8 +369,8 @@ fn header(
     outcome: &verify::Outcome,
 ) -> report::Header {
     report::Header {
-        capture_version: checker.capture_version.to_string(),
-        version: checker.comparison_version.to_string(),
+        capture_version: checker.versions.capture.clone(),
+        version: checker.versions.comparison.clone(),
         commit,
         base,
         runtime: outcome.runtime.clone(),
@@ -418,7 +422,7 @@ fn run(checker: &Checker, action: Action) -> Result<bool, String> {
             let pictures = pictures.map(|dir| pictures::Pictures::new(dir, now));
             let before = before
                 .map(|path| {
-                    let before = before::Before::load(&path, checker.comparison_version)?;
+                    let before = before::Before::load(&path, &checker.versions.comparison)?;
                     crate::log::note(format_args!(
                         "comparing with the run of {} ({})",
                         before.commit(),
@@ -576,12 +580,12 @@ pub fn main(checker: &Checker, args: &[String]) -> bool {
         Cli::parse_from(std::iter::once("builds shots").chain(args.iter().map(String::as_str)));
     let outcome = match cli.action {
         Action::Version => {
-            println!("capture {}", checker.capture_version);
-            println!("comparison {}", checker.comparison_version);
+            println!("capture {}", checker.versions.capture);
+            println!("comparison {}", checker.versions.comparison);
             Ok(true)
         }
         Action::Recheck { report } => {
-            recheck::text(&report, checker.comparison_version).map(|text| {
+            recheck::text(&report, &checker.versions.comparison).map(|text| {
                 println!("{text}");
                 true
             })

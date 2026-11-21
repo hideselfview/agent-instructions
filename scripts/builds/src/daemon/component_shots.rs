@@ -182,7 +182,7 @@ pub fn shots(
 ) -> Result<Shots> {
     let mut platforms = Vec::new();
     for (lane, prefix) in lanes(component)? {
-        let run = match shots_cache::covering_run(places, repo, commit, lane, &prefix, VERSIONS)? {
+        let run = match shots_cache::covering_run(places, repo, commit, lane, &prefix, &VERSIONS)? {
             Some(cached) => Some(read_run(&cached, component, lane, &prefix)?),
             None => None,
         };
@@ -262,7 +262,7 @@ pub fn start(
     component: &str,
 ) -> Result<()> {
     for (lane, prefix) in lanes(component)? {
-        if shots_cache::covering_run(places, repo, commit, lane, &prefix, VERSIONS)?.is_some() {
+        if shots_cache::covering_run(places, repo, commit, lane, &prefix, &VERSIONS)?.is_some() {
             continue;
         }
         match runs.start_shots(repo, lane, commit, &prefix) {
@@ -295,7 +295,7 @@ pub fn picture(
     if !scene.starts_with(&format!("{}.", lane.word())) {
         return Ok(None);
     }
-    let Some(cached) = shots_cache::covering_run(places, repo, commit, lane, scene, VERSIONS)?
+    let Some(cached) = shots_cache::covering_run(places, repo, commit, lane, scene, &VERSIONS)?
     else {
         return Ok(None);
     };
@@ -332,7 +332,7 @@ pub fn page(
     }
     for (lane, prefix) in &lanes {
         if let Some(cached) =
-            shots_cache::covering_run(places, repo_name, &commit, *lane, prefix, VERSIONS)?
+            shots_cache::covering_run(places, repo_name, &commit, *lane, prefix, &VERSIONS)?
         {
             shots_cache::mark_used(&cached)?;
         }

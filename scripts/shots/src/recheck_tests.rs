@@ -77,6 +77,10 @@ fn a_report_is_compared_again_to_the_findings_it_holds_under_the_new_version() {
     let file: serde_json::Value = serde_json::from_str(&again).unwrap();
     assert_eq!(file["version"], "new");
     assert_eq!(
+        file["passed"], false,
+        "a pair with a finding and no before run fails the run"
+    );
+    assert_eq!(
         file["capture_version"], "capture",
         "the pictures keep the capture version of the checker that made them"
     );

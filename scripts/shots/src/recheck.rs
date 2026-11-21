@@ -6,11 +6,12 @@
 //! only what it compared again, the scenes and their findings, and none of
 //! the run's failed captures or component listing, which it does not read.
 
+use crate::capture::Failed;
 use crate::findings_file::{self, FILE};
 use crate::names::Name;
 use crate::report::{board_list, board_picture, shot_list, shot_picture};
 use crate::shots::{ElementList, Picture, Shot};
-use crate::verify::{self, Drawn};
+use crate::verify::{self, Drawn, Outcome};
 use serde::Deserialize;
 use std::path::Path;
 
@@ -22,6 +23,15 @@ struct Named {
     capture_version: String,
     commit: String,
     scenes: Vec<String>,
+    /// The scenes the capture wrote no usable shot of, which fail the run.
+    failed: Vec<FailedScene>,
+}
+
+/// A scene of a report's findings.json that the capture failed.
+#[derive(Deserialize)]
+struct FailedScene {
+    scene: String,
+    error: String,
 }
 
 /// The scenes and findings (findings_file.rs `rechecked`) that this checker, version <version>, makes of the pairs
@@ -49,11 +59,31 @@ pub(crate) fn text(report: &Path, version: &str) -> Result<String, String> {
         };
         checked.push(verify::compare_pair(&name, board, &shot, shot_png));
     }
+    let mut failed = Vec::new();
+    for scene in &named.failed {
+        let name = Name::parse(&scene.scene).map_err(|e| format!("{}: {e}", file.display()))?;
+        failed.push(Failed {
+            name,
+            why: scene.error.clone(),
+        });
+    }
+    // The run has no before run, so each pair's findings fail it, as the
+    // checker's own verdict says (`Outcome::passed`).
+    let outcome = Outcome {
+        runtime: String::new(),
+        checked,
+        problems: Vec::new(),
+        lists: Default::default(),
+        not_taken: Vec::new(),
+        failed,
+        components: Default::default(),
+    };
     Ok(findings_file::rechecked(
         version,
         &named.capture_version,
         &named.commit,
-        &checked,
+        &outcome.checked,
+        outcome.passed(),
     ))
 }
 
