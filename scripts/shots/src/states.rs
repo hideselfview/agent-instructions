@@ -1,6 +1,6 @@
 //! The component states the boards draw that no preview row shows.
 //!
-//! builds-shots draws every board of canvas.json and every component's
+//! The checker draws every board of canvas.json and every component's
 //! preview page, and reads each design-system component drawn there with
 //! the props it was drawn with (render/instances.rs). A prop is part of a
 //! component's state when its value is

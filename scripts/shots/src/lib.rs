@@ -1,6 +1,8 @@
-//! builds-shots: checks an app's shots against its design boards. `builds
-//! shots …` runs it; it reads the repo it runs in, its design files and the
-//! `shots-` lines of its `.app-build` (settings.rs), and names no app.
+//! The shots checker: checks an app's shots against its design boards.
+//! builds runs it as `builds shots …` (`main`), in the builds program, and
+//! the builds-shots program (bin/builds-shots.rs) runs it for the builds commands that
+//! still start that program; it reads the repo it runs in, its design files and the `shots-` lines of its
+//! `.app-build` (settings.rs), and names no app.
 
 mod before;
 mod capture;
@@ -27,15 +29,20 @@ use crate::names::{Name, Platform, Prefix};
 use crate::settings::Settings;
 use clap::{Args, Parser, Subcommand};
 use std::path::{Path, PathBuf};
-use std::process::ExitCode;
 
-/// The version of this program: a hash of every file cargo builds it from
-/// (build.rs). A run's findings.json names it, and a run compares only with a
-/// run of its own version (before.rs).
-pub(crate) const VERSION: &str = env!("SHOTS_SOURCE");
+/// What builds runs the checker with.
+pub struct Checker<'a> {
+    /// The version of the checker: a hash of its code (version.rs). A run's
+    /// findings.json names it, and a run compares only with a run of its own
+    /// version (before.rs).
+    pub version: &'a str,
+    /// The cache folder, which builds keeps on its build volume. It holds
+    /// pinned Chrome and the scratch folders the design system is built in.
+    pub cache: &'a Path,
+}
 
 #[derive(Parser)]
-#[command(name = "builds-shots")]
+#[command(name = "builds shots")]
 struct Cli {
     #[command(subcommand)]
     action: Action,
@@ -45,7 +52,7 @@ struct Cli {
 enum Action {
     /// Name the canvas runtime copy that draws the boards.
     Runtime,
-    /// Print this program's version, which each run's findings.json names.
+    /// Print the checker's version, which each run's findings.json names.
     Version,
     /// Take the shots into shots/, a folder for each platform, and check them.
     /// With --before, only pairs new or worse against that run fail the run,
@@ -54,7 +61,7 @@ enum Action {
         #[command(flatten)]
         selection: Selection,
         /// The findings.json of the run to compare with, written by this
-        /// version of the program, such as the run of the branch's merge base
+        /// version of the checker, such as the run of the branch's merge base
         /// with origin/main, which builds passes.
         #[arg(long)]
         before: Option<PathBuf>,
@@ -280,18 +287,6 @@ fn commit(root: &Path) -> Result<String, String> {
     Ok(text.trim().to_string())
 }
 
-/// The program's cache folder: `BUILDS_SHOTS_CACHE`, which builds sets to a
-/// folder on its build volume, else `~/.cache/builds-shots`. It holds pinned
-/// Chrome and the scratch folders the design system is built in.
-pub(crate) fn cache_dir() -> Result<PathBuf, String> {
-    if let Some(dir) = std::env::var_os("BUILDS_SHOTS_CACHE") {
-        return Ok(PathBuf::from(dir));
-    }
-    let home = std::env::var_os("HOME")
-        .ok_or_else(|| "neither BUILDS_SHOTS_CACHE nor HOME is set".to_string())?;
-    Ok(PathBuf::from(home).join(".cache/builds-shots"))
-}
-
 /// The repo the program runs in: git's top of the working directory.
 fn repository_root() -> Result<PathBuf, String> {
     let here =
@@ -304,8 +299,14 @@ fn repository_root() -> Result<PathBuf, String> {
     Ok(PathBuf::from(top.trim()))
 }
 
-fn header(commit: String, base: Option<String>, outcome: &verify::Outcome) -> report::Header {
+fn header(
+    checker: &Checker,
+    commit: String,
+    base: Option<String>,
+    outcome: &verify::Outcome,
+) -> report::Header {
     report::Header {
+        version: checker.version.to_string(),
         commit,
         base,
         runtime: outcome.runtime.clone(),
@@ -339,7 +340,7 @@ fn finish(
     Ok(outcome.passed())
 }
 
-fn run(action: Action) -> Result<bool, String> {
+fn run(checker: &Checker, action: Action) -> Result<bool, String> {
     let root = repository_root()?;
     let settings = Settings::load(&root).map_err(|e| e.to_string())?;
     let read_declared = || declared::read(&root, &settings.declared).map_err(|e| e.to_string());
@@ -356,7 +357,7 @@ fn run(action: Action) -> Result<bool, String> {
             let pictures = pictures.map(|dir| pictures::Pictures::new(dir, now));
             let before = before
                 .map(|path| {
-                    let before = before::Before::load(&path)?;
+                    let before = before::Before::load(&path, checker.version)?;
                     crate::log::note(format_args!(
                         "comparing with the run of {} ({})",
                         before.commit(),
@@ -378,11 +379,11 @@ fn run(action: Action) -> Result<bool, String> {
             let taken = capture(&root, &settings, &declared, &selection, kept, |p| {
                 shots.join(p.word())
             })?;
-            let cache = cache_dir()?;
             let outcome = verify::verify(&verify::Verification {
                 root: &root,
                 settings: &settings,
-                cache: &cache,
+                version: checker.version,
+                cache: checker.cache,
                 names: &taken.names,
                 not_taken: &taken.not_taken,
                 declared: &declared,
@@ -392,7 +393,7 @@ fn run(action: Action) -> Result<bool, String> {
                 pictures: pictures.as_ref(),
             })?;
             let base = before.as_ref().map(|b| b.commit().to_string());
-            let header = header(commit(&root)?, base, &outcome);
+            let header = header(checker, commit(&root)?, base, &outcome);
             finish(&outcome, &header, &shots.join("report"))
         }
         Action::Capture { selection, out } => {
@@ -414,11 +415,11 @@ fn run(action: Action) -> Result<bool, String> {
                 capture::check_complete(&shots, platform, &wanted, &names)
                     .map_err(|e| e.to_string())?;
             }
-            let cache = cache_dir()?;
             let outcome = verify::verify(&verify::Verification {
                 root: &root,
                 settings: &settings,
-                cache: &cache,
+                version: checker.version,
+                cache: checker.cache,
                 names: &names,
                 not_taken: &[],
                 declared: &declared,
@@ -427,7 +428,7 @@ fn run(action: Action) -> Result<bool, String> {
                 before: None,
                 pictures: None,
             })?;
-            let header = header(sha, None, &outcome);
+            let header = header(checker, sha, None, &outcome);
             finish(&outcome, &header, &out)
         }
         Action::Lint => {
@@ -450,10 +451,9 @@ fn run(action: Action) -> Result<bool, String> {
             Ok(true)
         }
         Action::States { at, against } => {
-            let cache = cache_dir()?;
-            let now = states::read(&root, at.as_deref(), &cache)?;
+            let now = states::read(&root, at.as_deref(), checker.cache)?;
             let listed = match &against {
-                Some(rev) => states::added(now, &states::read(&root, Some(rev), &cache)?),
+                Some(rev) => states::added(now, &states::read(&root, Some(rev), checker.cache)?),
                 None => now,
             };
             for line in states::lines(&listed, against.as_deref()) {
@@ -461,7 +461,7 @@ fn run(action: Action) -> Result<bool, String> {
             }
             Ok(against.is_none() || listed.is_empty())
         }
-        Action::Version => unreachable!("main prints the version before it reads a repo"),
+        Action::Version => unreachable!("`main` prints the version before it reads a repo"),
         Action::Runtime => {
             let checked = render::runtime::check(&root).map_err(|e| e.to_string())?;
             crate::log::note(format_args!(
@@ -473,20 +473,22 @@ fn run(action: Action) -> Result<bool, String> {
     }
 }
 
-fn main() -> ExitCode {
-    let outcome = match Cli::parse().action {
+/// Runs `builds shots <args>`: parses <args>, the words after `builds
+/// shots`, and runs the command they name. Returns whether the command
+/// passed, after it printed why not. Prints clap's usage and exits the
+/// process when <args> name no command.
+pub fn main(checker: &Checker, args: &[String]) -> bool {
+    let cli =
+        Cli::parse_from(std::iter::once("builds shots").chain(args.iter().map(String::as_str)));
+    let outcome = match cli.action {
         Action::Version => {
-            println!("{VERSION}");
+            println!("{}", checker.version);
             Ok(true)
         }
-        action => run(action),
+        action => run(checker, action),
     };
-    match outcome {
-        Ok(true) => ExitCode::SUCCESS,
-        Ok(false) => ExitCode::FAILURE,
-        Err(message) => {
-            crate::log::note(message);
-            ExitCode::FAILURE
-        }
-    }
+    outcome.unwrap_or_else(|message| {
+        crate::log::note(message);
+        false
+    })
 }

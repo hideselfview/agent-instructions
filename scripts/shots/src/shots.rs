@@ -97,7 +97,7 @@ impl Picture {
     }
 }
 
-/// The element list a shot or a board writes beside its picture; builds-shots
+/// The element list a shot or a board writes beside its picture; the checker
 /// writes a board's and reads both.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

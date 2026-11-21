@@ -69,8 +69,8 @@ fn a_shots_line_it_cannot_read_is_refused() {
         ("shots-declared mac ../out", "outside the repo"),
         ("shots-preview .row .name", "selectors"),
         ("shots-unshot", "names nothing"),
-        ("shots-guess x", "no line builds-shots knows"),
-        ("shots-source app-shots", "no line builds-shots knows"),
+        ("shots-guess x", "no line builds shots knows"),
+        ("shots-source app-shots", "no line builds shots knows"),
     ] {
         let error = Settings::parse(line).unwrap_err().to_string();
         assert!(error.contains(why), "{line}: {error}");

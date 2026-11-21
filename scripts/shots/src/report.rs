@@ -24,6 +24,8 @@ macro_rules! putln {
 
 /// What the report says about the run it describes.
 pub(crate) struct Header {
+    /// The checker's version, which the run's findings.json names.
+    pub(crate) version: String,
     pub(crate) commit: String,
     /// The commit of the run the pairs were compared with, when there was
     /// one.
@@ -430,7 +432,13 @@ pub(crate) fn write(dir: &Path, outcome: &Outcome, header: &Header) -> Result<()
     let index = dir.join("index.html");
     std::fs::write(&index, page(outcome, header))
         .map_err(|e| format!("cannot write {}: {e}", index.display()))?;
-    crate::findings_file::write(dir, &header.commit, &outcome.checked, &outcome.components)
+    crate::findings_file::write(
+        dir,
+        &header.version,
+        &header.commit,
+        &outcome.checked,
+        &outcome.components,
+    )
 }
 
 #[cfg(test)]

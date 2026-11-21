@@ -29,6 +29,7 @@ pub(crate) fn hashes(
     previews: &names::Previews,
     design: &DesignSystem,
     runtime_sha256: &str,
+    version: &str,
     settings: &Settings,
 ) -> Result<std::collections::BTreeMap<Name, String>, String> {
     let mut hashes = std::collections::BTreeMap::new();
@@ -41,7 +42,7 @@ pub(crate) fn hashes(
                 design,
                 runtime_sha256,
                 chrome::PINNED,
-                crate::VERSION,
+                version,
                 settings,
             ),
             Name::Component(c) => design::preview_hash(
@@ -50,7 +51,7 @@ pub(crate) fn hashes(
                 &c.component(previews),
                 design,
                 chrome::PINNED,
-                crate::VERSION,
+                version,
                 settings,
             ),
         }

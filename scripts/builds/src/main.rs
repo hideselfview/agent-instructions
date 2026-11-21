@@ -259,13 +259,15 @@ fn holds_for_life(command: &str, rest: &[String]) -> bool {
 
 /// Takes the use of the stores that <command> needs before it runs. <args>
 /// starts with the command. Returns the use the command holds for its life,
-/// or None when the command takes a use per store connection, takes none, or
-/// runs under a holder's use. A command
+/// or None when the command takes a use per store connection, takes none (a
+/// command of `install_gate::STORELESS`, or the shots checker), or runs
+/// under a holder's use. A command
 /// that waited at a closed gate while an install ran runs the program at this
 /// program's path in its place, with the same arguments: install replaced the
 /// program it started from.
 fn enter_stores(command: &str, args: &[String]) -> Result<Option<install_gate::Use>> {
     if install_gate::STORELESS.contains(&command)
+        || (command == "shots" && shots_program::runs_checker(&args[1..]))
         || std::env::var_os(install_gate::VARIABLE).is_some()
     {
         return Ok(None);

@@ -4,8 +4,8 @@
 //! the sentences. builds keeps the file with the report and groups it by cause
 //! (`builds shots findings --by-cause`).
 //!
-//! The file is one object: `version`, the version of the program that wrote
-//! it (`builds-shots version`); `commit`, the commit the run checked;
+//! The file is one object: `version`, the version of the checker that wrote
+//! it (`builds shots version`); `commit`, the commit the run checked;
 //! `scenes`, every pair the run checked; `sizes`, each pair's board and shot
 //! sizes in points, by scene, at which a reader shows the report's pictures
 //! side by side; `components`, each design-system
@@ -263,9 +263,9 @@ fn board_entry(finding: &Finding) -> Option<&Entry> {
     }
 }
 
-/// The file's text for the pairs a run of <commit> checked, and the
-/// components' preview rows that <listing> holds.
-pub(crate) fn text(commit: &str, checked: &[Checked], listing: &Listing) -> String {
+/// The file's text for the pairs a run of <commit> by the checker of
+/// <version> checked, and the components' preview rows that <listing> holds.
+pub(crate) fn text(version: &str, commit: &str, checked: &[Checked], listing: &Listing) -> String {
     let mut findings = Vec::new();
     for pair in checked {
         let scene = pair.name.to_string();
@@ -292,7 +292,7 @@ pub(crate) fn text(commit: &str, checked: &[Checked], listing: &Listing) -> Stri
         }
     }
     let file = File {
-        version: crate::VERSION,
+        version,
         commit,
         scenes: checked.iter().map(|pair| pair.name.to_string()).collect(),
         sizes: checked
@@ -323,16 +323,18 @@ pub(crate) fn text(commit: &str, checked: &[Checked], listing: &Listing) -> Stri
     serde_json::to_string(&file).expect("the records are plain data")
 }
 
-/// Writes the file for the pairs a run of <commit> checked, and the
-/// components' rows <listing> holds, into the report's folder `dir`.
+/// Writes the file for the pairs a run of <commit> by the checker of
+/// <version> checked, and the components' rows <listing> holds, into the
+/// report's folder `dir`.
 pub(crate) fn write(
     dir: &Path,
+    version: &str,
     commit: &str,
     checked: &[Checked],
     listing: &Listing,
 ) -> Result<(), String> {
     let path = dir.join(FILE);
-    std::fs::write(&path, text(commit, checked, listing))
+    std::fs::write(&path, text(version, commit, checked, listing))
         .map_err(|e| format!("cannot write {}: {e}", path.display()))
 }
 

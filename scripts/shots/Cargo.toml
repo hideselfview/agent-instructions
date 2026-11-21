@@ -1,13 +1,13 @@
 [package]
-name = "builds-shots"
+name = "shots"
 version = "0.1.0"
 edition = "2024"
 publish = false
-description = "Checks an app's screenshots against its design boards; `builds shots` runs it."
+description = "Checks an app's screenshots against its design boards; builds runs it as `builds shots`."
 
 [[bin]]
 name = "builds-shots"
-path = "src/main.rs"
+path = "src/bin/builds-shots.rs"
 
 [dependencies]
 boards = { path = "../boards" }

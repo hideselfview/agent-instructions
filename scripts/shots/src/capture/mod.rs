@@ -1,7 +1,7 @@
 //! Running a platform's harness and collecting the shots it writes.
 //!
 //! The app's `shots-capture <platform> <command>` line names the command that
-//! takes the platform's shots. builds-shots runs it from the repo's top with
+//! takes the platform's shots. The checker runs it from the repo's top with
 //! these variables, and the command passes them to its harness:
 //!
 //! - `BUILDS_SHOTS_OUT`: the absolute folder the harness writes each shot to,

@@ -132,26 +132,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "builds-shots"
-version = "0.1.0"
-dependencies = [
- "boards",
- "chromiumoxide",
- "clap",
- "futures",
- "image",
- "regex",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "thiserror",
- "tokio",
- "toml",
- "unicode-normalization",
-]
-
-[[package]]
 name = "bumpalo"
 version = "3.20.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1161,6 +1141,26 @@ dependencies = [
  "cfg-if",
  "cpufeatures",
  "digest",
+]
+
+[[package]]
+name = "shots"
+version = "0.1.0"
+dependencies = [
+ "boards",
+ "chromiumoxide",
+ "clap",
+ "futures",
+ "image",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "toml",
+ "unicode-normalization",
 ]
 
 [[package]]

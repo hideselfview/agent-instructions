@@ -130,7 +130,7 @@ impl Settings {
                         settings.preview_calls.extend(rest);
                     }
                 }
-                _ => return Err(bad("is no line builds-shots knows")),
+                _ => return Err(bad("is no line builds shots knows")),
             }
         }
         Ok(settings)

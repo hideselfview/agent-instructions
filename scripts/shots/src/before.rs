@@ -10,8 +10,8 @@
 //! with no lengths, so the same finding on both commits has one sentence.
 //! Warnings never fail a run, so only findings count.
 //!
-//! Findings made by another version of the program would not compare, so a
-//! file whose `version` is not this program's is refused.
+//! Findings made by another version of the checker would not compare, so a
+//! file whose `version` is not this checker's is refused.
 
 use crate::findings_file::Level;
 use serde::Deserialize;
@@ -64,13 +64,13 @@ pub(crate) struct Before {
 
 impl Before {
     /// The before run in <text>, the findings.json at <source>, which a
-    /// program of <version> must have written.
+    /// checker of <version> must have written.
     pub(crate) fn parse(text: &str, source: &str, version: &str) -> Result<Self, String> {
         let file: File = serde_json::from_str(text)
             .map_err(|e| format!("{source} is not a shots run's findings.json: {e}"))?;
         if file.version != version {
             return Err(format!(
-                "{source} holds the findings of builds-shots version {}, and this is version {version}: a run compares only with a run of its own version",
+                "{source} holds the findings of shots checker version {}, and this is version {version}: a run compares only with a run of its own version",
                 file.version
             ));
         }
@@ -90,12 +90,12 @@ impl Before {
         })
     }
 
-    /// The before run in the findings.json at <path>, which this program's
-    /// version must have written.
-    pub(crate) fn load(path: &Path) -> Result<Self, String> {
+    /// The before run in the findings.json at <path>, which the checker of
+    /// <version> must have written.
+    pub(crate) fn load(path: &Path, version: &str) -> Result<Self, String> {
         let text = std::fs::read_to_string(path)
             .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
-        Self::parse(&text, &path.display().to_string(), crate::VERSION)
+        Self::parse(&text, &path.display().to_string(), version)
     }
 
     /// The commit the before run checked.

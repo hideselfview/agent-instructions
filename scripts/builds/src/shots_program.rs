@@ -1,12 +1,13 @@
 //! `builds shots`: `builds shots findings` reads the runs builds keeps
-//! (shot_findings.rs, shot_store.rs), and every other subcommand runs builds-shots, the
-//! program that checks an app's shots against its design boards
-//! (scripts/shots), with the same arguments. builds sets `BUILDS_SHOTS_CACHE`
-//! to a folder in the build volume's caches, where the program keeps the
-//! Chrome it pins and builds the design system. `builds install` puts the
-//! program beside `builds`, here and on each host (install.rs).
+//! (shot_findings.rs, shot_store.rs), and every other subcommand runs the
+//! shots checker, which checks an app's shots against its design boards
+//! (scripts/shots, a library this program is built with), with the same
+//! arguments. builds gives the checker a cache folder in the build volume's
+//! caches, where it keeps the Chrome it pins and builds the design system.
+//! `builds design record` and `amend` still run the checker as builds-shots,
+//! the program built from the same sources, which `builds install` puts
+//! beside `builds`, here and on each host (install.rs).
 
-use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -37,7 +38,13 @@ pub fn beside_this() -> Result<PathBuf> {
     Ok(beside(&me))
 }
 
-/// The cache folder builds gives the program.
+/// Whether `builds shots <args>` runs the checker, which uses no store:
+/// every subcommand but `findings`.
+pub fn runs_checker(args: &[String]) -> bool {
+    args.first().is_some_and(|sub| sub != "findings")
+}
+
+/// The cache folder builds gives the checker.
 fn cache(places: &Places) -> PathBuf {
     places.caches().join(PROGRAM)
 }
@@ -71,15 +78,15 @@ pub fn cmd_shots(places: &Places, args: &[String]) -> Result<()> {
         Some("findings") => crate::shot_findings::cmd_findings(places, &args[1..]),
         Some(_) => {
             places.require_volume()?;
-            let program = beside_this()?;
-            let error = Command::new(&program)
-                .args(args)
-                .env("BUILDS_SHOTS_CACHE", cache(places))
-                .exec();
-            fail!(
-                "cannot run {}: {error}. builds install puts builds-shots beside builds",
-                program.display()
-            )
+            let checker = shots::Checker {
+                version: VERSION,
+                cache: &cache(places),
+            };
+            if shots::main(&checker, args) {
+                Ok(())
+            } else {
+                Err(crate::fail::Fail::Exit(1))
+            }
         }
     }
 }

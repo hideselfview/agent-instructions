@@ -4,7 +4,7 @@
 use crate::design::DesignSystem;
 use crate::render::chrome::{self, Chrome};
 use crate::render::serve::{self, Server, Tree};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub(crate) const HEAD: &str = r#"<!doctype html><html><head><meta charset="utf-8">
 <script src="./support.js"></script>
@@ -44,6 +44,13 @@ pub(crate) fn tree(boards: &[(&str, &str)]) -> tempfile::TempDir {
     root
 }
 
+/// The cache folder the tests keep pinned Chrome in, `~/.cache/builds-shots`:
+/// builds gives the checker one on its build volume, which a test does not
+/// have.
+fn cache() -> PathBuf {
+    PathBuf::from(std::env::var_os("HOME").expect("HOME is set")).join(".cache/builds-shots")
+}
+
 /// Runs `work` with the tree of `root` and the fixture's design system
 /// served, and a browser started.
 pub(crate) async fn with_browser<T>(
@@ -57,11 +64,9 @@ pub(crate) async fn with_browser<T>(
         runtime: boards::runtime::newest().text,
     };
     serve::with_server(tree, async |server| {
-        chrome::with_chrome(&crate::cache_dir().unwrap(), async |chrome| {
-            work(server, chrome).await
-        })
-        .await
-        .unwrap()
+        chrome::with_chrome(&cache(), async |chrome| work(server, chrome).await)
+            .await
+            .unwrap()
     })
     .await
     .unwrap()

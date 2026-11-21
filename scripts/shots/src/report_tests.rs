@@ -21,6 +21,7 @@ fn entry(index: usize, words: &str, kind: Role) -> Entry {
 
 fn header() -> Header {
     Header {
+        version: "v1".to_string(),
         commit: "abc123def".to_string(),
         base: Some("0a1b2c3d4".to_string()),
         runtime: "version v1, canvas v2 published 2026-11-11T23:20:00Z".to_string(),
