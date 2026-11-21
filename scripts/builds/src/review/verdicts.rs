@@ -70,7 +70,7 @@ impl Tip {
 }
 
 /// A worktree's verdict and what it was judged from.
-pub(crate) struct Judged {
+struct Judged {
     tip: Tip,
     rules: Arc<Material>,
     verdict: Arc<Verdict>,
@@ -82,11 +82,11 @@ pub(crate) struct Judged {
 pub struct Reads {
     /// The rules checkout, or why there is none (HOME is not set).
     root: Result<PathBuf, String>,
-    pub(crate) commits: Mutex<HashMap<ReadKey, Read>>,
+    commits: Mutex<HashMap<ReadKey, Read>>,
     rules: Mutex<HashMap<String, Rules>>,
     /// How many times the rules files changed (`rules_changed`).
     rules_changes: AtomicU64,
-    pub(crate) judged: Mutex<HashMap<PathBuf, Judged>>,
+    judged: Mutex<HashMap<PathBuf, Judged>>,
 }
 
 impl Default for Reads {

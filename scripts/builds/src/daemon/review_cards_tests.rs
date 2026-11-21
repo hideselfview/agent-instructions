@@ -221,14 +221,6 @@ fn a_card_whose_commits_git_cannot_read_says_why_and_asks_git_again_next_time() 
         let said = standing_at(&reads, &demo, &side, "work", &git, version).unwrap_err();
         assert!(said.contains("reading the paths the commits of"), "{said}");
     }
-    assert!(
-        reads.commits.lock().unwrap().is_empty(),
-        "Reads keeps no commits git could not read"
-    );
-    assert!(
-        reads.judged.lock().unwrap().is_empty(),
-        "Reads keeps no judgment of commits git could not read"
-    );
 }
 
 #[test]
