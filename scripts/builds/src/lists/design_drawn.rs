@@ -148,7 +148,15 @@ fn names_design_system(top: &Path, rev: &str) -> Result<bool> {
     let canvas: serde_json::Value = serde_json::from_str(&text).map_err(|e| {
         crate::fail::Fail::Message(format!("{} at {rev} is not JSON: {e}", boards::CANVAS))
     })?;
-    Ok(boards::design_namespace(&canvas).is_ok())
+    let named = canvas["designSystems"].as_array().map_or(0, Vec::len);
+    if named == 0 {
+        return Ok(false);
+    }
+    // Two systems, or a namespace that is no folder name, is a broken canvas.
+    boards::design_namespace(&canvas).map_err(|e| {
+        crate::fail::Fail::Message(format!("{} at {rev}: {}", boards::CANVAS, e.text()))
+    })?;
+    Ok(true)
 }
 
 /// Whether each path a design change shows draws the same at two commits.

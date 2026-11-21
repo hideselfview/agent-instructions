@@ -211,3 +211,24 @@ fn a_program_that_leaves_a_place_unanswered_or_fails_is_an_error() {
         "{error:?}"
     );
 }
+
+#[test]
+fn a_broken_canvas_is_an_error_not_a_repo_with_no_design_system() {
+    let scratch = Scratch::new("design-drawn-broken");
+    let dir = scratch.dir.join("repo");
+    repo(&dir, "target 1\n");
+    let file = dir.join(CANVAS);
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    std::fs::write(
+        &file,
+        r#"{"designSystems": [{"namespace": "a"}, {"namespace": "b"}]}"#,
+    )
+    .unwrap();
+    git(&dir, &["add", CANVAS]);
+    git(&dir, &["commit", "-q", "-m", "two systems"]);
+    let error = names_design_system(&dir, "HEAD").unwrap_err();
+    assert!(
+        matches!(&error, crate::fail::Fail::Message(m) if m.contains("more than one")),
+        "{error:?}"
+    );
+}
