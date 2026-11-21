@@ -180,29 +180,15 @@ fn an_agent_that_read_every_part_and_gave_every_word_passes() {
     world.check(NOON + 60).unwrap();
 }
 
-/// The words of <text> as `builds ack` prints its parts: each section's text
-/// and the line that names it.
-fn words_of_text(text: &Text) -> std::collections::HashSet<String> {
-    let count = text.sections.len();
-    text.sections
+/// The words of the lines of <parts>, as `builds ack` prints them with no
+/// made-up word.
+fn words_of_parts(parts: &[Vec<String>]) -> std::collections::HashSet<String> {
+    parts
         .iter()
-        .enumerate()
-        .flat_map(|(index, section)| {
-            [
-                section.text.clone(),
-                format!(
-                    "{} section {} of {count} continued",
-                    section.name,
-                    index + 1
-                ),
-            ]
-        })
-        .flat_map(|text| {
-            text.split(|c: char| !c.is_ascii_alphabetic())
-                .filter(|word| !word.is_empty())
-                .map(str::to_string)
-                .collect::<Vec<_>>()
-        })
+        .flatten()
+        .flat_map(|line| line.split(|c: char| !c.is_ascii_alphabetic()))
+        .filter(|word| !word.is_empty())
+        .map(str::to_string)
         .collect()
 }
 
@@ -215,7 +201,6 @@ fn the_words_a_part_shows_that_the_text_lacks_are_its_made_up_words() {
     world.ack(&[], NOON).unwrap();
     let checkout = Checkout::at(&world.checkout).unwrap();
     let text = Text::read(&world.places, "bae", checkout.as_ref()).unwrap();
-    let known = words_of_text(&text);
     let stored = stored_words(&world.places, "bae", AGENT);
     let parts = text.parts(
         &text
@@ -224,6 +209,7 @@ fn the_words_a_part_shows_that_the_text_lacks_are_its_made_up_words() {
             .map(|s| s.name.clone())
             .collect::<Vec<_>>(),
     );
+    let known = words_of_parts(&parts);
     assert!(parts.len() >= 2, "the workflow alone fills two parts");
     for (index, lines) in parts.iter().enumerate() {
         let shown = world.ack(&[&(index + 1).to_string()], NOON).unwrap();
