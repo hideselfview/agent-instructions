@@ -99,6 +99,31 @@ pub(crate) fn with_browser<T>(
         })
 }
 
+/// Runs <work> with the design tree at <root> served and the pinned Chrome
+/// started, given every board's frame from `canvas.json`: checks the canvas
+/// runtime copy and builds the design system the boards load first.
+pub(crate) fn with_design<T>(
+    root: &Path,
+    cache: &Path,
+    work: impl AsyncFnOnce(
+        &serve::Server,
+        &chrome::Chrome,
+        &std::collections::BTreeMap<String, design::Frame>,
+    ) -> Result<T, String>,
+) -> Result<T, String> {
+    let runtime = runtime::check(root).map_err(|e| e.to_string())?;
+    let design = DesignSystem::of(root, cache).map_err(|e| e.to_string())?;
+    let frames = design::frames(root).map_err(|e| e.to_string())?;
+    let tree = Tree {
+        root,
+        design: &design,
+        runtime: runtime.copy.text,
+    };
+    with_browser(tree, cache, async |server, chrome| {
+        work(server, chrome, &frames).await
+    })
+}
+
 /// One board drawn: its picture, size and elements.
 struct Drawn {
     png: Vec<u8>,

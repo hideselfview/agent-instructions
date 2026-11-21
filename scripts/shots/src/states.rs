@@ -32,10 +32,10 @@
 //! whatever its props. A component with no preview has no component shot,
 //! so the listing leaves it out.
 
-use crate::design::{self, DesignSystem, Frame};
+use crate::design::{self, Frame};
 use crate::names::Previews;
 use crate::render::instances::{self, Instance};
-use crate::render::{self, board, chrome, preview, runtime, serve};
+use crate::render::{self, board, chrome, preview};
 use crate::settings::Settings;
 use futures::StreamExt;
 use std::collections::{BTreeMap, BTreeSet};
@@ -44,11 +44,6 @@ use std::path::Path;
 
 /// How many pages draw at once.
 const PAGES: usize = 8;
-
-/// The element that says a preview page has loaded. A preview that draws no
-/// React root, such as a static picture, draws no component, so the reader
-/// waits for the page's body and not for a drawn row.
-const PREVIEW_LOADED: &str = "body";
 
 /// How many boards a line names before it counts the rest.
 const BOARDS_NAMED: usize = 3;
@@ -318,15 +313,7 @@ fn draw(root: &Path, settings: &Settings, cache: &Path) -> Result<Drawn, String>
         .map_err(|e| e.to_string())?
         .row
         .as_str();
-    let runtime = runtime::check(root).map_err(|e| e.to_string())?;
-    let design = DesignSystem::of(root, cache).map_err(|e| e.to_string())?;
-    let frames = design::frames(root).map_err(|e| e.to_string())?;
-    let tree = serve::Tree {
-        root,
-        design: &design,
-        runtime: runtime.copy.text,
-    };
-    render::with_browser(tree, cache, async |server, chrome| {
+    render::with_design(root, cache, async |server, chrome, frames| {
         let boards = frames.iter().map(|(name, frame)| Sheet {
             name,
             url: server.board_url(name),
@@ -339,7 +326,7 @@ fn draw(root: &Path, settings: &Settings, cache: &Path) -> Result<Drawn, String>
             name,
             url: server.preview_url(name),
             frame: preview::PREVIEW_FRAME,
-            mounted: PREVIEW_LOADED,
+            mounted: preview::PREVIEW_LOADED,
             rows: Some(rows),
             what: format!("the preview of {name}"),
         });

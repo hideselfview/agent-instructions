@@ -36,6 +36,12 @@ pub(crate) const PREVIEW_FRAME: Frame = Frame { w: 1000, h: 800 };
 /// into the page's root.
 const PREVIEW_MOUNTED: &str = "#root > *";
 
+/// The element that says a preview page has loaded, for a reader that must
+/// also load a preview that draws no React root, such as a static picture,
+/// which draws no row: the reader waits for the page's body and not for a
+/// drawn row.
+pub(crate) const PREVIEW_LOADED: &str = "body";
+
 /// The class the page's `<body>` carries on the android lane, which the design
 /// system's preview styles key Android drawings on.
 const ANDROID_CLASS: &str = "bae-preview-android";

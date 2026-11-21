@@ -585,12 +585,7 @@ fn drawn_the_same(scope: &Scope, id: Id, renders: &dyn Renders) -> Result<Option
     if design.repo != scope.checkout.repo() {
         return Ok(None);
     }
-    let held: BTreeSet<String> = design
-        .places
-        .keys()
-        .filter(|place| PlaceKind::of(place) != PlaceKind::Spec)
-        .cloned()
-        .collect();
+    let held = design.drawn_places();
     let paths: BTreeSet<&String> = held.iter().chain(scope.changes.drawn()).collect();
     let top = &scope.checkout.top;
     let before = design_paths::drawing_at(top, tip, paths.iter().copied())?;

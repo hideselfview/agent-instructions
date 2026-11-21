@@ -387,6 +387,16 @@ impl Settlement {
 }
 
 impl DesignChange {
+    /// The places the change holds that a drawing shows: every place but a
+    /// spec section.
+    pub fn drawn_places(&self) -> BTreeSet<String> {
+        self.places
+            .keys()
+            .filter(|place| PlaceKind::of(place) != PlaceKind::Spec)
+            .cloned()
+            .collect()
+    }
+
     /// Does the change wait on the person's approval? Until they give it, the
     /// change waits on its rules review and then on their review
     /// (`review::design_review`, decision #362), and after that only on its
@@ -1185,12 +1195,7 @@ impl<'a> Drawings<'a> {
             let same = match &design.tip {
                 Some(tip) => {
                     let before = drawing_at(top, tip, paths.iter().copied())?;
-                    let held = design
-                        .places
-                        .keys()
-                        .filter(|place| PlaceKind::of(place) != PlaceKind::Spec)
-                        .cloned()
-                        .collect();
+                    let held = design.drawn_places();
                     Sameness::between(
                         renders,
                         top,

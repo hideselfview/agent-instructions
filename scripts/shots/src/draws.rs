@@ -9,10 +9,10 @@
 //! bytes never decide: a rebase that merges unrelated lines into a board
 //! file, `canvas.json` or a component's source changes bytes and no drawing.
 
-use crate::design::{self, DesignSystem};
+use crate::design;
 use crate::hex::hex;
 use crate::names::{Platform, Previews};
-use crate::render::{self, board, preview, runtime, serve};
+use crate::render::{self, board, preview};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -39,9 +39,6 @@ impl Picture {
 /// draw.
 pub(crate) type Drawings = BTreeMap<String, Option<Picture>>;
 
-/// The element that says a preview page has loaded.
-const PREVIEW_LOADED: &str = "body";
-
 /// The names of the boards and component previews of the repo at <root>
 /// that draw the same at <at> and at <against>: the lines `alike <what>` and
 /// `differs <what>`, one for each name asked.
@@ -55,13 +52,21 @@ pub(crate) fn lines(
 ) -> Result<Vec<String>, String> {
     let before = read(root, at, cache, boards, components)?;
     let after = read(root, against, cache, boards, components)?;
-    Ok(before
+    before
         .iter()
         .map(|(what, picture)| {
             let alike = picture.is_some() && after.get(what) == Some(picture);
-            format!("{} {what}", if alike { "alike" } else { "differs" })
+            if picture.is_none() && after[what].is_none() {
+                return Err(format!(
+                    "{what} exists at neither {at} nor {against}, so it names no drawing"
+                ));
+            }
+            Ok(format!(
+                "{} {what}",
+                if alike { "alike" } else { "differs" }
+            ))
         })
-        .collect())
+        .collect()
 }
 
 /// How the repo at <root> draws <boards> and <components> at revision <rev>.
@@ -83,16 +88,8 @@ fn draw(
     boards: &[String],
     components: &[String],
 ) -> Result<Drawings, String> {
-    let runtime = runtime::check(work).map_err(|e| e.to_string())?;
-    let design = DesignSystem::of(work, cache).map_err(|e| e.to_string())?;
-    let frames = design::frames(work).map_err(|e| e.to_string())?;
     let previews = Previews::of(work)?;
-    let tree = serve::Tree {
-        root: work,
-        design: &design,
-        runtime: runtime.copy.text,
-    };
-    render::with_browser(tree, cache, async |server, chrome| {
+    render::with_design(work, cache, async |server, chrome, frames| {
         let mut drawn = Drawings::new();
         for name in boards {
             let frame = frames
@@ -129,7 +126,7 @@ fn draw(
                                 &server.preview_url(name),
                                 preview::PREVIEW_FRAME,
                                 1.0,
-                                PREVIEW_LOADED,
+                                preview::PREVIEW_LOADED,
                             )
                             .await
                             .map_err(|e| e.to_string())?;

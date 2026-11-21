@@ -82,6 +82,9 @@ fn a_board_whose_bytes_change_and_drawing_does_not_draws_alike_and_a_redrawn_one
     let moved = lines(repo.path(), "b", "c", &boards, &[], &cache()).unwrap();
     assert_eq!(moved, vec![format!("differs board {BOARD}")]);
     let missing = vec!["no-such-board".to_string()];
-    let none = lines(repo.path(), "a", "b", &missing, &[], &cache()).unwrap();
-    assert_eq!(none, vec!["differs board no-such-board".to_string()]);
+    let error = lines(repo.path(), "a", "b", &missing, &[], &cache()).unwrap_err();
+    assert!(
+        error.contains("board no-such-board exists at neither"),
+        "{error}"
+    );
 }
