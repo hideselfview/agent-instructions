@@ -7,8 +7,8 @@ fn the_platforms_and_folders_are_those_of_the_shots_declared_lines() {
     assert_eq!(
         declared(text).unwrap(),
         [
-            ("mac".to_string(), "app/Shots".to_string()),
-            ("android".to_string(), "app/shots".to_string())
+            (Platform::Mac, "app/Shots".to_string()),
+            (Platform::Android, "app/shots".to_string())
         ]
     );
     assert!(declared("shots-capture mac run\n").unwrap().is_empty());

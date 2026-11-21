@@ -83,10 +83,3 @@ fn a_shots_line_it_cannot_read_is_refused() {
             .contains("second capture command")
     );
 }
-
-#[test]
-fn every_platform_a_shots_line_can_name_is_one_the_program_knows() {
-    for word in boards::app_build::PLATFORMS {
-        assert!(Platform::parse(word).is_some(), "{word}");
-    }
-}

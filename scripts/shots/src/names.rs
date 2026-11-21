@@ -12,58 +12,7 @@ pub(crate) enum NameError {
     Invalid(String, &'static str),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum Platform {
-    Mac,
-    Android,
-    Web,
-}
-
-impl Platform {
-    pub(crate) fn parse(word: &str) -> Option<Self> {
-        match word {
-            "mac" => Some(Self::Mac),
-            "android" => Some(Self::Android),
-            "web" => Some(Self::Web),
-            _ => None,
-        }
-    }
-
-    /// The first segment of every name on this platform.
-    pub(crate) fn word(self) -> &'static str {
-        match self {
-            Self::Mac => "mac",
-            Self::Android => "android",
-            Self::Web => "web",
-        }
-    }
-
-    /// The platform's word in a shot's file name (`<name>@macos.png`).
-    pub(crate) fn file_word(self) -> &'static str {
-        match self {
-            Self::Mac => "macos",
-            Self::Android => "android",
-            Self::Web => "web",
-        }
-    }
-
-    /// The platform whose word in a shot's file name is `word`.
-    pub(crate) fn from_file_word(word: &str) -> Option<Self> {
-        [Self::Mac, Self::Android, Self::Web]
-            .into_iter()
-            .find(|platform| platform.file_word() == word)
-    }
-
-    /// The prefix of this platform's component names in the design system
-    /// (`MacRow`, `AndroidCastRow`), as `boards::component_key` gives it.
-    fn component_prefix(self) -> &'static str {
-        boards::component_key::PLATFORMS
-            .into_iter()
-            .find(|(word, _)| *word == self.word())
-            .map(|(_, start)| start)
-            .expect("boards gives every platform's component prefix")
-    }
-}
+pub(crate) use boards::app_build::Platform;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum Name {

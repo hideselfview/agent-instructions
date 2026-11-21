@@ -79,14 +79,7 @@ impl Settings {
         let mut settings = Self::default();
         let declared =
             boards::app_build::declared(text).map_err(|e| SettingsError::Line(e.line, e.why))?;
-        settings.declared = declared
-            .into_iter()
-            .map(|(platform, folder)| {
-                let platform = Platform::parse(&platform)
-                    .expect("boards::app_build::PLATFORMS are the platforms Platform parses");
-                (platform, folder)
-            })
-            .collect();
+        settings.declared = declared;
         for line in text.lines().map(str::trim) {
             let mut words = line.split_whitespace();
             let Some(keyword) = words.next() else {
