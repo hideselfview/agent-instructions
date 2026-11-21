@@ -1709,27 +1709,28 @@ builds never runs mdutil on a build root that is a folder, because the
 folder's volume holds other files. `builds status` says whether Spotlight
 indexes the build root.
 
-macOS records an event for every file change on a volume and hands them to
-every program that follows a folder there, which kept fseventsd at a core
-while agents built. builds keeps the build volume out of it. Nothing in
-builds follows the build volume: a command that writes build folders
-(`builds cargo`, `lake`, `app-build`, `build-app`, `new`, `retire`, `release`,
-`app-checkout`, `prune`, and any command that deletes a build folder)
-measures the folders of the roots it wrote when it ends, whether it passed
-or failed, writes their sizes to /Volumes/Builds/.builds-daemon/sizes/<repo>/
-<checkout>.json and tells the daemon. The dashboard and `builds status` read
-those records, and measure a folder that has none once. A write that no
-builds command made, such as a cargo run by hand, shows in a size only after
-the next builds command that wrote the root. The volume's own setting turns
-the recording off: a file named no_log in /Volumes/Builds/.fseventsd, which
-macOS reads when it mounts the volume. Only root reads that folder, so builds
-finds out whether the volume records events by changing a file there and
-asking FSEvents for the change. `builds host setup local` creates the file
-through sudo when a person is at the terminal, and `builds health` lists the
-volume under "needs action" while it records events, with the commands: `sudo
-touch /Volumes/Builds/.fseventsd/no_log`, then, with the dashboard and every
-build stopped, `diskutil unmount /Volumes/Builds` and `diskutil mount
-<the volume's device>` (`df /Volumes/Builds` names it).
+fseventsd keeps a history of each volume's file changes, and works for each
+program that follows a folder there, which kept it at a core while agents
+built. builds keeps the build volume out of both. Nothing in builds follows
+the build volume: a command that writes build folders (`builds cargo`,
+`lake`, `app-build`, `build-app`, `new`, `retire`, `release`, `app-checkout`,
+`prune`, and any command that deletes a build folder) measures the folders of
+the roots it wrote when it ends, whether it passed or failed, writes their
+sizes to /Volumes/Builds/.builds-daemon/sizes/<repo>/<checkout>.json and
+tells the daemon. The dashboard and `builds status` read those records, and
+measure a folder that has none once. A write that no builds command made,
+such as a cargo run by hand, shows in a size only after the next builds
+command that wrote the root. The volume's own setting stops the history: a
+file named no_log in /Volumes/Builds/.fseventsd, which macOS reads when it
+mounts the volume. The file does not stop live events to a program that
+follows a folder there. Only root reads that folder, so builds asks FSEvents
+for the UUID of the volume's history, which a volume with a history has and
+one with no_log has not. `builds host setup local` creates the file through
+sudo when a person is at the terminal, and `builds health` lists the volume
+under "needs action" while it keeps a history, with the commands: `sudo touch
+/Volumes/Builds/.fseventsd/no_log`, then, with the dashboard and every build
+stopped, `diskutil unmount /Volumes/Builds` and `diskutil mount <the
+volume's device>` (`df /Volumes/Builds` names it).
 
   builds host add <name> <ssh target>
   builds host setup <name>

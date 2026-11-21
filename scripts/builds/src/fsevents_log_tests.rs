@@ -1,11 +1,11 @@
 use super::*;
 use crate::testing::Scratch;
 
-/// A folder on the Mac's data volume, which records events, is reported as
-/// recording them.
+/// A folder of the Mac's data volume, which keeps a history of its events, is
+/// reported as keeping one.
 #[cfg(target_os = "macos")]
 #[test]
-fn a_volume_that_records_events_says_so() {
+fn a_volume_that_keeps_a_history_says_so() {
     let scratch = Scratch::new("fsevents-log");
     let places = scratch.places();
     std::fs::create_dir_all(&places.root).unwrap();

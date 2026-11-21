@@ -101,7 +101,7 @@ pub enum FindingKind {
     Waits,
     /// A process whose caller is gone (orphans.rs).
     Orphan,
-    /// The build volume's file events are recorded (fsevents_log.rs).
+    /// The build volume keeps a history of its file events (fsevents_log.rs).
     EventLog,
     /// A repo's cached shots runs that branches waiting to land need take
     /// more than the cache's cap (shots_cache.rs).
@@ -1840,10 +1840,9 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
             .map(|advice| Finding::new(FindingKind::Prune, advice)),
     );
     health.findings.extend(shots_cache_findings(tool));
-    health.findings.extend(
-        crate::fsevents_log::finding(&tool.places)
-            .map(|advice| Finding::new(FindingKind::EventLog, advice)),
-    );
+    health
+        .findings
+        .extend(crate::fsevents_log::finding(&tool.places));
     let loaded = crate::lists::store::load_all(&tool.places);
     let ready = crate::host_load::ready_items(&loaded);
     let probed: Vec<_> = hosts.iter().cloned().zip(probes).collect();
@@ -1944,6 +1943,68 @@ mod tests {
     use super::*;
     use crate::side_git::Commit;
     use crate::side_git::SideRead;
+
+    /// A build volume whose events macOS keeps a history of is a line under
+    /// "needs action", and one it keeps none of adds none.
+    #[test]
+    fn a_volume_with_an_event_history_is_listed_under_needs_action() {
+        let now = 1_800_000_000;
+        let places = crate::testing::Scratch::new("health-event-log").places();
+        let printed = |recorded: crate::fail::Result<bool>| {
+            let mut health = assess(
+                now,
+                DiskSpace {
+                    free_kib: 100 << 20,
+                    floor_kib: 30 << 20,
+                    hard_floor_kib: 10 << 20,
+                },
+                Machine {
+                    at: now,
+                    load: [1.0; 3],
+                    cores: 8,
+                    builds: Vec::new(),
+                    remote_runs: Vec::new(),
+                    app_builds: Vec::new(),
+                    landings: Vec::new(),
+                    unread: Vec::new(),
+                    commits: Default::default(),
+                    sccache: SccacheHealth {
+                        server: SccacheServer::Read {
+                            executed: 1,
+                            compared: None,
+                        },
+                        waiting: Vec::new(),
+                    },
+                    shells: Shells::default(),
+                    locks: Vec::new(),
+                    queues: Vec::new(),
+                },
+                &[],
+                Vec::new(),
+                LeftBehind::default(),
+                Vec::new(),
+            );
+            health
+                .findings
+                .extend(crate::fsevents_log::finding_of(&places, recorded));
+            lines(&health)
+        };
+        let listed = printed(Ok(true));
+        let at = listed
+            .iter()
+            .position(|line| line == "needs action:")
+            .expect("health lists what needs action");
+        assert!(
+            listed[at + 1].contains("fsevents: macOS keeps a history of file events")
+                && listed[at + 1].contains("sudo touch"),
+            "{listed:?}"
+        );
+        assert!(
+            printed(Ok(false))
+                .iter()
+                .any(|line| line == "needs action: nothing")
+        );
+    }
 
     /// A claim with no change for hours and no build is stalled, unless its
     /// note says its agent holds the worktree or its design change waits on
