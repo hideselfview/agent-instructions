@@ -66,8 +66,14 @@ pub(crate) fn selected(
     base: bool,
 ) -> Result<Vec<Name>, CaptureError> {
     for prefix in prefixes {
-        if !base && !declared.iter().any(|name| prefix.matches(name)) {
-            return Err(CaptureError::UnknownPrefix(prefix.as_str().to_string()));
+        if !declared.iter().any(|name| prefix.matches(name)) {
+            if !base {
+                return Err(CaptureError::UnknownPrefix(prefix.as_str().to_string()));
+            }
+            crate::log::note(format_args!(
+                "the prefix '{}' starts no declared shot at the merge base, so the run takes none for it",
+                prefix.as_str()
+            ));
         }
     }
     let selected: Vec<Name> = declared
@@ -76,8 +82,14 @@ pub(crate) fn selected(
         .filter(|name| prefixes.is_empty() || prefixes.iter().any(|p| p.matches(name)))
         .cloned()
         .collect();
-    if selected.is_empty() && !base {
-        return Err(CaptureError::NothingSelected(platform));
+    if selected.is_empty() {
+        if !base {
+            return Err(CaptureError::NothingSelected(platform));
+        }
+        crate::log::note(format_args!(
+            "no declared {} shot is selected at the merge base, so the run has no pairs",
+            platform.word()
+        ));
     }
     Ok(selected)
 }
