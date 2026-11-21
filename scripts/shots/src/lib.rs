@@ -4,6 +4,7 @@
 //! `.app-build` (settings.rs), and names no app.
 
 mod before;
+mod board_sizes;
 mod capture;
 mod compare;
 mod component_files;
@@ -185,6 +186,7 @@ impl Selection {
 /// given.
 fn capture(
     root: &Path,
+    checker: &Checker,
     settings: &Settings,
     declared: &[Declared],
     selection: &Selection,
@@ -243,7 +245,10 @@ fn capture(
             platform,
             &selection.prefixes,
             selection.windows,
-            &out,
+            &capture::Target {
+                out: &out,
+                measure: &|names| board_sizes::measure(root, checker, settings, names),
+            },
         )
         .map_err(|e| e.to_string())?;
         if let Some(Kept { pictures, tree, .. }) = kept {
@@ -387,9 +392,15 @@ fn run(checker: &Checker, action: Action) -> Result<bool, String> {
                     no_capture,
                     retake,
                 });
-            let taken = capture(&root, &settings, &declared, &selection, kept, |p| {
-                shots.join(p.word())
-            })?;
+            let taken = capture(
+                &root,
+                checker,
+                &settings,
+                &declared,
+                &selection,
+                kept,
+                |p| shots.join(p.word()),
+            )?;
             let outcome = verify::verify(&verify::Verification {
                 root: &root,
                 settings: &settings,
@@ -408,9 +419,15 @@ fn run(checker: &Checker, action: Action) -> Result<bool, String> {
         }
         Action::Capture { selection, out } => {
             let declared = read_declared()?;
-            capture(&root, &settings, &declared, &selection, None, |_| {
-                out.clone()
-            })?;
+            capture(
+                &root,
+                checker,
+                &settings,
+                &declared,
+                &selection,
+                None,
+                |_| out.clone(),
+            )?;
             Ok(true)
         }
         Action::Check { shots, out, sha } => {

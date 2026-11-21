@@ -1442,7 +1442,17 @@ built again.
                               BUILDS_SHOTS_OUT (the folder to write each
                               <name>@<platform>.png and .json into),
                               BUILDS_SHOTS_SELECT (the name prefixes, comma
-                              separated, unset for every shot) and
+                              separated, unset for every shot),
+                              BUILDS_SHOTS_BOARD_SIZES (the path of
+                              board-sizes.json in that folder: one JSON object
+                              that maps each selected component scene's name to
+                              {"width": <points>, "height": <points>}, the size
+                              of its board, so the harness draws the component
+                              at that size; {} when no component scene is
+                              selected. Before it starts the command, the
+                              checker renders the selected component boards
+                              and writes the whole file, to a temporary file
+                              that it renames) and
                               BUILDS_SHOTS_WINDOWS=1 (take the shots shown in
                               a window too), and on mac a copy of each with
                               TEST_RUNNER_ in front, which Xcode passes to

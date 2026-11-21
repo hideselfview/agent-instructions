@@ -8,6 +8,11 @@
 //!   as `<name>@<platform>.png` and `<name>@<platform>.json`.
 //! - `BUILDS_SHOTS_SELECT`: the name prefixes of the shots to take, comma
 //!   separated; unset for every shot of the platform.
+//! - `BUILDS_SHOTS_BOARD_SIZES`: the absolute path of `board-sizes.json` in
+//!   the out folder: one JSON object that maps the name of each selected
+//!   component scene to `{"width": <points>, "height": <points>}`, the size of
+//!   the scene's board. It is `{}` when no component scene is selected. The
+//!   checker writes the whole file before it starts the command.
 //! - `BUILDS_SHOTS_WINDOWS`: `1` when the harness also takes the shots shown
 //!   in a window, which bring the app to the front; unset otherwise.
 //!
@@ -16,7 +21,8 @@
 
 use crate::declared::Declared;
 use crate::names::{Name, Platform, Prefix};
-use crate::shots::Shot;
+use crate::shots::{Shot, Size};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -40,6 +46,10 @@ pub(crate) enum CaptureError {
     UnknownPrefix(String),
     #[error("no declared {0:?} shot is selected")]
     NothingSelected(Platform),
+    #[error("cannot measure the boards: {0}")]
+    Measure(String),
+    #[error("cannot write {0}: {1}")]
+    BoardSizes(PathBuf, std::io::Error),
     #[error("the capture is incomplete:\n{}", .0.join("\n"))]
     Incomplete(Vec<String>),
 }
@@ -114,10 +124,24 @@ pub(crate) fn clear(out: &Path, platform: Platform) -> Result<(), CaptureError> 
     Ok(())
 }
 
+/// The board size of each of the shots, in points.
+pub(crate) type Sizes = BTreeMap<Name, Size>;
+
+/// Where a capture writes and how it learns the boards' sizes.
+pub(crate) struct Target<'a> {
+    /// The absolute folder the harness writes the shots to.
+    pub(crate) out: &'a Path,
+    /// Gives the board size of each of the shots a run takes.
+    pub(crate) measure: &'a dyn Fn(&[Name]) -> Result<Sizes, String>,
+}
+
 /// Takes the shots of `platform` that `prefixes` select (all when empty) into
-/// `out`, an absolute path, with the `command` the app's `shots-capture` line
+/// `target.out`, an absolute path, with the `command` the app's `shots-capture` line
 /// gives, run from `root`. Without `windows`, a shot shown in its window is
-/// left out and said on stderr. Returns the shots taken and those left out.
+/// left out and said on stderr. Before the command starts, `target.measure`
+/// gives the board size of each shot the run takes, and the run writes them to
+/// `board-sizes.json` in `target.out` (the module's doc). Returns the shots taken and
+/// those left out.
 pub(crate) fn capture(
     root: &Path,
     command: &[String],
@@ -125,8 +149,9 @@ pub(crate) fn capture(
     platform: Platform,
     prefixes: &[Prefix],
     windows: bool,
-    out: &Path,
+    target: &Target,
 ) -> Result<Taken, CaptureError> {
+    let Target { out, measure } = *target;
     let taken = taken(declared, platform, prefixes, windows)?;
     for name in &taken.not_taken {
         crate::log::note(format_args!("{name}: {NEEDS_WINDOW}"));
@@ -135,6 +160,7 @@ pub(crate) fn capture(
     if taken.names.is_empty() {
         return Ok(taken);
     }
+    let sizes = write_board_sizes(out, &measure(&taken.names).map_err(CaptureError::Measure)?)?;
     let step = format!("the {} shots-capture command", platform.word());
     let (program, args) = command
         .split_first()
@@ -146,6 +172,7 @@ pub(crate) fn capture(
         .envs(variables(
             platform,
             out,
+            &sizes,
             &harness_prefixes(platform, prefixes, &taken.names),
             windows,
         ))
@@ -177,14 +204,40 @@ fn harness_prefixes(platform: Platform, prefixes: &[Prefix], taken: &[Name]) -> 
         .collect()
 }
 
+const BOARD_SIZES_FILE: &str = "board-sizes.json";
+
+/// Writes `board-sizes.json` into `out` whole: to a temporary file in `out`,
+/// then renamed over the name, so a reader never sees half of it. Returns its
+/// path.
+fn write_board_sizes(out: &Path, sizes: &BTreeMap<Name, Size>) -> Result<PathBuf, CaptureError> {
+    let by_name: BTreeMap<String, &Size> = sizes.iter().map(|(n, s)| (n.to_string(), s)).collect();
+    let file = out.join(BOARD_SIZES_FILE);
+    let temporary = out.join(format!(".{BOARD_SIZES_FILE}.tmp"));
+    let fail = |path: &Path| {
+        let path = path.to_path_buf();
+        move |e: std::io::Error| CaptureError::BoardSizes(path, e)
+    };
+    let text = serde_json::to_vec_pretty(&by_name).expect("sizes serialize");
+    std::fs::write(&temporary, text).map_err(fail(&temporary))?;
+    std::fs::rename(&temporary, &file).map_err(fail(&file))?;
+    Ok(file)
+}
+
 /// The variables the capture command runs with (the module's doc).
 fn variables(
     platform: Platform,
     out: &Path,
+    sizes: &Path,
     prefixes: &[String],
     windows: bool,
 ) -> Vec<(String, String)> {
-    let mut plain = vec![("BUILDS_SHOTS_OUT", out.to_string_lossy().into_owned())];
+    let mut plain = vec![
+        ("BUILDS_SHOTS_OUT", out.to_string_lossy().into_owned()),
+        (
+            "BUILDS_SHOTS_BOARD_SIZES",
+            sizes.to_string_lossy().into_owned(),
+        ),
+    ];
     if !prefixes.is_empty() {
         plain.push(("BUILDS_SHOTS_SELECT", prefixes.join(",")));
     }

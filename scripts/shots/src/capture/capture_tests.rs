@@ -244,7 +244,7 @@ fn copying_command(ready: &Path, seen: &Path) -> Vec<String> {
         "sh".to_string(),
         "-c".to_string(),
         format!(
-            "env | grep -E '^(TEST_RUNNER_)?BUILDS_SHOTS_(OUT|SELECT|WINDOWS)=' | sort > '{}' && cp '{}'/* \"$BUILDS_SHOTS_OUT\"",
+            "env | grep -E '^(TEST_RUNNER_)?BUILDS_SHOTS_(OUT|BOARD_SIZES|SELECT|WINDOWS)=' | sort > '{}' && cp '{}'/* \"$BUILDS_SHOTS_OUT\"",
             seen.display(),
             ready.display()
         ),
@@ -267,7 +267,10 @@ fn a_capture_runs_the_apps_command_with_the_variables_and_checks_what_it_wrote()
         Platform::Mac,
         &[prefix("mac.welcome.")],
         false,
-        out.path(),
+        &Target {
+            out: out.path(),
+            measure: &|_| Ok(BTreeMap::new()),
+        },
     )
     .unwrap();
     assert_eq!(taken.names, names(&["mac.welcome.a"]));
@@ -280,8 +283,10 @@ fn a_capture_runs_the_apps_command_with_the_variables_and_checks_what_it_wrote()
             .lines()
             .collect::<Vec<_>>(),
         [
+            format!("BUILDS_SHOTS_BOARD_SIZES={out_text}/board-sizes.json"),
             format!("BUILDS_SHOTS_OUT={out_text}"),
             "BUILDS_SHOTS_SELECT=mac.welcome.".to_string(),
+            format!("TEST_RUNNER_BUILDS_SHOTS_BOARD_SIZES={out_text}/board-sizes.json"),
             format!("TEST_RUNNER_BUILDS_SHOTS_OUT={out_text}"),
             "TEST_RUNNER_BUILDS_SHOTS_SELECT=mac.welcome.".to_string(),
         ]
@@ -302,10 +307,80 @@ fn a_capture_command_that_fails_or_writes_too_little_fails_the_capture() {
             Platform::Android,
             &[],
             true,
-            out.path(),
+            &Target {
+                out: out.path(),
+                measure: &|_| Ok(BTreeMap::new()),
+            },
         )
     };
     assert!(matches!(run(&["false"]), Err(CaptureError::Failed { .. })));
     assert!(matches!(run(&["true"]), Err(CaptureError::Incomplete(_))));
     assert!(matches!(run(&[]), Err(CaptureError::NoCommand("android"))));
+}
+
+#[test]
+fn the_board_sizes_file_is_written_whole_before_the_command_starts() {
+    let ready = tempfile::tempdir().unwrap();
+    write_shot(ready.path(), "mac.checkbox.default");
+    let out = tempfile::tempdir().unwrap();
+    let seen = tempfile::tempdir().unwrap();
+    let copy = seen.path().join("sizes");
+    let command = vec![
+        "sh".to_string(),
+        "-c".to_string(),
+        format!(
+            "cp \"$BUILDS_SHOTS_BOARD_SIZES\" '{}' && cp '{}'/* \"$BUILDS_SHOTS_OUT\"",
+            copy.display(),
+            ready.path().display()
+        ),
+    ];
+    let name = names(&["mac.checkbox.default"]).remove(0);
+    let sizes = BTreeMap::from([(
+        name.clone(),
+        Size {
+            width: 110.0,
+            height: 16.0,
+        },
+    )]);
+    capture(
+        ready.path(),
+        &command,
+        &declared(&[("mac.checkbox.default", false)]),
+        Platform::Mac,
+        &[],
+        false,
+        &Target {
+            out: out.path(),
+            measure: &|taken| {
+                assert_eq!(taken, std::slice::from_ref(&name));
+                Ok(sizes.clone())
+            },
+        },
+    )
+    .unwrap();
+    let read: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&copy).unwrap()).unwrap();
+    assert_eq!(
+        read,
+        serde_json::json!({"mac.checkbox.default": {"width": 110.0, "height": 16.0}})
+    );
+    assert!(!out.path().join(".board-sizes.json.tmp").exists());
+}
+
+#[test]
+fn a_run_that_cannot_measure_the_boards_does_not_start_the_command() {
+    let out = tempfile::tempdir().unwrap();
+    let result = capture(
+        out.path(),
+        &["false".to_string()],
+        &declared(&[("mac.checkbox.default", false)]),
+        Platform::Mac,
+        &[],
+        false,
+        &Target {
+            out: out.path(),
+            measure: &|_| Err("no browser".to_string()),
+        },
+    );
+    assert!(matches!(result, Err(CaptureError::Measure(_))));
 }
