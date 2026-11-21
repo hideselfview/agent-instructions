@@ -7,7 +7,19 @@
 //! of the git object of each file at the commit that such a line matches,
 //! with its path, and of the `.app-build` itself, which holds the capture
 //! commands.
+//!
+//! The app also builds from Rust crates, which no `on` line names unless the
+//! crate's folder is one (a bridge crate's is). The lane's Rust seeds are the
+//! crates whose folders a rule of the lane matches, and the crates a script
+//! the rules match builds with `cargo ... -p <crate>` (a generator of the
+//! theme or the strings). The app tree holds every file of each seed and of
+//! every crate in their dependency closure, which the workspace's manifests
+//! at the commit give, and the files every crate builds from: the workspace
+//! manifest, `Cargo.lock`, the toolchain pins and `.cargo/`. The closure
+//! comes from the manifests in the commit's tree, not from `cargo metadata`,
+//! which needs a checkout of the commit.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use sha2::{Digest, Sha256};
@@ -37,17 +49,140 @@ pub fn of(top: &Path, commit: &str, config: &Config, lane: Lane) -> Result<Strin
         .collect();
     // Each line is `<mode> <type> <object>\t<path>`, sorted by path.
     let listing = run_git(top, &["ls-tree", "-r", "--full-tree", commit])?;
-    let mut hasher = Sha256::new();
+    let mut paths = Vec::new();
     for line in listing.lines() {
         let Some((_, path)) = line.split_once('\t') else {
             fail!("git ls-tree printed {line:?}, which names no path after a tab");
         };
-        if path == CONFIG || rules.iter().any(|rule| rule.matches(path)) {
+        paths.push(path);
+    }
+    let matched = |path: &str| path == CONFIG || rules.iter().any(|rule| rule.matches(path));
+    let crate_dirs = closure_dirs(top, commit, &paths, &matched)?;
+    let mut hasher = Sha256::new();
+    for line in listing.lines() {
+        let path = line.split_once('\t').map_or("", |(_, path)| path);
+        if matched(path) || is_rust_input(path, &crate_dirs) {
             hasher.update(line.as_bytes());
             hasher.update([b'\n']);
         }
     }
     Ok(crate::text::hex(&hasher.finalize()[..8]))
+}
+
+/// The files every crate builds from, which the workspace has at its top.
+fn is_workspace_input(path: &str) -> bool {
+    matches!(
+        path,
+        "Cargo.toml" | "Cargo.lock" | "rust-toolchain" | "rust-toolchain.toml"
+    ) || path.starts_with(".cargo/")
+}
+
+/// Whether <path> is a workspace input, or a file of one of <crate_dirs>.
+fn is_rust_input(path: &str, crate_dirs: &BTreeSet<String>) -> bool {
+    !crate_dirs.is_empty()
+        && (is_workspace_input(path)
+            || crate_dirs
+                .iter()
+                .any(|dir| path.starts_with(&format!("{dir}/"))))
+}
+
+/// The folders of the lane's seed crates and of every crate they depend on.
+/// Empty when the lane has no seed.
+fn closure_dirs(
+    top: &Path,
+    commit: &str,
+    paths: &[&str],
+    matched: &dyn Fn(&str) -> bool,
+) -> Result<BTreeSet<String>> {
+    // Each crate's folder and the names of the workspace crates it names as
+    // dependencies (a name that is no workspace crate is a registry crate,
+    // which Cargo.lock holds).
+    let mut folders: BTreeMap<String, String> = BTreeMap::new();
+    let mut named: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for path in paths {
+        let Some(dir) = path.strip_suffix("Cargo.toml") else {
+            continue;
+        };
+        if !(dir.is_empty() || dir.ends_with('/')) {
+            continue;
+        }
+        let text = run_git(top, &["show", &format!("{commit}:{path}")])?;
+        let manifest: toml::Table = match text.parse() {
+            Ok(table) => table,
+            Err(error) => fail!("{path} at {commit} is not TOML: {error}"),
+        };
+        let Some(name) = manifest
+            .get("package")
+            .and_then(|package| package.get("name"))
+            .and_then(|name| name.as_str())
+        else {
+            continue;
+        };
+        let mut dependencies = BTreeSet::new();
+        dependency_names(&manifest, &mut dependencies);
+        folders.insert(name.to_string(), dir.trim_end_matches('/').to_string());
+        named.insert(name.to_string(), dependencies);
+    }
+    let mut pending: Vec<String> = Vec::new();
+    for (name, dir) in &folders {
+        if !dir.is_empty() && paths.iter().any(|path| in_dir(path, dir) && matched(path)) {
+            pending.push(name.clone());
+        }
+    }
+    // The crates a matched script builds with `-p <crate>`.
+    for path in paths
+        .iter()
+        .filter(|path| path.ends_with(".sh") && matched(path))
+    {
+        let text = run_git(top, &["show", &format!("{commit}:{path}")])?;
+        let words: Vec<&str> = text.split_whitespace().collect();
+        for (at, word) in words.iter().enumerate() {
+            let name = match *word {
+                "-p" | "--package" => words.get(at + 1).copied(),
+                other => other.strip_prefix("--package="),
+            };
+            if let Some(name) = name.filter(|name| folders.contains_key(*name)) {
+                pending.push(name.to_string());
+            }
+        }
+    }
+    let mut closure = BTreeSet::new();
+    while let Some(name) = pending.pop() {
+        if !closure.insert(name.clone()) {
+            continue;
+        }
+        pending.extend(
+            named[&name]
+                .iter()
+                .filter(|dependency| folders.contains_key(*dependency))
+                .cloned(),
+        );
+    }
+    Ok(closure.iter().map(|name| folders[name].clone()).collect())
+}
+
+fn in_dir(path: &str, dir: &str) -> bool {
+    path.strip_prefix(dir)
+        .is_some_and(|rest| rest.starts_with('/'))
+}
+
+/// Adds to <names> the package each dependency of <manifest> names, in its
+/// dependency tables and those under `target`.
+fn dependency_names(manifest: &toml::Table, names: &mut BTreeSet<String>) {
+    for table in ["dependencies", "dev-dependencies", "build-dependencies"] {
+        let Some(dependencies) = manifest.get(table).and_then(|value| value.as_table()) else {
+            continue;
+        };
+        for (key, value) in dependencies {
+            let renamed = value.get("package").and_then(|package| package.as_str());
+            names.insert(renamed.unwrap_or(key).to_string());
+        }
+    }
+    if let Some(targets) = manifest.get("target").and_then(|value| value.as_table()) {
+        for target in targets.values().filter_map(|value| value.as_table()) {
+            dependency_names(target, names);
+        }
+    }
 }
 
 #[cfg(test)]

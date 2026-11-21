@@ -1107,7 +1107,11 @@ once for its inputs.
 
 The same folder keeps the app's shots by the lane's app source tree, in
 pictures/<platform>/<app tree>/: a hash of the git objects, at the commit,
-of each path the `on` lines name for a step of the lane, and of .app-build.
+of each path the `on` lines name for a step of the lane, of .app-build, and
+of the Rust the app builds from: every file of each crate whose folder an
+`on` line of the lane matches or that a matched script builds with `-p
+<crate>`, of every workspace crate those depend on (from the manifests at
+the commit), and of Cargo.toml, Cargo.lock, rust-toolchain(.toml) and .cargo/.
 app-build passes the lane's app tree to each shots run on this Mac (`run
 --app-tree`). When the folder keeps every shot the run selects for that
 tree, the run takes the shots from it and runs no capture command;
