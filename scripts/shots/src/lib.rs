@@ -1,8 +1,8 @@
 //! The shots checker: checks an app's shots against its design boards.
 //! builds runs it as `builds shots …` (`main`), in the builds program, and
-//! the builds-shots program (bin/builds-shots.rs) runs it for the builds commands that
-//! still start that program; it reads the repo it runs in, its design files and the `shots-` lines of its
-//! `.app-build` (settings.rs), and names no app.
+//! the builds-shots program (bin/builds-shots.rs) runs it for `builds design
+//! record` and `amend`. It reads the repo it runs in, its design files and the `shots-`
+//! lines of its `.app-build` (settings.rs), and names no app.
 
 mod before;
 mod capture;
@@ -382,8 +382,7 @@ fn run(checker: &Checker, action: Action) -> Result<bool, String> {
             let outcome = verify::verify(&verify::Verification {
                 root: &root,
                 settings: &settings,
-                version: checker.version,
-                cache: checker.cache,
+                checker,
                 names: &taken.names,
                 not_taken: &taken.not_taken,
                 declared: &declared,
@@ -418,8 +417,7 @@ fn run(checker: &Checker, action: Action) -> Result<bool, String> {
             let outcome = verify::verify(&verify::Verification {
                 root: &root,
                 settings: &settings,
-                version: checker.version,
-                cache: checker.cache,
+                checker,
                 names: &names,
                 not_taken: &[],
                 declared: &declared,

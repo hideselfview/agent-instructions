@@ -4,9 +4,9 @@
 //! (scripts/shots, a library this program is built with), with the same
 //! arguments. builds gives the checker a cache folder in the build volume's
 //! caches, where it keeps the Chrome it pins and builds the design system.
-//! `builds design record` and `amend` still run the checker as builds-shots,
-//! the program built from the same sources, which `builds install` puts
-//! beside `builds`, here and on each host (install.rs).
+//! `builds design record` and `amend` run the checker as builds-shots, the
+//! program built from the same sources, which `builds install` puts beside
+//! `builds`, here and on each host (install.rs).
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
