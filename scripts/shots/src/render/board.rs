@@ -1,5 +1,8 @@
 //! Loading a board in Chrome and taking its picture.
 //!
+//! No animation or transition runs on the page, so the reader records every
+//! element in one fixed state.
+//!
 //! The page loads under virtual time with a fixed budget, so animations stop
 //! at the same moment on every run; virtual time stands still while a request
 //! is pending. A script the page runs before its own watches for the element
@@ -117,6 +120,22 @@ fn watch_script(mounted: &str) -> String {
     return map;
   }};
   window.__buildsShots = watch;
+  // No animation or transition runs: every element keeps the style it has
+  // before any animation starts, so a spinner's box is the unrotated one.
+  const freeze = document.createElement('style');
+  freeze.textContent = '*, *::before, *::after {{ animation: none !important; '
+    + 'transition: none !important; }}';
+  const attach = () => {{
+    if (!document.documentElement) return false;
+    document.documentElement.appendChild(freeze);
+    return true;
+  }};
+  if (!attach()) {{
+    const waiting = new MutationObserver(() => {{
+      if (attach()) waiting.disconnect();
+    }});
+    waiting.observe(document, {{ childList: true }});
+  }}
   new Promise((resolve) => {{
     const look = () => {{
       if (!document.querySelector({selector})) return;
@@ -247,6 +266,12 @@ pub(crate) async fn load(
         .await
         .map_err(protocol)?
         .into_value::<String>()
+        .map_err(protocol)?;
+    // An animation the stylesheet did not stop (a more specific `!important`
+    // rule, or one the page started through the Web Animations API) is
+    // cancelled, which returns its element to the style it has without it.
+    page.evaluate("document.getAnimations().forEach((a) => a.cancel())")
+        .await
         .map_err(protocol)?;
     if state != "ready" {
         return Err(BoardError::NotReady {

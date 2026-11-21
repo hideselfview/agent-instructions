@@ -9,6 +9,16 @@ fn tree() -> tempfile::TempDir {
 <div class=\"row\"><x-import component-from-global-scope=\"Demo.Box\"></x-import></div></x-dc>",
         ),
         (
+            "fixture.spinning",
+            "<x-dc><helmet><style>body{margin:0;background:#123}\
+@keyframes turn{to{transform:rotate(45deg)}}\
+#spin{position:absolute;left:50px;top:50px;width:40px;height:40px;background:#fff;\
+animation:turn 3s linear infinite}\
+#fade{position:absolute;left:150px;top:50px;width:40px;height:40px;background:#fff;\
+transition:opacity 1s}#fade.on{opacity:0}</style></helmet>\
+<div id=\"spin\"></div><div id=\"fade\"></div></x-dc>",
+        ),
+        (
             "fixture.broken",
             "<x-dc><div>broken</div></x-dc>\
 <script type=\"text/x-dc\" data-dc-script>class Component extends DCLogic { renderVals( { }</script>",
@@ -135,4 +145,40 @@ async fn a_page_the_runtime_never_mounts_is_not_drawn() {
         }
         other => panic!("expected not drawn, got {:?}", other.map(|r| r.png.len())),
     }
+}
+
+#[tokio::test]
+async fn a_spinning_element_records_its_unrotated_box() {
+    let root = tree();
+    let (width, opacity) = fixture::with_browser(root.path(), async |server, chrome| {
+        let page = chrome.new_page().await.unwrap();
+        render(
+            &page,
+            "fixture.spinning",
+            &server.board_url("fixture.spinning"),
+            Frame { w: 300, h: 200 },
+            1.0,
+        )
+        .await
+        .unwrap();
+        let width: f64 = page
+            .evaluate("document.querySelector('#spin').getBoundingClientRect().width")
+            .await
+            .unwrap()
+            .into_value()
+            .unwrap();
+        let opacity: String = page
+            .evaluate(
+                "document.querySelector('#fade').classList.add('on');\
+                 getComputedStyle(document.querySelector('#fade')).opacity",
+            )
+            .await
+            .unwrap()
+            .into_value()
+            .unwrap();
+        (width, opacity)
+    })
+    .await;
+    assert_eq!(width, 40.0);
+    assert_eq!(opacity, "0");
 }
