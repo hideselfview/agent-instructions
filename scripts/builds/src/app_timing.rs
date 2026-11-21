@@ -444,6 +444,18 @@ pub struct PassedRun {
     pub steps: Vec<String>,
 }
 
+impl PassedRun {
+    /// Whether a shots step of the run covers <prefix>: a run of the prefix,
+    /// or of a prefix it starts with (`mac.` runs every shot of the lane).
+    pub fn ran_shots(&self, prefix: &str) -> bool {
+        let shots = PickKind::Shots.step_prefix();
+        self.steps
+            .iter()
+            .filter_map(|step| step.strip_prefix(shots))
+            .any(|ran| prefix.starts_with(ran))
+    }
+}
+
 /// How many of a lane's latest passing runs `passed_runs` reads.
 pub const PASSED_RUNS_READ: usize = 50;
 
@@ -503,10 +515,9 @@ pub fn passed_shots(
     prefix: &str,
     path: &Path,
 ) -> Result<bool> {
-    let step = format!("{}{prefix}", PickKind::Shots.step_prefix());
     Ok(passed_runs(conn, repo, lane, path)?
         .iter()
-        .any(|run| run.commit == commit && run.steps.contains(&step)))
+        .any(|run| run.commit == commit && run.ran_shots(prefix)))
 }
 
 /// The shots prefixes that app builds of <repo>'s <lane> named <branch>

@@ -162,19 +162,12 @@ enum Search {
     Newest(Option<Newest>),
 }
 
-/// The prefixes of <required> that no shots step of <run> covers: a run of
-/// the prefix, or of a prefix it starts with (`mac.` runs every shot of the
-/// lane).
+/// The prefixes of <required> that no shots step of <run> covers
+/// (`PassedRun::ran_shots`).
 fn missing_shots(run: &PassedRun, required: &[String]) -> Vec<String> {
-    let shots = PickKind::Shots.step_prefix();
-    let ran: Vec<&str> = run
-        .steps
-        .iter()
-        .filter_map(|step| step.strip_prefix(shots))
-        .collect();
     required
         .iter()
-        .filter(|prefix| !ran.iter().any(|run| prefix.starts_with(run)))
+        .filter(|prefix| !run.ran_shots(prefix))
         .cloned()
         .collect()
 }

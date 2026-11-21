@@ -1134,6 +1134,11 @@ fn a_build_that_reuses_a_cached_run_leaves_the_passing_build_that_land_counts() 
     // land counts as covering the branch.
     record(RunEnd::Passed, StepResult::Passed);
     assert!(serve().is_empty());
+    let run = crate::app_timing::PassedRun {
+        commit: commit.clone(),
+        steps: vec!["shots mac.".to_string()],
+    };
+    assert!(run.ran_shots("mac.a.") && !run.ran_shots("android.a."));
     let config = parse_config("step mac macos ./macos.sh\non bae-macos/ macos\n").unwrap();
     let conn = crate::db::open(&store.database(), crate::db::Make::Never).unwrap();
     let needs = crate::app_landing::needs(
