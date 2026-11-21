@@ -329,6 +329,18 @@ pub fn read(top: &Path) -> Result<SideRead, String> {
     })
 }
 
+/// <before>, the read of the side worktree at <top> that no ref has moved
+/// since, with the uncommitted count and their newest write read again. Only
+/// a change to the worktree's files changes those two.
+pub fn read_files(top: &Path, before: SideRead) -> Result<SideRead, String> {
+    let (uncommitted, last_write) = uncommitted(top)?;
+    Ok(SideRead {
+        uncommitted,
+        last_write,
+        ..before
+    })
+}
+
 #[cfg(test)]
 #[path = "side_git_tests.rs"]
 mod tests;

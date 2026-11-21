@@ -58,13 +58,17 @@ struct Dirty {
     layout: bool,
     /// Build roots whose sizes changed.
     sizes: HashSet<PathBuf>,
-    /// Checkout tops whose git state, claim or manifest changed.
+    /// Checkout tops whose refs, claim or manifest changed: git is asked
+    /// everything about them again.
     git: HashSet<PathBuf>,
+    /// Side checkout tops where only files of the working tree changed: git
+    /// is asked for the uncommitted files alone.
+    tree: HashSet<PathBuf>,
 }
 
 impl Dirty {
     fn any(&self) -> bool {
-        self.layout || !self.sizes.is_empty() || !self.git.is_empty()
+        self.layout || !self.sizes.is_empty() || !self.git.is_empty() || !self.tree.is_empty()
     }
 }
 
@@ -339,8 +343,10 @@ impl Model {
                         && !path.starts_with(common.join("worktrees"));
                     // Main's own working tree is the person's: only its
                     // branch shows, which moves in the common git dir.
-                    if (in_tree && !checkout.is_main()) || in_own_git || in_common {
+                    if in_own_git || in_common {
                         dirty.git.insert(checkout.top.clone());
+                    } else if in_tree && !checkout.is_main() {
+                        dirty.tree.insert(checkout.top.clone());
                     }
                     if in_tree && path.parent().is_some_and(|p| p == checkout.top)
                         || *path == checkout.top
@@ -496,8 +502,23 @@ impl Model {
         // Git, claims and manifests.
         let tops: Vec<&Root> = roots
             .iter()
-            .filter(|r| r.live.as_ref().is_some_and(|c| dirty.git.contains(&c.top)))
+            .filter(|r| {
+                r.live
+                    .as_ref()
+                    .is_some_and(|c| dirty.git.contains(&c.top) || dirty.tree.contains(&c.top))
+            })
             .collect();
+        // What the daemon read of a worktree whose files alone changed.
+        let before: HashMap<PathBuf, (Option<String>, Option<SideGit>)> = {
+            let state = self.state.lock().expect("no panic holding it");
+            tops.iter()
+                .filter(|r| r.live.as_ref().is_some_and(|c| !dirty.git.contains(&c.top)))
+                .filter_map(|r| {
+                    let facts = state.facts.get(&r.path)?;
+                    Some((r.path.clone(), (facts.branch.clone(), facts.git.clone())))
+                })
+                .collect()
+        };
         let read = parallel_map(&tops, |root| {
             let checkout = root.live.as_ref().expect("live");
             let manifest = build_dirs(&checkout.top).unwrap_or_default();
@@ -506,12 +527,23 @@ impl Model {
             } else {
                 Claim::read(&checkout.claim_file())
             };
-            let branch = checkout.branch();
-            let git = Some(if checkout.is_main() {
-                SideGit::Main(crate::side_git::read_head(&checkout.top))
-            } else {
-                SideGit::Side(crate::side_git::read(&checkout.top))
-            });
+            let (branch, git) = match before.get(&root.path) {
+                Some((branch, Some(SideGit::Side(Ok(read))))) => (
+                    Ok(branch.clone()),
+                    Some(SideGit::Side(crate::side_git::read_files(
+                        &checkout.top,
+                        read.clone(),
+                    ))),
+                ),
+                _ => (
+                    checkout.branch(),
+                    Some(if checkout.is_main() {
+                        SideGit::Main(crate::side_git::read_head(&checkout.top))
+                    } else {
+                        SideGit::Side(crate::side_git::read(&checkout.top))
+                    }),
+                ),
+            };
             (root.path.clone(), manifest, claim, branch, git)
         });
         {

@@ -88,3 +88,28 @@ fn the_page_reads_a_side_read_a_main_head_or_a_failure_as_one_object() {
         );
     }
 }
+
+/// A change to a worktree's files changes the uncommitted count and nothing
+/// else of its read, so the daemon asks git for that count alone.
+#[test]
+fn reading_the_files_again_changes_only_the_uncommitted_files() {
+    let scratch = Scratch::new("side-git-files");
+    let main = scratch.dir.join("demo");
+    repo(&main, "target 1G\n");
+    git(&main, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    commit(&main, "work", "one\n", "Work");
+    let before = read(&main).unwrap();
+    assert_eq!(before.uncommitted, 0);
+    std::fs::write(main.join("new"), "x").unwrap();
+    let after = read_files(&main, before.clone()).unwrap();
+    assert_eq!(after.uncommitted, 1);
+    assert_eq!(
+        SideRead {
+            uncommitted: 1,
+            last_write: after.last_write,
+            ..before
+        },
+        after
+    );
+    assert_eq!(after, read(&main).unwrap());
+}
