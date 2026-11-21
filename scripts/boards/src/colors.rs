@@ -195,9 +195,11 @@ pub fn palette(colors_json: &str, tokens_json: &str) -> Result<Palette> {
         if group.table.is_none() && group.clusters.is_empty() {
             problems.push(format!("group {} shows no swatch", group.name));
         }
+        let mut rows_fit = true;
         if let Some(table) = &group.table {
             for row in &table.rows {
                 if row.colors.len() != table.columns.len() {
+                    rows_fit = false;
                     problems.push(format!(
                         "row {} of group {} has {} entries for {} columns",
                         row.label,
@@ -213,6 +215,7 @@ pub fn palette(colors_json: &str, tokens_json: &str) -> Result<Palette> {
         }
         if let Some(table) = &group.table
             && let Some(spec) = &table.switch
+            && rows_fit
             && let Some(made) = switch(&group.name, spec, table, &tokens, &mut problems)
         {
             switches.push(made);
@@ -284,13 +287,13 @@ fn check_scene(owner: &str, scene: &str, problems: &mut Vec<String>) {
     }
 }
 
-/// The switch that the rows of <table> in group <group> make, or none when a
-/// row has not one entry per column (which `palette` reports), with a
-/// problem for each column that sets no color of the tokens, each empty
-/// cell, each derived color that is no color, follows no color the table
-/// sets, names an opacity that is neither a token nor a number from 0 to 1,
-/// or names a theme the tokens lack, and when no row holds the values that
-/// tokens.json gives the colors the table sets.
+/// The switch that the rows of <table> in group <group> make, each row with
+/// one entry per column, or none, with a problem for each column that sets
+/// no color of the tokens, each empty cell, each derived color that is no
+/// color, follows no color the table sets, names an opacity that is neither
+/// a token nor a number from 0 to 1, or names a theme the tokens lack, and
+/// when no row holds the values that tokens.json gives the colors the table
+/// sets.
 fn switch(
     group: &str,
     spec: &SwitchSpec,
@@ -298,13 +301,6 @@ fn switch(
     tokens: &crate::tokens::ColorValues,
     problems: &mut Vec<String>,
 ) -> Option<Switch> {
-    if table
-        .rows
-        .iter()
-        .any(|row| row.colors.len() != table.columns.len())
-    {
-        return None;
-    }
     let before = problems.len();
     let value = |name: &str| {
         tokens
