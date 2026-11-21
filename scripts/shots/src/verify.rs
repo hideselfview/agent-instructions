@@ -71,6 +71,14 @@ pub(crate) struct Checked {
     pub(crate) against: Option<Against>,
 }
 
+impl Checked {
+    /// The pair's findings as records, which a before run's records are
+    /// compared with.
+    fn whats(&self) -> Vec<What> {
+        self.findings.iter().map(What::from).collect()
+    }
+}
+
 pub(crate) struct Outcome {
     /// What the run says of the runtime copy it drew the boards with.
     pub(crate) runtime: String,
@@ -119,6 +127,68 @@ impl Outcome {
     /// shot the capture failed.
     pub(crate) fn passed(&self) -> bool {
         self.problems.is_empty() && self.failed.is_empty() && self.failing().next().is_none()
+    }
+}
+
+/// A board's drawing: its element list, its decoded picture and the file the
+/// picture came from.
+pub(crate) struct Drawn {
+    pub(crate) list: ElementList,
+    pub(crate) picture: Picture,
+    pub(crate) png: PathBuf,
+}
+
+/// Compares the board <board> with the shot <shot> (whose picture is the file
+/// <shot_png>) as the scene <name>. The pair stands against no before run.
+pub(crate) fn compare_pair(name: &Name, board: Drawn, shot: &Shot, shot_png: PathBuf) -> Checked {
+    let Drawn {
+        list,
+        picture,
+        png: board_png,
+    } = board;
+    let result = compare::compare(
+        &list.elements,
+        &shot.list.elements,
+        Slots::new(&list.slots, list.size),
+    );
+    // The board's slots are areas its picture draws a stand-in for; the
+    // picture check leaves them out like the board's unshot parts.
+    let board_unshot: Vec<_> = list
+        .unshot
+        .iter()
+        .copied()
+        .chain(Slots::new(&list.slots, list.size).covered())
+        .collect();
+    let warnings = compare::warnings(
+        &Side {
+            elements: &list.elements,
+            picture: &picture,
+            scale: list.scale,
+            unshot: &board_unshot,
+        },
+        &Side {
+            elements: &shot.list.elements,
+            picture: &shot.picture,
+            scale: shot.list.scale,
+            unshot: &shot.list.unshot,
+        },
+        &result.pairs,
+    );
+    Checked {
+        name: name.clone(),
+        offset: compare::geometry::frame_offset(&list.elements, &shot.list.elements, &result.pairs),
+        pairs: result
+            .pairs
+            .iter()
+            .map(|(b, s)| (b.index, s.index))
+            .collect(),
+        board: list,
+        shot: shot.list.clone(),
+        board_png,
+        shot_png,
+        findings: result.findings,
+        warnings,
+        against: None,
     }
 }
 
@@ -180,7 +250,6 @@ pub(crate) fn verify(job: &Verification) -> Result<Outcome, String> {
     }
     let mut checked = Vec::new();
     for name in &names {
-        let shot = &shots[name];
         let list =
             ElementList::load(&boards.join(format!("{name}.json"))).map_err(|e| e.to_string())?;
         let picture_file = boards.join(format!("{name}.png"));
@@ -188,57 +257,20 @@ pub(crate) fn verify(job: &Verification) -> Result<Outcome, String> {
             .map_err(|e| format!("cannot read {}: {e}", picture_file.display()))?;
         let picture =
             Picture::decode(&picture).map_err(|e| format!("{}: {e}", picture_file.display()))?;
-        let result = compare::compare(
-            &list.elements,
-            &shot.list.elements,
-            Slots::new(&list.slots, list.size),
-        );
-        // The board's slots are areas its picture draws a stand-in for; the
-        // picture check leaves them out like the board's unshot parts.
-        let board_unshot: Vec<_> = list
-            .unshot
-            .iter()
-            .copied()
-            .chain(Slots::new(&list.slots, list.size).covered())
-            .collect();
-        let warnings = compare::warnings(
-            &Side {
-                elements: &list.elements,
-                picture: &picture,
-                scale: list.scale,
-                unshot: &board_unshot,
+        let mut pair = compare_pair(
+            name,
+            Drawn {
+                list,
+                picture,
+                png: picture_file,
             },
-            &Side {
-                elements: &shot.list.elements,
-                picture: &shot.picture,
-                scale: shot.list.scale,
-                unshot: &shot.list.unshot,
-            },
-            &result.pairs,
+            &shots[name],
+            (job.shots_for)(name.platform()).join(name.file_name("png")),
         );
-        let whats: Vec<What> = result.findings.iter().map(What::from).collect();
-        checked.push(Checked {
-            name: name.clone(),
-            offset: compare::geometry::frame_offset(
-                &list.elements,
-                &shot.list.elements,
-                &result.pairs,
-            ),
-            pairs: result
-                .pairs
-                .iter()
-                .map(|(b, s)| (b.index, s.index))
-                .collect(),
-            board: list,
-            shot: shot.list.clone(),
-            board_png: picture_file,
-            shot_png: (job.shots_for)(name.platform()).join(name.file_name("png")),
-            findings: result.findings,
-            warnings,
-            against: job
-                .before
-                .map(|before| before.against(&name.to_string(), &whats)),
-        });
+        pair.against = job
+            .before
+            .map(|before| before.against(&name.to_string(), &pair.whats()));
+        checked.push(pair);
     }
     let ready = design::ready_boards(root).map_err(|e| e.to_string())?;
     let lists = lists::lists(&hashed_all(job.declared), &ready, &problems);

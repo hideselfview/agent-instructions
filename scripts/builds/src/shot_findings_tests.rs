@@ -53,6 +53,16 @@ fn the_report_folder_and_its_pictures_are_read_from_the_shots_programs_lines_and
     assert_eq!(report_dir_in("no report here\n"), None);
     let html = r#"<img src="img/a.png"><img src="img/a.png"><img src="/etc/x"><img src="../up.png"><img src="https://x/y.png"><img src="img/b c.png">"#;
     assert_eq!(report_files(html), vec!["img/a.png", "img/b c.png"]);
+    let pair = r#"<img src="img/x.board.png"><img src="img/x.shot.png">"#;
+    assert_eq!(
+        report_files(pair),
+        vec![
+            "img/x.board.png",
+            "img/x.board.json",
+            "img/x.shot.png",
+            "img/x.shot.json"
+        ]
+    );
 }
 
 #[test]

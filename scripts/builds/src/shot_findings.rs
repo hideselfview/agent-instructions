@@ -73,7 +73,9 @@ pub fn report_dir_in(output: &str) -> Option<String> {
 }
 
 /// The files, relative to the report's folder, that the report page <html>
-/// shows: each `src="..."` that is a plain relative path.
+/// shows: each `src="..."` that is a plain relative path, and for each
+/// pair's board and shot picture the element list beside it, which `builds
+/// shots recheck` compares again.
 pub fn report_files(html: &str) -> Vec<String> {
     let mut files: Vec<String> = Vec::new();
     for part in html.split("src=\"").skip(1) {
@@ -86,10 +88,18 @@ pub fn report_files(html: &str) -> Vec<String> {
             && !path.split('/').any(|piece| piece == "..");
         if plain && !files.iter().any(|known| known == path) {
             files.push(path.to_string());
+            for picture in PAIR_PICTURES {
+                if let Some(stem) = path.strip_suffix(picture) {
+                    files.push(format!("{stem}{}.json", picture.trim_end_matches(".png")));
+                }
+            }
         }
     }
     files
 }
+
+/// The endings of the two pictures a report keeps for each pair.
+const PAIR_PICTURES: [&str; 2] = [".board.png", ".shot.png"];
 
 /// Copies the report in <from> (its `index.html`, the files that page shows
 /// and its findings as records, when the shots program wrote them) into the
@@ -298,28 +308,19 @@ pub fn how_to_make(repo: &str, git_ref: &str, lane: Lane, prefix: &str) -> Strin
     }
 }
 
-/// `builds shots findings`, given the arguments after `findings`.
-pub fn cmd_findings(places: &Places, args: &[String]) -> Result<()> {
-    let grouped = args.iter().any(|arg| arg == "--by-cause");
-    let args: Vec<&String> = args.iter().filter(|arg| *arg != "--by-cause").collect();
-    let [repo, git_ref, lane, prefix] = args[..] else {
-        fail!("{USAGE}");
-    };
-    let lane = Lane::parse_or_fail(lane)?;
+/// The cached run of <prefix> on <lane> for <repo> at <git_ref> by this
+/// builds' shots checker, which it marks used. Fails, naming the app-build
+/// command that makes the run, when none is cached.
+pub fn cached_run(
+    places: &Places,
+    repo: &str,
+    git_ref: &str,
+    lane: Lane,
+    prefix: &str,
+) -> Result<Cached> {
     let key = key_for(places, repo, git_ref, lane, prefix)?;
     match shots_cache::lookup(places, &key)? {
-        Some(cached) if grouped => {
-            let text = by_cause(&cached, git_ref)?;
-            note_run(&cached);
-            print!("{text}");
-            note_report(&cached);
-            Ok(())
-        }
-        Some(cached) => {
-            print(&cached);
-            note_report(&cached);
-            Ok(())
-        }
+        Some(cached) => Ok(cached),
         None => fail!(
             "no run of {prefix} on {} is cached for {repo} at {} (shots program version {}); `{}` makes one",
             lane.word(),
@@ -328,6 +329,26 @@ pub fn cmd_findings(places: &Places, args: &[String]) -> Result<()> {
             how_to_make(repo, git_ref, lane, prefix)
         ),
     }
+}
+
+/// `builds shots findings`, given the arguments after `findings`.
+pub fn cmd_findings(places: &Places, args: &[String]) -> Result<()> {
+    let grouped = args.iter().any(|arg| arg == "--by-cause");
+    let args: Vec<&String> = args.iter().filter(|arg| *arg != "--by-cause").collect();
+    let [repo, git_ref, lane, prefix] = args[..] else {
+        fail!("{USAGE}");
+    };
+    let lane = Lane::parse_or_fail(lane)?;
+    let cached = cached_run(places, repo, git_ref, lane, prefix)?;
+    if grouped {
+        let text = by_cause(&cached, git_ref)?;
+        note_run(&cached);
+        print!("{text}");
+    } else {
+        print(&cached);
+    }
+    note_report(&cached);
+    Ok(())
 }
 
 #[cfg(test)]

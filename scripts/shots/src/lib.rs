@@ -17,6 +17,7 @@ mod lists;
 mod log;
 mod names;
 mod pictures;
+mod recheck;
 mod render;
 mod report;
 mod settings;
@@ -106,6 +107,17 @@ enum Action {
         /// The commit the shots were taken at, for the report.
         #[arg(long)]
         sha: String,
+    },
+    /// Compare again the pairs a report holds, with this checker, and print
+    /// the findings as records (the report's findings.json). The report is
+    /// a cached run's folder, which holds each pair's pictures and element
+    /// lists. The command draws and captures nothing and reads no repo, so a
+    /// change to the comparison shows what it clears and adds on a run that
+    /// another checker made.
+    Recheck {
+        /// The report's folder, with its findings.json and its `img` folder.
+        #[arg(long)]
+        report: PathBuf,
     },
     /// Fail when a declared shot has no board.
     Lint,
@@ -509,7 +521,9 @@ fn run(checker: &Checker, action: Action) -> Result<bool, String> {
             }
             Ok(against.is_none() || listed.is_empty())
         }
-        Action::Version => unreachable!("`main` prints the version before it reads a repo"),
+        Action::Version | Action::Recheck { .. } => {
+            unreachable!("`main` runs these before it reads a repo")
+        }
         Action::Runtime => {
             let checked = render::runtime::check(&root).map_err(|e| e.to_string())?;
             crate::log::note(format_args!(
@@ -533,6 +547,10 @@ pub fn main(checker: &Checker, args: &[String]) -> bool {
             println!("{}", checker.version);
             Ok(true)
         }
+        Action::Recheck { report } => recheck::text(&report, checker.version).map(|text| {
+            println!("{text}");
+            true
+        }),
         action => run(checker, action),
     };
     outcome.unwrap_or_else(|message| {

@@ -139,7 +139,9 @@ no cache hits; a setting goes in a --config argument or in Cargo.toml. An app
 build (`builds app-build <repo> <branch>`) runs only the test classes and the
 shots of the screens the change touches (--test <Class>, --shots mac.welcome.),
 and CI runs the full suites. `--all-shots mac|android` runs every shot of one
-lane, to check a change to the shots program (`builds help`, APP BUILDS).
+lane with the installed shots program; `builds shots check-program` runs a
+branch's shots program over such a run's cached report, to check a change to
+the shots program (`builds help`, APP BUILDS).
 
 
 PLAN, BRIEF, EXECUTE
@@ -203,7 +205,8 @@ WHAT AN IMPLEMENTING AGENT DOES
      opens the app on the person's screen. builds refuses a whole lane's shots
      in --shots (mac. or android.) and the steps a `ci-only` line of
      `.app-build` names. Run a whole lane's shots with `--all-shots` only to
-     check a change to the shots program.
+     make a run that `builds shots check-program` compares a change to the
+     shots program with.
      A shots check compares against the findings of the commit the branch
      started from: read them with `builds shots findings`, never by building
      that commit, and open the report path it prints, never a checkout's

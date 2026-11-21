@@ -1,5 +1,7 @@
 //! `builds shots`: `builds shots findings` reads the cached runs
-//! (shot_findings.rs, shots_cache.rs), and every other subcommand runs the
+//! (shot_findings.rs, shots_cache.rs), `builds shots check-program` runs
+//! another checkout's shots program over a cached run
+//! (shots_check_program.rs), and every other subcommand runs the
 //! shots checker, which checks an app's shots against its design boards
 //! (scripts/shots, a library this program is built with), with the same
 //! arguments. builds gives the checker a cache folder in the build volume's
@@ -18,12 +20,13 @@ use crate::tool::Tool;
 /// names.
 pub const VERSION: &str = env!("SHOTS_SOURCE");
 
-const USAGE: &str = "usage: builds shots findings <repo> <ref> mac|android <prefix> [--by-cause] | builds shots run|capture|check|lint|runtime|components|states|version [<argument>...] (builds shots <command> --help)";
+const USAGE: &str = "usage: builds shots findings <repo> <ref> mac|android <prefix> [--by-cause] | builds shots check-program <repo> <ref> mac|android <prefix> [--checkout <folder>] | builds shots run|capture|check|lint|runtime|components|states|version [<argument>...] (builds shots <command> --help)";
 
 /// Whether `builds shots <args>` runs the checker, which uses no store:
-/// every subcommand but `findings`.
+/// every subcommand but the two that read the cached runs.
 pub fn runs_checker(args: &[String]) -> bool {
-    args.first().is_some_and(|sub| sub != "findings")
+    args.first()
+        .is_some_and(|sub| !matches!(sub.as_str(), "findings" | "check-program"))
 }
 
 /// The cache folder builds gives the checker.
@@ -56,6 +59,7 @@ pub fn cmd_shots(places: &Places, args: &[String]) -> Result<()> {
     match args.first().map(String::as_str) {
         None => fail!("{USAGE}"),
         Some("findings") => crate::shot_findings::cmd_findings(places, &args[1..]),
+        Some("check-program") => crate::shots_check_program::cmd(places, &args[1..]),
         Some(_) => {
             places.require_volume()?;
             let checker = shots::Checker {

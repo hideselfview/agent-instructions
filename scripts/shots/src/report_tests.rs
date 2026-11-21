@@ -61,6 +61,8 @@ fn outcome(dir: &Path, words: &str) -> Outcome {
     std::fs::create_dir_all(&pictures).unwrap();
     std::fs::write(pictures.join("board.png"), png(400, 190)).unwrap();
     std::fs::write(pictures.join("shot.png"), png(800, 380)).unwrap();
+    std::fs::write(pictures.join("board.json"), LIST).unwrap();
+    std::fs::write(pictures.join("shot.json"), LIST).unwrap();
     let pair = |name: &Name, findings, warnings| Checked {
         name: name.clone(),
         findings,

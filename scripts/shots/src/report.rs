@@ -52,6 +52,16 @@ pub(crate) fn shot_picture(name: &str) -> String {
     format!("img/{name}.shot.png")
 }
 
+/// The element lists kept beside the two pictures, which `recheck` compares
+/// again.
+pub(crate) fn board_list(name: &str) -> String {
+    format!("img/{name}.board.json")
+}
+
+pub(crate) fn shot_list(name: &str) -> String {
+    format!("img/{name}.shot.json")
+}
+
 /// A box drawn over a picture: where, what kind of finding, and its sentence.
 struct Mark {
     class: &'static str,
@@ -429,8 +439,8 @@ pub(crate) fn summary(outcome: &Outcome, header: &Header) -> String {
     text
 }
 
-/// Writes `index.html`, the pictures of the checked pairs and the findings as
-/// records (findings_file.rs) into `dir`.
+/// Writes `index.html`, the pictures and element lists of the checked pairs and
+/// the findings as records (findings_file.rs) into `dir`.
 pub(crate) fn write(dir: &Path, outcome: &Outcome, header: &Header) -> Result<(), String> {
     let images = dir.join("img");
     std::fs::create_dir_all(&images)
@@ -440,6 +450,14 @@ pub(crate) fn write(dir: &Path, outcome: &Outcome, header: &Header) -> Result<()
         for (from, to) in [
             (&pair.board_png, dir.join(board_picture(&name))),
             (&pair.shot_png, dir.join(shot_picture(&name))),
+            (
+                &pair.board_png.with_extension("json"),
+                dir.join(board_list(&name)),
+            ),
+            (
+                &pair.shot_png.with_extension("json"),
+                dir.join(shot_list(&name)),
+            ),
         ] {
             std::fs::copy(from, &to)
                 .map_err(|e| format!("cannot copy {} to {}: {e}", from.display(), to.display()))?;
