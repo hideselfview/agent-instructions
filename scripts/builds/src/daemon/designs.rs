@@ -11,6 +11,11 @@
 //! way the Design System page draws its card
 //! (`design_render::render_preview`).
 //!
+//! The Design system tab shows the colors in the groups of their roles that
+//! the design system's `colors.json` lists, each group under its line and
+//! in a frame of its own that draws its swatches and its scene
+//! (`color_group.rs`).
+//!
 //! The Design system tab shows the components in the groups and subgroups
 //! that the design system's `groups.json` lists, each under the line that
 //! introduces it (`boards::preview::contents`). Each component's
@@ -24,6 +29,7 @@
 
 use std::path::Path;
 
+use boards::colors;
 use boards::preview::{Card, contents};
 use boards::tokens::specimen;
 use boards::{BOARD_SUFFIX, CANVAS, Source, TOKENS_JSON, canvas_place, canvas_size};
@@ -122,6 +128,16 @@ pub fn page(
         Ok(specimen) => serde_json::to_value(specimen).expect("the specimen serializes"),
         Err(error) => json!({ "error": format!("{}: {error}", from.label(TOKENS_JSON)) }),
     };
+    let colors = match colors::read(&from) {
+        Ok(palette) => json!({
+            "groups": palette.colors.groups.iter().map(|group| json!({
+                "name": group.name,
+                "about": group.about,
+                "colors": group.names().collect::<Vec<_>>(),
+            })).collect::<Vec<_>>(),
+        }),
+        Err(error) => json!({ "error": error.text() }),
+    };
     let components = match contents(&from, cache) {
         Ok(contents) => json!({
             "groups": contents.groups.into_iter().map(|group| json!({
@@ -154,6 +170,7 @@ pub fn page(
         "base": format!("/designs/{project}/{commit}"),
         "pages": pages,
         "system": system,
+        "colors": colors,
         "components": components,
         "scratch": scratch,
     });
@@ -235,6 +252,12 @@ pub fn board(repo: &Path, commit: &str, name: &str, cache: &Path) -> Result<Stri
         Theme::Dark,
         cache,
     )
+}
+
+/// Group <n> of the colors at commit <commit> of the repo <repo> is in, as
+/// the Designs page's frame loads it (`color_group::frame`).
+pub fn color_group(repo: &Path, commit: &str, n: usize, cache: &Path) -> Result<String> {
+    super::color_group::frame(Source::Commit { repo, rev: commit }, n, cache)
 }
 
 /// Component <name>'s preview at commit <commit> of the repo <repo> is in,

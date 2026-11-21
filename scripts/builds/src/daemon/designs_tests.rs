@@ -3,8 +3,8 @@ use crate::testing::{Scratch, design_system, git, repo, run_script};
 use std::path::PathBuf;
 
 /// A repo whose origin/main holds four boards on two pages, a design system
-/// with one color, one text style and a component `Row`, and nothing else
-/// at HEAD. Returns the repo and origin/main's commit.
+/// with one color in one group with a scene, one text style and a component
+/// `Row`, and nothing else at HEAD. Returns the repo and origin/main's commit.
 fn designs_repo(scratch: &Scratch) -> (PathBuf, String) {
     let dir = scratch.dir.join("repo");
     repo(&dir, "");
@@ -18,7 +18,7 @@ fn designs_repo(scratch: &Scratch) -> (PathBuf, String) {
         "design/system/tokens.json",
         &json!({
             "name": "demo",
-            "color": { "themes": [{ "id": "dark" }, { "id": "light" }],
+            "color": { "themes": [{ "id": "dark", "name": "Dark" }, { "id": "light", "name": "Light" }],
                 "tokens": [{ "name": "bg", "value": { "dark": "#111111", "light": "#EEEEEE" } }] },
             "type": { "families": { "sans": "Inter, sans-serif" },
                 "groups": [{ "family": "sans", "styles": [
@@ -26,6 +26,19 @@ fn designs_repo(scratch: &Scratch) -> (PathBuf, String) {
             "spacing": { "tokens": [{ "name": "tokens", "value": "1" }] },
         })
         .to_string(),
+    );
+    write(
+        "design/system/colors.json",
+        &json!({
+            "ground": "bg",
+            "groups": [{ "name": "Surfaces", "about": "Behind everything.",
+                "clusters": [{ "colors": ["bg"] }], "scene": "surfaces" }],
+        })
+        .to_string(),
+    );
+    write(
+        "design/system/colors/surfaces.html",
+        "<div data-color=\"bg\" style=\"background: var(--bg)\">window</div>",
     );
     write(
         "design/system/components/Row/preview.html",
@@ -110,10 +123,13 @@ fn the_page_has_each_page_of_the_index_with_its_boards_at_their_canvas_places_at
     assert_eq!(
         data["system"],
         json!({
-            "colors": [{ "name": "bg", "value": "#111111" }],
             "styles": [{ "name": "title", "css": "font-family: Inter, sans-serif; font-size: 20px; font-weight: 600",
                 "words": "Low Tide Hours" }],
         })
+    );
+    assert_eq!(
+        data["colors"],
+        json!({ "groups": [{ "name": "Surfaces", "about": "Behind everything.", "colors": ["bg"] }] })
     );
     assert_eq!(
         data["components"],
@@ -164,6 +180,8 @@ fn a_design_system_that_cannot_be_read_shows_its_problem_and_a_bad_index_fails_t
     );
     let error = data["system"]["error"].as_str().unwrap();
     assert!(error.contains("design/system/tokens.json"), "{error}");
+    let error = data["colors"]["error"].as_str().unwrap();
+    assert!(error.contains("design/system/colors.json"), "{error}");
     assert_eq!(
         data["components"]["groups"][0]["cards"][0]["name"],
         json!("Row")

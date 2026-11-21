@@ -13,6 +13,7 @@ pub mod board;
 pub mod card_recorder;
 pub mod cards;
 pub mod client;
+pub mod color_group;
 pub mod component_shots;
 pub mod design_cards;
 pub mod designs;

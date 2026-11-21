@@ -26,9 +26,28 @@
 .dz-sep{width:1px;align-self:stretch;background:var(--line);margin:2px 6px}
 .ds-sec{display:flex;flex-direction:column;gap:10px}
 .ds-sec h2{margin:0;font:600 15px var(--font-sans)}
-.ds-swatches{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:12px}
-.ds-sw{display:flex;flex-direction:column;gap:4px}
-.ds-chip{height:40px;border-radius:6px;border:1px solid var(--line)}
+.ds-group{display:flex;flex-direction:column;gap:10px;padding-top:12px;border-top:1px solid var(--line)}
+.ds-group h3{margin:0;font:600 18px var(--font-sans)}
+.ds-about{margin:-6px 0 0;color:var(--muted)}
+.cg{display:flex;flex-wrap:wrap;gap:24px 48px;align-items:flex-start}
+.cg-clusters{display:flex;flex-wrap:wrap;gap:16px 32px;max-width:600px}
+.cg-cluster{display:flex;gap:16px}
+.cg-sw{display:flex;flex-direction:column;gap:5px;min-width:84px}
+.cg-sq{display:flex;width:84px;height:40px;border-radius:6px;overflow:hidden;outline:1px solid var(--line)}
+.cg-sq>span{flex:1}
+.cg-nm{font:500 11px var(--font-mono);color:var(--text-3);white-space:nowrap}
+.cg-table{display:grid;grid-template-columns:auto repeat(4,minmax(72px,max-content));gap:8px 12px;align-items:center;justify-items:center}
+.cg-rh{justify-self:start;font-size:12px;color:var(--text-3)}
+.cg-table .cg-sq{width:72px;height:32px}
+.cg-use{position:relative;display:flex;gap:16px;align-items:flex-start;padding-left:150px}
+.cg-label{margin-bottom:6px;font-size:12px;color:var(--muted)}
+.cg-scene{position:relative;width:220px;height:120px;border-radius:8px;font:12px var(--font-sans)}
+.cg-chip{position:absolute;right:calc(100% - 138px);display:flex;align-items:center;gap:6px;height:18px}
+.cg-mini{display:flex;width:14px;height:14px;border-radius:3px;overflow:hidden;outline:1px solid var(--line)}
+.cg-mini>span{flex:1}
+.cg-lines{position:absolute;left:0;top:0;overflow:visible}
+.cg-lines line{stroke:var(--muted-2);stroke-width:1}
+.cg-lines circle{fill:var(--text);stroke:var(--bg);stroke-width:1.5}
 .ds-k{font:500 11px var(--font-mono);color:var(--text-2)}
 .ds-type{display:flex;flex-direction:column;gap:6px}
 .ds-type div{display:flex;align-items:baseline;gap:16px}
@@ -56,16 +75,7 @@
 </div>
 <input class="dz-filter" type="search" placeholder="Filter" aria-label="Filter">
 </div>
-<section class="ds-sec"><h2>Colors</h2><div class="ds-swatches">
-  <div class="ds-sw"><div class="ds-chip" style="background:#141416"></div><span class="ds-k">bg</span></div>
-  <div class="ds-sw"><div class="ds-chip" style="background:#1d1d20"></div><span class="ds-k">surface</span></div>
-  <div class="ds-sw"><div class="ds-chip" style="background:#f2f2f3"></div><span class="ds-k">text-primary</span></div>
-  <div class="ds-sw"><div class="ds-chip" style="background:#a1a1a8"></div><span class="ds-k">text-secondary</span></div>
-  <div class="ds-sw"><div class="ds-chip" style="background:#c2508f"></div><span class="ds-k">accent</span></div>
-  <div class="ds-sw"><div class="ds-chip" style="background:#e5484d"></div><span class="ds-k">danger</span></div>
-  <div class="ds-sw"><div class="ds-chip" style="background:#f5a623"></div><span class="ds-k">warning</span></div>
-  <div class="ds-sw"><div class="ds-chip" style="background:#3dd68c"></div><span class="ds-k">success</span></div>
-</div></section>
+<section class="ds-sec"><h2>Colors</h2><section class="ds-group"><h3>Surfaces</h3><p class="ds-about">What everything sits on, from the window up to a popover, and the fields and controls on it.</p><div class="cg"><div class="cg-clusters"><div class="cg-cluster"><div class="cg-sw"><div class="cg-sq"><span style="background:#11111B"></span><span style="background:#E5E5F1"></span></div><span class="cg-nm">background</span></div><div class="cg-sw"><div class="cg-sq"><span style="background:#191925"></span><span style="background:#EEEEF7"></span></div><span class="cg-nm">surface</span></div><div class="cg-sw"><div class="cg-sq"><span style="background:#222230"></span><span style="background:#F5F5FC"></span></div><span class="cg-nm">elevated</span></div></div><div class="cg-cluster"><div class="cg-sw"><div class="cg-sq"><span style="background:#15151F"></span><span style="background:#F5F5FC"></span></div><span class="cg-nm">field</span></div><div class="cg-sw"><div class="cg-sq"><span style="background:#20202C"></span><span style="background:#EAEAF5"></span></div><span class="cg-nm">field-hover</span></div></div><div class="cg-cluster"><div class="cg-sw"><div class="cg-sq"><span style="background:#2D2D40"></span><span style="background:#D2D2E5"></span></div><span class="cg-nm">placeholder</span></div><div class="cg-sw"><div class="cg-sq"><span style="background:#0C0C14"></span><span style="background:#DCDCEF"></span></div><span class="cg-nm">well</span></div></div></div><div class="cg-use"><div class="cg-chip" style="top:23px"><span class="cg-nm">background</span><span class="cg-mini"><span style="background:#11111B"></span><span style="background:#E5E5F1"></span></span></div><div class="cg-chip" style="top:49px"><span class="cg-nm">surface</span><span class="cg-mini"><span style="background:#191925"></span><span style="background:#EEEEF7"></span></span></div><div class="cg-chip" style="top:73px"><span class="cg-nm">field</span><span class="cg-mini"><span style="background:#15151F"></span><span style="background:#F5F5FC"></span></span></div><div class="cg-chip" style="top:99px"><span class="cg-nm">placeholder</span><span class="cg-mini"><span style="background:#2D2D40"></span><span style="background:#D2D2E5"></span></span></div><div><div class="cg-label">Dark</div><div class="cg-scene" style="background:#11111B"><div style="position:absolute;left:14px;top:14px;width:192px;height:92px;border-radius:8px;background:#191925"></div><div style="position:absolute;left:24px;top:24px;width:172px;height:22px;border-radius:6px;background:#15151F;color:#6A6A7A;line-height:22px;padding-left:8px;box-sizing:border-box">Search</div><div style="position:absolute;left:24px;top:58px;width:36px;height:36px;border-radius:4px;background:#2D2D40"></div><div style="position:absolute;left:70px;top:62px;color:#F2F2F4;font-weight:500">Album Title</div><div style="position:absolute;left:70px;top:78px;color:#6A6A7A">Artist Name</div></div></div><div><div class="cg-label">Light</div><div class="cg-scene" style="background:#E5E5F1"><div style="position:absolute;left:14px;top:14px;width:192px;height:92px;border-radius:8px;background:#EEEEF7"></div><div style="position:absolute;left:24px;top:24px;width:172px;height:22px;border-radius:6px;background:#F5F5FC;color:#A9A9B4;line-height:22px;padding-left:8px;box-sizing:border-box">Search</div><div style="position:absolute;left:24px;top:58px;width:36px;height:36px;border-radius:4px;background:#D2D2E5"></div><div style="position:absolute;left:70px;top:62px;color:#202124;font-weight:500">Album Title</div><div style="position:absolute;left:70px;top:78px;color:#A9A9B4">Artist Name</div></div></div><svg class="cg-lines" width="620" height="140"><line x1="142" y1="32" x2="156" y2="32"/><circle cx="156" cy="32" r="3"/><line x1="142" y1="58" x2="168" y2="58"/><circle cx="168" cy="58" r="3"/><line x1="142" y1="82" x2="178" y2="53"/><circle cx="178" cy="53" r="3"/><line x1="142" y1="108" x2="178" y2="94"/><circle cx="178" cy="94" r="3"/></svg></div></div></section><section class="ds-group"><h3>Accents a person can choose</h3><p class="ds-about">Each of the eight accents, in the same four roles.</p><div class="cg"><div class="cg-table"><div></div><div class="cg-nm">accent-‹hue›</div><div class="cg-nm">accent-‹hue›-fill</div><div class="cg-nm">on-accent-‹hue›-fill</div><div class="cg-nm">accent-‹hue›-selection</div><div class="cg-rh">blue</div><div class="cg-sq"><span style="background:#11111B;color:#99B5FE;font-weight:600;display:flex;align-items:center;justify-content:center">Aa</span><span style="background:#E5E5F1;color:#4260C4;font-weight:600;display:flex;align-items:center;justify-content:center">Aa</span></div><div class="cg-sq"><span style="background:#8CAAFE"></span><span style="background:#8CAAFE"></span></div><div class="cg-sq"><span style="background:#172455"></span><span style="background:#172455"></span></div><div class="cg-sq"><span style="background:#4260C4"></span><span style="background:#4260C4"></span></div><div class="cg-rh">orchid</div><div class="cg-sq"><span style="background:#11111B;color:#D1A2EB;font-weight:600;display:flex;align-items:center;justify-content:center">Aa</span><span style="background:#E5E5F1;color:#8B4AAC;font-weight:600;display:flex;align-items:center;justify-content:center">Aa</span></div><div class="cg-sq"><span style="background:#D28BFA"></span><span style="background:#D28BFA"></span></div><div class="cg-sq"><span style="background:#381848"></span><span style="background:#381848"></span></div><div class="cg-sq"><span style="background:#8B4AAC"></span><span style="background:#8B4AAC"></span></div><div class="cg-rh">pink</div><div class="cg-sq"><span style="background:#11111B;color:#EE98C1;font-weight:600;display:flex;align-items:center;justify-content:center">Aa</span><span style="background:#E5E5F1;color:#AE3973;font-weight:600;display:flex;align-items:center;justify-content:center">Aa</span></div><div class="cg-sq"><span style="background:#FF7BB8"></span><span style="background:#FF7BB8"></span></div><div class="cg-sq"><span style="background:#40183D"></span><span style="background:#40183D"></span></div><div class="cg-sq"><span style="background:#AE3973"></span><span style="background:#AE3973"></span></div></div></div></section></section>
 <section class="ds-sec"><h2>Type</h2><div class="ds-type">
   <div><span class="ds-k">title · 600 20</span><span style="font:600 20px var(--font-sans)">Low Tide Hours</span></div>
   <div><span class="ds-k">body · 400 13</span><span style="font:400 13px var(--font-sans)">bae saved the new S3 key.</span></div>

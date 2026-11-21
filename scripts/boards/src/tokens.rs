@@ -22,6 +22,7 @@ use serde::de::{Deserializer, MapAccess, Visitor};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::colors::ThemeName;
 use crate::{Context, Result, fail};
 
 /// Where a worktree's tokens are, and where their stylesheet goes.
@@ -94,6 +95,7 @@ struct Colors {
 #[derive(Deserialize)]
 struct ThemeId {
     id: String,
+    name: String,
 }
 
 #[derive(Deserialize)]
@@ -233,20 +235,12 @@ pub fn tokens_css(json: &str) -> Result<String> {
     Ok(out.join("\n") + "\n")
 }
 
-/// What a page shows of a design system's tokens without its stylesheet:
-/// each color in the first theme, and each text style as CSS declarations
-/// that name its font stack, with the words to draw it in.
+/// What a page shows of a design system's text styles without its
+/// stylesheet: each style as CSS declarations that name its font stack,
+/// with the words to draw it in.
 #[derive(Debug, PartialEq, Eq, Serialize)]
 pub struct Specimen {
-    /// Each color's value in the first theme.
-    pub colors: Vec<Swatch>,
     pub styles: Vec<TextSpecimen>,
-}
-
-#[derive(Debug, PartialEq, Eq, Serialize)]
-pub struct Swatch {
-    pub name: String,
-    pub value: String,
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize)]
@@ -258,25 +252,37 @@ pub struct TextSpecimen {
     pub words: String,
 }
 
-/// The specimen of the tokens in <json>, the text of a tokens.json. Fails
-/// where `tokens_css` does, and on a text style whose family names no font
-/// stack.
-pub fn specimen(json: &str) -> Result<Specimen> {
+/// The themes of the tokens in <json>, the text of a tokens.json, and the
+/// name of each color, in the file's order. Fails when the tokens name no
+/// theme.
+pub fn color_names(json: &str) -> Result<(Vec<ThemeName>, Vec<String>)> {
     let tokens = parse(json)?;
-    let Some(first) = tokens.color.themes.first() else {
+    if tokens.color.themes.is_empty() {
         fail!("the tokens name no color theme");
-    };
-    let colors = tokens
+    }
+    let themes = tokens
+        .color
+        .themes
+        .into_iter()
+        .map(|theme| ThemeName {
+            id: theme.id,
+            name: theme.name,
+        })
+        .collect();
+    let names = tokens
         .color
         .tokens
-        .iter()
-        .map(|token| {
-            Ok(Swatch {
-                name: token.name.clone(),
-                value: token.value_in(&first.id)?.to_string(),
-            })
-        })
-        .collect::<Result<_>>()?;
+        .into_iter()
+        .map(|token| token.name)
+        .collect();
+    Ok((themes, names))
+}
+
+/// The specimen of the text styles in <json>, the text of a tokens.json.
+/// Fails where `tokens_css` does, and on a text style whose family names no
+/// font stack.
+pub fn specimen(json: &str) -> Result<Specimen> {
+    let tokens = parse(json)?;
     let mut styles = Vec::new();
     for group in &tokens.text.groups {
         for style in &group.styles {
@@ -299,7 +305,7 @@ pub fn specimen(json: &str) -> Result<Specimen> {
             });
         }
     }
-    Ok(Specimen { colors, styles })
+    Ok(Specimen { styles })
 }
 
 #[cfg(test)]

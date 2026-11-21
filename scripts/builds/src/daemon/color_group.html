@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>@@TOKENS_CSS@@</style>
+<style>@@BUNDLE_CSS@@</style>
+<style>
+@@PALETTE@@
+html, body { margin: 0; background: transparent; }
+body { color: var(--text); font: 14px/1.45 var(--sans); }
+.cg { display: flex; flex-wrap: wrap; gap: 24px 48px; align-items: flex-start; padding: 2px; }
+.cg-swatches { display: flex; flex-direction: column; gap: 16px; max-width: 600px; }
+.cg-clusters { display: flex; flex-wrap: wrap; gap: 16px 32px; align-items: flex-start; }
+.cg-cluster { display: flex; gap: 16px; }
+.cg-sw { display: flex; flex-direction: column; gap: 5px; min-width: 84px; }
+.cg-sq { display: flex; width: 84px; height: 40px; border-radius: 6px; overflow: hidden; outline: 1px solid var(--line); }
+.cg-sq > span { flex: 1; }
+.cg-tx { display: flex; align-items: center; justify-content: center; font: 600 16px var(--font-sans, var(--sans)); }
+.cg-nm { font: 500 11px var(--mono); color: var(--text-3); white-space: nowrap; }
+.cg-table { display: grid; gap: 8px 12px; align-items: center; justify-items: center; }
+.cg-th { text-align: center; }
+.cg-rh { justify-self: start; padding-right: 8px; font-size: 12px; color: var(--text-3); }
+.cg-cell .cg-sq { width: 72px; height: 32px; }
+.cg-none { width: 72px; height: 32px; border-radius: 6px; outline: 1px dashed var(--line); }
+.cg-use { position: relative; display: flex; gap: 16px; align-items: flex-start; }
+.cg-gutter { flex: none; position: relative; align-self: stretch; }
+.cg-label { margin-bottom: 6px; font-size: 12px; color: var(--muted); }
+.cg-scene { color: var(--text-primary); font-family: var(--font-sans, var(--sans)); }
+.cg-chip { position: absolute; right: 12px; display: flex; align-items: center; gap: 6px; height: 18px; white-space: nowrap; }
+.cg-mini { display: flex; width: 14px; height: 14px; border-radius: 3px; overflow: hidden; outline: 1px solid var(--line); }
+.cg-mini > span { flex: 1; }
+.cg-lines { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
+.cg-lines line { stroke: var(--muted-2); stroke-width: 1; }
+.cg-lines circle { fill: var(--text); stroke: var(--bg); stroke-width: 1.5; }
+.cg-problem { color: var(--bad); background: var(--bad-bg); border-radius: 6px; padding: 8px 10px; font-size: 13px; overflow-wrap: anywhere; }
+</style>
+</head>
+<body data-themes="@@THEMES@@" data-ground="@@GROUND@@">
+<div class="cg">
+<div class="cg-swatches">@@SWATCHES@@</div>
+@@USE@@
+</div>
+<script>
+@@SCRIPT@@
+</script>
+</body>
+</html>

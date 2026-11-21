@@ -1177,6 +1177,19 @@ impl Model {
         }))
     }
 
+    /// Group <n> of project <project>'s colors at <commit>, as a frame of
+    /// the Designs page loads it.
+    pub fn designs_colors(
+        &self,
+        project: &str,
+        commit: &str,
+        n: usize,
+    ) -> Option<crate::fail::Result<String>> {
+        Some(self.design_checkout(project)?.and_then(|repo| {
+            super::designs::color_group(&repo, commit, n, &self.places.design_system_cache())
+        }))
+    }
+
     /// Component <name>'s preview of project <project>'s design system at
     /// <commit>, as a frame of the Designs page loads it.
     pub fn designs_preview(

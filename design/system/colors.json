@@ -1,0 +1,70 @@
+{
+  "ground": "bg",
+  "groups": [
+    {
+      "name": "Surfaces",
+      "about": "The page, the boxes on it, and the pinned lists panel with its edge.",
+      "clusters": [
+        { "colors": ["bg", "surface"] },
+        { "colors": ["pinned", "pinned-line"] },
+        { "colors": ["track"] }
+      ]
+    },
+    {
+      "name": "Text",
+      "about": "Words on the page, by how much they matter.",
+      "clusters": [
+        { "colors": ["text", "text-2", "text-3"], "text": true },
+        { "colors": ["muted", "muted-2"], "text": true }
+      ]
+    },
+    {
+      "name": "Lines",
+      "about": "Edges of boxes and the rules between rows.",
+      "clusters": [
+        { "colors": ["line", "line-soft"] }
+      ]
+    },
+    {
+      "name": "Accent",
+      "about": "Links, the focus ring and a box under the pointer.",
+      "clusters": [
+        { "colors": ["accent"], "text": true }
+      ]
+    },
+    {
+      "name": "Chosen tabs",
+      "about": "A chosen tab or tag: a fill in the text's color, with the page's color on it.",
+      "clusters": [
+        { "colors": ["on", "on-text"] }
+      ]
+    },
+    {
+      "name": "Status",
+      "about": "Done, a warning and a failure, as words and as the fill behind a notice.",
+      "table": {
+        "columns": [{ "label": "‹status›", "text": true }, { "label": "‹status›-bg" }],
+        "rows": [
+          { "label": "ok", "colors": ["ok", null] },
+          { "label": "warn", "colors": ["warn", "warn-bg"] },
+          { "label": "bad", "colors": ["bad", "bad-bg"] }
+        ]
+      }
+    },
+    {
+      "name": "Work states",
+      "about": "What an agent or a lane is doing: its words, its fill and its dot.",
+      "table": {
+        "columns": [{ "label": "‹state›", "text": true }, { "label": "‹state›-bg" }, { "label": "dot-‹state›" }],
+        "rows": [
+          { "label": "waiting", "colors": [null, "waiting-bg", null] },
+          { "label": "working", "colors": ["working", "working-bg", "dot-working"] },
+          { "label": "ready", "colors": ["ready", "ready-bg", "dot-ready"] },
+          { "label": "you", "colors": ["you", "you-bg", "dot-you"] },
+          { "label": "winding", "colors": ["winding", "winding-bg", null] },
+          { "label": "free", "colors": ["free", "free-bg", "dot-free"] }
+        ]
+      }
+    }
+  ]
+}

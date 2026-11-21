@@ -78,21 +78,8 @@ fn tokens_that_cannot_make_a_stylesheet_say_why() {
 }
 
 #[test]
-fn the_specimen_gives_each_color_in_the_first_theme_and_each_style_with_its_font_stack() {
+fn the_specimen_gives_each_style_with_its_font_stack() {
     let specimen = specimen(TOKENS).unwrap();
-    assert_eq!(
-        specimen.colors,
-        [
-            Swatch {
-                name: "background".into(),
-                value: "#111111".into()
-            },
-            Swatch {
-                name: "danger".into(),
-                value: "#FF0000".into()
-            },
-        ]
-    );
     assert_eq!(
         specimen.styles,
         [
@@ -109,6 +96,33 @@ fn the_specimen_gives_each_color_in_the_first_theme_and_each_style_with_its_font
                 words: "code".into(),
             },
         ]
+    );
+}
+
+#[test]
+fn the_color_names_are_the_themes_and_each_color_in_the_file_order() {
+    let (themes, names) = color_names(TOKENS).unwrap();
+    assert_eq!(
+        themes,
+        [
+            ThemeName {
+                id: "dark".into(),
+                name: "Dark".into()
+            },
+            ThemeName {
+                id: "light".into(),
+                name: "Light".into()
+            },
+        ]
+    );
+    assert_eq!(names, ["background", "danger"]);
+    let no_theme = TOKENS.replace(
+        r#"[{ "id": "dark", "name": "Dark" }, { "id": "light", "name": "Light" }]"#,
+        "[]",
+    );
+    assert_eq!(
+        color_names(&no_theme).unwrap_err().text(),
+        "the tokens name no color theme"
     );
 }
 

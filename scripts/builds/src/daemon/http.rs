@@ -66,8 +66,10 @@
 //!                   session listening for the project; only from this Mac
 //!     /designs/<project>/<commit>/board/<name>
 //!     /designs/<project>/<commit>/component/<name>
-//!                   a board, or a component's preview, at that commit,
-//!                   drawn now; the Designs page's frames load these
+//!     /designs/<project>/<commit>/colors/<n>
+//!                   a board, a component's preview, or the nth group of the
+//!                   colors, at that commit, drawn now; the Designs page's
+//!                   frames load these
 //!     /designs/<project>/component/<name>
 //!                   the page of a component's shots at the commit
 //!                   origin/main names (component_shots.rs)
@@ -344,6 +346,9 @@ fn handle(mut stream: TcpStream, names: &[String], model: &Model) -> std::io::Re
                 DesignsRoute::Component(project, commit, name) => {
                     model.designs_preview(project, commit, name)
                 }
+                DesignsRoute::Colors(project, commit, n) => {
+                    model.designs_colors(project, commit, n)
+                }
                 DesignsRoute::ComponentShots(project, name) => {
                     model.component_shots_page(project, name, here)
                 }
@@ -413,6 +418,8 @@ enum DesignsRoute<'a> {
     Board(&'a str, &'a str, &'a str),
     /// Component <name>'s preview at the commit.
     Component(&'a str, &'a str, &'a str),
+    /// Group <n> of the colors at the commit.
+    Colors(&'a str, &'a str, usize),
     /// The page of component <name>'s shots.
     ComponentShots(&'a str, &'a str),
     /// A picture of the pair <shot> on the lane, in the cached run of
@@ -422,7 +429,7 @@ enum DesignsRoute<'a> {
 
 /// <rest> is the path after `/designs/`: `<project>`,
 /// `<project>/component/<name>`, `<project>/<commit>/board/<name>`,
-/// `<project>/<commit>/component/<name>` or
+/// `<project>/<commit>/component/<name>`, `<project>/<commit>/colors/<n>` or
 /// `<project>/<commit>/shot/<lane>/<shot>/board.png` (or `shot.png`), where
 /// the commit is a full commit id, as the page names it.
 fn designs_route(rest: &str) -> Option<DesignsRoute<'_>> {
@@ -446,6 +453,9 @@ fn designs_route(rest: &str) -> Option<DesignsRoute<'_>> {
         }
         [project, commit, "component", name] if super::designs::is_commit(commit) => {
             Some(DesignsRoute::Component(project, commit, name))
+        }
+        [project, commit, "colors", n] if super::designs::is_commit(commit) => {
+            Some(DesignsRoute::Colors(project, commit, n.parse().ok()?))
         }
         _ => None,
     }

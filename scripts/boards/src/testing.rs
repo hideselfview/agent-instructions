@@ -64,7 +64,7 @@ pub fn commit(dir: &Path) -> String {
 pub fn tokens_json(value: &str) -> String {
     serde_json::json!({
         "name": "test",
-        "color": { "themes": [{ "id": "dark" }], "tokens": [] },
+        "color": { "themes": [{ "id": "dark", "name": "Dark" }], "tokens": [] },
         "type": { "families": {}, "groups": [] },
         "spacing": { "tokens": [{ "name": "tokens", "value": value }] },
     })

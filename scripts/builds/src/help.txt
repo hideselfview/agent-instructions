@@ -2603,8 +2603,17 @@ STATUS, HEALTH AND THE DASHBOARD
                               canvas.json gives no size or no place shows
                               as that problem above the canvas. The Design
                               system tab shows the design system's colors
-                              in its first theme, its text styles, and its
-                              components in the groups and subgroups that
+                              in the groups of their roles that
+                              design/system/colors.json lists, each under
+                              its line: the group's swatches, one part per
+                              theme, and its scene (colors/<scene>.html)
+                              in every theme, with a chip and a line to
+                              each element that names a color
+                              (data-color). A color in no group or in two,
+                              or a name that is no color, shows as that
+                              problem. Then the tab shows its text styles,
+                              and its components in the groups and
+                              subgroups that
                               design/system/groups.json lists, in that
                               order, each under the line that introduces
                               it. Each component's preview draws at its own
@@ -2614,9 +2623,11 @@ STATUS, HEALTH AND THE DASHBOARD
                               Filter field, in the row of the tabs, works the
                               same on every tab: it keeps the entries whose
                               title holds what the person types, ignoring
-                              case (on the Design system tab, the colors,
-                              text styles and components whose names hold
-                              it), and keeps its text when the person
+                              case (on the Design system tab, the groups
+                              of colors whose name or colors' names hold
+                              it, and the text styles and components whose
+                              names hold it), and keeps its text when the
+                              person
                               switches tabs. A component
                               that groups.json leaves out or lists twice,
                               a name it lists that no component has, and

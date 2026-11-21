@@ -774,6 +774,10 @@ fn a_designs_path_is_the_page_or_a_board_or_component_at_a_full_commit() {
         Some(DesignsRoute::Component("bae", commit, "MacRow"))
     );
     assert_eq!(
+        designs_route(&format!("bae/{commit}/colors/3")),
+        Some(DesignsRoute::Colors("bae", commit, 3))
+    );
+    assert_eq!(
         designs_route("bae/component/MacCheckbox"),
         Some(DesignsRoute::ComponentShots("bae", "MacCheckbox"))
     );
@@ -798,6 +802,7 @@ fn a_designs_path_is_the_page_or_a_board_or_component_at_a_full_commit() {
         format!("bae/{commit}/shot/mac/mac.a.b/board"),
         "bae/HEAD/board/A".to_string(),
         format!("bae/{commit}/board"),
+        format!("bae/{commit}/colors/one"),
         format!("bae/{commit}/boards/A"),
         format!("bae/{commit}/board/A/now"),
     ] {
