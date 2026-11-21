@@ -3,8 +3,8 @@
 //! program that follows a folder there, which cost a core while agents built.
 //! A file named `no_log` in the volume's `.fseventsd` folder turns that
 //! recording off; macOS reads it when it mounts the volume. Only root reads or
-//! writes that folder, so builds finds out whether events flow by making a
-//! change on the volume and asking FSEvents for it.
+//! writes that folder, so builds asks FSEvents whether the volume's device has
+//! an event store.
 //!
 //! `builds host setup` creates the file through sudo, `builds health` lists a
 //! build volume that still records events, and nothing in builds follows the
@@ -14,55 +14,15 @@ use crate::fail::Result;
 use crate::host::{self, Host, sh_quote};
 use crate::places::Places;
 
-/// How long the probe waits for an event before it says the volume records
-/// none.
-#[cfg(target_os = "macos")]
-const WAIT: std::time::Duration = std::time::Duration::from_secs(3);
-
-/// Does fseventsd record the changes made on the build volume? Makes a file
-/// in a folder of the volume and asks FSEvents, from an event id taken before
-/// the change, for the change; false off macOS, which has no FSEvents.
-#[cfg(target_os = "macos")]
+/// Does fseventsd keep an event store for the build volume? macOS gives a
+/// volume with a `no_log` file none, and FSEvents has no UUID for its device.
+/// False off macOS, which has no FSEvents.
 pub fn records_events(places: &Places) -> Result<bool> {
     use crate::fail::Context;
-    let dir = places.daemon_dir().join("fsevents-probe");
-    std::fs::create_dir_all(&dir).context(|| format!("creating {}", dir.display()))?;
-    let dir = std::fs::canonicalize(&dir).context(|| format!("resolving {}", dir.display()))?;
-    let (told, heard) = std::sync::mpsc::channel();
-    let since = crate::daemon::fsevents::Stream::current_event_id();
-    let stream = crate::daemon::fsevents::Stream::start_since(
-        since,
-        &[dir.as_path()],
-        &[],
-        0.0,
-        Box::new(move |events| {
-            let _ = told.send(events);
-        }),
-    );
-    // The stream is live a moment after it starts; the history it replays
-    // from <since> covers a change made before then.
-    let file = dir.join(format!("probe-{}", std::process::id()));
-    std::fs::write(&file, b"x").context(|| format!("writing {}", file.display()))?;
-    let deadline = std::time::Instant::now() + WAIT;
-    let mut seen = false;
-    while let Some(left) = deadline.checked_duration_since(std::time::Instant::now()) {
-        match heard.recv_timeout(left) {
-            Ok(events) if events.iter().any(|event| event.path.starts_with(&dir)) => {
-                seen = true;
-                break;
-            }
-            Ok(_) => {}
-            Err(_) => break,
-        }
-    }
-    drop(stream);
-    std::fs::remove_file(&file).context(|| format!("removing {}", file.display()))?;
-    Ok(seen)
-}
-
-#[cfg(not(target_os = "macos"))]
-pub fn records_events(_places: &Places) -> Result<bool> {
-    Ok(false)
+    use std::os::unix::fs::MetadataExt;
+    let meta =
+        std::fs::metadata(&places.root).context(|| format!("reading {}", places.root.display()))?;
+    Ok(crate::daemon::fsevents::device_keeps_events(meta.dev()))
 }
 
 /// The command that turns the volume's event recording off.

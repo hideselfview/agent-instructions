@@ -73,6 +73,11 @@ pub struct Stream {
     shared: Arc<Shared>,
 }
 
+/// Does fseventsd keep an event store for the device <device> (a `st_dev`)?
+pub fn device_keeps_events(device: u64) -> bool {
+    system::device_keeps_events(device)
+}
+
 impl Stream {
     /// The id of the latest event the system has recorded; 0 when fseventsd
     /// does not answer. A stream started from it reports every change made

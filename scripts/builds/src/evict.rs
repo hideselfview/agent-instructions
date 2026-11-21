@@ -53,7 +53,7 @@ pub enum Recreate {
 /// when the folder is in use.
 pub fn evict(places: &Places, dir: &Path, recreate: Recreate, removal: Removal) -> Result<bool> {
     let folder = std::fs::canonicalize(dir).context(|| format!("resolving {}", dir.display()))?;
-    crate::sizes::changed(places, &folder);
+    crate::sizes::stale(places, &folder)?;
     let parent = folder
         .parent()
         .expect("a folder to delete has a parent")

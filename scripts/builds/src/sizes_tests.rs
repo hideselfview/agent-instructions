@@ -93,8 +93,53 @@ fn a_status_reads_recorded_folders_and_leaves_the_rest_to_be_measured() {
         root.join("elsewhere"),
         places.root.join("x"),
     ];
-    let answers = recorded(&places, &paths);
+    let answers = recorded(&places, &paths).unwrap();
     assert!(answers[0].is_some());
     assert_eq!(answers[1], None);
     assert_eq!(answers[2], None);
+}
+
+#[test]
+fn a_path_that_is_no_build_root_has_no_record_to_read_or_write() {
+    let scratch = Scratch::new("sizes-no-root");
+    let places = scratch.tool(0).places;
+    let outside = Path::new("/elsewhere/a/b");
+    assert!(read(&places, outside).is_err());
+    assert!(write(&places, outside, &Sizes::new()).is_err());
+    assert!(read(&places, &places.root.join("demo")).is_err());
+}
+
+#[test]
+fn a_corrupt_record_is_an_error_not_an_empty_record() {
+    let scratch = Scratch::new("sizes-corrupt");
+    let (places, root) = root_with_folders(&scratch);
+    record(&places, &root).unwrap();
+    let file = record_file(&places, &root).unwrap();
+    std::fs::write(&file, b"not json").unwrap();
+    assert!(read(&places, &root).is_err());
+    assert!(recorded(&places, &[root.join("target")]).is_err());
+}
+
+#[test]
+fn a_deletion_in_a_root_removes_its_record_so_it_is_measured_again() {
+    let scratch = Scratch::new("sizes-stale");
+    let (places, root) = root_with_folders(&scratch);
+    record(&places, &root).unwrap();
+    assert!(!read(&places, &root).unwrap().is_empty());
+    stale(&places, &root.join("target")).unwrap();
+    assert!(read(&places, &root).unwrap().is_empty());
+    // A folder outside the roots has no record to remove.
+    stale(&places, Path::new("/elsewhere/a/b")).unwrap();
+}
+
+#[test]
+fn a_record_of_a_root_that_is_gone_is_forgotten_by_prune() {
+    let scratch = Scratch::new("sizes-forget");
+    let (places, root) = root_with_folders(&scratch);
+    record(&places, &root).unwrap();
+    assert!(forget_unrooted(&places).is_ok());
+    assert!(!read(&places, &root).unwrap().is_empty());
+    std::fs::remove_file(root.join(".checkout")).unwrap();
+    forget_unrooted(&places).unwrap();
+    assert!(read(&places, &root).unwrap().is_empty());
 }

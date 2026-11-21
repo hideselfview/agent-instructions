@@ -80,7 +80,7 @@ impl Tool {
     /// sizes the last command that wrote each folder recorded (sizes.rs;
     /// status shows them, nothing decides on them), the rest measured.
     pub fn measure_ahead(&mut self, paths: Vec<PathBuf>) -> Result<()> {
-        let recorded = crate::sizes::recorded(&self.places, &paths);
+        let recorded = crate::sizes::recorded(&self.places, &paths)?;
         let unrecorded: Vec<PathBuf> = paths
             .iter()
             .zip(&recorded)

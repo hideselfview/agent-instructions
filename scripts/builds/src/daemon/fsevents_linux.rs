@@ -11,6 +11,11 @@ pub fn current_event_id() -> u64 {
     0
 }
 
+/// Linux keeps no event store for a device.
+pub fn device_keeps_events(_device: u64) -> bool {
+    false
+}
+
 /// A stream FSEvents made; none is ever made off macOS.
 pub enum Raw {}
 

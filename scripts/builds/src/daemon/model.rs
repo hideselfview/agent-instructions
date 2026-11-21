@@ -596,7 +596,7 @@ impl Model {
                                 entry.is_app_in(lane),
                                 &root.path.join(&entry.path),
                                 &checkout.top.join(&entry.path),
-                                Some(answer),
+                                answer,
                             )
                         })
                         .collect();
@@ -657,11 +657,7 @@ impl Model {
             }
             // Pacing: the processes are read at a rate, not on an event. A
             // page that starts watching ends the wait.
-            let watched = self.viewers.load(Ordering::SeqCst) > 0;
-            if watched {
-                self.runs.watched();
-            }
-            let pace = if watched {
+            let pace = if self.viewers.load(Ordering::SeqCst) > 0 {
                 SAMPLE_EVERY
             } else {
                 IDLE_SAMPLE_EVERY
@@ -1881,7 +1877,7 @@ fn folder_facts(
     app: bool,
     folder: &Path,
     link: &Path,
-    answer: Option<Measure>,
+    answer: Measure,
 ) -> FolderFacts {
     let exists = folder.is_dir();
     let link_state = if link.is_symlink() {
@@ -1897,12 +1893,8 @@ fn folder_facts(
         path: entry.path.clone(),
         cap_kib: entry.cap_kib(app),
         exists,
-        kib: if exists {
-            answer.map(|m| m.kib)
-        } else {
-            Some(0)
-        },
-        last_write: answer.and_then(|m| m.newest),
+        kib: Some(if exists { answer.kib } else { 0 }),
+        last_write: answer.newest,
         link: link_state,
     }
 }

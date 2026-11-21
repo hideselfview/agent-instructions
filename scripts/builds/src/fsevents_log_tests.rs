@@ -2,7 +2,7 @@ use super::*;
 use crate::testing::Scratch;
 
 /// A folder on the Mac's data volume, which records events, is reported as
-/// recording them, and the probe leaves no file behind.
+/// recording them.
 #[cfg(target_os = "macos")]
 #[test]
 fn a_volume_that_records_events_says_so() {
@@ -10,10 +10,6 @@ fn a_volume_that_records_events_says_so() {
     let places = scratch.places();
     std::fs::create_dir_all(&places.root).unwrap();
     assert!(records_events(&places).unwrap());
-    let left: Vec<_> = std::fs::read_dir(places.daemon_dir().join("fsevents-probe"))
-        .unwrap()
-        .collect();
-    assert!(left.is_empty(), "{left:?}");
 }
 
 #[test]

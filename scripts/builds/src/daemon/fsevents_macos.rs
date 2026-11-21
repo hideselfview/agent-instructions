@@ -54,6 +54,8 @@ unsafe extern "C" {
 #[link(name = "CoreServices", kind = "framework")]
 unsafe extern "C" {
     fn FSEventsGetCurrentEventId() -> FSEventStreamEventId;
+    /// The UUID of the device's event store; NULL for a device with none.
+    fn FSEventsCopyUUIDForDevice(device: libc::dev_t) -> *const c_void;
     fn FSEventStreamCreate(
         allocator: CFAllocatorRef,
         callback: FSEventStreamCallback,
@@ -85,6 +87,18 @@ unsafe extern "C" {
 /// does not answer.
 pub fn current_event_id() -> u64 {
     unsafe { FSEventsGetCurrentEventId() }
+}
+
+/// Does fseventsd keep an event store for the device <device> (a `st_dev`)?
+/// A volume with a `.fseventsd/no_log` file has none, and FSEvents has no
+/// UUID for it.
+pub fn device_keeps_events(device: u64) -> bool {
+    let uuid = unsafe { FSEventsCopyUUIDForDevice(device as libc::dev_t) };
+    if uuid.is_null() {
+        return false;
+    }
+    unsafe { CFRelease(uuid) };
+    true
 }
 
 /// One FSEvents stream as the system made it; dropping it stops it.

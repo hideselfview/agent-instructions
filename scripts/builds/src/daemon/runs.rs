@@ -15,9 +15,8 @@
 //! when they took any. The
 //! child writes the log itself, not through the daemon, so a daemon that goes
 //! away neither breaks the build's output nor stops it: the build runs on and
-//! installs its app. The volume has no file events, so while a page watches
-//! and a run has not ended, the page reads the log again at each reading of
-//! the processes (`Runs::watched`).
+//! installs its app. The volume has no file events, so a kqueue watch on each
+//! run's log file tells the page when the log is written.
 //!
 //! A daemon that starts finds the record of a run it did not see end. What
 //! the record says then is read from the process, never written: the build is
@@ -38,6 +37,7 @@ use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 
 use super::model::now_seconds;
+use super::vnode::Watch;
 use crate::fail::{Context, Result};
 use crate::lane::Lane;
 use crate::places::Places;
@@ -86,6 +86,10 @@ struct Run {
     record: Record,
     /// This daemon started it and waits for its end.
     owned: bool,
+    /// Tells the page each time the run's log is written, while the run has
+    /// not ended. The volume has no file events, so a kqueue watch on the log
+    /// file (vnode.rs) says so.
+    log_watch: Option<Watch>,
 }
 
 /// Where a run is, as the page shows it.
@@ -248,6 +252,7 @@ impl Runs {
                 Run {
                     record,
                     owned: false,
+                    log_watch: None,
                 },
             );
         }
@@ -258,27 +263,38 @@ impl Runs {
             state: Mutex::new(state),
             listener: Mutex::new(None),
         });
+        {
+            let mut state = runs.state.lock().expect("no panic holding it");
+            for ((repo, lane, shots), run) in state.iter_mut() {
+                if run.busy() {
+                    run.log_watch = runs.watch_log(repo, *lane, shots.as_deref());
+                }
+            }
+        }
         Ok(runs)
+    }
+
+    /// A watch that calls the listener each time the log of <repo>'s <lane>
+    /// run with <shots> is written; None, said, when the log can't be watched.
+    fn watch_log(self: &Arc<Self>, repo: &str, lane: Lane, shots: Option<&str>) -> Option<Watch> {
+        let log = log_file(&self.dir, repo, lane, shots);
+        let weak = Arc::downgrade(self);
+        match Watch::start(&log, move || {
+            if let Some(runs) = weak.upgrade() {
+                runs.notify();
+            }
+        }) {
+            Ok(watch) => Some(watch),
+            Err(error) => {
+                eprintln!("builds: watching {}: {error}", log.display());
+                None
+            }
+        }
     }
 
     /// Calls <listener> when a run starts, prints or ends.
     pub fn listen(&self, listener: Box<dyn Fn() + Send + Sync>) {
         *self.listener.lock().expect("no panic holding it") = Some(listener);
-    }
-
-    /// A page watches: each run that has not ended may have printed since the
-    /// last time, so the listener hears of it. The build volume has no file
-    /// events to say so (the log is on it).
-    pub fn watched(&self) {
-        let busy = self
-            .state
-            .lock()
-            .expect("no panic holding it")
-            .values()
-            .any(Run::busy);
-        if busy {
-            self.notify();
-        }
     }
 
     fn notify(&self) {
@@ -460,6 +476,7 @@ impl Runs {
             })
             .context(|| "starting a thread".to_string())?;
         Ok(Run {
+            log_watch: self.watch_log(repo, lane, shots),
             record,
             owned: true,
         })
@@ -493,6 +510,7 @@ impl Runs {
                 && run.record.pid == started.pid
             {
                 run.record.ended = Some(ended);
+                run.log_watch = None;
                 // The run shows as ended here either way; a record that
                 // can't be written is said, and a restart then shows this
                 // run as one whose end wasn't seen.

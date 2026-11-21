@@ -137,6 +137,25 @@ fn a_second_start_in_a_lane_is_refused_and_the_other_lane_starts() {
         .expect("a finished lane starts again");
 }
 
+/// A running build's log, which is on the volume that has no file events, is
+/// watched: a line it prints reaches the listener while the build runs.
+#[test]
+fn a_line_a_running_build_prints_reaches_the_listener() {
+    let s = setup("runs-log-watch");
+    s.control("hold-mac");
+    s.runs.start_build("demo", "mac", None).unwrap();
+    s.until("mac", Phase::Running);
+    let log = s.scratch.places().daemon_dir().join("runs/demo.mac.log");
+    while s.changes.try_recv().is_ok() {}
+    use std::io::Write;
+    let mut file = std::fs::OpenOptions::new().append(true).open(&log).unwrap();
+    writeln!(file, "a later line").unwrap();
+    s.changes
+        .recv_timeout(Duration::from_secs(30))
+        .expect("the write to the log was reported");
+    assert!(s.page("mac").unwrap().output.contains("a later line"));
+}
+
 /// The commit the shots runs of these tests take; the stub's control
 /// files for a shots run are named for it.
 const COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";

@@ -12,19 +12,14 @@
 //! (a cargo run by hand) shows in a record only after the next command that
 //! measures the root.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 
 use crate::checkout::Root;
 use crate::fail::{Context, Result};
 use crate::manifest::build_dirs;
 use crate::places::Places;
 use crate::usage::{Measure, measure_many};
-
-/// The build roots this process deleted from: `record_after` measures them
-/// with the roots its command names.
-static CHANGED: Mutex<BTreeSet<PathBuf>> = Mutex::new(BTreeSet::new());
 
 /// A root's folders and what they take.
 pub type Sizes = BTreeMap<String, Measure>;
@@ -42,60 +37,53 @@ pub fn root_of(places: &Places, path: &Path) -> Option<PathBuf> {
     Some(places.root.join(repo).join(checkout))
 }
 
-/// This process is deleting <path>: the root that holds it is measured when
-/// the command ends.
-pub fn changed(places: &Places, path: &Path) {
-    if let Some(root) = root_of(places, path) {
-        CHANGED.lock().expect("no panic holding it").insert(root);
-    }
+/// A deletion is about to change a folder of <path>'s root: the root's record
+/// is removed, which makes the dashboard measure it once, and the daemon is
+/// told. A path outside the roots has no record.
+pub fn stale(places: &Places, path: &Path) -> Result<()> {
+    let Some(root) = root_of(places, path) else {
+        return Ok(());
+    };
+    remove(places, &root)?;
+    crate::daemon::client::wrote(places, &[root]);
+    Ok(())
 }
 
 /// The file that holds <root>'s record.
-fn record_file(places: &Places, root: &Path) -> Option<PathBuf> {
-    let rest = root.strip_prefix(&places.root).ok()?;
-    let mut file = places.daemon_dir().join("sizes").join(rest);
-    let name = format!("{}.json", file.file_name()?.to_string_lossy());
-    file.set_file_name(name);
-    Some(file)
+fn record_file(places: &Places, root: &Path) -> Result<PathBuf> {
+    let name = root
+        .strip_prefix(&places.root)
+        .ok()
+        .filter(|rest| rest.components().count() == 2)
+        .and_then(|rest| rest.file_name())
+        .map(|name| name.to_string_lossy().into_owned());
+    let (Some(name), Some(repo)) = (name, root.parent().and_then(Path::file_name)) else {
+        crate::fail!(
+            "{} is not a build root of {}",
+            root.display(),
+            places.root.display()
+        );
+    };
+    Ok(places
+        .daemon_dir()
+        .join("sizes")
+        .join(repo)
+        .join(format!("{name}.json")))
 }
 
 /// <root>'s record; empty when it has none.
 pub fn read(places: &Places, root: &Path) -> Result<Sizes> {
-    let Some(file) = record_file(places, root) else {
-        return Ok(Sizes::new());
-    };
-    match std::fs::read(&file) {
-        Ok(bytes) => serde_json::from_slice(&bytes)
-            .context(|| format!("{} is not a record of sizes", file.display())),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Sizes::new()),
-        Err(error) => crate::fail!("reading {}: {error}", file.display()),
-    }
+    crate::readings_file::read_value(&record_file(places, root)?)
 }
 
 /// Replaces <root>'s record with <sizes>, whole.
 pub fn write(places: &Places, root: &Path, sizes: &Sizes) -> Result<()> {
-    let Some(file) = record_file(places, root) else {
-        return Ok(());
-    };
-    let dir = file.parent().expect("a record has a folder");
-    std::fs::create_dir_all(dir).context(|| format!("creating {}", dir.display()))?;
-    let staged = dir.join(format!(
-        ".{}.{}.part",
-        file.file_name()
-            .expect("a record has a name")
-            .to_string_lossy(),
-        std::process::id()
-    ));
-    std::fs::write(&staged, serde_json::to_vec(sizes).expect("sizes serialize"))
-        .context(|| format!("writing {}", staged.display()))?;
-    std::fs::rename(&staged, &file).context(|| format!("writing {}", file.display()))
+    crate::readings_file::write_value(&record_file(places, root)?, sizes)
 }
 
 /// Removes <root>'s record.
 fn remove(places: &Places, root: &Path) -> Result<()> {
-    let Some(file) = record_file(places, root) else {
-        return Ok(());
-    };
+    let file = record_file(places, root)?;
     match std::fs::remove_file(&file) {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -162,30 +150,35 @@ pub fn record(places: &Places, path: &Path) -> Result<bool> {
 
 /// The record for each of <paths>, for the paths that are a folder a record
 /// keeps; None for any other, which the caller measures.
-pub fn recorded(places: &Places, paths: &[PathBuf]) -> Vec<Option<Measure>> {
+pub fn recorded(places: &Places, paths: &[PathBuf]) -> Result<Vec<Option<Measure>>> {
     let mut records: BTreeMap<PathBuf, Sizes> = BTreeMap::new();
-    paths
-        .iter()
-        .map(|path| {
-            let root = root_of(places, path)?;
-            let sizes = records
-                .entry(root.clone())
-                .or_insert_with(|| read(places, &root).unwrap_or_default());
-            let key = match path.strip_prefix(&root) {
-                Ok(rest) if rest.as_os_str().is_empty() => WHOLE.to_string(),
-                Ok(rest) => rest.to_string_lossy().into_owned(),
-                Err(_) => return None,
-            };
-            sizes.get(&key).copied()
-        })
-        .collect()
+    let mut answers = Vec::with_capacity(paths.len());
+    for path in paths {
+        let Some(root) = root_of(places, path) else {
+            answers.push(None);
+            continue;
+        };
+        if !records.contains_key(&root) {
+            records.insert(root.clone(), read(places, &root)?);
+        }
+        let key = match path.strip_prefix(&root) {
+            Ok(rest) if rest.as_os_str().is_empty() => WHOLE.to_string(),
+            Ok(rest) => rest.to_string_lossy().into_owned(),
+            Err(_) => {
+                answers.push(None);
+                continue;
+            }
+        };
+        answers.push(records[&root].get(&key).copied());
+    }
+    Ok(answers)
 }
 
 /// After `builds <command> <args>` ran: measures the build roots it wrote
 /// and tells the dashboard. A failure is said and does not change the
 /// command's result, since the command's own work is done.
 pub fn record_after(places: &Places, command: &str, args: &[String]) {
-    let mut roots = match written_by(places, command, args) {
+    let roots = match written_by(places, command, args) {
         Ok(roots) => roots,
         Err(error) => {
             crate::text::note(format!("sizes: {}", error.text()));
@@ -197,11 +190,6 @@ pub fn record_after(places: &Places, command: &str, args: &[String]) {
     {
         crate::text::note(format!("sizes: {}", error.text()));
     }
-    roots.extend(std::mem::take(
-        &mut *CHANGED.lock().expect("no panic holding it"),
-    ));
-    roots.sort();
-    roots.dedup();
     record_roots(places, &roots);
 }
 
@@ -210,26 +198,39 @@ pub fn record_after(places: &Places, command: &str, args: &[String]) {
 /// record behind.
 fn forget_unrooted(places: &Places) -> Result<()> {
     let base = places.daemon_dir().join("sizes");
-    let Ok(repos) = std::fs::read_dir(&base) else {
-        return Ok(());
-    };
-    for repo in repos.flatten() {
-        let Ok(records) = std::fs::read_dir(repo.path()) else {
-            continue;
-        };
-        for record in records.flatten() {
-            let name = record.file_name().to_string_lossy().into_owned();
+    for repo in entries(&base)? {
+        for record in entries(&repo)? {
+            let name = record.file_name().unwrap_or_default().to_string_lossy();
             let Some(checkout) = name.strip_suffix(".json") else {
                 continue;
             };
-            let root = places.root.join(repo.file_name()).join(checkout);
+            let root = places
+                .root
+                .join(repo.file_name().unwrap_or_default())
+                .join(checkout);
             if !root.join(".checkout").is_file() {
-                std::fs::remove_file(record.path())
-                    .context(|| format!("removing {}", record.path().display()))?;
+                std::fs::remove_file(&record)
+                    .context(|| format!("removing {}", record.display()))?;
             }
         }
     }
     Ok(())
+}
+
+/// The entries of <dir>; none when <dir> does not exist.
+fn entries(dir: &Path) -> Result<Vec<PathBuf>> {
+    let listing = match std::fs::read_dir(dir) {
+        Ok(listing) => listing,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => crate::fail!("listing {}: {error}", dir.display()),
+    };
+    listing
+        .map(|entry| {
+            entry
+                .map(|entry| entry.path())
+                .context(|| format!("listing {}", dir.display()))
+        })
+        .collect()
 }
 
 /// Measures each of <roots> and tells the dashboard about all of them.
@@ -244,6 +245,11 @@ pub fn record_roots(places: &Places, roots: &[PathBuf]) {
                 root.display(),
                 error.text()
             ));
+            // The old record would show a size from before this command;
+            // with none, the dashboard measures the root.
+            if let Err(error) = remove(places, root) {
+                crate::text::note(format!("sizes: {}", error.text()));
+            }
         }
     }
     crate::daemon::client::wrote(places, roots);
