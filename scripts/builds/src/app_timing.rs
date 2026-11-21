@@ -492,6 +492,23 @@ pub fn passed_runs(
     Ok(passed)
 }
 
+/// Whether a passing app build of <repo>'s <lane> built <commit> and passed
+/// the shots run of <prefix>, in the database open as <conn> at <path>: a run
+/// of `passed_runs`, which is what `builds land` reads.
+pub fn passed_shots(
+    conn: &Connection,
+    repo: &str,
+    lane: Lane,
+    commit: &str,
+    prefix: &str,
+    path: &Path,
+) -> Result<bool> {
+    let step = format!("{}{prefix}", PickKind::Shots.step_prefix());
+    Ok(passed_runs(conn, repo, lane, path)?
+        .iter()
+        .any(|run| run.commit == commit && run.steps.contains(&step)))
+}
+
 /// The shots prefixes that app builds of <repo>'s <lane> named <branch>
 /// (`built_ref`) ran to a verdict, passed or not, in runs that started at or
 /// after <since> (seconds since 1970), in the database open as <conn> at

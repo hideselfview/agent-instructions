@@ -1071,6 +1071,84 @@ fn app_build_with_only_a_shots_pick_prints_a_cached_run_and_takes_no_lane() {
     );
 }
 
+/// An app build that prints a cached shots run in place of running it counts
+/// for `builds land` as the branch's passing app build: it prints only the
+/// cached runs that a passing app build of the commit ran, which is the record
+/// land reads, and runs the others.
+#[test]
+fn a_build_that_reuses_a_cached_run_leaves_the_passing_build_that_land_counts() {
+    use crate::app_timing::{RunRecord, StepRecord};
+    let scratch = crate::testing::Scratch::new("shots-serve-covers");
+    let held = held_in(&scratch);
+    let places = scratch.places();
+    let top = scratch.dir.join("repo");
+    let cached = shots_cache(&top, &places);
+    places
+        .write_app_checkouts(
+            "demo",
+            Lane::Mac,
+            &[crate::lane::AppCheckout::by_person("side-1")],
+        )
+        .unwrap();
+    let marker = places.root.join("demo/side-1");
+    std::fs::create_dir_all(&marker).unwrap();
+    std::fs::write(marker.join(".checkout"), top.display().to_string()).unwrap();
+    let step = fake("shots mac.a.", &["sh", "-c", FINDINGS_RUN], None);
+    let _ = run_steps(&top, &held, &[step], &mut Vec::new(), &cached, false);
+    let commit = resolve(&top, "HEAD").unwrap();
+    let store = crate::lists::fixtures::make_store_named(&places, "demo-project", &["demo"]);
+    let pick: Pick = (Lane::Mac, PickKind::Shots, "mac.a.".to_string());
+    let record = |outcome: RunEnd, shots: StepResult| {
+        let step = |name: &str, kind, result| StepRecord {
+            name: name.to_string(),
+            kind,
+            started_at: 5,
+            wall_ms: 1,
+            cpu_ms: 1,
+            result,
+        };
+        let run = RunRecord {
+            started_at: 5,
+            repo: "demo".to_string(),
+            lane: Lane::Mac,
+            checkout: "side-1".to_string(),
+            built_ref: "work".to_string(),
+            built_commit: Some(commit.clone()),
+            who: None,
+            wait_ms: 0,
+            outcome,
+            load: None,
+            steps: vec![
+                step("macos", StepKind::Step, StepResult::Passed),
+                step("shots mac.a.", StepKind::Shots, shots),
+            ],
+        };
+        crate::app_timing::record(&store.database(), &run).unwrap();
+    };
+    let serve = || serve_cached(&places, "demo", "HEAD", vec![pick.clone()]).unwrap();
+    // No build of the commit ran the prefix: the cached run is not enough.
+    assert_eq!(serve(), vec![pick.clone()]);
+    record(RunEnd::Failed, StepResult::Failed(Default::default()));
+    assert_eq!(serve(), vec![pick.clone()]);
+    // A passing build ran it, so printing the cached run leaves a build that
+    // land counts as covering the branch.
+    record(RunEnd::Passed, StepResult::Passed);
+    assert!(serve().is_empty());
+    let config = parse_config("step mac macos ./macos.sh\non bae-macos/ macos\n").unwrap();
+    let conn = crate::db::open(&store.database(), crate::db::Make::Never).unwrap();
+    let needs = crate::app_landing::needs(
+        &config,
+        &["bae-macos/a.swift".to_string()],
+        (&commit, &commit),
+        &mut |lane| crate::app_timing::passed_runs(&conn, "demo", lane, &store.database()),
+        &mut |_| Ok(vec!["mac.a.".to_string()]),
+        &mut |_, _| Ok(Some(Vec::new())),
+        &mut |_, _| {},
+    )
+    .unwrap();
+    assert!(needs.is_empty(), "{needs:?}");
+}
+
 /// A shots run that writes a report, with a findings.json that names
 /// shots checker <version>, and says where it is.
 fn report_run(version: &str) -> String {

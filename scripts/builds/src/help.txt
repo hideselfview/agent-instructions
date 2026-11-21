@@ -1215,7 +1215,10 @@ built again.
                               the less loaded host (only a host's for a test
                               line that opens windows). A --shots or
                               --all-shots pick whose run builds has already cached
-                              prints its findings and takes no lock. --fresh
+                              and that a passing app build of <ref>'s commit
+                              ran (the build `builds land` counts) prints its
+                              findings and takes no lock; a cached run that
+                              no passing build ran is run again. --fresh
                               runs it anyway: it builds the app, takes
                               every selected shot again, and replaces each
                               kept picture of the lane's app tree with the

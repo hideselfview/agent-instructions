@@ -1540,10 +1540,15 @@ fn left_unchanged(site: &mut Site, built_file: &Path, ran: Result<Ended>) -> Res
 }
 
 /// Prints the cached findings of each `--shots` pick in <picks> that has a
-/// run cached for <git_ref>'s commit, and returns the picks left to run: the
-/// `--test` picks, and the `--shots` picks with no cached run. A run of picks
-/// with no step builds nothing, so a cached run is printed in place of taking
-/// the lane.
+/// run cached for <git_ref>'s commit and a passing app build of that commit
+/// that ran the pick's prefix, and returns the picks left to run: the `--test`
+/// picks, and the `--shots` picks with no such run. The passing build is the
+/// record that `builds land` reads for the branch's builds
+/// (`app_timing::passed_runs`), so a pick that is printed and not run leaves
+/// a build that land counts; a cached run that no passing build ran is run
+/// again. A run of picks with no step builds nothing, so a cached run is
+/// printed in place of taking the lane. A repo in no project records no
+/// builds and prints every cached run.
 pub fn serve_cached(
     places: &Places,
     repo: &str,
@@ -1553,6 +1558,13 @@ pub fn serve_cached(
     if !picks.iter().any(|(_, kind, _)| *kind == PickKind::Shots) {
         return Ok(picks);
     }
+    let recorded = match app_timing::database_of(places, repo)? {
+        Some(database) => {
+            let conn = crate::db::open(&database, crate::db::Make::Never)?;
+            Some((conn, database))
+        }
+        None => None,
+    };
     let mut left = Vec::new();
     for pick in picks {
         let (lane, kind, prefix) = &pick;
@@ -1561,13 +1573,26 @@ pub fn serve_cached(
             continue;
         }
         let key = shot_findings::key_for(places, repo, git_ref, *lane, prefix)?;
-        match shots_cache::lookup(places, &key)? {
-            Some(cached) => {
-                note("printing the cached findings instead of running (--fresh runs)");
-                shot_findings::print(&cached);
-                shot_findings::note_report(&cached);
+        let Some(cached) = shots_cache::lookup(places, &key)? else {
+            left.push(pick);
+            continue;
+        };
+        let passed = match &recorded {
+            Some((conn, database)) => {
+                app_timing::passed_shots(conn, repo, *lane, &key.commit, prefix, database)?
             }
-            None => left.push(pick),
+            None => true,
+        };
+        if passed {
+            note("printing the cached findings instead of running (--fresh runs)");
+            shot_findings::print(&cached);
+            shot_findings::note_report(&cached);
+        } else {
+            note(format!(
+                "{prefix} has a cached run, but no passing app build of {} ran it, so the build runs it again",
+                &key.commit[..key.commit.len().min(12)]
+            ));
+            left.push(pick);
         }
     }
     Ok(left)
