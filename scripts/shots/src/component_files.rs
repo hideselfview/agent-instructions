@@ -127,15 +127,14 @@ pub(crate) fn list(
             .map_err(|e| format!("cannot read {}: {e}", preview.display()))?;
         let states = crate::lint::rows(&html, &settings.preview_calls);
         for (platform, extension, folder) in &platforms {
-            if key.platform.is_some_and(|p| p != *platform) {
+            if key.platform.is_some_and(|p| p != platform.word()) {
                 continue;
             }
             let file = folder.join(COMPONENTS).join(format!("{name}.{extension}"));
             let path = root.join(&file);
             let mut rows = Vec::new();
             for state in &states {
-                let shot = key
-                    .shot(*platform, state)
+                let shot = crate::names::component_shot(key, *platform, state)
                     .map_err(|e| format!("{}: {e}", preview.display()))?;
                 let place = match declared.iter().find(|d| d.name == shot) {
                     Some(d) if d.file == path => Place::File,
@@ -163,9 +162,8 @@ pub(crate) fn list(
             let stem = file.stem;
             let why = match previews.components.iter().find(|(name, _)| *name == stem) {
                 Some((_, key)) => match key.platform {
-                    Some(owner) if owner != *platform => format!(
-                        "{stem} is a component of {}, not of {}",
-                        owner.word(),
+                    Some(owner) if owner != platform.word() => format!(
+                        "{stem} is a component of {owner}, not of {}",
                         platform.word()
                     ),
                     _ => continue,

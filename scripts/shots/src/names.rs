@@ -3,6 +3,7 @@
 //! state. A component both platforms share (`Artwork`) has the same form, with
 //! the platform of the shot it draws. Each segment is lower-case words joined by `-`.
 
+use boards::component_key::ComponentKey;
 use std::fmt;
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -204,7 +205,9 @@ impl ComponentName {
             previews
                 .components
                 .iter()
-                .find(|(_, key)| key.platform == platform && key.thing == self.thing)
+                .find(|(_, key)| {
+                    key.platform == platform.map(Platform::word) && key.thing == self.thing
+                })
                 .map(|(name, _)| name.clone())
         };
         find(Some(self.platform))
@@ -223,38 +226,18 @@ impl ComponentName {
     }
 }
 
-/// What a design-system component's folder name says
-/// (`boards::component_key`): the platform that draws it, none for a
-/// component both platforms share, and its thing, the `<thing>` of its shots'
-/// names.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ComponentKey {
-    pub(crate) platform: Option<Platform>,
-    pub(crate) thing: String,
-}
-
-impl ComponentKey {
-    /// The key of the component <name> (`boards::component_key`); none when
-    /// <name> is no component's name.
-    pub(crate) fn of(name: &str) -> Option<Self> {
-        let key = boards::component_key::ComponentKey::of(name)?;
-        Some(Self {
-            platform: key
-                .platform
-                .map(|word| Platform::parse(word).expect("boards names only mac, android and web")),
-            thing: key.thing,
-        })
-    }
-
-    /// The name of the shot of this component's preview row <state> on
-    /// <platform>.
-    pub(crate) fn shot(&self, platform: Platform, state: &str) -> Result<Name, NameError> {
-        Name::parse(&format!(
-            "{}.component.{}.{state}",
-            platform.word(),
-            self.thing
-        ))
-    }
+/// The name of the shot of the preview row <state> of the component <key>
+/// names (`boards::component_key`) on <platform>.
+pub(crate) fn component_shot(
+    key: &ComponentKey,
+    platform: Platform,
+    state: &str,
+) -> Result<Name, NameError> {
+    Name::parse(&format!(
+        "{}.component.{}.{state}",
+        platform.word(),
+        key.thing
+    ))
 }
 
 /// The design-system components of a repo that have a preview: each folder

@@ -92,24 +92,10 @@ fn a_component_with_no_preview_is_named_for_its_platform() {
 }
 
 #[test]
-fn a_component_folder_names_its_platform_and_the_thing_its_shots_name() {
-    let key = |platform, thing: &str| {
-        Some(ComponentKey {
-            platform,
-            thing: thing.to_string(),
-        })
-    };
-    assert_eq!(ComponentKey::of("MacRow"), key(Some(Platform::Mac), "row"));
+fn a_component_s_row_names_its_shot_by_the_component_s_thing() {
+    let key = ComponentKey::of("MacQRScanner").unwrap();
     assert_eq!(
-        ComponentKey::of("AndroidCastRow"),
-        key(Some(Platform::Android), "cast-row")
-    );
-    assert_eq!(ComponentKey::of("StatusChip"), key(None, "status-chip"));
-    assert_eq!(ComponentKey::of("row"), None);
-    assert_eq!(
-        ComponentKey::of("MacQRScanner")
-            .unwrap()
-            .shot(Platform::Mac, "scanning")
+        component_shot(&key, Platform::Mac, "scanning")
             .unwrap()
             .to_string(),
         "mac.component.qr-scanner.scanning"
