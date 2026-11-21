@@ -749,9 +749,9 @@ struct StepsWith<'a> {
     results: &'a [String],
     /// Where a shots run keeps its findings here.
     shots: &'a ShotsStore,
-    /// This Mac's folder of the build's programs, which a step on a host
-    /// runs under, copied there (programs.rs).
-    programs: &'a Path,
+    /// The build's programs, which a step on a host runs under, copied there
+    /// (programs.rs).
+    programs: &'a Pinned,
     /// Whether each step's run watches for a line of `HOST_FAULTS`.
     watch: bool,
 }
@@ -1274,14 +1274,14 @@ fn who_asked() -> Option<String> {
 /// lane that adds a checkout on a host keeps the host's free disk above
 /// the floor of <tool>'s rules. A stop signal ends the lane from the moment
 /// it starts, and a run that one reached before it passed is recorded as
-/// stopped. <programs> is this Mac's folder of the build's programs, which
-/// the lane copies to each host it runs a step on.
+/// stopped. <programs> are the build's programs, which the lane copies to
+/// each host it runs a step on.
 fn run_lane(
     tool: &Tool,
     repo: &str,
     lane: Lane,
     request: LaneRequest,
-    programs: &Path,
+    programs: &Pinned,
 ) -> Result<()> {
     lock::end_on_stop_signals();
     let mut timing = Timing::start();
@@ -1314,7 +1314,7 @@ fn build_lane(
     repo: &str,
     lane: Lane,
     request: LaneRequest,
-    programs: &Path,
+    programs: &Pinned,
     timing: &mut Timing,
 ) -> Result<()> {
     let places = &tool.places;
@@ -1942,7 +1942,7 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
             picks: &picks,
             kept_shots,
         };
-        return match run_lane(tool, repo, lane, request, pinned.dir()) {
+        return match run_lane(tool, repo, lane, request, &pinned) {
             Err(Fail::Exit(code)) => {
                 note(format!(
                     "the {} lane's build failed (exit {code})",

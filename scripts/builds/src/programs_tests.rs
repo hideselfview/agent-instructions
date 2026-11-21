@@ -1,26 +1,9 @@
 use super::*;
-use crate::testing::Scratch;
+use crate::testing::{Scratch, pinned, version_program as program};
 
-/// A program at <path> that prints <said> when it is run with `version`.
-fn program(path: &Path, said: &str) {
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    std::fs::write(
-        path,
-        format!("#!/bin/sh\n[ \"$1\" = version ] && echo '{said}'\n"),
-    )
-    .unwrap();
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
-}
-
-/// The programs a build started from, in <scratch>'s folder `bin`: a builds
-/// that says `builds <builds>` and a builds-shots that says <shots>.
+/// The programs a build started from, in <scratch>'s folder `bin`.
 fn started_from(scratch: &Scratch, builds: &str, shots: &str) -> (PathBuf, PathBuf) {
-    let bin = scratch.dir.join("bin");
-    let (b, s) = (bin.join("builds"), bin.join("builds-shots"));
-    program(&b, &format!("builds {builds}"));
-    program(&s, shots);
-    (b, s)
+    crate::testing::started_programs(&scratch.dir.join("bin"), builds, shots)
 }
 
 fn sources<'a>(programs: &'a (PathBuf, PathBuf)) -> Sources<'a> {
@@ -36,13 +19,6 @@ fn sources<'a>(programs: &'a (PathBuf, PathBuf)) -> Sources<'a> {
 fn locked(path: &Path) -> bool {
     let file = std::fs::File::open(path).unwrap();
     !crate::flock::try_lock(&file, libc::LOCK_EX, path).unwrap()
-}
-
-fn pinned(pin: Pin) -> Pinned {
-    match pin {
-        Pin::Pinned(pinned) => pinned,
-        Pin::Replaced(why) => panic!("expected the programs pinned: {why}"),
-    }
 }
 
 /// The first build of a version copies the programs it started from into

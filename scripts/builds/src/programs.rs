@@ -59,11 +59,17 @@ pub struct Sources<'a> {
 
 /// A version's folder that this process holds.
 pub struct Pinned {
+    version: String,
     dir: PathBuf,
     in_use: File,
 }
 
 impl Pinned {
+    /// The version, as `builds version` says it after `builds `.
+    pub fn version(&self) -> &str {
+        &self.version
+    }
+
     /// The folder.
     pub fn dir(&self) -> &Path {
         &self.dir
@@ -188,7 +194,11 @@ pub fn pin(home: &Path, sources: &Sources) -> Result<Pin> {
         std::fs::rename(&staged, &into)
             .context(|| format!("moving {} to {}", staged.display(), into.display()))?;
     }
-    Ok(Pin::Pinned(Pinned { dir, in_use }))
+    Ok(Pin::Pinned(Pinned {
+        version: sources.version.to_string(),
+        dir,
+        in_use,
+    }))
 }
 
 /// `pin` with this program and the builds-shots beside it, of this

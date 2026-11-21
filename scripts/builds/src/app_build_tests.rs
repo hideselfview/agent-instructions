@@ -1153,27 +1153,18 @@ fn a_shots_run_is_given_the_picture_folder_its_app_tree_and_its_before_runs_find
 /// A folder of programs that a build holds, made from scripts that say this
 /// builds' versions.
 fn pinned_programs(scratch: &crate::testing::Scratch) -> Pinned {
-    use std::os::unix::fs::PermissionsExt;
-    let bin = scratch.dir.join("bin-started");
-    std::fs::create_dir_all(&bin).unwrap();
-    let script = |name: &str, said: &str| {
-        let path = bin.join(name);
-        std::fs::write(&path, format!("#!/bin/sh\necho '{said}'\n")).unwrap();
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
-        path
-    };
-    let builds = script("builds", &format!("builds {}", env!("BUILDS_SOURCE")));
-    let shots = script("builds-shots", crate::shots_program::VERSION);
+    let (builds, shots) = crate::testing::started_programs(
+        &scratch.dir.join("bin-started"),
+        env!("BUILDS_SOURCE"),
+        crate::shots_program::VERSION,
+    );
     let sources = crate::programs::Sources {
         builds: &builds,
         shots: &shots,
         version: env!("BUILDS_SOURCE"),
         shots_version: crate::shots_program::VERSION,
     };
-    match crate::programs::pin(&scratch.places().home, &sources).unwrap() {
-        crate::programs::Pin::Pinned(pinned) => pinned,
-        crate::programs::Pin::Replaced(why) => panic!("{why}"),
-    }
+    crate::testing::pinned(crate::programs::pin(&scratch.places().home, &sources).unwrap())
 }
 
 /// The pick of the shots of the Mac's a screens.

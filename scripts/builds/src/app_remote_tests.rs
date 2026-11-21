@@ -403,18 +403,28 @@ fn a_picture_folders_parts_go_to_a_temporary_folder_on_the_host_and_come_back() 
 fn a_step_on_a_host_runs_under_this_builds_programs_there() {
     let s = setup("remote-app-programs");
     let version = env!("BUILDS_SOURCE");
-    let local = crate::programs::folder(&s.places.home, version);
-    std::fs::create_dir_all(&local).unwrap();
-    std::fs::write(local.join("builds"), "builds of this version").unwrap();
-    std::fs::write(local.join(crate::shots_program::PROGRAM), "its shots").unwrap();
-    for name in ["builds", crate::shots_program::PROGRAM] {
-        std::fs::set_permissions(local.join(name), std::fs::Permissions::from_mode(0o755)).unwrap();
-    }
+    let (builds, shots) = crate::testing::started_programs(
+        &s.places.home.join("bin"),
+        version,
+        crate::shots_program::VERSION,
+    );
+    let pinned = crate::testing::pinned(
+        crate::programs::pin(
+            &s.places.home,
+            &crate::programs::Sources {
+                builds: &builds,
+                shots: &shots,
+                version,
+                shots_version: crate::shots_program::VERSION,
+            },
+        )
+        .unwrap(),
+    );
     let mut app = remote_app(&s, Lane::Mac);
     let there = s.home.join(crate::programs::FOLDER).join(version);
     let words = |words: &[&str]| words.iter().map(|w| w.to_string()).collect::<Vec<_>>();
     let held = app
-        .with_programs(&local, &words(&["builds", "shots", "run"]))
+        .with_programs(&pinned, &words(&["builds", "shots", "run"]))
         .unwrap();
     assert_eq!(
         held,
@@ -428,17 +438,15 @@ fn a_step_on_a_host_runs_under_this_builds_programs_there() {
             "run"
         ])
     );
-    assert_eq!(
-        std::fs::read_to_string(there.join("builds")).unwrap(),
-        "builds of this version"
-    );
-    assert_eq!(
-        std::fs::read_to_string(there.join(crate::shots_program::PROGRAM)).unwrap(),
-        "its shots"
-    );
+    for (name, copied) in [("builds", &builds), (crate::shots_program::PROGRAM, &shots)] {
+        assert_eq!(
+            std::fs::read(there.join(name)).unwrap(),
+            std::fs::read(copied).unwrap()
+        );
+    }
     // The next step finds the folder there and copies nothing.
     std::fs::write(there.join("builds"), "kept").unwrap();
-    app.with_programs(&local, &words(&["true"])).unwrap();
+    app.with_programs(&pinned, &words(&["true"])).unwrap();
     assert_eq!(
         std::fs::read_to_string(there.join("builds")).unwrap(),
         "kept"

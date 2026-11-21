@@ -367,3 +367,34 @@ pub fn no_ssh() -> crate::host::Ssh {
         program: "false".to_string(),
     }
 }
+
+/// A program at <path> that prints <said> when it is run with `version`.
+pub fn version_program(path: &Path, said: &str) {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::create_dir_all(path.parent().expect("a program is in a folder"))
+        .expect("the scratch folder is writable");
+    std::fs::write(
+        path,
+        format!("#!/bin/sh\n[ \"$1\" = version ] && echo '{said}'\n"),
+    )
+    .expect("the scratch folder is writable");
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755))
+        .expect("the scratch folder is writable");
+}
+
+/// The programs a build started from, in <dir>: a builds that says `builds
+/// <builds>` and a builds-shots that says <shots> (programs.rs).
+pub fn started_programs(dir: &Path, builds: &str, shots: &str) -> (PathBuf, PathBuf) {
+    let (b, s) = (dir.join("builds"), dir.join(crate::shots_program::PROGRAM));
+    version_program(&b, &format!("builds {builds}"));
+    version_program(&s, shots);
+    (b, s)
+}
+
+/// The folder a pin holds.
+pub fn pinned(pin: crate::programs::Pin) -> crate::programs::Pinned {
+    match pin {
+        crate::programs::Pin::Pinned(pinned) => pinned,
+        crate::programs::Pin::Replaced(why) => panic!("expected the programs pinned: {why}"),
+    }
+}

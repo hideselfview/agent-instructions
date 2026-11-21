@@ -339,13 +339,16 @@ impl RemoteApp {
         Ok(start)
     }
 
-    /// <command>, run under the build's programs on the host: `<folder>/builds
-    /// programs hold -- <command>`, where <folder> is the host's folder of this
-    /// builds' version (programs.rs). The function copies each program the
-    /// host's folder lacks from <local>, this Mac's folder of the version,
-    /// which the lane's build holds.
-    pub fn with_programs(&mut self, local: &Path, command: &[String]) -> Result<Vec<String>> {
-        let version = crate::checkout::file_name(local);
+    /// <command>, run under the build's programs <pinned> on the host:
+    /// `<folder>/builds programs hold -- <command>`, where <folder> is the
+    /// host's folder of their version (programs.rs). The function copies each
+    /// program the host's folder lacks from this Mac's folder of the version.
+    pub fn with_programs(
+        &mut self,
+        pinned: &crate::programs::Pinned,
+        command: &[String],
+    ) -> Result<Vec<String>> {
+        let (version, local) = (pinned.version(), pinned.dir());
         let said = self.transport().capture(
             &format!(
                 r#"dir="$HOME/{folder}/{version}"
