@@ -86,13 +86,21 @@ struct Run {
     record: Record,
     /// This daemon started it and waits for its end.
     owned: bool,
-    /// Tells the page each time the run's log is written, while the run has
-    /// not ended. The volume has no file events, so a kqueue watch on the log
-    /// file (vnode.rs) says so.
-    log_watch: Option<Watch>,
-    /// Why the log can't be watched, which the page says: until the run ends,
-    /// its output shows what it was when the page read it.
-    watch_error: Option<String>,
+    /// The volume has no file events, so a kqueue watch on the log file
+    /// (vnode.rs) says when the run's log is written.
+    log: LogWatch,
+}
+
+/// What follows a run's log.
+enum LogWatch {
+    /// Tells the page each time the log is written, until it is dropped.
+    Watching(#[allow(dead_code)] Watch),
+    /// The log can't be watched, which the page says: until the run ends, its
+    /// output shows what it was when the page read it.
+    Failed(String),
+    /// Nothing follows the log: the run ended, or it is not one this daemon
+    /// reads the output of.
+    Done,
 }
 
 /// Where a run is, as the page shows it.
@@ -257,8 +265,7 @@ impl Runs {
                 Run {
                     record,
                     owned: false,
-                    log_watch: None,
-                    watch_error: None,
+                    log: LogWatch::Done,
                 },
             );
         }
@@ -273,8 +280,7 @@ impl Runs {
             let mut state = runs.state.lock().expect("no panic holding it");
             for ((repo, lane, shots), run) in state.iter_mut() {
                 if run.busy() {
-                    (run.log_watch, run.watch_error) =
-                        runs.watch_log(repo, *lane, shots.as_deref());
+                    run.log = runs.watch_log(repo, *lane, shots.as_deref());
                 }
             }
         }
@@ -283,12 +289,7 @@ impl Runs {
 
     /// A watch that calls the listener each time the log of <repo>'s <lane>
     /// run with <shots> is written, or why the log can't be watched.
-    fn watch_log(
-        self: &Arc<Self>,
-        repo: &str,
-        lane: Lane,
-        shots: Option<&str>,
-    ) -> (Option<Watch>, Option<String>) {
+    fn watch_log(self: &Arc<Self>, repo: &str, lane: Lane, shots: Option<&str>) -> LogWatch {
         let log = log_file(&self.dir, repo, lane, shots);
         let weak = Arc::downgrade(self);
         match Watch::start(&log, move || {
@@ -296,11 +297,11 @@ impl Runs {
                 runs.notify();
             }
         }) {
-            Ok(watch) => (Some(watch), None),
+            Ok(watch) => LogWatch::Watching(watch),
             Err(error) => {
                 let why = format!("watching {}: {error}", log.display());
                 eprintln!("builds: {why}");
-                (None, Some(why))
+                LogWatch::Failed(why)
             }
         }
     }
@@ -488,10 +489,8 @@ impl Runs {
                 runs.ended(&waiting, lane, status);
             })
             .context(|| "starting a thread".to_string())?;
-        let (log_watch, watch_error) = self.watch_log(repo, lane, shots);
         Ok(Run {
-            log_watch,
-            watch_error,
+            log: self.watch_log(repo, lane, shots),
             record,
             owned: true,
         })
@@ -525,8 +524,7 @@ impl Runs {
                 && run.record.pid == started.pid
             {
                 run.record.ended = Some(ended);
-                run.log_watch = None;
-                run.watch_error = None;
+                run.log = LogWatch::Done;
                 // The run shows as ended here either way; a record that
                 // can't be written is said, and a restart then shows this
                 // run as one whose end wasn't seen.
@@ -580,7 +578,10 @@ impl Runs {
             signal: ended.and_then(|e| e.signal),
             output,
             output_cut,
-            output_stale: run.watch_error.clone(),
+            output_stale: match &run.log {
+                LogWatch::Failed(why) => Some(why.clone()),
+                LogWatch::Watching(_) | LogWatch::Done => None,
+            },
         }
     }
 }
