@@ -669,7 +669,7 @@ fn run_steps_with(
         let limit = match &step.scenes {
             Some(scenes) => {
                 let count = runner.scenes(&scenes.count)?;
-                let limit = step.limit_for(count);
+                let limit = scenes.limit_for(step.limit(), count)?;
                 note(format!(
                     "step {} takes {count} scenes, so its limit is {}",
                     step.name,

@@ -546,22 +546,20 @@ fn a_run_of_the_checker_is_counted_by_the_same_command_with_scenes_for_run() {
 }
 
 #[test]
-fn a_step_has_its_limit_and_the_time_of_one_scene_for_each_scene() {
-    let mut step = Step {
-        name: "shots mac.".to_string(),
-        lane: Lane::Mac,
-        command: words("builds shots run --select mac."),
-        limit: Some(Duration::from_secs(60)),
-        scenes: Some(Scenes {
-            count: words("builds shots scenes --select mac."),
-            each: Duration::from_secs(2),
-        }),
-        place: Where::Anywhere,
-        ci_only: false,
+fn a_run_has_its_base_limit_and_the_time_of_one_scene_for_each_scene() {
+    let scenes = Scenes {
+        count: words("builds shots scenes --select mac."),
+        each: Duration::from_secs(2),
     };
-    assert_eq!(step.limit_for(10), Duration::from_secs(80));
-    step.scenes = None;
-    assert_eq!(step.limit_for(10), Duration::from_secs(60));
+    assert_eq!(
+        scenes.limit_for(Duration::from_secs(60), 10).unwrap(),
+        Duration::from_secs(80)
+    );
+    assert!(
+        scenes
+            .limit_for(Duration::from_secs(60), usize::MAX)
+            .is_err()
+    );
 }
 
 #[test]

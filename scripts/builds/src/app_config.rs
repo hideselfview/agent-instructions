@@ -374,15 +374,6 @@ impl Step {
     pub fn limit(&self) -> Duration {
         self.limit.unwrap_or(DEFAULT_STEP_LIMIT)
     }
-
-    /// The limit of a run that takes <scenes> scenes: `limit` and the time of
-    /// one scene for each of them. A step with no `Scenes` has `limit`.
-    pub fn limit_for(&self, scenes: usize) -> Duration {
-        match &self.scenes {
-            Some(each) => self.limit() + each.each * u32::try_from(scenes).unwrap_or(u32::MAX),
-            None => self.limit(),
-        }
-    }
 }
 
 /// What a run's work is, for a step whose run takes scenes: how to count them
@@ -394,6 +385,20 @@ pub struct Scenes {
     pub count: Vec<String>,
     /// How long one scene may take (`PickKind::scene_time`).
     pub each: Duration,
+}
+
+impl Scenes {
+    /// The limit of a run that takes <scenes> scenes: <base> and the time of
+    /// one scene for each of them. Fails for a count too large to be one.
+    pub fn limit_for(&self, base: Duration, scenes: usize) -> Result<Duration> {
+        u32::try_from(scenes)
+            .ok()
+            .and_then(|count| self.each.checked_mul(count))
+            .and_then(|time| base.checked_add(time))
+            .ok_or_else(|| {
+                crate::fail::Fail::Message(format!("{scenes} scenes is not a count of scenes"))
+            })
+    }
 }
 
 /// The command that counts the scenes of the run <command> makes: the same
@@ -421,19 +426,13 @@ pub fn parse_scene_count(said: &str) -> Result<usize> {
 
 /// The number of scenes <count> prints when it runs in the checkout <top>.
 pub fn count_scenes(top: &Path, count: &[String]) -> Result<usize> {
-    let output = start_of(top, count)?
-        .stdin(std::process::Stdio::null())
-        .output()
-        .context(|| format!("running {}", count.join(" ")))?;
-    if !output.status.success() {
-        fail!(
-            "{} failed ({}):\n{}",
-            count.join(" "),
-            output.status,
-            String::from_utf8_lossy(&output.stderr).trim_end()
-        );
-    }
-    parse_scene_count(&String::from_utf8_lossy(&output.stdout))
+    let said = crate::host::output_of(
+        start_of(top, count)?,
+        &count.join(" "),
+        crate::host::Accept::Zero,
+    )
+    .map_err(crate::fail::Fail::Message)?;
+    parse_scene_count(&said)
 }
 
 /// <text> (`90s`, `30m`, `2h`) as a time.

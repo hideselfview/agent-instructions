@@ -314,7 +314,6 @@ fn a_shots_run_longer_than_the_plain_limit_finishes_when_its_scenes_account_for_
     let top = scratch.dir.join("repo");
     let cached = shots_cache(&top, &places);
     let step = counted_shots("sleep 1.2", 3);
-    assert!(step.limit_for(3) > Duration::from_millis(1200));
     run_steps(&top, &held, &[step], &mut Vec::new(), &cached, false)
         .expect("1.2 s is within 500 ms and three scenes of 400 ms");
 }
@@ -508,7 +507,7 @@ fn a_lanes_full_run_of_the_checker_counts_its_scenes_for_its_limit() {
         ])
     );
     assert_eq!(Some(scenes.each), PickKind::Shots.scene_time());
-    assert!(steps[0].limit_for(702) > PickKind::Shots.limit() * 2);
+    assert!(scenes.limit_for(steps[0].limit(), 702).unwrap() > PickKind::Shots.limit() * 2);
 }
 
 #[test]
