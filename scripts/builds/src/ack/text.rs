@@ -1,9 +1,10 @@
 //! The text builds asks every agent to read before it runs a builds command:
-//! ~/.claude/CLAUDE.md, the CLAUDE.md of the repo the agent works in, the
-//! workflow help, the overview that opens the lists help, and the rules whose
-//! paths cover every file.
-//! builds reads the rules and the CLAUDE.md files from disk each time, so an
-//! edit of any of them changes the text's version.
+//! the workflow help, the overview that opens the lists help, and the rules
+//! whose paths cover every file. Claude Code loads ~/.claude/CLAUDE.md and
+//! the repo's CLAUDE.md into every agent's context itself, so the text leaves
+//! them out.
+//! builds reads the rules from disk each time, so an edit of any of them
+//! changes the text's version.
 //!
 //! `builds ack` prints the text in parts of at most `PART_BYTES` bytes each,
 //! and puts one made-up word into a sentence in each third of each part. The
@@ -13,9 +14,6 @@
 //! shows only the first 2 KB of a command's output when the output passes
 //! about 30 KB, so each part stays well under that.
 
-use std::path::Path;
-
-use crate::checkout::Checkout;
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::places::Places;
@@ -47,40 +45,16 @@ impl Section {
 /// The whole text, its sections in the order builds lists them.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Text {
-    /// The repo whose CLAUDE.md the text holds, or None when it holds no
-    /// repo's CLAUDE.md. builds keeps an agent's acknowledgement of each
-    /// repo's text apart (record.rs).
-    pub repo: Option<String>,
     pub sections: Vec<Section>,
 }
 
 impl Text {
-    /// The text for an agent whose work is in <project>, in <checkout> when
-    /// it works in one: ~/.claude/CLAUDE.md, the checkout's CLAUDE.md when it
-    /// differs from ~/.claude/CLAUDE.md, the workflow help, the lists
-    /// overview, and the rules of the agent-instructions checkout that
-    /// install.sh links whose paths cover every file (those under `rules/`
-    /// and under the project's `projects/<project>-rules/`).
-    pub fn read(places: &Places, project: &str, checkout: Option<&Checkout>) -> Result<Text> {
+    /// The text for an agent whose work is in <project>: the workflow help,
+    /// the lists overview, and the rules of the agent-instructions checkout
+    /// that install.sh links whose paths cover every file (those under
+    /// `rules/` and under the project's `projects/<project>-rules/`).
+    pub fn read(places: &Places, project: &str) -> Result<Text> {
         let mut sections = Vec::new();
-        let mut repo = None;
-        let home = read_if_there(&places.home.join(".claude/CLAUDE.md"))?;
-        if let Some(text) = &home {
-            sections.push(Section {
-                name: "~/.claude/CLAUDE.md".to_string(),
-                text: text.clone(),
-            });
-        }
-        if let Some(checkout) = checkout
-            && let Some(text) = read_if_there(&checkout.top.join("CLAUDE.md"))?
-            && Some(&text) != home.as_ref()
-        {
-            sections.push(Section {
-                name: format!("the CLAUDE.md of repo {}", checkout.repo()),
-                text,
-            });
-            repo = Some(checkout.repo());
-        }
         sections.push(Section {
             name: "builds help workflow".to_string(),
             text: crate::help::WORKFLOW_HELP.to_string(),
@@ -98,7 +72,7 @@ impl Text {
                 });
             }
         }
-        Ok(Text { repo, sections })
+        Ok(Text { sections })
     }
 
     /// The version: the hash of every section's name and text, in order.
@@ -186,15 +160,6 @@ fn covers_every_file(rule: &rules::Rule) -> bool {
     match &rule.paths {
         None => true,
         Some(globs) => globs.iter().any(|glob| glob == "**/*" || glob == "**"),
-    }
-}
-
-/// The text of the file at <path>, or None when there is none.
-fn read_if_there(path: &Path) -> Result<Option<String>> {
-    match std::fs::read_to_string(path) {
-        Ok(text) => Ok(Some(text)),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(error) => fail!("reading {}: {error}", path.display()),
     }
 }
 

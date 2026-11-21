@@ -9,8 +9,8 @@ const SESSION_ID: &str = "session-1";
 /// The agent most tests run as, which `world` registers.
 const AGENT: &str = "a1";
 
-/// A scratch home with one rule for every file and a ~/.claude/CLAUDE.md,
-/// project bae's store of repos bae and coven, a checkout of repo bae with no
+/// A scratch home with one rule for every file and a ~/.claude/CLAUDE.md that
+/// the text leaves out, project bae's store of repos bae and coven, a checkout of repo bae with no
 /// CLAUDE.md and one of repo coven with its own, each claimed by `agent`, and
 /// agent `AGENT` registered in session `SESSION_ID`.
 struct World {
@@ -199,8 +199,7 @@ fn words_of_parts(parts: &[Vec<String>]) -> std::collections::HashSet<String> {
 fn the_words_a_part_shows_that_the_text_lacks_are_its_made_up_words() {
     let world = world("ack-made-up");
     world.ack(&[], NOON).unwrap();
-    let checkout = Checkout::at(&world.checkout).unwrap();
-    let text = Text::read(&world.places, "bae", checkout.as_ref()).unwrap();
+    let text = Text::read(&world.places, "bae").unwrap();
     let stored = stored_words(&world.places, "bae", AGENT);
     let parts = text.parts(
         &text
@@ -315,7 +314,7 @@ fn an_edit_of_a_rule_refuses_the_agent_naming_the_rule_and_its_reading_holds_onl
     );
     let started = world.ack(&[], NOON + 60).unwrap();
     assert!(
-        started.contains("1 of the text's 4 sections changed: rules/text/plain.md"),
+        started.contains("1 of the text's 3 sections changed: rules/text/plain.md"),
         "{started}"
     );
     let only = world.ack(&["1"], NOON + 60).unwrap();
@@ -342,16 +341,7 @@ fn a_reader_whose_version_builds_no_longer_keeps_reads_the_whole_text() {
         )
         .unwrap();
         for n in 0..record::KEPT_VERSIONS {
-            record::acknowledge(
-                &db,
-                "s2",
-                "other",
-                None,
-                &format!("v{n}"),
-                NOON + n + 1,
-                &[],
-            )
-            .unwrap();
+            record::acknowledge(&db, "s2", "other", &format!("v{n}"), NOON + n + 1, &[]).unwrap();
         }
     }
     world.edit_rule("Write plain, literal sentences.");
@@ -367,7 +357,13 @@ fn a_reader_whose_version_builds_no_longer_keeps_reads_the_whole_text() {
 fn a_reader_whose_text_lost_a_section_and_changed_no_other_reads_the_whole_text() {
     let world = world("ack-section-left");
     world.acknowledge(NOON);
-    std::fs::remove_file(world.places.home.join(".claude/CLAUDE.md")).unwrap();
+    std::fs::remove_file(
+        world
+            .scratch
+            .dir
+            .join("agent-instructions/rules/text/plain.md"),
+    )
+    .unwrap();
     let refusal = message(world.check(NOON + 60));
     assert!(
         refusal.contains("no section's text changed: sections moved or left the text"),
@@ -422,52 +418,34 @@ fn a_compaction_of_one_agent_clears_its_acknowledgement_and_leaves_the_others() 
 }
 
 #[test]
-fn an_agent_that_acknowledged_two_repos_texts_runs_commands_in_either_without_reading_again() {
+fn an_acknowledgement_in_one_repo_holds_in_another_repo_of_the_project() {
     let world = world("ack-two-repos");
     world.acknowledge(NOON);
-    let refusal = message(world.check_in(&world.coven, AGENT, NOON + 60));
-    assert!(
-        refusal.contains(
-            "agent a1 has not acknowledged the text that holds the CLAUDE.md of repo coven in this Claude Code session"
-        ),
-        "{refusal}"
-    );
-    world.acknowledge_in(&world.coven, AGENT, NOON + 60);
-    world.check(NOON + 120).unwrap();
-    world.check_in(&world.coven, AGENT, NOON + 120).unwrap();
+    world.check_in(&world.coven, AGENT, NOON + 60).unwrap();
 }
 
 #[test]
-fn an_edit_of_one_repos_claude_md_asks_again_only_in_that_repo_and_shows_only_that_file() {
-    let world = world("ack-two-repos-edited");
+fn an_edit_of_a_claude_md_leaves_every_acknowledgement_current() {
+    let world = world("ack-claude-md-edited");
     world.acknowledge(NOON);
-    world.acknowledge_in(&world.coven, AGENT, NOON);
     std::fs::write(
         world.coven.join("CLAUDE.md"),
         "Coven rules, edited with several ordinary words.\n",
     )
     .unwrap();
+    std::fs::write(
+        world.places.home.join(".claude/CLAUDE.md"),
+        "Global rules, edited with several ordinary words.\n",
+    )
+    .unwrap();
     world.check(NOON + 60).unwrap();
-    let refusal = message(world.check_in(&world.coven, AGENT, NOON + 60));
-    assert!(
-        refusal.contains("the CLAUDE.md of repo coven changed"),
-        "{refusal}"
-    );
-    let started = world.ack_in(&world.coven, AGENT, &[], NOON + 60).unwrap();
-    assert!(
-        started.contains("1 of the text's 5 sections changed: the CLAUDE.md of repo coven"),
-        "{started}"
-    );
-    world.acknowledge_in(&world.coven, AGENT, NOON + 60);
-    world.check_in(&world.coven, AGENT, NOON + 120).unwrap();
-    world.check(NOON + 120).unwrap();
+    world.check_in(&world.coven, AGENT, NOON + 60).unwrap();
 }
 
 #[test]
-fn a_compaction_clears_the_acknowledgement_of_every_repos_text() {
+fn a_compaction_clears_the_acknowledgement_in_every_repo() {
     let world = world("ack-two-repos-compacted");
     world.acknowledge(NOON);
-    world.acknowledge_in(&world.coven, AGENT, NOON);
     world.compact(Some(AGENT)).unwrap();
     assert!(message(world.check(NOON + 60)).contains("agent a1 has not acknowledged"));
     assert!(
@@ -715,14 +693,21 @@ fn a_judge_is_told_when_the_text_changed_and_which_section() {
     .unwrap();
     let why = outdated_at(&world, NOON + 60).expect("the text changed");
     assert!(why.contains("rules/text/plain.md"), "{why}");
-    // A repo's CLAUDE.md is no part of the text the judge's check reads.
     world.acknowledge_as(SESSION_ID, NOON + 120);
     assert_eq!(outdated_at(&world, NOON + 180), None);
 }
 
 #[test]
-fn a_judge_that_acknowledged_in_a_repo_with_its_own_claude_md_is_current() {
-    let world = judge_world("ack-judge-repo");
-    world.acknowledge_in(&world.coven.clone(), SESSION_ID, NOON);
-    assert_eq!(outdated_at(&world, NOON + 60), None);
+fn a_judge_whose_text_lost_a_section_and_changed_no_other_is_told_so() {
+    let world = judge_world("ack-judge-section-left");
+    world.acknowledge_as(SESSION_ID, NOON);
+    std::fs::remove_file(
+        world
+            .scratch
+            .dir
+            .join("agent-instructions/rules/text/plain.md"),
+    )
+    .unwrap();
+    let why = outdated_at(&world, NOON + 60).expect("a section left the text");
+    assert!(why.contains("moved or left"), "{why}");
 }

@@ -1798,3 +1798,43 @@ fn a_store_from_before_the_shots_drops_gains_the_table_and_equals_a_fresh_schema
         db::schema_rows(&db::memory()).unwrap()
     );
 }
+
+#[test]
+fn the_ack_repo_stamp_is_the_schema_before_it() {
+    assert_eq!(
+        db::stamp_of_text(&db::schema_before_ack_repo()),
+        BEFORE_ACK_REPO_STAMP
+    );
+}
+
+/// A store from before the acknowledgements stopped being keyed by repo
+/// loses them, keeps the table's new shape and equals a fresh schema.
+#[test]
+fn a_store_from_before_the_acks_left_the_repo_loses_them_and_equals_a_fresh_schema() {
+    let scratch = Scratch::new("move-ack-repo");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&db::schema_before_ack_repo()).unwrap();
+        conn.execute(
+            "INSERT INTO ack (session, agent, repo, version, at) VALUES ('s', 'a', 'bae', 'v1', 5), ('s', 'a', NULL, 'v2', 6)",
+            [],
+        )
+        .unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_ACK_REPO_STAMP)
+            .unwrap();
+    }
+    migrate_stores(&places, 0).unwrap();
+    let conn = db::open(&path, db::Make::Never).unwrap();
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    let rows: i64 = conn
+        .query_row("SELECT count(*) FROM ack", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(rows, 0);
+}

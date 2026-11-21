@@ -329,6 +329,40 @@ pub fn with_review_texts(schema: String) -> String {
         .replacen(EXCHANGE, &format!("{REVIEW_TEXT_TABLE}{EXCHANGE}"), 1)
 }
 
+/// The table of the agents' acknowledgements as it was before the text left
+/// out the CLAUDE.md files: keyed by the repo whose CLAUDE.md the text held,
+/// with an index for the text of each repo and one for the text of none.
+#[cfg(test)]
+const ACK_TABLE_WITH_REPO: &str = "CREATE TABLE ack (
+    session TEXT NOT NULL CONSTRAINT ack_session_is_named CHECK (session <> ''),
+    agent TEXT NOT NULL CONSTRAINT ack_agent_is_named CHECK (agent <> ''),
+    repo TEXT CONSTRAINT ack_repo_is_named CHECK (repo <> ''),
+    version TEXT NOT NULL CONSTRAINT ack_version_is_named CHECK (version <> ''),
+    at INTEGER NOT NULL
+) STRICT;
+CREATE UNIQUE INDEX ack_of_repo ON ack (session, agent, repo) WHERE repo IS NOT NULL;
+CREATE UNIQUE INDEX ack_of_no_repo ON ack (session, agent) WHERE repo IS NULL;";
+
+/// <schema> as it was before the text left out the CLAUDE.md files: with the
+/// acknowledgements' table keyed by repo. A schema with no such table is
+/// returned as it is.
+#[cfg(test)]
+pub fn with_ack_repo(schema: String) -> String {
+    const START: &str = "CREATE TABLE ack (";
+    if !schema.contains(START) {
+        return schema;
+    }
+    let table = statement(&schema, START, ") STRICT, WITHOUT ROWID;").to_string();
+    schema.replacen(&table, ACK_TABLE_WITH_REPO, 1)
+}
+
+/// The schema as it was before the text left out the CLAUDE.md files: every
+/// part, with the acknowledgements' table keyed by repo.
+#[cfg(test)]
+pub fn schema_before_ack_repo() -> String {
+    with_ack_repo(SCHEMA.to_string())
+}
+
 /// The schema as it was before <part> joined it: the parts of
 /// `SCHEMA_PARTS` before <part>, with a newline between each two, and the
 /// shot findings' table and the review texts' table and references, which
@@ -339,7 +373,9 @@ fn schema_before(part: &str) -> String {
         .iter()
         .position(|known| *known == part)
         .expect("the part is one of the schema's parts");
-    with_review_texts(with_shot_findings(SCHEMA_PARTS[..at].join("\n")))
+    with_ack_repo(with_review_texts(with_shot_findings(
+        SCHEMA_PARTS[..at].join("\n"),
+    )))
 }
 
 /// The schema as it was before the shots prefixes dropped from a landing
@@ -347,7 +383,7 @@ fn schema_before(part: &str) -> String {
 /// differences put back.
 #[cfg(test)]
 pub fn schema_before_app_shots_drop() -> String {
-    SCHEMA_PARTS[..SCHEMA_PARTS.len() - 1].join("\n")
+    with_ack_repo(SCHEMA_PARTS[..SCHEMA_PARTS.len() - 1].join("\n"))
 }
 
 /// The schema as it was before the branches the coordinator marked as
@@ -355,7 +391,7 @@ pub fn schema_before_app_shots_drop() -> String {
 /// older schemas' differences put back.
 #[cfg(test)]
 pub fn schema_before_marked_mechanical() -> String {
-    SCHEMA_PARTS[..SCHEMA_PARTS.len() - 2].join("\n")
+    with_ack_repo(SCHEMA_PARTS[..SCHEMA_PARTS.len() - 2].join("\n"))
 }
 
 /// The schema as it was before the branches over the review's cap joined it,

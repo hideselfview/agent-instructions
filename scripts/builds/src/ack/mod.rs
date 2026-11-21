@@ -13,9 +13,8 @@
 //!
 //! builds keeps the acknowledgement in the store of the project whose repo
 //! the command runs in, else of the project `--project` names. The text holds
-//! the CLAUDE.md of the repo the command runs in, so builds keeps an agent's
-//! acknowledgement of each repo's text apart, and an agent that works in two
-//! repos of a project reads each repo's text once. builds refuses an agent
+//! no CLAUDE.md: Claude Code loads ~/.claude/CLAUDE.md and the repo's
+//! CLAUDE.md into every agent's context itself. builds refuses an agent
 //! whose acknowledgement of the text there is missing, is of another version
 //! of the text, or is more than `HOURS` hours old. After Claude Code compacts
 //! an agent, its SessionStart hook runs `builds ack --compacted`, which
@@ -133,8 +132,6 @@ struct Agent {
     /// The id Claude Code gives the agent (agent.rs).
     id: String,
     store: Store,
-    /// The checkout the command runs in, whose CLAUDE.md the text holds.
-    checkout: Option<Checkout>,
     /// The flags that name this agent to `builds ack` again.
     flags: String,
 }
@@ -183,7 +180,6 @@ impl Agent {
             session: session.to_string(),
             id: id.to_string(),
             store,
-            checkout,
             flags,
         })
     }
@@ -194,20 +190,20 @@ impl Agent {
     }
 
     fn text(&self, places: &Places) -> Result<Text> {
-        Text::read(places, &self.store.project, self.checkout.as_ref())
+        Text::read(places, &self.store.project)
     }
 
-    /// The agent's last acknowledgement of <text>.
-    fn last(&self, text: &Text) -> Result<Option<record::Ack>> {
+    /// The agent's last acknowledgement of the text.
+    fn last(&self) -> Result<Option<record::Ack>> {
         match db::open_reader(&self.store.database())? {
-            Some(db) => record::last(&db, &self.session, &self.id, text.repo.as_deref()),
+            Some(db) => record::last(&db, &self.session, &self.id),
             None => Ok(None),
         }
     }
 
     /// What the agent's reading of <text> at <now> holds.
     fn scope(&self, text: &Text, now: i64) -> Result<Scope> {
-        scope_of(&self.store, text, self.last(text)?, now)
+        scope_of(&self.store, text, self.last()?, now)
     }
 }
 
@@ -299,12 +295,9 @@ fn check(
     let who = agent.name();
     let why = match agent.scope(&text, now)? {
         Scope::Whole(Whole::Current) => return Ok(()),
-        Scope::Whole(Whole::NotAcknowledged) => match &text.repo {
-            Some(repo) => format!(
-                "{who} has not acknowledged the text that holds the CLAUDE.md of repo {repo} in this Claude Code session"
-            ),
-            None => format!("{who} has not acknowledged it in this Claude Code session"),
-        },
+        Scope::Whole(Whole::NotAcknowledged) => {
+            format!("{who} has not acknowledged it in this Claude Code session")
+        }
         Scope::Whole(Whole::TooOld(ack)) => format!(
             "{who} acknowledged it at {}, more than {HOURS} hours ago, so `builds ack` shows the whole text",
             local_minute(ack.at)
@@ -333,22 +326,18 @@ fn check(
 
 /// Why the main agent of <session>, which `builds judge listen` keeps as the
 /// judge, must acknowledge the text of <store>'s project again, or None when
-/// its newest acknowledgement is at most `HOURS` hours old and the text has
-/// not changed since. The judge may work in any repo of the project, so the
-/// text is the one that holds no repo's CLAUDE.md, and the check classifies
-/// it as the gate does (`scope_of`). A version that differs only because the
-/// judge's text held a repo's CLAUDE.md (`Whole::NoTextChanged`) is current.
+/// its acknowledgement is at most `HOURS` hours old and the text has not
+/// changed since. The check classifies the acknowledgement as the gate does
+/// (`scope_of`).
 pub fn outdated(places: &Places, store: &Store, session: &str, now: i64) -> Result<Option<String>> {
     let who = format!("agent {session}");
-    let newest = match db::open_reader(&store.database())? {
-        Some(db) => record::acknowledgements(&db, session, session)?
-            .into_iter()
-            .max_by_key(|ack| ack.at),
+    let last = match db::open_reader(&store.database())? {
+        Some(db) => record::last(&db, session, session)?,
         None => None,
     };
-    let text = Text::read(places, &store.project, None)?;
-    Ok(match scope_of(store, &text, newest, now)? {
-        Scope::Whole(Whole::Current | Whole::NoTextChanged(_)) => None,
+    let text = Text::read(places, &store.project)?;
+    Ok(match scope_of(store, &text, last, now)? {
+        Scope::Whole(Whole::Current) => None,
         Scope::Whole(Whole::NotAcknowledged) => {
             Some(format!("{who} has no acknowledgement of the text"))
         }
@@ -358,6 +347,11 @@ pub fn outdated(places: &Places, store: &Store, session: &str, now: i64) -> Resu
         )),
         Scope::Whole(Whole::NotKept(ack)) => Some(format!(
             "{who} acknowledged version {} at {}, which builds no longer keeps",
+            ack.version,
+            local_minute(ack.at)
+        )),
+        Scope::Whole(Whole::NoTextChanged(ack)) => Some(format!(
+            "{who} acknowledged version {} at {}, and sections of the text moved or left it since",
             ack.version,
             local_minute(ack.at)
         )),
@@ -559,15 +553,7 @@ fn acknowledge(
     let tx = db
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .sql()?;
-    record::acknowledge(
-        &tx,
-        &agent.session,
-        &agent.id,
-        text.repo.as_deref(),
-        version,
-        now,
-        &text.hashes(),
-    )?;
+    record::acknowledge(&tx, &agent.session, &agent.id, version, now, &text.hashes())?;
     tx.commit().sql()?;
     Ok(format!(
         "builds: {} acknowledged version {version}. The acknowledgement holds for {HOURS} hours, until the text changes or Claude Code compacts this agent.\n",

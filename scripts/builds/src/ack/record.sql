@@ -4,23 +4,15 @@
 -- agents a session dispatches share its session id, so the agent id tells
 -- them apart.
 
--- Each agent's last acknowledgement of each text: the version of the text it
--- read and when. The text of a repo holds that repo's CLAUDE.md, so an agent
--- that works in two repos keeps an acknowledgement of each text. `repo` names
--- the repo whose CLAUDE.md the text holds, and is null for the text that
--- holds no repo's CLAUDE.md.
+-- Each agent's last acknowledgement of the text: the version of the text it
+-- read and when.
 CREATE TABLE ack (
     session TEXT NOT NULL CONSTRAINT ack_session_is_named CHECK (session <> ''),
     agent TEXT NOT NULL CONSTRAINT ack_agent_is_named CHECK (agent <> ''),
-    repo TEXT CONSTRAINT ack_repo_is_named CHECK (repo <> ''),
     version TEXT NOT NULL CONSTRAINT ack_version_is_named CHECK (version <> ''),
-    at INTEGER NOT NULL
-) STRICT;
--- One acknowledgement per agent of each repo's text, and one of the text that
--- holds no repo's CLAUDE.md: a unique index treats each null as a value of its
--- own, so the null `repo` takes an index of its own.
-CREATE UNIQUE INDEX ack_of_repo ON ack (session, agent, repo) WHERE repo IS NOT NULL;
-CREATE UNIQUE INDEX ack_of_no_repo ON ack (session, agent) WHERE repo IS NULL;
+    at INTEGER NOT NULL,
+    PRIMARY KEY (session, agent)
+) STRICT, WITHOUT ROWID;
 
 -- The versions of the text that agents acknowledged most recently, so that
 -- the reading of an agent whose last acknowledged version is here holds only

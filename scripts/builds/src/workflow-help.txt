@@ -5,10 +5,11 @@ page states only what no command checks. The project file
 (projects/<project>.md in agent-instructions) names the project's lists,
 worktrees and standing rules. The lists hold what waits on the person and what
 agents can do (`builds help lists`). builds refuses an agent's commands until
-the agent has read ~/.claude/CLAUDE.md, the repo's CLAUDE.md, this page, the
-overview that opens `builds help lists` and the rules that cover every file,
-and has acknowledged them with `builds ack` (`builds help`, ACKNOWLEDGING THE
-RULES). The rest of `builds help` says what each command does.
+the agent has read this page, the overview that opens `builds help lists` and
+the rules that cover every file, and has acknowledged them with `builds ack`
+(`builds help`, ACKNOWLEDGING THE RULES). Claude Code loads ~/.claude/CLAUDE.md
+and the repo's CLAUDE.md into every agent's context, so `builds ack` leaves
+them out. The rest of `builds help` says what each command does.
 
 
 ROLES

@@ -11,7 +11,7 @@ use crate::fail::Result;
 /// most recently.
 pub const KEPT_VERSIONS: i64 = 20;
 
-/// An agent's last acknowledgement of one text, as the gate reads it.
+/// An agent's last acknowledgement of the text, as the gate reads it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Ack {
     pub version: String,
@@ -31,18 +31,11 @@ pub struct Reading {
     pub words: Vec<Vec<MadeUp>>,
 }
 
-/// The last acknowledgement by <agent> in <session> of the text that holds
-/// the CLAUDE.md of <repo>, or of the text that holds no repo's CLAUDE.md
-/// when <repo> is None.
-pub fn last(
-    db: &Connection,
-    session: &str,
-    agent: &str,
-    repo: Option<&str>,
-) -> Result<Option<Ack>> {
+/// The last acknowledgement by <agent> in <session> of the text.
+pub fn last(db: &Connection, session: &str, agent: &str) -> Result<Option<Ack>> {
     db.query_row(
-        "SELECT version, at FROM ack WHERE session = ?1 AND agent = ?2 AND repo IS ?3",
-        params![session, agent, repo],
+        "SELECT version, at FROM ack WHERE session = ?1 AND agent = ?2",
+        params![session, agent],
         |row| {
             Ok(Ack {
                 version: row.get(0)?,
@@ -52,21 +45,6 @@ pub fn last(
     )
     .optional()
     .sql()
-}
-
-/// Every acknowledgement by <agent> in <session>, one for each text it read.
-pub fn acknowledgements(db: &Connection, session: &str, agent: &str) -> Result<Vec<Ack>> {
-    db.prepare("SELECT version, at FROM ack WHERE session = ?1 AND agent = ?2")
-        .sql()?
-        .query_map(params![session, agent], |row| {
-            Ok(Ack {
-                version: row.get(0)?,
-                at: row.get(1)?,
-            })
-        })
-        .sql()?
-        .collect::<rusqlite::Result<_>>()
-        .sql()
 }
 
 /// Each section of version <version> of the text, by name, with its hash,
@@ -199,29 +177,26 @@ pub fn reading(db: &Connection, session: &str, agent: &str) -> Result<Option<Rea
 }
 
 /// Records that <agent> in <session> acknowledged version <version> at <at>
-/// of the text that holds the CLAUDE.md of <repo> (None: of no repo), whose
-/// sections had <sections> (name and hash), in place of its last
-/// acknowledgement of that text, and ends its reading. The agent's
-/// acknowledgements of other texts stay. builds keeps the version with its
+/// of the text, whose sections had <sections> (name and hash), in place of
+/// its last acknowledgement, and ends its reading. builds keeps the version with its
 /// sections, and deletes each version that is no longer among the
 /// `KEPT_VERSIONS` versions that agents acknowledged most recently.
 pub fn acknowledge(
     db: &Connection,
     session: &str,
     agent: &str,
-    repo: Option<&str>,
     version: &str,
     at: i64,
     sections: &[(String, String)],
 ) -> Result<()> {
     db.execute(
-        "DELETE FROM ack WHERE session = ?1 AND agent = ?2 AND repo IS ?3",
-        params![session, agent, repo],
+        "DELETE FROM ack WHERE session = ?1 AND agent = ?2",
+        params![session, agent],
     )
     .sql()?;
     db.execute(
-        "INSERT INTO ack (session, agent, repo, version, at) VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![session, agent, repo, version, at],
+        "INSERT INTO ack (session, agent, version, at) VALUES (?1, ?2, ?3, ?4)",
+        params![session, agent, version, at],
     )
     .sql()?;
     db.execute(
@@ -267,6 +242,24 @@ pub fn forget(db: &Connection, session: &str, agent: &str) -> Result<()> {
     )
     .sql()?;
     Ok(())
+}
+
+/// Makes `ack` again as record.sql writes it, with no acknowledgements: a
+/// store from before keyed each acknowledgement by the repo whose CLAUDE.md
+/// the text held, and the text no longer holds one, so each agent reads the
+/// text again.
+pub fn drop_repo(db: &Connection) -> Result<()> {
+    crate::db::remake_table(
+        db,
+        "ack",
+        crate::db::statement(
+            include_str!("record.sql"),
+            "CREATE TABLE ack (",
+            ") STRICT, WITHOUT ROWID;",
+        ),
+        |_| Ok(()),
+        &[],
+    )
 }
 
 #[cfg(test)]

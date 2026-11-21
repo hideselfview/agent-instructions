@@ -1,5 +1,6 @@
 use super::*;
-use crate::testing::{Scratch, repo};
+use crate::testing::Scratch;
+use std::path::Path;
 
 fn rule(paths: &str, body: &str) -> String {
     format!("---\ndigest: d\npaths:\n  - '{paths}'\nblocking: true\n---\n\n{body}\n")
@@ -12,7 +13,7 @@ fn write(path: &Path, text: &str) {
 
 /// A home whose agent-instructions checkout holds a rule for every file, one
 /// for Rust files only, and a bae rule for every file, with a
-/// ~/.claude/CLAUDE.md.
+/// ~/.claude/CLAUDE.md, which the text leaves out.
 fn home(scratch: &Scratch) -> Places {
     let places = scratch.places();
     let root = scratch.dir.join("agent-instructions");
@@ -39,49 +40,33 @@ fn names(text: &Text) -> Vec<String> {
 }
 
 #[test]
-fn the_text_holds_both_claude_files_the_workflow_the_lists_overview_and_the_rules_for_every_file() {
+fn the_text_holds_the_workflow_the_lists_overview_and_the_rules_for_every_file_and_no_claude_md() {
     let scratch = Scratch::new("ack-text");
     let places = home(&scratch);
-    let checkout = scratch.dir.join("bae");
-    repo(&checkout, "target 1\n");
-    write(&checkout.join("CLAUDE.md"), "bae's rules.\n");
-    let text = Text::read(&places, "bae", Checkout::at(&checkout).unwrap().as_ref()).unwrap();
+    let text = Text::read(&places, "bae").unwrap();
     assert_eq!(
         names(&text),
         vec![
-            "~/.claude/CLAUDE.md",
-            "the CLAUDE.md of repo bae",
             "builds help workflow",
             "builds help lists overview",
             "rules/text/plain.md",
             "projects/bae-rules/screen/no-notes.md",
         ]
     );
-    let builds = Text::read(&places, "builds", None).unwrap();
+    let builds = Text::read(&places, "builds").unwrap();
     assert!(!names(&builds).contains(&"projects/bae-rules/screen/no-notes.md".to_string()));
-}
-
-#[test]
-fn a_repo_whose_claude_file_is_the_global_one_adds_no_section() {
-    let scratch = Scratch::new("ack-text-same");
-    let places = home(&scratch);
-    let checkout = scratch.dir.join("agent-instructions-checkout");
-    repo(&checkout, "target 1\n");
-    write(&checkout.join("CLAUDE.md"), "Global rules.\n");
-    let text = Text::read(&places, "builds", Checkout::at(&checkout).unwrap().as_ref()).unwrap();
-    assert_eq!(names(&text)[1], "builds help workflow");
 }
 
 #[test]
 fn an_edit_of_a_rule_changes_the_version_and_names_that_rule() {
     let scratch = Scratch::new("ack-text-edit");
     let places = home(&scratch);
-    let before = Text::read(&places, "bae", None).unwrap();
+    let before = Text::read(&places, "bae").unwrap();
     write(
         &scratch.dir.join("agent-instructions/rules/text/plain.md"),
         &rule("**/*", "Write plain, literal sentences."),
     );
-    let after = Text::read(&places, "bae", None).unwrap();
+    let after = Text::read(&places, "bae").unwrap();
     assert_ne!(before.version(), after.version());
     assert_eq!(
         after.changed_since(&before.hashes()),
@@ -99,7 +84,6 @@ fn long_text() -> Text {
             .join("\n"),
     };
     Text {
-        repo: None,
         sections: vec![section("first", 600), section("second", 50)],
     }
 }
