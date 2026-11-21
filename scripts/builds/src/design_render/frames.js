@@ -18,6 +18,8 @@ function boardFrame(src, w, h) {
   return {frame, box};
 }
 function scaleFrame(drawn, w, h, s) {
+  drawn.frame.setAttribute("width", w);
+  drawn.frame.setAttribute("height", h);
   drawn.frame.style.transform = "scale(" + s + ")";
   drawn.box.style.width = Math.round(w * s) + "px";
   drawn.box.style.height = Math.round(h * s) + "px";

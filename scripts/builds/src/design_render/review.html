@@ -175,20 +175,50 @@ function drawn(d, pair, which, halves) {
   return box;
 }
 // A component's preview reports the size it takes (preview_fit.js): it says
-// when it is ready, the page answers with the width it has room for, and
-// the preview then sends its size each time that changes, which the page
-// draws the frame at.
+// when it is ready, the page asks for the whole preview in one column, as wide
+// as its widest row asks (the frame then scales down to the page's width), and
+// the preview then sends its size and its rows' heights each time they change.
+// The page draws the frame at that size, with no scroll inside it. Where the
+// page shows the preview now beside the proposal, it answers each frame with
+// the height every row takes in the two, and a spacer for a row only the other
+// has, so that a row sits level with its twin.
+const WHOLE = 100000;
+function alignRows(pair) {
+  const a = pair.now && pair.now.rows, b = pair.proposed && pair.proposed.rows;
+  if (!a || !b) return;
+  const height = new Map();
+  for (const r of a.concat(b)) height.set(r.key, Math.max(height.get(r.key) || 0, r.height));
+  const aKeys = new Set(a.map(r => r.key)), bKeys = new Set(b.map(r => r.key));
+  // Every row of either frame, in the order of the frames: a row only the
+  // proposal has stands before the next row both have.
+  const merged = [], seen = new Set();
+  const add = key => { if (!seen.has(key)) { seen.add(key); merged.push(key); } };
+  let next = 0;
+  for (const r of a) {
+    if (bKeys.has(r.key)) {
+      const at = b.findIndex(o => o.key === r.key);
+      for (; next < at; next++) if (!aKeys.has(b[next].key)) add(b[next].key);
+      next = Math.max(next, at + 1);
+    }
+    add(r.key);
+  }
+  for (; next < b.length; next++) add(b[next].key);
+  const side = keys => merged.map(key => ({key, height: height.get(key), spacer: !keys.has(key)}));
+  pair.now.frame.contentWindow.postMessage({previewAlign: side(aKeys)}, "*");
+  pair.proposed.frame.contentWindow.postMessage({previewAlign: side(bKeys)}, "*");
+}
 window.addEventListener("message", e => {
   const sent = e.data;
   if (!sent || !(sent.previewReady || sent.previewSize)) return;
   const entry = frames.find(f => f.frame.contentWindow === e.source && f.b.preview);
   if (!entry) return;
   if (sent.previewReady) {
-    const room = Math.floor((document.documentElement.clientWidth - 42 - 16) / (entry.halves ? 2 : 1));
-    e.source.postMessage({previewWidth: room}, "*");
+    e.source.postMessage({previewWidth: WHOLE, single: true}, "*");
   } else {
     entry.b.w = sent.previewSize.w;
     entry.b.h = sent.previewSize.h;
+    entry.rows = sent.rows;
+    if (entry.pair) alignRows(entry.pair);
     layout();
   }
 });

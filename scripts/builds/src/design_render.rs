@@ -28,7 +28,9 @@
 //! each frame on every request, so the page shows a redraw on reload. The
 //! sizes of the frames come from each commit's `design/mocks/canvas.json`; a
 //! preview's frame starts at `PREVIEW_START` and takes the size the preview
-//! reports.
+//! reports: the whole preview in one column, as wide as its widest row asks,
+//! with no scroll inside the frame. Where the page shows a preview now beside
+//! its proposal, it levels each row with its twin (`preview_fit.js`).
 //! The review page circles only what the designer says changed: it posts each
 //! board's page the CSS selectors of the board's circles, the page answers
 //! with the boxes of the elements each finds, and the review page circles

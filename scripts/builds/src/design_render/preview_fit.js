@@ -10,9 +10,17 @@
 // the size the preview takes ({previewSize: {w, h}}) each time the size
 // changes, so the page sizes the frame to fit the preview and never scales
 // it.
+// The review page asks for a whole preview in one column ({previewWidth: N,
+// single: true}): the script never sets the rows in columns, and sends each
+// row's height beside the size ({previewSize: {w, h}, rows: [{key, height}]},
+// a row's key being its name, or its place). The review page puts the rows of
+// the preview now beside the rows of the proposal, and answers each frame with
+// the height every row takes in both ({previewAlign: [{key, height, spacer}]},
+// a spacer standing for a row only the other frame has), which the script
+// gives the rows as a least height, so that a row sits level with its twin.
 (function () {
   const TALL = 640, NARROWEST = 480, GAP = 32;
-  let room = null, sent = "";
+  let room = null, sent = "", single = false, align = [];
   // Resolves once the preview has been laid out in the room the page gave it
   // with something in its body, which the review page's circles wait for.
   let laid;
@@ -20,6 +28,45 @@
   // The body's own inline style, and each row's, which a layout replaces.
   const own = {boxSizing: "", width: "", flexDirection: "", flexWrap: "", alignItems: "", columnGap: ""};
   const ownRow = new Map();
+  // The least heights and spacers that line the rows up with the other frame's.
+  const spacers = [], leveled = new Map();
+  function clearAlign() {
+    for (const spacer of spacers.splice(0)) spacer.remove();
+    for (const [row, minHeight] of leveled) row.style.minHeight = minHeight;
+    leveled.clear();
+  }
+  // Each row with its key: the text of its name (`.bae-preview-name`), else
+  // its place, and a number after a key a row before it already has.
+  function keyed(all) {
+    const seen = new Map();
+    return all.map((row, place) => {
+      const name = row.querySelector(".bae-preview-name");
+      const base = name && name.textContent.trim() ? name.textContent.trim() : "#" + place;
+      const n = seen.get(base) || 0;
+      seen.set(base, n + 1);
+      return {key: n ? base + " " + (n + 1) : base, row};
+    });
+  }
+  function applyAlign(all) {
+    const rows = keyed(all);
+    const at = key => rows.find(r => r.key === key);
+    let next = 0;
+    for (const entry of align) {
+      const found = at(entry.key);
+      if (entry.spacer || !found) {
+        const spacer = document.createElement("div");
+        spacer.style.height = entry.height + "px";
+        spacer.style.flex = "none";
+        const before = rows[next] ? rows[next].row : null;
+        (before ? before.parentNode : document.body).insertBefore(spacer, before);
+        spacers.push(spacer);
+      } else {
+        leveled.set(found.row, found.row.style.minHeight);
+        found.row.style.minHeight = entry.height + "px";
+        next = rows.indexOf(found) + 1;
+      }
+    }
+  }
   function size() {
     const body = document.body, r = body.getBoundingClientRect(), m = getComputedStyle(body);
     return {
@@ -60,10 +107,15 @@
   function lay() {
     const body = document.body;
     if (!body || room === null) return;
+    clearAlign();
     column(body);
     let drawn = size();
     const all = rows(body);
-    if (drawn.h > TALL && all.length > 1) {
+    const natural = single ? keyed(all).map(({key, row}) => ({key, height: row.getBoundingClientRect().height})) : null;
+    if (single) {
+      applyAlign(all);
+      drawn = size();
+    } else if (drawn.h > TALL && all.length > 1) {
       const m = getComputedStyle(body);
       const edges = ["paddingLeft", "paddingRight", "borderLeftWidth", "borderRightWidth"]
         .reduce((sum, k) => sum + parseFloat(m[k]), 0);
@@ -78,15 +130,22 @@
       else column(body);
     }
     if (all.length) laid();
-    const now = drawn.w + "x" + drawn.h;
+    const now = drawn.w + "x" + drawn.h + (natural ? JSON.stringify(natural) : "");
     if (now !== sent) {
       sent = now;
-      parent.postMessage({previewSize: drawn}, "*");
+      parent.postMessage(natural ? {previewSize: drawn, rows: natural} : {previewSize: drawn}, "*");
     }
   }
   addEventListener("message", e => {
-    if (e.source !== parent || !e.data || typeof e.data.previewWidth !== "number") return;
+    if (e.source !== parent || !e.data) return;
+    if (Array.isArray(e.data.previewAlign)) {
+      align = e.data.previewAlign;
+      lay();
+      return;
+    }
+    if (typeof e.data.previewWidth !== "number") return;
     room = e.data.previewWidth;
+    single = e.data.single === true;
     sent = "";
     lay();
   });

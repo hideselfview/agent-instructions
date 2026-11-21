@@ -458,6 +458,18 @@ fn a_review_page_shows_a_components_preview_now_and_proposed() {
         entries[2]["proposed"]["error"],
         json!("MacGone has no preview at the change's last commit")
     );
+    // The page asks each preview frame for its whole size in one column and
+    // levels the rows of the two frames; the frame answers both.
+    let html = review_page(&change, &view, "demo", &Value::Null).unwrap();
+    assert!(html.contains("previewWidth: WHOLE, single: true") && html.contains("previewAlign"));
+    let frame = preview_frame(
+        source_of(&change, Side::Now).unwrap(),
+        "MacRow",
+        &cache(&scratch),
+        true,
+    )
+    .unwrap();
+    assert!(frame.contains("previewAlign") && frame.contains("e.data.single === true"));
     let sides = |side| {
         preview_frame(
             source_of(&change, side).unwrap(),
