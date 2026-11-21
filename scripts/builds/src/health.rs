@@ -1832,6 +1832,20 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
         },
     );
     fixed.iter().for_each(crate::text::note);
+    for (host, probe) in hosts.iter().zip(&probes) {
+        if probe.is_err() {
+            continue;
+        }
+        match crate::run_tmp::sweep_host(&tool.places, &ssh, host) {
+            Ok(deleted) => deleted.iter().for_each(|folder| {
+                crate::text::note(format!(
+                    "deleted the temporary folder {folder} on {}: the run that made it ended",
+                    crate::host::place(&host.name)
+                ))
+            }),
+            Err(fault) => crate::text::note(fault.text()),
+        }
+    }
     health.findings.extend(dashboard_finding(dashboard));
     let (prune_line, prune_late) = crate::prune_schedule::health(&tool.places, tool.now);
     health.findings.extend(

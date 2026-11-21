@@ -268,6 +268,23 @@ follows these rules:
   - A build script in a linked worktree finds shared refs through `git
     rev-parse --git-common-dir`: the worktree's own git dir has no refs/tags,
     and a build script that watches a missing path reruns on every build.
+  - Every file a run writes goes to the build volume, none to the system's
+    temporary folder, which fseventsd logs. Each `builds cargo`, `lake`,
+    `app-build`, `build-app`, `lock`, `remote` and `shots` run (the shots
+    subcommands but `findings` and `check-program`) makes
+    <build volume>/.tmp/<pid>-<id>, sets its own TMPDIR to it before it
+    starts anything, and deletes it when it ends. Every program it starts
+    inherits TMPDIR: cargo and the tests, the Gradle and xcodebuild steps of an
+    app build, and the Chrome of a shots run, whose profile folder `tempfile`
+    makes there. A run inside another run (a lane of an app build, a `builds
+    cargo` of a step) finds TMPDIR naming the outer run's folder and makes none.
+    A job on another host makes the folder under that host's build root
+    (HOSTS), named for the pid of the script that runs the job. `builds
+    health` deletes the folders whose pid no longer runs, on every host that
+    answers. A run with no build volume mounted fails and writes nothing.
+    TMPDIR is no CARGO_* variable, and sccache's key does not hold it (a
+    compile with another TMPDIR hits the cache entry the first one wrote), so
+    the folder's name never costs a cache hit.
 
 A link whose folder is gone breaks every tool (cargo fails with os error 20,
 xcodebuild with code 74, Gradle with "Could not open file hash cache"), so the

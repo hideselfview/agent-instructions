@@ -686,7 +686,7 @@ fn a_remote_step_runs_with_the_hosts_root_and_path() {
     let command = args(&[
         "sh",
         "-c",
-        "echo \"$BUILDS_ROOT\" > env.txt; echo \"$PATH\" >> env.txt",
+        "echo \"$BUILDS_ROOT\" > env.txt; echo \"$PATH\" >> env.txt; echo \"$TMPDIR\" >> env.txt",
     ]);
     let ran = run_command(&transport, &wt.display().to_string(), &command, None).unwrap();
     assert_eq!(ran, (0, None));
@@ -721,6 +721,16 @@ fn a_remote_step_runs_with_the_hosts_root_and_path() {
         )),
         "{path}"
     );
+    // The command's TMPDIR is a folder of the run on the host's build root,
+    // which the end of the command deleted.
+    let tmpdir = std::path::PathBuf::from(lines.next().unwrap());
+    assert_eq!(
+        tmpdir.parent().unwrap(),
+        s.home
+            .join("builds-root.noindex")
+            .join(crate::run_tmp::FOLDER)
+    );
+    assert!(!tmpdir.exists());
 }
 
 #[test]

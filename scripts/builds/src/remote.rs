@@ -611,13 +611,17 @@ echo "worktree=$wt""#,
 /// host closes. A watcher reads stdin to its end, then stops the command's
 /// process group. Once the command has ended, the script stops the watcher.
 ///
+/// On a host reached over ssh, the script makes a temporary folder for the
+/// command on the host's build volume, sets TMPDIR to it, and deletes it when
+/// the command ends (`run_tmp::remote_setup`).
+///
 /// While the command runs, the script records its process group and <run>
 /// in the claim folder's `RUN_FILE`. It writes the record whole, through a
 /// file it then renames, so a reader never sees half of it.
 pub fn run_script(host: &Host, worktree: &str, command: &[String], run: &str) -> String {
     let words: Vec<String> = command.iter().map(|word| sh_quote(word)).collect();
     format!(
-        r#"{root}# ssh's shell starts with macOS's default of 256 open files, which cargo's
+        r#"{root}{tmp_setup}# ssh's shell starts with macOS's default of 256 open files, which cargo's
 # tests (many stores open at once) exceed; a login shell here has more.
 ulimit -n 10240 2>/dev/null || ulimit -n "$(ulimit -Hn)" 2>/dev/null
 # The command and the watcher each run in a process group of their own, whose
@@ -670,8 +674,10 @@ echo "$end" >&4
 exec 3>&- 4>&-
 wait $out $err
 rm -f "$job/out" "$job/err"
-exit $status"#,
+{tmp_cleanup}exit $status"#,
         root = root_script(host),
+        tmp_setup = crate::run_tmp::remote_setup(host, run),
+        tmp_cleanup = crate::run_tmp::remote_cleanup(host),
         wt = sh_quote(worktree),
         words = words.join(" "),
         end = sh_quote(&format!("builds-end-of-run-{run}")),

@@ -1373,6 +1373,60 @@ fn all_shots_runs_the_lanes_shots_line_for_every_shot_of_the_lane() {
     );
 }
 
+/// The shots step of an app build runs with TMPDIR on the build volume, in a
+/// folder of the run that the end of the build deletes, so the Chrome that the
+/// shots checker starts writes its profile there and not where fseventsd logs
+/// it.
+#[test]
+fn a_shots_step_sees_a_tmpdir_on_the_build_volume() {
+    let volume = Volume::new("shots-tmpdir");
+    volume.app_repo_with(
+        "step mac one ./one.sh\nneeds mac one\nshots mac ./shot.sh --select {select}\n",
+    );
+    let top = volume.dir.join("checkout");
+    let shot = top.join("shot.sh");
+    std::fs::write(
+        &shot,
+        "#!/bin/sh\necho \"$TMPDIR\" > \"$QUEUE_TEST_DIR/shots-tmpdir\"\necho written > \"$TMPDIR/profile\"\n",
+    )
+    .unwrap();
+    let mut mode = std::fs::metadata(&shot).unwrap().permissions();
+    std::os::unix::fs::PermissionsExt::set_mode(&mut mode, 0o755);
+    std::fs::set_permissions(&shot, mode).unwrap();
+    for args in [
+        &["add", "shot.sh"][..],
+        &["commit", "-q", "-m", "Add the shots program"],
+        &["push", "-q", "origin", "main"],
+    ] {
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(&top)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+    volume.open_gate("one");
+    let built = volume.run(&["app-build", "demo", "main", "--all-shots", "mac"]);
+    let said = String::from_utf8_lossy(&built.stderr).into_owned();
+    assert!(built.status.success(), "{said}");
+    let seen = PathBuf::from(
+        std::fs::read_to_string(volume.dir.join("shots-tmpdir"))
+            .unwrap()
+            .trim(),
+    );
+    assert_eq!(
+        seen.parent().unwrap(),
+        volume.dir.join("volume/.tmp"),
+        "{said}"
+    );
+    assert!(!seen.exists(), "the build's folder is still there: {said}");
+}
+
 #[test]
 fn queue_shows_every_checkout_and_why_builds_added_or_removed_one() {
     let volume = Volume::new("lane-why");

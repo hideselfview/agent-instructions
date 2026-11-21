@@ -125,6 +125,7 @@ mod remote;
 mod remote_worktrees;
 mod review;
 mod run_end;
+mod run_tmp;
 mod rust_stable;
 mod rustc_wrapper;
 mod sccache;
@@ -214,6 +215,12 @@ fn main() -> ExitCode {
     if let Err(fail) = claimed_branch::gate(command, nested) {
         return exit_code(fail);
     }
+    // Held until the command ends: dropping it deletes the run's temporary
+    // folder.
+    let _tmp = match Places::from_env().and_then(|places| run_tmp::enter(&places, command, rest)) {
+        Ok(held) => held,
+        Err(fail) => return exit_code(fail),
+    };
     let result = run(command, rest);
     // The command's folders are measured whether it succeeded or not: a
     // failed build left what it wrote.
