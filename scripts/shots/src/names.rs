@@ -233,11 +233,7 @@ pub(crate) fn component_shot(
     platform: Platform,
     state: &str,
 ) -> Result<Name, NameError> {
-    Name::parse(&format!(
-        "{}.component.{}.{state}",
-        platform.word(),
-        key.thing
-    ))
+    Name::parse(&format!("{}{state}", key.prefix(platform.word())))
 }
 
 /// The design-system components of a repo that have a preview: each folder
