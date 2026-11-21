@@ -1722,7 +1722,7 @@ fn an_install_that_moves_the_store_waits_until_the_landing_records_its_run() {
     let (store, id) = store_with_item(&f);
     let places = f.scratch.places();
     let landing = PerConnection::new(places.clone(), 4242, "land", "10:00:00").unwrap();
-    let stores = landing.hold(crate::install_gate::OnInstall::Wait).unwrap();
+    let stores = landing.hold().unwrap();
     // An install starts while the landing holds its use: it waits for the
     // use, then counts the landings the store holds and moves the store.
     let (events, said) = std::sync::mpsc::channel();
@@ -1733,10 +1733,7 @@ fn an_install_that_moves_the_store_waits_until_the_landing_records_its_run() {
             let say = &mut |line: String| {
                 let _ = events.send(line);
             };
-            let closed = begin(&places, say)
-                .unwrap()
-                .close(say, &mut |pid| panic!("no lane to stop: {pid}"))
-                .unwrap();
+            let closed = begin(&places, say).unwrap().close(say).unwrap();
             let (landed, _) = landings_and_stamp(&database);
             let conn = rusqlite::Connection::open(&database).unwrap();
             conn.pragma_update(None, "user_version", NEWER_STAMP)

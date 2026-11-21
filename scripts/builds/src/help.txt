@@ -3300,41 +3300,28 @@ INSTALLING
                               schema, or no store has one yet), wait until no
                               builds command will write a store with the
                               schema it started with, naming each and when it
-                              started. First stop each app build lane that
-                              holds its lane's lock: install sends the lane
-                              the signal a takeover sends, and the lane stops
-                              its step as for a takeover. Finding the install
-                              waiting, the lane leaves the queue, frees its
-                              lock, records nothing, waits for install to
-                              finish and runs the installed builds with the
-                              same arguments in the same process, which joins
-                              the queue again and builds from the start, so
-                              the `builds app-build` that started the lane
-                              sees one run. Install waits for each stopped
-                              lane to let go of its lock and its use of the
-                              stores, never for its steps. Then wait for every
-                              hook run (`checks run`), review that asks
-                              reviewers, and landing (`land`) until it records
-                              its run, each of which records after long work,
-                              except a landing that waits for the app landing
-                              lock or runs the app build of its result, which
-                              holds no use meanwhile;
-                              then for every other command's open store
-                              connection, which lasts one transaction. An app
-                              build waiting for its lane holds nothing, and
-                              neither does one that went back to the queue
-                              because another lane took over its host or its
-                              host failed a step; when an install that moves
-                              the stores ran while it waited, the lane, once
-                              it holds the lock, leaves the queue and runs the
-                              installed builds, which queues again. While
+                              started. Wait for every hook run (`checks
+                              run`), review that asks reviewers, and landing
+                              (`land`) until it records its run, each of which
+                              records after long work, except a landing that
+                              waits for the app landing lock or runs the app
+                              build of its result, which holds no use
+                              meanwhile; then for every other command's open
+                              store connection, which lasts one transaction.
+                              Install neither stops nor waits for an app
+                              build: each lane builds to its end on the
+                              programs its build started with, and writes its
+                              run once, when it ends. A lane whose store an
+                              install moved meanwhile writes its run to a new
+                              store of its own schema and runs the installed
+                              builds, which moves that store to its schema and
+                              records the run in the project's store. While
                               install waits, hook runs, reviews and landings
-                              that start, and app build lanes that take their
-                              lock, wait for it and then run the installed
-                              builds; other commands keep working. A builds
-                              command started by a hook run, review, landing
-                              or app build lane runs under it, and an install
-                              that would wait refuses to run under one. Then
+                              that start wait for it and then run the
+                              installed builds; other commands keep working. A
+                              builds command started by a hook run, review or
+                              landing runs under it, and an install that would
+                              wait refuses to run under one. Then
                               move the stores to this builds' schema (builds
                               refuses to compile when its schema's stamp
                               differs from the one migrate.rs records, so each

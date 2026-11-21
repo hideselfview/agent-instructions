@@ -183,7 +183,7 @@ pub fn cmd_land(places: &crate::places::Places, args: &[String]) -> Result<()> {
 /// program started, this program writes a store of another schema, so it runs
 /// the installed builds in its place.
 fn hold_stores() -> Result<Option<crate::install_gate::Holding<'static>>> {
-    match crate::install_gate::hold_current(crate::install_gate::OnInstall::Wait)? {
+    match crate::install_gate::hold_current()? {
         crate::install_gate::Hold::Holds(stores) => Ok(stores),
         crate::install_gate::Hold::InstallRan => Err(crate::install_gate::run_installed(
             "builds install ran before this landing began, so the landing runs the installed builds program in its place",
@@ -240,7 +240,7 @@ enum Schema<T> {
 /// start until it writes the record of its run, except while it waits for an
 /// app build of its result: such a build takes many minutes, and an install
 /// that moves the stores waits for every use, so the landing ends its use
-/// for the wait, and the app build takes uses of its own. The landing takes
+/// for the wait. The landing takes
 /// the use again before it pushes or records anything.
 enum StoreUse<'a> {
     /// The landing holds its use; None for a process that takes no use (a
@@ -264,7 +264,7 @@ impl StoreUse<'_> {
         if let StoreUse::Held { .. } = self {
             return Ok(Schema::Kept(()));
         }
-        match crate::install_gate::hold_current(crate::install_gate::OnInstall::Wait)? {
+        match crate::install_gate::hold_current()? {
             crate::install_gate::Hold::Holds(held) => {
                 *self = StoreUse::Held { _holding: held };
                 Ok(Schema::Kept(()))

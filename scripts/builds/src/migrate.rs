@@ -339,7 +339,10 @@ pub fn every_store_has_this_schema(places: &Places) -> Result<bool> {
     Ok(any)
 }
 
-fn move_store(places: &Places, path: &Path, now: i64) -> Result<()> {
+/// Moves the store at <path> to today's schema, as `migrate_stores` moves
+/// each project's store, at <now>; also the store an app build lane hands the
+/// installed builds (handed_runs.rs).
+pub fn move_store(places: &Places, path: &Path, now: i64) -> Result<()> {
     if !path.is_file() {
         return Ok(());
     }

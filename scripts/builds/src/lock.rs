@@ -62,10 +62,7 @@
 //! Waiters go in the order of queue.rs. A takeover sends the holder SIGUSR2:
 //! it stops its build's group and, once the build has exited, `run_in_group`
 //! says `Ran::Stopped`; the caller then takes a new place in the queue
-//! (`Held::requeue`), straight behind the taker, and runs again. An install
-//! that moves the stores sends the same signal to each app build lane that
-//! holds a lock (install_gate.rs), and the lane, finding the install waiting,
-//! leaves the queue and runs the installed builds instead.
+//! (`Held::requeue`), straight behind the taker, and runs again.
 
 use std::collections::HashMap;
 use std::os::unix::process::CommandExt;
@@ -335,16 +332,6 @@ impl Held {
         // Past its build, a stop has nothing to stop.
         QUEUED.store(false, Ordering::SeqCst);
         drop(self);
-    }
-
-    /// Takes this build out of the queue, then frees the lock, which lets the
-    /// next in the queue go: for a build that will not wait for the lock
-    /// again, such as a build that runs the installed builds instead of
-    /// building. No process this one started may still run.
-    pub fn leave(self) -> Result<()> {
-        let left = self.queue.drop_ticket(&self.ticket.name);
-        self.release();
-        left
     }
 
     /// After a takeover, or a build the host's Xcode could not start: gives

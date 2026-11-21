@@ -54,6 +54,7 @@ mod flock;
 mod floor;
 mod free_worktrees;
 mod glob;
+mod handed_runs;
 mod health;
 mod health_fix;
 mod help;
@@ -216,9 +217,11 @@ fn exit_code(fail: Fail) -> ExitCode {
 /// (install_gate.rs): it writes a store after long work, with what it measured
 /// since it started. Every other command writes in short transactions, or
 /// runs under a holder's use: `builds cargo` records a run only for a hook
-/// check, under the hook run's use. An app build's lane records its findings
-/// and its run after long work too, and takes its use once it holds the
-/// lane's lock (app_build.rs). A landing records its run after long work, and
+/// check, under the hook run's use. An app build's lane records its run
+/// after long work too, but holds no use, so that an install never waits for
+/// its steps: it hands its run to the installed builds when an install moved
+/// the stores meanwhile (handed_runs.rs). A landing records its run after
+/// long work, and
 /// holds its use from its start until it has written that record, then ends
 /// it before it fast-forwards the main checkout, whose post-merge hook may run
 /// an install (land.rs).

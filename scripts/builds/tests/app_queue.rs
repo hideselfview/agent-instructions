@@ -611,103 +611,53 @@ fn a_takeover_runs_an_app_build_again_from_its_first_step() {
     assert_one_at_a_time(&log);
 }
 
-/// An app build waits for the lane with no use of the stores, so install
-/// does not wait for it. When an install ran meanwhile, the lane, once it
-/// holds the lock, leaves the queue and runs the installed builds, which
-/// queues again and builds.
+/// An app build holds no use of the stores, whether it waits for the lane
+/// or builds, so an install neither waits for it nor stops it: an install
+/// that moves the stores while the build waits and while it builds leaves it
+/// to build each step once, to its end. The test stands for builds install:
+/// it closes the commands gate and counts one more install, as install does
+/// when it moves the stores.
 #[test]
-fn a_lane_that_waited_through_an_install_runs_the_installed_builds_and_builds_once() {
+fn an_install_leaves_a_waiting_or_running_app_build_to_build_once() {
+    use std::os::fd::AsRawFd;
     let mut volume = Volume::new("app-build-install");
     volume.app_repo();
     volume.lock("H");
     volume.until_logged("start H");
-    let build = start_app_build(&volume, &["two"]);
+    let build = start_app_build(&volume, &["one", "two"]);
     volume.until_queued(2);
     let install = volume
         .dir
         .join("home/Library/Application Support/builds/install");
-    assert!(
-        !install.join("commands").is_dir()
-            || std::fs::read_dir(install.join("commands")).unwrap().count() == 0,
-        "the waiting build holds no use"
-    );
-    // builds install raises this count when it moves the stores; the test
-    // writes it to stand for an install.
+    let uses = |kind: &str| match std::fs::read_dir(install.join(kind)) {
+        Ok(entries) => entries.count(),
+        Err(_) => 0,
+    };
+    assert_eq!(uses("commands"), 0, "the waiting build holds no use");
     std::fs::create_dir_all(&install).unwrap();
     std::fs::write(install.join("generation"), "1\n").unwrap();
     volume.open_gate("H");
-    volume.open_gate("two");
-    let (status, said) = finish(build);
-    assert!(status.success(), "{said}");
-    assert!(
-        said.contains("builds install ran while this build waited for the lane"),
-        "{said}"
-    );
-    assert_eq!(
-        volume.log(),
-        lines(&["start H", "end H", "start two", "end two"])
-    );
-}
-
-/// An install that moves the stores stops the app build lane that holds its
-/// lock instead of waiting for its steps. The lane frees its lock and its
-/// place in line, ends its use of the stores, waits for the install to finish
-/// and runs the installed builds in the same process, which builds again
-/// from the first step, so the request sees one run that finishes. The test
-/// stands for builds install: it closes the commands gate, stops the lane as
-/// install does, waits for the lane's use to end, counts one more install and
-/// opens the gate.
-#[test]
-fn an_install_stops_a_running_app_build_which_builds_again_with_the_installed_builds() {
-    use std::os::fd::AsRawFd;
-    let volume = Volume::new("app-build-install-stop");
-    volume.app_repo();
-    let build = start_app_build(&volume, &["one", "two"]);
     volume.until_logged("start one");
-    let install = volume
-        .dir
-        .join("home/Library/Application Support/builds/install");
-    let lanes = install.join("lanes");
-    let lane: i32 = std::fs::read_dir(&lanes)
-        .expect("the lane holds a use of the stores while it holds the lock")
-        .map(|entry| {
-            entry
-                .unwrap()
-                .file_name()
-                .to_string_lossy()
-                .parse()
-                .unwrap()
-        })
-        .next()
-        .expect("the lane's use names its process");
-    let gate = std::fs::File::open(install.join("commands.gate")).unwrap();
+    assert_eq!(uses("commands"), 0, "the building lane holds no use");
+    let gate = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(install.join("commands.gate"))
+        .unwrap();
     assert_eq!(unsafe { libc::flock(gate.as_raw_fd(), libc::LOCK_EX) }, 0);
-    assert_eq!(unsafe { libc::kill(lane, libc::SIGUSR2) }, 0);
-    volume.until_logged("stop one");
-    // The lane holds its use file's lock until its use ends.
-    match std::fs::File::open(lanes.join(lane.to_string())) {
-        Ok(lane_use) => assert_eq!(
-            unsafe { libc::flock(lane_use.as_raw_fd(), libc::LOCK_EX) },
-            0
-        ),
-        Err(error) => assert_eq!(error.kind(), std::io::ErrorKind::NotFound, "{error}"),
-    }
-    volume.until_queued(0);
-    std::fs::write(install.join("generation"), "1\n").unwrap();
+    std::fs::write(install.join("generation"), "2\n").unwrap();
     drop(gate);
     volume.open_gate("one");
     volume.open_gate("two");
     let (status, said) = finish(build);
     assert!(status.success(), "{said}");
-    assert!(
-        said.contains("builds install stopped this build to move the stores"),
-        "{said}"
-    );
+    assert!(!said.contains("installed builds"), "{said}");
     assert_eq!(
         volume.log(),
         lines(&[
-            "start one",
-            "stop one",
+            "start H",
+            "end H",
             "start one",
             "end one",
             "start two",

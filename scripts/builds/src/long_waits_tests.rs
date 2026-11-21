@@ -82,7 +82,6 @@ fn waiting_for_the_hook_run() -> Waiting {
         held: vec![Held {
             pid: 200,
             text: "process 200, builds checks run, since 01:00:00".to_string(),
-            stopped: false,
         }],
     }
 }
@@ -98,7 +97,7 @@ fn an_install_names_what_it_waits_for_down_to_the_job_on_a_host() {
             Ok(Some(waiting_for_the_hook_run()))
         ),
         [
-            "install: builds install (pid 100) has run 20m and waits for process 200, builds checks run, since 01:00:00 (it waits on its job on host m1 in bae/remote-side-3, which has run 36m: 3 compiles through sccache); every hook run, review and app build lane that starts waits for it"
+            "install: builds install (pid 100) has run 20m and waits for process 200, builds checks run, since 01:00:00 (it waits on its job on host m1 in bae/remote-side-3, which has run 36m: 3 compiles through sccache); every hook run, review and landing that starts waits for it"
         ]
     );
     let mut stores = waiting_for_the_hook_run();
@@ -106,21 +105,6 @@ fn an_install_names_what_it_waits_for_down_to_the_job_on_a_host() {
     assert!(
         lines(&install_behind_a_hook_run(), Ok(Some(stores)))[0]
             .ends_with("; every builds command that opens a store waits for it")
-    );
-}
-
-/// An install that stopped an app build lane says so where it names the
-/// lane's use, since the lane ends its steps instead of finishing them.
-#[test]
-fn an_install_names_a_lane_it_stopped_as_stopped() {
-    let mut stores = waiting_for_the_hook_run();
-    stores.held[0].stopped = true;
-    let line = &lines(&install_behind_a_hook_run(), Ok(Some(stores)))[0];
-    assert!(
-        line.contains(
-            "since 01:00:00, which it stopped so that the lane runs again with the installed builds (it waits on"
-        ),
-        "{line}"
     );
 }
 
@@ -209,7 +193,7 @@ fn a_failed_scan_of_this_mac_is_a_finding_and_keeps_the_install_line() {
         lines(&scans, Ok(Some(waiting_for_the_hook_run()))),
         [
             "waits: health could not read this Mac's processes, so it cannot tell how long the hook runs, landings and cargo runs here have run, or what each waits on: ps on this Mac failed (exit 1)",
-            "install: a builds install runs and waits for process 200, builds checks run, since 01:00:00 (health could not read what it waits on); every hook run, review and app build lane that starts waits for it",
+            "install: a builds install runs and waits for process 200, builds checks run, since 01:00:00 (health could not read what it waits on); every hook run, review and landing that starts waits for it",
             "job: host m1 has run a job in bae/remote-side-3 for 36m, longer than 30m, for process 210 on this Mac: 3 compiles through sccache",
         ]
     );

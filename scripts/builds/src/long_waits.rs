@@ -232,12 +232,7 @@ pub fn findings(
                     .iter()
                     .map(|held| {
                         name_tree(held.pid, &mut named);
-                        let stopped = if held.stopped {
-                            ", which it stopped so that the lane runs again with the installed builds"
-                        } else {
-                            ""
-                        };
-                        format!("{}{stopped} ({})", held.text, read.waits_on(held.pid))
+                        format!("{} ({})", held.text, read.waits_on(held.pid))
                     })
                     .collect();
                 let what = if held.is_empty() {
@@ -248,7 +243,7 @@ pub fn findings(
                 let held_up = if waiting.connections_closed {
                     "every builds command that opens a store waits for it"
                 } else {
-                    "every hook run, review and app build lane that starts waits for it"
+                    "every hook run, review and landing that starts waits for it"
                 };
                 found.push(Advice::said(format!("install: {who} {what}; {held_up}")));
             }
