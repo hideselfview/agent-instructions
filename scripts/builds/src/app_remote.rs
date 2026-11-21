@@ -127,6 +127,21 @@ pub fn fetched_local_source(places: &Places, repo: &str) -> Result<PathBuf> {
     Ok(source)
 }
 
+/// <command>, run under `caffeinate -d -u` in the mac lane, which holds a
+/// display assertion on the host for as long as the command runs, so the
+/// host's display neither sleeps nor locks during a step that opens windows
+/// (host_screen_lock.rs). Another lane's <command> stays as it is.
+pub fn keeping_display_on(lane: Lane, command: &[String]) -> Vec<String> {
+    if !lane.uses_xcode() {
+        return command.to_vec();
+    }
+    ["/usr/bin/caffeinate", "-d", "-u"]
+        .iter()
+        .map(|word| word.to_string())
+        .chain(command.iter().cloned())
+        .collect()
+}
+
 /// The commands that make, switch and read the checkout `<name>` of <repo> on
 /// a host. While a `RemoteApp` exists, this Mac stays awake (awake.rs): its
 /// steps and copies run over ssh, and a sleep here ends their connections.
@@ -325,6 +340,12 @@ impl RemoteApp {
             .replace("@LANE@", self.lane.word())
             .replace("@LANE_FILE@", APP_LANE_FILE);
         self.transport().capture(&script, what)
+    }
+
+    /// <command> for a step that opens windows, as `keeping_display_on`
+    /// makes it for this checkout's lane.
+    pub fn keeping_display_on(&self, command: &[String]) -> Vec<String> {
+        keeping_display_on(self.lane, command)
     }
 
     /// The command that runs <command> in the checkout on the host and is

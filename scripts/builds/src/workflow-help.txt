@@ -840,3 +840,9 @@ whose caller is gone. The lines below are what remains to act on.
     keeps the focus from every Mac window shot there, so each one fails. The
     line names the alert and its pid. Answer or close the alert on that Mac,
     or end its process with the command the line gives.
+  - A Mac host whose screen is locked: a locked screen keeps every Mac window
+    shot there from rendering. The line names the host. Unlock the screen on
+    that Mac. The mac lane holds each window step for the host until it
+    unlocks, and says so in the build's output, and a step that runs holds a
+    display assertion on the host so the screen does not lock during it
+    (`builds help`, APP BUILDS).

@@ -81,6 +81,7 @@ mod host_memory;
 mod host_platform;
 mod host_sample;
 mod host_scan;
+mod host_screen_lock;
 mod host_setup;
 mod idle_daemons;
 mod inbox;

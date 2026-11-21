@@ -791,7 +791,11 @@ fn run_remote_step(
         (Some(store), Some(there)) => store.command(step, placed.as_deref(), there),
         _ => step.command.clone(),
     };
-    let held = remote.with_programs(with.programs, &command)?;
+    let mut held = remote.with_programs(with.programs, &command)?;
+    // A step that opens windows holds the host's display on while it runs.
+    if step.place == lock::Where::Hosts {
+        held = remote.keeping_display_on(&held);
+    }
     let start = remote.step_command(&held)?;
     let kept = lock::Captured::default();
     let keep = keep_for(kind, &kept, fault, read);

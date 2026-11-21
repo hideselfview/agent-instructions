@@ -1060,6 +1060,17 @@ and it lists no other display"), and a run that asks again after the lid opens
 goes through. A host that does not answer is skipped and named the same way.
 Runs of UI tests and every other step ignore the lid.
 
+A locked screen keeps every window of a mac lane step from rendering, so a mac
+lane step that opens windows never starts on a host whose screen is locked.
+After it takes the host's window lock, the lane reads the host's screen
+(`ioreg`: IOConsoleLocked and CGSSessionScreenIsLocked) every 5 seconds, prints
+"waiting for host <name>'s screen to unlock" once while the screen is locked,
+and starts the step when it unlocks. A takeover ends the wait. While the step
+runs on the host, it runs under `caffeinate -d -u`, which holds a display
+assertion there, so the display neither sleeps nor locks during the step.
+`builds health` lists each Mac whose screen is locked (HEALTH CHECK in `builds
+help workflow`).
+
 When a host's Xcode cannot start, every xcodebuild run there fails, whatever
 code it builds: xcodebuild prints "A required plugin failed to load" and names
 the fix (as after someone updates Xcode and nobody runs its first launch, which

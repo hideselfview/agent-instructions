@@ -435,3 +435,16 @@ fn a_step_on_a_host_runs_under_this_builds_programs_there() {
         "kept"
     );
 }
+
+/// The mac lane's window steps run under `caffeinate -d -u`, which holds a
+/// display assertion on the host while the step runs; the android lane's run
+/// as they are.
+#[test]
+fn a_mac_lane_step_runs_under_a_display_assertion() {
+    let command = vec!["xcodebuild".to_string(), "test".to_string()];
+    assert_eq!(
+        keeping_display_on(Lane::Mac, &command),
+        ["/usr/bin/caffeinate", "-d", "-u", "xcodebuild", "test"]
+    );
+    assert_eq!(keeping_display_on(Lane::Android, &command), command);
+}

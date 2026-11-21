@@ -153,3 +153,49 @@ fn a_takeover_ends_the_wait_for_the_display() {
 fn host_of_checkout(held: &crate::lock::Held) -> &str {
     held.checkout.split_once(':').unwrap().0
 }
+
+/// A program in place of ssh that answers a host probe with no load and, to
+/// a reading of the screen, says it is locked for the first <locked> readings
+/// and unlocked after them, counting the readings in a file beside it.
+fn locked_ssh(dir: &std::path::Path, locked: u32) -> Ssh {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::create_dir_all(dir).unwrap();
+    let program = dir.join("ssh");
+    let count = dir.join("readings");
+    std::fs::write(
+        &program,
+        format!(
+            "#!/bin/sh\ncase \"$*\" in\n*IOConsoleLocked*)\n  n=$(cat '{count}' 2>/dev/null || echo 0)\n  echo $((n + 1)) > '{count}'\n  if [ \"$n\" -lt {locked} ]; then echo 'screen_locked=\"IOConsoleLocked\" = Yes'; else echo 'screen_locked=\"IOConsoleLocked\" = No'; fi ;;\n*) printf 'os=Darwin\\narch=arm64\\ncores=1\\nload=0.00 0 0\\nfree_kib=900000000\\nmemory_free_percent=80\\nswap_used_mib=0\\nmemory_pressure_level=1\\nprocs=300\\nmax_procs=8000\\n' ;;\nesac\n",
+            count = count.display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+    Ssh {
+        program: program.display().to_string(),
+    }
+}
+
+#[test]
+fn the_mac_lane_holds_a_window_step_while_the_hosts_screen_is_locked() {
+    let scratch = Scratch::new("window-locked-screen");
+    let places = scratch.places();
+    std::fs::create_dir_all(places.root.join("demo")).unwrap();
+    std::fs::create_dir_all(&places.home).unwrap();
+    std::fs::write(places.app_checkouts_file("demo", Lane::Mac), "m1:mac-1\n").unwrap();
+    let ssh = locked_ssh(&scratch.dir.join("ssh"), 2);
+    crate::host::add(&places, &ssh, "m1", "user@m1").unwrap();
+    let held = take_where(&places, &ssh, "demo", Lane::Mac, Where::Hosts, 0).unwrap();
+    let window = held
+        .take_window_polling("shots", Duration::from_millis(10))
+        .unwrap()
+        .expect("the step went on once the screen unlocked");
+    let readings: u32 = std::fs::read_to_string(scratch.dir.join("ssh/readings"))
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    assert_eq!(readings, 3, "the lane read the screen until it unlocked");
+    drop(window);
+    held.release();
+}

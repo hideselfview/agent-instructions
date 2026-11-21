@@ -290,16 +290,52 @@ pub struct Held {
 
 impl Held {
     /// Takes the window lock of this checkout's host for <step>, waiting
-    /// while another run that opens windows holds it (window_lock.rs). None
-    /// when a takeover or an install stopped this build while it waited.
+    /// while another run that opens windows holds it (window_lock.rs), and
+    /// then, in the mac lane, while the host's screen is locked
+    /// (host_screen_lock.rs). None when a takeover or an install stopped this
+    /// build while it waited.
     pub fn take_window(&self, step: &str) -> Result<Option<crate::window_lock::Window>> {
-        crate::window_lock::take(
+        self.take_window_polling(step, crate::host_screen_lock::POLL)
+    }
+
+    /// `take_window`, reading a locked screen again after each <poll>.
+    pub fn take_window_polling(
+        &self,
+        step: &str,
+        poll: Duration,
+    ) -> Result<Option<crate::window_lock::Window>> {
+        let host_name = host_of(&self.checkout);
+        let stopped = || STOPPED.load(Ordering::SeqCst);
+        let Some(window) = crate::window_lock::take(
             &self.places,
-            host_of(&self.checkout),
+            host_name,
             &format!("{}'s {}, step {step}", self.repo, self.checkout),
             &|words| note(words),
-            &|| STOPPED.load(Ordering::SeqCst),
-        )
+            &stopped,
+        )?
+        else {
+            return Ok(None);
+        };
+        if !self.lane.uses_xcode() || host_name == host::LOCAL {
+            return Ok(Some(window));
+        }
+        let Some(host) = host::read_remote(&self.places)?
+            .into_iter()
+            .find(|host| host.name == host_name)
+        else {
+            fail!(
+                "{} is on host {host_name}, which `builds host list` does not have",
+                self.checkout
+            );
+        };
+        let unlocked = crate::host_screen_lock::wait_until_unlocked(
+            host_name,
+            &|| crate::host_screen_lock::read(&self.ssh, &host),
+            &|words| note(words),
+            &stopped,
+            &|| std::thread::sleep(poll),
+        )?;
+        Ok(unlocked.then_some(window))
     }
 
     /// Writes the record of this build's run beside its lock, naming <step>
