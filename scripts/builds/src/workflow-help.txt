@@ -261,6 +261,10 @@ DISPATCH
     file at its next clean point (what's committed, what isn't, what's left,
     decisions, traps), and a fresh agent continues from it (`builds item
     handoff`).
+  - Send the fixes of one area, or of one agent, together: take their items
+    on one branch in one worktree (`builds item take N M ...`) with one
+    brief, so that the agent lands them as one batch (LANDING). Hold no
+    ready fix back to wait for work that nobody has started.
   - Give work to the agent that already knows the area: a finding goes back
     to the agent that reported it, and an item goes to the agent that last
     finished work there, resumed with SendMessage. Start a new agent only
@@ -498,6 +502,18 @@ coordinator lands a branch only when its agent ended before it could. The land
 help says what it checks. Review each branch first (REVIEW): land refuses the
 commits unless a finished review read the branch's net change as it is now.
 
+Land the fixes you have ready together, in one batch (decision #1391 in
+project bae). Each branch gets its own review and, for app changes, its own
+app build, and each landing runs its own compile check, so five fixes that
+land one by one take five reviews, five compile checks and five app builds. An
+agent with several fixes in hand, such as the items of its brief or a design
+session's fixes, makes them all on one branch, one commit for each fix. The
+branch gets one review, which the agent runs with `--item N` for each item,
+and the agent lands it with one `builds land` that names each item with
+`--done N` and each design change with `--design N`. Each commit still holds
+one concern. A fix waits for the batch only while the agent still works on the
+other fixes it holds, and never waits for work that nobody has started.
+
   - Landings in different worktrees may run at the same time. When origin/main
     moves while a landing runs, origin refuses that landing's push, and the
     landing fetches again and pushes again. Two landings in one worktree run
@@ -611,7 +627,12 @@ project's setting says which it does (`builds lists design-globs PROJECT
 corrected, a board it deleted because the app can no longer reach the state the
 board draws, a board it redrew to draw what the app draws today, where the
 person decided nothing about the difference) with `fix` instead: such a fix needs no review page or approval, and
-lands with `--design N` like any other.
+lands with `--design N` like any other. The design session records each fix as
+a design change of its own, in a commit of its own, collects its ready fixes on
+one branch and lands them together (LANDING): `builds land <worktree> --design
+N --design M <sha>...` takes every change with all its commits, and a landing
+that names two or more design changes squashes nothing, so each fix keeps its
+commit.
 
 An implementing agent that edits an existing board for a change the person
 decided (ROLES) records the edit with `decision`, the id of the person's
