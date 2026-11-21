@@ -208,17 +208,19 @@ fn a_review_frame_draws_the_preview_and_answers_the_pages_circles() {
     let scratch = Scratch::new("designs-review-preview");
     let (dir, commit) = designs_repo(&scratch);
     let cache = scratch.dir.join("cache");
-    let frame = review_preview(
+    let frame = preview_frame(
         Source::Commit {
             repo: &dir,
             rev: &commit,
         },
         "Row",
         &cache,
+        true,
     )
     .unwrap();
     for part in [
         "previewWidth",
+        "previewLaidOut",
         "designCircles",
         "designBoxes",
         "window.Demo",

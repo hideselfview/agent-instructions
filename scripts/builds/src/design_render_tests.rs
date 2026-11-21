@@ -459,10 +459,11 @@ fn a_review_page_shows_a_components_preview_now_and_proposed() {
         json!("MacGone has no preview at the change's last commit")
     );
     let sides = |side| {
-        crate::daemon::designs::review_preview(
+        preview_frame(
             source_of(&change, side).unwrap(),
             "MacRow",
             &cache(&scratch),
+            true,
         )
         .unwrap()
     };

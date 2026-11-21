@@ -17,8 +17,8 @@
 //! A design change's review page (`design_render/review.html`) shows the
 //! change's details, one point to a line, and the boards and component
 //! previews its recorder picks to show the proposal (decision #369; a
-//! component's preview is drawn by `daemon::designs::review_preview`, which
-//! the Designs page's frame also draws, and reports its own size), in frames
+//! component's preview is drawn by `preview_frame`, which the Designs page's
+//! frame also draws, and reports its own size), in frames
 //! that load the board's own
 //! pages: proposed, the board at the last commit of the change's range, and,
 //! beside it where the recorder asks, now, the board as it stands on
@@ -54,6 +54,18 @@ const REVIEW_PAGE: &str = include_str!("design_render/review.html");
 /// The script that decides where the review page draws the designer's
 /// circles (`design_render/circles.js`), which the review page runs.
 const CIRCLES_SCRIPT: &str = include_str!("design_render/circles.js");
+
+/// The script that lays a component's preview out in the room its frame has
+/// and reports the size it takes (`design_render/preview_fit.js`), which the
+/// Designs page and the review page run in a preview's frame.
+const PREVIEW_FIT: &str = include_str!("design_render/preview_fit.js");
+/// The script that answers the review page's question for the boxes of the
+/// elements a selector finds (`design_render/circle_answers.js`), which a
+/// board's page and a preview's frame run.
+const CIRCLE_ANSWERS: &str = include_str!("design_render/circle_answers.js");
+/// What a preview's frame runs on a review page to answer that question
+/// (`design_render/preview_circles.js`).
+const PREVIEW_CIRCLES: &str = include_str!("design_render/preview_circles.js");
 
 /// The script tags that load React 18.3.1, which a board page and a
 /// component's preview page draw with.
@@ -217,6 +229,7 @@ pub fn render_board(from: Source, board: &str, theme: Theme, cache: &Path) -> Re
             ("STYLES", &styles),
             ("TEMPLATES", &templates),
             ("CLASSES", &classes),
+            ("CIRCLE_ANSWERS", CIRCLE_ANSWERS),
         ],
     ))
 }
@@ -249,6 +262,21 @@ pub fn render_preview(from: Source, name: &str, cache: &Path) -> Result<String> 
             from.label(&rel)
         ),
     }
+}
+
+/// Component <name>'s preview of <from> as a frame loads it: the preview
+/// page (`render_preview`) with `PREVIEW_FIT`, which draws it at its own size
+/// and tells the page that size. A frame of a review page (<for_review>) also
+/// answers the page's question for the boxes of the elements a selector finds.
+pub fn preview_frame(from: Source, name: &str, cache: &Path, for_review: bool) -> Result<String> {
+    let page = render_preview(from, name, cache)?;
+    let mut loads = format!("<script>{PREVIEW_FIT}</script>");
+    if for_review {
+        loads.push_str(&format!(
+            "<script>{CIRCLE_ANSWERS}</script><script>{PREVIEW_CIRCLES}</script>"
+        ));
+    }
+    Ok(preview::with_loads(&page, &loads).expect("render_preview's page has a <head>"))
 }
 
 /// The <n>th entry of <design>'s review page: a board or a component's

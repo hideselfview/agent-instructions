@@ -111,6 +111,40 @@ pub struct ReviewEntry {
     pub circles: Vec<Circle>,
 }
 
+impl Shown {
+    /// The board file, the component name and the theme, of which a board
+    /// has the first and the last and a component the second: the three
+    /// fields of an entry's JSON and the three columns of its row.
+    pub fn parts(&self) -> (Option<&str>, Option<&str>, Option<Theme>) {
+        match self {
+            Shown::Board { path, theme } => (Some(path), None, Some(*theme)),
+            Shown::Component(name) => (None, Some(name), None),
+        }
+    }
+
+    /// What the board file, component name and theme name, the inverse of
+    /// `parts`; refuses every other mix.
+    pub fn from_parts(
+        board: Option<String>,
+        component: Option<String>,
+        theme: Option<Theme>,
+    ) -> std::result::Result<Shown, String> {
+        match (board, component, theme) {
+            (Some(path), None, Some(theme)) => Ok(Shown::Board { path, theme }),
+            (Some(path), None, None) => Err(format!(
+                "the board {path} of a review page needs its `theme`, light or dark"
+            )),
+            (None, Some(name), None) => Ok(Shown::Component(name)),
+            (None, Some(name), Some(_)) => Err(format!(
+                "the component {name} of a review page takes no `theme`: its preview has none"
+            )),
+            _ => Err(
+                "an entry of a review page gives the `board` file or the `component` name to show, and one of them".to_string(),
+            ),
+        }
+    }
+}
+
 impl ReviewEntry {
     /// What the entry shows, as a person reads it: the board file or the
     /// component's name.
@@ -156,25 +190,7 @@ impl TryFrom<ReviewEntryFields> for ReviewEntry {
     /// Refuses an entry that gives both a board and a component, or neither,
     /// a board with no theme, or a component with a theme.
     fn try_from(fields: ReviewEntryFields) -> std::result::Result<ReviewEntry, String> {
-        let shown = match (fields.board, fields.component, fields.theme) {
-            (Some(path), None, Some(theme)) => Shown::Board { path, theme },
-            (Some(path), None, None) => {
-                return Err(format!(
-                    "the board {path} of a review page needs its `theme`, light or dark"
-                ));
-            }
-            (None, Some(name), None) => Shown::Component(name),
-            (None, Some(name), Some(_)) => {
-                return Err(format!(
-                    "the component {name} of a review page takes no `theme`: its preview has none"
-                ));
-            }
-            _ => {
-                return Err(
-                    "an entry of a review page gives the `board` file or the `component` name to show, and one of them".to_string(),
-                );
-            }
-        };
+        let shown = Shown::from_parts(fields.board, fields.component, fields.theme)?;
         Ok(ReviewEntry {
             shown,
             caption: fields.caption,
@@ -186,10 +202,8 @@ impl TryFrom<ReviewEntryFields> for ReviewEntry {
 
 impl From<ReviewEntry> for ReviewEntryFields {
     fn from(entry: ReviewEntry) -> ReviewEntryFields {
-        let (board, component, theme) = match entry.shown {
-            Shown::Board { path, theme } => (Some(path), None, Some(theme)),
-            Shown::Component(name) => (None, Some(name), None),
-        };
+        let (board, component, theme) = entry.shown.parts();
+        let (board, component) = (board.map(str::to_string), component.map(str::to_string));
         ReviewEntryFields {
             board,
             component,
@@ -883,10 +897,8 @@ pub fn save(db: &Connection, design: &DesignChange) -> Result<()> {
         )
         .sql()?;
         for (at, entry) in section.boards.iter().enumerate() {
-            let (board, component, theme) = match &entry.shown {
-                Shown::Board { path, theme } => (Some(path), None, Some(theme.word())),
-                Shown::Component(name) => (None, Some(name), None),
-            };
+            let (board, component, theme) = entry.shown.parts();
+            let theme = theme.map(Theme::word);
             db.execute(
                 "INSERT INTO review_board (design_id, position, board, component, caption, theme, show_now) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                 params![design.id, at as i64, board, component, entry.caption, theme, entry.show_now],
@@ -1797,14 +1809,9 @@ pub fn read(
         .sql()?
     {
         let (design, position, board, component, caption, theme, show_now) = row.sql()?;
-        let shown = match (board, component, theme) {
-            (Some(path), None, Some(theme)) => Shown::Board {
-                path,
-                theme: Theme::of_word(&theme)?,
-            },
-            (None, Some(name), None) => Shown::Component(name),
-            _ => unreachable!("review_board_shows_a_board_or_a_component holds"),
-        };
+        let theme = theme.map(|word| Theme::of_word(&word)).transpose()?;
+        let shown = Shown::from_parts(board, component, theme)
+            .expect("review_board_shows_a_board_or_a_component holds");
         review
             .get_mut(&design)
             .expect("review_board_is_on_a_section holds")

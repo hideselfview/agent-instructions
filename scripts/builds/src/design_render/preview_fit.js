@@ -13,6 +13,10 @@
 (function () {
   const TALL = 640, NARROWEST = 480, GAP = 32;
   let room = null, sent = "";
+  // Resolves once the preview has been laid out in the room the page gave it
+  // with something in its body, which the review page's circles wait for.
+  let laid;
+  window.previewLaidOut = new Promise(resolve => { laid = resolve; });
   // The body's own inline style, and each row's, which a layout replaces.
   const own = {boxSizing: "", width: "", flexDirection: "", flexWrap: "", alignItems: "", columnGap: ""};
   const ownRow = new Map();
@@ -73,6 +77,7 @@
       if (best && best.h < drawn.h) drawn = columns(body, all, bestN, inner, edges);
       else column(body);
     }
+    if (all.length) laid();
     const now = drawn.w + "x" + drawn.h;
     if (now !== sent) {
       sent = now;

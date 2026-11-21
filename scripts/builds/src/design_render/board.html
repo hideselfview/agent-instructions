@@ -98,34 +98,12 @@ function conv(n, key, sc) {
 }
 // The review page frames this page in a sandbox it cannot read, so it posts
 // this page the CSS selectors of the elements it circles, and this page
-// answers, once it has drawn, with what each selector finds (`foundBy`).
+// answers, once it has drawn, with what each selector finds (`answerCircles`).
 // `src` names this frame to the page.
 var markDrawn;
 var drawn = new Promise(function (resolve) { markDrawn = resolve; });
-// The boxes, in board pixels, of the elements a person sees that <selector>
-// finds on the board, or the error that stops it.
-function foundBy(selector) {
-  var all;
-  try {
-    all = document.getElementById('r').querySelectorAll(selector);
-  } catch (error) {
-    return { error: String(error && error.message || error) };
-  }
-  var boxes = [];
-  Array.prototype.forEach.call(all, function (el) {
-    var r = el.getBoundingClientRect();
-    if (r.width < 1 || r.height < 1) return;
-    boxes.push({ x: Math.round(r.left + window.scrollX), y: Math.round(r.top + window.scrollY), w: Math.round(r.width), h: Math.round(r.height) });
-  });
-  return { boxes: boxes };
-}
-window.addEventListener('message', function (e) {
-  var asked = e.data && e.data.designCircles;
-  if (e.source !== parent || !Array.isArray(asked)) return;
-  drawn.then(function () {
-    parent.postMessage({ designBoxes: { src: location.pathname, found: asked.map(function (s) { return s === null ? { boxes: [] } : foundBy(s); }) } }, '*');
-  });
-});
+@@CIRCLE_ANSWERS@@
+answerCircles(function () { return document.getElementById('r'); }, drawn);
 // The scratch view frames a board that is on no canvas, such as a scratch
 // board, as wide as it has room for, and asks this page what size the board
 // draws ({designSize: true}). This page answers, once it has drawn, with

@@ -1083,7 +1083,7 @@ impl Model {
                     crate::design_render::render_board(from, path, *theme, &cache)
                 }
                 crate::lists::Shown::Component(name) => {
-                    super::designs::review_preview(from, name, &cache)
+                    crate::design_render::preview_frame(from, name, &cache, true)
                 }
             }),
         )

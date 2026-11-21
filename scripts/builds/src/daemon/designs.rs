@@ -15,7 +15,7 @@
 //! that the design system's `groups.json` lists, each under the line that
 //! introduces it (`boards::preview::contents`). Each component's
 //! frame draws its preview at the preview's own size, up to the width of the
-//! tab (`preview_fit.js`).
+//! tab (`design_render/preview_fit.js`).
 //!
 //! The Scratch tab lists the scratch boards of the repo's worktrees, each a
 //! link to its scratch view (`scratch_view.rs`). They are files that no
@@ -24,13 +24,13 @@
 
 use std::path::Path;
 
-use boards::preview::{Card, contents, with_loads};
+use boards::preview::{Card, contents};
 use boards::tokens::specimen;
 use boards::{BOARD_SUFFIX, CANVAS, Source, TOKENS_JSON, canvas_place, canvas_size};
 use serde_json::{Value, json};
 
 use crate::design_canvas::{CANVASES, page_of, pages_of, parse_canvases, placed};
-use crate::design_render::{FRAMES_SCRIPT, NOW, fill, render_board, render_preview};
+use crate::design_render::{FRAMES_SCRIPT, NOW, fill, preview_frame, render_board};
 use crate::fail;
 use crate::fail::{Fail, Result};
 use crate::lists::publish::{Request, Standing, ask_and_tell};
@@ -39,14 +39,6 @@ use crate::lists::{Stamp, Theme};
 use crate::places::Places;
 
 const DESIGNS_PAGE: &str = include_str!("designs.html");
-/// The script that draws a component's preview in its frame at the
-/// preview's own size, up to the width the Designs page gives it, and tells
-/// the page that size.
-const PREVIEW_FIT: &str = include_str!("preview_fit.js");
-/// The script that answers a review page's question for the boxes of the
-/// elements a CSS selector finds in a component's preview
-/// (`design_render/preview_circles.js`).
-const PREVIEW_CIRCLES: &str = include_str!("../design_render/preview_circles.js");
 /// The Filter field's matching and hiding, which the page's script calls.
 const FILTER: &str = include_str!("designs_filter.js");
 /// The dashboard's colors and fonts, which its page and the Designs page
@@ -249,30 +241,7 @@ pub fn board(repo: &Path, commit: &str, name: &str, cache: &Path) -> Result<Stri
 /// as the Designs page's frame loads it: with `PREVIEW_FIT`, which draws it
 /// at its own size and tells the page that size.
 pub fn preview(repo: &Path, commit: &str, name: &str, cache: &Path) -> Result<String> {
-    preview_with(Source::Commit { repo, rev: commit }, name, cache, "")
-}
-
-/// Component <name>'s preview of <from> as a review page's frame loads it:
-/// the Designs page's frame (`preview`), which also answers the page's
-/// question for the boxes of the elements a selector finds
-/// (`PREVIEW_CIRCLES`), as a board's page does.
-pub fn review_preview(from: Source, name: &str, cache: &Path) -> Result<String> {
-    preview_with(
-        from,
-        name,
-        cache,
-        &format!("<script>{PREVIEW_CIRCLES}</script>"),
-    )
-}
-
-/// Component <name>'s preview of <from> with `PREVIEW_FIT` and <more>, which
-/// load after the design system.
-fn preview_with(from: Source, name: &str, cache: &Path, more: &str) -> Result<String> {
-    let page = render_preview(from, name, cache)?;
-    Ok(
-        with_loads(&page, &format!("<script>{PREVIEW_FIT}</script>{more}"))
-            .expect("render_preview's page has a <head>"),
-    )
+    preview_frame(Source::Commit { repo, rev: commit }, name, cache, false)
 }
 
 #[cfg(test)]
