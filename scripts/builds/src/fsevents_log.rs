@@ -8,8 +8,7 @@
 //! Nothing in builds follows the volume (sizes.rs records the sizes that
 //! commands measure instead). Only root reads or writes `.fseventsd`, so
 //! builds asks FSEvents for the UUID of the volume's history, which it gives a
-//! volume that has one and not one that has none (the build volume answers
-//! none on this Mac while the data volume answers one).
+//! volume that has one and not one that has none.
 //!
 //! `builds host setup` creates the file through sudo, and `builds health`
 //! lists a build volume that keeps a history.
