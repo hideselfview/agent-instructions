@@ -819,6 +819,7 @@ fn health_of(w: &World, range: &str) -> Vec<String> {
         app_checkout: false,
         git: Ok(side_read_of(w, range)),
         committing: Ok(Vec::new()),
+        copied: Default::default(),
     };
     let loaded = Ok(vec![crate::lists::store::Loaded {
         project: "demo".into(),

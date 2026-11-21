@@ -1410,6 +1410,68 @@ fn release_lets_go_of_kept_or_landed_work() {
     cmd_release(&demo.tool.places, &[two_arg]).unwrap();
 }
 
+/// Commits <sha> of <from> onto a new worktree <n>, on branch <branch>, as
+/// a cherry-pick, so the copy has the same patch and another hash.
+fn copy_to_side(demo: &Demo, n: usize, branch: &str, sha: &str) -> std::path::PathBuf {
+    let side = demo.add_side(n, "agent B", branch);
+    crate::testing::git(&side, &["cherry-pick", sha]);
+    side
+}
+
+/// Release frees a worktree whose commits origin/main lacks all have the same
+/// patch as commits on a branch that another worktree checks out, and says
+/// which branch keeps them. Health says to release it too, and a worktree
+/// with one commit that no other branch holds is refused as before.
+#[test]
+fn release_frees_a_worktree_whose_commits_are_copies_on_another_branch() {
+    let demo = demo("release-copies");
+    let first = demo.add_side(1, "agent A", "staging");
+    let sha = demo.commit(&first, "copied");
+    let copy = copy_to_side(&demo, 2, "work", &sha);
+    let checkout = Checkout::find(&copy.display().to_string()).unwrap();
+    crate::setup::setup(&demo.tool, &crate::testing::no_ssh(), &checkout).unwrap();
+    let advises = |label: &str| {
+        crate::health::health(&demo.tool)
+            .unwrap()
+            .findings
+            .iter()
+            .any(|finding| {
+                finding.advice.text.contains("no item runs there")
+                    && finding.advice.text.contains(label)
+            })
+    };
+    assert!(advises("demo/side-2"));
+
+    let extra = demo.add_side(3, "agent C", "extra");
+    demo.commit(&extra, "held by no one");
+    crate::testing::git(&extra, &["cherry-pick", &sha]);
+    let said = release_refused(&demo, &extra);
+    assert!(
+        said.contains("branch extra: ") && said.contains("held by no one"),
+        "{said}"
+    );
+    assert!(!said.contains(" copied"), "{said}");
+
+    let kept = crate::kept::read(
+        &crate::lists::store::every_lists(&demo.tool.places).unwrap(),
+        &Checkout::find(&copy.display().to_string()).unwrap(),
+        &crate::procs::git_commits(&crate::procs::Processes::read().unwrap()),
+    )
+    .unwrap();
+    assert!(kept.unheld.is_empty());
+    assert_eq!(
+        kept.unheld.copied_on.iter().collect::<Vec<_>>(),
+        ["staging"]
+    );
+    cmd_release(&demo.tool.places, &[copy.display().to_string()]).unwrap();
+    let checkout = Checkout::find(&copy.display().to_string()).unwrap();
+    assert!(
+        crate::claim::Claim::read(&checkout.claim_file())
+            .unwrap()
+            .is_none()
+    );
+}
+
 /// The findings about loose branches that health reports for <demo>.
 fn branch_findings(demo: &Demo) -> Vec<crate::health::Finding> {
     crate::health::health(&demo.tool)

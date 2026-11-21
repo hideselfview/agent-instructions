@@ -143,6 +143,31 @@ pub fn record_hold(
     staged.put()
 }
 
+/// The commits of <read>'s `ahead` that a branch another worktree checks
+/// out, or an open item holds, has a copy of: each full hash with that
+/// branch. A store that fails its check names no branch, so the commits it
+/// would have covered count as work (`builds health` names such a store).
+fn copies_of(
+    places: &Places,
+    checkout: &Checkout,
+    read: &SideRead,
+) -> Result<std::collections::BTreeMap<String, String>> {
+    let every: Vec<Lists> = crate::lists::store::load_all(places)
+        .map_err(fail::Fail::Message)?
+        .into_iter()
+        .filter_map(|loaded| loaded.lists.ok())
+        .collect();
+    let holders =
+        crate::unlanded::holders(checkout, &crate::unlanded::item_branches(&every, checkout))?;
+    let split = crate::side_git::split_held(&checkout.top, "HEAD", read.ahead.clone(), &holders)
+        .map_err(fail::Fail::Message)?;
+    Ok(split
+        .held
+        .into_iter()
+        .map(|(commit, holder)| (commit.full, holder))
+        .collect())
+}
+
 /// A claimed worktree as `builds health` read it.
 #[derive(Debug)]
 pub struct Worktree {
@@ -162,6 +187,11 @@ pub struct Worktree {
     /// The pids of the `git commit`s that run in it, or why builds cannot
     /// tell.
     pub committing: std::result::Result<Vec<i32>, String>,
+    /// The commits among `git`'s `ahead` that another branch holds a copy of
+    /// (`unlanded::in_worktree` judges release by the same copies), each
+    /// full hash with the branch that holds it. Such a commit is no work the
+    /// worktree keeps.
+    pub copied: std::collections::BTreeMap<String, String>,
 }
 
 impl Worktree {
@@ -177,6 +207,10 @@ impl Worktree {
         git: &std::result::Result<SideRead, String>,
         commits: &crate::procs::GitCommits,
     ) -> Result<Worktree> {
+        let copied = match git {
+            Ok(read) if !read.ahead.is_empty() => copies_of(places, checkout, read)?,
+            _ => Default::default(),
+        };
         Ok(Worktree {
             label,
             top: checkout.top.clone(),
@@ -189,6 +223,7 @@ impl Worktree {
                 .is_some(),
             git: git.clone(),
             committing: crate::procs::commits_in(commits, &checkout.top),
+            copied,
         })
     }
 
@@ -202,10 +237,9 @@ impl Worktree {
         !self.app_checkout
             && !self.claim.is_held()
             && !self.claim.is_starting()
-            && self
-                .git
-                .as_ref()
-                .is_ok_and(|git| git.ahead.is_empty() && git.uncommitted == 0)
+            && self.git.as_ref().is_ok_and(|git| {
+                git.uncommitted == 0 && git.ahead.iter().all(|c| self.copied.contains_key(&c.full))
+            })
             && self.committing.as_ref().is_ok_and(|pids| pids.is_empty())
             && nothing_runs
     }

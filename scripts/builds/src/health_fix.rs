@@ -198,9 +198,12 @@ pub fn release_idle_claims(tool: &Tool) -> Result<Vec<String>> {
         if worktree.claim_is_idle(nothing_runs)
             && let Some(claim) = crate::claim::forget(checkout)?
         {
+            let holders: std::collections::BTreeSet<String> =
+                worktree.copied.values().cloned().collect();
             lines.push(format!(
-                "released {top}, which nothing held (was {})",
-                claim.text()
+                "released {top}, which nothing held (was {}){}",
+                claim.text(),
+                crate::unlanded::copies_words(&holders)
             ));
         }
     }

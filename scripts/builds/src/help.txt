@@ -570,7 +570,13 @@ times` reads these records.
                               worktree checks out, files not committed, or a
                               `git commit` that runs there (its hook can run for
                               minutes before git commits the files). A detached
-                              HEAD past origin/main counts too. The refusal
+                              HEAD past origin/main counts too. A commit with
+                              the same patch as a commit on a branch that
+                              another worktree checks out, or that an open
+                              item holds, is no such work: release frees a
+                              worktree whose commits are all such copies, and
+                              names that branch ("builds health" releases it
+                              the same way). The refusal
                               names the commits, the files and each `git commit`
                               that runs, and the commands that keep the work:
                               land it, stop its item (`builds item stop`),

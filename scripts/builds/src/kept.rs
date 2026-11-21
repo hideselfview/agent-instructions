@@ -91,12 +91,7 @@ pub fn read(
         })
         .collect();
     let unheld = if keeping.is_empty() {
-        let repo = checkout.repo();
-        let held: Vec<String> = crate::unlanded::named_branches(every.iter())
-            .into_iter()
-            .filter(|(named_repo, _)| *named_repo == repo)
-            .map(|(_, branch)| branch)
-            .collect();
+        let held = crate::unlanded::item_branches(every, checkout);
         crate::unlanded::in_worktree(checkout, window_start(checkout)?, &held, commits)?
     } else {
         Held::default()

@@ -114,7 +114,10 @@ branch, not the worktree, is the unit of work.
     --held`). `builds release` refuses every other worktree with such work,
     on its HEAD, on a branch it left since its claim began or in its files,
     and names the ways to keep it: land it, or take an item there, held when
-    the item waits on something open.
+    the item waits on something open. A commit with the same patch as a
+    commit on a branch that another worktree checks out, or that an open item
+    holds, is no such work: release frees a worktree whose commits are all
+    copies of that kind, and names the branch that keeps them.
     `builds new` hands out no such worktree, and none where an item runs.
     Only the person throws work away, by dropping its item (`builds item
     drop`), which records the commits and files on the closed item, deletes

@@ -175,6 +175,7 @@ fn worktree(top: &std::path::Path, who: &str, state: Option<&str>, ahead: Vec<St
         app_checkout: false,
         git: Ok(side_read(&ahead)),
         committing: Ok(Vec::new()),
+        copied: Default::default(),
     }
 }
 

@@ -31,6 +31,11 @@ pub struct Held {
     /// The pids of the `git commit`s that run in it: files git is still
     /// committing, which a pre-commit hook can make take minutes.
     pub committing: Vec<i32>,
+    /// The branches that hold a copy (the same hash or the same patch) of
+    /// commits the worktree has and that `head` and `left` leave out for
+    /// that reason. Nothing is lost by releasing a worktree whose only
+    /// commits are such copies.
+    pub copied_on: BTreeSet<String>,
 }
 
 impl Held {
@@ -84,12 +89,49 @@ fn branches_left(top: &Path, since: i64) -> Result<Vec<String>> {
     Ok(left)
 }
 
+/// The local branches that can hold the commits of <checkout>: the branch
+/// of each other worktree of its repo, and each name of <items> (the
+/// branches open items run or are kept on), except the branch <checkout>
+/// has checked out. A commit that one of them holds a copy of is held by it.
+pub fn holders(checkout: &Checkout, items: &[String]) -> Result<Vec<String>> {
+    let top = &checkout.top;
+    let own = checkout.branch()?;
+    let here = std::fs::canonicalize(top).unwrap_or_else(|_| top.clone());
+    let elsewhere = crate::checkout::worktree_list(top)?
+        .into_iter()
+        .filter(|listed| std::fs::canonicalize(&listed.top).unwrap_or(listed.top.clone()) != here)
+        .filter_map(|listed| listed.branch);
+    let mut holders: Vec<String> = Vec::new();
+    for name in elsewhere.chain(items.iter().cloned()) {
+        if Some(&name) != own.as_ref()
+            && !holders.contains(&name)
+            && crate::checkout::branch_exists(top, &name)?
+        {
+            holders.push(name);
+        }
+    }
+    Ok(holders)
+}
+
+/// The branches open items of <every> run or keep in the repo of
+/// <checkout>.
+pub fn item_branches(every: &[crate::lists::Lists], checkout: &Checkout) -> Vec<String> {
+    let repo = checkout.repo();
+    named_branches(every.iter())
+        .into_iter()
+        .filter(|(named_repo, _)| *named_repo == repo)
+        .map(|(_, branch)| branch)
+        .collect()
+}
+
 /// The work in <checkout> that origin/main lacks and no open item holds:
 /// HEAD's commits, the commits of each branch the worktree left since
 /// <since> (its claim's start) that no worktree checks out now and no name
 /// of <held> (the branches open items run or are kept on) covers, the
 /// files not committed, and the `git commit`s of <commits> (every one that
-/// runs) that run there.
+/// runs) that run there. A commit that a branch another worktree checks out,
+/// or a name of <held>, has a copy of (the same patch) is no work: that
+/// branch holds it (`Held::copied_on` names the branches).
 pub fn in_worktree(
     checkout: &Checkout,
     since: i64,
@@ -101,7 +143,18 @@ pub fn in_worktree(
         fail::Fail::Message(format!("reading the work in {}: {error}", top.display()))
     };
     let branch = checkout.branch()?;
-    let head = crate::side_git::waiting_to_land(top, "HEAD").map_err(unread)?;
+    let mut copied_on = BTreeSet::new();
+    let holders = holders(checkout, held)?;
+    let mut unheld = |rev: &str| -> Result<Vec<Commit>> {
+        let waiting = crate::side_git::waiting_to_land(top, rev).map_err(unread)?;
+        if waiting.is_empty() {
+            return Ok(waiting);
+        }
+        let split = crate::side_git::split_held(top, rev, waiting, &holders).map_err(unread)?;
+        copied_on.extend(split.held.into_iter().map(|(_, holder)| holder));
+        Ok(split.lacking)
+    };
+    let head = unheld("HEAD")?;
     let checked_out: Vec<String> = crate::checkout::worktree_list(top)?
         .into_iter()
         .filter_map(|listed| listed.branch)
@@ -115,8 +168,7 @@ pub fn in_worktree(
         {
             continue;
         }
-        let commits =
-            crate::side_git::waiting_to_land(top, &format!("refs/heads/{name}")).map_err(unread)?;
+        let commits = unheld(&format!("refs/heads/{name}"))?;
         if !commits.is_empty() {
             left.push((name, commits));
         }
@@ -129,7 +181,21 @@ pub fn in_worktree(
             .into_iter()
             .collect(),
         committing: crate::procs::commits_in(commits, top).map_err(fail::Fail::Message)?,
+        copied_on,
     })
+}
+
+/// What release says of the branches that hold copies of the worktree's
+/// commits: empty when none does.
+pub fn copies_words(branches: &BTreeSet<String>) -> String {
+    if branches.is_empty() {
+        return String::new();
+    }
+    let names: Vec<&str> = branches.iter().map(String::as_str).collect();
+    format!(
+        "; its commits are copies of commits on {}, which keep them",
+        names.join(", ")
+    )
 }
 
 /// <commits> as a refusal lists them: each short sha and subject.
