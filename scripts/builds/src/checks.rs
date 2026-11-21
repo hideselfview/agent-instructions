@@ -316,7 +316,7 @@ fn workspace_crates(top: &Path) -> Result<Vec<Crate>> {
 }
 
 /// The root lock file.
-const LOCK: &str = "Cargo.lock";
+pub(crate) const LOCK: &str = "Cargo.lock";
 
 /// The crates whose resolved dependencies changed in the root `Cargo.lock`
 /// since <base>, or every crate when there is no <base> or <base> had no
@@ -339,7 +339,7 @@ fn lock_crates(top: &Path, crates: &[Crate], base: Option<&str>) -> Result<Vec<S
 /// lints and patches, clippy's configuration, the toolchain rustup picks,
 /// which compiles every crate and holds the clippy that lints them, and
 /// cargo's configuration.
-const ROOT_CONFIGS: [&str; 7] = [
+pub(crate) const ROOT_CONFIGS: [&str; 7] = [
     "Cargo.toml",
     "clippy.toml",
     ".clippy.toml",

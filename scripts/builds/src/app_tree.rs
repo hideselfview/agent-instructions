@@ -59,8 +59,7 @@ pub fn of(top: &Path, commit: &str, config: &Config, lane: Lane) -> Result<Strin
     let matched = |path: &str| path == CONFIG || rules.iter().any(|rule| rule.matches(path));
     let crate_dirs = closure_dirs(top, commit, &paths, &matched)?;
     let mut hasher = Sha256::new();
-    for line in listing.lines() {
-        let path = line.split_once('\t').map_or("", |(_, path)| path);
+    for (line, path) in listing.lines().zip(&paths) {
         if matched(path) || is_rust_input(path, &crate_dirs) {
             hasher.update(line.as_bytes());
             hasher.update([b'\n']);
@@ -69,21 +68,19 @@ pub fn of(top: &Path, commit: &str, config: &Config, lane: Lane) -> Result<Strin
     Ok(crate::text::hex(&hasher.finalize()[..8]))
 }
 
-/// The files every crate builds from, which the workspace has at its top.
+/// The files every crate builds from, which the workspace has at its top:
+/// the root files `builds checks` counts as every crate's, the lock, and
+/// cargo's configuration folder.
 fn is_workspace_input(path: &str) -> bool {
-    matches!(
-        path,
-        "Cargo.toml" | "Cargo.lock" | "rust-toolchain" | "rust-toolchain.toml"
-    ) || path.starts_with(".cargo/")
+    crate::checks::ROOT_CONFIGS.contains(&path)
+        || path == crate::checks::LOCK
+        || path.starts_with(".cargo/")
 }
 
 /// Whether <path> is a workspace input, or a file of one of <crate_dirs>.
 fn is_rust_input(path: &str, crate_dirs: &BTreeSet<String>) -> bool {
     !crate_dirs.is_empty()
-        && (is_workspace_input(path)
-            || crate_dirs
-                .iter()
-                .any(|dir| path.starts_with(&format!("{dir}/"))))
+        && (is_workspace_input(path) || crate_dirs.iter().any(|dir| in_dir(path, dir)))
 }
 
 /// The folders of the lane's seed crates and of every crate they depend on.
@@ -111,12 +108,14 @@ fn closure_dirs(
             Ok(table) => table,
             Err(error) => fail!("{path} at {commit} is not TOML: {error}"),
         };
-        let Some(name) = manifest
-            .get("package")
-            .and_then(|package| package.get("name"))
-            .and_then(|name| name.as_str())
-        else {
-            continue;
+        let name = match manifest.get("package") {
+            Some(package) => match package.get("name").and_then(|name| name.as_str()) {
+                Some(name) => name,
+                None => fail!("{path} at {commit} has a [package] with no name"),
+            },
+            // A workspace manifest that holds no crate of its own.
+            None if manifest.contains_key("workspace") => continue,
+            None => fail!("{path} at {commit} has neither [package] nor [workspace]"),
         };
         let mut dependencies = BTreeSet::new();
         dependency_names(&manifest, &mut dependencies);
@@ -135,15 +134,13 @@ fn closure_dirs(
         .filter(|path| path.ends_with(".sh") && matched(path))
     {
         let text = run_git(top, &["show", &format!("{commit}:{path}")])?;
-        let words: Vec<&str> = text.split_whitespace().collect();
-        for (at, word) in words.iter().enumerate() {
-            let name = match *word {
-                "-p" | "--package" => words.get(at + 1).copied(),
-                other => other.strip_prefix("--package="),
-            };
-            if let Some(name) = name.filter(|name| folders.contains_key(*name)) {
-                pending.push(name.to_string());
-            }
+        for line in text.lines() {
+            let words: Vec<String> = line.split_whitespace().map(str::to_string).collect();
+            pending.extend(
+                crate::cargo_run_crate::named(&words)
+                    .into_iter()
+                    .filter(|name| folders.contains_key(name)),
+            );
         }
     }
     let mut closure = BTreeSet::new();

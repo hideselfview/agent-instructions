@@ -113,7 +113,11 @@ fn a_lanes_app_tree_holds_the_crates_its_bridge_builds_from() {
         ("rust-toolchain.toml", "the toolchain pin"),
         ("Cargo.toml", "the workspace manifest"),
     ] {
-        let commit = commit_change(&top, path, "# changed\n");
+        let commit = commit_change(
+            &top,
+            path,
+            &(std::fs::read_to_string(top.join(path)).unwrap() + "\n# changed\n"),
+        );
         let now = tree(&commit);
         assert!(!seen.contains(&now), "{path}: {why}");
         seen.push(now);
