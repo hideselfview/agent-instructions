@@ -3,10 +3,11 @@
 //! review texts (review/texts.rs) are two of them. The folder holds units,
 //! each one folder that a writer fills whole and that the cap deletes whole.
 //!
-//! A writer fills a staging folder beside the unit's place and moves it into
-//! place only when it is complete, replacing an earlier unit of the same
-//! place, so a reader finds either the old unit or the new one
-//! (`stage`, `Staging::place`).
+//! A writer fills a staging folder at the top of the root and moves it into
+//! place only when it is complete, making the folders above the place then
+//! and replacing an earlier unit of the same place, so a reader finds either
+//! the old unit or the new one (`stage`, `Staging::place`). A writer that
+//! stops, or keeps nothing, leaves no folder under the unit's place.
 //!
 //! A writer or reader holds a shared lock on `<root>/.writing` (`WRITING`,
 //! `writing`) from before it reads or makes anything in the root until it is
@@ -21,7 +22,6 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::app_timing::now;
 use crate::evict::{Recreate, Removal};
 use crate::fail;
 use crate::fail::{Context, Result};
@@ -37,12 +37,12 @@ const WRITING: &str = ".writing";
 const STAGING: &str = ".staging-";
 
 /// Whether <name>, a folder's name, is a staging folder's.
-pub fn is_staging(name: &str) -> bool {
+fn is_staging(name: &str) -> bool {
     name.starts_with(STAGING)
 }
 
-/// A unit's folder while a writer fills it, beside the place it goes to.
-/// Dropped unfinished, it deletes what it holds.
+/// A unit's folder while a writer fills it, at the top of the root. Dropped
+/// unfinished, it deletes what it holds.
 pub struct Staging {
     dir: PathBuf,
     into: PathBuf,
@@ -59,13 +59,12 @@ pub fn writing(root: &Path) -> Result<std::fs::File> {
     crate::evict::lock_shared_creating(&root.join(WRITING))
 }
 
-/// Starts storing a unit at <into>, under <root>: an empty staging folder
-/// beside <into>, named for <tag>, that the writer fills (`Staging::dir`)
-/// before `Staging::place` puts it in place.
+/// Starts storing a unit at <into>, under <root>: an empty staging folder at
+/// the top of <root>, named for <tag>, that the writer fills
+/// (`Staging::dir`) before `Staging::place` puts it in place.
 pub fn stage(root: &Path, into: PathBuf, tag: &str) -> Result<Staging> {
-    let parent = into.parent().expect("a unit's folder is in a folder");
-    let dir = parent.join(format!("{STAGING}{tag}-{}-{}", std::process::id(), now()));
     let writing = writing(root)?;
+    let dir = root.join(format!("{STAGING}{tag}-{}", crate::text::staged_suffix()));
     remove_all(&dir)?;
     std::fs::create_dir_all(&dir).context(|| format!("creating {}", dir.display()))?;
     Ok(Staging {
@@ -81,8 +80,11 @@ impl Staging {
         &self.dir
     }
 
-    /// Puts the folder in place of any earlier unit there.
+    /// Puts the folder in place of any earlier unit there, making the
+    /// folders above the place.
     pub fn place(self) -> Result<()> {
+        let parent = self.into.parent().expect("a unit's folder is in a folder");
+        std::fs::create_dir_all(parent).context(|| format!("creating {}", parent.display()))?;
         if self.into.exists() {
             std::fs::remove_dir_all(&self.into)
                 .context(|| format!("removing {}", self.into.display()))?;
@@ -126,6 +128,16 @@ pub fn folders_in(dir: &Path) -> Result<Vec<(String, PathBuf)>> {
         .collect())
 }
 
+/// The folders at the top of <root> that hold its groups' units, with their
+/// names: every folder there but the hidden ones, such as a writer's staging
+/// folder.
+pub fn tops_in(root: &Path) -> Result<Vec<(String, PathBuf)>> {
+    Ok(folders_in(root)?
+        .into_iter()
+        .filter(|(name, _)| !name.starts_with('.'))
+        .collect())
+}
+
 /// Sets the time of <file> to now: marks the unit it is in used, so the cap
 /// keeps it longer.
 pub fn mark_used(file: &Path) -> Result<()> {
@@ -147,8 +159,8 @@ pub fn remove_all(dir: &Path) -> Result<()> {
 }
 
 /// A staging folder dropped unfinished, as on an early return or a panic,
-/// goes. A deletion that fails is said, and the folder stays hidden beside
-/// the unit's place until a prune that no writer keeps out deletes it. After
+/// goes. A deletion that fails is said, and the folder stays hidden at the
+/// top of the root until a prune that no writer keeps out deletes it. After
 /// `place` or `discard` the folder is gone already.
 impl Drop for Staging {
     fn drop(&mut self) {
@@ -184,7 +196,7 @@ pub enum Kept {
         last_use: i64,
         what: &'static str,
     },
-    /// A staging folder a writer left, or fills now.
+    /// A folder a writer of the group left half filled, or fills now.
     Staging { folder: PathBuf },
     /// A file a writer left half written.
     Loose { file: PathBuf },
@@ -202,9 +214,9 @@ enum Unit {
     Files(Vec<PathBuf>),
 }
 
-/// Deletes nothing while a writer or reader holds <root>; else, in each of
-/// <groups>, each staging folder and loose file (the writers that made them
-/// ended), then, while the group's folder holds more than <cap_kib>, whole
+/// Deletes nothing while a writer or reader holds <root>; else each staging
+/// folder at the top of <root> and, in each of <groups>, each staging folder
+/// and loose file (the writers that made them ended), then, while the group's folder holds more than <cap_kib>, whole
 /// units, least recently used first, and last the folders under <root> that
 /// the deletions left empty. A unit used in the last FLOOR_IDLE_MINUTES
 /// stays: a reader may have it open.
@@ -217,6 +229,20 @@ pub fn prune(tool: &Tool, run: Run, root: &Path, cap_kib: u64, groups: Vec<Group
         ));
         return Ok(());
     };
+    for (name, folder) in folders_in(root)? {
+        if !is_staging(&name) {
+            continue;
+        }
+        delete_folder(
+            tool,
+            &folder,
+            run,
+            "the staging folder of a writer that ended",
+            Recreate::No,
+            Removal::Background,
+            "",
+        )?;
+    }
     for group in groups {
         prune_group(tool, run, cap_kib, group)?;
     }

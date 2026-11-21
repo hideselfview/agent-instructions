@@ -28,10 +28,6 @@ fn group(root: &Path) -> Group {
         }
         for unit in std::fs::read_dir(&outer).unwrap() {
             let folder = unit.unwrap().path();
-            if is_staging(&folder.file_name().unwrap().to_string_lossy()) {
-                kept.push(Kept::Staging { folder });
-                continue;
-            }
             use std::os::unix::fs::MetadataExt;
             let last_use = std::fs::metadata(folder.join("data")).unwrap().mtime();
             kept.push(Kept::Folder {
@@ -70,8 +66,11 @@ fn a_staging_that_is_never_placed_leaves_nothing() {
         let staging = stage(&root, root.join("g/a"), "t").unwrap();
         fill(&staging.dir().join("data"), 1);
     }
-    assert!(!root.join("g/a").exists());
-    assert_eq!(std::fs::read_dir(root.join("g")).unwrap().count(), 0);
+    let discarded = stage(&root, root.join("g/a"), "t").unwrap();
+    fill(&discarded.dir().join("data"), 1);
+    discarded.discard().unwrap();
+    // The writer made no folder above the unit's place.
+    assert!(!root.join("g").exists());
 }
 
 #[test]
@@ -114,7 +113,7 @@ fn a_staging_folder_goes_once_nobody_holds_the_root_and_nothing_goes_while_someo
     let root = scratch.dir.join("root");
     let filling = stage(&root, root.join("g/a"), "t").unwrap();
     fill(&filling.dir().join("data"), 1);
-    let left = root.join("g/.staging-old-1-2");
+    let left = root.join(".staging-old-1-2");
     fill(&left.join("data"), 1);
     let old = store(&root, "g/b", 400, 30);
     prune_now(&tool, Run::Real, &root, 100);

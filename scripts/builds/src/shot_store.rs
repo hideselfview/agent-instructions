@@ -14,9 +14,10 @@
 //! <commit> is the full commit id the run built, <prefix> the shot-name
 //! prefix it was given (`mac.` for a lane's every shot), and <version> the
 //! version of the shots program that made it. A later run of the same key
-//! replaces the folder whole: a run fills a staging folder beside it and
-//! moves it into place only when it is complete, so a reader finds either
-//! the old run or the new one.
+//! replaces the folder whole: a run fills a staging folder at the top of
+//! `shots` and moves it into place only when it is complete, so a reader
+//! finds either the old run or the new one, and a run that stops or keeps
+//! nothing leaves no folder under `runs` (capped_store.rs).
 //!
 //! Beside the runs, each repo has a picture folder,
 //! `<volume>/shots/<repo>/pictures/`, which app-build passes to the shots
@@ -408,15 +409,11 @@ fn group(places: &Places, repo: &str) -> Result<Group> {
     for (_, commit) in folders_in(&root(places).join(repo).join("runs"))? {
         for (_, lane) in folders_in(&commit)? {
             for (_, prefix) in folders_in(&lane)? {
-                for (name, folder) in folders_in(&prefix)? {
-                    kept.push(if capped_store::is_staging(&name) {
-                        Kept::Staging { folder }
-                    } else {
-                        Kept::Folder {
-                            last_use: Use::At(written_at(&folder.join(RUN_FILE))?),
-                            folder,
-                            what: "a shots run",
-                        }
+                for (_, folder) in folders_in(&prefix)? {
+                    kept.push(Kept::Folder {
+                        last_use: Use::At(written_at(&folder.join(RUN_FILE))?),
+                        folder,
+                        what: "a shots run",
                     });
                 }
             }
@@ -480,7 +477,7 @@ pub fn prune_runs(tool: &Tool, run: Run, cap_kib: u64) -> Result<()> {
         return Ok(());
     }
     let mut groups = Vec::new();
-    for (repo, _) in folders_in(&shots)? {
+    for (repo, _) in capped_store::tops_in(&shots)? {
         groups.push(group(&tool.places, &repo)?);
     }
     capped_store::prune(tool, run, &shots, cap_kib, groups)

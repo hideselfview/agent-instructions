@@ -1881,7 +1881,10 @@ is when a run last drew or took it. An app source tree's shots of one
 platform go together, and their last use is when a run last captured or took
 one of them. Whatever a run used in the last 30 minutes stays. `setup` and
 `prune` also delete each staging folder and half-written picture file that a
-run which died left behind, and each folder the deleted runs left empty.
+run which died left behind, and each folder the deleted runs left empty. A
+run fills its staging folder at the top of the folder shots and makes the
+folders of its key only when it puts the run in place, so a run that stops,
+or that builds does not keep, leaves no folder under runs.
 They delete nothing in the folder while a shots step reads or writes it,
 which a step on this Mac does while it runs and a step on a host does while
 builds copies a before run and pictures to the host and the new pictures

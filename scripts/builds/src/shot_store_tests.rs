@@ -88,8 +88,17 @@ fn a_staging_that_is_never_finished_leaves_nothing() {
         std::fs::create_dir_all(staging.report()).unwrap();
     }
     assert!(lookup(&places, &key).unwrap().is_none());
-    let prefix = run_folder(&places, &key).parent().unwrap().to_path_buf();
-    assert_eq!(std::fs::read_dir(prefix).unwrap().count(), 0);
+    let discarded = stage(&places, &key).unwrap();
+    std::fs::create_dir_all(discarded.report()).unwrap();
+    discarded.discard().unwrap();
+    // A run that stops or is not kept leaves no folder of its key behind,
+    // which a later lookup would have to tell from a run.
+    let runs = root(&places).join("demo/runs");
+    let left: Vec<_> = match std::fs::read_dir(&runs) {
+        Ok(entries) => entries.map(|entry| entry.unwrap().path()).collect(),
+        Err(_) => Vec::new(),
+    };
+    assert!(left.is_empty(), "{left:?}");
 }
 
 #[test]
@@ -212,7 +221,7 @@ fn a_staging_folder_goes_once_no_run_stores_its_output_and_stays_while_one_does(
     let tool = scratch.tool(0);
     let filling = stage(&places, &key("mac.a.")).unwrap();
     std::fs::create_dir_all(filling.report()).unwrap();
-    let left = filling.inner.dir().parent().unwrap().join(".staging-v-1-2");
+    let left = root(&places).join(".staging-v-1-2");
     std::fs::create_dir_all(left.join("report")).unwrap();
     prune_runs(&tool, Run::Real, CAP_KIB).unwrap();
     assert!(

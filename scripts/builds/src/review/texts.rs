@@ -103,17 +103,12 @@ impl Texts {
 }
 
 /// The review texts as the cap sees them: one group, every project's run
-/// folders and staging folders.
+/// folders.
 fn group(places: &Places) -> Result<Group> {
     use std::os::unix::fs::MetadataExt;
     let mut kept = Vec::new();
-    for (_, project) in folders_in(&root(places))? {
+    for (_, project) in capped_store::tops_in(&root(places))? {
         for (_, folder) in folders_in(&project)? {
-            let name = folder.file_name().expect("a folder has a name");
-            if capped_store::is_staging(&name.to_string_lossy()) {
-                kept.push(Kept::Staging { folder });
-                continue;
-            }
             let used = folder.join(USED);
             let last_use = std::fs::metadata(&used)
                 .context(|| format!("reading the time of {}", used.display()))?
