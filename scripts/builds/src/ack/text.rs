@@ -111,6 +111,21 @@ impl Text {
             .collect()
     }
 
+    /// The sections whose name and hash <known> (each section's name and
+    /// hash) lacks: what an agent that acknowledged <known> still has to
+    /// read.
+    pub fn unread(&self, known: &[(String, String)]) -> Text {
+        let names = self.changed_since(known);
+        Text {
+            sections: self
+                .sections
+                .iter()
+                .filter(|section| names.contains(&section.name))
+                .cloned()
+                .collect(),
+        }
+    }
+
     /// The names of the sections that <acknowledged> (each section's name and
     /// hash as an acknowledgement kept them) holds and this text lacks, in
     /// the order of the names.

@@ -18,7 +18,10 @@
 //! has no acknowledgement of the text. An acknowledgement lasts until Claude
 //! Code compacts the agent: its SessionStart hook then runs `builds ack
 //! --compacted`, which deletes every acknowledgement of that agent
-//! (`compacted`). When the text changed since the agent acknowledged it, the
+//! (`compacted`). An acknowledgement is of the sections of a text, by name and
+//! hash, and a section that several projects' texts share counts for all of
+//! them: an agent reads the sections it has not acknowledged in any project's
+//! store (`Agent::known`). When the text changed since the agent acknowledged it, the
 //! gate prints a notice of the changed sections once, records the agent as
 //! having had it, and passes the command (`catch_up`).
 
@@ -203,35 +206,62 @@ impl Agent {
         }
     }
 
+    /// The sections, each by name and hash, that the agent acknowledged in
+    /// this session in any project's store: a section that several
+    /// projects' texts share is read once.
+    fn known(&self, places: &Places) -> Result<Vec<(String, String)>> {
+        let mut known = Vec::new();
+        let mut of_stores = vec![self.store.clone()];
+        for store in stores(places)? {
+            if store.project != self.store.project {
+                of_stores.push(store);
+            }
+        }
+        for store in of_stores {
+            if let Some(db) = db::open_reader(&store.database())? {
+                known.extend(record::acknowledged_sections(&db, &self.session, &self.id)?);
+            }
+        }
+        Ok(known)
+    }
+
     /// Where the agent stands with <text>: not acknowledged, up to date, or
     /// acknowledged an older version, which this call replaces with the
-    /// current one so that the change is told once.
-    fn standing(&self, text: &Text, now: i64) -> Result<Standing> {
+    /// current one so that the change is told once. An agent with no
+    /// acknowledgement here has acknowledged the text all the same when it
+    /// acknowledged every section of it in another project: this call records
+    /// that.
+    fn standing(&self, places: &Places, text: &Text, now: i64) -> Result<Standing> {
         let version = text.version();
-        match self.last()? {
-            None => return Ok(Standing::NotAcknowledged),
-            Some(last) if last == version => return Ok(Standing::Current),
-            Some(_) => {}
+        if self.last()?.as_deref() == Some(version.as_str()) {
+            return Ok(Standing::Current);
         }
+        let unread = text.unread(&self.known(places)?);
         let mut db = db::open(&self.store.database(), Make::Never)?;
         let tx = db
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .sql()?;
-        let Some(last) = record::last(&tx, &self.session, &self.id)? else {
-            return Ok(Standing::NotAcknowledged);
-        };
-        if last == version {
+        let last = record::last(&tx, &self.session, &self.id)?;
+        if last.as_deref() == Some(version.as_str()) {
             return Ok(Standing::Current);
         }
-        let changes = match record::kept_sections(&tx, &last)? {
-            Some(kept) => Changes::since(text, &kept),
-            None => Changes::NotKept {
-                sections: text.sections.iter().map(|s| s.name.clone()).collect(),
-            },
+        let standing = match last {
+            None if !unread.sections.is_empty() => return Ok(Standing::NotAcknowledged),
+            None => Standing::Current,
+            Some(last) => {
+                let names: Vec<String> = unread.sections.iter().map(|s| s.name.clone()).collect();
+                Standing::Changed(match record::kept_sections(&tx, &last)? {
+                    Some(kept) => Changes::Since {
+                        changed: names,
+                        removed: text.removed_since(&kept),
+                    },
+                    None => Changes::NotKept { sections: names },
+                })
+            }
         };
         record::acknowledge(&tx, &self.session, &self.id, &version, now, &text.hashes())?;
         tx.commit().sql()?;
-        Ok(Standing::Changed(changes))
+        Ok(standing)
     }
 }
 
@@ -259,13 +289,6 @@ enum Changes {
 }
 
 impl Changes {
-    fn since(text: &Text, kept: &[(String, String)]) -> Changes {
-        Changes::Since {
-            changed: text.changed_since(kept),
-            removed: text.removed_since(kept),
-        }
-    }
-
     /// The notice that tells the agent what changed and how to read it, or
     /// None when only the order of the sections changed.
     fn notice(&self, text: &Text) -> Option<String> {
@@ -278,7 +301,7 @@ impl Changes {
             Changes::NotKept { sections } => (
                 sections.as_slice(),
                 &[][..],
-                "builds: the text every agent reads changed since you acknowledged it, and builds no longer keeps the version you acknowledged, so it cannot tell which sections changed and lists every section. This command runs as usual.",
+                "builds: the text every agent reads changed since you acknowledged it, and builds no longer keeps the version you acknowledged, so it lists each section whose current text you have not acknowledged in this session. This command runs as usual.",
             ),
         };
         if changed.is_empty() && removed.is_empty() {
@@ -313,7 +336,7 @@ fn check(
 ) -> Result<Option<String>> {
     let agent = Agent::resolve(places, session, id, project, cwd)?;
     let text = agent.text(places)?;
-    match agent.standing(&text, now)? {
+    match agent.standing(places, &text, now)? {
         Standing::Current => Ok(None),
         Standing::Changed(changes) => Ok(changes.notice(&text)),
         Standing::NotAcknowledged => fail!(
@@ -377,30 +400,64 @@ fn ack(
     let agent = Agent::resolve(places, session, id, args.value("project")?, cwd)?;
     let text = agent.text(places)?;
     match args.positional() {
-        [] => start(&agent, &text, now),
-        [word, part, token] if word == "part" => part_of(&agent, &text, part, token),
+        [] => start(places, &agent, &text, now),
+        [word, part, token] if word == "part" => part_of(places, &agent, &text, part, token),
         [version, token] => acknowledge(&agent, &text, version, token, now),
         _ => fail!("{USAGE}"),
     }
 }
 
-/// Starts a reading of the whole text: draws the tokens of its parts, and
-/// gives the command for part 1.
-fn start(agent: &Agent, text: &Text, now: i64) -> Result<String> {
-    let parts = text.parts();
-    let mut tokens = Vec::new();
-    for _ in 0..=parts.len() {
-        tokens.push(token()?);
-    }
+/// Starts a reading of the sections of <text> that the agent has not
+/// acknowledged in this session, in any project: draws the tokens of its
+/// parts, and gives the command for part 1. When the agent has acknowledged
+/// every section, it records the acknowledgement of the text and reads
+/// nothing.
+fn start(places: &Places, agent: &Agent, text: &Text, now: i64) -> Result<String> {
+    let known = agent.known(places)?;
+    let unread = text.unread(&known);
     let version = text.version();
     let mut db = db::open(&agent.store.database(), Make::Never)?;
     let tx = db
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .sql()?;
+    if unread.sections.is_empty() {
+        record::acknowledge(
+            &tx,
+            &agent.session,
+            &agent.id,
+            &version,
+            now,
+            &text.hashes(),
+        )?;
+        tx.commit().sql()?;
+        return Ok(format!(
+            "builds: {} has acknowledged every section of version {version} in this session, so there is nothing to read.\n",
+            agent.name()
+        ));
+    }
+    let parts = unread.parts();
+    let mut tokens = Vec::new();
+    for _ in 0..=parts.len() {
+        tokens.push(token()?);
+    }
     record::start_reading(&tx, &agent.session, &agent.id, &version, now, &tokens)?;
     tx.commit().sql()?;
+    let skipped: Vec<&str> = text
+        .sections
+        .iter()
+        .filter(|section| !unread.sections.iter().any(|s| s.name == section.name))
+        .map(|section| section.name.as_str())
+        .collect();
+    let skipped = if skipped.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "This reading leaves out the sections you acknowledged in this session: {}.\n",
+            skipped.join(", ")
+        )
+    };
     Ok(format!(
-        "builds ack: the text is version {version}, in {} parts.\n  builds ack part 1 {}{}\n",
+        "builds ack: the text is version {version}, in {} parts.\n{skipped}  builds ack part 1 {}{}\n",
         parts.len(),
         tokens[0],
         agent.flags
@@ -438,10 +495,17 @@ fn reading_of(agent: &Agent, text: &Text) -> Result<record::Reading> {
 
 /// Part <part> of the agent's reading, for the agent that gives <token>, the
 /// token of the part before it (the opening output's for part 1).
-fn part_of(agent: &Agent, text: &Text, part: &str, token: &str) -> Result<String> {
+fn part_of(places: &Places, agent: &Agent, text: &Text, part: &str, token: &str) -> Result<String> {
     let reading = reading_of(agent, text)?;
-    let parts = text.parts();
+    let parts = text.unread(&agent.known(places)?).parts();
     let count = parts.len();
+    if reading.tokens.len() != count + 1 {
+        fail!(
+            "the sections that {} has not acknowledged changed since it ran `builds ack`; run `builds ack{}` again",
+            agent.name(),
+            agent.flags
+        );
+    }
     let number = match part.parse::<usize>() {
         Ok(number) if (1..=count).contains(&number) => number,
         _ => fail!("there are parts 1 to {count}; {part} is none of them\n{USAGE}"),

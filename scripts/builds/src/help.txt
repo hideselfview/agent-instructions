@@ -45,8 +45,11 @@ lists`, and the rules of agent-instructions whose paths cover every file (those
 under rules/ and under the project's projects/<project>-rules/). The text
 leaves out ~/.claude/CLAUDE.md and the repo's CLAUDE.md, which Claude Code
 loads into every agent's context itself. An edit of any part of the text
-changes its version. An agent acknowledges the text once, when its session
-starts, and again after Claude Code compacts it. The acknowledgement lasts
+changes its version. An agent acknowledges each section of the text once, when
+its session starts, and again after Claude Code compacts it. A section that
+several projects' texts share (the workflow, the lists overview, and the rules
+under rules/) is read once for all of them, and each project's own rules once
+for that project. The acknowledgement lasts
 until a compaction, however long that takes. When the text changes while the
 agent works, builds prints, once and before the next command's output, which
 sections changed and the command that prints each (`builds help workflow`,
@@ -57,11 +60,16 @@ change of the text refuses no command. The rest of this help, and of `builds hel
   builds ack [--agent ID] [--project P]
       Start a reading: say which files the text holds, its version and how
       many parts it comes in, and give the command for part 1, which holds
-      a token that only this output shows. The reading holds the whole text.
-      builds keeps the sections of the 20 versions of the text that agents
-      acknowledged most recently, to name the sections that changed since an
-      agent's acknowledgement. When it no longer keeps that version, the
-      notice of a change lists every section.
+      a token that only this output shows. The reading holds only the
+      sections whose current text the agent has not acknowledged in this
+      session, in any project, and names the ones it leaves out. When the
+      agent has acknowledged every section, builds records the
+      acknowledgement and the reading holds nothing. builds keeps the
+      sections of the 20 versions of the text that agents acknowledged most
+      recently, to name the sections that changed since an agent's
+      acknowledgement. When it no longer keeps that version, the notice of a
+      change lists each section the agent has not acknowledged at its
+      current text.
   builds ack part PART TOKEN [--agent ID] [--project P]
       Print part PART of the reading, with no word added to the text. The
       part's first line says which part it is, and its last line gives the command for the next part, with a token that

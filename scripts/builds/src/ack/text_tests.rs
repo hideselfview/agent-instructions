@@ -136,3 +136,18 @@ fn a_part_shows_its_lines_unchanged_between_its_two_marker_lines_and_ends_with_t
     assert_eq!(shown[4], "  builds ack part 3 tok");
     assert_eq!(shown.len(), 5);
 }
+
+#[test]
+fn the_unread_sections_are_those_whose_name_and_hash_the_agent_lacks() {
+    let scratch = Scratch::new("ack-text-unread");
+    let places = home(&scratch);
+    let text = Text::read(&places, "bae").unwrap();
+    let mut known = text.hashes();
+    assert!(text.unread(&known).sections.is_empty());
+    known.remove(0);
+    known[0].1 = "changed".to_string();
+    assert_eq!(
+        names(&text.unread(&known)),
+        vec!["builds help workflow", "builds help lists overview"]
+    );
+}

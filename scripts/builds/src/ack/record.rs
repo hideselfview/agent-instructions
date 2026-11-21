@@ -56,6 +56,31 @@ pub fn kept_sections(db: &Connection, version: &str) -> Result<Option<Vec<(Strin
     Ok(Some(sections))
 }
 
+/// The sections, each by name and hash, of the version that <agent> in
+/// <session> last acknowledged in this store, or none when the agent has no
+/// acknowledgement here or builds no longer keeps that version.
+pub fn acknowledged_sections(
+    db: &Connection,
+    session: &str,
+    agent: &str,
+) -> Result<Vec<(String, String)>> {
+    let mut statement = db
+        .prepare(
+            "SELECT s.name, s.hash FROM ack a
+             JOIN ack_version_section s ON s.version = a.version
+             WHERE a.session = ?1 AND a.agent = ?2
+             ORDER BY s.name",
+        )
+        .sql()?;
+    statement
+        .query_map(params![session, agent], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })
+        .sql()?
+        .collect::<rusqlite::Result<Vec<(String, String)>>>()
+        .sql()
+}
+
 /// Starts the reading of version <version> by <agent> in <session> at <at>,
 /// with <tokens>, in place of the reading it had.
 pub fn start_reading(

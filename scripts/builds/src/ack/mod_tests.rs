@@ -280,16 +280,6 @@ impl World {
         )
         .unwrap();
     }
-
-    /// The number of parts in the reading that `builds ack` starts at <now>.
-    fn parts(&self, now: i64) -> usize {
-        let started = self.ack(&[], now).unwrap();
-        started
-            .split("in ")
-            .filter_map(|piece| piece.split(" parts").next()?.parse().ok())
-            .next()
-            .unwrap()
-    }
 }
 
 /// The notice for an agent whose text changed: the check passes and returns it
@@ -389,17 +379,111 @@ fn an_acknowledgement_never_expires() {
 }
 
 #[test]
-fn an_acknowledgement_after_a_change_reads_the_whole_text() {
-    let world = world("ack-whole-after-change");
+fn a_reading_after_a_change_holds_only_the_changed_sections() {
+    let world = world("ack-changed-only");
     world.acknowledge(NOON);
-    let whole = world.parts(NOON);
     world.edit_rule("Write plain, literal sentences.");
+    // A command the agent runs first passes with a notice and records the
+    // change, so the agent reads the change again only by starting here.
     let started = world.ack(&[], NOON + 60).unwrap();
-    assert!(started.contains(&format!("in {whole} parts")), "{started}");
+    assert!(started.contains("in 1 parts"), "{started}");
+    assert!(
+        started.contains("leaves out the sections you acknowledged in this session"),
+        "{started}"
+    );
     let first = world
         .ack(&["part", "1", &next_command(&started)[2]], NOON + 60)
         .unwrap();
-    assert!(first.contains("builds help workflow"), "{first}");
+    assert!(first.contains("Write plain, literal sentences."), "{first}");
+    assert!(!first.contains("builds help workflow"), "{first}");
+}
+
+impl World {
+    /// Project second, whose own rule covers every file, and a folder that no
+    /// repo holds, from which `ack_second` runs.
+    fn with_second_project(&self, rule: Option<&str>) -> PathBuf {
+        make_store_named(&self.places, "second", &["other"]);
+        if let Some(rule) = rule {
+            let path = self
+                .scratch
+                .dir
+                .join("agent-instructions/projects/second-rules/text/own.md");
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, format!("---\npaths:\n  - '**/*'\n---\n\n{rule}\n")).unwrap();
+        }
+        let elsewhere = self.scratch.dir.join("elsewhere");
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        elsewhere
+    }
+
+    /// `builds ack <args> --project second` as the agent runs it in <cwd>.
+    fn ack_second(&self, cwd: &Path, args: &[&str]) -> Result<String> {
+        let mut args: Vec<String> = args.iter().map(|arg| arg.to_string()).collect();
+        args.extend(["--project", "second"].map(String::from));
+        ack(
+            &self.places,
+            SESSION_ID,
+            Some(AGENT),
+            &Args::parse(&args, &[], &[]).unwrap(),
+            cwd,
+            NOON,
+        )
+    }
+
+    fn check_second(&self, cwd: &Path) -> Result<Option<String>> {
+        check(
+            &self.places,
+            SESSION_ID,
+            Some(AGENT),
+            Some("second"),
+            cwd,
+            NOON,
+        )
+    }
+}
+
+#[test]
+fn a_second_projects_reading_holds_only_the_sections_the_agent_has_not_acknowledged() {
+    let world = world("ack-second-project");
+    let elsewhere = world.with_second_project(Some("Second project rule."));
+    world.acknowledge(NOON);
+    assert!(message(world.check_second(&elsewhere)).contains("has not acknowledged"));
+    let started = world.ack_second(&elsewhere, &[]).unwrap();
+    assert!(started.contains("in 1 parts"), "{started}");
+    let command = next_command(&started);
+    let shown = world
+        .ack_second(&elsewhere, &["part", "1", &command[2]])
+        .unwrap();
+    assert!(shown.contains("Second project rule."), "{shown}");
+    assert!(!shown.contains("builds help workflow"), "{shown}");
+    assert!(!shown.contains("Write plain sentences."), "{shown}");
+    let (version, token) = (
+        next_command_version(&started),
+        next_command(&shown)[1].clone(),
+    );
+    world.ack_second(&elsewhere, &[&version, &token]).unwrap();
+    world.check_second(&elsewhere).unwrap();
+}
+
+#[test]
+fn a_project_whose_sections_the_agent_acknowledged_elsewhere_needs_no_reading() {
+    let world = world("ack-second-project-shared-only");
+    let elsewhere = world.with_second_project(None);
+    world.acknowledge(NOON);
+    assert_eq!(world.check_second(&elsewhere).unwrap(), None);
+    let shown = world.ack_second(&elsewhere, &[]).unwrap();
+    assert!(shown.contains("nothing to read"), "{shown}");
+}
+
+#[test]
+fn a_change_of_a_shared_section_is_told_once_across_projects() {
+    let world = world("ack-shared-notice");
+    let elsewhere = world.with_second_project(None);
+    world.acknowledge(NOON);
+    world.check_second(&elsewhere).unwrap();
+    world.edit_rule("Write plain, literal sentences.");
+    assert!(world.check(NOON + 60).unwrap().is_some());
+    assert_eq!(world.check_second(&elsewhere).unwrap(), None);
 }
 
 #[test]

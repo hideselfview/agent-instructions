@@ -76,6 +76,21 @@ fn forgetting_an_agent_deletes_its_acknowledgement_and_reading_only() {
 }
 
 #[test]
+fn the_acknowledged_sections_are_those_of_the_agents_last_kept_version() {
+    let db = crate::db::memory();
+    acknowledge(&db, "s1", "agent", "v1", 5, &sections()).unwrap();
+    assert_eq!(
+        acknowledged_sections(&db, "s1", "agent").unwrap(),
+        sections()
+    );
+    assert!(
+        acknowledged_sections(&db, "s1", "other")
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
 fn a_token_is_not_empty() {
     let db = crate::db::memory();
     assert!(start_reading(&db, "s1", "agent", "v1", 8, &tokens(&[""])).is_err());
