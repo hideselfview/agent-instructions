@@ -54,13 +54,13 @@ impl Platform {
     }
 
     /// The prefix of this platform's component names in the design system
-    /// (`MacRow`, `AndroidCastRow`).
+    /// (`MacRow`, `AndroidCastRow`), as `boards::component_key` gives it.
     fn component_prefix(self) -> &'static str {
-        match self {
-            Self::Mac => "Mac",
-            Self::Android => "Android",
-            Self::Web => "Web",
-        }
+        boards::component_key::PLATFORMS
+            .into_iter()
+            .find(|(word, _)| *word == self.word())
+            .map(|(_, start)| start)
+            .expect("boards gives every platform's component prefix")
     }
 }
 
@@ -223,12 +223,10 @@ impl ComponentName {
     }
 }
 
-/// What a design-system component's folder name says: the platform that
-/// draws it, none for a component both platforms share, and its thing, the
-/// `<thing>` of its shots' names. The thing is the name after the platform in
-/// lower-case words joined by `-`, a run of capitals being one word:
-/// `MacQRScanner` is mac's `qr-scanner`, `StatusChip` the shared
-/// `status-chip`.
+/// What a design-system component's folder name says
+/// (`boards::component_key`): the platform that draws it, none for a
+/// component both platforms share, and its thing, the `<thing>` of its shots'
+/// names.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ComponentKey {
     pub(crate) platform: Option<Platform>,
@@ -236,27 +234,15 @@ pub(crate) struct ComponentKey {
 }
 
 impl ComponentKey {
-    /// The key of the component <name>; none when <name> is no component's
-    /// name (a capital, then letters and digits).
+    /// The key of the component <name> (`boards::component_key`); none when
+    /// <name> is no component's name.
     pub(crate) fn of(name: &str) -> Option<Self> {
-        if !boards::preview::is_component_name(name)
-            || !name.starts_with(|c: char| c.is_ascii_uppercase())
-        {
-            return None;
-        }
-        let platform = [Platform::Mac, Platform::Android, Platform::Web]
-            .into_iter()
-            .find(|p| {
-                name.strip_prefix(p.component_prefix())
-                    .is_some_and(|rest| rest.starts_with(|c: char| c.is_ascii_uppercase()))
-            });
-        let rest = match platform {
-            Some(p) => &name[p.component_prefix().len()..],
-            None => name,
-        };
+        let key = boards::component_key::ComponentKey::of(name)?;
         Some(Self {
-            platform,
-            thing: words(rest).join("-"),
+            platform: key
+                .platform
+                .map(|word| Platform::parse(word).expect("boards names only mac, android and web")),
+            thing: key.thing,
         })
     }
 
@@ -296,32 +282,6 @@ impl Previews {
         }
         Ok(previews)
     }
-}
-
-/// The words of a PascalCase name, in lower case. A capital starts a word
-/// after a small letter or a digit, and after a capital when a small letter
-/// follows it, so a run of capitals is one word: `QRScanner` is `qr`,
-/// `scanner`; `S3KeyFields` is `s3`, `key`, `fields`.
-fn words(name: &str) -> Vec<String> {
-    let chars: Vec<char> = name.chars().collect();
-    let mut words = Vec::new();
-    let mut word = String::new();
-    for (i, &c) in chars.iter().enumerate() {
-        let starts = i > 0
-            && c.is_ascii_uppercase()
-            && (chars[i - 1].is_ascii_lowercase()
-                || chars[i - 1].is_ascii_digit()
-                || (chars[i - 1].is_ascii_uppercase()
-                    && chars.get(i + 1).is_some_and(char::is_ascii_lowercase)));
-        if starts {
-            words.push(std::mem::take(&mut word));
-        }
-        word.push(c.to_ascii_lowercase());
-    }
-    if !word.is_empty() {
-        words.push(word);
-    }
-    words
 }
 
 /// <thing>, lower-case words joined by `-`, in PascalCase: the name a

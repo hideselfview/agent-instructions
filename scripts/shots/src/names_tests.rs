@@ -104,17 +104,7 @@ fn a_component_folder_names_its_platform_and_the_thing_its_shots_name() {
         ComponentKey::of("AndroidCastRow"),
         key(Some(Platform::Android), "cast-row")
     );
-    assert_eq!(
-        ComponentKey::of("AndroidQRScanner"),
-        key(Some(Platform::Android), "qr-scanner")
-    );
-    assert_eq!(
-        ComponentKey::of("MacS3KeyFields"),
-        key(Some(Platform::Mac), "s3-key-fields")
-    );
     assert_eq!(ComponentKey::of("StatusChip"), key(None, "status-chip"));
-    assert_eq!(ComponentKey::of("Machine"), key(None, "machine"));
-    assert_eq!(ComponentKey::of("index.d.ts"), None);
     assert_eq!(ComponentKey::of("row"), None);
     assert_eq!(
         ComponentKey::of("MacQRScanner")

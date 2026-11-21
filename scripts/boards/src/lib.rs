@@ -6,6 +6,7 @@
 //! out. Nothing here writes into a repo's files.
 
 pub mod board;
+pub mod component_key;
 pub mod preview;
 pub mod routes;
 pub mod runtime;
