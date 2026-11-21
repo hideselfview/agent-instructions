@@ -429,7 +429,9 @@ fn commands(text: &str) -> Vec<Vec<String>> {
 }
 
 /// What a running process <argv> waits as, when it is a wait: `sleep`,
-/// `caffeinate -t` or `-w`, `lsof +r`, python's `time.sleep`.
+/// `caffeinate -t` or `-w`, `lsof +r`, python's `time.sleep`, perl's
+/// `select(undef, undef, undef, N)` or `sleep`, ruby's `sleep`, and `timeout`
+/// or `gtimeout` around any of those.
 fn waits_as(argv: &[String]) -> Option<String> {
     let name = basename(argv.first()?);
     let rest = &argv[1..];
@@ -446,8 +448,51 @@ fn waits_as(argv: &[String]) -> Option<String> {
         n if n.starts_with("python") && rest.iter().any(|a| a.contains("time.sleep")) => {
             Some("time.sleep".to_string())
         }
+        "perl" => {
+            let script = one_liner(rest)?.replace(char::is_whitespace, "");
+            if script.contains("select(undef,undef,undef,") {
+                Some("perl select".to_string())
+            } else if script.contains("sleep") {
+                Some("perl sleep".to_string())
+            } else {
+                None
+            }
+        }
+        "ruby" => one_liner(rest)?
+            .contains("sleep")
+            .then(|| "ruby sleep".to_string()),
+        "timeout" | "gtimeout" => timeout_command(rest).and_then(waits_as),
         _ => None,
     }
+}
+
+/// The script of an interpreter's `-e` or `-E` option among <rest>.
+fn one_liner(rest: &[String]) -> Option<&str> {
+    let at = rest
+        .iter()
+        .position(|a| a.starts_with("-e") || a.starts_with("-E"))?;
+    let flag = &rest[at];
+    if flag.len() > 2 {
+        Some(&flag[2..])
+    } else {
+        rest.get(at + 1).map(String::as_str)
+    }
+}
+
+/// The command a `timeout` or `gtimeout` runs, from its arguments <rest>:
+/// what follows its options and its duration.
+fn timeout_command(rest: &[String]) -> Option<&[String]> {
+    let mut i = 0;
+    while let Some(word) = rest.get(i) {
+        if word == "-s" || word == "-k" || word == "--signal" || word == "--kill-after" {
+            i += 2;
+        } else if word.starts_with('-') {
+            i += 1;
+        } else {
+            break;
+        }
+    }
+    rest.get(i + 1..).filter(|command| !command.is_empty())
 }
 
 /// Whether caffeinate with the arguments <rest> waits: `-t <seconds>` or
@@ -480,7 +525,7 @@ fn caffeinate_waits(rest: &[String]) -> bool {
 /// around a script that sleeps or reads with a timeout. A loop is a wait even
 /// between two of its `sleep`s, when no `sleep` process is running.
 fn loops_as(argv: &[String]) -> Option<String> {
-    match argv.first()?.as_str() {
+    match basename(argv.first()?) {
         "read"
             if argv[1..]
                 .iter()
@@ -488,14 +533,18 @@ fn loops_as(argv: &[String]) -> Option<String> {
         {
             Some("read -t".to_string())
         }
-        "timeout" => argv[1..]
-            .iter()
-            .filter(|a| a.contains(char::is_whitespace))
-            .flat_map(|script| commands(script))
-            .any(|inner| {
-                inner.first().is_some_and(|w| basename(w) == "sleep") || loops_as(&inner).is_some()
-            })
-            .then(|| "timeout around a sleep".to_string()),
+        "timeout" | "gtimeout" => (timeout_command(&argv[1..])
+            .is_some_and(|c| waits_as(c).is_some())
+            || argv[1..]
+                .iter()
+                .filter(|a| a.contains(char::is_whitespace))
+                .flat_map(|script| commands(script))
+                .any(|inner| {
+                    inner.first().is_some_and(|w| basename(w) == "sleep")
+                        || waits_as(&inner).is_some()
+                        || loops_as(&inner).is_some()
+                }))
+        .then(|| "timeout around a sleep".to_string()),
         "until" => Some("an until loop".to_string()),
         "while"
             if !argv

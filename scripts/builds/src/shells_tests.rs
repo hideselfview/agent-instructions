@@ -661,3 +661,94 @@ fn a_read_with_a_timeout_or_a_timeout_around_a_sleep_is_a_wait() {
         );
     }
 }
+
+#[test]
+fn a_perl_ruby_or_python_sleep_is_a_wait_with_its_agent() {
+    // The form an agent used to hide a sleep loop: perl's four-argument select.
+    let forms: [(&str, &[&str], &str); 6] = [
+        (
+            "perl -e 'select(undef,undef,undef,170)'; tail -15 out",
+            &["perl", "-e", "select(undef,undef,undef,170)"],
+            "perl select",
+        ),
+        (
+            "perl -e 'select(undef, undef, undef, 170)'",
+            &["perl", "-e", "select(undef, undef, undef, 170)"],
+            "perl select",
+        ),
+        (
+            "perl -e 'sleep 170'",
+            &["perl", "-e", "sleep 170"],
+            "perl sleep",
+        ),
+        (
+            "ruby -e 'sleep 170'",
+            &["ruby", "-e", "sleep 170"],
+            "ruby sleep",
+        ),
+        (
+            "python3 -c 'import time; time.sleep(170)'",
+            &["python3", "-c", "import time; time.sleep(170)"],
+            "time.sleep",
+        ),
+        (
+            "gtimeout 300 perl -e 'sleep 170'",
+            &["gtimeout", "300", "perl", "-e", "sleep 170"],
+            "perl sleep",
+        ),
+    ];
+    for (command, argv, by) in forms {
+        let top = shell(7, 3, &side(1), command);
+        let mut sleeper = child(71, &top, 0.0, argv);
+        sleeper.agent = Some("a9e".to_string());
+        let found = judge_all(&[top, sleeper]);
+        assert_eq!(reasons(&found), vec![(7, waits(by))], "{command}");
+        assert_eq!(found.junk[0].agent.as_deref(), Some("a9e"), "{command}");
+        assert!(
+            lines(&found)[1].contains(&format!("waits ({by})")),
+            "{command}"
+        );
+    }
+    let work = shell(8, 3, &side(1), "perl -e 'print 1'");
+    let found = judge_all(&[
+        work.clone(),
+        child(81, &work, 0.0, &["perl", "-e", "print 1"]),
+    ]);
+    assert!(found.junk.is_empty());
+}
+
+#[test]
+fn a_gtimeout_or_timeout_around_a_sleeping_script_is_a_wait() {
+    for command in [
+        "gtimeout 170 bash -c 'read -t 165 x < <(sleep 165)'",
+        "gtimeout 60 perl -e 'select(undef,undef,undef,50)'",
+        "timeout -k 5 60 ruby -e 'sleep 50'",
+    ] {
+        let found = judge_all(&[shell(7, 3, &side(1), command)]);
+        assert_eq!(
+            reasons(&found),
+            vec![(7, waits("timeout around a sleep"))],
+            "{command}"
+        );
+    }
+    assert!(
+        judge_all(&[shell(7, 3, &side(1), "gtimeout 60 cargo test")])
+            .junk
+            .is_empty()
+    );
+}
+
+#[test]
+fn a_sleeping_shell_is_stopped_by_its_own_reason_not_as_a_duplicate() {
+    let command = "perl -e 'select(undef,undef,undef,170)'; tail -15 out";
+    let old = shell(1, 10, &side(1), command);
+    let new = shell(2, 3, &side(1), command);
+    let sleeper = child(
+        21,
+        &new,
+        0.0,
+        &["perl", "-e", "select(undef,undef,undef,170)"],
+    );
+    let found = judge_all(&[old, new, sleeper]);
+    assert_eq!(reasons(&found), vec![(2, waits("perl select"))]);
+}
