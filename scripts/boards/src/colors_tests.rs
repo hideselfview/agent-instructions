@@ -32,7 +32,7 @@ const COLORS: &str = r#"{
 fn the_palette_has_the_themes_of_the_tokens_and_the_groups_in_their_order() {
     let palette = palette(COLORS, TOKENS).unwrap();
     assert_eq!(
-        palette.themes,
+        *palette.themes,
         [
             Theme {
                 id: "dark".into(),
@@ -146,10 +146,10 @@ const SWITCH_COLORS: &str = r#"{
     { "name": "Accents", "about": "The accents.",
       "table": { "columns": [{ "label": "text", "sets": "accent", "dot": true }],
         "rows": [{ "label": "blue", "colors": ["accent-blue"] },
-                 { "label": "red", "colors": ["accent-red"] }] },
-      "switch": { "name": "Accent", "derived": [
-        { "color": "accent-tint", "from": "accent", "opacity": "opacity-tint" },
-        { "color": "edge", "from": "accent", "themes": ["dark"] }] } }
+                 { "label": "red", "colors": ["accent-red"] }],
+        "switch": { "name": "Accent", "derived": [
+          { "color": "accent-tint", "from": "accent", "opacity": "opacity-tint" },
+          { "color": "edge", "from": "accent", "themes": ["dark"] }] } } }
   ]
 }"#;
 
@@ -202,5 +202,14 @@ fn a_switch_that_sets_no_color_derives_wrongly_or_holds_no_row_of_the_tokens_say
         "column text of group Accents sets no color, and the group names a switch; \
          group Accents derives accent-tint from accent, which the table sets no column of; \
          group Accents derives edge from accent, which the table sets no column of"
+    );
+}
+
+#[test]
+fn a_short_row_in_a_switch_is_the_row_problem_alone() {
+    let short = SWITCH_COLORS.replace(r#"["accent-blue"]"#, "[]");
+    assert_eq!(
+        palette(&short, SWITCH_TOKENS).unwrap_err().text(),
+        "row blue of group Accents has 0 entries for 1 columns; color accent-blue is in no group"
     );
 }

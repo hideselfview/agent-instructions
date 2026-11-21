@@ -132,7 +132,7 @@ pub fn page(
     };
     let colors = match colors::read(&from) {
         Ok(palette) => json!({
-            "themes": palette.themes.iter().map(|theme| json!({ "id": theme.id, "name": theme.name })).collect::<Vec<_>>(),
+            "themes": palette.themes,
             "switches": palette.switches,
             "comparison": palette.colors.comparison.as_ref().map(|comparison| json!({
                 "name": comparison.name,

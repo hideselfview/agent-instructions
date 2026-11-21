@@ -93,7 +93,7 @@ struct Colors {
 
 /// A color theme of the tokens: the id its `data-theme` names, and its
 /// name.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Theme {
     pub id: String,
     pub name: String,
@@ -181,6 +181,40 @@ impl ColorToken {
     }
 }
 
+impl Tokens {
+    /// The families of tokens other than the colors and the text styles, in
+    /// the file's order.
+    fn families(&self) -> Result<Vec<Family>> {
+        self.rest
+            .0
+            .iter()
+            .filter(|(name, _)| !NOT_FAMILIES.contains(&name.as_str()))
+            .map(|(name, body)| {
+                Family::deserialize(body).context(|| format!("reading the tokens of family {name}"))
+            })
+            .collect()
+    }
+}
+
+/// A tokens.json's color themes: one or more, in the file's order.
+#[derive(Debug, Serialize)]
+#[serde(transparent)]
+pub struct Themes(Vec<Theme>);
+
+impl Themes {
+    /// The first theme, which tokens.css also writes on `:root`.
+    pub fn first(&self) -> &Theme {
+        &self.0[0]
+    }
+}
+
+impl std::ops::Deref for Themes {
+    type Target = [Theme];
+    fn deref(&self) -> &[Theme] {
+        &self.0
+    }
+}
+
 fn parse(json: &str) -> Result<Tokens> {
     serde_json::from_str(json).context(|| "reading the tokens".to_string())
 }
@@ -206,12 +240,7 @@ pub fn tokens_css(json: &str) -> Result<String> {
         out.push(block.join("\n"));
     }
     let mut root = vec![":root {".to_string()];
-    for (name, body) in &tokens.rest.0 {
-        if NOT_FAMILIES.contains(&name.as_str()) {
-            continue;
-        }
-        let family =
-            Family::deserialize(body).context(|| format!("reading the tokens of family {name}"))?;
+    for family in tokens.families()? {
         for token in &family.tokens {
             root.push(format!("  --{}: {};", token.name, token.value));
         }
@@ -258,7 +287,7 @@ pub struct TextSpecimen {
 /// opacity.
 #[derive(Debug)]
 pub struct ColorValues {
-    pub themes: Vec<Theme>,
+    pub themes: Themes,
     /// Each color's name and its value in each theme, in the themes' order,
     /// in the file's order.
     pub colors: Vec<(String, Vec<String>)>,
@@ -284,18 +313,13 @@ pub fn color_values(json: &str) -> Result<ColorValues> {
         colors.push((token.name.clone(), values));
     }
     let mut scalars = std::collections::BTreeMap::new();
-    for (name, body) in &tokens.rest.0 {
-        if NOT_FAMILIES.contains(&name.as_str()) {
-            continue;
-        }
-        let family =
-            Family::deserialize(body).context(|| format!("reading the tokens of family {name}"))?;
+    for family in tokens.families()? {
         for token in family.tokens {
             scalars.insert(token.name, token.value.to_string());
         }
     }
     Ok(ColorValues {
-        themes: tokens.color.themes,
+        themes: Themes(tokens.color.themes),
         colors,
         scalars,
     })

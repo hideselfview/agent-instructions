@@ -148,10 +148,11 @@ fn the_comparison_draws_its_scene_once_per_option_in_the_options_colors() {
             "comparison": { "name": "Every accent", "about": "Each.", "scene": "surfaces", "switch": "Accent" },
             "groups": [
                 { "name": "Surfaces", "about": "Behind.", "clusters": [{ "colors": ["bg", "accent"] }] },
-                { "name": "Accents", "about": "Chosen.", "switch": { "name": "Accent" },
+                { "name": "Accents", "about": "Chosen.",
                   "table": { "columns": [{ "label": "text", "sets": "accent" }],
                     "rows": [{ "label": "blue", "colors": ["accent-blue"] },
-                             { "label": "red", "colors": ["accent-red"] }] } },
+                             { "label": "red", "colors": ["accent-red"] }],
+                    "switch": { "name": "Accent" } } },
             ],
         })
         .to_string(),

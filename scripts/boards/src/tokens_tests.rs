@@ -103,7 +103,7 @@ fn the_specimen_gives_each_style_with_its_font_stack() {
 fn the_color_values_are_the_themes_each_color_in_the_file_order_and_the_other_tokens() {
     let values = color_values(TOKENS).unwrap();
     assert_eq!(
-        values.themes,
+        *values.themes,
         [
             Theme {
                 id: "dark".into(),

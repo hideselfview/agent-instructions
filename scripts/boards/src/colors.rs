@@ -15,7 +15,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::tokens::{Theme, color_values};
+use crate::tokens::{Themes, color_values};
 use crate::{Context, Result, Source, TOKENS_JSON, fail};
 
 pub const COLORS_JSON: &str = "design/system/colors.json";
@@ -53,8 +53,6 @@ pub struct Group {
     pub clusters: Vec<Cluster>,
     /// The name of the group's scene file, letters, digits and `-`.
     pub scene: Option<String>,
-    /// The switch the table's rows make.
-    pub switch: Option<SwitchSpec>,
 }
 
 /// The switch a table's rows make, as colors.json names it.
@@ -94,6 +92,8 @@ pub struct Cluster {
 pub struct Table {
     pub columns: Vec<Column>,
     pub rows: Vec<Row>,
+    /// The switch the rows make.
+    pub switch: Option<SwitchSpec>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -121,7 +121,7 @@ pub struct Row {
 /// The color groups of a design system, with its themes.
 #[derive(Debug)]
 pub struct Palette {
-    pub themes: Vec<Theme>,
+    pub themes: Themes,
     /// Every color of the tokens, in the file's order.
     pub names: Vec<String>,
     pub colors: Colors,
@@ -211,17 +211,11 @@ pub fn palette(colors_json: &str, tokens_json: &str) -> Result<Palette> {
         if let Some(scene) = &group.scene {
             check_scene(&format!("group {}", group.name), scene, &mut problems);
         }
-        match (&group.switch, &group.table) {
-            (Some(spec), Some(table)) => {
-                if let Some(made) = switch(&group.name, spec, table, &tokens, &mut problems) {
-                    switches.push(made);
-                }
-            }
-            (Some(spec), None) => problems.push(format!(
-                "group {} names the switch {} but has no table",
-                group.name, spec.name
-            )),
-            (None, _) => {}
+        if let Some(table) = &group.table
+            && let Some(spec) = &table.switch
+            && let Some(made) = switch(&group.name, spec, table, &tokens, &mut problems)
+        {
+            switches.push(made);
         }
         for name in group.names() {
             if !names.iter().any(|known| known == name) {
@@ -246,7 +240,14 @@ pub fn palette(colors_json: &str, tokens_json: &str) -> Result<Palette> {
     let named: Vec<&str> = colors
         .groups
         .iter()
-        .filter_map(|group| group.switch.as_ref().map(|spec| spec.name.as_str()))
+        .filter_map(|group| {
+            group
+                .table
+                .as_ref()?
+                .switch
+                .as_ref()
+                .map(|spec| spec.name.as_str())
+        })
         .collect();
     for (at, name) in named.iter().enumerate() {
         if named[..at].contains(name) {
@@ -283,7 +284,8 @@ fn check_scene(owner: &str, scene: &str, problems: &mut Vec<String>) {
     }
 }
 
-/// The switch that the rows of <table> in group <group> make, or none, with a
+/// The switch that the rows of <table> in group <group> make, or none when a
+/// row has not one entry per column (which `palette` reports), with a
 /// problem for each column that sets no color of the tokens, each empty
 /// cell, each derived color that is no color, follows no color the table
 /// sets, names an opacity that is neither a token nor a number from 0 to 1,
@@ -296,6 +298,13 @@ fn switch(
     tokens: &crate::tokens::ColorValues,
     problems: &mut Vec<String>,
 ) -> Option<Switch> {
+    if table
+        .rows
+        .iter()
+        .any(|row| row.colors.len() != table.columns.len())
+    {
+        return None;
+    }
     let before = problems.len();
     let value = |name: &str| {
         tokens

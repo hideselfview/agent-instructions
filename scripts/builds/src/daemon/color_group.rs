@@ -77,7 +77,7 @@ pub fn comparison(from: Source, cache: &Path) -> Result<String> {
     let scenes = match scene_html(&from, &palette, &comparison.scene) {
         Err(problem) => problem_html(&problem),
         Ok(html) => {
-            let theme = palette.themes.first().map_or("", |theme| theme.id.as_str());
+            let theme = &palette.themes.first().id;
             let mut css = String::new();
             let mut drawn = String::new();
             for (at, option) in switch.options.iter().enumerate() {
@@ -247,7 +247,7 @@ fn halves(palette: &Palette, name: &str, text: bool) -> String {
 /// The scene <html>, in the first theme until the page picks one, beside
 /// the column the script puts the chips in.
 fn in_use(palette: &Palette, html: &str) -> String {
-    let theme = palette.themes.first().map_or("", |theme| theme.id.as_str());
+    let theme = &palette.themes.first().id;
     format!(
         "<div class=\"cg-use\"><div class=\"cg-gutter\"></div><div class=\"cg-scene\" data-theme=\"{}\">{html}</div></div>",
         escape(theme)
