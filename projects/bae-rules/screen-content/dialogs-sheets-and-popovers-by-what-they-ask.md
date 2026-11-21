@@ -20,8 +20,8 @@ Dialogs, sheets and alerts go by what they ask of the person:
   choice.
 - **A pick from a short list** (a rating, a sort order): macOS a menu or a
   submenu of the menu that holds the action; Android `AndroidSheet` listing the
-  choices, its current one checked, which closes when the person picks one
-  (decision #1338).
+  choices, its current one checked, which closes when the person picks one, as
+  the person decided.
 - **Something to look at, nothing to decide** (a library's details, the queue,
   the cast picker, the Activity list): Android `AndroidSheet`, closed by swiping
   down or tapping outside, with no Close button; iOS a sheet at its medium

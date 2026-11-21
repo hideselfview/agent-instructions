@@ -22,8 +22,8 @@ page does, as the person decided for the playlist page:
 - The primary action (Play) sits left-aligned under the text. Every other action
   (Shuffle, Edit, Delete, Rate) is in the options menu.
 - macOS puts the options button (⋯) beside Play. Android puts the options button
-  (⋮) in the top bar at the right, where Android apps put a page's menu
-  (decision #1338).
+  (⋮) in the top bar at the right, where Android apps put a page's menu, as the
+  person decided.
 - The header says nothing the person can tell already: a playlist someone else
   shared doesn't say who sees it, since the person sees it only because it is
   shared.
