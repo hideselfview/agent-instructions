@@ -1129,6 +1129,19 @@ app-build copies the board pictures and the shots kept for the lane's app
 tree to a temporary folder on the host, passes that folder to the run, and
 afterwards moves the pictures the run added into the folder here.
 
+The key is the lane's whole app tree, not one key for each shot, on Mac and
+Android alike: a commit that changes any file of the lane's app retakes
+every shot the lane selects. builds does not narrow it to the files a shot is
+drawn from, because the compilers' dependency output cannot say so. Swift's
+`-emit-dependencies` .d file of each source lists every source of the module
+and the SDK interfaces, so it holds no per-shot set. The .swiftdeps files
+are the incremental build's binary record of declaration names each file
+provides and uses: they name types of another module (BaeKit) only by
+mangled name, and they cannot see what a shot reads when it runs
+(resources, strings, assets). A key built on them could reuse a shot that
+should be taken again, which is worse than taking it again. builds reads no
+such record from Kotlin, so Android keeps the lane key too.
+
 A shots run of a commit that origin/main lacks compares with the run of its
 merge base with origin/main: builds passes the findings.json of that run to
 the `shots` line as --before, and the run fails only on the pairs it makes
