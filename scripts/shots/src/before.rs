@@ -56,21 +56,14 @@ struct File {
     scenes: Vec<String>,
     /// The pairs' sizes and the components' preview rows, which the
     /// comparison leaves unread.
-    failed: Vec<FailedScene>,
+    failed: Vec<crate::findings_file::FailedScene>,
+    #[serde(rename = "problems")]
+    _problems: serde::de::IgnoredAny,
     #[serde(rename = "sizes")]
     _sizes: serde::de::IgnoredAny,
     #[serde(rename = "components")]
     _components: serde::de::IgnoredAny,
     findings: Vec<Record>,
-}
-
-/// A scene the run selected and the capture wrote no usable shot of. The
-/// comparison reads its name and leaves its error unread.
-#[derive(Deserialize)]
-struct FailedScene {
-    scene: String,
-    #[serde(rename = "error")]
-    _error: serde::de::IgnoredAny,
 }
 
 /// The parts of a record that the comparison reads: its kind and the fields

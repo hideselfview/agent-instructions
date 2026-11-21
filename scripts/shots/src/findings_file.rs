@@ -32,7 +32,7 @@ use crate::compare::normalize::Entry;
 use crate::compare::{Aspect, Finding, Part, Warning};
 use crate::component_files::Listing;
 use crate::shots::{Role, Size};
-use crate::verify::Checked;
+use crate::verify::{Checked, Outcome};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -46,16 +46,20 @@ struct File<'a> {
     #[serde(flatten)]
     compared: Rechecked<'a>,
     failed: Vec<FailedScene>,
+    /// How many problems the run found (a declared shot with no board, for
+    /// one), each of which fails it. A recheck reads the count, since the
+    /// problems come from the repo, which it does not read.
+    problems: usize,
     sizes: BTreeMap<String, Sizes>,
     components: Vec<Component>,
 }
 
 /// A selected scene the capture wrote no usable shot of, and why. It is in no
 /// pair, so a later run compares it as a scene the run did not check.
-#[derive(Serialize)]
-struct FailedScene {
-    scene: String,
-    error: String,
+#[derive(Serialize, Deserialize)]
+pub(crate) struct FailedScene {
+    pub(crate) scene: String,
+    pub(crate) error: String,
 }
 
 /// A pair's board and shot sizes, in points.
@@ -366,9 +370,11 @@ pub(crate) fn text(
     checked: &[Checked],
     failed: &[Failed],
     listing: &Listing,
+    problems: usize,
 ) -> String {
     let file = File {
         compared: compared(version, capture_version, commit, checked),
+        problems,
         failed: failed
             .iter()
             .map(|f| FailedScene {
@@ -403,22 +409,28 @@ pub(crate) fn text(
     serde_json::to_string(&file).expect("the records are plain data")
 }
 
-/// Writes the file for the pairs a run of <commit> by the checker of
-/// comparison version <version> and capture version <capture_version> checked, the scenes that <failed>, and the components' rows <listing> holds, into the
-/// report's folder `dir`.
+/// Writes the file for <outcome>, a run of <commit> by the checker of
+/// comparison version <version> and capture version <capture_version>, into
+/// the report's folder `dir`.
 pub(crate) fn write(
     dir: &Path,
     version: &str,
     capture_version: &str,
     commit: &str,
-    checked: &[Checked],
-    failed: &[Failed],
-    listing: &Listing,
+    outcome: &Outcome,
 ) -> Result<(), String> {
     let path = dir.join(FILE);
     std::fs::write(
         &path,
-        text(version, capture_version, commit, checked, failed, listing),
+        text(
+            version,
+            capture_version,
+            commit,
+            &outcome.checked,
+            &outcome.failed,
+            &outcome.components,
+            outcome.problems.len(),
+        ),
     )
     .map_err(|e| format!("cannot write {}: {e}", path.display()))
 }

@@ -105,6 +105,7 @@ fn each_finding_and_warning_is_a_record_with_its_kind_component_element_and_numb
         &checked,
         &[],
         &Listing::default(),
+        0,
     ))
     .unwrap();
     let expected = serde_json::json!({
@@ -113,6 +114,7 @@ fn each_finding_and_warning_is_a_record_with_its_kind_component_element_and_numb
         "commit": "abc123",
         "scenes": ["mac.welcome.a", "mac.welcome.b"],
         "failed": [],
+        "problems": 0,
         "sizes": {
             "mac.welcome.a": {"board": checked[0].board.size, "shot": checked[0].shot.size},
             "mac.welcome.b": {"board": checked[1].board.size, "shot": checked[1].shot.size},
@@ -154,16 +156,16 @@ fn the_file_is_written_beside_the_report() {
         vec![Finding::Extra(entry("Beta", Role::Text))],
         Vec::new(),
     )];
-    write(
-        dir.path(),
-        VERSION,
-        CAPTURE,
-        "abc123",
-        &checked,
-        &[],
-        &Listing::default(),
-    )
-    .unwrap();
+    let outcome = Outcome {
+        runtime: String::new(),
+        checked,
+        problems: Vec::new(),
+        lists: Default::default(),
+        not_taken: Vec::new(),
+        failed: Vec::new(),
+        components: Listing::default(),
+    };
+    write(dir.path(), VERSION, CAPTURE, "abc123", &outcome).unwrap();
     let json: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(dir.path().join(FILE)).unwrap()).unwrap();
     assert_eq!(json["findings"][0]["kind"], "extra");
@@ -191,6 +193,7 @@ fn a_later_run_compares_with_the_file_as_its_before_run() {
             &checked,
             &[],
             &Listing::default(),
+            0,
         ),
         "findings.json",
         VERSION,
@@ -235,7 +238,7 @@ fn the_file_names_each_component_s_preview_rows_by_their_shots_in_the_preview_s_
         unnamed: Vec::new(),
     };
     let json: serde_json::Value =
-        serde_json::from_str(&text(VERSION, CAPTURE, "abc123", &[], &[], &listing)).unwrap();
+        serde_json::from_str(&text(VERSION, CAPTURE, "abc123", &[], &[], &listing, 0)).unwrap();
     assert_eq!(
         json["components"],
         serde_json::json!([{
@@ -260,6 +263,7 @@ fn the_file_gives_each_pair_s_board_and_shot_sizes_in_points() {
         &[pair],
         &[],
         &Listing::default(),
+        0,
     ))
     .unwrap();
     assert_eq!(
@@ -285,6 +289,7 @@ fn a_pair_the_base_failed_to_capture_is_unrendered_against_it_and_one_it_never_s
             &[],
             &failed,
             &Listing::default(),
+            0,
         ),
         "findings.json",
         VERSION,

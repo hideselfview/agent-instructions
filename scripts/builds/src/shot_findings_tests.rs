@@ -168,7 +168,10 @@ fn a_reports_findings_name_the_version_that_made_them() {
     .unwrap();
     assert_eq!(
         versions_in(&scratch.dir).unwrap(),
-        ("c1".to_string(), "v1".to_string())
+        crate::shots_program::Versions {
+            capture: "c1".to_string(),
+            comparison: "v1".to_string(),
+        }
     );
     std::fs::write(scratch.dir.join(crate::shot_causes::FILE), "{}").unwrap();
     assert!(

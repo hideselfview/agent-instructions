@@ -1258,14 +1258,13 @@ impl ShotsCache {
     /// Whether the findings.json in the report folder <folder> names the
     /// store's versions of the shots checker; why not, when it names others.
     fn same_versions(&self, folder: &Path) -> std::result::Result<(), String> {
-        let (capture, comparison) =
-            shot_findings::versions_in(folder).map_err(|error| error.text())?;
-        if capture == self.versions.capture && comparison == self.versions.comparison {
+        let named = shot_findings::versions_in(folder).map_err(|error| error.text())?;
+        if named == self.versions {
             return Ok(());
         }
         Err(format!(
-            "the run's findings.json names shots checker {comparison} over {capture}, and this builds caches the runs of shots checker {} over {}: the run's `builds shots` was another builds than this one",
-            self.versions.comparison, self.versions.capture
+            "the run's findings.json names shots checker {} over {}, and this builds caches the runs of shots checker {} over {}: the run's `builds shots` was another builds than this one",
+            named.comparison, named.capture, self.versions.comparison, self.versions.capture
         ))
     }
 }
@@ -2160,7 +2159,7 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
         }
     }
     if names.is_empty() && !picks.is_empty() && !fresh {
-        let program = std::env::current_exe().context(|| "finding this program".to_string())?;
+        let program = crate::this_program()?;
         picks = serve_cached(places, repo, commit, picks, &program)?;
         if picks.is_empty() {
             return Ok(());

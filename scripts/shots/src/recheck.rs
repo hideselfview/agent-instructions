@@ -7,7 +7,7 @@
 //! the run's failed captures or component listing, which it does not read.
 
 use crate::capture::Failed;
-use crate::findings_file::{self, FILE};
+use crate::findings_file::{self, FILE, FailedScene};
 use crate::names::Name;
 use crate::report::{board_list, board_picture, shot_list, shot_picture};
 use crate::shots::{ElementList, Picture, Shot};
@@ -25,13 +25,8 @@ struct Named {
     scenes: Vec<String>,
     /// The scenes the capture wrote no usable shot of, which fail the run.
     failed: Vec<FailedScene>,
-}
-
-/// A scene of a report's findings.json that the capture failed.
-#[derive(Deserialize)]
-struct FailedScene {
-    scene: String,
-    error: String,
+    /// How many problems the run found, each of which fails it.
+    problems: usize,
 }
 
 /// The scenes and findings (findings_file.rs `rechecked`) that this checker, version <version>, makes of the pairs
@@ -68,7 +63,8 @@ pub(crate) fn text(report: &Path, version: &str) -> Result<String, String> {
         });
     }
     // The run has no before run, so each pair's findings fail it, as the
-    // checker's own verdict says (`Outcome::passed`).
+    // checker's own verdict says (`Outcome::passed`). The report holds only
+    // the count of the run's problems, so each counts as one that fails.
     let outcome = Outcome {
         runtime: String::new(),
         checked,
@@ -83,7 +79,7 @@ pub(crate) fn text(report: &Path, version: &str) -> Result<String, String> {
         &named.capture_version,
         &named.commit,
         &outcome.checked,
-        outcome.passed(),
+        named.problems == 0 && outcome.passed(),
     ))
 }
 

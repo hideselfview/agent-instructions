@@ -310,7 +310,7 @@ pub fn derive_and_run(places: &Places, args: &[String]) -> Result<()> {
         }
     }
     if !picks.is_empty() && !fresh {
-        let program = std::env::current_exe().context(|| "finding this program".to_string())?;
+        let program = crate::this_program()?;
         picks = app_build::serve_cached(places, repo, &commit, picks, &program)?;
         if picks.is_empty() {
             return Ok(());

@@ -227,7 +227,7 @@ pub fn key_for(
 
 /// The capture and comparison versions of the shots checker that the
 /// findings.json in the report folder <folder> names.
-pub fn versions_in(folder: &Path) -> Result<(String, String)> {
+pub fn versions_in(folder: &Path) -> Result<crate::shots_program::Versions> {
     #[derive(serde::Deserialize)]
     struct Named {
         capture_version: String,
@@ -237,7 +237,10 @@ pub fn versions_in(folder: &Path) -> Result<(String, String)> {
     let text = std::fs::read_to_string(&file).context(|| format!("reading {}", file.display()))?;
     let named: Named = serde_json::from_str(&text)
         .context(|| format!("{} names no shots checker versions", file.display()))?;
-    Ok((named.capture_version, named.version))
+    Ok(crate::shots_program::Versions {
+        capture: named.capture_version,
+        comparison: named.version,
+    })
 }
 
 /// Prints <cached>: a line to say which run it is, then its text.
@@ -346,7 +349,7 @@ pub fn cmd_findings(places: &Places, args: &[String]) -> Result<()> {
         fail!("{USAGE}");
     };
     let lane = Lane::parse_or_fail(lane)?;
-    let program = std::env::current_exe().context(|| "finding this program".to_string())?;
+    let program = crate::this_program()?;
     let cached = cached_run(places, repo, git_ref, lane, prefix, &program)?;
     if grouped {
         let text = by_cause(&cached, git_ref)?;

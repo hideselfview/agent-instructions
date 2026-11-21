@@ -473,9 +473,7 @@ pub(crate) fn write(dir: &Path, outcome: &Outcome, header: &Header) -> Result<()
         &header.version,
         &header.capture_version,
         &header.commit,
-        &outcome.checked,
-        &outcome.failed,
-        &outcome.components,
+        outcome,
     )
 }
 

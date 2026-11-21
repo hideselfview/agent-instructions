@@ -174,7 +174,7 @@ pub fn cmd(places: &Places, args: &[String]) -> Result<()> {
         fail!("{USAGE}");
     };
     let lane = Lane::parse_or_fail(lane)?;
-    let me = std::env::current_exe().context(|| "finding this program".to_string())?;
+    let me = crate::this_program()?;
     let cached = shot_findings::cached_run(places, repo, git_ref, lane, prefix, &me)?;
     let here = std::env::current_dir().context(|| "reading the working directory".to_string())?;
     let top = top_of(&checkout.unwrap_or(here))?;
