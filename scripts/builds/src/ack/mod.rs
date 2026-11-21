@@ -268,7 +268,7 @@ impl Changes {
 
     /// The notice that tells the agent what changed and how to read it, or
     /// None when only the order of the sections changed.
-    fn notice(&self, places: &Places) -> Option<String> {
+    fn notice(&self, text: &Text) -> Option<String> {
         let (changed, removed, intro) = match self {
             Changes::Since { changed, removed } => (
                 changed.as_slice(),
@@ -288,7 +288,8 @@ impl Changes {
         if !changed.is_empty() {
             out += "Read these sections:\n";
             for name in changed {
-                out += &format!("  {}\n", text::how_to_read(places, name));
+                let how = text.how_to_read(name).unwrap_or(name);
+                out += &format!("  {how}\n");
             }
         }
         if !removed.is_empty() {
@@ -314,7 +315,7 @@ fn check(
     let text = agent.text(places)?;
     match agent.standing(&text, now)? {
         Standing::Current => Ok(None),
-        Standing::Changed(changes) => Ok(changes.notice(places)),
+        Standing::Changed(changes) => Ok(changes.notice(&text)),
         Standing::NotAcknowledged => fail!(
             "builds refuses this command until you read the text every agent reads before it works, and acknowledge it: {} has not acknowledged it in this Claude Code session. Run `builds ack{}`, read every part it lists, and acknowledge them; then run this command again.",
             agent.name(),
@@ -386,8 +387,7 @@ fn ack(
 /// Starts a reading of the whole text: draws the tokens of its parts, and
 /// gives the command for part 1.
 fn start(agent: &Agent, text: &Text, now: i64) -> Result<String> {
-    let shown: Vec<String> = text.sections.iter().map(|s| s.name.clone()).collect();
-    let parts = text.parts(&shown);
+    let parts = text.parts();
     let mut tokens = Vec::new();
     for _ in 0..=parts.len() {
         tokens.push(token()?);
@@ -397,15 +397,7 @@ fn start(agent: &Agent, text: &Text, now: i64) -> Result<String> {
     let tx = db
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .sql()?;
-    record::start_reading(
-        &tx,
-        &agent.session,
-        &agent.id,
-        &version,
-        now,
-        &shown,
-        &tokens,
-    )?;
+    record::start_reading(&tx, &agent.session, &agent.id, &version, now, &tokens)?;
     tx.commit().sql()?;
     Ok(format!(
         "builds ack: the text is version {version}, in {} parts.\n  builds ack part 1 {}{}\n",
@@ -448,7 +440,7 @@ fn reading_of(agent: &Agent, text: &Text) -> Result<record::Reading> {
 /// token of the part before it (the opening output's for part 1).
 fn part_of(agent: &Agent, text: &Text, part: &str, token: &str) -> Result<String> {
     let reading = reading_of(agent, text)?;
-    let parts = text.parts(&reading.sections);
+    let parts = text.parts();
     let count = parts.len();
     let number = match part.parse::<usize>() {
         Ok(number) if (1..=count).contains(&number) => number,

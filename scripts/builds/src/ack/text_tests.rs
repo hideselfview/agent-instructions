@@ -88,6 +88,7 @@ fn a_section_the_text_lost_is_removed_and_not_changed() {
 fn long_text() -> Text {
     let section = |name: &str, lines: usize| Section {
         name: name.to_string(),
+        how_to_read: name.to_string(),
         text: (0..lines)
             .map(|n| format!("{name} line {n} {}", "x".repeat(60)))
             .collect::<Vec<_>>()
@@ -101,7 +102,7 @@ fn long_text() -> Text {
 #[test]
 fn each_part_stays_under_the_limit_and_the_parts_hold_every_line() {
     let text = long_text();
-    let parts = text.parts(&["first".to_string(), "second".to_string()]);
+    let parts = text.parts();
     assert!(parts.len() > 1);
     for part in &parts {
         let bytes: usize = part.iter().map(|line| line.len() + 1).sum();
@@ -114,13 +115,6 @@ fn each_part_stays_under_the_limit_and_the_parts_hold_every_line() {
         }
     }
     assert!(parts[1][0].starts_with("===== first, continued"));
-}
-
-#[test]
-fn the_parts_hold_only_the_sections_the_caller_names() {
-    let parts = long_text().parts(&["second".to_string()]);
-    assert_eq!(parts.len(), 1);
-    assert_eq!(parts[0][0], "===== second (section 1 of 1) =====");
 }
 
 #[test]

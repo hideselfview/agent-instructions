@@ -5,12 +5,11 @@
 -- them apart.
 
 -- Each agent's last acknowledgement of the text: the version of the text it
--- read and when.
+-- read.
 CREATE TABLE ack (
     session TEXT NOT NULL CONSTRAINT ack_session_is_named CHECK (session <> ''),
     agent TEXT NOT NULL CONSTRAINT ack_agent_is_named CHECK (agent <> ''),
     version TEXT NOT NULL CONSTRAINT ack_version_is_named CHECK (version <> ''),
-    at INTEGER NOT NULL,
     PRIMARY KEY (session, agent)
 ) STRICT, WITHOUT ROWID;
 
@@ -42,19 +41,6 @@ CREATE TABLE ack_reading (
     version TEXT NOT NULL CONSTRAINT ack_reading_version_is_named CHECK (version <> ''),
     started_at INTEGER NOT NULL,
     PRIMARY KEY (session, agent)
-) STRICT, WITHOUT ROWID;
-
--- The sections a reading holds, by name, in the order its parts show them:
--- every section of the text, or only those that changed since the version
--- of that text the agent last acknowledged.
-CREATE TABLE ack_reading_section (
-    session TEXT NOT NULL,
-    agent TEXT NOT NULL,
-    position INTEGER NOT NULL CONSTRAINT ack_reading_section_position_counts_from_one CHECK (position >= 1),
-    name TEXT NOT NULL CONSTRAINT ack_reading_section_name_is_named CHECK (name <> ''),
-    PRIMARY KEY (session, agent, position),
-    UNIQUE (session, agent, name),
-    FOREIGN KEY (session, agent) REFERENCES ack_reading (session, agent) ON DELETE CASCADE
 ) STRICT, WITHOUT ROWID;
 
 -- The tokens of a reading. Part N's token is in the last line of part N's

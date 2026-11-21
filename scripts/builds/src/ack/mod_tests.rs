@@ -187,8 +187,7 @@ fn each_part_shows_the_text_unchanged_and_ends_with_the_next_commands_token() {
     let world = world("ack-chain");
     let started = world.ack(&[], NOON).unwrap();
     let text = Text::read(&world.places, "bae").unwrap();
-    let names: Vec<String> = text.sections.iter().map(|s| s.name.clone()).collect();
-    let parts = text.parts(&names);
+    let parts = text.parts();
     assert!(parts.len() >= 2, "the workflow alone fills two parts");
     assert!(
         started.contains(&format!("in {} parts", parts.len())),
@@ -321,16 +320,18 @@ fn an_edit_of_a_rule_passes_the_command_with_one_notice_naming_the_changed_secti
 }
 
 #[test]
-fn the_notice_gives_the_help_command_of_a_changed_help() {
-    let places = world("ack-how-to-read").places;
+fn each_section_says_how_to_read_it() {
+    let world = world("ack-how-to-read");
+    let text = Text::read(&world.places, "bae").unwrap();
     assert_eq!(
-        text::how_to_read(&places, "builds help workflow"),
-        "builds help workflow"
+        text.how_to_read("builds help workflow"),
+        Some("builds help workflow")
     );
     assert_eq!(
-        text::how_to_read(&places, "builds help lists overview"),
-        "builds help lists"
+        text.how_to_read("builds help lists overview"),
+        Some("builds help lists")
     );
+    assert_eq!(text.how_to_read("rules/gone.md"), None);
 }
 
 #[test]

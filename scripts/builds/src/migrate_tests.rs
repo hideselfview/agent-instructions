@@ -1855,17 +1855,7 @@ fn a_store_from_before_the_ack_tokens_loses_its_readings_and_equals_a_fresh_sche
     {
         let conn = Connection::open(&path).unwrap();
         conn.execute_batch(&db::schema_before_ack_tokens()).unwrap();
-        conn.execute(
-            "INSERT INTO ack (session, agent, version, at) VALUES ('s', 'a', 'v1', 5)",
-            [],
-        )
-        .unwrap();
-        conn.execute_batch(
-            "INSERT INTO ack_reading (session, agent, version, started_at) VALUES ('s', 'a', 'v1', 6);
-             INSERT INTO ack_reading_section (session, agent, position, name) VALUES ('s', 'a', 1, 'help');
-             INSERT INTO ack_word (session, agent, part, position, word) VALUES ('s', 'a', 1, 1, 'kodamir');",
-        )
-        .unwrap();
+        crate::ack::record::tests::plant_before_tokens(&conn).unwrap();
         conn.pragma_update(None, "user_version", BEFORE_ACK_TOKENS_STAMP)
             .unwrap();
     }
@@ -1875,12 +1865,57 @@ fn a_store_from_before_the_ack_tokens_loses_its_readings_and_equals_a_fresh_sche
         db::schema_rows(&conn).unwrap(),
         db::schema_rows(&db::memory()).unwrap()
     );
-    for (table, expected) in [("ack", 1), ("ack_reading", 0), ("ack_reading_section", 0)] {
+    for (table, expected) in [("ack", 1), ("ack_reading", 0)] {
         let rows: i64 = conn
             .query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
                 row.get(0)
             })
             .unwrap();
         assert_eq!(rows, expected, "{table}");
+    }
+}
+
+#[test]
+fn the_ack_unread_stamp_is_the_schema_before_it() {
+    assert_eq!(
+        db::stamp_of_text(&db::schema_before_ack_unread()),
+        BEFORE_ACK_UNREAD_STAMP
+    );
+}
+
+/// A store from before nothing read the time of an acknowledgement or the
+/// sections of a reading keeps its acknowledgements and readings, loses the
+/// time and the sections' table, and equals a fresh schema.
+#[test]
+fn a_store_from_before_the_unread_columns_keeps_its_acks_and_equals_a_fresh_schema() {
+    let scratch = Scratch::new("move-ack-unread");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&db::schema_before_ack_unread()).unwrap();
+        crate::ack::record::tests::plant_before_unread(&conn).unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_ACK_UNREAD_STAMP)
+            .unwrap();
+    }
+    migrate_stores(&places, 0).unwrap();
+    let conn = db::open(&path, db::Make::Never).unwrap();
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    let version: String = conn
+        .query_row("SELECT version FROM ack", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(version, "v1");
+    for table in ["ack_reading", "ack_token"] {
+        let rows: i64 = conn
+            .query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(rows, 1, "{table}");
     }
 }

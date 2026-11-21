@@ -329,6 +329,68 @@ pub fn with_review_texts(schema: String) -> String {
         .replacen(EXCHANGE, &format!("{REVIEW_TEXT_TABLE}{EXCHANGE}"), 1)
 }
 
+/// The acknowledgements' table as it was before nothing read the time of an
+/// acknowledgement, with its comment.
+#[cfg(test)]
+const ACK_TABLE_WITH_TIME: &str =
+    "-- Each agent's last acknowledgement of the text: the version of the text it
+-- read and when.
+CREATE TABLE ack (
+    session TEXT NOT NULL CONSTRAINT ack_session_is_named CHECK (session <> ''),
+    agent TEXT NOT NULL CONSTRAINT ack_agent_is_named CHECK (agent <> ''),
+    version TEXT NOT NULL CONSTRAINT ack_version_is_named CHECK (version <> ''),
+    at INTEGER NOT NULL,
+    PRIMARY KEY (session, agent)
+) STRICT, WITHOUT ROWID;";
+
+/// The table of the sections a reading held, with its comment, as it was
+/// before every reading held the whole text.
+#[cfg(test)]
+const ACK_READING_SECTION_TABLE: &str = "-- The sections a reading holds, by name, in the order its parts show them:
+-- every section of the text, or only those that changed since the version
+-- of that text the agent last acknowledged.
+CREATE TABLE ack_reading_section (
+    session TEXT NOT NULL,
+    agent TEXT NOT NULL,
+    position INTEGER NOT NULL CONSTRAINT ack_reading_section_position_counts_from_one CHECK (position >= 1),
+    name TEXT NOT NULL CONSTRAINT ack_reading_section_name_is_named CHECK (name <> ''),
+    PRIMARY KEY (session, agent, position),
+    UNIQUE (session, agent, name),
+    FOREIGN KEY (session, agent) REFERENCES ack_reading (session, agent) ON DELETE CASCADE
+) STRICT, WITHOUT ROWID;
+
+";
+
+/// <schema> as it was before nothing read the time of an acknowledgement or
+/// the sections of a reading: with the acknowledgements' table keeping the
+/// time and the table of a reading's sections. A schema with no
+/// acknowledgements' table is returned as it is.
+#[cfg(test)]
+pub fn with_ack_unread(schema: String) -> String {
+    const START: &str = "-- Each agent's last acknowledgement of the text: the version of the text it\n-- read.\nCREATE TABLE ack (";
+    const TOKENS: &str = "-- The tokens of a reading.";
+    if !schema.contains(START) {
+        return schema;
+    }
+    let table = format!(
+        "{}{}",
+        "-- Each agent's last acknowledgement of the text: the version of the text it\n-- read.\n",
+        statement(&schema, "CREATE TABLE ack (", ") STRICT, WITHOUT ROWID;")
+    );
+    schema.replacen(&table, ACK_TABLE_WITH_TIME, 1).replacen(
+        TOKENS,
+        &format!("{ACK_READING_SECTION_TABLE}{TOKENS}"),
+        1,
+    )
+}
+
+/// The schema as it was before nothing read the time of an acknowledgement or
+/// the sections of a reading.
+#[cfg(test)]
+pub fn schema_before_ack_unread() -> String {
+    with_ack_unread(SCHEMA.to_string())
+}
+
 /// The table of a reading's made-up words as it was before a reading's parts
 /// were chained by tokens.
 #[cfg(test)]
@@ -347,6 +409,7 @@ const ACK_WORD_TABLE: &str = "CREATE TABLE ack_word (
 /// such table is returned as it is.
 #[cfg(test)]
 pub fn with_ack_words(schema: String) -> String {
+    let schema = with_ack_unread(schema);
     const START: &str = "CREATE TABLE ack_token (";
     if !schema.contains(START) {
         return schema;

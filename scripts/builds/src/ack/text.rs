@@ -27,6 +27,8 @@ pub const PART_BYTES: usize = 20_000;
 pub struct Section {
     pub name: String,
     pub text: String,
+    /// The command or file path that prints the section.
+    pub how_to_read: String,
 }
 
 impl Section {
@@ -54,15 +56,18 @@ impl Text {
         sections.push(Section {
             name: "builds help workflow".to_string(),
             text: crate::help::WORKFLOW_HELP.to_string(),
+            how_to_read: "builds help workflow".to_string(),
         });
         sections.push(Section {
             name: "builds help lists overview".to_string(),
             text: crate::help::LISTS_OVERVIEW.to_string(),
+            how_to_read: "builds help lists".to_string(),
         });
         let root = crate::review::installed_rules_root(&places.home);
         for rule in rules::load(&root, Some(project))? {
             if covers_every_file(&rule) {
                 sections.push(Section {
+                    how_to_read: root.join(&rule.path).display().to_string(),
                     name: rule.path.clone(),
                     text: rule.text,
                 });
@@ -117,21 +122,26 @@ impl Text {
             .collect()
     }
 
-    /// Splits the lines of the sections named <shown>, in the text's order,
+    /// How to read the section named <name>, or None when the text has no
+    /// such section.
+    pub fn how_to_read(&self, name: &str) -> Option<&str> {
+        self.sections
+            .iter()
+            .find(|section| section.name == name)
+            .map(|section| section.how_to_read.as_str())
+    }
+
+    /// Splits the lines of every section, in the text's order,
     /// into parts of at most `PART_BYTES` bytes. Each section starts with a
     /// line that names it, and a part that starts inside a section says so
     /// on its first line.
-    pub fn parts(&self, shown: &[String]) -> Vec<Vec<String>> {
-        let sections: Vec<&Section> = self
-            .sections
-            .iter()
-            .filter(|section| shown.contains(&section.name))
-            .collect();
+    pub fn parts(&self) -> Vec<Vec<String>> {
+        let sections = &self.sections;
         let count = sections.len();
         let mut parts: Vec<Vec<String>> = Vec::new();
         let mut lines: Vec<String> = Vec::new();
         let mut bytes = 0;
-        for (index, section) in sections.into_iter().enumerate() {
+        for (index, section) in sections.iter().enumerate() {
             let heading = format!(
                 "===== {} (section {} of {count}) =====",
                 section.name,
@@ -158,20 +168,6 @@ impl Text {
             parts.push(lines);
         }
         parts
-    }
-}
-
-/// The command or path that prints the section named <name>: `builds help`
-/// for the two helps, and the file of a rule in the checkout that install.sh
-/// links.
-pub fn how_to_read(places: &Places, name: &str) -> String {
-    match name {
-        "builds help workflow" => "builds help workflow".to_string(),
-        "builds help lists overview" => "builds help lists".to_string(),
-        rule => crate::review::installed_rules_root(&places.home)
-            .join(rule)
-            .display()
-            .to_string(),
     }
 }
 
