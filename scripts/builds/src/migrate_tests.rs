@@ -1765,3 +1765,36 @@ fn a_store_from_before_the_marked_mechanical_table_gains_it_and_equals_a_fresh_s
         db::schema_rows(&db::memory()).unwrap()
     );
 }
+
+/// The stamp the shots drops' move leaves is the schema before them.
+#[test]
+fn the_app_shots_drop_stamp_is_the_schema_before_it() {
+    assert_eq!(
+        db::stamp_of_text(&db::schema_before_app_shots_drop()),
+        BEFORE_APP_SHOTS_DROP_STAMP
+    );
+}
+
+/// A store from before agents could drop a shots prefix from a landing gains
+/// the empty table and equals a fresh schema.
+#[test]
+fn a_store_from_before_the_shots_drops_gains_the_table_and_equals_a_fresh_schema() {
+    let scratch = Scratch::new("move-shots-drop");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&db::schema_before_app_shots_drop())
+            .unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_APP_SHOTS_DROP_STAMP)
+            .unwrap();
+    }
+    migrate_stores(&places, 0).unwrap();
+    let conn = db::open(&path, db::Make::Never).unwrap();
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+}

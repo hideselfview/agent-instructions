@@ -524,3 +524,90 @@ fn a_recorded_run_reads_back_whole() {
     record(&path, &bare).unwrap();
     assert_eq!(read_runs(&path).unwrap(), vec![built, bare]);
 }
+
+/// The shots prefixes a branch's app builds ran come back once each, whatever
+/// the run's outcome and whether the step passed or failed; a step a signal
+/// stopped, runs of another ref, lane or repo, and runs before the branch's
+/// first commit do not.
+#[test]
+fn the_shots_prefixes_a_branch_ran_come_back_once_each_whatever_their_result() {
+    let scratch = Scratch::new("timing-shots-ran");
+    let path = store(&scratch);
+    let shots = |name: &str, result: StepResult| {
+        step(&format!("shots {name}"), StepKind::Shots, NOW, 1, result)
+    };
+    let mut first = run(
+        NOW,
+        Lane::Mac,
+        0,
+        RunEnd::Failed,
+        vec![
+            shots("mac.nowplaying.", StepResult::Failed(Default::default())),
+            shots("mac.seek.", StepResult::Passed),
+            step("macos", StepKind::Step, NOW, 1, StepResult::Passed),
+        ],
+    );
+    first.built_commit = Some("a".repeat(40));
+    record(&path, &first).unwrap();
+    let mut second = run(
+        NOW + 5,
+        Lane::Mac,
+        0,
+        RunEnd::Passed,
+        vec![
+            shots("mac.seek.", StepResult::Passed),
+            shots("mac.stopped.", StepResult::Stopped),
+        ],
+    );
+    second.built_commit = Some("b".repeat(40));
+    record(&path, &second).unwrap();
+    let mut other_ref = run(
+        NOW,
+        Lane::Mac,
+        0,
+        RunEnd::Passed,
+        vec![shots("mac.x.", StepResult::Passed)],
+    );
+    other_ref.built_ref = "other".to_string();
+    record(&path, &other_ref).unwrap();
+    record(
+        &path,
+        &run(
+            NOW,
+            Lane::Android,
+            0,
+            RunEnd::Passed,
+            vec![shots("android.x.", StepResult::Passed)],
+        ),
+    )
+    .unwrap();
+    let mut other_repo = run(
+        NOW,
+        Lane::Mac,
+        0,
+        RunEnd::Passed,
+        vec![shots("mac.y.", StepResult::Passed)],
+    );
+    other_repo.repo = "coven".to_string();
+    record(&path, &other_repo).unwrap();
+    record(
+        &path,
+        &run(
+            NOW - 100,
+            Lane::Mac,
+            0,
+            RunEnd::Passed,
+            vec![shots("mac.old.", StepResult::Failed(Default::default()))],
+        ),
+    )
+    .unwrap();
+    let conn = crate::db::open_reader(&path).unwrap().unwrap();
+    assert_eq!(
+        shots_ran(&conn, "bae", Lane::Mac, "branch", NOW, &path).unwrap(),
+        ["mac.nowplaying.", "mac.seek."]
+    );
+    assert_eq!(
+        shots_ran(&conn, "bae", Lane::Mac, "branch", NOW - 200, &path).unwrap(),
+        ["mac.nowplaying.", "mac.old.", "mac.seek."]
+    );
+}

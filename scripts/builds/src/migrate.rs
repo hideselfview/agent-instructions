@@ -237,13 +237,16 @@ const BEFORE_REVIEW_TEXTS_ON_VOLUME_STAMP: i64 = 1_364_416_336;
 /// mechanical.
 const BEFORE_MARKED_MECHANICAL_STAMP: i64 = 332_045_652;
 
+/// The stamp of the schema before the shots prefixes dropped from a landing.
+const BEFORE_APP_SHOTS_DROP_STAMP: i64 = 1_544_708_784;
+
 /// The stamp of today's schema (`db::STAMP`). A change to the schema changes
 /// its stamp, and builds then fails to compile until the change gives it a
 /// move from this schema, since every store carries this stamp: the change
 /// adds the move, puts this stamp at the end of `STAMPS` under a name that
 /// says what the schema lacked, and sets this to the new schema's stamp, which
 /// the compiler's error names.
-const SCHEMA_STAMP: i64 = 1_544_708_784;
+const SCHEMA_STAMP: i64 = 393_821_130;
 
 // The compiler refuses a schema whose stamp is not SCHEMA_STAMP. A const
 // assert could not print the new stamp, so the check compares two array
@@ -253,7 +256,7 @@ const _: [(); SCHEMA_STAMP as usize] = [(); db::STAMP as usize];
 
 /// Every stamp a store can carry that `move_store` moves, oldest schema first.
 /// A new move adds the stamp of the schema before it at the end.
-const STAMPS: [i64; 27] = [
+const STAMPS: [i64; 28] = [
     BEFORE_CONDITION_ENDERS_STAMP,
     BEFORE_ITEM_EVENT_STAMP,
     BEFORE_LAND_RUN_STAMP,
@@ -281,6 +284,7 @@ const STAMPS: [i64; 27] = [
     BEFORE_SHOTS_ON_VOLUME_STAMP,
     BEFORE_REVIEW_TEXTS_ON_VOLUME_STAMP,
     BEFORE_MARKED_MECHANICAL_STAMP,
+    BEFORE_APP_SHOTS_DROP_STAMP,
 ];
 
 /// Whether a store stamped <found> comes before the move that follows the
@@ -524,6 +528,11 @@ pub fn move_store(places: &Places, path: &Path, now: i64) -> Result<()> {
     // mechanical gets the empty table: none was marked yet.
     if before(found, BEFORE_MARKED_MECHANICAL_STAMP) {
         tx.execute_batch(db::MARKED_MECHANICAL_PART).sql()?;
+    }
+    // Every store from before an agent could drop a shots prefix from a
+    // landing gets the empty table: none was dropped yet.
+    if before(found, BEFORE_APP_SHOTS_DROP_STAMP) {
+        tx.execute_batch(db::APP_SHOTS_DROP_PART).sql()?;
     }
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     let broken: Option<String> = tx

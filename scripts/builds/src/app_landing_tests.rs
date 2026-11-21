@@ -31,17 +31,35 @@ fn check(
     from_result: &[(&str, &[&str])],
     from_branch: &[(&str, &[&str])],
 ) -> Vec<Need> {
+    check_shots(changed, runs, &[], from_result, from_branch)
+}
+
+/// `check`, for a landing whose mac lane requires the shots prefixes of
+/// <required>: those the branch's app builds ran, less the dropped ones.
+fn check_shots(
+    changed: &[&str],
+    runs: &[(Lane, PassedRun)],
+    required: &[&str],
+    from_result: &[(&str, &[&str])],
+    from_branch: &[(&str, &[&str])],
+) -> Vec<Need> {
     needs(
         &config(),
         &paths(changed),
-        "result",
-        "branch",
+        ("result", "branch"),
         &mut |lane| {
             Ok(runs
                 .iter()
                 .filter(|(own, _)| *own == lane)
                 .map(|(_, run)| run.clone())
                 .collect())
+        },
+        &mut |lane| {
+            Ok(if lane == Lane::Mac {
+                paths(required)
+            } else {
+                Vec::new()
+            })
         },
         &mut |commit, target| {
             let differs = match target {
@@ -120,7 +138,11 @@ fn a_lane_with_no_build_of_the_branch_is_unbuilt() {
         ),
         [Need::Unbuilt(Unbuilt {
             lane: Lane::Mac,
-            newest: Some(("older".to_string(), paths(&["bae-macos/Card.swift"]))),
+            newest: Some(Newest {
+                commit: "older".to_string(),
+                paths: paths(&["bae-macos/Card.swift"]),
+                missing_shots: Vec::new(),
+            }),
         })]
     );
 }
@@ -139,7 +161,11 @@ fn a_build_covers_a_lane_only_when_it_passed_every_step_the_change_needs() {
         ),
         [Need::Unbuilt(Unbuilt {
             lane: Lane::Mac,
-            newest: Some(("app-only".to_string(), Vec::new())),
+            newest: Some(Newest {
+                commit: "app-only".to_string(),
+                paths: Vec::new(),
+                missing_shots: Vec::new(),
+            }),
         })]
     );
     assert_eq!(
@@ -211,7 +237,11 @@ fn the_refusal_names_each_lane_the_paths_and_the_next_steps() {
     let many: Vec<String> = (0..12).map(|n| format!("bae-macos/F{n}.swift")).collect();
     let mac = Unbuilt {
         lane: Lane::Mac,
-        newest: Some(("0123456789abcdef".to_string(), many)),
+        newest: Some(Newest {
+            commit: "0123456789abcdef".to_string(),
+            paths: many,
+            missing_shots: Vec::new(),
+        }),
     };
     let android = Unbuilt {
         lane: Lane::Android,
@@ -250,6 +280,233 @@ fn a_result_with_no_app_build_file_needs_no_build_in_a_repo_two_projects_hold() 
         "HEAD".into(),
         "HEAD".into(),
         "HEAD".into(),
+        "work".into(),
     ];
+    cmd_landing_build(&places, &args).unwrap();
+}
+
+/// A branch ran the shots of two screens and the first failed as worse than
+/// its base. A later passing build that ran only the second covers neither
+/// the result nor the branch: the first prefix has no passing run.
+#[test]
+fn a_build_that_skipped_a_shots_prefix_the_branch_ran_covers_nothing() {
+    let run = passed("built", &["macos", "macos-shots", "shots mac.seek."]);
+    let same = [("built", &[] as &[&str])];
+    assert_eq!(
+        check_shots(
+            &["bae-macos/Card.swift"],
+            &[(Lane::Mac, run)],
+            &["mac.nowplaying.", "mac.seek."],
+            &same,
+            &same,
+        ),
+        [Need::Unbuilt(Unbuilt {
+            lane: Lane::Mac,
+            newest: Some(Newest {
+                commit: "built".to_string(),
+                paths: Vec::new(),
+                missing_shots: paths(&["mac.nowplaying."]),
+            }),
+        })]
+    );
+}
+
+/// An older passing build that ran every prefix the branch ran is the
+/// branch's build, and a run of a prefix that the requirement starts with
+/// (the whole lane's `mac.`) covers it.
+#[test]
+fn a_build_that_ran_every_shots_prefix_the_branch_ran_covers_it() {
+    let seek_only = passed("newer", &["macos", "macos-shots", "shots mac.seek."]);
+    let both = passed(
+        "older",
+        &[
+            "macos",
+            "macos-shots",
+            "shots mac.nowplaying.",
+            "shots mac.seek.",
+        ],
+    );
+    let all = passed("all", &["macos", "macos-shots", "shots mac."]);
+    let same = [("newer", &[] as &[&str]), ("older", &[]), ("all", &[])];
+    let required = ["mac.nowplaying.", "mac.seek."];
+    assert_eq!(
+        check_shots(
+            &["bae-macos/Card.swift"],
+            &[(Lane::Mac, seek_only.clone()), (Lane::Mac, both)],
+            &required,
+            &[
+                ("newer", &["bae-macos/Other.swift"]),
+                ("older", &["bae-macos/Other.swift"])
+            ],
+            &same,
+        ),
+        [Need::Build {
+            lane: Lane::Mac,
+            steps: paths(&[
+                "macos",
+                "macos-shots",
+                "shots mac.nowplaying.",
+                "shots mac.seek."
+            ]),
+        }]
+    );
+    assert_eq!(
+        check_shots(
+            &["bae-macos/Card.swift"],
+            &[(Lane::Mac, seek_only), (Lane::Mac, all)],
+            &required,
+            &same,
+            &same,
+        ),
+        []
+    );
+}
+
+/// Land splits the lines about dropped prefixes from the build command.
+#[test]
+fn the_output_splits_the_dropped_lines_from_the_rest() {
+    let drops = [Drop {
+        prefix: "mac.seek.".into(),
+        by: "agent-1".into(),
+        why: "the board changed".into(),
+    }];
+    let line = dropped_lines(Lane::Mac, &drops).remove(0);
+    assert_eq!(
+        line,
+        "shots dropped: the mac shots prefix mac.seek. needs no run before the landing; agent-1 recorded why: the board changed"
+    );
+    let said = format!("{line}\nbuilds app-build bae abc macos");
+    assert_eq!(
+        split_output(&said),
+        (
+            vec![line.as_str()],
+            "builds app-build bae abc macos".to_string()
+        )
+    );
+    assert_eq!(split_output(""), (vec![], String::new()));
+}
+
+/// The refusal for a missing shots prefix names it and the drop command.
+#[test]
+fn the_refusal_names_the_missing_shots_prefixes_and_how_to_drop_one() {
+    let mac = Unbuilt {
+        lane: Lane::Mac,
+        newest: Some(Newest {
+            commit: "0123456789abcdef".to_string(),
+            paths: Vec::new(),
+            missing_shots: paths(&["mac.nowplaying.", "mac.seek."]),
+        }),
+    };
+    let said = refusal("bae", "/w/side-3", "fedcba9876543210", &[&mac]);
+    assert!(
+        said.contains("mac: the newest passing mac app build, of 0123456789ab, did not run the shots prefixes mac.nowplaying., mac.seek. that the app builds of the branch ran since its merge base"),
+        "{said}"
+    );
+    assert!(
+        said.contains("`builds app-build --drop-shots bae <branch> <lane> <prefix> --why TEXT`"),
+        "{said}"
+    );
+    assert!(!said.contains("did not pass every step"), "{said}");
+}
+
+/// The whole command, on a real repo and store: the branch's first build ran
+/// the shots of two screens and one failed; its second build passed only the
+/// other screen's shots. Land is refused until a passing build runs the first
+/// prefix or an agent records why the branch drops it.
+#[test]
+fn a_landing_whose_covering_build_skipped_a_failed_prefix_is_refused_until_it_is_dropped() {
+    use crate::app_timing::{StepKind, StepRecord, StepResult};
+    use crate::run_end::RunEnd;
+    let scratch = crate::testing::Scratch::new("app-landing-shots-gate");
+    let places = scratch.places();
+    let dir = scratch.dir.join("bae");
+    crate::testing::repo(&dir, "target 1\n");
+    let write = |path: &str, text: &str| {
+        std::fs::create_dir_all(dir.join(path).parent().unwrap()).unwrap();
+        std::fs::write(dir.join(path), text).unwrap();
+    };
+    write(
+        ".app-build",
+        "step mac macos ./macos.sh\non bae-macos/ macos\n",
+    );
+    write("bae-macos/a.swift", "one\n");
+    crate::testing::git(&dir, &["add", ".app-build", "bae-macos/a.swift"]);
+    crate::testing::git(&dir, &["commit", "-q", "-m", "base"]);
+    let before = crate::testing::git_out(&dir, &["rev-parse", "HEAD"]);
+    crate::testing::git(&dir, &["checkout", "-q", "-b", "work"]);
+    write("bae-macos/a.swift", "two\n");
+    crate::testing::git(&dir, &["commit", "-q", "-a", "-m", "change"]);
+    let head = crate::testing::git_out(&dir, &["rev-parse", "HEAD"]);
+    let since: i64 = crate::testing::git_out(&dir, &["log", "-1", "--format=%at"])
+        .parse()
+        .unwrap();
+    let store = crate::lists::fixtures::make_store_named(&places, "demo", &["bae"]);
+    let record_run = |at: i64, outcome: RunEnd, steps: &[(&str, StepKind, StepResult)]| {
+        let run = crate::app_timing::RunRecord {
+            started_at: at,
+            repo: "bae".to_string(),
+            lane: Lane::Mac,
+            checkout: "side-1".to_string(),
+            built_ref: "work".to_string(),
+            built_commit: Some(head.clone()),
+            who: None,
+            wait_ms: 0,
+            outcome,
+            load: None,
+            steps: steps
+                .iter()
+                .map(|(name, kind, result)| StepRecord {
+                    name: name.to_string(),
+                    kind: *kind,
+                    started_at: at,
+                    wall_ms: 1,
+                    cpu_ms: 1,
+                    result: result.clone(),
+                })
+                .collect(),
+        };
+        crate::app_timing::record(&store.database(), &run).unwrap();
+    };
+    record_run(
+        since + 1,
+        RunEnd::Failed,
+        &[
+            ("macos", StepKind::Step, StepResult::Passed),
+            (
+                "shots mac.nowplaying.",
+                StepKind::Shots,
+                StepResult::Failed(Default::default()),
+            ),
+        ],
+    );
+    record_run(
+        since + 2,
+        RunEnd::Passed,
+        &[
+            ("macos", StepKind::Step, StepResult::Passed),
+            ("shots mac.seek.", StepKind::Shots, StepResult::Passed),
+        ],
+    );
+    let args = [
+        dir.display().to_string(),
+        before,
+        head.clone(),
+        head,
+        "work".to_string(),
+    ];
+    assert!(cmd_landing_build(&places, &args).is_err());
+    let stamp = crate::lists::fixtures::stamp(since + 3);
+    store
+        .write(&stamp, "drop shots", |db| {
+            crate::app_shots_drop::record(
+                db,
+                ("bae", "work"),
+                Lane::Mac,
+                "mac.nowplaying.",
+                "the board moved",
+                &stamp,
+            )
+        })
+        .unwrap();
     cmd_landing_build(&places, &args).unwrap();
 }

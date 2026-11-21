@@ -477,6 +477,40 @@ pub fn passed_runs(
     Ok(passed)
 }
 
+/// The shots prefixes that app builds of <repo>'s <lane> named <branch>
+/// (`built_ref`) ran to a verdict, passed or not, in runs that started at or
+/// after <since> (seconds since 1970), in the database open as <conn> at
+/// <path>, each once, in name order.
+pub fn shots_ran(
+    conn: &Connection,
+    repo: &str,
+    lane: Lane,
+    branch: &str,
+    since: i64,
+    path: &Path,
+) -> Result<Vec<String>> {
+    let what = || format!("reading {}", path.display());
+    let mut statement = conn
+        .prepare(
+            "SELECT DISTINCT s.name FROM app_build_steps s
+             JOIN app_build_runs r ON r.id = s.run_id
+             WHERE r.repo = ?1 AND r.lane = ?2 AND r.built_ref = ?3 AND r.started_at >= ?4
+               AND s.kind = 'shots' AND s.result IN ('passed', 'failed', 'timed out')
+             ORDER BY s.name",
+        )
+        .context(what)?;
+    let names: Vec<String> = statement
+        .query_map(params![repo, lane.word(), branch, since], |row| row.get(0))
+        .context(what)?
+        .collect::<std::result::Result<_, _>>()
+        .context(what)?;
+    let step = PickKind::Shots.step_prefix();
+    Ok(names
+        .into_iter()
+        .map(|name| name.strip_prefix(step).unwrap_or(&name).to_string())
+        .collect())
+}
+
 /// Each app build run's queue wait and each step, of the runs and steps that
 /// started at or after <since>, as waits (waits.rs), whatever their result,
 /// each with the load of the run's host when the run took its checkout.

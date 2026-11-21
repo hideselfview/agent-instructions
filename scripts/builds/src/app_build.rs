@@ -1909,7 +1909,7 @@ pub fn lane_requested(argv: &[String]) -> Option<&str> {
 pub fn requested(argv: &[String]) -> Option<(&str, &str)> {
     match argv {
         [_, command, repo, reference, ..]
-            if command == "app-build" && !reference.starts_with('-') =>
+            if command == "app-build" && !repo.starts_with('-') && !reference.starts_with('-') =>
         {
             Some((repo.as_str(), reference.as_str()))
         }
@@ -1925,6 +1925,11 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
         && flag == crate::app_landing::FLAG
     {
         return crate::app_landing::cmd_landing_build(places, rest);
+    }
+    if let [flag, rest @ ..] = args
+        && flag == crate::app_shots_drop::FLAG
+    {
+        return crate::app_shots_drop::cmd_drop_shots(tool, rest);
     }
     if let [flag, rest @ ..] = args
         && flag == crate::handed_runs::FLAG

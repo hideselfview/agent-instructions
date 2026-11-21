@@ -1161,7 +1161,7 @@ fn a_result_the_branch_has_no_app_build_for_is_refused_and_nothing_is_pushed() {
     assert_eq!(head_of(&one), a);
     assert_eq!(
         calls.last().unwrap(),
-        &format!("app-build --landing-build {dir} {before} {a} {a}")
+        &format!("app-build --landing-build {dir} {before} {a} {a} a")
     );
 }
 
@@ -1195,7 +1195,7 @@ fn a_result_on_a_newer_main_is_built_in_the_worktree_before_it_is_pushed() {
         .iter()
         .position(|c| {
             c == &format!(
-                "app-build --landing-build {} {a} {result} {b}",
+                "app-build --landing-build {} {a} {result} {b} b",
                 two.display()
             )
         })
@@ -1214,6 +1214,34 @@ fn a_result_on_a_newer_main_is_built_in_the_worktree_before_it_is_pushed() {
         format!("app-build ran in {}", two.display())
     );
     assert!(out.contains(&format!("builds {build}")), "{out}");
+}
+
+/// A shots prefix an agent dropped is printed by land, with who dropped it and
+/// why, ahead of the build it still runs.
+#[test]
+fn a_dropped_shots_prefix_is_printed_with_its_reason() {
+    let f = fixture("land-app-dropped", "true\n", None);
+    let (one, a, two, b) = two_branches(&f);
+    let (code, _, _) = run_land(&f, &one, &["--done", "7", &a], project());
+    assert!(code == 0 && main_of(&f) == a);
+    let (code, out, _) = run_land(
+        &f,
+        &two,
+        &["--done", "8", &b],
+        Cues {
+            landing_build: "echo 'shots dropped: the mac shots prefix mac.seek. needs no run before the landing; agent recorded why: the board moved'; echo \"builds app-build bae $5 macos\"",
+            ..project()
+        },
+    );
+    assert_eq!(code, 0, "{out}");
+    assert!(
+        out.contains("shots dropped: the mac shots prefix mac.seek. needs no run before the landing; agent recorded why: the board moved"),
+        "{out}"
+    );
+    assert!(
+        out.contains("before it pushes:\nbuilds app-build bae "),
+        "{out}"
+    );
 }
 
 /// A build of the result that fails refuses the landing with the build's

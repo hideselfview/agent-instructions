@@ -9,6 +9,7 @@ mod app_config;
 mod app_landing;
 mod app_remote;
 mod app_reset;
+mod app_shots_drop;
 mod app_site;
 mod app_timing;
 mod app_tree;

@@ -1213,6 +1213,7 @@ impl Landing<'_> {
                 before,
                 landed,
                 branch,
+                self.start.rev(),
             ])
             .stdin(Stdio::null());
         let asked = command.output();
@@ -1238,6 +1239,10 @@ impl Landing<'_> {
         if !output.status.success() {
             let both = [notes, said].join("\n");
             return Err(uncovered(out, both.trim().to_string()));
+        }
+        let (dropped, said) = crate::app_landing::split_output(&said);
+        for line in dropped {
+            let _ = writeln!(out, "{line}");
         }
         if said.is_empty() {
             return Ok(None);

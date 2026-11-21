@@ -515,7 +515,11 @@ commits unless a finished review read the branch's net change as it is now.
     agent never rebases and builds again because another landing came first.
     When land prints APP BUILDS DO NOT COVER the result, the branch has no
     passing app build of its own for a lane: run `builds app-build` on the
-    branch and land again. When land prints APP BUILD FAILED on the result,
+    branch and land again. A branch's passing build must also have run every
+    shots prefix that any app build of the branch ran since its merge base,
+    including prefixes of runs that failed. When land names missing prefixes,
+    run them in a passing app build, or record why the branch drops one with
+    `builds app-build --drop-shots`, and land prints that reason. When land prints APP BUILD FAILED on the result,
     the branch's commits fail the app build on the new main: rebase the branch
     onto origin/main, fix what the build names, run `builds app-build` on the
     branch, review the branch again and land again.

@@ -148,6 +148,11 @@ pub const OVER_CAP_PART: &str = include_str!("review/over_cap.sql");
 /// the review's cap.
 pub const MARKED_MECHANICAL_PART: &str = include_str!("review/marked_mechanical.sql");
 
+/// The shots prefixes an agent dropped from a branch's landing
+/// (app_shots_drop.sql); the schema holds it after the branches marked as
+/// mechanical work.
+pub const APP_SHOTS_DROP_PART: &str = include_str!("app_shots_drop.sql");
+
 /// Each part of the schema, in the order the schema holds them: the lists'
 /// tables, then the hook stats', then the app-build timings', then the design
 /// changes' recording sessions', then the review's, then the hook checks'
@@ -164,7 +169,7 @@ pub const MARKED_MECHANICAL_PART: &str = include_str!("review/marked_mechanical.
 /// cap. A table points at ones earlier or
 /// later (SQLite resolves foreign keys when rows are written), but the order is
 /// the one to read the schema in. A part that joins the schema goes at the end.
-const SCHEMA_PARTS: [&str; 40] = [
+const SCHEMA_PARTS: [&str; 41] = [
     include_str!("lists/project.sql"),
     include_str!("lists/area.sql"),
     include_str!("lists/record.sql"),
@@ -205,6 +210,7 @@ const SCHEMA_PARTS: [&str; 40] = [
     DESIGN_CIRCLE_BOX_PART,
     OVER_CAP_PART,
     MARKED_MECHANICAL_PART,
+    APP_SHOTS_DROP_PART,
 ];
 
 /// The length of <parts> joined with a newline between each two.
@@ -336,12 +342,20 @@ fn schema_before(part: &str) -> String {
     with_review_texts(with_shot_findings(SCHEMA_PARTS[..at].join("\n")))
 }
 
+/// The schema as it was before the shots prefixes dropped from a landing
+/// joined it: every part but the last, with none of the older schemas'
+/// differences put back.
+#[cfg(test)]
+pub fn schema_before_app_shots_drop() -> String {
+    SCHEMA_PARTS[..SCHEMA_PARTS.len() - 1].join("\n")
+}
+
 /// The schema as it was before the branches the coordinator marked as
-/// mechanical joined it: every part but the last, with none of the
+/// mechanical joined it: every part but the last two, with none of the
 /// older schemas' differences put back.
 #[cfg(test)]
 pub fn schema_before_marked_mechanical() -> String {
-    SCHEMA_PARTS[..SCHEMA_PARTS.len() - 1].join("\n")
+    SCHEMA_PARTS[..SCHEMA_PARTS.len() - 2].join("\n")
 }
 
 /// The schema as it was before the branches over the review's cap joined it,

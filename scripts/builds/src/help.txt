@@ -1245,19 +1245,32 @@ built again.
                               print the steps (lane, name, command, and "(CI
                               only)" for a step a `ci-only` line names) and
                               each lane's test and shots lines
-  builds app-build --landing-build <worktree> <before> <result> <branch>
+  builds app-build --landing-build <worktree> <before> <result> <branch> <ref>
                               the app build a landing needs before its push:
                               `builds land` runs it on the result it built on
                               origin/main (<before>), with <branch>, the last
-                              commit it lands. The landing changes a lane's
+                              commit it lands, and <ref>, the name the
+                              branch's app builds were asked to build. The landing changes a lane's
                               apps when a path that differs between <before>
                               and <result> matches an `on` line of the
                               result's .app-build that names a step of the
                               lane. A passing run of the lane covers a commit
                               when it passed every step the change needs in
-                              the lane and the commit it built has that
+                              the lane, ran every shots prefix that the
+                              branch's own app builds ran since its merge
+                              base, and the commit it built has that
                               commit's files at every path the lane's `on`
-                              lines match. builds reads each lane's latest 50
+                              lines match. The branch's own app builds are
+                              the runs that were asked to build <ref> and
+                              started after the branch's first commit that
+                              <before> lacks was written. They count each
+                              shots prefix they ran to a verdict, passed or
+                              failed, so a run that shows a pair worse than
+                              its base cannot be skipped by a later run of
+                              other shots. A run of a prefix that the
+                              required one starts with covers it (`mac.`
+                              covers `mac.seek.`). Land prints each dropped
+                              prefix that it honors, below. builds reads each lane's latest 50
                               passing runs, newest first. When a run covers
                               the result in every lane the landing changes,
                               it prints nothing. Otherwise, for each lane no
@@ -1269,12 +1282,27 @@ built again.
                               result in those lanes with the steps, test
                               classes and shots of the branch's builds, which
                               land runs. When a lane has no run that covers
-                              <branch>, it prints that run's commit and the
-                              paths where it differs from <branch>, and exits
-                              1: run `builds app-build` on the branch and land
-                              again. A result with no .app-build needs no
+                              <branch>, it prints that run's commit, the
+                              paths where it differs from <branch> and the
+                              shots prefixes it did not run that the
+                              branch's builds ran, and exits 1: run `builds
+                              app-build` on the branch, with the missing
+                              prefixes in --shots, and land again, or drop a
+                              prefix (below). A result with no .app-build needs no
                               build, whatever projects hold its repo, and
                               neither does a repo in no project
+  builds app-build --drop-shots <repo> <branch> <lane> <prefix> --why TEXT [--by WHO] [--project P]
+                              record that the landing of <branch> needs no
+                              run of the shots prefix <prefix> in <lane>,
+                              which the branch's app builds ran, for the
+                              reason in --why. Run it in the branch's
+                              worktree. builds refuses a prefix that no app
+                              build of <branch> ran since the branch's first
+                              commit that origin/main lacks, and an empty
+                              --why. `builds land` prints each dropped
+                              prefix, who dropped it and why, as `shots
+                              dropped: ...`; the drop counts only for runs
+                              and landings of <branch> after that commit.
   builds shots findings <repo> <ref> mac|android <prefix> [--by-cause]
                               print the findings of the run builds has cached for
                               <ref>'s commit, the lane and the prefix, with a

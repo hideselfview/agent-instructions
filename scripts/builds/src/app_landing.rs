@@ -1,14 +1,21 @@
-//! `builds app-build --landing-build <worktree> <before> <result> <branch>`:
-//! the app build that a landing needs before its push. `builds land` runs it
-//! once it has picked the commits onto origin/main (<before>) into <result>,
-//! with <branch>, the last commit it lands as the branch holds it.
+//! `builds app-build --landing-build <worktree> <before> <result> <branch>
+//! <ref>`: the app build that a landing needs before its push. `builds land`
+//! runs it once it has picked the commits onto origin/main (<before>) into
+//! <result>, with <branch>, the last commit it lands as the branch holds it,
+//! and <ref>, the name the branch's app builds were asked to build.
 //!
 //! Each lane's `on` lines in the result's `.app-build` (app_config.rs) name the
 //! paths whose change the lane's apps compile. The landing changes a lane's
 //! apps when a path that differs between <before> and <result> matches one of
 //! the lane's `on` lines. A passing run of the lane covers a commit when it
-//! passed every step the landing's change needs in the lane, and the commit it
-//! built has that commit's files at every path the lane's `on` lines match.
+//! passed every step the landing's change needs in the lane, ran every shots
+//! prefix the branch's own app builds ran since its merge base, and the commit
+//! it built has that commit's files at every path the lane's `on` lines match.
+//! An agent drops a prefix from that set only by recording why
+//! (app_shots_drop.rs), and land prints each drop it honors. Without that
+//! rule, an agent could run the shots of the screens a change touches, see
+//! one fail as worse than its base, run other shots only, and land on the
+//! second, passing run.
 //!
 //! A lane that a passing run covers at the result needs no build. Otherwise
 //! the lane needs the branch's own build: the newest passing run of the lane
@@ -19,8 +26,8 @@
 //! first. A lane with no build of the branch refuses the landing: the agent
 //! runs `builds app-build` on the branch first.
 //!
-//! The command prints nothing when every lane is covered, and otherwise one
-//! line: the `builds app-build <repo> <result> <step>... [--test <lane>
+//! The command prints a line `shots dropped: ...` for each drop it honors, and
+//! nothing else when every lane is covered, and otherwise one more line: the `builds app-build <repo> <result> <step>... [--test <lane>
 //! <Class>]...` command that builds the result in the lanes no run covers,
 //! with the steps and picks of the branch's build of each. A step, class or
 //! shots prefix holds no white space (app_build.rs refuses one that does), so
@@ -34,6 +41,7 @@
 use std::path::Path;
 
 use crate::app_config::{CONFIG, Config, PickKind, parse_config, run_git};
+use crate::app_shots_drop::Drop;
 use crate::app_timing::PassedRun;
 use crate::derive::paths_between;
 use crate::fail;
@@ -44,7 +52,11 @@ use crate::places::Places;
 /// The flag of `builds app-build` that names this command.
 pub const FLAG: &str = "--landing-build";
 
-const USAGE: &str = "usage: builds app-build --landing-build <worktree> <before> <result> <branch>";
+const USAGE: &str =
+    "usage: builds app-build --landing-build <worktree> <before> <result> <branch> <ref>";
+
+/// What starts each line that tells of a dropped shots prefix.
+pub const DROPPED: &str = "shots dropped:";
 
 /// The paths of <paths> that one of <lane>'s `on` lines in <config> matches:
 /// a line that names a step of the lane.
@@ -99,14 +111,24 @@ pub fn commits_change_apps(top: &Path, shas: &[String]) -> Result<bool> {
     Ok(changes_apps(&config, &paths))
 }
 
+/// The newest passing run git has of a lane, which covers no commit of a
+/// landing: its commit, the paths where that differs from the commit at the
+/// lane's `on` lines, and the shots prefixes it did not run that the landing
+/// requires.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Newest {
+    pub commit: String,
+    pub paths: Vec<String>,
+    pub missing_shots: Vec<String>,
+}
+
 /// A lane whose apps the landing changes and that no passing run covers at
 /// the result, with no passing run that covers the branch: the newest passing
-/// run git has and the paths where its commit differs from the branch, or
-/// None when the lane has no such run.
+/// run git has, or None when the lane has no such run.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Unbuilt {
     pub lane: Lane,
-    pub newest: Option<(String, Vec<String>)>,
+    pub newest: Option<Newest>,
 }
 
 /// What a lane whose apps the landing changes and that no passing run covers
@@ -130,19 +152,36 @@ pub type Differ<'a> = dyn FnMut(&str, &str) -> Result<Option<Vec<String>>> + 'a;
 /// How a lane's passing runs stand against one commit.
 enum Search {
     Covers(PassedRun),
-    /// No run covers it: the newest run git has, with the paths where its
-    /// commit differs from the commit at the lane's paths.
-    Newest(Option<(String, Vec<String>)>),
+    /// No run covers it: the newest run git has.
+    Newest(Option<Newest>),
+}
+
+/// The prefixes of <required> that no shots step of <run> covers: a run of
+/// the prefix, or of a prefix it starts with (`mac.` runs every shot of the
+/// lane).
+fn missing_shots(run: &PassedRun, required: &[String]) -> Vec<String> {
+    let shots = PickKind::Shots.step_prefix();
+    let ran: Vec<&str> = run
+        .steps
+        .iter()
+        .filter_map(|step| step.strip_prefix(shots))
+        .collect();
+    required
+        .iter()
+        .filter(|prefix| !ran.iter().any(|run| prefix.starts_with(run)))
+        .cloned()
+        .collect()
 }
 
 /// The newest of <runs> that covers <target> in <lane>: it passed every step
-/// of <needed>, and its commit has <target>'s files at every path the lane's
-/// `on` lines match. <differ> gives the paths where a commit differs from
-/// <target>, or None when git does not have the commit.
+/// of <needed>, ran every shots prefix of <required>, and its commit has
+/// <target>'s files at every path the lane's `on` lines match. <differ> gives
+/// the paths where a commit differs from <target>, or None when git does not
+/// have the commit.
 fn search(
     config: &Config,
     lane: Lane,
-    needed: &[String],
+    (needed, required): (&[String], &[String]),
     runs: &[PassedRun],
     target: &str,
     differ: &mut Differ,
@@ -156,11 +195,19 @@ fn search(
             .into_iter()
             .map(str::to_string)
             .collect();
-        if paths.is_empty() && needed.iter().all(|step| run.steps.contains(step)) {
+        let missing = missing_shots(run, required);
+        if paths.is_empty()
+            && missing.is_empty()
+            && needed.iter().all(|step| run.steps.contains(step))
+        {
             return Ok(Search::Covers(run.clone()));
         }
         if newest.is_none() {
-            newest = Some((run.commit.clone(), paths));
+            newest = Some(Newest {
+                commit: run.commit.clone(),
+                paths,
+                missing_shots: missing,
+            });
         }
     }
     Ok(Search::Newest(newest))
@@ -169,13 +216,15 @@ fn search(
 /// What each lane that <changed>, the paths the landing changes, changes in
 /// <config> and that no passing run covers at <result> needs, from the
 /// lane's passing runs that cover <branch>. <passed> gives a lane's latest
-/// passing runs, newest first.
+/// passing runs, newest first, and <required> the shots prefixes that a lane's
+/// covering run must have run: those the branch's app builds ran, less the
+/// ones dropped.
 pub fn needs(
     config: &Config,
     changed: &[String],
-    result: &str,
-    branch: &str,
+    (result, branch): (&str, &str),
     passed: &mut dyn FnMut(Lane) -> Result<Vec<PassedRun>>,
+    shots_required: &mut dyn FnMut(Lane) -> Result<Vec<String>>,
     differ: &mut Differ,
 ) -> Result<Vec<Need>> {
     let mut found = Vec::new();
@@ -189,18 +238,18 @@ pub fn needs(
             .flat_map(|(_, steps)| steps)
             .collect();
         let runs = passed(lane)?;
-        if let Search::Covers(_) = search(config, lane, &needed, &runs, result, differ)? {
+        let required = shots_required(lane)?;
+        let asked = (needed.as_slice(), required.as_slice());
+        if let Search::Covers(_) = search(config, lane, asked, &runs, result, differ)? {
             continue;
         }
-        found.push(
-            match search(config, lane, &needed, &runs, branch, differ)? {
-                Search::Covers(run) => Need::Build {
-                    lane,
-                    steps: run.steps,
-                },
-                Search::Newest(newest) => Need::Unbuilt(Unbuilt { lane, newest }),
+        found.push(match search(config, lane, asked, &runs, branch, differ)? {
+            Search::Covers(run) => Need::Build {
+                lane,
+                steps: run.steps,
             },
-        );
+            Search::Newest(newest) => Need::Unbuilt(Unbuilt { lane, newest }),
+        });
     }
     Ok(found)
 }
@@ -248,28 +297,54 @@ fn refusal(repo: &str, worktree: &str, branch: &str, lanes: &[&Unbuilt]) -> Stri
     );
     for Unbuilt { lane, newest } in lanes {
         let lane = lane.word();
-        match newest {
-            None => said.push_str(&format!(
+        let Some(Newest {
+            commit,
+            paths,
+            missing_shots,
+        }) = newest
+        else {
+            said.push_str(&format!(
                 "\n  {lane}: the store records no passing {lane} app build of a commit git has"
-            )),
-            Some((commit, paths)) if paths.is_empty() => said.push_str(&format!(
+            ));
+            continue;
+        };
+        if paths.is_empty() && missing_shots.is_empty() {
+            said.push_str(&format!(
                 "\n  {lane}: the newest passing {lane} app build, of {}, did not pass every step the change needs",
                 short(commit)
-            )),
-            Some((commit, paths)) => {
-                let shown: Vec<&str> = paths.iter().take(10).map(String::as_str).collect();
-                let more = if paths.len() > shown.len() {
-                    format!(" and {} more", paths.len() - shown.len())
-                } else {
-                    String::new()
-                };
-                said.push_str(&format!(
-                    "\n  {lane}: the newest passing {lane} app build, of {}, has other files than the branch at {}{more}",
-                    short(commit),
-                    shown.join(", ")
-                ));
-            }
+            ));
         }
+        if !paths.is_empty() {
+            let shown: Vec<&str> = paths.iter().take(10).map(String::as_str).collect();
+            let more = if paths.len() > shown.len() {
+                format!(" and {} more", paths.len() - shown.len())
+            } else {
+                String::new()
+            };
+            said.push_str(&format!(
+                "\n  {lane}: the newest passing {lane} app build, of {}, has other files than the branch at {}{more}",
+                short(commit),
+                shown.join(", ")
+            ));
+        }
+        if !missing_shots.is_empty() {
+            said.push_str(&format!(
+                "\n  {lane}: the newest passing {lane} app build, of {}, did not run the shots prefixes {} that the app builds of the branch ran since its merge base",
+                short(commit),
+                missing_shots.join(", ")
+            ));
+        }
+    }
+    if lanes.iter().any(|unbuilt| {
+        unbuilt
+            .newest
+            .as_ref()
+            .is_some_and(|n| !n.missing_shots.is_empty())
+    }) {
+        said.push_str(&format!(
+            "\nA shots prefix that the branch's builds ran needs a passing run before the landing. To drop one the branch needs no run of, record why: `builds app-build {FLAG_DROP} {repo} <branch> <lane> <prefix> --why TEXT`; land prints the reason.",
+            FLAG_DROP = crate::app_shots_drop::FLAG
+        ));
     }
     said.push_str(&format!(
         "\nNothing landed. Next: in {worktree}, run `builds app-build {repo} <branch>` with the branch's test classes and shots, and land again. Land builds the result itself when main moved after that build."
@@ -277,13 +352,51 @@ fn refusal(repo: &str, worktree: &str, branch: &str, lanes: &[&Unbuilt]) -> Stri
     said
 }
 
-/// `builds app-build --landing-build <worktree> <before> <result> <branch>`:
-/// prints the command of the build the landing needs, nothing when it needs
-/// none, or the refusal, failing, when some lane has no build of the branch.
-/// A repo in no project records no runs, and a result with no `.app-build`
-/// builds no apps, so neither needs a build.
+/// When the first commit of <branch> that <before> lacks was written, in
+/// seconds since 1970: the author date a rebase or an amend keeps. App builds
+/// of the branch started after it.
+pub fn branch_since(top: &Path, before: &str, branch: &str) -> Result<i64> {
+    let range = format!("{before}..{branch}");
+    let dates = run_git(top, &["log", "--reverse", "--format=%at", &range])?;
+    let Some(first) = dates.lines().next() else {
+        fail!("{branch} has no commit that {before} lacks");
+    };
+    match first.trim().parse() {
+        Ok(at) => Ok(at),
+        Err(_) => fail!("git printed {first:?}, not a time, for the first commit of {range}"),
+    }
+}
+
+/// What land prints for each of <drops>, the prefixes dropped from the
+/// landing of <branch> in <lane>.
+fn dropped_lines(lane: Lane, drops: &[Drop]) -> Vec<String> {
+    drops
+        .iter()
+        .map(|Drop { prefix, by, why }| {
+            format!(
+                "{DROPPED} the {} shots prefix {prefix} needs no run before the landing; {by} recorded why: {why}",
+                lane.word()
+            )
+        })
+        .collect()
+}
+
+/// Splits what `builds app-build --landing-build` printed into the lines
+/// that tell of dropped shots prefixes and the rest.
+pub fn split_output(said: &str) -> (Vec<&str>, String) {
+    let (dropped, rest): (Vec<&str>, Vec<&str>) =
+        said.lines().partition(|line| line.starts_with(DROPPED));
+    (dropped, rest.join("\n").trim().to_string())
+}
+
+/// `builds app-build --landing-build <worktree> <before> <result> <branch>
+/// <ref>`: prints a line for each dropped shots prefix it honors, then the
+/// command of the build the landing needs, nothing more when it needs none,
+/// or the refusal, failing, when some lane has no build of the branch. A repo
+/// in no project records no runs, and a result with no `.app-build` builds no
+/// apps, so neither needs a build.
 pub fn cmd_landing_build(places: &Places, args: &[String]) -> Result<()> {
-    let [worktree, before, result, branch] = args else {
+    let [worktree, before, result, branch, named] = args else {
         fail!("{USAGE}");
     };
     let top = Path::new(worktree);
@@ -304,13 +417,27 @@ pub fn cmd_landing_build(places: &Places, args: &[String]) -> Result<()> {
         return Ok(());
     };
     let changed = paths_between(top, before, result)?;
+    let since = branch_since(top, before, branch)?;
     let conn = crate::db::open(&database, crate::db::Make::Never)?;
+    for lane in Lane::ALL {
+        let drops = crate::app_shots_drop::dropped(&conn, &repo, named, lane, since)?;
+        for line in dropped_lines(lane, &drops) {
+            println!("{line}");
+        }
+    }
     let found = needs(
         &config,
         &changed,
-        result,
-        branch,
+        (result, branch),
         &mut |lane| crate::app_timing::passed_runs(&conn, &repo, lane, &database),
+        &mut |lane| {
+            let ran = crate::app_timing::shots_ran(&conn, &repo, lane, named, since, &database)?;
+            let drops = crate::app_shots_drop::dropped(&conn, &repo, named, lane, since)?;
+            Ok(ran
+                .into_iter()
+                .filter(|prefix| !drops.iter().any(|drop| drop.prefix == *prefix))
+                .collect())
+        },
         &mut |commit, target| {
             if !crate::review::commits::exists(top, commit)? {
                 crate::text::note(format!(
