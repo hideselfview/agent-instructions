@@ -1659,7 +1659,7 @@ pub fn host_findings(
         ))],
     };
     let landing_wait = |pid: i32| {
-        let Some(argv) = crate::procs::args(pid) else {
+        let Some(argv) = crate::procs::live_args(pid)? else {
             return Ok(None);
         };
         match crate::land_turns::landing_worktree(pid, &argv) {
