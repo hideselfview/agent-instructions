@@ -6,8 +6,9 @@ it works, and its last line gives the next command. An agent that pipes the
 output through `tail -1`, saves it to a file it never reads or runs it from a
 script sees only that next command, so the token chain passes without the
 reading it stands for. The hook allows exactly `builds ack part N TOKEN`, with
-`--agent ID` and `--project P` after it, and refuses every other command that
-runs `builds ack part`.
+`--agent ID` and `--project P` after it, and with one `cd PATH && ` before it
+(PATH is one plain word) for an agent whose Bash tool starts in another folder.
+It refuses every other command that runs `builds ack part`.
 """
 
 import json
@@ -25,12 +26,14 @@ REASON = (
     "that the whole text of the part reaches your context: no pipe, redirect, `;`, `&&`, `||`, "
     "subshell, `$(...)`, backticks, variable prefix, loop or script around it. Run exactly "
     "`builds ack part N TOKEN`, optionally followed by `--agent ID` and `--project P`, as the "
-    "previous part's last line gives it."
+    "previous part's last line gives it. The one addition allowed is a single leading "
+    "`cd PATH && `, where PATH is one plain word of letters, digits, `/`, `.`, `_`, `-` and `~`."
 )
 
 NAME = r"[A-Za-z0-9_.-]+"
 OPTIONS = rf"(?: --agent {NAME})?(?: --project {NAME})?|(?: --project {NAME})?(?: --agent {NAME})?"
-BARE = re.compile(rf"builds ack part \d+ [A-Za-z0-9]+(?:{OPTIONS})")
+CD = r"(?:cd [A-Za-z0-9/._~-]+ && )?"
+BARE = re.compile(rf"{CD}builds ack part \d+ [A-Za-z0-9]+(?:{OPTIONS})")
 # Programs that run a command given as one string.
 STRING_RUNNERS = {"bash", "sh", "zsh", "dash", "ksh", "eval", "xargs", "source", "."}
 IN_STRING = re.compile(r"\bbuilds\b.*\back\s+part\b", re.S)
