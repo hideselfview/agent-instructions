@@ -248,25 +248,54 @@ fn a_held_use_sees_an_install_that_ran_before_it_took_it() {
     assert!(!landing(21).install_ran().unwrap());
 }
 
-/// An app build's lane holds no use while it builds, so an install that
-/// moves the stores waits for no lane's steps; the lane then sees that the
-/// install ran when it writes its run (handed_runs.rs).
+/// An app build that started before an install holds the install until it
+/// has recorded its run: install names the build, closes no gate on the
+/// store while the build writes its run, and finishes once the build ends.
 #[test]
-fn an_install_waits_for_no_app_build_lane() {
-    let scratch = Scratch::new("install-gate-lane");
+fn an_install_waits_for_an_app_build_to_record_its_run() {
+    let scratch = Scratch::new("install-gate-app-build");
     let places = scratch.places();
-    let building = PerConnection::new(
-        places.clone(),
-        23,
-        "app-build demo --lane mac main",
-        "10:00:00",
+    let store = scratch.dir.join(crate::db::DATABASE);
+    drop(crate::db::open(&store, crate::db::Make::Allowed).unwrap());
+    let quiet = &mut |_: &str| {};
+    let build =
+        holds(enter_for_life(&places, 23, "app-build demo main", "10:00:00", quiet).unwrap());
+    let (closer, install) = closing(&places);
+    assert_eq!(
+        next(&install),
+        said("waiting for process 23, builds app-build demo main, since 10:00:00")
+    );
+    assert!(
+        install.try_recv().is_err(),
+        "install ended before the build"
+    );
+    // The build, which ran the whole time, records its run in a store that
+    // the install has not moved.
+    crate::app_timing::record(
+        &store,
+        &crate::app_timing::RunRecord {
+            started_at: 1,
+            repo: "demo".to_string(),
+            lane: crate::lane::Lane::Mac,
+            checkout: "side-1".to_string(),
+            built_ref: "main".to_string(),
+            built_commit: None,
+            who: None,
+            wait_ms: 0,
+            outcome: crate::run_end::RunEnd::Passed,
+            load: None,
+            steps: Vec::new(),
+        },
     )
     .unwrap();
-    let mut said = Vec::new();
-    let say = &mut |line| said.push(line);
-    drop(begin(&places, say).unwrap().close(say).unwrap());
-    assert!(said.is_empty(), "install waited for the lane: {said:?}");
-    assert!(building.install_ran().unwrap());
+    drop(build);
+    assert_eq!(next(&install), Event::Done(true));
+    drop(closer.join().unwrap());
+    assert_eq!(
+        crate::app_timing::stats(&store, 0).unwrap().len(),
+        1,
+        "the run is in the store"
+    );
 }
 
 /// A use removes its file when it ends, whether it lasts a command's life or

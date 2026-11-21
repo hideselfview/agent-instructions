@@ -65,10 +65,10 @@
 //! run as stopped, with the step the signal ended as stopped. The command
 //! says it stopped once the lanes have ended.
 //!
-//! An install never stops a lane: the lane builds to its end on the programs
-//! the build started with (programs.rs), and when the install moved the
-//! stores meanwhile, its run reaches the store through the installed builds
-//! (handed_runs.rs).
+//! An install never stops a lane, and no install moves a store while a build
+//! runs: the command holds a use of the stores from its start until it has
+//! recorded its run, and an install that moves a store waits for that use
+//! (install_gate.rs).
 //!
 //! When a step of the mac lane fails after xcodebuild printed that it cannot
 //! start (xcode.rs), or after XCTest printed that it timed out turning on
@@ -1246,11 +1246,8 @@ impl Timing {
     }
 
     /// Writes the run, which ended with <outcome>, to the repo's project
-    /// store when it took a checkout. When an install moved the store to
-    /// another schema while the run built, the run goes to the store through
-    /// the installed builds (handed_runs.rs). A repo in no project, or a
-    /// write that fails, is said and changes nothing about the build's
-    /// result.
+    /// store when it took a checkout. A repo in no project, or a write that
+    /// fails, is said and changes nothing about the build's result.
     fn record(self, places: &Places, repo: &str, lane: Lane, built_ref: &str, outcome: RunEnd) {
         let Some(held) = self.held else {
             return;
@@ -1268,18 +1265,11 @@ impl Timing {
             load: held.load,
             steps: self.steps,
         };
-        let installed = crate::links::path(&places.home, "builds");
         let written = app_timing::database_of(places, repo).and_then(|database| {
             let Some(database) = database else {
                 return Ok(());
             };
-            crate::handed_runs::write(
-                &database,
-                &run,
-                &crate::handed_runs::folder(places),
-                &install_gate::install_ran,
-                &mut |store| crate::handed_runs::hand_to(&installed, repo, store),
-            )
+            app_timing::record(&database, &run)
         });
         if let Err(error) = written {
             note(format!("this run was not recorded: {}", error.text()));
@@ -1930,11 +1920,6 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
         && flag == crate::app_shots_drop::FLAG
     {
         return crate::app_shots_drop::cmd_drop_shots(tool, rest);
-    }
-    if let [flag, rest @ ..] = args
-        && flag == crate::handed_runs::FLAG
-    {
-        return crate::handed_runs::cmd_record_handed(places, rest);
     }
     let [repo, rest @ ..] = args else {
         fail!("{USAGE}");

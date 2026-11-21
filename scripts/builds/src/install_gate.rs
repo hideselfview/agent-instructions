@@ -12,8 +12,9 @@
 //! its own in its kind's folder that says which process runs what and since
 //! when.
 //! - A command that writes a store after long work, with what it measured
-//!   since it started (main.rs's `holds_for_life` names them: a hook run and
-//!   a review that asks reviewers), holds a command use for its life.
+//!   since it started (main.rs's `holds_for_life` names them: a hook run, a
+//!   review that asks reviewers and an app build, which writes its run when
+//!   its lanes end), holds a command use for its life.
 //! - A landing (`builds land`) holds a command use (`hold`) from its start
 //!   until it has written the record of its run, then ends it before it
 //!   fast-forwards the main checkout, whose
@@ -25,11 +26,7 @@
 //!   installed builds in its place.
 //! - Every other command takes a connection use while each store connection
 //!   it opens is open. Its writes are each one short transaction, so a
-//!   command such as `builds cargo test` holds no use while it builds. An
-//!   app build's lane is such a command: it writes its run once, when it
-//!   ends, so an install neither stops it nor waits for its steps. A lane
-//!   whose store an install moved meanwhile hands its run to the installed
-//!   builds (handed_runs.rs).
+//!   command such as `builds cargo test` holds no use while it builds.
 //!
 //! Install first takes the install lock, which it holds until its program
 //! is on PATH, so a second install waits for it, and no install moves a
