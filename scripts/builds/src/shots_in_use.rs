@@ -88,21 +88,10 @@ pub fn named_in(
 /// longer has, whose runs no landing compares.
 fn merge_base_of(source: &Path, commit: &str) -> Result<Option<String>> {
     let known = format!("{commit}^{{commit}}");
-    let checked = boards::git(source)
-        .args(["rev-parse", "--verify", "--quiet", &known])
-        .output()
-        .map_err(|error| {
-            fail::Fail::Message(format!("running git in {}: {error}", source.display()))
-        })?;
-    // `--quiet` exits 1 for a commit git lacks; any other failure is an error.
-    match checked.status.code() {
-        Some(0) => {}
-        Some(1) => return Ok(None),
-        _ => fail!(
-            "git rev-parse {known} in {}: {}",
-            source.display(),
-            String::from_utf8_lossy(&checked.stderr).trim()
-        ),
+    let known_commit = crate::side_git::ask(source, &["rev-parse", "--verify", "--quiet", &known])
+        .map_err(fail::Fail::Message)?;
+    if known_commit.is_none() {
+        return Ok(None);
     }
     let base = crate::derive::merge_base(source, commit)?;
     Ok((base != commit).then_some(base))
@@ -112,16 +101,10 @@ fn merge_base_of(source: &Path, commit: &str) -> Result<Option<String>> {
 /// the author time of its first such commit, which an app build of the
 /// branch started after.
 fn waiting_branches(source: &Path) -> Result<BTreeMap<String, i64>> {
-    let listed = crate::app_config::run_git(
-        source,
-        &[
-            "for-each-ref",
-            "--format=%(refname:short)",
-            "--no-merged=origin/main",
-            "refs/heads",
-        ],
-    )?;
-    let branches: Vec<&str> = listed.lines().collect();
+    let branches: Vec<String> = crate::unlanded::unmerged_branches(source)?
+        .into_iter()
+        .map(|(branch, _)| branch)
+        .collect();
     if branches.is_empty() {
         return Ok(BTreeMap::new());
     }
@@ -130,10 +113,10 @@ fn waiting_branches(source: &Path) -> Result<BTreeMap<String, i64>> {
         crate::side_git::waiting_to_land_beside(source, &format!("refs/heads/{branch}"), &copies)
     });
     let mut waiting = BTreeMap::new();
-    for (branch, commits) in branches.into_iter().zip(found) {
+    for (branch, commits) in branches.iter().zip(found) {
         let commits = commits.map_err(fail::Fail::Message)?;
         if let Some(first) = commits.iter().map(|commit| commit.authored).min() {
-            waiting.insert(branch.to_string(), first);
+            waiting.insert(branch.clone(), first);
         }
     }
     Ok(waiting)

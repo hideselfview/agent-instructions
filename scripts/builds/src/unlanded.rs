@@ -204,6 +204,31 @@ pub struct LooseBranch {
 #[derive(Default)]
 pub struct Judged(HashMap<(String, String), Vec<Commit>>);
 
+/// Every local branch of the repo at <main> whose tip origin/main does not
+/// hold, with its tip's commit id, in branch order. Some of them hold only
+/// commits origin/main has copies of.
+pub fn unmerged_branches(main: &Path) -> Result<Vec<(String, String)>> {
+    let listed = git_text(
+        git(main).args([
+            "for-each-ref",
+            "--format=%(refname:short)%00%(objectname)",
+            "--no-merged=origin/main",
+            "refs/heads",
+        ]),
+        "list the branches",
+    )?;
+    let mut branches = Vec::new();
+    for line in listed.lines() {
+        let Some((branch, sha)) = line.split_once('\0') else {
+            fail!(
+                "git for-each-ref printed {line:?}, with no NUL between the branch and its commit"
+            );
+        };
+        branches.push((branch.to_string(), sha.to_string()));
+    }
+    Ok(branches)
+}
+
 /// Every local branch of the repo whose main checkout is <main> that holds
 /// commits origin/main lacks and that no worktree checks out, in branch
 /// order. <judged> keeps what earlier readings found.
@@ -219,26 +244,10 @@ pub fn loose_branches(main: &Path, judged: &mut Judged) -> Result<Vec<LooseBranc
         .into_iter()
         .filter_map(|listed| listed.branch)
         .collect();
-    let listed = git_text(
-        git(main).args([
-            "for-each-ref",
-            "--format=%(refname:short)%00%(objectname)",
-            "--no-merged=origin/main",
-            "refs/heads",
-        ]),
-        "list the branches",
-    )?;
-    let mut branches: Vec<(String, String)> = Vec::new();
-    for line in listed.lines() {
-        let Some((branch, sha)) = line.split_once('\0') else {
-            fail!(
-                "git for-each-ref printed {line:?}, with no NUL between the branch and its commit"
-            );
-        };
-        if !checked_out.contains(branch) {
-            branches.push((branch.to_string(), sha.to_string()));
-        }
-    }
+    let branches: Vec<(String, String)> = unmerged_branches(main)?
+        .into_iter()
+        .filter(|(branch, _)| !checked_out.contains(branch))
+        .collect();
     let unjudged: Vec<&(String, String)> = branches
         .iter()
         .filter(|(_, sha)| !judged.0.contains_key(&(sha.clone(), tip.clone())))

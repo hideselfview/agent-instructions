@@ -507,11 +507,14 @@ pub fn shots_ran(
     let what = || format!("reading {}", path.display());
     let mut statement = conn
         .prepare(
-            "SELECT DISTINCT s.name FROM app_build_steps s
-             JOIN app_build_runs r ON r.id = s.run_id
-             WHERE r.repo = ?1 AND r.lane = ?2 AND r.built_ref = ?3 AND r.started_at >= ?4
-               AND s.kind = 'shots' AND s.result IN ('passed', 'failed', 'timed out')
-             ORDER BY s.name",
+            format!(
+                "SELECT DISTINCT s.name FROM app_build_steps s
+                 JOIN app_build_runs r ON r.id = s.run_id
+                 WHERE r.repo = ?1 AND r.lane = ?2 AND r.built_ref = ?3 AND r.started_at >= ?4
+                   AND {SHOTS_VERDICT}
+                 ORDER BY s.name"
+            )
+            .as_str(),
         )
         .context(what)?;
     let names: Vec<String> = statement
@@ -519,17 +522,26 @@ pub fn shots_ran(
         .context(what)?
         .collect::<std::result::Result<_, _>>()
         .context(what)?;
-    let step = PickKind::Shots.step_prefix();
     names
         .into_iter()
-        .map(|name| match name.strip_prefix(step) {
-            Some(prefix) => Ok(prefix.to_string()),
-            None => fail!(
-                "{} holds a shots step named {name:?}, which does not start with {step:?}",
-                path.display()
-            ),
-        })
+        .map(|name| Ok(shots_prefix(&name, path)?.to_string()))
         .collect()
+}
+
+/// What the SQL of a query over shots steps needs to keep: steps that ran to
+/// a verdict.
+const SHOTS_VERDICT: &str = "s.kind = 'shots' AND s.result IN ('passed', 'failed', 'timed out')";
+
+/// The shots prefix a shots step <name> names, in the database at <path>.
+fn shots_prefix<'a>(name: &'a str, path: &Path) -> Result<&'a str> {
+    let step = PickKind::Shots.step_prefix();
+    match name.strip_prefix(step) {
+        Some(prefix) => Ok(prefix),
+        None => fail!(
+            "{} holds a shots step named {name:?}, which does not start with {step:?}",
+            path.display()
+        ),
+    }
 }
 
 /// One shots run that an app build made of a commit: the branch the build
@@ -557,13 +569,15 @@ pub fn shots_builds(
     let what = || format!("reading {}", path.display());
     let mut statement = conn
         .prepare(
-            "SELECT DISTINCT r.built_ref, c.built_commit, r.lane, s.name, r.started_at
-             FROM app_build_steps s
-             JOIN app_build_runs r ON r.id = s.run_id
-             JOIN app_build_run_commit c ON c.run_id = r.id
-             WHERE r.repo = ?1 AND r.started_at >= ?2
-               AND s.kind = 'shots' AND s.result IN ('passed', 'failed', 'timed out')
-             ORDER BY r.started_at, s.name",
+            format!(
+                "SELECT DISTINCT r.built_ref, c.built_commit, r.lane, s.name, r.started_at
+                 FROM app_build_steps s
+                 JOIN app_build_runs r ON r.id = s.run_id
+                 JOIN app_build_run_commit c ON c.run_id = r.id
+                 WHERE r.repo = ?1 AND r.started_at >= ?2 AND {SHOTS_VERDICT}
+                 ORDER BY r.started_at, s.name"
+            )
+            .as_str(),
         )
         .context(what)?;
     let rows: Vec<(String, String, String, String, i64)> = statement
@@ -579,20 +593,13 @@ pub fn shots_builds(
         .context(what)?
         .collect::<std::result::Result<_, _>>()
         .context(what)?;
-    let step = PickKind::Shots.step_prefix();
     rows.into_iter()
         .map(|(branch, commit, lane, name, started_at)| {
-            let Some(prefix) = name.strip_prefix(step) else {
-                fail!(
-                    "{} holds a shots step named {name:?}, which does not start with {step:?}",
-                    path.display()
-                );
-            };
             Ok(ShotsBuild {
                 branch,
                 commit,
                 lane: Lane::parse_or_fail(&lane)?,
-                prefix: prefix.to_string(),
+                prefix: shots_prefix(&name, path)?.to_string(),
                 started_at,
             })
         })
