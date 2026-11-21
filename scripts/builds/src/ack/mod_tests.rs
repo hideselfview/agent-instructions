@@ -52,8 +52,8 @@ fn world(name: &str) -> World {
     }
 }
 
-/// The blanked words of each part of the reading <agent> started, from
-/// project <project>'s store: the answers no output of `builds ack` holds.
+/// The made-up words of each part of the reading <agent> started, from
+/// project <project>'s store.
 fn stored_words(places: &Places, project: &str, agent: &str) -> Vec<Vec<String>> {
     let store = Store::named(places, project).unwrap();
     let db = db::open_reader(&store.database()).unwrap().unwrap();
@@ -61,6 +61,9 @@ fn stored_words(places: &Places, project: &str, agent: &str) -> Vec<Vec<String>>
         .unwrap()
         .unwrap()
         .words
+        .into_iter()
+        .map(|part| part.into_iter().map(|made| made.word).collect())
+        .collect()
 }
 
 fn message<T: std::fmt::Debug>(result: Result<T>) -> String {
@@ -100,13 +103,13 @@ impl World {
     }
 
     /// Reads every part as <agent> does and returns the version and every
-    /// blanked word, in order.
+    /// made-up word, in order.
     fn read_all_as(&self, agent: &str, now: i64) -> (String, Vec<String>) {
         self.read_all_in(&self.checkout, agent, now)
     }
 
     /// Reads every part as <agent> does in <cwd> and returns the version and
-    /// every blanked word, in order.
+    /// every made-up word, in order.
     fn read_all_in(&self, cwd: &Path, agent: &str, now: i64) -> (String, Vec<String>) {
         let started = self.ack_in(cwd, agent, &[], now).unwrap();
         let version = started
@@ -175,6 +178,73 @@ fn an_agent_that_read_every_part_and_gave_every_word_passes() {
     let world = world("ack-passes");
     world.acknowledge(NOON);
     world.check(NOON + 60).unwrap();
+}
+
+/// The words of <text> as `builds ack` prints its parts: each section's text
+/// and the line that names it.
+fn words_of_text(text: &Text) -> std::collections::HashSet<String> {
+    let count = text.sections.len();
+    text.sections
+        .iter()
+        .enumerate()
+        .flat_map(|(index, section)| {
+            [
+                section.text.clone(),
+                format!(
+                    "{} section {} of {count} continued",
+                    section.name,
+                    index + 1
+                ),
+            ]
+        })
+        .flat_map(|text| {
+            text.split(|c: char| !c.is_ascii_alphabetic())
+                .filter(|word| !word.is_empty())
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+/// A reader passes: the words a part shows that the text lacks are the part's
+/// made-up words, in order, and the part shows every line of the text with
+/// nothing else changed, so the answer copies no word of the text.
+#[test]
+fn the_words_a_part_shows_that_the_text_lacks_are_its_made_up_words() {
+    let world = world("ack-made-up");
+    world.ack(&[], NOON).unwrap();
+    let checkout = Checkout::at(&world.checkout).unwrap();
+    let text = Text::read(&world.places, "bae", checkout.as_ref()).unwrap();
+    let known = words_of_text(&text);
+    let stored = stored_words(&world.places, "bae", AGENT);
+    let parts = text.parts(
+        &text
+            .sections
+            .iter()
+            .map(|s| s.name.clone())
+            .collect::<Vec<_>>(),
+    );
+    assert!(parts.len() >= 2, "the workflow alone fills two parts");
+    for (index, lines) in parts.iter().enumerate() {
+        let shown = world.ack(&[&(index + 1).to_string()], NOON).unwrap();
+        let body: Vec<&str> = shown.lines().skip(1).take(lines.len()).collect();
+        let unknown: Vec<String> = body
+            .iter()
+            .flat_map(|line| line.split(|c: char| !c.is_ascii_alphabetic()))
+            .filter(|word| !word.is_empty() && !known.contains(*word))
+            .map(str::to_string)
+            .collect();
+        assert_eq!(unknown, stored[index], "part {}", index + 1);
+        let mut plain: Vec<String> = body.iter().map(|line| line.to_string()).collect();
+        for word in &stored[index] {
+            let line = plain
+                .iter_mut()
+                .find(|line| line.contains(word.as_str()))
+                .unwrap();
+            *line = line.replacen(&format!("{word} "), "", 1);
+        }
+        assert_eq!(&plain, lines, "part {}", index + 1);
+    }
 }
 
 #[test]

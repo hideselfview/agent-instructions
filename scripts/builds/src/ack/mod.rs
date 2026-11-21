@@ -38,7 +38,7 @@ use crate::lists::args::{Args, current_dir};
 use crate::lists::store::{Store, project_of, stores};
 use crate::places::Places;
 use crate::text::{local_minute, shell_word};
-use text::{Text, WORDS_PER_PART, pick_blanks, random, show_part};
+use text::{Text, pick_made_up, random, show_part};
 
 /// The variable that holds the Claude Code session id in an agent's shell.
 pub const SESSION: &str = "CLAUDE_CODE_SESSION_ID";
@@ -233,7 +233,7 @@ fn scope_of(store: &Store, text: &Text, last: Option<record::Ack>, now: i64) -> 
         return Ok(Scope::Whole(Whole::NotKept(ack)));
     };
     let sections = text.changed_since(&kept);
-    // A reading of no parts has no blanked words to give.
+    // A reading of no parts has no made-up words to give.
     if sections.is_empty() {
         return Ok(Scope::Whole(Whole::NoTextChanged(ack)));
     }
@@ -414,22 +414,16 @@ fn ack(
     }
 }
 
-/// Starts a reading: picks the sections it holds, draws each part's check
-/// words and says how to read the parts and acknowledge them.
+/// Starts a reading: picks the sections it holds, draws each part's made-up
+/// words and their places, and says how to read the parts and acknowledge
+/// them.
 fn start(agent: &Agent, text: &Text, now: i64) -> Result<String> {
     let scope = agent.scope(text, now)?;
     let shown = scope.sections(text);
     let parts = text.parts(&shown);
     let mut words = Vec::new();
     for lines in &parts {
-        let mut draws = Vec::new();
-        for _ in 0..WORDS_PER_PART {
-            draws.push(random()?);
-        }
-        let mut draws = draws.into_iter();
-        words.push(pick_blanks(lines, &mut || {
-            draws.next().expect("one draw for each third")
-        })?);
+        words.push(pick_made_up(lines, &mut random)?);
     }
     let version = text.version();
     let mut db = db::open(&agent.store.database(), Make::Never)?;
@@ -463,12 +457,12 @@ fn start(agent: &Agent, text: &Text, now: i64) -> Result<String> {
             sections.join(", ")
         );
     }
-    out += "\nRead each part in full, one command each, and note the words it blanks, one in each third of it:\n\n";
+    out += "\nRead each part in full, one command each. builds put one made-up word, such as kodamir, into a sentence in each third of each part: note each one as you read.\n\n";
     for number in 1..=parts.len() {
         out += &format!("  builds ack {number}{}\n", agent.flags);
     }
     out += &format!(
-        "\nThen acknowledge the text with the blanked words of every part, in the order they appear:\n\n  builds ack {version} WORD...{}\n\nRunning `builds ack` again blanks other words.\n",
+        "\nThen acknowledge the text with the made-up words of every part, in the order they appear:\n\n  builds ack {version} WORD...{}\n\nRunning `builds ack` again puts other made-up words in other places.\n",
         agent.flags
     );
     Ok(out)
@@ -483,7 +477,7 @@ fn reading_of(agent: &Agent, text: &Text) -> Result<record::Reading> {
     };
     let Some(reading) = reading else {
         fail!(
-            "{} has no reading; run `builds ack{}` first, which blanks the words of each part",
+            "{} has no reading; run `builds ack{}` first, which puts made-up words into each part",
             agent.name(),
             agent.flags
         );
@@ -516,8 +510,8 @@ fn part_of(agent: &Agent, text: &Text, part: &str) -> Result<String> {
     )
 }
 
-/// Records the acknowledgement of <version> with <words>, the blanked words of
-/// every part in order; refuses a missing or wrong word, naming its part.
+/// Records the acknowledgement of <version> with <words>, the made-up words
+/// of every part in order; refuses a missing or wrong word, naming its part.
 fn acknowledge(
     agent: &Agent,
     text: &Text,
@@ -535,15 +529,20 @@ fn acknowledge(
     }
     let words: Vec<String> = words.iter().map(|word| word.to_lowercase()).collect();
     let words = &words[..];
-    let expected: usize = reading.words.iter().map(Vec::len).sum();
-    if words.len() > expected {
+    let expected: Vec<Vec<String>> = reading
+        .words
+        .iter()
+        .map(|part| part.iter().map(|made| made.word.clone()).collect())
+        .collect();
+    let count: usize = expected.iter().map(Vec::len).sum();
+    if words.len() > count {
         fail!(
-            "you gave {} words, and the {} parts blank {expected}",
+            "you gave {} words, and the {} parts hold {count} made-up words",
             words.len(),
-            reading.words.len()
+            expected.len()
         );
     }
-    let wrong = wrong_parts(&reading.words, words);
+    let wrong = wrong_parts(&expected, words);
     if !wrong.is_empty() {
         let numbers: Vec<String> = wrong.iter().map(usize::to_string).collect();
         let commands: Vec<String> = wrong
@@ -551,7 +550,7 @@ fn acknowledge(
             .map(|part| format!("`builds ack {part}{}`", agent.flags))
             .collect();
         fail!(
-            "the blanked words of part {} are missing or wrong; read {} again, then acknowledge with the blanked words of every part, in order",
+            "the made-up words of part {} are missing or wrong; read {} again, then acknowledge with the made-up words of every part, in order",
             numbers.join(", "),
             commands.join(", ")
         );
@@ -576,7 +575,7 @@ fn acknowledge(
     ))
 }
 
-/// The parts, counted from 1, whose blanked words in <given> are missing or
+/// The parts, counted from 1, whose made-up words in <given> are missing or
 /// differ from <expected>, each part's words in order.
 fn wrong_parts(expected: &[Vec<String>], given: &[String]) -> Vec<usize> {
     let mut given = given.iter();

@@ -65,8 +65,10 @@ CREATE TABLE ack_reading_section (
     FOREIGN KEY (session, agent) REFERENCES ack_reading (session, agent) ON DELETE CASCADE
 ) STRICT, WITHOUT ROWID;
 
--- The blanked words of each part of a reading, in the order the part shows
--- them. The acknowledgement must give every one of them, in order.
+-- The made-up words that builds put into each part of a reading, each at its
+-- place: `position` counts, from 1, the places in the part where builds can
+-- put a made-up word (text.rs, `places`), so the words come in the order the
+-- part shows them. The acknowledgement must give every one of them, in order.
 CREATE TABLE ack_word (
     session TEXT NOT NULL,
     agent TEXT NOT NULL,

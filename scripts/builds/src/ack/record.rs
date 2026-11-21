@@ -3,6 +3,7 @@
 
 use rusqlite::{Connection, OptionalExtension, params};
 
+use super::text::MadeUp;
 use crate::db::Sql;
 use crate::fail::Result;
 
@@ -25,8 +26,9 @@ pub struct Reading {
     /// The names of the sections the reading holds, in the order its parts
     /// show them.
     pub sections: Vec<String>,
-    /// Each part's blanked words, in order, part 1 first.
-    pub words: Vec<Vec<String>>,
+    /// Each part's made-up words, in the order the part shows them, part 1
+    /// first.
+    pub words: Vec<Vec<MadeUp>>,
 }
 
 /// The last acknowledgement by <agent> in <session> of the text that holds
@@ -95,7 +97,7 @@ pub fn kept_sections(db: &Connection, version: &str) -> Result<Option<Vec<(Strin
 
 /// Starts the reading of version <version> by <agent> in <session> at <at>,
 /// which holds the sections named <sections> in that order, with each part's
-/// blanked words, in place of the reading it had.
+/// made-up words <words>, in place of the reading it had.
 pub fn start_reading(
     db: &Connection,
     session: &str,
@@ -103,7 +105,7 @@ pub fn start_reading(
     version: &str,
     at: i64,
     sections: &[String],
-    words: &[Vec<String>],
+    words: &[Vec<MadeUp>],
 ) -> Result<()> {
     db.execute(
         "DELETE FROM ack_reading WHERE session = ?1 AND agent = ?2",
@@ -123,10 +125,16 @@ pub fn start_reading(
         .sql()?;
     }
     for (part, part_words) in words.iter().enumerate() {
-        for (position, word) in part_words.iter().enumerate() {
+        for made in part_words {
             db.execute(
                 "INSERT INTO ack_word (session, agent, part, position, word) VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![session, agent, part as i64 + 1, position as i64 + 1, word],
+                params![
+                    session,
+                    agent,
+                    part as i64 + 1,
+                    made.place as i64 + 1,
+                    made.word
+                ],
             )
             .sql()?;
         }
@@ -159,22 +167,29 @@ pub fn reading(db: &Connection, session: &str, agent: &str) -> Result<Option<Rea
         .sql()?;
     let mut statement = db
         .prepare(
-            "SELECT part, word FROM ack_word WHERE session = ?1 AND agent = ?2 ORDER BY part, position",
+            "SELECT part, position, word FROM ack_word WHERE session = ?1 AND agent = ?2 ORDER BY part, position",
         )
         .sql()?;
     let rows = statement
         .query_map(params![session, agent], |row| {
-            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, String>(2)?,
+            ))
         })
         .sql()?
-        .collect::<rusqlite::Result<Vec<(i64, String)>>>()
+        .collect::<rusqlite::Result<Vec<(i64, i64, String)>>>()
         .sql()?;
-    let mut words: Vec<Vec<String>> = Vec::new();
-    for (part, word) in rows {
+    let mut words: Vec<Vec<MadeUp>> = Vec::new();
+    for (part, position, word) in rows {
         while words.len() < part as usize {
             words.push(Vec::new());
         }
-        words[part as usize - 1].push(word);
+        words[part as usize - 1].push(MadeUp {
+            place: position as usize - 1,
+            word,
+        });
     }
     Ok(Some(Reading {
         version,

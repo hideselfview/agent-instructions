@@ -54,7 +54,7 @@ what a command does.
 
   builds ack [--agent ID] [--project P]
       Start a reading: say the text's version and how many parts it comes
-      in, and pick the words to blank in every part. builds keeps the
+      in, and draw the made-up words of every part and their places. builds keeps the
       sections of the 20 versions of the text that agents acknowledged most
       recently. When builds keeps the version of this repo's text that the
       agent last acknowledged, and the agent acknowledged it at most 12
@@ -62,15 +62,16 @@ what a command does.
       each in full, and says which ones changed. Otherwise the reading holds
       the whole text.
   builds ack PART [--agent ID] [--project P]
-      Print part PART of the reading. Each part blanks one word in each
-      third of its lines, in running prose, as the word's first letter and an
-      underscore for each other letter; no line holds an answer, so the agent
-      reads the text around each blank to know the word. Reading a part again
-      blanks the same words.
+      Print part PART of the reading. builds puts one made-up word of three
+      syllables, such as kodamir, in front of a word of running prose in each
+      third of the part. No line marks a made-up word, so the agent finds the
+      made-up words by reading every line. An answer holds only words that
+      the part shows and the text lacks, so the agent copies no word of the
+      text. Reading a part again shows the same words in the same places.
   builds ack VERSION WORD... [--agent ID] [--project P]
-      Acknowledge version VERSION, giving the blanked words of every
-      part, in the order they appear. When a word is missing or wrong,
-      builds refuses the acknowledgement and names the parts to read again.
+      Acknowledge version VERSION, giving the made-up words of every part,
+      in the order they appear. When a word is missing or wrong, builds
+      refuses the acknowledgement and names the parts to read again.
   builds ack --compacted
       Claude Code's SessionStart hook runs this after Claude Code compacts
       an agent (claude/settings.json in agent-instructions). builds deletes

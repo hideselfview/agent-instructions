@@ -6,9 +6,10 @@
 //! edit of any of them changes the text's version.
 //!
 //! `builds ack` prints the text in parts of at most `PART_BYTES` bytes each,
-//! with one word blanked in each third of each part: the agent answers with
-//! the words it reads from the text around each blank, and no line of output
-//! holds an answer. Claude Code
+//! and puts one made-up word into a sentence in each third of each part. The
+//! agent answers with the made-up words it noted while it read. No line marks
+//! a made-up word, so a search for a marker finds none, and an answer copies
+//! no word of the text, nor any word the output leaves out. Claude Code
 //! shows only the first 2 KB of a command's output when the output passes
 //! about 30 KB, so each part stays well under that.
 
@@ -24,7 +25,7 @@ use crate::review::rules;
 /// about 300 bytes more.
 pub const PART_BYTES: usize = 20_000;
 
-/// The blanked words in each part: one in each third of its lines.
+/// The made-up words in each part: one in each third of its places.
 pub const WORDS_PER_PART: usize = 3;
 
 /// One file or help of the text.
@@ -197,19 +198,19 @@ fn read_if_there(path: &Path) -> Result<Option<String>> {
     }
 }
 
-/// The shortest words a part blanks, tried in this order.
-const BLANK_LENGTHS: [usize; 3] = [7, 5, 3];
+/// A made-up word that a part shows, and where the part shows it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MadeUp {
+    /// The index of the word's place among the part's `places`.
+    pub place: usize,
+    pub word: String,
+}
 
-/// A word of a part that the part can blank: a lowercase word of at least
-/// `min` letters in running prose, not part of a name, path or code, that
-/// occurs once in the whole part, so that blanking it leaves no copy to read.
-fn blankable(lines: &[String], min: usize) -> Vec<(usize, String)> {
-    let mut counts = std::collections::HashMap::<String, usize>::new();
-    for line in lines {
-        for (_, word) in letter_runs(line) {
-            *counts.entry(word.to_ascii_lowercase()).or_default() += 1;
-        }
-    }
+/// The places in a part with <lines> where builds can put a made-up word, in
+/// the order the part shows them: the start of each lowercase word of running
+/// prose, outside a code span and outside the lines that name a section. Each
+/// place is the index of its line and the byte where the word starts.
+fn places(lines: &[String]) -> Vec<(usize, usize)> {
     let mut found = Vec::new();
     for (at, line) in lines.iter().enumerate() {
         if line.starts_with("=====") {
@@ -219,13 +220,13 @@ fn blankable(lines: &[String], min: usize) -> Vec<(usize, String)> {
         for (start, word) in letter_runs(line) {
             let before = start.checked_sub(1).map(|i| bytes[i]);
             let after = bytes.get(start + word.len()).copied();
-            if word.len() >= min
-                && word.bytes().all(|b| b.is_ascii_lowercase())
-                && counts[word] == 1
+            let in_code = bytes[..start].iter().filter(|b| **b == b'`').count() % 2 == 1;
+            if word.bytes().all(|b| b.is_ascii_lowercase())
+                && !in_code
                 && before.is_none_or(|b| b" (\"".contains(&b))
                 && after.is_none_or(|b| b" ,;:).\"?!".contains(&b))
             {
-                found.push((at, word.to_string()));
+                found.push((at, start));
             }
         }
     }
@@ -249,96 +250,103 @@ fn letter_runs(line: &str) -> Vec<(usize, &str)> {
     runs
 }
 
-/// The words to blank in a part with <lines>: one from each third of its
-/// lines, a blankable word of the most letters among 7, 5 and 3 that the
-/// third has, picked with <random>; a third with no such word takes one from
-/// anywhere in the part. The words come in the order the part shows them.
-/// Fails when the part has fewer than `WORDS_PER_PART` blankable words, so
-/// that no part has a weaker check than the others.
-pub fn pick_blanks(lines: &[String], random: &mut dyn FnMut() -> usize) -> Result<Vec<String>> {
+/// The letters that open a syllable of a made-up word.
+const ONSETS: &[u8] = b"bdfgklmnprstvz";
+/// The letters that follow a syllable's first letter.
+const VOWELS: &[u8] = b"aeiou";
+/// What closes a syllable: nothing in a third of the syllables, else one
+/// consonant. Three syllables of this shape make a word of 6 to 9 letters,
+/// which /usr/share/dict/words holds about once in 7,000 draws.
+const CODAS: [&str; 9] = ["", "", "", "n", "r", "l", "s", "k", "m"];
+
+/// How many words `pick_made_up` draws for one place before it fails. A word
+/// drawn from the system's random source repeats a word of the part or an
+/// earlier draw far less often than once in this many draws.
+const DRAWS: usize = 100;
+
+/// A made-up word of three syllables, drawn with <random>, such as kodamir.
+fn made_up_word(random: &mut dyn FnMut() -> Result<usize>) -> Result<String> {
+    let mut word = String::new();
+    for _ in 0..3 {
+        word.push(ONSETS[random()? % ONSETS.len()] as char);
+        word.push(VOWELS[random()? % VOWELS.len()] as char);
+        word.push_str(CODAS[random()? % CODAS.len()]);
+    }
+    Ok(word)
+}
+
+/// The made-up words to put in a part with <lines>, drawn with <random>: one
+/// in each third of the part's places, each at a place of that third and none
+/// a word the part holds or another of the part's made-up words. The words
+/// come in the order the part shows them. Fails when the part has fewer
+/// places than `WORDS_PER_PART`, so that no part has a weaker check than the
+/// others.
+pub fn pick_made_up(
+    lines: &[String],
+    random: &mut dyn FnMut() -> Result<usize>,
+) -> Result<Vec<MadeUp>> {
+    let places = places(lines);
     let thirds = WORDS_PER_PART;
-    let by_length: Vec<Vec<(usize, String)>> = BLANK_LENGTHS
+    if places.len() < thirds {
+        fail!(
+            "a part of {} lines has only {} places for a made-up word, and each part needs {thirds}",
+            lines.len(),
+            places.len()
+        );
+    }
+    let held: std::collections::HashSet<String> = lines
         .iter()
-        .map(|min| blankable(lines, *min))
+        .flat_map(|line| letter_runs(line))
+        .map(|(_, run)| run.to_ascii_lowercase())
         .collect();
-    let mut picked: Vec<(usize, String)> = Vec::new();
+    let mut picked: Vec<MadeUp> = Vec::new();
     for third in 0..thirds {
-        let range = lines.len() * third / thirds..lines.len() * (third + 1) / thirds;
-        let draw = random();
-        for anywhere in [false, true] {
-            let options = by_length.iter().find_map(|found| {
-                let options: Vec<&(usize, String)> = found
-                    .iter()
-                    .filter(|(at, word)| {
-                        (anywhere || range.contains(at)) && !picked.iter().any(|(_, w)| w == word)
-                    })
-                    .collect();
-                (!options.is_empty()).then_some(options)
-            });
-            if let Some(options) = options {
-                picked.push(options[draw % options.len()].clone());
+        let range = places.len() * third / thirds..places.len() * (third + 1) / thirds;
+        let place = range.start + random()? % range.len();
+        let mut word = None;
+        for _ in 0..DRAWS {
+            let drawn = made_up_word(random)?;
+            if !held.contains(&drawn) && !picked.iter().any(|made| made.word == drawn) {
+                word = Some(drawn);
                 break;
             }
         }
+        let Some(word) = word else {
+            fail!("builds drew {DRAWS} made-up words for a part, and the part holds each of them");
+        };
+        picked.push(MadeUp { place, word });
     }
-    if picked.len() < thirds {
-        fail!(
-            "a part of {} lines holds only {} words that builds can blank, and each part needs {thirds}",
-            lines.len(),
-            picked.len()
-        );
-    }
-    let column = |(at, word): &(usize, String)| {
-        letter_runs(&lines[*at])
-            .into_iter()
-            .find(|(_, run)| run == word)
-            .map(|(start, _)| (*at, start))
-    };
-    picked.sort_by_key(column);
-    Ok(picked.into_iter().map(|(_, word)| word).collect())
-}
-
-/// <line> with the word that starts at byte <start> and has <len> bytes
-/// replaced by its first letter and underscores for the rest.
-fn blanked(line: &str, start: usize, len: usize) -> String {
-    format!(
-        "{}{}{}{}",
-        &line[..start],
-        &line[start..start + 1],
-        "_".repeat(len - 1),
-        &line[start + len..]
-    )
+    Ok(picked)
 }
 
 /// Part <number> of <count> of version <version> as `builds ack N` prints it:
-/// its lines, with each of <words> (blankable words that occur once in the
-/// part) replaced by its first letter and underscores for the rest.
+/// its lines, with each of <made_up> put at its place, followed by a space.
 pub fn show_part(
     lines: &[String],
     number: usize,
     count: usize,
     version: &str,
-    words: &[String],
+    made_up: &[MadeUp],
 ) -> Result<String> {
+    let places = places(lines);
     let mut shown: Vec<String> = lines.to_vec();
-    for word in words {
-        let blank = shown.iter_mut().find_map(|line| {
-            let start = letter_runs(line)
-                .into_iter()
-                .find(|(_, run)| run == word)?
-                .0;
-            *line = blanked(line, start, word.len());
-            Some(())
-        });
-        if blank.is_none() {
+    // Later places first, so that each insertion leaves the bytes of the
+    // places before it where they were.
+    let mut last_first: Vec<&MadeUp> = made_up.iter().collect();
+    last_first.sort_by_key(|made| std::cmp::Reverse(made.place));
+    for made in last_first {
+        let Some(&(line, at)) = places.get(made.place) else {
             fail!(
-                "part {number} of version {version} holds no word {word} to blank; run `builds ack` again"
+                "part {number} of version {version} has {} places for a made-up word, and no place {}; run `builds ack` again",
+                places.len(),
+                made.place + 1
             );
-        }
+        };
+        shown[line].insert_str(at, &format!("{} ", made.word));
     }
     let mut out = vec![format!(
-        "builds ack: part {number} of {count} of version {version}. Read every line of it. {} words in it are blanked: each shows its first letter and an underscore for every other letter. Acknowledge with the blanked words of every part, in the order they appear.",
-        words.len()
+        "builds ack: part {number} of {count} of version {version}. Read every line of it. builds put {} made-up words into its sentences, one in each third of the part: note each one as you read. Acknowledge with the made-up words of every part, in the order they appear.",
+        made_up.len()
     )];
     out.extend(shown);
     out.push(format!("builds ack: the end of part {number} of {count}."));

@@ -1,9 +1,18 @@
 use super::*;
 
-fn words(parts: &[&[&str]]) -> Vec<Vec<String>> {
+/// Each part's made-up words, at the places 0, 1, 2 and on of their part.
+fn words(parts: &[&[&str]]) -> Vec<Vec<MadeUp>> {
     parts
         .iter()
-        .map(|part| part.iter().map(|word| word.to_string()).collect())
+        .map(|part| {
+            part.iter()
+                .enumerate()
+                .map(|(place, word)| MadeUp {
+                    place,
+                    word: word.to_string(),
+                })
+                .collect()
+        })
         .collect()
 }
 
@@ -136,7 +145,7 @@ fn forgetting_an_agent_deletes_its_acknowledgement_and_reading_only() {
 }
 
 #[test]
-fn a_check_word_holds_only_lowercase_letters() {
+fn a_made_up_word_holds_only_lowercase_letters() {
     let db = crate::db::memory();
     assert!(
         start_reading(
