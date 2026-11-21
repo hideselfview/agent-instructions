@@ -11,7 +11,7 @@
 
 use std::path::Path;
 
-use crate::ack::agent;
+use crate::ack::agent::Caller;
 use crate::checkout::Checkout;
 use crate::claim::Claim;
 use crate::fail;
@@ -26,12 +26,10 @@ const GUARDED: [&str; 6] = ["app-build", "review", "land", "cargo", "checks", "i
 /// Fails when an agent runs `builds <command>` in a claimed side worktree that
 /// is off its claim's branch.
 pub fn gate(command: &str) -> Result<()> {
-    if !GUARDED.contains(&command) || agent::from_env()?.is_none() {
+    if !GUARDED.contains(&command) || Caller::from_env()?.is_none() {
         return Ok(());
     }
-    let dir = std::env::current_dir()
-        .map_err(|error| fail::Fail::Message(format!("finding the current folder: {error}")))?;
-    require_claimed_branch(&dir)
+    require_claimed_branch(&crate::lists::args::current_dir()?)
 }
 
 /// Fails when <dir> is in a claimed side worktree whose running items'
