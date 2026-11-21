@@ -267,12 +267,6 @@ pub(crate) async fn load(
         .map_err(protocol)?
         .into_value::<String>()
         .map_err(protocol)?;
-    // An animation the stylesheet did not stop (a more specific `!important`
-    // rule, or one the page started through the Web Animations API) is
-    // cancelled, which returns its element to the style it has without it.
-    page.evaluate("document.getAnimations().forEach((a) => a.cancel())")
-        .await
-        .map_err(protocol)?;
     if state != "ready" {
         return Err(BoardError::NotReady {
             board: board.to_string(),
