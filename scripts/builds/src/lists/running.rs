@@ -562,9 +562,17 @@ pub fn running_in_any<'a>(lists: &'a [Lists], worktree: &str) -> Vec<(&'a Lists,
 /// worktree, so only a hand edit can leave a running item with no claim;
 /// `builds health` reports such an item and does not repair it. One line
 /// per fault.
+///
+/// <loaded> was read before the claims are, and a landing closes an item and
+/// then releases its worktree's claim, so a landing that ended in between
+/// leaves <loaded> with a running item and a worktree with no claim. Before
+/// it reports a fault, findings reads the project's lists again with
+/// <reread> and reports only an item that still runs there: a claim that is
+/// gone while the item still runs after the claim was read is a fault.
 pub fn findings(
     integrity: Vec<String>,
     loaded: &std::result::Result<Vec<Loaded>, String>,
+    reread: impl Fn(&str) -> Result<Lists>,
 ) -> Result<Vec<Advice>> {
     let loaded = match loaded {
         Ok(loaded) => loaded,
@@ -590,6 +598,12 @@ pub fn findings(
                     Agent::Unclaimed => "has no claim",
                     Agent::Claimed(_) => continue,
                 };
+                let still_runs = reread(&project.project)?
+                    .item(item.id)
+                    .is_some_and(|now| now.running.iter().any(|r| r.worktree == running.worktree));
+                if !still_runs {
+                    continue;
+                }
                 findings.push(Advice::run(
                     format!(
                         "lists: item {} \"{}\" runs in {}, which {fault}; end it with",

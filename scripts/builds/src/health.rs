@@ -1219,7 +1219,9 @@ pub fn lists_findings(
             )),
         });
     }
-    let mut lists = crate::lists::running::findings(integrity, loaded)?;
+    let mut lists = crate::lists::running::findings(integrity, loaded, |project| {
+        crate::lists::store::Store::named(places_in, project)?.load()
+    })?;
     lists.extend(crate::lists::kept_work::findings(loaded)?);
     lists.extend(crate::lists::held::findings(loaded, worktrees, designs));
     lists.extend(crate::lists::rust_check::findings(places_in));

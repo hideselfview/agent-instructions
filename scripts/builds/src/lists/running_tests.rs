@@ -55,11 +55,43 @@ fn loaded_running_in(worktree: &Path) -> Vec<Loaded> {
     }]
 }
 
+/// The lists of <loaded> read again unchanged.
+fn again(loaded: &[Loaded]) -> impl Fn(&str) -> Result<Lists> + '_ {
+    move |_| Ok(loaded[0].lists.clone().unwrap())
+}
+
+/// For a test whose lists name no fault: nothing is read again.
+fn same(_: &str) -> Result<Lists> {
+    unreachable!("a test whose lists name no fault of a running item reads nothing again")
+}
+
+#[test]
+fn a_running_item_whose_landing_ended_after_the_lists_were_read_is_no_fault() {
+    let scratch = Scratch::new("running-landed");
+    let top = live_worktree(&scratch, false);
+    let loaded = loaded_running_in(&top);
+    // The landing closed the item and released the claim after `loaded` was
+    // read: the lists read again no longer have the item open.
+    let closed = |_: &str| Ok(read(&db()));
+    assert!(
+        findings(Vec::new(), &Ok(loaded.clone()), closed)
+            .unwrap()
+            .is_empty()
+    );
+    // Still running there with no claim: a fault.
+    assert_eq!(
+        findings(Vec::new(), &Ok(loaded.clone()), again(&loaded))
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
 #[test]
 fn a_running_item_in_a_claimed_worktree_is_fine() {
     let scratch = Scratch::new("running-ok");
     let top = live_worktree(&scratch, true);
-    let found = findings(Vec::new(), &Ok(loaded_running_in(&top))).unwrap();
+    let found = findings(Vec::new(), &Ok(loaded_running_in(&top)), same).unwrap();
     assert!(found.is_empty(), "{found:?}");
 }
 
@@ -67,18 +99,16 @@ fn a_running_item_in_a_claimed_worktree_is_fine() {
 fn a_running_item_in_an_unclaimed_or_gone_worktree_is_named() {
     let scratch = Scratch::new("running-bad");
     let top = live_worktree(&scratch, false);
-    let unclaimed = findings(Vec::new(), &Ok(loaded_running_in(&top))).unwrap();
+    let loaded = loaded_running_in(&top);
+    let unclaimed = findings(Vec::new(), &Ok(loaded.clone()), again(&loaded)).unwrap();
     assert_eq!(unclaimed.len(), 1);
     assert!(
         unclaimed[0].text.contains("has no claim") && !unclaimed[0].text.contains('`'),
         "{unclaimed:?}"
     );
     assert_eq!(unclaimed[0].command.as_deref(), Some("builds item stop 1"));
-    let gone = findings(
-        Vec::new(),
-        &Ok(loaded_running_in(&scratch.dir.join("bae-worktrees/side-9"))),
-    )
-    .unwrap();
+    let loaded = loaded_running_in(&scratch.dir.join("bae-worktrees/side-9"));
+    let gone = findings(Vec::new(), &Ok(loaded.clone()), again(&loaded)).unwrap();
     assert!(gone[0].text.contains("is not a live worktree"), "{gone:?}");
 }
 
@@ -92,7 +122,8 @@ fn a_folder_where_a_worktree_was_is_not_live() {
         .unwrap()
         .join("bae-worktrees/side-2");
     std::fs::create_dir_all(&leftover).unwrap();
-    let found = findings(Vec::new(), &Ok(loaded_running_in(&leftover))).unwrap();
+    let loaded = loaded_running_in(&leftover);
+    let found = findings(Vec::new(), &Ok(loaded.clone()), again(&loaded)).unwrap();
     assert!(
         found[0].text.contains("is not a live worktree"),
         "{found:?}"
@@ -106,13 +137,13 @@ fn a_store_failing_its_check_is_a_finding() {
         lists: Err("ids repeat".into()),
     }];
     assert_eq!(
-        findings(Vec::new(), &Ok(bad)).unwrap(),
+        findings(Vec::new(), &Ok(bad), same).unwrap(),
         vec![Advice::said(
             "lists: project demo fails its check: ids repeat".to_string()
         )]
     );
     assert_eq!(
-        findings(Vec::new(), &Err("listing failed".into())).unwrap(),
+        findings(Vec::new(), &Err("listing failed".into()), same).unwrap(),
         vec![Advice::said("lists: listing failed".to_string())]
     );
 }
