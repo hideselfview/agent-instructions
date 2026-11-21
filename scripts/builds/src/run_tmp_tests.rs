@@ -32,10 +32,8 @@ fn a_run_that_starts_build_work_gets_a_folder_on_the_volume_that_its_end_deletes
     let tmpdir = std::path::PathBuf::from(std::env::var_os("TMPDIR").unwrap());
     assert_eq!(tmpdir, held.folder);
     assert_eq!(tmpdir.parent().unwrap(), places.root.join(FOLDER));
-    assert_eq!(
-        owner(&tmpdir.file_name().unwrap().to_string_lossy()),
-        Some(std::process::id() as i32)
-    );
+    let id = tmpdir.file_name().unwrap().to_string_lossy().into_owned();
+    assert!(id.starts_with(&format!("{}-", std::process::id())), "{id}");
     assert!(tmpdir.is_dir());
     drop(held);
     assert!(!tmpdir.exists());
@@ -90,10 +88,9 @@ fn a_run_with_no_build_volume_fails_instead_of_writing_to_the_system_temp_folder
     assert!(said.contains("is not mounted"), "{said}");
 }
 
-#[test]
-fn the_sweep_deletes_the_folders_of_runs_that_ended_and_keeps_the_others() {
-    let scratch = Scratch::new("run-tmp-sweep");
-    let places = scratch.places();
+/// A run folder named for a process that ended, one for this process, and an
+/// entry builds did not make.
+fn folders(places: &Places) -> (std::path::PathBuf, std::path::PathBuf, std::path::PathBuf) {
     let mut ended = std::process::Command::new("true").spawn().unwrap();
     let gone = ended.id();
     ended.wait().unwrap();
@@ -103,11 +100,27 @@ fn the_sweep_deletes_the_folders_of_runs_that_ended_and_keeps_the_others() {
         std::fs::create_dir_all(folder.join("inside")).unwrap();
         folder
     };
-    let finished = make(format!("{gone}-1"));
-    let running = make(format!("{}-1", std::process::id()));
-    let stray = make("not-a-run".to_string());
-    let deleted = sweep_here(&places).unwrap();
-    assert_eq!(deleted, std::slice::from_ref(&finished));
+    (
+        make(format!("{gone}-1")),
+        make(crate::remote::job_id()),
+        make("not-a-run".to_string()),
+    )
+}
+
+#[test]
+fn the_sweep_deletes_the_folders_of_runs_that_ended_and_reports_what_no_run_made() {
+    let scratch = Scratch::new("run-tmp-sweep");
+    let places = scratch.places();
+    let (finished, running, stray) = folders(&places);
+    let swept = sweep(
+        &places,
+        &crate::host::Ssh::from_env(),
+        &local_host(),
+        &Holders::read().unwrap(),
+    )
+    .unwrap();
+    assert_eq!(swept.deleted, [finished.display().to_string()]);
+    assert_eq!(swept.unexpected, ["not-a-run"]);
     assert!(!finished.exists() && running.is_dir() && stray.is_dir());
 }
 
@@ -117,7 +130,7 @@ fn a_host_over_ssh_makes_its_folder_in_the_script_and_the_script_deletes_it() {
     let volume = scratch.dir.join("volume");
     std::fs::create_dir_all(&volume).unwrap();
     let script = format!(
-        "BUILDS_ROOT={}; export BUILDS_ROOT\n{}echo \"$$ $TMPDIR\"\n{}",
+        "BUILDS_ROOT={}; export BUILDS_ROOT\n{}echo \"$TMPDIR\"\n{}",
         volume.display(),
         remote_setup(&remote_host(), "99-5"),
         remote_cleanup(&remote_host()),
@@ -130,12 +143,11 @@ fn a_host_over_ssh_makes_its_folder_in_the_script_and_the_script_deletes_it() {
         .unwrap();
     assert!(output.status.success(), "{output:?}");
     let said = String::from_utf8(output.stdout).unwrap();
-    let (pid, tmpdir) = said.trim().split_once(' ').unwrap();
+    let tmpdir = said.trim();
     assert_eq!(
         std::path::PathBuf::from(tmpdir),
-        volume.join(FOLDER).join(format!("{pid}-99-5"))
+        volume.join(FOLDER).join("99-5")
     );
-    assert_eq!(owner(&format!("{pid}-99-5")), pid.parse().ok());
     assert!(!std::path::Path::new(tmpdir).exists());
 }
 

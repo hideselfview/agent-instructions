@@ -4,9 +4,9 @@
 //! build writes its scratch files where TMPDIR points: `std::env::temp_dir()`,
 //! the `tempfile` crate, the profile folder of the Chrome that the shots
 //! checker starts, Gradle and xcodebuild. Left alone, TMPDIR is the system's
-//! temporary folder, on a volume whose file changes fseventsd logs, and the
-//! writes of one board render kept fseventsd at half a core. The build
-//! volume has no such log (`builds help`, HOSTS), so each run of a command
+//! temporary folder, on a volume whose file changes fseventsd logs and spends
+//! CPU on. The build volume has no such log (`builds help`, HOSTS), so each
+//! run of a command
 //! that starts build work (`starts_work`) makes `<build volume>/.tmp/<run>`,
 //! points its own TMPDIR at it before any thread starts, and every process it
 //! starts inherits that. The run deletes the folder when it ends. Health
@@ -17,35 +17,23 @@
 //! the outermost run owns the folder.
 //!
 //! A job on another host runs through `remote::run_script`, which makes the
-//! host's folder the same way, named for the script's own pid (`$$`), so the
-//! folder's name starts with the pid of the process that owns it on either
-//! machine.
+//! host's folder the same way. A folder is named for its run's id, which
+//! `remote::job_id` makes from the pid of the `builds` process on this Mac
+//! that owns the run and the time it started, so `Holders::holder` judges
+//! every folder on every host from this Mac's process table.
 
 use std::path::PathBuf;
 
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::host::{Host, Ssh};
+use crate::job_claim::{Holder, Holders};
 use crate::places::Places;
 
 /// The folder of every run's folder, in the build volume's root. A name that
 /// starts with a dot is one of the volume's own (`Places::is_reserved_name`),
 /// so no repo and no build root is read from it.
 pub const FOLDER: &str = ".tmp";
-
-/// The name of the folder of the run <id> that the process <pid> owns. <pid>
-/// is a number here, and `$$` in the script of a host (`remote_setup`), so
-/// the part before the first dash is always the owner's pid (`owner`).
-pub fn name(pid: &str, id: &str) -> String {
-    format!("{pid}-{id}")
-}
-
-/// The pid that owns the folder named <name> (`name`), or None for a name
-/// builds did not make.
-pub fn owner(name: &str) -> Option<i32> {
-    let (pid, _) = name.split_once('-')?;
-    pid.parse().ok()
-}
 
 /// The commands that start build work, whose runs get a folder: the runs of
 /// cargo and Lean, the app builds and the lock they run under, the jobs on
@@ -98,10 +86,7 @@ pub fn enter(places: &Places, command: &str, args: &[String]) -> Result<Option<R
     {
         return Ok(None);
     }
-    let folder = parent.join(name(
-        &std::process::id().to_string(),
-        &crate::job_claim::now_nanos().to_string(),
-    ));
+    let folder = parent.join(crate::remote::job_id());
     std::fs::create_dir_all(&folder).context(|| format!("creating {}", folder.display()))?;
     // SAFETY: the caller has started no other thread, so none reads the
     // environment while set_var writes it.
@@ -116,12 +101,11 @@ pub fn enter(places: &Places, command: &str, args: &[String]) -> Result<Option<R
 pub fn remote_setup(host: &Host, run: &str) -> String {
     match host.target {
         Some(_) => format!(
-            r#"tmp="$BUILDS_ROOT/{FOLDER}/{name}"
+            r#"tmp="$BUILDS_ROOT/{FOLDER}/{run}"
 mkdir -p "$tmp" || exit 97
 TMPDIR="$tmp"
 export TMPDIR
 "#,
-            name = name("$$", run),
         ),
         None => String::new(),
     }
@@ -135,56 +119,78 @@ pub fn remote_cleanup(host: &Host) -> &'static str {
     }
 }
 
-/// Deletes each folder in <places>' run folders whose owner no longer runs
-/// (`procs::runs`), and returns the paths it deleted.
-pub fn sweep_here(places: &Places) -> Result<Vec<PathBuf>> {
-    let parent = places.root.join(FOLDER);
-    let entries = match std::fs::read_dir(&parent) {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(error) => fail!("listing {}: {error}", parent.display()),
-    };
-    let mut deleted = Vec::new();
-    for entry in entries {
-        let entry = entry.context(|| format!("listing {}", parent.display()))?;
-        let Some(pid) = owner(&entry.file_name().to_string_lossy()) else {
-            continue;
-        };
-        if crate::procs::runs(pid) {
-            continue;
-        }
-        let path = entry.path();
-        std::fs::remove_dir_all(&path).context(|| format!("deleting {}", path.display()))?;
-        deleted.push(path);
-    }
-    Ok(deleted)
+/// What a sweep of one host's run folders did.
+#[derive(Debug, Default, PartialEq)]
+pub struct Swept {
+    /// The folders it deleted: the run that made each one ended.
+    pub deleted: Vec<String>,
+    /// The entries of the host's run folders that no run of builds names.
+    pub unexpected: Vec<String>,
 }
 
-/// `sweep_here` on <host>: the paths of the folders it deleted, one for each
-/// line. On a host over ssh the owner is alive when `kill -0` finds its pid.
-pub fn sweep_host(places: &Places, ssh: &Ssh, host: &Host) -> Result<Vec<String>> {
-    if host.target.is_none() {
-        return Ok(sweep_here(places)?
-            .iter()
-            .map(|path| path.display().to_string())
-            .collect());
+impl Swept {
+    fn judge(names: Vec<String>, holders: &Holders) -> (Vec<String>, Swept) {
+        let mut gone = Vec::new();
+        let mut swept = Swept::default();
+        for name in names {
+            match holders.holder(&name) {
+                Some(Holder::Gone) => gone.push(name),
+                Some(Holder::Runs) => {}
+                None => swept.unexpected.push(name),
+            }
+        }
+        (gone, swept)
     }
-    let script = format!(
-        r#"{root}d="$BUILDS_ROOT/{FOLDER}"
-[ -d "$d" ] || exit 0
-for f in "$d"/*; do
-  [ -e "$f" ] || continue
-  pid=${{f##*/}}
-  pid=${{pid%%-*}}
-  case $pid in ''|*[!0-9]*) continue ;; esac
-  kill -0 "$pid" 2>/dev/null && continue
-  rm -rf "$f" && echo "$f"
-done"#,
-        root = crate::remote::root_script(host),
-    );
+}
+
+/// Deletes each run folder on <host> whose run has ended (`Holders::holder`),
+/// and lists the entries that are no run's folder. Fails when the host cannot
+/// be listed or a folder cannot be deleted.
+pub fn sweep(places: &Places, ssh: &Ssh, host: &Host, holders: &Holders) -> Result<Swept> {
+    let parent = places.root.join(FOLDER);
+    if host.target.is_none() {
+        let entries = match std::fs::read_dir(&parent) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(Swept::default());
+            }
+            Err(error) => fail!("listing {}: {error}", parent.display()),
+        };
+        let mut names = Vec::new();
+        for entry in entries {
+            let entry = entry.context(|| format!("listing {}", parent.display()))?;
+            names.push(entry.file_name().to_string_lossy().into_owned());
+        }
+        let (gone, mut swept) = Swept::judge(names, holders);
+        for name in gone {
+            let path = parent.join(&name);
+            std::fs::remove_dir_all(&path).context(|| format!("deleting {}", path.display()))?;
+            swept.deleted.push(path.display().to_string());
+        }
+        return Ok(swept);
+    }
     let transport = crate::remote::Transport { places, ssh, host };
-    let said = transport.capture(&script, "deleting the temporary folders of ended runs")?;
-    Ok(said.lines().map(str::to_string).collect())
+    let root = crate::remote::root_script(host);
+    let listed = transport.capture(
+        &format!("{root}d=\"$BUILDS_ROOT/{FOLDER}\"\n[ -d \"$d\" ] || exit 0\nls -A \"$d\""),
+        "listing the temporary folders of runs",
+    )?;
+    let (gone, mut swept) = Swept::judge(listed.lines().map(str::to_string).collect(), holders);
+    if !gone.is_empty() {
+        // A name `holder` judged is digits and one dash: safe in a script.
+        let removals: String = gone
+            .iter()
+            .map(|name| format!("rm -rf \"$BUILDS_ROOT/{FOLDER}/{name}\" || exit 1\n"))
+            .collect();
+        transport.capture(
+            &format!("{root}{removals}"),
+            "deleting the temporary folders of ended runs",
+        )?;
+        swept
+            .deleted
+            .extend(gone.iter().map(|name| format!("{FOLDER}/{name}")));
+    }
+    Ok(swept)
 }
 
 #[cfg(test)]

@@ -733,6 +733,36 @@ fn a_remote_step_runs_with_the_hosts_root_and_path() {
     assert!(!tmpdir.exists());
 }
 
+/// The sweep lists the host's run folders, judges each name by this Mac's
+/// process table, and deletes on the host the folders of runs that ended.
+#[test]
+fn a_sweep_deletes_on_the_host_the_run_folders_of_ended_runs() {
+    let s = setup("sweep-host");
+    let places = s.scratch.places();
+    let parent = s
+        .home
+        .join("builds-root.noindex")
+        .join(crate::run_tmp::FOLDER);
+    let mut ended = std::process::Command::new("true").spawn().unwrap();
+    let gone = format!("{}-1", ended.id());
+    ended.wait().unwrap();
+    let running = crate::remote::job_id();
+    for name in [gone.as_str(), running.as_str(), "not-a-run"] {
+        std::fs::create_dir_all(parent.join(name).join("inside")).unwrap();
+    }
+    let swept = crate::run_tmp::sweep(
+        &places,
+        &s.ssh,
+        &s.host,
+        &crate::job_claim::Holders::read().unwrap(),
+    )
+    .unwrap();
+    assert_eq!(swept.deleted, [format!(".tmp/{gone}")]);
+    assert_eq!(swept.unexpected, ["not-a-run"]);
+    assert!(!parent.join(&gone).exists());
+    assert!(parent.join(&running).is_dir() && parent.join("not-a-run").is_dir());
+}
+
 #[test]
 fn sends_the_whole_working_tree_without_moving_a_ref_or_the_index() {
     let s = setup("remote-working");

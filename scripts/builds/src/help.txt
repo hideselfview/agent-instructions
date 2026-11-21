@@ -279,9 +279,9 @@ follows these rules:
     makes there. A run inside another run (a lane of an app build, a `builds
     cargo` of a step) finds TMPDIR naming the outer run's folder and makes none.
     A job on another host makes the folder under that host's build root
-    (HOSTS), named for the pid of the script that runs the job. `builds
-    health` deletes the folders whose pid no longer runs, on every host that
-    answers. A run with no build volume mounted fails and writes nothing.
+    (HOSTS). Each folder's name holds the pid of the `builds` process on this
+    Mac that owns the run. `builds health` deletes the folders whose run has
+    ended, on every host that answers, and reports entries no run made. A run with no build volume mounted fails and writes nothing.
     TMPDIR is no CARGO_* variable, and sccache's key does not hold it (a
     compile with another TMPDIR hits the cache entry the first one wrote), so
     the folder's name never costs a cache hit.

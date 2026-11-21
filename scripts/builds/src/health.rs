@@ -1836,13 +1836,20 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
         if probe.is_err() {
             continue;
         }
-        match crate::run_tmp::sweep_host(&tool.places, &ssh, host) {
-            Ok(deleted) => deleted.iter().for_each(|folder| {
-                crate::text::note(format!(
-                    "deleted the temporary folder {folder} on {}: the run that made it ended",
-                    crate::host::place(&host.name)
-                ))
-            }),
+        let place = crate::host::place(&host.name);
+        match crate::run_tmp::sweep(&tool.places, &ssh, host, &holders) {
+            Ok(swept) => {
+                for folder in swept.deleted {
+                    crate::text::note(format!(
+                        "deleted the temporary folder {folder} on {place}: the run that made it ended"
+                    ));
+                }
+                for entry in swept.unexpected {
+                    crate::text::note(format!(
+                        "{place} has an entry in its run folders that no run of builds made: {entry}"
+                    ));
+                }
+            }
             Err(fault) => crate::text::note(fault.text()),
         }
     }
