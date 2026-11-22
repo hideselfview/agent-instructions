@@ -55,7 +55,7 @@ fn a_cached_run_of_the_merge_base_needs_nothing() {
     cache_run(&places, &key(OLD, "mac.a.", Lane::Mac));
     assert_eq!(
         plan_of(&places, OLD, &[pick(Lane::Mac, "mac.a.")]).unwrap(),
-        Plan::Covered
+        Plan::Covered(Vec::new())
     );
 }
 
@@ -98,7 +98,10 @@ fn builds_with_overlapping_prefixes_share_the_tips_cached_runs() {
     );
     // A build asking only the narrower prefix runs nothing: it rebases.
     assert_eq!(plan_of(&places, OLD, &second[..1]).unwrap(), Plan::Rebase);
-    assert_eq!(plan_of(&places, TIP, &second[..1]).unwrap(), Plan::Covered);
+    assert_eq!(
+        plan_of(&places, TIP, &second[..1]).unwrap(),
+        Plan::Covered(Vec::new())
+    );
 }
 
 #[test]
@@ -121,7 +124,10 @@ fn a_prefix_that_matches_no_shot_at_the_tip_needs_no_tip_run() {
     let scratch = Scratch::new("main-base-new-prefix");
     let places = scratch.places();
     let picks = [pick(Lane::Mac, "mac.component.heart.")];
-    assert_eq!(plan_of(&places, OLD, &picks).unwrap(), Plan::Covered);
+    assert_eq!(
+        plan_of(&places, OLD, &picks).unwrap(),
+        Plan::Covered(picks.to_vec())
+    );
     // Beside a prefix the tip does declare, only that one runs.
     let both = [picks[0].clone(), pick(Lane::Mac, "mac.a.")];
     assert_eq!(

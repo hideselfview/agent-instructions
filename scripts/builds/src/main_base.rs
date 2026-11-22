@@ -18,6 +18,7 @@ use crate::fail::Result;
 use crate::lane::Lane;
 use crate::places::Places;
 use crate::shots_compare_again::before_run;
+use crate::shots_declared::starts_a_shot;
 
 /// What a build does to get the runs its shots compare with.
 #[derive(Debug, PartialEq, Eq)]
@@ -25,7 +26,9 @@ pub enum Plan {
     /// The merge base has a run for every shots pick, or the picks that lack
     /// one start no shot the tip declares, so nothing exists to compare them
     /// with.
-    Covered,
+    /// The picks that start no declared shot are the vector: they have no run
+    /// to compare with.
+    Covered(Vec<Pick>),
     /// The merge base has no run of these picks, which start declared shots
     /// at origin/main's tip, and the tip's cache lacks their runs: builds
     /// runs them at the tip.
@@ -85,19 +88,18 @@ pub fn plan(
 ) -> Result<Plan> {
     let lacking = missing(places, repo, base, picks, program)?;
     if lacking.is_empty() {
-        return Ok(Plan::Covered);
+        return Ok(Plan::Covered(Vec::new()));
     }
     let declared = declared()?;
-    let asked: Vec<Pick> = lacking
+    let (asked, new): (Vec<Pick>, Vec<Pick>) = lacking
         .into_iter()
-        .filter(|(_, _, prefix)| starts_a_shot(&declared, prefix))
-        .collect();
+        .partition(|(_, _, prefix)| starts_a_shot(&declared, prefix));
     let absent = missing(places, repo, tip, &asked, program)?;
     if !absent.is_empty() {
         return Ok(Plan::BuildMain(absent));
     }
     if asked.is_empty() {
-        return Ok(Plan::Covered);
+        return Ok(Plan::Covered(new));
     }
     if base == tip {
         fail!(
@@ -106,11 +108,6 @@ pub fn plan(
         );
     }
     Ok(Plan::Rebase)
-}
-
-/// Whether a name of <declared> starts with <prefix>.
-pub fn starts_a_shot(declared: &[String], prefix: &str) -> bool {
-    declared.iter().any(|name| name.starts_with(prefix))
 }
 
 /// Takes the exclusive lock on <lane>'s runs of <repo>'s main, waiting while

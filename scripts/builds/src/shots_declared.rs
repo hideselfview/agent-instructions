@@ -27,15 +27,9 @@ pub fn refuse_undeclared(top: &Path, commit: &str, picks: &[Pick]) -> Result<()>
     if wanted.is_empty() {
         return Ok(());
     }
-    let declared: Vec<String> = declared_at(top, commit)?
-        .into_iter()
-        .map(|scene| scene.name.to_string())
-        .collect();
+    let declared = declared_names_at(top, commit)?;
     for (_, _, prefix) in wanted {
-        if declared
-            .iter()
-            .any(|name| name.starts_with(prefix.as_str()))
-        {
+        if starts_a_shot(&declared, prefix) {
             continue;
         }
         let near = nearest(&declared, prefix);
@@ -77,6 +71,11 @@ pub fn windowed_prefixes(top: &Path, commit: &str, picks: &[Pick]) -> Result<Vec
         })
         .cloned()
         .collect())
+}
+
+/// Whether a name of <declared> starts with <prefix>.
+pub fn starts_a_shot(declared: &[String], prefix: &str) -> bool {
+    declared.iter().any(|name| name.starts_with(prefix))
 }
 
 /// The names of the shots the harnesses declare at <commit> of the repo at

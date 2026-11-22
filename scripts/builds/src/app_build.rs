@@ -1024,6 +1024,17 @@ struct ShotsCache {
     base_run: bool,
 }
 
+/// The names of the shots declared at origin/main's tip in <source>, read
+/// once into <cache> and then reused, so every prefix of a run is checked
+/// against one tip.
+fn tip_declared<'a>(cache: &'a mut Option<Vec<String>>, source: &Path) -> Result<&'a [String]> {
+    if cache.is_none() {
+        let tip = resolve(source, "origin/main")?;
+        *cache = Some(crate::shots_declared::declared_names_at(source, &tip)?);
+    }
+    Ok(cache.as_deref().unwrap_or_default())
+}
+
 impl ShotsCache {
     /// The store for <repo>'s <lane> run of the full commit <commit>, whose
     /// commits <source> holds, with the before run of each shots pick of
@@ -1048,6 +1059,7 @@ impl ShotsCache {
     ) -> Result<ShotsCache> {
         let versions = &crate::shots_program::VERSIONS;
         let mut befores = Vec::new();
+        let mut tip_declared_names = None;
         for (_, _, prefix) in picks
             .iter()
             .filter(|(own, kind, _)| *own == lane && *kind == PickKind::Shots)
@@ -1063,13 +1075,15 @@ impl ShotsCache {
                 // A prefix that starts no shot declared at origin/main's tip
                 // has nothing to compare with: its scenes are all new
                 // (main_base.rs).
-                None if !crate::main_base::starts_a_shot(
-                    &crate::shots_declared::declared_names_at(
-                        source,
-                        &resolve(source, "origin/main")?,
-                    )?,
+                None if !crate::shots_declared::starts_a_shot(
+                    tip_declared(&mut tip_declared_names, source)?,
                     prefix,
-                ) => {}
+                ) =>
+                {
+                    note(format!(
+                        "{prefix} starts no shot that origin/main declares, so its run compares with nothing and every scene it selects is new"
+                    ))
+                }
                 None => fail!(
                     "builds holds no run of {prefix} on {} for {}, the merge base of {} with origin/main, by shots checker {} (comparison) over {} (capture), so the run has nothing to compare with; `{}` makes one",
                     lane.word(),
@@ -1746,11 +1760,27 @@ pub fn ensure_before_runs(
             &program,
         )
     };
-    if plan_now()? == Plan::Covered {
-        note(format!(
-            "the shots runs compare with the runs of {}, the merge base with origin/main, that builds has cached",
-            short_of(&base)
-        ));
+    if let Plan::Covered(new) = plan_now()? {
+        let named = |picks: &[Pick]| {
+            picks
+                .iter()
+                .map(|(_, _, prefix)| prefix.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        if !new.is_empty() {
+            note(format!(
+                "{} start no shot that origin/main declares at {}, so their runs compare with nothing and every scene they select is new",
+                named(&new),
+                short_of(&tip)
+            ));
+        }
+        if new.len() < shots.len() {
+            note(format!(
+                "the other shots runs compare with the runs of {}, the merge base with origin/main, that builds has cached",
+                short_of(&base)
+            ));
+        }
         return Ok(());
     }
     // One build at a time makes main's runs of a lane: the others
@@ -1766,7 +1796,7 @@ pub fn ensure_before_runs(
         )
     };
     let wanted = match plan_now()? {
-        Plan::Covered => return Ok(()),
+        Plan::Covered(_) => return Ok(()),
         Plan::Rebase => {
             return rebase(&format!(
                 "{git_ref} starts from {}, which builds has no run of",
