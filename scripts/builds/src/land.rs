@@ -152,7 +152,7 @@ use crate::lists::Id;
 use crate::text::shell_word;
 use boards::git;
 
-const USAGE: &str = "usage: builds land <worktree> [--project P] [--done N]... [--part N]... [--design N]... <sha>... (run it in the worktree whose branch holds the commits, with nothing uncommitted there, and in a repo of a project with a claim on it; land requires --design exactly when the commits change a design place or shared design file, once for each design change that resolves some of them, and takes --design alone for commits that are all design files)";
+const USAGE: &str = "usage: builds land <worktree> [--project P] [--done N]... [--part N]... [--design N]... [<sha>...] (run it in the worktree whose branch holds the commits, with nothing uncommitted there, and in a repo of a project with a claim on it; with no sha, land takes every commit of the branch that origin/main lacks, oldest first, and says which; land requires --design exactly when the commits change a design place or shared design file, once for each design change that resolves some of them, and takes --design alone for commits that are all design files)";
 
 /// How many times a refused push is tried again from a fresh fetch.
 const ATTEMPTS: usize = 5;
@@ -512,6 +512,42 @@ fn resolve_on_head(
     Ok(full)
 }
 
+/// The commits of the worktree's branch that origin/main lacks, oldest first,
+/// for a landing that names none; says which it took. Refuses a branch that
+/// holds none.
+fn branch_commits(dir: &Path, start: &Start, out: &mut dyn Write) -> Result<Vec<String>> {
+    let mut waiting = match crate::side_git::waiting_to_land(dir, start.rev()) {
+        Ok(waiting) => waiting,
+        Err(error) => {
+            return Err(refuse(
+                out,
+                format!(
+                    "refusing: reading the commits of {} that origin/main lacks failed: {error}",
+                    start.name()
+                ),
+            ));
+        }
+    };
+    if waiting.is_empty() {
+        return Err(refuse(
+            out,
+            format!(
+                "refusing: {} holds no commit that origin/main lacks, so there is nothing to land",
+                start.name()
+            ),
+        ));
+    }
+    waiting.reverse();
+    let _ = writeln!(
+        out,
+        "no commit named: landing the {} commit(s) of {} that origin/main lacks, oldest first: {}",
+        waiting.len(),
+        start.name(),
+        crate::unlanded::commit_words(&waiting)
+    );
+    Ok(waiting.into_iter().map(|c| c.full).collect())
+}
+
 fn parse(args: &[String], out: &mut dyn Write) -> Result<Request> {
     let mut items = Vec::new();
     let mut designs: Vec<Id> = Vec::new();
@@ -567,9 +603,6 @@ fn parse(args: &[String], out: &mut dyn Write) -> Result<Request> {
             }
             _ => break,
         }
-    }
-    if rest.is_empty() {
-        return Err(refuse(out, USAGE));
     }
     if let Some(flag) = rest.iter().find(|arg| arg.starts_with("--")) {
         return Err(refuse(out, format!("refusing: unknown option {flag}")));
@@ -1343,6 +1376,9 @@ fn open_landing<'a>(
     let mut request = parse(args, out)?;
     let start = Start::read(&workdir)?;
     require_clean(&workdir, out)?;
+    if request.shas.is_empty() {
+        request.shas = branch_commits(&workdir, &start, out)?;
+    }
     request.shas = resolve_on_head(&workdir, &start, &request.shas, out)?;
     Ok(Landing {
         program,

@@ -3274,10 +3274,15 @@ and list of changed paths that a review or `builds land` reads. To test
 another grouping, change the folders in a worktree of agent-instructions and
 run `review replay --rules-root` on it.
 
-  builds land <worktree> [--project P] [--done N]... [--part N]... [--design N]... <sha>...
+  builds land <worktree> [--project P] [--done N]... [--part N]... [--design N]... [<sha>...]
                               put the commits on origin/main from the worktree
                               whose branch holds them: a fast-forward when
                               origin/main is their base, else a cherry-pick.
+                              With no sha, land takes every commit of the
+                              branch that origin/main lacks, oldest first, and
+                              prints each with its subject; with shas, it lands
+                              only those. A branch that holds no such commit is
+                              refused.
                               When origin refuses the push because origin/main
                               moved, land fetches again and tries again, up to
                               five times. Before it fetches anything, land

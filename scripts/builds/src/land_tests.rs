@@ -381,6 +381,27 @@ fn a_repo_in_no_project_lands_with_only_the_project_lookup_and_the_release_and_r
 }
 
 #[test]
+fn a_landing_that_names_no_commit_takes_the_branchs_commits_oldest_first_and_says_which() {
+    let f = fixture("land-no-shas", CHECK, None);
+    let one = f.side(1, "a");
+    let first = commit_file(&one, "a.txt", "a\n", "add a");
+    let second = commit_file(&one, "c.txt", "c\n", "add c");
+    let (code, out, _) = run_land(&f, &one, &[], Cues::default());
+    assert!(code == 0 && main_of(&f) == second, "{out}");
+    let at = |sha: &str, subject: &str| out.find(&format!("{} {subject}", &sha[..7]));
+    let (a, c) = (at(&first, "add a"), at(&second, "add c"));
+    assert!(
+        a.is_some() && c.is_some() && a < c,
+        "land says which commits it took, oldest first: {out}"
+    );
+    let (code, out, _) = run_land(&f, &one, &[], Cues::default());
+    assert!(
+        code == 1 && out.contains("no commit that origin/main lacks"),
+        "{out}"
+    );
+}
+
+#[test]
 fn done_refuses_while_commits_of_the_branch_stay_unlanded() {
     let f = fixture("done-leaves-commits", CHECK, None);
     let one = f.side(1, "a");
@@ -963,8 +984,14 @@ fn unknown_options_and_missing_numbers_are_refused() {
     );
     let (code, out, _) = run_land(&f, &one, &["--design", "2,3", &a], Cues::default());
     assert!(code == 1 && out.contains("'2,3' is not an id"), "{out}");
-    let (code, out, _) = run_land(&f, &one, &[], Cues::default());
-    assert!(code == 1 && out.contains("usage: builds land"), "{out}");
+    let mut out = Vec::new();
+    let refused = land(&f, Path::new("unused"), &[], &mut out);
+    assert!(
+        matches!(refused, Err(Fail::Exit(1)))
+            && String::from_utf8_lossy(&out).contains("usage: builds land"),
+        "{}",
+        String::from_utf8_lossy(&out)
+    );
 }
 
 #[test]
