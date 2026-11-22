@@ -2000,23 +2000,28 @@ fn the_picture_folder_caches_the_shots_of_the_prefixes_its_marks_cover_for_the_a
         crate::app_tree::in_environment(&source_tree, ENVIRONMENT)
     );
     let pictures = |tree| shots_cache::AppPictures::of(&places, "demo", Lane::Mac, tree);
-    let held = pictures(&tree);
-    let _first_lock = held.hold().unwrap();
-    let caches =
-        |prefixes: &[&str]| picture_folder_caches(&config, Lane::Mac, &held, prefixes).unwrap();
-    assert!(!caches(&["mac.a."]), "the folder caches nothing yet");
-    let taken = shots_cache::pictures(&places, "demo")
-        .join("mac")
-        .join(&tree)
-        .join(".taken");
-    std::fs::create_dir_all(&taken).unwrap();
-    std::fs::write(taken.join("mac.@no-windows"), "").unwrap();
-    assert!(caches(&["mac.a."]) && caches(&["mac.a.", "mac.b."]));
+    pictures(&tree)
+        .while_held(|held| {
+            let caches = |prefixes: &[&str]| {
+                picture_folder_caches(&config, Lane::Mac, held, prefixes).unwrap()
+            };
+            assert!(!caches(&["mac.a."]), "the folder caches nothing yet");
+            let marks = shots::CaptureMarks::of(
+                &shots_cache::pictures(&places, "demo")
+                    .join("mac")
+                    .join(&tree),
+            );
+            marks.write(&["mac.".into()], false).unwrap();
+            assert!(caches(&["mac.a."]) && caches(&["mac.a.", "mac.b."]));
+            Ok(())
+        })
+        .unwrap();
     let other_environment = crate::app_tree::in_environment(&source_tree, "25G241-27B52");
     for tree in ["another-tree", &other_environment] {
-        let other = pictures(tree);
-        let _lock = other.hold().unwrap();
-        assert!(!picture_folder_caches(&config, Lane::Mac, &other, &["mac.a."]).unwrap());
+        let cached = pictures(tree)
+            .while_held(|held| picture_folder_caches(&config, Lane::Mac, held, &["mac.a."]))
+            .unwrap();
+        assert!(!cached);
     }
 }
 

@@ -1,3 +1,4 @@
+use crate::names::Prefix;
 use std::path::{Path, PathBuf};
 
 /// The folder in an app tree that marks the prefixes the checker has captured.
@@ -25,9 +26,20 @@ impl CaptureMarks {
             .map_err(|error| format!("cannot prepare {}: {error}", self.dir.display()))?;
         let mark = if windows { "windows" } else { "no-windows" };
         for prefix in prefixes {
-            let file = self.dir.join(format!("{prefix}@{mark}"));
-            std::fs::write(&file, "")
-                .map_err(|error| format!("cannot write {}: {error}", file.display()))?;
+            let prefix = Prefix::parse(prefix).map_err(|error| error.to_string())?;
+            let file = self.dir.join(format!("{}@{mark}", prefix.as_str()));
+            match std::fs::File::create_new(&file) {
+                Ok(_) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                    let kind = std::fs::symlink_metadata(&file)
+                        .map_err(|error| {
+                            format!("cannot read the file type of {}: {error}", file.display())
+                        })?
+                        .file_type();
+                    require_file(kind, &file)?;
+                }
+                Err(error) => return Err(format!("cannot write {}: {error}", file.display())),
+            }
         }
         Ok(())
     }
@@ -46,17 +58,12 @@ impl CaptureMarks {
                     entry.path().display()
                 )
             })?;
-            if !kind.is_file() {
-                return Err(format!(
-                    "expected a capture mark file at {}",
-                    entry.path().display()
-                ));
-            }
+            require_file(kind, &entry.path())?;
             let name = entry.file_name();
             let mark = name.to_str().and_then(|name| name.rsplit_once('@'));
             let (marked, took_windows) = match mark {
-                Some((marked, "windows")) if !marked.is_empty() => (marked, true),
-                Some((marked, "no-windows")) if !marked.is_empty() => (marked, false),
+                Some((marked, "windows")) => (marked, true),
+                Some((marked, "no-windows")) => (marked, false),
                 _ => {
                     return Err(format!(
                         "{} is no mark the shots program writes (<prefix>@windows or <prefix>@no-windows)",
@@ -64,9 +71,15 @@ impl CaptureMarks {
                     ));
                 }
             };
+            let marked = Prefix::parse(marked).map_err(|error| {
+                format!(
+                    "{} holds an invalid prefix: {error}",
+                    entry.path().display()
+                )
+            })?;
             if took_windows || !windows {
                 for (prefix, has_mark) in prefixes.iter().zip(&mut covered) {
-                    if !*has_mark && prefix.starts_with(marked) {
+                    if !*has_mark && prefix.starts_with(marked.as_str()) {
                         *has_mark = true;
                     }
                 }
@@ -75,3 +88,18 @@ impl CaptureMarks {
         Ok(covered.into_iter().all(|has_mark| has_mark))
     }
 }
+
+fn require_file(kind: std::fs::FileType, path: &Path) -> Result<(), String> {
+    if kind.is_file() {
+        Ok(())
+    } else {
+        Err(format!(
+            "expected a capture mark file at {}",
+            path.display()
+        ))
+    }
+}
+
+#[cfg(test)]
+#[path = "capture_marks_tests.rs"]
+mod tests;

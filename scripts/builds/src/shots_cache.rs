@@ -221,13 +221,19 @@ impl AppPictures {
         }
     }
 
-    /// Pins this tree until the returned lock closes.
-    pub fn hold(&self) -> Result<crate::flock::Shared> {
-        // Take the shared lock while prune cannot replace the directory inode.
-        let _root = capped_store::writing(&self.root)?;
-        let marks = self.marks.directory();
-        std::fs::create_dir_all(marks).context(|| format!("creating {}", marks.display()))?;
-        crate::flock::shared(marks)
+    /// Keep this tree in the cache while the lane runs <work>.
+    pub fn while_held<T>(&self, work: impl FnOnce(&Self) -> Result<T>) -> Result<T> {
+        let _reader = {
+            // Take the shared lock while prune cannot replace the directory inode.
+            let _root = capped_store::writing(&self.root)?;
+            let marks = self.marks.directory();
+            std::fs::create_dir_all(marks).context(|| format!("creating {}", marks.display()))?;
+            let reader =
+                std::fs::File::open(marks).context(|| format!("opening {}", marks.display()))?;
+            crate::flock::lock(&reader, libc::LOCK_SH, marks)?;
+            reader
+        };
+        work(self)
     }
 
     /// Whether the held tree's marks cover every requested prefix and
@@ -624,7 +630,7 @@ fn group(places: &Places, repo: &str, named: &Named) -> Result<Group> {
             for (_, tree) in folders_in(&platform)? {
                 kept.push(Kept::Folder {
                     folder: capped_store::Folder {
-                        reader_lock: Some(tree.join(CAPTURE_MARKS_DIR)),
+                        reader_lock: Some(CaptureMarks::of(&tree).directory().to_path_buf()),
                         path: tree,
                     },
                     last_use: Use::NewestInside,

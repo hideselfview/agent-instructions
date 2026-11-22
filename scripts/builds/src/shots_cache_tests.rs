@@ -568,15 +568,18 @@ fn a_lane_can_read_its_cached_app_pictures_after_a_prune_between_steps() {
         crate::testing::age_all(tree, 2);
     }
     let pictures = AppPictures::of(&places, "demo", Lane::Mac, "active");
-    let held = pictures.hold().unwrap();
-    assert!(pictures.caches(&["mac.a."], true).unwrap());
+    pictures
+        .while_held(|pictures| {
+            assert!(pictures.caches(&["mac.a."], true).unwrap());
 
-    prune_runs(&tool, Run::Real, 100).unwrap();
+            prune_runs(&tool, Run::Real, 100).unwrap();
 
-    assert!(lane_tree.join(shot).is_file());
-    assert!(pictures.caches(&["mac.a."], true).unwrap());
-    assert!(!other_tree.exists());
-    drop(held);
+            assert!(lane_tree.join(shot).is_file());
+            assert!(pictures.caches(&["mac.a."], true).unwrap());
+            assert!(!other_tree.exists());
+            Ok(())
+        })
+        .unwrap();
 
     prune_runs(&tool, Run::Real, 100).unwrap();
     assert!(!lane_tree.exists());
@@ -619,70 +622,6 @@ fn pictures_a_host_made_move_into_place_and_cached_ones_stay() {
     );
     assert!(!folder.join("boards/.half.png.123").exists());
     assert!(!incoming.exists());
-}
-
-#[test]
-fn a_prefix_is_cached_when_a_taken_mark_starts_it_and_took_the_window_shots_it_asks_for() {
-    let scratch = Scratch::new("shot-store-taken");
-    let places = scratch.places();
-    let taken = pictures(&places, "demo")
-        .join("mac/tree1")
-        .join(CAPTURE_MARKS_DIR);
-    std::fs::create_dir_all(&taken).unwrap();
-    let tree1 = AppPictures::of(&places, "demo", Lane::Mac, "tree1");
-    let _held = tree1.hold().unwrap();
-    let kept = |prefix: &str, windows: bool| tree1.caches(&[prefix], windows).unwrap();
-    assert!(!kept("mac.a.", false));
-    std::fs::write(taken.join("mac.a.@no-windows"), "").unwrap();
-    assert!(kept("mac.a.b.", false));
-    assert!(!kept("mac.a.", true), "that run took no window's shots");
-    assert!(
-        !kept("mac.", false),
-        "a narrower mark does not cover a wider prefix"
-    );
-    std::fs::write(taken.join("mac.@windows"), "").unwrap();
-    assert!(kept("mac.", true) && kept("mac.b.", false));
-    let tree2 = AppPictures::of(&places, "demo", Lane::Mac, "tree2");
-    let _held = tree2.hold().unwrap();
-    assert!(!tree2.caches(&["mac.a."], false).unwrap());
-    let other = pictures(&places, "demo")
-        .join("mac/tree3")
-        .join(CAPTURE_MARKS_DIR);
-    std::fs::create_dir_all(&other).unwrap();
-    std::fs::write(other.join("mac.c."), "").unwrap();
-    let tree3 = AppPictures::of(&places, "demo", Lane::Mac, "tree3");
-    let _held = tree3.hold().unwrap();
-    let error = tree3
-        .caches(&["mac.c."], false)
-        .expect_err("a mark the shots program never writes fails")
-        .text();
-    assert!(error.contains("mac.c."), "{error}");
-}
-
-#[test]
-fn a_mark_with_no_prefix_fails_instead_of_covering_every_shot() {
-    let scratch = Scratch::new("shot-store-invalid-mark");
-    let places = scratch.places();
-    let pictures = AppPictures::of(&places, "demo", Lane::Mac, "tree");
-    let _held = pictures.hold().unwrap();
-    std::fs::write(pictures.marks.directory().join("@windows"), "").unwrap();
-
-    let error = pictures.caches(&["mac.a."], true).unwrap_err().text();
-    assert!(error.contains("@windows"), "{error}");
-}
-
-#[test]
-fn a_directory_cannot_mark_a_prefix_captured() {
-    let scratch = Scratch::new("shot-store-directory-mark");
-    let places = scratch.places();
-    let pictures = AppPictures::of(&places, "demo", Lane::Mac, "tree");
-    let _held = pictures.hold().unwrap();
-    let bad_mark = pictures.marks.directory().join("mac.@windows");
-    std::fs::create_dir(&bad_mark).unwrap();
-
-    let error = pictures.caches(&["mac.a."], true).unwrap_err().text();
-    assert!(error.contains("expected a capture mark file"), "{error}");
-    assert!(error.contains("mac.@windows"), "{error}");
 }
 
 #[test]

@@ -2039,58 +2039,64 @@ impl LaneBuild<'_> {
         // the picture folder caches, builds nothing.
         let tree = picture_tree(&self.source, commit, &self.config, lane, &environment)?;
         let prefixes = shot_prefixes(lane, picks);
-        let pictures = shots_cache::AppPictures::of(places, repo, lane, &tree);
-        let picture_lock = (!prefixes.is_empty())
-            .then(|| pictures.hold())
-            .transpose()?;
-        let cached_shots = needs_only
-            && !fresh
-            && picture_lock.is_some()
-            && picture_folder_caches(&self.config, lane, &pictures, &prefixes)?;
-        let names: &[String] = if cached_shots { &[] } else { names };
-        let mut built = Vec::new();
-        if let Some(base) = &self.base {
-            let (ended, made) =
-                self.ensure_base(base, &environment, site, held, built_file, timing)?;
-            if ended != Ended::Finished {
-                return Ok(ended);
+        let pictures =
+            (!prefixes.is_empty()).then(|| shots_cache::AppPictures::of(places, repo, lane, &tree));
+        let run = |pictures: Option<&shots_cache::AppPictures>| {
+            let cached_shots = match pictures {
+                Some(pictures) if needs_only && !fresh => {
+                    picture_folder_caches(&self.config, lane, pictures, &prefixes)?
+                }
+                _ => false,
+            };
+            let names: &[String] = if cached_shots { &[] } else { names };
+            let mut built = Vec::new();
+            if let Some(base) = &self.base {
+                let (ended, made) =
+                    self.ensure_base(base, &environment, site, held, built_file, timing)?;
+                if ended != Ended::Finished {
+                    return Ok(ended);
+                }
+                built = made;
             }
-            built = made;
-        }
-        if cached_shots {
-            note(
-                "the picture folder caches every shot these runs take for the lane's app tree, so the lane builds nothing and takes the shots from it",
-            );
-            Built::clear(built_file)?;
-        } else if names.is_empty() && !picks.is_empty() {
-            let (wanted, head) = site.resolved_and_head(places, repo, commit)?;
-            Built::allows_class_run(
-                Built::read(built_file)?.as_ref(),
-                &held.checkout,
-                commit,
-                &wanted,
-                &head,
-            )?;
-        } else {
-            // The switch and the steps change what the checkout holds.
-            Built::clear(built_file)?;
-        }
-        let CheckedOut { sha, config } = site.check_out(places, repo, commit)?;
-        timing.commit = Some(sha.clone());
-        let run = CommitRun {
-            sha: &sha,
-            config: &config,
-            tree,
-            names,
-            picks,
-            windowed: &self.windowed,
-            environment: &environment,
-            cached_shots,
-            retake: fresh,
-            base_run: false,
-            built: &built,
+            if cached_shots {
+                note(
+                    "the picture folder caches every shot these runs take for the lane's app tree, so the lane builds nothing and takes the shots from it",
+                );
+                Built::clear(built_file)?;
+            } else if names.is_empty() && !picks.is_empty() {
+                let (wanted, head) = site.resolved_and_head(places, repo, commit)?;
+                Built::allows_class_run(
+                    Built::read(built_file)?.as_ref(),
+                    &held.checkout,
+                    commit,
+                    &wanted,
+                    &head,
+                )?;
+            } else {
+                // The switch and the steps change what the checkout holds.
+                Built::clear(built_file)?;
+            }
+            let CheckedOut { sha, config } = site.check_out(places, repo, commit)?;
+            timing.commit = Some(sha.clone());
+            let run = CommitRun {
+                sha: &sha,
+                config: &config,
+                tree,
+                names,
+                picks,
+                windowed: &self.windowed,
+                environment: &environment,
+                cached_shots,
+                retake: fresh,
+                base_run: false,
+                built: &built,
+            };
+            self.run_commit(site, held, built_file, timing, run)
         };
-        self.run_commit(site, held, built_file, timing, run)
+        match &pictures {
+            Some(pictures) => pictures.while_held(|pictures| run(Some(pictures))),
+            None => run(None),
+        }
     }
 
     /// Runs what <run> says in <site>, which is on the commit <run> names:
@@ -2309,26 +2315,27 @@ impl LaneBuild<'_> {
         let CheckedOut { sha, config } = site.check_out(places, repo, &base.commit)?;
         let tree = picture_tree(&self.source, &sha, &config, lane, environment)?;
         let pictures = shots_cache::AppPictures::of(places, repo, lane, &tree);
-        let _picture_lock = pictures.hold()?;
         let prefixes = wanted
             .iter()
             .map(|(_, _, prefix)| prefix.as_str())
             .collect::<Vec<_>>();
-        let cached_shots = picture_folder_caches(&config, lane, &pictures, &prefixes)?;
-        let run = CommitRun {
-            sha: &sha,
-            config: &config,
-            tree,
-            names: &base.names,
-            picks: &wanted,
-            windowed: &base.windowed,
-            environment,
-            cached_shots,
-            retake: false,
-            base_run: true,
-            built: &[],
-        };
-        let ran = self.run_commit(site, held, built_file, timing, run);
+        let ran = pictures.while_held(|pictures| {
+            let cached_shots = picture_folder_caches(&config, lane, pictures, &prefixes)?;
+            let run = CommitRun {
+                sha: &sha,
+                config: &config,
+                tree,
+                names: &base.names,
+                picks: &wanted,
+                windowed: &base.windowed,
+                environment,
+                cached_shots,
+                retake: false,
+                base_run: true,
+                built: &[],
+            };
+            self.run_commit(site, held, built_file, timing, run)
+        });
         let failed = match ran {
             Ok(Ended::Finished) => None,
             Ok(other) => return Ok((other, Vec::new())),
