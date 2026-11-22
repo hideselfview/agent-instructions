@@ -97,22 +97,26 @@ impl Messaging {
         Ok(Destinations::for_session(session)?.map(|destinations| destinations.at(to)))
     }
 
-    fn claude_from_env() -> Result<Option<Self>> {
-        let Some(socket) =
-            read_env("CLAUDE_CODE_MESSAGING_SOCKET")?.filter(|s| !s.trim().is_empty())
-        else {
+    /// The inbox a Claude Code shell names, if it names one.
+    fn claude(
+        inbox: Option<&(std::ffi::OsString, Option<std::ffi::OsString>)>,
+    ) -> Result<Option<Self>> {
+        let Some((socket, token)) = inbox else {
             return Ok(None);
         };
-        let token = read_env("CLAUDE_CODE_MESSAGING_TOKEN")?;
+        let text = |name: &str, value: &std::ffi::OsStr| match value.to_str() {
+            Some(value) => Ok(value.to_string()),
+            None => fail!("{name} is not UTF-8."),
+        };
+        let socket = text(crate::ack::agent::MESSAGING_SOCKET, socket)?;
+        if socket.trim().is_empty() {
+            return Ok(None);
+        }
+        let token = token
+            .as_deref()
+            .map(|token| text(crate::ack::agent::MESSAGING_TOKEN, token))
+            .transpose()?;
         Self::new(&socket, token.as_deref()).map(Some)
-    }
-}
-
-fn read_env(name: &str) -> Result<Option<String>> {
-    match std::env::var(name) {
-        Ok(value) => Ok(Some(value)),
-        Err(std::env::VarError::NotPresent) => Ok(None),
-        Err(error) => fail!("Could not read {name}: {error}"),
     }
 }
 
@@ -139,7 +143,9 @@ impl Destinations {
                 })),
                 _ => Ok(None),
             },
-            Session::Claude { .. } => Ok(Messaging::claude_from_env()?.map(Self::Shared)),
+            Session::Claude { inbox, .. } => {
+                Ok(Messaging::claude(inbox.as_ref())?.map(Self::Shared))
+            }
             Session::InvalidClaude => {
                 session.claude()?;
                 Ok(None)

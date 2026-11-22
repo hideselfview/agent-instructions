@@ -215,6 +215,8 @@ pub struct Caller {
     pub id: String,
 }
 
+pub const MESSAGING_SOCKET: &str = "CLAUDE_CODE_MESSAGING_SOCKET";
+pub const MESSAGING_TOKEN: &str = "CLAUDE_CODE_MESSAGING_TOKEN";
 pub const CODEX_SESSION: &str = "CODEX_SESSION_ID";
 pub const CODEX_THREAD: &str = "CODEX_THREAD_ID";
 
@@ -300,6 +302,9 @@ pub enum Session {
     Claude {
         id: String,
         agent: Option<String>,
+        /// The socket and token of the session's inbox, as Claude Code gave
+        /// them to the shell: the socket, then the token.
+        inbox: Option<(std::ffi::OsString, Option<std::ffi::OsString>)>,
     },
     InvalidClaude,
     /// A Codex shell: its coordinator's session and its own thread, as
@@ -320,6 +325,25 @@ impl Session {
             std::env::var_os(CODEX_THREAD),
             agent,
         )
+        .with_inbox(
+            std::env::var_os(MESSAGING_SOCKET),
+            std::env::var_os(MESSAGING_TOKEN),
+        )
+    }
+
+    /// This session with the inbox that Claude Code's shell names. A session
+    /// that is not Claude Code's has none.
+    pub fn with_inbox(
+        mut self,
+        socket: Option<std::ffi::OsString>,
+        token: Option<std::ffi::OsString>,
+    ) -> Self {
+        if let Self::Claude { inbox, .. } = &mut self {
+            *inbox = socket
+                .filter(|socket| !socket.is_empty())
+                .map(|socket| (socket, token));
+        }
+        self
     }
 
     pub fn of(
@@ -330,7 +354,11 @@ impl Session {
     ) -> Self {
         if let Some(id) = claude.filter(|id| !id.is_empty()) {
             match id.into_string() {
-                Ok(id) => Self::Claude { id, agent },
+                Ok(id) => Self::Claude {
+                    id,
+                    agent,
+                    inbox: None,
+                },
                 Err(_) => Self::InvalidClaude,
             }
         } else {
@@ -349,7 +377,7 @@ impl Session {
 
     pub fn claude(&self) -> Result<Option<(&str, Option<&str>)>> {
         match self {
-            Self::Claude { id, agent } => Ok(Some((id, agent.as_deref()))),
+            Self::Claude { id, agent, .. } => Ok(Some((id, agent.as_deref()))),
             Self::InvalidClaude => fail!("{} is not a UTF-8 session ID", super::SESSION),
             Self::Codex { .. } | Self::Terminal => Ok(None),
         }
