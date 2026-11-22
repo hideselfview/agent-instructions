@@ -162,6 +162,22 @@ fn a_matched_pair_whose_state_differs_says_which_part() {
 }
 
 #[test]
+fn enablement_differences_report_the_button_and_keep_static_text_matched() {
+    let board = [text("Reading file"), button("Save")];
+    let mut shot = board.clone();
+    shot[0].enabled = false;
+    shot[1].enabled = false;
+
+    let comparison = compare(&board, &shot, Slots::NONE);
+    assert_eq!(comparison.pairs.len(), 2);
+    let findings: Vec<_> = comparison.findings.iter().map(Finding::sentence).collect();
+    assert_eq!(
+        findings,
+        ["The button “Save” is enabled on the board and disabled in the shot"]
+    );
+}
+
+#[test]
 fn a_field_with_no_text_on_one_side_and_an_empty_string_on_the_other_agrees() {
     let mut empty = element(Role::Field, Some("Name"), None);
     empty.value = Some(String::new());

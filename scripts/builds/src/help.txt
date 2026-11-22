@@ -1572,7 +1572,9 @@ built again.
                               <commit>, `run` compares with an empty run of
                               that commit, so every pair is new and fails
                               nothing. Without --before, `run` fails on
-                              every pair with findings. With --pictures
+                              every pair with findings. The checker compares
+                              the enabled state of controls and ignores that
+                              property on static text. With --pictures
                               <folder>, `run` draws only the
                               boards whose board hash the folder lacks
                               (APP BUILDS) and add each new drawing; with

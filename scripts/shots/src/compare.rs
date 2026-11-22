@@ -8,7 +8,7 @@ pub(crate) mod geometry;
 pub(crate) mod normalize;
 pub(crate) mod regions;
 
-use crate::shots::{Bounds, Element, Picture, Size};
+use crate::shots::{Bounds, Element, Picture, Role, Size};
 use align::Step;
 use colour::{Rgb, hex};
 use normalize::{Entry, entries, fold_merged};
@@ -469,7 +469,8 @@ fn differences(board: &Entry, shot: &Entry) -> Vec<Aspect> {
     if board.value != shot.value {
         differing.push(Aspect::Value);
     }
-    if board.enabled != shot.enabled {
+    // AppKit also reports inherited enablement on static text.
+    if board.kind != Role::Text && board.enabled != shot.enabled {
         differing.push(Aspect::Enabled);
     }
     if board.selected != shot.selected {
