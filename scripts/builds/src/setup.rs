@@ -18,11 +18,10 @@ use crate::checkout::{Checkout, Root, absolute_link_target, worktrees_of};
 use crate::evict::{Recreate, Removal, evict};
 use crate::fail;
 use crate::fail::{Context, Result};
-use crate::floor::{Keeper, keep_floor};
 use crate::host::Ssh;
 use crate::manifest::{MANIFEST, build_dirs, has_manifest};
 use crate::prune::{
-    Run, prune_cargo_git, prune_derived_data, prune_installed, prune_root, prune_shared,
+    Pruner, Run, prune_derived_data, prune_root, prune_shared, prune_tools_and_floor,
 };
 use crate::text::note;
 use crate::tool::Tool;
@@ -195,14 +194,11 @@ pub fn setup_with(tool: &Tool, ssh: &Ssh, checkout: &Checkout, prepare: Prepare)
             ));
         }
     }
-    prune_root(tool, &root, checkout, Run::Real, 0, 0, Keeper::Setup)?;
-    prune_derived_data(tool, Run::Real, 0, Keeper::Setup)?;
-    prune_shared(tool, Run::Real, Keeper::Setup)?;
+    prune_root(tool, &root, checkout, Run::Real, 0, 0, Pruner::Setup)?;
+    prune_derived_data(tool, Run::Real, 0, Pruner::Setup)?;
+    prune_shared(tool, Run::Real, Pruner::Setup)?;
     let roots = tool.roots()?;
-    prune_cargo_git(tool, &roots, Run::Real)?;
-    prune_installed(tool, &roots, Run::Real)?;
-    crate::built_tools::prune_tools(&tool.places, &roots, Run::Real)?;
-    keep_floor(tool, &roots, Keeper::Setup, Run::Real)?;
+    prune_tools_and_floor(tool, &roots, Run::Real, Pruner::Setup)?;
     if prepare == Prepare::No {
         return Ok(());
     }

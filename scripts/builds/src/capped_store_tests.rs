@@ -349,6 +349,51 @@ fn the_open_file_snapshot_follows_discovery_and_prune_selects_an_alternative() {
 }
 
 #[test]
+fn missing_files_are_not_counted_as_a_deletion() {
+    let scratch = Scratch::new("capped-file-vanished");
+    let missing = scratch.dir.join("gone");
+    let second = scratch.dir.join("second");
+    let files = [missing, second.clone()];
+
+    assert!(!Target::Files(&files).delete(0).unwrap());
+    std::fs::write(&second, "entry").unwrap();
+    assert!(Target::Files(&files).delete(0).unwrap());
+    assert!(!second.exists());
+}
+
+#[test]
+fn an_unlink_failure_after_a_refused_move_still_fails_the_cache_prune() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let scratch = Scratch::new("capped-two-failures");
+    let tool = scratch.tool(0);
+    let root = scratch.dir.join("root");
+    let refused = store(&root, "locked/run", 400, 30);
+    let bad_file = root.join("directory-in-place-of-file");
+    std::fs::create_dir(&bad_file).unwrap();
+    std::fs::write(root.join(PLAN), "").unwrap();
+    let parent = refused.parent().unwrap();
+    std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o500)).unwrap();
+
+    let steps = vec![
+        Deletion {
+            unit: Unit::Folder(refused.clone()),
+            reason: "old run".into(),
+        },
+        Deletion {
+            unit: Unit::Files(vec![bad_file.clone()]),
+            reason: "old file".into(),
+        },
+    ];
+    let error = apply_plan(&tool, Run::Real, &root, steps).unwrap_err();
+    std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700)).unwrap();
+
+    assert!(matches!(error, fail::Fail::Message(_)), "{error:?}");
+    assert!(error.text().contains(bad_file.to_str().unwrap()));
+    assert!(refused.is_dir());
+}
+
+#[test]
 fn a_failed_open_file_scan_keeps_folder_candidates() {
     let scratch = Scratch::new("capped-scan-error");
     let tool = scratch.tool(0);

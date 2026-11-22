@@ -490,7 +490,7 @@ fn read(folder: &Path, key: &Key) -> Result<Option<Cached>> {
 }
 
 /// Marks <cached> used now, so the cap deletes it later.
-fn mark_used(cached: &Cached) -> Result<()> {
+pub fn mark_used(cached: &Cached) -> Result<()> {
     capped_store::mark_used(&cached.folder.join(RUN_FILE))
 }
 

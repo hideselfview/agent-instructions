@@ -23,7 +23,7 @@ use crate::evict::{Recreate, Removal};
 use crate::fail::{Fail, Result};
 use crate::manifest::{SHARED_CACHES, build_dirs};
 use crate::places::{FLOOR_IDLE_MINUTES, FLOOR_INCREMENTAL_IDLE_MINUTES};
-use crate::prune::{Run, delete_folder, derived_data};
+use crate::prune::{Pruner, Run, delete_folder, derived_data};
 use crate::text::{counted, human, human_bytes, local_minute, note};
 use crate::tool::Tool;
 use crate::units::OpenFiles;
@@ -85,40 +85,13 @@ fn floor_candidates(tool: &Tool, roots: &[Root]) -> Result<Vec<Candidate>> {
     Ok(candidates)
 }
 
-/// Which command keeps the floor. Both delete until the volume has the
-/// target free (`Rules::floor_target_kib`, the floor plus its margin); they
-/// differ in when they start and in what a volume left under the floor does.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Keeper {
-    /// `setup`, before every hook and build: starts only under the floor,
-    /// and under the hard floor stops the build before it starts.
-    Setup,
-    /// `prune`: starts under the target, so the space is there before the
-    /// next builds take it, and under the floor only warns.
-    Prune,
-}
-
-impl Keeper {
-    /// Setup warns for a refused rename, leaving later entries eligible for
-    /// cleanup. An explicit prune returns the error.
-    pub(crate) fn after_move<T>(self, result: Result<T>) -> Result<Option<T>> {
-        match (self, result) {
-            (Self::Setup, Err(error @ Fail::Move { .. })) => {
-                note(format!("warning: {}; builds kept the entry", error.text()));
-                Ok(None)
-            }
-            (_, result) => result.map(Some),
-        }
-    }
-}
-
 /// The volume's free space as the floor's deletions go: read again after
 /// each deletion, or on a dry run, the first reading plus what each deletion
 /// would free.
 struct Free<'a> {
     tool: &'a Tool,
     run: Run,
-    keeper: Keeper,
+    pruner: Pruner,
     kib: u64,
 }
 
@@ -138,7 +111,7 @@ impl Free<'_> {
     /// folder in use stays.
     fn delete(&mut self, path: &Path, kib: u64, recreate: Recreate, why: &str) -> Result<()> {
         let deleted = delete_folder(self.tool, path, self.run, why, recreate, Removal::Now, "");
-        if self.keeper.after_move(deleted)? == Some(true) {
+        if self.pruner.after_move(deleted)? == Some(true) {
             self.freed(kib)?;
         }
         Ok(())
@@ -229,7 +202,7 @@ fn delete_idle_increments(tool: &Tool, roots: &[Root], free: &mut Free, target: 
 }
 
 /// Brings the volume's free space up to the target, the floor plus its
-/// margin, once <keeper> finds it under where that keeper starts (`Keeper`),
+/// margin, once <pruner> finds it under where that pruner starts (`Pruner`),
 /// waiting for each deletion so the next free-space reading counts it: the
 /// trash, the roots of checkouts that are gone, DerivedData's entries, every
 /// checkout's idle incremental folders, then whole folders of the other
@@ -239,13 +212,13 @@ fn delete_idle_increments(tool: &Tool, roots: &[Root], free: &mut Free, target: 
 /// volume is still under the floor, it warns, naming the biggest folders, and
 /// setup fails under the hard floor. A dry <run> deletes nothing and says
 /// what it would delete.
-pub fn keep_floor(tool: &Tool, roots: &[Root], keeper: Keeper, run: Run) -> Result<()> {
+pub fn keep_floor(tool: &Tool, roots: &[Root], pruner: Pruner, run: Run) -> Result<()> {
     let floor = tool.rules.floor_kib;
     let target = tool.rules.floor_target_kib();
     let start = tool.free_kib()?;
-    let starts_under = match keeper {
-        Keeper::Setup => floor,
-        Keeper::Prune => target,
+    let starts_under = match pruner {
+        Pruner::Setup => floor,
+        Pruner::Prune => target,
     };
     if start >= starts_under {
         return Ok(());
@@ -272,7 +245,7 @@ pub fn keep_floor(tool: &Tool, roots: &[Root], keeper: Keeper, run: Run) -> Resu
     let mut free = Free {
         tool,
         run,
-        keeper,
+        pruner,
         kib: start,
     };
     if !run.dry() {
@@ -353,7 +326,7 @@ pub fn keep_floor(tool: &Tool, roots: &[Root], keeper: Keeper, run: Run) -> Resu
     if free >= floor {
         return Ok(());
     }
-    let hard = keeper == Keeper::Setup && free < tool.rules.hard_floor_kib;
+    let hard = pruner == Pruner::Setup && free < tool.rules.hard_floor_kib;
     let mut lines = Vec::new();
     if hard {
         lines.push(format!(
@@ -361,7 +334,7 @@ pub fn keep_floor(tool: &Tool, roots: &[Root], keeper: Keeper, run: Run) -> Resu
             human(free),
             human(tool.rules.hard_floor_kib)
         ));
-    } else if keeper == Keeper::Setup {
+    } else if pruner == Pruner::Setup {
         lines.push(format!(
             "builds: warning: the build volume has {} free, under the {} floor; the build goes on, and under {} builds stop.",
             human(free),

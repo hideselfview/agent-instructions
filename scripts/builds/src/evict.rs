@@ -25,7 +25,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use crate::fail;
-use crate::fail::{Context, Fail, Result, with_cleanup};
+use crate::fail::{Context, Fail, Result, with_move_cleanup};
 use crate::places::Places;
 
 /// How the folder's space comes back.
@@ -72,10 +72,7 @@ pub fn evict(places: &Places, dir: &Path, recreate: Recreate, removal: Removal) 
     let name = folder.file_name().expect("a folder to delete has a name");
     if !same_volume {
         let slot = make_temp_dir(&parent, ".builds-deleting.")?;
-        let moved = match move_in(&folder, &slot, name, recreate) {
-            Err(error @ Fail::Move { .. }) => return discard_unmoved_slot(&slot, error),
-            other => other?,
-        };
+        let moved = move_in(&folder, &slot, name, recreate)?;
         drop(_locks);
         remove(&slot, removal)?;
         return Ok(moved);
@@ -84,23 +81,13 @@ pub fn evict(places: &Places, dir: &Path, recreate: Recreate, removal: Removal) 
     // between making the slot and the folder reaching it, or from emptying
     // the slot while it is being removed.
     let slot = crate::trash::Slot::make(places)?;
-    let moved = match move_in(&folder, &slot.path, name, recreate) {
-        Err(error @ Fail::Move { .. }) => return discard_unmoved_slot(&slot.path, error),
-        other => other?,
-    };
+    let moved = move_in(&folder, &slot.path, name, recreate)?;
     drop(_locks);
     match removal {
         Removal::Now => slot.remove_now(),
         Removal::Background => slot.remove_background()?,
     }
     Ok(moved)
-}
-
-/// A refused move left the slot empty. Surface a failure to remove it
-/// separately so setup cannot mistake that failure for a refused move.
-fn discard_unmoved_slot(slot: &Path, move_error: Fail) -> Result<bool> {
-    let removed = std::fs::remove_dir(slot).context(|| format!("removing {}", slot.display()));
-    with_cleanup(removed.map(|()| false), Err(move_error))
 }
 
 /// Renames <folder> into <slot>: false, moving nothing, when another process
@@ -112,7 +99,15 @@ pub(crate) fn move_in(
     name: &std::ffi::OsStr,
     recreate: Recreate,
 ) -> Result<bool> {
-    if !move_to_slot(folder, slot, name)? {
+    let moved = match move_to_slot(folder, slot, name) {
+        Err(error @ Fail::Move { .. }) => {
+            let cleanup =
+                std::fs::remove_dir(slot).context(|| format!("removing {}", slot.display()));
+            return with_move_cleanup(Err(error), cleanup);
+        }
+        moved => moved?,
+    };
+    if !moved {
         return Ok(false);
     }
     if recreate == Recreate::Yes {

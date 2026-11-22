@@ -171,8 +171,8 @@ pub fn lanes(component: &str) -> Result<Vec<(Lane, String)>> {
 
 /// What the page shows of <component> at <repo>'s <commit>: on each of its
 /// lanes, the cached run and the shots run <capture> gives for the
-/// lane and prefix, if it runs or ended for <commit>. Reads write nothing,
-/// so the page's stream reads again on each change of the dashboard.
+/// lane and prefix, if it runs or ended for <commit>. Reading a run marks it
+/// used.
 pub fn shots(
     places: &Places,
     repo: &str,
@@ -184,7 +184,7 @@ pub fn shots(
     let mut platforms = Vec::new();
     for (lane, prefix) in lanes {
         let run = read_cached(places, repo, commit, lane, &prefix, |cached| {
-            read_run(cached, component, lane, &prefix)
+            read_run(cached, component, lane, &prefix).map(Some)
         })?;
         let capture = capture(lane, &prefix).filter(|run| {
             run.reference.as_deref() == Some(commit)
@@ -211,10 +211,10 @@ fn read_cached<T>(
     commit: &str,
     lane: Lane,
     prefix: &str,
-    read: impl FnOnce(&Cached) -> Result<T>,
+    read: impl FnOnce(&Cached) -> Result<Option<T>>,
 ) -> Result<Option<T>> {
     let _reading = shots_cache::writing(places)?;
-    shots_cache::covering_run(
+    let Some(cached) = shots_cache::covering_run(
         places,
         repo,
         commit,
@@ -223,9 +223,14 @@ fn read_cached<T>(
         prefix,
         &VERSIONS,
     )?
-    .as_ref()
-    .map(read)
-    .transpose()
+    else {
+        return Ok(None);
+    };
+    let read = read(&cached)?;
+    if read.is_some() {
+        shots_cache::mark_used(&cached)?;
+    }
+    Ok(read)
 }
 
 /// <component>'s rows on <lane> in the cached run <cached>: the rows its
@@ -286,18 +291,7 @@ pub fn start(
     component: &str,
 ) -> Result<()> {
     for (lane, prefix) in lanes(component)? {
-        let cached = {
-            let _reading = shots_cache::writing(places)?;
-            shots_cache::covering_run(
-                places,
-                repo,
-                commit,
-                lane,
-                Made::Anywhere,
-                &prefix,
-                &VERSIONS,
-            )?
-        };
+        let cached = read_cached(places, repo, commit, lane, &prefix, |_| Ok(Some(())))?;
         if cached.is_some() {
             continue;
         }
@@ -342,7 +336,6 @@ pub fn picture(
             Err(error) => fail!("reading {}: {error}", file.display()),
         }
     })
-    .map(Option::flatten)
 }
 
 /// The page of <component>'s shots in project <project>, whose design files

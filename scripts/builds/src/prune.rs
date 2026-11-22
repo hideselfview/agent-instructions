@@ -11,7 +11,6 @@ use crate::checkout::{Checkout, Root};
 use crate::evict::{Recreate, Removal, evict, make_temp_dir};
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
-use crate::floor::Keeper;
 use crate::free_worktrees::retire_idle;
 use crate::manifest::{SHARED_CACHES, build_dirs, has_manifest};
 use crate::places::{DERIVED_DATA_CAP_KIB, DERIVED_DATA_IDLE_MINUTES, FLOOR_IDLE_MINUTES, Places};
@@ -22,6 +21,26 @@ use crate::trees::prune_trees;
 use crate::units;
 use crate::usage::Measure;
 use boards::{git, git_text};
+
+/// The command that requests cleanup. Setup warns about refused moves and
+/// still checks the hard free-space floor.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Pruner {
+    Setup,
+    Prune,
+}
+
+impl Pruner {
+    pub(crate) fn after_move<T>(self, result: Result<T>) -> Result<Option<T>> {
+        match (self, result) {
+            (Self::Setup, Err(error @ Fail::Move { .. })) => {
+                note(format!("warning: {}; builds kept the entry", error.text()));
+                Ok(None)
+            }
+            (_, result) => result.map(Some),
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Run {
@@ -56,7 +75,7 @@ pub fn prune_root(
     run: Run,
     idle: u64,
     warm_idle: u64,
-    keeper: Keeper,
+    pruner: Pruner,
 ) -> Result<()> {
     let manifest = build_dirs(&checkout.top)?;
     let folders: Vec<PathBuf> = manifest
@@ -68,7 +87,7 @@ pub fn prune_root(
         return Ok(());
     }
     let mut freed = units::prune::prune(&cargo_ages(tool), run, &folders)?;
-    freed.extend(prune_trees(tool, root, checkout, &folders, run, keeper)?);
+    freed.extend(prune_trees(tool, root, checkout, &folders, run, pruner)?);
     let claimed = checkout.claim_file().is_file();
     let lane = checkout.app_lane(&tool.places)?;
     // Measured together, after the pruning: deleting one folder changes no
@@ -120,7 +139,7 @@ pub fn prune_root(
             Removal::Background,
             "; the next build refills it",
         );
-        keeper.after_move(deleted)?;
+        pruner.after_move(deleted)?;
     }
     Ok(())
 }
@@ -214,7 +233,7 @@ pub fn derived_data(tool: &Tool) -> Result<(Measure, Vec<Entry>)> {
 /// is over its cap, each one nothing wrote to in the last FLOOR_IDLE_MINUTES
 /// (a one-off run between two steps holds no file open). An entry in use is
 /// kept.
-pub fn prune_derived_data(tool: &Tool, run: Run, idle: u64, keeper: Keeper) -> Result<()> {
+pub fn prune_derived_data(tool: &Tool, run: Run, idle: u64, pruner: Pruner) -> Result<()> {
     let dir = tool.places.derived_data();
     if !dir.is_dir() {
         return Ok(());
@@ -251,7 +270,7 @@ pub fn prune_derived_data(tool: &Tool, run: Run, idle: u64, keeper: Keeper) -> R
             Removal::Background,
             "",
         );
-        if keeper.after_move(deleted)? == Some(true) {
+        if pruner.after_move(deleted)? == Some(true) {
             total = total.saturating_sub(entry.kib);
         }
     }
@@ -306,7 +325,7 @@ fn copy_preserving(from: &Path, to: &Path) -> Result<()> {
 /// once nothing has written to it in the last FLOOR_IDLE_MINUTES (a package
 /// resolve between two fetches holds no file open) and no process holds a
 /// file in it. sccache bounds its own cache.
-fn prune_caches(tool: &Tool, run: Run, keeper: Keeper) -> Result<()> {
+fn prune_caches(tool: &Tool, run: Run, pruner: Pruner) -> Result<()> {
     let caches = tool.places.caches();
     if !caches.is_dir() {
         return Ok(());
@@ -346,10 +365,10 @@ fn prune_caches(tool: &Tool, run: Run, keeper: Keeper) -> Result<()> {
                 let removed = std::fs::remove_dir_all(keep)
                     .context(|| format!("removing {}", keep.display()));
                 if let Err(error) = removed {
-                    return fail::with_cleanup(Err(error), moved.map(drop));
+                    return fail::with_move_cleanup(moved.map(drop), Err(error));
                 }
             }
-            match keeper.after_move(moved)? {
+            match pruner.after_move(moved)? {
                 Some(true) => note(format!(
                     "deleted {} ({reason}); every checkout downloads into it again",
                     dir.display()
@@ -363,13 +382,21 @@ fn prune_caches(tool: &Tool, run: Run, keeper: Keeper) -> Result<()> {
 }
 
 /// Prunes caches and temporary output both setup and explicit prune own.
-pub fn prune_shared(tool: &Tool, run: Run, keeper: Keeper) -> Result<()> {
-    prune_caches(tool, run, keeper)?;
-    keeper.after_move(crate::shots_cache::prune(tool, run))?;
-    keeper.after_move(crate::review::texts::prune(tool, run))?;
+pub fn prune_shared(tool: &Tool, run: Run, pruner: Pruner) -> Result<()> {
+    prune_caches(tool, run, pruner)?;
+    pruner.after_move(crate::shots_cache::prune(tool, run))?;
+    pruner.after_move(crate::review::texts::prune(tool, run))?;
     prune_test_temps(tool, run)?;
-    prune_temp_builds(tool, run, keeper)?;
+    prune_temp_builds(tool, run, pruner)?;
     prune_scratchpads(tool, run)
+}
+
+/// Prune build tools and check free space after the other cleanup steps.
+pub fn prune_tools_and_floor(tool: &Tool, roots: &[Root], run: Run, pruner: Pruner) -> Result<()> {
+    prune_cargo_git(tool, roots, run)?;
+    prune_installed(tool, roots, run)?;
+    crate::built_tools::prune_tools(&tool.places, roots, run)?;
+    crate::floor::keep_floor(tool, roots, pruner, run)
 }
 
 /// The entries one listing rule picks, deleted together, or counted on a
@@ -578,7 +605,7 @@ pub fn prune_test_temps(tool: &Tool, run: Run) -> Result<()> {
 /// Build output in the temporary folders: each one nothing wrote to in the
 /// last FLOOR_IDLE_MINUTES (a build between two of its steps holds no file
 /// open) and no process holds a file in is deleted.
-fn prune_temp_builds(tool: &Tool, run: Run, keeper: Keeper) -> Result<()> {
+fn prune_temp_builds(tool: &Tool, run: Run, pruner: Pruner) -> Result<()> {
     let folders = temp_build_folders(&tool.places)?;
     let measures = tool.measure_all(&folders)?;
     for (folder, measured) in folders.into_iter().zip(measures) {
@@ -598,7 +625,7 @@ fn prune_temp_builds(tool: &Tool, run: Run, keeper: Keeper) -> Result<()> {
             Removal::Background,
             "",
         );
-        keeper.after_move(deleted)?;
+        pruner.after_move(deleted)?;
     }
     Ok(())
 }
@@ -606,7 +633,7 @@ fn prune_temp_builds(tool: &Tool, run: Run, keeper: Keeper) -> Result<()> {
 /// Cargo's git checkouts: each one no Cargo.lock of a live checkout this
 /// tool knows pins goes. The git databases stay, and cargo checks a commit
 /// out of them again in seconds when a branch needs it.
-pub fn prune_cargo_git(tool: &Tool, roots: &[Root], run: Run) -> Result<()> {
+fn prune_cargo_git(tool: &Tool, roots: &[Root], run: Run) -> Result<()> {
     let live: Vec<&Root> = roots.iter().filter(|root| root.live.is_some()).collect();
     let listed = crate::checkout::parallel_map(&live, |root| lockfiles_of(&tool.places, root));
     let mut lockfiles = Vec::new();
@@ -657,7 +684,7 @@ fn lockfiles_of(places: &Places, root: &Root) -> Result<Vec<PathBuf>> {
 /// whose name starts with a dot, since a script is still installing it. When
 /// pruning can't read a manifest, the folder or a file, it deletes nothing
 /// that the unread text could name, and notes why.
-pub fn prune_installed(tool: &Tool, roots: &[Root], run: Run) -> Result<()> {
+fn prune_installed(tool: &Tool, roots: &[Root], run: Run) -> Result<()> {
     let tops: Vec<&Path> = roots
         .iter()
         .filter_map(|root| root.live.as_ref())
@@ -831,7 +858,7 @@ pub fn cmd_prune(tool: &Tool, args: &[String]) -> Result<()> {
             run,
             idle,
             if warm { idle } else { 0 },
-            Keeper::Prune,
+            Pruner::Prune,
         )?;
     }
     let derived_idle = if idle > 0 && idle < DERIVED_DATA_IDLE_MINUTES {
@@ -839,15 +866,10 @@ pub fn cmd_prune(tool: &Tool, args: &[String]) -> Result<()> {
     } else {
         DERIVED_DATA_IDLE_MINUTES
     };
-    prune_derived_data(tool, run, derived_idle, Keeper::Prune)?;
-    prune_shared(tool, run, Keeper::Prune)?;
+    prune_derived_data(tool, run, derived_idle, Pruner::Prune)?;
+    prune_shared(tool, run, Pruner::Prune)?;
     prune_agents(tool, run)?;
-    prune_cargo_git(tool, &roots, run)?;
-    prune_installed(tool, &roots, run)?;
-    crate::built_tools::prune_tools(&tool.places, &roots, run)?;
-    // After every other deletion here, whose removals it waits for, so its
-    // reading of the free space counts them.
-    crate::floor::keep_floor(tool, &roots, crate::floor::Keeper::Prune, run)?;
+    prune_tools_and_floor(tool, &roots, run, Pruner::Prune)?;
     if !run.dry() {
         empty_trash(tool)?;
         crate::prune_schedule::record_finished(&tool.places, crate::app_timing::now())?;

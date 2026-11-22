@@ -35,9 +35,8 @@ use crate::checkout::Checkout;
 use crate::evict::{Recreate, Removal};
 use crate::fail;
 use crate::fail::Result;
-use crate::floor::Keeper;
 use crate::manifest::kept_builds;
-use crate::prune::Run;
+use crate::prune::{Pruner, Run};
 use crate::text::human;
 use crate::tool::Tool;
 use crate::usage::Measure;
@@ -175,7 +174,7 @@ pub fn prune_trees(
     checkout: &Checkout,
     folders: &[PathBuf],
     run: Run,
-    keeper: Keeper,
+    pruner: Pruner,
 ) -> Result<Vec<(PathBuf, u64)>> {
     // The builds the manifest keeps stay in the checkouts the person builds
     // and runs in; in any other checkout they age like the rest.
@@ -216,7 +215,8 @@ pub fn prune_trees(
             Removal::Background,
             "; the next build makes it again",
         );
-        if keeper.after_move(deleted)? == Some(true) && run.dry() {
+        pruner.after_move(deleted)?;
+        if run.dry() {
             freed.push((folder, measured.kib));
         }
     }

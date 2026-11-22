@@ -53,7 +53,7 @@ fn under_the_floor_only_an_unclaimed_side_worktree_goes() {
     three_checkouts(&scratch, &tool);
     let tool = scratch.tool(1 << 30);
     let roots = all_roots(&tool.places).unwrap();
-    keep_floor(&tool, &roots, Keeper::Setup, Run::Real).unwrap();
+    keep_floor(&tool, &roots, Pruner::Setup, Run::Real).unwrap();
     let root = tool.places.root.join("demo");
     assert!(
         root.join("main/target/blob").exists(),
@@ -86,7 +86,7 @@ fn prune_brings_the_volume_up_to_the_target_above_the_floor() {
     tool.rules.floor_margin_kib = 1 << 50;
     let roots = all_roots(&tool.places).unwrap();
     let root = tool.places.root.join("demo");
-    keep_floor(&tool, &roots, Keeper::Setup, Run::Real).unwrap();
+    keep_floor(&tool, &roots, Pruner::Setup, Run::Real).unwrap();
     assert!(
         root.join("side-2/target/blob").exists(),
         "setup deleted a folder above the floor"
@@ -125,7 +125,7 @@ fn under_the_hard_floor_the_build_stops() {
     tool.rules.hard_floor_kib = u64::MAX;
     let roots = all_roots(&tool.places).unwrap();
     assert!(matches!(
-        keep_floor(&tool, &roots, Keeper::Setup, Run::Real),
+        keep_floor(&tool, &roots, Pruner::Setup, Run::Real),
         Err(Fail::Exit(1))
     ));
 }
@@ -181,7 +181,7 @@ fn under_the_floor_idle_incremental_folders_go_in_every_checkout() {
 
     let tool = scratch.tool(1 << 30);
     let roots = all_roots(&tool.places).unwrap();
-    let kept = keep_floor(&tool, &roots, Keeper::Setup, Run::Real);
+    let kept = keep_floor(&tool, &roots, Pruner::Setup, Run::Real);
     sleeper.kill().unwrap();
     sleeper.wait().unwrap();
     build.kill().unwrap();
@@ -250,7 +250,7 @@ fn an_app_checkout_keeps_warm_only_the_folders_its_lane_builds_into() {
     }
     let tool = scratch.tool(1 << 30);
     let roots = all_roots(&tool.places).unwrap();
-    keep_floor(&tool, &roots, Keeper::Setup, Run::Real).unwrap();
+    keep_floor(&tool, &roots, Pruner::Setup, Run::Real).unwrap();
     let root = tool.places.root.join("demo");
     for (side, own, other) in [("side-1", "xcode", "gradle"), ("side-2", "gradle", "xcode")] {
         assert!(
@@ -296,7 +296,7 @@ fn under_the_floor_a_job_worktree_goes_unless_a_job_claims_it() {
     std::fs::create_dir(scratch.dir.join("demo-worktrees/remote-side-2.job")).unwrap();
     let tool = scratch.tool(1 << 30);
     let roots = all_roots(&tool.places).unwrap();
-    keep_floor(&tool, &roots, Keeper::Setup, Run::Real).unwrap();
+    keep_floor(&tool, &roots, Pruner::Setup, Run::Real).unwrap();
     let root = tool.places.root.join("demo");
     assert!(
         !root.join("remote-side-1/target/blob").exists(),

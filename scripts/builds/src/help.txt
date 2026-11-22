@@ -2129,8 +2129,8 @@ health` says when a prune last finished. Builds keeps folders its open-file
 scan finds in use and folders whose checkout guard a build holds. A process
 outside builds can open a file after that scan. Builds warns during a build
 if cleanup cannot move a folder to the trash. An explicit prune reports a
-failed move and exits with an error. If removal fails after the move, the
-next prune can remove that folder from the trash.
+failed move and exits with an error. If removal fails after a move to the
+build volume's trash, the next prune can remove that folder from the trash.
 
 Unused build copies. Cargo names each unit it builds (one crate target, for one
 profile, target and feature set) by a hash of everything that build depends on,
@@ -2273,6 +2273,7 @@ back. A lane also keeps the pictures of its app tree from before it checks
 which pictures the folder has until its last comparison of that tree. When a reader or writer accesses the cache during a prune pass, builds
 skips the remaining deletions. A later prune measures the cache again.
 Before deleting folders, builds checks which files other processes hold open.
+Builds reports an error if a shots run has a last-use file it cannot read.
 Each host keeps the board pictures it was sent in
 ~/.cache/builds-pictures/<repo>/boards and builds sends it only the ones it
 lacks, deleting the ones this Mac no longer holds only when no other step has

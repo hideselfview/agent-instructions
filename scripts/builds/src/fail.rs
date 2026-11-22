@@ -91,6 +91,18 @@ pub fn with_cleanup<T>(first: Result<T>, then: Result<()>) -> Result<T> {
     }
 }
 
+/// Setup may continue after a refused move, but it must stop on a
+/// separate cleanup failure. Keep both diagnostics when both steps fail.
+pub fn with_move_cleanup<T>(moved: Result<T>, cleanup: Result<()>) -> Result<T> {
+    match (moved, cleanup) {
+        (Err(error @ Fail::Move { .. }), Err(cleanup)) if !matches!(cleanup, Fail::Move { .. }) => {
+            crate::text::note(error.text());
+            Err(cleanup)
+        }
+        (moved, cleanup) => with_cleanup(moved, cleanup),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -257,7 +257,7 @@ pub fn write_claim(checkout: &Checkout, who: &str, now: i64, note: Option<Note>)
 pub fn set_project(places: &Places, checkout: &Checkout, project: Option<&str>) -> Result<()> {
     let file = checkout.project_file();
     let Some(project) = project else {
-        return remove_if_present(&file);
+        return remove_if_present(&file).map(drop);
     };
     if let Some(fault) = crate::lists::check::project_name_fault(project) {
         fail!("{fault}");

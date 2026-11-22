@@ -84,7 +84,7 @@ pub fn write(places: &Places, root: &Path, sizes: &Sizes) -> Result<()> {
 
 /// Removes <root>'s record.
 fn remove(places: &Places, root: &Path) -> Result<()> {
-    crate::whole_file::remove_if_present(&record_file(places, root)?)
+    crate::whole_file::remove_if_present(&record_file(places, root)?).map(drop)
 }
 
 /// The keys of <root>'s record: its manifest folders while its checkout is

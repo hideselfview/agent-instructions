@@ -280,7 +280,7 @@ fn a_hosts_prune_keeps_its_app_checkouts_lane_folders_warm() {
         }
     }
     for (checkout, root) in &roots {
-        prune_root(&tool, root, checkout, Run::Real, 60, 0, Keeper::Prune).unwrap();
+        prune_root(&tool, root, checkout, Run::Real, 60, 0, Pruner::Prune).unwrap();
     }
     assert!(
         roots[0].1.join("xcode/blob").exists(),
@@ -504,4 +504,32 @@ fn a_record_of_sessions_builds_cannot_read_deletes_no_registration() {
     std::fs::write(sessions.join("1.json"), "not json").unwrap();
     prune_agents(&tool, Run::Real).unwrap();
     assert!(crate::ack::agent::is_registered(&tool.places, "ended", "a1").unwrap());
+}
+
+#[test]
+fn setup_pruning_tries_the_next_build_folder_after_a_refused_move() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let scratch = Scratch::new("prune-refused-alternative");
+    let tool = scratch.tool(0);
+    let main = scratch.dir.join("demo");
+    crate::testing::repo(&main, "guarded/build 1M\nother 1M\n");
+    let checkout = Checkout::find(main.to_str().unwrap()).unwrap();
+    let root = checkout.build_root(&tool.places);
+    let guarded = root.join("guarded");
+    let first = guarded.join("build");
+    let next = root.join("other");
+    fill(&first.join("blob"), 2048);
+    fill(&next.join("blob"), 2048);
+    std::fs::set_permissions(&guarded, std::fs::Permissions::from_mode(0o500)).unwrap();
+
+    let explicit = prune_root(&tool, &root, &checkout, Run::Real, 0, 0, Pruner::Prune);
+    let setup = prune_root(&tool, &root, &checkout, Run::Real, 0, 0, Pruner::Setup);
+    std::fs::set_permissions(&guarded, std::fs::Permissions::from_mode(0o700)).unwrap();
+
+    assert!(matches!(explicit, Err(Fail::Move { .. })));
+    setup.unwrap();
+    assert!(first.join("blob").is_file());
+    assert!(next.is_dir());
+    assert!(!next.join("blob").exists());
 }

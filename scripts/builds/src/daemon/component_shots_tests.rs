@@ -197,19 +197,21 @@ fn pruning_keeps_an_old_run_until_the_dashboard_finishes_reading_it() {
     let places = &tool.places;
     let prefix = "mac.component.checkbox.";
     let cached = cache_run(places, Lane::Mac, prefix, checkbox_findings(), &[]);
-    let report = cached.report();
-    let run = report.parent().unwrap();
+    let run = &cached.folder;
     crate::testing::age(&run.join("run.json"), 30);
 
     let prune = || shots_cache::prune_runs(&tool, crate::prune::Run::Real, 0);
     let read = read_cached(places, "demo", COMMIT, Lane::Mac, prefix, |cached| {
         prune()?;
-        read_run(cached, "MacCheckbox", Lane::Mac, prefix)
+        read_run(cached, "MacCheckbox", Lane::Mac, prefix).map(Some)
     })
     .unwrap()
     .unwrap();
     assert_eq!(read.rows.len(), 2);
+    prune().unwrap();
+    assert!(run.exists(), "the dashboard renewed the run's last use");
 
+    crate::testing::age(&run.join("run.json"), 30);
     prune().unwrap();
     assert!(!run.exists());
 }

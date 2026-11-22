@@ -46,11 +46,11 @@ impl Staged {
     }
 }
 
-/// Removes the file at <path>; a file that is already gone is no error.
-pub(crate) fn remove_if_present(path: &Path) -> Result<()> {
+/// Removes the file at <path>. Returns false if it was already gone.
+pub(crate) fn remove_if_present(path: &Path) -> Result<bool> {
     match std::fs::remove_file(path) {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Ok(()) => Ok(true),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
         Err(error) => fail!("removing {}: {error}", path.display()),
     }
 }

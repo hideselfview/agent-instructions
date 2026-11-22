@@ -25,7 +25,7 @@ use std::path::{Path, PathBuf};
 
 use crate::evict::HeldPaths;
 use crate::fail;
-use crate::fail::{Context, Result, with_cleanup};
+use crate::fail::{Context, Result, with_move_cleanup};
 use crate::places::FLOOR_IDLE_MINUTES;
 use crate::prune::Run;
 use crate::text::{human, note};
@@ -294,7 +294,7 @@ fn prune_with(
 
     let deleted = plan(tool, root, cap_kib, groups, open_files)
         .and_then(|steps| apply_plan(tool, run, root, steps));
-    preserve_failures(deleted, remove_if_present(&marker))
+    with_move_cleanup(deleted, remove_if_present(&marker).map(drop))
 }
 
 fn idle(root: &Path) -> Result<Option<std::fs::File>> {
@@ -308,20 +308,18 @@ fn idle(root: &Path) -> Result<Option<std::fs::File>> {
     Ok(lock)
 }
 
-fn plan_valid(marker: &Path) -> Result<bool> {
-    let valid = marker
+fn plan_current(root: &Path) -> Result<bool> {
+    let marker = root.join(PLAN);
+    marker
         .try_exists()
-        .context(|| format!("checking {}", marker.display()))?;
-    if !valid {
-        note(format!(
-            "A reader or writer used {} after the prune began preparing its deletions. The prune skips the remaining deletions.",
-            marker
-                .parent()
-                .expect("a plan belongs to a cache")
-                .display()
-        ));
-    }
-    Ok(valid)
+        .context(|| format!("checking {}", marker.display()))
+}
+
+fn note_plan_invalid(root: &Path) {
+    note(format!(
+        "A reader or writer used {} after the prune began preparing its deletions. The prune skips the remaining deletions.",
+        root.display()
+    ));
 }
 
 fn plan(
@@ -336,7 +334,12 @@ fn plan(
         .filter(|(name, _)| is_staging(name))
         .map(|(_, folder)| folder)
         .collect::<Vec<_>>();
-    let groups = groups()?
+    let groups = groups()?;
+    if !plan_current(root)? {
+        note_plan_invalid(root);
+        return Ok(Vec::new());
+    }
+    let groups = groups
         .into_iter()
         .map(|group| measure_group(tool, cap_kib, group))
         .collect::<Result<Vec<_>>>()?;
@@ -358,40 +361,17 @@ fn plan(
     Ok(steps)
 }
 
-/// A failed move can warn during setup. A separate failure must still reach
-/// setup as an error, so preserve it in preference to a failed move.
-fn preserve_failures(first: Result<()>, next: Result<()>) -> Result<()> {
-    match (&first, &next) {
-        (Err(fail::Fail::Move { .. }), Err(error)) if !matches!(error, fail::Fail::Move { .. }) => {
-            with_cleanup(next, first)
-        }
-        _ => with_cleanup(first, next),
-    }
-}
-
 /// Takes the cache's exclusive lock if the current prune still owns a valid plan.
 pub(super) fn lock_plan(root: &Path) -> Result<Option<std::fs::File>> {
     let Some(alone) = idle(root)? else {
         return Ok(None);
     };
-    Ok(plan_valid(&root.join(PLAN))?.then_some(alone))
-}
-
-fn prepare_slot(tool: &Tool, root: &Path) -> Result<Option<crate::trash::Slot>> {
-    let Some(alone) = lock_plan(root)? else {
-        return Ok(None);
-    };
-    // An emptier can hold the trash lock. Never wait for it while the cache
-    // lock excludes writers.
-    drop(alone);
-    match crate::trash::Slot::make(&tool.places) {
-        Ok(slot) => Ok(Some(slot)),
-        Err(error) => match lock_plan(root) {
-            Ok(Some(_)) => Err(error),
-            Ok(None) => Ok(None),
-            Err(lock_error) => with_cleanup(Err(lock_error), Err(error)),
-        },
+    if plan_current(root)? {
+        return Ok(Some(alone));
     }
+    drop(alone);
+    note_plan_invalid(root);
+    Ok(None)
 }
 
 fn apply_plan(tool: &Tool, run: Run, root: &Path, steps: Vec<Deletion>) -> Result<()> {
@@ -419,14 +399,25 @@ fn apply_plan(tool: &Tool, run: Run, root: &Path, steps: Vec<Deletion>) -> Resul
             Unit::Folder(folder) => {
                 let slot = match &trash {
                     Some(slot) => slot,
-                    None => match prepare_slot(tool, root) {
-                        Ok(Some(slot)) => trash.insert(slot),
-                        Ok(None) => break,
-                        Err(error) => {
-                            failures = preserve_failures(failures, Err(error));
-                            break;
+                    None => {
+                        // The trash lock can wait for an emptier. Check the
+                        // plan first, then release the cache lock to get a slot.
+                        match lock_plan(root) {
+                            Ok(Some(alone)) => drop(alone),
+                            Ok(None) => break,
+                            Err(error) => {
+                                failures = with_move_cleanup(failures, Err(error));
+                                break;
+                            }
                         }
-                    },
+                        match crate::trash::Slot::make(&tool.places) {
+                            Ok(slot) => trash.insert(slot),
+                            Err(error) => {
+                                failures = with_move_cleanup(failures, Err(error));
+                                break;
+                            }
+                        }
+                    }
                 };
                 Target::Folder { path: folder, slot }
             }
@@ -436,7 +427,7 @@ fn apply_plan(tool: &Tool, run: Run, root: &Path, steps: Vec<Deletion>) -> Resul
             Ok(Some(alone)) => alone,
             Ok(None) => break,
             Err(error) => {
-                failures = preserve_failures(failures, Err(error));
+                failures = with_move_cleanup(failures, Err(error));
                 break;
             }
         };
@@ -454,11 +445,11 @@ fn apply_plan(tool: &Tool, run: Run, root: &Path, steps: Vec<Deletion>) -> Resul
                 "{} disappeared before the prune could delete it",
                 path.display()
             )),
-            Err(error) => failures = preserve_failures(failures, Err(error)),
+            Err(error) => failures = with_move_cleanup(failures, Err(error)),
         }
     }
     match trash {
-        Some(slot) => preserve_failures(failures, slot.remove_background()),
+        Some(slot) => with_move_cleanup(failures, slot.remove_background()),
         None => failures,
     }
 }
@@ -491,10 +482,11 @@ impl Target<'_> {
                 std::ffi::OsStr::new(&index.to_string()),
             ),
             Self::Files(files) => {
+                let mut deleted = false;
                 for file in files {
-                    remove_if_present(file)?;
+                    deleted |= remove_if_present(file)?;
                 }
-                Ok(true)
+                Ok(deleted)
             }
         }
     }
@@ -521,13 +513,16 @@ impl<F: Fn() -> Result<HeldPaths>> OpenFiles<F> {
             }
             Err(error) => fail!("resolving {}: {error}", folder.display()),
         };
-        if let Self::Unread(read) = self {
-            *self = Self::Read(read()?);
-        }
-        let Self::Read(held) = self else {
-            unreachable!("the first folder reads the open paths")
+        let held_by_process = match self {
+            Self::Unread(read) => {
+                let held = read()?;
+                let used = held.holds(&folder);
+                *self = Self::Read(held);
+                used
+            }
+            Self::Read(held) => held.holds(&folder),
         };
-        if held.holds(&folder) {
+        if held_by_process {
             note(format!("in use, kept: {} ({reason})", folder.display()));
             return Ok(false);
         }
@@ -693,11 +688,10 @@ impl MeasuredGroup {
 /// The modification time of a regular file, or none if its path is absent.
 pub(super) fn written_at(path: &Path) -> Result<Option<i64>> {
     use std::os::unix::fs::MetadataExt;
-    match std::fs::metadata(path) {
-        Ok(meta) if meta.is_file() => Ok(Some(meta.mtime())),
-        Ok(_) => fail!("{} must be a file", path.display()),
-        Err(error) if fail::gone(&error) => Ok(None),
-        Err(error) => fail!("reading {}: {error}", path.display()),
+    match crate::units::stat(path)? {
+        Some(meta) if meta.is_file() => Ok(Some(meta.mtime())),
+        Some(_) => fail!("{} must be a file", path.display()),
+        None => Ok(None),
     }
 }
 

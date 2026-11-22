@@ -410,7 +410,7 @@ pub fn fill(tool: &Tool, checkout: &Checkout) -> Result<()> {
         Run::Real,
         0,
         0,
-        crate::floor::Keeper::Setup,
+        crate::prune::Pruner::Setup,
     )
 }
 
