@@ -662,7 +662,7 @@ done"#
             names,
             &format!(
                 r#"cat > {there} || exit 1
-if [ -s {there} ]; then cd "{boards}" && xargs -n 500 touch -c -- < {there}; fi"#
+if [ -s {there} ]; then cd "{boards}" && xargs -n 500 touch -- < {there}; fi"#
             ),
             &format!("the list of board pictures sent to host {host}"),
         )
