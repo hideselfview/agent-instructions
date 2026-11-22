@@ -550,3 +550,26 @@ fn a_mac_lane_step_runs_under_a_display_assertion() {
     );
     assert_eq!(keeping_display_on(Lane::Android, &command), command);
 }
+
+#[test]
+fn marking_the_pictures_a_step_uses_fails_when_one_is_missing_on_the_host() {
+    let s = setup("remote-app-pictures-missing");
+    let mut app = remote_app(&s, Lane::Mac);
+    let there = app
+        .put_pictures(&s.places.root.join("none"), "mac/tree1")
+        .unwrap();
+    let name = "gone.png".to_string();
+    let error = app
+        .send_names(
+            &[&name],
+            &host_boards(&s).display().to_string(),
+            &format!("{there}/.sent"),
+        )
+        .unwrap_err()
+        .text();
+    assert!(error.contains("gone.png"), "{error}");
+    assert!(
+        !host_boards(&s).join("gone.png").exists(),
+        "touch made a picture"
+    );
+}

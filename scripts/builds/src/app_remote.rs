@@ -662,7 +662,12 @@ done"#
             names,
             &format!(
                 r#"cat > {there} || exit 1
-if [ -s {there} ]; then cd "{boards}" && xargs -n 500 touch -- < {there}; fi"#
+if [ -s {there} ]; then
+  cd "{boards}" || exit 1
+  # A picture missing here fails the step now, and touch never makes one.
+  xargs -n 500 ls -d -- < {there} > /dev/null || exit 1
+  xargs -n 500 touch -c -- < {there} || exit 1
+fi"#
             ),
             &format!("the list of board pictures sent to host {host}"),
         )
