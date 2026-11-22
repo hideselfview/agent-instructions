@@ -235,8 +235,9 @@ fn different_glyph_colours_warn() {
 fn rendered_glyphs_of_the_same_colour_do_not_warn() {
     // The board and Mac shot of “Enter a name.”, cropped to the text bounds.
     // The Mac's accessibility style gives a lighter colour than the glyphs.
-    let board = Picture::decode(include_bytes!("fixtures/error-text-board.png")).unwrap();
-    let shot = Picture::decode(include_bytes!("fixtures/error-text-shot.png")).unwrap();
+    let board =
+        Picture::decode(include_bytes!("../../tests/fixtures/error-text-board.png")).unwrap();
+    let shot = Picture::decode(include_bytes!("../../tests/fixtures/error-text-shot.png")).unwrap();
     let drawn = |picture: &Picture, colour| {
         let mut element = labelled(Role::Text, "Enter a name.", Some(colour));
         element.bounds.width = f64::from(picture.width);
