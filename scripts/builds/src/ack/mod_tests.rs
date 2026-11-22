@@ -43,34 +43,12 @@ fn world(name: &str) -> World {
     }
 }
 
-fn test_identity(session: &str, id: Option<&str>) -> Result<agent::Identity> {
-    Ok(
-        agent::Session::of(Some(session.into()), None, None, id.map(str::to_string))
-            .identity()?
-            .expect("a Claude test session"),
-    )
-}
-
-fn check(
-    places: &Places,
-    session: &str,
-    id: Option<&str>,
-    project: Option<&str>,
-    cwd: &Path,
-    now: i64,
-) -> Result<Option<String>> {
-    super::check(places, &test_identity(session, id)?, project, cwd, now)
-}
-
-fn ack(
-    places: &Places,
-    session: &str,
-    id: Option<&str>,
-    args: &Args,
-    cwd: &Path,
-    now: i64,
-) -> Result<String> {
-    super::ack(places, &test_identity(session, id)?, args, cwd, now)
+/// The identity of Claude Code agent <agent> in the test session.
+fn identity(agent: &str) -> agent::Identity {
+    agent::Session::of(Some(SESSION_ID.into()), None, None, Some(agent.into()))
+        .identity()
+        .unwrap()
+        .expect("a Claude test session")
 }
 
 fn message<T: std::fmt::Debug>(result: Result<T>) -> String {
@@ -110,7 +88,7 @@ impl World {
     fn ack_in(&self, cwd: &Path, agent: &str, args: &[&str], now: i64) -> Result<String> {
         let args: Vec<String> = args.iter().map(|arg| arg.to_string()).collect();
         let args = Args::parse(&args, &[], &["compacted"])?;
-        ack(&self.places, SESSION_ID, Some(agent), &args, cwd, now)
+        super::ack(&self.places, &identity(agent), &args, cwd, now)
     }
 
     fn check(&self, now: i64) -> Result<Option<String>> {
@@ -123,7 +101,7 @@ impl World {
 
     /// The gate for a command <agent> runs in <cwd>.
     fn check_in(&self, cwd: &Path, agent: &str, now: i64) -> Result<Option<String>> {
-        check(&self.places, SESSION_ID, Some(agent), None, cwd, now)
+        super::check(&self.places, &identity(agent), None, cwd, now)
     }
 
     /// Reads every part as <agent> does and returns the version and the
@@ -432,14 +410,7 @@ impl World {
     }
 
     fn check_second(&self, cwd: &Path) -> Result<Option<String>> {
-        check(
-            &self.places,
-            SESSION_ID,
-            Some(AGENT),
-            Some("second"),
-            cwd,
-            NOON,
-        )
+        super::check(&self.places, &identity(AGENT), Some("second"), cwd, NOON)
     }
 }
 
@@ -594,10 +565,9 @@ fn an_agent_outside_a_checkout_names_the_project_with_project() {
         .iter()
         .map(|arg| arg.to_string())
         .collect();
-    let started = ack(
+    let started = super::ack(
         &world.places,
-        SESSION_ID,
-        Some(AGENT),
+        &identity(AGENT),
         &Args::parse(&args, &[], &[]).unwrap(),
         &elsewhere,
         NOON,
@@ -607,10 +577,9 @@ fn an_agent_outside_a_checkout_names_the_project_with_project() {
         started.contains("builds ack part 1 ") && started.contains(" --agent a1 --project bae"),
         "{started}"
     );
-    let refused = message(check(
+    let refused = message(super::check(
         &world.places,
-        SESSION_ID,
-        Some(AGENT),
+        &identity(AGENT),
         Some("bae"),
         &elsewhere,
         NOON,
@@ -635,10 +604,9 @@ fn a_claim_that_names_a_project_without_the_repo_is_refused_even_with_project() 
     let world = world("ack-bad-claim");
     let checkout = Checkout::at(&world.checkout).unwrap().unwrap();
     std::fs::write(checkout.project_file(), "other\n").unwrap();
-    let refusal = message(check(
+    let refusal = message(super::check(
         &world.places,
-        SESSION_ID,
-        Some(AGENT),
+        &identity(AGENT),
         Some("bae"),
         &world.checkout,
         NOON,
@@ -651,10 +619,9 @@ fn a_claim_that_names_a_project_without_the_repo_is_refused_even_with_project() 
 fn ack_naming_bae(world: &World, args: &[&str]) -> Result<String> {
     let mut args: Vec<String> = args.iter().map(|arg| arg.to_string()).collect();
     args.extend(["--project", "bae"].map(String::from));
-    ack(
+    super::ack(
         &world.places,
-        SESSION_ID,
-        Some(AGENT),
+        &identity(AGENT),
         &Args::parse(&args, &[], &[]).unwrap(),
         &world.checkout,
         NOON,
@@ -684,10 +651,9 @@ fn project_names_the_store_in_a_checkout_of_a_repo_two_projects_hold() {
         shown = ack_naming_bae(&world, &[&command[0], &command[1], &command[2]]).unwrap();
     };
     assert!(!version.is_empty());
-    check(
+    super::check(
         &world.places,
-        SESSION_ID,
-        Some(AGENT),
+        &identity(AGENT),
         Some("bae"),
         &world.checkout,
         NOON + 60,
@@ -703,10 +669,9 @@ fn a_repo_two_projects_hold_is_refused_without_project_and_with_one_that_lacks_i
     let none = message(world.ack(&[], NOON));
     assert!(none.contains("is in two projects (bae, second)"), "{none}");
     let args: Vec<String> = ["--project", "third"].map(String::from).to_vec();
-    let lacking = message(ack(
+    let lacking = message(super::ack(
         &world.places,
-        SESSION_ID,
-        Some(AGENT),
+        &identity(AGENT),
         &Args::parse(&args, &[], &[]).unwrap(),
         &world.checkout,
         NOON,
