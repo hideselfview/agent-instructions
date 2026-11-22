@@ -14,34 +14,7 @@ fn row(pid: i32, ppid: i32, zombie: bool, age: i64, command: &str) -> Row {
     }
 }
 
-fn sampling(target: Option<&str>) -> Sampling {
-    Sampling::new(
-        &Host {
-            name: "m1".into(),
-            target: target.map(str::to_string),
-            cores: 8,
-            speed: Some(1.0),
-            band: None,
-        },
-        0,
-    )
-}
-
 const TEST: &str = "/Volumes/Builds/x/target/debug/deps/leak-0123456789abcdef";
-
-fn probe(count: u64, limit: u64) -> Probe {
-    Probe {
-        platform: crate::host_platform::Platform::here(),
-        cores: 8,
-        load: [0.0; 3],
-        free_kib: 1,
-        memory: crate::host_memory::Memory::at_rest(),
-        git_fails: None,
-        nextest: crate::cargo_program::Has::Nothing,
-        mutants: crate::cargo_program::Has::Nothing,
-        processes: ProcessUse { count, limit },
-    }
-}
 
 fn host(name: &str) -> Host {
     Host {
@@ -106,7 +79,7 @@ fn the_remote_probe_script_asks_for_the_process_lines() {
 
 #[test]
 fn names_the_parents_with_the_most_zombies_and_skips_init() {
-    let parents = zombie_parents(&zombie_rows(), &sampling(None));
+    let parents = zombie_parents(&zombie_rows(), None);
     assert_eq!(
         parents
             .iter()
@@ -118,40 +91,47 @@ fn names_the_parents_with_the_most_zombies_and_skips_init() {
     assert_eq!(parents[0].stop, "kill 100");
 }
 
-fn scan(rows: Vec<Row>) -> crate::host_scan::Scan {
-    crate::host_scan::Scan {
-        uid: 501,
-        at: 1000,
-        rows,
-        cpu_idle: Ok(10.0),
-        jobs: Vec::new(),
-        sccache: Ok(None),
-        front_app: Ok(None),
-        screen_locked: Ok(None),
-    }
-}
-
 #[test]
 fn warns_for_a_host_over_sixty_percent_and_not_under() {
-    let reads = [(host("local"), Ok(scan(zombie_rows())))];
-    let hosts = vec![
-        (host("local"), Ok(probe(7300, 8000))),
-        (host("m1"), Ok(probe(4000, 8000))),
-        (host("m2"), Err("down".to_string())),
-    ];
-    let found = findings(&hosts, &reads, 1_000);
-    assert_eq!(found.len(), 1);
-    assert!(found[0].text.contains("this Mac runs 7300 of its 8000"));
-    assert!(found[0].text.contains("pid 100"));
-    assert_eq!(found[0].command.as_deref(), Some("kill 100"));
+    let host = host("local");
+    let found = finding(
+        &host,
+        ProcessUse {
+            count: 7300,
+            limit: 8000,
+        },
+        Ok(&zombie_rows()),
+    )
+    .unwrap();
+    assert!(found.text.contains("this Mac runs 7300 of its 8000"));
+    assert!(found.text.contains("pid 100"));
+    assert_eq!(found.command.as_deref(), Some("kill 100"));
+    assert!(
+        finding(
+            &host,
+            ProcessUse {
+                count: 4000,
+                limit: 8000
+            },
+            Ok(&zombie_rows())
+        )
+        .is_none()
+    );
 }
 
 #[test]
 fn a_remote_host_near_the_limit_gets_an_ssh_stop_command() {
-    let reads = [(host("m1"), Ok(scan(zombie_rows())))];
-    let found = findings(&[(host("m1"), Ok(probe(6000, 8000)))], &reads, 1_000);
-    assert_eq!(found[0].command.as_deref(), Some("ssh me@m1 'kill 100'"));
-    assert!(found[0].text.starts_with("processes: host m1 runs 6000"));
+    let found = finding(
+        &host("m1"),
+        ProcessUse {
+            count: 6000,
+            limit: 8000,
+        },
+        Ok(&zombie_rows()),
+    )
+    .unwrap();
+    assert_eq!(found.command.as_deref(), Some("ssh me@m1 'kill 100'"));
+    assert!(found.text.starts_with("processes: host m1 runs 6000"));
 }
 
 #[test]
@@ -161,9 +141,16 @@ fn a_non_test_top_parent_gets_no_stop_command() {
         row(200, 1, false, 90, "/bin/zsh -l"),
         row(2000, 200, true, 80, "(sh)"),
     ];
-    let reads = [(host("local"), Ok(scan(rows)))];
-    let found = findings(&[(host("local"), Ok(probe(7000, 8000)))], &reads, 1_000);
-    assert_eq!(found[0].command, None);
+    let found = finding(
+        &host("local"),
+        ProcessUse {
+            count: 7000,
+            limit: 8000,
+        },
+        Ok(&rows),
+    )
+    .unwrap();
+    assert_eq!(found.command, None);
 }
 
 #[test]
@@ -191,21 +178,16 @@ fn a_failed_ps_fails_the_probe_instead_of_counting_zero() {
 
 #[test]
 fn a_host_whose_processes_could_not_be_read_says_so() {
-    let hosts = vec![
-        (host("local"), Ok(probe(7300, 8000))),
-        (host("m1"), Ok(probe(7300, 8000))),
-    ];
-    let reads = [(host("local"), Err("ps failed".to_string()))];
-    let found = findings(&hosts, &reads, 1_000);
-    assert_eq!(found.len(), 2);
+    let found = finding(
+        &host("local"),
+        ProcessUse {
+            count: 7300,
+            limit: 8000,
+        },
+        Err("ps failed"),
+    )
+    .unwrap();
     assert!(
-        found[0].text.contains("reading its processes failed")
-            && found[0].text.contains("ps failed")
-    );
-    assert!(found[1].text.contains("no reading of its processes exists"));
-    assert!(
-        found
-            .iter()
-            .all(|f| !f.text.contains("no process there holds"))
+        found.text.contains("reading its processes failed") && found.text.contains("ps failed")
     );
 }

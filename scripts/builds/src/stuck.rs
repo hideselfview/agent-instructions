@@ -44,10 +44,6 @@ const SAMPLE_SECONDS: u32 = 5;
 /// How many ancestors of a process are read.
 const ANCESTORS: usize = 12;
 
-/// What `ps` prints, one process a line: pid, parent, user, CPU share, CPU
-/// time, time since start, state, command with its arguments.
-pub const PS_FORMAT: &str = "pid=,ppid=,uid=,pcpu=,cputime=,etime=,stat=,command=";
-
 /// What a process used over a span of the host's readings.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize)]
 pub struct Sustained {
@@ -76,73 +72,6 @@ pub struct Row {
     /// Exited and waiting for its parent to reap it (state Z).
     pub zombie: bool,
     pub command: String,
-}
-
-/// `[[dd-]hh:]mm:ss` as seconds.
-fn parse_elapsed(text: &str) -> Option<i64> {
-    let (days, clock) = match text.split_once('-') {
-        Some((days, clock)) => (days.parse::<i64>().ok()?, clock),
-        None => (0, text),
-    };
-    let mut seconds = 0;
-    for part in clock.split(':') {
-        seconds = seconds * 60 + part.parse::<i64>().ok()?;
-    }
-    Some(days * 86_400 + seconds)
-}
-
-/// `[hh:]mm:ss.cc` (macOS) or `[dd-]hh:mm:ss` (Linux) as seconds; minutes may
-/// pass 59.
-fn parse_cpu_time(text: &str) -> Option<f64> {
-    let (days, text) = match text.split_once('-') {
-        Some((days, clock)) => (days.parse::<f64>().ok()?, clock),
-        None => (0.0, text),
-    };
-    let mut seconds = 0.0;
-    for part in text.split(':') {
-        seconds = seconds * 60.0 + part.parse::<f64>().ok()?;
-    }
-    Some(days * 86_400.0 + seconds)
-}
-
-/// The rows of <text>, `ps`'s output for `PS_ARGS`. A line that does not read
-/// is an error naming it.
-pub fn parse_ps(text: &str) -> Result<Vec<Row>, String> {
-    let mut rows = Vec::new();
-    for line in text.lines().filter(|line| !line.trim().is_empty()) {
-        let mut words = line.split_whitespace();
-        let mut next = || words.next().ok_or_else(|| format!("short ps line: {line}"));
-        let bad = |what: &str| format!("ps line with a bad {what}: {line}");
-        let pid = next()?.parse().map_err(|_| bad("pid"))?;
-        let ppid = next()?.parse().map_err(|_| bad("parent"))?;
-        let uid = next()?.parse().map_err(|_| bad("user"))?;
-        let cpu_percent = next()?.parse().map_err(|_| bad("CPU share"))?;
-        let cpu_seconds = parse_cpu_time(next()?).ok_or_else(|| bad("CPU time"))?;
-        let age_seconds = parse_elapsed(next()?).ok_or_else(|| bad("age"))?;
-        let zombie = next()?.starts_with('Z');
-        // The command is the rest of the line, spaces kept.
-        let command = {
-            let mut rest = line.trim_start();
-            for _ in 0..7 {
-                rest = rest
-                    .trim_start_matches(|c: char| !c.is_whitespace())
-                    .trim_start();
-            }
-            rest.to_string()
-        };
-        rows.push(Row {
-            pid,
-            ppid,
-            uid,
-            cpu_percent: Some(cpu_percent),
-            sustained: None,
-            cpu_seconds,
-            age_seconds,
-            zombie,
-            command,
-        });
-    }
-    Ok(rows)
 }
 
 /// What a busy process belongs to.
@@ -675,11 +604,14 @@ impl HostBusy {
         }
     }
 
-    /// Why activity is unavailable, or a diagnostic that came with it.
-    pub fn error(&self) -> Option<&str> {
+    /// The busy rows and diagnostic the report can show together.
+    pub fn report(&self) -> (Option<&[Busy]>, Option<&str>) {
         match self.activity() {
-            Ok(activity) => activity.placement_diagnostic.as_deref(),
-            Err(error) => Some(error),
+            Ok(activity) => (
+                Some(&activity.busy),
+                activity.placement_diagnostic.as_deref(),
+            ),
+            Err(error) => (None, Some(error)),
         }
     }
 }
@@ -725,11 +657,13 @@ fn folders_on(
     let folders = parse_lsof(&String::from_utf8_lossy(&output.stdout));
     let stderr = String::from_utf8_lossy(&output.stderr);
     let stderr = stderr.trim();
-    if output.status.success() && folders.len() == pids.len() {
+    let complete = folders.len() == pids.len();
+    let succeeded = output.status.success();
+    if succeeded && complete {
         return Ok((folders, None));
     }
     let diagnostic = (!stderr.is_empty()).then(|| format!("{what} wrote: {stderr}"));
-    if output.status.success()
+    if succeeded
         || (output.status.code() == Some(1) && (diagnostic.is_none() || !folders.is_empty()))
     {
         return Ok((folders, diagnostic));
@@ -842,12 +776,16 @@ fn read_activity(
                                 }
                                 stays
                             });
-                            if !without_folder.is_empty() && placement_diagnostic.is_none() {
-                                placement_diagnostic = Some(format!(
+                            if !without_folder.is_empty() {
+                                let missing = format!(
                                     "lsof on {} found no working folder for these living PIDs: {}",
                                     crate::host::place(&host.name),
                                     without_folder.join(", ")
-                                ));
+                                );
+                                placement_diagnostic = Some(match placement_diagnostic.take() {
+                                    Some(diagnostic) => format!("{diagnostic}. {missing}"),
+                                    None => missing,
+                                });
                             }
                         }
                         Err(error) => {

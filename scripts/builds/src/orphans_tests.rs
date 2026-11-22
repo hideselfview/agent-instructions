@@ -14,7 +14,7 @@ fn scan(ps: &str, jobs: Vec<JobRun>) -> std::result::Result<Scan, String> {
     Ok(Scan {
         uid: 501,
         at: 0,
-        rows: crate::stuck::parse_ps(ps).unwrap(),
+        rows: crate::host_scan::parse_ps(ps).unwrap(),
         cpu_idle: Ok(50.0),
         jobs,
         sccache: Ok(None),
@@ -98,7 +98,7 @@ fn finds_the_processes_whose_caller_is_gone() {
 /// gets no command.
 #[test]
 fn a_finding_names_the_orphan_and_how_to_stop_it() {
-    let rows = crate::stuck::parse_ps(HERE).unwrap();
+    let rows = crate::host_scan::parse_ps(HERE).unwrap();
     let git = Orphan {
         host: m1(),
         kind: Kind::Process {
@@ -150,7 +150,7 @@ fn the_stop_script_names_only_a_target_that_refused() {
     if unsafe { libc::getuid() } == 0 {
         return;
     }
-    let rows = crate::stuck::parse_ps("1 0 0 0.0 0:01.00 40:00 S cargo test\n").unwrap();
+    let rows = crate::host_scan::parse_ps("1 0 0 0.0 0:01.00 40:00 S cargo test\n").unwrap();
     let orphan = Orphan {
         host: Host::local(),
         kind: Kind::Process {

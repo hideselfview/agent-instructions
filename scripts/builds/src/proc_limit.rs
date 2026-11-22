@@ -17,9 +17,9 @@ use std::collections::HashMap;
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
 use crate::health::Advice;
-use crate::host::{Host, Probe, Ssh, Terminal, answer_value, command_at, output_of, place};
+use crate::host::{Host, Ssh, Terminal, answer_value, command_at, output_of, place};
 use crate::shells::{basename, shown};
-use crate::stuck::{Row, Sampling, is_test_binary, now_seconds};
+use crate::stuck::{Row, is_test_binary};
 use crate::text::duration;
 
 /// A host above this share of its process limit needs action.
@@ -107,7 +107,7 @@ pub struct ZombieParent {
 /// The processes of <rows> with the most zombie children, most
 /// first. A zombie whose parent is not in <rows> (init, or another user's
 /// process) counts for no parent: ending init's children is no fix.
-pub fn zombie_parents(rows: &[Row], sampling: &Sampling) -> Vec<ZombieParent> {
+fn zombie_parents(rows: &[Row], target: Option<&str>) -> Vec<ZombieParent> {
     let mut counts: HashMap<i32, usize> = HashMap::new();
     for zombie in rows.iter().filter(|row| row.zombie) {
         *counts.entry(zombie.ppid).or_default() += 1;
@@ -124,7 +124,7 @@ pub fn zombie_parents(rows: &[Row], sampling: &Sampling) -> Vec<ZombieParent> {
                 age_seconds: row.age_seconds,
                 zombies,
                 test_binary: is_test_binary(row),
-                stop: sampling.on_host(&format!("kill {}", row.pid)),
+                stop: crate::host::person_command(target, &format!("kill {}", row.pid)),
             })
         })
         .collect();
@@ -155,64 +155,50 @@ fn head_of(host: &Host, used: &ProcessUse) -> String {
     )
 }
 
-/// The "needs action" lines for <hosts>, each with its probe: one for each
-/// host whose process count is near its limit, naming the parents in
-/// <scans> that hold the most zombies. The line suggests stopping the top
-/// parent only when it is a test binary.
-pub fn findings(
-    hosts: &[(Host, std::result::Result<Probe, String>)],
-    scans: &[(Host, std::result::Result<crate::host_scan::Scan, String>)],
-    now: i64,
-) -> Vec<Advice> {
-    let mut found = Vec::new();
-    for (host, probe) in hosts {
-        let Ok(probe) = probe else { continue };
-        let used = probe.processes;
-        if !used.near_limit() {
-            continue;
-        }
-        let parents = match scans.iter().find(|(scanned, _)| scanned.name == host.name) {
-            Some((_, Ok(scan))) => zombie_parents(&scan.rows, &Sampling::new(host, now)),
-            Some((_, Err(error))) => {
-                found.push(Advice::said(format!(
-                    "{}; reading its processes failed, so the parents of zombies are unknown: {error}",
-                    head_of(host, &used)
-                )));
-                continue;
-            }
-            None => {
-                found.push(Advice::said(format!(
-                    "{}; no reading of its processes exists, so the parents of zombies are unknown",
-                    head_of(host, &used)
-                )));
-                continue;
-            }
-        };
-        let head = head_of(host, &used);
-        found.push(match parents.first() {
-            None => Advice::said(format!(
-                "{head}; no process there holds zombie children, so read `ps` on it for what holds the rest"
-            )),
-            Some(top) => {
-                let list = parents
-                    .iter()
-                    .map(parent_text)
-                    .collect::<Vec<_>>()
-                    .join("; ");
-                if top.test_binary {
-                    Advice::run(
-                        format!("{head}; the top parents of zombies are {list}; stop the first, a test binary, with"),
-                        top.stop.clone(),
-                    )
-                } else {
-                    Advice::said(format!(
-                        "{head}; the top parents of zombies are {list}; the first is not a test binary, so look at what it is before stopping it"
-                    ))
-                }
-            }
-        });
+/// What to do when a host nears its process limit. The original scan names
+/// the parents that hold the most zombies.
+pub fn finding(
+    host: &Host,
+    used: ProcessUse,
+    rows: std::result::Result<&[Row], &str>,
+) -> Option<Advice> {
+    if !used.near_limit() {
+        return None;
     }
-    found
+    let head = head_of(host, &used);
+    let rows = match rows {
+        Ok(rows) => rows,
+        Err(error) => {
+            return Some(Advice::said(format!(
+                "{head}; reading its processes failed, so the parents of zombies are unknown: {error}"
+            )));
+        }
+    };
+    let parents = zombie_parents(rows, host.target.as_deref());
+    Some(match parents.first() {
+        None => Advice::said(format!(
+            "{head}; no process there holds zombie children, so read `ps` on it for what holds the rest"
+        )),
+        Some(top) => {
+            let list = parents
+                .iter()
+                .map(parent_text)
+                .collect::<Vec<_>>()
+                .join("; ");
+            if top.test_binary {
+                Advice::run(
+                    format!(
+                        "{head}; the top parents of zombies are {list}; stop the first, a test binary, with"
+                    ),
+                    top.stop.clone(),
+                )
+            } else {
+                Advice::said(format!(
+                    "{head}; the top parents of zombies are {list}; the first is not a test binary, so look at what it is before stopping it"
+                ))
+            }
+        }
+    })
 }
 
 /// Stops each test-binary parent of zombies of <uid> on this Mac when this
@@ -225,10 +211,9 @@ pub fn stop(uid: u32) -> Result<(Vec<String>, usize)> {
         return Ok((Vec::new(), 0));
     }
     let rows = crate::host_scan::local_rows().map_err(Fail::Message)?;
-    let sampling = Sampling::new(&Host::local(), now_seconds());
     let mut lines = Vec::new();
     let mut failed = 0;
-    for parent in zombie_parents(&rows, &sampling) {
+    for parent in zombie_parents(&rows, None) {
         if !parent.test_binary || parent.uid != uid {
             continue;
         }

@@ -106,7 +106,7 @@ fn m1_with_server(
         Ok(Scan {
             uid: 502,
             at: 0,
-            rows: crate::stuck::parse_ps(&ps).unwrap(),
+            rows: crate::host_scan::parse_ps(&ps).unwrap(),
             cpu_idle: Ok(0.0),
             jobs: Vec::new(),
             sccache: Ok(Some(CacheServer {

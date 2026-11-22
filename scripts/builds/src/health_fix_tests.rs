@@ -245,7 +245,7 @@ fn a_host_with_nothing_to_stop_is_left_and_a_failed_stop_is_said() {
 #[test]
 fn stops_the_orphans_health_stops_and_lists_the_rest() {
     use crate::orphans::{Kind, Orphan};
-    let rows = crate::stuck::parse_ps(
+    let rows = crate::host_scan::parse_ps(
         "300 1 501 0.0 0:01.00 40:00 S cargo test\n301 1 501 0.0 0:01.00 40:00 S builds land side-3\n302 1 501 0.0 0:01.00 40:00 S rustc x\n303 1 501 0.0 0:01.00 40:00 S git status\n304 1 501 0.0 0:01.00 40:00 S cargo check\n",
     )
     .unwrap();

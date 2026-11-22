@@ -1933,11 +1933,22 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
             .into_iter()
             .map(|advice| Finding::new(FindingKind::Load, advice)),
     );
-    health.findings.extend(
-        crate::proc_limit::findings(&probed, &scanned.scans, tool.now)
-            .into_iter()
-            .map(|advice| Finding::new(FindingKind::ProcessLimit, advice)),
-    );
+    health
+        .findings
+        .extend(
+            probed
+                .iter()
+                .zip(&scanned.scans)
+                .filter_map(|((host, probe), (_, scan))| {
+                    let used = probe.as_ref().ok()?.processes;
+                    let rows = scan
+                        .as_ref()
+                        .map(|scan| scan.rows.as_slice())
+                        .map_err(String::as_str);
+                    crate::proc_limit::finding(host, used, rows)
+                        .map(|advice| Finding::new(FindingKind::ProcessLimit, advice))
+                }),
+        );
     health.findings.extend(
         crate::host_load::builds_items_ready(&loaded)
             .map(|advice| Finding::new(FindingKind::Load, advice)),
@@ -1962,11 +1973,14 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
         let mut value = serde_json::to_value(&health).expect("health serializes");
         value["busy"] = serde_json::json!(
             busy.iter()
-                .map(|host| serde_json::json!({
-                    "host": host.host,
-                    "busy": host.activity().ok().map(|activity| &activity.busy),
-                    "error": host.error(),
-                }))
+                .map(|host| {
+                    let (busy, error) = host.report();
+                    serde_json::json!({
+                        "host": host.host,
+                        "busy": busy,
+                        "error": error,
+                    })
+                })
                 .collect::<Vec<_>>()
         );
         println!("{value}");

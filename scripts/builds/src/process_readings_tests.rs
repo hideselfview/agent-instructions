@@ -4,7 +4,7 @@ use crate::stuck::Sustained;
 const NOW: i64 = 1_795_069_000;
 
 fn row(pid: i32, cpu: f64, age: i64) -> Row {
-    crate::stuck::parse_ps(&format!(
+    crate::host_scan::parse_ps(&format!(
         "{pid} 1 0 0.0 {}:{:05.2} {age} S /usr/libexec/d{pid}\n",
         (cpu / 60.0) as i64,
         cpu % 60.0

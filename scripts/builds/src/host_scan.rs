@@ -13,7 +13,7 @@ use crate::fail::Result;
 use crate::host::{Host, Ssh, Terminal, command_at, output_of, place};
 use crate::host_front_app::FrontApp;
 use crate::process_readings::{self, Reading, measure};
-use crate::stuck::{PS_FORMAT, Row, parse_ps};
+use crate::stuck::Row;
 
 /// The line after which the script prints its `ps` listing: every line
 /// before it is `<key>=<value>`, and no `ps` line can equal it, since each
@@ -140,6 +140,77 @@ fn parse_cpu(line: &str) -> std::result::Result<f64, String> {
     line.split(',')
         .find_map(|part| part.trim().strip_suffix("% idle")?.trim().parse().ok())
         .ok_or_else(|| format!("top printed no idle share: {line:?}"))
+}
+
+/// What `ps` prints, one process a line: pid, parent, user, CPU share, CPU
+/// time, time since start, state, command with its arguments.
+pub const PS_FORMAT: &str = "pid=,ppid=,uid=,pcpu=,cputime=,etime=,stat=,command=";
+
+/// `[[dd-]hh:]mm:ss` as seconds.
+fn parse_elapsed(text: &str) -> Option<i64> {
+    let (days, clock) = match text.split_once('-') {
+        Some((days, clock)) => (days.parse::<i64>().ok()?, clock),
+        None => (0, text),
+    };
+    let mut seconds = 0;
+    for part in clock.split(':') {
+        seconds = seconds * 60 + part.parse::<i64>().ok()?;
+    }
+    Some(days * 86_400 + seconds)
+}
+
+/// `[hh:]mm:ss.cc` (macOS) or `[dd-]hh:mm:ss` (Linux) as seconds; minutes may
+/// pass 59.
+fn parse_cpu_time(text: &str) -> Option<f64> {
+    let (days, text) = match text.split_once('-') {
+        Some((days, clock)) => (days.parse::<f64>().ok()?, clock),
+        None => (0.0, text),
+    };
+    let mut seconds = 0.0;
+    for part in text.split(':') {
+        seconds = seconds * 60.0 + part.parse::<f64>().ok()?;
+    }
+    Some(days * 86_400.0 + seconds)
+}
+
+/// The rows of <text>, `ps`'s output for `PS_ARGS`. A line that does not read
+/// is an error naming it.
+pub fn parse_ps(text: &str) -> std::result::Result<Vec<Row>, String> {
+    let mut rows = Vec::new();
+    for line in text.lines().filter(|line| !line.trim().is_empty()) {
+        let mut words = line.split_whitespace();
+        let mut next = || words.next().ok_or_else(|| format!("short ps line: {line}"));
+        let bad = |what: &str| format!("ps line with a bad {what}: {line}");
+        let pid = next()?.parse().map_err(|_| bad("pid"))?;
+        let ppid = next()?.parse().map_err(|_| bad("parent"))?;
+        let uid = next()?.parse().map_err(|_| bad("user"))?;
+        let cpu_percent = next()?.parse().map_err(|_| bad("CPU share"))?;
+        let cpu_seconds = parse_cpu_time(next()?).ok_or_else(|| bad("CPU time"))?;
+        let age_seconds = parse_elapsed(next()?).ok_or_else(|| bad("age"))?;
+        let zombie = next()?.starts_with('Z');
+        // The command is the rest of the line, spaces kept.
+        let command = {
+            let mut rest = line.trim_start();
+            for _ in 0..7 {
+                rest = rest
+                    .trim_start_matches(|c: char| !c.is_whitespace())
+                    .trim_start();
+            }
+            rest.to_string()
+        };
+        rows.push(Row {
+            pid,
+            ppid,
+            uid,
+            cpu_percent: Some(cpu_percent),
+            sustained: None,
+            cpu_seconds,
+            age_seconds,
+            zombie,
+            command,
+        });
+    }
+    Ok(rows)
 }
 
 const PS_ARGS: [&str; 3] = ["-axww", "-o", PS_FORMAT];

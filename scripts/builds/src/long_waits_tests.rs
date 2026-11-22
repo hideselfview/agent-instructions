@@ -4,7 +4,7 @@ use crate::install_gate::Held;
 const NOW: i64 = 1_795_069_061;
 
 fn rows(text: &str) -> Vec<Row> {
-    crate::stuck::parse_ps(text).unwrap()
+    crate::host_scan::parse_ps(text).unwrap()
 }
 
 fn scan(rows: Vec<Row>, jobs: Vec<JobRun>) -> std::result::Result<Scan, String> {

@@ -2526,9 +2526,9 @@ STATUS, HEALTH AND THE DASHBOARD
                                 worktree and step, an agent shell, a test
                                 binary, a system daemon); the dashboard is
                                 never one, since it runs as long as the Mac
-                                is up. When the working-folder lookup omits
-                                a process, the report checks whether it still
-                                runs before listing it. It reports lookup
+                                is up. When a lookup on a remote host omits
+                                a process's working folder, the report
+                                checks whether the process still runs. It reports lookup
                                 errors after a successful scan, even when
                                 some folders are available. With --json, a
                                 host can have both a busy list and a lookup
@@ -2739,7 +2739,9 @@ STATUS, HEALTH AND THE DASHBOARD
                               hook times; a Needs attention box with
                               the findings `builds health` lists under
                               "needs action", with the command when the
-                              finding suggests one. The free space figure
+                              finding suggests one. Only the command-line
+                              report shows process-limit findings.
+                              The free space figure
                               shows the disk finding and the load figures
                               show the load findings (the daemon reads
                               the busy processes and the hosts that refuse
