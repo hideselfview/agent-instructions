@@ -641,30 +641,33 @@ fn group(places: &Places, repo: &str, named: &Named) -> Result<Group> {
                         for (_, folder) in folders_in(&capture)? {
                             // A run is placed whole, with its run.json: a
                             // folder at this depth without one is no run.
-                            if !folder.join(RUN_FILE).is_file() {
+                            let marker = folder.join(RUN_FILE);
+                            let last_use = match std::fs::metadata(&marker) {
+                                Ok(meta) if meta.is_file() => {
+                                    use std::os::unix::fs::MetadataExt;
+                                    Some(meta.mtime())
+                                }
+                                Ok(_) => None,
+                                Err(error) if crate::fail::gone(&error) => None,
+                                Err(error) => fail!("reading {}: {error}", marker.display()),
+                            };
+                            let Some(last_use) = last_use else {
                                 note(format!(
-                                    "the cap leaves {} alone: it holds no {RUN_FILE}, so it is no run of the current layout",
+                                    "The cap skips {} because it has no {RUN_FILE} file.",
                                     folder.display()
                                 ));
                                 continue;
-                            }
+                            };
                             kept.push(match named.get(&folder) {
                                 Some(branches) => Kept::InUse {
                                     by: branches.iter().cloned().collect(),
                                     folder,
                                 },
-                                None => {
-                                    let Some(last_use) =
-                                        capped_store::written_at(&folder.join(RUN_FILE))?
-                                    else {
-                                        continue;
-                                    };
-                                    Kept::Folder {
-                                        folder: capped_store::Folder { path: folder, reader_lock: None },
-                                        last_use: Use::At(last_use),
-                                        what: "a shots run",
-                                    }
-                                }
+                                None => Kept::Folder {
+                                    folder: capped_store::Folder { path: folder, reader_lock: None },
+                                    last_use: Use::At(last_use),
+                                    what: "a shots run",
+                                },
                             });
                         }
                     }

@@ -86,3 +86,18 @@ fn a_folder_with_no_texts_yet_prunes_to_nothing() {
     let tool = scratch.tool(0);
     prune_texts(&tool, Run::Real, 0).unwrap();
 }
+
+#[test]
+fn a_published_run_missing_its_use_marker_fails_the_prune() {
+    let scratch = Scratch::new("texts-missing-use");
+    let tool = scratch.tool(0);
+    let texts = texts_in(&scratch, "demo");
+    texts.keep_run(1, ["message"]).unwrap();
+    let folder = root(&tool.places).join("demo/1");
+    let used = folder.join(USED);
+    std::fs::remove_file(&used).unwrap();
+
+    let error = prune_texts(&tool, Run::Real, 0).unwrap_err().text();
+    assert!(error.contains(used.to_str().unwrap()), "{error}");
+    assert!(folder.is_dir());
+}

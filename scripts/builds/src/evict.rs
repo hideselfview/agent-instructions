@@ -99,8 +99,14 @@ pub(crate) fn move_in(
     name: &std::ffi::OsStr,
     recreate: Recreate,
 ) -> Result<bool> {
-    if !move_to_slot(folder, slot, name)? {
-        return Ok(false);
+    match move_to_slot(folder, slot, name) {
+        Ok(true) => {}
+        Ok(false) => return Ok(false),
+        Err(error @ crate::fail::Fail::Move { .. }) => {
+            crate::text::note(format!("warning: {}; builds kept the folder", error.text()));
+            return Ok(false);
+        }
+        Err(error) => return Err(error),
     }
     if recreate == Recreate::Yes {
         std::fs::create_dir(folder).context(|| format!("recreating {}", folder.display()))?;

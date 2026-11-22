@@ -20,7 +20,7 @@
 //! of the root is over its cap (`prune`). A unit used in the last
 //! FLOOR_IDLE_MINUTES stays, and so does a unit marked in use (`Kept::InUse`).
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use crate::evict::HeldPaths;
@@ -279,7 +279,7 @@ fn prune_with(
     root: &Path,
     cap_kib: u64,
     groups: impl FnOnce() -> Result<Vec<Group>>,
-    open_files: impl FnOnce() -> Result<HeldPaths>,
+    open_files: impl Fn() -> Result<HeldPaths>,
 ) -> Result<()> {
     let Some(_pruning) = crate::evict::try_lock_creating(&root.join(PRUNING))? else {
         note(format!("Another prune is working in {}.", root.display()));
@@ -292,18 +292,9 @@ fn prune_with(
     std::fs::File::create(&marker).context(|| format!("creating {}", marker.display()))?;
     drop(alone);
 
-    let mut invalidated = BTreeMap::new();
     let deleted = plan(tool, root, cap_kib, groups, open_files)
-        .and_then(|steps| apply_plan(tool, run, &marker, steps, &mut invalidated));
-    let cleanup = remove_if_present(&marker);
-    let changed = invalidated
-        .into_iter()
-        .filter_map(|(root, ready)| ready.then_some(root))
-        .collect::<Vec<_>>();
-    if !changed.is_empty() {
-        crate::daemon::client::wrote(&tool.places, &changed);
-    }
-    with_cleanup(deleted, cleanup)
+        .and_then(|steps| apply_plan(tool, run, &marker, steps));
+    preserve_failures(deleted, remove_if_present(&marker))
 }
 
 fn idle(root: &Path) -> Result<Option<std::fs::File>> {
@@ -338,7 +329,7 @@ fn plan(
     root: &Path,
     cap_kib: u64,
     groups: impl FnOnce() -> Result<Vec<Group>>,
-    open_files: impl FnOnce() -> Result<HeldPaths>,
+    open_files: impl Fn() -> Result<HeldPaths>,
 ) -> Result<Vec<Deletion>> {
     let staging = folders_in(root)?
         .into_iter()
@@ -352,10 +343,7 @@ fn plan(
     let recent = tool.now - (FLOOR_IDLE_MINUTES * 60) as i64;
     // Every group has been measured. Read the processes only if selection
     // reaches a folder, as close to the deletion phase as possible.
-    let mut open = OpenFiles {
-        read: Some(open_files),
-        held: None,
-    };
+    let mut open = OpenFiles::Unread(open_files);
     let mut steps = Vec::new();
     for folder in staging {
         let unit = Unit::Folder(folder);
@@ -370,21 +358,33 @@ fn plan(
     Ok(steps)
 }
 
-fn apply_plan(
-    tool: &Tool,
-    run: Run,
-    marker: &Path,
-    steps: Vec<Deletion>,
-    invalidated: &mut BTreeMap<PathBuf, bool>,
-) -> Result<()> {
+/// A failed move can warn during setup. A separate failure must still reach
+/// setup as an error, so preserve it in preference to a failed move.
+fn preserve_failures(first: Result<()>, next: Result<()>) -> Result<()> {
+    match (&first, &next) {
+        (Err(fail::Fail::Move { .. }), Err(error)) if !matches!(error, fail::Fail::Move { .. }) => {
+            with_cleanup(next, first)
+        }
+        _ => with_cleanup(first, next),
+    }
+}
+
+fn lock_plan(marker: &Path) -> Result<Option<std::fs::File>> {
     let root = marker.parent().expect("a plan belongs to a cache");
+    let Some(alone) = idle(root)? else {
+        return Ok(None);
+    };
+    Ok(plan_valid(marker)?.then_some(alone))
+}
+
+fn apply_plan(tool: &Tool, run: Run, marker: &Path, steps: Vec<Deletion>) -> Result<()> {
+    if steps.is_empty() {
+        return Ok(());
+    }
     if run.dry() {
-        let Some(alone) = idle(root)? else {
+        let Some(alone) = lock_plan(marker)? else {
             return Ok(());
         };
-        if !plan_valid(marker)? {
-            return Ok(());
-        }
         drop(alone);
         for step in steps {
             note(format!(
@@ -395,62 +395,55 @@ fn apply_plan(
         }
         return Ok(());
     }
-    if steps.is_empty() {
-        return Ok(());
-    }
-    let slot = crate::trash::Slot::make(&tool.places)?;
-    let deleted = apply_steps(&tool.places, root, marker, steps, &slot, invalidated);
-    with_cleanup(deleted, slot.remove_background())
-}
-
-fn apply_steps(
-    places: &crate::places::Places,
-    root: &Path,
-    marker: &Path,
-    steps: Vec<Deletion>,
-    trash: &crate::trash::Slot,
-    invalidated: &mut BTreeMap<PathBuf, bool>,
-) -> Result<()> {
+    let root = marker.parent().expect("a plan belongs to a cache");
+    let mut trash = None;
     let mut failures = Ok(());
     for (index, Deletion { unit, reason }) in steps.into_iter().enumerate() {
-        let Some(alone) = idle(root)? else {
-            break;
-        };
-        if !plan_valid(marker)? {
-            break;
-        }
-        let path = unit.path();
-        if let Some(changed_root) = crate::sizes::root_of(places, path) {
-            let ready = invalidated.entry(changed_root.clone()).or_insert_with(|| {
-                match crate::sizes::invalidate_root(places, &changed_root) {
-                    Ok(()) => true,
-                    Err(error) => {
-                        failures =
-                            with_cleanup(std::mem::replace(&mut failures, Ok(())), Err(error));
-                        false
-                    }
-                }
-            });
-            if !*ready {
-                continue;
+        let target = match &unit {
+            Unit::Folder(folder) => {
+                let slot = match &trash {
+                    Some(slot) => slot,
+                    None => match crate::trash::Slot::make(&tool.places) {
+                        Ok(slot) => trash.insert(slot),
+                        Err(error) => {
+                            failures = preserve_failures(failures, Err(error));
+                            break;
+                        }
+                    },
+                };
+                Target::Folder { path: folder, slot }
             }
-        }
-        let moved = unit.move_to(trash, index).and_then(|moved| {
-            if moved {
+            Unit::Files(files) => Target::Files(files),
+        };
+        let alone = match lock_plan(marker) {
+            Ok(Some(alone)) => alone,
+            Ok(None) => break,
+            Err(error) => {
+                failures = preserve_failures(failures, Err(error));
+                break;
+            }
+        };
+        let path = unit.path();
+        let deleted = target.delete(index).and_then(|deleted| {
+            if deleted {
                 remove_empty_parents(root, path)?;
             }
-            Ok(moved)
+            Ok(deleted)
         });
         drop(alone);
-        match moved {
+        match deleted {
             Ok(true) => note(format!("deleted {} ({reason})", path.display())),
-            Ok(false) => {}
-            Err(error) => {
-                failures = with_cleanup(failures, Err(error));
-            }
+            Ok(false) => note(format!(
+                "{} disappeared before the prune could delete it",
+                path.display()
+            )),
+            Err(error) => failures = preserve_failures(failures, Err(error)),
         }
     }
-    failures
+    match trash {
+        Some(slot) => preserve_failures(failures, slot.remove_background()),
+        None => failures,
+    }
 }
 
 impl Unit {
@@ -460,29 +453,42 @@ impl Unit {
             Self::Files(files) => &files[0],
         }
     }
+}
 
-    /// Move the picture before its companion list. A failure can leave a
-    /// list without its picture, which no reader uses.
-    fn move_to(&self, trash: &crate::trash::Slot, index: usize) -> Result<bool> {
-        let paths = match self {
-            Self::Folder(folder) => std::slice::from_ref(folder),
-            Self::Files(files) => files.as_slice(),
-        };
-        let mut moved = false;
-        for (part, path) in paths.iter().enumerate() {
-            let name = format!("{index}-{part}");
-            moved |= crate::evict::move_to_slot(path, &trash.path, std::ffi::OsStr::new(&name))?;
+/// Each folder deletion carries the slot that owns its destination. File
+/// units unlink their files in order and do not need a trash slot.
+enum Target<'a> {
+    Folder {
+        path: &'a Path,
+        slot: &'a crate::trash::Slot,
+    },
+    Files(&'a [PathBuf]),
+}
+
+impl Target<'_> {
+    fn delete(self, index: usize) -> Result<bool> {
+        match self {
+            Self::Folder { path, slot } => crate::evict::move_to_slot(
+                path,
+                &slot.path,
+                std::ffi::OsStr::new(&index.to_string()),
+            ),
+            Self::Files(files) => {
+                for file in files {
+                    remove_if_present(file)?;
+                }
+                Ok(true)
+            }
         }
-        Ok(moved)
     }
 }
 
-struct OpenFiles<F> {
-    read: Option<F>,
-    held: Option<HeldPaths>,
+enum OpenFiles<F> {
+    Unread(F),
+    Read(HeldPaths),
 }
 
-impl<F: FnOnce() -> Result<HeldPaths>> OpenFiles<F> {
+impl<F: Fn() -> Result<HeldPaths>> OpenFiles<F> {
     fn available(&mut self, unit: &Unit, reason: &str) -> Result<bool> {
         let Unit::Folder(folder) = unit else {
             return Ok(true);
@@ -498,11 +504,11 @@ impl<F: FnOnce() -> Result<HeldPaths>> OpenFiles<F> {
             }
             Err(error) => fail!("resolving {}: {error}", folder.display()),
         };
-        let held = match &self.held {
-            Some(held) => held,
-            None => self
-                .held
-                .insert(self.read.take().expect("one read supplies the snapshot")()?),
+        if let Self::Unread(read) = self {
+            *self = Self::Read(read()?);
+        }
+        let Self::Read(held) = self else {
+            unreachable!("the first folder reads the open paths")
         };
         if held.holds(&folder) {
             note(format!("in use, kept: {} ({reason})", folder.display()));
@@ -631,7 +637,7 @@ impl MeasuredGroup {
         self,
         cap_kib: u64,
         recent: i64,
-        open: &mut OpenFiles<impl FnOnce() -> Result<HeldPaths>>,
+        open: &mut OpenFiles<impl Fn() -> Result<HeldPaths>>,
         steps: &mut Vec<Deletion>,
     ) -> Result<()> {
         let mut total = self.total;

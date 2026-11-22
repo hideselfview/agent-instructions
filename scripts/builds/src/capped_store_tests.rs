@@ -199,65 +199,50 @@ fn files_and_loose_files_go_in_order_and_each_group_has_its_own_cap() {
     );
 }
 
-/// A daemon that takes every connection and never answers, as one does while
-/// it is busy: each question to it costs its asker the whole wait. The
-/// receiver says when a first question arrives.
-fn silent_daemon(
-    tool: &Tool,
-) -> (
-    std::os::unix::net::UnixListener,
-    std::sync::mpsc::Receiver<()>,
-) {
-    let socket = tool.places.daemon_socket();
-    std::fs::create_dir_all(socket.parent().unwrap()).unwrap();
-    let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
-    let held = listener.try_clone().unwrap();
-    let (asked, first) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
-        let mut open = Vec::new();
-        while let Ok((stream, _)) = held.accept() {
-            open.push(stream);
-            let _ = asked.send(());
-        }
-    });
-    (listener, first)
-}
-
-/// A prune holds the root exclusively only while it moves units into the
-/// trash: the questions it asks the daemon, and the measuring, come before or
-/// after, so a writer that arrives mid-prune waits for the renames only.
 #[test]
-fn a_writer_waits_for_a_prunes_renames_not_for_its_questions_to_the_daemon() {
+fn a_writer_can_take_its_lease_while_prune_waits_for_the_process_scan() {
+    use std::sync::mpsc;
+    use std::time::Duration;
     let scratch = Scratch::new("capped-bounded-wait");
-    let mut tool = scratch.tool(0);
-    // A socket's path must fit in SUN_LEN, which the scratch folder's does not.
-    let volume = PathBuf::from(format!("/tmp/bw-{}", std::process::id()));
-    std::fs::create_dir_all(&volume).unwrap();
-    // /tmp is a link, and the prune resolves each folder it deletes.
-    let volume = std::fs::canonicalize(&volume).unwrap();
-    tool.places.root = volume.clone();
-    let (_daemon, asked) = silent_daemon(&tool);
-    let root = tool.places.root.join("shots");
-    for n in 0..6 {
-        store(&root, &format!("bae/{n}"), 400, 30 + n);
-    }
-    let waited = std::thread::scope(|scope| {
-        let pruning = scope.spawn(|| prune_now(&tool, Run::Real, &root, 100));
-        // The prune has asked the daemon, so it has reached the work that
-        // used to run under the lock.
-        asked.recv().unwrap();
-        let started = std::time::Instant::now();
-        let writer = writing(&root).unwrap();
-        let waited = started.elapsed();
-        drop(writer);
-        pruning.join().unwrap();
-        waited
+    let tool = scratch.tool(0);
+    let root = scratch.dir.join("root");
+    let unit = store(&root, "g/a", 400, 30);
+    let lsof = scratch.script("lsof", "exit 0");
+    let (scanning, started) = mpsc::channel();
+    let (release, finish) = mpsc::channel();
+    let (wrote, acquired) = mpsc::channel();
+    std::thread::scope(|scope| {
+        let tool = &tool;
+        let cache = &root;
+        let prune = scope.spawn(move || {
+            prune_with(
+                tool,
+                Run::Real,
+                cache,
+                100,
+                || Ok(vec![group(cache)]),
+                || {
+                    scanning.send(()).unwrap();
+                    finish.recv().unwrap();
+                    HeldPaths::read_with(&lsof)
+                },
+            )
+        });
+        if let Err(error) = started.recv_timeout(Duration::from_secs(5)) {
+            drop(release);
+            panic!("prune did not start its process scan: {error}");
+        }
+        let writer = scope.spawn(move || {
+            let _hold = writing(cache).unwrap();
+            wrote.send(()).unwrap();
+        });
+        let acquired = acquired.recv_timeout(Duration::from_millis(1500));
+        release.send(()).unwrap();
+        writer.join().unwrap();
+        prune.join().unwrap().unwrap();
+        assert!(acquired.is_ok(), "the writer waited for the process scan");
     });
-    assert!(
-        waited < std::time::Duration::from_millis(1500),
-        "a writer waited {waited:?} for a prune"
-    );
-    std::fs::remove_dir_all(&volume).unwrap();
+    assert!(unit.is_dir(), "the writer invalidated the prune plan");
 }
 
 #[test]
@@ -292,29 +277,6 @@ fn an_access_during_planning_keeps_the_updated_unit() {
     })
     .unwrap();
     assert!(unit.join("data").is_file());
-}
-
-#[test]
-fn one_failed_size_invalidation_does_not_stop_the_next_root() {
-    let scratch = Scratch::new("capped-size-records");
-    let tool = scratch.tool(0);
-    let root = tool.places.root.join("shots");
-    let a = store(&root, "a/run", 400, 30);
-    let b = store(&root, "b/run", 400, 30);
-    let records = tool.places.daemon_dir().join("sizes/shots");
-    let first = records.join("a.json");
-    let second = records.join("b.json");
-    std::fs::create_dir_all(&first).unwrap();
-    std::fs::write(&second, "{}").unwrap();
-
-    let error = prune(&tool, Run::Real, &root, 100, || Ok(vec![group(&root)]))
-        .unwrap_err()
-        .text();
-
-    assert!(error.contains(&first.display().to_string()), "{error}");
-    assert!(a.exists() && !b.exists());
-    assert!(first.is_dir());
-    assert!(!second.exists());
 }
 
 #[test]

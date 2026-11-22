@@ -2127,9 +2127,9 @@ floor on the volume. `setup`, which runs before every hook and build, and
 as it exits. The dashboard runs `builds prune` every 6 hours, and `builds
 health` says when a prune last finished. Builds keeps folders its open-file
 scan finds in use and folders whose checkout guard a build holds. A process
-outside builds can open a file after that scan. A failed deletion warns during
-a build. If removal fails after builds moves a folder to the trash, the next
-prune can remove that folder from the trash.
+outside builds can open a file after that scan. Builds warns during a build
+if it cannot move a folder to the trash. If removal fails after the move,
+the next prune can remove that folder from the trash.
 
 Unused build copies. Cargo names each unit it builds (one crate target, for one
 profile, target and feature set) by a hash of everything that build depends on,

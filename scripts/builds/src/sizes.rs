@@ -45,14 +45,9 @@ pub fn stale(places: &Places, path: &Path) -> Result<()> {
     let Some(root) = root_of(places, path) else {
         return Ok(());
     };
-    invalidate_root(places, &root)?;
+    remove(places, &root)?;
     crate::daemon::client::wrote(places, &[root]);
     Ok(())
-}
-
-/// Removes a known build root's size record before an eviction changes it.
-pub(crate) fn invalidate_root(places: &Places, root: &Path) -> Result<()> {
-    remove(places, root)
 }
 
 /// The file that holds <root>'s record.
@@ -90,7 +85,11 @@ pub fn write(places: &Places, root: &Path, sizes: &Sizes) -> Result<()> {
 /// Removes <root>'s record.
 fn remove(places: &Places, root: &Path) -> Result<()> {
     let file = record_file(places, root)?;
-    crate::whole_file::remove_if_present(&file)
+    match std::fs::remove_file(&file) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => crate::fail!("removing {}: {error}", file.display()),
+    }
 }
 
 /// The keys of <root>'s record: its manifest folders while its checkout is
