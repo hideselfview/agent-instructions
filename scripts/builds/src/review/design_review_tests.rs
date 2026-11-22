@@ -163,7 +163,7 @@ fn a_design_change_waits_on_the_person_only_while_its_rules_review_takes_the_bra
                 {"rule": "rule-a", "verdict": "none", "findings": []},
                 {"rule": "rule-d", "verdict": "none", "findings": []}
             ],
-            "closed": [found[0].id],
+            "follow_up": [{"id": found[0].id, "verdict": "fixed"}],
         }),
     );
     let amended = record(&demo, &side, Some(Id(1)));

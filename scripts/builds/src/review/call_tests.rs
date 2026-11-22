@@ -50,6 +50,40 @@ fn an_answer_is_refused_when_it_skips_a_rule_or_contradicts_itself() {
 }
 
 #[test]
+fn follow_up_requires_one_verdict_per_given_finding_and_a_reason_to_keep_it_open() {
+    let fixed = json!({"id": 7, "verdict": "fixed"});
+    let kept = json!({"id": 8, "verdict": "open", "reason": "The test never calls the command."});
+    let answer = json!({"follow_up": [fixed, kept]});
+    let verdicts = follow_up_of(&answer, &[7, 8]).unwrap();
+    assert_eq!(
+        verdicts,
+        [
+            (7, FollowUp::Fixed),
+            (
+                8,
+                FollowUp::StillOpen("The test never calls the command.".to_string())
+            ),
+        ]
+        .into()
+    );
+    for (fields, why) in [
+        (json!([fixed, fixed]), "two verdicts for open finding 7"),
+        (json!([fixed]), "no verdict for open finding 8"),
+        (
+            json!([fixed, {"id": 8, "verdict": "open", "reason": "  "}]),
+            "no reason for keeping finding 8 open",
+        ),
+        (
+            json!([fixed, kept, {"id": 9, "verdict": "fixed"}]),
+            "verdict for finding 9, which the prompt did not list",
+        ),
+    ] {
+        let error = follow_up_of(&json!({"follow_up": fields}), &[7, 8]).unwrap_err();
+        assert!(error.contains(why), "{error}");
+    }
+}
+
+#[test]
 fn a_text_result_is_read_when_there_is_no_structured_output_and_an_error_is_named() {
     let body = r#"{\"rules\":[{\"rule\":\"a\",\"verdict\":\"none\",\"findings\":[]},{\"rule\":\"b\",\"verdict\":\"none\",\"findings\":[]}]}"#;
     let text = format!(

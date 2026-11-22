@@ -96,6 +96,7 @@ mod score;
 pub mod texts;
 pub mod verdicts;
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use crate::ack::agent::Caller;
@@ -398,7 +399,8 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
     };
     // A finding in a file the branch deleted needs no reviewer to say its
     // code is gone: the run closes it.
-    let gone = run::deleted_findings(inputs.worktree, &change.head, &open_findings)?;
+    let (open_findings, gone) =
+        run::split_deleted_findings(inputs.worktree, &change.head, open_findings)?;
     let asks = match open {
         None => vec![Ask {
             groups: scope.group_names(&change.diff.changed),
@@ -414,7 +416,7 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
             &change,
             landing,
             &open_findings,
-            &gone,
+            !gone.is_empty(),
         )?,
     };
     if let Some(added) = check::over_the_cap(asks.iter().map(|ask| ask.change.diff.text.as_str())) {
@@ -449,15 +451,13 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
     if let Some(last) = answers.last_mut() {
         material.close_deleted(inputs.reviewer, last, &gone);
     }
-    // Two runs of one review can each close the same finding: the first
-    // closes it.
-    let mut closed: Vec<i64> = Vec::new();
+    // The first run that closes a finding settles its outcome for this review.
+    let mut closed = BTreeSet::new();
     for asked in &mut answers {
         for call in &mut asked.calls {
-            call.closes.retain(|id| {
-                let first = !closed.contains(id);
-                closed.push(*id);
-                first
+            call.follow_up.retain(|id, verdict| match verdict {
+                call::FollowUp::Fixed => closed.insert(*id),
+                call::FollowUp::StillOpen(_) => !closed.contains(id),
             });
         }
     }
@@ -566,12 +566,23 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
                 finding.group, finding.id, finding.rule, finding.file
             ));
         }
-        for finding in &open_findings {
-            if asked.calls.iter().any(|c| c.closes.contains(&finding.id)) {
-                text.push_str(&format!(
-                    "run {run_id} closed finding {} ({}, {}): the code at its place no longer has the problem\n",
+        for finding in open_findings.iter().chain(&gone) {
+            let verdict = asked
+                .calls
+                .iter()
+                .find_map(|c| c.follow_up.get(&finding.id));
+            match verdict {
+                Some(call::FollowUp::Fixed) => text.push_str(&format!(
+                    "Run {run_id} closed finding {} ({}, {}).\n",
                     finding.id, finding.rule, finding.file
-                ));
+                )),
+                Some(call::FollowUp::StillOpen(reason)) => text.push_str(&format!(
+                    "{} kept finding {} open. {}\n",
+                    finding.group,
+                    finding.id,
+                    crate::text::one_line(reason)
+                )),
+                None => {}
             }
         }
     }
@@ -634,7 +645,7 @@ fn later_asks(
     change: &run::NetChange,
     landing: i64,
     open: &[record::Finding],
-    gone: &[record::Finding],
+    has_deleted_findings: bool,
 ) -> Result<Vec<Ask>> {
     let coverage = landing::Coverage::of(conn, &record::landing(conn, landing)?)?;
     let calls = record::calls_of_landing(conn, landing)?;
@@ -756,14 +767,9 @@ fn later_asks(
     // change again, so that it can close a finding that a commit it already
     // read fixed in place.
     if asks.is_empty() {
-        let kept: Vec<record::Finding> = open
-            .iter()
-            .filter(|finding| !gone.iter().any(|g| g.id == finding.id))
-            .cloned()
-            .collect();
         let groups: Vec<String> = scope
             .material
-            .holding_groups(&kept)
+            .holding_groups(open)
             .into_iter()
             .map(|(group, _)| group)
             .collect();
@@ -782,7 +788,7 @@ fn later_asks(
                 last_review: false,
                 groups,
             });
-        } else if !gone.is_empty() {
+        } else if has_deleted_findings {
             asks.push(Ask {
                 note: Some(format!(
                     "closed the findings in files the branch deleted, with no reviewer, after run {}\n",

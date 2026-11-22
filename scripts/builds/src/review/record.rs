@@ -62,8 +62,8 @@ pub struct NewCall {
     /// (rule, `finding` or `none`).
     pub verdicts: Vec<(String, String)>,
     pub findings: Vec<NewFinding>,
-    /// The open confirmed findings the reviewer found the changes fix.
-    pub closes: Vec<i64>,
+    /// What the run found about each open confirmed finding, by finding ID.
+    pub follow_up: std::collections::BTreeMap<i64, super::call::FollowUp>,
     /// Every process the call ran.
     pub exchanges: Vec<NewExchange>,
 }
@@ -527,8 +527,10 @@ pub fn add_calls(
             finding_ids.push(db.last_insert_rowid());
         }
         ids.push(finding_ids);
-        for finding in &call.closes {
-            close(db, *finding, run_id, landing)?;
+        for (finding, verdict) in &call.follow_up {
+            if *verdict == super::call::FollowUp::Fixed {
+                close(db, *finding, run_id, landing)?;
+            }
         }
     }
     Ok(ids)

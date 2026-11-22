@@ -3112,10 +3112,10 @@ what a message says read the messages (in agent-instructions, the group
 Commits and repo contents, whose rules ask whether the text is accurate).
 When nothing is unread and a confirmed finding stays open, `builds review`
 asks each group that holds one again, over the whole net change at the
-branch's head, so that the group can close a finding that a commit it read
-fixed in place. The finding stays a true positive: only a run that closes it
-ends it. `builds review` refuses the run, naming the last review, when the
-review lacks nothing and no confirmed finding is open.
+branch's head, so that the group can close a finding that a commit fixed.
+A finding that a review closes still counts as a true positive.
+`builds review` refuses the run, naming the last review, when the review
+lacks nothing and no confirmed finding is open.
 
 `builds review` checks code and whether text is accurate, never word choice,
 grammar or style: it never asks a copy group (copy, below), whose rules judge
@@ -3136,10 +3136,13 @@ Each reviewer reads the changes since the last review, and raises findings
 only on lines those changes add or remove. builds drops a finding whose code
 sits only on the lines around them, which the diff shows for context: a later
 run never flags a line that the fix did not change. The reviewer may read the
-whole branch as it is now, for context. The reviewer also gets each open confirmed finding of its group's
-rules, with its file, line, quoted code and problem, reads the code at that
-place as it is now, and names each one whose problem is gone. builds closes each finding it names,
-with the run that closed it.
+whole branch as it is now, for context. The reviewer also gets each open
+confirmed finding of its group's rules, with its file, line, quoted code
+and problem. The reviewer checks whether the branch still has each problem,
+including fixes in other files, and gives each finding a verdict. Builds
+records which run closed each fixed finding and prints the reviewer's reason
+for keeping each other finding open. Builds treats an omitted verdict as a
+failed answer.
 
 `builds land` refuses a branch until its review takes it: nothing on a path
 a group's rules cover changed since the last review (the net change of the

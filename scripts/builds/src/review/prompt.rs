@@ -49,7 +49,19 @@ pub fn schema() -> Value {
         "additionalProperties": false,
         "properties": {
             "summary": {"type": "string"},
-            "closed": {"type": "array", "items": {"type": "integer"}},
+            "follow_up": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["id", "verdict"],
+                    "properties": {
+                        "id": {"type": "integer"},
+                        "verdict": {"type": "string", "enum": ["fixed", "open"]},
+                        "reason": {"type": "string"}
+                    }
+                }
+            },
             "sites": {
                 "type": "array",
                 "items": {
@@ -130,7 +142,7 @@ fn change_part(input: &Input) -> String {
         ));
     }
     if !input.open.is_empty() {
-        out.push_str("\n# Open findings\n\nEarlier reviews of the branch raised these findings, and the coordinator confirmed them. Open each file at its place and read the code as it is now. Put the number of each finding whose problem the code no longer has in `closed`.\n");
+        out.push_str("\n# Open findings\n\nEarlier reviews raised these findings and the coordinator confirmed them. Check each problem against the current branch and include its verdict in `follow_up`.\n");
         for finding in input.open {
             out.push_str(&format!(
                 "\n- Finding {} ({}), {}:{}\n  code: {}\n  problem: {}\n",
@@ -183,9 +195,14 @@ pub fn group_part(input: &Input) -> String {
             "- {PROJECT_FACTS} (reported only): the project facts in the project instructions above\n"
         ));
     }
+    out.push_str(
+        "\nFor open findings, give one entry in `follow_up` for every finding the message lists, even when you find no new issues. Use the finding number as `id`.\n\
+         - Check whether the current branch still has the problem. Read the diff for fixes in other files, including tests, and open the relevant files to see what the code does. The original file and line identify where the earlier review found the problem. A fix can leave that line unchanged.\n\
+         - Use verdict `fixed` if the problem is gone. Use verdict `open` if it remains and give the specific reason in `reason`. Omit `follow_up` when the message lists no open findings.\n",
+    );
     if let Some(sites) = group.sites.as_deref().filter(|_| group.enumerate) {
         out.push_str(&format!(
-            "\nHow to answer. Put your answer in `summary` and `sites`, and leave `rules` out.\n\
+            "\nFor new findings, use `summary` and `sites`. Omit `rules`.\n\
              - The message holds one changed file: its diff, then its new text around each hunk with line numbers. Read the new text to see what each value is, where it comes from and what the code around the site does with it.\n\
              - First list every site in the diff that {sites}. Give each site its file, the line number in the new file, its kind, and its code copied exactly from the diff.\n\
              - Consider only sites on lines the diff adds or removes, the lines that start with `+` or `-`. The new text around each hunk, and the diff's lines that start with a space, are there to read, not to judge: the change does not touch them, or an earlier review read them. builds drops a finding on any of them. A diff with no such site has an empty `sites`, and `summary` says so; otherwise `summary` says in a sentence what the diff does.\n\
@@ -193,16 +210,13 @@ pub fn group_part(input: &Input) -> String {
         ));
     } else {
         out.push_str(
-            "\nHow to answer. Put your answer in `rules`, and leave `summary` and `sites` out.\n\
+            "\nFor new findings, use `rules`. Omit `summary` and `sites`.\n\
              - Give one verdict for every rule listed: \"finding\" or \"none\". A rule the change does not touch gets \"none\" and an empty findings list.\n\
              - A finding has three quotes and a sentence. The clause is copied exactly from that rule's text below. The code is copied exactly from the diff, with the file's path and the line number in the new file. The problem says in one or two plain sentences what goes wrong.\n\
              - Raise findings only for lines the diff adds or removes, the lines that start with `+` or `-`. The diff's lines that start with a space are there to read, not to judge: the change does not touch them, or an earlier review read them. builds drops a finding on any of them.\n",
         );
     }
-    out.push_str(
-        "- When a site's verdict depends on a function or file outside the diff, open it before judging.\n\
-         - The message may list open findings that earlier reviews raised. Put the number of each one whose problem the code no longer has in `closed`, and leave the others out.\n",
-    );
+    out.push_str("- When a site's verdict depends on a function or file outside the diff, open it before judging.\n");
     if group.commit_text {
         out.push_str(&format!(
             "- The diff holds the change's commit messages as one more file that the diff adds, {}. The repository holds no such file.\n",

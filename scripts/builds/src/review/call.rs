@@ -1,5 +1,6 @@
 //! Runs a reviewer and checks its structured answer against the rules it read.
 
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use serde_json::{Value, json};
@@ -26,9 +27,14 @@ pub struct Answer {
     pub findings: Vec<Raw>,
     /// For a group that lists the sites it judges: its summary and sites, as JSON.
     pub sites: Option<String>,
-    /// The open findings the prompt listed whose problem the code no longer
-    /// has.
-    pub closed: Vec<i64>,
+    /// The verdict for every open finding the prompt listed, by finding ID.
+    pub follow_up: BTreeMap<i64, FollowUp>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FollowUp {
+    Fixed,
+    StillOpen(String),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -238,8 +244,8 @@ pub fn failed_answer_text(why: &str) -> String {
 }
 
 /// Runs a group's reviewer and reads its answer: verdicts per rule, or, for a
-/// group that lists sites, a summary and a verdict per site, and the open
-/// findings it closes, each one of <given>.
+/// group that lists sites, a summary and a verdict per site, plus a verdict
+/// for each open finding in <given>.
 pub(super) fn run(
     reviewer: &Selected,
     names: &[String],
@@ -265,7 +271,7 @@ fn output_of(invoked: Invoked, names: &[String], given: &[i64], enumerate: bool)
             } else {
                 answer_of(&body, names)?
             };
-            answer.closed = closed_of(&body, given)?;
+            answer.follow_up = follow_up_of(&body, given)?;
             Ok(answer)
         }),
     }
@@ -282,30 +288,55 @@ pub fn parse(text: &str, names: &[String]) -> Output {
     )
 }
 
-/// The open findings the answer closes: none when it names none, and each
-/// one of <given>, the findings the prompt listed.
-fn closed_of(body: &Value, given: &[i64]) -> Result<Vec<i64>, String> {
-    let Some(listed) = body.get("closed") else {
-        return Ok(Vec::new());
+/// Accept exactly one verdict for each finding the prompt listed.
+fn follow_up_of(body: &Value, given: &[i64]) -> Result<BTreeMap<i64, FollowUp>, String> {
+    let listed = match body.get("follow_up") {
+        Some(listed) => listed
+            .as_array()
+            .ok_or("The reviewer gave follow_up without a list.")?
+            .as_slice(),
+        None => &[],
     };
-    let listed = listed
-        .as_array()
-        .ok_or("the answer's closed is not a list")?;
-    let mut closed = Vec::new();
-    for id in listed {
-        let id = id
+    let mut verdicts = BTreeMap::new();
+    for entry in listed {
+        let id = entry["id"]
             .as_i64()
-            .ok_or("the answer's closed holds something other than a finding number")?;
+            .ok_or("The reviewer gave an open finding verdict without a finding number.")?;
         if !given.contains(&id) {
             return Err(format!(
-                "the answer closes finding {id}, which the prompt did not list"
+                "The reviewer gave a verdict for finding {id}, which the prompt did not list."
             ));
         }
-        if !closed.contains(&id) {
-            closed.push(id);
+        let verdict = match entry["verdict"].as_str() {
+            Some("fixed") => FollowUp::Fixed,
+            Some("open") => {
+                let reason = entry["reason"]
+                    .as_str()
+                    .map(str::trim)
+                    .filter(|reason| !reason.is_empty())
+                    .ok_or_else(|| {
+                        format!("The reviewer gave no reason for keeping finding {id} open.")
+                    })?;
+                FollowUp::StillOpen(reason.to_string())
+            }
+            _ => {
+                return Err(format!(
+                    "The reviewer gave finding {id} a verdict other than fixed or open."
+                ));
+            }
+        };
+        if verdicts.insert(id, verdict).is_some() {
+            return Err(format!(
+                "The reviewer gave two verdicts for open finding {id}."
+            ));
         }
     }
-    Ok(closed)
+    if let Some(id) = given.iter().find(|id| !verdicts.contains_key(id)) {
+        return Err(format!(
+            "The reviewer gave no verdict for open finding {id}."
+        ));
+    }
+    Ok(verdicts)
 }
 
 fn answer_of(body: &Value, names: &[String]) -> Result<Answer, String> {
@@ -365,7 +396,7 @@ fn answer_of(body: &Value, names: &[String]) -> Result<Answer, String> {
         verdicts,
         findings,
         sites: None,
-        closed: Vec::new(),
+        follow_up: BTreeMap::new(),
     })
 }
 
@@ -427,7 +458,7 @@ fn sites_of(body: &Value, names: &[String]) -> Result<Answer, String> {
         verdicts,
         findings,
         sites: Some(json!({"summary": summary, "sites": sites}).to_string()),
-        closed: Vec::new(),
+        follow_up: BTreeMap::new(),
     })
 }
 

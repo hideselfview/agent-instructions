@@ -427,9 +427,10 @@ change of capture files only, which it already knows. Reviews are for code peopl
      finding's branch.
   4. The agent fixes each confirmed finding in a new commit and runs `builds
      review` again. That run reads only the changes since the last review,
-     the fixes among them, and closes each open confirmed finding whose
-     problem the code no longer has. The judge settles what the run finds as
-     for the first run.
+     including the fixes. Each reviewer gives a verdict for every open
+     finding it gets, even when it finds no new issues. Builds closes each
+     finding that the branch fixes and prints why the reviewer kept each
+     other finding open. The judge settles new findings as for the first run.
   5. The agent lands the branch once nothing is unreviewed and no confirmed
      finding is open (LANDING).
 
@@ -483,9 +484,9 @@ differently leaves only the lines of the resolution to read. After an agent
 rewords a message and changes no file, the run reads only the changed messages
 and closes each finding on the commit messages that they fix. When the agent
 drops the commit that held a confirmed finding's code, the next review reads
-that change and closes the finding. `builds review` refuses a run when the
-branch has no change that the review has not read and each group that holds
-an open finding has read every change since the run that raised it.
+that change and closes the finding. `builds review` refuses another run when
+every group has answered, the review has read every change, and no confirmed
+finding is open.
 
 Each settle, with its --why, is the record that scores the reviews. The
 settled findings stay in the project's store as the record of what reviews

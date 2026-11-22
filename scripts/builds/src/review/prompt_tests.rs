@@ -52,7 +52,7 @@ fn the_system_prompt_holds_the_shared_part_and_the_message_holds_the_change() {
         "Project facts.",
         "The brief.",
         "Rule A body.",
-        "How to answer",
+        "For new findings",
     ] {
         assert!(first.system.contains(part), "{part}");
     }
@@ -69,10 +69,10 @@ fn the_system_prompt_holds_the_shared_part_and_the_message_holds_the_change() {
     assert_eq!(first.system, again.system);
     assert_ne!(first.message, again.message);
     assert!(
-        first.system.contains("Put your answer in `rules`")
+        first.system.contains("For new findings, use `rules`")
             && second
                 .system
-                .contains("Put your answer in `summary` and `sites`")
+                .contains("For new findings, use `summary` and `sites`")
     );
     assert!(
         second

@@ -117,18 +117,6 @@ fn settle(demo: &Demo, finding: i64, how: &str) {
         .unwrap();
 }
 
-/// What the reviewer of group alpha answers: no finding for rule-a, and
-/// <closed> closed.
-fn closes(fake: &Fake, closed: &[i64]) {
-    fake.answer_task(
-        "alpha",
-        serde_json::json!({
-            "rules": [{"rule": "rule-a", "verdict": "none", "findings": []}],
-            "closed": closed,
-        }),
-    );
-}
-
 fn refused(verdict: &(Verdict, Option<String>)) -> &str {
     verdict.1.as_deref().expect("the review refuses")
 }
@@ -200,7 +188,7 @@ fn a_fix_commit_is_read_by_a_new_run_once_which_closes_the_finding_it_fixes() {
         "{asked:?}"
     );
     fake.prompts();
-    closes(&fake, &[finding]);
+    fake.closes(&[finding]);
     let reported = review_of(&demo, &fake, &side);
     let prompts = fake.prompts();
     assert_eq!(prompts.len(), 1, "{}", reported.text);
@@ -524,7 +512,16 @@ fn a_branch_lands_in_two_parts_once_a_review_closed_its_findings() {
     let fa = head(&side);
     // The review closes the finding on a.rs; the one on b's message stays open,
     // and keeps every part of the branch from landing.
-    closes(&fake, &[found[0].id]);
+    fake.answer_task(
+        "alpha",
+        serde_json::json!({
+            "rules": [{"rule": "rule-a", "verdict": "none", "findings": []}],
+            "follow_up": [
+                {"id": found[0].id, "verdict": "fixed"},
+                {"id": found[1].id, "verdict": "open", "reason": "The commit message still has a vague line."},
+            ],
+        }),
+    );
     review_of(&demo, &fake, &side);
     let part = verdict_of(&demo, &fake, &side, &[a.clone(), fa.clone()]);
     assert!(
@@ -753,11 +750,11 @@ fn a_review_of_a_dropped_commit_closes_its_finding_and_the_branch_lands() {
     };
     assert_eq!(unfinished.unreviewed, ["a.rs"]);
     assert_eq!(unfinished.open[0].id, finding);
-    closes(&fake, &[finding]);
+    fake.closes(&[finding]);
     review_of(&demo, &fake, &side);
     assert!(check_landing(&demo, &fake, &side, shas));
     let shown = render::finding_text(&findings(&demo)[0]);
-    assert!(shown.contains("closed by run"), "{shown}");
+    assert!(shown.contains("closed the finding"), "{shown}");
     let asked = asked(&demo, &fake, &side, shas);
     assert!(record_landed(&asked, &stamp(), false).unwrap().is_some());
 }

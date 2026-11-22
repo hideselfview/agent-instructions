@@ -23,7 +23,7 @@ fn call(exchanges: Vec<NewExchange>) -> NewCall {
         failure: None,
         verdicts: Vec::new(),
         findings: Vec::new(),
-        closes: Vec::new(),
+        follow_up: Default::default(),
         exchanges,
     }
 }

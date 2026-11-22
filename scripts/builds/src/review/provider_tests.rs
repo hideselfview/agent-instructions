@@ -279,7 +279,7 @@ fn code_design_capture_and_replay_use_sol() {
         json!({
             "rules": [{"rule": rule, "verdict": "none", "findings": []}],
             "summary": null,
-            "closed": null,
+            "follow_up": null,
             "sites": null,
         })
     };
@@ -366,7 +366,7 @@ fn code_design_capture_and_replay_use_sol() {
     std::fs::create_dir_all(code_fix.join("spec")).unwrap();
     demo.commit(&code_fix, "spec/app.md");
     let mut closes = answer("rule-a");
-    closes["closed"] = json!([open]);
+    closes["follow_up"] = json!([{"id": open, "verdict": "fixed"}]);
     let closes_reviewer = expecting_model(&demo.scratch, closes);
     let rereviewed = branch(&code_fix, "branch:review-code-finding", &closes_reviewer);
     assert!(rereviewed.refusal.is_none(), "{}", rereviewed.text);

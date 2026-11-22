@@ -80,9 +80,7 @@ pub fn finding_text(finding: &Finding) -> String {
         }
     }
     if let Some(run) = finding.closed_by {
-        out.push_str(&format!(
-            "    closed by run {run}: the code at its place no longer has the problem\n"
-        ));
+        out.push_str(&format!("    Review run {run} closed the finding.\n"));
     }
     out
 }

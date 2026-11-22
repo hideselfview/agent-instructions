@@ -858,22 +858,22 @@ pub struct Asked {
     pub not_read: Vec<(String, Vec<String>)>,
 }
 
-/// The findings of <open> whose file is in no commit's tree at <head>: the
-/// branch deleted it, so the code of the finding is gone. The commit message
-/// file is no file of the tree.
-pub fn deleted_findings(worktree: &Path, head: &str, open: &[Finding]) -> Result<Vec<Finding>> {
+/// The open findings a reviewer can judge and those a deleted file resolves.
+/// The commit messages are not files in the tree, so the reviewer judges
+/// their findings.
+pub fn split_deleted_findings(
+    worktree: &Path,
+    head: &str,
+    open: Vec<Finding>,
+) -> Result<(Vec<Finding>, Vec<Finding>)> {
     if open.is_empty() {
-        return Ok(Vec::new());
+        return Ok((open, Vec::new()));
     }
     let tree = commits::git_text(worktree, &["ls-tree", "-r", "--name-only", head])?;
-    Ok(open
-        .iter()
-        .filter(|finding| {
-            finding.file != files::COMMIT_MESSAGE
-                && !tree.lines().any(|path| names_file(path, &finding.file))
-        })
-        .cloned()
-        .collect())
+    Ok(open.into_iter().partition(|finding| {
+        finding.file == files::COMMIT_MESSAGE
+            || tree.lines().any(|path| names_file(path, &finding.file))
+    }))
 }
 
 impl Material {
@@ -887,7 +887,6 @@ impl Material {
         gone: &[Finding],
     ) {
         for (name, held) in self.holding_groups(gone) {
-            let ids: Vec<i64> = held.iter().map(|finding| finding.id).collect();
             let at = asked.calls.iter().position(|call| call.group == name);
             let call = match at {
                 Some(at) => &mut asked.calls[at],
@@ -901,10 +900,8 @@ impl Material {
                     asked.calls.last_mut().expect("a call was just added")
                 }
             };
-            for id in ids {
-                if !call.closes.contains(&id) {
-                    call.closes.push(id);
-                }
+            for finding in held {
+                call.follow_up.insert(finding.id, call::FollowUp::Fixed);
             }
         }
     }
@@ -929,13 +926,13 @@ fn bare_call(
         failure,
         verdicts: Vec::new(),
         findings: Vec::new(),
-        closes: Vec::new(),
+        follow_up: Default::default(),
         exchanges: Vec::new(),
     }
 }
 
 /// <held> with <more>: merge adds the tokens, joins the verdicts (`finding`
-/// when either is), collects the findings, closed findings and sites, and
+/// when either is), collects the findings, follow-up verdicts and sites, and
 /// keeps the failures.
 fn merge(held: &mut NewCall, more: NewCall) {
     held.exchanges.extend(more.exchanges);
@@ -957,9 +954,11 @@ fn merge(held: &mut NewCall, more: NewCall) {
             None => held.verdicts.push((rule, verdict)),
         }
     }
-    for id in more.closes {
-        if !held.closes.contains(&id) {
-            held.closes.push(id);
+    for (id, verdict) in more.follow_up {
+        if verdict == call::FollowUp::Fixed {
+            held.follow_up.insert(id, verdict);
+        } else {
+            held.follow_up.entry(id).or_insert(verdict);
         }
     }
     for finding in more.findings {
@@ -1010,7 +1009,7 @@ fn checked(
         failure: None,
         verdicts: Vec::new(),
         findings: Vec::new(),
-        closes: Vec::new(),
+        follow_up: Default::default(),
         exchanges: Vec::new(),
     };
     let answer = match output.answer {
@@ -1020,7 +1019,7 @@ fn checked(
             return call;
         }
     };
-    call.closes = answer.closed;
+    call.follow_up = answer.follow_up;
     call.verdicts = answer.verdicts;
     call.sites = answer.sites;
     for raw in answer.findings {

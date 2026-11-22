@@ -55,7 +55,7 @@ fn call(group: &str, finding: Option<(&str, bool, Option<&str>)>) -> NewCall {
             })
             .into_iter()
             .collect(),
-        closes: Vec::new(),
+        follow_up: Default::default(),
     }
 }
 
@@ -220,7 +220,9 @@ fn a_later_run_closes_an_open_confirmed_finding_once_and_a_closed_one_stays_conf
     .unwrap();
     let finding = ids[0][0];
     let mut closing = call("g1", None);
-    closing.closes = vec![finding];
+    closing
+        .follow_up
+        .insert(finding, super::super::call::FollowUp::Fixed);
     assert!(
         add_run(
             &db,

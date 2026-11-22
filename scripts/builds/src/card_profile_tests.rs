@@ -145,7 +145,7 @@ fn landed_card(scratch: &Scratch) -> (crate::lists::store::Store, Id) {
                         check_failed: None,
                     })
                     .collect(),
-                closes: Vec::new(),
+                follow_up: Default::default(),
                 exchanges: vec![NewExchange {
                     model: "sonnet".into(),
                     unit: "f".into(),

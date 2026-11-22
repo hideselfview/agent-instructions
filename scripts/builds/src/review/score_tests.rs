@@ -438,7 +438,7 @@ fn a_finding_settled_again_counts_as_dropped_and_a_closed_or_allowed_one_as_conf
         failure: None,
         verdicts: vec![("r".to_string(), "finding".to_string())],
         findings: vec![raised("wrong"), raised("gone"), raised("allowed")],
-        closes: Vec::new(),
+        follow_up: Default::default(),
         exchanges: Vec::new(),
     };
     let new_run = record::NewRun {
@@ -468,7 +468,7 @@ fn a_finding_settled_again_counts_as_dropped_and_a_closed_or_allowed_one_as_conf
         rules: Vec::new(),
         verdicts: Vec::new(),
         findings: Vec::new(),
-        closes: vec![gone],
+        follow_up: [(gone, crate::review::call::FollowUp::Fixed)].into(),
         ..call
     };
     record::add_run(
@@ -569,7 +569,7 @@ fn a_first_review_records_its_changed_lines_and_its_groups_confirmed_findings() 
         failure: None,
         verdicts: Vec::new(),
         findings,
-        closes: Vec::new(),
+        follow_up: Default::default(),
         exchanges: Vec::new(),
     };
     let new_run = record::NewRun {

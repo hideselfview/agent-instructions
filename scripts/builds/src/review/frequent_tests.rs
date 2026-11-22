@@ -45,7 +45,7 @@ fn call(clauses: &[&str]) -> NewCall {
             })
             .collect(),
         exchanges: Vec::new(),
-        closes: Vec::new(),
+        follow_up: Default::default(),
     }
 }
 

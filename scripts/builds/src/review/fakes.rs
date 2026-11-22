@@ -238,6 +238,21 @@ sed "s/^{{/{{\"modelUsage\":{{\"$model\":{{}}}},/" "$D/answer-$group.json"
 pub type Raised = (&'static str, &'static str, i64, &'static str, &'static str);
 
 impl Fake {
+    /// The alpha reviewer finds no new issues and closes these findings.
+    pub fn closes(&self, ids: &[i64]) {
+        let follow_up: Vec<_> = ids
+            .iter()
+            .map(|id| serde_json::json!({"id": id, "verdict": "fixed"}))
+            .collect();
+        self.answer_task(
+            "alpha",
+            serde_json::json!({
+                "rules": [{"rule": "rule-a", "verdict": "none", "findings": []}],
+                "follow_up": follow_up,
+            }),
+        );
+    }
+
     /// What the reviewer of <group> answers: a verdict per rule.
     pub fn answer(&self, group: &str, rules: &[(&str, Option<Raised>)]) {
         let entries: Vec<serde_json::Value> = rules
