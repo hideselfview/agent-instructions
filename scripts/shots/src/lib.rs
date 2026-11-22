@@ -88,6 +88,12 @@ enum Action {
         /// with origin/main, which builds passes.
         #[arg(long, conflicts_with = "base")]
         before: Option<PathBuf>,
+        /// Compare with an empty run of this commit, the branch's merge base,
+        /// whose run checked no scene: every pair is new, so its findings are
+        /// listed and fail nothing. builds passes it for a prefix that starts
+        /// no scene the merge base declares.
+        #[arg(long, conflicts_with_all = ["before", "base"])]
+        empty_before: Option<String>,
         /// The folder of the board pictures earlier runs drew, which builds
         /// keeps: the run draws only the boards it lacks and adds each new
         /// drawing.
@@ -461,6 +467,7 @@ fn run(checker: &Checker, action: Action) -> Result<bool, String> {
         Action::Run {
             selection,
             before,
+            empty_before,
             pictures,
             app_tree,
             no_capture,
@@ -470,17 +477,24 @@ fn run(checker: &Checker, action: Action) -> Result<bool, String> {
             // The one time the run marks each picture it takes used.
             let now = std::time::SystemTime::now();
             let pictures = pictures.map(|dir| pictures::Pictures::new(dir, now));
-            let before = before
-                .map(|path| {
+            let before = match (before, empty_before) {
+                (Some(path), _) => {
                     let before = before::Before::load(&path, &checker.versions.comparison)?;
                     crate::log::note(format_args!(
                         "comparing with the run of {} ({})",
                         before.commit(),
                         path.display()
                     ));
-                    Ok::<_, String>(before)
-                })
-                .transpose()?;
+                    Some(before)
+                }
+                (None, Some(commit)) => {
+                    crate::log::note(format_args!(
+                        "comparing with an empty run of {commit}: every scene is new"
+                    ));
+                    Some(before::Before::empty(&commit))
+                }
+                (None, None) => None,
+            };
             let declared = read_declared()?;
             let shots = root.join("shots");
             let kept = pictures

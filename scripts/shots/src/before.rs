@@ -242,6 +242,18 @@ impl Before {
         Self::parse(&text, &path.display().to_string(), version)
     }
 
+    /// The run of <commit> that checked no scene: every scene is new against
+    /// it.
+    pub(crate) fn empty(commit: &str) -> Self {
+        Self {
+            commit: commit.to_string(),
+            scenes: BTreeSet::new(),
+            failed: BTreeSet::new(),
+            seen: BTreeMap::new(),
+            findings: BTreeMap::new(),
+        }
+    }
+
     /// The commit the before run checked.
     pub(crate) fn commit(&self) -> &str {
         &self.commit

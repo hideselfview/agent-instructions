@@ -1355,8 +1355,9 @@ the merge base's app tree), runs the prefixes it lacks with `--base`, caches
 their findings, and then checks out the branch and builds it as usual. A build
 that finds the run being made waits for the lock, then finds the run cached
 and builds none. A prefix that starts no shot declared at the merge base needs
-no run there: the branch's run compares it with nothing, so every scene it
-selects is new and lists its findings without failing on them. The merge base's run compares with nothing and fails no pair
+no run there: the branch's run compares it with an empty run
+(`--empty-before`), so every scene it selects is new and lists its findings
+without failing on them. The merge base's run compares with nothing and fails no pair
 with findings, since those findings are what the branch's run compares with,
 and it lists them as such. Its findings are cached before the branch builds;
 only a step or a shots run that fails without failing pairs, as when it cannot
@@ -1567,7 +1568,10 @@ built again.
                               its findings for the pair lack; a pair it did
                               not check is listed. A pair that run tried and captured
                               no usable shot of fails nothing: `run` lists
-                              its findings as a pair the base never rendered. Without --before, `run` fails on
+                              its findings as a pair the base never rendered. With --empty-before
+                              <commit>, `run` compares with an empty run of
+                              that commit, so every pair is new and fails
+                              nothing. Without --before, `run` fails on
                               every pair with findings. With --pictures
                               <folder>, `run` draws only the
                               boards whose board hash the folder lacks

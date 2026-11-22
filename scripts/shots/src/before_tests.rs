@@ -311,6 +311,14 @@ fn a_value_that_is_no_number_counts_as_farther_than_a_number() {
 }
 
 #[test]
+fn an_empty_run_makes_every_scene_new() {
+    let before = Before::empty("abc");
+    assert_eq!(before.commit(), "abc");
+    assert_eq!(before.against("mac.a.b", &[missing()]), Against::New);
+    assert_eq!(before.against("mac.a.b", &[]), Against::New);
+}
+
+#[test]
 fn a_file_of_another_version_is_refused() {
     let text = r#"{"version": "v2", "capture_version": "c1", "commit": "abc", "scenes": [], "failed": [], "problems": 0, "sizes": {}, "components": [], "seen": {}, "findings": []}"#;
     let error = Before::parse(text, "before.json", "v1").unwrap_err();

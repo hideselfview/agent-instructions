@@ -1023,9 +1023,10 @@ fn run_remote_step(
     // Held while the copies read the before run and the picture folder,
     // which the prune then leaves.
     let reading = store.map(|store| store.writing()).transpose()?;
-    let placed = match store.and_then(|store| store.before_of(step)) {
-        Some(findings) => Some(remote.put_temporary(findings)?),
-        None => None,
+    let before = store.and_then(|store| store.before_of(step));
+    let placed = match before {
+        Some(Compared::With(findings)) => Some(remote.put_temporary(findings)?),
+        _ => None,
     };
     let pictures = match store {
         Some(store) => Some(remote.put_pictures(&store.pictures(), &store.tree_part())?),
@@ -1033,7 +1034,11 @@ fn run_remote_step(
     };
     drop(reading);
     let command = match (store, &pictures) {
-        (Some(store), Some(there)) => store.command(step, placed.as_deref(), there),
+        (Some(store), Some(there)) => store.command(
+            step,
+            before.map(|before| before.arguments(placed.as_deref())),
+            there,
+        ),
         _ => step.command.clone(),
     };
     let mut held = remote.with_programs(with.programs, &command)?;
@@ -1179,11 +1184,36 @@ fn picture_folder_caches(
     Ok(true)
 }
 
-/// <command>, a run of a `shots` line, comparing with the findings.json at
-/// <file>: `builds shots run --before`.
-fn with_before(command: &[String], file: &str) -> Vec<String> {
+/// What a shots run of a prefix compares with.
+#[derive(Debug, PartialEq, Eq)]
+enum Compared {
+    /// The findings.json of the run of the merge base.
+    With(std::path::PathBuf),
+    /// Nothing: the merge base (this commit) has no scene under the prefix,
+    /// so every scene the run selects is new (`builds shots run
+    /// --empty-before`).
+    Nothing(String),
+}
+
+impl Compared {
+    /// The arguments of `builds shots run` that name it. A run on a host
+    /// reads the findings from the copy at <placed>.
+    fn arguments(&self, placed: Option<&str>) -> [String; 2] {
+        match self {
+            Compared::With(file) => [
+                "--before".to_string(),
+                placed.map_or_else(|| file.display().to_string(), str::to_string),
+            ],
+            Compared::Nothing(base) => ["--empty-before".to_string(), base.clone()],
+        }
+    }
+}
+
+/// <command>, a run of a `shots` line, with the <before> arguments that name
+/// what it compares with.
+fn with_before(command: &[String], before: [String; 2]) -> Vec<String> {
     let mut command = command.to_vec();
-    command.extend(["--before".to_string(), file.to_string()]);
+    command.extend(before);
     command
 }
 
@@ -1196,9 +1226,8 @@ struct ShotsCache {
     /// The versions of the shots checker the store keys the runs on: the ones
     /// this builds is built with.
     versions: crate::shots_program::Versions,
-    /// The findings.json of the run each shots prefix of the lane compares
-    /// with, by its prefix.
-    befores: Vec<(String, std::path::PathBuf)>,
+    /// What each shots prefix of the lane compares with, by its prefix.
+    befores: Vec<(String, Compared)>,
     /// The host software that draws the lane's shots (shots_environment.rs),
     /// which keys the runs this store caches and compares with.
     environment: String,
@@ -1292,7 +1321,7 @@ impl ShotsCache {
                         BaseRun::Saved
                     };
                     bases.push((prefix.clone(), how));
-                    befores.push((prefix.clone(), before.findings_json()))
+                    befores.push((prefix.clone(), Compared::With(before.findings_json())))
                 }
                 // A prefix that starts no shot declared at the merge base has
                 // nothing to compare with: its scenes are all new.
@@ -1302,8 +1331,9 @@ impl ShotsCache {
                 ) =>
                 {
                     bases.push((prefix.clone(), BaseRun::NotNeeded));
+                    befores.push((prefix.clone(), Compared::Nothing(base.clone())));
                     note(format!(
-                        "{prefix} starts no shot declared at the merge base {}, so its run compares with nothing and every scene it selects is new",
+                        "{prefix} starts no shot declared at the merge base {}, so its run compares with an empty run and every scene it selects is new",
                         short(&base)
                     ))
                 }
@@ -1367,19 +1397,17 @@ impl ShotsCache {
     /// runs of the lane's app tree took from the picture folder
     /// (`builds shots run --pictures --app-tree`).
     fn local_command(&self, step: &Step) -> Vec<String> {
-        let before = self
-            .before_of(step)
-            .map(|findings| findings.display().to_string());
+        let before = self.before_of(step).map(|before| before.arguments(None));
         let pictures = self.pictures().display().to_string();
-        self.command(step, before.as_deref(), &pictures)
+        self.command(step, before, &pictures)
     }
 
-    /// The command of the shots run <step>: its line, comparing with the
-    /// findings.json at <before> when there is one, with the picture folder
-    /// at <pictures> and the lane's app tree.
-    fn command(&self, step: &Step, before: Option<&str>, pictures: &str) -> Vec<String> {
+    /// The command of the shots run <step>: its line, comparing with what
+    /// <before> names when there is one, with the picture folder at
+    /// <pictures> and the lane's app tree.
+    fn command(&self, step: &Step, before: Option<[String; 2]>, pictures: &str) -> Vec<String> {
         let mut command = match before {
-            Some(findings) => with_before(&step.command, findings),
+            Some(before) => with_before(&step.command, before),
             None => step.command.clone(),
         };
         command.extend([
@@ -1415,14 +1443,14 @@ impl ShotsCache {
         format!("{}/{}", self.lane.word(), self.app_tree)
     }
 
-    /// The findings.json of the run the shots run <step> compares with, when
-    /// its prefix has one.
-    fn before_of(&self, step: &Step) -> Option<&Path> {
+    /// What the shots run <step> compares with, when its prefix has
+    /// something.
+    fn before_of(&self, step: &Step) -> Option<&Compared> {
         let prefix = shots_prefix(step);
         self.befores
             .iter()
             .find(|(own, _)| own == prefix)
-            .map(|(_, findings)| findings.as_path())
+            .map(|(_, compared)| compared)
     }
 
     /// Caches what the shots run <step> printed (<cached>), when it ended

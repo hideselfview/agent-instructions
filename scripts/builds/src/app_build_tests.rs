@@ -1713,7 +1713,7 @@ fn a_shots_run_is_given_the_picture_folder_its_app_tree_and_its_before_runs_find
     let findings = scratch.dir.join("before.json");
     cached
         .befores
-        .push(("mac.a.".to_string(), findings.clone()));
+        .push(("mac.a.".to_string(), Compared::With(findings.clone())));
     let said = |name: &str| {
         let out = scratch.dir.join("args.txt");
         let step = fake(
@@ -1806,7 +1806,7 @@ fn a_lanes_shots_runs_compare_with_the_cached_run_of_the_merge_base_and_a_run_of
     let on_work = of(&work).unwrap();
     assert_eq!(
         on_work.befores,
-        vec![("mac.a.".to_string(), cached.findings_json())]
+        vec![("mac.a.".to_string(), Compared::With(cached.findings_json()))]
     );
 }
 
@@ -1837,8 +1837,31 @@ fn a_prefix_that_starts_no_shot_declared_at_the_merge_base_compares_with_no_run(
         Path::new("/nonexistent/builds"),
     )
     .unwrap();
-    assert!(store.befores.is_empty());
+    let base = crate::derive::merge_base(&top, &work).unwrap();
+    assert_eq!(
+        store.befores,
+        [("mac.new.".to_string(), Compared::Nothing(base.clone()))],
+        "a prefix the base selects no scene for compares with an empty run"
+    );
     assert_eq!(store.bases, [("mac.new.".to_string(), BaseRun::NotNeeded)]);
+    let step = Step {
+        name: "shots mac.new.".to_string(),
+        lane: Lane::Mac,
+        command: vec!["builds".to_string(), "shots".to_string(), "run".to_string()],
+        limit: None,
+        scenes: None,
+        place: lock::Where::Anywhere,
+        opens_windows: false,
+        ci_only: false,
+    };
+    let command = store.local_command(&step);
+    let at = command.iter().position(|word| word == "--empty-before");
+    assert_eq!(
+        at.and_then(|at| command.get(at + 1)),
+        Some(&base),
+        "the run is told its base holds nothing, so each pair is new: {command:?}"
+    );
+    assert!(!command.contains(&"--before".to_string()), "{command:?}");
 }
 
 #[test]
