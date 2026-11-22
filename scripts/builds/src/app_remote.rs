@@ -53,6 +53,12 @@ pub fn split(entry: &str) -> Option<(&str, &str)> {
     entry.split_once(SEPARATOR)
 }
 
+/// The host the app checkout <entry> is on: the host before the colon, or
+/// this Mac.
+pub fn host_of(entry: &str) -> &str {
+    split(entry).map_or(host::LOCAL, |(host, _)| host)
+}
+
 /// The entry for the checkout <name> on <host>.
 pub fn entry_of(host: &str, name: &str) -> String {
     format!("{host}{SEPARATOR}{name}")
@@ -274,9 +280,7 @@ impl RemoteApp {
             lane: self.lane,
         };
         let me = entry_of(&self.host.name, &self.name);
-        let Some(taken) =
-            crate::app_clone::take_source(at, &self.host.name, &me, crate::app_clone::SOURCE_WAIT)?
-        else {
+        let Some(taken) = crate::app_clone::take_source(at, &self.host.name, &me)? else {
             note(format!(
                 "{} has no warm {} checkout to clone into {me}; its first build is cold",
                 self.host.name,

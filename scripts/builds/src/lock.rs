@@ -72,6 +72,7 @@ use std::sync::mpsc::{RecvTimeoutError, channel};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use crate::app_remote::host_of;
 use crate::clock::Moment;
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
@@ -160,6 +161,11 @@ extern "C" fn stop(_: libc::c_int) {
     }
     STOPPED.store(true, Ordering::SeqCst);
     pass_on(libc::SIGTERM);
+}
+
+/// Did a takeover or an install stop this build (SIGUSR2)?
+pub fn takeover_stopped() -> bool {
+    STOPPED.load(Ordering::SeqCst)
 }
 
 pub fn cmd_lock(places: &Places, args: &[String]) -> Result<()> {
@@ -471,11 +477,6 @@ impl Screens<'_> {
         }
         (drawing, undrawn)
     }
-}
-
-/// The host the app checkout <entry> is on.
-fn host_of(entry: &str) -> &str {
-    crate::app_remote::split(entry).map_or(host::LOCAL, |(host, _)| host)
 }
 
 /// <entries> in the order a build tries their locks: the checkouts on the

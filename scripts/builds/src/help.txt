@@ -924,9 +924,9 @@ build folders of the lane's warmest checkout on the same host (the one whose
 lock a build let go of last), so the new checkout takes almost no new disk
 and its first build compiles little: for the mac lane the host target and
 target-macos, for the android lane the host target and target-android. builds
-holds the source's lock while it clones, so no build runs there, and waits up
-to 10 minutes for it when every source is building; after that the new
-checkout starts empty. This holds for a checkout builds adds on a host, for a
+holds the source's lock while it clones, so no build runs there, and waits
+for it when every source is building. A takeover ends the wait, and the new
+checkout then starts empty. This holds for a checkout builds adds on a host, for a
 checkout `builds app-checkout --host` records (its first build makes it there),
 and for a side worktree that `builds app-checkout` adds to a lane that already
 has a checkout on this Mac; it fills only folders that are empty. builds clones

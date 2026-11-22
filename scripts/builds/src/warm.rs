@@ -126,25 +126,17 @@ fn try_hold(candidate: &Candidate) -> Result<Option<Held>> {
 }
 
 fn hold_rest(candidate: &Candidate, guard: Guard) -> Result<Option<Held>> {
-    let Some(locks) = cargo_locks(&target_of(&candidate.root))? else {
-        return Ok(None);
-    };
-    Ok(Some(Held {
-        candidate: candidate.clone(),
-        _hold: Hold {
-            _guard: guard,
-            _locks: locks,
-        },
-    }))
+    Ok(
+        hold_folders(guard, &[target_of(&candidate.root)])?.map(|hold| Held {
+            candidate: candidate.clone(),
+            _hold: hold,
+        }),
+    )
 }
 
-/// The guard of the checkout whose build root is <root> and the cargo locks of
-/// each of <folders>, taken without waiting; None when a build holds any.
-pub(crate) fn try_hold_folders(root: &Path, folders: &[PathBuf]) -> Result<Option<Hold>> {
-    let guard = match lock_guard_creating(root)? {
-        Guard::Busy => return Ok(None),
-        guard => guard,
-    };
+/// <guard> and the cargo locks of each of <folders>, each taken without
+/// waiting; None when a build holds any.
+fn hold_folders(guard: Guard, folders: &[PathBuf]) -> Result<Option<Hold>> {
     let mut locks = Vec::new();
     for folder in folders {
         let Some(held) = cargo_locks(folder)? else {
@@ -156,6 +148,39 @@ pub(crate) fn try_hold_folders(root: &Path, folders: &[PathBuf]) -> Result<Optio
         _guard: guard,
         _locks: locks,
     }))
+}
+
+/// The guard of the checkout whose build root is <root> and the cargo locks of
+/// each of <folders>, taken without waiting; None when a build holds any.
+pub(crate) fn try_hold_folders(root: &Path, folders: &[PathBuf]) -> Result<Option<Hold>> {
+    match lock_guard_creating(root)? {
+        Guard::Busy => Ok(None),
+        guard => hold_folders(guard, folders),
+    }
+}
+
+/// Clones <from> to <to>, an empty folder, as one step: the clone is made
+/// beside <to> and renamed over it, so <to> is empty or whole. A clone that
+/// fails is deleted, and a failure to delete it is part of the error.
+fn clone_into_place(from: &Path, to: &Path) -> Result<()> {
+    let staging = to.with_file_name(format!(
+        ".{}.warm.{}",
+        crate::checkout::file_name(to),
+        crate::text::staged_suffix()
+    ));
+    let cloned = clone_dir(from, &staging).and_then(|()| {
+        std::fs::rename(&staging, to).context(|| format!("moving the clone into {}", to.display()))
+    });
+    if cloned.is_err() {
+        let removed = match std::fs::remove_dir_all(&staging) {
+            Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+                Err(error).context(|| format!("deleting the failed clone {}", staging.display()))
+            }
+            _ => Ok(()),
+        };
+        return crate::fail::with_cleanup(cloned, removed);
+    }
+    Ok(())
 }
 
 /// Takes the best candidate no build holds; when every one is held, waits for
@@ -361,16 +386,7 @@ pub fn fill(tool: &Tool, checkout: &Checkout) -> Result<()> {
         return Ok(());
     };
     let source = target_of(&held.candidate.root);
-    let staging = root.join(format!(".target.warm.{}", crate::text::staged_suffix()));
-    let _ = std::fs::remove_dir_all(&staging);
-    let cloned = clone_dir(&source, &staging).and_then(|()| {
-        std::fs::rename(&staging, &dest)
-            .context(|| format!("moving the clone into {}", dest.display()))
-    });
-    if let Err(error) = cloned {
-        let _ = std::fs::remove_dir_all(&staging);
-        return Err(error);
-    }
+    clone_into_place(&source, &dest)?;
     // The source's files are read while its guard is held: no build there
     // writes them, so their mtimes are what its fingerprints were made from.
     match_times(&held.candidate.top, &checkout.top)?;
@@ -451,24 +467,45 @@ pub fn clone_lane(tool: &Tool, lane: Lane, source: &Checkout, dest: &Checkout) -
     let source_root = source.build_root(&tool.places);
     let dest_root = dest.build_root(&tool.places);
     let dirs = build_dirs(&dest.top)?;
-    let mut folders = cloned_folders(&dirs, lane, &source_root, &dest_root)?;
-    let paths: Vec<PathBuf> = folders
-        .iter()
-        .map(|dir| source_root.join(&dir.path))
-        .collect();
-    let sizes = tool.measure_all(&paths)?;
-    // A clone over the cap would be deleted whole by the next prune.
-    let mut kept = sizes.iter();
-    folders.retain(|dir| {
-        kept.next()
-            .is_some_and(|size| size.kib <= dir.cap_kib(true))
-    });
-    if folders.is_empty() {
+    let candidates = cloned_folders(&dirs, lane, &source_root, &dest_root)?;
+    if candidates.is_empty() {
         note(format!(
             "{} has no cargo build to clone into {}; its first build is cold",
             source.top.display(),
             dest.top.display()
         ));
+        return Ok(());
+    }
+    let paths: Vec<PathBuf> = candidates
+        .iter()
+        .map(|dir| source_root.join(&dir.path))
+        .collect();
+    let sizes = tool.measure_all(&paths)?;
+    if sizes.len() != candidates.len() {
+        fail!(
+            "measured {} folders of {}, which has {} to clone",
+            sizes.len(),
+            source.top.display(),
+            candidates.len()
+        );
+    }
+    // A clone over the cap would be deleted whole by the next prune.
+    let mut folders = Vec::new();
+    for (dir, size) in candidates.into_iter().zip(&sizes) {
+        if size.kib <= dir.cap_kib(true) {
+            folders.push(dir);
+        } else {
+            note(format!(
+                "{} is {} in {}, over the {} that {} may hold, so it is not cloned",
+                dir.path,
+                crate::text::human(size.kib),
+                source.top.display(),
+                crate::text::human(dir.cap_kib(true)),
+                dest.top.display()
+            ));
+        }
+    }
+    if folders.is_empty() {
         return Ok(());
     }
     let paths: Vec<PathBuf> = folders
@@ -486,20 +523,7 @@ pub fn clone_lane(tool: &Tool, lane: Lane, source: &Checkout, dest: &Checkout) -
     let mut cloned = Vec::new();
     for dir in &folders {
         let (from, to) = (source_root.join(&dir.path), dest_root.join(&dir.path));
-        let staging = to.with_file_name(format!(
-            ".{}.warm.{}",
-            crate::checkout::file_name(&to),
-            crate::text::staged_suffix()
-        ));
-        let _ = std::fs::remove_dir_all(&staging);
-        let moved = clone_dir(&from, &staging).and_then(|()| {
-            std::fs::rename(&staging, &to)
-                .context(|| format!("moving the clone into {}", to.display()))
-        });
-        if let Err(error) = moved {
-            let _ = std::fs::remove_dir_all(&staging);
-            return Err(error);
-        }
+        clone_into_place(&from, &to)?;
         note(format!("cloned {} into {}", from.display(), to.display()));
         cloned.push(to);
     }

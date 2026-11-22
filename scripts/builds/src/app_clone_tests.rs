@@ -77,23 +77,23 @@ fn a_source_is_on_the_new_checkouts_host_and_is_not_the_new_checkout() {
     let ssh = unused_ssh();
     let at = at(&places, &ssh);
     assert_eq!(
-        ranked(at, "m1", "m1:builds-mac-1").unwrap(),
+        ranked(at, "m1", Some("m1:builds-mac-1")).unwrap(),
         ["m1:app-1"],
         "the new checkout is not its own source, and no other host's checkout is one"
     );
     assert_eq!(
-        ranked(at, crate::host::LOCAL, "side-9").unwrap(),
+        ranked(at, crate::host::LOCAL, Some("side-9")).unwrap(),
         ["side-3"]
     );
     assert!(has_source(at, "m1").unwrap() && !has_source(at, "m3").unwrap());
-    let source = take_source(at, "m1", "m1:builds-mac-1", Duration::ZERO)
+    let source = take_source(at, "m1", "m1:builds-mac-1")
         .unwrap()
         .expect("m1:app-1 is free");
     assert_eq!(source.entry, "m1:app-1");
 }
 
 #[test]
-fn a_source_a_build_holds_is_waited_for_and_then_given_up() {
+fn a_source_a_build_holds_is_waited_for() {
     let scratch = Scratch::new("clone-source-wait");
     let places = lane(
         &scratch,
@@ -102,7 +102,7 @@ fn a_source_a_build_holds_is_waited_for_and_then_given_up() {
     );
     let ssh = unused_ssh();
     let at = at(&places, &ssh);
-    let both: Vec<_> = ["m1:app-2", "m1:app-1"]
+    let mut both: Vec<_> = ["m1:app-2", "m1:app-1"]
         .into_iter()
         .map(|entry| {
             lock_checkout(&places, "demo", Lane::Mac, entry)
@@ -110,19 +110,13 @@ fn a_source_a_build_holds_is_waited_for_and_then_given_up() {
                 .unwrap()
         })
         .collect();
-    assert!(
-        take_source(at, "m1", "m1:builds-mac-1", Duration::ZERO)
-            .unwrap()
-            .is_none(),
-        "every source is building and the wait is over"
-    );
-    let mut both = both.into_iter();
-    drop(both.next());
-    let source = take_source(at, "m1", "m1:builds-mac-1", Duration::from_secs(30))
-        .unwrap()
-        .expect("the warmest one came free");
-    assert_eq!(source.entry, "m1:app-2");
-    drop(both);
+    std::thread::scope(|scope| {
+        let waiter = scope.spawn(|| take_source(at, "m1", "m1:builds-mac-1").unwrap());
+        // The build of the warmest checkout ends: the waiter takes its lock.
+        drop(both.remove(0));
+        let source = waiter.join().unwrap().expect("the warmest one came free");
+        assert_eq!(source.entry, "m1:app-2");
+    });
 }
 
 #[test]
@@ -131,7 +125,7 @@ fn a_host_with_no_checkout_of_the_lane_gives_no_source() {
     let places = lane(&scratch, "m1:app-1\n", &[]);
     let ssh = unused_ssh();
     assert!(
-        take_source(at(&places, &ssh), "m1", "m1:builds-mac-1", Duration::ZERO)
+        take_source(at(&places, &ssh), "m1", "m1:builds-mac-1")
             .unwrap()
             .is_none()
     );

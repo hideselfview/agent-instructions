@@ -511,7 +511,7 @@ pub fn cmd_app_checkout(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
         );
     }
     if !tool.places.app_checkouts_of(&repo, lane)?.contains(&name) {
-        start_from_warmest(tool, &repo, lane, &checkout)?;
+        start_from_warmest(tool, ssh, &repo, lane, &checkout)?;
     }
     let count = record_in_lane(tool, &repo, lane, &name)?;
     note(format!(
@@ -526,21 +526,21 @@ pub fn cmd_app_checkout(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
 /// Fills the empty cargo build folders of <checkout>, a side worktree about
 /// to become an app checkout of <repo>'s <lane>, from the lane's warmest
 /// checkout on this Mac, held under its lock (app_clone.rs). With no such
-/// checkout, the first build is cold, as it always was.
-fn start_from_warmest(tool: &Tool, repo: &str, lane: Lane, checkout: &Checkout) -> Result<()> {
-    let ssh = crate::host::Ssh::from_env();
+/// checkout, the first build is cold.
+fn start_from_warmest(
+    tool: &Tool,
+    ssh: &Ssh,
+    repo: &str,
+    lane: Lane,
+    checkout: &Checkout,
+) -> Result<()> {
     let at = crate::lane_size::RepoLane {
         places: &tool.places,
-        ssh: &ssh,
+        ssh,
         repo,
         lane,
     };
-    let Some(taken) = crate::app_clone::take_source(
-        at,
-        crate::host::LOCAL,
-        &checkout.name(),
-        crate::app_clone::SOURCE_WAIT,
-    )?
+    let Some(taken) = crate::app_clone::take_source(at, crate::host::LOCAL, &checkout.name())?
     else {
         note(format!(
             "{repo}'s {} lane has no warm checkout on this Mac to clone into {}; its first build is cold",

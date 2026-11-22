@@ -10,32 +10,15 @@
 //!
 //! A lane's checkouts are built in turn, so when builds adds a checkout
 //! because builds wait, every other checkout of the lane is building. The
-//! caller then waits for the best source's lock, up to `SOURCE_WAIT`, and
-//! starts cold when none comes free in that time.
+//! caller then waits for the warmest source's lock (lane_size.rs
+//! `wait_checkout`), which its holder lets go when its steps end, within their
+//! limits (`app_config::DEFAULT_STEP_LIMIT`).
 
-use std::time::{Duration, Instant};
-
-use crate::app_remote::split;
-use crate::fail;
+use crate::app_remote::host_of;
 use crate::fail::Result;
-use crate::host::LOCAL;
-use crate::lane_size::{CheckoutLock, RepoLane, last_use, lock_checkout};
+use crate::lane_size::{CheckoutLock, RepoLane, last_use, lock_checkout, wait_checkout};
 use crate::queue::Queue;
 use crate::text::note;
-
-/// How long a new checkout waits for a source's lock. An app build's steps
-/// end within their limits (`app_config::DEFAULT_STEP_LIMIT`), and most take
-/// well under ten minutes warm, so a source frees up within about that time;
-/// past it, the cold first build is the shorter wait.
-pub const SOURCE_WAIT: Duration = Duration::from_secs(10 * 60);
-
-/// How often the wait looks at the sources' locks again.
-const POLL: Duration = Duration::from_secs(1);
-
-/// The host that <entry> names: the host before the colon, or this Mac.
-fn host_of(entry: &str) -> &str {
-    split(entry).map_or(LOCAL, |(host, _)| host)
-}
 
 /// The entries of <used>, `(entry, when a build last let go of its lock)`,
 /// that a new checkout may start from, warmest first: the ones some build
@@ -58,11 +41,12 @@ pub struct Source {
     _lock: CheckoutLock,
 }
 
-/// The lane's checkouts on <host> other than <new_entry>, warmest first.
-fn ranked(at: RepoLane, host: &str, new_entry: &str) -> Result<Vec<String>> {
+/// The lane's checkouts on <host>, other than <new_entry> when there is one,
+/// warmest first.
+fn ranked(at: RepoLane, host: &str, new_entry: Option<&str>) -> Result<Vec<String>> {
     let mut used = Vec::new();
     for entry in at.places.app_checkouts_of(at.repo, at.lane)? {
-        if entry != new_entry && host_of(&entry) == host {
+        if Some(entry.as_str()) != new_entry && host_of(&entry) == host {
             let last = last_use(at, &entry)?;
             used.push((entry, last));
         }
@@ -74,25 +58,20 @@ fn ranked(at: RepoLane, host: &str, new_entry: &str) -> Result<Vec<String>> {
 /// from? The caller holds the lane's queue guard or does not need the answer
 /// to stay true.
 pub fn has_source(at: RepoLane, host: &str) -> Result<bool> {
-    Ok(!ranked(at, host, "")?.is_empty())
+    Ok(!ranked(at, host, None)?.is_empty())
 }
 
 /// Locks the warmest checkout of <at>'s lane on <host>, other than
-/// <new_entry>, that no build holds, and waits up to <wait> for the warmest
-/// one when every one is held. None when the host has no such checkout or none
-/// came free in time. The lane's set is read and the locks tried under the
-/// lane's queue guard, as every take of a lock is (lane_size.rs).
-pub fn take_source(
-    at: RepoLane,
-    host: &str,
-    new_entry: &str,
-    wait: Duration,
-) -> Result<Option<Source>> {
-    let started = Instant::now();
+/// <new_entry>, that no build holds; when every one is held, waits for the
+/// warmest one's lock. None when the host has no such checkout, or when a
+/// takeover stopped this build during the wait. The lane's set is read and
+/// the locks tried under the lane's queue guard, as every take of a lock is
+/// (lane_size.rs); the wait holds no guard.
+pub fn take_source(at: RepoLane, host: &str, new_entry: &str) -> Result<Option<Source>> {
     loop {
-        let candidates = {
+        let best = {
             let _guard = Queue::of(at.places, at.repo, at.lane).guard()?;
-            let candidates = ranked(at, host, new_entry)?;
+            let candidates = ranked(at, host, Some(new_entry))?;
             for entry in &candidates {
                 if let Some(lock) = lock_checkout(at.places, at.repo, at.lane, entry)? {
                     return Ok(Some(Source {
@@ -101,27 +80,32 @@ pub fn take_source(
                     }));
                 }
             }
-            candidates
+            let Some(best) = candidates.into_iter().next() else {
+                return Ok(None);
+            };
+            best
         };
-        let Some(best) = candidates.first() else {
-            return Ok(None);
-        };
-        if started.elapsed() >= wait {
-            note(format!(
-                "every warm {} checkout of {} on {host} stayed in use for {} seconds, so {new_entry} starts cold",
-                at.lane.word(),
-                at.repo,
-                wait.as_secs()
-            ));
-            return Ok(None);
+        note(format!(
+            "every warm {} checkout of {} on {host} is building; {new_entry} waits for {best}, which it starts from",
+            at.lane.word(),
+            at.repo
+        ));
+        match wait_checkout(at.places, at.repo, at.lane, &best)? {
+            Some(lock) => {
+                return Ok(Some(Source {
+                    entry: best,
+                    _lock: lock,
+                }));
+            }
+            None if crate::lock::takeover_stopped() => {
+                note(format!(
+                    "a takeover ended the wait for {best}, so {new_entry} starts cold"
+                ));
+                return Ok(None);
+            }
+            // The checkout left the lane while this waited: choose again.
+            None => {}
         }
-        if let Some(signal) = crate::lock::stop_signal() {
-            fail!(
-                "{} ended the wait for {best}, the checkout {new_entry} starts from",
-                crate::lock::signal_name(signal)
-            );
-        }
-        std::thread::sleep(POLL.min(wait));
     }
 }
 
