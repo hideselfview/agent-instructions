@@ -596,16 +596,10 @@ fn a_refused_shared_cache_move_removes_the_staged_settings_and_tries_later_cache
         std::fs::read_to_string(next.join("settings")).unwrap(),
         "kept"
     );
-    let staged = std::fs::read_dir(caches)
+    let mut entries = std::fs::read_dir(caches)
         .unwrap()
-        .filter_map(|entry| {
-            let entry = entry.unwrap();
-            entry
-                .file_name()
-                .to_string_lossy()
-                .starts_with(".settings-")
-                .then(|| entry.path())
-        })
+        .map(|entry| entry.unwrap().file_name())
         .collect::<Vec<_>>();
-    assert!(staged.is_empty(), "{staged:?}");
+    entries.sort();
+    assert_eq!(entries, ["first", "next"]);
 }

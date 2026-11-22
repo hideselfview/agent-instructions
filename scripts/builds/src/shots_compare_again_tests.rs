@@ -28,6 +28,10 @@ fn in_environment(environment: &str, capture: &str, comparison: &str) -> Key {
 /// Caches a run of <key> whose report holds a page, a board picture, a shot
 /// picture and a findings.json that names the key's versions and one finding.
 fn cache_run(places: &Places, key: &Key) -> Cached {
+    cache_run_at(places, key, crate::app_timing::now())
+}
+
+fn cache_run_at(places: &Places, key: &Key, recorded_at: i64) -> Cached {
     let staging = shots_cache::stage(places, key).unwrap();
     let report = staging.report();
     std::fs::create_dir_all(report.join("img")).unwrap();
@@ -50,7 +54,7 @@ fn cache_run(places: &Places, key: &Key) -> Cached {
         .to_string(),
     )
     .unwrap();
-    staging.finish(1, "old text\n").unwrap()
+    staging.finish_at(1, "old text\n", recorded_at).unwrap()
 }
 
 /// A program that records each call in the file `calls` and prints the
@@ -193,13 +197,7 @@ fn a_change_to_the_capture_compares_nothing_again() {
     cache_run(&places, &key("capture-1", "comparison-1"));
     let program = recheck_program(&scratch, "capture-2", "comparison-1", true);
     let new = key("capture-2", "comparison-1");
-    assert!(
-        compare_again(&places, &new, &|source| shots_check_program::recheck(
-            &program, source
-        ))
-        .unwrap()
-        .is_none()
-    );
+    assert!(compare_again(&places, &new, &program).unwrap().is_none());
     assert_eq!(calls(&scratch), "", "no program ran");
     assert!(shots_cache::lookup(&places, &new).unwrap().is_none());
 }
@@ -211,11 +209,7 @@ fn a_run_whose_findings_a_program_of_other_versions_made_is_refused() {
     cache_run(&places, &key("capture-1", "comparison-1"));
     let program = recheck_program(&scratch, "capture-1", "comparison-3", true);
     let new = key("capture-1", "comparison-2");
-    let error = compare_again(&places, &new, &|source| {
-        shots_check_program::recheck(&program, source)
-    })
-    .unwrap_err()
-    .text();
+    let error = compare_again(&places, &new, &program).unwrap_err().text();
     assert!(error.contains("comparison-3"), "{error}");
     assert!(shots_cache::lookup(&places, &new).unwrap().is_none());
 }
@@ -232,11 +226,7 @@ fn only_a_run_of_the_same_environment_is_compared_again() {
     let program = recheck_program(&scratch, capture, &VERSIONS.comparison, true);
     let new = key(capture, &VERSIONS.comparison);
     assert!(
-        compare_again(&places, &new, &|source| shots_check_program::recheck(
-            &program, source
-        ))
-        .unwrap()
-        .is_none(),
+        compare_again(&places, &new, &program).unwrap().is_none(),
         "the run of another environment is no source"
     );
     assert!(
@@ -271,39 +261,80 @@ fn only_a_run_of_the_same_environment_is_compared_again() {
 
 #[test]
 fn before_run_considers_a_covering_run_published_during_recheck() {
+    use std::io::{Read, Write};
+    use std::os::fd::AsRawFd;
+    use std::process::Command;
+
     let scratch = Scratch::new("compare-again-concurrent");
     let places = scratch.places();
     let capture = VERSIONS.capture.as_str();
     cache_run(&places, &key(capture, "old-comparison"));
-    let program = recheck_program(&scratch, capture, &VERSIONS.comparison, true);
+    let recheck = recheck_program(&scratch, capture, &VERSIONS.comparison, true);
     let concurrent_key = Key {
         prefix: "mac.a.".into(),
         ..key(capture, &VERSIONS.comparison)
     };
+    let started = scratch.dir.join("started");
+    let resume = scratch.dir.join("resume");
+    assert!(
+        Command::new("mkfifo")
+            .args([&started, &resume])
+            .status()
+            .unwrap()
+            .success()
+    );
+    let program = scratch.script(
+        "wait-for-publication",
+        &format!(
+            r#"printf x > '{}'; IFS= read -r release < '{}'; exec '{}' "$@""#,
+            started.display(),
+            resume.display(),
+            recheck.display(),
+        ),
+    );
+    // Open both ends before starting recheck, so each open in its program
+    // has a peer and the release byte can be sent even on failure.
+    let mut fifo = std::fs::OpenOptions::new();
+    fifo.read(true).write(true);
+    let mut starts = fifo.open(started).unwrap();
+    let mut resumes = fifo.open(resume).unwrap();
+    let found = std::thread::scope(|scope| {
+        let checking = scope.spawn(|| {
+            before_run(
+                &places,
+                "demo",
+                COMMIT,
+                Lane::Mac,
+                ENVIRONMENT,
+                "mac.a.",
+                &program,
+            )
+        });
+        let published = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let mut ready = libc::pollfd {
+                fd: starts.as_raw_fd(),
+                events: libc::POLLIN,
+                revents: 0,
+            };
+            assert_eq!(
+                unsafe { libc::poll(&mut ready, 1, 5000) },
+                1,
+                "recheck did not start"
+            );
+            starts.read_exact(&mut [0]).unwrap();
+            // Record the other writer's later completion time through the
+            // cache's normal publication path.
+            cache_run_at(&places, &concurrent_key, i64::MAX);
+        }));
+        resumes.write_all(b"published\n").unwrap();
+        let result = checking.join().unwrap();
+        if let Err(panic) = published {
+            std::panic::resume_unwind(panic);
+        }
+        result.unwrap().unwrap()
+    });
 
-    let find = before_run_with(
-        &places,
-        "demo",
-        COMMIT,
-        Lane::Mac,
-        ENVIRONMENT,
-        "mac.a.",
-        &|source| {
-            let checked = shots_check_program::recheck(&program, source)?;
-            let concurrent = cache_run(&places, &concurrent_key);
-            let record = concurrent.folder.join("run.json");
-            let mut json: serde_json::Value =
-                serde_json::from_slice(&std::fs::read(&record).unwrap()).unwrap();
-            // The other writer's published run has the later recorded time.
-            json["recorded_at"] = serde_json::json!(i64::MAX);
-            std::fs::write(record, json.to_string()).unwrap();
-            Ok(checked)
-        },
-    )
-    .unwrap()
-    .unwrap();
-
-    assert_eq!(find.key, concurrent_key);
+    assert_eq!(found.key, concurrent_key);
 }
 
 #[test]

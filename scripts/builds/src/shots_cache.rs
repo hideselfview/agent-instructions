@@ -77,7 +77,7 @@ use crate::lane::Lane;
 use crate::places::Places;
 use crate::prune::Run;
 use crate::shots_in_use::{self, Named};
-use crate::shots_program::{VERSIONS, Versions};
+use crate::shots_program::Versions;
 use crate::text::note;
 use crate::tool::Tool;
 
@@ -431,7 +431,15 @@ impl Staging {
     /// shots program printed (<findings>), and puts the folder in place of
     /// any earlier run of the key.
     pub fn finish(self, exit_code: i64, findings: &str) -> Result<Cached> {
-        let recorded_at = now();
+        self.finish_at(exit_code, findings, now())
+    }
+
+    pub(crate) fn finish_at(
+        self,
+        exit_code: i64,
+        findings: &str,
+        recorded_at: i64,
+    ) -> Result<Cached> {
         let ending = Ending {
             recorded_at,
             exit_code,
@@ -502,18 +510,11 @@ pub fn read_covering<T>(
     commit: &str,
     lane: Lane,
     prefix: &str,
+    versions: &Versions,
     read: impl FnOnce(&Cached) -> Result<Option<T>>,
 ) -> Result<Option<T>> {
     let _reading = writing(places)?;
-    let Some(cached) = covering_run(
-        places,
-        repo,
-        commit,
-        lane,
-        Made::Anywhere,
-        prefix,
-        &VERSIONS,
-    )?
+    let Some(cached) = covering_run(places, repo, commit, lane, Made::Anywhere, prefix, versions)?
     else {
         return Ok(None);
     };

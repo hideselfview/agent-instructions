@@ -19,10 +19,7 @@ pub enum Fail {
 impl Fail {
     /// What to say of it: the message, or the exit status.
     pub fn text(self) -> String {
-        match self {
-            Self::Message(message) => message,
-            other => other.to_string(),
-        }
+        self.to_string()
     }
 }
 
@@ -119,10 +116,8 @@ fn finish_cleanup<T>(
             crate::text::note(reported.text());
             Err(returned)
         }
-        (first, then) => {
-            then?;
-            first
-        }
+        (Ok(value), Ok(())) => Ok(value),
+        (Err(error), Ok(())) | (Ok(_), Err(error)) => Err(error),
     }
 }
 

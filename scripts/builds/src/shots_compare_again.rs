@@ -41,9 +41,7 @@ const FINDINGS_FILES: [&str; 2] = ["index.html", shot_causes::FILE];
 pub fn lookup(places: &Places, key: &Key, program: &Path) -> Result<Option<Cached>> {
     match shots_cache::lookup(places, key)? {
         Some(cached) => Ok(Some(cached)),
-        None => compare_again(places, key, &|source| {
-            shots_check_program::recheck(program, source)
-        }),
+        None => compare_again(places, key, program),
     }
 }
 
@@ -88,20 +86,6 @@ pub fn before_run(
     prefix: &str,
     program: &Path,
 ) -> Result<Option<Cached>> {
-    before_run_with(places, repo, commit, lane, environment, prefix, &|source| {
-        shots_check_program::recheck(program, source)
-    })
-}
-
-fn before_run_with(
-    places: &Places,
-    repo: &str,
-    commit: &str,
-    lane: Lane,
-    environment: &str,
-    prefix: &str,
-    recheck: &impl Fn(&Cached) -> Result<String>,
-) -> Result<Option<Cached>> {
     let made = shots_cache::Made::In(environment);
     let found =
         shots_cache::covering_run_used(places, repo, commit, lane, made, prefix, &VERSIONS)?;
@@ -109,7 +93,7 @@ fn before_run_with(
         return Ok(found);
     }
     for key in shots_cache::covering_keys(places, repo, commit, lane, made, prefix, &VERSIONS)? {
-        compare_again(places, &key, recheck)?;
+        compare_again(places, &key, program)?;
     }
     // Another writer can publish while these comparisons run. Choose from
     // the current cache, including runs that writer placed.
@@ -119,18 +103,14 @@ fn before_run_with(
 /// Compares again the newest cached run that has <key>'s commit, lane, prefix
 /// and capture version and another comparison version, then caches the
 /// result under <key>. None when no such run is cached.
-fn compare_again(
-    places: &Places,
-    key: &Key,
-    recheck: &impl Fn(&Cached) -> Result<String>,
-) -> Result<Option<Cached>> {
+fn compare_again(places: &Places, key: &Key, program: &Path) -> Result<Option<Cached>> {
     let Some(source) = shots_cache::other_comparisons(places, key)?
         .into_iter()
         .next()
     else {
         return Ok(None);
     };
-    let again = recheck(&source)?;
+    let again = shots_check_program::recheck(program, &source)?;
     let (findings, passed) = findings_from(&source, &again, key)?;
     let run = shot_causes::parse(&findings)?;
     let staging = shots_cache::stage(places, key)?;

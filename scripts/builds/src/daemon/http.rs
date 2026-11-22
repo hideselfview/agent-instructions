@@ -325,12 +325,16 @@ fn handle(mut stream: TcpStream, names: &[String], model: &Model) -> std::io::Re
                     Some(Ok(Some(picture))) => {
                         respond(&mut stream, "200 OK", "image/png", &picture)
                     }
-                    Some(Err(error)) => respond(
-                        &mut stream,
-                        "500 Internal Server Error",
-                        "text/plain; charset=utf-8",
-                        format!("{}\n", error.text()).as_bytes(),
-                    ),
+                    Some(Err(error)) => {
+                        let message = error.text();
+                        crate::text::note(&message);
+                        respond(
+                            &mut stream,
+                            "500 Internal Server Error",
+                            "text/plain; charset=utf-8",
+                            format!("{message}\n").as_bytes(),
+                        )
+                    }
                     None | Some(Ok(None)) => respond(
                         &mut stream,
                         "404 Not Found",
@@ -629,12 +633,15 @@ fn shots_events(
             None => {
                 serde_json::json!({ "error": format!("project {project} has no design files") })
             }
-        }
-        .to_string();
-        if sent.as_ref() != Some(&shots) {
-            write!(stream, "event: shots\ndata: {shots}\n\n")?;
+        };
+        let event = shots.to_string();
+        if sent.as_ref() != Some(&event) {
+            if let Some(error) = shots.get("error").and_then(serde_json::Value::as_str) {
+                crate::text::note(error);
+            }
+            write!(stream, "event: shots\ndata: {event}\n\n")?;
             stream.flush()?;
-            sent = Some(shots);
+            sent = Some(event);
         }
         seen = model.wait_change(seen);
     }

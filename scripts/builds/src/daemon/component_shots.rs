@@ -183,9 +183,10 @@ pub fn shots(
     let lanes = lanes(component)?;
     let mut platforms = Vec::new();
     for (lane, prefix) in lanes {
-        let run = read_cached(places, repo, commit, lane, &prefix, |cached| {
-            read_run(cached, component, lane, &prefix).map(Some)
-        })?;
+        let run =
+            shots_cache::read_covering(places, repo, commit, lane, &prefix, &VERSIONS, |cached| {
+                read_run(cached, component, lane, &prefix).map(Some)
+            })?;
         let capture = capture(lane, &prefix).filter(|run| {
             run.reference.as_deref() == Some(commit)
                 || matches!(run.phase, Phase::Queued | Phase::Running | Phase::Detached)
@@ -202,19 +203,6 @@ pub fn shots(
         commit: commit.to_string(),
         platforms,
     })
-}
-
-/// Keeps the cache lease while selecting a run and reading a file from it.
-fn read_cached<T>(
-    places: &Places,
-    repo: &str,
-    commit: &str,
-    lane: Lane,
-    prefix: &str,
-    read: impl FnOnce(&Cached) -> Result<Option<T>>,
-) -> Result<Option<T>> {
-    shots_cache::read_covering(places, repo, commit, lane, prefix, read)
-        .inspect_err(|error| crate::text::note(error.to_string()))
 }
 
 /// <component>'s rows on <lane> in the cached run <cached>: the rows its
@@ -275,7 +263,10 @@ pub fn start(
     component: &str,
 ) -> Result<()> {
     for (lane, prefix) in lanes(component)? {
-        let cached = read_cached(places, repo, commit, lane, &prefix, |_| Ok(Some(())))?;
+        let cached =
+            shots_cache::read_covering(places, repo, commit, lane, &prefix, &VERSIONS, |_| {
+                Ok(Some(()))
+            })?;
         if cached.is_some() {
             continue;
         }
@@ -309,7 +300,7 @@ pub fn picture(
     if !scene.starts_with(&format!("{}.", lane.word())) {
         return Ok(None);
     }
-    read_cached(places, repo, commit, lane, scene, |cached| {
+    shots_cache::read_covering(places, repo, commit, lane, scene, &VERSIONS, |cached| {
         let file = cached
             .report()
             .join("img")

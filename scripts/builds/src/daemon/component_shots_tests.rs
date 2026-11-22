@@ -201,10 +201,18 @@ fn pruning_keeps_an_old_run_until_the_dashboard_finishes_reading_it() {
     crate::testing::age(&run.join("run.json"), 30);
 
     let prune = || shots_cache::prune_runs(&tool, crate::prune::Run::Real, 0);
-    let read = read_cached(places, "demo", COMMIT, Lane::Mac, prefix, |cached| {
-        prune()?;
-        read_run(cached, "MacCheckbox", Lane::Mac, prefix).map(Some)
-    })
+    let read = shots_cache::read_covering(
+        places,
+        "demo",
+        COMMIT,
+        Lane::Mac,
+        prefix,
+        &VERSIONS,
+        |cached| {
+            prune()?;
+            read_run(cached, "MacCheckbox", Lane::Mac, prefix).map(Some)
+        },
+    )
     .unwrap()
     .unwrap();
     assert_eq!(read.rows.len(), 2);
