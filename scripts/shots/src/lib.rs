@@ -26,7 +26,7 @@ mod shots;
 mod states;
 mod verify;
 
-pub use crate::declared::Declared;
+pub use crate::declared::{Declared, Marks};
 pub use crate::names::{ComponentName, Name, ScreenName};
 use crate::names::{Platform, Prefix};
 use crate::settings::Settings;
@@ -742,8 +742,7 @@ mod tests {
             .map(|name| Declared {
                 name: Name::parse(name).unwrap(),
                 file: PathBuf::from("Scenes.swift"),
-                in_window: false,
-                takes_focus: false,
+                marks: crate::declared::Marks::default(),
             })
             .collect()
     }

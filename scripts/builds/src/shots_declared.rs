@@ -87,8 +87,8 @@ pub fn window_prefixes(top: &Path, commit: &str, picks: &[Pick]) -> Result<Windo
             .collect()
     };
     Ok(Windows {
-        shown: selecting(|scene| scene.in_window),
-        focus: selecting(|scene| scene.takes_focus),
+        shown: selecting(|scene| scene.marks.in_window),
+        focus: selecting(|scene| scene.marks.takes_focus),
     })
 }
 

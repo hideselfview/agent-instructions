@@ -159,7 +159,7 @@ fn read_carries_the_focus_marker_and_refuses_one_it_cannot_tie_to_an_id() {
     let read_all = read(root.path(), &folders()).unwrap();
     let flags: Vec<(String, bool, bool)> = read_all
         .iter()
-        .map(|d| (d.name.to_string(), d.in_window, d.takes_focus))
+        .map(|d| (d.name.to_string(), d.marks.in_window, d.marks.takes_focus))
         .collect();
     assert_eq!(
         flags,

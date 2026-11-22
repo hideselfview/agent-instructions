@@ -414,9 +414,13 @@ fn lane_steps_with(
             scenes,
             command,
             place: lock::Where::Anywhere,
-            opens_windows: run.picker.opens_windows
-                && !reads_pictures
-                && (kind != PickKind::Shots || selects(&run.args, &windows.focus)),
+            opens_windows: !reads_pictures
+                && match kind {
+                    PickKind::Shots => {
+                        run.picker.opens_windows && selects(&run.args, &windows.focus)
+                    }
+                    _ => run.picker.opens_windows,
+                },
             draws_windows: kind == PickKind::Shots
                 && !reads_pictures
                 && selects(&run.args, &windows.shown),
@@ -1124,30 +1128,14 @@ const FRESH: &str = "--fresh";
 
 /// The prefixes of <lane>'s shots among <picks> that select a scene shown in
 /// a window, and those that select a scene that takes the focus, at <commit>
-/// of the repo at <source>, whose `.app-build` there is <config>
-/// (`shots_declared::window_prefixes`). A scene that takes the focus is taken
-/// only by a shots line that passes `--windows`, so with no such line none
-/// counts.
-fn windows_at(
-    source: &Path,
-    config: &Config,
-    commit: &str,
-    lane: Lane,
-    picks: &[Pick],
-) -> Result<Windows> {
+/// of the repo at <source> (`shots_declared::window_prefixes`).
+fn windows_at(source: &Path, commit: &str, lane: Lane, picks: &[Pick]) -> Result<Windows> {
     let own: Vec<Pick> = picks
         .iter()
         .filter(|(pick_lane, _, _)| *pick_lane == lane)
         .cloned()
         .collect();
-    let mut windows = crate::shots_declared::window_prefixes(source, commit, &own)?;
-    if !config
-        .picker(lane, PickKind::Shots)
-        .is_some_and(|picker| picker.opens_windows)
-    {
-        windows.focus.clear();
-    }
-    Ok(windows)
+    crate::shots_declared::window_prefixes(source, commit, &own)
 }
 
 /// The id that keys <lane>'s shots in the picture folder at <commit> of the
@@ -1774,7 +1762,7 @@ impl MergeBase {
             .find(|(own_lane, _)| *own_lane == lane)
             .map(|(_, names)| names)
             .expect("derive::plan lists each lane that has picks");
-        let windows = windows_at(source, &config, &base, lane, &own)?;
+        let windows = windows_at(source, &base, lane, &own)?;
         Ok(Some(MergeBase {
             commit: base,
             config,
@@ -1876,7 +1864,7 @@ fn build_lane(
     let source = local_source(places, repo)?;
     // Only a shots prefix that selects a scene shown in its window draws one,
     // and only one that selects a scene taking the focus holds the window lock.
-    let windows = windows_at(&source, &config, commit, lane, picks)?;
+    let windows = windows_at(&source, commit, lane, picks)?;
     let runs_checkout_as_it_is =
         request.names.is_empty() && !picks.is_empty() && !request.needs_only;
     let base = if runs_checkout_as_it_is {

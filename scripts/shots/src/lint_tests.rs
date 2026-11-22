@@ -1,12 +1,12 @@
 use super::*;
+use crate::declared::Marks;
 use std::path::PathBuf;
 
 fn declared(name: &str) -> Declared {
     Declared {
         name: Name::parse(name).unwrap(),
         file: PathBuf::from("Shots.kt"),
-        in_window: false,
-        takes_focus: false,
+        marks: Marks::default(),
     }
 }
 

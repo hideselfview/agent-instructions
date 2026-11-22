@@ -1,4 +1,5 @@
 use super::*;
+use crate::declared::Marks;
 
 fn names(texts: &[&str]) -> Vec<Name> {
     texts.iter().map(|t| Name::parse(t).unwrap()).collect()
@@ -200,8 +201,10 @@ fn declared(texts: &[(&str, bool)]) -> Vec<Declared> {
         .map(|(t, takes_focus)| Declared {
             name: Name::parse(t).unwrap(),
             file: PathBuf::from("Scenes.swift"),
-            in_window: *takes_focus,
-            takes_focus: *takes_focus,
+            marks: Marks {
+                in_window: *takes_focus,
+                takes_focus: *takes_focus,
+            },
         })
         .collect()
 }

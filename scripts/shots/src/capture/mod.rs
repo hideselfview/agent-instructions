@@ -134,7 +134,12 @@ pub(crate) fn taken(
     let all: Vec<Name> = declared.iter().map(|d| d.name.clone()).collect();
     let (names, not_taken) = selected(&all, platform, prefixes, base)?
         .into_iter()
-        .partition(|name| windows || !declared.iter().any(|d| &d.name == name && d.takes_focus));
+        .partition(|name| {
+            windows
+                || !declared
+                    .iter()
+                    .any(|d| &d.name == name && d.marks.takes_focus)
+        });
     Ok(Taken {
         names,
         not_taken,

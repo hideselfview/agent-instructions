@@ -44,6 +44,12 @@ pub(crate) enum DeclaredError {
 pub struct Declared {
     pub name: Name,
     pub file: PathBuf,
+    pub marks: Marks,
+}
+
+/// What a harness's source says of how a shot is drawn.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Marks {
     /// The scene is shown in its window, drawn on a display of the Mac's.
     /// Declared in Swift by `frame: .window(…)` among the arguments of its
     /// `ShotScene(` call.
@@ -52,13 +58,6 @@ pub struct Declared {
     /// focus, so only a run given `--windows` takes it. Declared in Swift by
     /// `takesFocus: true` among the same arguments.
     pub takes_focus: bool,
-}
-
-/// What a harness's source says of how a shot is drawn.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-struct Marks {
-    in_window: bool,
-    takes_focus: bool,
 }
 
 /// A reader of a harness's source: each shot name it declares, and how the
@@ -196,8 +195,7 @@ pub(crate) fn declared_in(platform: Platform, path: &Path) -> Result<Vec<Declare
         return Ok(vec![Declared {
             name,
             file: path.to_path_buf(),
-            in_window: false,
-            takes_focus: false,
+            marks: Marks::default(),
         }]);
     };
     let source =
@@ -223,8 +221,7 @@ pub(crate) fn declared_in(platform: Platform, path: &Path) -> Result<Vec<Declare
             Ok(Declared {
                 name: Name::parse(&text).map_err(|e| DeclaredError::Name(path.to_path_buf(), e))?,
                 file: path.to_path_buf(),
-                in_window: marks.in_window,
-                takes_focus: marks.takes_focus,
+                marks,
             })
         })
         .collect()
