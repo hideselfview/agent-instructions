@@ -26,7 +26,7 @@ mod shots;
 mod states;
 mod verify;
 
-pub use crate::declared::{Declared, Marks};
+pub use crate::declared::Declared;
 pub use crate::names::{ComponentName, Name, ScreenName};
 use crate::names::{Platform, Prefix};
 use crate::settings::Settings;
