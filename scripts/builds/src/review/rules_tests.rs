@@ -20,11 +20,25 @@ fn front_matter_gives_paths_blocking_and_review() {
 }
 
 #[test]
-fn loading_project_rules_requires_the_projects_directory() {
-    let scratch = crate::testing::Scratch::new("missing-project-rules");
-    std::fs::create_dir(scratch.dir.join("rules")).unwrap();
-    let error = load_project(&scratch.dir, "bae").unwrap_err().text();
-    assert!(error.contains("listing") && error.contains("/projects"));
+fn review_reads_only_the_named_project_rules() {
+    let scratch = crate::testing::Scratch::new("load-named-rules");
+    let root = &scratch.dir;
+    std::fs::create_dir(root.join("rules")).unwrap();
+    let selected = root.join("projects/selected-rules");
+    std::fs::create_dir_all(&selected).unwrap();
+    std::fs::write(selected.join("selected.md"), "Selected rule.").unwrap();
+    let broken = root.join("projects/other-rules");
+    std::os::unix::fs::symlink(root.join("missing"), &broken).unwrap();
+
+    let rules = load(root, Some("selected")).unwrap();
+    assert_eq!(rules.len(), 1);
+    assert_eq!(rules[0].slug, "selected");
+    assert!(
+        load(root, None)
+            .unwrap_err()
+            .text()
+            .contains("/other-rules")
+    );
 }
 
 #[test]
