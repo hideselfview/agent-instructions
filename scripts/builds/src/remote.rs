@@ -253,11 +253,16 @@ pub fn pipe(sender: Command, receiver: Command, what: &str) -> Result<()> {
     pipe_within(sender, receiver, what, COPY_STALL)
 }
 
-/// What a program that `pipe_within` runs printed on stderr, once it ended.
+/// What a program that `pipe_within` runs printed on stderr, once it ended,
+/// decoded as far as it is text; a failure to read it is said in its place.
 fn drain(mut stream: impl std::io::Read + Send + 'static) -> std::thread::JoinHandle<String> {
     std::thread::spawn(move || {
-        let mut text = String::new();
-        let _ = std::io::Read::read_to_string(&mut stream, &mut text);
+        let mut bytes = Vec::new();
+        let read = std::io::Read::read_to_end(&mut stream, &mut bytes);
+        let mut text = String::from_utf8_lossy(&bytes).into_owned();
+        if let Err(error) = read {
+            text.push_str(&format!(" [reading its output failed: {error}]"));
+        }
         text
     })
 }
@@ -266,24 +271,19 @@ fn drain(mut stream: impl std::io::Read + Send + 'static) -> std::thread::JoinHa
 enum Event {
     /// The carrier ended: the copy is complete, or one end failed.
     Carried,
-    Sender(std::process::ExitStatus),
-    Receiver(std::process::ExitStatus),
+    Sender(std::io::Result<std::process::ExitStatus>),
+    Receiver(std::io::Result<std::process::ExitStatus>),
 }
 
-/// Waits on a thread for <child> to end and sends it as <event>.
+/// Waits on a thread for <child> to end and sends how it ended as <event>.
 fn watch(
     mut child: std::process::Child,
     events: std::sync::mpsc::Sender<Event>,
-    event: fn(std::process::ExitStatus) -> Event,
-    what: String,
-) -> std::thread::JoinHandle<Result<()>> {
+    event: fn(std::io::Result<std::process::ExitStatus>) -> Event,
+) {
     std::thread::spawn(move || {
-        let status = child
-            .wait()
-            .context(|| format!("waiting for a program that copies {what}"))?;
-        let _ = events.send(event(status));
-        Ok(())
-    })
+        let _ = events.send(event(child.wait()));
+    });
 }
 
 /// Kills the process group <pid> leads. A group with no process left is
@@ -341,8 +341,8 @@ fn pipe_within(
     let started = std::time::Instant::now();
     let moved_at = std::sync::Arc::new(AtomicU64::new(0));
     let (events, heard) = std::sync::mpsc::channel();
-    let sender_watch = watch(send, events.clone(), Event::Sender, what.to_string());
-    let receiver_watch = watch(receive, events.clone(), Event::Receiver, what.to_string());
+    watch(send, events.clone(), Event::Sender);
+    watch(receive, events.clone(), Event::Receiver);
     let carrier = {
         let moved_at = moved_at.clone();
         std::thread::spawn(move || {
@@ -376,13 +376,33 @@ fn pipe_within(
     };
     let (mut carried_done, mut sent, mut received) = (false, None, None);
     let (mut stalled, mut receiver_ended_early) = (false, false);
+    let ended = |which: &str, status: std::io::Result<std::process::ExitStatus>| {
+        status.map_err(|error| {
+            // Stops what is left of the copy; its own failure is the cause.
+            let _ = stop(send_pid);
+            let _ = stop(receive_pid);
+            Fail::Message(format!("waiting for the {which} of {what}: {error}"))
+        })
+    };
     while !(carried_done && sent.is_some() && received.is_some()) {
-        let idle = started.elapsed().as_millis() as u64 - moved_at.load(Ordering::Relaxed);
-        let wait = stall.saturating_sub(Duration::from_millis(idle));
-        match heard.recv_timeout(wait) {
+        let idle = |at: std::time::Instant| {
+            Duration::from_millis(
+                at.elapsed().as_millis() as u64 - moved_at.load(Ordering::Relaxed),
+            )
+        };
+        // Once both ends are stopped, only their exits are left to hear.
+        let next = if stalled {
+            heard
+                .recv()
+                .map_err(|_| std::sync::mpsc::RecvTimeoutError::Disconnected)
+        } else {
+            heard.recv_timeout(stall.saturating_sub(idle(started)))
+        };
+        match next {
             Ok(Event::Carried) => carried_done = true,
-            Ok(Event::Sender(status)) => sent = Some(status),
+            Ok(Event::Sender(status)) => sent = Some(ended("sender", status)?),
             Ok(Event::Receiver(status)) => {
+                let status = ended("receiver", status)?;
                 received = Some(status);
                 if !carried_done && !status.success() {
                     receiver_ended_early = true;
@@ -390,25 +410,24 @@ fn pipe_within(
                 }
             }
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                // Programs that end count as movement, so the limit runs from
-                // the last byte or the last program to end.
-                moved_at.store(started.elapsed().as_millis() as u64, Ordering::Relaxed);
-                stalled = true;
-                stop(send_pid)?;
-                stop(receive_pid)?;
+                // The carrier moves bytes without waking this loop, so the
+                // limit counts from the last byte it moved.
+                if idle(started) >= stall {
+                    stalled = true;
+                    stop(send_pid)?;
+                    stop(receive_pid)?;
+                }
             }
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                unreachable!("the carrier thread holds a sender until it ends")
+                stop(send_pid)?;
+                stop(receive_pid)?;
+                fail!(
+                    "the threads that watch the copy of {what} ended without saying how it ended"
+                );
             }
         }
     }
     let carried = carrier.join().expect("the carrier thread does not panic");
-    sender_watch
-        .join()
-        .expect("a watch thread does not panic")?;
-    receiver_watch
-        .join()
-        .expect("a watch thread does not panic")?;
     let send_errors = send_errors.join().expect("a drain thread does not panic");
     let receive_errors = receive_errors
         .join()

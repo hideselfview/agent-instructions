@@ -1116,3 +1116,13 @@ fn a_receiver_that_ends_successfully_before_the_sender_does_not_fail_the_copy() 
     )
     .unwrap();
 }
+
+#[test]
+fn a_copy_that_keeps_moving_bytes_past_the_stall_limit_succeeds() {
+    piped(
+        sh("for i in 1 2 3 4 5 6 7 8; do echo x; sleep 0.4; done"),
+        sh("cat > /dev/null"),
+        Duration::from_secs(1),
+    )
+    .unwrap();
+}
