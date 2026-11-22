@@ -27,7 +27,7 @@ use crate::evict::{Recreate, Removal};
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::places::FLOOR_IDLE_MINUTES;
-use crate::prune::{Run, delete_folder};
+use crate::prune::{Run, delete_folder_held};
 use crate::text::{human, note};
 use crate::tool::Tool;
 
@@ -226,46 +226,120 @@ enum Unit {
     Files(Vec<PathBuf>),
 }
 
+/// One deletion of a prune, which it makes while it holds the root.
+enum Step {
+    /// A folder a writer of the group left half filled.
+    Staging { folder: PathBuf, reason: String },
+    /// A file a writer left half written.
+    Loose { file: PathBuf, reason: String },
+    /// A whole unit the cap deletes.
+    Unit { unit: Unit, reason: String },
+}
+
 /// Deletes nothing while a writer or reader holds <root>; else each staging
 /// folder at the top of <root> and, in each of <groups>, each staging folder
 /// and loose file (the writers that made them ended), then, while the group's folder holds more than <cap_kib>, whole
 /// units, least recently used first, and last the folders under <root> that
 /// the deletions left empty. A unit used in the last FLOOR_IDLE_MINUTES
 /// stays: a reader may have it open.
+///
+/// The prune measures and picks what to delete before it takes the lock, and
+/// holds the lock only while it renames the picked folders into the trash:
+/// one reading of the open files, no question to the daemon (it hears of each
+/// changed root once, after the lock goes), and no measuring. A writer that
+/// arrives meanwhile waits for the renames.
 pub fn prune(tool: &Tool, run: Run, root: &Path, cap_kib: u64, groups: Vec<Group>) -> Result<()> {
-    // Held to the end: nobody reads or writes the root meanwhile.
-    let Some(_alone) = crate::evict::try_lock_creating(&root.join(WRITING))? else {
+    let mut plans = Vec::new();
+    for group in groups {
+        plans.push(plan_group(tool, cap_kib, group)?);
+    }
+    let Some(alone) = crate::evict::try_lock_creating(&root.join(WRITING))? else {
         note(format!(
             "a writer or reader holds {}, so prune deletes nothing in it",
             root.display()
         ));
         return Ok(());
     };
+    // Nobody reads or writes the root until the lock goes.
+    let open = crate::evict::OpenFiles::read()?;
+    let mut changed = BTreeSet::new();
     for (name, folder) in folders_in(root)? {
-        if !is_staging(&name) {
-            continue;
+        if is_staging(&name) {
+            delete_folder_noting(
+                tool,
+                run,
+                &folder,
+                "the staging folder of a writer that ended",
+                &open,
+                &mut changed,
+            )?;
         }
-        delete_folder(
-            tool,
-            &folder,
-            run,
-            "the staging folder of a writer that ended",
-            Recreate::No,
-            Removal::Background,
-            "",
-        )?;
     }
-    for group in groups {
-        prune_group(tool, run, cap_kib, group)?;
+    for plan in plans {
+        for step in plan {
+            match step {
+                Step::Staging { folder, reason }
+                | Step::Unit {
+                    unit: Unit::Folder(folder),
+                    reason,
+                } => {
+                    delete_folder_noting(tool, run, &folder, &reason, &open, &mut changed)?;
+                }
+                Step::Loose { file, reason } => {
+                    delete_files(run, &[&file], &reason)?;
+                }
+                Step::Unit {
+                    unit: Unit::Files(files),
+                    reason,
+                } => {
+                    delete_files(run, &files.iter().collect::<Vec<_>>(), &reason)?;
+                }
+            }
+        }
     }
     if !run.dry() {
         remove_empty(root)?;
     }
+    drop(alone);
+    for folder in changed {
+        crate::sizes::stale(&tool.places, &folder)?;
+    }
     Ok(())
 }
 
-/// `prune` for one group.
-fn prune_group(tool: &Tool, run: Run, cap_kib: u64, group: Group) -> Result<()> {
+/// `delete_folder_held` of <folder>, resolved first, adding the resolved
+/// folder to <changed> when it went (a dry run changes nothing).
+fn delete_folder_noting(
+    tool: &Tool,
+    run: Run,
+    folder: &Path,
+    reason: &str,
+    open: &crate::evict::OpenFiles,
+    changed: &mut BTreeSet<PathBuf>,
+) -> Result<()> {
+    let resolved =
+        std::fs::canonicalize(folder).context(|| format!("resolving {}", folder.display()))?;
+    if delete_folder_held(
+        tool,
+        &resolved,
+        run,
+        reason,
+        Recreate::No,
+        Removal::Background,
+        open,
+    )? && !run.dry()
+    {
+        changed.insert(resolved);
+    }
+    Ok(())
+}
+
+/// What `prune` deletes in one group, in order, read without holding the
+/// root: the staging folders and loose files, then the least recently used
+/// units, while the group is over <cap_kib>. A unit a process holds open (one
+/// reading of the open files) stays and counts as kept.
+fn plan_group(tool: &Tool, cap_kib: u64, group: Group) -> Result<Vec<Step>> {
+    let mut steps = Vec::new();
     let mut paths = vec![group.folder.clone()];
     for kept in &group.kept {
         match kept {
@@ -292,17 +366,8 @@ fn prune_group(tool: &Tool, run: Run, cap_kib: u64, group: Group) -> Result<()> 
                     "{}, the staging folder of a writer that ended",
                     human(measured.kib)
                 );
-                if delete_folder(
-                    tool,
-                    &folder,
-                    run,
-                    &reason,
-                    Recreate::No,
-                    Removal::Background,
-                    "",
-                )? {
-                    total = total.saturating_sub(measured.kib);
-                }
+                total = total.saturating_sub(measured.kib);
+                steps.push(Step::Staging { folder, reason });
             }
             Kept::Loose { file } => {
                 let kib = file_kib(&file)?;
@@ -310,9 +375,8 @@ fn prune_group(tool: &Tool, run: Run, cap_kib: u64, group: Group) -> Result<()> 
                     "{}, a file that a writer which ended left half written",
                     human(kib)
                 );
-                if delete_files(run, &[&file], &reason)? {
-                    total = total.saturating_sub(kib);
-                }
+                total = total.saturating_sub(kib);
+                steps.push(Step::Loose { file, reason });
             }
             Kept::Folder {
                 folder,
@@ -348,11 +412,21 @@ fn prune_group(tool: &Tool, run: Run, cap_kib: u64, group: Group) -> Result<()> 
     }
     units.sort_by_key(|unit| unit.0);
     let recent = tool.now - (FLOOR_IDLE_MINUTES * 60) as i64;
+    let open = if total > cap_kib {
+        Some(crate::evict::OpenFiles::read()?)
+    } else {
+        None
+    };
     for (used, kib, what, unit) in units {
         if total <= cap_kib {
             break;
         }
         if used >= recent {
+            continue;
+        }
+        if let (Unit::Folder(folder), Some(open)) = (&unit, &open)
+            && open.holds(folder)
+        {
             continue;
         }
         let reason = format!(
@@ -362,30 +436,8 @@ fn prune_group(tool: &Tool, run: Run, cap_kib: u64, group: Group) -> Result<()> 
             human(total),
             human(cap_kib)
         );
-        let deleted = match &unit {
-            Unit::Folder(Folder { path, reader_lock }) => {
-                // A reader cannot take this lock while prune holds WRITING.
-                if let Some(lock) = reader_lock
-                    && crate::flock::is_held(lock)?
-                {
-                    note(format!("in use, kept: {} ({reason})", path.display()));
-                    continue;
-                }
-                delete_folder(
-                    tool,
-                    path,
-                    run,
-                    &reason,
-                    Recreate::No,
-                    Removal::Background,
-                    "",
-                )?
-            }
-            Unit::Files(files) => delete_files(run, &files.iter().collect::<Vec<_>>(), &reason)?,
-        };
-        if deleted {
-            total = total.saturating_sub(kib);
-        }
+        total = total.saturating_sub(kib);
+        steps.push(Step::Unit { unit, reason });
     }
     let (in_use_kib, count, by) = in_use;
     if in_use_kib > cap_kib {
@@ -397,7 +449,7 @@ fn prune_group(tool: &Tool, run: Run, cap_kib: u64, group: Group) -> Result<()> 
             human(cap_kib)
         ));
     }
-    Ok(())
+    Ok(steps)
 }
 
 /// The KiB the file <path> takes on disk; 0 when it is gone.

@@ -198,3 +198,54 @@ fn files_and_loose_files_go_in_order_and_each_group_has_its_own_cap() {
         "the loose file went, the unit stayed under its cap"
     );
 }
+
+/// A daemon that takes every connection and never answers, as one does while
+/// it is busy: each question to it costs its asker the whole wait.
+fn silent_daemon(tool: &Tool) -> std::os::unix::net::UnixListener {
+    let socket = tool.places.daemon_socket();
+    std::fs::create_dir_all(socket.parent().unwrap()).unwrap();
+    let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+    let held = listener.try_clone().unwrap();
+    std::thread::spawn(move || {
+        let mut open = Vec::new();
+        while let Ok((stream, _)) = held.accept() {
+            open.push(stream);
+        }
+    });
+    listener
+}
+
+/// A prune holds the root exclusively only while it moves units into the
+/// trash: the questions it asks the daemon, and the measuring, come before or
+/// after, so a writer that arrives mid-prune waits for the renames only.
+#[test]
+fn a_writer_waits_for_a_prunes_renames_not_for_its_questions_to_the_daemon() {
+    let scratch = Scratch::new("capped-bounded-wait");
+    let mut tool = scratch.tool(0);
+    // A socket's path must fit in SUN_LEN, which the scratch folder's does not.
+    let volume = PathBuf::from(format!("/tmp/bw-{}", std::process::id()));
+    std::fs::create_dir_all(&volume).unwrap();
+    // /tmp is a link, and the prune resolves each folder it deletes.
+    let volume = std::fs::canonicalize(&volume).unwrap();
+    tool.places.root = volume.clone();
+    let _daemon = silent_daemon(&tool);
+    let root = tool.places.root.join("shots");
+    for n in 0..6 {
+        store(&root, &format!("bae/{n}"), 400, 30 + n);
+    }
+    let waited = std::thread::scope(|scope| {
+        let pruning = scope.spawn(|| prune_now(&tool, Run::Real, &root, 100));
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        let started = std::time::Instant::now();
+        let writer = writing(&root).unwrap();
+        let waited = started.elapsed();
+        drop(writer);
+        pruning.join().unwrap();
+        waited
+    });
+    assert!(
+        waited < std::time::Duration::from_millis(1500),
+        "a writer waited {waited:?} for a prune"
+    );
+    std::fs::remove_dir_all(&volume).unwrap();
+}

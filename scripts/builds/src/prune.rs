@@ -175,6 +175,34 @@ pub fn delete_folder(
     }
 }
 
+/// `delete_folder` for a caller that deletes many folders under one lock:
+/// <open> is its reading of the files processes hold, which replaces the
+/// `lsof` each deletion would run, and the daemon is not told (the caller
+/// tells it once, `crate::sizes::stale`).
+pub fn delete_folder_held(
+    tool: &Tool,
+    folder: &Path,
+    run: Run,
+    reason: &str,
+    recreate: Recreate,
+    removal: Removal,
+    open: &crate::evict::OpenFiles,
+) -> Result<bool> {
+    if run.dry() {
+        note(format!("would delete {} ({reason})", folder.display()));
+        return Ok(true);
+    }
+    let resolved =
+        std::fs::canonicalize(folder).context(|| format!("resolving {}", folder.display()))?;
+    if crate::evict::evict_folder(&tool.places, &resolved, recreate, removal, Some(open))? {
+        note(format!("deleted {} ({reason})", folder.display()));
+        Ok(true)
+    } else {
+        note(format!("in use, kept: {} ({reason})", folder.display()));
+        Ok(false)
+    }
+}
+
 /// A DerivedData entry and what it takes.
 pub struct Entry {
     pub path: PathBuf,

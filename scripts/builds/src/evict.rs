@@ -54,25 +54,43 @@ pub enum Recreate {
 pub fn evict(places: &Places, dir: &Path, recreate: Recreate, removal: Removal) -> Result<bool> {
     let folder = std::fs::canonicalize(dir).context(|| format!("resolving {}", dir.display()))?;
     crate::sizes::stale(places, &folder)?;
+    evict_folder(places, &folder, recreate, removal, None)
+}
+
+/// `evict` of <folder>, which is resolved already, without telling the daemon
+/// that its root changed: the caller does that once for its deletions. With
+/// <open>, a reading of the files processes hold that the caller took, the
+/// check for a process that holds a file asks it and runs no `lsof`.
+pub(crate) fn evict_folder(
+    places: &Places,
+    folder: &Path,
+    recreate: Recreate,
+    removal: Removal,
+    open: Option<&OpenFiles>,
+) -> Result<bool> {
     let parent = folder
         .parent()
         .expect("a folder to delete has a parent")
         .to_path_buf();
     let same_volume = device(&parent)? == device(&places.root)?;
-    let _guard = match crate::units::lock_guard_creating(&folder)? {
+    let _guard = match crate::units::lock_guard_creating(folder)? {
         crate::units::Guard::Busy => return Ok(false),
         guard => guard,
     };
-    let Some(_locks) = cargo_locks(&folder)? else {
+    let Some(_locks) = cargo_locks(folder)? else {
         return Ok(false);
     };
-    if held_by_a_process(&folder)? {
+    let held = match open {
+        Some(open) => open.holds(folder),
+        None => held_by_a_process(folder)?,
+    };
+    if held {
         return Ok(false);
     }
     let name = folder.file_name().expect("a folder to delete has a name");
     if !same_volume {
         let slot = make_temp_dir(&parent, ".builds-deleting.")?;
-        let moved = move_in(&folder, &slot, name, recreate)?;
+        let moved = move_in(folder, &slot, name, recreate)?;
         drop(_locks);
         remove(&slot, removal)?;
         return Ok(moved);
@@ -82,7 +100,7 @@ pub fn evict(places: &Places, dir: &Path, recreate: Recreate, removal: Removal) 
     // the slot while it is being removed.
     let _trash_lock = crate::trash::lock_shared(places)?;
     let slot = crate::trash::Slot::make(places)?;
-    let moved = move_in(&folder, &slot.path, name, recreate)?;
+    let moved = move_in(folder, &slot.path, name, recreate)?;
     drop(_locks);
     match removal {
         Removal::Now => slot.remove_now(),
@@ -199,33 +217,44 @@ fn lock_now(file: File, path: &Path) -> Result<Option<File>> {
     Ok(crate::flock::try_lock(&file, libc::LOCK_EX, path)?.then_some(file))
 }
 
+/// The names of the files, working directories and mapped files that
+/// processes other than this one hold (`lsof -n -Fpn`), read once.
+pub struct OpenFiles(Vec<Vec<u8>>);
+
+impl OpenFiles {
+    pub fn read() -> Result<OpenFiles> {
+        let me = std::process::id().to_string();
+        let output = Command::new("lsof")
+            .args(["-n", "-Fpn"])
+            .stdin(Stdio::null())
+            .stderr(Stdio::null())
+            .output()
+            .context(|| "running lsof".to_string())?;
+        let mut names = Vec::new();
+        let mut pid: &[u8] = b"";
+        for line in output.stdout.split(|byte| *byte == b'\n') {
+            match line.first() {
+                Some(b'p') => pid = &line[1..],
+                Some(b'n') if pid != me.as_bytes() => names.push(line[1..].to_vec()),
+                _ => {}
+            }
+        }
+        Ok(OpenFiles(names))
+    }
+
+    /// Does a process hold a file at or inside <folder>?
+    pub fn holds(&self, folder: &Path) -> bool {
+        let folder = folder.as_os_str().as_bytes();
+        self.0.iter().any(|name| {
+            name == folder || (name.starts_with(folder) && name.get(folder.len()) == Some(&b'/'))
+        })
+    }
+}
+
 /// Does any process but this one hold a file, a working directory or a
 /// mapped file at or inside <folder>? (`lsof -n -Fpn`)
 pub fn held_by_a_process(folder: &Path) -> Result<bool> {
-    let me = std::process::id().to_string();
-    let output = Command::new("lsof")
-        .args(["-n", "-Fpn"])
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .output()
-        .context(|| "running lsof".to_string())?;
-    let folder = folder.as_os_str().as_bytes();
-    let mut pid: &[u8] = b"";
-    for line in output.stdout.split(|byte| *byte == b'\n') {
-        match line.first() {
-            Some(b'p') => pid = &line[1..],
-            Some(b'n') if pid != me.as_bytes() => {
-                let name = &line[1..];
-                if name == folder
-                    || (name.starts_with(folder) && name.get(folder.len()) == Some(&b'/'))
-                {
-                    return Ok(true);
-                }
-            }
-            _ => {}
-        }
-    }
-    Ok(false)
+    Ok(OpenFiles::read()?.holds(folder))
 }
 
 /// A new folder in <dir> named <prefix> and eight random characters.
