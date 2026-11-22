@@ -34,6 +34,23 @@ REVIEW). Review each branch this way:
   - `builds review` refuses a second run of the same change while the branch's
     net change stays as the review read it. When a group gave no answer (its
     reviewer failed), a second run asks only those groups, over the same diff.
+- If the client refuses to start the review and only the person can approve it,
+  record the wait before asking in chat (decision #531 in builds).
+  1. Run `builds item show N` for the affected items. Reuse an open entry that
+     already names the same permission and review.
+  2. Otherwise run
+     `builds question ask --kind your-step --effect slows-agents --title "Approve the branch review" --details-file F --blocks N[,N]`.
+     In F, name the blocked branch and work, the reviewer and destination, and
+     the information the person needs to approve sending. Add `--first WHY` when
+     the refusal prevents dispatch.
+  3. Tell the coordinator immediately. If the question command also fails, set
+     `builds note <worktree> --state waiting-on-you "TEXT"` with the permission
+     the review needs before notifying the coordinator.
+  4. Keep the wait open until the person answers and a retry reaches the
+     reviewer. Use `builds question done Q --request F` with the evidence in
+     `shown_by`, every blocked item marked `"proceeds"` in `blocked`, and
+     `no_work` explaining that the existing work continues. Clear any note you
+     set with `builds note <worktree>`.
 - Run `builds review wait <landing>` as a background task when the review tells
   you to. It ends once no finding waits for a settle, and prints each settle
   with its reason and each open confirmed finding.
