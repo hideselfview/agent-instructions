@@ -65,6 +65,23 @@ CASES = [
     (False, 'lsof -p 4242'),
     (True, 'python3 -c "import time; time.sleep(598)"'),
     (False, 'python3 -c "print(1)"'),
+    (True, 'sleep 240; tail -1 /tmp/ab-1275v.log | cut -c1-200'),
+    (True, 'sleep 30 && tail -5 out.log'),
+    (True, 'sleep 5\ncat out.txt'),
+    (True, 'sleep 60 | cat; echo done'),
+    (True, 'timeout 300 sleep 240; tail -1 build.log'),
+    (True, 'gtimeout -s KILL 300 sleep 240 && tail -1 build.log'),
+    (True, 'nohup sleep 9; ls'),
+    (True, '/bin/sleep 3; cat x'),
+    (False, 'sleep 5'),
+    (False, 'sleep 5 &'),
+    (False, 'sleep 5;'),
+    (False, 'timeout 9 sleep 5'),
+    (False, 'echo start; sleep 2'),
+    (False, 'git commit -m "sleep 240; tail -1 log is a poll"'),
+    (False, 'grep -n "sleep 5; cat" notes.txt'),
+    (False, 'echo "sleep 5; tail x" > fixture.sh'),
+    (False, 'tail -1 build.log'),
 ]
 bad = 0
 for want, cmd in CASES:

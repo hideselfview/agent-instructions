@@ -8,6 +8,7 @@ Such loops ran for 15 hours before anyone killed them. The same goes for a
 wait on a pid or a time without a loop (`caffeinate -w <pid>`, `caffeinate -t
 170`), which `builds health` stopped as junk several times an hour. Work that
 takes a while runs in the background, and the harness reports when it exits.
+The same goes for one `sleep` followed by a read of the build's output.
 """
 
 import json
@@ -25,8 +26,10 @@ REASON = (
     "that checks a process (pgrep, lsof, kill -0, ps -p) or sleeps between checks, `tail -f | grep`, "
     "`tail -f --pid`, `caffeinate -t` or `-w`, `lsof -r`, and python's `time.sleep`. Such a wait can "
     "keep running for hours after its condition came true, or forever when the condition never "
-    "comes true. `wait <pid>` returns at once when another command started the process. Run the "
-    "work in the background (run_in_background) and wait for its completion notification."
+    "comes true. `wait <pid>` returns at once when another command started the process. A command "
+    "that starts with `sleep` and goes on to read a log (`sleep 240; tail -1 build.log`) polls the "
+    "same way. Run the work in the background (run_in_background) and wait for its completion "
+    "notification."
 )
 
 LOOP = re.compile(r"\b(while|until)\b(?P<cond>.*?)\bdo\b", re.S)
@@ -158,6 +161,19 @@ def sleeps_in_loop(command: str) -> bool:
     return False
 
 
+def sleeps_then_runs(command: str) -> bool:
+    """A command whose first step is `sleep` (or a wrapper around one, such as
+    `timeout 300 sleep 240`) and that has any later step: `sleep 240; tail -1
+    build.log`. One wait followed by a read polls a background task by hand, and
+    the harness reports when the task ends. A `sleep` alone, a `sleep` after
+    another step, and the word inside a quoted string are not refused."""
+    steps = [words for words, _ in shell_words.commands(command) if words]
+    if len(steps) < 2:
+        return False
+    first = program(steps[0])
+    return bool(first) and Path(first[0]).name == "sleep"
+
+
 def blocked(command: str) -> bool:
     # A loop that checks a process, or any loop that sleeps between checks:
     # both poll for a condition the harness already reports, and a condition
@@ -168,6 +184,7 @@ def blocked(command: str) -> bool:
         or waits_on_pid(command)
         or any(simple_wait(words) for words, _ in shell_words.commands(command))
         or sleeps_in_loop(command)
+        or sleeps_then_runs(command)
         or any(PROCESS_CHECK.search(m.group("cond")) for m in LOOP.finditer(command))
     )
 
