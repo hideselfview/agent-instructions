@@ -365,7 +365,7 @@ fn a_quote_is_found_on_the_line_it_starts_on_across_lines_and_marks() {
 
 /// Records one check of a brief in repo <repo> for item <item>, with one
 /// conflict and one unstated behavior, through `record`.
-pub fn record_one(db: &Connection, repo: &str, item: Id) {
+pub fn record_one(db: &Connection, repo: &str, item: Id, cost: Option<i64>) {
     let checked = Checked {
         target: Target {
             repo: repo.to_string(),
@@ -383,7 +383,7 @@ pub fn record_one(db: &Connection, repo: &str, item: Id) {
             tokens_out: 1,
             tokens_cached: 0,
             tokens_written: 0,
-            cost_microdollars: Some(5),
+            cost_microdollars: cost,
         },
         failure: None,
         findings: vec![
@@ -409,20 +409,15 @@ pub fn record_one(db: &Connection, repo: &str, item: Id) {
     };
     let ids = record(db, &stamp(NOON), &brief, &[item], &[checked], None).unwrap();
     let all = read_all(db).unwrap();
-    assert_eq!(
-        all[&item]
-            .iter()
-            .map(|c| (c.id, c.conflicts, c.unstated))
-            .collect::<Vec<_>>(),
-        vec![(ids[0], 1, 1)]
-    );
+    let recorded = all[&item].iter().find(|check| check.id == ids[0]).unwrap();
+    assert_eq!((recorded.conflicts, recorded.unstated), (1, 1));
 }
 
 #[test]
 fn the_tables_refuse_a_row_that_breaks_a_constraint() {
     let db = crate::lists::fixtures::db();
     let item = crate::lists::fixtures::item(&db, Vec::new());
-    record_one(&db, "bae", item);
+    record_one(&db, "bae", item, Some(5));
     let check = [
         ("at", v(1)),
         ("by", v("tester")),
@@ -535,4 +530,21 @@ fn the_tables_refuse_a_row_that_breaks_a_constraint() {
     }
     plant(&db, "spec_check_finding", &finding).unwrap();
     refused.done();
+}
+
+#[test]
+fn recording_keeps_unknown_cost_distinct_from_zero() {
+    let db = crate::lists::fixtures::db();
+    let item = crate::lists::fixtures::item(&db, Vec::new());
+    record_one(&db, "bae", item, None);
+    // Each attempt belongs to the same item and has its own recorded cost.
+    record_one(&db, "bae", item, Some(0));
+    let costs = db
+        .prepare("SELECT cost_microdollars FROM spec_check ORDER BY id")
+        .unwrap()
+        .query_map([], |row| row.get::<_, Option<i64>>(0))
+        .unwrap()
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .unwrap();
+    assert_eq!(costs, [None, Some(0)]);
 }

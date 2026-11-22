@@ -32,7 +32,7 @@ CREATE TABLE spec_check (
     tokens_out INTEGER NOT NULL CONSTRAINT spec_check_tokens_out_not_negative CHECK (tokens_out >= 0),
     tokens_cached INTEGER NOT NULL CONSTRAINT spec_check_tokens_cached_not_negative CHECK (tokens_cached >= 0),
     tokens_written INTEGER NOT NULL CONSTRAINT spec_check_tokens_written_not_negative CHECK (tokens_written >= 0),
-    cost_microdollars INTEGER NOT NULL CONSTRAINT spec_check_cost_not_negative CHECK (cost_microdollars >= 0),
+    cost_microdollars INTEGER CONSTRAINT spec_check_cost_not_negative CHECK (cost_microdollars >= 0),
     -- Why the check gave no usable answer; null when it did.
     failure TEXT,
     -- The decision or question that records the person's choice on the

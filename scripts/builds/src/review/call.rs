@@ -53,6 +53,27 @@ pub struct Usage {
     pub cost_microdollars: Option<i64>,
 }
 
+impl Usage {
+    pub(super) fn add(&mut self, other: Self) {
+        self.tokens_in += other.tokens_in;
+        self.tokens_out += other.tokens_out;
+        self.tokens_cached += other.tokens_cached;
+        self.tokens_written += other.tokens_written;
+        self.cost_microdollars = sum_cost([self.cost_microdollars, other.cost_microdollars]);
+    }
+}
+
+pub(super) fn sum_cost(costs: impl IntoIterator<Item = Option<i64>>) -> Option<i64> {
+    costs.into_iter().sum()
+}
+
+pub(super) fn cost_text(cost: Option<i64>) -> String {
+    match cost {
+        Some(cost) => format!("${:.2}", cost as f64 / 1_000_000.0),
+        None => "cost not recorded".to_string(),
+    }
+}
+
 /// A reviewer's model, token usage and answer in the schema.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Invoked {

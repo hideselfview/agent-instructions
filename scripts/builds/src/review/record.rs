@@ -58,13 +58,7 @@ pub struct NewCall {
     /// The group's prompt without what each review brings (`prompt::setup`).
     pub prompt: String,
     pub rules: Vec<String>,
-    pub tokens_in: i64,
-    pub tokens_out: i64,
-    pub tokens_cached: i64,
-    pub tokens_written: i64,
-    /// What `claude -p` reported the call's processes cost, in millionths of
-    /// a US dollar.
-    pub cost_microdollars: Option<i64>,
+    pub usage: super::call::Usage,
     /// The sites a group that lists them judged, as JSON.
     pub sites: Option<String>,
     pub failure: Option<String>,
@@ -484,7 +478,7 @@ pub fn add_calls(
         let prompt = texts::hash(&call.prompt);
         db.execute(
             "INSERT INTO review_call (run_id, group_name, model, prompt, rules, tokens_in, tokens_out, tokens_cached, tokens_written, cost_microdollars, sites, failure) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
-            params![run_id, call.group, call.model, prompt, rules, call.tokens_in, call.tokens_out, call.tokens_cached, call.tokens_written, call.cost_microdollars, call.sites, call.failure],
+            params![run_id, call.group, call.model, prompt, rules, call.usage.tokens_in, call.usage.tokens_out, call.usage.tokens_cached, call.usage.tokens_written, call.usage.cost_microdollars, call.sites, call.failure],
         )
         .sql()?;
         let call_id = db.last_insert_rowid();

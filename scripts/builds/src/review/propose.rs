@@ -384,12 +384,7 @@ pub fn propose(inputs: &Inputs) -> Result<Proposed> {
     text.push_str(&misses(inputs, &conn)?);
     let cost = cost.map_or_else(
         || "The reviewers did not report a total cost".to_string(),
-        |cost| {
-            format!(
-                "The checks cost {}",
-                super::cases::reported_cost(Some(cost))
-            )
-        },
+        |cost| format!("The checks cost {}", super::call::cost_text(Some(cost))),
     );
     text.push_str(&format!(
         "{cost}. Commit the cases in {}.\n",

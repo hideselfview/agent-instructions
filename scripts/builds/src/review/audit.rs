@@ -420,7 +420,7 @@ pub fn settle_misses(
             Err(why) => {
                 failed = true;
                 text.push_str(&format!(
-                    "    the check gave no answer ({why}); settle it: builds review settle {} confirmed|dropped --why TEXT\n",
+                    "    The check gave no answer ({why}). Run builds review misses --check to retry finding {}.\n",
                     miss.id
                 ));
             }

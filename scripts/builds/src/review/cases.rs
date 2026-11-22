@@ -390,8 +390,8 @@ impl CaseResult {
 
     pub fn tokens(&self) -> (i64, i64) {
         (
-            self.calls.iter().map(|c| c.tokens_in).sum(),
-            self.calls.iter().map(|c| c.tokens_out).sum(),
+            self.calls.iter().map(|c| c.usage.tokens_in).sum(),
+            self.calls.iter().map(|c| c.usage.tokens_out).sum(),
         )
     }
 }
@@ -589,14 +589,12 @@ pub fn totals(results: &[CaseResult]) -> Totals {
         let (i, o) = r.tokens();
         t.tokens_in += i;
         t.tokens_out += o;
-        t.tokens_cached += r.calls.iter().map(|c| c.tokens_cached).sum::<i64>();
-        t.tokens_written += r.calls.iter().map(|c| c.tokens_written).sum::<i64>();
-        let cost = r
-            .calls
-            .iter()
-            .map(|c| c.cost_microdollars)
-            .sum::<Option<i64>>();
-        t.cost_microdollars = t.cost_microdollars.zip(cost).map(|(a, b)| a + b);
+        t.tokens_cached += r.calls.iter().map(|c| c.usage.tokens_cached).sum::<i64>();
+        t.tokens_written += r.calls.iter().map(|c| c.usage.tokens_written).sum::<i64>();
+        t.cost_microdollars = super::call::sum_cost(
+            std::iter::once(t.cost_microdollars)
+                .chain(r.calls.iter().map(|c| c.usage.cost_microdollars)),
+        );
         t.repeat.input += r.repeat.input;
         t.repeat.cached += r.repeat.cached;
         t.repeat.written += r.repeat.written;
@@ -659,13 +657,6 @@ fn site_report(results: &[CaseResult]) -> String {
     out
 }
 
-pub(super) fn reported_cost(cost: Option<i64>) -> String {
-    match cost {
-        Some(cost) => format!("${:.2}", cost as f64 / 1_000_000.0),
-        None => "cost not recorded".to_string(),
-    }
-}
-
 /// What one setup did over the test set: problems caught and missed, wrong
 /// flags (blocking findings on a rule the case expects to raise none, and
 /// findings on a `none` site), tokens and cost.
@@ -679,7 +670,7 @@ fn setup_line(name: &str, results: &[CaseResult]) -> String {
         results.iter().map(CaseResult::wrong_flags).sum::<usize>(),
         t.tokens_in,
         t.tokens_out,
-        reported_cost(t.cost_microdollars),
+        super::call::cost_text(t.cost_microdollars),
         match t.failed_calls {
             0 => String::new(),
             n => format!(", {} failed", plural(n, "call")),
@@ -744,7 +735,7 @@ pub fn report(results: &[CaseResult]) -> String {
         t.tokens_cached,
         t.tokens_written,
         t.tokens_out,
-        reported_cost(t.cost_microdollars)
+        super::call::cost_text(t.cost_microdollars)
     ));
     if t.repeat != Tokens::default() {
         out.push_str(&format!(

@@ -678,7 +678,7 @@ pub fn ask_groups(
                 .map(|f| f.path.clone())
                 .unwrap_or_default(),
             pass: pass as i64,
-            system: parts.system.clone(),
+            system: reviewer.instructions(&parts.system).into_owned(),
             message: parts.message.clone(),
             output: output.output.clone(),
             tokens_in: output.usage.tokens_in,
@@ -802,10 +802,10 @@ pub struct Tokens {
 
 impl Tokens {
     fn add(&mut self, call: &NewCall) {
-        self.input += call.tokens_in;
-        self.cached += call.tokens_cached;
-        self.written += call.tokens_written;
-        self.output += call.tokens_out;
+        self.input += call.usage.tokens_in;
+        self.cached += call.usage.tokens_cached;
+        self.written += call.usage.tokens_written;
+        self.output += call.usage.tokens_out;
     }
 }
 
@@ -874,11 +874,10 @@ fn bare_call(
         model: reviewer.model_name(&group.model),
         prompt: reviewer.setup(&group.model, prompt::setup(group, members)),
         rules: prompt::answer_names(group, members),
-        tokens_in: 0,
-        tokens_out: 0,
-        tokens_cached: 0,
-        tokens_written: 0,
-        cost_microdollars: Some(0),
+        usage: call::Usage {
+            cost_microdollars: Some(0),
+            ..call::Usage::default()
+        },
         sites: None,
         failure,
         verdicts: Vec::new(),
@@ -893,14 +892,7 @@ fn bare_call(
 /// keeps the failures.
 fn merge(held: &mut NewCall, more: NewCall) {
     held.exchanges.extend(more.exchanges);
-    held.tokens_in += more.tokens_in;
-    held.tokens_out += more.tokens_out;
-    held.tokens_cached += more.tokens_cached;
-    held.tokens_written += more.tokens_written;
-    held.cost_microdollars = held
-        .cost_microdollars
-        .zip(more.cost_microdollars)
-        .map(|(a, b)| a + b);
+    held.usage.add(more.usage);
     held.failure = match (held.failure.take(), more.failure) {
         (Some(a), Some(b)) => Some(format!("{a}; {b}")),
         (a, b) => a.or(b),
@@ -963,11 +955,7 @@ fn checked(
         model: output.model,
         prompt: setup,
         rules: prompt::answer_names(group, members),
-        tokens_in: output.usage.tokens_in,
-        tokens_out: output.usage.tokens_out,
-        tokens_cached: output.usage.tokens_cached,
-        tokens_written: output.usage.tokens_written,
-        cost_microdollars: output.usage.cost_microdollars,
+        usage: output.usage,
         sites: None,
         failure: None,
         verdicts: Vec::new(),

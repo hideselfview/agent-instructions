@@ -129,11 +129,10 @@ fn landed_card(scratch: &Scratch) -> (crate::lists::store::Store, Id) {
                 model: "sonnet".into(),
                 prompt: "p".into(),
                 rules: vec!["r".into()],
-                tokens_in: 0,
-                tokens_out: 0,
-                tokens_cached: 0,
-                tokens_written: 0,
-                cost_microdollars: Some(0),
+                usage: crate::review::call::Usage {
+                    cost_microdollars: Some(0),
+                    ..crate::review::call::Usage::default()
+                },
                 sites: None,
                 failure: None,
                 verdicts: vec![("r".into(), "none".into())],

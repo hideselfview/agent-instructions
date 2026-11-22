@@ -39,11 +39,10 @@ fn codex_returns_the_final_structured_message_and_the_turns_usage() {
         r#"{"type":"item.completed","item":{"type":"agent_message","text":"Reading context."}}"#,
         r#"{"type":"item.completed","item":{"type":"agent_message","text":"{\"claims\":[]}"}}"#,
     );
-    let called = codex_events(events.as_bytes(), "gpt-6.2-sol", false);
-    assert_eq!(called.model, "gpt-6.2-sol");
+    let called = codex_events(events.as_bytes(), false);
     assert_eq!(called.body.unwrap(), json!({"claims": []}));
     assert_eq!(
-        called.usage,
+        called.usage.unwrap(),
         Usage {
             tokens_in: 31,
             tokens_out: 12,
@@ -62,16 +61,12 @@ fn codex_rejects_a_command_in_a_check_that_has_no_tools() {
         r#"{"type":"item.completed","item":{"type":"agent_message","text":"{\"claims\":[]}"}}"#,
     );
     assert!(
-        codex_events(events.as_bytes(), "gpt-6.2-sol", false)
+        codex_events(events.as_bytes(), false)
             .body
             .unwrap_err()
             .contains("command_execution")
     );
-    assert!(
-        codex_events(events.as_bytes(), "gpt-6.2-sol", true)
-            .body
-            .is_ok()
-    );
+    assert!(codex_events(events.as_bytes(), true).body.is_ok());
 }
 
 #[test]
@@ -82,9 +77,7 @@ fn codex_cannot_pass_a_check_after_a_failed_turn() {
     ]
     .join("\n");
     assert_eq!(
-        codex_events(events.as_bytes(), "gpt-6.2-sol", false)
-            .body
-            .unwrap_err(),
+        codex_events(events.as_bytes(), false).body.unwrap_err(),
         "the API refused the request"
     );
 }
@@ -93,7 +86,7 @@ fn codex_cannot_pass_a_check_after_a_failed_turn() {
 fn a_codex_session_runs_the_ruling_check_with_the_codex_protocol() {
     let scratch = crate::testing::Scratch::new("codex-rulings");
     let mut tool = scratch.tool(0);
-    let executable = default_program(None, Some(""), true);
+    let executable = default_program(None, Some(OsStr::new("")), true);
     let script = scratch.script(
         "codex",
         &format!(
@@ -141,10 +134,10 @@ fn an_invalid_event_cannot_change_an_answer_or_erase_reported_usage() {
     events.extend_from_slice(br#"{"type":"item.completed","item":{"type":"agent_message","text":"#);
     events.push(0xff);
     events.extend_from_slice(br#""}}"#);
-    let called = codex_events(&events, "gpt-6.2-sol", false);
+    let called = codex_events(&events, false);
     assert!(called.body.unwrap_err().contains("invalid event"));
-    assert_eq!(called.usage.tokens_in, 31);
-    assert!(called.usage.cost_microdollars.is_none());
+    assert_eq!(called.usage.unwrap().tokens_in, 31);
+    assert!(called.usage.unwrap().cost_microdollars.is_none());
 }
 
 #[test]
@@ -240,7 +233,14 @@ fn actual_code_review_uses_astra_and_design_and_replay_use_sol() {
         })
         .unwrap()
     };
-    let answer = |rule| json!({"rules": [{"rule": rule, "verdict": "none", "findings": []}]});
+    let answer = |rule| {
+        json!({
+            "rules": [{"rule": rule, "verdict": "none", "findings": []}],
+            "summary": null,
+            "closed": null,
+            "sites": null,
+        })
+    };
     let astra = expecting_model(&demo.scratch, "gpt-6.2-astra", answer("rule-a"));
     let reviewed = branch(&code, "branch:code", &astra);
     assert!(reviewed.refusal.is_none(), "{}", reviewed.text);
@@ -250,6 +250,47 @@ fn actual_code_review_uses_astra_and_design_and_replay_use_sol() {
     let reviewed = branch(&design, "branch:design", &sol);
     assert!(reviewed.refusal.is_none(), "{}", reviewed.text);
     assert!(reviewed.text.contains("gpt-6.2-sol"));
+
+    let retry = demo.add_side(3, "agent", "retry");
+    std::fs::create_dir_all(retry.join("design")).unwrap();
+    demo.commit(&retry, "design/panel.html");
+    let executable = demo.scratch.script("codex", "cat >/dev/null\nexit 2");
+    let offline = Program::new(executable, demo.scratch.dir.clone());
+    assert!(branch(&retry, "branch:retry", &offline).refusal.is_some());
+    demo.commit(&retry, "a.rs");
+    let event = |rule| {
+        json!({
+            "type": "item.completed",
+            "item": {"type": "agent_message", "text": answer(rule).to_string()},
+        })
+    };
+    let shell = format!(
+        r#"set -e
+cat >/dev/null
+while [ "$1" != --model ]; do shift; done
+case "$2" in
+    gpt-6.2-sol) cat <<'SOL'
+{sol}
+SOL
+        ;;
+    gpt-6.2-astra) cat <<'ASTRA'
+{astra}
+ASTRA
+        ;;
+    *) exit 2 ;;
+esac
+cat <<'DONE'
+{COMPLETED}
+DONE"#,
+        sol = event("rule-d"),
+        astra = event("rule-a"),
+    );
+    let executable = demo.scratch.script("codex", &shell);
+    let online = Program::new(executable, demo.scratch.dir.clone());
+    let retries = branch(&retry, "branch:retry", &online);
+    assert!(retries.refusal.is_none(), "{}", retries.text);
+    assert!(retries.text.contains("gpt-6.2-sol"), "{}", retries.text);
+    assert!(retries.text.contains("gpt-6.2-astra"), "{}", retries.text);
 
     let sol = expecting_model(&demo.scratch, "gpt-6.2-sol", answer("rule-a"));
     let case = cases::Case {
@@ -307,4 +348,103 @@ fn a_codex_spec_check_uses_sol_even_when_the_rule_uses_the_high_tier() {
     .remove(0);
     assert_eq!(checked.model, "gpt-6.2-sol");
     assert!(checked.failure.is_none(), "{:?}", checked.failure);
+}
+
+#[test]
+fn claude_records_the_model_that_answered_instead_of_its_alias() {
+    let reply = serde_json::json!({
+        "structured_output": {"rules": []},
+        "modelUsage": {
+            "claude-opus-4-8": {},
+            "claude-haiku-4-5": {},
+        },
+    });
+    let invoked = claude_envelope(reply.to_string().as_bytes(), "opus");
+    assert_eq!(invoked.model, "claude-opus-4-8");
+}
+
+#[test]
+fn claude_refuses_invalid_envelope_fields_and_token_overflow() {
+    for (field, value, expected) in [
+        ("is_error", json!("false"), "invalid is_error"),
+        (
+            "structured_output",
+            json!(null),
+            "invalid structured_output",
+        ),
+        ("usage", json!({"input_tokens": -1}), "invalid input_tokens"),
+        (
+            "usage",
+            json!({"output_tokens": "7"}),
+            "invalid output_tokens",
+        ),
+        (
+            "usage",
+            json!({"input_tokens": i64::MAX, "cache_read_input_tokens": 1}),
+            "supported range",
+        ),
+    ] {
+        let mut envelope = json!({"is_error": false, "result": "{\"rules\":[]}"});
+        envelope[field] = value;
+        let response = claude_envelope(envelope.to_string().as_bytes(), "opus");
+        assert!(response.body.unwrap_err().contains(expected));
+    }
+}
+
+#[test]
+fn a_failed_claude_process_keeps_reported_usage() {
+    let scratch = crate::testing::Scratch::new("claude-failed-envelope");
+    let executable = scratch.script("claude", r#"cat >/dev/null
+cat <<'REPLY'
+{"is_error":true,"result":"rate limit","total_cost_usd":0,"usage":{"input_tokens":5},"modelUsage":{"claude-opus-4-8":{}}}
+REPLY
+exit 2"#);
+    let called = invoke(
+        &Program::new(executable, scratch.dir.clone()),
+        &Selection::Tier(Tier::High),
+        &json!({}),
+        "",
+        "check",
+        None,
+    );
+    assert_eq!(called.usage.tokens_in, 5);
+    assert_eq!(called.usage.cost_microdollars, Some(0));
+    assert_eq!(called.model, "claude-opus-4-8");
+    assert!(
+        called
+            .body
+            .unwrap_err()
+            .contains("exited with exit status: 2")
+    );
+}
+
+#[test]
+fn codex_reports_stdout_when_the_process_fails_without_stderr() {
+    let scratch = crate::testing::Scratch::new("codex-failed-stdout");
+    let executable = scratch.script("codex", "cat >/dev/null\necho 'credential failed'\nexit 2");
+    let called = invoke(
+        &Program::new(executable, scratch.dir.clone()),
+        &Selection::Tier(Tier::High),
+        &json!({}),
+        "",
+        "check",
+        None,
+    );
+    assert!(called.body.unwrap_err().contains("credential failed"));
+    assert_eq!(called.model, "unknown (requested gpt-6.2-sol)");
+}
+
+#[test]
+fn codex_startup_errors_do_not_claim_a_model_ran() {
+    let scratch = crate::testing::Scratch::new("codex-startup-failure");
+    let called = invoke(
+        &Program::new(scratch.dir.join("codex"), scratch.dir.clone()),
+        &Selection::Tier(Tier::High),
+        &json!({}),
+        "",
+        "check",
+        None,
+    );
+    assert!(called.body.unwrap_err().contains("running"));
+    assert_eq!(called.model, "unknown (requested gpt-6.2-sol)");
 }

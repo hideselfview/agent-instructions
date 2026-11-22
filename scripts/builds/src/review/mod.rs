@@ -155,7 +155,7 @@ impl Reviewer {
 
     /// The session's reviewer and the rules checkout install links in the home folder.
     pub fn installed(places: &crate::places::Places) -> Reviewer {
-        let claude = std::env::var(crate::ack::SESSION).ok();
+        let claude = std::env::var_os(crate::ack::SESSION);
         let codex = ["CODEX_SESSION_ID", "CODEX_THREAD_ID"]
             .iter()
             .any(|key| std::env::var_os(key).is_some_and(|value| !value.is_empty()));
@@ -393,16 +393,6 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
             refusal: None,
         });
     }
-    let code_review = change
-        .diff
-        .changed
-        .iter()
-        .any(|path| design.kind_of(path).is_none() && !design.names_spec_file(path));
-    let reviewer = if code_review {
-        inputs.reviewer.for_code_review()
-    } else {
-        inputs.reviewer.clone()
-    };
     let under_review = record::Change {
         repo: inputs.repo,
         key: inputs.key,
@@ -457,6 +447,11 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
             running.push((ask.change.head.clone(), Running::start(file)?));
         }
         let picked = material.groups.named(&material.rules, &ask.groups);
+        let reviewer = if design.includes_code(&ask.change.diff.changed) {
+            inputs.reviewer.for_code_review()
+        } else {
+            inputs.reviewer.clone()
+        };
         answers.push(run::ask_groups(
             scope,
             &reviewer,
@@ -467,7 +462,7 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
         ));
     }
     if let Some(last) = answers.last_mut() {
-        material.close_deleted(&reviewer, last, &gone);
+        material.close_deleted(inputs.reviewer, last, &gone);
     }
     // Two runs of one review can each close the same finding: the first
     // closes it.

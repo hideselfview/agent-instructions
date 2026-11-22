@@ -3208,8 +3208,8 @@ Before an agent starts on a brief, `builds item take` checks the brief against
 the product spec with the same reviewer runner, in each worktree the take names
 whose repo has spec files (`builds lists design-globs --spec-files`). The
 reviewer reads the rule every-change-agrees-with-its-product-spec. Codex uses
-GPT-6.2 Sol for this check. Claude uses the tier of the rule's group. The reviewer quotes each sentence of the brief that states a
-behavior the spec states otherwise (a conflict), with the spec file and the
+GPT-6.2 Sol for this check. Claude uses the tier of the rule's group. The
+reviewer quotes each sentence of the brief that states a behavior the spec states otherwise (a conflict), with the spec file and the
 spec's text, and each sentence that states a behavior the spec doesn't state
 (unstated). Storage the brief adds that the spec's schema text does not list,
 such as a new column, is unstated, since the commit adds it to the spec. builds
@@ -3220,8 +3220,9 @@ When the reviewer finds a conflict, take refuses the items unless
 choice; take prints each unstated behavior and takes the items. take records
 every check in the project's store: the brief's text, the spec files and the
 commit the reviewer read them at, the model, prompt, answer,
-tokens and cost, each finding, and the --spec-decided record (`builds help
-lists`, item take). Before the spec check, take runs the rulings check over
+tokens, any cost the reviewer reports, each finding, and the --spec-decided
+record (`builds help lists`, item take). Before the spec check, take runs the
+rulings check over
 the brief with a reviewer that has no tools, and refuses a brief whose
 sentence states a ruling of the person's or a standing prohibition and names
 no source that records it (`builds help lists`, RULINGS).

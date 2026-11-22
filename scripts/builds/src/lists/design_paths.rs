@@ -121,14 +121,25 @@ impl Globs {
     pub fn kind_of(&self, path: &str) -> Option<FileKind> {
         if self.holds_design_file(path) {
             Some(FileKind::Design)
-        } else if self.capture.iter().any(|folder| {
-            path.strip_prefix(folder.as_str())
-                .is_some_and(|rest| rest.starts_with('/'))
-        }) {
+        } else if self.is_capture(path) {
             Some(FileKind::Capture)
         } else {
             None
         }
+    }
+
+    fn is_capture(&self, path: &str) -> bool {
+        self.capture.iter().any(|folder| {
+            path.strip_prefix(folder.as_str())
+                .is_some_and(|rest| rest.starts_with('/'))
+        })
+    }
+
+    pub fn includes_code(&self, paths: &[String]) -> bool {
+        classify(self, paths)
+            .outside
+            .iter()
+            .any(|path| !self.is_capture(path))
     }
 
     /// Does <key> name a design place of these globs: a board file, or a

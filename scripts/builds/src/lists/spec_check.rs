@@ -371,7 +371,7 @@ fn check(
         target: target.clone(),
         model: invoked.model,
         rules_version: setup.rules_version.clone(),
-        system,
+        system: program.instructions(&system).into_owned(),
         message,
         output,
         usage: invoked.usage,
@@ -525,7 +525,7 @@ pub fn record(
                 check.usage.tokens_cached,
                 check.usage.tokens_written,
                 // The spec check table uses zero when the provider reports no cost.
-                check.usage.cost_microdollars.unwrap_or(0),
+                check.usage.cost_microdollars,
                 check.failure,
                 decided.map(|(id, _)| id),
                 decided.map(|(_, kind)| kind.word()),
@@ -740,3 +740,19 @@ pub fn plant(
 #[cfg(test)]
 #[path = "spec_check_tests.rs"]
 pub mod tests;
+
+/// Keeps each recorded check while allowing a reviewer to leave the cost unknown.
+pub fn allow_unknown_cost(db: &rusqlite::Connection) -> Result<()> {
+    use crate::db::{SPEC_CHECK_PART, remake_table, statement};
+    remake_table(
+        db,
+        "spec_check",
+        statement(SPEC_CHECK_PART, "CREATE TABLE spec_check (", ") STRICT;"),
+        |db| {
+            use crate::db::Sql;
+            db.execute_batch("INSERT INTO spec_check SELECT * FROM spec_check_old")
+                .sql()
+        },
+        &[],
+    )
+}

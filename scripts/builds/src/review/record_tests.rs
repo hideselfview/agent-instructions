@@ -7,11 +7,13 @@ fn call(group: &str, finding: Option<(&str, bool, Option<&str>)>) -> NewCall {
         model: "sonnet".to_string(),
         prompt: format!("the prompt of {group}"),
         rules: vec!["r".to_string()],
-        tokens_in: 10,
-        tokens_out: 2,
-        tokens_cached: 4,
-        tokens_written: 3,
-        cost_microdollars: Some(500_000),
+        usage: crate::review::call::Usage {
+            tokens_in: 10,
+            tokens_out: 2,
+            tokens_cached: 4,
+            tokens_written: 3,
+            cost_microdollars: Some(500_000),
+        },
         sites: None,
         failure: None,
         exchanges: vec![NewExchange {

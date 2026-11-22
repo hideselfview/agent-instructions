@@ -2199,3 +2199,56 @@ fn a_store_from_before_the_shots_uses_keeps_its_steps_and_gains_the_table() {
         .unwrap();
     assert_eq!((steps, uses), (1, 0));
 }
+
+#[test]
+fn a_move_allows_unknown_spec_cost_and_keeps_previous_checks_and_findings() {
+    use crate::lists::{fixtures, project, spec_check};
+    let scratch = Scratch::new("move-spec-check-cost");
+    let places = scratch.places();
+    let path = scratch.dir.join(DATABASE);
+    let item = {
+        let conn = Connection::open(&path).unwrap();
+        let prior = db::schema_before_unknown_spec_check_cost();
+        assert_eq!(
+            db::stamp_of_text(&prior),
+            BEFORE_UNKNOWN_SPEC_CHECK_COST_STAMP
+        );
+        conn.execute_batch(&prior).unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_UNKNOWN_SPEC_CHECK_COST_STAMP)
+            .unwrap();
+        project::init(
+            &conn,
+            &project::NewProject {
+                name: "demo".into(),
+                canvas: true,
+                repos: vec!["bae".into()],
+                places: Default::default(),
+                sources: Default::default(),
+                specs: Default::default(),
+            },
+        )
+        .unwrap();
+        crate::lists::area::add_area(&conn, "Alpha", None).unwrap();
+        let item = fixtures::item(&conn, Vec::new());
+        spec_check::tests::record_one(&conn, "bae", item, Some(0));
+        item
+    };
+    move_store(&places, &path, 0).unwrap();
+    let conn = db::open(&path, db::Make::Never).unwrap();
+    spec_check::tests::record_one(&conn, "bae", item, None);
+    let costs = conn
+        .prepare("SELECT cost_microdollars FROM spec_check ORDER BY id")
+        .unwrap()
+        .query_map([], |row| row.get::<_, Option<i64>>(0))
+        .unwrap()
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .unwrap();
+    assert_eq!(costs, [Some(0), None]);
+    let check = &spec_check::read_all(&conn).unwrap()[&item];
+    assert_eq!(check.len(), 2);
+    assert!(
+        check
+            .iter()
+            .all(|check| check.conflicts == 1 && check.unstated == 1)
+    );
+}

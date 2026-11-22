@@ -191,7 +191,10 @@ fn an_audit_records_two_runs_names_the_misses_and_feeds_the_miss_rate() {
         text.contains("1 candidate misses the review did not raise"),
         "{text}"
     );
-    assert!(text.contains("the check gave no answer"), "{text}");
+    assert!(
+        text.contains("The check gave no answer") && text.contains("builds review misses --check"),
+        "{text}"
+    );
     let prompts = fake.prompts();
     assert_eq!(
         prompts

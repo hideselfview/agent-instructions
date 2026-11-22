@@ -534,7 +534,7 @@ each quoted sentence with what it cites, with the title of each decision, and
 writes. When the reviewer gives no usable answer, builds refuses the command.
 The check records nothing in the store. The rules checkout is
 ~/.codex/agent-instructions; `item take` takes --rules-root and --reviewer in
-place of it and of claude.
+place of that checkout and the session reviewer.
 
 
 DESIGN CHANGES

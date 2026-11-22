@@ -431,11 +431,11 @@ fn spend_text(s: &Spend) -> String {
     let cost = if s.calls > 0 && s.uncosted == s.calls {
         "cost not recorded".to_string()
     } else if s.uncosted == 0 {
-        format!("${:.2}", dollars(s.cost_microdollars))
+        super::call::cost_text(Some(s.cost_microdollars))
     } else {
         format!(
-            "${:.2} (not recorded for {} of {} calls)",
-            dollars(s.cost_microdollars),
+            "{} (not recorded for {} of {} calls)",
+            super::call::cost_text(Some(s.cost_microdollars)),
             s.uncosted,
             s.calls
         )
@@ -444,10 +444,6 @@ fn spend_text(s: &Spend) -> String {
         "{} calls, {} tokens in, {} out, {cost}",
         s.calls, s.tokens_in, s.tokens_out
     )
-}
-
-fn dollars(microdollars: i64) -> f64 {
-    microdollars as f64 / 1_000_000.0
 }
 
 fn setup_text(setup: &Setup) -> String {

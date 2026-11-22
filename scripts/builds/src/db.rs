@@ -396,7 +396,26 @@ CREATE TABLE design_deleted (
 /// the schema.
 #[cfg(test)]
 fn without_step_shots(schema: String) -> String {
-    schema.replacen(&format!("\n{APP_BUILD_STEP_SHOTS_PART}"), "", 1)
+    without_unknown_spec_check_cost(schema.replacen(
+        &format!("\n{APP_BUILD_STEP_SHOTS_PART}"),
+        "",
+        1,
+    ))
+}
+
+#[cfg(test)]
+fn without_unknown_spec_check_cost(schema: String) -> String {
+    schema.replacen(
+        "cost_microdollars INTEGER CONSTRAINT spec_check_cost_not_negative",
+        "cost_microdollars INTEGER NOT NULL CONSTRAINT spec_check_cost_not_negative",
+        1,
+    )
+}
+
+/// The schema before a spec check could record an unknown cost.
+#[cfg(test)]
+pub fn schema_before_unknown_spec_check_cost() -> String {
+    without_unknown_spec_check_cost(SCHEMA.to_string())
 }
 
 /// <schema> as it was before a change could delete a component: with the
@@ -586,7 +605,7 @@ fn schema_before(part: &str) -> String {
 /// part but the last.
 #[cfg(test)]
 pub fn schema_before_app_build_step_shots() -> String {
-    SCHEMA_PARTS[..SCHEMA_PARTS.len() - 1].join("\n")
+    without_step_shots(SCHEMA.to_string())
 }
 
 /// The schema as it was before the shots prefixes dropped from a landing

@@ -1,6 +1,8 @@
 //! Selects the reviewer executable and model and connects the provider's CLI
 //! protocol to the common schemas and checks.
 
+use std::borrow::Cow;
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
@@ -69,6 +71,15 @@ impl Program {
         self.model(selection).name().to_string()
     }
 
+    pub fn instructions<'a>(&self, system: &'a str) -> Cow<'a, str> {
+        match Provider::of(&self.executable) {
+            Provider::Claude => Cow::Borrowed(system),
+            Provider::Codex => Cow::Owned(format!(
+                "{system}\n\nReturn null for optional fields these instructions say to omit. Null represents an omitted field in the output schema."
+            )),
+        }
+    }
+
     pub fn setup(&self, selection: &Selection, prompt: String) -> String {
         match self.model(selection) {
             Model::Claude(_) => prompt,
@@ -109,13 +120,13 @@ impl Program {
 
 pub(super) fn default_program(
     explicit: Option<std::ffi::OsString>,
-    claude_session: Option<&str>,
+    claude_session: Option<&OsStr>,
     codex_session: bool,
 ) -> PathBuf {
     if let Some(executable) = explicit {
         return PathBuf::from(executable);
     }
-    if crate::ack::agent::claude_session(claude_session).is_none() && codex_session {
+    if !crate::ack::agent::has_claude_session(claude_session) && codex_session {
         PathBuf::from("codex")
     } else {
         PathBuf::from("claude")
@@ -245,14 +256,11 @@ fn claude(
         }
     }
     let output = run(&mut command, message)?;
-    Ok(if output.status.success() {
-        claude_envelope(&output.stdout, model)
-    } else {
-        Invoked::failed(
-            format!("unknown (requested {model})"),
-            failed_output(program, &output),
-        )
-    })
+    let mut invoked = claude_envelope(&output.stdout, model);
+    if !output.status.success() {
+        attach_exit(program, &output, &mut invoked.body);
+    }
+    Ok(invoked)
 }
 
 /// Reads the JSON `claude -p --output-format json` prints.
@@ -263,12 +271,6 @@ pub(super) fn claude_envelope(text: &[u8], requested: &str) -> Invoked {
             "the reviewer printed no JSON".to_string(),
         );
     };
-    let count = |key: &str| value["usage"][key].as_i64().unwrap_or(0);
-    let tokens_in = count("input_tokens")
-        + count("cache_creation_input_tokens")
-        + count("cache_read_input_tokens");
-    let tokens_out = count("output_tokens");
-    let body = body_of(&value);
     let model = value["modelUsage"]
         .as_object()
         .and_then(|models| {
@@ -281,32 +283,92 @@ pub(super) fn claude_envelope(text: &[u8], requested: &str) -> Invoked {
             }
         })
         .map_or_else(|| format!("unknown (requested {requested})"), Clone::clone);
-    Invoked {
-        model,
-        usage: Usage {
-            tokens_in,
-            tokens_out,
-            tokens_cached: count("cache_read_input_tokens"),
-            tokens_written: count("cache_creation_input_tokens"),
-            cost_microdollars: value["total_cost_usd"]
-                .as_f64()
-                .map(|cost| (cost * 1_000_000.0).round() as i64),
+    match claude_usage(&value) {
+        Ok(usage) => Invoked {
+            model,
+            usage,
+            body: body_of(&value),
         },
-        body,
+        Err(why) => Invoked::failed(model, why),
     }
 }
 
-fn body_of(value: &Value) -> std::result::Result<Value, String> {
-    if value["is_error"].as_bool().unwrap_or(false) {
-        let said = value["result"].as_str().unwrap_or("no reason given");
-        return Err(format!("the reviewer reported an error: {said}"));
+fn attach_exit(program: &Path, output: &Output, body: &mut std::result::Result<Value, String>) {
+    let exit = failed_output(program, output);
+    *body = Err(match body {
+        Err(why) => format!("{exit}\nReviewer reported: {why}"),
+        Ok(_) => exit,
+    });
+}
+
+fn reported_count(usage: &Value, key: &str) -> std::result::Result<Option<i64>, String> {
+    usage
+        .get(key)
+        .map(|value| {
+            value
+                .as_i64()
+                .filter(|count| *count >= 0)
+                .ok_or_else(|| format!("the reviewer reported an invalid {key}: {value}"))
+        })
+        .transpose()
+}
+
+fn claude_usage(envelope: &Value) -> std::result::Result<Usage, String> {
+    let mut result = Usage::default();
+    if let Some(usage) = envelope.get("usage") {
+        if !usage.is_object() {
+            return Err("Claude reported invalid usage".to_string());
+        }
+        let input = reported_count(usage, "input_tokens")?;
+        let read = reported_count(usage, "cache_read_input_tokens")?;
+        let written = reported_count(usage, "cache_creation_input_tokens")?;
+        let output = reported_count(usage, "output_tokens")?;
+        result.tokens_in = [input, read, written]
+            .into_iter()
+            .flatten()
+            .try_fold(0_i64, i64::checked_add)
+            .ok_or("Claude's total input tokens exceed the supported range")?;
+        result.tokens_cached = read.unwrap_or_default();
+        result.tokens_written = written.unwrap_or_default();
+        result.tokens_out = output.unwrap_or_default();
     }
-    match value.get("structured_output").filter(|v| v.is_object()) {
-        Some(body) => Ok(body.clone()),
-        None => value["result"]
-            .as_str()
-            .and_then(|text| serde_json::from_str(text).ok())
-            .ok_or_else(|| "the reviewer gave no answer in the schema".to_string()),
+    if let Some(value) = envelope.get("total_cost_usd") {
+        let micros = value
+            .as_f64()
+            .map(|cost| (cost * 1_000_000.0).round())
+            .filter(|cost| *cost >= 0.0 && *cost < i64::MAX as f64)
+            .ok_or_else(|| format!("Claude reported invalid cost: {value}"))?;
+        result.cost_microdollars = Some(micros as i64);
+    }
+    Ok(result)
+}
+
+fn body_of(value: &Value) -> std::result::Result<Value, String> {
+    match value.get("is_error") {
+        Some(Value::Bool(true)) => {
+            let said = value
+                .get("result")
+                .ok_or("the reviewer reported an error without a reason")?;
+            return Err(match said.as_str() {
+                Some(reason) => format!("the reviewer reported an error: {reason}"),
+                None => format!("the reviewer reported an error: {said}"),
+            });
+        }
+        Some(Value::Bool(false)) | None => {}
+        Some(value) => return Err(format!("the reviewer reported invalid is_error: {value}")),
+    }
+    match value.get("structured_output") {
+        Some(body) if body.is_object() => Ok(body.clone()),
+        Some(body) => Err(format!(
+            "the reviewer reported invalid structured_output: {body}"
+        )),
+        None => {
+            let text = value["result"]
+                .as_str()
+                .ok_or("the reviewer gave no answer in the schema")?;
+            serde_json::from_str(text)
+                .map_err(|error| format!("the reviewer gave an invalid answer: {error}"))
+        }
     }
 }
 
@@ -319,16 +381,12 @@ fn codex(
     message: &str,
     checkout: Option<&Path>,
 ) -> Result<Invoked> {
-    let mut usage = Usage::default();
-    let body = crate::evict::in_temp_dir(&program.temporary, "builds-review.", |temporary| {
+    crate::evict::in_temp_dir(&program.temporary, "builds-review.", |temporary| {
         let path = temporary.join("schema.json");
         let mut schema = schema.clone();
         require_properties(&mut schema);
         std::fs::write(&path, schema.to_string())
             .context(|| format!("writing {}", path.display()))?;
-        let instructions = format!(
-            "{system}\n\nReturn null for optional fields these instructions say to omit. Null represents an omitted field in the output schema."
-        );
         let mut command = Command::new(program.executable());
         command
             .args([
@@ -366,7 +424,10 @@ fn codex(
             ])
             .args([
                 "-c",
-                &format!("developer_instructions={}", Value::String(instructions)),
+                &format!(
+                    "developer_instructions={}",
+                    Value::String(program.instructions(system).into_owned())
+                ),
             ])
             .args([
                 "--model",
@@ -387,29 +448,19 @@ fn codex(
             }
         }
         let output = run(&mut command, message)?;
-        let invoked = codex_events(&output.stdout, model, checkout.is_some());
-        usage = invoked.usage;
+        let Decoded { usage, mut body } = codex_events(&output.stdout, checkout.is_some());
         if !output.status.success() {
-            let reason = failed_output(program.executable(), &output);
-            let detail = match invoked.body {
-                Err(why) if !output.stderr.is_empty() => {
-                    format!("{reason}. Codex also reported {why}")
-                }
-                Err(why) => format!(
-                    "{} exited with {}: {why}",
-                    program.executable().display(),
-                    output.status
-                ),
-                Ok(_) => reason,
-            };
-            return Err(crate::fail::Fail::Message(detail));
+            attach_exit(program.executable(), &output, &mut body);
         }
-        invoked.body.map_err(crate::fail::Fail::Message)
-    });
-    Ok(Invoked {
-        model: model.to_string(),
-        usage,
-        body: body.map_err(|error| error.text()),
+        Ok(Invoked {
+            model: if usage.is_some() {
+                model.to_string()
+            } else {
+                format!("unknown (requested {model})")
+            },
+            usage: usage.unwrap_or_default(),
+            body,
+        })
     })
 }
 
@@ -449,7 +500,12 @@ fn remove_null_properties(value: &mut Value) {
     }
 }
 
-fn codex_events(text: &[u8], model: &str, read_tools: bool) -> Invoked {
+struct Decoded {
+    usage: Option<Usage>,
+    body: std::result::Result<Value, String>,
+}
+
+fn codex_events(text: &[u8], read_tools: bool) -> Decoded {
     let mut completed = None;
     let mut answer = None;
     let mut failure = None;
@@ -460,7 +516,15 @@ fn codex_events(text: &[u8], model: &str, read_tools: bool) -> Invoked {
         let event: Value = match serde_json::from_slice(line) {
             Ok(event) => event,
             Err(error) => {
-                failure.get_or_insert_with(|| format!("Codex printed an invalid event: {error}"));
+                failure.get_or_insert_with(|| {
+                    format!(
+                        "Codex printed an invalid event ({error}): {}",
+                        String::from_utf8_lossy(line)
+                            .chars()
+                            .take(240)
+                            .collect::<String>()
+                    )
+                });
                 continue;
             }
         };
@@ -491,9 +555,7 @@ fn codex_events(text: &[u8], model: &str, read_tools: bool) -> Invoked {
             _ => {}
         }
     }
-    let usage = completed
-        .as_ref()
-        .map_or_else(|| Ok(Usage::default()), codex_usage);
+    let usage = completed.as_ref().map(codex_usage).transpose();
     let body = match (failure, completed, answer) {
         (Some(why), _, _) => Err(why),
         (None, Some(_), Some(answer)) => serde_json::from_str(&answer)
@@ -505,21 +567,17 @@ fn codex_events(text: &[u8], model: &str, read_tools: bool) -> Invoked {
         _ => Err("Codex did not finish with a structured answer".to_string()),
     };
     match usage {
-        Ok(usage) => Invoked {
-            model: model.to_string(),
-            usage,
-            body,
+        Ok(usage) => Decoded { usage, body },
+        Err(why) => Decoded {
+            usage: None,
+            body: Err(why),
         },
-        Err(why) => Invoked::failed(model.to_string(), why),
     }
 }
 
 fn codex_usage(usage: &Value) -> std::result::Result<Usage, String> {
-    let count = |key| {
-        usage[key]
-            .as_i64()
-            .ok_or_else(|| format!("Codex did not report {key}"))
-    };
+    let count =
+        |key| reported_count(usage, key)?.ok_or_else(|| format!("Codex did not report {key}"));
     Ok(Usage {
         tokens_in: count("input_tokens")?,
         tokens_out: count("output_tokens")?,
