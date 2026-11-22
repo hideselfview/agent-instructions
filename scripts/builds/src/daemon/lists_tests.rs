@@ -1,6 +1,7 @@
 use super::*;
 use crate::lists::Running;
 use crate::lists::fixtures::{NOON, db, design, item, make_store, read, stamp};
+use crate::lists::store::load_all;
 use crate::testing::Scratch;
 use serde_json::json;
 use std::sync::mpsc;
@@ -295,20 +296,21 @@ fn the_feeds_own_reads_change_no_database_and_a_write_does() {
     let store = make_store(&places, &["bae", "coven"]);
     let mut watches = HashMap::new();
     assert_eq!(
-        databases_moved(&places, &mut watches).unwrap(),
+        scan_databases(&places, &mut watches).unwrap().moved,
         vec![store.database()]
     );
     let loaded = load_all(&places);
-    assert!(!reload(&places, &loaded).1);
+    let paths = database_paths(&places).unwrap();
+    assert!(!reload(&places, &paths, &loaded).1);
     assert_eq!(store.integrity(), Vec::<String>::new());
     crate::hook_stats::dashboard_json_at(&places, NOON);
     assert_eq!(
-        databases_moved(&places, &mut watches).unwrap(),
+        scan_databases(&places, &mut watches).unwrap().moved,
         Vec::<PathBuf>::new()
     );
     store.write(&stamp(NOON), "touch", |_| Ok(())).unwrap();
     assert_eq!(
-        databases_moved(&places, &mut watches).unwrap(),
+        scan_databases(&places, &mut watches).unwrap().moved,
         vec![store.database()]
     );
 }
@@ -439,7 +441,7 @@ fn a_hook_runs_write_reads_no_store_again_and_the_served_snapshot_is_the_same() 
     let store = make_store(&places, &["bae", "coven"]);
     let first = load_all(&places);
     // Nothing moved: the same stores come back, and nothing differs.
-    let (same, changed) = crate::lists::store::reload(&places, &first);
+    let (same, changed) = reload(&places, &database_paths(&places).unwrap(), &first);
     assert!(!changed && same == first);
     record(
         &store.dir.join(DATABASE),
@@ -457,14 +459,14 @@ fn a_hook_runs_write_reads_no_store_again_and_the_served_snapshot_is_the_same() 
         },
     )
     .unwrap();
-    let (after_hook, changed) = crate::lists::store::reload(&places, &first);
+    let (after_hook, changed) = reload(&places, &database_paths(&places).unwrap(), &first);
     assert!(
         !changed && after_hook == first,
         "a hook run moves no lists version"
     );
     // A lists write does.
     store.write(&stamp(NOON), "touch", |_| Ok(())).unwrap();
-    let (after_write, changed) = crate::lists::store::reload(&places, &first);
+    let (after_write, changed) = reload(&places, &database_paths(&places).unwrap(), &first);
     assert!(changed);
     assert_eq!(after_write.unwrap()[0].lists.as_ref().unwrap().version, 4);
 }

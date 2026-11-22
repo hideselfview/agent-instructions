@@ -419,9 +419,13 @@ pub fn database_paths(places: &Places) -> Result<Vec<PathBuf>> {
 /// The stores that exist under `Places::lists`, by project name: a folder
 /// whose database holds a project. A folder with only hook stats is no store.
 pub fn stores(places: &Places) -> Result<Vec<Store>> {
+    stores_at(places, &database_paths(places)?)
+}
+
+fn stores_at(places: &Places, databases: &[PathBuf]) -> Result<Vec<Store>> {
     let mut found = Vec::new();
-    for database in database_paths(places)? {
-        let in_database = match db::open_reader(&database) {
+    for database in databases {
+        let in_database = match db::open_reader(database) {
             Ok(Some(conn)) => conn
                 .query_row("SELECT COUNT(*) FROM project", [], |row| {
                     row.get::<_, i64>(0)
@@ -474,7 +478,15 @@ pub struct Loaded {
 /// daemon, `builds health`): a store that fails stays in the answer with its
 /// fault, since nothing repairs it. Err when the folder can't be listed.
 pub fn load_all(places: &Places) -> std::result::Result<Vec<Loaded>, String> {
-    let stores = stores(places).map_err(Fail::text)?;
+    load_paths(places, &database_paths(places).map_err(Fail::text)?)
+}
+
+/// Loads the projects among the already discovered database paths.
+pub fn load_paths(
+    places: &Places,
+    databases: &[PathBuf],
+) -> std::result::Result<Vec<Loaded>, String> {
+    let stores = stores_at(places, databases).map_err(Fail::text)?;
     Ok(stores
         .into_iter()
         .map(|store| Loaded {
@@ -549,9 +561,10 @@ impl Store {
 /// run) moves no version, so it reads nothing more.
 pub fn reload(
     places: &Places,
+    databases: &[PathBuf],
     previous: &std::result::Result<Vec<Loaded>, String>,
 ) -> (std::result::Result<Vec<Loaded>, String>, bool) {
-    let stores = match stores(places) {
+    let stores = match stores_at(places, databases) {
         Ok(stores) => stores,
         Err(error) => {
             let now = Err(error.text());

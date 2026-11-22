@@ -15,8 +15,8 @@
 //! checks again (`Store::integrity`), which read the whole database. A store
 //! that fails its check is served as the JSON's `error`; nothing repairs it.
 
-use std::collections::{BTreeMap, HashMap};
-use std::path::PathBuf;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
@@ -24,7 +24,7 @@ use std::time::Duration;
 use super::fsevents::Stream;
 use super::model::SETTLE;
 use crate::lists::design_paths::Globs;
-use crate::lists::store::{Loaded, database_paths, load_all, reload, stores};
+use crate::lists::store::{Loaded, database_paths, load_paths, reload, stores};
 use crate::lists::view::{ClaimFacts, DesignView, RulesReview, View, design_view};
 use crate::lists::{DesignChange, Id};
 use crate::places::Places;
@@ -79,7 +79,8 @@ impl Feed {
         let since = Stream::current_event_id();
         // Opened before the first read, so a write after them moves them.
         let mut watches = HashMap::new();
-        let snapshot = databases_moved(&places, &mut watches).and_then(|_| load_all(&places));
+        let snapshot =
+            scan_databases(&places, &mut watches).and_then(|scan| load_paths(&places, &scan.paths));
         report_snapshot_fault(&snapshot);
         let now = clock();
         let feed = Arc::new(Feed {
@@ -212,16 +213,17 @@ impl Feed {
     /// the version when the stores differ.
     fn read(&self) {
         let now = (self.clock)();
-        let moved_databases = databases_moved(
+        let scan = scan_databases(
             &self.places,
             &mut self.watches.lock().expect("no panic holding it"),
         );
         let new_minute =
             self.hooks_minute.swap(now.div_euclid(60), Ordering::SeqCst) != now.div_euclid(60);
         let previous = self.current.lock().expect("no panic holding it").1.clone();
-        let update = match &moved_databases {
-            Ok(paths) if !paths.is_empty() || previous.is_err() => {
-                let (read, changed) = reload(&self.places, &previous);
+        let moved = matches!(&scan, Ok(scan) if !scan.moved.is_empty());
+        let update = match &scan {
+            Ok(scan) if moved || previous.is_err() => {
+                let (read, changed) = reload(&self.places, &scan.paths, &previous);
                 changed.then_some(read)
             }
             Ok(_) => None,
@@ -236,7 +238,6 @@ impl Feed {
             let mut current = self.current.lock().expect("no panic holding it");
             *current = (current.0 + 1, Arc::new(read));
         }
-        let moved = matches!(&moved_databases, Ok(paths) if !paths.is_empty());
         if changed || moved || new_minute {
             let hooks = crate::hook_stats::dashboard_json_at(&self.places, now);
             changed |= replace_if_changed(&self.hooks, hooks);
@@ -246,8 +247,8 @@ impl Feed {
         }
         // After the lists and figures are out: the checks read every page
         // of the database.
-        let integrity_changed = match moved_databases {
-            Ok(paths) if moved => self.check_integrity(&paths),
+        let integrity_changed = match scan {
+            Ok(scan) if moved => self.check_integrity(&scan.moved),
             Ok(_) => false,
             Err(_) => self.clear_integrity(),
         };
@@ -264,53 +265,64 @@ impl Feed {
     }
 }
 
-/// The databases of <places>'s stores that changed since <watches> last
-/// looked: added, removed, or moved as their watch says. Keeps <watches> to
-/// the databases there now. When the stores' folder can't be listed, drops
+/// The discovered database paths and those whose watch changed.
+struct DatabaseScan {
+    paths: Vec<PathBuf>,
+    moved: Vec<PathBuf>,
+}
+
+/// Reads the database paths and finds the watches that changed since the
+/// last scan: added, removed, or moved. Keeps <watches> to the databases
+/// there now. When the stores' folder can't be listed, drops
 /// the watches and returns the fault for the feed to serve. A watch that can't be
 /// opened or read leaves unknown whether its database changed: the log says
 /// why, and the database counts as changed, so the feed reads the store again
 /// and serves what is wrong with it.
-fn databases_moved(
+fn scan_databases(
     places: &Places,
     watches: &mut HashMap<PathBuf, crate::db::Watch>,
-) -> Result<Vec<PathBuf>, String> {
-    let databases: Vec<PathBuf> = match database_paths(places) {
-        Ok(paths) => paths.into_iter().filter(|path| path.is_file()).collect(),
+) -> Result<DatabaseScan, String> {
+    let paths = match database_paths(places) {
+        Ok(paths) => paths,
         Err(error) => {
             watches.clear();
             return Err(error.text());
         }
     };
+    let present: BTreeSet<&Path> = paths
+        .iter()
+        .map(PathBuf::as_path)
+        .filter(|path| path.is_file())
+        .collect();
     let mut moved: Vec<PathBuf> = watches
         .keys()
-        .filter(|path| !databases.contains(path))
+        .filter(|path| !present.contains(path.as_path()))
         .cloned()
         .collect();
-    watches.retain(|path, _| databases.contains(path));
-    for path in databases {
-        let changed = match watches.get_mut(&path) {
+    watches.retain(|path, _| present.contains(path.as_path()));
+    for path in present {
+        let changed = match watches.get_mut(path) {
             Some(watch) => watch.moved(),
-            None => crate::db::Watch::open(&path).map(|watch| {
-                watches.insert(path.clone(), watch);
+            None => crate::db::Watch::open(path).map(|watch| {
+                watches.insert(path.to_path_buf(), watch);
                 true
             }),
         };
         match changed {
             Ok(false) => {}
-            Ok(true) => moved.push(path),
+            Ok(true) => moved.push(path.to_path_buf()),
             Err(error) => {
                 crate::text::note(format!(
                     "telling whether {} changed: {}",
                     path.display(),
                     error.text()
                 ));
-                watches.remove(&path);
-                moved.push(path);
+                watches.remove(path);
+                moved.push(path.to_path_buf());
             }
         }
     }
-    Ok(moved)
+    Ok(DatabaseScan { paths, moved })
 }
 
 fn report_snapshot_fault(snapshot: &Snapshot) {
