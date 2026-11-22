@@ -507,12 +507,18 @@ project bae). Each branch gets its own review and, for app changes, its own
 app build, and each landing runs its own compile check, so five fixes that
 land one by one take five reviews, five compile checks and five app builds. An
 agent with several fixes in hand, such as the items of its brief or a design
-session's fixes, makes them all on one branch, one commit for each fix. The
+session's fixes, makes them all on one branch, one commit for each fix. An
+agent that finds a series of cleanups one after another as it works, such as
+moving one kind of literal onto tokens and then the next kind, makes them on
+one branch the same way, with no review, record or landing between them. The
 branch gets one review, which the agent runs with `--item N` for each item,
 and the agent lands it with one `builds land` that names each item with
 `--done N` and each design change with `--design N`. Each commit still holds
-one concern. A fix waits for the batch only while the agent still works on the
-other fixes it holds, and never waits for work that nobody has started.
+one concern. The agent compares the full set of boards, or runs the full test
+suite of the code it changed, once after the batch's last commit, and before
+then checks only what each change touches. A fix waits for the batch only
+while the agent still works on the other fixes it holds or the next cleanup of
+its series, and never waits for work that nobody has started.
 
   - Landings in different worktrees may run at the same time. When origin/main
     moves while a landing runs, origin refuses that landing's push, and the
