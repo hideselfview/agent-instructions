@@ -135,10 +135,10 @@ follows a settled question goes to the user without another check.
 reviewed work and pushing it to main, rewording or splitting your own commits,
 starting a session or an agent, anything in the user's own repos (bae-fm's,
 public or not: issues, comments, PRs, releases), and any step an agent can take
-itself. When Claude Code's permission check stops one of these, tell the user
-which allow rule to add, once; never put the step on the decision stack as a
-question. A question is only for what the user decides, such as what the product
-does.
+itself. When the agent needs permission for one of these, use the client's
+approval request. If the client blocks the request, tell the user which
+permission the agent needs. A question is only for what the user decides, such
+as what the product does.
 
 **Never post as the user outside their own repos without their approval of the
 draft.** A comment, issue, PR, message or review that appears under the user's

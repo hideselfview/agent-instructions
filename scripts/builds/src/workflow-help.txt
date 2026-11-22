@@ -182,14 +182,13 @@ PLAN, BRIEF, EXECUTE
     section that states it. A brief never copies such a sentence from
     another brief without its citation. `builds help briefs` is the
     instructions for a planner agent that writes briefs.
-  - Execute: an agent that carries out a brief or a plan the strongest model
-    settled runs a faster, cheaper model. Name that model on every such
-    dispatch: an agent dispatched without a model runs the strongest one.
-  - Judgment work (a software plan, an edit of documents, a survey, a review)
-    runs the strongest model. A software plan too large for the coordinator
-    to hold goes to such an agent; its brief says what the coordinator read
-    and what stays unknown, and it writes a plan for the faster model to
-    execute.
+  - For implementation, the brief specifies the behavior and how to test it.
+    Use the implementation tier and name the model on each dispatch.
+    In Codex, use GPT-6.2 Sol for this work.
+  - Use the strongest tier for coordination, planning and review. In Codex,
+    use GPT-6.2 Astra for these roles. When a brief leaves a design decision
+    open, the coordinator settles it or assigns a planner. A planner's brief
+    says what the coordinator read and what stays unknown. Document edits and surveys that require judgment use this tier too.
   - Review: each agent reviews its branch against the rules, the judge
     settles the findings, and the agent lands the branch once no confirmed
     finding is open (REVIEW, LANDING).
@@ -283,14 +282,14 @@ DISPATCH
     take their items together (`builds item take N M ...`) with one brief.
   - Give work to the agent that already knows the area: a finding goes back
     to the agent that reported it, and an item goes to the agent that last
-    finished work there, resumed with SendMessage. Start a new agent only
-    when no finished agent under the handoff size knows the area, or the item
-    needs the other model.
+    finished work there. Send that agent a message to resume it. Start a new
+    agent only when no finished agent under the handoff size knows the area,
+    or the item needs a different model.
   - Each brief names its worktree, its items, the rules to read, the
     project's hard limits (the person's checkouts, the keychain, devices,
-    cargo through the wrapper, no `git add -A` or stash, no --no-verify), the
-    model's commit trailer, and "review and land through builds; don't push
-    main".
+    cargo through the wrapper, no `git add -A` or stash, no --no-verify), and
+    "review and land through builds; don't push main". Each worker credits
+    its own model in the commit trailer.
   - Critical work starts first. Critical work is what the person sees in the
     apps (a screen, a bug, a feature the person asked for), builds work that
     blocks or slows the agents, and the cleanups the person marks critical. The
@@ -801,12 +800,12 @@ and what stopped it.
 HEALTH CHECK
 
 While the coordinator's agents run or commits wait to land, a schedule in its
-session (CronCreate) runs `builds health` every 5 minutes, and the coordinator
+session runs `builds health` every 5 minutes, and the coordinator
 acts on every line of its "needs action" list first. The last line of the
 output says whether the schedule is still needed. It says "health schedule:
 can stop" when no agent runs and every worktree with commits waiting to land is
 held (it waits on an open record). The coordinator deletes the schedule
-(CronDelete) when the line says so, and creates it again when an agent starts
+when the line says so, and creates it again when an agent starts
 or a hold clears. A quiet check needs no message to the person.
 
 Health first fixes what blocks dispatch and a command fixes with no judgment

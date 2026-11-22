@@ -3,8 +3,8 @@ implementation briefs. The planner runs the strongest model; the coordinator
 gives it this page, the items to brief and the file to write. `builds help
 workflow` says what a brief is for.
 
-You write implementation briefs for queued work, so that an agent on a faster,
-cheaper model can carry out each one with no design decision left to make.
+You write implementation briefs for queued work, so that an implementation
+agent can carry out each one with no design decision left to make.
 Change no code.
 
 
@@ -83,9 +83,9 @@ WRITE ONE BRIEF PER ITEM
     findings are on the writing rule, and its reviewer raises a finding on
     each sentence that uses a new term.
   - Locales: say which new user-visible strings go into every locale.
-  - Model: a faster, cheaper model executes. Only a software plan too large
-    for the coordinator to hold goes to the strongest model, which writes a
-    plan for the faster one; say why.
+  - Describe the implementation and its checks. The coordinator dispatches
+    the implementation tier named in `builds help workflow`. When an agent
+    resumes a brief, it credits the model that makes each new commit.
   - Order: what the item must come after: other items, the work of running
     agents (`builds item list --running`), moves of code between domains.
   - Open question, only when the code and the rules can't settle a choice:
