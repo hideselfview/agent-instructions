@@ -10,8 +10,8 @@ use serde_json::json;
 
 fn message<T: std::fmt::Debug>(result: Result<T>) -> String {
     match result.unwrap_err() {
-        Fail::Message(message) => message,
         Fail::Exit(code) => panic!("exit {code}"),
+        error => error.text(),
     }
 }
 

@@ -99,13 +99,8 @@ pub(crate) fn move_in(
     name: &std::ffi::OsStr,
     recreate: Recreate,
 ) -> Result<bool> {
-    match move_to_slot(folder, slot, name) {
-        Ok(true) => {}
-        Ok(false) => return Ok(false),
-        Err(error) => {
-            crate::text::note(format!("warning: {}; builds kept the folder", error.text()));
-            return Ok(false);
-        }
+    if !move_to_slot(folder, slot, name)? {
+        return Ok(false);
     }
     if recreate == Recreate::Yes {
         std::fs::create_dir(folder).context(|| format!("recreating {}", folder.display()))?;
@@ -113,10 +108,11 @@ pub(crate) fn move_in(
     Ok(true)
 }
 
-/// Moves a folder into its slot. A concurrent removal returns false; a
+/// Moves an entry into its slot. A concurrent removal returns false; a
 /// filesystem failure reaches the caller that owns deletion policy.
 pub(crate) fn move_to_slot(folder: &Path, slot: &Path, name: &std::ffi::OsStr) -> Result<bool> {
-    match std::fs::rename(folder, slot.join(name)) {
+    let to = slot.join(name);
+    match std::fs::rename(folder, &to) {
         Ok(()) => Ok(true),
         Err(error)
             if error.kind() == std::io::ErrorKind::NotFound
@@ -125,11 +121,11 @@ pub(crate) fn move_to_slot(folder: &Path, slot: &Path, name: &std::ffi::OsStr) -
         {
             Ok(false)
         }
-        Err(error) => fail!(
-            "moving {} into {}: {error}",
-            folder.display(),
-            slot.display()
-        ),
+        Err(error) => Err(crate::fail::Fail::Move {
+            from: folder.to_path_buf(),
+            to,
+            error,
+        }),
     }
 }
 
@@ -213,8 +209,12 @@ pub struct HeldPaths(Vec<Vec<u8>>);
 
 impl HeldPaths {
     pub fn read() -> Result<HeldPaths> {
+        Self::read_with(Path::new("lsof"))
+    }
+
+    pub(crate) fn read_with(program: &Path) -> Result<HeldPaths> {
         let me = std::process::id().to_string();
-        let output = Command::new("lsof")
+        let output = Command::new(program)
             .args(["-n", "-Fpn"])
             .stdin(Stdio::null())
             .output()

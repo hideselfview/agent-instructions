@@ -312,7 +312,7 @@ fn one_failed_size_invalidation_does_not_stop_the_next_root() {
         .text();
 
     assert!(error.contains(&first.display().to_string()), "{error}");
-    assert!(!a.exists() && !b.exists());
+    assert!(a.exists() && !b.exists());
     assert!(first.is_dir());
     assert!(!second.exists());
 }
@@ -367,4 +367,28 @@ fn the_open_file_snapshot_follows_discovery_and_prune_selects_an_alternative() {
     pruned.unwrap();
     assert!(oldest.is_dir());
     assert!(!alternative.exists() && !leftover.exists());
+}
+
+#[test]
+fn a_failed_open_file_scan_keeps_folder_candidates() {
+    let scratch = Scratch::new("capped-scan-error");
+    let tool = scratch.tool(0);
+    let root = scratch.dir.join("root");
+    let unit = store(&root, "g/a", 400, 30);
+    let probe = scratch.script(
+        "lsof",
+        "printf 'p123\\nn/tmp/partial\\n'; echo 'process listing failed' >&2; exit 1",
+    );
+    let error = prune_with(
+        &tool,
+        Run::Real,
+        &root,
+        100,
+        || Ok(vec![group(&root)]),
+        || HeldPaths::read_with(&probe),
+    )
+    .unwrap_err()
+    .text();
+    assert!(error.contains("process listing failed"));
+    assert!(unit.is_dir());
 }

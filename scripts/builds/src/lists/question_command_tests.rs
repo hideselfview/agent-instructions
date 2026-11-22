@@ -46,8 +46,8 @@ fn file(scratch: &Scratch, name: &str, text: &str) -> String {
 
 fn refused(result: Result<String>) -> String {
     match result.unwrap_err() {
-        Fail::Message(message) => message,
         Fail::Exit(code) => panic!("exit {code}"),
+        error => error.text(),
     }
 }
 

@@ -377,10 +377,7 @@ pub fn prune_listed(run: Run, what: &str, listing: std::result::Result<Vec<PathB
     let mut errors = Vec::new();
     for entry in &entries {
         if let Err(error) = units::remove(entry) {
-            errors.push(match error {
-                fail::Fail::Message(message) => message,
-                fail::Fail::Exit(code) => format!("exit {code}"),
-            });
+            errors.push(error.text());
         }
     }
     if errors.is_empty() {

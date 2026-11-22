@@ -105,14 +105,13 @@ impl Texts {
 /// The review texts as the cap sees them: one group, every project's run
 /// folders.
 fn group(places: &Places) -> Result<Group> {
-    use std::os::unix::fs::MetadataExt;
     let mut kept = Vec::new();
     for (_, project) in capped_store::tops_in(&root(places))? {
         for (_, folder) in folders_in(&project)? {
             let used = folder.join(USED);
-            let last_use = std::fs::metadata(&used)
-                .context(|| format!("reading the time of {}", used.display()))?
-                .mtime();
+            let Some(last_use) = capped_store::written_at(&used)? else {
+                continue;
+            };
             kept.push(Kept::Folder {
                 folder: capped_store::Folder {
                     path: folder,

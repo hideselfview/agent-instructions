@@ -166,7 +166,7 @@ fn run_land(f: &Fixture, dir: &Path, args: &[&str], cues: Cues) -> (i32, String,
     let code = match land(f, &stub, &all, &mut out) {
         Ok(()) => 0,
         Err(Fail::Exit(code)) => code,
-        Err(Fail::Message(message)) => panic!("landing failed: {message}"),
+        Err(error) => panic!("landing failed: {}", error.text()),
     };
     let calls: Vec<String> = std::fs::read_to_string(&log)
         .map(|text| text.lines().map(str::to_string).collect())
@@ -187,7 +187,7 @@ fn profiled(f: &Fixture, dir: &Path, args: &[&str], cues: Cues) -> (i32, Option<
     let code = match result {
         Ok(()) => 0,
         Err(Fail::Exit(code)) => code,
-        Err(Fail::Message(message)) => panic!("landing failed: {message}"),
+        Err(error) => panic!("landing failed: {}", error.text()),
     };
     (code, run.map(|run| *run))
 }

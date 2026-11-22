@@ -245,11 +245,11 @@ fn main() -> ExitCode {
 /// message on stderr.
 fn exit_code(fail: Fail) -> ExitCode {
     match fail {
-        Fail::Message(message) => {
-            text::note(message);
+        Fail::Exit(code) => ExitCode::from(code.clamp(0, 255) as u8),
+        failure => {
+            text::note(failure.text());
             ExitCode::from(1)
         }
-        Fail::Exit(code) => ExitCode::from(code.clamp(0, 255) as u8),
     }
 }
 

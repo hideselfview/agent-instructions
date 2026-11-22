@@ -3,8 +3,8 @@ use crate::testing::{Scratch, git, repo};
 
 fn message<T: std::fmt::Debug>(result: Result<T>) -> String {
     match result.unwrap_err() {
-        crate::fail::Fail::Message(message) => message,
         crate::fail::Fail::Exit(code) => panic!("exit {code}"),
+        error => error.text(),
     }
 }
 

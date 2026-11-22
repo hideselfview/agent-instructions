@@ -196,18 +196,22 @@ pub fn setup_with(tool: &Tool, ssh: &Ssh, checkout: &Checkout, prepare: Prepare)
             ));
         }
     }
-    prune_root(tool, &root, checkout, Run::Real, 0, 0)?;
-    prune_derived_data(tool, Run::Real, 0)?;
-    prune_caches(tool, Run::Real)?;
-    crate::shots_cache::prune(tool, Run::Real)?;
-    crate::review::texts::prune(tool, Run::Real)?;
-    prune_test_temps(tool, Run::Real)?;
-    prune_temp_builds(tool, Run::Real)?;
-    prune_scratchpads(tool, Run::Real)?;
+    build_cleanup(prune_root(tool, &root, checkout, Run::Real, 0, 0))?;
+    build_cleanup(prune_derived_data(tool, Run::Real, 0))?;
+    build_cleanup(prune_caches(tool, Run::Real))?;
+    build_cleanup(crate::shots_cache::prune(tool, Run::Real))?;
+    build_cleanup(crate::review::texts::prune(tool, Run::Real))?;
+    build_cleanup(prune_test_temps(tool, Run::Real))?;
+    build_cleanup(prune_temp_builds(tool, Run::Real))?;
+    build_cleanup(prune_scratchpads(tool, Run::Real))?;
     let roots = tool.roots()?;
-    prune_cargo_git(tool, &roots, Run::Real)?;
-    prune_installed(tool, &roots, Run::Real)?;
-    crate::built_tools::prune_tools(&tool.places, &roots, Run::Real)?;
+    build_cleanup(prune_cargo_git(tool, &roots, Run::Real))?;
+    build_cleanup(prune_installed(tool, &roots, Run::Real))?;
+    build_cleanup(crate::built_tools::prune_tools(
+        &tool.places,
+        &roots,
+        Run::Real,
+    ))?;
     keep_floor(tool, &roots, Keeper::Setup, Run::Real)?;
     if prepare == Prepare::No {
         return Ok(());
@@ -217,6 +221,18 @@ pub fn setup_with(tool: &Tool, ssh: &Ssh, checkout: &Checkout, prepare: Prepare)
     crate::lean::ensure(&tool.places, &checkout.top)?;
     crate::built_tools::ensure_all(&tool.places, ssh, &checkout.top)?;
     crate::built_tools::send_to_hosts(&tool.places, ssh, &checkout.top)
+}
+
+/// Setup can continue after a cache entry refuses a rename. Other errors
+/// still stop setup, as do failures preparing the checkout's own folders.
+fn build_cleanup(pruned: Result<()>) -> Result<()> {
+    match pruned {
+        Err(error @ crate::fail::Fail::Move { .. }) => {
+            note(format!("warning: {}; builds kept the entry", error.text()));
+            Ok(())
+        }
+        other => other,
+    }
 }
 
 /// Runs each program the `prepare` lines of <top>'s manifest name, in its

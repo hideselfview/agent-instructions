@@ -180,8 +180,12 @@ pub fn shots(
     component: &str,
     capture: &dyn Fn(Lane, &str) -> Option<RunPage>,
 ) -> Result<Shots> {
+    let lanes = lanes(component)?;
+    let reading = (!lanes.is_empty())
+        .then(|| shots_cache::writing(places))
+        .transpose()?;
     let mut platforms = Vec::new();
-    for (lane, prefix) in lanes(component)? {
+    for (lane, prefix) in lanes {
         let run = match shots_cache::covering_run(
             places,
             repo,
@@ -205,6 +209,7 @@ pub fn shots(
             capture,
         });
     }
+    drop(reading);
     Ok(Shots {
         component: component.to_string(),
         commit: commit.to_string(),
@@ -270,17 +275,19 @@ pub fn start(
     component: &str,
 ) -> Result<()> {
     for (lane, prefix) in lanes(component)? {
-        if shots_cache::covering_run(
-            places,
-            repo,
-            commit,
-            lane,
-            Made::Anywhere,
-            &prefix,
-            &VERSIONS,
-        )?
-        .is_some()
-        {
+        let cached = {
+            let _reading = shots_cache::writing(places)?;
+            shots_cache::covering_run(
+                places,
+                repo,
+                commit,
+                lane,
+                Made::Anywhere,
+                &prefix,
+                &VERSIONS,
+            )?
+        };
+        if cached.is_some() {
             continue;
         }
         match runs.start_shots(repo, lane, commit, &prefix) {
@@ -313,6 +320,7 @@ pub fn picture(
     if !scene.starts_with(&format!("{}.", lane.word())) {
         return Ok(None);
     }
+    let _reading = shots_cache::writing(places)?;
     let Some(cached) =
         shots_cache::covering_run(places, repo, commit, lane, Made::Anywhere, scene, &VERSIONS)?
     else {
@@ -349,21 +357,22 @@ pub fn page(
     if !from.has(&preview_path(component))? {
         fail!("commit {commit} has no {}", preview_path(component));
     }
-    let reading = shots_cache::writing(places)?;
-    for (lane, prefix) in &lanes {
-        if let Some(cached) = shots_cache::covering_run(
-            places,
-            repo_name,
-            &commit,
-            *lane,
-            Made::Anywhere,
-            prefix,
-            &VERSIONS,
-        )? {
-            shots_cache::mark_used(&cached)?;
+    if !lanes.is_empty() {
+        let _reading = shots_cache::writing(places)?;
+        for (lane, prefix) in &lanes {
+            if let Some(cached) = shots_cache::covering_run(
+                places,
+                repo_name,
+                &commit,
+                *lane,
+                Made::Anywhere,
+                prefix,
+                &VERSIONS,
+            )? {
+                shots_cache::mark_used(&cached)?;
+            }
         }
     }
-    drop(reading);
     let data = json!({
         "project": project,
         "component": component,

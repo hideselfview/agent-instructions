@@ -5,8 +5,8 @@ use crate::lists::record::open;
 
 fn refusal<T: std::fmt::Debug>(result: Result<T>) -> String {
     match result.unwrap_err() {
-        Fail::Message(message) => message,
         Fail::Exit(code) => panic!("exit {code}"),
+        error => error.text(),
     }
 }
 

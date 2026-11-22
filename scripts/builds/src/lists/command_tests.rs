@@ -8,8 +8,8 @@ fn words(text: &str) -> Vec<String> {
 
 fn refusal(result: Result<()>) -> String {
     match result.unwrap_err() {
-        Fail::Message(message) => message,
         Fail::Exit(code) => panic!("exit {code}"),
+        error => error.text(),
     }
 }
 

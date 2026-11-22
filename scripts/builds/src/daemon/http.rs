@@ -853,19 +853,11 @@ fn question_effect(model: &Model, body: &[u8]) -> crate::fail::Result<()> {
 fn json(stream: &mut TcpStream, body: crate::fail::Result<Vec<u8>>) -> std::io::Result<()> {
     match body {
         Ok(body) => respond(stream, "200 OK", "application/json", &body),
-        Err(crate::fail::Fail::Message(message)) => respond(
+        Err(error) => respond(
             stream,
             "500 Internal Server Error",
             "application/json",
-            serde_json::json!({ "error": message })
-                .to_string()
-                .as_bytes(),
-        ),
-        Err(crate::fail::Fail::Exit(code)) => respond(
-            stream,
-            "500 Internal Server Error",
-            "application/json",
-            serde_json::json!({ "error": format!("exit {code}") })
+            serde_json::json!({ "error": error.text() })
                 .to_string()
                 .as_bytes(),
         ),
@@ -890,10 +882,7 @@ fn events(mut stream: TcpStream, model: &Model) -> std::io::Result<()> {
             let page = match model.page() {
                 Ok(page) => page,
                 Err(error) => {
-                    let message = match error {
-                        crate::fail::Fail::Message(message) => message,
-                        crate::fail::Fail::Exit(code) => format!("exit {code}"),
-                    };
+                    let message = error.text();
                     write!(
                         stream,
                         "event: failure\ndata: {}\n\n",

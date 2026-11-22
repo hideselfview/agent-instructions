@@ -9,6 +9,11 @@ use std::fmt::Display;
 pub enum Fail {
     Message(String),
     Exit(i32),
+    Move {
+        from: std::path::PathBuf,
+        to: std::path::PathBuf,
+        error: std::io::Error,
+    },
 }
 
 impl Fail {
@@ -17,6 +22,9 @@ impl Fail {
         match self {
             Fail::Message(message) => message,
             Fail::Exit(code) => format!("exit {code}"),
+            Fail::Move { from, to, error } => {
+                format!("moving {} to {}: {error}", from.display(), to.display())
+            }
         }
     }
 }

@@ -448,13 +448,7 @@ impl Model {
             std::thread::sleep(SETTLE);
             let taken = std::mem::take(&mut *self.dirty.lock().expect("no panic holding it"));
             if let Err(error) = self.refresh(taken) {
-                eprintln!(
-                    "builds: reading the checkouts: {}",
-                    match error {
-                        crate::fail::Fail::Message(message) => message,
-                        crate::fail::Fail::Exit(code) => format!("exit {code}"),
-                    }
-                );
+                eprintln!("builds: reading the checkouts: {}", error.text());
             }
         }
     }
@@ -656,13 +650,7 @@ impl Model {
             let read = self.sample_now();
             drop(reading);
             if let Err(error) = read {
-                eprintln!(
-                    "builds: reading the processes: {}",
-                    match error {
-                        crate::fail::Fail::Message(message) => message,
-                        crate::fail::Fail::Exit(code) => format!("exit {code}"),
-                    }
-                );
+                eprintln!("builds: reading the processes: {}", error.text());
             }
             // Pacing: the processes are read at a rate, not on an event. A
             // page that starts watching ends the wait.

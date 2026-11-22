@@ -54,8 +54,8 @@ fn world(name: &str) -> World {
 
 fn message<T: std::fmt::Debug>(result: Result<T>) -> String {
     match result.unwrap_err() {
-        fail::Fail::Message(message) => message,
         fail::Fail::Exit(code) => panic!("exit {code}"),
+        error => error.text(),
     }
 }
 

@@ -653,14 +653,18 @@ fn group(places: &Places, repo: &str, named: &Named) -> Result<Group> {
                                     by: branches.iter().cloned().collect(),
                                     folder,
                                 },
-                                None => Kept::Folder {
-                                    last_use: Use::At(written_at(&folder.join(RUN_FILE))?),
-                                    folder: capped_store::Folder {
-                                        path: folder,
-                                        reader_lock: None,
-                                    },
-                                    what: "a shots run",
-                                },
+                                None => {
+                                    let Some(last_use) =
+                                        capped_store::written_at(&folder.join(RUN_FILE))?
+                                    else {
+                                        continue;
+                                    };
+                                    Kept::Folder {
+                                        folder: capped_store::Folder { path: folder, reader_lock: None },
+                                        last_use: Use::At(last_use),
+                                        what: "a shots run",
+                                    }
+                                }
                             });
                         }
                     }
@@ -689,8 +693,11 @@ fn group(places: &Places, repo: &str, named: &Named) -> Result<Group> {
         if name.starts_with('.') {
             kept.push(Kept::Loose { file: path });
         } else if let Some(hash) = name.strip_suffix(".png") {
+            let Some(last_use) = capped_store::written_at(&path)? else {
+                continue;
+            };
             kept.push(Kept::Files {
-                last_use: written_at(&path)?,
+                last_use,
                 // The picture goes before its element list, so the shots
                 // program never finds a picture without one.
                 files: vec![path.clone(), boards.join(format!("{hash}.json"))],
@@ -706,14 +713,6 @@ fn group(places: &Places, repo: &str, named: &Named) -> Result<Group> {
         folder: root(places).join(repo),
         kept,
     })
-}
-
-/// When <path> was last written, seconds since 1970.
-fn written_at(path: &Path) -> Result<i64> {
-    use std::os::unix::fs::MetadataExt;
-    std::fs::metadata(path)
-        .map(|meta| meta.mtime())
-        .context(|| format!("reading the time of {}", path.display()))
 }
 
 /// Deletes the runs, board pictures and app source trees' shots that hold a

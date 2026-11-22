@@ -715,12 +715,11 @@ fn run_here(
     }
     // cargo and the recorder print their own failures.
     let recorded = match recorded {
-        Ok(code) => code,
-        Err(Fail::Message(message)) => {
-            crate::text::note(message);
+        Ok(code) | Err(Fail::Exit(code)) => code,
+        Err(error) => {
+            crate::text::note(error.text());
             1
         }
-        Err(Fail::Exit(code)) => code,
     };
     let code = if status.success() {
         recorded
