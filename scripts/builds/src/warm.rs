@@ -481,14 +481,6 @@ pub fn clone_lane(tool: &Tool, lane: Lane, source: &Checkout, dest: &Checkout) -
         .map(|dir| source_root.join(&dir.path))
         .collect();
     let sizes = tool.measure_all(&paths)?;
-    if sizes.len() != candidates.len() {
-        fail!(
-            "measured {} folders of {}, which has {} to clone",
-            sizes.len(),
-            source.top.display(),
-            candidates.len()
-        );
-    }
     // A clone over the cap would be deleted whole by the next prune.
     let mut folders = Vec::new();
     for (dir, size) in candidates.into_iter().zip(&sizes) {

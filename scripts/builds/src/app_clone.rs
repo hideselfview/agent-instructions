@@ -16,7 +16,7 @@
 
 use crate::app_remote::host_of;
 use crate::fail::Result;
-use crate::lane_size::{CheckoutLock, RepoLane, last_use, lock_checkout, wait_checkout};
+use crate::lane_size::{CheckoutLock, RepoLane, Waited, last_use, lock_checkout, wait_checkout};
 use crate::queue::Queue;
 use crate::text::note;
 
@@ -91,20 +91,20 @@ pub fn take_source(at: RepoLane, host: &str, new_entry: &str) -> Result<Option<S
             at.repo
         ));
         match wait_checkout(at.places, at.repo, at.lane, &best)? {
-            Some(lock) => {
+            Waited::Taken(lock) => {
                 return Ok(Some(Source {
                     entry: best,
                     _lock: lock,
                 }));
             }
-            None if crate::lock::takeover_stopped() => {
+            Waited::Stopped => {
                 note(format!(
                     "a takeover ended the wait for {best}, so {new_entry} starts cold"
                 ));
                 return Ok(None);
             }
             // The checkout left the lane while this waited: choose again.
-            None => {}
+            Waited::Gone => {}
         }
     }
 }

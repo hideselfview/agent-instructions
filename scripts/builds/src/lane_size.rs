@@ -477,49 +477,26 @@ pub fn lock_checkout(
     Ok(Some(lock))
 }
 
+/// How `wait_checkout` ended.
+pub enum Waited {
+    /// The holder let go, and the checkout is still in the lane's set.
+    Taken(CheckoutLock),
+    /// A takeover or an install stopped this build during the wait.
+    Stopped,
+    /// The holder removed the checkout from the lane while this waited.
+    Gone,
+}
+
 /// Waits for the lock of <repo>'s <lane> app checkout <entry> until the build
-/// that holds it lets go, then takes it as `lock_checkout` does. The wait
-/// blocks in `flock` on a thread and sleeps in a kqueue (lock_wake.rs), so a
-/// release is seen when it happens. None when a takeover or an install stopped
-/// this build meanwhile, or when the checkout left the lane's set while the
-/// wait ran. A stop signal fails the wait.
-pub fn wait_checkout(
-    places: &Places,
-    repo: &str,
-    lane: Lane,
-    entry: &str,
-) -> Result<Option<CheckoutLock>> {
-    use crate::lock_wake::{Shared, Wake};
+/// that holds it lets go, then takes it as `lock_checkout` does
+/// (lock_wake.rs `wait_for_lock`). A stop signal fails the wait.
+pub fn wait_checkout(places: &Places, repo: &str, lane: Lane, entry: &str) -> Result<Waited> {
     let file = places.app_lock_file(repo, lane, entry);
-    let wake = Wake::new(libc::SIGUSR2)?;
-    let shared = std::sync::Arc::new(std::sync::Mutex::new(Shared {
-        current: std::collections::HashSet::from([WAIT]),
-        open: true,
-    }));
-    wake.block_on(file.clone(), WAIT, shared.clone())?;
-    let taken = (|| -> Result<Option<libc::c_int>> {
-        loop {
-            if crate::lock::takeover_stopped() {
-                return Ok(None);
-            }
-            crate::lock::refuse_when_stopped(&format!("waited for {entry}'s lock"))?;
-            if wake.wait()?.ready
-                && let Some((_, code)) = wake.message()
-            {
-                if code < 0 {
-                    fail!(
-                        "locking {}: {}",
-                        file.display(),
-                        std::io::Error::from_raw_os_error(-code)
-                    );
-                }
-                return Ok(Some(code));
-            }
-        }
-    })();
-    wake.end(&shared);
-    let Some(fd) = taken? else {
-        return Ok(None);
+    let waiting_for = format!("{entry}'s lock");
+    let Some(fd) =
+        crate::lock_wake::wait_for_lock(&file, &waiting_for, &crate::lock::takeover_stopped)?
+    else {
+        return Ok(Waited::Stopped);
     };
     let lock = CheckoutLock {
         fd,
@@ -532,11 +509,12 @@ pub fn wait_checkout(
         .app_checkouts_of(repo, lane)?
         .iter()
         .any(|e| e == entry);
-    Ok(in_set.then_some(lock))
+    Ok(if in_set {
+        Waited::Taken(lock)
+    } else {
+        Waited::Gone
+    })
 }
-
-/// The number of the one wait `wait_checkout` starts.
-const WAIT: u64 = 1;
 
 /// Takes the checkout that <lock> locks out of <repo>'s <lane> set, under the
 /// lane's queue guard, and deletes its lock file and the records beside it

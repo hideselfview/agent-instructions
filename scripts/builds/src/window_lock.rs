@@ -14,13 +14,11 @@
 //! `<host>.run` while it holds the lock, for a waiter to name.
 
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 
 use crate::fail;
 use crate::fail::{Context, Result};
-use crate::lock_wake::{Shared, Wake};
 use crate::places::Places;
 use crate::queue;
 use crate::text::note;
@@ -81,47 +79,13 @@ fn holder_of(places: &Places, host: &str) -> Result<Option<String>> {
 
 /// Waits for the lock on <file>, which exists and locks <display>, and takes
 /// it, or returns None as soon as <stopped> says a takeover stopped this
-/// build. The wait is `Wake`'s, as the queue's is, with the takeover's
-/// signal: a thread blocks in `flock` and reports through a pipe, and the
-/// waiter sleeps in a kqueue that counts SIGUSR2 and the stop signals from
-/// the moment it exists. The waiter
-/// looks at <stopped> and at the stop signal after that, so a takeover or a
-/// stop signal is seen whether it came before or after; a stop signal fails
-/// the wait (lock.rs `refuse_when_stopped`).
+/// build (lock_wake.rs `wait_for_lock`), and keeps the lock open across exec.
 fn wait_for(
     file: &std::path::Path,
     display: &str,
     stopped: &dyn Fn() -> bool,
 ) -> Result<Option<libc::c_int>> {
-    let wake = Wake::new(libc::SIGUSR2)?;
-    let shared = Arc::new(Mutex::new(Shared {
-        current: std::collections::HashSet::from([WAIT]),
-        open: true,
-    }));
-    wake.block_on(file.to_path_buf(), WAIT, shared.clone())?;
-    let taken = (|| -> Result<Option<libc::c_int>> {
-        loop {
-            if stopped() {
-                return Ok(None);
-            }
-            crate::lock::refuse_when_stopped(&format!("waited for {display}"))?;
-            if wake.wait()?.ready
-                && let Some((_, code)) = wake.message()
-            {
-                if code < 0 {
-                    fail!(
-                        "locking {}: {}",
-                        file.display(),
-                        std::io::Error::from_raw_os_error(-code)
-                    );
-                }
-                return Ok(Some(code));
-            }
-        }
-    })();
-    // No thread reports from here on, and a report not read is let go.
-    wake.end(&shared);
-    let Some(lock) = taken? else {
+    let Some(lock) = crate::lock_wake::wait_for_lock(file, display, stopped)? else {
         return Ok(None);
     };
     // The wait's descriptor closes on exec, since a queue wait never holds
@@ -134,9 +98,6 @@ fn wait_for(
     }
     Ok(Some(lock))
 }
-
-/// The number of the one wait this module starts.
-const WAIT: u64 = 1;
 
 /// Takes <host>'s window lock for the step <what> describes. While another
 /// run holds it, `take` gives <announce> the words that name that run, then

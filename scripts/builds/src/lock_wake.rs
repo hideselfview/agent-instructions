@@ -211,6 +211,52 @@ impl Wake {
     }
 }
 
+/// The number of the one wait `wait_for_lock` starts.
+const LOCK_WAIT: u64 = 1;
+
+/// Waits for the exclusive lock on <file>, which exists, and returns its
+/// descriptor (closed on exec), or None as soon as <stopped> says a takeover
+/// stopped this build. A thread blocks in `flock` and reports through a pipe,
+/// and the waiter sleeps in a kqueue that counts SIGUSR2 and the stop signals
+/// from the moment it exists, so a takeover or a stop signal is seen whether
+/// it came before or after. A stop signal fails the wait (lock.rs
+/// `refuse_when_stopped`), saying the build <waiting_for>.
+pub fn wait_for_lock(
+    file: &std::path::Path,
+    waiting_for: &str,
+    stopped: &dyn Fn() -> bool,
+) -> Result<Option<libc::c_int>> {
+    let wake = Wake::new(libc::SIGUSR2)?;
+    let shared = Arc::new(Mutex::new(Shared {
+        current: std::collections::HashSet::from([LOCK_WAIT]),
+        open: true,
+    }));
+    wake.block_on(file.to_path_buf(), LOCK_WAIT, shared.clone())?;
+    let taken = (|| -> Result<Option<libc::c_int>> {
+        loop {
+            if stopped() {
+                return Ok(None);
+            }
+            crate::lock::refuse_when_stopped(&format!("waited for {waiting_for}"))?;
+            if wake.wait()?.ready
+                && let Some((_, code)) = wake.message()
+            {
+                if code < 0 {
+                    fail!(
+                        "locking {}: {}",
+                        file.display(),
+                        std::io::Error::from_raw_os_error(-code)
+                    );
+                }
+                return Ok(Some(code));
+            }
+        }
+    })();
+    // No thread reports from here on, and a report not read is let go.
+    wake.end(&shared);
+    taken
+}
+
 impl Drop for Wake {
     fn drop(&mut self) {
         unsafe {
