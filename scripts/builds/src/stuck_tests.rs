@@ -1,5 +1,4 @@
 use super::*;
-use crate::host_scan::parse_ps;
 
 fn row(pid: i32, ppid: i32, uid: u32, pcpu: f64, cpu: f64, age: i64, command: &str) -> Row {
     Row {
@@ -30,27 +29,6 @@ fn sampling() -> Sampling {
 const FSEVENTSD_PATH: &str = "/System/Library/Frameworks/CoreServices.framework/Frameworks/FSEvents.framework/Support/fseventsd";
 
 const AGENT: &str = "/bin/zsh -c source /Users/x/.claude/shell-snapshots/snapshot-zsh-1.sh && eval 'cargo test' < /dev/null && pwd -P >| /tmp/c";
-
-#[test]
-fn parses_ps_lines() {
-    let text = "  555     1   202   0.0 823:18.22 24-07:11:48 Ss /usr/bin/a b  c\n\
-                  17  1   0  101.5 2586:37.12 06-02:03:04 Rs /usr/libexec/fseventsd\n\
-                  18  1   501 3.0 1:02:03.50 05:09 Z (sleep)\n";
-    let rows = parse_ps(text).unwrap();
-    assert_eq!(rows.len(), 3);
-    assert_eq!(rows[0].command, "/usr/bin/a b  c");
-    assert_eq!(rows[0].age_seconds, 24 * 86_400 + 7 * 3600 + 11 * 60 + 48);
-    assert_eq!(rows[1].cpu_seconds, 2586.0 * 60.0 + 37.12);
-    assert_eq!(rows[1].uid, 0);
-    assert_eq!(rows[2].cpu_seconds, 3600.0 + 123.5);
-    assert_eq!(rows[2].age_seconds, 5 * 60 + 9);
-    assert!(rows[2].zombie && !rows[0].zombie);
-    assert_eq!(rows[2].command, "(sleep)");
-    assert!(parse_ps("1 2 3\n").is_err());
-    // Linux's ps prints CPU time as [dd-]hh:mm:ss.
-    let linux = parse_ps("  901     1  1000  2.0 1-02:03:04 3-00:00:01 S /usr/bin/x\n").unwrap();
-    assert_eq!(linux[0].cpu_seconds, 86_400.0 + 7_384.0);
-}
 
 #[test]
 fn lists_a_pegged_system_daemon_with_the_sudo_command() {
@@ -577,10 +555,12 @@ fn remote_busy_processes_survive_a_cwd_lookup_without_matches() {
   m1) ;;
   denied) echo "lsof: Permission denied" >&2; exit 1 ;;
   invalid) echo "not a folder record"; echo "lsof: failed" >&2; exit 1 ;;
-  partial|partial-ps-denied)
+  partial|partial-ps-denied|partial-success)
     case "${10}" in
       *"lsof "*) printf '%s\n' p43 fcwd n/Users/x/dev/bae-worktrees/side-7
-        echo "lsof: Permission denied" >&2; exit 1 ;;
+        echo "lsof: Permission denied" >&2
+        if [ "${9}" = partial-success ]; then exit 0; fi
+        exit 1 ;;
       *"ps -axww"*) if [ "${9}" = partial-ps-denied ]; then
         echo "ps: Permission denied" >&2; exit 1
       fi ;;
@@ -661,6 +641,17 @@ esac"#,
     );
     assert_eq!(partial.activity().unwrap().busy[0].pid, 43);
 
+    host.target = Some("partial-success".into());
+    let partial = read(&ssh, &host, &scan, None);
+    assert!(
+        partial
+            .report()
+            .1
+            .unwrap()
+            .contains("lsof: Permission denied")
+    );
+    assert_eq!(partial.activity().unwrap().busy[0].pid, 43);
+
     host.target = Some("partial-ps-denied".into());
     let partial = read(&ssh, &host, &scan, None);
     let error = partial.report().1.unwrap();
@@ -676,6 +667,17 @@ esac"#,
             .unwrap()
             .contains("ps: Permission denied")
     );
+
+    let parents = crate::proc_limit::finding(
+        &host,
+        crate::proc_limit::ProcessUse {
+            count: 7_300,
+            limit: 8_000,
+        },
+        Ok(&scan.as_ref().unwrap().rows),
+    )
+    .unwrap();
+    assert!(parents.text.contains("pid 43"));
 
     host.target = Some("unreachable".into());
     let unreachable = read(&ssh, &host, &scan, None)

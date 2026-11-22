@@ -79,7 +79,7 @@ fn the_remote_probe_script_asks_for_the_process_lines() {
 
 #[test]
 fn names_the_parents_with_the_most_zombies_and_skips_init() {
-    let parents = zombie_parents(&zombie_rows(), None);
+    let parents = zombie_parents(&zombie_rows());
     assert_eq!(
         parents
             .iter()
@@ -88,7 +88,6 @@ fn names_the_parents_with_the_most_zombies_and_skips_init() {
         vec![(100, 5), (200, 2)]
     );
     assert!(parents[0].test_binary && !parents[1].test_binary);
-    assert_eq!(parents[0].stop, "kill 100");
 }
 
 #[test]

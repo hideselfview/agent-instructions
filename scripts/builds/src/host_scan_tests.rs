@@ -257,3 +257,24 @@ esac
     );
     assert_eq!(scan().jobs, []);
 }
+
+#[test]
+fn parses_ps_lines() {
+    let text = "  555     1   202   0.0 823:18.22 24-07:11:48 Ss /usr/bin/a b  c\n\
+                  17  1   0  101.5 2586:37.12 06-02:03:04 Rs /usr/libexec/fseventsd\n\
+                  18  1   501 3.0 1:02:03.50 05:09 Z (sleep)\n";
+    let rows = parse_ps(text).unwrap();
+    assert_eq!(rows.len(), 3);
+    assert_eq!(rows[0].command, "/usr/bin/a b  c");
+    assert_eq!(rows[0].age_seconds, 24 * 86_400 + 7 * 3600 + 11 * 60 + 48);
+    assert_eq!(rows[1].cpu_seconds, 2586.0 * 60.0 + 37.12);
+    assert_eq!(rows[1].uid, 0);
+    assert_eq!(rows[2].cpu_seconds, 3600.0 + 123.5);
+    assert_eq!(rows[2].age_seconds, 5 * 60 + 9);
+    assert!(rows[2].zombie && !rows[0].zombie);
+    assert_eq!(rows[2].command, "(sleep)");
+    assert!(parse_ps("1 2 3\n").is_err());
+    // Linux's ps prints CPU time as [dd-]hh:mm:ss.
+    let linux = parse_ps("  901     1  1000  2.0 1-02:03:04 3-00:00:01 S /usr/bin/x\n").unwrap();
+    assert_eq!(linux[0].cpu_seconds, 86_400.0 + 7_384.0);
+}

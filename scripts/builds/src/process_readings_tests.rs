@@ -1,5 +1,5 @@
 use super::*;
-use crate::stuck::Sustained;
+use crate::host_scan::Sustained;
 
 const NOW: i64 = 1_795_069_000;
 

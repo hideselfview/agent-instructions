@@ -16,11 +16,11 @@
 
 use crate::health::Advice;
 use crate::host::{Host, place};
+use crate::host_scan::Row;
 use crate::host_scan::{JobRun, Scan, arguments, program, tree};
 use crate::install_gate::Waiting;
 use crate::land_turns::TurnWait;
 use crate::shells::shown;
-use crate::stuck::Row;
 use crate::text::duration;
 
 /// How long each kind of work may run before health names it, in minutes.

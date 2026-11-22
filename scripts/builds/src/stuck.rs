@@ -23,6 +23,7 @@ use serde::Serialize;
 use crate::app_config::DEFAULT_STEP_LIMIT;
 use crate::health::Advice;
 use crate::host::{Host, Ssh, command_at, command_output, output_of};
+use crate::host_scan::{Row, Sustained};
 use crate::shells::{IDLE_MINUTES, IDLE_SHARE, basename, command_of, is_agent_argv, shown};
 use crate::text::duration;
 
@@ -43,36 +44,6 @@ const FSEVENTSD: &str = "fseventsd";
 const SAMPLE_SECONDS: u32 = 5;
 /// How many ancestors of a process are read.
 const ANCESTORS: usize = 12;
-
-/// What a process used over a span of the host's readings.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
-pub struct Sustained {
-    /// The lowest share of a core, as a percentage, in any interval of the span.
-    pub percent: f64,
-    /// The seconds the span covers.
-    pub seconds: i64,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct Row {
-    pub pid: i32,
-    pub ppid: i32,
-    pub uid: u32,
-    /// The share of a core the process used since the host's previous
-    /// reading (process_readings.rs), as a percentage, or None when that
-    /// reading has no such process. Rows from `parse_ps` hold what `ps`
-    /// prints, and a scan replaces it with the measured share.
-    pub cpu_percent: Option<f64>,
-    /// The lowest share the process had in any interval between the host's
-    /// readings over the last span (process_readings.rs), or None when the
-    /// readings do not cover a span with the process in every interval.
-    pub sustained: Option<Sustained>,
-    pub cpu_seconds: f64,
-    pub age_seconds: i64,
-    /// Exited and waiting for its parent to reap it (state Z).
-    pub zombie: bool,
-    pub command: String,
-}
 
 /// What a busy process belongs to.
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -657,13 +628,8 @@ fn folders_on(
     let folders = parse_lsof(&String::from_utf8_lossy(&output.stdout));
     let stderr = String::from_utf8_lossy(&output.stderr);
     let stderr = stderr.trim();
-    let complete = folders.len() == pids.len();
-    let succeeded = output.status.success();
-    if succeeded && complete {
-        return Ok((folders, None));
-    }
     let diagnostic = (!stderr.is_empty()).then(|| format!("{what} wrote: {stderr}"));
-    if succeeded
+    if output.status.success()
         || (output.status.code() == Some(1) && (diagnostic.is_none() || !folders.is_empty()))
     {
         return Ok((folders, diagnostic));
@@ -728,6 +694,13 @@ pub fn read(
     }
 }
 
+fn join_diagnostics(earlier: Option<String>, later: String) -> String {
+    match earlier {
+        Some(earlier) => format!("{earlier}. {later}"),
+        None => later,
+    }
+}
+
 fn read_activity(
     ssh: &Ssh,
     host: &Host,
@@ -744,13 +717,17 @@ fn read_activity(
         match &host.target {
             Some(_) => {
                 let (cwds, diagnostic) = folders_on(ssh, host, &pids)?;
-                placement_diagnostic = diagnostic;
                 let unplaced: HashSet<_> = pids
                     .iter()
                     .copied()
                     .filter(|pid| !cwds.contains_key(pid))
                     .collect();
-                if !unplaced.is_empty() {
+                if unplaced.is_empty() {
+                    if let Some(diagnostic) = diagnostic {
+                        crate::text::note(diagnostic);
+                    }
+                } else {
+                    placement_diagnostic = diagnostic;
                     // lsof can omit a living process whose working folder
                     // it cannot see. Recheck only the unplaced rows' lifetimes.
                     match live_starts(ssh, host) {
@@ -782,17 +759,12 @@ fn read_activity(
                                     crate::host::place(&host.name),
                                     without_folder.join(", ")
                                 );
-                                placement_diagnostic = Some(match placement_diagnostic.take() {
-                                    Some(diagnostic) => format!("{diagnostic}. {missing}"),
-                                    None => missing,
-                                });
+                                placement_diagnostic =
+                                    Some(join_diagnostics(placement_diagnostic, missing));
                             }
                         }
                         Err(error) => {
-                            let error = match placement_diagnostic.take() {
-                                Some(diagnostic) => format!("{diagnostic}. {error}"),
-                                None => error,
-                            };
+                            let error = join_diagnostics(placement_diagnostic, error);
                             if cwds.is_empty() {
                                 return Err(error);
                             }
@@ -851,23 +823,20 @@ pub fn lines(hosts: &[HostBusy]) -> Vec<String> {
 pub fn findings(hosts: &[HostBusy]) -> Vec<Advice> {
     let mut out = Vec::new();
     for host in hosts {
-        let read = match &host.read {
+        let (activity, error) = match &host.read {
             HostRead::ScanFailed(_) => continue,
-            HostRead::PlacementFailed(error) => {
-                out.push(Advice::said(format!(
-                    "busy processes on {}: {error}",
-                    host.host
-                )));
-                continue;
+            HostRead::PlacementFailed(error) => (None, Some(error.as_str())),
+            HostRead::Activity(activity) => {
+                (Some(activity), activity.placement_diagnostic.as_deref())
             }
-            HostRead::Activity(activity) => activity,
         };
-        if let Some(error) = &read.placement_diagnostic {
+        if let Some(error) = error {
             out.push(Advice::said(format!(
                 "busy processes on {}: {error}",
                 host.host
             )));
         }
+        let Some(read) = activity else { continue };
         // A wedged fseventsd gets its own finding, in place of the busy one.
         out.extend(read.wedged.iter().map(|w| w.finding.clone()));
         let skip = read.wedged.as_ref().map(|w| w.pid);

@@ -23,10 +23,10 @@
 
 use crate::health::Advice;
 use crate::host::{Host, place};
+use crate::host_scan::Row;
 use crate::host_scan::{JobRun, Scan, arguments, program, tree};
 use crate::job_claim::{Holder, Holders};
 use crate::shells::shown;
-use crate::stuck::Row;
 use crate::text::duration;
 
 /// A process younger than this may be on its way out with its parent.

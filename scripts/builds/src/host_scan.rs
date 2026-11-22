@@ -8,12 +8,13 @@
 
 use std::path::Path;
 
+use serde::Serialize;
+
 use crate::fail;
 use crate::fail::Result;
 use crate::host::{Host, Ssh, Terminal, command_at, output_of, place};
 use crate::host_front_app::FrontApp;
 use crate::process_readings::{self, Reading, measure};
-use crate::stuck::Row;
 
 /// The line after which the script prints its `ps` listing: every line
 /// before it is `<key>=<value>`, and no `ps` line can equal it, since each
@@ -140,6 +141,36 @@ fn parse_cpu(line: &str) -> std::result::Result<f64, String> {
     line.split(',')
         .find_map(|part| part.trim().strip_suffix("% idle")?.trim().parse().ok())
         .ok_or_else(|| format!("top printed no idle share: {line:?}"))
+}
+
+/// What a process used over a span of the host's readings.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+pub struct Sustained {
+    /// The lowest share of a core, as a percentage, in any interval of the span.
+    pub percent: f64,
+    /// The seconds the span covers.
+    pub seconds: i64,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Row {
+    pub pid: i32,
+    pub ppid: i32,
+    pub uid: u32,
+    /// The share of a core the process used since the host's previous
+    /// reading (process_readings.rs), as a percentage, or None when that
+    /// reading has no such process. Rows from `parse_ps` hold what `ps`
+    /// prints, and a scan replaces it with the measured share.
+    pub cpu_percent: Option<f64>,
+    /// The lowest share the process had in any interval between the host's
+    /// readings over the last span (process_readings.rs), or None when the
+    /// readings do not cover a span with the process in every interval.
+    pub sustained: Option<Sustained>,
+    pub cpu_seconds: f64,
+    pub age_seconds: i64,
+    /// Exited and waiting for its parent to reap it (state Z).
+    pub zombie: bool,
+    pub command: String,
 }
 
 /// What `ps` prints, one process a line: pid, parent, user, CPU share, CPU

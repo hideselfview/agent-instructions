@@ -18,8 +18,9 @@ use crate::fail;
 use crate::fail::{Context, Fail, Result};
 use crate::health::Advice;
 use crate::host::{Host, Ssh, Terminal, answer_value, command_at, output_of, place};
+use crate::host_scan::Row;
 use crate::shells::{basename, shown};
-use crate::stuck::{Row, is_test_binary};
+use crate::stuck::is_test_binary;
 use crate::text::duration;
 
 /// A host above this share of its process limit needs action.
@@ -100,14 +101,12 @@ pub struct ZombieParent {
     pub zombies: usize,
     /// A test binary cargo built: stopping it is safe for builds to do.
     pub test_binary: bool,
-    /// The command that stops it on its host.
-    pub stop: String,
 }
 
 /// The processes of <rows> with the most zombie children, most
 /// first. A zombie whose parent is not in <rows> (init, or another user's
 /// process) counts for no parent: ending init's children is no fix.
-fn zombie_parents(rows: &[Row], target: Option<&str>) -> Vec<ZombieParent> {
+fn zombie_parents(rows: &[Row]) -> Vec<ZombieParent> {
     let mut counts: HashMap<i32, usize> = HashMap::new();
     for zombie in rows.iter().filter(|row| row.zombie) {
         *counts.entry(zombie.ppid).or_default() += 1;
@@ -124,7 +123,6 @@ fn zombie_parents(rows: &[Row], target: Option<&str>) -> Vec<ZombieParent> {
                 age_seconds: row.age_seconds,
                 zombies,
                 test_binary: is_test_binary(row),
-                stop: crate::host::person_command(target, &format!("kill {}", row.pid)),
             })
         })
         .collect();
@@ -174,7 +172,7 @@ pub fn finding(
             )));
         }
     };
-    let parents = zombie_parents(rows, host.target.as_deref());
+    let parents = zombie_parents(rows);
     Some(match parents.first() {
         None => Advice::said(format!(
             "{head}; no process there holds zombie children, so read `ps` on it for what holds the rest"
@@ -190,7 +188,10 @@ pub fn finding(
                     format!(
                         "{head}; the top parents of zombies are {list}; stop the first, a test binary, with"
                     ),
-                    top.stop.clone(),
+                    crate::host::person_command(
+                        host.target.as_deref(),
+                        &format!("kill {}", top.pid),
+                    ),
                 )
             } else {
                 Advice::said(format!(
@@ -213,7 +214,7 @@ pub fn stop(uid: u32) -> Result<(Vec<String>, usize)> {
     let rows = crate::host_scan::local_rows().map_err(Fail::Message)?;
     let mut lines = Vec::new();
     let mut failed = 0;
-    for parent in zombie_parents(&rows, None) {
+    for parent in zombie_parents(&rows) {
         if !parent.test_binary || parent.uid != uid {
             continue;
         }

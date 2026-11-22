@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::fail::Result;
-use crate::stuck::{Row, Sustained};
+use crate::host_scan::{Row, Sustained};
 
 /// A reading younger than this says too little about what a process used.
 pub const MIN_SECONDS: i64 = 10;

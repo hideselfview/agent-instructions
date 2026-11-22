@@ -2526,12 +2526,13 @@ STATUS, HEALTH AND THE DASHBOARD
                                 worktree and step, an agent shell, a test
                                 binary, a system daemon); the dashboard is
                                 never one, since it runs as long as the Mac
-                                is up. When a lookup on a remote host omits
-                                a process's working folder, the report
-                                checks whether the process still runs. It reports lookup
-                                errors after a successful scan, even when
-                                some folders are available. With --json, a
-                                host can have both a busy list and a lookup
+                                is up. When a remote working-folder lookup
+                                returns usable results, the report checks
+                                whether any process without a folder still
+                                runs. It names living processes whose folders
+                                are missing and reports lookup errors.
+                                With --json, a host can have both a busy
+                                list and a lookup
                                 error. A process-limit finding names zombie
                                 parents from the scan even when the busy
                                 process lookup fails.

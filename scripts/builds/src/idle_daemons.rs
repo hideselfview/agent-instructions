@@ -21,11 +21,11 @@ use crate::app_remote::split;
 use crate::app_timing;
 use crate::fail::Result;
 use crate::host::{Host, Ssh, Terminal};
+use crate::host_scan::Row;
 use crate::host_scan::parse_ps;
 use crate::lane::Lane;
 use crate::lane_size::{IDLE_MINUTES, RepoLane, last_use};
 use crate::places::Places;
-use crate::stuck::Row;
 use crate::text::duration;
 
 /// A daemon using this share of a core or more is working now, whatever the
