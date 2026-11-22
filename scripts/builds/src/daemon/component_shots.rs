@@ -26,7 +26,7 @@ use boards::Source;
 use boards::component_key::ComponentKey;
 use boards::preview::preview_path;
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::json;
 
 use super::runs::{Phase, RunPage, Runs, StartError};
 use crate::design_render::{NOW, fill};
@@ -365,14 +365,6 @@ pub fn page(
             ("DATA", &data),
         ],
     ))
-}
-
-/// <shots> as the page's stream sends it.
-pub fn shots_json(shots: Result<Shots>) -> Value {
-    match shots {
-        Ok(shots) => serde_json::to_value(shots).expect("the shots serialize"),
-        Err(error) => json!({ "error": error.text() }),
-    }
 }
 
 #[cfg(test)]

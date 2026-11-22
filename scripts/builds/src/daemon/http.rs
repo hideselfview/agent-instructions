@@ -235,15 +235,17 @@ fn handle(mut stream: TcpStream, names: &[String], model: &Model) -> std::io::Re
     if let Some((project, commit, component, ask)) = shots_target(path) {
         return match (method, ask) {
             ("GET", ShotsAsk::Events) => shots_events(stream, model, project, commit, component),
-            ("POST", ShotsAsk::Capture) => json(
-                &mut stream,
+            ("POST", ShotsAsk::Capture) => {
                 match model.capture_component(project, commit, component) {
-                    None => Err(crate::fail::Fail::Message(format!(
-                        "project {project} has no design files"
-                    ))),
-                    Some(started) => started.map(|()| b"{}".to_vec()),
-                },
-            ),
+                    Some(Ok(())) => json(&mut stream, Ok(b"{}".to_vec())),
+                    Some(Err(error)) => {
+                        let message = error.text();
+                        crate::text::note(&message);
+                        json_error(&mut stream, &message)
+                    }
+                    None => json_error(&mut stream, &no_design_files(project)),
+                }
+            }
             _ => respond(
                 &mut stream,
                 "405 Method Not Allowed",
@@ -628,15 +630,19 @@ fn shots_events(
     let mut seen = 0;
     let mut sent: Option<String> = None;
     loop {
-        let shots = match model.component_shots(project, commit, component) {
-            Some(shots) => super::component_shots::shots_json(shots),
-            None => {
-                serde_json::json!({ "error": format!("project {project} has no design files") })
+        let (event, error) = match model.component_shots(project, commit, component) {
+            Some(Ok(shots)) => (
+                serde_json::to_string(&shots).expect("the shots serialize"),
+                None,
+            ),
+            Some(Err(error)) => {
+                let message = error.text();
+                (json_error_body(&message), Some(message))
             }
+            None => (json_error_body(&no_design_files(project)), None),
         };
-        let event = shots.to_string();
         if sent.as_ref() != Some(&event) {
-            if let Some(error) = shots.get("error").and_then(serde_json::Value::as_str) {
+            if let Some(error) = error {
                 crate::text::note(error);
             }
             write!(stream, "event: shots\ndata: {event}\n\n")?;
@@ -700,9 +706,7 @@ fn ask_publish(
             stream,
             "404 Not Found",
             "application/json",
-            serde_json::json!({ "error": format!("project {project} has no design files") })
-                .to_string()
-                .as_bytes(),
+            json_error_body(&no_design_files(project)).as_bytes(),
         ),
         Some(Ok(asked)) => respond(
             stream,
@@ -860,15 +864,25 @@ fn question_effect(model: &Model, body: &[u8]) -> crate::fail::Result<()> {
 fn json(stream: &mut TcpStream, body: crate::fail::Result<Vec<u8>>) -> std::io::Result<()> {
     match body {
         Ok(body) => respond(stream, "200 OK", "application/json", &body),
-        Err(error) => respond(
-            stream,
-            "500 Internal Server Error",
-            "application/json",
-            serde_json::json!({ "error": error.text() })
-                .to_string()
-                .as_bytes(),
-        ),
+        Err(error) => json_error(stream, &error.text()),
     }
+}
+
+fn json_error(stream: &mut TcpStream, message: &str) -> std::io::Result<()> {
+    respond(
+        stream,
+        "500 Internal Server Error",
+        "application/json",
+        json_error_body(message).as_bytes(),
+    )
+}
+
+fn no_design_files(project: &str) -> String {
+    format!("project {project} has no design files")
+}
+
+fn json_error_body(message: &str) -> String {
+    serde_json::json!({ "error": message }).to_string()
 }
 
 /// Streams `state` events until the page goes. The page is watched, so the

@@ -1,6 +1,7 @@
 use super::*;
 use crate::shots_cache::{Key, stage};
 use crate::testing::Scratch;
+use serde_json::Value;
 
 const COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
 
