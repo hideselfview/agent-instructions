@@ -701,7 +701,8 @@ sent again.
       decided nothing about the difference (the board rule in
       projects/bae-rules/screen-content/build-each-screen-to-match-its-board.md).
       Such a change needs no `review` and is approved when recorded. An amend
-      without `fix` makes the change wait on the person's review again.
+      without `fix` makes the change wait on the person's review again, unless
+      it changes no drawing (`builds design amend`).
       `decision` is the id of the decision in the log in which the person
       decided the change a board edit draws: a change to an existing screen
       that the design system's existing components can draw, such as new words or
@@ -709,7 +710,8 @@ sent again.
       the commit that builds the change and records the edit with
       `decision`. The decision is the person's approval, so the change needs
       no `review` and is approved when recorded. An amend without `decision`
-      makes the change wait on the person's review again. Record refuses an
+      makes the change wait on the person's review again, unless it changes no
+      drawing (`builds design amend`). Record refuses an
       id that is no decision of the log, and a request that gives both `fix`
       and `decision`.
       `review` is the review page: one heading, because the person reviews

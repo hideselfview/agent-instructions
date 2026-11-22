@@ -1121,9 +1121,7 @@ pub fn amend(
             new_items,
         });
     }
-    let approval_holds =
-        drawing_holds && (before.settlement.needs_review() || !request.settlement.needs_review());
-    if !approval_holds {
+    if !drawing_holds {
         db.execute("DELETE FROM design_approval WHERE design_id = ?1", [id])
             .sql()?;
     }
