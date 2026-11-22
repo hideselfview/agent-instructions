@@ -270,7 +270,11 @@ pub fn prune(tool: &Tool, run: Run, root: &Path, cap_kib: u64, groups: Vec<Group
     let told: Result<()> = changed
         .iter()
         .try_for_each(|folder| crate::sizes::stale(&tool.places, folder));
-    deleted.and(told)
+    match (deleted, told) {
+        (Err(error), Err(also)) => fail!("{}; {}", error.text(), also.text()),
+        (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
+        (Ok(()), Ok(())) => Ok(()),
+    }
 }
 
 /// The deletions of `prune` while it holds <root>: the staging folders at its
