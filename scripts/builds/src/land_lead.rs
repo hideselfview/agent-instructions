@@ -137,18 +137,6 @@ fn tail(bytes: &[u8]) -> String {
     lines[lines.len().saturating_sub(OUTPUT_LINES)..].join("\n")
 }
 
-/// What the git command printed, without trailing newlines, failing when git
-/// fails.
-fn git_must(dir: &Path, args: &[&str]) -> Result<String> {
-    git_text(dir, args).ok_or_else(|| {
-        Fail::Message(format!(
-            "git {} failed in {}",
-            args.join(" "),
-            dir.display()
-        ))
-    })
-}
-
 /// How picking one landing's commits onto the result ended.
 enum Picked {
     /// The commits are on the result: their ids there, oldest first.
@@ -762,7 +750,9 @@ impl Landing<'_> {
         let dir = &self.workdir;
         let shas = &member.shas;
         let last = shas.last().expect("a landing names a commit").as_str();
-        let base = git_must(dir, &["rev-parse", "HEAD"])?;
+        let base = crate::app_config::run_git(dir, &["rev-parse", "HEAD"])?
+            .trim()
+            .to_string();
         // A fast-forward lands every commit between the result and the last
         // one, so it is taken only when those are exactly the commits named:
         // an unnamed commit below them (an earlier one on the agent's branch)
@@ -782,7 +772,8 @@ impl Landing<'_> {
             let mut todo: Vec<&String> = Vec::new();
             for sha in shas {
                 let parent = format!("{sha}^");
-                let marks = git_must(dir, &["cherry", "origin/main", sha, &parent])?;
+                let marks =
+                    crate::app_config::run_git(dir, &["cherry", "origin/main", sha, &parent])?;
                 let firsts: Vec<String> = marks
                     .lines()
                     .map(|line| line.chars().take(1).collect())
@@ -818,10 +809,11 @@ impl Landing<'_> {
                 }));
             }
         }
-        let on_main = git_must(dir, &["rev-list", "--reverse", &format!("{base}..HEAD")])?
-            .lines()
-            .map(str::to_string)
-            .collect();
+        let on_main =
+            crate::app_config::run_git(dir, &["rev-list", "--reverse", &format!("{base}..HEAD")])?
+                .lines()
+                .map(str::to_string)
+                .collect();
         Ok(Picked::Applied(on_main))
     }
 }
