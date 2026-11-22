@@ -1736,13 +1736,13 @@ fn dashboard_finding(dashboard: Option<i32>) -> Option<Finding> {
 }
 
 /// The process listing and its separate working-folder lookup on one host.
-struct HostProcesses {
-    scan: std::result::Result<crate::host_scan::Scan, String>,
-    busy: crate::stuck::HostBusy,
+pub struct HostProcesses {
+    pub scan: std::result::Result<crate::host_scan::Scan, String>,
+    pub busy: crate::stuck::HostBusy,
 }
 
 impl HostProcesses {
-    fn read(
+    pub fn read(
         ssh: &crate::host::Ssh,
         host: &Host,
         home: &std::path::Path,

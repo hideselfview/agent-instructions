@@ -965,19 +965,19 @@ impl Model {
         let holders = crate::job_claim::Holders::read()?;
         let mut scans = Vec::new();
         let mut busy = Vec::new();
-        for (host, scan) in hosts
+        for (host, processes) in hosts
             .iter()
             .zip(crate::checkout::parallel_map(&hosts, |host| {
-                crate::host_scan::read(ssh, host, &self.places.home)
+                crate::health::HostProcesses::read(
+                    ssh,
+                    host,
+                    &self.places.home,
+                    host.target.is_none().then_some(dashboard),
+                )
             }))
         {
-            busy.push(crate::stuck::read(
-                ssh,
-                host,
-                &scan,
-                host.target.is_none().then_some(dashboard),
-            ));
-            scans.push((host.clone(), scan));
+            busy.push(processes.busy);
+            scans.push((host.clone(), processes.scan));
         }
         let refusals = crate::host::refusals(&self.places)?;
         let installed = crate::host_installed::read_all_installed(&self.places, ssh, &hosts);
