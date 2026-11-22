@@ -1,6 +1,7 @@
 use super::*;
 use crate::compare::Aspect;
 use crate::findings_file::Element;
+use crate::shots::Role;
 
 const MISSING: &str = "Shot is missing the button “Set up”";
 const EXTRA: &str = "Shot has the text “Beta”, which the board does not";
@@ -124,6 +125,98 @@ fn a_finding_of_another_element_or_aspect_is_worse() {
     assert_eq!(
         before().against("mac.a.b", &[missing(), enabled]),
         Against::Worse
+    );
+}
+
+/// The finding of a state on a button the before run could not compare.
+fn state_of_set_up(aspect: Aspect, board: &str, shot: &str) -> What {
+    What::StateDiffers {
+        element: element("button", "Set up"),
+        aspect,
+        board: board.to_string(),
+        shot: shot.to_string(),
+    }
+}
+
+#[test]
+fn a_finding_on_an_element_the_before_run_reported_missing_is_a_first_observation() {
+    // mac.a.b's before run holds `Set up` as missing from the shot. On the
+    // branch the shot has the button, and it differs in its state.
+    let before = before();
+    assert_eq!(
+        before.against(
+            "mac.a.b",
+            &[
+                state_of_set_up(Aspect::Enabled, "enabled", "disabled"),
+                slider("0.3366")
+            ]
+        ),
+        Against::Held
+    );
+    let role = What::RoleDiffers {
+        element: element("button", "Set up"),
+        shot_role: Role::Text,
+    };
+    let out_of_order = What::OutOfOrder {
+        element: element("button", "Set up"),
+    };
+    assert_eq!(
+        before.against("mac.a.b", &[role, out_of_order, slider("0.3366")]),
+        Against::Held
+    );
+}
+
+#[test]
+fn a_finding_on_an_element_the_before_run_reported_extra_is_a_first_observation() {
+    let text = serde_json::json!({
+        "version": "v1", "capture_version": "c1", "commit": "abc", "scenes": ["s"], "failed": [], "problems": 0, "sizes": {},
+        "components": [],
+        "findings": [{"scene": "s", "level": "finding", "kind": "extra",
+            "element": {"role": "text", "words": "Beta"}, "sentence": EXTRA}],
+    })
+    .to_string();
+    let before = Before::parse(&text, "before.json", "v1").unwrap();
+    let state = What::StateDiffers {
+        element: element("text", "Beta"),
+        aspect: Aspect::Value,
+        board: "a".to_string(),
+        shot: "b".to_string(),
+    };
+    assert_eq!(before.against("s", &[state]), Against::Held);
+}
+
+#[test]
+fn a_finding_on_an_element_the_before_run_matched_is_still_worse() {
+    // The before run had no finding on `Position`'s enabled state, so the
+    // element matched there: a new finding is a regression.
+    let enabled = What::StateDiffers {
+        element: element("slider", "Position"),
+        aspect: Aspect::Enabled,
+        board: "enabled".to_string(),
+        shot: "disabled".to_string(),
+    };
+    assert_eq!(
+        before().against("mac.a.b", &[missing(), slider("0.3366"), enabled]),
+        Against::Worse
+    );
+    // `Set up` was missing, and a new missing or extra finding is no
+    // newly matched element.
+    assert_eq!(before().against("mac.a.c", &[missing()]), Against::Worse);
+}
+
+#[test]
+fn a_first_observation_is_not_spent_by_one_finding() {
+    // Two aspects of the newly matched button both show for the first time.
+    assert_eq!(
+        before().against(
+            "mac.a.b",
+            &[
+                state_of_set_up(Aspect::Enabled, "enabled", "disabled"),
+                state_of_set_up(Aspect::Selected, "selected", "not selected"),
+                slider("0.3366"),
+            ]
+        ),
+        Against::Held
     );
 }
 

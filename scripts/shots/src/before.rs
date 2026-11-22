@@ -13,6 +13,12 @@
 //! (`Size`). Each before finding covers one finding of the pair. So a value
 //! that moved closer to the board's is no new finding, and one that moved
 //! away is.
+//! A finding about a state, a reading order or a role of an element that the
+//! before run reported as missing from the shot or extra in it is no new
+//! finding: the before run could not compare that element, so the branch
+//! that makes it match shows these findings for the first time. Each such
+//! finding is judged alone, so the before run's report of the element
+//! excuses every one of them. A new missing or extra finding is always new.
 //! Warnings never fail a run, so only findings count. A pair the before run
 //! never rendered has no picture to compare with, so its findings are listed
 //! and fail nothing: a branch that makes a crashed scene render again can
@@ -131,6 +137,23 @@ impl What {
         }
     }
 
+    /// The element of a finding that compares an element the board and the
+    /// shot both draw (state, reading order, role); none for the rest.
+    fn compared_element(&self) -> Option<&Element> {
+        match self {
+            Self::OutOfOrder { element }
+            | Self::RoleDiffers { element, .. }
+            | Self::StateDiffers { element, .. } => Some(element),
+            _ => None,
+        }
+    }
+
+    /// Whether <self>, a before run's finding, says the shot lacks the
+    /// board's <element> or has it where the board does not.
+    fn leaves_unmatched(&self, element: &Element) -> bool {
+        matches!(self, Self::Missing { element: e } | Self::Extra { element: e } if e == element)
+    }
+
     /// How far the shot is from the board in the finding.
     fn size(&self) -> Size {
         let number = |text: &str| text.parse::<f64>().ok().filter(|n| n.is_finite());
@@ -210,11 +233,8 @@ impl Before {
                 Against::New
             };
         }
-        let mut left: Vec<&What> = self
-            .findings
-            .get(scene)
-            .map(|found| found.iter().collect())
-            .unwrap_or_default();
+        let had = self.findings.get(scene).map_or(&[][..], Vec::as_slice);
+        let mut left: Vec<&What> = had.iter().collect();
         let mut farthest_first: Vec<&What> = findings.iter().collect();
         farthest_first.sort_by(|a, b| b.size().partial_cmp(&a.size()).expect("sizes are finite"));
         for finding in farthest_first {
@@ -222,6 +242,9 @@ impl Before {
                 Some(at) => {
                     left.swap_remove(at);
                 }
+                None if finding.compared_element().is_some_and(|element| {
+                    had.iter().any(|before| before.leaves_unmatched(element))
+                }) => {}
                 None => return Against::Worse,
             }
         }
