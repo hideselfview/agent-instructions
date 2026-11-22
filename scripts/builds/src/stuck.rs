@@ -15,6 +15,7 @@
 //! only for the busy processes and their ancestors. Nothing here stops a
 //! process: a finding says what to run.
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 use serde::Serialize;
@@ -701,15 +702,15 @@ pub fn read(
     dashboard: Option<i32>,
 ) -> HostBusy {
     let read = (|| {
-        let rows = &scan.as_ref().map_err(String::clone)?.rows;
-        let pids = pids_to_place(rows);
+        let mut rows = Cow::Borrowed(scan.as_ref().map_err(String::clone)?.rows.as_slice());
+        let pids = pids_to_place(&rows);
         let cwds = if pids.is_empty() {
             HashMap::new()
         } else {
             match &host.target {
                 Some(_) => {
                     let list: Vec<String> = pids.iter().map(|p| p.to_string()).collect();
-                    parse_lsof(&output_of(
+                    let cwds = parse_lsof(&output_of(
                         command_at(
                             ssh,
                             host,
@@ -717,8 +718,24 @@ pub fn read(
                             crate::host::Terminal::None,
                         ),
                         &format!("lsof on host {}", host.name),
-                        Accept::ZeroOrOneWithOutput,
-                    )?)
+                        Accept::Lsof,
+                    )?);
+                    if pids.iter().any(|pid| !cwds.contains_key(pid)) {
+                        // lsof can omit a living process whose working folder
+                        // it cannot see. ps separates those from the exits.
+                        let live: HashMap<_, _> = rows_on(ssh, host)?
+                            .into_iter()
+                            .map(|row| (row.pid, row.age_seconds))
+                            .collect();
+                        rows.to_mut().retain(|row| {
+                            !pids.contains(&row.pid)
+                                || cwds.contains_key(&row.pid)
+                                || live
+                                    .get(&row.pid)
+                                    .is_some_and(|age| *age >= row.age_seconds)
+                        });
+                    }
+                    cwds
                 }
                 None => pids
                     .iter()
@@ -732,17 +749,17 @@ pub fn read(
         let wedged = match host.target {
             None => wedged(
                 &host.name,
-                rows,
+                &rows,
                 crate::daemon::fsevents::Stream::current_event_id(),
                 &sampling,
             ),
             Some(_) => None,
         };
         Ok(HostRead {
-            busy: judge(&host.name, rows, &cwds, &sampling, dashboard),
+            busy: judge(&host.name, &rows, &cwds, &sampling, dashboard),
             wedged,
-            hung: hung_tests(&host.name, rows, &cwds, &sampling),
-            zombie_parents: crate::proc_limit::zombie_parents(rows, &sampling),
+            hung: hung_tests(&host.name, &rows, &cwds, &sampling),
+            zombie_parents: crate::proc_limit::zombie_parents(&rows, &sampling),
         })
     })();
     HostBusy {

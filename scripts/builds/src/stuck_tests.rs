@@ -564,3 +564,63 @@ fn the_dashboard_is_never_a_busy_build() {
     let busy = judge("local", &rows, &HashMap::new(), &sampling(), None);
     assert!(busy[0].finding().is_some(), "{busy:?}");
 }
+
+#[test]
+fn remote_busy_processes_survive_a_cwd_lookup_without_matches() {
+    let scratch = crate::testing::Scratch::new("busy-cwd-exit");
+    let ssh = Ssh {
+        program: scratch
+            .script(
+                "ssh",
+                r#"case "${9}" in
+  m1) ;;
+  denied) echo "lsof: Permission denied" >&2; exit 1 ;;
+  unreachable) echo "ssh: Connection refused" >&2; exit 255 ;;
+esac
+case "${10}" in
+  *"lsof -a -d cwd -Fpn -p 42,43"*) exit 1 ;;
+  *"ps -axww -o "*) printf '%s\n' '43 0 0 0.0 16:40.00 40:00 R /usr/bin/live' ;;
+  *) exit 2 ;;
+esac"#,
+            )
+            .display()
+            .to_string(),
+    };
+    let mut host = Host {
+        name: "m1".into(),
+        target: Some("m1".into()),
+        cores: 8,
+        speed: None,
+        band: None,
+    };
+    let scan = Ok(crate::host_scan::Scan {
+        uid: 501,
+        at: 5_000,
+        rows: vec![
+            row(42, 0, 501, 90.0, 1_000.0, 2_400, "/usr/bin/exited"),
+            row(43, 0, 0, 90.0, 1_000.0, 2_400, "/usr/bin/live"),
+        ],
+        cpu_idle: Ok(10.0),
+        jobs: vec![],
+        sccache: Ok(None),
+        front_app: Ok(None),
+        screen_locked: Ok(None),
+    });
+
+    let answer = read(&ssh, &host, &scan, None).read.unwrap();
+    assert_eq!(
+        answer.busy.iter().map(|busy| busy.pid).collect::<Vec<_>>(),
+        [43]
+    );
+
+    host.target = Some("denied".into());
+    let denied = read(&ssh, &host, &scan, None).read.err().unwrap();
+    assert!(denied.contains("lsof: Permission denied"), "{denied}");
+
+    host.target = Some("unreachable".into());
+    let unreachable = read(&ssh, &host, &scan, None).read.err().unwrap();
+    assert!(
+        unreachable.contains("255") && unreachable.contains("Connection refused"),
+        "{unreachable}"
+    );
+}

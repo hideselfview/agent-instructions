@@ -601,22 +601,23 @@ fn sh(script: &str) -> Command {
     command
 }
 
-/// `output_of` accepts exit 0, accepts lsof's exit 1 with output only when
-/// asked, and fails every other exit, ssh's 255 after output included, naming
-/// the status and stderr.
+/// `output_of` accepts lsof's exit 1 for partial or empty results. An exit
+/// 1 with only a diagnostic and an SSH failure still fail.
 #[test]
 fn output_of_accepts_only_the_exits_it_is_told_to() {
     assert_eq!(output_of(sh("echo a"), "x", Accept::Zero).unwrap(), "a\n");
     assert_eq!(
-        output_of(sh("echo a; exit 1"), "x", Accept::ZeroOrOneWithOutput).unwrap(),
+        output_of(sh("echo a; exit 1"), "x", Accept::Lsof).unwrap(),
         "a\n"
     );
     assert!(output_of(sh("echo a; exit 1"), "x", Accept::Zero).is_err());
-    assert!(output_of(sh("exit 1"), "x", Accept::ZeroOrOneWithOutput).is_err());
+    assert_eq!(output_of(sh("exit 1"), "x", Accept::Lsof).unwrap(), "");
+    let denied = output_of(sh("echo denied >&2; exit 1"), "x", Accept::Lsof).unwrap_err();
+    assert!(denied.contains("denied"), "{denied}");
     let said = output_of(
         sh("echo a; echo dropped >&2; exit 255"),
         "lsof on host m1",
-        Accept::ZeroOrOneWithOutput,
+        Accept::Lsof,
     )
     .unwrap_err();
     assert!(said.contains("255") && said.contains("dropped"), "{said}");

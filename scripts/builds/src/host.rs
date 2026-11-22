@@ -131,10 +131,10 @@ pub fn command_at(ssh: &Ssh, host: &Host, script: &str, terminal: Terminal) -> C
 pub enum Accept {
     /// Exit 0 only.
     Zero,
-    /// Exit 0, or exit 1 with output: `lsof` exits 1 when a process it was
-    /// asked about has ended, and still prints the others. Any other status
-    /// (ssh's 255 when the connection drops, a signal) fails.
-    ZeroOrOneWithOutput,
+    /// `lsof` exits 1 when some or all requested folders are missing. Keep
+    /// any rows it reported and surface diagnostics. An empty result with a
+    /// diagnostic, an SSH failure, or a signal fails the lookup.
+    Lsof,
 }
 
 /// What <command> printed. It fails, naming <what>, the status and what the
@@ -149,11 +149,11 @@ pub fn output_of(
         .stdin(std::process::Stdio::null())
         .output()
         .map_err(|error| format!("running {what}: {error}"))?;
-    let ok = output.status.success()
-        || (accept == Accept::ZeroOrOneWithOutput
-            && output.status.code() == Some(1)
-            && !output.stdout.is_empty());
     let stderr = String::from_utf8_lossy(&output.stderr);
+    let ok = output.status.success()
+        || (accept == Accept::Lsof
+            && output.status.code() == Some(1)
+            && (!output.stdout.is_empty() || stderr.trim().is_empty()));
     if !ok {
         return Err(format!(
             "{what} failed ({}): {}",
