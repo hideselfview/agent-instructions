@@ -124,12 +124,10 @@ for claim in "$HOME"/dev/*-worktrees/*.job; do
   kill -0 "-$1" 2>/dev/null && echo "job=${{claim%.job}} $1 $2"
 done
 {listener}
-now=$(date +%s) || exit $?
-echo "now=$now"
-echo {PS_FOLLOWS}
-ps -axww -o {PS_FORMAT}"#,
+{timed_ps}"#,
         root = crate::remote::root_script(host),
         listener = crate::sccache::listener_script(),
+        timed_ps = timed_ps_script(),
         front_app = crate::host_front_app::SCRIPT_LINE,
         screen_locked = crate::host_screen_lock::SCRIPT_LINE,
         run_file = crate::remote::RUN_FILE,
@@ -144,13 +142,31 @@ fn parse_cpu(line: &str) -> std::result::Result<f64, String> {
         .ok_or_else(|| format!("top printed no idle share: {line:?}"))
 }
 
+/// The timestamp and the rows of a process listing, by the host's clock.
+pub fn timed_ps_script() -> String {
+    format!(
+        r#"now=$(date +%s) || exit $?
+echo "now=$now"
+echo {PS_FOLLOWS}
+ps -axww -o {PS_FORMAT}"#
+    )
+}
+
+pub fn timed_rows(text: &str) -> std::result::Result<(&str, i64, Vec<Row>), String> {
+    let (head, ps) = text
+        .split_once(&format!("\n{PS_FOLLOWS}\n"))
+        .ok_or_else(|| format!("the host printed no process listing: {text:?}"))?;
+    let at = crate::host::answer_value(head, "now")
+        .and_then(|at| at.parse().ok())
+        .ok_or_else(|| format!("the host did not say what time it is: {head:?}"))?;
+    Ok((head, at, parse_ps(ps)?))
+}
+
 /// Reads what `script` printed. Each row's CPU share is what the process
 /// used since the reading of <readings> that `process_readings::measure`
 /// compares with.
 pub fn parse(text: &str, readings: &[Reading]) -> std::result::Result<Scan, String> {
-    let Some((head, ps)) = text.split_once(&format!("\n{PS_FOLLOWS}\n")) else {
-        return Err(format!("the host printed no process listing: {text:?}"));
-    };
+    let (head, at, rows) = timed_rows(text)?;
     let value = |key: &str| crate::host::answer_value(head, key);
     let jobs = head
         .lines()
@@ -167,9 +183,6 @@ pub fn parse(text: &str, readings: &[Reading]) -> std::result::Result<Scan, Stri
     let uid = value("uid")
         .and_then(|uid| uid.parse().ok())
         .ok_or_else(|| format!("the host did not say its user id: {head:?}"))?;
-    let at = value("now")
-        .and_then(|at| at.parse().ok())
-        .ok_or_else(|| format!("the host did not say what time it is: {head:?}"))?;
     let sccache = (|| -> Result<Option<CacheServer>> {
         let Some(pid) = crate::sccache::parse_listener_lines(head)? else {
             return Ok(None);
@@ -186,7 +199,7 @@ pub fn parse(text: &str, readings: &[Reading]) -> std::result::Result<Scan, Stri
     Ok(Scan {
         uid,
         at,
-        rows: measure(parse_ps(ps)?, at, readings),
+        rows: measure(rows, at, readings),
         cpu_idle: match value("cpu_idle") {
             Some(idle) => idle
                 .parse()

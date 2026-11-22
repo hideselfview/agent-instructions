@@ -19,7 +19,7 @@ use crate::fail::{Context, Fail, Result};
 use crate::health::Advice;
 use crate::host::{Host, Probe, Ssh, Terminal, answer_value, command_at, output_of, place};
 use crate::shells::{basename, shown};
-use crate::stuck::{HostBusy, Row, Sampling, is_test_binary, now_seconds, rows_on};
+use crate::stuck::{HostBusy, Row, Sampling, is_test_binary, local_rows, now_seconds};
 use crate::text::duration;
 
 /// A host above this share of its process limit needs action.
@@ -227,7 +227,7 @@ pub fn stop(uid: u32) -> Result<(Vec<String>, usize)> {
     if !used.near_limit() {
         return Ok((Vec::new(), 0));
     }
-    let rows = rows_on(&Ssh::from_env(), &Host::local()).map_err(Fail::Message)?;
+    let rows = local_rows().map_err(Fail::Message)?;
     let sampling = Sampling::new(&Host::local(), now_seconds());
     let mut lines = Vec::new();
     let mut failed = 0;

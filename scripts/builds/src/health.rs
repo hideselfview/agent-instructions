@@ -1671,14 +1671,6 @@ pub fn host_findings(
             "sccache: health could not judge the hosts' compile caches: {error}"
         ))],
     };
-    let placement_errors = busy.iter().filter_map(|host| {
-        let error = host.error()?;
-        scanned
-            .scans
-            .iter()
-            .any(|(scanned, result)| scanned.name == host.host && result.is_ok())
-            .then(|| Advice::said(format!("busy processes: {}: {error}", host.host)))
-    });
     let landing_wait = |pid: i32| {
         let Some(argv) = crate::procs::live_args(pid)? else {
             return Ok(None);
@@ -1711,7 +1703,6 @@ pub fn host_findings(
     .chain(
         crate::stuck::findings(busy)
             .into_iter()
-            .chain(placement_errors)
             .map(|advice| Finding::new(FindingKind::Busy, advice)),
     )
     .chain(
@@ -1973,7 +1964,7 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
             busy.iter()
                 .map(|host| serde_json::json!({
                     "host": host.host,
-                    "busy": host.read.as_ref().ok().map(|read| &read.busy),
+                    "busy": host.activity().map(|activity| &activity.busy),
                     "error": host.error(),
                 }))
                 .collect::<Vec<_>>()
@@ -3104,7 +3095,10 @@ mod tests {
         ));
         let busy = [crate::stuck::HostBusy {
             host: "m1".into(),
-            read: Err("process lifetimes on m1: Permission denied".into()),
+            read: Ok(crate::stuck::HostRead {
+                activity: Err("process lifetimes on m1: Permission denied".into()),
+                zombie_parents: Vec::new(),
+            }),
         }];
 
         let found = host_findings(&scanned, &busy, &[], &[]);

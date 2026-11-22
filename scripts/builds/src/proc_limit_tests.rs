@@ -123,10 +123,12 @@ fn warns_for_a_host_over_sixty_percent_and_not_under() {
     let reads = vec![HostBusy {
         host: "local".into(),
         read: Ok(crate::stuck::HostRead {
-            busy: Vec::new(),
-            placement_diagnostic: None,
-            wedged: None,
-            hung: Vec::new(),
+            activity: Ok(crate::stuck::ProcessActivity {
+                busy: Vec::new(),
+                placement_diagnostic: None,
+                wedged: None,
+                hung: Vec::new(),
+            }),
             zombie_parents: zombie_parents(&zombie_rows(), &sampling(None)),
         }),
     }];
@@ -148,10 +150,12 @@ fn a_remote_host_near_the_limit_gets_an_ssh_stop_command() {
     let reads = vec![HostBusy {
         host: "m1".into(),
         read: Ok(crate::stuck::HostRead {
-            busy: Vec::new(),
-            placement_diagnostic: None,
-            wedged: None,
-            hung: Vec::new(),
+            activity: Ok(crate::stuck::ProcessActivity {
+                busy: Vec::new(),
+                placement_diagnostic: None,
+                wedged: None,
+                hung: Vec::new(),
+            }),
             zombie_parents: parents,
         }),
     }];
@@ -170,10 +174,12 @@ fn a_non_test_top_parent_gets_no_stop_command() {
     let reads = vec![HostBusy {
         host: "local".into(),
         read: Ok(crate::stuck::HostRead {
-            busy: Vec::new(),
-            placement_diagnostic: None,
-            wedged: None,
-            hung: Vec::new(),
+            activity: Ok(crate::stuck::ProcessActivity {
+                busy: Vec::new(),
+                placement_diagnostic: None,
+                wedged: None,
+                hung: Vec::new(),
+            }),
             zombie_parents: zombie_parents(&rows, &sampling(None)),
         }),
     }];

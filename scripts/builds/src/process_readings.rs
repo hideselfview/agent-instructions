@@ -39,6 +39,11 @@ pub fn same_start(earlier: i64, later: i64) -> bool {
     earlier.abs_diff(later) <= START_TOLERANCE
 }
 
+/// When a process began, using the clock of the host that listed its age.
+pub fn start_of(at: i64, row: &Row) -> i64 {
+    at - row.age_seconds
+}
+
 /// One process in a reading.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Proc {
@@ -66,7 +71,7 @@ impl Reading {
                 .iter()
                 .map(|row| Proc {
                     pid: row.pid,
-                    start: at - row.age_seconds,
+                    start: start_of(at, row),
                     cpu: row.cpu_seconds,
                 })
                 .collect(),
@@ -163,7 +168,7 @@ pub fn measure(mut rows: Vec<Row>, now: i64, readings: &[Reading]) -> Vec<Row> {
     for row in &mut rows {
         let current = Proc {
             pid: row.pid,
-            start: now - row.age_seconds,
+            start: start_of(now, row),
             cpu: row.cpu_seconds,
         };
         row.cpu_percent = previous

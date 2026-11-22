@@ -233,6 +233,9 @@ pub struct Busy {
 /// The CPU share of <row> when it is busy, and None when it is not or its
 /// share is not known yet.
 fn busy_share(row: &Row) -> Option<f64> {
+    if row.zombie {
+        return None;
+    }
     let percent = row.cpu_percent?;
     ((percent > BUSY_PERCENT && row.cpu_seconds > BUSY_CPU_SECONDS)
         || (percent >= PEGGED_PERCENT && row.age_seconds >= PEGGED_SECONDS))
@@ -253,7 +256,7 @@ pub fn pids_to_place(rows: &[Row]) -> Vec<i32> {
         .filter(|r| is_busy(r) || is_hung_test(&by_pid, r))
     {
         for at in chain(&by_pid, row) {
-            if !pids.contains(&at.pid) {
+            if !at.zombie && !pids.contains(&at.pid) {
                 pids.push(at.pid);
             }
         }
@@ -647,60 +650,72 @@ pub struct HostBusy {
     pub read: Result<HostRead, String>,
 }
 
-/// What one listing of a host's processes showed.
+/// What a successful host scan says about its processes.
 pub struct HostRead {
-    pub busy: Vec<Busy>,
-    /// Why lsof could only place some of the processes.
-    pub placement_diagnostic: Option<String>,
-    /// Set on this Mac only, the one host whose fseventsd health can ask.
-    pub wedged: Option<Wedged>,
-    pub hung: Vec<Hung>,
+    pub activity: Result<ProcessActivity, String>,
     /// The parents that hold the most zombie children (proc_limit.rs).
     pub zombie_parents: Vec<crate::proc_limit::ZombieParent>,
 }
 
-impl HostBusy {
-    /// Why either the entire read or only some process placements failed.
-    pub fn error(&self) -> Option<&str> {
-        match &self.read {
-            Ok(read) => read.placement_diagnostic.as_deref(),
+/// The busy and hung processes and their placement in checkouts.
+pub struct ProcessActivity {
+    pub busy: Vec<Busy>,
+    /// A lookup diagnostic that came with usable working folders.
+    pub placement_diagnostic: Option<String>,
+    /// Set on this Mac only, the one host whose fseventsd health can ask.
+    pub wedged: Option<Wedged>,
+    pub hung: Vec<Hung>,
+}
+
+impl HostRead {
+    fn placement_error(&self) -> Option<&str> {
+        match &self.activity {
+            Ok(activity) => activity.placement_diagnostic.as_deref(),
             Err(error) => Some(error),
         }
     }
 }
 
-/// The rows of <host>'s processes, from one `ps` there.
-pub fn rows_on(ssh: &Ssh, host: &Host) -> Result<Vec<Row>, String> {
-    let listing = output_of(
-        command_at(ssh, host, &ps_script(), crate::host::Terminal::None),
-        &format!("ps on {}", crate::host::place(&host.name)),
-    )?;
-    parse_ps(&listing)
+impl HostBusy {
+    /// The usable activity, if the scan and placement lookup both ran.
+    pub fn activity(&self) -> Option<&ProcessActivity> {
+        self.read.as_ref().ok()?.activity.as_ref().ok()
+    }
+
+    /// Why either the scan or placement lookup could not read all the data.
+    pub fn error(&self) -> Option<&str> {
+        match &self.read {
+            Ok(read) => read.placement_error(),
+            Err(error) => Some(error),
+        }
+    }
 }
 
-/// The `ps` line of a host, as the script `ssh` runs.
-fn ps_script() -> String {
-    format!("ps -axww -o {PS_FORMAT}")
+/// The rows of this Mac's processes, from one ps.
+pub fn local_rows() -> Result<Vec<Row>, String> {
+    let mut command = std::process::Command::new("ps");
+    command.args(["-axww", "-o", PS_FORMAT]);
+    parse_ps(&output_of(command, "ps on this Mac")?)
 }
 
 /// The start time of each process that still runs, by the host's clock.
 fn live_starts(ssh: &Ssh, host: &Host) -> Result<HashMap<i32, i64>, String> {
     let what = format!("process lifetimes on {}", crate::host::place(&host.name));
-    let script = format!("date +%s && {}", ps_script());
     let listing = output_of(
-        command_at(ssh, host, &script, crate::host::Terminal::None),
+        command_at(
+            ssh,
+            host,
+            &crate::host_scan::timed_ps_script(),
+            crate::host::Terminal::None,
+        ),
         &what,
     )?;
-    let (at, rows) = listing
-        .split_once('\n')
-        .ok_or_else(|| format!("{what}: ps printed no process listing"))?;
-    let at = at
-        .parse::<i64>()
-        .map_err(|_| format!("{what}: date printed an invalid timestamp {at:?}"))?;
-    Ok(parse_ps(rows)?
+    let (_, at, rows) =
+        crate::host_scan::timed_rows(&listing).map_err(|error| format!("{what}: {error}"))?;
+    Ok(rows
         .into_iter()
         .filter(|row| !row.zombie)
-        .map(|row| (row.pid, at - row.age_seconds))
+        .map(|row| (row.pid, crate::process_readings::start_of(at, &row)))
         .collect())
 }
 
@@ -724,10 +739,11 @@ fn folders_on(
     let folders = parse_lsof(&String::from_utf8_lossy(&output.stdout));
     let stderr = String::from_utf8_lossy(&output.stderr);
     let stderr = stderr.trim();
+    if output.status.success() {
+        return Ok((folders, None));
+    }
     let diagnostic = (!stderr.is_empty()).then(|| format!("{what} wrote: {stderr}"));
-    if output.status.success()
-        || (output.status.code() == Some(1) && (diagnostic.is_none() || !folders.is_empty()))
-    {
+    if output.status.code() == Some(1) && (diagnostic.is_none() || !folders.is_empty()) {
         return Ok((folders, diagnostic));
     }
     Err(format!(
@@ -766,77 +782,109 @@ pub fn read(
     scan: &Result<crate::host_scan::Scan, String>,
     dashboard: Option<i32>,
 ) -> HostBusy {
-    let read = (|| {
-        let scan = scan.as_ref().map_err(String::clone)?;
-        let mut rows = Cow::Borrowed(scan.rows.as_slice());
-        let pids = pids_to_place(&rows);
-        let mut placement_diagnostic = None;
-        let cwds = if pids.is_empty() {
-            HashMap::new()
-        } else {
-            match &host.target {
-                Some(_) => {
-                    let (cwds, diagnostic) = folders_on(ssh, host, &pids)?;
-                    placement_diagnostic = diagnostic;
-                    let unplaced: HashSet<_> = pids
-                        .iter()
-                        .copied()
-                        .filter(|pid| !cwds.contains_key(pid))
-                        .collect();
-                    if !unplaced.is_empty() {
-                        // lsof can omit a living process whose working folder
-                        // it cannot see. Recheck only the unplaced rows' lifetimes.
-                        let live = live_starts(ssh, host)?;
-                        rows.to_mut().retain(|row| {
-                            if !unplaced.contains(&row.pid)
-                                || live.get(&row.pid).is_some_and(|start| {
-                                    crate::process_readings::same_start(
-                                        scan.at - row.age_seconds,
-                                        *start,
-                                    )
-                                })
-                            {
-                                return true;
-                            }
-                            crate::text::note(format!(
-                                "busy processes on {}: PID {} exited after the scan",
-                                host.name, row.pid
-                            ));
-                            false
-                        });
-                    }
-                    cwds
-                }
-                None => pids
-                    .iter()
-                    .filter_map(|pid| {
-                        crate::procs::cwd(*pid).map(|dir| (*pid, dir.display().to_string()))
-                    })
-                    .collect(),
-            }
-        };
+    let read = scan.as_ref().map_err(String::clone).map(|scan| {
         let sampling = Sampling::new(host, now_seconds());
-        let wedged = match host.target {
-            None => wedged(
-                &host.name,
-                &rows,
-                crate::daemon::fsevents::Stream::current_event_id(),
-                &sampling,
-            ),
-            Some(_) => None,
-        };
-        Ok(HostRead {
-            busy: judge(&host.name, &rows, &cwds, &sampling, dashboard),
-            placement_diagnostic,
-            wedged,
-            hung: hung_tests(&host.name, &rows, &cwds, &sampling),
+        let activity = read_activity(ssh, host, scan, &sampling, dashboard);
+        let read = HostRead {
+            activity,
             zombie_parents: crate::proc_limit::zombie_parents(&scan.rows, &sampling),
-        })
-    })();
+        };
+        if let Some(error) = read.placement_error() {
+            crate::text::note(error);
+        }
+        read
+    });
     HostBusy {
         host: host.name.clone(),
         read,
     }
+}
+
+fn read_activity(
+    ssh: &Ssh,
+    host: &Host,
+    scan: &crate::host_scan::Scan,
+    sampling: &Sampling,
+    dashboard: Option<i32>,
+) -> Result<ProcessActivity, String> {
+    let mut rows = Cow::Borrowed(scan.rows.as_slice());
+    let pids = pids_to_place(&rows);
+    let mut placement_diagnostic = None;
+    let cwds = if pids.is_empty() {
+        HashMap::new()
+    } else {
+        match &host.target {
+            Some(_) => {
+                let (cwds, diagnostic) = folders_on(ssh, host, &pids)?;
+                placement_diagnostic = diagnostic;
+                let unplaced: HashSet<_> = pids
+                    .iter()
+                    .copied()
+                    .filter(|pid| !cwds.contains_key(pid))
+                    .collect();
+                if !unplaced.is_empty() {
+                    // lsof can omit a living process whose working folder
+                    // it cannot see. Recheck only the unplaced rows' lifetimes.
+                    match live_starts(ssh, host) {
+                        Ok(live) => rows.to_mut().retain(|row| {
+                            if !unplaced.contains(&row.pid) {
+                                return true;
+                            }
+                            let stays = live.get(&row.pid).is_some_and(|start| {
+                                crate::process_readings::same_start(
+                                    crate::process_readings::start_of(scan.at, row),
+                                    *start,
+                                )
+                            });
+                            let said = if stays {
+                                "still runs, but lsof listed no working folder"
+                            } else {
+                                "exited after the scan"
+                            };
+                            crate::text::note(format!(
+                                "busy processes on {}: PID {} {said}",
+                                host.name, row.pid
+                            ));
+                            stays
+                        }),
+                        Err(error) => {
+                            let error = match placement_diagnostic.take() {
+                                Some(diagnostic) => format!("{diagnostic}. {error}"),
+                                None => error,
+                            };
+                            if cwds.is_empty() {
+                                return Err(error);
+                            }
+                            placement_diagnostic = Some(error);
+                            rows.to_mut().retain(|row| !unplaced.contains(&row.pid));
+                        }
+                    }
+                }
+                cwds
+            }
+            None => pids
+                .iter()
+                .filter_map(|pid| {
+                    crate::procs::cwd(*pid).map(|dir| (*pid, dir.display().to_string()))
+                })
+                .collect(),
+        }
+    };
+    let wedged = match host.target {
+        None => wedged(
+            &host.name,
+            &rows,
+            crate::daemon::fsevents::Stream::current_event_id(),
+            sampling,
+        ),
+        Some(_) => None,
+    };
+    Ok(ProcessActivity {
+        busy: judge(&host.name, &rows, &cwds, sampling, dashboard),
+        placement_diagnostic,
+        wedged,
+        hung: hung_tests(&host.name, &rows, &cwds, sampling),
+    })
 }
 
 /// The lines `builds health` prints for <hosts>.
@@ -847,10 +895,15 @@ pub fn lines(hosts: &[HostBusy]) -> Vec<String> {
         minutes(PEGGED_SECONDS)
     )];
     for host in hosts {
-        match &host.read {
-            Err(error) => out.push(format!("    {}: not read: {error}", host.host)),
-            Ok(read) if read.busy.is_empty() => out.push(format!("    {}: none", host.host)),
-            Ok(read) => out.extend(read.busy.iter().map(Busy::line)),
+        match host.activity() {
+            Some(activity) if !activity.busy.is_empty() => {
+                out.extend(activity.busy.iter().map(Busy::line));
+            }
+            Some(_) => out.push(format!("    {}: none", host.host)),
+            None => {
+                let error = host.error().expect("an unread host has an error");
+                out.push(format!("    {}: not read: {error}", host.host));
+            }
         }
     }
     out
@@ -859,7 +912,17 @@ pub fn lines(hosts: &[HostBusy]) -> Vec<String> {
 /// The "needs action" lines for <hosts>.
 pub fn findings(hosts: &[HostBusy]) -> Vec<Advice> {
     let mut out = Vec::new();
-    for read in hosts.iter().filter_map(|host| host.read.as_ref().ok()) {
+    for (host, read) in hosts
+        .iter()
+        .filter_map(|host| Some((host, host.read.as_ref().ok()?)))
+    {
+        if let Some(error) = read.placement_error() {
+            out.push(Advice::said(format!(
+                "busy processes on {}: {error}",
+                host.host
+            )));
+        }
+        let Ok(read) = &read.activity else { continue };
         // A wedged fseventsd gets its own finding, in place of the busy one.
         out.extend(read.wedged.iter().map(|w| w.finding.clone()));
         let skip = read.wedged.as_ref().map(|w| w.pid);

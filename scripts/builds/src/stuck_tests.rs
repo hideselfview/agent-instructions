@@ -347,24 +347,26 @@ fn findings_come_only_from_hosts_that_were_read() {
         HostBusy {
             host: "local".into(),
             read: Ok(HostRead {
-                busy: judge(
-                    "local",
-                    &[row(
-                        17,
-                        1,
-                        0,
-                        140.0,
-                        200_000.0,
-                        500_000,
-                        "/usr/libexec/fseventsd",
-                    )],
-                    &HashMap::new(),
-                    &sampling(),
-                    None,
-                ),
-                placement_diagnostic: None,
-                wedged: None,
-                hung: Vec::new(),
+                activity: Ok(ProcessActivity {
+                    busy: judge(
+                        "local",
+                        &[row(
+                            17,
+                            1,
+                            0,
+                            140.0,
+                            200_000.0,
+                            500_000,
+                            "/usr/libexec/fseventsd",
+                        )],
+                        &HashMap::new(),
+                        &sampling(),
+                        None,
+                    ),
+                    placement_diagnostic: None,
+                    wedged: None,
+                    hung: Vec::new(),
+                }),
                 zombie_parents: Vec::new(),
             }),
         },
@@ -458,10 +460,12 @@ fn a_wedged_fseventsd_replaces_its_busy_finding() {
     let hosts = vec![HostBusy {
         host: "local".into(),
         read: Ok(HostRead {
-            busy: judge("local", &rows, &HashMap::new(), &sampling(), None),
-            placement_diagnostic: None,
-            wedged: wedged("local", &rows, 0, &sampling()),
-            hung: Vec::new(),
+            activity: Ok(ProcessActivity {
+                busy: judge("local", &rows, &HashMap::new(), &sampling(), None),
+                placement_diagnostic: None,
+                wedged: wedged("local", &rows, 0, &sampling()),
+                hung: Vec::new(),
+            }),
             zombie_parents: Vec::new(),
         }),
     }];
@@ -537,10 +541,12 @@ fn an_idle_test_that_builds_cargo_runs_on_a_host_is_hung() {
     let host = HostBusy {
         host: "m1".into(),
         read: Ok(HostRead {
-            busy: Vec::new(),
-            placement_diagnostic: None,
-            wedged: None,
-            hung,
+            activity: Ok(ProcessActivity {
+                busy: Vec::new(),
+                placement_diagnostic: None,
+                wedged: None,
+                hung,
+            }),
             zombie_parents: Vec::new(),
         }),
     };
@@ -579,20 +585,23 @@ fn remote_busy_processes_survive_a_cwd_lookup_without_matches() {
   m1) ;;
   denied) echo "lsof: Permission denied" >&2; exit 1 ;;
   invalid) echo "not a folder record"; echo "lsof: failed" >&2; exit 1 ;;
-  partial)
+  partial|partial-ps-denied)
     case "${10}" in
       *"lsof "*) printf '%s\n' p43 fcwd n/Users/x/dev/bae-worktrees/side-7
         echo "lsof: Permission denied" >&2; exit 1 ;;
+      *"ps -axww"*) if [ "${9}" = partial-ps-denied ]; then
+        echo "ps: Permission denied" >&2; exit 1
+      fi ;;
     esac ;;
   ps-denied)
     case "${10}" in
-      *"ps "*) echo "ps: Permission denied" >&2; exit 1 ;;
+      *"ps -axww"*) echo "ps: Permission denied" >&2; exit 1 ;;
     esac ;;
   unreachable) echo "ssh: Connection refused" >&2; exit 255 ;;
 esac
 case "${10}" in
   *"lsof -a -d cwd -Fpn -p 42,43,44,45"*) exit 1 ;;
-  *"date +%s && ps -axww -o "*) printf '%s\n' 5003 \
+  *"ps -axww -o "*) printf '%s\n' now=5003 ps_follows=1 \
     '43 0 0 0.0 16:40.00 40:03 R /usr/bin/live' \
     '44 0 501 0.0 16:40.00 40:03 Z (zombie)' \
     '45 0 501 0.0 00:01.00 00:03 R /usr/bin/new' ;;
@@ -625,32 +634,39 @@ esac"#,
         screen_locked: Ok(None),
     });
 
-    let answer = read(&ssh, &host, &scan, None).read.unwrap();
+    let answer = read(&ssh, &host, &scan, None);
+    let answer = answer.activity().unwrap();
     assert_eq!(
         answer.busy.iter().map(|busy| busy.pid).collect::<Vec<_>>(),
         [43]
     );
 
     host.target = Some("denied".into());
-    let denied = read(&ssh, &host, &scan, None).read.err().unwrap();
+    let denied = read(&ssh, &host, &scan, None).error().unwrap().to_string();
     assert!(denied.contains("lsof: Permission denied"), "{denied}");
 
     host.target = Some("invalid".into());
     let invalid = read(&ssh, &host, &scan, None);
-    assert!(invalid.read.is_err());
+    assert!(invalid.activity().is_none());
     assert!(invalid.error().unwrap().contains("lsof: failed"));
 
     host.target = Some("partial".into());
     let partial = read(&ssh, &host, &scan, None);
     assert!(partial.error().unwrap().contains("lsof: Permission denied"));
-    assert_eq!(partial.read.unwrap().busy[0].pid, 43);
+    assert_eq!(partial.activity().unwrap().busy[0].pid, 43);
+
+    host.target = Some("partial-ps-denied".into());
+    let partial = read(&ssh, &host, &scan, None);
+    let error = partial.error().unwrap();
+    assert!(error.contains("lsof: Permission denied") && error.contains("ps: Permission denied"));
+    assert_eq!(partial.activity().unwrap().busy[0].pid, 43);
 
     host.target = Some("ps-denied".into());
     let refused = read(&ssh, &host, &scan, None);
     assert!(refused.error().unwrap().contains("ps: Permission denied"));
 
     host.target = Some("unreachable".into());
-    let unreachable = read(&ssh, &host, &scan, None).read.err().unwrap();
+    let unreachable = read(&ssh, &host, &scan, None).error().unwrap().to_string();
     assert!(
         unreachable.contains("255") && unreachable.contains("Connection refused"),
         "{unreachable}"
