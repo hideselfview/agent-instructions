@@ -1322,7 +1322,7 @@ function tick() {
 
 function render() {
   document.getElementById("conn").hidden = !connectionDown;
-  const errors = [streamError, hooksError].filter(Boolean);
+  const errors = [streamError, hooksError, state?.health_error].filter(Boolean);
   document.getElementById("errors").replaceChildren(...errors.map(e => h("div", {class: "error"}, e)));
   if (!state) return;
   const timingErrors = [...new Set(waitLanes().map(w => w.error).filter(Boolean))];

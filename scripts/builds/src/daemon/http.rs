@@ -821,8 +821,8 @@ struct QueueRequest {
     pid: i32,
 }
 
-/// Moves a waiter or takes over for it, as the commands do, then samples so
-/// the pages see the new queue.
+/// Moves a waiter or takes over for it, as the commands do, then reads the
+/// processes so the pages see the new queue.
 fn queue_action(model: &Model, body: &[u8]) -> crate::fail::Result<()> {
     let request: QueueRequest = match serde_json::from_slice(body) {
         Ok(request) => request,
@@ -835,7 +835,7 @@ fn queue_action(model: &Model, body: &[u8]) -> crate::fail::Result<()> {
         }
         other => crate::fail!("no action {other:?}"),
     }
-    model.sample_now().map(|_| ())
+    model.refresh_processes()
 }
 
 #[derive(serde::Deserialize)]

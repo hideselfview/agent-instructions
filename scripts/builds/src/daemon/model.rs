@@ -118,6 +118,7 @@ struct State {
     cpu_percent: HashMap<i32, f64>,
     load: VecDeque<(i64, f64)>,
     health: Option<Health>,
+    health_error: Option<String>,
     sccache_at: Option<Instant>,
     sccache: Option<crate::health::SccacheServer>,
     /// The other hosts' load cards (hosts.rs), empty before the first reading.
@@ -930,6 +931,27 @@ impl Model {
 
     /// Reads the processes and judges health now.
     pub fn sample_now(&self) -> crate::fail::Result<Health> {
+        let (now, sample) = self.read_processes()?;
+        let snapshot = self.state.lock().expect("no panic holding it").clone();
+        let health = self
+            .judge(&snapshot, now, sample)
+            .map_err(crate::fail::Fail::text);
+        let mut state = self.state.lock().expect("no panic holding it");
+        state.health = health.as_ref().ok().cloned();
+        state.health_error = health.as_ref().err().cloned();
+        state.version += 1;
+        self.changed.notify_all();
+        health.map_err(crate::fail::Fail::Message)
+    }
+
+    /// Reads the processes after an action changes the queue. The next
+    /// health reading judges the worktrees separately.
+    pub fn refresh_processes(&self) -> crate::fail::Result<()> {
+        self.read_processes().map(|_| ())
+    }
+
+    /// Updates the process and queue data as soon as the read finishes.
+    fn read_processes(&self) -> crate::fail::Result<(i64, Sample)> {
         let now = now_seconds();
         let (roots, sccache_due) = {
             let state = self.state.lock().expect("no panic holding it");
@@ -970,8 +992,6 @@ impl Model {
             places,
             disk: self.rules.disk_space(free_kib),
         };
-        let snapshot = self.state.lock().expect("no panic holding it").clone();
-        let health = self.judge(&snapshot, now, sample.clone())?;
         let mut state = self.state.lock().expect("no panic holding it");
         let mut percent = HashMap::new();
         let mut cpu = HashMap::new();
@@ -993,11 +1013,10 @@ impl Model {
         while state.load.len() > LOAD_KEPT {
             state.load.pop_front();
         }
-        state.sample = Some(sample);
-        state.health = Some(health.clone());
+        state.sample = Some(sample.clone());
         state.version += 1;
         self.changed.notify_all();
-        Ok(health)
+        Ok((now, sample))
     }
 
     /// Waits until the state moved past <seen>, and returns the new version.
@@ -1660,6 +1679,7 @@ impl Model {
                 health.findings.extend(state.host_findings.iter().cloned());
                 health
             }),
+            health_error: state.health_error,
             hosts: state.hosts.clone(),
             compile_cache: state.compile_cache.clone(),
             compile_cache_error: state.compile_cache_error.clone(),
@@ -2149,6 +2169,8 @@ pub struct Page {
     /// The last health reading, with the hosts' findings after its own: the
     /// list `builds health` prints under "needs action".
     pub health: Option<Health>,
+    /// Why the daemon could not judge health after reading the processes.
+    pub health_error: Option<String>,
     /// Every recorded host besides this Mac, with its load.
     pub hosts: Vec<super::hosts::HostPage>,
     /// Each host's hit rate of Rust compiles over the last hour, day and
