@@ -755,9 +755,24 @@ pub fn calls_of_kind(db: &Connection, kind: Kind) -> Result<Vec<Call>> {
     calls_where(db, "r.kind = ?1", kind.word())
 }
 
+/// Columns for token measurements in the call and exchange records.
+const TOKEN_COLUMNS: [&str; 6] = [
+    "tokens_in",
+    "tokens_out",
+    "tokens_cached",
+    "tokens_written",
+    "tokens_uncached",
+    "tokens_reasoning",
+];
+
 fn calls_where(db: &Connection, condition: &str, value: impl rusqlite::ToSql) -> Result<Vec<Call>> {
+    // A migrated call can hold a known subtotal. It is a total only when
+    // every recorded exchange for the call supplied that measurement.
+    let totals = TOKEN_COLUMNS.map(|column| format!(
+        "CASE WHEN EXISTS (SELECT 1 FROM review_exchange e WHERE e.call_id = c.id AND e.{column} IS NULL) THEN NULL ELSE c.{column} END"
+    )).join(", ");
     let sql = format!(
-        "SELECT c.id, c.run_id, r.kind, c.group_name, c.model, c.prompt, c.rules, c.tokens_in, c.tokens_out, c.tokens_cached, c.tokens_written, c.tokens_uncached, c.tokens_reasoning, c.cost_microdollars, c.failure FROM review_call c JOIN review_run r ON r.id = c.run_id WHERE {condition} ORDER BY c.id"
+        "SELECT c.id, c.run_id, r.kind, c.group_name, c.model, c.prompt, c.rules, {totals}, c.cost_microdollars, c.failure FROM review_call c JOIN review_run r ON r.id = c.run_id WHERE {condition} ORDER BY c.id"
     );
     let mut statement = db.prepare(&sql).sql()?;
     let rows = statement
@@ -1072,6 +1087,7 @@ pub fn allow_unreported_tokens(db: &Connection, texts: &texts::Texts) -> Result<
             .sql()?;
         rows.collect::<rusqlite::Result<Vec<_>>>().sql()?
     };
+    let mut affected_calls = std::collections::BTreeSet::new();
     for (exchange, call, run, hash, failure) in unreported {
         let candidate = super::call::failed_answer_text(&failure);
         let output = if texts::hash(&candidate) == hash {
@@ -1088,11 +1104,23 @@ pub fn allow_unreported_tokens(db: &Connection, texts: &texts::Texts) -> Result<
                 [exchange],
             )
             .sql()?;
-            db.execute(
-                &format!("UPDATE review_call SET {CLEAR_LEGACY_TOKENS} WHERE id = ?1"),
-                [call],
-            )
+            affected_calls.insert(call);
+        }
+    }
+    if !affected_calls.is_empty() {
+        let columns = TOKEN_COLUMNS.join(", ");
+        let subtotals = TOKEN_COLUMNS
+            .map(|column| format!("SUM(e.{column})"))
+            .join(", ");
+        let mut record = db
+            .prepare(&format!(
+                "UPDATE review_call SET ({columns}) = (
+                SELECT {subtotals} FROM review_exchange e WHERE e.call_id = ?1
+             ) WHERE id = ?1"
+            ))
             .sql()?;
+        for call in affected_calls {
+            record.execute([call]).sql()?;
         }
     }
     Ok(())
