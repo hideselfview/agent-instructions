@@ -159,6 +159,7 @@ fn draw(
                                 preview::PREVIEW_FRAME,
                                 1.0,
                                 preview::PREVIEW_LOADED,
+                                None,
                             )
                             .await
                             .map_err(|e| e.to_string())?;

@@ -87,8 +87,9 @@ async fn grant(page: &Page, budget: f64) -> Result<(), BoardError> {
 /// `components()` gives the design system's components by their values,
 /// which the board's reader (read.rs) and the reader of the components a page
 /// draws (instances.rs) look React's fibers up in.
-fn watch_script(mounted: &str) -> String {
+fn watch_script(mounted: &str, body_class: Option<&str>) -> String {
     let selector = serde_json::to_string(mounted).expect("a string serializes");
+    let class = serde_json::to_string(&body_class).expect("an option of a string serializes");
     format!(
         r#"(() => {{
   const watch = {{
@@ -136,6 +137,23 @@ fn watch_script(mounted: &str) -> String {
     }});
     waiting.observe(document, {{ childList: true }});
   }}
+  // A class the page's <body> carries from the moment it exists, so the
+  // fonts its styles name load within the page's virtual time budget, as they
+  // do for a page whose HTML holds the class.
+  const bodyClass = {class};
+  if (bodyClass) {{
+    const mark = () => {{
+      if (!document.body) return false;
+      document.body.classList.add(bodyClass);
+      return true;
+    }};
+    if (!mark()) {{
+      const waiting = new MutationObserver(() => {{
+        if (mark()) waiting.disconnect();
+      }});
+      waiting.observe(document, {{ childList: true, subtree: true }});
+    }}
+  }}
   new Promise((resolve) => {{
     const look = () => {{
       if (!document.querySelector({selector})) return;
@@ -168,7 +186,7 @@ pub(crate) async fn render(
     frame: Frame,
     scale: f64,
 ) -> Result<Rendered, BoardError> {
-    load(page, board, url, frame, scale, BOARD_MOUNTED).await?;
+    load(page, board, url, frame, scale, BOARD_MOUNTED, None).await?;
     let png = page
         .screenshot(
             ScreenshotParams::builder()
@@ -183,6 +201,7 @@ pub(crate) async fn render(
 /// Loads `url` in a frame of `frame` points at `scale` pixels per point, in
 /// dark mode, and returns once its virtual time has run out with the page
 /// drawn: the element <mounted> selects is there and the fonts are loaded.
+/// The page's `<body>` gets the class <body_class>, if any, when it is created.
 pub(crate) async fn load(
     page: &Page,
     board: &str,
@@ -190,6 +209,7 @@ pub(crate) async fn load(
     frame: Frame,
     scale: f64,
     mounted: &str,
+    body_class: Option<&str>,
 ) -> Result<(), BoardError> {
     page.execute(SetDeviceMetricsOverrideParams::new(
         i64::from(frame.w),
@@ -206,7 +226,7 @@ pub(crate) async fn load(
     .await
     .map_err(protocol)?;
     page.execute(AddScriptToEvaluateOnNewDocumentParams::new(watch_script(
-        mounted,
+        mounted, body_class,
     )))
     .await
     .map_err(protocol)?;

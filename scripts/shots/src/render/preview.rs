@@ -113,8 +113,9 @@ pub(crate) struct Row {
 /// per point: the picture of its cell and the elements inside it, measured
 /// from the cell's top-left, read as `platform`'s boards are. `marks` are the
 /// selectors of the page's rows. The android lane's page body gets the class
-/// `bae-preview-android` before the rows are measured, so a row both lanes
-/// shoot draws on each platform's own surface.
+/// `bae-preview-android` from its creation, so the fonts that class names load
+/// while the page loads, and a row both lanes shoot draws on each platform's
+/// own surface.
 pub(crate) async fn render_row(
     page: &Page,
     component: &str,
@@ -124,16 +125,16 @@ pub(crate) async fn render_row(
     platform: Platform,
     marks: &Preview,
 ) -> Result<Row, PreviewError> {
-    board::load(page, component, url, PREVIEW_FRAME, scale, PREVIEW_MOUNTED).await?;
-    if platform == Platform::Android {
-        // The class is CSS only: the rows measure and draw after it applies.
-        page.evaluate(format!(
-            "document.body.classList.add({}); document.fonts.ready.then(() => true)",
-            js(ANDROID_CLASS)
-        ))
-        .await
-        .map_err(board::protocol)?;
-    }
+    board::load(
+        page,
+        component,
+        url,
+        PREVIEW_FRAME,
+        scale,
+        PREVIEW_MOUNTED,
+        (platform == Platform::Android).then_some(ANDROID_CLASS),
+    )
+    .await?;
     let names: Vec<String> = page
         .evaluate(row_names(marks))
         .await

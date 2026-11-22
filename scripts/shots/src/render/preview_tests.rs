@@ -2,6 +2,7 @@ use super::*;
 use crate::render::fixture;
 use crate::shots::Role;
 use sha2::{Digest, Sha256};
+use std::time::Duration;
 
 const REACT_SHA256: &str = "d949f1c3687aedadcedac85261865f29b17cd273997e7f6b2bfc53b2f9d4c4dd";
 const REACT_DOM_SHA256: &str = "35f4f974f4b2bcd44da73963347f8952e341f83909e4498227d4e26b98f66f0d";
@@ -162,4 +163,50 @@ async fn a_shared_row_gets_the_android_class_on_the_android_lane_only() {
     })
     .await;
     assert_eq!((mac, android), (900.0, 400.0));
+}
+
+/// A preview page whose android styles name a font that a file of the served
+/// tree gives, so the page fetches the font once it carries the class.
+const ANDROID_FONT_PREVIEW: &str = r#"<!doctype html><html><head><meta charset="utf-8">
+<style>@font-face{font-family:Late;src:url(/late.woff2)}
+body{margin:0;font:13px sans-serif}.bae-preview-android .row-cell{font-family:Late}
+.row{display:flex}.row-cell{width:300px}</style></head>
+<body><div id="root"></div><script>
+const h = React.createElement;
+ReactDOM.createRoot(document.getElementById('root')).render(h('div', {className: 'row'},
+  h('span', {className: 'row-name'}, 'Label'), h('div', {className: 'row-cell'}, 'Words')));
+</script></body></html>"#;
+
+#[tokio::test]
+async fn an_android_row_whose_class_names_a_font_to_fetch_is_drawn() {
+    let root = fixture::tree(&[]);
+    fixture::write(
+        root.path(),
+        "design/system/components/Late/preview.html",
+        ANDROID_FONT_PREVIEW,
+    );
+    fixture::write(root.path(), "design/mocks/late.woff2", "not a font");
+    let row = fixture::with_browser(root.path(), async |server, chrome| {
+        chrome
+            .with_page_within(
+                "the preview of Late",
+                Duration::from_secs(30),
+                async |page| {
+                    render_row(
+                        page,
+                        "Late",
+                        "label",
+                        &server.preview_url("Late"),
+                        1.0,
+                        Platform::Android,
+                        &marks(),
+                    )
+                    .await
+                    .map_err(|e| e.to_string())
+                },
+            )
+            .await
+    })
+    .await;
+    row.unwrap();
 }
