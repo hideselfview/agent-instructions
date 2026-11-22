@@ -512,35 +512,6 @@ fn keep_for<'a>(
     }
 }
 
-/// Runs <step> (of <kind>) in the checkout <top>, watching for a line of
-/// `HOST_FAULTS` in <fault> and giving each line to <read>; a shots run
-/// compares with its before run, read where the cache <shots> holds it,
-/// takes the board pictures earlier runs drew from the cache's picture
-/// folder, and caches the findings it printed. While the shots program runs,
-/// the step holds the shared lock that keeps the prune from deleting what it
-/// reads or writes in the folder `shots` (shots_cache.rs).
-fn run_local_step(
-    top: &Path,
-    step: &Step,
-    limit: Duration,
-    kind: StepKind,
-    shots: &ShotsCache,
-    fault: Option<&Found>,
-    read: &lock::EachLine,
-) -> Result<Within> {
-    let kept = lock::Captured::default();
-    let keep = keep_for(kind, &kept, fault, read);
-    let (command, _writing) = match kind {
-        StepKind::Shots => (shots.local_command(step), Some(shots.writing()?)),
-        _ => (step.command.clone(), None),
-    };
-    let outcome = run_command_keeping(top, &command, Some(limit), keep);
-    if kind == StepKind::Shots {
-        shots.cache_of(&outcome, &kept, step, &mut LocalRun(top));
-    }
-    outcome
-}
-
 /// Runs <steps> in the checkout <top>, as `run_steps_with` does with <watch>.
 fn run_steps(
     top: &Path,
@@ -548,9 +519,20 @@ fn run_steps(
     steps: &[Step],
     log: &mut Vec<StepRecord>,
     shots: &ShotsCache,
+    xcode_settings: &Path,
     watch: bool,
 ) -> Result<Ended> {
-    run_steps_with(held, steps, log, watch, &mut LocalSteps { top, shots })
+    run_steps_with(
+        held,
+        steps,
+        log,
+        watch,
+        &mut LocalSteps {
+            top,
+            shots,
+            xcode_settings,
+        },
+    )
 }
 
 /// Where a lane's steps run, and what a step's run needs from the checkout it
@@ -572,10 +554,12 @@ trait StepRunner {
     ) -> Result<Within>;
 }
 
-/// The steps that run in the checkout <top> here.
+/// The steps that run in the checkout <top> here, with the Xcode settings file
+/// that the checkout needs (xcode_cache.rs).
 struct LocalSteps<'a> {
     top: &'a Path,
     shots: &'a ShotsCache,
+    xcode_settings: &'a Path,
 }
 
 impl StepRunner for LocalSteps<'_> {
@@ -583,6 +567,11 @@ impl StepRunner for LocalSteps<'_> {
         count_scenes(self.top, count)
     }
 
+    /// A shots run compares with its before run, read where the cache holds
+    /// it, takes the board pictures earlier runs drew from the cache's picture
+    /// folder, and caches the findings it printed. While the shots program
+    /// runs, the step holds the shared lock that keeps the prune from deleting
+    /// what it reads or writes in the folder `shots` (shots_cache.rs).
     fn run(
         &mut self,
         step: &Step,
@@ -591,7 +580,18 @@ impl StepRunner for LocalSteps<'_> {
         fault: Option<&Found>,
         read: &lock::EachLine,
     ) -> Result<Within> {
-        run_local_step(self.top, step, limit, kind, self.shots, fault, read)
+        let (top, shots) = (self.top, self.shots);
+        let kept = lock::Captured::default();
+        let keep = keep_for(kind, &kept, fault, read);
+        let (command, _writing) = match kind {
+            StepKind::Shots => (shots.local_command(step), Some(shots.writing()?)),
+            _ => (step.command.clone(), None),
+        };
+        let outcome = run_command_keeping(top, &command, Some(limit), keep, self.xcode_settings);
+        if kind == StepKind::Shots {
+            shots.cache_of(&outcome, &kept, step, &mut LocalRun(top));
+        }
+        outcome
     }
 }
 
@@ -817,7 +817,17 @@ impl Site {
         log: &mut Vec<StepRecord>,
     ) -> Result<Ended> {
         match self {
-            Site::Local(top) => run_steps(top, held, steps, log, with.shots, with.watch),
+            Site::Local(top) => {
+                let Some(checkout) = Checkout::at(top)? else {
+                    fail!("{} is in no git checkout", top.display());
+                };
+                let settings = crate::xcode_cache::ensure(
+                    with.places,
+                    &checkout,
+                    crate::xcode_cache::xcode_maps_paths(),
+                )?;
+                run_steps(top, held, steps, log, with.shots, &settings, with.watch)
+            }
             Site::Remote(remote) => run_steps_with(
                 held,
                 steps,
@@ -831,6 +841,8 @@ impl Site {
 
 /// What a lane's steps run with.
 struct StepsWith<'a> {
+    /// Where the build volume is, for the Xcode settings of a local checkout.
+    places: &'a Places,
     /// The folders a step on a host copies back here after it runs.
     results: &'a [String],
     /// Where a shots run caches its findings here.
@@ -1588,6 +1600,7 @@ fn build_lane(
             &programs.builds(),
         )?;
         let with = |results| StepsWith {
+            places,
             results,
             shots: &shots,
             programs,
@@ -1828,7 +1841,6 @@ pub fn ensure_before_runs(
     let config = config_at(places, repo, tip)?;
     let lanes = crate::derive::plan(&config, &[], &wanted);
     let built = run_lanes(
-        places,
         pinned,
         repo,
         tip,
@@ -1985,7 +1997,6 @@ pub fn pin(places: &Places) -> Result<Pinned> {
 /// and the command, once they have ended, fails saying it stopped.
 #[allow(clippy::too_many_arguments)]
 pub fn run_lanes(
-    places: &Places,
     pinned: &Pinned,
     repo: &str,
     commit: &str,
@@ -2001,7 +2012,6 @@ pub fn run_lanes(
             libc::signal(signal, pass_to_lanes as *const () as libc::sighandler_t);
         }
     }
-    let xcode_cache = crate::xcode_cache::ensure(places)?;
     let mut running = Vec::new();
     for (at, (lane, names)) in lanes.iter().enumerate() {
         let mut command = Command::new(pinned.builds());
@@ -2019,7 +2029,6 @@ pub fn run_lanes(
                     .flat_map(pick_words),
             )
             .env(PREFIXED, "1")
-            .env(crate::xcode_cache::ENV, &xcode_cache)
             .env("PATH", pinned.path(std::env::var_os("PATH").as_deref()))
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -2304,7 +2313,6 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
         fail!("{CONFIG} names no step");
     }
     run_lanes(
-        places,
         &pinned,
         repo,
         commit,

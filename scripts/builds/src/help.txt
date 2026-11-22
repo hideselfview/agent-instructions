@@ -977,20 +977,27 @@ Clear it once that work has moved on: retire the worktree, or delete the
 folders behind its app links while nothing builds there.
 
 Xcode's compilation cache. Every step of an app build, here and on a host, runs
-with XCODE_XCCONFIG_FILE naming <root>/.xcode-compilation-cache.xcconfig, which
-turns on COMPILATION_CACHE_ENABLE_CACHING and sets COMPILATION_CACHE_CAS_PATH
-to <root>/caches/xcode-cas, one store for the host. Xcode keys each Swift and
-Clang compile by its content and its command line, which holds the checkout's
-and the build tree's absolute paths, so a compile is a hit only in the checkout
-and tree that made it: on 2026-11-21 with Xcode 26.3, rebuilding bae's unsigned
-tree after deleting it hit 279 of 279 cacheable compiles (80 s against 185 s
-cold), and a build in another checkout at the same commit hit 23 of 279 (the
-SDK's modules). The settings that map paths (SWIFT_ENABLE_PREFIX_MAPPING and
-CLANG_ENABLE_PREFIX_MAPPING, with SWIFT_OTHER_PREFIX_MAPPINGS) raised the hits
-to 62-70% but made swift-frontend crash in bae's `bae` target (bad_optional_access
-in CachingDiagnosticsProcessor), so builds does not set them. `builds prune`
-deletes the store whole when it is over its 10 GiB cap, as for the other shared
-caches.
+with XCODE_XCCONFIG_FILE naming the checkout's settings file,
+<root>/.xcode-settings/<repo>/<checkout>.xcconfig, which turns on
+COMPILATION_CACHE_ENABLE_CACHING and sets COMPILATION_CACHE_CAS_PATH to
+<root>/caches/xcode-cas, one store for the host. Xcode keys each Swift and Clang
+compile by its content and its command line, which holds the checkout's and the
+build tree's absolute paths, so without more a compile is a hit only in the
+checkout that made it (a second checkout hit 23 of 279 compiles). On a machine
+whose Xcode is 27.2 or newer, the settings file also turns on path mapping
+(SWIFT_ENABLE_PREFIX_MAPPING and CLANG_ENABLE_PREFIX_MAPPING) and maps the
+checkout's working tree to /^checkout and its folder on the build volume
+(<root>/<repo>/<checkout>) to /^build, in SWIFT_OTHER_PREFIX_MAPPINGS and
+CLANG_OTHER_PREFIX_MAPPINGS, so every checkout of a repo on the host compiles
+with the same command lines. On 2026-11-21 on the M1 (Xcode 27.2), bae's `bae`
+scheme built cold in one checkout with 0 of 274 hits (185 s) and then in a
+second checkout of the same commit with 272 of 272 hits (138 s), while the host
+was busy with other builds. Xcode 26.3 crashes in that scheme with any mapping
+(swift-frontend, bad_optional_access in CachingDiagnosticsProcessor, exit 65),
+so a machine with an older Xcode gets caching without mapping, which only
+speeds up a rebuild in the same checkout. A path with a space cannot be
+mapped, so the step fails naming it. `builds prune` deletes the store whole when
+it is over its 10 GiB cap, as for the other shared caches.
 
 A repo's `.app-build` at its root says what its app builds run, one line each:
 

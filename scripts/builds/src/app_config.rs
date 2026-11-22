@@ -866,14 +866,18 @@ pub fn run_command(top: &Path, command: &[String], limit: Option<Duration>) -> R
 }
 
 /// `run_command`, passing the command's output on as it arrives and keeping
-/// what <keep> asks for.
+/// what <keep> asks for, with <xcode_settings> as the file Xcode reads its
+/// settings from (xcode_cache.rs).
 pub fn run_command_keeping(
     top: &Path,
     command: &[String],
     limit: Option<Duration>,
     keep: lock::Keep,
+    xcode_settings: &Path,
 ) -> Result<Within> {
-    lock::run_in_group_keeping(start_of(top, command)?, &command[0], limit, keep)
+    let mut start = start_of(top, command)?;
+    start.env(crate::xcode_cache::ENV, xcode_settings);
+    lock::run_in_group_keeping(start, &command[0], limit, keep)
 }
 
 /// The folder of <repo>'s app checkout <name>.

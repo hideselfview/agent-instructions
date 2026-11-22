@@ -138,6 +138,7 @@ fn steps_stop_at_the_first_failure() {
             &steps,
             &mut Vec::new(),
             &any_store(&scratch),
+            Path::new("no.xcconfig"),
             false
         ),
         Err(Fail::Exit(1))
@@ -154,6 +155,7 @@ fn steps_stop_at_the_first_failure() {
             &steps[..1],
             &mut Vec::new(),
             &any_store(&scratch),
+            Path::new("no.xcconfig"),
             false
         )
         .unwrap(),
@@ -188,6 +190,7 @@ fn a_step_that_fails_after_xcodebuild_said_it_cannot_start_is_the_hosts_failure(
             std::slice::from_ref(&broken),
             &mut Vec::new(),
             &any_store(&scratch),
+            Path::new("no.xcconfig"),
             true
         )
         .unwrap(),
@@ -201,6 +204,7 @@ fn a_step_that_fails_after_xcodebuild_said_it_cannot_start_is_the_hosts_failure(
                 &[broken],
                 &mut Vec::new(),
                 &any_store(&scratch),
+                Path::new("no.xcconfig"),
                 false
             ),
             Err(Fail::Exit(70))
@@ -215,6 +219,7 @@ fn a_step_that_fails_after_xcodebuild_said_it_cannot_start_is_the_hosts_failure(
             &[passed],
             &mut Vec::new(),
             &any_store(&scratch),
+            Path::new("no.xcconfig"),
             true
         )
         .unwrap(),
@@ -227,6 +232,7 @@ fn a_step_that_fails_after_xcodebuild_said_it_cannot_start_is_the_hosts_failure(
             &[step("exit 65".to_string())],
             &mut Vec::new(),
             &any_store(&scratch),
+            Path::new("no.xcconfig"),
             true
         ),
         Err(Fail::Exit(65))
@@ -266,6 +272,7 @@ fn a_step_past_its_limit_is_killed_with_what_it_started_and_fails_the_build() {
         &[slow, after],
         &mut Vec::new(),
         &any_store(&scratch),
+        Path::new("no.xcconfig"),
         false,
     ) else {
         panic!("fails")
@@ -318,8 +325,45 @@ fn a_shots_run_longer_than_the_plain_limit_finishes_when_its_scenes_account_for_
     let top = scratch.dir.join("repo");
     let cached = shots_cache(&top, &places);
     let step = counted_shots("sleep 1.2", 3);
-    run_steps(&top, &held, &[step], &mut Vec::new(), &cached, false)
-        .expect("1.2 s is within 500 ms and three scenes of 400 ms");
+    run_steps(
+        &top,
+        &held,
+        &[step],
+        &mut Vec::new(),
+        &cached,
+        Path::new("no.xcconfig"),
+        false,
+    )
+    .expect("1.2 s is within 500 ms and three scenes of 400 ms");
+}
+
+#[test]
+fn a_local_step_runs_with_the_checkouts_xcode_settings_file() {
+    let scratch = crate::testing::Scratch::new("app-build-xcode-settings");
+    let held = held_in(&scratch);
+    let places = scratch.places();
+    let top = scratch.dir.join("repo");
+    std::fs::create_dir_all(&top).unwrap();
+    let cached = shots_cache(&top, &places);
+    let step = fake(
+        "macos",
+        &["sh", "-c", "echo \"$XCODE_XCCONFIG_FILE\" > seen"],
+        None,
+    );
+    run_steps(
+        &top,
+        &held,
+        &[step],
+        &mut Vec::new(),
+        &cached,
+        Path::new("/settings/side-1.xcconfig"),
+        false,
+    )
+    .unwrap();
+    assert_eq!(
+        std::fs::read_to_string(top.join("seen")).unwrap(),
+        "/settings/side-1.xcconfig\n"
+    );
 }
 
 #[test]
@@ -336,6 +380,7 @@ fn a_shots_run_that_hangs_is_killed_whatever_its_scenes() {
         &[counted_shots("sleep 300", 3)],
         &mut Vec::new(),
         &cached,
+        Path::new("no.xcconfig"),
         false,
     ) else {
         panic!("fails")
@@ -777,6 +822,7 @@ fn running_fake_steps_times_each_one_with_its_kind_and_result() {
         &steps,
         &mut log,
         &any_store(&scratch),
+        Path::new("no.xcconfig"),
         false,
     );
     let seen: Vec<(&str, StepKind, &str)> = log
@@ -819,6 +865,7 @@ fn a_shots_run_whose_pairs_fail_lets_the_lane_run_the_rest() {
         &steps,
         &mut log,
         &any_store(&scratch),
+        Path::new("no.xcconfig"),
         false,
     );
     assert!(matches!(ran, Err(Fail::Exit(2))), "{ran:?}");
@@ -845,6 +892,7 @@ fn a_shots_run_whose_pairs_fail_lets_the_lane_run_the_rest() {
         &steps,
         &mut log,
         &any_store(&scratch),
+        Path::new("no.xcconfig"),
         false,
     );
     assert!(matches!(ran, Err(Fail::Exit(1))), "{ran:?}");
@@ -868,6 +916,7 @@ fn a_failed_step_keeps_what_its_output_said() {
         ],
         &mut log,
         &any_store(&scratch),
+        Path::new("no.xcconfig"),
         false,
     );
     assert_eq!(log[0].result, StepResult::Passed);
@@ -901,6 +950,7 @@ fn each_step_is_recorded_beside_the_lock_as_the_step_that_runs() {
         ],
         &mut Vec::new(),
         &any_store(&scratch),
+        Path::new("no.xcconfig"),
         false,
     )
     .unwrap();
@@ -926,6 +976,7 @@ fn a_fake_step_that_burns_cpu_records_cpu_time_and_one_past_its_limit_records_a_
         &[fake("burn", &["sh", "-c", burn], None)],
         &mut log,
         &any_store(&scratch),
+        Path::new("no.xcconfig"),
         false,
     )
     .unwrap();
@@ -942,6 +993,7 @@ fn a_fake_step_that_burns_cpu_records_cpu_time_and_one_past_its_limit_records_a_
         )],
         &mut log,
         &any_store(&scratch),
+        Path::new("no.xcconfig"),
         false,
     );
     assert_eq!(log[0].result.word(), "timed out");
@@ -972,6 +1024,7 @@ fn a_finished_lane_run_writes_its_wait_steps_and_checkout_to_its_projects_store(
         ],
         &mut timing.steps,
         &any_store(&scratch),
+        Path::new("no.xcconfig"),
         false,
     )
     .unwrap();
@@ -1128,7 +1181,15 @@ fn a_shots_run_that_printed_findings_is_cached_under_its_commit_platform_prefix_
     let top = scratch.dir.join("repo");
     let cached = shots_cache(&top, &places);
     let step = fake("shots mac.a.", &["sh", "-c", FINDINGS_RUN], None);
-    let result = run_steps(&top, &held, &[step], &mut Vec::new(), &cached, false);
+    let result = run_steps(
+        &top,
+        &held,
+        &[step],
+        &mut Vec::new(),
+        &cached,
+        Path::new("no.xcconfig"),
+        false,
+    );
     assert!(matches!(result, Err(Fail::Exit(1))));
     let key = shots_key(&resolve(&top, "HEAD").unwrap(), "mac.a.");
     let cached = shots_cache::lookup(&places, &key).unwrap().expect("cached");
@@ -1173,7 +1234,15 @@ fn a_shots_run_that_died_on_an_error_caches_nothing() {
         ],
         None,
     );
-    let _ = run_steps(&top, &held, &[step], &mut Vec::new(), &cached, false);
+    let _ = run_steps(
+        &top,
+        &held,
+        &[step],
+        &mut Vec::new(),
+        &cached,
+        Path::new("no.xcconfig"),
+        false,
+    );
     let key = shots_key(&resolve(&top, "HEAD").unwrap(), "mac.a.");
     assert!(shots_cache::lookup(&places, &key).unwrap().is_none());
     assert!(!shots_cache::root(&places).join("demo").exists());
@@ -1197,7 +1266,15 @@ fn app_build_with_only_a_shots_pick_prints_a_cached_run_and_takes_no_lane() {
     std::fs::create_dir_all(&marker).unwrap();
     std::fs::write(marker.join(".checkout"), top.display().to_string()).unwrap();
     let step = fake("shots mac.a.", &["sh", "-c", FINDINGS_RUN], None);
-    let _ = run_steps(&top, &held, &[step], &mut Vec::new(), &cached, false);
+    let _ = run_steps(
+        &top,
+        &held,
+        &[step],
+        &mut Vec::new(),
+        &cached,
+        Path::new("no.xcconfig"),
+        false,
+    );
     let args = |words: &[&str]| words.iter().map(|w| w.to_string()).collect::<Vec<_>>();
     // Served from the store: no lane process starts (one would run this test
     // program as `builds`, and wait for a lock that does not exist).
@@ -1246,7 +1323,15 @@ fn a_build_that_reuses_a_cached_run_leaves_the_passing_build_that_land_counts() 
     std::fs::create_dir_all(&marker).unwrap();
     std::fs::write(marker.join(".checkout"), top.display().to_string()).unwrap();
     let step = fake("shots mac.a.", &["sh", "-c", FINDINGS_RUN], None);
-    let _ = run_steps(&top, &held, &[step], &mut Vec::new(), &cached, false);
+    let _ = run_steps(
+        &top,
+        &held,
+        &[step],
+        &mut Vec::new(),
+        &cached,
+        Path::new("no.xcconfig"),
+        false,
+    );
     let commit = resolve(&top, "HEAD").unwrap();
     let store = crate::lists::fixtures::make_store_named(&places, "demo-project", &["demo"]);
     let pick: Pick = (Lane::Mac, PickKind::Shots, "mac.a.".to_string());
@@ -1333,7 +1418,16 @@ fn a_shots_run_caches_its_report_and_the_pictures_it_shows_under_its_key_in_the_
     let cached = shots_cache(&top, &places);
     let run = report_run(&crate::shots_program::VERSIONS);
     let step = fake("shots mac.a.", &["sh", "-c", &run], None);
-    run_steps(&top, &held, &[step], &mut Vec::new(), &cached, false).unwrap();
+    run_steps(
+        &top,
+        &held,
+        &[step],
+        &mut Vec::new(),
+        &cached,
+        Path::new("no.xcconfig"),
+        false,
+    )
+    .unwrap();
     let key = shots_key(&resolve(&top, "HEAD").unwrap(), "mac.a.");
     let cached = shots_cache::lookup(&places, &key).unwrap().expect("cached");
     assert!(
@@ -1369,7 +1463,16 @@ fn a_report_whose_findings_name_another_shots_checker_caches_nothing() {
         ..crate::shots_program::VERSIONS.clone()
     });
     let step = fake("shots mac.a.", &["sh", "-c", &run], None);
-    run_steps(&top, &held, &[step], &mut Vec::new(), &cached, false).unwrap();
+    run_steps(
+        &top,
+        &held,
+        &[step],
+        &mut Vec::new(),
+        &cached,
+        Path::new("no.xcconfig"),
+        false,
+    )
+    .unwrap();
     let key = shots_key(&resolve(&top, "HEAD").unwrap(), "mac.a.");
     assert!(shots_cache::lookup(&places, &key).unwrap().is_none());
     assert!(!shots_cache::run_folder(&places, &key).exists());
@@ -1399,7 +1502,16 @@ fn a_shots_run_is_given_the_picture_folder_its_app_tree_and_its_before_runs_find
             ],
             None,
         );
-        run_steps(&top, &held, &[step], &mut Vec::new(), &cached, false).unwrap();
+        run_steps(
+            &top,
+            &held,
+            &[step],
+            &mut Vec::new(),
+            &cached,
+            Path::new("no.xcconfig"),
+            false,
+        )
+        .unwrap();
         std::fs::read_to_string(&out).unwrap()
     };
     let pictures = shots_cache::pictures(&places, "demo");
