@@ -81,7 +81,7 @@ impl Feed {
         let mut watches = HashMap::new();
         let snapshot =
             scan_databases(&places, &mut watches).and_then(|scan| load_paths(&places, &scan.paths));
-        report_snapshot_fault(&snapshot, None);
+        report_snapshot_fault(&snapshot);
         let now = clock();
         let feed = Arc::new(Feed {
             current: Mutex::new((1, Arc::new(snapshot))),
@@ -235,7 +235,7 @@ impl Feed {
         let stores_changed = update.is_some();
         let mut changed = stores_changed;
         if let Some(read) = update {
-            report_snapshot_fault(&read, Some(&previous));
+            report_snapshot_fault(&read);
             let mut current = self.current.lock().expect("no panic holding it");
             *current = (current.0 + 1, Arc::new(read));
         }
@@ -324,21 +324,9 @@ fn scan_databases(
     Ok(DatabaseScan { paths, moved })
 }
 
-fn report_snapshot_fault(snapshot: &Snapshot, previous: Option<&Snapshot>) {
-    let rows = match snapshot {
-        Ok(rows) => rows,
-        Err(fault) => {
-            crate::text::note(format!("reading the project lists: {fault}"));
-            return;
-        }
-    };
-    let previous = previous.and_then(|snapshot| snapshot.as_ref().ok());
-    for loaded in rows {
-        if let Err(fault) = &loaded.lists
-            && !previous.is_some_and(|previous| previous.contains(loaded))
-        {
-            crate::text::note(format!("reading the lists of {}: {fault}", loaded.project));
-        }
+fn report_snapshot_fault(snapshot: &Snapshot) {
+    if let Err(fault) = snapshot {
+        crate::text::note(format!("reading the project lists: {fault}"));
     }
 }
 
