@@ -100,7 +100,6 @@ fn step_lines_name_a_command_each_in_the_order_written() {
         scenes: None,
         place: Where::Anywhere,
         opens_windows: false,
-        draws_windows: false,
         ci_only: false,
     };
     assert_eq!(

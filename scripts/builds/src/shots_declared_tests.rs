@@ -88,7 +88,7 @@ fn prefixes_that_start_a_declared_shot_pass_and_all_shots_needs_no_declared_name
 }
 
 #[test]
-fn a_prefix_is_named_for_the_window_scenes_and_the_focus_scenes_it_selects() {
+fn a_prefix_that_selects_a_window_scene_is_named_and_one_that_selects_none_is_not() {
     let scratch = Scratch::new("shots-declared-windows");
     let top = declaring(&scratch);
     let mut asked = picks(&[
@@ -101,33 +101,20 @@ fn a_prefix_is_named_for_the_window_scenes_and_the_focus_scenes_it_selects() {
     ]);
     asked.push((Lane::Mac, PickKind::Class, "FooTests".to_string()));
     asked.push(crate::app_build::all_shots(Lane::Mac));
-    let windows = window_prefixes(&top, "HEAD", &asked).unwrap();
     assert_eq!(
-        windows.shown,
+        windowed_prefixes(&top, "HEAD", &asked).unwrap(),
         [
             "mac.settings.",
             "mac.settings.window",
             "mac.settings.alert",
             "mac."
         ],
-        "a class is no prefix, and a prefix of component or content scenes selects no window"
+        "a window scene needs the lock whether or not it takes the focus; a class is no prefix, \
+         and a prefix of component or content scenes selects no window"
     );
     assert_eq!(
-        windows.focus,
-        ["mac.settings.", "mac.settings.alert", "mac."],
-        "a window scene that takes no focus needs no window lock"
-    );
-    assert_eq!(
-        window_prefixes(
-            &top,
-            "HEAD",
-            &picks(&["mac.welcome.", "mac.settings.window"])
-        )
-        .unwrap(),
-        Windows {
-            shown: vec!["mac.settings.window".to_string()],
-            focus: Vec::new()
-        }
+        windowed_prefixes(&top, "HEAD", &picks(&["mac.welcome."])).unwrap(),
+        Vec::<String>::new()
     );
 }
 

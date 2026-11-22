@@ -45,51 +45,35 @@ pub fn refuse_undeclared(top: &Path, commit: &str, picks: &[Pick]) -> Result<()>
     Ok(())
 }
 
-/// The prefixes of the shots picks of a build that select scenes drawn in a
-/// window, named as the picks name them.
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct Windows {
-    /// The prefixes that select a scene shown in its window. Every such scene
-    /// draws on a display of the host's (`Step::draws_windows`).
-    pub shown: Vec<String>,
-    /// The prefixes that select a scene that takes the keyboard focus. A run
-    /// of such a scene holds the host's window lock
-    /// (`Step::opens_windows`); a window scene that takes no focus runs
-    /// beside any other run.
-    pub focus: Vec<String>,
-}
-
-/// The shots of <picks> by what the scenes they select need, in the order of
-/// <picks>: the shots picks of any lane whose prefix starts a shot that the
-/// harnesses declare at <commit> as shown in a window, and those whose prefix
-/// starts one that takes the focus. A run of a lane's full set of shots
-/// (`--all-shots`) selects every scene, so it counts when the lane declares
-/// any such scene.
-pub fn window_prefixes(top: &Path, commit: &str, picks: &[Pick]) -> Result<Windows> {
+/// The shots of <picks> that select a scene shown in its window, named by
+/// their prefixes, in the order of <picks>: the shots picks of any lane whose
+/// prefix starts a shot that the harnesses declare at <commit> as shown in a
+/// window. Every such scene draws on a shot display of its host's, which a
+/// second run on the host would add or remove while the first draws, and a
+/// scene that takes the keyboard focus (`takesFocus: true`) also moves the
+/// focus, so such a run holds the host's window lock (`Step::opens_windows`).
+/// A run of the other prefixes draws no window and needs no lock. A run of a
+/// lane's full set of shots (`--all-shots`) selects every scene, so it counts
+/// when the lane declares any window scene.
+pub fn windowed_prefixes(top: &Path, commit: &str, picks: &[Pick]) -> Result<Vec<String>> {
     let wanted: Vec<&String> = picks
         .iter()
         .filter(|pick| pick.1 == PickKind::Shots)
         .map(|pick| &pick.2)
         .collect();
     if wanted.is_empty() {
-        return Ok(Windows::default());
+        return Ok(Vec::new());
     }
     let declared = declared_at(top, commit)?;
-    let selecting = |needs: fn(&shots::Declared) -> bool| -> Vec<String> {
-        wanted
-            .iter()
-            .filter(|prefix| {
-                declared.iter().any(|scene| {
-                    needs(scene) && scene.name.to_string().starts_with(prefix.as_str())
-                })
+    Ok(wanted
+        .into_iter()
+        .filter(|prefix| {
+            declared.iter().any(|scene| {
+                scene.marks.in_window && scene.name.to_string().starts_with(prefix.as_str())
             })
-            .map(|prefix| (*prefix).clone())
-            .collect()
-    };
-    Ok(Windows {
-        shown: selecting(|scene| scene.marks.in_window),
-        focus: selecting(|scene| scene.marks.takes_focus),
-    })
+        })
+        .cloned()
+        .collect())
 }
 
 /// Whether a name of <declared> starts with <prefix>.
