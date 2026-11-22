@@ -936,6 +936,10 @@ fn shots_prefix(step: &Step) -> &str {
 /// (`cached_shots_lanes`).
 const CACHED_SHOTS: &str = "--cached-shots";
 
+/// What a lane's process is given first, with the commit of origin/main's tip
+/// that its build decided its comparisons against (`main_tip`).
+const MAIN_TIP: &str = "--main-tip";
+
 /// What a lane's process is given first when the run has `--fresh`: its shots
 /// runs take every shot again and replace the pictures in the picture folder.
 const FRESH: &str = "--fresh";
@@ -1024,16 +1028,16 @@ struct ShotsCache {
     base_run: bool,
 }
 
-/// The names of the shots declared at origin/main's tip in <source>, read
-/// once into <cache> and then reused, so every prefix of a run is checked
-/// against one tip.
-fn tip_declared<'a>(cache: &'a mut Option<Vec<String>>, source: &Path) -> Result<&'a [String]> {
+/// The names of the shots declared at <tip> in <source>, read once into
+/// <cache> and then reused for every prefix of a run.
+fn tip_declared<'a>(
+    cache: &'a mut Option<Vec<String>>,
+    source: &Path,
+    tip: &str,
+) -> Result<&'a [String]> {
     let names = match cache.take() {
         Some(names) => names,
-        None => {
-            let tip = resolve(source, "origin/main")?;
-            crate::shots_declared::declared_names_at(source, &tip)?
-        }
+        None => crate::shots_declared::declared_names_at(source, tip)?,
     };
     Ok(cache.insert(names))
 }
@@ -1053,6 +1057,7 @@ impl ShotsCache {
         repo: &str,
         lane: Lane,
         commit: &str,
+        tip: &str,
         config: &Config,
         picks: &[Pick],
         cached_shots: bool,
@@ -1079,7 +1084,7 @@ impl ShotsCache {
                 // has nothing to compare with: its scenes are all new
                 // (main_base.rs).
                 None if !crate::shots_declared::starts_a_shot(
-                    tip_declared(&mut tip_declared_names, source)?,
+                    tip_declared(&mut tip_declared_names, source, tip)?,
                     prefix,
                 ) =>
                 {
@@ -1443,6 +1448,8 @@ fn run_lane(
 #[derive(Clone, Copy)]
 struct LaneRequest<'a> {
     commit: &'a str,
+    /// The tip of origin/main the build decided against (`MAIN_TIP`).
+    tip: &'a str,
     names: &'a [String],
     picks: &'a [Pick],
     /// The picture folder caches every shot of the shots picks for the
@@ -1467,6 +1474,7 @@ fn build_lane(
     let floor_kib = tool.rules.floor_kib;
     let LaneRequest {
         commit,
+        tip,
         names,
         picks,
         cached_shots,
@@ -1571,6 +1579,7 @@ fn build_lane(
             repo,
             lane,
             &sha,
+            tip,
             &config,
             picks,
             cached_shots,
@@ -1717,6 +1726,13 @@ pub fn serve_cached(
     Ok(left)
 }
 
+/// The commit at the tip of origin/main in <repo>'s checkout. A build reads
+/// it once and passes it to everything that decides a comparison, so that
+/// every decision of the build is made against one tip.
+pub fn main_tip(places: &Places, repo: &str) -> Result<String> {
+    resolve(&local_source(places, repo)?, "origin/main")
+}
+
 /// Makes the store hold the run each `--shots` pick of <picks> compares
 /// with: the run of <git_ref>'s merge base with origin/main, by the
 /// shots checker this builds keys runs on (shots_cache.rs). A merge base with
@@ -1734,6 +1750,7 @@ pub fn ensure_before_runs(
     pinned: &Pinned,
     repo: &str,
     git_ref: &str,
+    tip: &str,
     picks: &[Pick],
 ) -> Result<()> {
     let shots: Vec<Pick> = picks
@@ -1750,16 +1767,15 @@ pub fn ensure_before_runs(
     if base == commit {
         return Ok(());
     }
-    let tip = resolve(&source, "origin/main")?;
     let program = pinned.builds();
     let plan_now = || {
         main_base::plan(
             places,
             repo,
             &base,
-            &tip,
+            tip,
             &shots,
-            || crate::shots_declared::declared_names_at(&source, &tip),
+            || crate::shots_declared::declared_names_at(&source, tip),
             &program,
         )
     };
@@ -1768,7 +1784,7 @@ pub fn ensure_before_runs(
             note(format!(
                 "{} start no shot that origin/main declares at {}, so their runs compare with nothing and every scene they select is new",
                 prefixes_of(&new),
-                short_of(&tip)
+                short_of(tip)
             ));
         }
         if new.len() < shots.len() {
@@ -1788,7 +1804,7 @@ pub fn ensure_before_runs(
     let rebase = |why: &str| {
         fail!(
             "{why}: rebase {git_ref} onto origin/main ({}) with `git rebase origin/main`, and run the build again, so that the shots compare with the run of main that builds has cached",
-            short_of(&tip)
+            short_of(tip)
         )
     };
     let wanted = match plan_now()? {
@@ -1805,14 +1821,23 @@ pub fn ensure_before_runs(
     note(format!(
         "builds has no cached run of {} on origin/main ({}) by shots checker {} (comparison) over {} (capture): building origin/main and running only them there, once for every build of the lane",
         prefixes_of(&wanted),
-        short_of(&tip),
+        short_of(tip),
         versions.comparison,
         versions.capture
     ));
-    let config = config_at(places, repo, &tip)?;
+    let config = config_at(places, repo, tip)?;
     let lanes = crate::derive::plan(&config, &[], &wanted);
     let built = run_lanes(
-        places, pinned, repo, &tip, &lanes, &wanted, &[], false, true,
+        places,
+        pinned,
+        repo,
+        tip,
+        tip,
+        &lanes,
+        &wanted,
+        &[],
+        false,
+        true,
     );
     if PASSED_ON.load(Ordering::SeqCst) != 0 {
         return built;
@@ -1827,7 +1852,7 @@ pub fn ensure_before_runs(
             fail!(
                 "the run of {prefix} on {} for origin/main ({}) gave nothing to compare with: {why}",
                 lane.word(),
-                short_of(&tip)
+                short_of(tip)
             );
         }
         after => {
@@ -1840,7 +1865,7 @@ pub fn ensure_before_runs(
             match after {
                 Plan::Rebase => rebase(&format!(
                     "builds ran the shots of origin/main ({}), and {git_ref} starts from {}",
-                    short_of(&tip),
+                    short_of(tip),
                     short_of(&base)
                 )),
                 _ => Ok(()),
@@ -1964,6 +1989,7 @@ pub fn run_lanes(
     pinned: &Pinned,
     repo: &str,
     commit: &str,
+    tip: &str,
     lanes: &[(Lane, Vec<String>)],
     picks: &[Pick],
     cached: &[Lane],
@@ -1981,6 +2007,7 @@ pub fn run_lanes(
         let mut command = Command::new(pinned.builds());
         command
             .args(["app-build", repo, "--lane", lane.word(), commit])
+            .args([MAIN_TIP, tip])
             .args(cached.contains(lane).then_some(CACHED_SHOTS))
             .args(fresh.then_some(FRESH))
             .args(base_run.then_some(BASE_RUN))
@@ -2183,6 +2210,12 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
         && flag == "--lane"
         && !commit.starts_with('-')
     {
+        let [main_tip_flag, tip, names @ ..] = names else {
+            fail!("{USAGE}");
+        };
+        if main_tip_flag != MAIN_TIP {
+            fail!("{USAGE}");
+        }
         let (cached_shots, names) = strip_leading(names, CACHED_SHOTS);
         let (fresh, names) = strip_leading(names, FRESH);
         let (base_run, names) = strip_leading(names, BASE_RUN);
@@ -2196,6 +2229,7 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
         // from a path that noted nothing would reach the parent as no output.
         let request = LaneRequest {
             commit,
+            tip,
             names: &names,
             picks: &picks,
             cached_shots,
@@ -2250,7 +2284,8 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
     let top = fetched_local_source(places, repo)?;
     crate::shots_declared::refuse_undeclared(&top, &resolve(&top, commit)?, &picks)?;
     let pinned = pin(places)?;
-    ensure_before_runs(places, &pinned, repo, commit, &picks)?;
+    let tip = main_tip(places, repo)?;
+    ensure_before_runs(places, &pinned, repo, commit, &tip, &picks)?;
     // The lanes the steps or picks are in: those with a step named, or with
     // any step when none is named and no pick is, each with its own names.
     let lanes: Vec<(Lane, Vec<String>)> = Lane::ALL
@@ -2273,6 +2308,7 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
         &pinned,
         repo,
         commit,
+        &tip,
         &lanes,
         &picks,
         &[],

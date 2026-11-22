@@ -1440,6 +1440,7 @@ fn a_lanes_shots_runs_compare_with_the_cached_run_of_the_merge_base_and_a_run_of
             "demo",
             Lane::Mac,
             commit,
+            &main,
             &config,
             &a_screens(),
             false,
@@ -1479,6 +1480,7 @@ fn a_prefix_that_starts_no_shot_at_mains_tip_compares_with_no_run() {
     let top = scratch.dir.join("repo");
     shots_repo(&top);
     let config = parse_config(&std::fs::read_to_string(top.join(CONFIG)).unwrap()).unwrap();
+    let main = resolve(&top, "HEAD").unwrap();
     crate::testing::git(&top, &["checkout", "-q", "-b", "work"]);
     crate::testing::git(&top, &["commit", "-q", "--allow-empty", "-m", "Work"]);
     let work = resolve(&top, "HEAD").unwrap();
@@ -1489,6 +1491,7 @@ fn a_prefix_that_starts_no_shot_at_mains_tip_compares_with_no_run() {
         "demo",
         Lane::Mac,
         &work,
+        &main,
         &config,
         &new,
         false,
@@ -1520,11 +1523,11 @@ fn a_branch_whose_merge_base_run_is_cached_builds_no_before_run() {
     // A commit on origin/main needs none, and no lane starts (one would run
     // this test program as `builds`).
     let pinned = crate::testing::pinned_programs(&scratch.dir.join("bin-started"), &places.home);
-    ensure_before_runs(&places, &pinned, "demo", &main, &a_screens()).unwrap();
+    ensure_before_runs(&places, &pinned, "demo", &main, &main, &a_screens()).unwrap();
     crate::testing::git(&top, &["checkout", "-q", "-b", "work"]);
     crate::testing::git(&top, &["commit", "-q", "--allow-empty", "-m", "Work"]);
     cache_with_records(&places, &shots_key(&main, "mac.a."));
-    ensure_before_runs(&places, &pinned, "demo", "work", &a_screens()).unwrap();
+    ensure_before_runs(&places, &pinned, "demo", "work", &main, &a_screens()).unwrap();
 }
 
 /// A request names its repo and ref; a lane's process, `--list` and other

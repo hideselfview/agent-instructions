@@ -320,7 +320,8 @@ pub fn derive_and_run(places: &Places, args: &[String]) -> Result<()> {
     }
     crate::shots_declared::refuse_undeclared(&top, &commit, &picks)?;
     let pinned = app_build::pin(places)?;
-    app_build::ensure_before_runs(places, &pinned, repo, &commit, &picks)?;
+    let tip = app_build::main_tip(places, repo)?;
+    app_build::ensure_before_runs(places, &pinned, repo, &commit, &tip, &picks)?;
     let changed = changed_paths(&top, &commit)?;
     let lanes = plan(&config, &changed, &picks);
     if lanes.is_empty() {
@@ -361,7 +362,7 @@ pub fn derive_and_run(places: &Places, args: &[String]) -> Result<()> {
         ));
     }
     app_build::run_lanes(
-        places, &pinned, repo, &commit, &lanes, &picks, &kept, fresh, false,
+        places, &pinned, repo, &commit, &tip, &lanes, &picks, &kept, fresh, false,
     )
 }
 
