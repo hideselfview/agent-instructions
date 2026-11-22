@@ -84,7 +84,8 @@ fn a_board_whose_bytes_change_and_drawing_does_not_draws_alike_and_a_redrawn_one
 }
 
 /// `history()` plus commit `p`, which adds the preview of a component, and
-/// commit `d`, which deletes that preview and the board's file.
+/// commit `d`, which deletes that preview and the board's file, and commit
+/// `e`, which deletes them on a branch from `p`.
 fn history_with_deletions() -> (tempfile::TempDir, String) {
     let repo = history();
     let component = "MacRow".to_string();
@@ -98,27 +99,50 @@ fn history_with_deletions() -> (tempfile::TempDir, String) {
     git(repo.path(), &["add", "-A"]);
     git(repo.path(), &["commit", "-q", "-m", "p"]);
     git(repo.path(), &["tag", "p"]);
-    std::fs::remove_file(preview).unwrap();
+    std::fs::remove_file(&preview).unwrap();
     std::fs::remove_file(repo.path().join(boards::board_path(BOARD))).unwrap();
     git(repo.path(), &["commit", "-q", "-am", "d"]);
     git(repo.path(), &["tag", "d"]);
+    // `e` also deletes both, on a branch of its own from `p`.
+    git(repo.path(), &["checkout", "-q", "-b", "other", "p"]);
+    std::fs::remove_file(&preview).unwrap();
+    std::fs::remove_file(repo.path().join(boards::board_path(BOARD))).unwrap();
+    std::fs::write(repo.path().join("marker"), "e").unwrap();
+    git(repo.path(), &["add", "-A"]);
+    git(repo.path(), &["commit", "-q", "-m", "e"]);
+    git(repo.path(), &["tag", "e"]);
     (repo, component)
 }
 
 #[test]
-fn a_board_or_component_that_exists_at_neither_revision_draws_alike() {
+fn a_board_or_component_that_neither_revision_draws_draws_alike_when_their_merge_base_holds_it() {
     let (repo, component) = history_with_deletions();
-    let boards = vec!["no-such-board".to_string(), BOARD.to_string()];
-    let components = vec!["NoSuchComponent".to_string(), component.clone()];
-    let both_gone = lines(repo.path(), "d", "d", &boards, &components, &cache()).unwrap();
+    let boards = vec![BOARD.to_string()];
+    let components = vec![component.clone()];
+    let both_gone = lines(repo.path(), "d", "e", &boards, &components, &cache()).unwrap();
     assert_eq!(
         both_gone,
         vec![
             format!("alike board {BOARD}"),
-            "alike board no-such-board".to_string(),
             format!("alike component {component}"),
-            "alike component NoSuchComponent".to_string(),
         ]
+    );
+}
+
+#[test]
+fn a_board_or_component_that_no_revision_holds_is_an_error() {
+    let (repo, _) = history_with_deletions();
+    let missing = vec!["no-such-board".to_string()];
+    let error = lines(repo.path(), "d", "e", &missing, &[], &cache()).unwrap_err();
+    assert!(
+        error.contains("board no-such-board exists at neither"),
+        "{error}"
+    );
+    let missing = vec!["NoSuchComponent".to_string()];
+    let error = lines(repo.path(), "d", "e", &[], &missing, &cache()).unwrap_err();
+    assert!(
+        error.contains("component NoSuchComponent exists at neither"),
+        "{error}"
     );
 }
 

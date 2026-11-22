@@ -6,7 +6,8 @@
 //! boxes, roles and words). A board's frame on the canvas is part of its
 //! picture, so a board resized in `canvas.json` draws differently. A board or
 //! preview that exists at one revision only draws differently, and one that
-//! exists at neither draws nothing at both, so it draws alike. The files'
+//! exists at neither draws nothing at both, so it draws alike when their merge
+//! base holds it; a name that no revision holds is an error. The files'
 //! bytes never decide: a rebase that merges unrelated lines into a board
 //! file, `canvas.json` or a component's source changes bytes and no drawing.
 
@@ -53,11 +54,24 @@ pub(crate) fn lines(
 ) -> Result<Vec<String>, String> {
     let before = read(root, at, cache, boards, components)?;
     let after = read(root, against, cache, boards, components)?;
+    let mut base = None;
     before
         .iter()
         .map(|(what, picture)| {
-            // A name that neither revision draws draws nothing at both, so
-            // it draws the same.
+            // A name that neither revision draws draws nothing at both, so it
+            // draws the same, but only when the revisions' merge base holds
+            // it: a name that no revision holds is a mistake.
+            if picture.is_none() && after[what].is_none() {
+                let base = match &base {
+                    Some(base) => base,
+                    None => base.insert(merge_base(root, at, against)?),
+                };
+                if !holds(root, base, what)? {
+                    return Err(format!(
+                        "{what} exists at neither {at} nor {against}, nor at their merge base {base}, so it names no drawing"
+                    ));
+                }
+            }
             let alike = after.get(what) == Some(picture);
             Ok(format!(
                 "{} {what}",
@@ -65,6 +79,27 @@ pub(crate) fn lines(
             ))
         })
         .collect()
+}
+
+/// The commit where the histories of <at> and <against> meet.
+fn merge_base(root: &Path, at: &str, against: &str) -> Result<String, String> {
+    boards::git_text(
+        boards::git(root).args(["merge-base", at, against]),
+        &format!("find the merge base of {at} and {against}"),
+    )
+    .map(|base| base.trim().to_string())
+    .map_err(|e| e.to_string())
+}
+
+/// Does revision <rev> hold the board or component <what> (`board <name>` or
+/// `component <name>`)?
+fn holds(root: &Path, rev: &str, what: &str) -> Result<bool, String> {
+    let path = match what.split_once(' ') {
+        Some(("board", name)) => boards::board_path(name),
+        Some(("component", name)) => boards::preview::preview_path(name),
+        _ => return Err(format!("{what} is neither a board nor a component")),
+    };
+    boards::exists_in(root, rev, &path).map_err(|e| e.to_string())
 }
 
 /// How the repo at <root> draws <boards> and <components> at revision <rev>.
