@@ -1037,10 +1037,16 @@ fn shots_repo(dir: &std::path::Path) {
     crate::testing::repo(dir, "target\n");
     std::fs::write(
         dir.join(CONFIG),
-        "step mac macos true\nshots mac true {select}\n",
+        "step mac macos true\nshots mac true {select}\nshots-declared mac app/shots\n",
     )
     .unwrap();
-    crate::testing::git(dir, &["add", CONFIG]);
+    std::fs::create_dir_all(dir.join("app/shots")).unwrap();
+    std::fs::write(
+        dir.join("app/shots/Shots.swift"),
+        "let scenes = [\"mac.a.one\"]\n",
+    )
+    .unwrap();
+    crate::testing::git(dir, &["add", CONFIG, "app"]);
     crate::testing::git(dir, &["commit", "-q", "-m", "Add shots"]);
     crate::testing::git(
         dir,
@@ -1464,6 +1470,34 @@ fn a_lanes_shots_runs_compare_with_the_cached_run_of_the_merge_base_and_a_run_of
         on_work.befores,
         vec![("mac.a.".to_string(), cached.findings_json())]
     );
+}
+
+#[test]
+fn a_prefix_that_starts_no_shot_at_mains_tip_compares_with_no_run() {
+    let scratch = crate::testing::Scratch::new("shots-store-new-prefix");
+    let places = scratch.places();
+    let top = scratch.dir.join("repo");
+    shots_repo(&top);
+    let config = parse_config(&std::fs::read_to_string(top.join(CONFIG)).unwrap()).unwrap();
+    crate::testing::git(&top, &["checkout", "-q", "-b", "work"]);
+    crate::testing::git(&top, &["commit", "-q", "--allow-empty", "-m", "Work"]);
+    let work = resolve(&top, "HEAD").unwrap();
+    let new = vec![(Lane::Mac, PickKind::Shots, "mac.new.".to_string())];
+    let store = ShotsCache::of(
+        &places,
+        &top,
+        "demo",
+        Lane::Mac,
+        &work,
+        &config,
+        &new,
+        false,
+        false,
+        false,
+        Path::new("/nonexistent/builds"),
+    )
+    .unwrap();
+    assert!(store.befores.is_empty());
 }
 
 #[test]

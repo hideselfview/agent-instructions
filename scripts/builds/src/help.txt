@@ -1293,9 +1293,12 @@ merge base in the same lane, by the same shots versions, whose prefix starts
 the run's own (a run of mac. stands in for a run of mac.welcome.), and whose
 report holds findings.json. When builds has none cached, `builds app-build`
 does not build the merge base. It builds origin/main's tip first in the lane,
-with the lane's `needs` steps, and runs the lane's whole set of shots there
-(the prefix mac. or android.) with `--base`, once for every build of the lane:
-a build that finds the run being made waits for it, then finds it cached. That
+with the lane's `needs` steps, and runs there only the prefixes the build asks
+for that the cache holds no run of at the tip (a cached run of mac.welcome.
+covers mac.welcome.empty.), with `--base`, under a lock on the lane's main runs:
+a build that finds the run being made waits for it, then finds it cached. A
+prefix that starts no shot the tip declares needs no run there: the branch's
+run compares it with nothing, so every scene it selects is new. That
 run is main's own: it compares with nothing and fails no pair with findings,
 since those findings are what the branch's run compares with, and it lists them
 as such. Its findings are cached, and the branch's run starts only after they

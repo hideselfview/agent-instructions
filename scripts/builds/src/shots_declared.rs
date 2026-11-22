@@ -79,6 +79,15 @@ pub fn windowed_prefixes(top: &Path, commit: &str, picks: &[Pick]) -> Result<Vec
         .collect())
 }
 
+/// The names of the shots the harnesses declare at <commit> of the repo at
+/// <top>.
+pub fn declared_names_at(top: &Path, commit: &str) -> Result<Vec<String>> {
+    Ok(declared_at(top, commit)?
+        .into_iter()
+        .map(|scene| scene.name.to_string())
+        .collect())
+}
+
 /// The shots the harnesses declare at <commit>, read from the declare
 /// folders that the commit's `.app-build` names.
 fn declared_at(top: &Path, commit: &str) -> Result<Vec<shots::Declared>> {

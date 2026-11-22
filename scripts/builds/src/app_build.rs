@@ -1060,6 +1060,16 @@ impl ShotsCache {
                 places, repo, &base, lane, prefix, program,
             )? {
                 Some(before) => befores.push((prefix.clone(), before.findings_json())),
+                // A prefix that starts no shot declared at origin/main's tip
+                // has nothing to compare with: its scenes are all new
+                // (main_base.rs).
+                None if !crate::main_base::starts_a_shot(
+                    &crate::shots_declared::declared_names_at(
+                        source,
+                        &resolve(source, "origin/main")?,
+                    )?,
+                    prefix,
+                ) => {}
                 None => fail!(
                     "builds holds no run of {prefix} on {} for {}, the merge base of {} with origin/main, by shots checker {} (comparison) over {} (capture), so the run has nothing to compare with; `{}` makes one",
                     lane.word(),
@@ -1693,10 +1703,11 @@ pub fn serve_cached(
 /// Makes the store hold the run each `--shots` pick of <picks> compares
 /// with: the run of <git_ref>'s merge base with origin/main, by the
 /// shots checker this builds keys runs on (shots_cache.rs). A merge base with
-/// no run does not get built for it: builds runs each such lane's whole set of
-/// shots at the tip of origin/main instead, once for every build of the lane
-/// (main_base.rs), and tells a branch that starts behind the tip to rebase
-/// onto it. The run of a commit on origin/main compares with none, so its
+/// no run does not get built for it: builds runs the picks that start a shot
+/// declared at the tip of origin/main, and that the tip's cache lacks, at the
+/// tip instead, once for every build of the lane (main_base.rs), and tells a
+/// branch that starts behind the tip to rebase onto it. A pick that starts no
+/// shot the tip declares compares with nothing. The run of a commit on origin/main compares with none, so its
 /// pairs' findings fail it, and that failure stops nothing here. Fails when a
 /// pick still has no run to compare with, or a stop signal ended the build. A
 /// commit on origin/main is its own merge base and needs no before run. The
@@ -1724,7 +1735,17 @@ pub fn ensure_before_runs(
     }
     let tip = resolve(&source, "origin/main")?;
     let program = pinned.builds();
-    let plan_now = || main_base::plan(places, repo, &base, &tip, &shots, &program);
+    let plan_now = || {
+        main_base::plan(
+            places,
+            repo,
+            &base,
+            &tip,
+            &shots,
+            || crate::shots_declared::declared_names_at(&source, &tip),
+            &program,
+        )
+    };
     if plan_now()? == Plan::Covered {
         note(format!(
             "the shots runs compare with the runs of {}, the merge base with origin/main, that builds has cached",
@@ -1732,7 +1753,7 @@ pub fn ensure_before_runs(
         ));
         return Ok(());
     }
-    // One build at a time makes main's whole-lane run of a lane: the others
+    // One build at a time makes main's runs of a lane: the others
     // wait here, then find it cached.
     let mut held = Vec::new();
     for lane in &main_base::lanes_of(&shots) {
@@ -1756,7 +1777,7 @@ pub fn ensure_before_runs(
     };
     let versions = &crate::shots_program::VERSIONS;
     note(format!(
-        "builds has no cached run of {} on origin/main ({}) by shots checker {} (comparison) over {} (capture): building origin/main and running them there, once for every build of the lane",
+        "builds has no cached run of {} on origin/main ({}) by shots checker {} (comparison) over {} (capture): building origin/main and running only them there, once for every build of the lane",
         wanted
             .iter()
             .map(|(_, _, prefix)| prefix.as_str())
