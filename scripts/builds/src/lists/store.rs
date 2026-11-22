@@ -474,6 +474,16 @@ pub struct Loaded {
     pub lists: std::result::Result<Lists, String>,
 }
 
+impl Loaded {
+    fn read(store: Store) -> Self {
+        let lists = store.load().map_err(Fail::text);
+        Self {
+            project: store.project,
+            lists,
+        }
+    }
+}
+
 /// Every store, each loaded and checked, for what reads them all (the
 /// daemon, `builds health`): a store that fails stays in the answer with its
 /// fault, since nothing repairs it. Err when the folder can't be listed.
@@ -487,13 +497,7 @@ pub fn load_paths(
     databases: &[PathBuf],
 ) -> std::result::Result<Vec<Loaded>, String> {
     let stores = stores_at(places, databases).map_err(Fail::text)?;
-    Ok(stores
-        .into_iter()
-        .map(|store| Loaded {
-            lists: store.load().map_err(Fail::text),
-            project: store.project,
-        })
-        .collect())
+    Ok(stores.into_iter().map(Loaded::read).collect())
 }
 
 /// What SQLite's integrity checks find in each store's database, one line
@@ -585,10 +589,7 @@ pub fn reload(
         match kept {
             Some(kept) => next.push(kept.clone()),
             None => {
-                let loaded = Loaded {
-                    lists: store.load().map_err(Fail::text),
-                    project: store.project,
-                };
+                let loaded = Loaded::read(store);
                 changed |= before != Some(&loaded);
                 next.push(loaded);
             }

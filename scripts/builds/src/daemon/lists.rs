@@ -299,7 +299,9 @@ fn scan_databases(
         .filter(|path| !present.contains(path.as_path()))
         .cloned()
         .collect();
-    watches.retain(|path, _| present.contains(path.as_path()));
+    for path in &moved {
+        watches.remove(path);
+    }
     for path in present {
         let changed = match watches.get_mut(path) {
             Some(watch) => watch.moved(),
