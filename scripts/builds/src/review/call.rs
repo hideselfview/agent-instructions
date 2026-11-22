@@ -43,7 +43,7 @@ pub struct Output {
 }
 
 /// Reported and derived token counts. An absent count has no known value.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Tokens {
     pub input: Option<i64>,
     pub output: Option<i64>,

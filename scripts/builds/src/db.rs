@@ -417,10 +417,6 @@ fn without_unreported_usage(mut schema: String) -> String {
             schema = schema.replace(&column, "");
         }
     }
-    schema = schema.replace(
-        "    token_subtotals TEXT CONSTRAINT review_call_token_subtotals_are_json CHECK (json_valid(token_subtotals) AND json_type(token_subtotals) = 'object'),\n",
-        "",
-    );
     schema.replacen(
         "cost_microdollars INTEGER CONSTRAINT spec_check_cost_not_negative",
         "cost_microdollars INTEGER NOT NULL CONSTRAINT spec_check_cost_not_negative",

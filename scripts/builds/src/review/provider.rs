@@ -368,13 +368,12 @@ pub(super) fn claude_envelope(text: &[u8], requested: &str) -> Invoked {
         .map_or_else(|| unknown_model(requested), Clone::clone);
     let mut body = body_of(&value);
     let mut diagnostics = Vec::new();
-    let tokens = match value.get("usage") {
-        Some(usage) => reported_tokens(usage, Provider::Claude, &mut body, &mut diagnostics),
-        None => {
-            diagnostics.push("Claude omitted its usage report".to_string());
-            Tokens::default()
-        }
-    };
+    let tokens = reported_tokens(
+        value.get("usage"),
+        Provider::Claude,
+        &mut body,
+        &mut diagnostics,
+    );
     let cost_microdollars = match claude_cost(&value) {
         Ok(cost) => cost,
         Err(why) => {
@@ -421,11 +420,19 @@ fn reported_count(usage: &Value, key: &str) -> std::result::Result<Option<i64>, 
 }
 
 fn reported_tokens(
-    usage: &Value,
+    usage: Option<&Value>,
     protocol: Provider,
     body: &mut std::result::Result<Value, String>,
     diagnostics: &mut Vec<String>,
 ) -> Tokens {
+    let Some(usage) = usage else {
+        let provider = match protocol {
+            Provider::Claude => "Claude",
+            Provider::Codex => "Codex",
+        };
+        diagnostics.push(format!("{provider} omitted its usage report"));
+        return Tokens::default();
+    };
     if !usage.is_object() {
         add_diagnostic(body, "the reviewer reported invalid usage".to_string());
         return Tokens::default();
@@ -794,16 +801,12 @@ fn codex_events(text: &[u8], read_tools: bool) -> Decoded {
     };
     let mut diagnostics = Vec::new();
     let completion = match completed {
-        Some(Some(usage)) => Completion::Completed(reported_tokens(
-            &usage,
+        Some(usage) => Completion::Completed(reported_tokens(
+            usage.as_ref(),
             Provider::Codex,
             &mut body,
             &mut diagnostics,
         )),
-        Some(None) => {
-            diagnostics.push("Codex omitted its usage report".to_string());
-            Completion::Completed(Tokens::default())
-        }
         None => Completion::Incomplete,
     };
     Decoded {

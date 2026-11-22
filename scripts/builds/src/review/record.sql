@@ -82,7 +82,6 @@ CREATE TABLE review_call (
     tokens_written INTEGER CONSTRAINT review_call_tokens_written_not_negative CHECK (tokens_written >= 0),
     tokens_uncached INTEGER CONSTRAINT review_call_tokens_uncached_not_negative CHECK (tokens_uncached >= 0),
     tokens_reasoning INTEGER CONSTRAINT review_call_tokens_reasoning_not_negative CHECK (tokens_reasoning >= 0),
-    token_subtotals TEXT CONSTRAINT review_call_token_subtotals_are_json CHECK (json_valid(token_subtotals) AND json_type(token_subtotals) = 'object'),
     -- What `claude -p` reported the call cost, in millionths of a US dollar,
     -- summed over its processes; null for a call made before builds recorded
     -- the cost.

@@ -637,7 +637,7 @@ fn codex_refuses_cache_usage_above_the_total_input() {
     let usage = json!({"input_tokens": 4, "cached_input_tokens": 5, "output_tokens": 1});
     let mut body = Ok(json!({}));
     let mut diagnostics = Vec::new();
-    let tokens = reported_tokens(&usage, Provider::Codex, &mut body, &mut diagnostics);
+    let tokens = reported_tokens(Some(&usage), Provider::Codex, &mut body, &mut diagnostics);
     assert!(body.unwrap_err().contains("more input tokens"));
     assert_eq!(tokens.input, Some(4));
     assert_eq!(tokens.output, Some(1));
