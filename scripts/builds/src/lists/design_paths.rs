@@ -63,6 +63,13 @@ pub enum FileKind {
 }
 
 impl Globs {
+    /// Whether the project's board or shared-source globs apply to the repo.
+    pub(super) fn has_design_files(lists: &Lists, repo: &str) -> bool {
+        [&lists.design_places, &lists.design_sources]
+            .iter()
+            .any(|globs| globs.get(repo).is_some_and(|paths| !paths.is_empty()))
+    }
+
     /// The globs of <repo> in <lists>.
     pub fn of(lists: &Lists, repo: &str) -> Globs {
         Globs::of_repo(

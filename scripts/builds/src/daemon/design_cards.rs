@@ -10,7 +10,7 @@
 
 use super::cards::ItemWait;
 #[cfg(test)]
-use crate::fail::Result;
+use crate::fail::Fail;
 use crate::lists::design::DesignCommit;
 #[cfg(test)]
 use crate::lists::design_reads::DesignReads;
@@ -41,7 +41,7 @@ pub fn standing<'a>(
     repo: &str,
     top: &Path,
     git: &SideRead,
-) -> Result<Option<Standing<'a>>> {
+) -> Result<Option<Standing<'a>>, std::sync::Arc<Fail>> {
     let commits = reads.of(lists, repo, top, git)?;
     Ok(of_commits(lists, &commits))
 }

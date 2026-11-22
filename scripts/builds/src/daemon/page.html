@@ -394,7 +394,7 @@ a.l-ref:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; b
 "use strict";
 // The groups of the states the daemon gives each side worktree (CardState::word in
 // cards.rs), in the order the cards sort.
-const ORDER = ["waiting-on-you", "waits-unread", "kept-met", "ready-to-land", "in-review", "checking-design", "queued", "winding-down", "working", "held", "kept-waiting", "kept", "free"];
+const ORDER = ["waiting-on-you", "waits-unread", "kept-met", "ready-to-land", "in-review", "queued", "winding-down", "working", "held", "kept-waiting", "kept", "free"];
 const LISTS_HIDDEN_KEY = "builds-dashboard-lists-hidden";
 let state = null, streamError = "", connectionDown = false;
 let hooks = null, hooksError = "";
@@ -753,7 +753,7 @@ function queuedNote(words) {
 function worktreeCard(c) {
   const g = c.git, a = c.activity, building = a.processes.length > 0;
   const words = c.words, chip = words.chip, queued = words.queued;
-  const tone = queued ? " queued" : ["in-review", "checking-design", "held", "kept", "kept-waiting", "waits-unread"].includes(c.state) ? " inreview" : c.state === "kept-met" || chip === "Ready to land" ? " ready" : chip === "Waiting on you" ? " you" : chip ? " building" : "";
+  const tone = queued ? " queued" : ["in-review", "held", "kept", "kept-waiting", "waits-unread"].includes(c.state) ? " inreview" : c.state === "kept-met" || chip === "Ready to land" ? " ready" : chip === "Waiting on you" ? " you" : chip ? " building" : "";
   return h("article", {class: "wt-card"},
     h("div", {class: "bar" + tone},
       h("span", {class: "grp"}, chip ? h("span", queued ? {class: "state", title: queued.line} : {class: "state"}, chip,
@@ -1307,9 +1307,9 @@ function waitsDetails() {
 // box keeps the finding for a worktree with no change, which that worktree's
 // card also marks stalled.
 const SHOWN_ELSEWHERE = new Set(["disk"]);
-function findingsView(health) {
+function findingsView(health, hostFindings) {
   const box = document.getElementById("findings");
-  const findings = (health ? health.findings : []).filter(f => !SHOWN_ELSEWHERE.has(f.kind));
+  const findings = (health ? health.findings : hostFindings).filter(f => !SHOWN_ELSEWHERE.has(f.kind));
   box.replaceChildren(...(findings.length ? [h("div", {class: "act"}, h("b", {}, "Needs attention"),
     findings.map(f => h("span", {}, f.text, f.command ? h("code", {}, f.command) : null)))] : []));
 }
@@ -1335,7 +1335,7 @@ function render() {
   waitDetails();
   waitsDetails();
   laneModalView();
-  findingsView(state.health);
+  findingsView(state.health, state.host_findings);
   if (lists && !lists.error) renderLists();
   const root = document.getElementById("view");
   if (root.firstElementChild && !root.firstElementChild.dataset.key) root.replaceChildren();

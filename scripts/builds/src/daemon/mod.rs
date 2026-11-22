@@ -207,7 +207,7 @@ pub fn cmd_dashboard(tool: &Tool, args: &[String]) -> Result<()> {
         tool.rules.clone(),
         runs,
         tool.program.clone(),
-    );
+    )?;
     card_recorder::start(model.clone())?;
     let questions = model.clone();
     std::thread::Builder::new()

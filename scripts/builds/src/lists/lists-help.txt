@@ -383,9 +383,10 @@ main checkout holds or that more than one holds; an absolute path is itself.
       item's time, from its opening to its landing, to one kind of time: the
       highest of the kinds that cover the second. The kinds, highest first,
       are waiting on the person, held, landing, reviewers running (or the
-      dashboard's Reviewing), waiting for findings to be settled (Findings to
-      settle), fixing review findings (Open findings), app build queue, app
-      build steps, commit hooks, cargo runs, waiting for a review (Needs
+      dashboard's Reviewing, which includes design coverage), waiting for
+      findings to be settled (Findings to settle), fixing review findings
+      (Open findings), app build queue, app build steps, commit hooks, cargo
+      runs, waiting for a review (Needs
       review and Unreviewed changes), ready and waiting for builds land
       (Ready to land), agent working, between runs, ready and not taken, and
       blocked by other work. A cargo run that a hook check started counts

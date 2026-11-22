@@ -1,4 +1,5 @@
 use super::*;
+use crate::fail::Result;
 use crate::lists::Resolution;
 use crate::lists::fixtures::{db, design_drawn, design_place, design_tipped, read};
 use crate::testing::{Scratch, git, repo};
@@ -161,14 +162,11 @@ fn a_slow_drawing_does_not_block_another_worktree_read() {
         started,
         release: Mutex::new(released),
     }));
-    let (published, changes) = mpsc::channel();
-    reads.listen(move || published.send(()).unwrap());
     let (finished, received) = mpsc::channel();
     std::thread::scope(|scope| {
         let slow = scope.spawn(|| reads.of(&lists, "bae", &top, &git));
         drawing.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(reads.completed(&lists, "bae", &top, &git).is_none());
-        assert!(changes.try_recv().is_err());
         let reads = &reads;
         let lists = &lists;
         scope.spawn(move || {
@@ -185,8 +183,6 @@ fn a_slow_drawing_does_not_block_another_worktree_read() {
                 .unwrap()
                 .is_empty()
         );
-        changes.recv_timeout(Duration::from_secs(3)).unwrap();
-        changes.recv_timeout(Duration::from_secs(3)).unwrap();
         assert_eq!(
             reads.completed(lists, "bae", &top, &git).unwrap().unwrap()[0].covered_by,
             Some(id)

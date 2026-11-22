@@ -35,6 +35,8 @@ pub enum ItemWait {
     Landing { id: u32, title: String },
     /// Commits of a design branch that no recorded design change covers.
     Unrecorded,
+    /// The dashboard is checking whether a design change covers the commits.
+    DesignCoverage,
     /// Commits waiting to land whose rules review `builds land` would not
     /// take yet (review_cards.rs).
     RulesReview(ReviewWait),
@@ -43,8 +45,7 @@ pub enum ItemWait {
     Condition { text: String, until: Ender },
 }
 
-/// Where the rules review of a branch stands while `builds land` would refuse
-/// its commits.
+/// Which review check is still open on a branch.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ReviewWait {
     /// No review read these commits, or a group still has to answer over
@@ -52,6 +53,8 @@ pub enum ReviewWait {
     NotRun,
     /// A review of the branch's newest commit runs now.
     Running,
+    /// Builds is checking which design changes cover the branch's commits.
+    DesignCoverage,
     /// This many findings wait for the settler to settle them.
     ToSettle(usize, Settler),
     /// This many confirmed findings are open: they wait for a review that
@@ -75,7 +78,7 @@ impl ReviewWait {
     fn chip(self) -> &'static str {
         match self {
             ReviewWait::NotRun => "Needs review",
-            ReviewWait::Running => "Reviewing",
+            ReviewWait::Running | ReviewWait::DesignCoverage => "Reviewing",
             ReviewWait::ToSettle(..) => "Findings to settle",
             ReviewWait::Open(_) => "Open findings",
             ReviewWait::Unreviewed(_) => "Unreviewed changes",
@@ -86,6 +89,7 @@ impl ReviewWait {
     fn pill(self) -> Option<Pill> {
         let text = match self {
             ReviewWait::NotRun | ReviewWait::Running => return None,
+            ReviewWait::DesignCoverage => "Design coverage".to_string(),
             ReviewWait::ToSettle(n, _) | ReviewWait::Open(n) => {
                 crate::text::counted(n, "finding", "findings")
             }
@@ -107,6 +111,7 @@ impl ReviewWait {
             // The chip says it.
             ReviewWait::NotRun => String::new(),
             ReviewWait::Running => "The rules review of its commits runs.".to_string(),
+            ReviewWait::DesignCoverage => "Builds checks which design changes cover the commits.".to_string(),
             ReviewWait::ToSettle(n, settler) => format!(
                 "{} on the {} to settle {}.",
                 findings(n, "review"),
@@ -161,7 +166,7 @@ impl ItemWait {
             ItemWait::AppBuild { .. } => 2,
             ItemWait::Item { .. } | ItemWait::Landing { .. } => 3,
             ItemWait::Unrecorded => 4,
-            ItemWait::RulesReview(_) => 5,
+            ItemWait::RulesReview(_) | ItemWait::DesignCoverage => 5,
             ItemWait::Condition { .. } => 6,
         }
     }
@@ -186,6 +191,7 @@ impl ItemWait {
             ItemWait::AppBuild { running: false, .. } => return None,
             ItemWait::Item { id, .. } | ItemWait::Landing { id, .. } => format!("After #{id}"),
             ItemWait::Unrecorded => "No design change".to_string(),
+            ItemWait::DesignCoverage => return ReviewWait::DesignCoverage.pill(),
             ItemWait::RulesReview(review) => return review.pill(),
             ItemWait::Condition { .. } => return None,
         };
@@ -222,6 +228,7 @@ impl ItemWait {
                     .to_string()
             }
             ItemWait::RulesReview(review) => review.sentence(),
+            ItemWait::DesignCoverage => ReviewWait::DesignCoverage.sentence(),
             ItemWait::Condition { text, until } => {
                 format!("Waits until {text}; the {} ends this wait", until.word())
             }
@@ -262,8 +269,6 @@ pub enum CardState {
     Paused,
     /// Commits wait to land, and nothing else goes on.
     ReadyToLand,
-    /// The dashboard is reading design coverage for the commits.
-    CheckingDesign,
     /// Commits wait to land and their rules review would keep `builds land`
     /// from taking them.
     InReview(ReviewWait),
@@ -289,7 +294,6 @@ impl CardState {
             CardState::WaitingOnYou => "waiting-on-you",
             CardState::Paused => "held",
             CardState::ReadyToLand => "ready-to-land",
-            CardState::CheckingDesign => "checking-design",
             CardState::InReview(_) => "in-review",
             CardState::WaitsUnread => "waits-unread",
             CardState::Kept => "kept",
@@ -306,7 +310,7 @@ impl CardState {
             CardState::Queued(Lane::Android) => "waiting-on-android",
             CardState::Paused => "paused",
             CardState::InReview(ReviewWait::NotRun) => "needs-review",
-            CardState::InReview(ReviewWait::Running) => "reviewing",
+            CardState::InReview(ReviewWait::Running | ReviewWait::DesignCoverage) => "reviewing",
             CardState::InReview(ReviewWait::ToSettle(..)) => "findings-to-settle",
             CardState::InReview(ReviewWait::Open(_)) => "open-findings",
             CardState::InReview(ReviewWait::Unreviewed(_)) => "unreviewed-changes",
@@ -324,7 +328,6 @@ impl CardState {
             CardState::WaitingOnYou => "Waiting on you",
             CardState::Paused => "Paused",
             CardState::ReadyToLand => "Ready to land",
-            CardState::CheckingDesign => "Checking design coverage",
             CardState::InReview(review) => review.chip(),
             CardState::WaitsUnread => "Can't read what this worktree waits on",
             CardState::Kept => "Ready",
@@ -366,8 +369,12 @@ pub fn card_state(
     if keeps_working(state, shell, wait) {
         state = CardState::Working;
     }
-    if let (CardState::ReadyToLand, Some(ItemWait::RulesReview(review))) = (state, wait) {
-        state = CardState::InReview(*review);
+    if state == CardState::ReadyToLand {
+        state = match wait {
+            Some(ItemWait::RulesReview(review)) => CardState::InReview(*review),
+            Some(ItemWait::DesignCoverage) => CardState::InReview(ReviewWait::DesignCoverage),
+            _ => state,
+        };
     }
     if let Some(lane) = waits_in_queue(state, wait) {
         state = CardState::Queued(lane);
@@ -576,7 +583,6 @@ pub fn words(
             wait.map(ItemWait::sentence).unwrap_or_default(),
         ),
         CardState::InReview(review) => (review.pill(), review.sentence()),
-        CardState::CheckingDesign => (None, String::new()),
         // The card's errors say why.
         CardState::WaitsUnread => (None, String::new()),
         CardState::Free => (

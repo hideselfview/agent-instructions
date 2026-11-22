@@ -21,9 +21,23 @@ impl Fail {
     pub fn text(self) -> String {
         match self {
             Self::Message(message) => message,
-            Self::Exit(code) => format!("exit {code}"),
+            error => error.to_string(),
+        }
+    }
+}
+
+impl Display for Fail {
+    fn fmt(&self, output: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Message(message) => output.write_str(message),
+            Self::Exit(code) => write!(output, "exit {code}"),
             Self::Move { from, to, error } => {
-                format!("moving {} to {}: {error}", from.display(), to.display())
+                write!(
+                    output,
+                    "moving {} to {}: {error}",
+                    from.display(),
+                    to.display()
+                )
             }
         }
     }

@@ -20,7 +20,7 @@ use crate::fail::Result;
 use crate::lists::derive::{self, ItemState};
 use crate::lists::design_circle_box;
 use crate::lists::design_drawn::{Renders, Sameness};
-use crate::lists::design_paths::{Changes, Globs, PlaceKind, changes_of, drawing_at};
+use crate::lists::design_paths::{Changes, Drawing, Globs, PlaceKind, changes_of, drawing_at};
 use crate::lists::design_session::{self, SessionState};
 use crate::lists::item::{ItemDraft, RecordWait, add_item};
 use crate::lists::record;
@@ -784,27 +784,46 @@ fn check_review(section: &ReviewSection) -> Result<()> {
     Ok(())
 }
 
-/// Shared design files and sources change no place by themselves: one of
-/// <designs> must list the components whose drawing changes (a source) or
-/// have a resolved place, or say with `no_app_place` that no drawing changes.
-fn needs_answer(designs: &[&DesignChange], changes: &Changes, what: &str) -> Result<()> {
-    if designs.iter().any(|d| d.no_app_place.is_some()) {
-        return Ok(());
+/// Shared changes with no recorded answer.
+enum SharedAnswer<'a> {
+    Sources(&'a BTreeSet<String>),
+    Files(&'a BTreeSet<String>),
+}
+
+impl SharedAnswer<'_> {
+    fn message(&self, what: &str) -> String {
+        match self {
+            Self::Sources(paths) => format!(
+                "{what} changes shared design-system sources ({}); list under `places` each component whose drawing changes (with `null` or its app work), or say with `no_app_place` that no drawing changes",
+                join(paths)
+            ),
+            Self::Files(paths) => format!(
+                "{what} changes only shared design files ({}); say why no board or component changed with `no_app_place`",
+                join(paths)
+            ),
+        }
+    }
+}
+
+fn unanswered_shared<'a>(
+    designs: &[&DesignChange],
+    changes: &'a Changes,
+) -> Option<SharedAnswer<'a>> {
+    if designs.iter().any(|design| design.no_app_place.is_some()) {
+        return None;
     }
     if !changes.sources.is_empty() {
-        if designs.iter().any(|d| lists_a_component(d)) {
-            return Ok(());
-        }
-        fail!(
-            "{what} changes shared design-system sources ({}); list under `places` each component whose drawing changes (with `null` or its app work), or say with `no_app_place` that no drawing changes",
-            join(&changes.sources)
-        );
+        return (!designs.iter().any(|design| lists_a_component(design)))
+            .then_some(SharedAnswer::Sources(&changes.sources));
     }
-    if !changes.shared.is_empty() && changes.places.is_empty() && changes.spec.is_empty() {
-        fail!(
-            "{what} changes only shared design files ({}); say why no board or component changed with `no_app_place`",
-            join(&changes.shared)
-        );
+    (!changes.shared.is_empty() && changes.places.is_empty() && changes.spec.is_empty())
+        .then_some(SharedAnswer::Files(&changes.shared))
+}
+
+/// Shared design files and sources need an answer from the design records.
+fn needs_answer(designs: &[&DesignChange], changes: &Changes, what: &str) -> Result<()> {
+    if let Some(answer) = unanswered_shared(designs, changes) {
+        fail!("{}", answer.message(what));
     }
     Ok(())
 }
@@ -1202,28 +1221,38 @@ impl<'a> Drawings<'a> {
         renders: &dyn Renders,
     ) -> Result<Drawings<'a>> {
         let now = drawing_at(top, last, paths.iter().copied())?;
-        let mut changes = Vec::new();
-        for design in designs {
-            let same = match &design.tip {
-                Some(tip) => {
-                    let before = drawing_at(top, tip, paths.iter().copied())?;
-                    let held = design.drawn_places();
-                    Sameness::between(
-                        renders,
-                        top,
-                        (tip, &before),
-                        (last, &now),
-                        &held,
-                        sources,
-                        paths,
-                    )?
-                }
-                None => Sameness::never(),
-            };
-            changes.push(DrawnChange { design, same });
-        }
+        let changes = designs
+            .into_iter()
+            .map(|design| {
+                draw_change(top, (last, &now), design, paths, sources, renders)
+                    .map(|same| DrawnChange { design, same })
+            })
+            .collect::<Result<_>>()?;
         Ok(Drawings { changes })
     }
+}
+
+fn draw_change(
+    top: &Path,
+    now: (&str, &Drawing),
+    design: &DesignChange,
+    paths: &BTreeSet<&String>,
+    sources: &BTreeSet<String>,
+    renders: &dyn Renders,
+) -> Result<Sameness> {
+    let Some(tip) = &design.tip else {
+        return Ok(Sameness::never());
+    };
+    let before = drawing_at(top, tip, paths.iter().copied())?;
+    Sameness::between(
+        renders,
+        top,
+        (tip, &before),
+        now,
+        &design.drawn_places(),
+        sources,
+        paths,
+    )
 }
 
 /// Do <designs> together cover <changes>, the design files of commits? Each
@@ -1247,8 +1276,13 @@ pub fn covers(designs: &[DrawnChange], changes: &Changes) -> Result<()> {
     covers_drawings(designs, changes)
 }
 
-/// What the design records can answer before any boards are drawn.
-fn covers_places(designs: &[&DesignChange], changes: &Changes) -> Result<()> {
+enum PlaceProblem<'a> {
+    Unresolved(Vec<&'a str>),
+    Unanswered(SharedAnswer<'a>),
+    Stray(Id),
+}
+
+fn place_problem<'a>(designs: &[&DesignChange], changes: &'a Changes) -> Option<PlaceProblem<'a>> {
     let unresolved: Vec<&str> = changes
         .resolvable()
         .into_iter()
@@ -1256,33 +1290,42 @@ fn covers_places(designs: &[&DesignChange], changes: &Changes) -> Result<()> {
         .filter(|place| !designs.iter().any(|d| d.places.contains_key(*place)))
         .collect();
     if !unresolved.is_empty() {
-        let ids: Vec<Id> = designs.iter().map(|d| d.id).collect();
-        let named = named(&ids);
-        let verb = if ids.len() == 1 { "does" } else { "do" };
-        fail!(
-            "{named} {verb} not resolve {}. {}",
-            unresolved.join(", "),
-            amend_hint(&ids, "each place", "the change that draws the place")
-        );
+        return Some(PlaceProblem::Unresolved(unresolved));
     }
-    if let Err(error) = needs_answer(designs, changes, "the commits") {
-        let ids: Vec<Id> = designs.iter().map(|d| d.id).collect();
-        return Err(match error {
-            crate::fail::Fail::Message(message) => crate::fail::Fail::Message(format!(
-                "{message} ({}). {}",
-                named(&ids),
-                amend_hint(&ids, "the answer", "one of these changes")
-            )),
-            other => other,
-        });
+    if let Some(answer) = unanswered_shared(designs, changes) {
+        return Some(PlaceProblem::Unanswered(answer));
     }
-    if let Some(stray) = designs.iter().find(|design| !takes_part(design, changes)) {
-        fail!(
-            "design change {} resolves nothing the commits change, so landing them must not close it; leave it out",
-            stray.id
-        );
+    designs
+        .iter()
+        .find(|design| !takes_part(design, changes))
+        .map(|design| PlaceProblem::Stray(design.id))
+}
+
+/// What the design records can answer before any boards are drawn.
+fn covers_places(designs: &[&DesignChange], changes: &Changes) -> Result<()> {
+    let Some(problem) = place_problem(designs, changes) else {
+        return Ok(());
+    };
+    let ids: Vec<Id> = designs.iter().map(|design| design.id).collect();
+    let name = named(&ids);
+    match problem {
+        PlaceProblem::Unresolved(unresolved) => {
+            let verb = if ids.len() == 1 { "does" } else { "do" };
+            fail!(
+                "{name} {verb} not resolve {}. {}",
+                unresolved.join(", "),
+                amend_hint(&ids, "each place", "the change that draws the place")
+            );
+        }
+        PlaceProblem::Unanswered(answer) => fail!(
+            "{} ({name}). {}",
+            answer.message("the commits"),
+            amend_hint(&ids, "the answer", "one of these changes")
+        ),
+        PlaceProblem::Stray(id) => fail!(
+            "design change {id} resolves nothing the commits change, so landing them must not close it; leave it out"
+        ),
     }
-    Ok(())
 }
 
 /// Checks the drawings for records that already resolve the changed places.
@@ -1391,10 +1434,10 @@ pub fn design_commits(
     ahead: &[String],
     renders: &dyn Renders,
 ) -> Result<Vec<DesignCommit>> {
-    let globs = Globs::of(lists, repo);
-    if globs.places.is_empty() && globs.sources.is_empty() {
+    if !Globs::has_design_files(lists, repo) {
         return Ok(Vec::new());
     }
+    let globs = Globs::of(lists, repo);
     let mut commits = Vec::new();
     for sha in ahead {
         let changes = changes_of(top, &globs, std::slice::from_ref(sha))?;
@@ -1409,28 +1452,46 @@ pub fn design_commits(
     if commits.is_empty() {
         return Ok(Vec::new());
     }
+    let candidates: Vec<_> = open_designs(lists, repo)
+        .map(|design| {
+            let indexes: Vec<usize> = commits
+                .iter()
+                .enumerate()
+                .filter(|(_, commit)| place_problem(&[design], &commit.changes).is_none())
+                .map(|(index, _)| index)
+                .collect();
+            (design, indexes)
+        })
+        .filter(|(_, indexes)| !indexes.is_empty())
+        .collect();
+    let all_drawn: BTreeSet<_> = candidates
+        .iter()
+        .flat_map(|(_, indexes)| indexes)
+        .flat_map(|&index| commits[index].changes.drawn())
+        .collect();
     let last = ahead.last().expect("it holds the design commits");
-    for design in open_designs(lists, repo) {
-        let candidates: Vec<&mut DesignCommit> = commits
-            .iter_mut()
-            .filter(|commit| {
-                commit.covered_by.is_none() && covers_places(&[design], &commit.changes).is_ok()
-            })
+    let now = drawing_at(top, last, all_drawn)?;
+
+    for (design, indexes) in candidates {
+        let remaining: Vec<usize> = indexes
+            .into_iter()
+            .filter(|&index| commits[index].covered_by.is_none())
             .collect();
-        if candidates.is_empty() {
+        if remaining.is_empty() {
             continue;
         }
-        let drawn = candidates
+        let drawn = remaining
             .iter()
-            .flat_map(|commit| commit.changes.drawn())
+            .flat_map(|&index| commits[index].changes.drawn())
             .collect();
-        let sources = candidates
+        let sources = remaining
             .iter()
-            .flat_map(|commit| commit.changes.sources.iter().cloned())
+            .flat_map(|&index| commits[index].changes.sources.iter().cloned())
             .collect();
-        let drawings = Drawings::read(top, last, [design], &drawn, &sources, renders)?;
-        for commit in candidates {
-            if covers_drawings(&drawings.changes, &commit.changes).is_ok() {
+        let same = draw_change(top, (last, &now), design, &drawn, &sources, renders)?;
+        for index in remaining {
+            let commit = &mut commits[index];
+            if commit.changes.drawn().all(|path| same.path(path)) {
                 commit.covered_by = Some(design.id);
             }
         }

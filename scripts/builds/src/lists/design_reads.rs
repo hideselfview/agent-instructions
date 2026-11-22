@@ -7,9 +7,9 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, OnceLock, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 
-use crate::fail::{Fail, Result};
+use crate::fail::Fail;
 use crate::lists::Lists;
 use crate::lists::design::{DesignCommit, design_commits};
 use crate::lists::design_drawn::{ProgramRenders, Renders};
@@ -47,7 +47,7 @@ struct Read {
     outcome: RwLock<Option<Outcome>>,
 }
 
-type Outcome = std::result::Result<Arc<Vec<DesignCommit>>, String>;
+type Outcome = std::result::Result<Arc<Vec<DesignCommit>>, Arc<Fail>>;
 
 /// A stand-alone command can read designs now. The dashboard's health reply
 /// uses the outcome from its design worker, when that worker has an answer.
@@ -60,7 +60,7 @@ pub enum Coverage<'a> {
 impl Coverage<'_> {
     pub fn of(self, lists: &Lists, repo: &str, top: &Path, git: &SideRead) -> Option<Outcome> {
         match self {
-            Self::Read(reads) => Some(reads.of(lists, repo, top, git).map_err(Fail::text)),
+            Self::Read(reads) => Some(reads.of(lists, repo, top, git)),
             Self::Completed(reads) => reads.completed(lists, repo, top, git),
         }
     }
@@ -69,7 +69,6 @@ impl Coverage<'_> {
 /// Each worktree's design commits, by the worktree's folder.
 pub struct DesignReads {
     read: Mutex<HashMap<PathBuf, HashMap<String, Arc<Read>>>>,
-    changed: OnceLock<Box<dyn Fn() + Send + Sync>>,
     /// Draws the boards of a change when a commit's files differ from the
     /// change's (`Sameness`).
     renders: Box<dyn Renders>,
@@ -89,7 +88,6 @@ impl DesignReads {
     pub fn new(renders: Box<dyn Renders>) -> Self {
         Self {
             read: Mutex::default(),
-            changed: OnceLock::new(),
             renders,
         }
     }
@@ -98,11 +96,6 @@ impl DesignReads {
     /// each answer in the caches of <places>.
     pub fn with_program(places: &crate::places::Places, program: PathBuf) -> Self {
         Self::new(Box::new(ProgramRenders::of(places, program)))
-    }
-
-    /// Wakes the dashboard when the result for a tip changes.
-    pub fn listen(&self, changed: impl Fn() + Send + Sync + 'static) {
-        assert!(self.changed.set(Box::new(changed)).is_ok());
     }
 
     /// The result at this tip if a read has finished. Never waits for Git or
@@ -131,18 +124,24 @@ impl DesignReads {
         read.outcome.read().expect("no panic holding it").clone()
     }
 
-    /// Reads the tip for the dashboard if no other reader has finished it.
-    pub fn fill(&self, lists: &Lists, repo: &str, top: &Path, git: &SideRead) {
-        if !Self::has_nothing_to_read(lists, repo, git) {
-            // read_at publishes failures as well as successes.
-            drop(self.read_at(lists, repo, top, git, false));
+    /// Reads a pending dashboard tip. Returns true when a result became available.
+    pub fn fill(&self, lists: &Lists, repo: &str, top: &Path, git: &SideRead) -> bool {
+        if Self::has_nothing_to_read(lists, repo, git) {
+            return false;
         }
+        let (outcome, changed) = self.read_at(lists, repo, top, git, false);
+        if changed && let Err(error) = outcome {
+            crate::text::note(format!(
+                "reading design coverage for {} in {}: {error}",
+                top.display(),
+                lists.project
+            ));
+        }
+        changed
     }
 
     fn has_nothing_to_read(lists: &Lists, repo: &str, git: &SideRead) -> bool {
-        git.ahead.is_empty()
-            || (lists.design_places.get(repo).is_none_or(Vec::is_empty)
-                && lists.design_sources.get(repo).is_none_or(Vec::is_empty))
+        git.ahead.is_empty() || !crate::lists::design_paths::Globs::has_design_files(lists, repo)
     }
 
     /// The design commits in the worktree at <top> of <repo>, whose side
@@ -150,18 +149,11 @@ impl DesignReads {
     /// <lists>: the ones
     /// kept for the worktree when they were read at the same tip, else read
     /// now. An explicit read retries a previous failure.
-    pub fn of(
-        &self,
-        lists: &Lists,
-        repo: &str,
-        top: &Path,
-        git: &SideRead,
-    ) -> Result<Arc<Vec<DesignCommit>>> {
+    pub fn of(&self, lists: &Lists, repo: &str, top: &Path, git: &SideRead) -> Outcome {
         if Self::has_nothing_to_read(lists, repo, git) {
             return Ok(Arc::default());
         }
-        self.read_at(lists, repo, top, git, true)
-            .map_err(Fail::Message)
+        self.read_at(lists, repo, top, git, true).0
     }
 
     fn read_at(
@@ -171,7 +163,7 @@ impl DesignReads {
         top: &Path,
         git: &SideRead,
         retry_failed: bool,
-    ) -> Outcome {
+    ) -> (Outcome, bool) {
         let tip = Tip::of(lists, git);
         let read = {
             let mut by_worktree = self.read.lock().expect("no panic holding it");
@@ -192,27 +184,17 @@ impl DesignReads {
                 }
             }
         };
-        let reading = read.reading.lock().expect("no panic holding it");
+        let _reading = read.reading.lock().expect("no panic holding it");
         if let Some(kept) = read.outcome.read().expect("no panic holding it").as_ref()
             && (!retry_failed || kept.is_ok())
         {
-            return kept.clone();
+            return (kept.clone(), false);
         }
         let found = design_commits(lists, repo, top, &read.tip.ahead, self.renders.as_ref())
             .map(Arc::new)
-            .map_err(Fail::text);
-        let changed = {
-            let mut kept = read.outcome.write().expect("no panic holding it");
-            let repeated_failure =
-                matches!((&*kept, &found), (Some(Err(old)), Err(new)) if old == new);
-            *kept = Some(found.clone());
-            !repeated_failure
-        };
-        drop(reading);
-        if changed && let Some(listener) = self.changed.get() {
-            listener();
-        }
-        found
+            .map_err(Arc::new);
+        *read.outcome.write().expect("no panic holding it") = Some(found.clone());
+        (found, true)
     }
 }
 

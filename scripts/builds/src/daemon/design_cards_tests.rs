@@ -32,7 +32,11 @@ fn branch(dir: &Path, files: &[&str]) -> Vec<Commit> {
 
 /// The standing of <top>, whose commits waiting to land are <ahead>, as a
 /// fresh dashboard reads it.
-fn standing_of<'a>(lists: &'a Lists, top: &Path, ahead: &[Commit]) -> Result<Option<Standing<'a>>> {
+fn standing_of<'a>(
+    lists: &'a Lists,
+    top: &Path,
+    ahead: &[Commit],
+) -> Result<Option<Standing<'a>>, std::sync::Arc<Fail>> {
     let git = SideRead {
         head: ahead.first().cloned(),
         ahead: ahead.to_vec(),
@@ -113,6 +117,6 @@ fn a_change_whose_last_commit_git_cannot_read_is_an_error() {
     let Err(fault) = standing_of(&lists, &top, &ahead) else {
         panic!("git can't read the change's last commit")
     };
-    let fault = fault.text();
+    let fault = fault.to_string();
     assert!(fault.contains(&"0".repeat(40)), "{fault}");
 }

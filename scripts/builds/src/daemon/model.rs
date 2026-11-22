@@ -21,6 +21,7 @@ use super::lists::{Feed, compose, running_worktrees};
 use super::runs::{RunPage, Runs};
 use crate::checkout::{Checkout, Root, absolute_link_target, all_roots, parallel_map};
 use crate::claim::Claim;
+use crate::fail::Context;
 use crate::health::{
     Claimed, Health, Machine, Unclaimed, assess, locks_of, places_of, sample, sccache_reading,
 };
@@ -109,35 +110,43 @@ struct Sample {
 
 #[derive(Default)]
 struct State {
-    version: u64,
-    roots: Vec<Root>,
-    facts: HashMap<PathBuf, Facts>,
-    sample: Option<Sample>,
+    page: PageRead,
     /// pid -> (CPU seconds, when read), for CPU %.
     cpu: HashMap<i32, (f64, Moment)>,
-    cpu_percent: HashMap<i32, f64>,
-    load: VecDeque<(i64, f64)>,
-    health: Option<Health>,
-    health_error: Option<String>,
     sccache_at: Option<Instant>,
     sccache: Option<crate::health::SccacheServer>,
-    /// The other hosts' load cards (hosts.rs), empty before the first reading.
-    hosts: Vec<super::hosts::HostPage>,
-    /// Each host's hit rate of Rust compiles over the last hour, day and
-    /// week (sccache_history.rs), empty before the first reading.
-    compile_cache: Vec<crate::sccache_history::HostRates>,
-    /// Why the history could not be read, when it could not.
-    compile_cache_error: Option<String>,
-    /// What the hosts' reading found that `assess` does not (busy processes,
-    /// hosts that refuse jobs: `health::host_findings`), which the page shows
-    /// after the health's own findings.
-    host_findings: Vec<crate::health::Finding>,
     /// Each host's 1-minute load over the last ten minutes, by host name.
     host_load: HashMap<String, VecDeque<(i64, f64)>>,
     /// What the daemon last read of each repo's branches, by the repo's main
     /// checkout; the daemon reads them again when any checkout of the repo
     /// changes.
     loose: HashMap<PathBuf, BranchReading>,
+}
+
+/// The last health judgment and, when it fails, the reading still on screen.
+#[derive(Clone)]
+enum HealthReading {
+    Read(Arc<Health>),
+    Failed {
+        last: Option<Arc<Health>>,
+        error: String,
+    },
+}
+
+impl HealthReading {
+    fn last(&self) -> Option<&Arc<Health>> {
+        match self {
+            Self::Read(health) => Some(health),
+            Self::Failed { last, .. } => last.as_ref(),
+        }
+    }
+
+    fn failure(&self) -> Option<&str> {
+        match self {
+            Self::Read(_) => None,
+            Self::Failed { error, .. } => Some(error),
+        }
+    }
 }
 
 /// What the daemon last read of a repo's branches.
@@ -161,8 +170,8 @@ struct HealthInputs {
 impl HealthInputs {
     fn of(state: &State) -> Self {
         let mut inputs = Self {
-            roots: state.roots.clone(),
-            facts: state.facts.clone(),
+            roots: state.page.roots.clone(),
+            facts: state.page.facts.clone(),
             loose: Vec::new(),
             unread: Vec::new(),
         };
@@ -181,38 +190,22 @@ impl HealthInputs {
 }
 
 /// The readings the page joins with the lists and run records.
+#[derive(Clone, Default)]
 struct PageRead {
     version: u64,
     roots: Vec<Root>,
     facts: HashMap<PathBuf, Facts>,
     sample: Option<Sample>,
     cpu_percent: HashMap<i32, f64>,
-    load: Vec<(i64, f64)>,
-    health: Option<Health>,
-    health_error: Option<String>,
+    load: VecDeque<(i64, f64)>,
+    health: Option<HealthReading>,
+    /// The other hosts' load cards, empty before the first reading.
     hosts: Vec<super::hosts::HostPage>,
+    /// Each host's Rust compile cache hit rates over the last hour, day and week.
     compile_cache: Vec<crate::sccache_history::HostRates>,
     compile_cache_error: Option<String>,
+    /// Findings from reading other hosts, independently of local health.
     host_findings: Vec<crate::health::Finding>,
-}
-
-impl PageRead {
-    fn of(state: &State) -> Self {
-        Self {
-            version: state.version,
-            roots: state.roots.clone(),
-            facts: state.facts.clone(),
-            sample: state.sample.clone(),
-            cpu_percent: state.cpu_percent.clone(),
-            load: state.load.iter().copied().collect(),
-            health: state.health.clone(),
-            health_error: state.health_error.clone(),
-            hosts: state.hosts.clone(),
-            compile_cache: state.compile_cache.clone(),
-            compile_cache_error: state.compile_cache_error.clone(),
-            host_findings: state.host_findings.clone(),
-        }
-    }
 }
 
 pub struct Model {
@@ -236,12 +229,36 @@ pub struct Model {
     /// Each worktree's design commits, which its card and health's findings
     /// both read.
     design_reads: crate::lists::design_reads::DesignReads,
+    design_work: DesignWork,
     /// What git said of each branch's commits for its rules review.
     review_reads: crate::review::verdicts::Reads,
     /// The build-app runs the page starts.
     pub runs: Arc<Runs>,
     /// The lists JSON last built and what it was built from.
     served: Mutex<Option<(ServedKey, Arc<String>)>>,
+}
+
+/// Wakes the design worker when checkout or lists inputs change.
+#[derive(Default)]
+struct DesignWork {
+    dirty: Mutex<bool>,
+    ready: Condvar,
+}
+
+impl DesignWork {
+    fn mark(&self) {
+        *self.dirty.lock().expect("no panic holding it") = true;
+        self.ready.notify_one();
+    }
+
+    fn wait(&self) {
+        let dirty = self.dirty.lock().expect("no panic holding it");
+        let mut pending = self
+            .ready
+            .wait_while(dirty, |dirty| !*dirty)
+            .expect("no panic holding it");
+        *pending = false;
+    }
 }
 
 /// What the lists JSON is built from besides the clock's second: the read
@@ -267,7 +284,7 @@ impl Model {
         rules: Rules,
         runs: Arc<Runs>,
         program: std::path::PathBuf,
-    ) -> Arc<Model> {
+    ) -> crate::fail::Result<Arc<Model>> {
         let model = Arc::new(Model {
             places: places.clone(),
             rules,
@@ -286,6 +303,7 @@ impl Model {
             git_stream: Mutex::new(None),
             rules_stream: Mutex::new(None),
             design_reads: crate::lists::design_reads::DesignReads::with_program(&places, program),
+            design_work: DesignWork::default(),
             lists: Feed::start(places),
             review_reads: Default::default(),
             runs,
@@ -295,6 +313,7 @@ impl Model {
         model.lists.listen(Box::new(move || {
             if let Some(model) = weak.upgrade() {
                 model.publish();
+                model.design_work.mark();
             }
         }));
         let weak = Arc::downgrade(&model);
@@ -303,22 +322,16 @@ impl Model {
                 model.publish();
             }
         }));
-        let weak = Arc::downgrade(&model);
-        model.design_reads.listen(move || {
-            if let Some(model) = weak.upgrade() {
-                model.publish();
-            }
-        });
+        let designs = model.clone();
+        std::thread::Builder::new()
+            .name("builds-designs".into())
+            .spawn(move || designs.design_loop())
+            .context(|| "starting the design coverage worker".to_string())?;
         model.follow_rules();
         let refresher = model.clone();
         std::thread::Builder::new()
             .name("builds-refresh".into())
             .spawn(move || refresher.refresh_loop())
-            .expect("a thread starts");
-        let designs = model.clone();
-        std::thread::Builder::new()
-            .name("builds-designs".into())
-            .spawn(move || designs.design_loop())
             .expect("a thread starts");
         let sampler = model.clone();
         std::thread::Builder::new()
@@ -330,7 +343,7 @@ impl Model {
             .name("builds-hosts".into())
             .spawn(move || hosts.hosts_loop())
             .expect("a thread starts");
-        model
+        Ok(model)
     }
 
     fn mark(&self, change: impl FnOnce(&mut Dirty)) {
@@ -348,6 +361,7 @@ impl Model {
             .state
             .lock()
             .expect("no panic holding it")
+            .page
             .roots
             .iter()
             .map(|root| root.path.clone())
@@ -370,6 +384,7 @@ impl Model {
             .state
             .lock()
             .expect("no panic holding it")
+            .page
             .roots
             .clone();
         self.mark(|dirty| {
@@ -388,6 +403,7 @@ impl Model {
             .state
             .lock()
             .expect("no panic holding it")
+            .page
             .roots
             .clone();
         self.mark(|dirty| {
@@ -536,21 +552,22 @@ impl Model {
             self.follow_checkouts(&roots);
             let mut state = self.state.lock().expect("no panic holding it");
             let known: HashSet<PathBuf> = roots.iter().map(|r| r.path.clone()).collect();
-            state.facts.retain(|path, _| known.contains(path));
+            state.page.facts.retain(|path, _| known.contains(path));
             for root in &roots {
                 dirty.sizes.insert(root.path.clone());
                 if let Some(checkout) = &root.live
-                    && !state.facts.contains_key(&root.path)
+                    && !state.page.facts.contains_key(&root.path)
                 {
                     dirty.git.insert(checkout.top.clone());
                 }
             }
-            state.roots = roots;
+            state.page.roots = roots;
         }
         let roots = self
             .state
             .lock()
             .expect("no panic holding it")
+            .page
             .roots
             .clone();
         // Git, claims and manifests.
@@ -568,7 +585,7 @@ impl Model {
             tops.iter()
                 .filter(|r| r.live.as_ref().is_some_and(|c| !dirty.git.contains(&c.top)))
                 .filter_map(|r| {
-                    let facts = state.facts.get(&r.path)?;
+                    let facts = state.page.facts.get(&r.path)?;
                     Some((r.path.clone(), (facts.branch.clone(), facts.git.clone())))
                 })
                 .collect()
@@ -603,7 +620,7 @@ impl Model {
         {
             let mut state = self.state.lock().expect("no panic holding it");
             for (path, manifest, claim, branch, git) in read {
-                let facts = state.facts.entry(path.clone()).or_default();
+                let facts = state.page.facts.entry(path.clone()).or_default();
                 if facts.manifest != manifest {
                     dirty.sizes.insert(path.clone());
                 }
@@ -612,6 +629,9 @@ impl Model {
                 facts.branch = branch?;
                 facts.git = git;
             }
+        }
+        if dirty.layout || !dirty.git.is_empty() {
+            self.design_work.mark();
         }
         // The daemon reads each repo's branches again when any checkout of
         // the repo changed, since branches live in the repo's shared git
@@ -659,6 +679,7 @@ impl Model {
                 .state
                 .lock()
                 .expect("no panic holding it")
+                .page
                 .facts
                 .get(&root.path)
                 .map(|f| f.manifest.clone());
@@ -690,7 +711,7 @@ impl Model {
                 }
             };
             let mut state = self.state.lock().expect("no panic holding it");
-            let facts = state.facts.entry(root.path.clone()).or_default();
+            let facts = state.page.facts.entry(root.path.clone()).or_default();
             facts.folders = Some(folders);
             facts.gone_kib = gone_kib;
         }
@@ -700,17 +721,15 @@ impl Model {
 
     fn publish(&self) {
         let mut state = self.state.lock().expect("no panic holding it");
-        state.version += 1;
+        state.page.version += 1;
         self.changed.notify_all();
     }
 
-    /// Looks up design coverage off the HTTP threads. Checkout and store
-    /// changes move the model's version, and each finished read publishes
-    /// its own result through the listener above.
+    /// Looks up design coverage when commits or the lists change.
+    /// Publishes each finished read for the dashboard.
     fn design_loop(self: Arc<Self>) {
-        let mut seen = 0;
         loop {
-            seen = self.wait_change(seen);
+            self.design_work.wait();
             if self.stopped.load(Ordering::SeqCst) {
                 return;
             }
@@ -718,23 +737,31 @@ impl Model {
             let Ok(stores) = snapshot.as_ref() else {
                 continue;
             };
-            let (roots, facts) = {
+            let worktrees = {
                 let state = self.state.lock().expect("no panic holding it");
-                (state.roots.clone(), state.facts.clone())
+                state
+                    .page
+                    .roots
+                    .iter()
+                    .filter_map(|root| {
+                        let live = root.live.as_ref()?;
+                        let Some(SideGit::Side(Ok(git))) =
+                            state.page.facts.get(&root.path)?.git.as_ref()
+                        else {
+                            return None;
+                        };
+                        Some((live.clone(), git.clone()))
+                    })
+                    .collect::<Vec<_>>()
             };
-            for root in roots {
-                let Some(live) = root.live else { continue };
-                let Some(SideGit::Side(Ok(git))) =
-                    facts.get(&root.path).and_then(|facts| facts.git.as_ref())
-                else {
-                    continue;
-                };
+            for (live, git) in worktrees {
                 let repo = live.repo();
                 for loaded in stores {
                     if let Ok(lists) = &loaded.lists
                         && lists.repos.contains(&repo)
+                        && self.design_reads.fill(lists, &repo, &live.top, &git)
                     {
-                        self.design_reads.fill(lists, &repo, &live.top, git);
+                        self.publish();
                     }
                 }
             }
@@ -783,7 +810,7 @@ impl Model {
     #[cfg(test)]
     pub fn stop_sampling(&self) {
         self.stopped.store(true, Ordering::SeqCst);
-        self.publish();
+        self.design_work.mark();
         let _guard = self.viewing_lock.lock().expect("no panic holding it");
         self.viewing.notify_all();
         drop(_guard);
@@ -819,9 +846,9 @@ impl Model {
                         }
                         host.history = kept.iter().copied().collect();
                     }
-                    if state.hosts != hosts {
-                        state.hosts = hosts;
-                        state.version += 1;
+                    if state.page.hosts != hosts {
+                        state.page.hosts = hosts;
+                        state.page.version += 1;
                         self.changed.notify_all();
                     }
                 }
@@ -857,15 +884,15 @@ impl Model {
                 }
             };
             let mut state = self.state.lock().expect("no panic holding it");
-            if state.host_findings != found {
-                state.host_findings = found;
-                state.version += 1;
+            if state.page.host_findings != found {
+                state.page.host_findings = found;
+                state.page.version += 1;
                 self.changed.notify_all();
             }
-            if state.compile_cache != rates || state.compile_cache_error != rates_error {
-                state.compile_cache = rates;
-                state.compile_cache_error = rates_error;
-                state.version += 1;
+            if state.page.compile_cache != rates || state.page.compile_cache_error != rates_error {
+                state.page.compile_cache = rates;
+                state.page.compile_cache_error = rates_error;
+                state.page.version += 1;
                 self.changed.notify_all();
             }
             drop(state);
@@ -927,7 +954,7 @@ impl Model {
     pub fn health_now(&self) -> crate::fail::Result<Option<Health>> {
         let (inputs, sample) = {
             let state = self.state.lock().expect("no panic holding it");
-            let Some(sample) = &state.sample else {
+            let Some(sample) = &state.page.sample else {
                 return Ok(None);
             };
             (HealthInputs::of(&state), sample.clone())
@@ -992,17 +1019,26 @@ impl Model {
 
     /// Reads the processes and judges health now.
     pub fn sample_now(&self) -> crate::fail::Result<Health> {
-        let (now, sample) = self.read_processes()?;
-        let inputs = HealthInputs::of(&self.state.lock().expect("no panic holding it"));
-        let health = self
-            .judge(inputs, now, sample)
-            .map_err(crate::fail::Fail::text);
+        let health = self.read_processes().and_then(|(now, sample)| {
+            let inputs = HealthInputs::of(&self.state.lock().expect("no panic holding it"));
+            self.judge(inputs, now, sample)
+        });
         let mut state = self.state.lock().expect("no panic holding it");
-        state.health = health.as_ref().ok().cloned();
-        state.health_error = health.as_ref().err().cloned();
-        state.version += 1;
+        state.page.health = Some(match &health {
+            Ok(health) => HealthReading::Read(Arc::new(health.clone())),
+            Err(error) => HealthReading::Failed {
+                last: state
+                    .page
+                    .health
+                    .as_ref()
+                    .and_then(HealthReading::last)
+                    .cloned(),
+                error: error.to_string(),
+            },
+        });
+        state.page.version += 1;
         self.changed.notify_all();
-        health.map_err(crate::fail::Fail::Message)
+        health
     }
 
     /// Reads the processes after an action changes the queue. The next
@@ -1017,7 +1053,7 @@ impl Model {
         let (roots, sccache_due) = {
             let state = self.state.lock().expect("no panic holding it");
             (
-                state.roots.clone(),
+                state.page.roots.clone(),
                 state
                     .sccache_at
                     .is_none_or(|at| at.elapsed() >= SCCACHE_EVERY),
@@ -1069,13 +1105,13 @@ impl Model {
             cpu.insert(process.pid, (process.cpu_seconds, read_at));
         }
         state.cpu = cpu;
-        state.cpu_percent = percent;
-        state.load.push_back((now, sample.machine.load[0]));
-        while state.load.len() > LOAD_KEPT {
-            state.load.pop_front();
+        state.page.cpu_percent = percent;
+        state.page.load.push_back((now, sample.machine.load[0]));
+        while state.page.load.len() > LOAD_KEPT {
+            state.page.load.pop_front();
         }
-        state.sample = Some(sample.clone());
-        state.version += 1;
+        state.page.sample = Some(sample.clone());
+        state.page.version += 1;
         self.changed.notify_all();
         Ok((now, sample))
     }
@@ -1083,10 +1119,10 @@ impl Model {
     /// Waits until the state moved past <seen>, and returns the new version.
     pub fn wait_change(&self, seen: u64) -> u64 {
         let mut state = self.state.lock().expect("no panic holding it");
-        while state.version <= seen {
+        while state.page.version <= seen {
             state = self.changed.wait(state).expect("no panic holding it");
         }
-        state.version
+        state.page.version
     }
 
     /// The lists JSON the page reads: the stores as last read, and
@@ -1440,7 +1476,7 @@ impl Model {
         };
         let (roots, facts) = {
             let state = self.state.lock().expect("no panic holding it");
-            (state.roots.clone(), state.facts.clone())
+            (state.page.roots.clone(), state.page.facts.clone())
         };
         let mut found = Vec::new();
         for loaded in stores {
@@ -1483,7 +1519,7 @@ impl Model {
         let repo = live.repo();
         let commits = match self.design_reads.completed(lists, &repo, top, git) {
             Some(Ok(commits)) => commits,
-            Some(Err(error)) => return RulesReview::Unread(error),
+            Some(Err(error)) => return RulesReview::Unread(error.to_string()),
             None => return RulesReview::CheckingDesign,
         };
         if !commits
@@ -1532,6 +1568,7 @@ impl Model {
     fn claim_facts(&self, worktree: &str) -> ClaimFacts {
         let state = self.state.lock().expect("no panic holding it");
         let facts = state
+            .page
             .roots
             .iter()
             .find(|root| {
@@ -1539,7 +1576,7 @@ impl Model {
                     .as_ref()
                     .is_some_and(|checkout| checkout.top == Path::new(worktree))
             })
-            .and_then(|root| state.facts.get(&root.path));
+            .and_then(|root| state.page.facts.get(&root.path));
         let claim = facts.and_then(|f| f.claim.as_ref());
         ClaimFacts {
             agent: claim.map(|c| c.who.clone()),
@@ -1556,8 +1593,9 @@ impl Model {
     pub fn page(&self) -> crate::fail::Result<Page> {
         let space = volume_space(&self.places.root)?;
         let (_, snapshot) = self.lists.current();
-        let state = PageRead::of(&self.state.lock().expect("no panic holding it"));
+        let state = self.state.lock().expect("no panic holding it").page.clone();
         let machine = state.sample.as_ref().map(|sample| &sample.machine);
+        let last_health = state.health.as_ref().and_then(HealthReading::last);
         let mut repos: Vec<RepoPage> = Vec::new();
         for root in &state.roots {
             let repo_name = root
@@ -1690,16 +1728,14 @@ impl Model {
                         &seen,
                         &repo.locks,
                         &repo.queues,
-                        state.health.as_ref(),
+                        machine.map(|machine| &machine.shells),
                     );
-                    checkout.stalled = state.health.as_ref().is_some_and(|h| {
+                    checkout.stalled = last_health.is_some_and(|h| {
                         h.worktrees
                             .iter()
                             .any(|w| w.stalled && w.path == checkout.path)
                     });
-                    checkout.landings = state
-                        .health
-                        .as_ref()
+                    checkout.landings = last_health
                         .and_then(|h| h.worktrees.iter().find(|w| w.path == checkout.path))
                         .map(|w| w.landings.clone());
                     checkout.errors.extend(judged.errors);
@@ -1724,6 +1760,11 @@ impl Model {
         for repo in &mut repos {
             repo.app_builds = super::app_builds::build(repo)?;
         }
+        let mut health = last_health.map(|health| health.as_ref().clone());
+        let mut host_findings = state.host_findings;
+        if let Some(health) = &mut health {
+            health.findings.append(&mut host_findings);
+        }
         Ok(Page {
             version: state.version,
             generated_at: now_seconds(),
@@ -1735,13 +1776,15 @@ impl Model {
             load: machine.map(|m| LoadPage {
                 now: m.load,
                 cores: m.cores,
-                history: state.load,
+                history: state.load.into(),
             }),
-            health: state.health.map(|mut health| {
-                health.findings.extend(state.host_findings);
-                health
-            }),
-            health_error: state.health_error,
+            health,
+            health_error: state
+                .health
+                .as_ref()
+                .and_then(HealthReading::failure)
+                .map(str::to_string),
+            host_findings,
             hosts: state.hosts,
             compile_cache: state.compile_cache,
             compile_cache_error: state.compile_cache_error,
@@ -1759,16 +1802,15 @@ impl Model {
     /// reads them.
     pub fn cards(&self) -> crate::fail::Result<Option<Vec<CardNow>>> {
         let (_, snapshot) = self.lists.current();
-        let (roots, facts, machine, health) = {
+        let (roots, facts, machine) = {
             let state = self.state.lock().expect("no panic holding it");
-            let Some(sample) = &state.sample else {
+            let Some(sample) = &state.page.sample else {
                 return Ok(None);
             };
             (
-                state.roots.clone(),
-                state.facts.clone(),
+                state.page.roots.clone(),
+                state.page.facts.clone(),
                 sample.machine.clone(),
-                state.health.clone(),
             )
         };
         let mut cards = Vec::new();
@@ -1799,7 +1841,7 @@ impl Model {
                 git: facts.git.as_ref(),
                 branch: facts.branch.as_deref(),
             };
-            let judged = self.judge_card(&snapshot, &seen, &locks, &queues, health.as_ref());
+            let judged = self.judge_card(&snapshot, &seen, &locks, &queues, Some(&machine.shells));
             cards.push(CardNow {
                 worktree: live.top.display().to_string(),
                 lists: judged.lists,
@@ -1815,7 +1857,7 @@ impl Model {
 
     /// Judges the card of the live side worktree <seen>, whose repo's app
     /// build lanes have <locks> and <queues>, from the lists in <snapshot>
-    /// and the last health reading <health>. The dashboard draws its card
+    /// and the last process reading's <shells>. The dashboard draws its card
     /// from what this returns, and the recorder of the cards' states records
     /// its state, so the two never disagree.
     fn judge_card(
@@ -1824,7 +1866,7 @@ impl Model {
         seen: &Seen,
         locks: &[crate::health::LockHealth],
         queues: &[crate::health::LaneQueue],
-        health: Option<&Health>,
+        shells: Option<&crate::shells::Shells>,
     ) -> Judged {
         let mut errors = Vec::new();
         let top = Path::new(&seen.live.top);
@@ -1853,6 +1895,9 @@ impl Model {
                         errors.push(format!(
                             "The daemon can't read which design changes cover this worktree's commits: {error}"
                         ));
+                        if worktree == CardState::ReadyToLand {
+                            worktree = CardState::WaitsUnread;
+                        }
                         None
                     }
                     None => {
@@ -1901,8 +1946,8 @@ impl Model {
         let build = seen
             .branch
             .and_then(|branch| super::app_builds::build_for(locks, queues, branch));
-        let shell = health.is_some_and(|h| {
-            h.shells
+        let shell = shells.is_some_and(|shells| {
+            shells
                 .active
                 .contains(&format!("{}/{}", seen.repo, seen.name))
         });
@@ -1916,7 +1961,8 @@ impl Model {
                     .into_iter()
                     .chain(design)
                     .chain(build)
-                    .chain(review),
+                    .chain(review)
+                    .chain(checking_design.then_some(ItemWait::DesignCoverage)),
             )),
             Err(error) => {
                 errors.push(format!(
@@ -1947,16 +1993,13 @@ impl Model {
                     }
                 }
             });
-        let mut state = super::cards::card_state(
+        let state = super::cards::card_state(
             worktree,
             shell,
             waits.as_deref(),
             kept.as_ref()
                 .map(|kept| kept.as_ref().map(|(_, card)| card).map_err(|_| ())),
         );
-        if checking_design && state == CardState::ReadyToLand {
-            state = CardState::CheckingDesign;
-        }
         let (items, kept) = match kept {
             Some(Ok(kept)) => (items, Some(kept)),
             // The card lists the item it could not read the waits of.
@@ -2239,8 +2282,10 @@ pub struct Page {
     /// The last health reading, with the hosts' findings after its own: the
     /// list `builds health` prints under "needs action".
     pub health: Option<Health>,
-    /// Why the daemon could not judge health after reading the processes.
+    /// Why the daemon could not read processes or judge health.
     pub health_error: Option<String>,
+    /// Host findings before the daemon has a successful local judgment.
+    pub host_findings: Vec<crate::health::Finding>,
     /// Every recorded host besides this Mac, with its load.
     pub hosts: Vec<super::hosts::HostPage>,
     /// Each host's hit rate of Rust compiles over the last hour, day and
