@@ -213,7 +213,7 @@ fn parse_args(args: &[String]) -> Result<(&String, Platform, &str)> {
 /// host through `builds remote step`.
 fn run_build(site: &mut Site, command: &[String]) -> Result<Within> {
     match site {
-        Site::Local(top) => run_command(top, command, None),
+        Site::Local(top, _) => run_command(top, command, None),
         Site::Remote(remote) => {
             lock::run_in_group_within(remote.step_command(command)?, &command[0], None)
         }
@@ -225,7 +225,7 @@ fn run_build(site: &mut Site, command: &[String]) -> Result<Within> {
 /// copied to.
 fn built_app(site: &mut Site, mac: &MacApp) -> Result<PathBuf> {
     match site {
-        Site::Local(top) => Ok(top.join(&mac.app)),
+        Site::Local(top, _) => Ok(top.join(&mac.app)),
         Site::Remote(remote) => {
             remote.pull_bundle(&mac.app)?;
             Ok(remote.local_folder().join(&mac.app))

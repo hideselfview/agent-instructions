@@ -70,7 +70,7 @@ fn forget(site: &Site, sent: &[String]) -> Result<()> {
 /// Deletes the file <path>, in the checkout's git dir.
 fn remove(site: &mut Site, path: &str) -> Result<()> {
     match site {
-        Site::Local(_) => std::fs::remove_file(path).context(|| format!("removing {path}")),
+        Site::Local(..) => std::fs::remove_file(path).context(|| format!("removing {path}")),
         Site::Remote(remote) => remote
             .run_in(
                 &format!("rm -f {}", sh_quote(path)),
@@ -103,7 +103,7 @@ fn differing(site: &mut Site, commit: &str) -> Result<BTreeSet<String>> {
 /// answer diff-files reads, not a failure. Every other exit fails.
 fn refresh(site: &mut Site, index: &str) -> Result<()> {
     match site {
-        Site::Local(top) => {
+        Site::Local(top, _) => {
             let output = git(top)
                 .args(["update-index", "-q", "--refresh"])
                 .env("GIT_INDEX_FILE", index)

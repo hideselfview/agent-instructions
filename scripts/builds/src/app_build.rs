@@ -768,7 +768,7 @@ impl Site {
     /// The name of the host the checkout is on.
     fn host_name(&self) -> &str {
         match self {
-            Site::Local(_) => crate::host::LOCAL,
+            Site::Local(..) => crate::host::LOCAL,
             Site::Remote(remote) => &remote.host.name,
         }
     }
@@ -777,7 +777,7 @@ impl Site {
     /// not answer, and the function says so on stderr.
     fn load(&self, places: &Places, ssh: &Ssh) -> Option<crate::host::Load> {
         match self {
-            Site::Local(_) => Some(crate::host::Load::here()),
+            Site::Local(..) => Some(crate::host::Load::here()),
             Site::Remote(remote) => match crate::host::probe(places, ssh, &remote.host) {
                 Ok(probe) => Some(probe.load()),
                 Err(error) => {
@@ -795,7 +795,7 @@ impl Site {
     /// reads the repo's `.app-build` there.
     pub fn check_out(&mut self, places: &Places, repo: &str, commit: &str) -> Result<CheckedOut> {
         match self {
-            Site::Local(top) => check_out(top, commit),
+            Site::Local(top, _) => check_out(top, commit),
             Site::Remote(remote) => {
                 let source = fetched_local_source(places, repo)?;
                 let sha = resolve(&source, commit)?;
@@ -817,10 +817,7 @@ impl Site {
         log: &mut Vec<StepRecord>,
     ) -> Result<Ended> {
         match self {
-            Site::Local(top) => {
-                let Some(settings) = with.xcode_settings else {
-                    fail!("a local step has no Xcode settings file");
-                };
+            Site::Local(top, settings) => {
                 run_steps(top, held, steps, log, with.shots, settings, with.watch)
             }
             Site::Remote(remote) => run_steps_with(
@@ -836,9 +833,6 @@ impl Site {
 
 /// What a lane's steps run with.
 struct StepsWith<'a> {
-    /// The Xcode settings file of the checkout when it is here; None for a
-    /// checkout on a host, where `builds programs hold` makes it.
-    xcode_settings: Option<&'a Path>,
     /// The folders a step on a host copies back here after it runs.
     results: &'a [String],
     /// Where a shots run caches its findings here.
@@ -1595,12 +1589,7 @@ fn build_lane(
             base_run,
             &programs.builds(),
         )?;
-        let xcode_settings = match &site {
-            Site::Local(top) => Some(crate::xcode_cache::settings_for(places, top)?),
-            Site::Remote(_) => None,
-        };
         let with = |results| StepsWith {
-            xcode_settings: xcode_settings.as_deref(),
             results,
             shots: &shots,
             programs,
