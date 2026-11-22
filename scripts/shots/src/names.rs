@@ -142,7 +142,7 @@ impl Prefix {
         name.to_string().starts_with(&self.text)
     }
 
-    pub(crate) fn as_str(&self) -> &str {
+    pub fn as_str(&self) -> &str {
         &self.text
     }
 }

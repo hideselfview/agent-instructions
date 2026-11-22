@@ -83,6 +83,7 @@ esac"#,
             needs_only: true,
             fresh: false,
         },
+        shot_prefixes: shot_prefixes(Lane::Mac, &picks).unwrap(),
         programs: &programs,
         source: top.clone(),
         config: parse_config(&config_text).unwrap(),
@@ -119,4 +120,11 @@ esac"#,
             .all(|step| step.at_merge_base == Some(true))
     );
     assert!(!crate::flock::is_held(taken).unwrap());
+}
+
+#[test]
+fn the_lane_leaves_invalid_shot_prefixes_to_its_command_error() {
+    let picks = [(Lane::Mac, PickKind::Shots, "mac.Upper".to_string())];
+    let error = shot_prefixes(Lane::Mac, &picks).unwrap_err();
+    assert!(matches!(error, shots_cache::PictureLeaseError::Prefix(_)));
 }

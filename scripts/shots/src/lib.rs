@@ -27,7 +27,9 @@ mod shots;
 mod states;
 mod verify;
 
-pub use crate::capture_marks::{CAPTURE_MARKS_DIR, CaptureMarkError, CaptureMarks};
+pub use crate::capture_marks::{
+    CAPTURE_MARKS_DIR, CaptureMarkError, CaptureMarks, app_picture_tree,
+};
 pub use crate::declared::Declared;
 use crate::names::Platform;
 pub use crate::names::{ComponentName, Name, NameError, Prefix, ScreenName};

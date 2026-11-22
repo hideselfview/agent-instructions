@@ -2001,7 +2001,11 @@ fn the_picture_folder_caches_the_shots_of_the_prefixes_its_marks_cover_for_the_a
     );
     let cached = |tree, prefixes: &[&str]| {
         let pictures = shots_cache::AppPictures::of(&places, "demo", Lane::Mac, tree);
-        let query = capture_query(&config, Lane::Mac, prefixes).unwrap();
+        let prefixes: Vec<_> = prefixes
+            .iter()
+            .map(|prefix| shots::Prefix::parse(prefix).unwrap())
+            .collect();
+        let query = capture_query(&config, Lane::Mac, &prefixes).unwrap();
         pictures.while_held(Some(&query), |cached| cached).unwrap()
     };
     assert!(!cached(&tree, &["mac.a."]));

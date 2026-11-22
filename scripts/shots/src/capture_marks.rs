@@ -1,7 +1,7 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
-use crate::names::{NameError, Prefix};
+use crate::names::{NameError, Platform, Prefix};
 
 /// The folder in an app tree that marks the prefixes the checker has captured.
 pub const CAPTURE_MARKS_DIR: &str = ".taken";
@@ -25,6 +25,11 @@ pub enum CaptureMarkError {
         #[source]
         source: NameError,
     },
+}
+
+/// The folder that holds screenshots captured for one app tree and platform.
+pub fn app_picture_tree(root: &Path, platform: Platform, tree: &str) -> PathBuf {
+    root.join(platform.word()).join(tree)
 }
 
 /// The capture marks for one app tree.

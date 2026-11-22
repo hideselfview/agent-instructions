@@ -1156,33 +1156,31 @@ fn picture_tree(
     ))
 }
 
-fn shot_prefixes(lane: Lane, picks: &[Pick]) -> Vec<&str> {
+fn shot_prefixes(
+    lane: Lane,
+    picks: &[Pick],
+) -> shots_cache::PictureLeaseResult<Vec<shots::Prefix>> {
     picks
         .iter()
         .filter(|(own, kind, _)| *own == lane && *kind == PickKind::Shots)
-        .map(|(_, _, prefix)| prefix.as_str())
+        .map(|(_, _, prefix)| Ok(shots::Prefix::parse(prefix)?))
         .collect()
 }
 
 /// The marks a lane needs to run its shots without building the app.
 /// The prefixes come from the lane's shots picks.
-fn capture_query(
+fn capture_query<'a>(
     config: &Config,
     lane: Lane,
-    prefixes: &[&str],
-) -> Result<shots_cache::CaptureQuery> {
+    prefixes: &'a [shots::Prefix],
+) -> Result<shots_cache::CaptureQuery<'a>> {
     let Some(picker) = config.picker(lane, PickKind::Shots) else {
         let first = prefixes
             .first()
             .expect("a lane has shots picks when it asks whether the folder caches them");
-        return Err(missing_line(lane, PickKind::Shots, first));
+        return Err(missing_line(lane, PickKind::Shots, first.as_str()));
     };
     let windows = picker.command.iter().any(|word| word == "--windows");
-    let prefixes = prefixes
-        .iter()
-        .map(|prefix| shots::Prefix::parse(prefix))
-        .collect::<std::result::Result<Vec<_>, _>>()
-        .map_err(|error| Fail::Message(error.to_string()))?;
     Ok(shots_cache::CaptureQuery { prefixes, windows })
 }
 
@@ -1850,6 +1848,7 @@ struct LaneBuild<'a> {
     repo: &'a str,
     lane: Lane,
     request: LaneRequest<'a>,
+    shot_prefixes: Vec<shots::Prefix>,
     programs: &'a Pinned,
     /// The folder on this Mac that holds the repo's commits.
     source: std::path::PathBuf,
@@ -1876,6 +1875,7 @@ fn build_lane(
     let places = &tool.places;
     let floor_kib = tool.rules.floor_kib;
     let LaneRequest { commit, picks, .. } = request;
+    let shot_prefixes = shot_prefixes(lane, picks)?;
     note(format!(
         "waiting for {repo}'s {} app lock, then building {commit}",
         lane.word()
@@ -1899,6 +1899,7 @@ fn build_lane(
         repo,
         lane,
         request,
+        shot_prefixes,
         programs,
         source,
         config,
@@ -2041,9 +2042,8 @@ impl LaneBuild<'_> {
         // A lane whose steps are only what its shots need, and whose shots
         // the picture folder caches, builds nothing.
         let tree = picture_tree(&self.source, commit, &self.config, lane, &environment)?;
-        let prefixes = shot_prefixes(lane, picks);
-        let pictures =
-            (!prefixes.is_empty()).then(|| shots_cache::AppPictures::of(places, repo, lane, &tree));
+        let pictures = (!self.shot_prefixes.is_empty())
+            .then(|| shots_cache::AppPictures::of(places, repo, lane, &tree));
         let run = |cached_shots| {
             let mut built = Vec::new();
             if let Some(base) = &self.base {
@@ -2092,7 +2092,7 @@ impl LaneBuild<'_> {
         match &pictures {
             Some(pictures) => {
                 let query = (needs_only && !fresh)
-                    .then(|| capture_query(&self.config, lane, &prefixes))
+                    .then(|| capture_query(&self.config, lane, &self.shot_prefixes))
                     .transpose()?;
                 pictures.while_held(query.as_ref(), run)?
             }
@@ -2316,10 +2316,16 @@ impl LaneBuild<'_> {
         let CheckedOut { sha, config } = site.check_out(places, repo, &base.commit)?;
         let tree = picture_tree(&self.source, &sha, &config, lane, environment)?;
         let pictures = shots_cache::AppPictures::of(places, repo, lane, &tree);
-        let prefixes = wanted
+        let prefixes: Vec<_> = self
+            .shot_prefixes
             .iter()
-            .map(|(_, _, prefix)| prefix.as_str())
-            .collect::<Vec<_>>();
+            .filter(|prefix| {
+                wanted
+                    .iter()
+                    .any(|(_, _, wanted)| wanted == prefix.as_str())
+            })
+            .cloned()
+            .collect();
         let query = capture_query(&config, lane, &prefixes)?;
         let ran = pictures.while_held(Some(&query), |cached_shots| {
             let run = CommitRun {

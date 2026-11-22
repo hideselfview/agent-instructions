@@ -18,7 +18,7 @@
 //! picture whose element list is missing is never there.
 
 use crate::names::{Name, Platform, Prefix};
-use crate::{CaptureMarkError, CaptureMarks};
+use crate::{CaptureMarkError, CaptureMarks, app_picture_tree};
 use std::path::{Path, PathBuf};
 
 /// A picture folder.
@@ -100,12 +100,6 @@ impl Pictures {
 }
 
 impl Pictures {
-    /// The folder of the shots of <platform> kept for the app source tree
-    /// <tree>.
-    fn shots_dir(&self, platform: Platform, tree: &str) -> PathBuf {
-        self.dir.join(platform.word()).join(tree)
-    }
-
     /// Copies the shots <names> of <platform> kept for the app source tree
     /// <tree> into <out>, and marks them used, when the folder keeps every
     /// one; false, copying nothing, when it lacks one.
@@ -116,7 +110,7 @@ impl Pictures {
         names: &[Name],
         out: &Path,
     ) -> Result<bool, String> {
-        let dir = self.shots_dir(platform, tree);
+        let dir = app_picture_tree(&self.dir, platform, tree);
         let files: Vec<String> = names
             .iter()
             .flat_map(|name| [name.file_name("json"), name.file_name("png")])
@@ -145,7 +139,7 @@ impl Pictures {
         prefixes: &[Prefix],
         windows: bool,
     ) -> Result<(), CaptureMarkError> {
-        CaptureMarks::of(&self.shots_dir(platform, tree)).write(prefixes, windows)
+        CaptureMarks::of(&app_picture_tree(&self.dir, platform, tree)).write(prefixes, windows)
     }
 
     /// Keeps the shots <names> of <platform> taken into <out> for the app
@@ -157,7 +151,7 @@ impl Pictures {
         names: &[Name],
         out: &Path,
     ) -> Result<(), String> {
-        let dir = self.shots_dir(platform, tree);
+        let dir = app_picture_tree(&self.dir, platform, tree);
         std::fs::create_dir_all(&dir)
             .map_err(|e| format!("cannot prepare {}: {e}", dir.display()))?;
         for name in names {

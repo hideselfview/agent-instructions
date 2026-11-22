@@ -569,7 +569,7 @@ fn a_lane_can_read_its_cached_app_pictures_after_a_prune_between_steps() {
     }
     let pictures = AppPictures::of(&places, "demo", Lane::Mac, "active");
     let query = CaptureQuery {
-        prefixes: vec![shots::Prefix::parse("mac.a.").unwrap()],
+        prefixes: &[shots::Prefix::parse("mac.a.").unwrap()],
         windows: true,
     };
     let marks = CaptureMarks::of(&lane_tree);
@@ -580,7 +580,7 @@ fn a_lane_can_read_its_cached_app_pictures_after_a_prune_between_steps() {
             prune_runs(&tool, Run::Real, 100).unwrap();
 
             assert!(lane_tree.join(shot).is_file());
-            assert!(marks.cover(&query.prefixes, query.windows).unwrap());
+            assert!(marks.cover(query.prefixes, query.windows).unwrap());
             assert!(!other_tree.exists());
         })
         .unwrap();

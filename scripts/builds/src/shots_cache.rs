@@ -224,7 +224,7 @@ impl AppPictures {
     /// Keep this tree in the cache while the lane runs <work>.
     pub fn while_held<T>(
         &self,
-        query: Option<&CaptureQuery>,
+        query: Option<&CaptureQuery<'_>>,
         work: impl FnOnce(bool) -> T,
     ) -> PictureLeaseResult<T> {
         let _reader = {
@@ -238,7 +238,7 @@ impl AppPictures {
             reader
         };
         let cached = match query {
-            Some(query) => self.marks.cover(&query.prefixes, query.windows)?,
+            Some(query) => self.marks.cover(query.prefixes, query.windows)?,
             None => false,
         };
         Ok(work(cached))
@@ -249,6 +249,7 @@ impl AppPictures {
 pub enum PictureLeaseError {
     Build(Fail),
     Mark(shots::CaptureMarkError),
+    Prefix(shots::NameError),
 }
 
 impl From<Fail> for PictureLeaseError {
@@ -263,24 +264,36 @@ impl From<shots::CaptureMarkError> for PictureLeaseError {
     }
 }
 
+impl From<shots::NameError> for PictureLeaseError {
+    fn from(error: shots::NameError) -> Self {
+        Self::Prefix(error)
+    }
+}
+
 impl From<PictureLeaseError> for Fail {
     fn from(error: PictureLeaseError) -> Self {
         match error {
             PictureLeaseError::Build(error) => error,
             PictureLeaseError::Mark(error) => Fail::Message(error.to_string()),
+            PictureLeaseError::Prefix(error) => Fail::Message(error.to_string()),
         }
     }
 }
 
 pub type PictureLeaseResult<T> = std::result::Result<T, PictureLeaseError>;
 
-pub struct CaptureQuery {
-    pub prefixes: Vec<shots::Prefix>,
+pub struct CaptureQuery<'a> {
+    pub prefixes: &'a [shots::Prefix],
     pub windows: bool,
 }
 
 pub(super) fn app_picture_tree(places: &Places, repo: &str, lane: Lane, tree: &str) -> PathBuf {
-    pictures(places, repo).join(lane.word()).join(tree)
+    use boards::app_build::Platform;
+    let platform = match lane {
+        Lane::Mac => Platform::Mac,
+        Lane::Android => Platform::Android,
+    };
+    shots::app_picture_tree(&pictures(places, repo), platform, tree)
 }
 
 /// A new folder in the picture folder <pictures> for the pictures a run on a
