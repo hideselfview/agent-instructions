@@ -162,7 +162,7 @@ fn two_builds_that_wait_at_once_each_add_a_checkout_of_their_own() {
             let (start, said, at) = (&start, said.clone(), world.at(Lane::Android));
             scope.spawn(move || {
                 start.wait();
-                said.send(grow(at, 0, Need::Waits, NOW).unwrap()).unwrap();
+                said.send(grow(at, 0, NOW).unwrap()).unwrap();
             });
         }
     });
@@ -196,7 +196,7 @@ fn a_lane_at_its_cap_or_a_host_with_no_room_gets_no_checkout() {
     )
     .unwrap();
     assert_eq!(queue.order().len() - queue.slots(), 2);
-    let grown = grow(world.at(Lane::Android), 0, Need::Waits, NOW).unwrap();
+    let grown = grow(world.at(Lane::Android), 0, NOW).unwrap();
     assert_eq!(grown, None, "the lane has its cap");
     assert_eq!(world.entries().len(), LANE_CAP);
 
@@ -206,10 +206,10 @@ fn a_lane_at_its_cap_or_a_host_with_no_room_gets_no_checkout() {
     )
     .unwrap();
     world.host_has(10, 9.5, 900_000_000);
-    let grown = grow(world.at(Lane::Android), 0, Need::Waits, NOW).unwrap();
+    let grown = grow(world.at(Lane::Android), 0, NOW).unwrap();
     assert_eq!(grown, None, "the host has under a core free");
     world.host_has(10, 2.0, 35 * 1024 * 1024);
-    let grown = grow(world.at(Lane::Android), 30 * 1024 * 1024, Need::Waits, NOW).unwrap();
+    let grown = grow(world.at(Lane::Android), 30 * 1024 * 1024, NOW).unwrap();
     assert_eq!(
         grown, None,
         "a checkout would take the host under its floor"
@@ -245,7 +245,7 @@ fn two_lanes_that_add_at_once_never_pass_the_host_cap() {
                     let at = world.at(lane);
                     scope.spawn(move || {
                         start.wait();
-                        grow(at, 0, Need::Waits, NOW).unwrap()
+                        grow(at, 0, NOW).unwrap()
                     })
                 })
                 .collect();
@@ -374,23 +374,6 @@ fn a_checkout_whose_host_removal_fails_stays_in_the_set() {
             .unwrap()
             .is_empty()
     );
-}
-
-#[test]
-fn a_build_that_must_run_on_a_host_in_a_lane_with_none_there_adds_one() {
-    let world = World::new("size-host", "side-1\n");
-    let held = take_where(
-        &world.places,
-        &world.ssh,
-        "demo",
-        Lane::Android,
-        Where::Hosts,
-        0,
-    )
-    .unwrap();
-    assert_eq!(held.checkout, "m1:builds-android-1");
-    held.release();
-    assert_eq!(world.entries(), ["side-1", "m1:builds-android-1"]);
 }
 
 #[test]

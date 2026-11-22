@@ -326,25 +326,6 @@ fn hold(queue: &Queue, checkout: &str, pid: i32) -> libc::c_int {
 }
 
 #[test]
-fn a_waiter_takes_a_free_checkout_it_may_use_though_an_earlier_waiter_may_not() {
-    let scratch = Scratch::new("queue-first-fit");
-    let queue = queue_with(&scratch, &["m1:mac-1", "m1:mac-2", "side-3"]);
-    let a = plant_live(&queue, 10, Where::Anywhere);
-    let b = plant_live(&queue, 20, Where::Anywhere);
-    let _held = [hold(&queue, "m1:mac-1", 10), hold(&queue, "m1:mac-2", 20)];
-    // A build that may run only on a host waits for a host's checkout.
-    let hosts = plant_live(&queue, 30, Where::Hosts);
-    // A build that may run only here comes behind it, and side-3 is free.
-    let here = plant_live(&queue, 40, Where::Here);
-    assert!(!queue.may_go(&hosts.name, &queue.order()[..2]).unwrap());
-    assert!(queue.may_go(&here.name, &queue.order()[..3]).unwrap());
-    queue.wait_for_turn(&here.name).unwrap();
-    for ticket in [&a, &b, &hosts, &here] {
-        close(ticket);
-    }
-}
-
-#[test]
 fn a_waiter_that_may_take_any_checkout_waits_behind_an_earlier_one_that_may_too() {
     let scratch = Scratch::new("queue-first-fit-any");
     let queue = queue_with(&scratch, &["m1:mac-1", "side-3"]);
@@ -384,10 +365,10 @@ fn each_free_checkout_is_left_for_one_waiter_that_may_use_it() {
 fn a_ticket_name_says_where_its_build_may_run_and_a_reissued_one_keeps_it() {
     let scratch = Scratch::new("queue-ticket-where");
     let queue = queue(&scratch);
-    let (ticket, _) = queue.join(Where::Hosts).unwrap();
-    assert_eq!(allowed_of(&ticket.name).unwrap(), Where::Hosts);
+    let (ticket, _) = queue.join(Where::Here).unwrap();
+    assert_eq!(allowed_of(&ticket.name).unwrap(), Where::Here);
     let again = queue.reissue(&ticket).unwrap();
-    assert_eq!(allowed_of(&again.name).unwrap(), Where::Hosts);
+    assert_eq!(allowed_of(&again.name).unwrap(), Where::Here);
     assert_eq!(pid_of(&again.name), Some(std::process::id() as i32));
     assert!(allowed_of("12-1").is_err());
     close(&ticket);

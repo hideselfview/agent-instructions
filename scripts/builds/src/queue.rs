@@ -4,7 +4,7 @@
 //!
 //! `order` names one ticket per line, next first. The holders' tickets stay in
 //! it, and a ticket's name ends in where its build may run
-//! (`<pid>-<n>-here|hosts|anywhere`, `lock::Where`). A waiter may take a lock
+//! (`<pid>-<n>-here|anywhere`, `lock::Where`). A waiter may take a lock
 //! when a free checkout it may use is left once each waiter ahead of it has
 //! taken one (`may_go`): a ticket whose pid is in the record beside a held
 //! lock has taken its checkout already. A waiter that may use only a checkout
@@ -372,28 +372,25 @@ impl Queue {
         if !entries.iter().any(|entry| allowed.allows(entry)) {
             return Ok(true);
         }
-        let free_hosts = free
+        let free_here = free
             .iter()
-            .filter(|entry| Where::Hosts.allows(entry))
+            .filter(|entry| Where::Here.allows(entry))
             .count();
-        let free_here = free.len() - free_hosts;
-        let (mut here, mut hosts, mut anywhere) = (0usize, 0usize, 0usize);
+        let free_hosts = free.len() - free_here;
+        let (mut here, mut anywhere) = (0usize, 0usize);
         for name in ahead {
             if pid_of(name).is_some_and(|pid| holders.contains(&pid)) {
                 continue;
             }
             match allowed_of(name)? {
                 Where::Here => here += 1,
-                Where::Hosts => hosts += 1,
                 Where::Anywhere => anywhere += 1,
             }
         }
         let left_here = free_here - here.min(free_here);
-        let left_hosts = free_hosts - hosts.min(free_hosts);
         Ok(match allowed {
             Where::Here => left_here > anywhere,
-            Where::Hosts => left_hosts > anywhere,
-            Where::Anywhere => left_here + left_hosts > anywhere,
+            Where::Anywhere => left_here + free_hosts > anywhere,
         })
     }
 

@@ -1088,19 +1088,19 @@ checkout's builds warm, as this Mac does for its own app checkouts.
 The android build-app, a mac build-app whose build is a `here` step, `builds lock` and a build that runs a `here` step never
 take a checkout on a host. A build that runs a test class through a line an
 `opens-windows` line names, or a --shots or --all-shots run of a `shots` line
-that passes --windows (bae's mac line), takes only a checkout on a host, never one on this
-Mac. When the lane has none, builds adds one on a host as for a build that
-waits, and the build fails when no host can take one (in bae, the M1's mac
-lane checkouts run the UI tests). A build cannot run both a `here` step and a test class from an
-`opens-windows` line; it fails and names one of each. A host runs UI tests only
+that passes --windows (bae's mac line), takes a checkout on this Mac or on a
+host, as any other build does, and its windows may show on the person's screen
+and take their keyboard focus when it runs on this Mac (decision #485 of
+project builds). A build may run a `here` step and such a test class together:
+it runs them in an app checkout on this Mac. A host runs UI tests only
 with the settings HOSTS names, since nobody is at its screen to type a
 password.
 
-Each host has one display, so a step that opens windows (a test run of an
+Each host, this Mac included, has one display, so a step that opens windows (a test run of an
 `opens-windows` line, or a --shots or --all-shots run of a `shots` line that
 passes --windows) holds the host's window lock while it runs, and no second
 such step runs on that host: UI tests of two builds, in two app checkouts, never
-share the display. The lock covers the host across repos, lanes and checkouts,
+share the display. This Mac's window lock is its own, beside each host's. The lock covers the host across repos, lanes and checkouts,
 and a step on another host takes its own. A step that finds the lock held waits
 for it and prints that it waits, naming the run that holds it. The build keeps
 its app checkout and its place in the lane while it waits, and a takeover ends
@@ -1120,7 +1120,7 @@ hosts that can draw, it takes the one with the least load. When none can, the
 run fails at once, naming each checkout it skipped and why ("its lid is closed
 and it lists no other display"), and a run that asks again after the lid opens
 goes through. A host that does not answer is skipped and named the same way.
-Runs of UI tests and every other step ignore the lid.
+This Mac is never asked about its lid. Runs of UI tests and every other step ignore the lid.
 
 A locked screen keeps every window of a mac lane step from rendering, so a mac
 lane step that opens windows never starts on a host whose screen is locked.

@@ -3,9 +3,7 @@
 //! builds wait for the lane, and removes the ones it added once no build has
 //! used them for a while, so their disk comes back.
 //!
-//! A build that joins a lane's queue and has to wait, or a build that may run
-//! only on a host (an `opens-windows` test line) in a lane with no checkout on
-//! a host, adds a checkout (`grow`): on the host with the most free cores, of
+//! A build that joins a lane's queue and has to wait adds a checkout (`grow`): on the host with the most free cores, of
 //! those that have a core free, disk free above the floor by one checkout of
 //! the lane, and fewer than `HOST_CAP` app checkouts, while the lane has fewer
 //! than `LANE_CAP`. builds names it `builds-<lane>-<n>` and records it in the
@@ -123,22 +121,13 @@ pub struct RepoLane<'a> {
     pub lane: Lane,
 }
 
-/// Why a build asks for a checkout.
-#[derive(Clone, Copy, Debug)]
-pub enum Need {
-    /// The build joined the queue and waits behind the builds that hold the
-    /// lane's locks. builds adds a checkout while any build waits.
-    Waits,
-    /// The build may run only on a host, and the lane has no checkout on one.
-    OnAHost,
-}
-
-/// Adds a checkout of <at>'s lane on a host for a build that <need>s one,
-/// when a host and the caps allow it, and returns its entry. A host whose
+/// Adds a checkout of <at>'s lane on a host for a build that joined the queue
+/// and waits behind the builds that hold the lane's locks, when a host and the
+/// caps allow it, and returns its entry. A host whose
 /// free disk would go under <floor_kib> takes none. <now> is the time the
 /// checkout's record gives, in seconds since 1970. When builds adds none, it
 /// says why.
-pub fn grow(at: RepoLane, floor_kib: u64, need: Need, now: i64) -> Result<Option<String>> {
+pub fn grow(at: RepoLane, floor_kib: u64, now: i64) -> Result<Option<String>> {
     let RepoLane {
         places,
         ssh,
@@ -162,32 +151,19 @@ pub fn grow(at: RepoLane, floor_kib: u64, need: Need, now: i64) -> Result<Option
     let lane_guard = queue.guard()?;
     let mut set = places.app_checkouts_recorded(repo, lane)?;
     let order = queue.order();
-    let reason = match need {
-        Need::Waits => {
-            // This counts every waiting build, not only this one: of two that
-            // wait, the first to add may add the checkout that the queue then
-            // gives to the other.
-            let slots = set.len();
-            if order.len() <= slots {
-                return Ok(None);
-            }
-            format!(
-                "{} for the {} lane's {}",
-                crate::text::counted(order.len() - slots, "build waited", "builds waited"),
-                lane.word(),
-                crate::text::counted(slots, "checkout", "checkouts")
-            )
-        }
-        Need::OnAHost => {
-            if set.iter().any(|checkout| split(&checkout.entry).is_some()) {
-                return Ok(None);
-            }
-            format!(
-                "a build that opens windows needed a {} lane checkout on a host",
-                lane.word()
-            )
-        }
-    };
+    // This counts every waiting build, not only this one: of two that wait,
+    // the first to add may add the checkout that the queue then gives to the
+    // other.
+    let slots = set.len();
+    if order.len() <= slots {
+        return Ok(None);
+    }
+    let reason = format!(
+        "{} for the {} lane's {}",
+        crate::text::counted(order.len() - slots, "build waited", "builds waited"),
+        lane.word(),
+        crate::text::counted(slots, "checkout", "checkouts")
+    );
     if set.len() >= LANE_CAP {
         note(format!(
             "{repo}'s {} lane has {LANE_CAP} app checkouts, the most it has, so builds adds none",

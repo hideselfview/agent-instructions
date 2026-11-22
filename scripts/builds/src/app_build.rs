@@ -348,34 +348,22 @@ fn lane_steps(
                 .zip(crate::app_config::counting(&command))
                 .map(|(each, count)| Scenes { count, each }),
             command,
-            place: run.picker.place,
+            place: lock::Where::Anywhere,
+            opens_windows: run.picker.opens_windows,
             ci_only: false,
         });
     }
     Ok(steps)
 }
 
-/// Where a lane's checkout must be to run all of <steps>: where each of them
-/// may run. Fails, naming two of them, when no checkout can run both.
-pub fn place_of(steps: &[Step]) -> Result<lock::Where> {
-    let mut narrowed: Option<&Step> = None;
-    for step in steps
-        .iter()
-        .filter(|step| step.place != lock::Where::Anywhere)
-    {
-        match narrowed {
-            None => narrowed = Some(step),
-            Some(first) if first.place == step.place => {}
-            Some(first) => fail!(
-                "{} runs only {} and {} only {}, so no app checkout can run both: run them in separate app-builds",
-                first.name,
-                first.place.only(),
-                step.name,
-                step.place.only()
-            ),
-        }
+/// Where a lane's checkout must be to run all of <steps>: on this Mac when
+/// any of them runs only there, else anywhere.
+pub fn place_of(steps: &[Step]) -> lock::Where {
+    if steps.iter().any(|step| step.place == lock::Where::Here) {
+        lock::Where::Here
+    } else {
+        lock::Where::Anywhere
     }
-    Ok(narrowed.map_or(lock::Where::Anywhere, |step| step.place))
 }
 
 /// The names in <names> that are steps of <lane> in <config>, in order.
@@ -649,7 +637,7 @@ fn run_steps_with(
     let mut pairs_failed = None;
     for step in steps {
         // A step that opens windows holds its host's display alone.
-        let _window = if step.place == lock::Where::Hosts {
+        let _window = if step.opens_windows {
             match held.take_window(&step.name)? {
                 Some(window) => Some(window),
                 None => return Ok(Ended::Stopped),
@@ -883,7 +871,7 @@ fn run_remote_step(
     };
     let mut held = remote.with_programs(with.programs, &command)?;
     // A step that opens windows holds the host's display on while it runs.
-    if step.place == lock::Where::Hosts {
+    if step.opens_windows {
         held = remote.keeping_display_on(&held);
     }
     let start = remote.step_command(&held)?;
@@ -1455,19 +1443,12 @@ fn build_lane(
     ));
     let ssh = Ssh::from_env();
     // A step the repo keeps on this Mac (`here` lines) keeps the build off
-    // the hosts' checkouts, and a test run that opens windows (`opens-windows`
-    // lines) keeps it off this Mac's.
+    // the hosts' checkouts.
     let config = config_at(places, repo, commit)?;
     let source = local_source(places, repo)?;
     let program_of = |class: &str| crate::derive::program_of(&source, &config, commit, lane, class);
     let steps = lane_steps(&config, lane, names, picks, &program_of)?;
-    let allowed = place_of(&steps)?;
-    if let Some(windowed) = steps.iter().find(|step| step.place == lock::Where::Hosts) {
-        note(format!(
-            "{} opens windows, so it runs only in an app checkout on a host, never on this Mac, where the windows would cover the person's screen",
-            windowed.name
-        ));
-    }
+    let allowed = place_of(&steps);
     if allowed == lock::Where::Here {
         crate::worktree::ensure_local_app_checkout(tool, &ssh, repo, lane)?;
     }
@@ -1478,9 +1459,9 @@ fn build_lane(
         .any(|(own, kind, _)| *own == lane && *kind == PickKind::Shots)
         && config
             .picker(lane, PickKind::Shots)
-            .is_some_and(|picker| picker.place == lock::Where::Hosts);
+            .is_some_and(|picker| picker.opens_windows);
     let mut held = if draws {
-        lock::take_drawing(places, &ssh, repo, lane, floor_kib)?
+        lock::take_drawing(places, &ssh, repo, lane, allowed, floor_kib)?
     } else {
         lock::take_where(places, &ssh, repo, lane, allowed, floor_kib)?
     };
@@ -2082,9 +2063,10 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
         for picker in &config.pickers {
             let named =
                 crate::app_config::lane_and_program_word(picker.lane, picker.program.as_deref());
-            let place = match picker.place {
-                lock::Where::Anywhere => String::new(),
-                place => format!(" (runs only {})", place.only()),
+            let place = if picker.opens_windows {
+                " (opens windows)"
+            } else {
+                ""
             };
             println!(
                 "{named} {} <{}> {}{place}",

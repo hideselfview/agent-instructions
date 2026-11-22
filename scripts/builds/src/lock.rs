@@ -209,10 +209,6 @@ pub enum Where {
     /// (`builds lock`, the android `build-app`) and a step the repo keeps here (`here`
     /// lines).
     Here,
-    /// Only the checkouts on hosts: for a test run that opens windows
-    /// (`opens-windows` lines), which on this Mac would reach the person's
-    /// screen.
-    Hosts,
     /// Any of them (`app-build`, whose steps run where the checkout is, and
     /// the mac `build-app`, which copies its app back).
     Anywhere,
@@ -224,14 +220,13 @@ impl Where {
     pub fn word(self) -> &'static str {
         match self {
             Where::Here => "here",
-            Where::Hosts => "hosts",
             Where::Anywhere => "anywhere",
         }
     }
 
     /// The value <word> names, `word`'s inverse.
     pub fn parse(word: &str) -> Option<Where> {
-        [Where::Here, Where::Hosts, Where::Anywhere]
+        [Where::Here, Where::Anywhere]
             .into_iter()
             .find(|place| place.word() == word)
     }
@@ -240,17 +235,7 @@ impl Where {
         let on_host = crate::app_remote::split(entry).is_some();
         match self {
             Where::Here => !on_host,
-            Where::Hosts => on_host,
             Where::Anywhere => true,
-        }
-    }
-
-    /// The words that follow "runs only" in a message.
-    pub fn only(self) -> &'static str {
-        match self {
-            Where::Here => "on this Mac",
-            Where::Hosts => "on a host",
-            Where::Anywhere => "anywhere",
         }
     }
 
@@ -259,7 +244,6 @@ impl Where {
     fn checkouts(self) -> &'static str {
         match self {
             Where::Here => "on this Mac ",
-            Where::Hosts => "on a host ",
             Where::Anywhere => "",
         }
     }
@@ -267,7 +251,7 @@ impl Where {
 
 /// Which checkouts a build takes: where it may run, and whether it draws
 /// window scenes, so that it takes no host that cannot
-/// (`host::screen_lacking`).
+/// (`host::screen_lacking`). This Mac always can.
 #[derive(Clone, Copy)]
 struct Takes {
     allowed: Where,
@@ -460,12 +444,16 @@ impl Loads<'_> {
 }
 
 impl Screens<'_> {
-    /// <entries>, each on a host, that can draw a window scene, and the
-    /// others, each with why not.
+    /// <entries> that can draw a window scene, and the others, each with why
+    /// not. An entry on this Mac can, and no question is asked for it.
     fn split(&mut self, entries: Vec<String>) -> (Vec<String>, Vec<String>) {
         let mut drawing = Vec::new();
         let mut undrawn = Vec::new();
         for entry in entries {
+            if crate::app_remote::split(&entry).is_none() {
+                drawing.push(entry);
+                continue;
+            }
             let host = host_of(&entry).to_string();
             match self.ask(&host, host::screen_lacks) {
                 Ok(None) => drawing.push(entry),
@@ -531,7 +519,7 @@ fn take_free_lock(
         ssh,
         asked: HashMap::new(),
     };
-    // A build that draws takes only checkouts on hosts (`take_drawing`).
+    // A build that draws takes no host that cannot (`take_drawing`).
     let mut screens = Screens {
         places,
         ssh,
@@ -650,7 +638,7 @@ pub fn take(places: &Places, repo: &str, lane: Lane) -> Result<Held> {
 }
 
 /// `take` with <allowed>: with `Where::Anywhere`, the checkouts on hosts too,
-/// the one on the less loaded host first; with `Where::Hosts`, only those.
+/// the one on the less loaded host first.
 /// A build that may take a checkout on a host and has to wait adds one on a
 /// host whose free disk stays above <floor_kib> (lane_size.rs).
 pub fn take_where(
@@ -677,14 +665,15 @@ pub fn take_where(
 }
 
 /// `take_where` for a build that draws window scenes (a `--shots` run of a
-/// shots line that passes `--windows`): only the checkouts on hosts that can
-/// draw them (`host::screen_lacking`), and it fails naming each host it
-/// skipped when none can.
+/// shots line that passes `--windows`): the checkouts <allowed> lets in, less
+/// the hosts that cannot draw them (`host::screen_lacking`), and it fails
+/// naming each host it skipped when none can.
 pub fn take_drawing(
     places: &Places,
     ssh: &Ssh,
     repo: &str,
     lane: Lane,
+    allowed: Where,
     floor_kib: u64,
 ) -> Result<Held> {
     take_in(
@@ -693,7 +682,7 @@ pub fn take_drawing(
         repo,
         lane,
         Takes {
-            allowed: Where::Hosts,
+            allowed,
             screen: true,
         },
         Some(floor_kib),
@@ -720,22 +709,11 @@ fn take_in(
         repo,
         lane,
     };
-    let has_one = |places: &Places| -> Result<bool> {
-        Ok(places
-            .app_checkouts_of(repo, lane)?
-            .iter()
-            .any(|entry| allowed.allows(entry)))
-    };
-    let mut usable = has_one(places)?;
-    if !usable
-        && allowed == Where::Hosts
-        && let Some(floor_kib) = grows
-        && !places.app_checkouts_of(repo, lane)?.is_empty()
-    {
-        crate::lane_size::grow(sized, floor_kib, crate::lane_size::Need::OnAHost, now)?;
-        usable = has_one(places)?;
-    }
-    if !usable {
+    let has_one = places
+        .app_checkouts_of(repo, lane)?
+        .iter()
+        .any(|entry| allowed.allows(entry));
+    if !has_one {
         fail!(
             "{repo} has no {} app checkout {}recorded in {}; builds app-checkout records one",
             lane.word(),
@@ -764,7 +742,7 @@ fn take_in(
             lane.word()
         ));
         if let Some(floor_kib) = grows {
-            crate::lane_size::grow(sized, floor_kib, crate::lane_size::Need::Waits, now)?;
+            crate::lane_size::grow(sized, floor_kib, now)?;
         }
     }
     queue.wait_for_turn(&ticket.name)?;

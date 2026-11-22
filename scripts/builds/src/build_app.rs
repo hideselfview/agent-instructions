@@ -75,7 +75,7 @@ impl Platform {
                     .filter(|step| step.command == build)
                     .cloned()
                     .collect();
-                place_of(&named)
+                Ok(place_of(&named))
             }
             Platform::Android => Ok(Where::Here),
         }

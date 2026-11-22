@@ -271,29 +271,6 @@ fn a_build_that_runs_here_never_takes_a_checkout_on_a_host() {
 }
 
 #[test]
-fn a_build_that_runs_on_hosts_never_takes_a_checkout_on_this_mac() {
-    let scratch = Scratch::new("lock-hosts");
-    let places = places_with_host(&scratch, "side-2\n");
-    // builds adds no checkout on a host with no core free (lane_size.rs).
-    let busy = ssh_with_load(&scratch.dir.join("busy"), "1000.00");
-    let Err(error) = take_where(&places, &busy, "demo", Lane::Android, Where::Hosts, 0) else {
-        panic!("only this Mac's checkout is recorded");
-    };
-    let text = error.text();
-    assert!(text.contains("on a host"), "{text}");
-    std::fs::write(
-        places.app_checkouts_file("demo", Lane::Android),
-        "side-2\nm1:app-1\n",
-    )
-    .unwrap();
-    // This Mac's load per core is never 1000, so a pick by load alone would
-    // take side-2.
-    let held = take_where(&places, &busy, "demo", Lane::Android, Where::Hosts, 0).unwrap();
-    assert_eq!(held.checkout, "m1:app-1");
-    held.release();
-}
-
-#[test]
 fn the_checkout_on_the_less_loaded_host_goes_first() {
     let scratch = Scratch::new("lock-load");
     let places = places_with_host(&scratch, "side-2\nm1:app-1\n");
@@ -412,7 +389,8 @@ fn a_build_that_draws_takes_no_host_whose_lid_is_closed_and_says_so() {
     let scratch = Scratch::new("lock-lid");
     let places = places_with_host(&scratch, "m1:app-1\n");
     let closed = ssh_with_screen(&scratch.dir.join("closed"), "lid=closed\\nscreens=0\\n");
-    let Err(error) = take_drawing(&places, &closed, "demo", Lane::Android, 0) else {
+    let Err(error) = take_drawing(&places, &closed, "demo", Lane::Android, Where::Anywhere, 0)
+    else {
         panic!("the only host cannot draw");
     };
     let text = error.text();
@@ -423,8 +401,18 @@ fn a_build_that_draws_takes_no_host_whose_lid_is_closed_and_says_so() {
         "{text}"
     );
     // The same host takes a build that draws no scene.
-    let held = take_where(&places, &closed, "demo", Lane::Android, Where::Hosts, 0).unwrap();
+    let held = take_where(&places, &closed, "demo", Lane::Android, Where::Anywhere, 0).unwrap();
     assert_eq!(held.checkout, "m1:app-1");
+    held.release();
+}
+
+#[test]
+fn a_build_that_draws_takes_this_macs_checkout_without_asking_about_a_lid() {
+    let scratch = Scratch::new("lock-lid-local");
+    let places = places_with_host(&scratch, "side-2\n");
+    let closed = ssh_with_screen(&scratch.dir.join("closed"), "lid=closed\\nscreens=0\\n");
+    let held = take_drawing(&places, &closed, "demo", Lane::Android, Where::Anywhere, 0).unwrap();
+    assert_eq!(held.checkout, "side-2");
     held.release();
 }
 
@@ -437,7 +425,7 @@ fn a_build_that_draws_takes_a_host_with_its_lid_open_or_another_display() {
         ("external", "lid=closed\\nscreens=1\\n"),
     ] {
         let ssh = ssh_with_screen(&scratch.dir.join(name), screen);
-        let held = take_drawing(&places, &ssh, "demo", Lane::Android, 0).unwrap();
+        let held = take_drawing(&places, &ssh, "demo", Lane::Android, Where::Anywhere, 0).unwrap();
         assert_eq!(held.checkout, "m1:app-1", "{name}");
         held.release();
     }

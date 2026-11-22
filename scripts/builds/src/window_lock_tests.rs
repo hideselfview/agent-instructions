@@ -38,7 +38,7 @@ fn places_with(scratch: &Scratch, entries: &str) -> (Places, Ssh) {
 }
 
 fn held_on(places: &Places, ssh: &Ssh) -> crate::lock::Held {
-    take_where(places, ssh, "demo", Lane::Android, Where::Hosts, 0).unwrap()
+    take_where(places, ssh, "demo", Lane::Android, Where::Anywhere, 0).unwrap()
 }
 
 #[test]
@@ -185,7 +185,7 @@ fn the_mac_lane_holds_a_window_step_while_the_hosts_screen_is_locked() {
     std::fs::write(places.app_checkouts_file("demo", Lane::Mac), "m1:mac-1\n").unwrap();
     let ssh = locked_ssh(&scratch.dir.join("ssh"), 2);
     crate::host::add(&places, &ssh, "m1", "user@m1").unwrap();
-    let held = take_where(&places, &ssh, "demo", Lane::Mac, Where::Hosts, 0).unwrap();
+    let held = take_where(&places, &ssh, "demo", Lane::Mac, Where::Anywhere, 0).unwrap();
     let window = held
         .take_window("shots")
         .unwrap()

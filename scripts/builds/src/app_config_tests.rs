@@ -99,6 +99,7 @@ fn step_lines_name_a_command_each_in_the_order_written() {
         limit: None,
         scenes: None,
         place: Where::Anywhere,
+        opens_windows: false,
         ci_only: false,
     };
     assert_eq!(
@@ -185,14 +186,14 @@ fn a_test_line_gives_a_lane_the_command_that_runs_its_classes() {
                 kind: PickKind::Class,
                 program: None,
                 command: words("./t.sh --run-only {class}"),
-                place: Where::Anywhere,
+                opens_windows: false,
             },
             Picker {
                 lane: Lane::Android,
                 kind: PickKind::Class,
                 program: None,
                 command: words("./g.sh --tests *{class}"),
-                place: Where::Anywhere,
+                opens_windows: false,
             },
         ]
     );
@@ -235,7 +236,7 @@ fn the_word_that_holds_the_class_appears_once_for_each_class() {
         kind: PickKind::Class,
         program: None,
         command: words("./g.sh --tests *{class} --continue"),
-        place: Where::Anywhere,
+        opens_windows: false,
     };
     assert_eq!(
         test.command_for(&["FooTest"]),
@@ -415,20 +416,20 @@ fn an_on_or_needs_line_naming_a_ci_only_step_is_refused() {
 }
 
 #[test]
-fn an_opens_windows_line_keeps_its_test_lines_on_hosts() {
+fn an_opens_windows_line_marks_its_test_lines_as_opening_windows() {
     let config = parse_config(
         "sources mac:ui app/ui\ntest mac ./t {class}\ntest mac:ui ./t --ui {class}\ntest android ./g {class}\nopens-windows mac:ui android\n",
     )
     .unwrap();
-    let place = |lane, program| {
+    let opens = |lane, program| {
         config
             .picker_in(lane, PickKind::Class, program)
             .unwrap()
-            .place
+            .opens_windows
     };
-    assert_eq!(place(Lane::Mac, Some("ui")), Where::Hosts);
-    assert_eq!(place(Lane::Android, None), Where::Hosts);
-    assert_eq!(place(Lane::Mac, None), Where::Anywhere);
+    assert!(opens(Lane::Mac, Some("ui")));
+    assert!(opens(Lane::Android, None));
+    assert!(!opens(Lane::Mac, None));
     for refused in [
         "opens-windows",
         "test mac ./t {class}\nopens-windows mac:ui",
@@ -443,14 +444,19 @@ fn an_opens_windows_line_keeps_its_test_lines_on_hosts() {
 }
 
 #[test]
-fn a_shots_line_that_passes_windows_stays_on_hosts() {
+fn a_shots_line_that_passes_windows_opens_windows() {
     let config = parse_config(
         "shots mac ./s run --windows --select {select}\nshots android ./s run --select {select}\n",
     )
     .unwrap();
-    let place = |lane| config.picker_in(lane, PickKind::Shots, None).unwrap().place;
-    assert_eq!(place(Lane::Mac), Where::Hosts);
-    assert_eq!(place(Lane::Android), Where::Anywhere);
+    let opens = |lane| {
+        config
+            .picker_in(lane, PickKind::Shots, None)
+            .unwrap()
+            .opens_windows
+    };
+    assert!(opens(Lane::Mac));
+    assert!(!opens(Lane::Android));
 }
 
 #[test]

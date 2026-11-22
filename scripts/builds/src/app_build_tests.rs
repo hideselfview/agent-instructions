@@ -123,6 +123,7 @@ fn steps_stop_at_the_first_failure() {
         limit: None,
         scenes: None,
         place: lock::Where::Anywhere,
+        opens_windows: false,
         ci_only: false,
     };
     let steps = [
@@ -176,6 +177,7 @@ fn a_step_that_fails_after_xcodebuild_said_it_cannot_start_is_the_hosts_failure(
         limit: None,
         scenes: None,
         place: lock::Where::Anywhere,
+        opens_windows: false,
         ci_only: false,
     };
     let broken = step(format!("echo building; echo \"{said}\" >&2; exit 70"));
@@ -244,6 +246,7 @@ fn a_step_past_its_limit_is_killed_with_what_it_started_and_fails_the_build() {
         limit: Some(Duration::from_millis(500)),
         scenes: None,
         place: lock::Where::Anywhere,
+        opens_windows: false,
         ci_only: false,
     };
     let after = Step {
@@ -253,6 +256,7 @@ fn a_step_past_its_limit_is_killed_with_what_it_started_and_fails_the_build() {
         limit: None,
         scenes: None,
         place: lock::Where::Anywhere,
+        opens_windows: false,
         ci_only: false,
     };
     let started = std::time::Instant::now();
@@ -609,7 +613,7 @@ fn each_shots_prefix_runs_on_its_own() {
 }
 
 #[test]
-fn a_test_run_that_opens_windows_takes_a_checkout_on_a_host_and_no_here_step() {
+fn a_test_run_that_opens_windows_may_take_any_checkout_and_holds_the_window_lock() {
     let config = parse_config(
         "step mac build ./b\nstep mac signed ./s\nhere signed\nsources mac:ui ui\ntest mac ./t {class}\ntest mac:ui ./t --ui {class}\nopens-windows mac:ui\n",
     )
@@ -620,33 +624,26 @@ fn a_test_run_that_opens_windows_takes_a_checkout_on_a_host_and_no_here_step() {
         (Lane::Mac, PickKind::Class, "ModelTests".to_string()),
     ];
     let steps = lane_steps(&config, Lane::Mac, &args(&["build"]), &picks, &program_of).unwrap();
-    assert_eq!(steps[1].place, lock::Where::Hosts);
-    assert_eq!(steps[2].place, lock::Where::Anywhere);
-    assert_eq!(place_of(&steps).unwrap(), lock::Where::Hosts);
-    assert_eq!(
-        place_of(&steps[2..]).unwrap(),
-        lock::Where::Anywhere,
-        "a unit test class runs anywhere"
-    );
+    assert!(steps[1].opens_windows);
+    assert!(!steps[2].opens_windows, "a unit test class opens none");
+    assert_eq!(place_of(&steps), lock::Where::Anywhere);
     let signed = lane_steps(&config, Lane::Mac, &args(&["signed"]), &[], &program_of).unwrap();
-    assert_eq!(place_of(&signed).unwrap(), lock::Where::Here);
+    assert_eq!(place_of(&signed), lock::Where::Here);
     let both = lane_steps(&config, Lane::Mac, &args(&["signed"]), &picks, &program_of).unwrap();
-    let Err(Fail::Message(message)) = place_of(&both) else {
-        panic!("no checkout runs both")
-    };
-    assert!(
-        message.contains("signed runs only on this Mac")
-            && message.contains("test MenuTests only on a host"),
-        "{message}"
+    assert_eq!(
+        place_of(&both),
+        lock::Where::Here,
+        "the signed app and a window run share this Mac's checkout"
     );
 }
 
 #[test]
-fn a_shots_run_with_windows_takes_only_a_checkout_on_a_host() {
+fn a_shots_run_with_windows_opens_windows_and_may_take_any_checkout() {
     let config = parse_config("shots mac ./s --windows --select {select}\n").unwrap();
     let picks = [(Lane::Mac, PickKind::Shots, "mac.welcome.".to_string())];
     let steps = lane_steps(&config, Lane::Mac, &[], &picks, &|_| Ok(None)).unwrap();
-    assert_eq!(place_of(&steps).unwrap(), lock::Where::Hosts);
+    assert!(steps[0].opens_windows);
+    assert_eq!(place_of(&steps), lock::Where::Anywhere);
 }
 
 #[test]
@@ -711,6 +708,7 @@ fn fake(name: &str, command: &[&str], limit: Option<Duration>) -> Step {
         limit,
         scenes: None,
         place: lock::Where::Anywhere,
+        opens_windows: false,
         ci_only: false,
     }
 }

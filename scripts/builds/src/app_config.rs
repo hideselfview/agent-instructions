@@ -46,12 +46,11 @@
 //! <step>...` line names steps that run only in an app checkout on this Mac,
 //! never on a host (app_remote.rs): the signed macOS app for the person, whose
 //! signing identity only this Mac has. An `opens-windows <lane>[:<program>]...`
-//! line names test lines whose runs open windows (bae's UI tests), which run
-//! only in an app checkout on a host: on this Mac the windows would cover the
-//! person's screen. A `shots` line that passes `--windows` opens windows too,
-//! so its runs (`--shots` and `--all-shots`) go only to a host, with no
-//! `opens-windows` line. A lane's build takes a checkout where all its steps may
-//! run.
+//! line names test lines whose runs open windows (bae's UI tests). A `shots`
+//! line that passes `--windows` opens windows too, with no `opens-windows`
+//! line. Each run of such a line holds its host's window lock while it runs
+//! (window_lock.rs), on this Mac as on a host. A lane's build takes a checkout
+//! where all its steps may run.
 //!
 //! A `ci-only <step>...` line names steps that only CI runs, such as a whole
 //! test suite: `builds app-build` refuses such a step when a caller names it,
@@ -294,10 +293,10 @@ pub struct Picker {
     /// lane's default.
     pub program: Option<String>,
     pub command: Vec<String>,
-    /// Where its runs may go: `Where::Hosts` for a test line an
-    /// `opens-windows` line names and for a shots line that passes
-    /// `--windows`, else `Where::Anywhere`.
-    pub place: Where,
+    /// True for a test line an `opens-windows` line names and for a shots
+    /// line that passes `--windows`: its runs open windows, so each holds its
+    /// host's window lock while it runs (window_lock.rs).
+    pub opens_windows: bool,
 }
 
 impl Picker {
@@ -361,9 +360,12 @@ pub struct Step {
     /// The scenes the step's run takes, when the run has any: its limit grows
     /// with their number.
     pub scenes: Option<Scenes>,
-    /// Where it may run: `Where::Here` for a step a `here` line names, the
-    /// place of its test line for a test run, else `Where::Anywhere`.
+    /// Where it may run: `Where::Here` for a step a `here` line names, else
+    /// `Where::Anywhere`.
     pub place: Where,
+    /// True for a test run or shots run whose line opens windows
+    /// (`Picker::opens_windows`).
+    pub opens_windows: bool,
     /// True for a step a `ci-only` line names: only CI runs it, and
     /// `builds app-build` refuses it.
     pub ci_only: bool,
@@ -517,6 +519,7 @@ pub fn parse_config(text: &str) -> Result<Config> {
                     limit: None,
                     scenes: None,
                     place: Where::Anywhere,
+                    opens_windows: false,
                     ci_only: false,
                 });
             }
@@ -552,19 +555,15 @@ pub fn parse_config(text: &str) -> Result<Config> {
                     fail!("{CONFIG}: two {keyword} lines for {name}");
                 }
                 // A shots line that passes --windows opens a window for each
-                // shot, so its runs never go to this Mac's screen.
-                let place =
-                    if kind == PickKind::Shots && command.iter().any(|word| word == "--windows") {
-                        Where::Hosts
-                    } else {
-                        Where::Anywhere
-                    };
+                // shot.
+                let opens_windows =
+                    kind == PickKind::Shots && command.iter().any(|word| word == "--windows");
                 pickers.push(Picker {
                     lane,
                     kind,
                     program,
                     command,
-                    place,
+                    opens_windows,
                 });
             }
             (keyword, _) if keyword.starts_with("shots-") => {}
@@ -697,7 +696,7 @@ pub fn parse_config(text: &str) -> Result<Config> {
             .iter_mut()
             .find(|picker| picker.is(lane, PickKind::Class, program.as_deref()))
         {
-            Some(picker) => picker.place = Where::Hosts,
+            Some(picker) => picker.opens_windows = true,
             None => {
                 fail!("{CONFIG}: opens-windows names {named}, which has no `test {named}` line")
             }
