@@ -138,7 +138,7 @@ pub fn start(
         &lists,
         design,
         &material,
-        &ProgramRenders(tool.program.clone()),
+        &ProgramRenders::of(&tool.places, tool.program.clone()),
     )?;
     let mut out = String::new();
     if standing.lacks_a_read() {
@@ -157,7 +157,7 @@ pub fn start(
             &store.load()?,
             design,
             &material,
-            &ProgramRenders(tool.program.clone()),
+            &ProgramRenders::of(&tool.places, tool.program.clone()),
         )?;
     }
     out.push_str(&standing.line(id, &design.worktree));

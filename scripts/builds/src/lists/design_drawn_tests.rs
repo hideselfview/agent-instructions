@@ -1,6 +1,7 @@
 use super::*;
 use crate::lists::design_paths::drawing_at;
 use crate::testing::{Scratch, git, repo};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Says which places draw alike, and counts its questions.
@@ -175,6 +176,16 @@ fn nothing_draws_the_same_for_a_change_with_no_last_commit() {
     assert!(!Sameness::never().path(A));
 }
 
+/// A repo with two commits, `HEAD~1` and `HEAD`.
+fn two_commits(scratch: &Scratch) -> PathBuf {
+    let dir = scratch.dir.join("repo");
+    repo(&dir, "target 1\n");
+    std::fs::write(dir.join("f"), "x").unwrap();
+    git(&dir, &["add", "f"]);
+    git(&dir, &["commit", "-q", "-m", "x"]);
+    dir
+}
+
 #[test]
 fn the_program_is_asked_for_each_place_by_its_flag_and_name() {
     let scratch = Scratch::new("design-drawn-program");
@@ -185,8 +196,8 @@ echo "alike board A"
 echo "differs component Row""#,
     );
     let asked = set(&[A, "design/system/components/Row/"]);
-    let alike = ProgramRenders(program)
-        .alike(&scratch.dir, "one", "two", &asked)
+    let alike = ProgramRenders::of(&scratch.places(), program)
+        .alike(&two_commits(&scratch), "HEAD~1", "HEAD", &asked)
         .unwrap();
     assert_eq!(alike, set(&[A]));
 }
@@ -194,17 +205,24 @@ echo "differs component Row""#,
 #[test]
 fn a_program_that_leaves_a_place_unanswered_or_fails_is_an_error() {
     let scratch = Scratch::new("design-drawn-silent");
-    let silent = ProgramRenders(scratch.script("silent", "echo 'alike board A'"));
+    let silent = ProgramRenders::of(
+        &scratch.places(),
+        scratch.script("silent", "echo 'alike board A'"),
+    );
+    let dir = two_commits(&scratch);
     let error = silent
-        .alike(&scratch.dir, "one", "two", &set(&[A, B]))
+        .alike(&dir, "HEAD~1", "HEAD", &set(&[A, B]))
         .unwrap_err();
     assert!(
         matches!(&error, crate::fail::Fail::Message(m) if m.contains(B) && m.contains("did not say")),
         "{error:?}"
     );
-    let failing = ProgramRenders(scratch.script("failing", "echo 'no Chrome' >&2; exit 1"));
+    let failing = ProgramRenders::of(
+        &scratch.places(),
+        scratch.script("failing", "echo 'no Chrome' >&2; exit 1"),
+    );
     let error = failing
-        .alike(&scratch.dir, "one", "two", &set(&[A]))
+        .alike(&dir, "HEAD~1", "HEAD", &set(&[A]))
         .unwrap_err();
     assert!(
         matches!(&error, crate::fail::Fail::Message(m) if m.contains("no Chrome")),
@@ -278,4 +296,103 @@ fn every_malformed_canvas_is_an_error_that_names_the_file() {
             "is not a canvas",
         );
     }
+}
+
+/// A repo with commits `one`, `two` and `three`, and a builds program whose
+/// `shots draws` says each board alike and logs its arguments, one line a
+/// call.
+fn counting(scratch: &Scratch) -> (PathBuf, ProgramRenders, PathBuf) {
+    let dir = scratch.dir.join("repo");
+    repo(&dir, "target 1\n");
+    for name in ["one", "two", "three"] {
+        std::fs::write(dir.join("f"), name).unwrap();
+        git(&dir, &["add", "f"]);
+        git(&dir, &["commit", "-q", "-m", name]);
+        git(&dir, &["tag", name]);
+    }
+    let log = scratch.dir.join("calls");
+    let program = scratch.script(
+        "draws",
+        &format!(
+            r#"echo "$*" >> {log}
+while [ $# -gt 0 ]; do
+  case "$1" in --board) echo "alike board $2"; shift;; esac
+  shift
+done"#,
+            log = log.display()
+        ),
+    );
+    (dir, ProgramRenders::of(&scratch.places(), program), log)
+}
+
+fn calls(log: &Path) -> Vec<String> {
+    std::fs::read_to_string(log)
+        .unwrap_or_default()
+        .lines()
+        .map(str::to_string)
+        .collect()
+}
+
+#[test]
+fn the_answer_for_a_pair_of_commits_is_drawn_once() {
+    let scratch = Scratch::new("design-drawn-cache");
+    let (dir, renders, log) = counting(&scratch);
+    let a = set(&[A]);
+    assert_eq!(renders.alike(&dir, "one", "two", &a).unwrap(), a);
+    assert_eq!(calls(&log).len(), 1);
+    // The same pair again draws nothing.
+    assert_eq!(renders.alike(&dir, "one", "two", &a).unwrap(), a);
+    assert_eq!(renders.alike(&dir, "one", "two", &a).unwrap(), a);
+    assert_eq!(calls(&log).len(), 1);
+    // A place of the pair never drawn is asked for alone.
+    let both = set(&[A, B]);
+    assert_eq!(renders.alike(&dir, "one", "two", &both).unwrap(), both);
+    let said = calls(&log);
+    assert_eq!(said.len(), 2);
+    assert!(
+        said[1].contains("--board B") && !said[1].contains("--board A"),
+        "{said:?}"
+    );
+    // Another pair draws again.
+    renders.alike(&dir, "one", "three", &a).unwrap();
+    renders.alike(&dir, "two", "three", &a).unwrap();
+    assert_eq!(calls(&log).len(), 4);
+}
+
+#[test]
+fn an_answer_that_said_differs_is_kept_too_and_a_failure_is_not() {
+    let scratch = Scratch::new("design-drawn-cache-differs");
+    let dir = scratch.dir.join("repo");
+    repo(&dir, "target 1\n");
+    std::fs::write(dir.join("f"), "x").unwrap();
+    git(&dir, &["add", "f"]);
+    git(&dir, &["commit", "-q", "-m", "x"]);
+    let log = scratch.dir.join("calls");
+    let said = |body: &str| {
+        ProgramRenders::of(
+            &scratch.places(),
+            scratch.script("draws", &format!("echo run >> {}\n{body}", log.display())),
+        )
+    };
+    let a = set(&[A]);
+    let failing = said("echo 'no Chrome' >&2; exit 1");
+    assert!(failing.alike(&dir, "HEAD~1", "HEAD", &a).is_err());
+    let differs = said("echo 'differs board A'");
+    assert!(
+        differs
+            .alike(&dir, "HEAD~1", "HEAD", &a)
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        differs
+            .alike(&dir, "HEAD~1", "HEAD", &a)
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        calls(&log).len(),
+        2,
+        "the failure drew once, `differs` once"
+    );
 }

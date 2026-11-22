@@ -526,7 +526,11 @@ fn amend(
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
     let repo = scope.checkout.repo();
     let worktree = scope.checkout.top.display().to_string();
-    let same_as = drawn_the_same(&scope, id, &ProgramRenders(tool.program.clone()))?;
+    let same_as = drawn_the_same(
+        &scope,
+        id,
+        &ProgramRenders::of(&tool.places, tool.program.clone()),
+    )?;
     let (recorded, title, review) =
         scope
             .store
@@ -657,7 +661,7 @@ fn check(tool: &Tool, args: &[String]) -> Result<String> {
         designs,
         &drawn,
         &scope.changes.sources,
-        &ProgramRenders(tool.program.clone()),
+        &ProgramRenders::of(&tool.places, tool.program.clone()),
     )?;
     design::check_changes(&drawings.changes, &scope.changes)?;
     let named = design::named(&ids);
@@ -755,7 +759,7 @@ fn show(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
                         &lists,
                         design,
                         &material,
-                        &ProgramRenders(tool.program.clone()),
+                        &ProgramRenders::of(&tool.places, tool.program.clone()),
                     )
                 },
             );

@@ -39,8 +39,56 @@ pub trait Renders: Send + Sync {
 }
 
 /// Renders by running `builds shots draws` of the builds program at this
-/// path.
-pub struct ProgramRenders(pub PathBuf);
+/// path, and keeps each answer. Whether a place draws alike at two commits
+/// depends only on the two commits' files and the shots checker's capture
+/// version, so the answer for a place, both full commit ids and the capture
+/// version is written once, when the pair is first drawn, and read on every
+/// later ask by amend, health, land and the dashboard: drawing a board takes
+/// seconds of Chrome, and health asks for every open design change on every
+/// run. A key with all of these can never give a stale answer. A drawing that
+/// fails keeps nothing.
+pub struct ProgramRenders {
+    program: PathBuf,
+    /// The folder of the kept answers, one small file for each key.
+    kept: PathBuf,
+}
+
+impl ProgramRenders {
+    /// Renders with the builds program at <program>, keeping its answers in
+    /// the caches of <places>.
+    pub fn of(places: &crate::places::Places, program: PathBuf) -> ProgramRenders {
+        ProgramRenders {
+            program,
+            kept: places.caches().join("design-alike"),
+        }
+    }
+
+    /// The file that keeps whether <place> draws alike at the commits
+    /// <before> and <after>, given by full id.
+    fn file(&self, before: &str, after: &str, place: &str) -> PathBuf {
+        use sha2::{Digest, Sha256};
+        let key = format!(
+            "{}\n{before}\n{after}\n{place}",
+            crate::shots_program::VERSIONS.capture
+        );
+        let digest: String = Sha256::digest(key.as_bytes())
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
+        self.kept.join(digest)
+    }
+
+    /// Keeps <alike> as the answer in <file>: written beside it and renamed
+    /// onto it, so no reader sees half of it.
+    fn keep(&self, file: &Path, alike: bool) -> Result<()> {
+        std::fs::create_dir_all(&self.kept)
+            .context(|| format!("making {}", self.kept.display()))?;
+        let part = file.with_extension(format!("{}.part", std::process::id()));
+        std::fs::write(&part, if alike { "alike" } else { "differs" })
+            .context(|| format!("writing {}", part.display()))?;
+        std::fs::rename(&part, file).context(|| format!("keeping {}", file.display()))
+    }
+}
 
 /// What `builds shots draws` is asked for a place: its flag and its name.
 fn asked(place: &str) -> Result<(&'static str, String)> {
@@ -69,7 +117,48 @@ impl Renders for ProgramRenders {
         after: &str,
         places: &BTreeSet<String>,
     ) -> Result<BTreeSet<String>> {
-        let mut command = Command::new(&self.0);
+        let full_before = crate::lists::design_paths::full_sha(top, before)?;
+        let full_after = crate::lists::design_paths::full_sha(top, after)?;
+        let mut alike = BTreeSet::new();
+        let mut undrawn = BTreeSet::new();
+        for place in places {
+            match std::fs::read_to_string(self.file(&full_before, &full_after, place)) {
+                Ok(answer) if answer == "alike" => {
+                    alike.insert(place.clone());
+                }
+                Ok(answer) if answer == "differs" => {}
+                Ok(answer) => fail!("the kept answer for {place} says {answer:?}"),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    undrawn.insert(place.clone());
+                }
+                Err(error) => fail!("reading the kept answer for {place}: {error}"),
+            }
+        }
+        if !undrawn.is_empty() {
+            let drawn = self.draw(top, &full_before, &full_after, &undrawn)?;
+            for place in &undrawn {
+                let same = drawn.contains(place);
+                self.keep(&self.file(&full_before, &full_after, place), same)?;
+                if same {
+                    alike.insert(place.clone());
+                }
+            }
+        }
+        Ok(alike)
+    }
+}
+
+impl ProgramRenders {
+    /// Draws <places> at the two commits with the builds program, keeping
+    /// nothing.
+    fn draw(
+        &self,
+        top: &Path,
+        before: &str,
+        after: &str,
+        places: &BTreeSet<String>,
+    ) -> Result<BTreeSet<String>> {
+        let mut command = Command::new(&self.program);
         command.args(["shots", "draws", "--at", before, "--against", after]);
         let mut lines = BTreeMap::new();
         for place in places {
@@ -86,7 +175,7 @@ impl Renders for ProgramRenders {
             .current_dir(top)
             .stdin(std::process::Stdio::null())
             .output()
-            .context(|| format!("running {} shots draws", self.0.display()))?;
+            .context(|| format!("running {} shots draws", self.program.display()))?;
         if !ran.status.success() {
             fail!(
                 "the shots checker could not draw the boards at {before} and {after} ({}):\n{}",

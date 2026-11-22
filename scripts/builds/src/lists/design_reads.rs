@@ -58,9 +58,10 @@ impl DesignReads {
         }
     }
 
-    /// Reads that draw boards with the builds program at <program>.
-    pub fn with_program(program: PathBuf) -> Self {
-        Self::new(Box::new(ProgramRenders(program)))
+    /// Reads that draw boards with the builds program at <program>, keeping
+    /// each answer in the caches of <places>.
+    pub fn with_program(places: &crate::places::Places, program: PathBuf) -> Self {
+        Self::new(Box::new(ProgramRenders::of(places, program)))
     }
 
     /// The design commits in the worktree at <top> of <repo>, whose side

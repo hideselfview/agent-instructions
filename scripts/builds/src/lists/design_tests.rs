@@ -1104,7 +1104,10 @@ fn health_and_check_cover_commits_whose_boards_differ_in_bytes_and_draw_alike() 
             project: "demo".into(),
             lists: Ok(w.state()),
         }]);
-        let reads = crate::lists::design_reads::DesignReads::with_program(w.tool.program.clone());
+        let reads = crate::lists::design_reads::DesignReads::with_program(
+            &w.tool.places,
+            w.tool.program.clone(),
+        );
         crate::lists::held::findings(&loaded, &[tree], &reads)
             .into_iter()
             .map(|advice| advice.text)
@@ -1114,7 +1117,10 @@ fn health_and_check_cover_commits_whose_boards_differ_in_bytes_and_draw_alike() 
     let out = w.run(&check).unwrap();
     assert!(out.contains("resolves every place"), "{out}");
 
+    // A later commit is another pair of commits: the answer for the first one
+    // is kept.
     w.draws("differs");
+    w.commit(&[a]);
     assert_eq!(health(&w).len(), 1);
     let refused = message(w.run(&check));
     assert!(
