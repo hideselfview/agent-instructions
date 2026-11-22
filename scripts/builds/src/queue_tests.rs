@@ -410,11 +410,21 @@ fn a_live_ticket_of_an_earlier_builds_is_a_build_to_wait_behind() {
     let old = plant_live_named(&queue, "85902-1-hosts".to_string());
     let (mine, _) = queue.join(Where::Anywhere).unwrap();
     let (done, finished) = channel();
+    let (reached, reads) = channel();
     let waiting = queue.clone();
     let name = mine.name.clone();
-    std::thread::spawn(move || done.send(waiting.wait_for_turn(&name).map_err(|_| "wait failed")));
+    std::thread::spawn(move || {
+        let result = waiting
+            .wait_for_turn_with(&name, || {
+                let _ = reached.send(());
+            })
+            .map_err(|_| "wait failed");
+        done.send(result).unwrap();
+    });
+    // The waiter read the order, found the live ticket and started to wait.
+    reads.recv_timeout(Duration::from_secs(10)).unwrap();
     assert!(
-        finished.recv_timeout(SETTLE).is_err(),
+        finished.try_recv().is_err(),
         "the waiter neither fails nor goes ahead of the live ticket"
     );
     close(&old);

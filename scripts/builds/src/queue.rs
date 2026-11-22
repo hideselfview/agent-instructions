@@ -368,18 +368,10 @@ impl Queue {
         let order = self.order();
         let mut kept = Vec::new();
         for name in &order {
-            let path = self.ticket_path(name);
-            // Close-on-exec, and no O_CREAT: this only probes.
-            match open_with(&path, libc::O_NONBLOCK | libc::O_CLOEXEC) {
-                Ok(fd) => {
-                    unsafe { libc::close(fd) };
-                    self.unlink(name)?;
-                }
-                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                    kept.push(name.clone());
-                }
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-                Err(error) => fail!("checking {}: {error}", path.display()),
+            if is_held(&self.ticket_path(name))? {
+                kept.push(name.clone());
+            } else {
+                self.unlink(name)?;
             }
         }
         if kept.len() != order.len() {
@@ -419,7 +411,13 @@ impl Queue {
             // A ticket this builds cannot read belongs to a build of another
             // builds, still running: it may take any checkout, so wait behind
             // it like behind any other holder.
-            match allowed_of(name).unwrap_or(Where::Anywhere) {
+            let allowed = allowed_of(name).unwrap_or_else(|_| {
+                crate::text::note(format!(
+                    "{name} is no ticket of this builds, so builds waits behind it as behind any build"
+                ));
+                Where::Anywhere
+            });
+            match allowed {
                 Where::Here => here += 1,
                 Where::Anywhere => anywhere += 1,
             }
