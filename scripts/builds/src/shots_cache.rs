@@ -72,7 +72,7 @@ use shots::{CAPTURE_MARKS_DIR, CaptureMarks};
 use crate::app_timing::now;
 use crate::capped_store::{self, Group, Kept, Use, entries_in, folders_in};
 use crate::fail;
-use crate::fail::{Context, Fail, Result};
+use crate::fail::{Context, Result};
 use crate::lane::Lane;
 use crate::places::Places;
 use crate::prune::Run;
@@ -222,7 +222,7 @@ impl AppPictures {
     }
 
     /// Keep this tree in the cache while the lane runs <work>.
-    pub fn while_held<T>(&self, work: impl FnOnce(&Self) -> Result<T>) -> Result<T> {
+    pub fn while_held<T>(&self, work: impl FnOnce(&CaptureMarks) -> Result<T>) -> Result<T> {
         let _reader = {
             // Take the shared lock while prune cannot replace the directory inode.
             let _root = capped_store::writing(&self.root)?;
@@ -233,13 +233,7 @@ impl AppPictures {
             crate::flock::lock(&reader, libc::LOCK_SH, marks)?;
             reader
         };
-        work(self)
-    }
-
-    /// Whether the held tree's marks cover every requested prefix and
-    /// include window shots when asked.
-    pub fn caches(&self, prefixes: &[&str], windows: bool) -> Result<bool> {
-        self.marks.cover(prefixes, windows).map_err(Fail::Message)
+        work(&self.marks)
     }
 }
 

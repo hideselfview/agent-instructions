@@ -2006,12 +2006,8 @@ fn the_picture_folder_caches_the_shots_of_the_prefixes_its_marks_cover_for_the_a
                 picture_folder_caches(&config, Lane::Mac, held, prefixes).unwrap()
             };
             assert!(!caches(&["mac.a."]), "the folder caches nothing yet");
-            let marks = shots::CaptureMarks::of(
-                &shots_cache::pictures(&places, "demo")
-                    .join("mac")
-                    .join(&tree),
-            );
-            marks.write(&["mac.".into()], false).unwrap();
+            held.write(&[shots::Prefix::parse("mac.").unwrap()], false)
+                .unwrap();
             assert!(caches(&["mac.a."]) && caches(&["mac.a.", "mac.b."]));
             Ok(())
         })

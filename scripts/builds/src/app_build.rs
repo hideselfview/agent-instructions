@@ -1164,13 +1164,13 @@ fn shot_prefixes(lane: Lane, picks: &[Pick]) -> Vec<&str> {
         .collect()
 }
 
-/// Whether the held tree <pictures> has every shot the runs of <prefixes>
+/// Whether the held tree has marks for every shot the runs of <prefixes>
 /// select for <lane>, so the lane needs no app build. <prefixes> holds the
 /// lane's shots picks, so it is never empty.
 fn picture_folder_caches(
     config: &Config,
     lane: Lane,
-    pictures: &shots_cache::AppPictures,
+    marks: &shots::CaptureMarks,
     prefixes: &[&str],
 ) -> Result<bool> {
     let Some(picker) = config.picker(lane, PickKind::Shots) else {
@@ -1180,7 +1180,9 @@ fn picture_folder_caches(
         return Err(missing_line(lane, PickKind::Shots, first));
     };
     let windows = picker.command.iter().any(|word| word == "--windows");
-    pictures.caches(prefixes, windows)
+    marks
+        .cover(prefixes, windows)
+        .map_err(|error| Fail::Message(error.to_string()))
 }
 
 /// What a shots run of a prefix compares with.
@@ -2041,14 +2043,7 @@ impl LaneBuild<'_> {
         let prefixes = shot_prefixes(lane, picks);
         let pictures =
             (!prefixes.is_empty()).then(|| shots_cache::AppPictures::of(places, repo, lane, &tree));
-        let run = |pictures: Option<&shots_cache::AppPictures>| {
-            let cached_shots = match pictures {
-                Some(pictures) if needs_only && !fresh => {
-                    picture_folder_caches(&self.config, lane, pictures, &prefixes)?
-                }
-                _ => false,
-            };
-            let names: &[String] = if cached_shots { &[] } else { names };
+        let run = |cached_shots| {
             let mut built = Vec::new();
             if let Some(base) = &self.base {
                 let (ended, made) =
@@ -2094,8 +2089,13 @@ impl LaneBuild<'_> {
             self.run_commit(site, held, built_file, timing, run)
         };
         match &pictures {
-            Some(pictures) => pictures.while_held(|pictures| run(Some(pictures))),
-            None => run(None),
+            Some(pictures) => pictures.while_held(|marks| {
+                let cached_shots = needs_only
+                    && !fresh
+                    && picture_folder_caches(&self.config, lane, marks, &prefixes)?;
+                run(cached_shots)
+            }),
+            None => run(false),
         }
     }
 
@@ -2319,8 +2319,8 @@ impl LaneBuild<'_> {
             .iter()
             .map(|(_, _, prefix)| prefix.as_str())
             .collect::<Vec<_>>();
-        let ran = pictures.while_held(|pictures| {
-            let cached_shots = picture_folder_caches(&config, lane, pictures, &prefixes)?;
+        let ran = pictures.while_held(|marks| {
+            let cached_shots = picture_folder_caches(&config, lane, marks, &prefixes)?;
             let run = CommitRun {
                 sha: &sha,
                 config: &config,

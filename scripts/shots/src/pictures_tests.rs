@@ -145,10 +145,20 @@ fn a_taken_prefix_is_marked_with_whether_the_run_took_the_window_shots() {
     let dir = tempfile::tempdir().unwrap();
     let pictures = Pictures::new(dir.path().to_path_buf(), std::time::SystemTime::now());
     pictures
-        .mark_taken(Platform::Mac, "tree1", &["mac.a.".to_string()], true)
+        .mark_taken(
+            Platform::Mac,
+            "tree1",
+            &[Prefix::parse("mac.a.").unwrap()],
+            true,
+        )
         .unwrap();
     pictures
-        .mark_taken(Platform::Mac, "tree1", &["mac.b.".to_string()], false)
+        .mark_taken(
+            Platform::Mac,
+            "tree1",
+            &[Prefix::parse("mac.b.").unwrap()],
+            false,
+        )
         .unwrap();
     let taken = dir.path().join("mac/tree1/.taken");
     assert!(taken.join("mac.a.@windows").is_file());

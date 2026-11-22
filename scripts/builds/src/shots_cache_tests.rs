@@ -563,19 +563,19 @@ fn a_lane_can_read_its_cached_app_pictures_after_a_prune_between_steps() {
         fill(&tree.join(shot), 400);
         std::fs::write(tree.join("mac.a.b@macos.json"), "{}").unwrap();
         CaptureMarks::of(tree)
-            .write(&["mac.a.".into()], true)
+            .write(&[shots::Prefix::parse("mac.a.").unwrap()], true)
             .unwrap();
         crate::testing::age_all(tree, 2);
     }
     let pictures = AppPictures::of(&places, "demo", Lane::Mac, "active");
     pictures
         .while_held(|pictures| {
-            assert!(pictures.caches(&["mac.a."], true).unwrap());
+            assert!(pictures.cover(&["mac.a."], true).unwrap());
 
             prune_runs(&tool, Run::Real, 100).unwrap();
 
             assert!(lane_tree.join(shot).is_file());
-            assert!(pictures.caches(&["mac.a."], true).unwrap());
+            assert!(pictures.cover(&["mac.a."], true).unwrap());
             assert!(!other_tree.exists());
             Ok(())
         })

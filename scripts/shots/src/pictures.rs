@@ -17,8 +17,8 @@
 //! and renames it into place, the element list before the picture, so a
 //! picture whose element list is missing is never there.
 
-use crate::CaptureMarks;
-use crate::names::{Name, Platform};
+use crate::names::{Name, Platform, Prefix};
+use crate::{CaptureMarkError, CaptureMarks};
 use std::path::{Path, PathBuf};
 
 /// A picture folder.
@@ -142,9 +142,9 @@ impl Pictures {
         &self,
         platform: Platform,
         tree: &str,
-        prefixes: &[String],
+        prefixes: &[Prefix],
         windows: bool,
-    ) -> Result<(), String> {
+    ) -> Result<(), CaptureMarkError> {
         CaptureMarks::of(&self.shots_dir(platform, tree)).write(prefixes, windows)
     }
 

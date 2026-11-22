@@ -7,7 +7,7 @@ use boards::component_key::ComponentKey;
 use std::fmt;
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
-pub(crate) enum NameError {
+pub enum NameError {
     #[error("'{0}' is not a board name: {1}")]
     Invalid(String, &'static str),
 }
@@ -100,13 +100,13 @@ impl Name {
 /// The start of board names a run is limited to: `mac.welcome.` is the Mac
 /// welcome boards, `mac.component.row.` one component's states.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Prefix {
+pub struct Prefix {
     platform: Platform,
     text: String,
 }
 
 impl Prefix {
-    pub(crate) fn parse(text: &str) -> Result<Self, NameError> {
+    pub fn parse(text: &str) -> Result<Self, NameError> {
         let invalid = |why| NameError::Invalid(text.to_string(), why);
         let (platform, rest) = text
             .split_once('.')
@@ -125,6 +125,13 @@ impl Prefix {
             platform,
             text: text.to_string(),
         })
+    }
+
+    pub(crate) fn all_of(platform: Platform) -> Self {
+        Self {
+            platform,
+            text: format!("{}.", platform.word()),
+        }
     }
 
     pub(crate) fn platform(&self) -> Platform {

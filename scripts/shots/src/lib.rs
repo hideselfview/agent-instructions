@@ -27,10 +27,10 @@ mod shots;
 mod states;
 mod verify;
 
-pub use crate::capture_marks::{CAPTURE_MARKS_DIR, CaptureMarks};
+pub use crate::capture_marks::{CAPTURE_MARKS_DIR, CaptureMarkError, CaptureMarks};
 pub use crate::declared::Declared;
-pub use crate::names::{ComponentName, Name, ScreenName};
-use crate::names::{Platform, Prefix};
+use crate::names::Platform;
+pub use crate::names::{ComponentName, Name, NameError, Prefix, ScreenName};
 use crate::settings::Settings;
 use clap::{Args, Parser, Subcommand};
 use std::path::{Path, PathBuf};
@@ -306,12 +306,14 @@ fn capture(
                     taken.names.len(),
                     platform.word()
                 ));
-                pictures.mark_taken(
-                    platform,
-                    tree,
-                    &taken_prefixes(platform, &selection.prefixes),
-                    selection.windows,
-                )?;
+                pictures
+                    .mark_taken(
+                        platform,
+                        tree,
+                        &taken_prefixes(platform, &selection.prefixes),
+                        selection.windows,
+                    )
+                    .map_err(|error| error.to_string())?;
                 all.names.extend(taken.names);
                 all.not_taken.extend(taken.not_taken);
                 continue;
@@ -348,12 +350,14 @@ fn capture(
             // The mark says the folder keeps every shot the prefixes select,
             // which a failed shot makes untrue.
             if taken.failed.is_empty() {
-                pictures.mark_taken(
-                    platform,
-                    tree,
-                    &taken_prefixes(platform, &selection.prefixes),
-                    selection.windows,
-                )?;
+                pictures
+                    .mark_taken(
+                        platform,
+                        tree,
+                        &taken_prefixes(platform, &selection.prefixes),
+                        selection.windows,
+                    )
+                    .map_err(|error| error.to_string())?;
             }
         }
         all.names.extend(taken.names);
@@ -387,14 +391,14 @@ struct Kept<'a> {
 
 /// The prefixes of <platform> a run of <prefixes> takes every shot of: those
 /// of the platform, or the platform's every shot when none is given.
-fn taken_prefixes(platform: Platform, prefixes: &[Prefix]) -> Vec<String> {
+fn taken_prefixes(platform: Platform, prefixes: &[Prefix]) -> Vec<Prefix> {
     if prefixes.is_empty() {
-        return vec![format!("{}.", platform.word())];
+        return vec![Prefix::all_of(platform)];
     }
     prefixes
         .iter()
         .filter(|prefix| prefix.platform() == platform)
-        .map(|prefix| prefix.as_str().to_string())
+        .cloned()
         .collect()
 }
 
