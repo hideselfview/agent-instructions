@@ -1039,3 +1039,67 @@ fn a_job_on_a_mac_holds_the_hosts_window_lock_while_it_runs() {
     let held = std::fs::read_to_string(wts.join("holder.txt")).unwrap();
     assert!(held.contains("No such file"), "{held}");
 }
+
+fn sh(script: &str) -> Command {
+    let mut command = Command::new("sh");
+    command.args(["-c", script]);
+    command
+}
+
+/// Runs `pipe_within` on another thread, so a copy that never ends fails the
+/// test instead of hanging it.
+fn piped(sender: Command, receiver: Command, stall: Duration) -> Result<()> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(pipe_within(sender, receiver, "the test files", stall));
+    });
+    rx.recv_timeout(Duration::from_secs(20))
+        .expect("the copy never ended")
+}
+
+#[test]
+fn a_copy_whose_receiving_end_dies_fails_and_stops_the_sending_end() {
+    let error = piped(
+        sh("yes"),
+        sh("echo gone >&2; exit 3"),
+        Duration::from_secs(60),
+    )
+    .unwrap_err()
+    .text();
+    assert!(error.contains("receiving the test files failed"), "{error}");
+    assert!(error.contains("gone"), "{error}");
+}
+
+#[test]
+fn a_copy_that_stops_moving_fails_naming_what_it_copied() {
+    let error = piped(
+        sh("echo start; sleep 60"),
+        sh("cat > /dev/null"),
+        Duration::from_secs(1),
+    )
+    .unwrap_err()
+    .text();
+    assert!(
+        error.contains("copying the test files stopped moving for 1s"),
+        "{error}"
+    );
+}
+
+#[test]
+fn a_copy_that_moves_and_ends_succeeds_and_a_failing_sender_fails() {
+    piped(
+        sh("head -c 3000000 /dev/zero"),
+        sh("wc -c > /dev/null"),
+        Duration::from_secs(60),
+    )
+    .unwrap();
+    let error = piped(
+        sh("echo no >&2; exit 2"),
+        sh("cat > /dev/null"),
+        Duration::from_secs(60),
+    )
+    .unwrap_err()
+    .text();
+    assert!(error.contains("copying the test files failed"), "{error}");
+    assert!(error.contains("no"), "{error}");
+}
