@@ -3,7 +3,7 @@
 
 use super::normalize::Entry;
 use super::{DELTA_E_TOLERANCE, Part, Side, Warning};
-use crate::shots::{Bounds, Picture};
+use crate::shots::{Bounds, Picture, Role};
 use std::collections::HashMap;
 
 pub(crate) type Rgb = [u8; 3];
@@ -121,13 +121,6 @@ pub(crate) fn pixel(picture: &Picture, x: i64, y: i64) -> Option<Rgb> {
     ])
 }
 
-fn most_frequent(counts: &HashMap<Rgb, usize>) -> Option<Rgb> {
-    counts
-        .iter()
-        .max_by_key(|(colour, count)| (**count, **colour))
-        .map(|(colour, _)| *colour)
-}
-
 /// The colour that fills most of a box, counting colours within
 /// [`DELTA_E_TOLERANCE`] of each other as one: a background drawn as a glow
 /// of many near shades counts as a whole, and a text's one fill never wins
@@ -156,12 +149,50 @@ fn background_of(counts: &HashMap<Rgb, usize>) -> Option<(Rgb, Lab)> {
         .map(|(colour, lab, _)| (colour, lab))
 }
 
-/// The background and foreground of `bounds` (points from the picture's
-/// top-left, `scale` pixels to the point): the colour that fills most of the
-/// box, counted with its near shades ([`background_of`]), and the most frequent
-/// single colour far from it. The foreground is absent when the box holds one
-/// colour.
-pub(crate) fn palette(picture: &Picture, scale: f64, bounds: Bounds) -> Option<(Rgb, Option<Rgb>)> {
+fn dot(first: [i32; 3], second: [i32; 3]) -> i32 {
+    first.into_iter().zip(second).map(|(a, b)| a * b).sum()
+}
+
+/// Follow the dominant foreground colour away from the background to find
+/// the glyph pixels with the highest coverage. Another colour inside the
+/// text box can have more contrast without lying on that blend line.
+fn glyph_colour(background: Rgb, mode: (Rgb, usize), colours: &[(Rgb, usize)]) -> Rgb {
+    let offset = |colour: Rgb| {
+        std::array::from_fn(|channel| i32::from(colour[channel]) - i32::from(background[channel]))
+    };
+    let dominant = offset(mode.0);
+    let mut strongest = (dot(dominant, dominant), mode.1, mode.0);
+    for &(colour, count) in colours {
+        let candidate = offset(colour);
+        let distance = dot(candidate, candidate);
+        let key = (distance, count, colour);
+        if key <= strongest {
+            continue;
+        }
+        let coverage = f64::from(dot(dominant, candidate)) / f64::from(distance);
+        // The dominant colour can be a partial blend of this candidate
+        // with the background. Allow one RGB step for 8-bit rounding.
+        if (0.0..=1.0).contains(&coverage)
+            && dominant
+                .into_iter()
+                .zip(candidate)
+                .all(|(sample, full)| (f64::from(sample) - coverage * f64::from(full)).abs() <= 1.0)
+        {
+            strongest = key;
+        }
+    }
+    strongest.2
+}
+
+/// The dominant background and the foreground of `bounds`, in points
+/// from the picture's top-left. Text uses the glyph colour. Other elements
+/// use the most frequent foreground colour.
+fn palette(
+    picture: &Picture,
+    scale: f64,
+    bounds: Bounds,
+    role: Role,
+) -> Option<(Rgb, Option<Rgb>)> {
     let (left, top) = (
         (bounds.x * scale).round() as i64,
         (bounds.y * scale).round() as i64,
@@ -177,11 +208,19 @@ pub(crate) fn palette(picture: &Picture, scale: f64, bounds: Bounds) -> Option<(
         }
     }
     let (background, lab) = background_of(&counts)?;
-    let far: HashMap<Rgb, usize> = counts
+    let far: Vec<_> = counts
         .into_iter()
         .filter(|(colour, _)| delta_e(lab, Lab::of(*colour)) > FAR_FROM_BACKGROUND)
         .collect();
-    Some((background, most_frequent(&far)))
+    let mode = far
+        .iter()
+        .copied()
+        .max_by_key(|(colour, count)| (*count, *colour));
+    let foreground = mode.map(|mode| match role {
+        Role::Text => glyph_colour(background, mode, &far),
+        _ => mode.0,
+    });
+    Some((background, foreground))
 }
 
 /// `#RRGGBB`.
@@ -189,19 +228,7 @@ pub(crate) fn hex(colour: Rgb) -> String {
     format!("#{:02X}{:02X}{:02X}", colour[0], colour[1], colour[2])
 }
 
-/// The colour of a style's `#RRGGBBAA` (or `#RRGGBB`), alpha dropped.
-pub(crate) fn parse_hex(text: &str) -> Option<Rgb> {
-    let digits = text.strip_prefix('#')?;
-    if !(digits.len() == 6 || digits.len() == 8) || !digits.is_ascii() {
-        return None;
-    }
-    let channel = |at: usize| u8::from_str_radix(&digits[at..at + 2], 16).ok();
-    Some([channel(0)?, channel(2)?, channel(4)?])
-}
-
-/// The colour warnings of the pairs: each element's background and
-/// foreground in its own picture, and a text's colour from its style where
-/// both sides give one.
+/// The colour warnings of the pairs, measured from each element's picture.
 pub(crate) fn pairs(board: &Side, shot: &Side, pairs: &[(Entry, Entry)]) -> Vec<Warning> {
     let mut warnings = Vec::new();
     let mut differ = |entry: &Entry, part: Part, from: Rgb, to: Rgb| {
@@ -217,24 +244,23 @@ pub(crate) fn pairs(board: &Side, shot: &Side, pairs: &[(Entry, Entry)]) -> Vec<
         }
     };
     for (b, s) in pairs {
-        let (from, to) = (&board.elements[b.index], &shot.elements[s.index]);
         if let (Some((from_back, from_fore)), Some((to_back, to_fore))) = (
-            palette(board.picture, board.scale, b.bounds(board.elements)),
-            palette(shot.picture, shot.scale, to.bounds),
+            palette(board.picture, board.scale, b.bounds(board.elements), b.kind),
+            palette(
+                shot.picture,
+                shot.scale,
+                shot.elements[s.index].bounds,
+                s.kind,
+            ),
         ) {
             differ(b, Part::Background, from_back, to_back);
             if let (Some(from_fore), Some(to_fore)) = (from_fore, to_fore) {
-                differ(b, Part::Foreground, from_fore, to_fore);
+                let part = match b.kind {
+                    Role::Text => Part::Text,
+                    _ => Part::Foreground,
+                };
+                differ(b, part, from_fore, to_fore);
             }
-        }
-        let styled = |e: &crate::shots::Element| {
-            e.text
-                .as_ref()
-                .and_then(|t| t.color.as_deref())
-                .and_then(parse_hex)
-        };
-        if let (Some(from), Some(to)) = (styled(from), styled(to)) {
-            differ(b, Part::Text, from, to);
         }
     }
     warnings

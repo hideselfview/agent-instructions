@@ -90,7 +90,7 @@ fn the_background_is_the_most_common_colour_and_the_foreground_the_most_frequent
         width: 10.0,
         height: 10.0,
     };
-    let (background, foreground) = palette(&picture, 1.0, bounds).unwrap();
+    let (background, foreground) = palette(&picture, 1.0, bounds, Role::Button).unwrap();
     assert_eq!(background, dark);
     assert_eq!(foreground, Some(white));
 }
@@ -117,7 +117,7 @@ fn a_background_of_many_near_shades_beats_a_text_of_one_fill() {
         width: 10.0,
         height: 10.0,
     };
-    let (background, foreground) = palette(&picture, 1.0, bounds).unwrap();
+    let (background, foreground) = palette(&picture, 1.0, bounds, Role::Text).unwrap();
     assert!(rgb_delta(background, [21, 20, 33]) < 6.0, "{background:?}");
     assert_eq!(foreground, Some(text));
 }
@@ -131,7 +131,10 @@ fn a_box_of_one_colour_has_no_foreground() {
         width: 4.0,
         height: 4.0,
     };
-    assert_eq!(palette(&picture, 1.0, bounds), Some(([9, 9, 9], None)));
+    assert_eq!(
+        palette(&picture, 1.0, bounds, Role::Text),
+        Some(([9, 9, 9], None))
+    );
 }
 
 #[test]
@@ -144,14 +147,14 @@ fn a_box_is_read_in_pixels_at_the_scale() {
         width: 2.0,
         height: 2.0,
     };
-    assert_eq!(palette(&picture, 2.0, bounds).unwrap().0, [255, 0, 0]);
+    assert_eq!(
+        palette(&picture, 2.0, bounds, Role::Text).unwrap().0,
+        [255, 0, 0]
+    );
 }
 
 #[test]
-fn hex_colours_round_trip_without_alpha() {
-    assert_eq!(parse_hex("#FFFFFF80"), Some([255, 255, 255]));
-    assert_eq!(parse_hex("#0a141E"), Some([10, 20, 30]));
-    assert_eq!(parse_hex("white"), None);
+fn hex_formats_colours() {
     assert_eq!(hex([10, 20, 30]), "#0A141E");
 }
 
@@ -164,9 +167,8 @@ fn side<'a>(elements: &'a [crate::shots::Element], picture: &'a Picture) -> Side
     }
 }
 
-fn labelled(words: &str, colour: Option<&str>) -> crate::shots::Element {
-    let mut e =
-        crate::compare::normalize::tests::element(crate::shots::Role::Text, Some(words), None);
+fn labelled(role: Role, words: &str, colour: Option<&str>) -> crate::shots::Element {
+    let mut e = crate::compare::normalize::tests::element(role, Some(words), None);
     e.bounds = Bounds {
         x: 0.0,
         y: 0.0,
@@ -181,10 +183,13 @@ fn labelled(words: &str, colour: Option<&str>) -> crate::shots::Element {
     e
 }
 
-fn warn(board: (&Picture, Option<&str>), shot: (&Picture, Option<&str>)) -> Vec<String> {
-    let (b, s) = ([labelled("Word", board.1)], [labelled("Word", shot.1)]);
+fn warn(role: Role, board: &Picture, shot: &Picture) -> Vec<String> {
+    let (b, s) = (
+        [labelled(role, "Word", None)],
+        [labelled(role, "Word", None)],
+    );
     let found = crate::compare::compare(&b, &s, crate::compare::Slots::NONE);
-    pairs(&side(&b, board.0), &side(&s, shot.0), &found.pairs)
+    pairs(&side(&b, board), &side(&s, shot), &found.pairs)
         .iter()
         .map(Warning::sentence)
         .collect()
@@ -195,8 +200,8 @@ fn a_background_past_three_warns_and_one_within_it_does_not() {
     let base = picture(8, 8, |_, _| [40, 40, 48]);
     let near = picture(8, 8, |_, _| [41, 40, 48]);
     let far = picture(8, 8, |_, _| [60, 40, 48]);
-    assert!(warn((&base, None), (&near, None)).is_empty());
-    let found = warn((&base, None), (&far, None));
+    assert!(warn(Role::Text, &base, &near).is_empty());
+    let found = warn(Role::Text, &base, &far);
     assert_eq!(found.len(), 1);
     assert!(
         found[0].starts_with(
@@ -209,23 +214,72 @@ fn a_background_past_three_warns_and_one_within_it_does_not() {
 #[test]
 fn a_foreground_is_compared_where_both_pictures_have_one() {
     let draw = |ink: Rgb| picture(8, 8, move |x, _| if x < 3 { ink } else { [40, 40, 48] });
-    let found = warn(
-        (&draw([240, 240, 240]), None),
-        (&draw([200, 240, 240]), None),
-    );
+    let found = warn(Role::Button, &draw([240, 240, 240]), &draw([200, 240, 240]));
     assert_eq!(found.len(), 1);
     assert!(found[0].starts_with("The foreground of"), "{found:?}");
     let flat = picture(8, 8, |_, _| [40, 40, 48]);
-    assert!(warn((&draw([240, 240, 240]), None), (&flat, None)).is_empty());
+    assert!(warn(Role::Button, &draw([240, 240, 240]), &flat).is_empty());
 }
 
 #[test]
-fn a_text_colour_from_the_style_is_compared_where_both_sides_give_it() {
-    let flat = picture(8, 8, |_, _| [40, 40, 48]);
-    let found = warn((&flat, Some("#FFFFFFFF")), (&flat, Some("#E0E0E0FF")));
+fn different_glyph_colours_warn() {
+    let draw = |ink: Rgb| picture(8, 8, move |x, _| if x < 3 { ink } else { [40, 40, 48] });
+    let found = warn(Role::Text, &draw([255, 255, 255]), &draw([224, 224, 224]));
     assert_eq!(found.len(), 1);
     assert!(
         found[0].starts_with("The colour of the text “Word” is #FFFFFF on the board and #E0E0E0")
     );
-    assert!(warn((&flat, Some("#FFFFFFFF")), (&flat, None)).is_empty());
+}
+
+#[test]
+fn rendered_glyphs_of_the_same_colour_do_not_warn() {
+    // The board and Mac shot of “Enter a name.”, cropped to the text bounds.
+    // The Mac's accessibility style gives a lighter colour than the glyphs.
+    let board = Picture::decode(include_bytes!("fixtures/error-text-board.png")).unwrap();
+    let shot = Picture::decode(include_bytes!("fixtures/error-text-shot.png")).unwrap();
+    let drawn = |picture: &Picture, colour| {
+        let mut element = labelled(Role::Text, "Enter a name.", Some(colour));
+        element.bounds.width = f64::from(picture.width);
+        element.bounds.height = f64::from(picture.height);
+        [element]
+    };
+    let b = drawn(&board, "#F26877FF");
+    let s = drawn(&shot, "#F7808AFF");
+    let found = crate::compare::compare(&b, &s, crate::compare::Slots::NONE);
+    let warnings = pairs(&side(&b, &board), &side(&s, &shot), &found.pairs);
+    assert!(warnings.is_empty(), "{warnings:?}");
+}
+
+#[test]
+fn glyphs_keep_their_colour_when_edge_pixels_outnumber_stem_pixels() {
+    for (background, ink, edge) in [
+        ([40, 40, 48], [240, 240, 240], [140, 140, 144]),
+        ([240, 240, 240], [20, 20, 28], [130, 130, 134]),
+    ] {
+        let draw = |edge| {
+            picture(8, 8, |x, _| match x {
+                0 | 2 => edge,
+                1 => ink,
+                _ => background,
+            })
+        };
+        let board = draw(ink);
+        let shot = draw(edge);
+        let warnings = warn(Role::Text, &board, &shot);
+        assert!(warnings.is_empty(), "{warnings:?}");
+    }
+}
+
+#[test]
+fn text_ignores_a_contrasting_control_inside_its_bounds() {
+    let ink = [155, 155, 162];
+    let background = [34, 34, 48];
+    let board = picture(8, 8, |x, _| match x {
+        0..=2 => ink,
+        3 => [238, 152, 193],
+        _ => background,
+    });
+    let shot = picture(8, 8, |x, _| if x <= 2 { ink } else { background });
+    let warnings = warn(Role::Text, &board, &shot);
+    assert!(warnings.is_empty(), "{warnings:?}");
 }
