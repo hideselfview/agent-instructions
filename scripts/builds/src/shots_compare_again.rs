@@ -172,6 +172,9 @@ fn findings_from(source: &Cached, again: &str, key: &Key) -> Result<(String, boo
     // them. The rest of the file records the pictures and stays.
     file["version"] = again["version"].clone();
     file["findings"] = again["findings"].clone();
+    if !again["seen"].is_object() {
+        fail!("`builds shots recheck` printed no elements read (`seen`) for the run");
+    }
     file["seen"] = again["seen"].clone();
     let Some(passed) = again["passed"].as_bool() else {
         fail!("`builds shots recheck` printed no verdict (`passed`) on the run");

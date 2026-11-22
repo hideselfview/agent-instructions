@@ -165,6 +165,28 @@ fn the_run_a_branch_compares_with_is_made_by_comparing_the_base_s_cached_run_aga
 }
 
 #[test]
+fn a_comparison_that_prints_no_elements_read_makes_no_run() {
+    let scratch = Scratch::new("compare-again-no-seen");
+    let places = scratch.places();
+    let capture = VERSIONS.capture.as_str();
+    cache_run(&places, &key(capture, "old-comparison"));
+    let program = scratch.dir.join("program.sh");
+    std::fs::write(
+        &program,
+        format!(
+            "#!/bin/sh\necho '{{\"version\": \"{}\", \"capture_version\": \"{capture}\", \"commit\": \"c\", \"passed\": true, \"scenes\": [\"mac.a\"], \"findings\": []}}'\n",
+            VERSIONS.comparison
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let new = key(capture, &VERSIONS.comparison);
+    let error = lookup(&places, &new, &program).unwrap_err().text();
+    assert!(error.contains("`seen`"), "{error}");
+    assert!(shots_cache::lookup(&places, &new).unwrap().is_none());
+}
+
+#[test]
 fn a_change_to_the_capture_compares_nothing_again() {
     let scratch = Scratch::new("compare-again-capture");
     let places = scratch.places();

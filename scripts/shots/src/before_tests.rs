@@ -205,7 +205,7 @@ fn a_finding_on_an_element_the_before_run_reported_extra_is_a_first_observation(
 }
 
 /// A text element as a record names it.
-fn text_element(words: &str) -> Element {
+fn text(words: &str) -> Element {
     element("text", words)
 }
 
@@ -216,15 +216,11 @@ fn a_finding_on_a_row_the_before_run_never_had_in_view_is_a_first_observation() 
     // time, whichever side lacks it.
     let before = before();
     let new_row = [
-        What::Missing {
-            element: text_element("7"),
-        },
+        What::Missing { element: text("7") },
         What::Extra {
-            element: text_element("7 Weather Report Card 3:34"),
+            element: text("7 Weather Report Card 3:34"),
         },
-        What::OutOfOrder {
-            element: text_element("7"),
-        },
+        What::OutOfOrder { element: text("7") },
     ];
     let mut findings = vec![missing(), slider("0.3366")];
     findings.extend(new_row);
@@ -238,11 +234,9 @@ fn a_finding_on_an_element_the_before_run_compared_is_still_worse_beside_new_row
     let findings = [
         missing(),
         slider("0.3366"),
+        What::Missing { element: text("7") },
         What::Missing {
-            element: text_element("7"),
-        },
-        What::Missing {
-            element: text_element("Beta"),
+            element: text("Beta"),
         },
     ];
     assert_eq!(before.against("mac.a.b", &findings), Against::Worse);
@@ -313,26 +307,6 @@ fn a_value_that_is_no_number_counts_as_farther_than_a_number() {
         before.against("s", &[state("35", "10")]),
         Against::Held,
         "a field's text is no measured number, even when it parses as one"
-    );
-}
-
-#[test]
-fn a_file_with_no_seen_list_excuses_no_finding() {
-    let text = serde_json::json!({
-        "version": "v1", "capture_version": "c1", "commit": "abc", "scenes": ["s"], "failed": [], "problems": 0,
-        "sizes": {}, "components": [], "findings": [],
-    })
-    .to_string();
-    let before = Before::parse(&text, "before.json", "v1").unwrap();
-    assert_eq!(
-        before.against(
-            "s",
-            &[What::Missing {
-                element: text_element("7")
-            }]
-        ),
-        Against::Worse,
-        "with no list of what the base compared, no element is new to it"
     );
 }
 
