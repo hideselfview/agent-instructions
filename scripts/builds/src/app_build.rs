@@ -1030,9 +1030,12 @@ struct ShotsCache {
 fn tip_declared<'a>(cache: &'a mut Option<Vec<String>>, source: &Path) -> Result<&'a [String]> {
     if cache.is_none() {
         let tip = resolve(source, "origin/main")?;
-        *cache = Some(crate::shots_declared::declared_names_at(source, &tip)?);
+        let names = crate::shots_declared::declared_names_at(source, &tip)?;
+        return Ok(cache.insert(names));
     }
-    Ok(cache.as_deref().unwrap_or_default())
+    cache
+        .as_deref()
+        .ok_or_else(|| Fail::Message("the declared shots of origin/main were not read".to_string()))
 }
 
 impl ShotsCache {
@@ -1761,17 +1764,10 @@ pub fn ensure_before_runs(
         )
     };
     if let Plan::Covered(new) = plan_now()? {
-        let named = |picks: &[Pick]| {
-            picks
-                .iter()
-                .map(|(_, _, prefix)| prefix.as_str())
-                .collect::<Vec<_>>()
-                .join(", ")
-        };
         if !new.is_empty() {
             note(format!(
                 "{} start no shot that origin/main declares at {}, so their runs compare with nothing and every scene they select is new",
-                named(&new),
+                prefixes_of(&new),
                 short_of(&tip)
             ));
         }
@@ -1808,11 +1804,7 @@ pub fn ensure_before_runs(
     let versions = &crate::shots_program::VERSIONS;
     note(format!(
         "builds has no cached run of {} on origin/main ({}) by shots checker {} (comparison) over {} (capture): building origin/main and running only them there, once for every build of the lane",
-        wanted
-            .iter()
-            .map(|(_, _, prefix)| prefix.as_str())
-            .collect::<Vec<_>>()
-            .join(", "),
+        prefixes_of(&wanted),
         short_of(&tip),
         versions.comparison,
         versions.capture
@@ -1855,6 +1847,15 @@ pub fn ensure_before_runs(
             }
         }
     }
+}
+
+/// The prefixes of <picks>, joined for a line of output.
+fn prefixes_of(picks: &[Pick]) -> String {
+    picks
+        .iter()
+        .map(|(_, _, prefix)| prefix.as_str())
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// The pids of the lanes' processes, for the signal handler to pass on to.
