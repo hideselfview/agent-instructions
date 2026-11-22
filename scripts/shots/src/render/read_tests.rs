@@ -306,7 +306,7 @@ async fn a_board_reads_as_the_shots_do() {
     assert_eq!(empty.placeholder.as_deref(), Some("Restore code"));
     assert_eq!(
         find(&elements, Role::Field, "Secret").value.as_deref(),
-        Some("\u{F79A}\u{F79A}\u{F79A}"),
+        Some("\u{F79A}"),
         "a password field reads masked, as a Mac's secure field does"
     );
     assert_eq!(
@@ -469,10 +469,7 @@ fn a_password_field_reads_masked_as_each_platform_masks_it() {
             .unwrap()
             .value
     };
-    assert_eq!(
-        value(Platform::Mac).as_deref(),
-        Some("\u{F79A}\u{F79A}\u{F79A}\u{F79A}")
-    );
+    assert_eq!(value(Platform::Mac).as_deref(), Some("\u{F79A}"));
     assert_eq!(
         value(Platform::Android).as_deref(),
         Some("\u{2022}\u{2022}\u{2022}\u{2022}")
@@ -480,5 +477,27 @@ fn a_password_field_reads_masked_as_each_platform_masks_it() {
     assert_eq!(
         value(Platform::Web).as_deref(),
         Some("\u{2022}\u{2022}\u{2022}\u{2022}")
+    );
+}
+
+#[test]
+fn mac_masking_uses_empty_and_filled_states_only_for_passwords() {
+    let mut empty = named(node("2", "textbox", &[]), "Empty password");
+    empty.secret = true;
+    let mut plain = named(node("3", "textbox", &[]), "Ordinary field");
+    plain.value = Some("\u{F79A}\u{F79A}".to_string());
+    let raw = [node("1", "RootWebArea", &["2", "3"]), empty, plain];
+    let elements = build(&raw, Platform::Mac).unwrap();
+    assert_eq!(
+        find(&elements, Role::Field, "Empty password")
+            .value
+            .as_deref(),
+        Some("")
+    );
+    assert_eq!(
+        find(&elements, Role::Field, "Ordinary field")
+            .value
+            .as_deref(),
+        Some("\u{F79A}\u{F79A}")
     );
 }

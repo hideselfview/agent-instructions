@@ -226,16 +226,15 @@ fn element(
     }
 }
 
-/// What a password field holds as its platform reports it: one mask
-/// character for each character typed. The board's DOM holds the typed text
-/// itself; macOS reports its secure field's private-use bullet, and Compose
-/// its password field's bullet, as Chrome's accessibility tree does.
+/// The masked value a board writes for a password field. Mac comparisons
+/// keep whether the field is filled because native secure controls report
+/// different numbers of bullets. Compose and Chrome use one per character.
 fn masked(typed: &str, platform: Platform) -> String {
-    let mask = match platform {
-        Platform::Mac => '\u{F79A}',
-        Platform::Android | Platform::Web => '\u{2022}',
-    };
-    typed.chars().map(|_| mask).collect()
+    match platform {
+        Platform::Mac if typed.is_empty() => String::new(),
+        Platform::Mac => "\u{F79A}".to_string(),
+        Platform::Android | Platform::Web => typed.chars().map(|_| '\u{2022}').collect(),
+    }
 }
 
 /// What a DOM node reports about its box and its font.
