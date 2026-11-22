@@ -92,9 +92,8 @@ pub fn standing(
                 if !reviewed.insert(finding.run_id) {
                     continue;
                 }
-                let is = |owner: &crate::ack::agent::Caller| match &judge {
-                    Some(judge) => judge.is(owner),
-                    None => !owner.is_dispatched(),
+                let is = |owner: &crate::ack::agent::Caller| {
+                    crate::review::judge::would_settle(judge.as_ref(), owner)
                 };
                 if crate::review::judge::owner_matches(&conn, finding, is).map_err(Fail::text)? {
                     settler = Settler::Independent;

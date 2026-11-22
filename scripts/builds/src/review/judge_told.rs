@@ -153,7 +153,9 @@ fn waiting_in(db: &Connection) -> Result<Vec<Waiting>> {
 fn untold(db: &Connection, judge: &Judge) -> Result<Vec<Waiting>> {
     let mut candidates = Vec::new();
     for waiting in waiting_in(db)? {
-        if judge::owner_matches(db, &waiting.finding, |owner| judge.is(owner))? {
+        if judge::owner_matches(db, &waiting.finding, |owner| {
+            judge::would_settle(Some(judge), owner)
+        })? {
             continue;
         }
         let (told, writer) = tell_of(db, waiting.finding.id, waiting.matter)?;

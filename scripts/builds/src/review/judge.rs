@@ -155,6 +155,16 @@ pub fn branch_agent(db: &Connection, run: i64) -> Result<Option<Caller>> {
     .sql()
 }
 
+/// Whether <owner>, the agent that ran a review, is the one that would settle
+/// its findings: the project's <judge> while one listens, else a session's
+/// main agent, the coordinator. Such a review needs an independent settler.
+pub fn would_settle(judge: Option<&Judge>, owner: &Caller) -> bool {
+    match judge {
+        Some(judge) => judge.is(owner),
+        None => !owner.is_dispatched(),
+    }
+}
+
 /// Whether <finding>'s review belongs to an agent that matches <is>.
 pub fn owner_matches(
     db: &Connection,
@@ -377,7 +387,7 @@ pub fn tell(
     );
     let asked = &notice.asked;
     if let Some(judge) = listening(&db, sessions)? {
-        if has_owner(&db, notice, |owner| judge.is(owner))? {
+        if has_owner(&db, notice, |owner| would_settle(Some(&judge), owner))? {
             return Ok(format!(
                 "{} ran the review and cannot settle its findings. Ask an independent session to register as judge. {waits}",
                 judge.by
