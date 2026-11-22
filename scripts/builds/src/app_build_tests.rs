@@ -1341,6 +1341,17 @@ fn a_store(places: &Places) -> ShotsCache {
         no_capture: false,
         retake: false,
         base_run: false,
+        bases: [
+            "mac.",
+            "mac.a.",
+            "mac.b.",
+            "mac.c.",
+            "mac.settings.",
+            "mac.welcome.",
+            "mac.x.",
+        ]
+        .map(|prefix| (prefix.to_string(), BaseRun::Saved))
+        .to_vec(),
     }
 }
 
@@ -1556,6 +1567,7 @@ fn a_build_that_reuses_a_cached_run_leaves_the_passing_build_that_land_counts() 
             wall_ms: 1,
             cpu_ms: 1,
             result,
+            shots: None,
         };
         let run = RunRecord {
             started_at: 5,
@@ -1780,6 +1792,7 @@ fn a_lanes_shots_runs_compare_with_the_cached_run_of_the_merge_base_and_a_run_of
             false,
             false,
             false,
+            &[],
             Path::new("/nonexistent/builds"),
         )
     };
@@ -1830,10 +1843,12 @@ fn a_prefix_that_starts_no_shot_declared_at_the_merge_base_compares_with_no_run(
         false,
         false,
         false,
+        &[],
         Path::new("/nonexistent/builds"),
     )
     .unwrap();
     assert!(store.befores.is_empty());
+    assert_eq!(store.bases, [("mac.new.".to_string(), BaseRun::NotNeeded)]);
 }
 
 #[test]
@@ -2037,4 +2052,81 @@ fn an_agent_option_does_not_hide_a_build_request_or_lane() {
         ])),
         Some("abc")
     );
+}
+
+/// A shots step that takes its shots from the picture folder prints this
+/// line (scripts/shots/src/lib.rs `capture`).
+const TOOK_FROM_FOLDER: &str = "echo 'builds shots: took the 12 mac shots of app tree t from the picture folder; capturing none' >&2";
+
+/// A shots step's record says its environment, whether the run it compares
+/// with was saved, and how many screenshots came from the picture folder and
+/// how many were shot.
+#[test]
+fn a_shots_steps_record_says_its_base_run_and_its_screenshots() {
+    let scratch = crate::testing::Scratch::new("shots-use-record");
+    let held = held_in(&scratch);
+    let places = scratch.places();
+    let top = scratch.dir.join("repo");
+    let cached = shots_cache(&top, &places);
+    let counted = |command: &str| {
+        let mut step = fake("shots mac.a.", &["sh", "-c", command], None);
+        step.scenes = Some(crate::app_config::Scenes {
+            count: vec!["echo".to_string(), "9".to_string()],
+            each: Duration::from_secs(5),
+        });
+        step
+    };
+    let mut log = Vec::new();
+    run_steps(
+        &top,
+        &held,
+        &[counted(TOOK_FROM_FOLDER)],
+        &mut log,
+        &cached,
+        Path::new("no.xcconfig"),
+        false,
+    )
+    .unwrap();
+    run_steps(
+        &top,
+        &held,
+        &[counted("true")],
+        &mut log,
+        &cached,
+        Path::new("no.xcconfig"),
+        false,
+    )
+    .unwrap();
+    let used = |at: usize| log[at].shots.clone().expect("a shots step has its use");
+    let pictures = |reused, captured| Some(Pictures { reused, captured });
+    assert_eq!(used(0).environment, ENVIRONMENT);
+    assert_eq!(used(0).base_run, BaseRun::Saved);
+    assert_eq!(used(0).pictures, pictures(12, 0));
+    assert_eq!(used(1).pictures, pictures(0, 9));
+}
+
+/// A step that is no shots step has no use, and a shots step that fails
+/// before its run finishes counts no screenshots.
+#[test]
+fn only_a_shots_step_that_finished_counts_screenshots() {
+    let scratch = crate::testing::Scratch::new("shots-use-none");
+    let held = held_in(&scratch);
+    let places = scratch.places();
+    let top = scratch.dir.join("repo");
+    let cached = shots_cache(&top, &places);
+    let mut log = Vec::new();
+    let _ = run_steps(
+        &top,
+        &held,
+        &[
+            fake("macos", &["true"], None),
+            fake("shots mac.a.", &["sh", "-c", "exit 3"], None),
+        ],
+        &mut log,
+        &cached,
+        Path::new("no.xcconfig"),
+        false,
+    );
+    assert_eq!(log[0].shots, None);
+    assert_eq!(log[1].shots.as_ref().map(|used| used.pictures), Some(None));
 }

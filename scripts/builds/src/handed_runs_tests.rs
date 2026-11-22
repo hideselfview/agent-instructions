@@ -24,6 +24,7 @@ fn run() -> RunRecord {
             wall_ms: 60_000,
             cpu_ms: 30_000,
             result: StepResult::Passed,
+            shots: None,
         }],
     }
 }

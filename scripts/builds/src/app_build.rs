@@ -110,6 +110,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::app_build_step_failure::StepRead;
+use crate::app_build_step_shots::{BaseRun, Pictures, ReusedRead, ShotsUse};
 use crate::app_config::{
     CONFIG, CheckedOut, Config, PickKind, Picker, Scenes, Step, check_out, count_scenes,
     parse_config, parse_scene_count, resolve, run_command_keeping, run_git, show_duration,
@@ -657,6 +658,9 @@ fn run_steps(
 /// Where a lane's steps run, and what a step's run needs from the checkout it
 /// runs in.
 trait StepRunner {
+    /// The shots cache the runner's shots steps read and write.
+    fn shots(&self) -> &ShotsCache;
+
     /// The number of scenes <count> prints when it runs in the checkout.
     fn scenes(&mut self, count: &[String]) -> Result<usize>;
 
@@ -682,6 +686,10 @@ struct LocalSteps<'a> {
 }
 
 impl StepRunner for LocalSteps<'_> {
+    fn shots(&self) -> &ShotsCache {
+        self.shots
+    }
+
     fn scenes(&mut self, count: &[String]) -> Result<usize> {
         count_scenes(self.top, count)
     }
@@ -722,6 +730,10 @@ struct RemoteSteps<'a> {
 }
 
 impl StepRunner for RemoteSteps<'_> {
+    fn shots(&self) -> &ShotsCache {
+        self.with.shots
+    }
+
     fn scenes(&mut self, count: &[String]) -> Result<usize> {
         let held = self.remote.with_programs(self.with.programs, count)?;
         let said = self.remote.run_in(
@@ -783,9 +795,11 @@ fn run_steps_with(
             None => StepKind::Step,
         };
         // A run's limit grows with its work, so a long run is not a stuck one.
+        let mut scene_count = None;
         let limit = match &step.scenes {
             Some(scenes) => {
                 let count = runner.scenes(&scenes.count)?;
+                scene_count = Some(count);
                 let limit = scenes.limit_for(step.limit(), count)?;
                 note(format!(
                     "step {} takes {count} scenes, so its limit is {}",
@@ -799,13 +813,13 @@ fn run_steps_with(
         let timer = Timer::start();
         let found = Found::default();
         let read = StepRead::default();
-        let outcome = runner.run(
-            step,
-            limit,
-            kind,
-            watch.then_some(&found),
-            &read.each_line(),
-        );
+        let reused = ReusedRead::default();
+        let (failures, pictures) = (read.each_line(), reused.each_line());
+        let each: lock::EachLine = Arc::new(move |text: &str| {
+            failures(text);
+            pictures(text);
+        });
+        let outcome = runner.run(step, limit, kind, watch.then_some(&found), &each);
         let failed_pairs = kind == StepKind::Shots && !read.failure().failed.is_empty();
         let stopped_by = lock::stop_signal();
         let result = match &outcome {
@@ -815,7 +829,16 @@ fn run_steps_with(
             Ok(Within::TimedOut) => StepResult::TimedOut(read.failure()),
             Err(_) => StepResult::Failed(read.failure()),
         };
-        log.push(timer.finish(&step.name, kind, result));
+        let mut record = timer.finish(&step.name, kind, result);
+        if kind == StepKind::Shots {
+            // A step that ended before its run finished counted no screenshots.
+            let finished = matches!(record.result, StepResult::Passed) || failed_pairs;
+            let pictures = finished
+                .then(|| Pictures::of(scene_count, reused.reused()))
+                .flatten();
+            record.shots = Some(runner.shots().use_of(step, pictures));
+        }
+        log.push(record);
         if let Some(signal) = stopped_by {
             fail!(
                 "the build stopped on {} during step {}",
@@ -1192,6 +1215,9 @@ struct ShotsCache {
     /// The lane runs the merge base of a build to make the run that build
     /// compares with: its shots runs pass `--base`.
     base_run: bool,
+    /// Whether the run each shots prefix compares with was saved, built in
+    /// this build's turn, or not needed.
+    bases: Vec<(String, BaseRun)>,
 }
 
 /// The names of the shots declared at <base> in <source>, read once into
@@ -1218,7 +1244,9 @@ impl ShotsCache {
     /// base. Fails when the store holds no before run for another pick,
     /// naming the command that makes one: a lane's build makes the run of
     /// the merge base first (`ensure_base`), so only a lane that runs the
-    /// picks against the checkout as it is reaches that.
+    /// picks against the checkout as it is reaches that. <built> holds the
+    /// prefixes whose merge-base run the build made in its own turn
+    /// (`ensure_base`).
     #[allow(clippy::too_many_arguments)]
     fn of(
         places: &Places,
@@ -1232,10 +1260,12 @@ impl ShotsCache {
         no_capture: bool,
         retake: bool,
         base_run: bool,
+        built: &[String],
         program: &Path,
     ) -> Result<ShotsCache> {
         let versions = &crate::shots_program::VERSIONS;
         let mut befores = Vec::new();
+        let mut bases = Vec::new();
         let mut base_declared_names = None;
         for (_, _, prefix) in picks
             .iter()
@@ -1243,6 +1273,7 @@ impl ShotsCache {
         {
             let base = crate::derive::merge_base(source, commit)?;
             if base == commit {
+                bases.push((prefix.clone(), BaseRun::NotNeeded));
                 continue;
             }
             match crate::shots_compare_again::before_run(
@@ -1254,7 +1285,15 @@ impl ShotsCache {
                 prefix,
                 program,
             )? {
-                Some(before) => befores.push((prefix.clone(), before.findings_json())),
+                Some(before) => {
+                    let how = if built.contains(prefix) {
+                        BaseRun::Built
+                    } else {
+                        BaseRun::Saved
+                    };
+                    bases.push((prefix.clone(), how));
+                    befores.push((prefix.clone(), before.findings_json()))
+                }
                 // A prefix that starts no shot declared at the merge base has
                 // nothing to compare with: its scenes are all new.
                 None if !crate::shots_declared::starts_a_shot(
@@ -1262,6 +1301,7 @@ impl ShotsCache {
                     prefix,
                 ) =>
                 {
+                    bases.push((prefix.clone(), BaseRun::NotNeeded));
                     note(format!(
                         "{prefix} starts no shot declared at the merge base {}, so its run compares with nothing and every scene it selects is new",
                         short(&base)
@@ -1289,7 +1329,26 @@ impl ShotsCache {
             no_capture,
             retake,
             base_run,
+            bases,
         })
+    }
+
+    /// What the shots run <step> used: the environment it ran in, whether the
+    /// run it compares with was saved, and the screenshots it took
+    /// (<pictures>).
+    fn use_of(&self, step: &Step, pictures: Option<Pictures>) -> ShotsUse {
+        let prefix = shots_prefix(step);
+        let base_run = self
+            .bases
+            .iter()
+            .find(|(own, _)| own == prefix)
+            .map(|(_, how)| *how)
+            .expect("a lane's shots store holds the base run of each of its shots steps");
+        ShotsUse {
+            environment: self.environment.clone(),
+            base_run,
+            pictures,
+        }
     }
 
     /// The shared lock a shots step holds while it reads a before run or the
@@ -1894,6 +1953,8 @@ struct CommitRun<'a> {
     /// The runs are of the merge base, to be compared with: they pass
     /// `--base`.
     base_run: bool,
+    /// The prefixes whose merge-base run this build made in its own turn.
+    built: &'a [String],
 }
 
 impl LaneBuild<'_> {
@@ -1952,11 +2013,14 @@ impl LaneBuild<'_> {
         let cached_shots =
             needs_only && !fresh && self.folder_caches(&self.config, &tree, picks)?;
         let names: &[String] = if cached_shots { &[] } else { names };
+        let mut built = Vec::new();
         if let Some(base) = &self.base {
-            let ended = self.ensure_base(base, &environment, site, held, built_file, timing)?;
+            let (ended, made) =
+                self.ensure_base(base, &environment, site, held, built_file, timing)?;
             if ended != Ended::Finished {
                 return Ok(ended);
             }
+            built = made;
         }
         if cached_shots {
             note(
@@ -1989,6 +2053,7 @@ impl LaneBuild<'_> {
             cached_shots,
             retake: fresh,
             base_run: false,
+            built: &built,
         };
         self.run_commit(site, held, built_file, timing, run)
     }
@@ -2034,6 +2099,7 @@ impl LaneBuild<'_> {
             cached_shots,
             retake,
             base_run,
+            built,
         } = run;
         let names: &[String] = if cached_shots { &[] } else { names };
         let program_of = |class: &str| {
@@ -2070,6 +2136,7 @@ impl LaneBuild<'_> {
             cached_shots,
             retake,
             base_run,
+            built,
             &programs.builds(),
         )?;
         let from = timing.steps.len();
@@ -2134,7 +2201,8 @@ impl LaneBuild<'_> {
     /// from the cache. The lane then goes on with the commit in the same
     /// turn. A run of the merge base compares with nothing, so the findings
     /// it lists fail nothing; a step that fails without cached findings fails
-    /// the build.
+    /// the build. Returns how the lane ended and the prefixes whose run was
+    /// missing when it looked.
     fn ensure_base(
         &self,
         base: &MergeBase,
@@ -2143,7 +2211,7 @@ impl LaneBuild<'_> {
         held: &lock::Held,
         built_file: &Path,
         timing: &mut Timing,
-    ) -> Result<Ended> {
+    ) -> Result<(Ended, Vec<String>)> {
         let LaneBuild {
             places,
             repo,
@@ -2175,7 +2243,7 @@ impl LaneBuild<'_> {
         };
         let lacking = missing(&base.picks)?;
         if lacking.is_empty() {
-            return Ok(Ended::Finished);
+            return Ok((Ended::Finished, Vec::new()));
         }
         let declared = crate::shots_declared::declared_names_at(&self.source, &base.commit)?;
         let (asked, new): (Vec<Pick>, Vec<Pick>) = lacking
@@ -2189,10 +2257,12 @@ impl LaneBuild<'_> {
             ));
         }
         if asked.is_empty() {
-            return Ok(Ended::Finished);
+            return Ok((Ended::Finished, Vec::new()));
         }
+        // The runs this build had to wait for or make: missing when it looked.
+        let built: Vec<String> = asked.iter().map(|(_, _, prefix)| prefix.clone()).collect();
         let Some(_lock) = lock_base_run(places, repo, lane, &base.commit, environment)? else {
-            return Ok(Ended::Stopped);
+            return Ok((Ended::Stopped, Vec::new()));
         };
         let wanted = missing(&asked)?;
         if wanted.is_empty() {
@@ -2200,7 +2270,7 @@ impl LaneBuild<'_> {
                 "another build cached the runs at the merge base {} that these runs compare with",
                 short(&base.commit)
             ));
-            return Ok(Ended::Finished);
+            return Ok((Ended::Finished, built));
         }
         let versions = &crate::shots_program::VERSIONS;
         note(format!(
@@ -2227,11 +2297,12 @@ impl LaneBuild<'_> {
             cached_shots,
             retake: false,
             base_run: true,
+            built: &[],
         };
         let ran = self.run_commit(site, held, built_file, timing, run);
         let failed = match ran {
             Ok(Ended::Finished) => None,
-            Ok(other) => return Ok(other),
+            Ok(other) => return Ok((other, Vec::new())),
             // A shots run whose pairs fail it cached its findings, and the
             // steps after it ran: what matters is whether every run is cached.
             Err(Fail::Exit(code)) => Some(format!("a step failed (exit {code})")),
@@ -2252,7 +2323,7 @@ impl LaneBuild<'_> {
                 short(commit)
             ));
         }
-        Ok(Ended::Finished)
+        Ok((Ended::Finished, built))
     }
 }
 

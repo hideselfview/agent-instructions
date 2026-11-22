@@ -264,13 +264,17 @@ const BEFORE_DELETED_COMPONENT_STAMP: i64 = 290_659_286;
 /// ran at the merge base.
 const BEFORE_APP_BUILD_AT_MERGE_BASE_STAMP: i64 = 47_299_978;
 
+/// The stamp of the schema before the shots steps of an app build kept what
+/// they used.
+const BEFORE_APP_BUILD_STEP_SHOTS_STAMP: i64 = 1_224_315_788;
+
 /// The stamp of today's schema (`db::STAMP`). A change to the schema changes
 /// its stamp, and builds then fails to compile until the change gives it a
 /// move from this schema, since every store carries this stamp: the change
 /// adds the move, puts this stamp at the end of `STAMPS` under a name that
 /// says what the schema lacked, and sets this to the new schema's stamp, which
 /// the compiler's error names.
-const SCHEMA_STAMP: i64 = 1_224_315_788;
+const SCHEMA_STAMP: i64 = 1;
 
 // The compiler refuses a schema whose stamp is not SCHEMA_STAMP. A const
 // assert could not print the new stamp, so the check compares two array
@@ -315,6 +319,7 @@ const STAMPS: [i64; 34] = [
     BEFORE_REVIEW_COMPONENT_STAMP,
     BEFORE_DELETED_COMPONENT_STAMP,
     BEFORE_APP_BUILD_AT_MERGE_BASE_STAMP,
+    BEFORE_APP_BUILD_STEP_SHOTS_STAMP,
 ];
 
 /// Whether a store stamped <found> comes before the move that follows the
@@ -602,6 +607,11 @@ pub fn move_store(places: &Places, path: &Path, now: i64) -> Result<()> {
         && before(found, BEFORE_APP_BUILD_AT_MERGE_BASE_STAMP)
     {
         crate::app_timing::add_at_merge_base(&tx)?;
+    }
+    // Every store from before the shots steps kept what they used gets the
+    // empty table: the steps it holds have none.
+    if before(found, BEFORE_APP_BUILD_STEP_SHOTS_STAMP) {
+        tx.execute_batch(db::APP_BUILD_STEP_SHOTS_PART).sql()?;
     }
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     let broken: Option<String> = tx

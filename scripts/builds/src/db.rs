@@ -153,6 +153,10 @@ pub const MARKED_MECHANICAL_PART: &str = include_str!("review/marked_mechanical.
 /// mechanical work.
 pub const APP_SHOTS_DROP_PART: &str = include_str!("app_shots_drop.sql");
 
+/// What each shots step of an app build used (app_build_step_shots.sql); the
+/// schema holds it after the shots prefixes dropped from a landing.
+pub const APP_BUILD_STEP_SHOTS_PART: &str = include_str!("app_build_step_shots.sql");
+
 /// Each part of the schema, in the order the schema holds them: the lists'
 /// tables, then the hook stats', then the app-build timings', then the design
 /// changes' recording sessions', then the review's, then the hook checks'
@@ -169,7 +173,7 @@ pub const APP_SHOTS_DROP_PART: &str = include_str!("app_shots_drop.sql");
 /// cap. A table points at ones earlier or
 /// later (SQLite resolves foreign keys when rows are written), but the order is
 /// the one to read the schema in. A part that joins the schema goes at the end.
-const SCHEMA_PARTS: [&str; 41] = [
+const SCHEMA_PARTS: [&str; 42] = [
     include_str!("lists/project.sql"),
     include_str!("lists/area.sql"),
     include_str!("lists/record.sql"),
@@ -211,6 +215,7 @@ const SCHEMA_PARTS: [&str; 41] = [
     OVER_CAP_PART,
     MARKED_MECHANICAL_PART,
     APP_SHOTS_DROP_PART,
+    APP_BUILD_STEP_SHOTS_PART,
 ];
 
 /// The length of <parts> joined with a newline between each two.
@@ -387,12 +392,21 @@ CREATE TABLE design_deleted (
     PRIMARY KEY (design_id, path)
 ) STRICT, WITHOUT ROWID;";
 
+/// <schema> without the table of what the shots steps used, the last part of
+/// the schema.
+#[cfg(test)]
+fn without_step_shots(schema: String) -> String {
+    schema.replacen(&format!("\n{APP_BUILD_STEP_SHOTS_PART}"), "", 1)
+}
+
 /// <schema> as it was before a change could delete a component: with the
-/// deleted places' table refusing a folder. A schema with no such table is
-/// returned as it is.
+/// deleted places' table refusing a folder, and without what the shots steps
+/// used (`schema_before_app_build_step_shots`). A schema with no such table
+/// is returned as it is. Every older schema than today's goes through this
+/// function.
 #[cfg(test)]
 pub fn with_deleted_boards_only(schema: String) -> String {
-    let schema = without_at_merge_base(schema);
+    let schema = without_at_merge_base(without_step_shots(schema));
     const START: &str = "-- A board or component the change deletes";
     if !schema.contains(START) {
         return schema;
@@ -421,7 +435,7 @@ pub fn without_at_merge_base(schema: String) -> String {
 /// ran at the merge base.
 #[cfg(test)]
 pub fn schema_before_app_build_at_merge_base() -> String {
-    without_at_merge_base(SCHEMA.to_string())
+    without_at_merge_base(without_step_shots(SCHEMA.to_string()))
 }
 
 /// The schema as it was before a change could delete a component.
@@ -568,20 +582,27 @@ fn schema_before(part: &str) -> String {
     )))
 }
 
+/// The schema as it was before what the shots steps used joined it: every
+/// part but the last.
+#[cfg(test)]
+pub fn schema_before_app_build_step_shots() -> String {
+    SCHEMA_PARTS[..SCHEMA_PARTS.len() - 1].join("\n")
+}
+
 /// The schema as it was before the shots prefixes dropped from a landing
-/// joined it: every part but the last, with none of the older schemas'
+/// joined it: every part but the last two, with none of the older schemas'
 /// differences put back.
 #[cfg(test)]
 pub fn schema_before_app_shots_drop() -> String {
-    with_ack_repo(SCHEMA_PARTS[..SCHEMA_PARTS.len() - 1].join("\n"))
+    with_ack_repo(SCHEMA_PARTS[..SCHEMA_PARTS.len() - 2].join("\n"))
 }
 
 /// The schema as it was before the branches the coordinator marked as
-/// mechanical joined it: every part but the last two, with none of the
+/// mechanical joined it: every part but the last three, with none of the
 /// older schemas' differences put back.
 #[cfg(test)]
 pub fn schema_before_marked_mechanical() -> String {
-    with_ack_repo(SCHEMA_PARTS[..SCHEMA_PARTS.len() - 2].join("\n"))
+    with_ack_repo(SCHEMA_PARTS[..SCHEMA_PARTS.len() - 3].join("\n"))
 }
 
 /// The schema as it was before the branches over the review's cap joined it,

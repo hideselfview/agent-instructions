@@ -1583,6 +1583,7 @@ INSERT INTO app_build_steps (run_id, position, name, kind, started_at, wall_ms, 
                 wall_ms: 1,
                 cpu_ms: 1,
                 result: crate::app_timing::StepResult::Stopped,
+                shots: None,
             }],
         },
     )
@@ -2151,4 +2152,50 @@ fn a_store_from_before_the_merge_base_flag_keeps_each_step_with_no_flag_and_equa
         db::schema_rows(&conn).unwrap(),
         db::schema_rows(&db::memory()).unwrap()
     );
+}
+
+#[test]
+fn the_app_build_step_shots_stamp_is_the_schema_before_it() {
+    assert_eq!(
+        db::stamp_of_text(&db::schema_before_app_build_step_shots()),
+        BEFORE_APP_BUILD_STEP_SHOTS_STAMP
+    );
+}
+
+/// A store from before the shots steps kept what they used keeps its steps,
+/// gains the empty table and equals a fresh schema.
+#[test]
+fn a_store_from_before_the_shots_uses_keeps_its_steps_and_gains_the_table() {
+    let scratch = Scratch::new("move-step-shots");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&db::schema_before_app_build_step_shots())
+            .unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_APP_BUILD_STEP_SHOTS_STAMP)
+            .unwrap();
+        conn.execute_batch(
+            "INSERT INTO app_build_runs (id, started_at, repo, lane, checkout, built_ref, wait_ms, outcome) VALUES (1, 5, 'bae', 'mac', 'side-1', 'b', 0, 'passed');
+             INSERT INTO app_build_steps (run_id, position, name, kind, started_at, wall_ms, cpu_ms, result) VALUES (1, 0, 'shots mac.a.', 'shots', 5, 1, 1, 'passed');",
+        )
+        .unwrap();
+    }
+    migrate_stores(&places, 0).unwrap();
+    let conn = db::open(&path, db::Make::Never).unwrap();
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    let steps: i64 = conn
+        .query_row("SELECT count(*) FROM app_build_steps", [], |row| row.get(0))
+        .unwrap();
+    let uses: i64 = conn
+        .query_row("SELECT count(*) FROM app_build_step_shots", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!((steps, uses), (1, 0));
 }

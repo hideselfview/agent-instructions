@@ -131,6 +131,9 @@ pub struct StepRecord {
     /// the commit sets it.
     pub at_merge_base: Option<bool>,
     pub result: StepResult,
+    /// What a shots step used (app_build_step_shots.rs); None for any other
+    /// step.
+    pub shots: Option<crate::app_build_step_shots::ShotsUse>,
 }
 
 /// One lane's run, as `record` writes it.
@@ -198,6 +201,7 @@ impl Timer {
             cpu_ms: children_cpu().saturating_sub(self.cpu).as_millis() as u64,
             at_merge_base: None,
             result,
+            shots: None,
         }
     }
 }
@@ -262,6 +266,7 @@ pub fn record(path: &Path, run: &RunRecord) -> Result<()> {
         }
     }
     crate::app_build_step_failure::record(&tx, id, &run.steps)?;
+    crate::app_build_step_shots::record(&tx, id, &run.steps)?;
     if let Some(commit) = &run.built_commit {
         crate::app_build_commit::record(&tx, id, commit).context(what)?;
     }
@@ -347,6 +352,7 @@ pub fn read_run(path: &Path) -> Result<RunRecord> {
         steps: Vec::new(),
     };
     let mut said = crate::app_build_step_failure::read(&conn, id)?;
+    let mut used = crate::app_build_step_shots::read(&conn, id)?;
     let steps: Vec<StepRow> = conn
         .prepare(
             "SELECT name, kind, started_at, wall_ms, cpu_ms, at_merge_base, result FROM app_build_steps
@@ -392,6 +398,7 @@ pub fn read_run(path: &Path) -> Result<RunRecord> {
             cpu_ms: cpu_ms as u64,
             at_merge_base,
             result,
+            shots: used.remove(&(position as u32)),
         });
     }
     Ok(run)

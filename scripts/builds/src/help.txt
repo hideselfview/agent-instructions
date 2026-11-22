@@ -2453,6 +2453,18 @@ STATUS, HEALTH AND THE DASHBOARD
                                 the host's hit rates over the last hour, day
                                 and week (`builds host cache`), and the
                                 cache's size against its most
+                              - for each repo, lane and environment whose
+                                app builds ran a shots step in the last week,
+                                the share of base runs that were already saved
+                                when a build looked for them, and the share
+                                of screenshots taken from the picture folder
+                                instead of shot, over the last hour, day and
+                                week (each shots step records both in the
+                                project's store). Under "needs action", a
+                                lane whose builds of the last day found the
+                                saved base run in under 20% of at least 5
+                                comparisons, since a changing environment key
+                                makes every build make the base run again
                               - the busy processes on this Mac and every host
                                 that answers (over 50% of a core
                                 since the host's previous reading, which is

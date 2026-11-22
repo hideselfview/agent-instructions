@@ -400,6 +400,7 @@ fn a_landing_whose_covering_build_skipped_a_failed_prefix_is_refused_until_it_is
                     wall_ms: 1,
                     cpu_ms: 1,
                     result: result.clone(),
+                    shots: None,
                 })
                 .collect(),
         };
@@ -498,6 +499,7 @@ fn a_landing_is_judged_over_its_own_commits() {
             wall_ms: 1,
             cpu_ms: 1,
             result: StepResult::Passed,
+            shots: None,
         }],
     };
     crate::app_timing::record(&store.database(), &run).unwrap();

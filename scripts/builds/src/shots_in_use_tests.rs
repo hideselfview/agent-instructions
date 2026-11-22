@@ -64,6 +64,7 @@ fn build(branch: &str, commit: &str, prefix: &str) -> RunRecord {
             wall_ms: 1,
             cpu_ms: 1,
             result: StepResult::Passed,
+            shots: None,
         }],
     }
 }

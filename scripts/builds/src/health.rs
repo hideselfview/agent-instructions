@@ -1882,6 +1882,20 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
             .map(|advice| Finding::new(FindingKind::Prune, advice)),
     );
     health.findings.extend(shots_cache_findings(tool));
+    let shots_hits = crate::shots_hits::read(&tool.places, tool.now).map_err(Fail::text);
+    match &shots_hits {
+        Ok(rows) => health.findings.extend(
+            crate::shots_hits::findings(rows, tool.now)
+                .into_iter()
+                .map(|advice| Finding::new(FindingKind::ShotsCache, advice)),
+        ),
+        Err(error) => health.findings.push(Finding::new(
+            FindingKind::ShotsCache,
+            Advice::said(format!(
+                "shots cache: builds cannot read how often builds found saved runs and pictures: {error}"
+            )),
+        )),
+    }
     health
         .findings
         .extend(crate::fsevents_log::finding(&tool.places));
@@ -1967,6 +1981,9 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
         before.extend(crate::stuck::lines(&busy));
         if let Ok(caches) = &scanned.caches {
             before.extend(crate::sccache_queue::lines(caches));
+        }
+        if let Ok(rows) = &shots_hits {
+            before.extend(crate::shots_hits::lines(rows, tool.now));
         }
         out.splice(at..at, before);
         for line in out {
