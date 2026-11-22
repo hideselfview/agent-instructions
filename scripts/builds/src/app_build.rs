@@ -105,7 +105,7 @@ use crate::host::{Refused, Ssh};
 use crate::install_gate;
 use crate::lane::Lane;
 use crate::lock::{self, Found, Keep, Ran, Within};
-use crate::main_base::{self, Plan};
+use crate::main_base::{self, Plan, short_of};
 use crate::places::Places;
 use crate::programs::Pinned;
 use crate::run_end::RunEnd;
@@ -1734,14 +1734,8 @@ pub fn ensure_before_runs(
     }
     // One build at a time makes main's whole-lane run of a lane: the others
     // wait here, then find it cached.
-    let mut lanes: Vec<Lane> = Vec::new();
-    for (lane, _, _) in &shots {
-        if !lanes.contains(lane) {
-            lanes.push(*lane);
-        }
-    }
     let mut held = Vec::new();
-    for lane in &lanes {
+    for lane in &main_base::lanes_of(&shots) {
         held.push(main_base::lock(places, repo, *lane)?);
     }
     let rebase = |why: &str| {
@@ -1791,34 +1785,23 @@ pub fn ensure_before_runs(
                 short_of(&tip)
             );
         }
-        Plan::Rebase => {
+        after => {
             if let Err(error) = built {
                 note(format!(
                     "the build of origin/main failed ({}), and builds cached the findings of its shots runs, which the runs of {git_ref} compare with",
                     error.text()
                 ));
             }
-            rebase(&format!(
-                "builds ran the shots of origin/main ({}), and {git_ref} starts from {}",
-                short_of(&tip),
-                short_of(&base)
-            ))
-        }
-        Plan::Covered => {
-            if let Err(error) = built {
-                note(format!(
-                    "the build of origin/main failed ({}), and builds cached the findings of its shots runs, which the runs of {git_ref} compare with",
-                    error.text()
-                ));
+            match after {
+                Plan::Rebase => rebase(&format!(
+                    "builds ran the shots of origin/main ({}), and {git_ref} starts from {}",
+                    short_of(&tip),
+                    short_of(&base)
+                )),
+                _ => Ok(()),
             }
-            Ok(())
         }
     }
-}
-
-/// The first 12 characters of a commit.
-fn short_of(commit: &str) -> &str {
-    &commit[..commit.len().min(12)]
 }
 
 /// The pids of the lanes' processes, for the signal handler to pass on to.

@@ -2,23 +2,36 @@
 //! cached run of its own merge base with origin/main.
 //!
 //! A shots run of a branch compares with the cached run of the branch's merge
-//! base (shots_cache.rs `before_run`). Branches start from many different
-//! main commits, so building each branch's old merge base for the comparison
-//! made most first builds two builds. Instead, a merge base with no cached run
-//! makes builds run the whole lane's shots once at the tip of origin/main,
-//! which every later build of the lane shares, and a branch that starts behind
-//! that tip rebases onto it before it compares: a branch that lacks main's
-//! newer commits would show main's fixes as findings it adds.
+//! base (shots_cache.rs `before_run`). A merge base with no cached run makes
+//! builds run the whole lane's shots once at the tip of origin/main, which
+//! every build of the lane shares, and a branch that starts behind that tip
+//! rebases onto it before it compares: a branch that lacks main's newer
+//! commits would show main's fixes as findings it adds.
 
 use std::path::Path;
 
 use crate::app_build::{Pick, all_shots};
 use crate::fail;
 use crate::fail::Result;
-use crate::flock;
 use crate::lane::Lane;
 use crate::places::Places;
 use crate::shots_compare_again::before_run;
+
+/// The distinct lanes of <picks>, in the order they first appear.
+pub fn lanes_of(picks: &[Pick]) -> Vec<Lane> {
+    let mut lanes: Vec<Lane> = Vec::new();
+    for (lane, _, _) in picks {
+        if !lanes.contains(lane) {
+            lanes.push(*lane);
+        }
+    }
+    lanes
+}
+
+/// The first 12 characters of a commit.
+pub fn short_of(commit: &str) -> &str {
+    &commit[..commit.len().min(12)]
+}
 
 /// What a build does to get the runs its shots compare with.
 #[derive(Debug, PartialEq, Eq)]
@@ -66,13 +79,7 @@ pub fn plan(
     if missing(places, repo, base, picks, program)?.is_empty() {
         return Ok(Plan::Covered);
     }
-    let mut lanes: Vec<Lane> = Vec::new();
-    for (lane, _, _) in picks {
-        if !lanes.contains(lane) {
-            lanes.push(*lane);
-        }
-    }
-    let whole: Vec<Pick> = lanes.into_iter().map(all_shots).collect();
+    let whole: Vec<Pick> = lanes_of(picks).into_iter().map(all_shots).collect();
     let absent = missing(places, repo, tip, &whole, program)?;
     if !absent.is_empty() {
         return Ok(Plan::BuildMain(absent));
@@ -80,7 +87,7 @@ pub fn plan(
     if base == tip {
         fail!(
             "origin/main's tip {} holds the whole-lane run, yet it covers none of the picks",
-            &tip[..tip.len().min(12)]
+            short_of(tip)
         );
     }
     Ok(Plan::Rebase)
@@ -96,9 +103,7 @@ pub fn lock(places: &Places, repo: &str, lane: Lane) -> Result<std::fs::File> {
         crate::fail::Fail::Message(format!("creating {}: {error}", folder.display()))
     })?;
     let path = folder.join(format!("main-run-{}.lock", lane.word()));
-    let file = flock::open_creating(&path)?;
-    flock::lock(&file, libc::LOCK_EX, &path)?;
-    Ok(file)
+    crate::evict::lock_exclusive_creating(&path)
 }
 
 #[cfg(test)]
