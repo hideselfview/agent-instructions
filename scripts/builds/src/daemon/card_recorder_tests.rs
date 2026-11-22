@@ -34,6 +34,12 @@ fn each_card_goes_to_its_projects_store_by_its_states_name_and_an_unread_one_to_
             CardState::Working,
             &[],
         ),
+        card(
+            "/d/bae-worktrees/side-2",
+            CardLists::Project("bae".into()),
+            CardState::CheckingDesign,
+            &[13],
+        ),
     ]);
     assert_eq!(
         shown,
@@ -48,6 +54,9 @@ fn each_card_goes_to_its_projects_store_by_its_states_name_and_an_unread_one_to_
     );
     assert_eq!(
         unread,
-        BTreeSet::from(["/d/agent-instructions-worktrees/side-2".to_string()])
+        BTreeSet::from([
+            "/d/agent-instructions-worktrees/side-2".to_string(),
+            "/d/bae-worktrees/side-2".to_string(),
+        ])
     );
 }

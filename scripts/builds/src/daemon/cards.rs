@@ -262,6 +262,8 @@ pub enum CardState {
     Paused,
     /// Commits wait to land, and nothing else goes on.
     ReadyToLand,
+    /// The dashboard is reading design coverage for the commits.
+    CheckingDesign,
     /// Commits wait to land and their rules review would keep `builds land`
     /// from taking them.
     InReview(ReviewWait),
@@ -287,6 +289,7 @@ impl CardState {
             CardState::WaitingOnYou => "waiting-on-you",
             CardState::Paused => "held",
             CardState::ReadyToLand => "ready-to-land",
+            CardState::CheckingDesign => "checking-design",
             CardState::InReview(_) => "in-review",
             CardState::WaitsUnread => "waits-unread",
             CardState::Kept => "kept",
@@ -321,6 +324,7 @@ impl CardState {
             CardState::WaitingOnYou => "Waiting on you",
             CardState::Paused => "Paused",
             CardState::ReadyToLand => "Ready to land",
+            CardState::CheckingDesign => "Checking design coverage",
             CardState::InReview(review) => review.chip(),
             CardState::WaitsUnread => "Can't read what this worktree waits on",
             CardState::Kept => "Ready",
@@ -572,6 +576,7 @@ pub fn words(
             wait.map(ItemWait::sentence).unwrap_or_default(),
         ),
         CardState::InReview(review) => (review.pill(), review.sentence()),
+        CardState::CheckingDesign => (None, String::new()),
         // The card's errors say why.
         CardState::WaitsUnread => (None, String::new()),
         CardState::Free => (

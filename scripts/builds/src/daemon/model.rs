@@ -238,11 +238,22 @@ impl Model {
                 model.publish();
             }
         }));
+        let weak = Arc::downgrade(&model);
+        model.design_reads.listen(move || {
+            if let Some(model) = weak.upgrade() {
+                model.publish();
+            }
+        });
         model.follow_rules();
         let refresher = model.clone();
         std::thread::Builder::new()
             .name("builds-refresh".into())
             .spawn(move || refresher.refresh_loop())
+            .expect("a thread starts");
+        let designs = model.clone();
+        std::thread::Builder::new()
+            .name("builds-designs".into())
+            .spawn(move || designs.design_loop())
             .expect("a thread starts");
         let sampler = model.clone();
         std::thread::Builder::new()
@@ -628,6 +639,39 @@ impl Model {
         self.changed.notify_all();
     }
 
+    /// Looks up design coverage off the HTTP threads. Checkout and store
+    /// changes move the model's version, and each finished read publishes
+    /// its own result through the listener above.
+    fn design_loop(self: Arc<Self>) {
+        let mut seen = 0;
+        loop {
+            seen = self.wait_change(seen);
+            if self.stopped.load(Ordering::SeqCst) {
+                return;
+            }
+            let (_, snapshot) = self.lists.current();
+            let (roots, facts) = {
+                let state = self.state.lock().expect("no panic holding it");
+                (state.roots.clone(), state.facts.clone())
+            };
+            for root in roots {
+                let Some(live) = root.live else { continue };
+                let Some(SideGit::Side(Ok(git))) =
+                    facts.get(&root.path).and_then(|facts| facts.git.as_ref())
+                else {
+                    continue;
+                };
+                if git.ahead.is_empty() {
+                    continue;
+                }
+                let repo = live.repo();
+                if let Ok(Some(lists)) = checkout_lists(&snapshot, &live, &repo) {
+                    self.design_reads.fill(lists, &repo, &live.top, git);
+                }
+            }
+        }
+    }
+
     /// A page started or stopped watching.
     pub fn watch(&self, watching: bool) {
         if watching {
@@ -670,6 +714,7 @@ impl Model {
     #[cfg(test)]
     pub fn stop_sampling(&self) {
         self.stopped.store(true, Ordering::SeqCst);
+        self.publish();
         let _guard = self.viewing_lock.lock().expect("no panic holding it");
         self.viewing.notify_all();
         drop(_guard);
@@ -1356,11 +1401,15 @@ impl Model {
             _ => return RulesReview::InReview,
         };
         let repo = live.repo();
-        match super::design_cards::standing(&self.design_reads, lists, &repo, top, git) {
-            Ok(Some(super::design_cards::Standing::Approval(covering)))
-                if covering.id == design.id => {}
-            Ok(_) => return RulesReview::InReview,
-            Err(error) => return RulesReview::Unread(error.text()),
+        let commits = match self.design_reads.completed(lists, &repo, top, git) {
+            Some(Ok(commits)) => commits,
+            Some(Err(error)) => return RulesReview::Unread(error),
+            None => return RulesReview::CheckingDesign,
+        };
+        match super::design_cards::of_commits(lists, &commits) {
+            Some(super::design_cards::Standing::Approval(covering)) if covering.id == design.id => {
+            }
+            _ => return RulesReview::InReview,
         }
         let worktree = crate::review::verdicts::Worktree {
             repo: &repo,
@@ -1690,13 +1739,7 @@ impl Model {
         let mut errors = Vec::new();
         let top = Path::new(&seen.live.top);
         let path = seen.live.top.display().to_string();
-        let claimed = match seen.live.claimed_project() {
-            Ok(claimed) => Ok(claimed),
-            Err(error) => Err(error.text()),
-        };
-        let project = claimed.and_then(|claimed| {
-            crate::lists::store::lists_of(snapshot, top, seen.repo, claimed.as_deref())
-        });
+        let project = checkout_lists(snapshot, seen.live, seen.repo);
         let (project, lists) = match project {
             Ok(Some(project)) => (Some(project), CardLists::Project(project.project.clone())),
             Ok(None) => (None, CardLists::None),
@@ -1711,16 +1754,19 @@ impl Model {
         let items = project
             .map(|lists| super::lists::running_items(lists, &path))
             .unwrap_or_default();
+        let mut checking_design = false;
         let design = match (project, seen.git) {
             (Some(lists), Some(SideGit::Side(Ok(git)))) => {
-                match super::design_cards::standing(&self.design_reads, lists, seen.repo, top, git)
-                {
-                    Ok(standing) => standing,
-                    Err(error) => {
+                match self.design_reads.completed(lists, seen.repo, top, git) {
+                    Some(Ok(commits)) => super::design_cards::of_commits(lists, &commits),
+                    Some(Err(error)) => {
                         errors.push(format!(
-                            "The daemon can't read which design changes cover this worktree's commits: {}",
-                            error.text()
+                            "The daemon can't read which design changes cover this worktree's commits: {error}"
                         ));
+                        None
+                    }
+                    None => {
+                        checking_design = true;
                         None
                     }
                 }
@@ -1811,13 +1857,16 @@ impl Model {
                     }
                 }
             });
-        let state = super::cards::card_state(
+        let mut state = super::cards::card_state(
             worktree,
             shell,
             waits.as_deref(),
             kept.as_ref()
                 .map(|kept| kept.as_ref().map(|(_, card)| card).map_err(|_| ())),
         );
+        if checking_design && state == CardState::ReadyToLand {
+            state = CardState::CheckingDesign;
+        }
         let (items, kept) = match kept {
             Some(Ok(kept)) => (items, Some(kept)),
             // The card lists the item it could not read the waits of.
@@ -1833,6 +1882,15 @@ impl Model {
             errors,
         }
     }
+}
+
+fn checkout_lists<'a>(
+    stores: &'a std::result::Result<Vec<crate::lists::store::Loaded>, String>,
+    live: &Checkout,
+    repo: &str,
+) -> std::result::Result<Option<&'a crate::lists::Lists>, String> {
+    let claimed = live.claimed_project().map_err(crate::fail::Fail::text)?;
+    crate::lists::store::lists_of(stores, &live.top, repo, claimed.as_deref())
 }
 
 /// What the daemon reads of a live side worktree to judge its card.

@@ -2688,6 +2688,9 @@ STATUS, HEALTH AND THE DASHBOARD
                               Build, a design change's Approve and Publish
                               to claude.ai…, from any
                               address but 127.0.0.1 or localhost on this Mac).
+                              The page shows checkouts and lists while the
+                              daemon checks design coverage. It updates them
+                              when each comparison finishes.
                               It runs `builds prune` 6 hours after the later
                               of the last prune's finish and its own last
                               start, at once when no prune has finished, and

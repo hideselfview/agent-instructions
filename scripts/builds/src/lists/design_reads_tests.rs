@@ -139,8 +139,20 @@ fn a_slow_drawing_does_not_block_another_worktree_read() {
         last_write: None,
     };
     let other = scratch.dir.join("side-3");
+    repo(&other, "");
+    crate::testing::git(
+        &other,
+        &["commit", "-q", "--allow-empty", "-m", "Another change"],
+    );
+    let other_tip = crate::lists::design_paths::full_sha(&other, "HEAD").unwrap();
     let other_git = SideRead {
-        ahead: vec![],
+        ahead: vec![crate::side_git::Commit {
+            sha: other_tip.chars().take(7).collect(),
+            full: other_tip,
+            time: 1,
+            authored: 1,
+            subject: "Another change".into(),
+        }],
         ..git.clone()
     };
     let (started, drawing) = mpsc::channel();
@@ -149,10 +161,14 @@ fn a_slow_drawing_does_not_block_another_worktree_read() {
         started,
         release: Mutex::new(released),
     }));
+    let (published, changes) = mpsc::channel();
+    reads.listen(move || published.send(()).unwrap());
     let (finished, received) = mpsc::channel();
     std::thread::scope(|scope| {
         let slow = scope.spawn(|| reads.of(&lists, "bae", &top, &git));
         drawing.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(reads.completed(&lists, "bae", &top, &git).is_none());
+        assert!(changes.try_recv().is_err());
         let reads = &reads;
         let lists = &lists;
         scope.spawn(move || {
@@ -168,6 +184,12 @@ fn a_slow_drawing_does_not_block_another_worktree_read() {
                 .expect("the other worktree can answer")
                 .unwrap()
                 .is_empty()
+        );
+        changes.recv_timeout(Duration::from_secs(3)).unwrap();
+        changes.recv_timeout(Duration::from_secs(3)).unwrap();
+        assert_eq!(
+            reads.completed(lists, "bae", &top, &git).unwrap().unwrap()[0].covered_by,
+            Some(id)
         );
     });
 }

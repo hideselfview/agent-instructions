@@ -230,6 +230,8 @@ pub enum RulesReview {
     /// The review does not take the commits yet, or no live worktree holds
     /// the commits the change covers: the change waits on its rules review.
     InReview,
+    /// The dashboard is checking which design changes cover the commits.
+    CheckingDesign,
     /// The daemon could not read where the review stands, for this reason.
     Unread(String),
 }

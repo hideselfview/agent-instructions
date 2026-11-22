@@ -8,6 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::time::Duration;
 
+use super::cards::CardState;
 use super::model::{CardLists, CardNow, Model};
 use crate::card_state::{self, Seen};
 use crate::fail::{Context, Result};
@@ -21,6 +22,10 @@ pub fn by_project(cards: &[CardNow]) -> (BTreeMap<String, Vec<Seen>>, BTreeSet<S
     let mut shown: BTreeMap<String, Vec<Seen>> = BTreeMap::new();
     let mut unread = BTreeSet::new();
     for card in cards {
+        if card.state == CardState::CheckingDesign {
+            unread.insert(card.worktree.clone());
+            continue;
+        }
         match &card.lists {
             CardLists::Project(project) => shown.entry(project.clone()).or_default().push(Seen {
                 worktree: card.worktree.clone(),
