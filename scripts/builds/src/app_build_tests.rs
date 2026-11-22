@@ -2130,3 +2130,46 @@ fn only_a_shots_step_that_finished_counts_screenshots() {
     assert_eq!(log[0].shots, None);
     assert_eq!(log[1].shots.as_ref().map(|used| used.pictures), Some(None));
 }
+
+/// The lane's capture step counts the screenshots it shot, and the shots run
+/// after it, which only reads them from the picture folder, counts none.
+#[test]
+fn the_capture_step_counts_the_screenshots_and_the_runs_after_it_count_none() {
+    let scratch = crate::testing::Scratch::new("shots-use-capture");
+    let held = held_in(&scratch);
+    let places = scratch.places();
+    let top = scratch.dir.join("repo");
+    let cached = shots_cache(&top, &places);
+    let counted = |name: &str, command: &str| {
+        let mut step = fake(name, &["sh", "-c", command], None);
+        step.scenes = Some(crate::app_config::Scenes {
+            count: vec!["echo".to_string(), "9".to_string()],
+            each: Duration::from_secs(5),
+        });
+        step
+    };
+    let mut log = Vec::new();
+    run_steps(
+        &top,
+        &held,
+        &[
+            counted("capture shots mac.a. mac.b.", "true"),
+            counted("shots mac.a.", TOOK_FROM_FOLDER),
+        ],
+        &mut log,
+        &cached,
+        Path::new("no.xcconfig"),
+        false,
+    )
+    .unwrap();
+    let used = |at: usize| log[at].shots.clone().expect("a picture step has its use");
+    assert_eq!(used(0).base_run, BaseRun::NotNeeded);
+    assert_eq!(
+        used(0).pictures,
+        Some(Pictures {
+            reused: 0,
+            captured: 9
+        })
+    );
+    assert_eq!(used(1).pictures, None);
+}

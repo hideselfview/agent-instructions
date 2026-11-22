@@ -274,7 +274,7 @@ const BEFORE_APP_BUILD_STEP_SHOTS_STAMP: i64 = 1_224_315_788;
 /// adds the move, puts this stamp at the end of `STAMPS` under a name that
 /// says what the schema lacked, and sets this to the new schema's stamp, which
 /// the compiler's error names.
-const SCHEMA_STAMP: i64 = 1;
+const SCHEMA_STAMP: i64 = 1_690_253_367;
 
 // The compiler refuses a schema whose stamp is not SCHEMA_STAMP. A const
 // assert could not print the new stamp, so the check compares two array
@@ -284,7 +284,7 @@ const _: [(); SCHEMA_STAMP as usize] = [(); db::STAMP as usize];
 
 /// Every stamp a store can carry that `move_store` moves, oldest schema first.
 /// A new move adds the stamp of the schema before it at the end.
-const STAMPS: [i64; 34] = [
+const STAMPS: [i64; 35] = [
     BEFORE_CONDITION_ENDERS_STAMP,
     BEFORE_ITEM_EVENT_STAMP,
     BEFORE_LAND_RUN_STAMP,

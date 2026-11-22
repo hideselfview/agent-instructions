@@ -67,6 +67,7 @@ fn step(name: &str, kind: StepKind, shots: Option<ShotsUse>) -> StepRecord {
         started_at: 1_000_002,
         wall_ms: 1,
         cpu_ms: 1,
+        at_merge_base: None,
         result: StepResult::Passed,
         shots,
     }

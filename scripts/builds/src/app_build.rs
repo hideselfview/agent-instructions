@@ -776,6 +776,9 @@ fn run_steps_with(
 ) -> Result<Ended> {
     // The status of the first shots run whose pairs failed it.
     let mut pairs_failed = None;
+    // The lane's capture step ran: it counted the screenshots, so the shots
+    // runs after it only read them from the picture folder.
+    let mut capture_ran = false;
     for step in steps {
         // A step that opens windows holds its host's display alone.
         let _window = if step.opens_windows {
@@ -830,14 +833,17 @@ fn run_steps_with(
             Err(_) => StepResult::Failed(read.failure()),
         };
         let mut record = timer.finish(&step.name, kind, result);
-        if kind == StepKind::Shots {
-            // A step that ended before its run finished counted no screenshots.
+        let captures = is_capture(&step.name);
+        if kind == StepKind::Shots || captures {
+            // A step that ended before its run finished counted no
+            // screenshots, and neither does a shots run after the capture step.
             let finished = matches!(record.result, StepResult::Passed) || failed_pairs;
             let counted = reused.reused();
-            let pictures = match (&counted, finished) {
+            let pictures = match (&counted, finished && !capture_ran) {
                 (Ok(reused), true) => Pictures::of(scene_count, *reused),
                 _ => None,
             };
+            capture_ran |= captures;
             record.shots = Some(runner.shots().use_of(step, pictures));
             if let Err(why) = counted {
                 log.push(record);
@@ -1339,17 +1345,21 @@ impl ShotsCache {
         })
     }
 
-    /// What the shots run <step> used: the environment it ran in, whether the
+    /// What the shots run or capture step <step> used: the environment it ran in, whether the
     /// run it compares with was saved, and the screenshots it took
     /// (<pictures>).
     fn use_of(&self, step: &Step, pictures: Option<Pictures>) -> ShotsUse {
-        let prefix = shots_prefix(step);
-        let base_run = self
-            .bases
-            .iter()
-            .find(|(own, _)| own == prefix)
-            .map(|(_, how)| *how)
-            .expect("a lane's shots store holds the base run of each of its shots steps");
+        // The capture step compares with nothing.
+        let base_run = if is_capture(&step.name) {
+            BaseRun::NotNeeded
+        } else {
+            let prefix = shots_prefix(step);
+            self.bases
+                .iter()
+                .find(|(own, _)| own == prefix)
+                .map(|(_, how)| *how)
+                .expect("a lane's shots store holds the base run of each of its shots steps")
+        };
         ShotsUse {
             environment: self.environment.clone(),
             base_run,
