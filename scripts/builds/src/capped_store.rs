@@ -267,9 +267,18 @@ pub fn prune(tool: &Tool, run: Run, root: &Path, cap_kib: u64, groups: Vec<Group
     drop(alone);
     // The daemon hears of each root a deletion changed, also when a later
     // deletion failed.
-    let told: Result<()> = changed
-        .iter()
-        .try_for_each(|folder| crate::sizes::stale(&tool.places, folder));
+    let told: Result<()> = {
+        let failed: Vec<String> = changed
+            .iter()
+            .filter_map(|folder| crate::sizes::stale(&tool.places, folder).err())
+            .map(crate::fail::Fail::text)
+            .collect();
+        if failed.is_empty() {
+            Ok(())
+        } else {
+            Err(crate::fail::Fail::Message(failed.join("; ")))
+        }
+    };
     match (deleted, told) {
         (Err(error), Err(also)) => fail!("{}; {}", error.text(), also.text()),
         (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
