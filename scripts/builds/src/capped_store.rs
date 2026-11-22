@@ -198,7 +198,7 @@ pub struct Folder {
 }
 
 impl Folder {
-    fn unpinned(path: PathBuf) -> Self {
+    pub(super) fn unpinned(path: PathBuf) -> Self {
         Self {
             path,
             reader_lock: None,
@@ -535,19 +535,7 @@ impl<F: Fn() -> Result<HeldPaths>> OpenFiles<F> {
         let Unit::Folder(folder) = unit else {
             return Ok(true);
         };
-        // Readers acquire a pin through WRITING, which invalidates the
-        // plan. Once we see an unpinned folder, lock_plan keeps any later
-        // reader from racing its deletion.
-        if let Some(lock) = &folder.reader_lock
-            && crate::flock::is_held(lock)?
-        {
-            note(format!(
-                "in use, kept: {} ({reason})",
-                folder.path.display()
-            ));
-            return Ok(false);
-        }
-        let folder = match std::fs::canonicalize(&folder.path) {
+        let path = match std::fs::canonicalize(&folder.path) {
             Ok(folder) => folder,
             Err(error) if fail::gone(&error) => {
                 note_disappeared(&folder.path);
@@ -555,17 +543,24 @@ impl<F: Fn() -> Result<HeldPaths>> OpenFiles<F> {
             }
             Err(error) => fail!("resolving {}: {error}", folder.path.display()),
         };
-        let held_by_process = match self {
-            Self::Unread(read) => {
-                let held = read()?;
-                let used = held.holds(&folder);
-                *self = Self::Read(held);
-                used
-            }
-            Self::Read(held) => held.holds(&folder),
+        // A reader takes its pin through WRITING, which invalidates the
+        // plan. The final lock_plan check excludes readers that arrive later.
+        let pinned = match &folder.reader_lock {
+            Some(lock) => crate::flock::is_held(lock)?,
+            None => false,
         };
-        if held_by_process {
-            note(format!("in use, kept: {} ({reason})", folder.display()));
+        let held = pinned
+            || match self {
+                Self::Unread(read) => {
+                    let held = read()?;
+                    let used = held.holds(&path);
+                    *self = Self::Read(held);
+                    used
+                }
+                Self::Read(held) => held.holds(&path),
+            };
+        if held {
+            note(format!("in use, kept: {} ({reason})", path.display()));
             return Ok(false);
         }
         Ok(true)

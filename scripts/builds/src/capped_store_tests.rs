@@ -31,10 +31,7 @@ fn group(root: &Path) -> Group {
             use std::os::unix::fs::MetadataExt;
             let last_use = std::fs::metadata(folder.join("data")).unwrap().mtime();
             kept.push(Kept::Folder {
-                folder: Folder {
-                    path: folder,
-                    reader_lock: None,
-                },
+                folder: Folder::unpinned(folder),
                 last_use: Use::At(last_use),
                 what: "unit",
             });
@@ -145,10 +142,7 @@ fn the_folders_deleted_units_leave_empty_go_and_the_root_stays() {
     let group = Group {
         folder: root.clone(),
         kept: vec![Kept::Folder {
-            folder: Folder {
-                path: unit.clone(),
-                reader_lock: None,
-            },
+            folder: Folder::unpinned(unit.clone()),
             last_use: Use::At(0),
             what: "unit",
         }],

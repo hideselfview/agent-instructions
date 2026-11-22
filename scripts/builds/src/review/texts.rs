@@ -130,10 +130,7 @@ fn group(places: &Places) -> Result<Option<Group>> {
                 continue;
             };
             kept.push(Kept::Folder {
-                folder: capped_store::Folder {
-                    path: folder,
-                    reader_lock: None,
-                },
+                folder: capped_store::Folder::unpinned(folder),
                 last_use: Use::At(last_use),
                 what: "a run's review texts",
             });
