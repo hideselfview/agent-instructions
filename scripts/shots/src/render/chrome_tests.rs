@@ -66,3 +66,34 @@ fn every_platform_pins_a_sha256() {
         assert!(sha256.bytes().all(|b| b.is_ascii_hexdigit()), "{os} {arch}");
     }
 }
+
+#[tokio::test]
+async fn a_page_that_never_finishes_fails_its_draw_at_the_deadline_naming_the_page() {
+    use crate::design::Frame;
+    use crate::render::{board, fixture};
+    let root = fixture::tree(&[(
+        "fixture.stuck",
+        "<x-dc><div>stuck</div></x-dc><script>while (true) {}</script>",
+    )]);
+    let started = std::time::Instant::now();
+    let error = fixture::with_browser(root.path(), async |server, chrome| {
+        let url = server.board_url("fixture.stuck");
+        chrome
+            .with_page_within(
+                "board fixture.stuck",
+                Duration::from_secs(3),
+                async |page| {
+                    board::render(page, "fixture.stuck", &url, Frame { w: 300, h: 200 }, 1.0)
+                        .await
+                        .map_err(|e| e.to_string())
+                },
+            )
+            .await
+            .err()
+    })
+    .await
+    .expect("the draw fails");
+    assert!(error.contains("did not finish within 3 seconds"), "{error}");
+    assert!(error.starts_with("board fixture.stuck: "), "{error}");
+    assert!(started.elapsed() < Duration::from_secs(40), "{error}");
+}

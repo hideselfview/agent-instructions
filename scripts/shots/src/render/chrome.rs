@@ -5,6 +5,13 @@ use chromiumoxide::browser::{Browser, BrowserConfig};
 use futures::StreamExt;
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
+
+/// Real time one board or preview may take to draw on its page.
+pub(crate) const DRAW_DEADLINE: Duration = Duration::from_secs(120);
+/// Real time Chrome gets to close a page, to answer a question about a page
+/// whose draw ran out of time, and to close.
+const CLOSE_DEADLINE: Duration = Duration::from_secs(10);
 
 /// The Chrome for Testing build every board hash names.
 pub(crate) const PINNED: &str = "157.0.8103.78";
@@ -175,17 +182,68 @@ impl Chrome {
     }
 
     /// Runs <work> on a new page and closes the page after it, whatever
-    /// <work> returns; a page that fails to close is noted.
+    /// <work> returns; a page that fails to close is noted. Every error names
+    /// <what>, the board or preview being drawn. Chrome gets `DRAW_DEADLINE`
+    /// to open the page and finish <work>.
     pub(crate) async fn with_page<T>(
         &self,
+        what: &str,
         work: impl AsyncFnOnce(&Page) -> Result<T, String>,
     ) -> Result<T, String> {
-        let page = self.new_page().await.map_err(|e| e.to_string())?;
-        let out = work(&page).await;
-        if let Err(error) = page.close().await {
-            crate::log::note(format_args!("closing a page failed: {error}"));
+        self.with_page_within(what, DRAW_DEADLINE, work).await
+    }
+
+    pub(crate) async fn with_page_within<T>(
+        &self,
+        what: &str,
+        deadline: Duration,
+        work: impl AsyncFnOnce(&Page) -> Result<T, String>,
+    ) -> Result<T, String> {
+        let end = tokio::time::Instant::now() + deadline;
+        let late = |doing: &str, last: String| {
+            format!(
+                "{what}: Chrome did not finish within {} seconds, while {doing}{last}",
+                deadline.as_secs()
+            )
+        };
+        let page = tokio::time::timeout_at(end, self.new_page())
+            .await
+            .map_err(|_| late("opening its page", String::new()))?
+            .map_err(|e| format!("{what}: {e}"))?;
+        let out = match tokio::time::timeout_at(end, work(&page)).await {
+            Ok(out) => out.map_err(|e| format!("{what}: {e}")),
+            Err(_) => Err(late("drawing it", last_said(&page).await)),
+        };
+        match tokio::time::timeout(CLOSE_DEADLINE, page.close()).await {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => crate::log::note(format_args!("closing a page failed: {error}")),
+            Err(_) => crate::log::note(format_args!(
+                "closing the page of {what} took over {} seconds",
+                CLOSE_DEADLINE.as_secs()
+            )),
         }
         out
+    }
+}
+
+/// What <page> still answers after its draw ran out of time: its address and
+/// how far the board's watch script got, or that Chrome answers neither.
+async fn last_said(page: &Page) -> String {
+    let ask = async {
+        let url = page.url().await.ok().flatten().unwrap_or_default();
+        let state: Option<String> = match page.evaluate("window.__buildsShots.state").await {
+            Ok(result) => result.into_value().ok(),
+            Err(_) => None,
+        };
+        (url, state)
+    };
+    match tokio::time::timeout(CLOSE_DEADLINE, ask).await {
+        Ok((url, Some(state))) => format!("; the page at {url} had reached '{state}'"),
+        Ok((url, None)) => format!("; the page at {url} answered no question about its state"),
+        Err(_) => format!(
+            "; Chrome answered no question about the page within {} seconds",
+            CLOSE_DEADLINE.as_secs()
+        ),
     }
 }
 
@@ -225,11 +283,15 @@ pub(crate) async fn with_chrome<T>(
                 actual: chrome.version.clone(),
             })
         };
-        if let Err(error) = chrome.browser.close().await {
-            crate::log::note(format_args!("closing Chrome failed: {error}"));
+        match tokio::time::timeout(CLOSE_DEADLINE, chrome.browser.close()).await {
+            Ok(Ok(_)) => {}
+            Ok(Err(error)) => crate::log::note(format_args!("closing Chrome failed: {error}")),
+            Err(_) => crate::log::note("Chrome did not close in time"),
         }
-        if let Err(error) = chrome.browser.wait().await {
-            crate::log::note(format_args!("waiting for Chrome failed: {error}"));
+        match tokio::time::timeout(CLOSE_DEADLINE, chrome.browser.wait()).await {
+            Ok(Ok(_)) => {}
+            Ok(Err(error)) => crate::log::note(format_args!("waiting for Chrome failed: {error}")),
+            Err(_) => crate::log::note("Chrome did not exit in time"),
         }
         out
     };

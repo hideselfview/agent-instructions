@@ -145,7 +145,7 @@ async fn draw_with(
     for (name, &scale) in scales {
         let board = name.to_string();
         let drawn = chrome
-            .with_page(async |page| match name {
+            .with_page(&format!("board {board}"), async |page| match name {
                 Name::Screen(_) => {
                     draw_screen(
                         tree.root,

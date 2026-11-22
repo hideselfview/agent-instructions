@@ -359,7 +359,7 @@ async fn read_sheets(
 ) -> Result<Vec<(String, Vec<Instance>)>, String> {
     let read = futures::stream::iter(sheets.map(|sheet| async move {
         let found = chrome
-            .with_page(async |page| {
+            .with_page(&sheet.what, async |page| {
                 board::load(
                     page,
                     sheet.name,
@@ -374,8 +374,7 @@ async fn read_sheets(
                     .await
                     .map_err(|e| e.to_string())
             })
-            .await
-            .map_err(|e| format!("{}: {e}", sheet.what))?;
+            .await?;
         Ok::<_, String>((sheet.name.to_string(), found))
     }))
     .buffer_unordered(PAGES)

@@ -132,7 +132,7 @@ fn draw(
                 None => None,
                 Some(frame) => Some(
                     chrome
-                        .with_page(async |page| {
+                        .with_page(&format!("board {name}"), async |page| {
                             let rendered =
                                 board::render(page, name, &server.board_url(name), *frame, 1.0)
                                     .await
@@ -142,8 +142,7 @@ fn draw(
                                 .map_err(|e| e.to_string())?;
                             Picture::of(&rendered.png, &elements)
                         })
-                        .await
-                        .map_err(|e| format!("board {name}: {e}"))?,
+                        .await?,
                 ),
             };
             drawn.insert(format!("board {name}"), picture);
@@ -152,7 +151,7 @@ fn draw(
             let picture = if previews.components.iter().any(|(known, _)| known == name) {
                 Some(
                     chrome
-                        .with_page(async |page| {
+                        .with_page(&format!("the preview of {name}"), async |page| {
                             board::load(
                                 page,
                                 name,
@@ -178,8 +177,7 @@ fn draw(
                                 .map_err(|e| e.to_string())?;
                             Picture::of(&png, &elements)
                         })
-                        .await
-                        .map_err(|e| format!("the preview of {name}: {e}"))?,
+                        .await?,
                 )
             } else {
                 None
