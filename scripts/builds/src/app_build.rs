@@ -1933,6 +1933,13 @@ struct LaneBuild<'a> {
     base: Option<MergeBase>,
 }
 
+fn no_lane_steps(lane: Lane) -> Fail {
+    Fail::Message(format!(
+        "{CONFIG} names no step in the {} lane",
+        lane.word()
+    ))
+}
+
 fn build_lane(
     tool: &Tool,
     repo: &str,
@@ -1946,11 +1953,7 @@ fn build_lane(
     let LaneRequest { commit, picks, .. } = request;
     let selection = LanePick::of_lane(lane, picks)?;
     if request.names.is_empty() && !picks.is_empty() && selection.is_empty() {
-        return Err(Fail::Message(format!(
-            "{CONFIG} names no step in the {} lane",
-            lane.word()
-        ))
-        .into());
+        return Err(no_lane_steps(lane).into());
     }
     let commands = LanePick::commands(lane, &selection);
     note(format!(
@@ -2224,7 +2227,7 @@ impl<'a> LaneBuild<'a> {
             &program_of,
         )?;
         if steps.is_empty() {
-            fail!("{CONFIG} names no step in the {} lane", lane.word());
+            return Err(no_lane_steps(lane));
         }
         let shots = ShotsCache::of(
             places,
