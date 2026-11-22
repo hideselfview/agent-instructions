@@ -2417,8 +2417,9 @@ STATUS, HEALTH AND THE DASHBOARD
                               and each host's load and CPU idle share, which
                               it reads now (over ssh on other hosts). If the
                               daemon is checking a checkout's design
-                              coverage, health names that check and reports
-                              the rest of its findings. Before it lists
+                              coverage, health leaves that checkout's design
+                              findings and idle decision open and reports the
+                              rest of its findings. Before it lists
                               anything, it fixes each dispatch blocker that a
                               command fixes with no judgment call, and says
                               in one line what each fix did: a host under

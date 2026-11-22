@@ -1946,6 +1946,7 @@ impl Model {
             .map(|lists| super::lists::running_items(lists, &path))
             .unwrap_or_default();
         let mut coverage_wait = None;
+        let mut coverage_unread = false;
         let design = match (project, seen.git) {
             (Some(lists), Some(SideGit::Side(Ok(git)))) => {
                 match self.design_reads.completed(lists, seen.repo, top, git) {
@@ -1954,7 +1955,7 @@ impl Model {
                         errors.push(format!(
                             "The daemon can't read which design changes cover this worktree's commits: {error}"
                         ));
-                        coverage_wait = Some(ReviewWait::DesignUnread);
+                        coverage_unread = true;
                         None
                     }
                     None => {
@@ -1967,6 +1968,11 @@ impl Model {
         };
         let awaits_approval = matches!(design, Some(super::design_cards::Standing::Approval(_)));
         let ready = worktree == CardState::ReadyToLand;
+        if ready && coverage_unread {
+            // Commits whose design coverage the daemon could not read may
+            // need a design change, so the card never says Ready to land.
+            worktree = CardState::WaitsUnread;
+        }
         // The card shows the rules review only between commits waiting to land
         // and Ready to land. A design change that waits on the person's
         // approval waits on their review only once the review takes the
