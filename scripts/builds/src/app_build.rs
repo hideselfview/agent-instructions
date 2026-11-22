@@ -337,6 +337,20 @@ fn lane_steps(
     windowed: &[String],
     program_of: &dyn Fn(&str) -> Result<Option<String>>,
 ) -> Result<Vec<Step>> {
+    lane_steps_with(config, lane, names, picks, windowed, false, program_of)
+}
+
+/// `lane_steps` for a lane whose picture folder caches every shot of its
+/// picks when <folder_caches>: then no step captures, since no app is built.
+fn lane_steps_with(
+    config: &Config,
+    lane: Lane,
+    names: &[String],
+    picks: &[Pick],
+    windowed: &[String],
+    folder_caches: bool,
+    program_of: &dyn Fn(&str) -> Result<Option<String>>,
+) -> Result<Vec<Step>> {
     let mut steps = if names.is_empty() && !picks.is_empty() {
         Vec::new()
     } else {
@@ -377,13 +391,15 @@ fn lane_steps(
         let kind = run.picker.kind;
         if captures_once && kind == PickKind::Shots && !captured {
             captured = true;
-            steps.push(capture_step(lane, run.picker, &prefixes, windowed)?);
+            if !folder_caches {
+                steps.push(capture_step(lane, run.picker, &prefixes, windowed)?);
+            }
         }
         let mut command = run.picker.command_for(&run.args);
-        let scenes = kind
-            .scene_time()
-            .zip(crate::app_config::counting(&command))
-            .map(|(each, count)| Scenes { count, each });
+        let scenes = match kind {
+            PickKind::Shots => shots_scenes(&command),
+            PickKind::Class => None,
+        };
         let reads_pictures = captures_once && kind == PickKind::Shots;
         if reads_pictures {
             command.push(NO_CAPTURE.to_string());
@@ -397,15 +413,27 @@ fn lane_steps(
             place: lock::Where::Anywhere,
             opens_windows: run.picker.opens_windows
                 && !reads_pictures
-                && (kind != PickKind::Shots
-                    || run
-                        .args
-                        .iter()
-                        .any(|arg| windowed.iter().any(|prefix| prefix == arg))),
+                && (kind != PickKind::Shots || selects_window(&run.args, windowed)),
             ci_only: false,
         });
     }
     Ok(steps)
+}
+
+/// The scenes a shots run of <command> takes, which its limit grows with
+/// (`PickKind::scene_time`); none for a line that is not the checker.
+fn shots_scenes(command: &[String]) -> Option<Scenes> {
+    PickKind::Shots
+        .scene_time()
+        .zip(crate::app_config::counting(command))
+        .map(|(each, count)| Scenes { count, each })
+}
+
+/// Whether one of the shots prefixes <args> selects a scene shown in its
+/// window (<windowed>).
+fn selects_window(args: &[&str], windowed: &[String]) -> bool {
+    args.iter()
+        .any(|arg| windowed.iter().any(|prefix| prefix == arg))
 }
 
 /// The start of the name of a lane's capture step (`capture_step`).
@@ -442,10 +470,7 @@ fn capture_step(
     windowed: &[String],
 ) -> Result<Step> {
     let mut command = picker.command_repeating(prefixes)?;
-    let scenes = PickKind::Shots
-        .scene_time()
-        .zip(crate::app_config::counting(&command))
-        .map(|(each, count)| Scenes { count, each });
+    let scenes = shots_scenes(&command);
     command.push(CAPTURE_ONLY.to_string());
     Ok(Step {
         name: format!("{CAPTURE_STEP}{}", prefixes.join(" ")),
@@ -454,10 +479,7 @@ fn capture_step(
         scenes,
         command,
         place: lock::Where::Anywhere,
-        opens_windows: picker.opens_windows
-            && prefixes
-                .iter()
-                .any(|arg| windowed.iter().any(|prefix| prefix == arg)),
+        opens_windows: picker.opens_windows && selects_window(prefixes, windowed),
         ci_only: false,
     })
 }
@@ -993,7 +1015,16 @@ fn run_remote_step(
         note(error.text());
     }
     if let (Some(store), Some(there)) = (store, &pictures) {
-        store.bring_back_pictures(remote, there);
+        let brought = store.bring_back_pictures(remote, there);
+        // The capture step's result is the pictures it brings back: a copy
+        // that fails fails a capture that finished, as a failed copy of
+        // `results` fails a step that passed.
+        if is_capture(&step.name)
+            && matches!(ran, Ok(Within::Ran(Ran::Finished)))
+            && let Err(error) = brought
+        {
+            return Err(error);
+        }
         if kind == StepKind::Shots {
             store.cache_of(&ran, &kept, step, remote);
         }
@@ -1417,9 +1448,9 @@ impl ShotsCache {
 
     /// Copies the pictures a run on the host drew or took into the picture
     /// folder <there> on the host into the repo's picture folder here, and
-    /// deletes <there>. What fails is said and changes nothing about the
-    /// build's result.
-    fn bring_back_pictures(&self, remote: &mut RemoteApp, there: &str) {
+    /// deletes <there>. Says what fails and returns it: the caller decides
+    /// whether the copy is the step's result.
+    fn bring_back_pictures(&self, remote: &mut RemoteApp, there: &str) -> Result<()> {
         let pictures = self.pictures();
         let incoming = shots_cache::incoming(&pictures);
         // The lock keeps the prune from deleting the incoming folder while
@@ -1428,16 +1459,19 @@ impl ShotsCache {
             remote.fetch_folder(there, &incoming)?;
             shots_cache::merge_pictures(&incoming, &pictures)
         });
-        if let Err(error) = brought {
-            note(format!(
+        let brought = brought.map_err(|error| {
+            let said = format!(
                 "the pictures of the run on host {} were not cached: {}",
                 remote.host.name,
                 error.text()
-            ));
-        }
+            );
+            note(&said);
+            Fail::Message(said)
+        });
         if let Err(error) = remote.remove_temporary(there) {
             note(error.text());
         }
+        brought
     }
 
     /// Whether the findings.json in the report folder <folder> names the
@@ -2012,11 +2046,15 @@ impl LaneBuild<'_> {
             }
             Ok(program)
         };
-        let mut steps = lane_steps(config, lane, names, picks, windowed, &program_of)?;
-        if cached_shots {
-            // The picture folder holds every shot: nothing to capture.
-            steps.retain(|step| !is_capture(&step.name));
-        }
+        let steps = lane_steps_with(
+            config,
+            lane,
+            names,
+            picks,
+            windowed,
+            cached_shots,
+            &program_of,
+        )?;
         if steps.is_empty() {
             fail!("{CONFIG} names no step in the {} lane", lane.word());
         }

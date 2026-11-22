@@ -777,6 +777,22 @@ fn a_lane_with_several_shots_prefixes_captures_them_once_and_then_runs_each_with
 }
 
 #[test]
+fn a_lane_whose_picture_folder_caches_every_shot_has_no_capture_step() {
+    let config = parse_config("shots mac ./s --select {select}\n").unwrap();
+    let picks = [
+        (Lane::Mac, PickKind::Shots, "mac.a.".to_string()),
+        (Lane::Mac, PickKind::Shots, "mac.b.".to_string()),
+    ];
+    let steps = lane_steps_with(&config, Lane::Mac, &[], &picks, &[], true, &|_| Ok(None)).unwrap();
+    assert_eq!(names(&steps), vec!["shots mac.a.", "shots mac.b."]);
+    assert!(
+        steps
+            .iter()
+            .all(|step| step.command.contains(&"--no-capture".to_string()))
+    );
+}
+
+#[test]
 fn the_capture_of_prefixes_with_no_window_scene_opens_no_window() {
     let config = parse_config("shots mac ./s --windows --select {select}\n").unwrap();
     let picks = [
