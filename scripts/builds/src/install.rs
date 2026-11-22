@@ -175,18 +175,19 @@ fn put_in(bin: &Path, program: &Path, name: &str) -> Result<()> {
     Ok(())
 }
 
-/// Copies <builds>, this program, to ~/.local/bin. Returns whether it
-/// replaced the binary, which it always does: running from the installed
-/// binary fails.
-fn put_on_path(home: &Path, builds: &Path) -> Result<bool> {
+/// Copies <builds>, this program, to ~/.local/bin, restarts the dashboards
+/// with it and makes its links.
+fn put_on_path(places: &Places, builds: &Path) -> Result<()> {
+    let home = &places.home;
     let bin = crate::links::bin(home);
     std::fs::create_dir_all(&bin).context(|| format!("creating {}", bin.display()))?;
     require_new_build(builds, &bin.join("builds"))?;
     put_in(&bin, builds, "builds")?;
+    restart_dashboards(places)?;
     for link in crate::links::LINKS {
         link_to_builds(home, link.name)?;
     }
-    Ok(true)
+    Ok(())
 }
 
 /// Makes ~/.local/bin/<name> a symlink to builds, which runs as the program
@@ -207,33 +208,42 @@ fn link_to_builds(home: &Path, name: &str) -> Result<()> {
     Ok(())
 }
 
-/// The dashboard daemons running now: the pid and the arguments after
-/// `builds dashboard`, found by their exact command line.
-fn running_dashboards() -> Result<Vec<(u32, Vec<String>)>> {
-    let listing = Command::new("ps")
-        .args(["-axo", "pid=,command="])
-        .output()
-        .context(|| "running ps".to_string())?;
-    let listing = String::from_utf8_lossy(&listing.stdout);
-    Ok(listing
-        .lines()
-        .filter_map(|line| {
-            let (pid, command) = line.trim_start().split_once(' ')?;
-            let mut words = command.split_whitespace();
-            (words.next()? == "builds" && words.next()? == "dashboard").then_some(())?;
-            Some((pid.parse().ok()?, words.map(String::from).collect()))
-        })
-        .collect())
+/// The current user's running dashboards, with the arguments each dashboard
+/// received. The kernel keeps argument boundaries even in paths with spaces.
+fn running_dashboards(
+    processes: &[crate::procs::Process],
+    uid: u32,
+    read_args: impl Fn(i32) -> std::result::Result<Option<Vec<String>>, String>,
+) -> Result<Vec<(i32, Vec<String>)>> {
+    let mut dashboards = Vec::new();
+    for process in processes
+        .iter()
+        .filter(|p| p.uid == uid && p.name == "builds")
+    {
+        let Some(argv) = read_args(process.pid).map_err(crate::fail::Fail::Message)? else {
+            continue;
+        };
+        let words = crate::ack::agent::without_flag(&argv);
+        if let [program, "dashboard", args @ ..] = words.as_slice()
+            && crate::shells::basename(program) == "builds"
+        {
+            dashboards.push((
+                process.pid,
+                args.iter().map(|arg| (*arg).to_owned()).collect(),
+            ));
+        }
+    }
+    Ok(dashboards)
 }
 
 /// Stops each running dashboard daemon and starts it again, detached, from the
 /// binary just installed, so it runs the new code. The daemon holds only
 /// state it rebuilds from the volume.
-fn restart_dashboards(home: &Path) -> Result<()> {
-    for (pid, args) in running_dashboards()? {
-        let raw = pid as libc::pid_t;
-        // SAFETY: kill(2) on a pid ps just listed; no memory is touched.
-        if unsafe { libc::kill(raw, libc::SIGTERM) } != 0 {
+fn restart_dashboards(places: &Places) -> Result<()> {
+    let processes = crate::procs::Processes::read()?;
+    for (pid, args) in running_dashboards(&processes.list, places.uid, crate::procs::live_args)? {
+        // SAFETY: kill(2) on a pid the kernel just listed; no memory is touched.
+        if unsafe { libc::kill(pid, libc::SIGTERM) } != 0 {
             fail!(
                 "stopping the dashboard (pid {pid}): {}",
                 std::io::Error::last_os_error()
@@ -241,7 +251,7 @@ fn restart_dashboards(home: &Path) -> Result<()> {
         }
         let mut waited = 0;
         // SAFETY: signal 0 only checks that the process exists.
-        while unsafe { libc::kill(raw, 0) } == 0 {
+        while unsafe { libc::kill(pid, 0) } == 0 {
             if waited >= 100 {
                 fail!("the dashboard (pid {pid}) did not stop within 10 s");
             }
@@ -250,7 +260,7 @@ fn restart_dashboards(home: &Path) -> Result<()> {
         }
         let child = {
             use std::os::unix::process::CommandExt;
-            Command::new(home.join(".local/bin/builds"))
+            Command::new(crate::links::path(&places.home, "builds"))
                 .arg0("builds")
                 .arg("dashboard")
                 .args(&args)
@@ -450,8 +460,8 @@ pub fn run_sccache_server(places: &Places) -> Result<()> {
 }
 
 /// Moves the stores to this program's schema and puts this program on PATH
-/// with <put>, which returns whether it replaced the installed one. Each
-/// store begins to record spans at <now>, the moment of the move. <holder>
+/// with <put>, which also restarts the dashboards. Each store begins to
+/// record spans at <now>, the moment of the move. <holder>
 /// names the builds process whose use of the stores covers this one
 /// (`install_gate::VARIABLE`), if any. Gives <say> each line it has for the
 /// person.
@@ -459,9 +469,9 @@ fn replace_program(
     places: &crate::places::Places,
     now: i64,
     holder: Option<std::ffi::OsString>,
-    put: impl FnOnce() -> Result<bool>,
+    put: impl FnOnce() -> Result<()>,
     say: &mut dyn FnMut(String),
-) -> Result<bool> {
+) -> Result<()> {
     let installing = crate::install_gate::begin(places, say)?;
     if crate::migrate::every_store_has_this_schema(places)? {
         // A command that runs the installed program writes the schema this
@@ -471,10 +481,10 @@ fn replace_program(
                 .to_string(),
         );
         crate::migrate::migrate_app_files(places)?;
-        let replaced = put()?;
+        put()?;
         installing.remove_ended_uses()?;
         drop(installing);
-        return Ok(replaced);
+        return Ok(());
     }
     // Install waits for every command that uses the stores, so it would wait
     // forever for the builds command that started it.
@@ -491,9 +501,9 @@ fn replace_program(
     let closed = installing.close(say)?;
     crate::migrate::migrate_app_files(places)?;
     crate::migrate::migrate_stores(places, now)?;
-    let replaced = put()?;
+    put()?;
     drop(closed);
-    Ok(replaced)
+    Ok(())
 }
 
 /// `builds install`.
@@ -502,11 +512,11 @@ pub fn cmd_install(tool: &Tool, args: &[String]) -> Result<()> {
         fail!("usage: builds install");
     }
     let home = &tool.places.home;
-    let replaced = replace_program(
+    replace_program(
         &tool.places,
         tool.now,
         std::env::var_os(crate::install_gate::VARIABLE),
-        || put_on_path(home, &tool.program),
+        || put_on_path(&tool.places, &tool.program),
         &mut |line| note(line),
     )?;
     tool.places.require_volume()?;
@@ -558,9 +568,6 @@ pub fn cmd_install(tool: &Tool, args: &[String]) -> Result<()> {
                 current
             }
         ));
-    }
-    if replaced {
-        restart_dashboards(home)?;
     }
     install_on_hosts(&tool.places, &crate::host::Ssh::from_env(), &tool.program)
 }
@@ -618,6 +625,53 @@ mod tests {
 
     use crate::sccache::parse_job;
     use crate::sccache::tests::{RESPAWNING, RUNNING};
+
+    #[test]
+    fn install_finds_a_dashboard_started_with_an_absolute_executable_path() {
+        let process = |pid, uid, name: &str| crate::procs::Process {
+            pid,
+            ppid: 1,
+            uid,
+            name: name.to_string(),
+            started: 100,
+        };
+        let processes = [
+            process(11, 501, "builds"),
+            process(12, 501, "builds"),
+            process(13, 501, "builds"),
+            process(14, 502, "builds"),
+            process(15, 501, "bash"),
+        ];
+        let dashboards = running_dashboards(&processes, 501, |pid| {
+            let args = match pid {
+                11 => vec![
+                    "/Users/test user/.local/bin/builds",
+                    "dashboard",
+                    "--listen",
+                    "192.168.1.166",
+                ],
+                12 => vec![
+                    "builds",
+                    "--agent",
+                    "local-agent",
+                    "dashboard",
+                    "--port",
+                    "7788",
+                ],
+                13 => vec!["builds", "help", "dashboard"],
+                _ => panic!("install should not read process {pid}"),
+            };
+            Ok(Some(args.into_iter().map(String::from).collect()))
+        })
+        .unwrap();
+        assert_eq!(
+            dashboards,
+            [
+                (11, vec!["--listen".into(), "192.168.1.166".into()]),
+                (12, vec!["--port".into(), "7788".into()]),
+            ]
+        );
+    }
 
     #[test]
     fn a_comment_is_no_setting() {
@@ -743,7 +797,7 @@ mod tests {
                 None,
                 move || {
                     put.send(Event::Put).unwrap();
-                    Ok(true)
+                    Ok(())
                 },
                 &mut |line| events.send(Event::Said(line)).unwrap(),
             )

@@ -3892,7 +3892,8 @@ INSTALLING
                               schema change records the new stamp beside its
                               move from the schema before), copy builds onto
                               PATH in one rename (a failed build leaves the
-                              installed one), link
+                              installed one), restart each running dashboard with
+                              the new builds, link
                               ~/.local/bin/builds-linker and
                               ~/.local/bin/builds-rustc to it, and let the
                               waiting commands start. Then create the
@@ -3911,8 +3912,7 @@ INSTALLING
                               remove each other version's folder that no app
                               build holds (APP BUILDS), point
                               Xcode's default DerivedData at the
-                              volume, restart a running dashboard so it runs
-                              the new code, and copy the same builds to every
+                              volume, and copy the same builds to every
                               recorded Mac host (HOSTS),
                               build builds on every Linux host from the
                               sources this builds was built from, and run
