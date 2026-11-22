@@ -144,23 +144,18 @@ pub(crate) fn list(
                 platform.word()
             ));
         };
-        if let Some(row) = row {
-            let preview = root.join(boards::preview::preview_path(name));
-            let html = std::fs::read_to_string(&preview)
-                .map_err(|e| format!("cannot read {}: {e}", preview.display()))?;
-            if !crate::lint::rows(&html, &settings.preview_calls).contains(&row.to_string()) {
-                return Err(format!(
-                    "shots-design-only names {name}.{row} on {}, which is no row of {name}'s preview",
-                    platform.word()
-                ));
-            }
+        if let Some(row) = row
+            && !preview_rows(root, name, settings)?.contains(&row.to_string())
+        {
+            return Err(format!(
+                "shots-design-only names {name}.{row} on {}, which is no row of {name}'s preview",
+                platform.word()
+            ));
         }
     }
     for (name, key) in &previews.components {
+        let states = preview_rows(root, name, settings)?;
         let preview = root.join(boards::preview::preview_path(name));
-        let html = std::fs::read_to_string(&preview)
-            .map_err(|e| format!("cannot read {}: {e}", preview.display()))?;
-        let states = crate::lint::rows(&html, &settings.preview_calls);
         for (platform, extension, folder) in &platforms {
             if key.platform.is_some_and(|p| p != platform.word()) {
                 continue;
@@ -241,6 +236,15 @@ pub(crate) fn list(
         design_only,
         design_only_rows,
     })
+}
+
+/// The ids of the rows of component <name>'s preview page in the repo at
+/// <root>.
+fn preview_rows(root: &Path, name: &str, settings: &Settings) -> Result<Vec<String>, String> {
+    let preview = root.join(boards::preview::preview_path(name));
+    let html = std::fs::read_to_string(&preview)
+        .map_err(|e| format!("cannot read {}: {e}", preview.display()))?;
+    Ok(crate::lint::rows(&html, &settings.preview_calls))
 }
 
 /// Fails, naming it, when a name in <only> names no component with a preview
