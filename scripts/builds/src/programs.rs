@@ -270,11 +270,7 @@ pub fn cmd_programs(places: &crate::places::Places, args: &[String]) -> Result<(
     };
     let (_kept, path) = pinned.for_exec(std::env::var_os("PATH").as_deref())?;
     let here = std::env::current_dir().context(|| "reading the step's folder".to_string())?;
-    let Some(checkout) = crate::checkout::Checkout::at(&here)? else {
-        fail!("{} is in no git checkout", here.display());
-    };
-    let xcode_cache =
-        crate::xcode_cache::ensure(places, &checkout, crate::xcode_cache::xcode_maps_paths())?;
+    let xcode_cache = crate::xcode_cache::settings_for(places, &here)?;
     use std::os::unix::process::CommandExt;
     let error = std::process::Command::new(&command[0])
         .args(&command[1..])

@@ -818,15 +818,10 @@ impl Site {
     ) -> Result<Ended> {
         match self {
             Site::Local(top) => {
-                let Some(checkout) = Checkout::at(top)? else {
-                    fail!("{} is in no git checkout", top.display());
+                let Some(settings) = with.xcode_settings else {
+                    fail!("a local step has no Xcode settings file");
                 };
-                let settings = crate::xcode_cache::ensure(
-                    with.places,
-                    &checkout,
-                    crate::xcode_cache::xcode_maps_paths(),
-                )?;
-                run_steps(top, held, steps, log, with.shots, &settings, with.watch)
+                run_steps(top, held, steps, log, with.shots, settings, with.watch)
             }
             Site::Remote(remote) => run_steps_with(
                 held,
@@ -841,8 +836,9 @@ impl Site {
 
 /// What a lane's steps run with.
 struct StepsWith<'a> {
-    /// Where the build volume is, for the Xcode settings of a local checkout.
-    places: &'a Places,
+    /// The Xcode settings file of the checkout when it is here; None for a
+    /// checkout on a host, where `builds programs hold` makes it.
+    xcode_settings: Option<&'a Path>,
     /// The folders a step on a host copies back here after it runs.
     results: &'a [String],
     /// Where a shots run caches its findings here.
@@ -1599,8 +1595,12 @@ fn build_lane(
             base_run,
             &programs.builds(),
         )?;
+        let xcode_settings = match &site {
+            Site::Local(top) => Some(crate::xcode_cache::settings_for(places, top)?),
+            Site::Remote(_) => None,
+        };
         let with = |results| StepsWith {
-            places,
+            xcode_settings: xcode_settings.as_deref(),
             results,
             shots: &shots,
             programs,

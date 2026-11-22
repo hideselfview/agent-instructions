@@ -51,7 +51,7 @@ pub fn cas_dir(places: &Places) -> PathBuf {
 /// swift-frontend crashes in bae's `bae` target when the settings map paths
 /// (bad_optional_access in CachingDiagnosticsProcessor, exit 65); Xcode 27.2
 /// builds it, and a second checkout of the same commit then hits every compile
-/// (2026-11-21, `builds item show 495`).
+/// (measured 2026-11-21).
 const MAPPING_FROM: (u32, u32) = (27, 2);
 
 /// The version in the first line `xcodebuild -version` prints ("Xcode 27.2"),
@@ -65,16 +65,44 @@ fn parse_xcode_version(text: &str) -> Option<(u32, u32)> {
 }
 
 /// Whether the Xcode on this machine builds with path mapping: false when
-/// there is none, or when its version is older than `MAPPING_FROM`.
-pub fn xcode_maps_paths() -> bool {
-    let said = std::process::Command::new("xcodebuild")
+/// the machine has no xcodebuild or its version is older than `MAPPING_FROM`;
+/// an error when xcodebuild fails or prints what the function cannot read,
+/// since such an Xcode would build without mapping and nothing would say why.
+pub fn xcode_maps_paths() -> Result<bool> {
+    let out = match std::process::Command::new("xcodebuild")
         .arg("-version")
         .output()
-        .ok()
-        .filter(|out| out.status.success())
-        .and_then(|out| String::from_utf8(out.stdout).ok());
-    said.and_then(|text| parse_xcode_version(&text))
-        .is_some_and(|version| version >= MAPPING_FROM)
+    {
+        Ok(out) => out,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => fail!("running xcodebuild -version: {error}"),
+    };
+    let said = String::from_utf8_lossy(&out.stdout);
+    if !out.status.success() {
+        fail!(
+            "xcodebuild -version failed ({}): {}{}",
+            out.status,
+            said.trim(),
+            String::from_utf8_lossy(&out.stderr).trim()
+        );
+    }
+    match parse_xcode_version(&said) {
+        Some(version) => Ok(version >= MAPPING_FROM),
+        None => fail!(
+            "xcodebuild -version printed no Xcode version: {}",
+            said.trim()
+        ),
+    }
+}
+
+/// The settings file for the checkout that <folder> is in, made for this
+/// machine's Xcode (`ensure`), for `ENV`. Fails when <folder> is in no git
+/// checkout.
+pub fn settings_for(places: &Places, folder: &Path) -> Result<PathBuf> {
+    let Some(checkout) = Checkout::at(folder)? else {
+        fail!("{} is in no git checkout", folder.display());
+    };
+    ensure(places, &checkout, xcode_maps_paths()?)
 }
 
 /// The settings file's text: caching on, with the host's store. With
