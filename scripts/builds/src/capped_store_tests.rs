@@ -384,7 +384,7 @@ fn an_unlink_failure_after_a_refused_move_still_fails_the_cache_prune() {
 
     let steps = vec![
         Deletion {
-            unit: Unit::Folder(refused.clone()),
+            unit: Unit::Folder(Folder::unpinned(refused.clone())),
             reason: "old run".into(),
         },
         Deletion {

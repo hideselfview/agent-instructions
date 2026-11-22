@@ -2270,8 +2270,9 @@ They delete nothing in the folder while a shots step reads or writes it,
 which a step on this Mac does while it runs and a step on a host does while
 builds copies a before run and pictures to the host and the new pictures
 back. A lane also keeps the pictures of its app tree from before it checks
-which pictures the folder has until its last comparison of that tree. When a reader or writer accesses the cache during a prune pass, builds
-skips the remaining deletions. A later prune measures the cache again.
+which pictures the folder has until its last comparison of that tree. When
+a reader or writer accesses the cache during a prune pass, builds skips the
+remaining deletions. A later prune measures the cache again.
 Before deleting folders, builds checks which files other processes hold open.
 Builds reports an error if it cannot read a shots run's last-use time.
 Each host keeps the board pictures it was sent in

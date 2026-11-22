@@ -683,7 +683,10 @@ fn group(places: &Places, repo: &str, named: &Named) -> Result<Group> {
                                     folder,
                                 },
                                 None => Kept::Folder {
-                                    folder: capped_store::Folder { path: folder, reader_lock: None },
+                                    folder: capped_store::Folder {
+                                        path: folder,
+                                        reader_lock: None,
+                                    },
                                     last_use: Use::At(last_use),
                                     what: "a shots run",
                                 },

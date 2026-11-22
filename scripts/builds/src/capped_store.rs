@@ -197,6 +197,15 @@ pub struct Folder {
     pub reader_lock: Option<PathBuf>,
 }
 
+impl Folder {
+    fn unpinned(path: PathBuf) -> Self {
+        Self {
+            path,
+            reader_lock: None,
+        }
+    }
+}
+
 /// What a group of a root holds, as the cap sees it.
 pub enum Kept {
     /// A unit that is one folder; <what> names it in the reason its deletion
@@ -351,7 +360,7 @@ fn plan(
     let mut open = OpenFiles::Unread(open_files);
     let mut steps = Vec::new();
     for folder in staging {
-        let unit = Unit::Folder(folder);
+        let unit = Unit::Folder(Folder::unpinned(folder));
         let reason = "the staging folder of a writer that ended".to_string();
         if open.available(&unit, &reason)? {
             steps.push(Deletion { unit, reason });
@@ -421,7 +430,10 @@ fn apply_plan(tool: &Tool, run: Run, root: &Path, steps: Vec<Deletion>) -> Resul
                         }
                     }
                 };
-                Target::Folder { path: folder, slot }
+                Target::Folder {
+                    path: &folder.path,
+                    slot,
+                }
             }
             Unit::Files(files) => Target::Files(files),
         };
@@ -466,7 +478,7 @@ fn note_disappeared(path: &Path) {
 impl Unit {
     fn path(&self) -> &Path {
         match self {
-            Self::Folder(folder) => folder,
+            Self::Folder(folder) => &folder.path,
             Self::Files(files) => &files[0],
         }
     }
@@ -523,13 +535,25 @@ impl<F: Fn() -> Result<HeldPaths>> OpenFiles<F> {
         let Unit::Folder(folder) = unit else {
             return Ok(true);
         };
-        let folder = match std::fs::canonicalize(folder) {
+        // Readers acquire a pin through WRITING, which invalidates the
+        // plan. Once we see an unpinned folder, lock_plan keeps any later
+        // reader from racing its deletion.
+        if let Some(lock) = &folder.reader_lock
+            && crate::flock::is_held(lock)?
+        {
+            note(format!(
+                "in use, kept: {} ({reason})",
+                folder.path.display()
+            ));
+            return Ok(false);
+        }
+        let folder = match std::fs::canonicalize(&folder.path) {
             Ok(folder) => folder,
             Err(error) if fail::gone(&error) => {
-                note_disappeared(folder);
+                note_disappeared(&folder.path);
                 return Ok(false);
             }
-            Err(error) => fail!("resolving {}: {error}", folder.display()),
+            Err(error) => fail!("resolving {}: {error}", folder.path.display()),
         };
         let held_by_process = match self {
             Self::Unread(read) => {
@@ -579,7 +603,7 @@ fn measure_group(tool: &Tool, cap_kib: u64, group: Group) -> Result<MeasuredGrou
                 );
                 abandoned.push((
                     Deletion {
-                        unit: Unit::Folder(folder),
+                        unit: Unit::Folder(Folder::unpinned(folder)),
                         reason,
                     },
                     measured.kib,
