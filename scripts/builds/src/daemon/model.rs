@@ -1313,12 +1313,15 @@ impl Model {
         let Ok(stores) = snapshot else {
             return Vec::new();
         };
-        let state = self.state.lock().expect("no panic holding it");
+        let (roots, facts) = {
+            let state = self.state.lock().expect("no panic holding it");
+            (state.roots.clone(), state.facts.clone())
+        };
         let mut found = Vec::new();
         for loaded in stores {
             let Ok(lists) = &loaded.lists else { continue };
             for design in lists.designs.iter().filter(|d| d.awaits_approval()) {
-                let review = self.design_review(&state, lists, design);
+                let review = self.design_review(&roots, &facts, lists, design);
                 found.push((lists.project.clone(), design.id, review));
             }
         }
@@ -1327,21 +1330,22 @@ impl Model {
 
     /// Where the rules review of open design change <design> of <lists>, which
     /// waits on the person's approval, stands: read when the change covers a
-    /// commit that its worktree holds past origin/main, as <state> last read
-    /// the worktree, and the rules review of the worktree's commits takes them
+    /// commit that its worktree holds past origin/main, as <roots> and <facts>
+    /// last showed it, and the rules review of the worktree's commits takes them
     /// as `builds land` would (decision #362); in review when no live
     /// worktree holds the commits it covers or the review does not take them;
     /// unread, with why, when git or the review's records can't be read.
     fn design_review(
         &self,
-        state: &State,
+        roots: &[Root],
+        facts: &HashMap<PathBuf, Facts>,
         lists: &crate::lists::Lists,
         design: &crate::lists::DesignChange,
     ) -> RulesReview {
         let top = Path::new(&design.worktree);
-        let seen = state.roots.iter().find_map(|root| {
+        let seen = roots.iter().find_map(|root| {
             let live = root.live.as_ref().filter(|live| live.top == top)?;
-            Some((live, state.facts.get(&root.path)?))
+            Some((live, facts.get(&root.path)?))
         });
         let Some((live, facts)) = seen else {
             return RulesReview::InReview;
