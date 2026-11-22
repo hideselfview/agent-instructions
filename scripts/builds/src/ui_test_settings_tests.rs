@@ -252,7 +252,7 @@ fn installed(name: &str, ui_tests: UiTestSettings) -> HostInstalled {
             mac: Some(crate::host_installed::MacInstalled { ui_tests }),
             sccache_served: true,
             sccache_cap: true,
-            sccache_running_cap: None,
+            sccache: None,
         }),
     }
 }

@@ -25,7 +25,7 @@ fn a_child_of_builds_cargo_sees_a_tmpdir_on_the_build_volume_that_the_end_of_the
     let cargo = bin.join("cargo");
     std::fs::write(
         &cargo,
-        "#!/bin/sh\necho \"$TMPDIR\" > \"$RECORD\"\nfor made in tmpdir-file; do echo x > \"$TMPDIR/$made\"; done\n",
+        "#!/bin/sh\necho \"$TMPDIR\" > \"$RECORD\"\nfor made in tmpdir-file; do echo x > \"$TMPDIR/$made\"; done\nprintf '%s\\n' \"$SCCACHE_START_SERVER\" \"$SCCACHE_ERROR_LOG\" > \"$RECORD.sccache\"\n",
     )
     .unwrap();
     std::fs::set_permissions(&cargo, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
@@ -38,6 +38,8 @@ fn a_child_of_builds_cargo_sees_a_tmpdir_on_the_build_volume_that_the_end_of_the
         .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
         .env("TMPDIR", dir.join("system-tmp"))
         .env("RECORD", &record)
+        .env("SCCACHE_START_SERVER", "1")
+        .env("SCCACHE_ERROR_LOG", dir.join("server.log"))
         .env_remove("CLAUDE_CODE_SESSION_ID")
         .env_remove("CODEX_SESSION_ID")
         .env_remove("CODEX_THREAD_ID")
@@ -48,6 +50,19 @@ fn a_child_of_builds_cargo_sees_a_tmpdir_on_the_build_volume_that_the_end_of_the
     let seen = PathBuf::from(std::fs::read_to_string(&record).unwrap().trim());
     assert_eq!(seen.parent().unwrap(), volume.join(".tmp"), "{said}");
     assert!(!seen.exists(), "the run's folder is still there: {said}");
+    let sccache = std::fs::read_to_string(dir.join("record.sccache")).unwrap();
+    let mut sccache = sccache.lines();
+    assert_eq!(sccache.next(), Some("0"));
+    let error_log = sccache.next().unwrap();
+    assert!(
+        error_log.contains("local.sccache-server")
+            && std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(error_log)
+                .is_err(),
+        "sccache could start a server with {error_log:?}"
+    );
     assert_eq!(
         std::fs::read_dir(dir.join("system-tmp")).unwrap().count(),
         0,

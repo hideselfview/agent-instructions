@@ -755,10 +755,12 @@ builds' cap, or
 whose server runs with another cap than its config's: a server reads its
 config when it starts, so one that started before builds wrote a new cap keeps
 the old one until it starts again.
-Never start a server any other way: a server inherits the TMPDIR of the client
-that starts it and fails every compile once that folder is deleted, and the
-Unix-socket mode (SCCACHE_SERVER_UDS) races when clients start at once and
-leaves orphaned servers. sccache never caches build scripts, an incremental
+Builds commands that set TMPDIR for a run allow sccache clients to use the
+shared server. They give clients an error log path that prevents them from
+starting a server. If no server answers, sccache fails and names
+local.sccache-server in the error log path. Run that job under launchd on
+macOS or systemd on Linux. A server that uses a run's TMPDIR fails to compile
+after builds deletes the folder. sccache never caches build scripts, an incremental
 compile or a crate clippy lints, and a crate that reads OUT_DIR misses in each
 new checkout. sccache also hashes the bytes of each library a crate names,
 and a crate that includes a file its build script wrote, as serde does,
@@ -2437,6 +2439,9 @@ STATUS, HEALTH AND THE DASHBOARD
                               - the load, and free space against the floors
                               - whether sccache finished compiles since the
                                 last readings while clients wait 10+ minutes
+                              - the host, pid and path of each sccache server
+                                whose TMPDIR names a command's temporary
+                                folder or a folder the host cannot find
                               - the agent shells running, and which are junk
                                 (pid, the agent that ran the command, the pid
                                 of the process that started the shell, age,

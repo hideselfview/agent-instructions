@@ -130,7 +130,7 @@ fn a_host_over_ssh_makes_its_folder_in_the_script_and_the_script_deletes_it() {
     let volume = scratch.dir.join("volume");
     std::fs::create_dir_all(&volume).unwrap();
     let script = format!(
-        "BUILDS_ROOT={}; export BUILDS_ROOT\n{}echo \"$TMPDIR\"\n{}",
+        "BUILDS_ROOT={}; export BUILDS_ROOT\n{}printf '%s\\n' \"$TMPDIR\" \"$SCCACHE_START_SERVER\" \"$SCCACHE_ERROR_LOG\"\n{}",
         volume.display(),
         remote_setup(&remote_host(), "99-5"),
         remote_cleanup(&remote_host()),
@@ -139,14 +139,27 @@ fn a_host_over_ssh_makes_its_folder_in_the_script_and_the_script_deletes_it() {
         .arg("-c")
         .arg(&script)
         .env_remove("TMPDIR")
+        .env("SCCACHE_START_SERVER", "1")
+        .env("SCCACHE_ERROR_LOG", volume.join("server.log"))
         .output()
         .unwrap();
     assert!(output.status.success(), "{output:?}");
     let said = String::from_utf8(output.stdout).unwrap();
-    let tmpdir = said.trim();
+    let mut lines = said.lines();
+    let tmpdir = lines.next().unwrap();
     assert_eq!(
         std::path::PathBuf::from(tmpdir),
         volume.join(FOLDER).join("99-5")
+    );
+    assert_eq!(lines.next(), Some("0"));
+    let error_log = lines.next().unwrap();
+    assert!(error_log.contains(crate::sccache_service::LABEL));
+    assert!(
+        std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(error_log)
+            .is_err()
     );
     assert!(!std::path::Path::new(tmpdir).exists());
 }

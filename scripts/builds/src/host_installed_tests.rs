@@ -50,6 +50,14 @@ fn cap_bytes() -> u64 {
     crate::install::sccache_cap_kib() * 1024
 }
 
+fn listening(pid: u32, cap: u64) -> ListeningSccache {
+    ListeningSccache {
+        pid,
+        cap: Ok(cap),
+        tmp_issue: None,
+    }
+}
+
 /// What `installed_script` prints for a listening server whose max cache size
 /// is <bytes>, cut to the fields that matter.
 fn stats_line(bytes: u64) -> String {
@@ -83,7 +91,7 @@ fn reads_what_a_host_has_installed() {
             mac: Some(crate::host_installed::MacInstalled { ui_tests: all_on() }),
             sccache_served: true,
             sccache_cap: true,
-            sccache_running_cap: Some(cap_bytes()),
+            sccache: Some(listening(2914, cap_bytes())),
         }
     );
     assert_eq!(
@@ -93,7 +101,7 @@ fn reads_what_a_host_has_installed() {
             mac: Some(crate::host_installed::MacInstalled { ui_tests: all_on() }),
             sccache_served: false,
             sccache_cap: true,
-            sccache_running_cap: None,
+            sccache: None,
         }
     );
     assert!(parse_installed(&answer("", "present", "", None)).is_err());
@@ -205,7 +213,7 @@ fn a_host_whose_sccache_runs_outside_launchd_is_a_finding() {
         mac: Some(crate::host_installed::MacInstalled { ui_tests: all_on() }),
         sccache_served: sccache_under_launchd,
         sccache_cap: true,
-        sccache_running_cap: Some(cap_bytes()),
+        sccache: Some(listening(2914, cap_bytes())),
     };
     let read = |host: &str, under: bool| HostInstalled {
         host: host.to_string(),
@@ -239,6 +247,75 @@ fn a_host_whose_sccache_runs_outside_launchd_is_a_finding() {
     assert_eq!(under, [false, false]);
 }
 
+#[test]
+fn health_names_the_server_and_its_bad_temp_folder() {
+    use crate::sccache::tests::RUNNING;
+    let scratch = Scratch::new("host-sccache-tmpdir");
+    let places = scratch.places();
+    let answer = answer("ab12", "present", "2914", Some(RUNNING));
+    let run_tmp = places.root.join(".tmp/1-2");
+    let missing = places.root.join("gone folder");
+    let persistent = places.sccache_tmp();
+    std::fs::create_dir_all(&run_tmp).unwrap();
+    std::fs::create_dir(&persistent).unwrap();
+    scratch.script("uname", "echo Darwin");
+    scratch.script(
+        "ps",
+        r#"test "$*" = 'eww -p 2914 -o command=' || exit 1
+printf 'sccache HOME=/scratch TMPDIR=%s SCCACHE_START_SERVER=1\n' "$SERVER_TMPDIR""#,
+    );
+    let fake_ssh = scratch.script(
+        "ssh",
+        &format!(
+            r#"case "$*" in
+*sccache_tmpdir_run*)
+  for command do :; done
+  case "$*" in
+    *u@m1*) SERVER_TMPDIR={run} ;;
+    *u@m2*) SERVER_TMPDIR={missing} ;;
+    *u@m3*) SERVER_TMPDIR={persistent} ;;
+    *) exit 2 ;;
+  esac
+  export SERVER_TMPDIR
+  BUILDS_VOLUME={volume} PATH={fake_bin}:/usr/bin:/bin exec sh -c "$command"
+  ;;
+*) cat <<'EOF'
+{answer}EOF
+  ;;
+esac"#,
+            run = sh_quote(&run_tmp.to_string_lossy()),
+            missing = sh_quote(&missing.to_string_lossy()),
+            persistent = sh_quote(&persistent.to_string_lossy()),
+            volume = sh_quote(&places.root.to_string_lossy()),
+            fake_bin = sh_quote(&scratch.dir.to_string_lossy()),
+        ),
+    );
+    let ssh = Ssh {
+        program: fake_ssh.display().to_string(),
+    };
+    let mut installed = vec![HostInstalled {
+        host: LOCAL.to_string(),
+        read: Ok(parse_installed(&answer).unwrap()),
+    }];
+    installed.extend(read_all_installed(
+        &places,
+        &ssh,
+        &[host("m1"), host("m2"), host("m3")],
+    ));
+    let findings = installed_findings(&installed);
+    assert_eq!(findings.len(), 2, "{findings:?}");
+    assert!(
+        findings[0].text.contains("host m1 (pid 2914)")
+            && findings[0].text.contains(&*run_tmp.to_string_lossy()),
+        "{findings:?}"
+    );
+    assert!(
+        findings[1].text.contains("host m2 (pid 2914)")
+            && findings[1].text.contains(&*missing.to_string_lossy()),
+        "{findings:?}"
+    );
+}
+
 /// A Mac whose sccache config does not hold builds' cap, such as a host that
 /// kept the old cap when builds raised it, gets a finding: a host's finding
 /// names `builds host setup`, and this Mac's finding names `builds install`.
@@ -267,7 +344,7 @@ fn a_host_whose_sccache_config_does_not_hold_builds_cap_is_a_finding() {
             mac: Some(crate::host_installed::MacInstalled { ui_tests: all_on() }),
             sccache_served: true,
             sccache_cap,
-            sccache_running_cap: Some(cap_bytes()),
+            sccache: Some(listening(2914, cap_bytes())),
         }),
     };
     assert_eq!(
@@ -321,8 +398,8 @@ fn a_server_whose_running_cap_differs_from_its_config_is_a_finding() {
     let stale = answer("ab12", "present", "2914", Some(RUNNING))
         .replace(&stats_line(cap_bytes()), &stats_line(old));
     assert_eq!(
-        parse_installed(&stale).unwrap().sccache_running_cap,
-        Some(old)
+        parse_installed(&stale).unwrap().sccache,
+        Some(listening(2914, old))
     );
     let read = |host: &str, running: Option<u64>| HostInstalled {
         host: host.to_string(),
@@ -331,7 +408,7 @@ fn a_server_whose_running_cap_differs_from_its_config_is_a_finding() {
             mac: Some(crate::host_installed::MacInstalled { ui_tests: all_on() }),
             sccache_served: true,
             sccache_cap: true,
-            sccache_running_cap: running,
+            sccache: running.map(|cap| listening(2914, cap)),
         }),
     };
     assert_eq!(
@@ -376,7 +453,7 @@ fn reads_what_a_linux_host_has_installed() {
             mac: None,
             sccache_served: true,
             sccache_cap: true,
-            sccache_running_cap: Some(cap_bytes()),
+            sccache: Some(listening(812, cap_bytes())),
         }
     );
 }

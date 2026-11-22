@@ -1,7 +1,7 @@
 //! The shared sccache server: which process listens on its port, whether
 //! the service manager's job is that process (sccache_service.rs), what it says about itself, the compiles it
-//! runs, and stopping it. This module asks the server about itself only when
-//! it already listens, because asking starts a server when none runs.
+//! runs, and stopping it. Read stats only for a listening server, since
+//! sccache prints default stats when no server listens.
 
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -12,6 +12,21 @@ use crate::fail::{Context, Result};
 
 /// The TCP port the server listens on: sccache's default.
 pub const PORT: u16 = 4226;
+
+/// Keep processes with a build's TMPDIR in client mode. Stock sccache 0.13
+/// can try to start a server if a compile's connection fails, even when
+/// SCCACHE_START_SERVER is 0. The server must open SCCACHE_ERROR_LOG before
+/// detaching or listening. A path through /dev/null cannot open, and names
+/// the service that should serve the compile in sccache's own error.
+pub fn client_env() -> [(&'static str, String); 2] {
+    [
+        ("SCCACHE_START_SERVER", "0".to_string()),
+        (
+            "SCCACHE_ERROR_LOG",
+            format!("/dev/null/{}", crate::sccache_service::LABEL),
+        ),
+    ]
+}
 
 /// How often the waits below look again.
 const POLL: Duration = Duration::from_millis(250);
@@ -127,8 +142,8 @@ fn read_listener(status: Option<i32>, stdout: &str, stderr: &str) -> Result<Opti
 /// stdout after `listener=`, and its stderr on the line `listener_said=`.
 /// `parse_listener_lines` reads these lines. When lsof found a listener, the
 /// script then prints the server's JSON stats on the line `sccache_stats=`,
-/// which `parse_stats_line` reads: the script asks the server only when it
-/// listens, since asking starts a server when none runs.
+/// which `parse_stats_line` reads. With no listener, sccache would return
+/// default stats.
 pub fn listener_script() -> String {
     format!(
         r#"listener_err=$(mktemp)
@@ -147,13 +162,16 @@ if [ "$listener_status" = 0 ]; then printf 'sccache_stats=%s\n' "$({STATS} 2>&1 
 const STATS: &str = "sccache --show-stats --stats-format json";
 
 /// The max cache size, in bytes, of the server whose JSON stats are on the
-/// `sccache_stats=` line among <text>'s, or None when no such line is there
-/// (no server listened). Fails when the line holds no max cache size.
-pub fn parse_stats_line(text: &str) -> Result<Option<u64>> {
-    text.lines()
+/// `sccache_stats=` line among <text>'s. Fails when the host reports no
+/// stats or the stats have no max cache size.
+pub fn parse_stats_line(text: &str) -> Result<u64> {
+    let Some(stats) = text
+        .lines()
         .find_map(|line| line.strip_prefix("sccache_stats="))
-        .map(parse_max_cache_size)
-        .transpose()
+    else {
+        fail!("The host reported no sccache stats.")
+    };
+    parse_max_cache_size(stats)
 }
 
 /// The max cache size, in bytes, in the JSON stats <json> that the server
@@ -216,7 +234,7 @@ pub fn parse_json_stats(json: &str) -> Result<CacheStats> {
 }
 
 /// What `STATS` printed, from the server listening on sccache's port. Ask
-/// only a server that listens: asking starts one when none runs. Fails when
+/// only a server that listens to avoid sccache's default stats. Fails when
 /// sccache fails.
 fn running_stats_json() -> Result<String> {
     let mut words = STATS.split_whitespace();
@@ -235,8 +253,8 @@ fn running_stats_json() -> Result<String> {
 }
 
 /// The max cache size, in bytes, that the server listening on sccache's port
-/// runs with. Ask only a server that listens: asking starts one when none
-/// runs. Fails when sccache fails or prints no max cache size.
+/// runs with. Ask only a server that listens. Fails when sccache fails or
+/// prints no max cache size.
 pub fn running_max_cache_size() -> Result<u64> {
     parse_max_cache_size(&running_stats_json()?)
 }

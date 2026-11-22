@@ -10,8 +10,10 @@
 use crate::checkout::parallel_map;
 use crate::fail;
 use crate::fail::Result;
-use crate::host::{Host, LOCAL, Ssh};
+use crate::host::{Host, LOCAL, Ssh, sh_quote};
+use crate::host_platform::Os;
 use crate::places::Places;
+use crate::remote::Transport;
 
 /// What a host has set up for builds' jobs, as `installed_script` prints it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -35,11 +37,16 @@ pub struct Installed {
     /// (`install::sccache_cap_kib`), which `install::run_sccache_server`
     /// writes and the server reads when it starts.
     pub sccache_cap: bool,
-    /// The max cache size, in bytes, that the host's listening sccache server
-    /// runs with, which it read from its config when it started; None when no
-    /// server listens. A server that started before builds wrote a new cap
-    /// keeps the old one until it starts again.
-    pub sccache_running_cap: Option<u64>,
+    /// The server on the shared port, when one listens.
+    pub(crate) sccache: Option<ListeningSccache>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ListeningSccache {
+    pid: u32,
+    /// The cache size limit in bytes that the server read when it started.
+    cap: std::result::Result<u64, String>,
+    tmp_issue: Option<String>,
 }
 
 /// What a Mac host has of what app builds need.
@@ -59,7 +66,6 @@ pub struct MacInstalled {
 /// service manager says about the server's job (sccache_service.rs). Each
 /// OS keeps the job's file and the config in a place of its own.
 fn installed_script() -> String {
-    use crate::host_platform::Os;
     use crate::sccache_service::Manager;
     let files = |os: Os| {
         format!(
@@ -100,7 +106,7 @@ esac"#,
 const CONFIG_PREFIX: &str = "sccache_config:";
 
 /// Reads what `installed_script` printed.
-pub fn parse_installed(text: &str) -> Result<Installed> {
+fn parse_installed(text: &str) -> Result<Installed> {
     let value = |key: &str| crate::host::answer_value(text, key);
     let Some(builds) = value("builds") else {
         fail!("the host's answer has no builds line: {text:?}");
@@ -112,8 +118,8 @@ pub fn parse_installed(text: &str) -> Result<Installed> {
     };
     let os = crate::host_platform::Platform::parse(text)?.os;
     let mac = match os {
-        crate::host_platform::Os::Linux => None,
-        crate::host_platform::Os::Mac => Some(MacInstalled {
+        Os::Linux => None,
+        Os::Mac => Some(MacInstalled {
             ui_tests: crate::ui_test_settings::parse(text)?,
         }),
     };
@@ -124,7 +130,11 @@ pub fn parse_installed(text: &str) -> Result<Installed> {
         _ => fail!("the host's answer has no job_file line: {text:?}"),
     };
     let listener = crate::sccache::parse_listener_lines(text)?;
-    let sccache_running_cap = crate::sccache::parse_stats_line(text)?;
+    let sccache = listener.map(|pid| ListeningSccache {
+        pid,
+        cap: crate::sccache::parse_stats_line(text).map_err(|error| error.text()),
+        tmp_issue: None,
+    });
     let config: Vec<&str> = text
         .lines()
         .filter_map(|line| line.strip_prefix(CONFIG_PREFIX))
@@ -148,8 +158,68 @@ pub fn parse_installed(text: &str) -> Result<Installed> {
         mac,
         sccache_served: job_file && crate::sccache::job_serves(job.as_ref(), listener),
         sccache_cap,
-        sccache_running_cap,
+        sccache,
     })
+}
+
+/// Reads the listener's own TMPDIR and checks it on the host that owns it.
+/// Print only the path and its state, never the rest of the environment.
+fn sccache_tmp_script(transport: &Transport<'_>, os: Os, pid: u32) -> String {
+    let root = if transport.host.target.is_none() {
+        format!(
+            "BUILDS_ROOT={}\n",
+            sh_quote(&transport.places.root.to_string_lossy())
+        )
+    } else {
+        crate::remote::root_script(transport.host)
+    };
+    let read = match os {
+        Os::Mac => format!(
+            r#"environment=$(ps eww -p {pid} -o command=) || exit 1
+folder=$(printf '%s\n' "$environment" | awk '
+  match($0, / TMPDIR=/) {{
+    folder = substr($0, RSTART + RLENGTH)
+    sub(/ [[:alpha:]_][[:alnum:]_]*=.*/, "", folder)
+    print folder
+  }}') || exit 1"#
+        ),
+        Os::Linux => format!(
+            r#"environment=$(tr '\000' '\n' </proc/{pid}/environ) || exit 1
+folder=$(printf '%s\n' "$environment" | sed -n 's/^TMPDIR=//p') || exit 1"#
+        ),
+    };
+    format!(
+        r#"{root}{read}
+case "$folder" in
+  "") echo sccache_tmpdir=ok ;;
+  "$BUILDS_ROOT/{run_tmp}"|"$BUILDS_ROOT/{run_tmp}/"*) printf 'sccache_tmpdir_run=%s\n' "$folder" ;;
+  *) if [ -d "$folder" ]; then echo sccache_tmpdir=ok
+     else printf 'sccache_tmpdir_missing=%s\n' "$folder"; fi ;;
+esac"#,
+        run_tmp = crate::run_tmp::FOLDER
+    )
+}
+
+fn sccache_tmp_issue(transport: &Transport<'_>, os: Os, pid: u32) -> Result<Option<String>> {
+    let answer = transport.capture(
+        &sccache_tmp_script(transport, os, pid),
+        &format!("Reading TMPDIR for the sccache server (pid {pid})"),
+    )?;
+    let answer = answer.trim_end_matches('\n');
+    if answer == "sccache_tmpdir=ok" {
+        return Ok(None);
+    }
+    if let Some(folder) = answer.strip_prefix("sccache_tmpdir_run=") {
+        return Ok(Some(format!(
+            "uses a temporary folder that builds deletes when the command ends ({folder})"
+        )));
+    }
+    if let Some(folder) = answer.strip_prefix("sccache_tmpdir_missing=") {
+        return Ok(Some(format!(
+            "uses a temporary folder that the host cannot find ({folder})"
+        )));
+    }
+    fail!("The TMPDIR check for the sccache server (pid {pid}) returned {answer:?}.")
 }
 
 /// Asks <host> what it has installed; for this Mac, <places>' home holds
@@ -159,14 +229,29 @@ pub fn read_installed(
     ssh: &Ssh,
     host: &Host,
 ) -> std::result::Result<Installed, String> {
-    let transport = crate::remote::Transport { places, ssh, host };
+    let transport = Transport { places, ssh, host };
     let printed = transport
         .ask(
             &format!("{}{}", crate::remote::root_script(host), installed_script()),
             "asking what it has installed",
         )
         .map_err(|fail| fail.text())??;
-    parse_installed(&printed).map_err(|fail| fail.text())
+    let mut installed = parse_installed(&printed).map_err(|fail| fail.text())?;
+    if let Some(server) = &mut installed.sccache {
+        let os = if installed.mac.is_some() {
+            Os::Mac
+        } else {
+            Os::Linux
+        };
+        server.tmp_issue = match sccache_tmp_issue(&transport, os, server.pid) {
+            Ok(issue) => issue,
+            Err(error) => Some(format!(
+                "has a TMPDIR that builds could not read ({})",
+                error.text()
+            )),
+        };
+    }
+    Ok(installed)
 }
 
 /// What one host said it has installed, or why asking failed.
@@ -201,6 +286,7 @@ pub fn installed_findings(reads: &[HostInstalled]) -> Vec<crate::health::Advice>
         }
     };
     let mut out = Vec::new();
+    out.extend(sccache_running_findings(LOCAL, local));
     if !local.sccache_served {
         out.push(crate::health::Advice::run(
             format!("this Mac's {SCCACHE_OUTSIDE_SERVICE} Run it under launchd with"),
@@ -234,6 +320,7 @@ pub fn installed_findings(reads: &[HostInstalled]) -> Vec<crate::health::Advice>
             }
         };
         let setup = format!("builds host setup {name}");
+        out.extend(sccache_running_findings(name, installed));
         if installed.builds != local.builds {
             let text = match &installed.builds {
                 None => format!(
@@ -273,8 +360,28 @@ pub fn installed_findings(reads: &[HostInstalled]) -> Vec<crate::health::Advice>
     out
 }
 
-/// What a host whose sccache server its service manager does not run loses.
-const SCCACHE_OUTSIDE_SERVICE: &str = "sccache server does not run under its service manager (launchd on macOS, systemd on Linux), so the first compile starts one that takes the client's TMPDIR and open-file limit and exits when idle.";
+/// Why builds asks the user to set up sccache as a service.
+const SCCACHE_OUTSIDE_SERVICE: &str = "sccache server runs outside its service manager (launchd on macOS, systemd on Linux) or has yet to start.";
+
+fn sccache_running_findings(
+    host: &str,
+    installed: &Installed,
+) -> impl Iterator<Item = crate::health::Advice> {
+    installed.sccache.iter().flat_map(move |server| {
+        let place = crate::host::place(host);
+        let pid = server.pid;
+        let tmp = server.tmp_issue.as_ref().map(|issue| {
+            crate::health::Advice::said(format!("The sccache server on {place} (pid {pid}) {issue}."))
+        });
+        let stats = match &server.cap {
+            Ok(_) => None,
+            Err(error) => Some(crate::health::Advice::said(format!(
+                "Builds could not read the cache size limit of the sccache server on {place} (pid {pid}). {error}"
+            ))),
+        };
+        tmp.into_iter().chain(stats)
+    })
+}
 
 /// What a Mac whose sccache config does not hold builds' cap loses.
 fn sccache_cap_differs() -> String {
@@ -290,7 +397,9 @@ fn sccache_cap_differs() -> String {
 /// or the config itself differs (`sccache_cap_differs` says so).
 fn stale_running_cap(installed: &Installed) -> Option<String> {
     let cap = crate::install::sccache_cap_kib() * 1024;
-    let running = installed.sccache_running_cap?;
+    let Ok(running) = installed.sccache.as_ref()?.cap else {
+        return None;
+    };
     (installed.sccache_cap && running != cap).then(|| {
         format!(
             "sccache server runs with a cap of {}, not the {} its config holds, since it started before builds wrote that cap.",

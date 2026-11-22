@@ -78,6 +78,10 @@ pub fn enter(places: &Places, command: &str, args: &[String]) -> Result<Option<R
         return Ok(None);
     }
     places.require_volume()?;
+    for (name, value) in crate::sccache::client_env() {
+        // SAFETY: the caller has started no other thread.
+        unsafe { std::env::set_var(name, value) };
+    }
     let parent = places.root.join(FOLDER);
     if places
         .tmpdir
@@ -100,13 +104,19 @@ pub fn enter(places: &Places, command: &str, args: &[String]) -> Result<Option<R
 /// the job inherits the TMPDIR of the `builds` process that starts it.
 pub fn remote_setup(host: &Host, run: &str) -> String {
     match host.target {
-        Some(_) => format!(
-            r#"tmp="$BUILDS_ROOT/{FOLDER}/{run}"
+        Some(_) => {
+            let cache_env: String = crate::sccache::client_env()
+                .into_iter()
+                .map(|(name, value)| format!("export {name}={}\n", crate::host::sh_quote(&value)))
+                .collect();
+            format!(
+                r#"tmp="$BUILDS_ROOT/{FOLDER}/{run}"
 mkdir -p "$tmp" || exit 97
 TMPDIR="$tmp"
 export TMPDIR
-"#,
-        ),
+{cache_env}"#
+            )
+        }
         None => String::new(),
     }
 }
