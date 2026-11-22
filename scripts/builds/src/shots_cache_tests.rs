@@ -568,16 +568,20 @@ fn a_lane_can_read_its_cached_app_pictures_after_a_prune_between_steps() {
         crate::testing::age_all(tree, 2);
     }
     let pictures = AppPictures::of(&places, "demo", Lane::Mac, "active");
+    let query = CaptureQuery {
+        prefixes: vec![shots::Prefix::parse("mac.a.").unwrap()],
+        windows: true,
+    };
+    let marks = CaptureMarks::of(&lane_tree);
     pictures
-        .while_held(|pictures| {
-            assert!(pictures.cover(&["mac.a."], true).unwrap());
+        .while_held(Some(&query), |cached| {
+            assert!(cached);
 
             prune_runs(&tool, Run::Real, 100).unwrap();
 
             assert!(lane_tree.join(shot).is_file());
-            assert!(pictures.cover(&["mac.a."], true).unwrap());
+            assert!(marks.cover(&query.prefixes, query.windows).unwrap());
             assert!(!other_tree.exists());
-            Ok(())
         })
         .unwrap();
 

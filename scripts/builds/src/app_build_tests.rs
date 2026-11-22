@@ -1999,25 +1999,25 @@ fn the_picture_folder_caches_the_shots_of_the_prefixes_its_marks_cover_for_the_a
         tree,
         crate::app_tree::in_environment(&source_tree, ENVIRONMENT)
     );
-    let pictures = |tree| shots_cache::AppPictures::of(&places, "demo", Lane::Mac, tree);
-    pictures(&tree)
-        .while_held(|held| {
-            let caches = |prefixes: &[&str]| {
-                picture_folder_caches(&config, Lane::Mac, held, prefixes).unwrap()
-            };
-            assert!(!caches(&["mac.a."]), "the folder caches nothing yet");
-            held.write(&[shots::Prefix::parse("mac.").unwrap()], false)
-                .unwrap();
-            assert!(caches(&["mac.a."]) && caches(&["mac.a.", "mac.b."]));
-            Ok(())
-        })
+    let cached = |tree, prefixes: &[&str]| {
+        let pictures = shots_cache::AppPictures::of(&places, "demo", Lane::Mac, tree);
+        let query = capture_query(&config, Lane::Mac, prefixes).unwrap();
+        pictures.while_held(Some(&query), |cached| cached).unwrap()
+    };
+    assert!(!cached(&tree, &["mac.a."]));
+    let marks = shots::CaptureMarks::of(&shots_cache::app_picture_tree(
+        &places,
+        "demo",
+        Lane::Mac,
+        &tree,
+    ));
+    marks
+        .write(&[shots::Prefix::parse("mac.").unwrap()], false)
         .unwrap();
+    assert!(cached(&tree, &["mac.a."]) && cached(&tree, &["mac.a.", "mac.b."]));
     let other_environment = crate::app_tree::in_environment(&source_tree, "25G241-27B52");
     for tree in ["another-tree", &other_environment] {
-        let cached = pictures(tree)
-            .while_held(|held| picture_folder_caches(&config, Lane::Mac, held, &["mac.a."]))
-            .unwrap();
-        assert!(!cached);
+        assert!(!cached(tree, &["mac.a."]));
     }
 }
 

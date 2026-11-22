@@ -1120,7 +1120,7 @@ const BUILT_REF: &str = "--built-ref";
 /// shots picks need, because no path the branch changes needs a step in the
 /// lane (derive.rs): the lane then builds nothing when the picture folder
 /// caches every shot of its picks for the lane's app tree
-/// (`picture_folder_caches`), and takes the shots from the folder.
+/// (`capture_query`), and takes the shots from the folder.
 const NEEDS_ONLY: &str = "--needs-only";
 
 /// What a lane's process is given first when the run has `--fresh`: its shots
@@ -1164,15 +1164,13 @@ fn shot_prefixes(lane: Lane, picks: &[Pick]) -> Vec<&str> {
         .collect()
 }
 
-/// Whether the held tree has marks for every shot the runs of <prefixes>
-/// select for <lane>, so the lane needs no app build. <prefixes> holds the
-/// lane's shots picks, so it is never empty.
-fn picture_folder_caches(
+/// The marks a lane needs to run its shots without building the app.
+/// The prefixes come from the lane's shots picks.
+fn capture_query(
     config: &Config,
     lane: Lane,
-    marks: &shots::CaptureMarks,
     prefixes: &[&str],
-) -> Result<bool> {
+) -> Result<shots_cache::CaptureQuery> {
     let Some(picker) = config.picker(lane, PickKind::Shots) else {
         let first = prefixes
             .first()
@@ -1180,9 +1178,12 @@ fn picture_folder_caches(
         return Err(missing_line(lane, PickKind::Shots, first));
     };
     let windows = picker.command.iter().any(|word| word == "--windows");
-    marks
-        .cover(prefixes, windows)
-        .map_err(|error| Fail::Message(error.to_string()))
+    let prefixes = prefixes
+        .iter()
+        .map(|prefix| shots::Prefix::parse(prefix))
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(|error| Fail::Message(error.to_string()))?;
+    Ok(shots_cache::CaptureQuery { prefixes, windows })
 }
 
 /// What a shots run of a prefix compares with.
@@ -2019,7 +2020,7 @@ impl LaneBuild<'_> {
         held: &lock::Held,
         built_file: &Path,
         timing: &mut Timing,
-    ) -> Result<Ended> {
+    ) -> shots_cache::PictureLeaseResult<Ended> {
         let LaneBuild {
             places, repo, lane, ..
         } = *self;
@@ -2086,15 +2087,15 @@ impl LaneBuild<'_> {
                 base_run: false,
                 built: &built,
             };
-            self.run_commit(site, held, built_file, timing, run)
+            Ok(self.run_commit(site, held, built_file, timing, run)?)
         };
         match &pictures {
-            Some(pictures) => pictures.while_held(|marks| {
-                let cached_shots = needs_only
-                    && !fresh
-                    && picture_folder_caches(&self.config, lane, marks, &prefixes)?;
-                run(cached_shots)
-            }),
+            Some(pictures) => {
+                let query = (needs_only && !fresh)
+                    .then(|| capture_query(&self.config, lane, &prefixes))
+                    .transpose()?;
+                pictures.while_held(query.as_ref(), run)?
+            }
             None => run(false),
         }
     }
@@ -2240,7 +2241,7 @@ impl LaneBuild<'_> {
         held: &lock::Held,
         built_file: &Path,
         timing: &mut Timing,
-    ) -> Result<(Ended, Vec<String>)> {
+    ) -> shots_cache::PictureLeaseResult<(Ended, Vec<String>)> {
         let LaneBuild {
             places,
             repo,
@@ -2319,8 +2320,8 @@ impl LaneBuild<'_> {
             .iter()
             .map(|(_, _, prefix)| prefix.as_str())
             .collect::<Vec<_>>();
-        let ran = pictures.while_held(|marks| {
-            let cached_shots = picture_folder_caches(&config, lane, marks, &prefixes)?;
+        let query = capture_query(&config, lane, &prefixes)?;
+        let ran = pictures.while_held(Some(&query), |cached_shots| {
             let run = CommitRun {
                 sha: &sha,
                 config: &config,
@@ -2335,23 +2336,23 @@ impl LaneBuild<'_> {
                 built: &[],
             };
             self.run_commit(site, held, built_file, timing, run)
-        });
+        })?;
         let failed = match ran {
             Ok(Ended::Finished) => None,
             Ok(other) => return Ok((other, Vec::new())),
             // A shots run whose pairs fail it cached its findings, and the
             // steps after it ran: what matters is whether every run is cached.
             Err(Fail::Exit(code)) => Some(format!("a step failed (exit {code})")),
-            Err(other) => return Err(other),
+            Err(other) => return Err(other.into()),
         };
         if let Some((lane, _, prefix)) = missing(&wanted)?.first() {
             let why = failed.unwrap_or_else(|| "it cached no findings".to_string());
-            fail!(
+            return Err(Fail::Message(format!(
                 "the run of {prefix} on {} at {}, the merge base of {} with origin/main, gave nothing to compare with: {why}",
                 lane.word(),
                 short(&base.commit),
                 short(commit)
-            );
+            )).into());
         }
         if let Some(why) = failed {
             note(format!(

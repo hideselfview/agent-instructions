@@ -72,7 +72,7 @@ impl CaptureMarks {
     }
 
     /// Whether the tree keeps every requested prefix and the window shots it asks for.
-    pub fn cover(&self, prefixes: &[&str], windows: bool) -> Result<bool, CaptureMarkError> {
+    pub fn cover(&self, prefixes: &[Prefix], windows: bool) -> Result<bool, CaptureMarkError> {
         let contents = storage("list", &self.dir, std::fs::read_dir(&self.dir))?;
         let mut covered = vec![false; prefixes.len()];
         for entry in contents {
@@ -91,7 +91,7 @@ impl CaptureMarks {
                 .map_err(|source| CaptureMarkError::Prefix { path, source })?;
             if took_windows || !windows {
                 for (prefix, has_mark) in prefixes.iter().zip(&mut covered) {
-                    if !*has_mark && prefix.starts_with(marked.as_str()) {
+                    if !*has_mark && prefix.as_str().starts_with(marked.as_str()) {
                         *has_mark = true;
                     }
                 }

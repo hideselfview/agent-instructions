@@ -27,14 +27,15 @@ fn a_base_lane_holds_cached_pictures_before_and_between_comparisons() {
     let head = resolve(&top, "HEAD").unwrap();
     let config = parse_config(&config_text).unwrap();
     let tree = picture_tree(&top, &base, &config, Lane::Mac, ENVIRONMENT).unwrap();
-    let pictures = shots_cache::AppPictures::of(&places, "demo", Lane::Mac, &tree);
+    let marks = shots::CaptureMarks::of(&shots_cache::app_picture_tree(
+        &places,
+        "demo",
+        Lane::Mac,
+        &tree,
+    ));
     let prefixes = ["mac.a.", "mac.b."].map(|prefix| shots::Prefix::parse(prefix).unwrap());
-    let taken = pictures
-        .while_held(|marks| {
-            marks.write(&prefixes, false).unwrap();
-            Ok(marks.directory().to_path_buf())
-        })
-        .unwrap();
+    marks.write(&prefixes, false).unwrap();
+    let taken = marks.directory();
 
     // The checker counts scenes before each comparison takes the root lock.
     // At that point a competing process must still be unable to lock the tree.
@@ -117,5 +118,5 @@ esac"#,
             .iter()
             .all(|step| step.at_merge_base == Some(true))
     );
-    assert!(!crate::flock::is_held(&taken).unwrap());
+    assert!(!crate::flock::is_held(taken).unwrap());
 }

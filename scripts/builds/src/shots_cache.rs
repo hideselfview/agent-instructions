@@ -72,7 +72,7 @@ use shots::{CAPTURE_MARKS_DIR, CaptureMarks};
 use crate::app_timing::now;
 use crate::capped_store::{self, Group, Kept, Use, entries_in, folders_in};
 use crate::fail;
-use crate::fail::{Context, Result};
+use crate::fail::{Context, Fail, Result};
 use crate::lane::Lane;
 use crate::places::Places;
 use crate::prune::Run;
@@ -214,7 +214,7 @@ pub struct AppPictures {
 
 impl AppPictures {
     pub fn of(places: &Places, repo: &str, lane: Lane, tree: &str) -> Self {
-        let dir = pictures(places, repo).join(lane.word()).join(tree);
+        let dir = app_picture_tree(places, repo, lane, tree);
         Self {
             root: root(places),
             marks: CaptureMarks::of(&dir),
@@ -222,7 +222,11 @@ impl AppPictures {
     }
 
     /// Keep this tree in the cache while the lane runs <work>.
-    pub fn while_held<T>(&self, work: impl FnOnce(&CaptureMarks) -> Result<T>) -> Result<T> {
+    pub fn while_held<T>(
+        &self,
+        query: Option<&CaptureQuery>,
+        work: impl FnOnce(bool) -> T,
+    ) -> PictureLeaseResult<T> {
         let _reader = {
             // Take the shared lock while prune cannot replace the directory inode.
             let _root = capped_store::writing(&self.root)?;
@@ -233,8 +237,50 @@ impl AppPictures {
             crate::flock::lock(&reader, libc::LOCK_SH, marks)?;
             reader
         };
-        work(&self.marks)
+        let cached = match query {
+            Some(query) => self.marks.cover(&query.prefixes, query.windows)?,
+            None => false,
+        };
+        Ok(work(cached))
     }
+}
+
+#[derive(Debug)]
+pub enum PictureLeaseError {
+    Build(Fail),
+    Mark(shots::CaptureMarkError),
+}
+
+impl From<Fail> for PictureLeaseError {
+    fn from(error: Fail) -> Self {
+        Self::Build(error)
+    }
+}
+
+impl From<shots::CaptureMarkError> for PictureLeaseError {
+    fn from(error: shots::CaptureMarkError) -> Self {
+        Self::Mark(error)
+    }
+}
+
+impl From<PictureLeaseError> for Fail {
+    fn from(error: PictureLeaseError) -> Self {
+        match error {
+            PictureLeaseError::Build(error) => error,
+            PictureLeaseError::Mark(error) => Fail::Message(error.to_string()),
+        }
+    }
+}
+
+pub type PictureLeaseResult<T> = std::result::Result<T, PictureLeaseError>;
+
+pub struct CaptureQuery {
+    pub prefixes: Vec<shots::Prefix>,
+    pub windows: bool,
+}
+
+pub(super) fn app_picture_tree(places: &Places, repo: &str, lane: Lane, tree: &str) -> PathBuf {
+    pictures(places, repo).join(lane.word()).join(tree)
 }
 
 /// A new folder in the picture folder <pictures> for the pictures a run on a

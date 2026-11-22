@@ -247,6 +247,22 @@ fn parse_platform(text: &str) -> Result<Platform, String> {
 }
 
 impl Selection {
+    fn mark_taken(
+        &self,
+        pictures: &pictures::Pictures,
+        platform: Platform,
+        tree: &str,
+    ) -> Result<(), String> {
+        pictures
+            .mark_taken(
+                platform,
+                tree,
+                &taken_prefixes(platform, &self.prefixes),
+                self.windows,
+            )
+            .map_err(|error| error.to_string())
+    }
+
     fn platforms(&self, settings: &Settings) -> Vec<Platform> {
         let mut platforms = if !self.platforms.is_empty() {
             self.platforms.clone()
@@ -306,14 +322,7 @@ fn capture(
                     taken.names.len(),
                     platform.word()
                 ));
-                pictures
-                    .mark_taken(
-                        platform,
-                        tree,
-                        &taken_prefixes(platform, &selection.prefixes),
-                        selection.windows,
-                    )
-                    .map_err(|error| error.to_string())?;
+                selection.mark_taken(pictures, platform, tree)?;
                 all.names.extend(taken.names);
                 all.not_taken.extend(taken.not_taken);
                 continue;
@@ -350,14 +359,7 @@ fn capture(
             // The mark says the folder keeps every shot the prefixes select,
             // which a failed shot makes untrue.
             if taken.failed.is_empty() {
-                pictures
-                    .mark_taken(
-                        platform,
-                        tree,
-                        &taken_prefixes(platform, &selection.prefixes),
-                        selection.windows,
-                    )
-                    .map_err(|error| error.to_string())?;
+                selection.mark_taken(pictures, platform, tree)?;
             }
         }
         all.names.extend(taken.names);

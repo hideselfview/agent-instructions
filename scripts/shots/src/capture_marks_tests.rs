@@ -7,13 +7,35 @@ fn a_mark_covers_its_prefix_and_its_children_and_names_whether_windows_were_capt
     marks
         .write(&[Prefix::parse("mac.a.").unwrap()], false)
         .unwrap();
-    assert!(marks.cover(&["mac.a.b."], false).unwrap());
-    assert!(!marks.cover(&["mac.a."], true).unwrap());
-    assert!(!marks.cover(&["mac."], false).unwrap());
+    assert!(
+        marks
+            .cover(&[Prefix::parse("mac.a.b.").unwrap()], false)
+            .unwrap()
+    );
+    assert!(
+        !marks
+            .cover(&[Prefix::parse("mac.a.").unwrap()], true)
+            .unwrap()
+    );
+    assert!(
+        !marks
+            .cover(&[Prefix::parse("mac.").unwrap()], false)
+            .unwrap()
+    );
     marks
         .write(&[Prefix::all_of(crate::names::Platform::Mac)], true)
         .unwrap();
-    assert!(marks.cover(&["mac.", "mac.b."], true).unwrap());
+    assert!(
+        marks
+            .cover(
+                &[
+                    Prefix::parse("mac.").unwrap(),
+                    Prefix::parse("mac.b.").unwrap()
+                ],
+                true
+            )
+            .unwrap()
+    );
 }
 
 #[test]
@@ -22,7 +44,10 @@ fn a_directory_cannot_mark_a_prefix_captured() {
     let marks = CaptureMarks::of(scratch.path());
     std::fs::create_dir_all(marks.directory().join("mac.@windows")).unwrap();
 
-    let error = marks.cover(&["mac.a."], true).unwrap_err().to_string();
+    let error = marks
+        .cover(&[Prefix::parse("mac.a.").unwrap()], true)
+        .unwrap_err()
+        .to_string();
     assert!(error.contains("expected a capture mark file"), "{error}");
     assert!(error.contains("mac.@windows"), "{error}");
 }
@@ -35,7 +60,10 @@ fn an_invalid_mark_cannot_cover_a_prefix() {
         let marks = CaptureMarks::of(tree.path());
         std::fs::create_dir(marks.directory()).unwrap();
         std::fs::write(marks.directory().join(name), "").unwrap();
-        let error = marks.cover(&["mac.a."], true).unwrap_err().to_string();
+        let error = marks
+            .cover(&[Prefix::parse("mac.a.").unwrap()], true)
+            .unwrap_err()
+            .to_string();
         assert!(error.contains(name), "{error}");
     }
 }
