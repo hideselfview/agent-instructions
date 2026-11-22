@@ -200,19 +200,27 @@ fn files_and_loose_files_go_in_order_and_each_group_has_its_own_cap() {
 }
 
 /// A daemon that takes every connection and never answers, as one does while
-/// it is busy: each question to it costs its asker the whole wait.
-fn silent_daemon(tool: &Tool) -> std::os::unix::net::UnixListener {
+/// it is busy: each question to it costs its asker the whole wait. The
+/// receiver says when a first question arrives.
+fn silent_daemon(
+    tool: &Tool,
+) -> (
+    std::os::unix::net::UnixListener,
+    std::sync::mpsc::Receiver<()>,
+) {
     let socket = tool.places.daemon_socket();
     std::fs::create_dir_all(socket.parent().unwrap()).unwrap();
     let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
     let held = listener.try_clone().unwrap();
+    let (asked, first) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         let mut open = Vec::new();
         while let Ok((stream, _)) = held.accept() {
             open.push(stream);
+            let _ = asked.send(());
         }
     });
-    listener
+    (listener, first)
 }
 
 /// A prune holds the root exclusively only while it moves units into the
@@ -228,14 +236,16 @@ fn a_writer_waits_for_a_prunes_renames_not_for_its_questions_to_the_daemon() {
     // /tmp is a link, and the prune resolves each folder it deletes.
     let volume = std::fs::canonicalize(&volume).unwrap();
     tool.places.root = volume.clone();
-    let _daemon = silent_daemon(&tool);
+    let (_daemon, asked) = silent_daemon(&tool);
     let root = tool.places.root.join("shots");
     for n in 0..6 {
         store(&root, &format!("bae/{n}"), 400, 30 + n);
     }
     let waited = std::thread::scope(|scope| {
         let pruning = scope.spawn(|| prune_now(&tool, Run::Real, &root, 100));
-        std::thread::sleep(std::time::Duration::from_millis(100));
+        // The prune has asked the daemon, so it has reached the work that
+        // used to run under the lock.
+        asked.recv().unwrap();
         let started = std::time::Instant::now();
         let writer = writing(&root).unwrap();
         let waited = started.elapsed();

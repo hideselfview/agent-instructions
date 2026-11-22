@@ -59,14 +59,14 @@ pub fn evict(places: &Places, dir: &Path, recreate: Recreate, removal: Removal) 
 
 /// `evict` of <folder>, which is resolved already, without telling the daemon
 /// that its root changed: the caller does that once for its deletions. With
-/// <open>, a reading of the files processes hold that the caller took, the
+/// <open>, a reading of the paths processes hold that the caller took, the
 /// check for a process that holds a file asks it and runs no `lsof`.
 pub(crate) fn evict_folder(
     places: &Places,
     folder: &Path,
     recreate: Recreate,
     removal: Removal,
-    open: Option<&OpenFiles>,
+    open: Option<&HeldPaths>,
 ) -> Result<bool> {
     let parent = folder
         .parent()
@@ -217,12 +217,12 @@ fn lock_now(file: File, path: &Path) -> Result<Option<File>> {
     Ok(crate::flock::try_lock(&file, libc::LOCK_EX, path)?.then_some(file))
 }
 
-/// The names of the files, working directories and mapped files that
+/// The paths of the files, working directories and mapped files that
 /// processes other than this one hold (`lsof -n -Fpn`), read once.
-pub struct OpenFiles(Vec<Vec<u8>>);
+pub struct HeldPaths(Vec<Vec<u8>>);
 
-impl OpenFiles {
-    pub fn read() -> Result<OpenFiles> {
+impl HeldPaths {
+    pub fn read() -> Result<HeldPaths> {
         let me = std::process::id().to_string();
         let output = Command::new("lsof")
             .args(["-n", "-Fpn"])
@@ -239,7 +239,7 @@ impl OpenFiles {
                 _ => {}
             }
         }
-        Ok(OpenFiles(names))
+        Ok(HeldPaths(names))
     }
 
     /// Does a process hold a file at or inside <folder>?
@@ -254,7 +254,7 @@ impl OpenFiles {
 /// Does any process but this one hold a file, a working directory or a
 /// mapped file at or inside <folder>? (`lsof -n -Fpn`)
 pub fn held_by_a_process(folder: &Path) -> Result<bool> {
-    Ok(OpenFiles::read()?.holds(folder))
+    Ok(HeldPaths::read()?.holds(folder))
 }
 
 /// A new folder in <dir> named <prefix> and eight random characters.

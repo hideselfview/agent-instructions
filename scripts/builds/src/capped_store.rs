@@ -27,7 +27,7 @@ use crate::evict::{Recreate, Removal};
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::places::FLOOR_IDLE_MINUTES;
-use crate::prune::{Run, delete_folder_held};
+use crate::prune::{Run, delete_folder_among};
 use crate::text::{human, note};
 use crate::tool::Tool;
 
@@ -261,8 +261,28 @@ pub fn prune(tool: &Tool, run: Run, root: &Path, cap_kib: u64, groups: Vec<Group
         return Ok(());
     };
     // Nobody reads or writes the root until the lock goes.
-    let open = crate::evict::OpenFiles::read()?;
+    let held = crate::evict::HeldPaths::read()?;
     let mut changed = BTreeSet::new();
+    let deleted = delete_planned(tool, run, root, plans, &held, &mut changed);
+    drop(alone);
+    // The daemon hears of each root a deletion changed, also when a later
+    // deletion failed.
+    let told: Result<()> = changed
+        .iter()
+        .try_for_each(|folder| crate::sizes::stale(&tool.places, folder));
+    deleted.and(told)
+}
+
+/// The deletions of `prune` while it holds <root>: the staging folders at its
+/// top, then each plan's steps, then the folders they left empty.
+fn delete_planned(
+    tool: &Tool,
+    run: Run,
+    root: &Path,
+    plans: Vec<Vec<Step>>,
+    held: &crate::evict::HeldPaths,
+    changed: &mut BTreeSet<PathBuf>,
+) -> Result<()> {
     for (name, folder) in folders_in(root)? {
         if is_staging(&name) {
             delete_folder_noting(
@@ -270,8 +290,8 @@ pub fn prune(tool: &Tool, run: Run, root: &Path, cap_kib: u64, groups: Vec<Group
                 run,
                 &folder,
                 "the staging folder of a writer that ended",
-                &open,
-                &mut changed,
+                held,
+                changed,
             )?;
         }
     }
@@ -283,7 +303,7 @@ pub fn prune(tool: &Tool, run: Run, root: &Path, cap_kib: u64, groups: Vec<Group
                     unit: Unit::Folder(folder),
                     reason,
                 } => {
-                    delete_folder_noting(tool, run, &folder, &reason, &open, &mut changed)?;
+                    delete_folder_noting(tool, run, &folder, &reason, held, changed)?;
                 }
                 Step::Loose { file, reason } => {
                     delete_files(run, &[&file], &reason)?;
@@ -300,33 +320,30 @@ pub fn prune(tool: &Tool, run: Run, root: &Path, cap_kib: u64, groups: Vec<Group
     if !run.dry() {
         remove_empty(root)?;
     }
-    drop(alone);
-    for folder in changed {
-        crate::sizes::stale(&tool.places, &folder)?;
-    }
     Ok(())
 }
 
-/// `delete_folder_held` of <folder>, resolved first, adding the resolved
+/// `delete_folder_among` of <folder>, resolved first, adding the resolved
 /// folder to <changed> when it went (a dry run changes nothing).
 fn delete_folder_noting(
     tool: &Tool,
     run: Run,
     folder: &Path,
     reason: &str,
-    open: &crate::evict::OpenFiles,
+    held: &crate::evict::HeldPaths,
     changed: &mut BTreeSet<PathBuf>,
 ) -> Result<()> {
     let resolved =
         std::fs::canonicalize(folder).context(|| format!("resolving {}", folder.display()))?;
-    if delete_folder_held(
+    if delete_folder_among(
         tool,
         &resolved,
         run,
         reason,
         Recreate::No,
         Removal::Background,
-        open,
+        "",
+        Some(held),
     )? && !run.dry()
     {
         changed.insert(resolved);
@@ -413,7 +430,7 @@ fn plan_group(tool: &Tool, cap_kib: u64, group: Group) -> Result<Vec<Step>> {
     units.sort_by_key(|unit| unit.0);
     let recent = tool.now - (FLOOR_IDLE_MINUTES * 60) as i64;
     let open = if total > cap_kib {
-        Some(crate::evict::OpenFiles::read()?)
+        Some(crate::evict::HeldPaths::read()?)
     } else {
         None
     };
@@ -427,6 +444,11 @@ fn plan_group(tool: &Tool, cap_kib: u64, group: Group) -> Result<Vec<Step>> {
         if let (Unit::Folder(folder), Some(open)) = (&unit, &open)
             && open.holds(folder)
         {
+            note(format!(
+                "in use, kept: {} ({}, {what})",
+                folder.display(),
+                human(kib)
+            ));
             continue;
         }
         let reason = format!(
