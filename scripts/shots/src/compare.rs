@@ -394,8 +394,7 @@ pub(crate) enum Part {
     Text,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PictureSide {
     Board,
     Shot,
