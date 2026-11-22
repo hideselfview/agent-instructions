@@ -5,7 +5,8 @@ fn declared(name: &str) -> Declared {
     Declared {
         name: Name::parse(name).unwrap(),
         file: PathBuf::from("Shots.kt"),
-        needs_window: false,
+        in_window: false,
+        takes_focus: false,
     }
 }
 

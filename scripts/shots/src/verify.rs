@@ -390,7 +390,7 @@ pub(crate) fn print(outcome: &Outcome) {
         }
     }
     for name in &outcome.not_taken {
-        crate::log::outcome(format_args!("{name}: {}", crate::capture::NEEDS_WINDOW));
+        crate::log::outcome(format_args!("{name}: {}", crate::capture::TAKES_FOCUS));
     }
     for (title, list) in [
         ("Boards with no shot (to build)", &outcome.lists.to_build),

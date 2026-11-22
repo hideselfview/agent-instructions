@@ -48,8 +48,15 @@ fn swift_reads_string_literals_of_board_form() {
     );
 }
 
+fn marks(in_window: bool, takes_focus: bool) -> Marks {
+    Marks {
+        in_window,
+        takes_focus,
+    }
+}
+
 #[test]
-fn swift_marks_the_scenes_framed_in_a_window() {
+fn swift_marks_the_scenes_shown_in_a_window_and_those_that_take_the_focus() {
     let source = r#"
         ShotScene(id: "mac.welcome.create-name", size: WelcomeWindow.size) {
             ShotStage(Text("a"))
@@ -61,19 +68,36 @@ fn swift_marks_the_scenes_framed_in_a_window() {
         ) {
             ShotStage(Text("b"))
         },
+        ShotScene(
+            id: "mac.settings.alert",
+            size: CGSize(width: 600, height: 400),
+            frame: .window(title: "Settings"),
+            takesFocus: true
+        ) {
+            ShotStage(Text("d"))
+        },
+        ShotScene(id: "mac.settings.inline", size: size, takesFocus: true) { ShotStage(Text("e")) },
         welcomeWindow("mac.welcome.libraries.none", libraries: []),
         ShotScene(id: "mac.welcome.after", size: size) { ShotStage(Text("c")) },
     "#;
     assert_eq!(
         swift(source),
         [
-            ("mac.welcome.create-name".to_string(), false),
-            ("mac.settings.toolbar".to_string(), true),
-            ("mac.welcome.libraries.none".to_string(), false),
-            ("mac.welcome.after".to_string(), false),
+            ("mac.welcome.create-name".to_string(), marks(false, false)),
+            ("mac.settings.toolbar".to_string(), marks(true, false)),
+            ("mac.settings.alert".to_string(), marks(true, true)),
+            ("mac.settings.inline".to_string(), marks(false, true)),
+            (
+                "mac.welcome.libraries.none".to_string(),
+                marks(false, false)
+            ),
+            ("mac.welcome.after".to_string(), marks(false, false)),
         ]
     );
-    assert_eq!(window_frames(source), 1);
+    assert_eq!(window_frames(source), 2);
+    assert_eq!(focus_markers(source), 2);
+    // A string that names the argument is no marker.
+    assert_eq!(focus_markers(r#"let why = "needs takesFocus: true""#), 0);
 }
 
 fn write(root: &Path, path: &str, text: &str) {
@@ -118,7 +142,7 @@ fn read_joins_both_harnesses_and_leaves_the_tests_out() {
 }
 
 #[test]
-fn read_carries_the_window_marker_and_refuses_a_frame_it_cannot_tie_to_an_id() {
+fn read_carries_the_focus_marker_and_refuses_one_it_cannot_tie_to_an_id() {
     let root = tempfile::tempdir().unwrap();
     write(
         root.path(),
@@ -128,29 +152,40 @@ fn read_carries_the_window_marker_and_refuses_a_frame_it_cannot_tie_to_an_id() {
     write(
         root.path(),
         &format!("{SWIFT_DIRECTORY}/ShotScene+Settings.swift"),
-        r#"ShotScene(id: "mac.settings.toolbar", size: size, frame: .window(title: "S")) { x }
+        r#"ShotScene(id: "mac.settings.alert", size: size, frame: .window(title: "S"), takesFocus: true) { x }
+           ShotScene(id: "mac.settings.window", size: size, frame: .window(title: "S")) { z }
            ShotScene(id: "mac.settings.plain", size: size) { y }"#,
     );
     let read_all = read(root.path(), &folders()).unwrap();
-    let flags: Vec<(String, bool)> = read_all
+    let flags: Vec<(String, bool, bool)> = read_all
         .iter()
-        .map(|d| (d.name.to_string(), d.needs_window))
+        .map(|d| (d.name.to_string(), d.in_window, d.takes_focus))
         .collect();
     assert_eq!(
         flags,
         [
-            ("mac.settings.plain".to_string(), false),
-            ("mac.settings.toolbar".to_string(), true)
+            ("mac.settings.alert".to_string(), true, true),
+            ("mac.settings.plain".to_string(), false, false),
+            ("mac.settings.window".to_string(), true, false)
         ]
     );
 
     write(
         root.path(),
         &format!("{SWIFT_DIRECTORY}/ShotScene.swift"),
-        "/// A scene is written `ShotScene(id: \"mac.x\", frame: .window(title: t))`.\n// frame: .window(\n",
+        "/// A scene is written `ShotScene(id: \"mac.x\", takesFocus: true)`.\n// takesFocus: true\n",
     );
-    assert_eq!(read(root.path(), &folders()).unwrap().len(), 2);
+    assert_eq!(read(root.path(), &folders()).unwrap().len(), 3);
 
+    write(
+        root.path(),
+        &format!("{SWIFT_DIRECTORY}/ShotScene+Other.swift"),
+        r#"ShotScene(id: id, size: size, takesFocus: true) { x }"#,
+    );
+    assert!(matches!(
+        read(root.path(), &folders()),
+        Err(DeclaredError::FocusScene(_))
+    ));
     write(
         root.path(),
         &format!("{SWIFT_DIRECTORY}/ShotScene+Other.swift"),

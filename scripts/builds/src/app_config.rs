@@ -48,8 +48,8 @@
 //! signing identity only this Mac has. An `opens-windows <lane>[:<program>]...`
 //! line names test lines whose runs open windows (bae's UI tests). A `shots`
 //! line that passes `--windows` opens windows too, with no `opens-windows`
-//! line, but only a run whose prefix starts a scene shown in its window
-//! (shots_declared.rs). Each run that opens windows holds its host's window
+//! line, but only a run whose prefix starts a scene that takes the keyboard
+//! focus (shots_declared.rs). Each run that opens windows holds its host's window
 //! lock while it runs (window_lock.rs), on this Mac as on a host. A lane's build takes a checkout
 //! where all its steps may run.
 //!
@@ -297,7 +297,7 @@ pub struct Picker {
     /// True for a test line an `opens-windows` line names and for a shots
     /// line that passes `--windows`: its runs open windows, so each holds its
     /// host's window lock while it runs (window_lock.rs). A shots run opens
-    /// one only when its prefix starts a scene shown in its window
+    /// one only when its prefix starts a scene that takes the keyboard focus
     /// (`Step::opens_windows`).
     pub opens_windows: bool,
 }
@@ -399,8 +399,13 @@ pub struct Step {
     /// `Where::Anywhere`.
     pub place: Where,
     /// True for a test run or shots run whose line opens windows
-    /// (`Picker::opens_windows`).
+    /// (`Picker::opens_windows`) and, for a shots run, that selects a scene
+    /// that takes the keyboard focus: the run holds the host's window lock.
     pub opens_windows: bool,
+    /// True for a shots run that selects a scene shown in a window: it draws
+    /// on a display of its host's, which a host with its lid closed and no
+    /// other display lacks.
+    pub draws_windows: bool,
     /// True for a step a `ci-only` line names: only CI runs it, and
     /// `builds app-build` refuses it.
     pub ci_only: bool,
@@ -555,6 +560,7 @@ pub fn parse_config(text: &str) -> Result<Config> {
                     scenes: None,
                     place: Where::Anywhere,
                     opens_windows: false,
+                    draws_windows: false,
                     ci_only: false,
                 });
             }

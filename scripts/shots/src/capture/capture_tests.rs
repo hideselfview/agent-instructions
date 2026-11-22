@@ -197,10 +197,11 @@ fn a_shot_whose_files_disagree_fails() {
 fn declared(texts: &[(&str, bool)]) -> Vec<Declared> {
     texts
         .iter()
-        .map(|(t, needs_window)| Declared {
+        .map(|(t, takes_focus)| Declared {
             name: Name::parse(t).unwrap(),
             file: PathBuf::from("Scenes.swift"),
-            needs_window: *needs_window,
+            in_window: *takes_focus,
+            takes_focus: *takes_focus,
         })
         .collect()
 }

@@ -192,11 +192,11 @@ fn the_page_and_the_summary_name_the_shots_not_taken_and_why() {
     let outcome = outcome(dir.path(), "Set up");
     let html = page(&outcome, &header());
     assert!(html.contains("mac.settings.toolbar"), "{html}");
-    assert!(html.contains(crate::capture::NEEDS_WINDOW));
+    assert!(html.contains(crate::capture::TAKES_FOCUS));
     let text = summary(&outcome, &header());
     assert!(
         text.contains(
-            "### Not taken here\n\n- `mac.settings.toolbar`: not taken here (needs a window)"
+            "### Not taken here\n\n- `mac.settings.toolbar`: not taken here (takes the keyboard focus)"
         ),
         "{text}"
     );

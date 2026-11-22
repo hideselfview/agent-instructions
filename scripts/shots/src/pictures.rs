@@ -137,7 +137,7 @@ impl Pictures {
     }
 
     /// Marks each of <prefixes> taken for <platform>'s app source tree
-    /// <tree>, by a run with or without the shots shown in a window
+    /// <tree>, by a run with or without the shots that take the keyboard focus
     /// (<windows>): the folder keeps every shot each selects.
     pub(crate) fn mark_taken(
         &self,

@@ -95,10 +95,10 @@ pub(crate) fn selected(
 }
 
 /// Why a shot is left out of a run given no `--windows`.
-pub(crate) const NEEDS_WINDOW: &str = "not taken here (needs a window)";
+pub(crate) const TAKES_FOCUS: &str = "not taken here (takes the keyboard focus)";
 
 /// The shots of `platform` that `prefixes` select, split into those this run
-/// takes and those it leaves out because they are shown in a window and the
+/// takes and those it leaves out because they take the keyboard focus and the
 /// run was not given `--windows`.
 #[derive(Debug)]
 pub(crate) struct Taken {
@@ -134,7 +134,7 @@ pub(crate) fn taken(
     let all: Vec<Name> = declared.iter().map(|d| d.name.clone()).collect();
     let (names, not_taken) = selected(&all, platform, prefixes, base)?
         .into_iter()
-        .partition(|name| windows || !declared.iter().any(|d| &d.name == name && d.needs_window));
+        .partition(|name| windows || !declared.iter().any(|d| &d.name == name && d.takes_focus));
     Ok(Taken {
         names,
         not_taken,
@@ -176,8 +176,8 @@ pub(crate) struct Target<'a> {
 
 /// Takes the shots of `platform` that `prefixes` select (all when empty) into
 /// `target.out`, an absolute path, with the `command` the app's `shots-capture` line
-/// gives, run from `root`. Without `windows`, a shot shown in its window is
-/// left out and said on stderr. Before the command starts, `target.measure`
+/// gives, run from `root`. Without `windows`, a shot that takes the keyboard
+/// focus is left out and said on stderr. Before the command starts, `target.measure`
 /// gives the board size of each shot the run takes, and the run writes them to
 /// `board-sizes.json` in `target.out` (the module's doc). Returns the shots taken, those the
 /// harness wrote no usable shot of (a failed shot does not fail the capture
@@ -196,7 +196,7 @@ pub(crate) fn capture(
     let Target { out, measure } = *target;
     let taken = taken(declared, platform, prefixes, windows, base)?;
     for name in &taken.not_taken {
-        crate::log::note(format_args!("{name}: {NEEDS_WINDOW}"));
+        crate::log::note(format_args!("{name}: {TAKES_FOCUS}"));
     }
     clear(out, platform)?;
     if taken.names.is_empty() {

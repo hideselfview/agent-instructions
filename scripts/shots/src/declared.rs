@@ -21,6 +21,10 @@ pub(crate) enum DeclaredError {
         "{0}: a scene shown in its window is written `ShotScene(id: \"<board name>\", …, frame: .window(…)) {{ … }}` so the tool can tell it needs the window"
     )]
     WindowScene(PathBuf),
+    #[error(
+        "{0}: a scene that takes the keyboard focus is written `ShotScene(id: \"<board name>\", …, takesFocus: true) {{ … }}` so the tool can tell it takes the focus"
+    )]
+    FocusScene(PathBuf),
     #[error("{0}: the file's name is not UTF-8")]
     NotUtf8(PathBuf),
     #[error("{first} and {second} both declare {name}; one file declares each shot")]
@@ -40,14 +44,26 @@ pub(crate) enum DeclaredError {
 pub struct Declared {
     pub name: Name,
     pub file: PathBuf,
-    /// The scene is shown in its window, which takes the focus, so only a run
-    /// given `--windows` takes it. Declared in Swift by `frame: .window(…)`.
-    pub needs_window: bool,
+    /// The scene is shown in its window, drawn on a display of the Mac's.
+    /// Declared in Swift by `frame: .window(…)` among the arguments of its
+    /// `ShotScene(` call.
+    pub in_window: bool,
+    /// The scene's window must be drawn by an app that holds the keyboard
+    /// focus, so only a run given `--windows` takes it. Declared in Swift by
+    /// `takesFocus: true` among the same arguments.
+    pub takes_focus: bool,
 }
 
-/// A reader of a harness's source: each shot name it declares, and whether
-/// the shot is shown in a window.
-type Reader = fn(&str) -> Vec<(String, bool)>;
+/// What a harness's source says of how a shot is drawn.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct Marks {
+    in_window: bool,
+    takes_focus: bool,
+}
+
+/// A reader of a harness's source: each shot name it declares, and how the
+/// source says the shot is drawn.
+type Reader = fn(&str) -> Vec<(String, Marks)>;
 
 /// The folder under a declare folder that holds each design-system
 /// component's capture file (component_files.rs). Its files declare shots as
@@ -180,7 +196,8 @@ pub(crate) fn declared_in(platform: Platform, path: &Path) -> Result<Vec<Declare
         return Ok(vec![Declared {
             name,
             file: path.to_path_buf(),
-            needs_window: false,
+            in_window: false,
+            takes_focus: false,
         }]);
     };
     let source =
@@ -191,42 +208,64 @@ pub(crate) fn declared_in(platform: Platform, path: &Path) -> Result<Vec<Declare
         source
     };
     let found = find(&source);
-    if extension == "swift" && window_frames(&source) != found.iter().filter(|f| f.1).count() {
-        return Err(DeclaredError::WindowScene(path.to_path_buf()));
+    if extension == "swift" {
+        let count = |mark: fn(&Marks) -> bool| found.iter().filter(|f| mark(&f.1)).count();
+        if window_frames(&source) != count(|m| m.in_window) {
+            return Err(DeclaredError::WindowScene(path.to_path_buf()));
+        }
+        if focus_markers(&source) != count(|m| m.takes_focus) {
+            return Err(DeclaredError::FocusScene(path.to_path_buf()));
+        }
     }
     found
         .into_iter()
-        .map(|(text, needs_window)| {
+        .map(|(text, marks)| {
             Ok(Declared {
                 name: Name::parse(&text).map_err(|e| DeclaredError::Name(path.to_path_buf(), e))?,
                 file: path.to_path_buf(),
-                needs_window,
+                in_window: marks.in_window,
+                takes_focus: marks.takes_focus,
             })
         })
         .collect()
 }
 
 /// The first string argument of each `shot(` and `component(` call.
-fn kotlin(source: &str) -> Vec<(String, bool)> {
+fn kotlin(source: &str) -> Vec<(String, Marks)> {
     let call = Regex::new(r#"\b(?:shot|component)\(\s*"([^"]*)""#).unwrap();
     call.captures_iter(source)
-        .map(|c| (c[1].to_string(), false))
+        .map(|c| (c[1].to_string(), Marks::default()))
         .collect()
 }
 
 /// Each string literal that begins like a Mac board name, with whether it is
-/// the id of a `ShotScene(…)` call whose arguments give `frame: .window(`.
-fn swift(source: &str) -> Vec<(String, bool)> {
+/// the id of a `ShotScene(…)` call whose arguments give `frame: .window(` and
+/// `takesFocus: true`.
+fn swift(source: &str) -> Vec<(String, Marks)> {
     let literal = Regex::new(r#""(mac\.[^"\s]*)""#).unwrap();
-    let in_window = Regex::new(r#"ShotScene\(\s*id:\s*"(mac\.[^"\s]*)"[^{}]*?\)\s*\{"#).unwrap();
-    let windowed: Vec<&str> = in_window
+    let scene = Regex::new(r#"ShotScene\(\s*id:\s*"(mac\.[^"\s]*)"[^{}]*?\)\s*\{"#).unwrap();
+    let calls: Vec<(&str, Marks)> = scene
         .captures_iter(source)
-        .filter(|c| c[0].contains("frame: .window("))
-        .map(|c| c.get(1).unwrap().as_str())
+        .map(|c| {
+            let marks = Marks {
+                in_window: c[0].contains("frame: .window("),
+                takes_focus: c[0].contains("takesFocus: true"),
+            };
+            (c.get(1).unwrap().as_str(), marks)
+        })
         .collect();
     literal
         .captures_iter(source)
-        .map(|c| (c[1].to_string(), windowed.contains(&&c[1])))
+        .map(|c| {
+            let mut marks = Marks::default();
+            for (id, called) in &calls {
+                if *id == &c[1] {
+                    marks.in_window |= called.in_window;
+                    marks.takes_focus |= called.takes_focus;
+                }
+            }
+            (c[1].to_string(), marks)
+        })
         .collect()
 }
 
@@ -244,6 +283,16 @@ fn without_line_comments(source: &str) -> String {
 /// reading above must have tied to a scene id.
 fn window_frames(source: &str) -> usize {
     source.matches("frame: .window(").count()
+}
+
+/// How many times the source writes `takesFocus: true` outside a string
+/// literal, each of which the reading above must have tied to a scene id.
+fn focus_markers(source: &str) -> usize {
+    let literal = Regex::new(r#""[^"\n]*""#).unwrap();
+    literal
+        .replace_all(source, "\"\"")
+        .matches("takesFocus: true")
+        .count()
 }
 
 #[cfg(test)]

@@ -329,7 +329,7 @@ pub(crate) fn page(outcome: &Outcome, header: &Header) -> String {
                 html,
                 "<li><code>{}</code>: {}</li>",
                 esc(&name.to_string()),
-                crate::capture::NEEDS_WINDOW
+                crate::capture::TAKES_FOCUS
             );
         }
         html.push_str("</ul></section>");
@@ -408,7 +408,7 @@ pub(crate) fn summary(outcome: &Outcome, header: &Header) -> String {
     if !outcome.not_taken.is_empty() {
         text.push_str("### Not taken here\n\n");
         for name in &outcome.not_taken {
-            putln!(text, "- `{name}`: {}", crate::capture::NEEDS_WINDOW);
+            putln!(text, "- `{name}`: {}", crate::capture::TAKES_FOCUS);
         }
         text.push('\n');
     }

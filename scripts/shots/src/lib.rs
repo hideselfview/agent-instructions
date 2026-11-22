@@ -221,8 +221,8 @@ struct Selection {
     /// none, every shot the platform declares.
     #[arg(long = "select", value_parser = Prefix::parse)]
     prefixes: Vec<Prefix>,
-    /// Also take the shots shown in their windows, which bring the app to the
-    /// front and take the focus.
+    /// Also take the shots that take the keyboard focus, which bring the app to
+    /// the front.
     #[arg(long)]
     windows: bool,
     /// This is the run of the branch's merge base: a --select prefix that
@@ -257,8 +257,8 @@ impl Selection {
 /// and an app source tree (<kept>), a platform whose every selected shot the
 /// folder keeps for the tree takes none and gets those, and each shot a
 /// platform takes is kept there. Returns the declared shots the selection
-/// takes and those it leaves out because they need a window the run was not
-/// given.
+/// takes and those it leaves out because they take the focus and the run was
+/// not given `--windows`.
 fn capture(
     root: &Path,
     checker: &Checker,
@@ -742,7 +742,8 @@ mod tests {
             .map(|name| Declared {
                 name: Name::parse(name).unwrap(),
                 file: PathBuf::from("Scenes.swift"),
-                needs_window: false,
+                in_window: false,
+                takes_focus: false,
             })
             .collect()
     }

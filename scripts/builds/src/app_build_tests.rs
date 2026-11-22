@@ -124,6 +124,7 @@ fn steps_stop_at_the_first_failure() {
         scenes: None,
         place: lock::Where::Anywhere,
         opens_windows: false,
+        draws_windows: false,
         ci_only: false,
     };
     let steps = [
@@ -180,6 +181,7 @@ fn a_step_that_fails_after_xcodebuild_said_it_cannot_start_is_the_hosts_failure(
         scenes: None,
         place: lock::Where::Anywhere,
         opens_windows: false,
+        draws_windows: false,
         ci_only: false,
     };
     let broken = step(format!("echo building; echo \"{said}\" >&2; exit 70"));
@@ -253,6 +255,7 @@ fn a_step_past_its_limit_is_killed_with_what_it_started_and_fails_the_build() {
         scenes: None,
         place: lock::Where::Anywhere,
         opens_windows: false,
+        draws_windows: false,
         ci_only: false,
     };
     let after = Step {
@@ -263,6 +266,7 @@ fn a_step_past_its_limit_is_killed_with_what_it_started_and_fails_the_build() {
         scenes: None,
         place: lock::Where::Anywhere,
         opens_windows: false,
+        draws_windows: false,
         ci_only: false,
     };
     let started = std::time::Instant::now();
@@ -520,7 +524,7 @@ fn a_lanes_full_set_of_shots_runs_through_its_shots_line_and_is_cached_as_a_shot
         Lane::Mac,
         &[],
         &[all_shots(Lane::Mac)],
-        &[],
+        &Windows::default(),
         &|_| Ok(None),
     )
     .unwrap();
@@ -547,7 +551,7 @@ fn a_lanes_full_run_of_the_checker_counts_its_scenes_for_its_limit() {
         Lane::Mac,
         &[],
         &[all_shots(Lane::Mac)],
-        &[],
+        &Windows::default(),
         &|_| Ok(None),
     )
     .unwrap();
@@ -581,21 +585,47 @@ fn a_lane_runs_its_steps_then_each_test_line_once_and_only_the_picks_when_no_ste
         (Lane::Mac, PickKind::Shots, "mac.welcome.".to_string()),
         (Lane::Mac, PickKind::Class, "C".to_string()),
     ];
-    let steps = lane_steps(&config, Lane::Mac, &args(&["one"]), &picks, &[], &|_| {
-        Ok(None)
-    })
+    let steps = lane_steps(
+        &config,
+        Lane::Mac,
+        &args(&["one"]),
+        &picks,
+        &Windows::default(),
+        &|_| Ok(None),
+    )
     .unwrap();
     assert_eq!(names(&steps), vec!["one", "test A C", "shots mac.welcome."]);
     assert_eq!(steps[1].command, args(&["./t", "A", "C"]));
     assert_eq!(steps[1].limit(), PickKind::Class.limit());
     assert_eq!(steps[2].command, args(&["./s", "--select", "mac.welcome."]));
     assert_eq!(steps[2].limit(), PickKind::Shots.limit());
-    let only = lane_steps(&config, Lane::Mac, &[], &picks, &[], &|_| Ok(None)).unwrap();
+    let only = lane_steps(
+        &config,
+        Lane::Mac,
+        &[],
+        &picks,
+        &Windows::default(),
+        &|_| Ok(None),
+    )
+    .unwrap();
     assert_eq!(names(&only), vec!["test A C", "shots mac.welcome."]);
-    let android = lane_steps(&config, Lane::Android, &[], &picks, &[], &|_| Ok(None)).unwrap();
+    let android = lane_steps(
+        &config,
+        Lane::Android,
+        &[],
+        &picks,
+        &Windows::default(),
+        &|_| Ok(None),
+    )
+    .unwrap();
     assert_eq!(names(&android), vec!["test B"]);
     assert_eq!(
-        names(&lane_steps(&config, Lane::Mac, &[], &[], &[], &|_| Ok(None)).unwrap()),
+        names(
+            &lane_steps(&config, Lane::Mac, &[], &[], &Windows::default(), &|_| Ok(
+                None
+            ))
+            .unwrap()
+        ),
         vec!["one"]
     );
 }
@@ -608,7 +638,7 @@ fn a_lane_without_the_line_refuses_a_pick() {
         Lane::Mac,
         &[],
         &[(Lane::Mac, PickKind::Shots, "mac.x.".to_string())],
-        &[],
+        &Windows::default(),
         &|_| Ok(None),
     ) else {
         panic!("refused")
@@ -619,7 +649,7 @@ fn a_lane_without_the_line_refuses_a_pick() {
         Lane::Android,
         &[],
         &[(Lane::Android, PickKind::Class, "A".to_string())],
-        &[],
+        &Windows::default(),
         &|_| Ok(None),
     ) else {
         panic!("refused")
@@ -639,9 +669,14 @@ fn a_class_runs_through_the_program_its_folder_names() {
         (Lane::Mac, PickKind::Class, "ModelTests".to_string()),
         (Lane::Mac, PickKind::Class, "SceneTests".to_string()),
     ];
-    let steps = lane_steps(&config, Lane::Mac, &[], &picks, &[], &|class| {
-        Ok(matches!(class, "ShotTests" | "SceneTests").then(|| "shots".to_string()))
-    })
+    let steps = lane_steps(
+        &config,
+        Lane::Mac,
+        &[],
+        &picks,
+        &Windows::default(),
+        &|class| Ok(matches!(class, "ShotTests" | "SceneTests").then(|| "shots".to_string())),
+    )
     .unwrap();
     assert_eq!(
         names(&steps),
@@ -658,7 +693,15 @@ fn a_class_runs_through_the_program_its_folder_names() {
 fn a_lane_with_one_shots_prefix_runs_it_in_one_step_that_captures() {
     let config = parse_config("shots mac ./s --select {select}\n").unwrap();
     let picks = [(Lane::Mac, PickKind::Shots, "mac.welcome.".to_string())];
-    let steps = lane_steps(&config, Lane::Mac, &[], &picks, &[], &|_| Ok(None)).unwrap();
+    let steps = lane_steps(
+        &config,
+        Lane::Mac,
+        &[],
+        &picks,
+        &Windows::default(),
+        &|_| Ok(None),
+    )
+    .unwrap();
     assert_eq!(names(&steps), vec!["shots mac.welcome."]);
     assert_eq!(steps[0].command, args(&["./s", "--select", "mac.welcome."]));
 }
@@ -675,8 +718,11 @@ fn a_lane_with_several_shots_prefixes_captures_them_once_and_then_runs_each_with
         (Lane::Mac, PickKind::Shots, "mac.settings.".to_string()),
         (Lane::Mac, PickKind::Shots, "mac.component.row.".to_string()),
     ];
-    let windowed = ["mac.welcome.".to_string()];
-    let steps = lane_steps(&config, Lane::Mac, &[], &picks, &windowed, &|_| Ok(None)).unwrap();
+    let windows = Windows {
+        shown: vec!["mac.welcome.".to_string()],
+        focus: vec!["mac.welcome.".to_string()],
+    };
+    let steps = lane_steps(&config, Lane::Mac, &[], &picks, &windows, &|_| Ok(None)).unwrap();
     assert_eq!(
         names(&steps),
         vec![
@@ -783,7 +829,16 @@ fn a_lane_whose_picture_folder_caches_every_shot_has_no_capture_step() {
         (Lane::Mac, PickKind::Shots, "mac.a.".to_string()),
         (Lane::Mac, PickKind::Shots, "mac.b.".to_string()),
     ];
-    let steps = lane_steps_with(&config, Lane::Mac, &[], &picks, &[], true, &|_| Ok(None)).unwrap();
+    let steps = lane_steps_with(
+        &config,
+        Lane::Mac,
+        &[],
+        &picks,
+        &Windows::default(),
+        true,
+        &|_| Ok(None),
+    )
+    .unwrap();
     assert_eq!(names(&steps), vec!["shots mac.a.", "shots mac.b."]);
     assert!(
         steps
@@ -799,7 +854,15 @@ fn the_capture_of_prefixes_with_no_window_scene_opens_no_window() {
         (Lane::Mac, PickKind::Shots, "mac.component.a.".to_string()),
         (Lane::Mac, PickKind::Shots, "mac.component.b.".to_string()),
     ];
-    let steps = lane_steps(&config, Lane::Mac, &[], &picks, &[], &|_| Ok(None)).unwrap();
+    let steps = lane_steps(
+        &config,
+        Lane::Mac,
+        &[],
+        &picks,
+        &Windows::default(),
+        &|_| Ok(None),
+    )
+    .unwrap();
     assert!(steps.iter().all(|step| !step.opens_windows));
 }
 
@@ -810,7 +873,15 @@ fn a_shots_line_with_the_placeholder_beside_other_text_repeats_the_word_for_each
         (Lane::Mac, PickKind::Shots, "mac.a.".to_string()),
         (Lane::Mac, PickKind::Shots, "mac.b.".to_string()),
     ];
-    let steps = lane_steps(&config, Lane::Mac, &[], &picks, &[], &|_| Ok(None)).unwrap();
+    let steps = lane_steps(
+        &config,
+        Lane::Mac,
+        &[],
+        &picks,
+        &Windows::default(),
+        &|_| Ok(None),
+    )
+    .unwrap();
     assert_eq!(
         steps[0].command,
         args(&[
@@ -829,9 +900,14 @@ fn a_shots_line_that_puts_the_placeholder_after_no_flag_cannot_repeat_it_and_is_
         (Lane::Mac, PickKind::Shots, "mac.a.".to_string()),
         (Lane::Mac, PickKind::Shots, "mac.b.".to_string()),
     ];
-    let Err(Fail::Message(message)) =
-        lane_steps(&config, Lane::Mac, &[], &picks, &[], &|_| Ok(None))
-    else {
+    let Err(Fail::Message(message)) = lane_steps(
+        &config,
+        Lane::Mac,
+        &[],
+        &picks,
+        &Windows::default(),
+        &|_| Ok(None),
+    ) else {
         panic!("refused")
     };
     assert!(message.contains("{select}"), "{message}");
@@ -853,7 +929,7 @@ fn a_test_run_that_opens_windows_may_take_any_checkout_and_holds_the_window_lock
         Lane::Mac,
         &args(&["build"]),
         &picks,
-        &[],
+        &Windows::default(),
         &program_of,
     )
     .unwrap();
@@ -865,7 +941,7 @@ fn a_test_run_that_opens_windows_may_take_any_checkout_and_holds_the_window_lock
         Lane::Mac,
         &args(&["signed"]),
         &[],
-        &[],
+        &Windows::default(),
         &program_of,
     )
     .unwrap();
@@ -875,7 +951,7 @@ fn a_test_run_that_opens_windows_may_take_any_checkout_and_holds_the_window_lock
         Lane::Mac,
         &args(&["signed"]),
         &picks,
-        &[],
+        &Windows::default(),
         &program_of,
     )
     .unwrap();
@@ -887,35 +963,34 @@ fn a_test_run_that_opens_windows_may_take_any_checkout_and_holds_the_window_lock
 }
 
 #[test]
-fn a_shots_run_with_windows_opens_windows_only_for_a_prefix_that_selects_a_window_scene() {
+fn a_shots_run_holds_the_window_lock_only_for_a_prefix_that_selects_a_scene_that_takes_the_focus() {
     let config = parse_config("shots mac ./s --windows --select {select}\n").unwrap();
-    let windowed = ["mac.welcome.".to_string()];
-    let window_pick = (Lane::Mac, PickKind::Shots, "mac.welcome.".to_string());
-    let component_pick = (Lane::Mac, PickKind::Shots, "mac.component.row.".to_string());
-    let steps = lane_steps(
-        &config,
-        Lane::Mac,
-        &[],
-        std::slice::from_ref(&window_pick),
-        &windowed,
-        &|_| Ok(None),
-    )
-    .unwrap();
-    assert!(steps[0].opens_windows);
-    let steps = lane_steps(
-        &config,
-        Lane::Mac,
-        &[],
-        &[component_pick],
-        &windowed,
-        &|_| Ok(None),
-    )
-    .unwrap();
+    let windows = Windows {
+        shown: vec!["mac.welcome.".to_string(), "mac.settings.".to_string()],
+        focus: vec!["mac.welcome.".to_string()],
+    };
+    let run = |prefix: &str| {
+        let pick = (Lane::Mac, PickKind::Shots, prefix.to_string());
+        lane_steps(&config, Lane::Mac, &[], &[pick], &windows, &|_| Ok(None)).unwrap()
+    };
+    let focus = run("mac.welcome.");
+    assert!(focus[0].opens_windows);
+    assert!(focus[0].draws_windows);
+    let window = run("mac.settings.");
     assert!(
-        !steps[0].opens_windows,
-        "a component run draws no window, so it takes no window lock"
+        !window[0].opens_windows,
+        "a window scene that takes no focus runs beside any other run"
     );
-    assert_eq!(place_of(&steps), lock::Where::Anywhere);
+    assert!(
+        window[0].draws_windows,
+        "it still draws on a display of the host's"
+    );
+    let component = run("mac.component.row.");
+    assert!(
+        !component[0].opens_windows && !component[0].draws_windows,
+        "a component run draws no window"
+    );
+    assert_eq!(place_of(&component), lock::Where::Anywhere);
 }
 
 #[test]
@@ -981,6 +1056,7 @@ fn fake(name: &str, command: &[&str], limit: Option<Duration>) -> Step {
         scenes: None,
         place: lock::Where::Anywhere,
         opens_windows: false,
+        draws_windows: false,
         ci_only: false,
     }
 }
