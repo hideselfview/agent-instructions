@@ -39,16 +39,16 @@ fn every_rule_of_the_checkout_is_in_a_group_folder() {
 }
 
 #[test]
-fn a_group_runs_opus_unless_it_names_a_model() {
-    assert_eq!(group("a", "", &["x"]).model, "opus");
-    assert_eq!(group("a", "model = \"sonnet\"\n", &["x"]).model, "sonnet");
+fn a_group_uses_the_high_tier_unless_it_names_another_tier() {
+    assert_eq!(group("a", "", &["x"]).model, "high");
+    assert_eq!(group("a", "tier = \"medium\"\n", &["x"]).model, "medium");
 }
 
 #[test]
 fn faults_name_a_rule_outside_a_group_folder_an_empty_group_and_a_bad_model() {
     let g = groups(vec![
         group("a", "", &["one"]),
-        group("b", "model = \"gpt\"\n", &[]),
+        group("b", "tier = \"gpt\"\n", &[]),
     ]);
     let mut loose = rule("loose", "**", "a");
     loose.group_dir = None;
@@ -66,7 +66,7 @@ fn faults_name_a_rule_outside_a_group_folder_an_empty_group_and_a_bad_model() {
     );
     assert!(faults.iter().any(|f| f.contains("loose")));
     assert!(faults.iter().any(|f| f.contains("group b has no rule")));
-    assert!(faults.iter().any(|f| f.contains("names model gpt")));
+    assert!(faults.iter().any(|f| f.contains("names tier gpt")));
 }
 
 #[test]

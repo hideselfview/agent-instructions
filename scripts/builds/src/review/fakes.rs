@@ -24,11 +24,11 @@ pub fn ten_lines(changes: &[(usize, &str)]) -> String {
     format!("{}\n", lines.join("\n"))
 }
 
-/// Writes the `group.toml` of folder <dir>, with <extra> lines after the model.
-pub fn group_file(root: &Path, dir: &str, name: &str, model: &str, extra: &str) {
+/// Writes the `group.toml` of folder <dir>, with <extra> lines after the tier.
+pub fn group_file(root: &Path, dir: &str, name: &str, tier: &str, extra: &str) {
     std::fs::write(
         root.join("rules").join(dir).join("group.toml"),
-        format!("name = \"{name}\"\nquestion = \"q\"\nmodel = \"{model}\"\n{extra}"),
+        format!("name = \"{name}\"\nquestion = \"q\"\ntier = \"{tier}\"\n{extra}"),
     )
     .unwrap();
 }
@@ -94,7 +94,7 @@ pub fn looks_group(fake: &Fake) {
         "design/**",
         "**Rule D.** A menu is as wide as its longest item.",
     );
-    group_file(&fake.root, "looks", "looks", "opus", "");
+    group_file(&fake.root, "looks", "looks", "high", "");
     fake.answer("looks", &[("rule-d", None)]);
 }
 
@@ -115,7 +115,7 @@ pub fn commit_text_group(fake: &Fake) {
         &fake.root,
         "writing",
         "writing",
-        "opus",
+        "high",
         "enumerate = true\nsites = \"is a sentence\"\ncommit_text = true\n",
     );
     fake.answer_task("writing", serde_json::json!({"summary": "s", "sites": []}));
@@ -138,7 +138,7 @@ pub fn style_group(fake: &Fake, sites: serde_json::Value) {
         &fake.root,
         "style",
         "style",
-        "opus",
+        "high",
         "enumerate = true\nsites = \"is a sentence\"\nskips_comments = true\n",
     );
     fake.answer_task("style", serde_json::json!({"summary": "s", "sites": sites}));
@@ -161,7 +161,7 @@ pub fn copy_group(fake: &Fake, sites: serde_json::Value) {
         &fake.root,
         "copy",
         "copy",
-        "opus",
+        "high",
         "enumerate = true\nsites = \"is a sentence\"\nskips_comments = true\ncopy = true\n",
     );
     fake.answer_task("copy", serde_json::json!({"summary": "s", "sites": sites}));
@@ -198,8 +198,8 @@ pub fn fake(scratch: &Path) -> Fake {
         false,
         "**Rule B.** Never do the other thing.",
     );
-    group_file(&root, "alpha", "alpha", "sonnet", "");
-    group_file(&root, "beta", "beta", "opus", "");
+    group_file(&root, "alpha", "alpha", "medium", "");
+    group_file(&root, "beta", "beta", "high", "");
     std::fs::write(root.join("projects/demo.md"), "Demo project facts.\n").unwrap();
     let program = dir.join("claude");
     let script = format!(

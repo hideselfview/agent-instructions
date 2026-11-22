@@ -122,3 +122,16 @@ fn a_group_that_lists_sites_answers_with_a_summary_and_a_verdict_for_each_site()
     );
     assert_eq!(answer.findings[0].rule, "b");
 }
+
+#[test]
+fn claude_records_the_model_that_answered_instead_of_its_alias() {
+    let reply = serde_json::json!({
+        "structured_output": {"rules": []},
+        "modelUsage": {
+            "claude-opus-4-8": {},
+            "claude-haiku-4-5": {},
+        },
+    });
+    let invoked = envelope(&reply.to_string(), "opus");
+    assert_eq!(invoked.model, "claude-opus-4-8");
+}

@@ -471,9 +471,6 @@ pub(super) fn propose_command(tool: &crate::tool::Tool, args: &[String]) -> Resu
         fail!("name the agent-instructions worktree to write the cases in with --rules-root");
     };
     let model = args.value("model")?.unwrap_or(model_check::MODEL);
-    if !["opus", "sonnet", "haiku"].contains(&model) {
-        fail!("--model is opus, sonnet or haiku, not {model}");
-    }
     let per_group = match args.value("per-group")? {
         Some(n) => n
             .parse()
@@ -486,7 +483,7 @@ pub(super) fn propose_command(tool: &crate::tool::Tool, args: &[String]) -> Resu
         project: &store.project,
         repo_dir: Path::new(args.require("repo-dir")?),
         root: Path::new(root),
-        reviewer: Path::new(args.value("reviewer")?.unwrap_or("claude")),
+        reviewer: &tool.reviewer.program_for(args.value("reviewer")?),
         model,
         per_group,
     })?;

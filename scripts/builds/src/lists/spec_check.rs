@@ -359,7 +359,7 @@ fn check(program: &Path, setup: &Setup, brief: &Brief, target: &Target) -> Check
     };
     Checked {
         target: target.clone(),
-        model: setup.model.clone(),
+        model: invoked.model,
         rules_version: setup.rules_version.clone(),
         system,
         message,

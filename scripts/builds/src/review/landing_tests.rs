@@ -445,7 +445,7 @@ fn a_rename_out_of_a_covered_folder_is_reviewed_by_the_group_of_its_old_path() {
         &fake.root,
         "gamma",
         "gamma",
-        "sonnet",
+        "medium",
         "enumerate = true\nsites = \"handles rows\"\n",
     );
     fake.answer_task("gamma", serde_json::json!({"summary": "s", "sites": []}));
@@ -503,7 +503,7 @@ fn a_branch_lands_in_two_parts_once_a_review_closed_its_findings() {
         &fake.root,
         "alpha",
         "alpha",
-        "sonnet",
+        "medium",
         "commit_text = true\n",
     );
     let side = demo.add_side(1, "agent", "work");
@@ -572,7 +572,7 @@ fn a_group_whose_files_a_later_commit_changed_back_answers_no_findings() {
         &fake.root,
         "gamma",
         "gamma",
-        "sonnet",
+        "medium",
         "enumerate = true\nsites = \"handles rows\"\n",
     );
     std::fs::create_dir_all(demo.main.join("src")).unwrap();
@@ -685,7 +685,7 @@ fn a_reworded_message_raises_no_style_finding_and_lands_once_alpha_answers() {
         &fake.root,
         "alpha",
         "alpha",
-        "sonnet",
+        "medium",
         "commit_text = true\n",
     );
     style_group(

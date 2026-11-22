@@ -305,10 +305,7 @@ impl Checks {
     fn of(tool: &Tool, lists: &Lists, args: &Args) -> Result<Checks> {
         Ok(Checks {
             reviewer: Reviewer {
-                program: match args.value("reviewer")? {
-                    Some(program) => std::path::PathBuf::from(program),
-                    None => tool.reviewer.program.clone(),
-                },
+                program: tool.reviewer.program_for(args.value("reviewer")?),
                 rules_root: match args.value("rules-root")? {
                     Some(root) => std::path::PathBuf::from(root),
                     None => tool.reviewer.rules_root.clone(),

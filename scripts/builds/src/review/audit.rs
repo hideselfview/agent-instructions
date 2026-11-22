@@ -532,12 +532,9 @@ pub fn check_open_misses(inputs: &OpenMisses) -> Result<(String, bool)> {
 /// stored diff for a miss or a check gave no answer.
 pub(super) fn check_misses_command(tool: &crate::tool::Tool, args: &Args) -> Result<()> {
     let model = args.value("model")?.unwrap_or(model_check::MODEL);
-    if !["opus", "sonnet", "haiku"].contains(&model) {
-        crate::fail!("--model is opus, sonnet or haiku, not {model}");
-    }
     let store = Store::resolve(&tool.places, args, &current_dir()?)?;
     let root = super::rules_root(args)?;
-    let reviewer = std::path::PathBuf::from(args.value("reviewer")?.unwrap_or("claude"));
+    let reviewer = tool.reviewer.program_for(args.value("reviewer")?);
     let stamp = Stamp {
         at: tool.now,
         by: args

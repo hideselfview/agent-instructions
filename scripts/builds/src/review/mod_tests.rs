@@ -575,7 +575,7 @@ fn found_in(name: &str, writing: &[&str], alpha: &[&str]) -> (Demo, Fake, PathBu
         false,
         "**Rule W.** Write plain sentences.",
     );
-    group_file(&fake.root, "writing", "writing", "opus", "");
+    group_file(&fake.root, "writing", "writing", "high", "");
     let side = demo.add_side(1, "agent", "work");
     for file in ["a.rs", "b.rs", "c.rs"] {
         demo.commit(&side, file);
@@ -894,7 +894,7 @@ fn a_group_that_lists_sites_reads_a_file_where_it_holds_a_finding_its_rules_no_l
         &fake.root,
         "writing",
         "writing",
-        "opus",
+        "high",
         "enumerate = true\nsites = \"is a sentence\"\n",
     );
     let side = demo.add_side(1, "agent", "work");

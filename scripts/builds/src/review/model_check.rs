@@ -18,7 +18,7 @@ use crate::review::record::Finding;
 use crate::review::run::{Diff, Material};
 
 /// The model that checks a finding unless a command names another.
-pub const MODEL: &str = "opus";
+pub const MODEL: &str = "high";
 
 /// The first line of every message, before the rule's slug.
 const TASK: &str = "Task: model-check";
@@ -117,7 +117,7 @@ pub fn check(
     diff: &Diff,
 ) -> Checked {
     let failed = |why: String| Checked {
-        model: model.to_string(),
+        model: super::provider::model_name(program, model),
         verdict: Err(why),
         usage: Usage::default(),
     };
@@ -158,7 +158,7 @@ pub fn check(
         }
     });
     Checked {
-        model: model.to_string(),
+        model: invoked.model,
         verdict,
         usage: invoked.usage,
     }

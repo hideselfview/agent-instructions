@@ -15,11 +15,8 @@ use crate::review::rules::Rule;
 /// The file of a group's settings in its folder.
 pub const FILE: &str = "group.toml";
 
-/// The model a reviewer runs unless its group says otherwise.
-const DEFAULT_MODEL: &str = "opus";
-
-fn opus() -> String {
-    DEFAULT_MODEL.to_string()
+fn high() -> String {
+    "high".to_string()
 }
 
 fn one() -> usize {
@@ -31,8 +28,8 @@ fn one() -> usize {
 pub struct Group {
     pub name: String,
     pub question: String,
-    /// `opus`, `sonnet` or `haiku`; opus unless the group overrides it.
-    #[serde(default = "opus")]
+    /// The capability tier, or a named model when a command overrides the tier.
+    #[serde(rename = "tier", default = "high")]
     pub model: String,
     /// The group's folder under `rules/`, set by the loader.
     #[serde(skip)]
@@ -121,8 +118,8 @@ impl Groups {
 
     /// What is wrong with the grouping against <rules>, which must be every
     /// rule there is: a rule outside a group folder (a folder with no
-    /// `group.toml`, or none), a group with no rule, two groups of one name, a
-    /// model that is not opus, sonnet or haiku.
+    /// `group.toml`, or none), a group with no rule, two groups of one name, an
+    /// unrecognized capability tier.
     pub fn faults(&self, rules: &[Rule]) -> Vec<String> {
         let mut faults = Vec::new();
         let mut names: Vec<&str> = Vec::new();
@@ -152,9 +149,9 @@ impl Groups {
                     group.name
                 ));
             }
-            if !["opus", "sonnet", "haiku"].contains(&group.model.as_str()) {
+            if !super::provider::TIERS.contains(&group.model.as_str()) {
                 faults.push(format!(
-                    "group {} names model {}; it is opus, sonnet or haiku",
+                    "group {} names tier {}; choose high, medium, or fast",
                     group.name, group.model
                 ));
             }

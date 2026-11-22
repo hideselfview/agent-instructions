@@ -3145,11 +3145,16 @@ review` on the branch opens a new change under the same key, and reads the
 branch's net change past origin/main.
 
 The rules are grouped in folders, and each group that covers a changed path
-gets one reviewer, a `claude -p` run in a checkout of the reviewed commit with
-only Read, Grep and Glob. Its system prompt holds the full text of the group's
-rules, the project's projects/<project>.md, the brief of the first --item that
-has one; its message holds the diff. It
-answers with a verdict for every rule and, per finding, the rule's clause, the
+gets one reviewer in a read-only checkout of the reviewed commit. Claude has
+Read, Grep and Glob. Codex runs in its read-only sandbox. Builds chooses Codex
+in a Codex session and Claude in a Claude Code session or from a terminal.
+Set BUILDS_REVIEWER to codex or claude to choose the reviewer outside that
+default. A command that accepts --reviewer overrides that choice. Builds fails
+the check if the chosen reviewer cannot answer.
+The reviewer's instructions include the group's rules, the project's
+projects/<project>.md and the brief of the first --item that has one. Builds
+sends the diff as the message. The reviewer answers with a verdict for every
+rule and, for each finding, the rule's clause, the
 code with its file and line, and what goes wrong. builds drops a finding whose
 clause is not in the rule, that is on COMMIT_MESSAGE when its group reads no
 commit message, that is on a design file when its rule judges no design file
@@ -3232,7 +3237,7 @@ project P" and asks no reviewer.
 After the push, land records the commits it pushed, and, once the branch has
 nothing left to land, the change's landing as landed, with its review run.
 `review landed` then starts an audit of a sample of the landed reviews, never
-of a landing of design files only, which looks for findings they missed. A second model (opus) checks each candidate
+of a landing of design files only, which looks for findings they missed. A second high-tier review checks each candidate
 miss the audit raises against the text of its rule, and the audit settles the
 miss with the model's answer: confirmed, or dropped with the model's reason.
 Nobody settles a candidate miss by hand. `review case propose` turns each
@@ -3269,8 +3274,9 @@ checks this, and so does builds' test. The group.toml fields are top-level keys:
 
   name          the group's name, as `builds review` prints it
   question      the one design question the group's rules answer
-  model         optional; opus, sonnet or haiku. The reviewer runs opus unless
-                this overrides it
+  tier          optional. Choose high, medium or fast. The default is high.
+                Codex uses GPT-6.2 Astra for high and GPT-6.2 Sol for medium
+                and fast. Claude uses Opus, Sonnet and Haiku respectively.
   instructions  optional; extra words for the reviewer
   enumerate     true when the reviewer lists every site of the diff that
                 `sites` describes, one changed file per call, and judges each
@@ -3446,8 +3452,7 @@ run `review replay --rules-root` on it.
                               group that lists sites; such a group whose
                               files the diff no longer holds (a later commit
                               changed them back) answers no findings with no
-                              reviewer run. PROGRAM (default claude)
-                              runs each reviewer. <key> names the change in
+                              reviewer run. PROGRAM overrides the session reviewer. <key> names the change in
                               the worktree's repo and defaults to the
                               worktree's branch (branch:<name>); a key opens
                               a landing under review in that repo, which
@@ -3683,8 +3688,8 @@ run `review replay --rules-root` on it.
                               on `none` sites, per group and rule; each
                               replayed case goes in its project's store.
                               --source REPO gives each reviewer the commit a
-                              case came from, and --model runs every group on
-                              one of opus, sonnet and haiku. --compare also
+                              case came from. --model asks the provider for
+                              the named model in every group. --compare also
                               runs the cases under the current setup (the
                               groups, rules and models of the checkout
                               install.sh links at ~/.codex/agent-instructions)
@@ -3721,7 +3726,7 @@ run `review replay --rules-root` on it.
                               one review with those rules shuffled into other
                               groups. A finding in a rule and file
                               that the landing's reviews did not raise is a
-                              candidate miss. The model check (opus) reads
+                              candidate miss. The high-tier model check reads
                               each candidate miss with its rule's text and
                               the diff of its file, and the audit settles
                               the miss confirmed, or dropped with the model's
@@ -3738,7 +3743,7 @@ run `review replay --rules-root` on it.
                               misses it raises, over the diff the audit
                               reviewer that raised it read (the store keeps
                               each reviewer's message), with --model
-                              (default opus) as the check's model. Exits 1
+                              (default high tier) as the check's model. Exits 1
                               when the store keeps no such diff or a check
                               gave no answer
   builds review rates [--rules-root DIR]
@@ -3772,7 +3777,7 @@ run `review replay --rules-root` on it.
                               one of the generic reasons it confirmed
                               findings with in bulk, such as "real as the
                               finding says". The model check (--model,
-                              default opus) reads each such finding against
+                              default high tier) reads each such finding against
                               its rule's text. The case is the net change
                               that review read, with only the files of the
                               findings the check confirms and every commit

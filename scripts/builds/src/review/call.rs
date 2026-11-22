@@ -1,9 +1,6 @@
-//! Runs one reviewer: `claude -p` with a JSON schema, the prompt on standard
-//! input, and reads its answer and its token counts.
+//! Runs a reviewer and checks its structured answer against the rules it read.
 
-use std::io::Write;
 use std::path::Path;
-use std::process::{Command, Stdio};
 
 use serde_json::{Value, json};
 
@@ -35,6 +32,7 @@ pub struct Answer {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Output {
+    pub model: String,
     /// The reviewer's JSON answer as printed, or why there was none.
     pub output: String,
     pub usage: Usage,
@@ -42,7 +40,7 @@ pub struct Output {
     pub answer: Result<Answer, String>,
 }
 
-/// The tokens one `claude -p` process used and what it cost.
+/// The tokens a reviewer used and the cost the provider reported.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Usage {
     /// All input tokens: uncached, read from the cache and written to it.
@@ -55,87 +53,33 @@ pub struct Usage {
     pub cost_microdollars: i64,
 }
 
-/// What `claude -p` printed: the tokens it used and its answer in the schema.
+/// A reviewer's model, token usage and answer in the schema.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Invoked {
+    pub model: String,
     pub usage: Usage,
     pub body: Result<Value, String>,
 }
 
-/// Runs <program> as `claude` is run for a review: `-p` with <schema>,
-/// <prompt> on standard input. With a <checkout> the reviewer runs in it with
-/// read-only tools (Read, Grep, Glob); without one it has no tools. It never
-/// loads the person's CLAUDE.md files: everything it is told is in the prompt.
-pub fn invoke(
-    program: &Path,
-    model: &str,
-    schema: &Value,
-    system: &str,
-    prompt_text: &str,
-    checkout: Option<&Path>,
-) -> Invoked {
-    let schema = schema.to_string();
-    let mut command = Command::new(program);
-    command
-        .args(["-p", "--output-format", "json", "--json-schema", &schema])
-        .args(["--model", model])
-        .args(["--no-session-persistence", "--disable-slash-commands"])
-        .args(["--strict-mcp-config", "--system-prompt", system])
-        .env("CLAUDE_CODE_DISABLE_CLAUDE_MDS", "1")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    match checkout {
-        Some(dir) => {
-            command
-                .args(["--tools", "Read,Grep,Glob"])
-                .args(["--allowedTools", "Read", "Grep", "Glob"])
-                .current_dir(dir);
-        }
-        None => {
-            command.args(["--tools", ""]);
+impl Invoked {
+    pub fn failed(model: String, why: String) -> Self {
+        Self {
+            model,
+            usage: Usage::default(),
+            body: Err(why),
         }
     }
-    let failed = |why: String| Invoked {
-        usage: Usage::default(),
-        body: Err(why),
-    };
-    let mut child = match command.spawn() {
-        Ok(child) => child,
-        Err(error) => return failed(format!("running {}: {error}", program.display())),
-    };
-    let mut stdin = child.stdin.take().expect("stdin is piped");
-    let text = prompt_text.to_string();
-    // The prompt can be larger than the pipe, so it is written while the
-    // answer is read.
-    let writer = std::thread::spawn(move || {
-        let _ = stdin.write_all(text.as_bytes());
-    });
-    let output = child.wait_with_output();
-    let _ = writer.join();
-    let output = match output {
-        Ok(output) => output,
-        Err(error) => return failed(format!("waiting for {}: {error}", program.display())),
-    };
-    if !output.status.success() {
-        let said = String::from_utf8_lossy(&output.stderr);
-        return failed(format!(
-            "{} exited with {}: {}",
-            program.display(),
-            output.status,
-            said.trim()
-        ));
-    }
-    envelope(&String::from_utf8_lossy(&output.stdout))
 }
 
+pub use super::provider::invoke;
+
 /// Reads the JSON `claude -p --output-format json` prints.
-pub fn envelope(text: &str) -> Invoked {
+pub fn envelope(text: &str, requested: &str) -> Invoked {
     let Ok(value) = serde_json::from_str::<Value>(text) else {
-        return Invoked {
-            usage: Usage::default(),
-            body: Err("the reviewer printed no JSON".to_string()),
-        };
+        return Invoked::failed(
+            requested.to_string(),
+            "the reviewer printed no JSON".to_string(),
+        );
     };
     let count = |key: &str| value["usage"][key].as_i64().unwrap_or(0);
     let tokens_in = count("input_tokens")
@@ -143,7 +87,20 @@ pub fn envelope(text: &str) -> Invoked {
         + count("cache_read_input_tokens");
     let tokens_out = count("output_tokens");
     let body = body_of(&value);
+    let model = value["modelUsage"]
+        .as_object()
+        .and_then(|models| {
+            if models.len() == 1 {
+                models.keys().next()
+            } else {
+                models.keys().find(|name| {
+                    name.as_str() == requested || name.starts_with(&format!("claude-{requested}-"))
+                })
+            }
+        })
+        .map_or_else(|| requested.to_string(), Clone::clone);
     Invoked {
+        model,
         usage: Usage {
             tokens_in,
             tokens_out,
@@ -199,6 +156,7 @@ fn output_of(invoked: Invoked, names: &[String], given: &[i64], enumerate: bool)
         Err(why) => format!("no answer: {why}"),
     };
     Output {
+        model: invoked.model,
         output,
         usage: invoked.usage,
         answer: invoked.body.and_then(|body| {
@@ -216,7 +174,7 @@ fn output_of(invoked: Invoked, names: &[String], given: &[i64], enumerate: bool)
 /// Reads the answer of <text>, the JSON `claude -p` printed.
 #[cfg(test)]
 pub fn parse(text: &str, names: &[String]) -> Output {
-    output_of(envelope(text), names, &[], false)
+    output_of(envelope(text, "opus"), names, &[], false)
 }
 
 /// The open findings the answer closes: none when it names none, and each

@@ -297,7 +297,7 @@ fn a_group_that_lists_sites_is_asked_once_per_file_its_rule_covers() {
         &fake.root,
         "alpha",
         "alpha",
-        "sonnet",
+        "medium",
         "enumerate = true\npasses = 2\nsites = \"handles rows\"\n",
     );
     fake.answer_task(

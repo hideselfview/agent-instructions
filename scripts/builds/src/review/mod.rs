@@ -85,6 +85,7 @@ mod model_check;
 pub mod over_cap;
 mod prompt;
 mod propose;
+mod provider;
 pub mod record;
 mod render;
 mod rerun;
@@ -111,7 +112,7 @@ use rusqlite::Connection;
 
 use record::Kind;
 
-const USAGE: &str = "usage: builds review [run] WORKTREE [BASE] --kind code|mechanical [--checked-by TEXT] [--landing KEY] [--item N]... [--head SHA] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review copy WORKTREE [BASE] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review wait LANDING\n       builds review settle FINDING confirmed|dropped --why TEXT\n       builds review settle FINDING --again --why TEXT\n       builds review settle FINDING allowed --by-person --why TEXT\n       builds review dispute FINDING --why TEXT\n       builds review keep FINDING --why TEXT\n       builds review show LANDING\n       builds review check-landing DIR --project P SHA... [--landing KEY] [--squashed] [--rules-root DIR]\n       builds review landed DIR --project P SHA... [--landing KEY] [--more-to-land] [--rules-root DIR]\n       builds review groups [--rules-root DIR] [--project P --repo R --changed PATH...]\n       builds review replay [--case NAME]... [--source REPO] [--model opus|sonnet|haiku] [--rules-root DIR] [--compare] [--reviewer PROGRAM]\n       builds review replay --landing N... --repo-dir DIR [--group NAME]... [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review audit LANDING --repo-dir DIR [--rules-root DIR] [--reviewer PROGRAM]\n       builds review misses [--check [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]]\n       builds review rates [--rules-root DIR]\n       builds review scores\n       builds review case propose --repo-dir DIR --rules-root DIR [--per-group N] [--model opus|sonnet|haiku] [--reviewer PROGRAM]\n       builds review case add LANDING FINDING --repo-dir DIR --rules-root DIR [--name NAME]\n       builds review case add --rule SLUG --file PATH --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR\n       builds review case add --clean-for SLUG --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR";
+const USAGE: &str = "usage: builds review [run] WORKTREE [BASE] --kind code|mechanical [--checked-by TEXT] [--landing KEY] [--item N]... [--head SHA] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review copy WORKTREE [BASE] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review wait LANDING\n       builds review settle FINDING confirmed|dropped --why TEXT\n       builds review settle FINDING --again --why TEXT\n       builds review settle FINDING allowed --by-person --why TEXT\n       builds review dispute FINDING --why TEXT\n       builds review keep FINDING --why TEXT\n       builds review show LANDING\n       builds review check-landing DIR --project P SHA... [--landing KEY] [--squashed] [--rules-root DIR]\n       builds review landed DIR --project P SHA... [--landing KEY] [--more-to-land] [--rules-root DIR]\n       builds review groups [--rules-root DIR] [--project P --repo R --changed PATH...]\n       builds review replay [--case NAME]... [--source REPO] [--model MODEL] [--rules-root DIR] [--compare] [--reviewer PROGRAM]\n       builds review replay --landing N... --repo-dir DIR [--group NAME]... [--model MODEL] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review audit LANDING --repo-dir DIR [--rules-root DIR] [--reviewer PROGRAM]\n       builds review misses [--check [--model MODEL] [--rules-root DIR] [--reviewer PROGRAM]]\n       builds review rates [--rules-root DIR]\n       builds review scores\n       builds review case propose --repo-dir DIR --rules-root DIR [--per-group N] [--model MODEL] [--reviewer PROGRAM]\n       builds review case add LANDING FINDING --repo-dir DIR --rules-root DIR [--name NAME]\n       builds review case add --rule SLUG --file PATH --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR\n       builds review case add --clean-for SLUG --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR";
 
 /// The checkout the rules and groups are read from: `--rules-root`, else the
 /// one `install.sh` links at ~/.codex/agent-instructions.
@@ -144,10 +145,14 @@ pub struct Reviewer {
 }
 
 impl Reviewer {
-    /// `claude`, and the rules checkout `install.sh` links in <home>.
+    pub fn program_for(&self, explicit: Option<&str>) -> PathBuf {
+        explicit.map_or_else(|| self.program.clone(), PathBuf::from)
+    }
+
+    /// The session's reviewer and the rules checkout `install.sh` links in <home>.
     pub fn installed(home: &Path) -> Reviewer {
         Reviewer {
-            program: PathBuf::from("claude"),
+            program: provider::default_program(),
             rules_root: installed_rules_root(home),
         }
     }
@@ -433,7 +438,7 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
         ));
     }
     if let Some(last) = answers.last_mut() {
-        material.close_deleted(last, &gone);
+        material.close_deleted(inputs.reviewer, last, &gone);
     }
     // Two runs of one review can each close the same finding: the first
     // closes it.
@@ -1087,7 +1092,7 @@ fn copy_command(tool: &Tool, args: &[String]) -> Result<()> {
         base,
         label: &default_key(&checkout.top)?,
         root: &rules_root(&args)?,
-        reviewer: &PathBuf::from(args.value("reviewer")?.unwrap_or("claude")),
+        reviewer: &tool.reviewer.program_for(args.value("reviewer")?),
         stamp: &stamp,
     })?;
     print!("{}", checked.text);
@@ -1150,7 +1155,7 @@ fn run_review(
     let stamp = Stamp::resolve(tool.now, args, &worktree)?;
     let brief = brief_of(&tool.places, &store, args)?;
     let root = rules_root(args)?;
-    let reviewer = PathBuf::from(args.value("reviewer")?.unwrap_or("claude"));
+    let reviewer = tool.reviewer.program_for(args.value("reviewer")?);
     let head = args.value("head")?;
     let reported = review(&Inputs {
         store: &store,
@@ -1444,11 +1449,6 @@ fn replay(tool: &Tool, args: &[String]) -> Result<()> {
         &["compare"],
     )?;
     args.exactly(0, USAGE)?;
-    if let Some(model) = args.value("model")?
-        && !["opus", "sonnet", "haiku"].contains(&model)
-    {
-        fail!("--model is opus, sonnet or haiku, not {model}");
-    }
     if !args.values("landing").is_empty() {
         if args.switch("compare") {
             fail!("--compare goes with the cases, not --landing\n{USAGE}");
@@ -1459,7 +1459,7 @@ fn replay(tool: &Tool, args: &[String]) -> Result<()> {
         fail!("--repo-dir and --group go with --landing\n{USAGE}");
     }
     let root = rules_root(&args)?;
-    let reviewer = PathBuf::from(args.value("reviewer")?.unwrap_or("claude"));
+    let reviewer = tool.reviewer.program_for(args.value("reviewer")?);
     let source = args.value("source")?.map(PathBuf::from);
     let mut all = cases::load(&root)?;
     let wanted = args.values("case");
@@ -1543,7 +1543,7 @@ fn replay_landings(tool: &Tool, args: &Args) -> Result<()> {
     // rerun::replay opens the store, and fails when the project has none.
     let store = Store::resolve(&tool.places, args, &current_dir()?)?;
     let root = rules_root(args)?;
-    let reviewer = PathBuf::from(args.value("reviewer")?.unwrap_or("claude"));
+    let reviewer = tool.reviewer.program_for(args.value("reviewer")?);
     let repo_dir = PathBuf::from(args.require("repo-dir")?);
     let stamp = Stamp::resolve(tool.now, args, &current_dir()?)?;
     let replayed = rerun::replay(&rerun::Inputs {
@@ -1598,7 +1598,7 @@ fn audit_command(tool: &Tool, args: &[String]) -> Result<()> {
     // audit::audit opens the store, and fails when the project has none.
     let store = Store::resolve(&tool.places, &args, &current_dir()?)?;
     let root = rules_root(&args)?;
-    let reviewer = PathBuf::from(args.value("reviewer")?.unwrap_or("claude"));
+    let reviewer = tool.reviewer.program_for(args.value("reviewer")?);
     let repo_dir = PathBuf::from(args.require("repo-dir")?);
     let stamp = Stamp {
         at: tool.now,

@@ -615,7 +615,7 @@ pub fn ask_groups(
             return Asked {
                 calls: picked
                     .iter()
-                    .map(|(group, members)| bare_call(group, members, Some(why.clone())))
+                    .map(|(group, members)| bare_call(reviewer, group, members, Some(why.clone())))
                     .collect(),
                 repeat: Tokens::default(),
                 nothing_to_read: Vec::new(),
@@ -671,7 +671,7 @@ pub fn ask_groups(
             checkout.as_ref().map(|c| c.path.as_path()),
         );
         let exchange = NewExchange {
-            model: group.model.clone(),
+            model: output.model.clone(),
             unit: unit
                 .file
                 .as_ref()
@@ -759,7 +759,7 @@ pub fn ask_groups(
     let mut nothing_to_read = Vec::new();
     for (at, (group, members)) in picked.iter().enumerate() {
         if not_read[at].is_empty() && !units.iter().any(|unit| unit.group.name == group.name) {
-            calls.push(bare_call(group, members, None));
+            calls.push(bare_call(reviewer, group, members, None));
             nothing_to_read.push(group.name.clone());
         }
     }
@@ -831,7 +831,7 @@ impl Material {
     /// Closes each finding of <gone> in the call of its group in <asked>,
     /// adding a call that ran no reviewer for a group with none: no reviewer
     /// decides whether a finding in a deleted file is fixed.
-    pub fn close_deleted(&self, asked: &mut Asked, gone: &[Finding]) {
+    pub fn close_deleted(&self, reviewer: &Path, asked: &mut Asked, gone: &[Finding]) {
         for (name, held) in self.holding_groups(gone) {
             let ids: Vec<i64> = held.iter().map(|finding| finding.id).collect();
             let at = asked.calls.iter().position(|call| call.group == name);
@@ -843,7 +843,7 @@ impl Material {
                         .reviewing(&self.rules)
                         .find(|(group, _)| group.name == name)
                         .expect("a group that holds a finding is a group of the rules");
-                    asked.calls.push(bare_call(group, &members, None));
+                    asked.calls.push(bare_call(reviewer, group, &members, None));
                     asked.calls.last_mut().expect("a call was just added")
                 }
             };
@@ -858,10 +858,15 @@ impl Material {
 
 /// A call of <group> that ran no reviewer: failed with <failure>, or, with
 /// none, an answer of no findings.
-fn bare_call(group: &Group, members: &[&Rule], failure: Option<String>) -> NewCall {
+fn bare_call(
+    reviewer: &Path,
+    group: &Group,
+    members: &[&Rule],
+    failure: Option<String>,
+) -> NewCall {
     NewCall {
         group: group.name.clone(),
-        model: group.model.clone(),
+        model: super::provider::model_name(reviewer, &group.model),
         prompt: prompt::setup(group, members),
         rules: prompt::answer_names(group, members),
         tokens_in: 0,
@@ -947,7 +952,7 @@ fn checked(
     let (material, files) = (scope.material, scope.files);
     let mut call = NewCall {
         group: group.name.clone(),
-        model: group.model.clone(),
+        model: output.model,
         prompt: setup,
         rules: prompt::answer_names(group, members),
         tokens_in: output.usage.tokens_in,

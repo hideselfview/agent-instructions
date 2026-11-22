@@ -84,7 +84,7 @@ fn a_groups_misses_have_risen_when_its_recent_audits_missed_more_than_its_earlie
 fn group_on(name: &str, model: &str) -> Group {
     Group::parse(
         name,
-        &format!("name = \"{name}\"\nquestion = \"q\"\nmodel = \"{model}\"\n"),
+        &format!("name = \"{name}\"\nquestion = \"q\"\ntier = \"{model}\"\n"),
         Vec::new(),
     )
     .unwrap()
@@ -95,8 +95,8 @@ fn the_shuffle_is_the_same_for_a_seed_and_holds_every_rule_once_on_its_groups_mo
     let rules: Vec<Rule> = (0..7)
         .map(|n| Rule::parse(&format!("r{n}"), "---\npaths: ['**']\n---\nb\n"))
         .collect();
-    let deep = group_on("deep", "opus");
-    let fast = group_on("fast", "sonnet");
+    let deep = group_on("deep", "high");
+    let fast = group_on("fast", "medium");
     let audited: Vec<(&Group, Vec<&Rule>)> = vec![
         (&deep, rules[..5].iter().collect()),
         (&fast, rules[5..].iter().collect()),
@@ -110,16 +110,16 @@ fn the_shuffle_is_the_same_for_a_seed_and_holds_every_rule_once_on_its_groups_mo
     assert_eq!(all, ["r0", "r1", "r2", "r3", "r4", "r5", "r6"]);
     for shuffled in &a {
         let model = if shuffled.rules.iter().any(|r| r == "r5" || r == "r6") {
-            "sonnet"
+            "medium"
         } else {
-            "opus"
+            "high"
         };
         assert_eq!(shuffled.model, model, "{shuffled:?}");
         assert!(
             shuffled
                 .rules
                 .iter()
-                .all(|r| (r == "r5" || r == "r6") == (model == "sonnet")),
+                .all(|r| (r == "r5" || r == "r6") == (model == "medium")),
             "{shuffled:?}"
         );
     }
@@ -307,7 +307,7 @@ fn an_audit_names_a_group_the_review_ran_that_the_rules_checkout_no_longer_holds
     let fake = fake(&demo.scratch.dir);
     let side = demo.add_side(1, "agent", "work");
     let landing = landed(&demo, &fake, &side);
-    crate::review::fakes::group_file(&fake.root, "alpha", "renamed", "sonnet", "");
+    crate::review::fakes::group_file(&fake.root, "alpha", "renamed", "medium", "");
     let text = audit_of(&demo, &fake, &side, landing);
     assert!(
         text.contains("not audited: group alpha ran on the landing's review, and the rules checkout has no group of that name"),
