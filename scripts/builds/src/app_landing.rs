@@ -422,7 +422,14 @@ pub fn cmd_landing_coverage(places: &Places, args: &[String]) -> Result<()> {
         &changed,
         branch,
         &mut |lane| {
-            crate::app_timing::passed_runs(&conn, &repo, lane, &database, named, &branch_commits)
+            crate::app_timing::passed_runs(
+                &conn,
+                &repo,
+                lane,
+                &database,
+                Some(named),
+                &branch_commits,
+            )
         },
         &mut |lane| {
             let ran = crate::app_timing::shots_ran(&conn, &repo, lane, named, since, &database)?;

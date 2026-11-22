@@ -26,18 +26,8 @@ pub enum StepKind {
     Fetch,
     /// The fast-forward or cherry-pick onto origin/main.
     Pick,
-    /// Waiting for the turn of a landing that changes the apps. Landings
-    /// recorded it before land stopped taking turns; none writes it now, and
-    /// the store's `land_step.kind` still accepts it.
-    #[allow(dead_code)]
-    AppWait,
     /// The whole-tree checks and the compile check of the result.
     Checks,
-    /// The app build of the result. Landings recorded it before land stopped
-    /// building results; none writes it now, and the store's
-    /// `land_step.kind` still accepts it.
-    #[allow(dead_code)]
-    AppBuild,
     Push,
     /// The records after the push.
     Records,
@@ -54,9 +44,7 @@ impl StepKind {
             StepKind::ListsCheck => "lists-check",
             StepKind::Fetch => "fetch",
             StepKind::Pick => "pick",
-            StepKind::AppWait => "app-wait",
             StepKind::Checks => "checks",
-            StepKind::AppBuild => "app-build",
             StepKind::Push => "push",
             StepKind::Records => "records",
             StepKind::Finish => "finish",

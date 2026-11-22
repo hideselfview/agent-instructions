@@ -140,7 +140,7 @@ fn passing_runs_of_a_lane_come_back_newest_first_with_their_passed_steps() {
     )
     .unwrap();
     let conn = crate::db::open_reader(&path).unwrap().unwrap();
-    let runs = passed_runs(&conn, "bae", Lane::Mac, &path, "branch", &[]).unwrap();
+    let runs = passed_runs(&conn, "bae", Lane::Mac, &path, Some("branch"), &[]).unwrap();
     assert_eq!(
         runs,
         vec![
@@ -182,10 +182,10 @@ fn a_branchs_passing_build_is_found_by_its_name_or_its_commit_whatever_ran_since
             .map(|run| run.commit[..1].to_string())
             .collect()
     };
-    let found = passed_runs(&conn, "bae", Lane::Mac, &path, "branch", &[]).unwrap();
+    let found = passed_runs(&conn, "bae", Lane::Mac, &path, Some("branch"), &[]).unwrap();
     assert_eq!(commits(found), ["a"]);
     let own = ["b".repeat(40)];
-    let found = passed_runs(&conn, "bae", Lane::Mac, &path, "branch", &own).unwrap();
+    let found = passed_runs(&conn, "bae", Lane::Mac, &path, Some("branch"), &own).unwrap();
     assert_eq!(commits(found), ["b", "a"]);
 }
 

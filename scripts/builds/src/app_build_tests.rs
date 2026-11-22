@@ -1086,8 +1086,7 @@ fn a_run_that_never_took_a_checkout_writes_nothing() {
 
 /// A build of a branch starts each lane's process with the commit it checks
 /// out and the ref the caller named, which the run records as the ref it
-/// built, so `builds land` finds the branch's builds by the branch's name. A
-/// lane run by hand without the ref records the commit.
+/// built, so `builds land` finds the branch's builds by the branch's name.
 #[test]
 fn a_lane_is_told_the_ref_the_caller_named_beside_the_commit_it_builds() {
     let commit = "0123456789abcdef0123456789abcdef01234567";
@@ -1113,11 +1112,6 @@ fn a_lane_is_told_the_ref_the_caller_named_beside_the_commit_it_builds() {
             "tip"
         ]
     );
-    let (named, rest) = strip_built_ref(&words[5..], commit);
-    assert_eq!(named, "my-branch");
-    assert_eq!(rest[..2], ["--main-tip".to_string(), "tip".to_string()]);
-    let (named, _) = strip_built_ref(&rest[2..], commit);
-    assert_eq!(named, commit);
 }
 
 /// A git repo at <dir> with a `.app-build` that has a shots line, and itself
@@ -1428,7 +1422,14 @@ fn a_build_that_reuses_a_cached_run_leaves_the_passing_build_that_land_counts() 
         &["bae-macos/a.swift".to_string()],
         &commit,
         &mut |lane| {
-            crate::app_timing::passed_runs(&conn, "demo", lane, &store.database(), "work", &[])
+            crate::app_timing::passed_runs(
+                &conn,
+                "demo",
+                lane,
+                &store.database(),
+                Some("work"),
+                &[],
+            )
         },
         &mut |_| Ok(vec!["mac.a.".to_string()]),
         &mut |_, _| Ok(Some(Vec::new())),

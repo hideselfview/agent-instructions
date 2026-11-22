@@ -941,8 +941,7 @@ const CACHED_SHOTS: &str = "--cached-shots";
 /// What a lane's process is given first, after the commit to build, with the
 /// ref the caller named (a branch name, or the commit when the caller named
 /// one): the run records it as the ref it built (`app_timing::RunRecord`),
-/// which is how `builds land` finds a branch's builds. A lane run by hand
-/// without it records the commit.
+/// which is how `builds land` finds a branch's builds.
 const BUILT_REF: &str = "--built-ref";
 
 /// What a lane's process is given first, with the commit of origin/main's tip
@@ -2023,15 +2022,6 @@ fn lane_words(
     words
 }
 
-/// The ref a lane's process was told it builds (`BUILT_REF`) and <names>
-/// without it; <commit> when it was told none.
-fn strip_built_ref<'a>(names: &'a [String], commit: &'a str) -> (&'a str, &'a [String]) {
-    match names {
-        [flag, named, rest @ ..] if flag == BUILT_REF => (named, rest),
-        _ => (commit, names),
-    }
-}
-
 /// Runs the lanes in <lanes> at the same time, each as a process of its own
 /// from the folder <pinned>; fails, naming the lanes, if any does. A stop signal goes on to each lane,
 /// and the command, once they have ended, fails saying it stopped.
@@ -2255,11 +2245,10 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
         && flag == "--lane"
         && !commit.starts_with('-')
     {
-        let (named, names) = strip_built_ref(names, commit);
-        let [main_tip_flag, tip, names @ ..] = names else {
+        let [built_ref_flag, named, main_tip_flag, tip, names @ ..] = names else {
             fail!("{USAGE}");
         };
-        if main_tip_flag != MAIN_TIP {
+        if built_ref_flag != BUILT_REF || main_tip_flag != MAIN_TIP {
             fail!("{USAGE}");
         }
         let (cached_shots, names) = strip_leading(names, CACHED_SHOTS);

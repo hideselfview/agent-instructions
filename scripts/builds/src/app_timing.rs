@@ -457,16 +457,16 @@ impl PassedRun {
 }
 
 /// The passing runs of <repo>'s <lane> that recorded the commit they built
-/// and are a branch's: the ref the caller named (`built_ref`) is <named>, or
-/// the commit they built is one of <commits>, the branch's commits since its
-/// merge base. The database is open as <conn> at <path>. Newest first, however
+/// and are a branch's: the ref the caller named (`built_ref`) is <named>, when
+/// there is one, or the commit they built is one of <commits>, the branch's
+/// commits since its merge base. The database is open as <conn> at <path>. Newest first, however
 /// many other runs came after them.
 pub fn passed_runs(
     conn: &Connection,
     repo: &str,
     lane: Lane,
     path: &Path,
-    named: &str,
+    named: Option<&str>,
     commits: &[String],
 ) -> Result<Vec<PassedRun>> {
     let what = || format!("reading {}", path.display());
@@ -483,7 +483,9 @@ pub fn passed_runs(
             .as_str(),
         )
         .context(what)?;
-    let words = [repo, lane.word(), named]
+    // A run's ref is never empty (`built_ref`'s CHECK), so no run has the
+    // ref of a caller that names none.
+    let words = [repo, lane.word(), named.unwrap_or("")]
         .into_iter()
         .chain(commits.iter().map(String::as_str));
     let found: Vec<(i64, String)> = runs
@@ -528,28 +530,10 @@ pub fn passed_shots(
     prefix: &str,
     path: &Path,
 ) -> Result<bool> {
-    let what = || format!("reading {}", path.display());
-    let ids: Vec<i64> = conn
-        .prepare(
-            "SELECT r.id FROM app_build_runs r
-             JOIN app_build_run_commit c ON c.run_id = r.id
-             WHERE r.repo = ?1 AND r.lane = ?2 AND r.outcome = 'passed' AND c.built_commit = ?3",
-        )
-        .context(what)?
-        .query_map(params![repo, lane.word(), commit], |row| row.get(0))
-        .context(what)?
-        .collect::<std::result::Result<_, _>>()
-        .context(what)?;
-    for id in ids {
-        let run = PassedRun {
-            commit: commit.to_string(),
-            steps: passed_steps(conn, id, path)?,
-        };
-        if run.ran_shots(prefix) {
-            return Ok(true);
-        }
-    }
-    Ok(false)
+    let own = [commit.to_string()];
+    Ok(passed_runs(conn, repo, lane, path, None, &own)?
+        .iter()
+        .any(|run| run.ran_shots(prefix)))
 }
 
 /// The shots prefixes that app builds of <repo>'s <lane> named <branch>

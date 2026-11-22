@@ -1389,7 +1389,7 @@ fn a_store_from_before_the_app_landing_steps_keeps_its_steps_and_takes_them() {
         db::schema_rows(&conn).unwrap(),
         db::schema_rows(&db::memory()).unwrap()
     );
-    crate::land_run::write(&mut conn, &landing(crate::land_run::StepKind::AppBuild)).unwrap();
+    crate::land_run::write(&mut conn, &landing(crate::land_run::StepKind::Fetch)).unwrap();
     let kinds: Vec<String> = conn
         .prepare("SELECT kind FROM land_step ORDER BY land_id")
         .unwrap()
@@ -1397,7 +1397,7 @@ fn a_store_from_before_the_app_landing_steps_keeps_its_steps_and_takes_them() {
         .unwrap()
         .collect::<std::result::Result<_, _>>()
         .unwrap();
-    assert_eq!(kinds, ["checks", "app-build"]);
+    assert_eq!(kinds, ["checks", "fetch"]);
 }
 
 #[test]

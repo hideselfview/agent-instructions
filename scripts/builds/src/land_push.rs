@@ -145,7 +145,7 @@ impl Landing<'_> {
                 continue;
             }
             let picking = self.timing(StepKind::Pick);
-            git_ok(dir, &["checkout", "-q", "--detach", "origin/main"]);
+            crate::app_config::run_git(dir, &["checkout", "-q", "--detach", "origin/main"])?;
             let on_main = match self.pick()? {
                 Picked::Applied(on_main) => on_main,
                 Picked::OnMain { on_main, said } => {
@@ -157,7 +157,9 @@ impl Landing<'_> {
                     return Err(refuse(out, said));
                 }
             };
-            let landed = git_text(dir, &["rev-parse", "HEAD"]).unwrap_or_default();
+            let landed = crate::app_config::run_git(dir, &["rev-parse", "HEAD"])?
+                .trim()
+                .to_string();
             drop(picking);
             {
                 let _timing = self.timing(StepKind::Checks);
@@ -171,7 +173,9 @@ impl Landing<'_> {
             // and the push of origin/main to itself would report success. Land
             // compares HEAD with the commit it made, not its patch id: another
             // commit that holds the same change has the same patch id.
-            let head = git_text(dir, &["rev-parse", "HEAD"]).unwrap_or_default();
+            let head = crate::app_config::run_git(dir, &["rev-parse", "HEAD"])?
+                .trim()
+                .to_string();
             if head != landed {
                 let name =
                     |rev: &str| git_text(dir, &["log", "--oneline", "-1", rev]).unwrap_or_default();
