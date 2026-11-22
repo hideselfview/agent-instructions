@@ -263,7 +263,6 @@ fn only_a_run_of_the_same_environment_is_compared_again() {
 fn before_run_considers_a_covering_run_published_during_recheck() {
     use std::io::{Read, Write};
     use std::os::fd::AsRawFd;
-    use std::process::Command;
 
     let scratch = Scratch::new("compare-again-concurrent");
     let places = scratch.places();
@@ -276,17 +275,12 @@ fn before_run_considers_a_covering_run_published_during_recheck() {
     };
     let started = scratch.dir.join("started");
     let resume = scratch.dir.join("resume");
-    assert!(
-        Command::new("mkfifo")
-            .args([&started, &resume])
-            .status()
-            .unwrap()
-            .success()
-    );
+    crate::testing::fifo(&started);
+    crate::testing::fifo(&resume);
     let program = scratch.script(
         "wait-for-publication",
         &format!(
-            r#"printf x > '{}'; IFS= read -r release < '{}'; exec '{}' "$@""#,
+            r#"printf x > '{}' && IFS= read -r release < '{}' && exec '{}' "$@""#,
             started.display(),
             resume.display(),
             recheck.display(),
