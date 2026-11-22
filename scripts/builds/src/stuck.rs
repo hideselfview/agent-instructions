@@ -814,6 +814,12 @@ pub fn findings(hosts: &[HostBusy]) -> Vec<Advice> {
                 host.host
             )));
         }
+        if let HostRead::ScanFailed(error) = &host.read {
+            out.push(Advice::said(format!(
+                "busy processes on {}: not read: {error}",
+                host.host
+            )));
+        }
         let Ok(read) = host.activity() else { continue };
         // A wedged fseventsd gets its own finding, in place of the busy one.
         out.extend(read.wedged.iter().map(|w| w.finding.clone()));

@@ -3058,7 +3058,7 @@ mod tests {
 
     /// A host finding keeps its command apart from its text, for the
     /// dashboard to show; a host whose processes builds could not read over
-    /// ssh adds no finding.
+    /// ssh adds a finding that says why.
     #[test]
     fn a_host_that_refuses_jobs_is_a_finding_that_names_its_command() {
         let refusal = crate::host::Refusal {
@@ -3072,7 +3072,10 @@ mod tests {
             read: crate::stuck::HostRead::ScanFailed("ssh failed".to_string()),
         }];
         let found = host_findings(&nothing_scanned(), &busy, &[refusal], &[]);
-        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!(found.len(), 2, "{found:?}");
+        assert_eq!(found[0].kind, FindingKind::Busy);
+        assert!(found[0].advice.line().contains("ssh failed"));
+        let found = &found[1..];
         assert_eq!(found[0].kind, FindingKind::Host);
         assert_eq!(found[0].advice.command.as_deref(), Some("builds host list"));
         assert!(

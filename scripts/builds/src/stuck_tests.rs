@@ -317,7 +317,7 @@ fn only_busy_chains_are_placed() {
 }
 
 #[test]
-fn findings_come_only_from_hosts_that_were_read() {
+fn a_host_that_was_not_read_gives_the_reason_and_no_process_findings() {
     let hosts = vec![
         HostBusy {
             host: "m1".into(),
@@ -347,7 +347,9 @@ fn findings_come_only_from_hosts_that_were_read() {
             }),
         },
     ];
-    assert_eq!(findings(&hosts).len(), 1);
+    let found = findings(&hosts);
+    assert_eq!(found.len(), 2, "{found:?}");
+    assert_eq!(found[0].text, "busy processes on m1: not read: ssh failed");
     let printed = lines(&hosts).join("\n");
     assert!(printed.contains("m1: not read: ssh failed"), "{printed}");
 }
