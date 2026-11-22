@@ -1778,7 +1778,7 @@ fn a_lanes_shots_runs_compare_with_the_cached_run_of_the_merge_base_and_a_run_of
             ENVIRONMENT,
             commit,
             picture_tree(&top, commit, &config, Lane::Mac, ENVIRONMENT).unwrap(),
-            &ShotPick::of_lane(Lane::Mac, &a_screens()).unwrap(),
+            &LanePick::of_lane(Lane::Mac, &a_screens()).unwrap(),
             false,
             false,
             false,
@@ -1829,7 +1829,7 @@ fn a_prefix_that_starts_no_shot_declared_at_the_merge_base_compares_with_no_run(
         ENVIRONMENT,
         &work,
         picture_tree(&top, &work, &config, Lane::Mac, ENVIRONMENT).unwrap(),
-        &ShotPick::of_lane(Lane::Mac, &new).unwrap(),
+        &LanePick::of_lane(Lane::Mac, &new).unwrap(),
         false,
         false,
         false,
@@ -2001,12 +2001,11 @@ fn the_picture_folder_caches_the_shots_of_the_prefixes_its_marks_cover_for_the_a
     );
     let cached = |tree, prefixes: &[&str]| {
         let pictures = shots_cache::AppPictures::of(&places, "demo", Lane::Mac, tree);
-        let picks: Vec<_> = prefixes
+        let prefixes: Vec<_> = prefixes
             .iter()
-            .map(|prefix| (Lane::Mac, PickKind::Shots, prefix.to_string()))
+            .map(|prefix| shots::Prefix::parse(prefix).unwrap())
             .collect();
-        let picks = ShotPick::of_lane(Lane::Mac, &picks).unwrap();
-        let query = capture_query(&config, Lane::Mac, &picks).unwrap();
+        let query = capture_query(&config, Lane::Mac, &prefixes).unwrap();
         pictures.while_held(Some(&query), |cached| cached).unwrap()
     };
     assert!(!cached(&tree, &["mac.a."]));

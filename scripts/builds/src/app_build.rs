@@ -1156,28 +1156,42 @@ fn picture_tree(
     ))
 }
 
-#[derive(Clone)]
-struct ShotPick<'a> {
-    pick: &'a Pick,
-    prefix: shots::Prefix,
+enum LanePick<'a> {
+    Class(&'a str),
+    Shots(shots::Prefix),
 }
 
-impl<'a> ShotPick<'a> {
+impl<'a> LanePick<'a> {
     fn of_lane(lane: Lane, picks: &'a [Pick]) -> std::result::Result<Vec<Self>, shots::NameError> {
         picks
             .iter()
-            .filter(|(own, kind, _)| *own == lane && *kind == PickKind::Shots)
-            .map(|pick| {
-                Ok(Self {
-                    pick,
-                    prefix: shots::Prefix::parse(&pick.2)?,
-                })
+            .filter(|(own, _, _)| *own == lane)
+            .map(|(_, kind, value)| match kind {
+                PickKind::Class => Ok(Self::Class(value)),
+                PickKind::Shots => Ok(Self::Shots(shots::Prefix::parse(value)?)),
             })
             .collect()
     }
 
-    fn commands(picks: &[Self]) -> Vec<Pick> {
-        picks.iter().map(|pick| pick.pick.clone()).collect()
+    fn shot_command(lane: Lane, prefix: &shots::Prefix) -> Pick {
+        (lane, PickKind::Shots, prefix.as_str().to_string())
+    }
+
+    fn commands(lane: Lane, picks: &[Self]) -> Vec<Pick> {
+        picks
+            .iter()
+            .map(|pick| match pick {
+                Self::Class(name) => (lane, PickKind::Class, (*name).to_string()),
+                Self::Shots(prefix) => Self::shot_command(lane, prefix),
+            })
+            .collect()
+    }
+
+    fn prefixes(picks: &[Self]) -> impl Iterator<Item = &shots::Prefix> {
+        picks.iter().filter_map(|pick| match pick {
+            Self::Class(_) => None,
+            Self::Shots(prefix) => Some(prefix),
+        })
     }
 }
 
@@ -1185,17 +1199,19 @@ impl<'a> ShotPick<'a> {
 fn capture_query(
     config: &Config,
     lane: Lane,
-    picks: &[ShotPick<'_>],
+    prefixes: &[shots::Prefix],
 ) -> Result<shots_cache::CaptureQuery> {
     let Some(picker) = config.picker(lane, PickKind::Shots) else {
-        let first = picks
+        let first = prefixes
             .first()
             .expect("a lane has shots picks when it asks whether the folder caches them");
-        return Err(missing_line(lane, PickKind::Shots, first.prefix.as_str()));
+        return Err(missing_line(lane, PickKind::Shots, first.as_str()));
     };
     let windows = picker.command.iter().any(|word| word == "--windows");
-    let prefixes = picks.iter().map(|pick| pick.prefix.clone()).collect();
-    Ok(shots_cache::CaptureQuery { prefixes, windows })
+    Ok(shots_cache::CaptureQuery {
+        prefixes: prefixes.to_vec(),
+        windows,
+    })
 }
 
 /// What a shots run of a prefix compares with.
@@ -1299,19 +1315,19 @@ impl ShotsCache {
         environment: &str,
         commit: &str,
         app_tree: String,
-        picks: &[ShotPick<'_>],
+        picks: &[LanePick<'_>],
         no_capture: bool,
         retake: bool,
         base_run: bool,
-        built: &[String],
+        built: &[shots::Prefix],
         program: &Path,
     ) -> Result<ShotsCache> {
         let versions = &crate::shots_program::VERSIONS;
         let mut befores = Vec::new();
         let mut bases = Vec::new();
         let mut base_declared_names = None;
-        for pick in picks {
-            let prefix = pick.prefix.as_str();
+        for selected in LanePick::prefixes(picks) {
+            let prefix = selected.as_str();
             let base = crate::derive::merge_base(source, commit)?;
             if base == commit {
                 bases.push((prefix.to_string(), BaseRun::NotNeeded));
@@ -1327,7 +1343,7 @@ impl ShotsCache {
                 program,
             )? {
                 Some(before) => {
-                    let how = if built.iter().any(|built| built == prefix) {
+                    let how = if built.contains(selected) {
                         BaseRun::Built
                     } else {
                         BaseRun::Saved
@@ -1789,7 +1805,7 @@ struct LaneRequest<'a> {
 /// The merge base of a lane's commit with origin/main, whose runs the shots
 /// of the commit compare with, read from git alone, before the lane takes a
 /// checkout.
-struct MergeBase<'a> {
+struct MergeBase {
     commit: String,
     /// The repo's `.app-build` at the merge base.
     config: Config,
@@ -1797,13 +1813,13 @@ struct MergeBase<'a> {
     /// the lane's `needs` steps.
     names: Vec<String>,
     /// The shots picks of the lane.
-    picks: Vec<ShotPick<'a>>,
+    prefixes: Vec<shots::Prefix>,
     /// The prefixes of the picks that select a scene shown in its window at
     /// the merge base.
     windowed: Vec<String>,
 }
 
-impl<'a> MergeBase<'a> {
+impl MergeBase {
     /// The merge base of <commit> when it is not <commit> itself, and the
     /// lane has shots picks among <picks>; None otherwise.
     fn of(
@@ -1812,9 +1828,10 @@ impl<'a> MergeBase<'a> {
         lane: Lane,
         source: &Path,
         commit: &str,
-        picks: &[ShotPick<'a>],
+        picks: &[LanePick<'_>],
     ) -> Result<Option<Self>> {
-        if picks.is_empty() {
+        let prefixes: Vec<_> = LanePick::prefixes(picks).cloned().collect();
+        if prefixes.is_empty() {
             return Ok(None);
         }
         let base = crate::derive::merge_base(source, commit)?;
@@ -1822,7 +1839,7 @@ impl<'a> MergeBase<'a> {
             return Ok(None);
         }
         let config = config_at(places, repo, &base)?;
-        let commands = ShotPick::commands(picks);
+        let commands = Self::commands(lane, &prefixes);
         let names = crate::derive::plan(&config, &[], &commands)
             .into_iter()
             .find(|(own_lane, _)| *own_lane == lane)
@@ -1833,9 +1850,16 @@ impl<'a> MergeBase<'a> {
             commit: base,
             config,
             names,
-            picks: picks.to_vec(),
+            prefixes,
             windowed,
         }))
+    }
+
+    fn commands(lane: Lane, prefixes: &[shots::Prefix]) -> Vec<Pick> {
+        prefixes
+            .iter()
+            .map(|prefix| LanePick::shot_command(lane, prefix))
+            .collect()
     }
 
     /// The steps that a run of the picks at the merge base takes.
@@ -1844,7 +1868,7 @@ impl<'a> MergeBase<'a> {
             &self.config,
             lane,
             &self.names,
-            &ShotPick::commands(&self.picks),
+            &Self::commands(lane, &self.prefixes),
             &self.windowed,
             &|_| Ok(None),
         )
@@ -1893,7 +1917,7 @@ struct LaneBuild<'a> {
     repo: &'a str,
     lane: Lane,
     request: LaneRequest<'a>,
-    shot_picks: Vec<ShotPick<'a>>,
+    picks: Vec<LanePick<'a>>,
     programs: &'a Pinned,
     /// The folder on this Mac that holds the repo's commits.
     source: std::path::PathBuf,
@@ -1906,7 +1930,7 @@ struct LaneBuild<'a> {
     /// that compare with a run of it. None for a lane that runs its picks
     /// against the checkout as it is (no step named): it cannot switch the
     /// checkout to the merge base.
-    base: Option<MergeBase<'a>>,
+    base: Option<MergeBase>,
 }
 
 fn build_lane(
@@ -1920,7 +1944,15 @@ fn build_lane(
     let places = &tool.places;
     let floor_kib = tool.rules.floor_kib;
     let LaneRequest { commit, picks, .. } = request;
-    let shot_picks = ShotPick::of_lane(lane, picks)?;
+    let selection = LanePick::of_lane(lane, picks)?;
+    if request.names.is_empty() && !picks.is_empty() && selection.is_empty() {
+        return Err(Fail::Message(format!(
+            "{CONFIG} names no step in the {} lane",
+            lane.word()
+        ))
+        .into());
+    }
+    let commands = LanePick::commands(lane, &selection);
     note(format!(
         "waiting for {repo}'s {} app lock, then building {commit}",
         lane.word()
@@ -1931,20 +1963,20 @@ fn build_lane(
     let config = config_at(places, repo, commit)?;
     let source = local_source(places, repo)?;
     // Only a shots prefix that selects a scene shown in its window draws one.
-    let windowed = windowed_at(&source, commit, lane, picks)?;
+    let windowed = windowed_at(&source, commit, lane, &commands)?;
     let runs_checkout_as_it_is =
-        request.names.is_empty() && !picks.is_empty() && !request.needs_only;
+        request.names.is_empty() && !selection.is_empty() && !request.needs_only;
     let base = if runs_checkout_as_it_is {
         None
     } else {
-        MergeBase::of(places, repo, lane, &source, commit, &shot_picks)?
+        MergeBase::of(places, repo, lane, &source, commit, &selection)?
     };
     let build = LaneBuild {
         places,
         repo,
         lane,
         request,
-        shot_picks,
+        picks: selection,
         programs,
         source,
         config,
@@ -2018,8 +2050,7 @@ struct CommitRun<'a> {
     tree: String,
     /// The lane's steps to run, then the runs of <picks>.
     names: &'a [String],
-    picks: &'a [Pick],
-    shot_picks: &'a [ShotPick<'a>],
+    picks: &'a [LanePick<'a>],
     /// The prefixes of <picks> that select a scene shown in its window.
     windowed: &'a [String],
     environment: &'a str,
@@ -2032,19 +2063,14 @@ struct CommitRun<'a> {
     /// `--base`.
     base_run: bool,
     /// The prefixes whose merge-base run this build made in its own turn.
-    built: &'a [String],
+    built: &'a [shots::Prefix],
 }
 
 impl<'a> LaneBuild<'a> {
     /// The lane's steps at the commit, as `lane_steps` makes them from the
     /// commit's own `.app-build`.
     fn steps(&self) -> Result<Vec<Step>> {
-        let LaneRequest {
-            commit,
-            names,
-            picks,
-            ..
-        } = self.request;
+        let LaneRequest { commit, names, .. } = self.request;
         let program_of = |class: &str| {
             crate::derive::program_of(&self.source, &self.config, commit, self.lane, class)
         };
@@ -2052,7 +2078,7 @@ impl<'a> LaneBuild<'a> {
             &self.config,
             self.lane,
             names,
-            picks,
+            &LanePick::commands(self.lane, &self.picks),
             &self.windowed,
             &program_of,
         )
@@ -2074,7 +2100,6 @@ impl<'a> LaneBuild<'a> {
         let LaneRequest {
             commit,
             names,
-            picks,
             needs_only,
             fresh,
             ..
@@ -2088,8 +2113,9 @@ impl<'a> LaneBuild<'a> {
         // A lane whose steps are only what its shots need, and whose shots
         // the picture folder caches, builds nothing.
         let tree = picture_tree(&self.source, commit, &self.config, lane, &environment)?;
-        let pictures = (!self.shot_picks.is_empty())
-            .then(|| shots_cache::AppPictures::of(places, repo, lane, &tree));
+        let prefixes: Vec<_> = LanePick::prefixes(&self.picks).cloned().collect();
+        let pictures =
+            (!prefixes.is_empty()).then(|| shots_cache::AppPictures::of(places, repo, lane, &tree));
         let run = |cached_shots| {
             let mut built = Vec::new();
             if let Some(base) = &self.base {
@@ -2105,7 +2131,7 @@ impl<'a> LaneBuild<'a> {
                     "the picture folder caches every shot these runs take for the lane's app tree, so the lane builds nothing and takes the shots from it",
                 );
                 Built::clear(built_file)?;
-            } else if names.is_empty() && !picks.is_empty() {
+            } else if names.is_empty() && !self.picks.is_empty() {
                 let (wanted, head) = site.resolved_and_head(places, repo, commit)?;
                 Built::allows_class_run(
                     Built::read(built_file)?.as_ref(),
@@ -2125,8 +2151,7 @@ impl<'a> LaneBuild<'a> {
                 config: &config,
                 tree,
                 names,
-                picks,
-                shot_picks: &self.shot_picks,
+                picks: &self.picks,
                 windowed: &self.windowed,
                 environment: &environment,
                 cached_shots,
@@ -2139,7 +2164,7 @@ impl<'a> LaneBuild<'a> {
         match &pictures {
             Some(pictures) => {
                 let query = (needs_only && !fresh)
-                    .then(|| capture_query(&self.config, lane, &self.shot_picks))
+                    .then(|| capture_query(&self.config, lane, &prefixes))
                     .transpose()?;
                 pictures.while_held(query.as_ref(), run)?
             }
@@ -2171,7 +2196,6 @@ impl<'a> LaneBuild<'a> {
             tree,
             names,
             picks,
-            shot_picks,
             windowed,
             environment,
             cached_shots,
@@ -2194,7 +2218,7 @@ impl<'a> LaneBuild<'a> {
             config,
             lane,
             names,
-            picks,
+            &LanePick::commands(lane, picks),
             windowed,
             cached_shots,
             &program_of,
@@ -2210,7 +2234,7 @@ impl<'a> LaneBuild<'a> {
             environment,
             sha,
             tree,
-            shot_picks,
+            picks,
             cached_shots,
             retake,
             base_run,
@@ -2283,13 +2307,13 @@ impl<'a> LaneBuild<'a> {
     /// missing when it looked.
     fn ensure_base(
         &self,
-        base: &MergeBase<'a>,
+        base: &MergeBase,
         environment: &str,
         site: &mut Site,
         held: &lock::Held,
         built_file: &Path,
         timing: &mut Timing,
-    ) -> LaneResult<(Ended, Vec<String>)> {
+    ) -> LaneResult<(Ended, Vec<shots::Prefix>)> {
         let LaneBuild {
             places,
             repo,
@@ -2299,49 +2323,43 @@ impl<'a> LaneBuild<'a> {
         } = *self;
         let commit = self.request.commit;
         let program = programs.builds();
-        let missing = |picks: &[ShotPick<'a>]| -> Result<Vec<ShotPick<'a>>> {
+        let missing = |prefixes: &[shots::Prefix]| -> Result<Vec<shots::Prefix>> {
             let mut missing = Vec::new();
-            for pick in picks {
-                let prefix = pick.prefix.as_str();
+            for prefix in prefixes {
                 if crate::shots_compare_again::before_run(
                     places,
                     repo,
                     &base.commit,
                     lane,
                     environment,
-                    prefix,
+                    prefix.as_str(),
                     &program,
                 )?
                 .is_none()
                 {
-                    missing.push(pick.clone());
+                    missing.push(prefix.clone());
                 }
             }
             Ok(missing)
         };
-        let lacking = missing(&base.picks)?;
+        let lacking = missing(&base.prefixes)?;
         if lacking.is_empty() {
             return Ok((Ended::Finished, Vec::new()));
         }
         let declared = crate::shots_declared::declared_names_at(&self.source, &base.commit)?;
-        let (asked, new): (Vec<_>, Vec<_>) = lacking.into_iter().partition(|pick| {
-            crate::shots_declared::starts_a_shot(&declared, pick.prefix.as_str())
-        });
+        let (asked, new): (Vec<_>, Vec<_>) = lacking
+            .into_iter()
+            .partition(|pick| crate::shots_declared::starts_a_shot(&declared, pick.as_str()));
         if !new.is_empty() {
             note(format!(
                 "{} start no shot declared at the merge base {}, so their runs compare with nothing and every scene they select is new",
-                prefixes_of(&ShotPick::commands(&new)),
+                prefixes_of(&new),
                 short(&base.commit)
             ));
         }
         if asked.is_empty() {
             return Ok((Ended::Finished, Vec::new()));
         }
-        // The runs this build had to wait for or make: missing when it looked.
-        let built: Vec<String> = asked
-            .iter()
-            .map(|pick| pick.prefix.as_str().to_string())
-            .collect();
         let Some(_lock) = lock_base_run(places, repo, lane, &base.commit, environment)? else {
             return Ok((Ended::Stopped, Vec::new()));
         };
@@ -2351,12 +2369,12 @@ impl<'a> LaneBuild<'a> {
                 "another build cached the runs at the merge base {} that these runs compare with",
                 short(&base.commit)
             ));
-            return Ok((Ended::Finished, built));
+            return Ok((Ended::Finished, asked));
         }
         let versions = &crate::shots_program::VERSIONS;
         note(format!(
             "builds has no cached run of {} on {} at {}, the merge base of {} with origin/main, made in environment {environment} by shots checker {} (comparison) over {} (capture): building the merge base in this turn and running only them there",
-            prefixes_of(&ShotPick::commands(&wanted)),
+            prefixes_of(&wanted),
             lane.word(),
             short(&base.commit),
             short(commit),
@@ -2368,15 +2386,14 @@ impl<'a> LaneBuild<'a> {
         let tree = picture_tree(&self.source, &sha, &config, lane, environment)?;
         let pictures = shots_cache::AppPictures::of(places, repo, lane, &tree);
         let query = capture_query(&config, lane, &wanted)?;
-        let commands = ShotPick::commands(&wanted);
+        let selection: Vec<_> = wanted.iter().cloned().map(LanePick::Shots).collect();
         let ran = pictures.while_held(Some(&query), |cached_shots| {
             let run = CommitRun {
                 sha: &sha,
                 config: &config,
                 tree,
                 names: &base.names,
-                picks: &commands,
-                shot_picks: &wanted,
+                picks: &selection,
                 windowed: &base.windowed,
                 environment,
                 cached_shots,
@@ -2395,7 +2412,7 @@ impl<'a> LaneBuild<'a> {
             Err(other) => return Err(other.into()),
         };
         if let Some(pick) = missing(&wanted)?.first() {
-            let prefix = pick.prefix.as_str();
+            let prefix = pick.as_str();
             let why = failed.unwrap_or_else(|| "it cached no findings".to_string());
             return Err(Fail::Message(format!(
                 "the run of {prefix} on {} at {}, the merge base of {} with origin/main, gave nothing to compare with: {why}",
@@ -2410,7 +2427,7 @@ impl<'a> LaneBuild<'a> {
                 short(commit)
             ));
         }
-        Ok((Ended::Finished, built))
+        Ok((Ended::Finished, asked))
     }
 }
 
@@ -2513,10 +2530,10 @@ pub fn serve_cached(
 }
 
 /// The prefixes of <picks>, joined for a line of output.
-fn prefixes_of(picks: &[Pick]) -> String {
-    picks
+fn prefixes_of(prefixes: &[shots::Prefix]) -> String {
+    prefixes
         .iter()
-        .map(|(_, _, prefix)| prefix.as_str())
+        .map(shots::Prefix::as_str)
         .collect::<Vec<_>>()
         .join(", ")
 }

@@ -83,7 +83,7 @@ esac"#,
             needs_only: true,
             fresh: false,
         },
-        shot_picks: ShotPick::of_lane(Lane::Mac, &picks).unwrap(),
+        picks: LanePick::of_lane(Lane::Mac, &picks).unwrap(),
         programs: &programs,
         source: top.clone(),
         config: parse_config(&config_text).unwrap(),
@@ -94,7 +94,7 @@ esac"#,
         commit: base,
         config,
         names: needs.to_vec(),
-        picks: build.shot_picks.clone(),
+        prefixes: prefixes.to_vec(),
         windowed: Vec::new(),
     };
     let mut site = Site::Local(top, scratch.dir.join("no.xcconfig"));
@@ -111,7 +111,7 @@ esac"#,
         )
         .unwrap();
     assert_eq!(result, Ended::Finished);
-    assert_eq!(ran, ["mac.a.", "mac.b."]);
+    assert_eq!(ran, prefixes);
     assert_eq!(timing.steps.len(), 2);
     assert!(
         timing
