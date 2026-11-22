@@ -81,10 +81,61 @@ fn a_board_whose_bytes_change_and_drawing_does_not_draws_alike_and_a_redrawn_one
     assert_eq!(same, vec![format!("alike board {BOARD}")]);
     let moved = lines(repo.path(), "b", "c", &boards, &[], &cache()).unwrap();
     assert_eq!(moved, vec![format!("differs board {BOARD}")]);
-    let missing = vec!["no-such-board".to_string()];
-    let error = lines(repo.path(), "a", "b", &missing, &[], &cache()).unwrap_err();
-    assert!(
-        error.contains("board no-such-board exists at neither"),
-        "{error}"
+}
+
+/// `history()` plus commit `p`, which adds the preview of a component, and
+/// commit `d`, which deletes that preview and the board's file.
+fn history_with_deletions() -> (tempfile::TempDir, String) {
+    let repo = history();
+    let component = "MacRow".to_string();
+    let preview = repo
+        .path()
+        .join(boards::preview::COMPONENTS)
+        .join(&component)
+        .join("preview.html");
+    std::fs::create_dir_all(preview.parent().unwrap()).unwrap();
+    std::fs::write(&preview, "<body><p>a row</p></body>").unwrap();
+    git(repo.path(), &["add", "-A"]);
+    git(repo.path(), &["commit", "-q", "-m", "p"]);
+    git(repo.path(), &["tag", "p"]);
+    std::fs::remove_file(preview).unwrap();
+    std::fs::remove_file(repo.path().join(boards::board_path(BOARD))).unwrap();
+    git(repo.path(), &["commit", "-q", "-am", "d"]);
+    git(repo.path(), &["tag", "d"]);
+    (repo, component)
+}
+
+#[test]
+fn a_board_or_component_that_exists_at_neither_revision_draws_alike() {
+    let (repo, component) = history_with_deletions();
+    let boards = vec!["no-such-board".to_string(), BOARD.to_string()];
+    let components = vec!["NoSuchComponent".to_string(), component.clone()];
+    let both_gone = lines(repo.path(), "d", "d", &boards, &components, &cache()).unwrap();
+    assert_eq!(
+        both_gone,
+        vec![
+            format!("alike board {BOARD}"),
+            "alike board no-such-board".to_string(),
+            format!("alike component {component}"),
+            "alike component NoSuchComponent".to_string(),
+        ]
     );
+}
+
+#[test]
+fn a_board_or_component_that_exists_at_one_revision_only_differs() {
+    let (repo, component) = history_with_deletions();
+    let boards = vec![BOARD.to_string()];
+    let components = vec![component.clone()];
+    for (at, against) in [("p", "d"), ("d", "p")] {
+        let changed = lines(repo.path(), at, against, &boards, &components, &cache()).unwrap();
+        assert_eq!(
+            changed,
+            vec![
+                format!("differs board {BOARD}"),
+                format!("differs component {component}"),
+            ],
+            "{at} against {against}"
+        );
+    }
 }

@@ -5,7 +5,8 @@
 //! draws: its picture and the element list the shots read from it (the
 //! boxes, roles and words). A board's frame on the canvas is part of its
 //! picture, so a board resized in `canvas.json` draws differently. A board or
-//! preview that exists at one revision only draws differently too. The files'
+//! preview that exists at one revision only draws differently, and one that
+//! exists at neither draws nothing at both, so it draws alike. The files'
 //! bytes never decide: a rebase that merges unrelated lines into a board
 //! file, `canvas.json` or a component's source changes bytes and no drawing.
 
@@ -55,12 +56,9 @@ pub(crate) fn lines(
     before
         .iter()
         .map(|(what, picture)| {
-            let alike = picture.is_some() && after.get(what) == Some(picture);
-            if picture.is_none() && after[what].is_none() {
-                return Err(format!(
-                    "{what} exists at neither {at} nor {against}, so it names no drawing"
-                ));
-            }
+            // A name that neither revision draws draws nothing at both, so
+            // it draws the same.
+            let alike = after.get(what) == Some(picture);
             Ok(format!(
                 "{} {what}",
                 if alike { "alike" } else { "differs" }
