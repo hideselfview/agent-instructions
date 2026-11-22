@@ -938,6 +938,13 @@ fn shots_prefix(step: &Step) -> &str {
 /// (`cached_shots_lanes`).
 const CACHED_SHOTS: &str = "--cached-shots";
 
+/// What a lane's process is given first, after the commit to build, with the
+/// ref the caller named (a branch name, or the commit when the caller named
+/// one): the run records it as the ref it built (`app_timing::RunRecord`),
+/// which is how `builds land` finds a branch's builds. A lane run by hand
+/// without it records the commit.
+const BUILT_REF: &str = "--built-ref";
+
 /// What a lane's process is given first, with the commit of origin/main's tip
 /// that its build decided its comparisons against (`main_tip`).
 const MAIN_TIP: &str = "--main-tip";
@@ -1440,7 +1447,7 @@ fn run_lane(
         Err(_) if lock::stop_signal().is_some() => RunEnd::Stopped,
         Err(_) => RunEnd::Failed,
     };
-    timing.record(&tool.places, repo, lane, request.commit, outcome);
+    timing.record(&tool.places, repo, lane, request.named, outcome);
     result
 }
 
@@ -1450,6 +1457,9 @@ fn run_lane(
 #[derive(Clone, Copy)]
 struct LaneRequest<'a> {
     commit: &'a str,
+    /// The ref the caller named, which the run records as the ref it built
+    /// (`BUILT_REF`).
+    named: &'a str,
     /// The tip of origin/main the build decided against (`MAIN_TIP`).
     tip: &'a str,
     names: &'a [String],
@@ -1476,6 +1486,7 @@ fn build_lane(
     let floor_kib = tool.rules.floor_kib;
     let LaneRequest {
         commit,
+        named: _,
         tip,
         names,
         picks,
@@ -1829,7 +1840,17 @@ pub fn ensure_before_runs(
     ));
     let config = config_at(places, repo, tip)?;
     let lanes = crate::derive::plan(&config, &[], &wanted);
-    let built = run_lanes(pinned, repo, tip, tip, &lanes, &wanted, &[], false, true);
+    let built = run_lanes(
+        pinned,
+        repo,
+        (tip, tip),
+        tip,
+        &lanes,
+        &wanted,
+        &[],
+        false,
+        true,
+    );
     if PASSED_ON.load(Ordering::SeqCst) != 0 {
         return built;
     }
@@ -1971,6 +1992,46 @@ pub fn pin(places: &Places) -> Result<Pinned> {
     }
 }
 
+/// The arguments after `builds` that start <lane>'s process for the run of
+/// <commit>, which the caller named <named>: the flags it is given first (the
+/// tip, whether the picture folder caches its shots, `--fresh`, the merge base
+/// run), then the steps <names> and the picks of <lane> in <picks>.
+fn lane_words(
+    repo: &str,
+    lane: Lane,
+    (commit, named): (&str, &str),
+    tip: &str,
+    (cached, fresh, base_run): (bool, bool, bool),
+    (names, picks): (&[String], &[Pick]),
+) -> Vec<String> {
+    let mut words: Vec<String> = ["app-build", repo, "--lane", lane.word(), commit]
+        .into_iter()
+        .chain([BUILT_REF, named, MAIN_TIP, tip])
+        .chain(cached.then_some(CACHED_SHOTS))
+        .chain(fresh.then_some(FRESH))
+        .chain(base_run.then_some(BASE_RUN))
+        .map(str::to_string)
+        .collect();
+    words.extend(names.iter().cloned());
+    words.extend(
+        picks
+            .iter()
+            .filter(|(own, _, _)| *own == lane)
+            .flat_map(pick_words)
+            .map(str::to_string),
+    );
+    words
+}
+
+/// The ref a lane's process was told it builds (`BUILT_REF`) and <names>
+/// without it; <commit> when it was told none.
+fn strip_built_ref<'a>(names: &'a [String], commit: &'a str) -> (&'a str, &'a [String]) {
+    match names {
+        [flag, named, rest @ ..] if flag == BUILT_REF => (named, rest),
+        _ => (commit, names),
+    }
+}
+
 /// Runs the lanes in <lanes> at the same time, each as a process of its own
 /// from the folder <pinned>; fails, naming the lanes, if any does. A stop signal goes on to each lane,
 /// and the command, once they have ended, fails saying it stopped.
@@ -1978,7 +2039,7 @@ pub fn pin(places: &Places) -> Result<Pinned> {
 pub fn run_lanes(
     pinned: &Pinned,
     repo: &str,
-    commit: &str,
+    (commit, named): (&str, &str),
     tip: &str,
     lanes: &[(Lane, Vec<String>)],
     picks: &[Pick],
@@ -1995,18 +2056,14 @@ pub fn run_lanes(
     for (at, (lane, names)) in lanes.iter().enumerate() {
         let mut command = Command::new(pinned.builds());
         command
-            .args(["app-build", repo, "--lane", lane.word(), commit])
-            .args([MAIN_TIP, tip])
-            .args(cached.contains(lane).then_some(CACHED_SHOTS))
-            .args(fresh.then_some(FRESH))
-            .args(base_run.then_some(BASE_RUN))
-            .args(names)
-            .args(
-                picks
-                    .iter()
-                    .filter(|(own, _, _)| own == lane)
-                    .flat_map(pick_words),
-            )
+            .args(lane_words(
+                repo,
+                *lane,
+                (commit, named),
+                tip,
+                (cached.contains(lane), fresh, base_run),
+                (names, picks),
+            ))
             .env(PREFIXED, "1")
             .env("PATH", pinned.path(std::env::var_os("PATH").as_deref()))
             .stdin(Stdio::null())
@@ -2145,7 +2202,7 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
     if let [flag, rest @ ..] = args
         && flag == crate::app_landing::FLAG
     {
-        return crate::app_landing::cmd_landing_build(places, rest);
+        return crate::app_landing::cmd_landing_coverage(places, rest);
     }
     if let [flag, rest @ ..] = args
         && flag == crate::app_shots_drop::FLAG
@@ -2198,6 +2255,7 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
         && flag == "--lane"
         && !commit.starts_with('-')
     {
+        let (named, names) = strip_built_ref(names, commit);
         let [main_tip_flag, tip, names @ ..] = names else {
             fail!("{USAGE}");
         };
@@ -2217,6 +2275,7 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
         // from a path that noted nothing would reach the parent as no output.
         let request = LaneRequest {
             commit,
+            named,
             tip,
             names: &names,
             picks: &picks,
@@ -2294,7 +2353,7 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
     run_lanes(
         &pinned,
         repo,
-        commit,
+        (commit, commit),
         &tip,
         &lanes,
         &picks,

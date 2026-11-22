@@ -20,19 +20,23 @@ use crate::lists::Id;
 pub enum StepKind {
     /// Waiting for an earlier landing in the worktree.
     Lock,
-    /// The checks of the lists and of the review, before anything is fetched.
+    /// The checks of the lists and of the review, and of the branch's app
+    /// builds, before anything is fetched.
     ListsCheck,
     Fetch,
     /// The fast-forward or cherry-pick onto origin/main.
     Pick,
-    /// Waiting for the turn of a landing that changes the apps, while an
-    /// earlier landing that changes the repo's apps holds it.
+    /// Waiting for the turn of a landing that changes the apps. Landings
+    /// recorded it before land stopped taking turns; none writes it now, and
+    /// the store's `land_step.kind` still accepts it.
+    #[allow(dead_code)]
     AppWait,
-    /// The whole-tree checks and the compile check of the result, and the
-    /// question which app build the result needs.
+    /// The whole-tree checks and the compile check of the result.
     Checks,
-    /// The app build of the result, when main moved under the branch's last
-    /// app build.
+    /// The app build of the result. Landings recorded it before land stopped
+    /// building results; none writes it now, and the store's
+    /// `land_step.kind` still accepts it.
+    #[allow(dead_code)]
     AppBuild,
     Push,
     /// The records after the push.

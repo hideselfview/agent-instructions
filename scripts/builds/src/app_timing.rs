@@ -456,57 +456,70 @@ impl PassedRun {
     }
 }
 
-/// How many of a lane's latest passing runs `passed_runs` reads.
-pub const PASSED_RUNS_READ: usize = 50;
-
-/// The latest `PASSED_RUNS_READ` passing runs of <repo>'s <lane> that
-/// recorded the commit they built, in the database open as <conn> at <path>,
-/// newest first.
+/// The passing runs of <repo>'s <lane> that recorded the commit they built
+/// and are a branch's: the ref the caller named (`built_ref`) is <named>, or
+/// the commit they built is one of <commits>, the branch's commits since its
+/// merge base. The database is open as <conn> at <path>. Newest first, however
+/// many other runs came after them.
 pub fn passed_runs(
     conn: &Connection,
     repo: &str,
     lane: Lane,
     path: &Path,
+    named: &str,
+    commits: &[String],
 ) -> Result<Vec<PassedRun>> {
     let what = || format!("reading {}", path.display());
+    let marks = vec!["?"; commits.len()].join(", ");
     let mut runs = conn
         .prepare(
-            "SELECT r.id, c.built_commit FROM app_build_runs r
-             JOIN app_build_run_commit c ON c.run_id = r.id
-             WHERE r.repo = ?1 AND r.lane = ?2 AND r.outcome = 'passed'
-             ORDER BY r.id DESC LIMIT ?3",
+            format!(
+                "SELECT r.id, c.built_commit FROM app_build_runs r
+                 JOIN app_build_run_commit c ON c.run_id = r.id
+                 WHERE r.repo = ?1 AND r.lane = ?2 AND r.outcome = 'passed'
+                   AND (r.built_ref = ?3 OR c.built_commit IN ({marks}))
+                 ORDER BY r.id DESC"
+            )
+            .as_str(),
         )
         .context(what)?;
-    let mut steps = conn
-        .prepare(
-            "SELECT name FROM app_build_steps WHERE run_id = ?1 AND result = 'passed' ORDER BY position",
-        )
-        .context(what)?;
+    let words = [repo, lane.word(), named]
+        .into_iter()
+        .chain(commits.iter().map(String::as_str));
     let found: Vec<(i64, String)> = runs
-        .query_map(params![repo, lane.word(), PASSED_RUNS_READ as i64], |row| {
+        .query_map(rusqlite::params_from_iter(words), |row| {
             Ok((row.get(0)?, row.get(1)?))
         })
         .context(what)?
         .collect::<std::result::Result<_, _>>()
         .context(what)?;
-    let mut passed = Vec::new();
-    for (id, commit) in found {
-        let names = steps
-            .query_map([id], |row| row.get(0))
-            .context(what)?
-            .collect::<std::result::Result<_, _>>()
-            .context(what)?;
-        passed.push(PassedRun {
-            commit,
-            steps: names,
-        });
-    }
-    Ok(passed)
+    found
+        .into_iter()
+        .map(|(id, commit)| {
+            Ok(PassedRun {
+                commit,
+                steps: passed_steps(conn, id, path)?,
+            })
+        })
+        .collect()
+}
+
+/// The names of the steps that passed in the run <id>, in the order they
+/// ran.
+fn passed_steps(conn: &Connection, id: i64, path: &Path) -> Result<Vec<String>> {
+    let what = || format!("reading {}", path.display());
+    conn.prepare(
+        "SELECT name FROM app_build_steps WHERE run_id = ?1 AND result = 'passed' ORDER BY position",
+    )
+    .context(what)?
+    .query_map([id], |row| row.get(0))
+    .context(what)?
+    .collect::<std::result::Result<_, _>>()
+    .context(what)
 }
 
 /// Whether a passing app build of <repo>'s <lane> built <commit> and passed
-/// the shots run of <prefix>, in the database open as <conn> at <path>: a run
-/// of `passed_runs`, which is what `builds land` reads.
+/// the shots run of <prefix>, in the database open as <conn> at <path>.
 pub fn passed_shots(
     conn: &Connection,
     repo: &str,
@@ -515,9 +528,28 @@ pub fn passed_shots(
     prefix: &str,
     path: &Path,
 ) -> Result<bool> {
-    Ok(passed_runs(conn, repo, lane, path)?
-        .iter()
-        .any(|run| run.commit == commit && run.ran_shots(prefix)))
+    let what = || format!("reading {}", path.display());
+    let ids: Vec<i64> = conn
+        .prepare(
+            "SELECT r.id FROM app_build_runs r
+             JOIN app_build_run_commit c ON c.run_id = r.id
+             WHERE r.repo = ?1 AND r.lane = ?2 AND r.outcome = 'passed' AND c.built_commit = ?3",
+        )
+        .context(what)?
+        .query_map(params![repo, lane.word(), commit], |row| row.get(0))
+        .context(what)?
+        .collect::<std::result::Result<_, _>>()
+        .context(what)?;
+    for id in ids {
+        let run = PassedRun {
+            commit: commit.to_string(),
+            steps: passed_steps(conn, id, path)?,
+        };
+        if run.ran_shots(prefix) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// The shots prefixes that app builds of <repo>'s <lane> named <branch>

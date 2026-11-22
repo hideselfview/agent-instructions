@@ -362,7 +362,15 @@ pub fn derive_and_run(places: &Places, args: &[String]) -> Result<()> {
         ));
     }
     app_build::run_lanes(
-        &pinned, repo, &commit, &tip, &lanes, &picks, &kept, fresh, false,
+        &pinned,
+        repo,
+        (&commit, git_ref),
+        &tip,
+        &lanes,
+        &picks,
+        &kept,
+        fresh,
+        false,
     )
 }
 

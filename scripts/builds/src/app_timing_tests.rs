@@ -140,7 +140,7 @@ fn passing_runs_of_a_lane_come_back_newest_first_with_their_passed_steps() {
     )
     .unwrap();
     let conn = crate::db::open_reader(&path).unwrap().unwrap();
-    let runs = passed_runs(&conn, "bae", Lane::Mac, &path).unwrap();
+    let runs = passed_runs(&conn, "bae", Lane::Mac, &path, "branch", &[]).unwrap();
     assert_eq!(
         runs,
         vec![
@@ -154,6 +154,62 @@ fn passing_runs_of_a_lane_come_back_newest_first_with_their_passed_steps() {
             },
         ]
     );
+}
+
+/// A passing build of the branch is found by the ref the caller named or by
+/// the commit it built, among any number of newer passing runs of other
+/// branches.
+#[test]
+fn a_branchs_passing_build_is_found_by_its_name_or_its_commit_whatever_ran_since() {
+    let scratch = Scratch::new("timing-passed-branch");
+    let path = store(&scratch);
+    let passing = |name: &str| step(name, StepKind::Step, NOW, 1, StepResult::Passed);
+    let build = |at: i64, named: &str, commit: &str| {
+        let mut run = run(at, Lane::Mac, 0, RunEnd::Passed, vec![passing("macos")]);
+        run.built_ref = named.to_string();
+        run.built_commit = Some(commit.repeat(40));
+        run
+    };
+    record(&path, &build(NOW, "branch", "a")).unwrap();
+    record(&path, &build(NOW + 1, "renamed", "b")).unwrap();
+    for at in 0..60 {
+        record(&path, &build(NOW + 2 + at, "someone-else", "c")).unwrap();
+    }
+    record(&path, &build(NOW + 100, "someone-else", "d")).unwrap();
+    let conn = crate::db::open_reader(&path).unwrap().unwrap();
+    let commits = |runs: Vec<PassedRun>| -> Vec<String> {
+        runs.into_iter()
+            .map(|run| run.commit[..1].to_string())
+            .collect()
+    };
+    let found = passed_runs(&conn, "bae", Lane::Mac, &path, "branch", &[]).unwrap();
+    assert_eq!(commits(found), ["a"]);
+    let own = ["b".repeat(40)];
+    let found = passed_runs(&conn, "bae", Lane::Mac, &path, "branch", &own).unwrap();
+    assert_eq!(commits(found), ["b", "a"]);
+}
+
+/// Whether a commit has a passing build that ran a shots prefix does not
+/// depend on how many runs came after it.
+#[test]
+fn a_commits_passing_shots_run_is_found_whatever_ran_since() {
+    let scratch = Scratch::new("timing-passed-shots");
+    let path = store(&scratch);
+    let build = |at: i64, commit: &str, steps: Vec<StepRecord>| {
+        let mut run = run(at, Lane::Mac, 0, RunEnd::Passed, steps);
+        run.built_commit = Some(commit.repeat(40));
+        run
+    };
+    let shots = step("shots mac.a.", StepKind::Shots, NOW, 1, StepResult::Passed);
+    record(&path, &build(NOW, "a", vec![shots])).unwrap();
+    for at in 0..60 {
+        record(&path, &build(NOW + 1 + at, "b", Vec::new())).unwrap();
+    }
+    let conn = crate::db::open_reader(&path).unwrap().unwrap();
+    let ran = |commit: &str, prefix: &str| {
+        passed_shots(&conn, "bae", Lane::Mac, &commit.repeat(40), prefix, &path).unwrap()
+    };
+    assert!(ran("a", "mac.a.") && !ran("a", "mac.b.") && !ran("b", "mac.a."));
 }
 
 #[test]

@@ -489,25 +489,6 @@ pub fn run_installed(why: &str) -> Fail {
     run_again()
 }
 
-/// Says <why>, waits until no install holds the gates closed, and runs the
-/// installed program in this one's place (`run_again`): for a landing that
-/// found an install moved the stores while it held no use, once it holds
-/// none. Run before the install puts its program on PATH, `run_again` would
-/// run the program install replaces.
-pub fn run_installed_after_install(places: &Places, why: &str) -> Fail {
-    crate::text::note(why);
-    match pass(places, Kind::Command, RUNS_AGAIN, &mut |line| {
-        crate::text::note(line)
-    }) {
-        Ok((gate, _)) => {
-            // Closing the gate's file releases the shared lock.
-            drop(gate);
-            run_again()
-        }
-        Err(fault) => fault,
-    }
-}
-
 /// Whether some process holds the lock of the gate or lock file at <path>
 /// exclusively. Asks for a shared lock without waiting and lets it go at
 /// once, so it takes no use and holds up no install.

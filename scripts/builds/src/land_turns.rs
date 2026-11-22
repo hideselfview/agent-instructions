@@ -1,11 +1,12 @@
 //! How health reads a running `builds land`: which worktree it lands in, and
-//! which other landing holds a turn that this one takes (land.rs, `take_turn`).
+//! whether another landing holds the turn of landings in that worktree (land.rs,
+//! `take_turn`).
 
 use std::path::{Path, PathBuf};
 
 use crate::fail;
 use crate::fail::Result;
-use crate::land::{WORKTREE_TURN_FILE, app_turn_file, read_holder, record_pid};
+use crate::land::{WORKTREE_TURN_FILE, read_holder, record_pid};
 
 /// Returns the worktree that the command line <argv> of a running `builds
 /// land <worktree> ...` lands in. Returns None for any other command.
@@ -46,49 +47,17 @@ pub fn landing_worktree(pid: i32, argv: &[String]) -> Option<std::result::Result
     )
 }
 
-/// The commits that the command line <argv> of a running `builds land
-/// <worktree> ...` lands, read as `builds land` reads them.
-fn landed_commits(argv: &[String]) -> Vec<String> {
-    let args: Vec<String> = crate::ack::agent::without_flag(argv)
-        .into_iter()
-        .skip(3)
-        .map(str::to_string)
-        .collect();
-    crate::land::commits_named(&args).unwrap_or_default()
-}
-
-/// What the landing with process id <pid> and command line <argv> in
-/// <worktree> waits for: the landing of another process that holds the turn
-/// of landings in the worktree, or the turn of landings that change the
-/// apps of a lane that this landing changes. None when no other landing
-/// holds a turn it takes. A landing that has not yet reached its app turns is
-/// also told of the landing that holds one, since it takes them before its
-/// fetch.
-pub fn waits_for(worktree: &Path, pid: i32, argv: &[String]) -> Result<Option<TurnWait>> {
-    let git = |args: &[&str]| {
-        crate::review::commits::git_text(worktree, args).map(|text| text.trim().to_string())
-    };
-    let git_dir = git(&["rev-parse", "--absolute-git-dir"])?;
-    let common = git(&["rev-parse", "--path-format=absolute", "--git-common-dir"])?;
-    let mut turns = vec![(
-        PathBuf::from(git_dir).join(WORKTREE_TURN_FILE),
-        "the landing in this worktree".to_string(),
-    )];
-    let commits = landed_commits(argv);
-    if !commits.is_empty() {
-        for lane in crate::app_landing::lanes_changed(worktree, &commits)? {
-            turns.push((
-                PathBuf::from(&common).join(app_turn_file(lane)),
-                format!("the landing that changes the {} apps", lane.word()),
-            ));
-        }
-    }
-    for (file, turn) in turns {
-        if let Some(holder) = held_by_another(&file, pid)? {
-            return Ok(Some(TurnWait { turn, holder }));
-        }
-    }
-    Ok(None)
+/// What the landing with process id <pid> in <worktree> waits for: the
+/// landing of another process that holds the turn of landings in the
+/// worktree. None when no other landing holds it.
+pub fn waits_for(worktree: &Path, pid: i32) -> Result<Option<TurnWait>> {
+    let git_dir = crate::review::commits::git_text(worktree, &["rev-parse", "--absolute-git-dir"])
+        .map(|text| text.trim().to_string())?;
+    let file = PathBuf::from(git_dir).join(WORKTREE_TURN_FILE);
+    Ok(held_by_another(&file, pid)?.map(|holder| TurnWait {
+        turn: "the landing in this worktree".to_string(),
+        holder,
+    }))
 }
 
 /// The landing that holds the lock of the turn file <path>, as it wrote
