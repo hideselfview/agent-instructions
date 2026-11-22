@@ -1103,6 +1103,7 @@ fn run_review(
     let (worktree, base) = worktree_and_base(args)?;
     let checkout = Checkout::find(worktree)?;
     let worktree = checkout.top.clone();
+    refuse_uncommitted(&worktree)?;
     let Some(project) = project_given(tool, args, &checkout)? else {
         fail!(
             "repo {} is in no project of the lists, so there is no store to record a review in; say which with --project",
@@ -1151,6 +1152,25 @@ fn run_review(
             stamp,
         }),
     ))
+}
+
+/// Refuses a worktree with uncommitted changes, untracked files included,
+/// before any reviewer starts: a review reads commits only, so it would raise
+/// again the findings that the agent has fixed in files it has not committed.
+fn refuse_uncommitted(worktree: &Path) -> Result<()> {
+    let paths = match crate::side_git::uncommitted_paths(worktree) {
+        Ok(paths) => paths,
+        Err(said) => fail!("git status failed in {}: {said}", worktree.display()),
+    };
+    if paths.is_empty() {
+        return Ok(());
+    }
+    let names: Vec<String> = paths.iter().map(|path| format!("  {path}")).collect();
+    fail!(
+        "refusing: {} has uncommitted changes, and a review reads commits only, so it would raise again the findings these changes fix. Commit or remove them, then run builds review again:\n{}",
+        worktree.display(),
+        names.join("\n")
+    )
 }
 
 /// The key of the change the worktree holds: the branch it is on, else its

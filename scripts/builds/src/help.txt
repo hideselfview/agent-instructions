@@ -3345,6 +3345,12 @@ run `review replay --rules-root` on it.
                               branch's head), with no reviewer's answer, and a
                               run with nothing else to read runs for that
                               alone.
+                              Refuses a worktree with uncommitted changes
+                              (untracked files included), naming the files,
+                              before it starts any reviewer: a review reads
+                              commits only, so changes that fix findings but
+                              are not committed would bring the same findings
+                              again.
                               --kind is required: code runs the reviewers;
                               mechanical (--checked-by TEXT names the check
                               that covers the change) starts no reviewer,

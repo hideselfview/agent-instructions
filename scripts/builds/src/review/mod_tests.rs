@@ -1927,3 +1927,39 @@ fn a_review_needs_its_kind_unless_builds_knows_the_answer() {
             .contains("code or mechanical")
     );
 }
+
+#[test]
+fn a_review_of_a_worktree_with_uncommitted_changes_starts_no_reviewer_and_names_the_files() {
+    let demo = demo("review-dirty");
+    let side = demo.add_side(1, "agent", "work");
+    demo.commit(&side, "committed.rs");
+    std::fs::write(side.join("fix.rs"), "fixed\n").unwrap();
+    std::fs::write(side.join("committed.rs"), "edited\n").unwrap();
+    let wt = side.to_str().unwrap().to_string();
+    let args: Vec<String> = [
+        "run",
+        &wt,
+        "main",
+        "--kind",
+        "code",
+        "--reviewer",
+        "/nonexistent",
+    ]
+    .iter()
+    .map(|word| word.to_string())
+    .collect();
+    let refused = cmd_review(&demo.tool, &args).unwrap_err().text();
+    assert!(refused.contains("uncommitted changes"), "{refused}");
+    assert!(refused.contains("fix.rs"), "{refused}");
+    assert!(refused.contains("committed.rs"), "{refused}");
+    let conn = demo.store.open_existing().unwrap();
+    let landing = record::open_landing(
+        &conn,
+        record::Change {
+            repo: "demo",
+            key: "work",
+        },
+    )
+    .unwrap();
+    assert!(landing.is_none(), "a refused review records nothing");
+}

@@ -405,8 +405,11 @@ that mixes a mechanical move with code someone wrote is two branches. With no
 --kind, builds refuses, except for a pure rename, a design-only change and a
 change of capture files only, which it already knows. Reviews are for code people wrote.
 
-  1. The agent runs `builds review <worktree> --item N` on its branch, which
-     gives the reviewers the item's brief. The first review reads the
+  1. The agent commits its work, then runs `builds review <worktree> --item N`
+     on its branch, which gives the reviewers the item's brief. A review reads
+     commits only, so `builds review` refuses a worktree with uncommitted
+     changes, as `builds land` does, naming the files, before it starts any
+     reviewer. The first review reads the
      branch's whole net change. builds records the agent as the agent of the
      branch, and tells the judge of the findings nobody has settled, in one
      message that names the landing, the findings and the worktree. With no
