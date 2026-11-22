@@ -64,7 +64,7 @@ pub struct NewCall {
     pub tokens_written: i64,
     /// What `claude -p` reported the call's processes cost, in millionths of
     /// a US dollar.
-    pub cost_microdollars: i64,
+    pub cost_microdollars: Option<i64>,
     /// The sites a group that lists them judged, as JSON.
     pub sites: Option<String>,
     pub failure: Option<String>,

@@ -29,9 +29,7 @@
 //! two commits hold those files byte for byte the same, whatever their hashes.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::io::Write;
 use std::path::Path;
-use std::process::Stdio;
 
 use crate::fail;
 use crate::fail::{Context, Result};
@@ -590,23 +588,11 @@ pub fn drawing_at<'a>(
         .map(|path| format!("{commit}:{}\n", path.trim_end_matches('/')))
         .collect();
     let what = format!("read the design paths at {rev}");
-    let mut child = git(top)
-        .args(["cat-file", "--batch-check=%(objectname)"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
+    let mut command = git(top);
+    command.args(["cat-file", "--batch-check=%(objectname)"]);
+    let (output, written) = crate::child_input::run(&mut command, asked.as_bytes())
         .context(|| format!("running git to {what}"))?;
-    let mut stdin = child.stdin.take().expect("piped");
-    // git answers each line as it reads it, so the lines go in from another
-    // thread while this one reads the answers.
-    let output = std::thread::scope(|scope| {
-        let writer = scope.spawn(move || stdin.write_all(asked.as_bytes()));
-        let output = child.wait_with_output();
-        let written = writer.join().expect("the writer does not panic");
-        output.and_then(|output| written.map(|()| output))
-    })
-    .context(|| format!("running git to {what}"))?;
+    written.context(|| format!("running git to {what}"))?;
     if !output.status.success() {
         fail!(
             "git failed to {what}: {}",

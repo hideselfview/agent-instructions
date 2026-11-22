@@ -41,6 +41,7 @@ mod cargo_update;
 mod checkout;
 mod checks;
 mod checks_run;
+mod child_input;
 mod claim;
 mod claimed_branch;
 mod claude_sessions;

@@ -10,6 +10,8 @@
 //! reason. The record keeps each group's audited miss rate, which `builds
 //! review rates` prints.
 
+use super::provider::Selection;
+
 use std::path::Path;
 
 use rusqlite::Connection;
@@ -54,12 +56,12 @@ impl Rng {
     }
 }
 
-fn synthetic(name: String, model: &str, question: &str, rules: &[&Rule]) -> Group {
+fn synthetic(name: String, model: &Selection, question: &str, rules: &[&Rule]) -> Group {
     Group {
         name,
         dir: String::new(),
         question: question.to_string(),
-        model: model.to_string(),
+        model: model.clone(),
         rules: rules.iter().map(|r| r.slug.clone()).collect(),
         instructions: None,
         project_facts: false,
@@ -94,9 +96,9 @@ pub fn per_rule_groups(audited: &[(&Group, Vec<&Rule>)]) -> Vec<Group> {
 /// shuffled group holds only rules whose own groups run one model, and runs
 /// that model, so the shuffle changes the grouping and nothing else.
 pub fn shuffled_groups(audited: &[(&Group, Vec<&Rule>)], size: usize, rng: &mut Rng) -> Vec<Group> {
-    let mut models: Vec<&str> = Vec::new();
+    let mut models: Vec<&Selection> = Vec::new();
     for (group, _) in audited {
-        if !models.contains(&group.model.as_str()) {
+        if !models.contains(&&group.model) {
             models.push(&group.model);
         }
     }
@@ -104,7 +106,7 @@ pub fn shuffled_groups(audited: &[(&Group, Vec<&Rule>)], size: usize, rng: &mut 
     for model in models {
         let mut order: Vec<&Rule> = audited
             .iter()
-            .filter(|(group, _)| group.model == model)
+            .filter(|(group, _)| &group.model == model)
             .flat_map(|(_, rules)| rules.iter().copied())
             .collect();
         for i in (1..order.len()).rev() {
@@ -246,7 +248,7 @@ pub struct Inputs<'a> {
     pub repo_dir: &'a Path,
     pub landing: i64,
     pub root: &'a Path,
-    pub reviewer: &'a Path,
+    pub reviewer: &'a crate::review::Program,
     pub stamp: &'a crate::lists::Stamp,
     pub seed: u64,
 }
@@ -379,7 +381,7 @@ pub fn audit(inputs: &Inputs) -> Result<String> {
         stamp,
         &material,
         inputs.reviewer,
-        model_check::MODEL,
+        &model_check::MODEL,
         &fresh.iter().map(|miss| (*miss, &diff)).collect::<Vec<_>>(),
     )?;
     text.push_str(&settled);
@@ -394,8 +396,8 @@ pub fn settle_misses(
     store: &Store,
     stamp: &Stamp,
     material: &Material,
-    program: &Path,
-    model: &str,
+    program: &crate::review::Program,
+    model: &Selection,
     misses: &[(&Finding, &Diff)],
 ) -> Result<(String, bool)> {
     let checked = check::reviewers_map(misses, |(miss, diff)| {
@@ -406,16 +408,19 @@ pub fn settle_misses(
     let mut settles = Vec::new();
     for ((miss, _), checked) in misses.iter().zip(&checked) {
         text.push_str(&render::finding_text(miss));
-        match checked.settle_why() {
-            Some((how, why)) => {
+        match checked
+            .as_ref()
+            .map_err(String::as_str)
+            .and_then(model_check::Checked::settle_why)
+        {
+            Ok((how, why)) => {
                 text.push_str(&format!("    settled {how}: {why}\n"));
                 settles.push((miss.id, how, why));
             }
-            None => {
+            Err(why) => {
                 failed = true;
                 text.push_str(&format!(
-                    "    the check gave no answer ({}); settle it: builds review settle {} confirmed|dropped --why TEXT\n",
-                    checked.verdict.as_ref().err().map(String::as_str).unwrap_or(""),
+                    "    the check gave no answer ({why}); settle it: builds review settle {} confirmed|dropped --why TEXT\n",
                     miss.id
                 ));
             }
@@ -442,8 +447,8 @@ pub struct OpenMisses<'a> {
     pub store: &'a Store,
     pub project: &'a str,
     pub root: &'a Path,
-    pub reviewer: &'a Path,
-    pub model: &'a str,
+    pub reviewer: &'a crate::review::Program,
+    pub model: &'a Selection,
     pub stamp: &'a Stamp,
 }
 
@@ -531,7 +536,7 @@ pub fn check_open_misses(inputs: &OpenMisses) -> Result<(String, bool)> {
 /// nobody has settled with the model check, and exits 1 when builds found no
 /// stored diff for a miss or a check gave no answer.
 pub(super) fn check_misses_command(tool: &crate::tool::Tool, args: &Args) -> Result<()> {
-    let model = args.value("model")?.unwrap_or(model_check::MODEL);
+    let model = model_check::selection(args.value("model")?);
     let store = Store::resolve(&tool.places, args, &current_dir()?)?;
     let root = super::rules_root(args)?;
     let reviewer = tool.reviewer.program_for(args.value("reviewer")?);
@@ -547,7 +552,7 @@ pub(super) fn check_misses_command(tool: &crate::tool::Tool, args: &Args) -> Res
         project: &store.project,
         root: &root,
         reviewer: &reviewer,
-        model,
+        model: &model,
         stamp: &stamp,
     })?;
     print!("{text}");

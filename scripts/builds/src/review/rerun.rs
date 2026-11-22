@@ -31,7 +31,7 @@ pub struct Inputs<'a> {
     pub repo_dir: &'a Path,
     pub landings: &'a [i64],
     pub root: &'a Path,
-    pub reviewer: &'a Path,
+    pub reviewer: &'a crate::review::Program,
     /// The model every group is asked in; each group's own when None.
     pub model: Option<&'a str>,
     /// The groups to ask; every group that covers a changed path when empty.

@@ -83,7 +83,7 @@ fn propose_in(fake: &Fake, side: &Path, store: &Store) -> Proposed {
         repo_dir: side,
         root: &fake.root,
         reviewer: &fake.program,
-        model: "opus",
+        model: &crate::review::Selection::Named("opus".to_string()),
         per_group: 2,
     })
     .unwrap()

@@ -214,6 +214,11 @@ pub struct Caller {
     pub id: String,
 }
 
+/// An empty Claude session variable names no session.
+pub fn claude_session(value: Option<&str>) -> Option<&str> {
+    value.filter(|session| !session.is_empty())
+}
+
 impl Caller {
     /// The agent that runs this command, from `CLAUDE_CODE_SESSION_ID` and
     /// `BUILDS_AGENT`; None for the person's own terminal, which has no
@@ -227,7 +232,7 @@ impl Caller {
     /// failure for a session with no agent id, since builds cannot tell
     /// that session's agents apart.
     pub fn of(session: Option<&str>, agent: Option<&str>) -> Result<Option<Caller>> {
-        match (session.filter(|s| !s.is_empty()), agent) {
+        match (claude_session(session), agent) {
             (None, _) => Ok(None),
             (Some(_), None) => fail!(
                 "builds names each agent by the id Claude Code gives it, and this command names none: pass --agent ID, or set {VARIABLE}=ID"

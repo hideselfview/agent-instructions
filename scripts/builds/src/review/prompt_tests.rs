@@ -5,7 +5,7 @@ fn group(name: &str, enumerate: bool) -> Group {
     Group {
         name: name.to_string(),
         question: format!("question of {name}"),
-        model: "sonnet".to_string(),
+        model: crate::review::Selection::Named("sonnet".to_string()),
         dir: String::new(),
         rules: vec!["r".to_string()],
         instructions: None,
@@ -112,7 +112,7 @@ fn the_setup_a_call_records_follows_the_rules_settings_and_passes_but_not_the_mo
     once.passes = 1;
     assert_ne!(setup(&once, &[&rule]), recorded);
     let mut on_haiku = one.clone();
-    on_haiku.model = "haiku".to_string();
+    on_haiku.model = crate::review::Selection::Named("haiku".to_string());
     assert_eq!(setup(&on_haiku, &[&rule]), recorded);
 }
 

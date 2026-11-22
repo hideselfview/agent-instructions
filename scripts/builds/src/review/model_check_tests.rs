@@ -43,14 +43,15 @@ fn the_model_reads_the_rule_and_the_finding_and_its_answer_settles_the_finding()
     );
     let checked = check(
         &fake.program,
-        "opus",
+        &Selection::Named("opus".to_string()),
         &material,
         &finding("rule-a", "a.rs"),
         &diff(),
-    );
+    )
+    .unwrap();
     assert_eq!(
         checked.settle_why(),
-        Some((
+        Ok((
             "confirmed",
             "the opus check confirmed it: a.rs does the bad thing.".to_string()
         ))
@@ -69,11 +70,12 @@ fn the_model_reads_the_rule_and_the_finding_and_its_answer_settles_the_finding()
     );
     let rejected = check(
         &fake.program,
-        "opus",
+        &Selection::Named("opus".to_string()),
         &material,
         &finding("rule-a", "a.rs"),
         &diff(),
-    );
+    )
+    .unwrap();
     assert_eq!(rejected.settle_why().unwrap().0, "dropped");
 }
 
@@ -88,11 +90,12 @@ fn a_finding_on_the_commit_messages_is_checked_against_them() {
     );
     let checked = check(
         &fake.program,
-        "opus",
+        &Selection::Named("opus".to_string()),
         &material,
         &finding("rule-a", files::COMMIT_MESSAGE),
         &diff(),
-    );
+    )
+    .unwrap();
     assert!(checked.verdict.is_ok(), "{checked:?}");
 }
 
@@ -103,30 +106,31 @@ fn a_check_with_no_rule_text_or_no_file_or_no_answer_settles_nothing() {
     let material = Material::load(&fake.root, "demo").unwrap();
     let no_rule = check(
         &fake.program,
-        "opus",
+        &Selection::Named("opus".to_string()),
         &material,
         &finding("rule-z", "a.rs"),
         &diff(),
     );
     assert_eq!(
-        no_rule.verdict,
-        Err("the rules checkout has no rule rule-z".to_string())
+        no_rule.unwrap_err(),
+        "the rules checkout has no rule rule-z"
     );
     let no_file = check(
         &fake.program,
-        "opus",
+        &Selection::Named("opus".to_string()),
         &material,
         &finding("rule-a", "z.rs"),
         &diff(),
     );
-    assert!(no_file.settle_why().is_none());
+    assert_eq!(no_file.unwrap_err(), "the diff has no file z.rs");
     fake.fail("model-check rule-a");
     let failed = check(
         &fake.program,
-        "opus",
+        &Selection::Named("opus".to_string()),
         &material,
         &finding("rule-a", "a.rs"),
         &diff(),
-    );
+    )
+    .unwrap();
     assert!(failed.verdict.is_err());
 }

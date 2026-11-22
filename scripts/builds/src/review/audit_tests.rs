@@ -114,7 +114,7 @@ fn the_shuffle_is_the_same_for_a_seed_and_holds_every_rule_once_on_its_groups_mo
         } else {
             "high"
         };
-        assert_eq!(shuffled.model, model, "{shuffled:?}");
+        assert_eq!(shuffled.model.to_string(), model, "{shuffled:?}");
         assert!(
             shuffled
                 .rules
@@ -222,7 +222,7 @@ fn an_audit_records_two_runs_names_the_misses_and_feeds_the_miss_rate() {
         project: "demo",
         root: &fake.root,
         reviewer: &fake.program,
-        model: "opus",
+        model: &crate::review::Selection::Named("opus".to_string()),
         stamp: &stamp(),
     })
     .unwrap();
@@ -414,7 +414,7 @@ fn an_open_miss_is_checked_although_another_landing_raised_its_rule_and_file() {
         project: "demo",
         root: &fake.root,
         reviewer: &fake.program,
-        model: "opus",
+        model: &crate::review::Selection::Named("opus".to_string()),
         stamp: &stamp(),
     })
     .unwrap();

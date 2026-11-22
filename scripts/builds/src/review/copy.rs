@@ -31,7 +31,7 @@ pub struct Inputs<'a> {
     /// store labels the run with.
     pub label: &'a str,
     pub root: &'a Path,
-    pub reviewer: &'a Path,
+    pub reviewer: &'a crate::review::Program,
     pub stamp: &'a Stamp,
 }
 

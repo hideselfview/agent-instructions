@@ -399,7 +399,7 @@ impl CaseResult {
 /// Runs <scope>'s groups over <case> the way a landing's review does.
 pub fn replay_case(
     scope: Scope,
-    reviewer: &Path,
+    reviewer: &crate::review::Program,
     case: &Case,
     source_repo: Option<&Path>,
 ) -> CaseResult {
@@ -506,7 +506,7 @@ pub fn replay_all(
     root: &Path,
     cases: &[Case],
     designs: &[Globs],
-    reviewer: &Path,
+    reviewer: &crate::review::Program,
     source_repo: Option<&Path>,
     model: Option<&str>,
 ) -> Result<Vec<CaseResult>> {
@@ -564,8 +564,8 @@ pub struct Totals {
     pub tokens_written: i64,
     /// Of those, what the passes after each group's first used.
     pub repeat: Tokens,
-    /// What `claude -p` reported the calls cost, in millionths of a US dollar.
-    pub cost_microdollars: i64,
+    /// Total cost in millionths of a US dollar when all calls report it.
+    pub cost_microdollars: Option<i64>,
 }
 
 pub fn totals(results: &[CaseResult]) -> Totals {
@@ -579,7 +579,7 @@ pub fn totals(results: &[CaseResult]) -> Totals {
         tokens_cached: 0,
         tokens_written: 0,
         repeat: Tokens::default(),
-        cost_microdollars: 0,
+        cost_microdollars: Some(0),
     };
     for r in results {
         t.expected += r.expected;
@@ -591,7 +591,12 @@ pub fn totals(results: &[CaseResult]) -> Totals {
         t.tokens_out += o;
         t.tokens_cached += r.calls.iter().map(|c| c.tokens_cached).sum::<i64>();
         t.tokens_written += r.calls.iter().map(|c| c.tokens_written).sum::<i64>();
-        t.cost_microdollars += r.calls.iter().map(|c| c.cost_microdollars).sum::<i64>();
+        let cost = r
+            .calls
+            .iter()
+            .map(|c| c.cost_microdollars)
+            .sum::<Option<i64>>();
+        t.cost_microdollars = t.cost_microdollars.zip(cost).map(|(a, b)| a + b);
         t.repeat.input += r.repeat.input;
         t.repeat.cached += r.repeat.cached;
         t.repeat.written += r.repeat.written;
@@ -654,20 +659,27 @@ fn site_report(results: &[CaseResult]) -> String {
     out
 }
 
+pub(super) fn reported_cost(cost: Option<i64>) -> String {
+    match cost {
+        Some(cost) => format!("${:.2}", cost as f64 / 1_000_000.0),
+        None => "cost not recorded".to_string(),
+    }
+}
+
 /// What one setup did over the test set: problems caught and missed, wrong
 /// flags (blocking findings on a rule the case expects to raise none, and
 /// findings on a `none` site), tokens and cost.
 fn setup_line(name: &str, results: &[CaseResult]) -> String {
     let t = totals(results);
     format!(
-        "{name}: caught {} of {}, missed {}, wrong flags {}, {} tokens in, {} out, ${:.2}{}\n",
+        "{name}: caught {} of {}, missed {}, wrong flags {}, {} tokens in, {} out, {}{}\n",
         t.found,
         t.expected,
         t.expected - t.found,
         results.iter().map(CaseResult::wrong_flags).sum::<usize>(),
         t.tokens_in,
         t.tokens_out,
-        t.cost_microdollars as f64 / 1_000_000.0,
+        reported_cost(t.cost_microdollars),
         match t.failed_calls {
             0 => String::new(),
             n => format!(", {} failed", plural(n, "call")),
@@ -722,7 +734,7 @@ pub fn report(results: &[CaseResult]) -> String {
     let t = totals(results);
     let percent = (t.found * 100).checked_div(t.expected).unwrap_or(100);
     out.push_str(&format!(
-        "recall {} of {} expected findings ({percent}%), {} false blocking findings on clean cases, {} failed calls, {} tokens in ({} uncached, {} read from the cache, {} written to it), {} out, ${:.2}\n",
+        "recall {} of {} expected findings ({percent}%), {} false blocking findings on clean cases, {} failed calls, {} tokens in ({} uncached, {} read from the cache, {} written to it), {} out, {}\n",
         t.found,
         t.expected,
         t.false_blocking,
@@ -732,7 +744,7 @@ pub fn report(results: &[CaseResult]) -> String {
         t.tokens_cached,
         t.tokens_written,
         t.tokens_out,
-        t.cost_microdollars as f64 / 1_000_000.0
+        reported_cost(t.cost_microdollars)
     ));
     if t.repeat != Tokens::default() {
         out.push_str(&format!(

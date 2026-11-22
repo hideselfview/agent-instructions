@@ -86,6 +86,7 @@ pub mod over_cap;
 mod prompt;
 mod propose;
 mod provider;
+pub use provider::{Program, Selection, Tier};
 pub mod record;
 mod render;
 mod rerun;
@@ -140,20 +141,38 @@ pub fn installed_rules_root(home: &Path) -> PathBuf {
 /// the commands that check text before they write it (`lists::rulings`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Reviewer {
-    pub program: PathBuf,
+    pub program: Program,
     pub rules_root: PathBuf,
 }
 
 impl Reviewer {
-    pub fn program_for(&self, explicit: Option<&str>) -> PathBuf {
-        explicit.map_or_else(|| self.program.clone(), PathBuf::from)
+    pub fn program_for(&self, explicit: Option<&str>) -> Program {
+        explicit.map_or_else(
+            || self.program.clone(),
+            |path| self.program.with_executable(path.into()),
+        )
     }
 
-    /// The session's reviewer and the rules checkout `install.sh` links in <home>.
-    pub fn installed(home: &Path) -> Reviewer {
+    /// The session's reviewer and the rules checkout install links in the home folder.
+    pub fn installed(places: &crate::places::Places) -> Reviewer {
+        let claude = std::env::var(crate::ack::SESSION).ok();
+        let codex = ["CODEX_SESSION_ID", "CODEX_THREAD_ID"]
+            .iter()
+            .any(|key| std::env::var_os(key).is_some_and(|value| !value.is_empty()));
+        let executable = provider::default_program(
+            std::env::var_os("BUILDS_REVIEWER"),
+            claude.as_deref(),
+            codex,
+        );
+        let temporary = places
+            .tmpdir
+            .as_ref()
+            .or(places.user_temp.as_ref())
+            .unwrap_or(&places.private_tmp)
+            .clone();
         Reviewer {
-            program: provider::default_program(),
-            rules_root: installed_rules_root(home),
+            program: Program::new(executable, temporary),
+            rules_root: installed_rules_root(&places.home),
         }
     }
 }
@@ -263,7 +282,7 @@ pub struct Inputs<'a> {
     /// Names the change, and so its landing under review.
     pub key: &'a str,
     pub root: &'a Path,
-    pub reviewer: &'a Path,
+    pub reviewer: &'a Program,
     pub stamp: &'a Stamp,
     /// The landing's brief.
     pub brief: Option<crate::lists::spec_check::Brief>,
@@ -374,6 +393,16 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
             refusal: None,
         });
     }
+    let code_review = change
+        .diff
+        .changed
+        .iter()
+        .any(|path| design.kind_of(path).is_none() && !design.names_spec_file(path));
+    let reviewer = if code_review {
+        inputs.reviewer.for_code_review()
+    } else {
+        inputs.reviewer.clone()
+    };
     let under_review = record::Change {
         repo: inputs.repo,
         key: inputs.key,
@@ -430,7 +459,7 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
         let picked = material.groups.named(&material.rules, &ask.groups);
         answers.push(run::ask_groups(
             scope,
-            inputs.reviewer,
+            &reviewer,
             &picked,
             &ask.change.diff,
             inputs.brief.as_ref(),
@@ -438,7 +467,7 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
         ));
     }
     if let Some(last) = answers.last_mut() {
-        material.close_deleted(inputs.reviewer, last, &gone);
+        material.close_deleted(&reviewer, last, &gone);
     }
     // Two runs of one review can each close the same finding: the first
     // closes it.

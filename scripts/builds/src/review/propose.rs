@@ -65,9 +65,9 @@ pub struct Inputs<'a> {
     /// The agent-instructions worktree whose rules the check reads and whose
     /// review/cases folder takes the cases.
     pub root: &'a Path,
-    pub reviewer: &'a Path,
+    pub reviewer: &'a crate::review::Program,
     /// The model of the check.
-    pub model: &'a str,
+    pub model: &'a super::provider::Selection,
     /// How many landings with a finding of each group the set takes.
     pub per_group: usize,
 }
@@ -291,7 +291,7 @@ pub fn propose(inputs: &Inputs) -> Result<Proposed> {
     let (all, lost) = candidates(&conn, &repo, inputs.repo_dir)?;
     let mut text = lost;
     let mut failed = false;
-    let mut cost = 0;
+    let mut cost = Some(0);
     for i in sample(&all, inputs.per_group) {
         let candidate = &all[i];
         let name = candidate.name();
@@ -321,12 +321,20 @@ pub fn propose(inputs: &Inputs) -> Result<Proposed> {
         let mut additions: Vec<Addition> = Vec::new();
         let mut case_failed = false;
         for ((finding, path), checked) in asked.iter().zip(&checked) {
-            cost += checked.usage.cost_microdollars;
+            let verdict = match checked {
+                Ok(checked) => {
+                    cost = cost
+                        .zip(checked.usage.cost_microdollars)
+                        .map(|(a, b)| a + b);
+                    checked.verdict.as_ref()
+                }
+                Err(why) => Err(why),
+            };
             let head = format!(
                 "  finding {} ({} in {})",
                 finding.id, finding.rule, finding.file
             );
-            match &checked.verdict {
+            match verdict {
                 Ok((true, _)) => {
                     text.push_str(&format!("{head}: confirmed\n"));
                     additions.extend(expect(finding, path));
@@ -374,9 +382,17 @@ pub fn propose(inputs: &Inputs) -> Result<Proposed> {
         ));
     }
     text.push_str(&misses(inputs, &conn)?);
+    let cost = cost.map_or_else(
+        || "The reviewers did not report a total cost".to_string(),
+        |cost| {
+            format!(
+                "The checks cost {}",
+                super::cases::reported_cost(Some(cost))
+            )
+        },
+    );
     text.push_str(&format!(
-        "the checks cost ${:.2}; commit the cases in {}\n",
-        cost as f64 / 1_000_000.0,
+        "{cost}. Commit the cases in {}.\n",
         inputs.root.join(cases::DIR).display()
     ));
     Ok(Proposed { text, failed })
@@ -470,7 +486,7 @@ pub(super) fn propose_command(tool: &crate::tool::Tool, args: &[String]) -> Resu
     let Some(root) = args.value("rules-root")? else {
         fail!("name the agent-instructions worktree to write the cases in with --rules-root");
     };
-    let model = args.value("model")?.unwrap_or(model_check::MODEL);
+    let model = model_check::selection(args.value("model")?);
     let per_group = match args.value("per-group")? {
         Some(n) => n
             .parse()
@@ -484,7 +500,7 @@ pub(super) fn propose_command(tool: &crate::tool::Tool, args: &[String]) -> Resu
         repo_dir: Path::new(args.require("repo-dir")?),
         root: Path::new(root),
         reviewer: &tool.reviewer.program_for(args.value("reviewer")?),
-        model,
+        model: &model,
         per_group,
     })?;
     print!("{}", proposed.text);

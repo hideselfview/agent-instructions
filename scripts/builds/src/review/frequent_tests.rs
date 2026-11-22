@@ -21,7 +21,7 @@ fn call(clauses: &[&str]) -> NewCall {
         tokens_out: 0,
         tokens_cached: 0,
         tokens_written: 0,
-        cost_microdollars: 0,
+        cost_microdollars: Some(0),
         sites: None,
         failure: None,
         verdicts: Vec::new(),

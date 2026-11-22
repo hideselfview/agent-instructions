@@ -15,7 +15,7 @@ fn an_answer_gives_verdicts_findings_and_tokens() {
     let body = r#"{"rules":[{"rule":"a","verdict":"none","findings":[]},{"rule":"b","verdict":"finding","findings":[{"clause":"c","file":"f.rs","line":3,"code":"x","problem":"p"}]}]}"#;
     let out = parse(&wrap(body), &names());
     assert_eq!((out.usage.tokens_in, out.usage.tokens_out), (17, 7));
-    assert_eq!(out.usage.cost_microdollars, 250_000);
+    assert_eq!(out.usage.cost_microdollars, Some(250_000));
     let answer = out.answer.unwrap();
     assert_eq!(
         answer.verdicts,
@@ -53,7 +53,7 @@ fn a_text_result_is_read_when_there_is_no_structured_output_and_an_error_is_name
     let read = parse(&text, &names());
     assert!(read.answer.is_ok());
     assert_eq!(
-        read.usage.cost_microdollars, 0,
+        read.usage.cost_microdollars, None,
         "an envelope that names no cost adds none"
     );
     let error = r#"{"is_error":true,"result":"rate limited","usage":{}}"#;
@@ -132,6 +132,6 @@ fn claude_records_the_model_that_answered_instead_of_its_alias() {
             "claude-haiku-4-5": {},
         },
     });
-    let invoked = envelope(&reply.to_string(), "opus");
+    let invoked = crate::review::provider::claude_envelope(reply.to_string().as_bytes(), "opus");
     assert_eq!(invoked.model, "claude-opus-4-8");
 }

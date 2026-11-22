@@ -1,14 +1,13 @@
 //! Selects the reviewer executable and model and connects the provider's CLI
 //! protocol to the common schemas and checks.
 
-use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
+use std::process::{Command, Output};
 
 use serde_json::Value;
 
 use crate::fail::{Context, Result};
-use crate::review::call::{Invoked, Usage, envelope};
+use crate::review::call::{Invoked, Usage};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Provider {
@@ -25,92 +24,182 @@ impl Provider {
     }
 }
 
-pub fn default_program() -> PathBuf {
-    let program = std::env::var_os("BUILDS_REVIEWER").unwrap_or_else(|| {
-        if std::env::var_os("CLAUDE_CODE_SESSION_ID").is_some() {
-            "claude".into()
-        } else if std::env::var_os("CODEX_SESSION_ID").is_some()
-            || std::env::var_os("CODEX_THREAD_ID").is_some()
-        {
-            "codex".into()
-        } else {
-            "claude".into()
-        }
-    });
-    PathBuf::from(program)
+/// A reviewer executable and the directory in which builds stages its inputs.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Program {
+    executable: PathBuf,
+    temporary: PathBuf,
+    purpose: Purpose,
 }
 
-pub const TIERS: [&str; 3] = ["high", "medium", "fast"];
-
-struct Model {
-    name: String,
-    effort: &'static str,
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Purpose {
+    Check,
+    CodeReview,
 }
 
-impl Model {
-    fn of(provider: Provider, selection: &str) -> Self {
-        let (name, effort) = match (provider, selection) {
-            (Provider::Claude, "high") => ("opus", "high"),
-            (Provider::Claude, "medium") => ("sonnet", "medium"),
-            (Provider::Claude, "fast") => ("haiku", "low"),
-            (Provider::Codex, "high") => ("gpt-6.2-astra", "high"),
-            (Provider::Codex, "medium") => ("gpt-6.2-sol", "medium"),
-            (Provider::Codex, "fast") => ("gpt-6.2-sol", "low"),
-            (_, name) => (name, "high"),
-        };
+impl Program {
+    pub fn new(executable: PathBuf, temporary: PathBuf) -> Self {
         Self {
-            name: name.to_string(),
-            effort,
+            executable,
+            temporary,
+            purpose: Purpose::Check,
+        }
+    }
+
+    pub fn for_code_review(&self) -> Self {
+        Self {
+            purpose: Purpose::CodeReview,
+            ..self.clone()
+        }
+    }
+
+    pub fn executable(&self) -> &Path {
+        &self.executable
+    }
+
+    pub fn with_executable(&self, executable: PathBuf) -> Self {
+        Self {
+            executable,
+            ..self.clone()
+        }
+    }
+
+    pub fn model_name(&self, selection: &Selection) -> String {
+        self.model(selection).name().to_string()
+    }
+
+    pub fn setup(&self, selection: &Selection, prompt: String) -> String {
+        match self.model(selection) {
+            Model::Claude(_) => prompt,
+            Model::Codex { effort, .. } => {
+                format!("{prompt}\n# Codex\n\nreasoning effort: {effort}\n")
+            }
+        }
+    }
+
+    fn model(&self, selection: &Selection) -> Model {
+        match Provider::of(&self.executable) {
+            Provider::Claude => {
+                let name = match selection {
+                    Selection::Tier(Tier::High) => "opus",
+                    Selection::Tier(Tier::Medium) => "sonnet",
+                    Selection::Tier(Tier::Fast) => "haiku",
+                    Selection::Named(name) => name,
+                };
+                Model::Claude(name.to_string())
+            }
+            Provider::Codex => {
+                let (name, effort) = match (self.purpose, selection) {
+                    (_, Selection::Named(name)) => (name.as_str(), "high"),
+                    (Purpose::CodeReview, Selection::Tier(_)) => ("gpt-6.2-astra", "high"),
+                    (Purpose::Check, Selection::Tier(Tier::High | Tier::Medium)) => {
+                        ("gpt-6.2-sol", "medium")
+                    }
+                    (Purpose::Check, Selection::Tier(Tier::Fast)) => ("gpt-6.2-sol", "low"),
+                };
+                Model::Codex {
+                    name: name.to_string(),
+                    effort,
+                }
+            }
         }
     }
 }
 
-pub(super) fn model_name(program: &Path, selection: &str) -> String {
-    Model::of(Provider::of(program), selection).name
+pub(super) fn default_program(
+    explicit: Option<std::ffi::OsString>,
+    claude_session: Option<&str>,
+    codex_session: bool,
+) -> PathBuf {
+    if let Some(executable) = explicit {
+        return PathBuf::from(executable);
+    }
+    if crate::ack::agent::claude_session(claude_session).is_none() && codex_session {
+        PathBuf::from("codex")
+    } else {
+        PathBuf::from("claude")
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Tier {
+    High,
+    Medium,
+    Fast,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Selection {
+    Tier(Tier),
+    Named(String),
+}
+
+impl std::fmt::Display for Selection {
+    fn fmt(&self, out: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let name = match self {
+            Self::Tier(Tier::High) => "high",
+            Self::Tier(Tier::Medium) => "medium",
+            Self::Tier(Tier::Fast) => "fast",
+            Self::Named(name) => name,
+        };
+        out.write_str(name)
+    }
+}
+
+enum Model {
+    Claude(String),
+    Codex { name: String, effort: &'static str },
+}
+
+impl Model {
+    fn name(&self) -> &str {
+        match self {
+            Self::Claude(name) | Self::Codex { name, .. } => name,
+        }
+    }
 }
 
 pub fn invoke(
-    program: &Path,
-    selection: &str,
+    program: &Program,
+    selection: &Selection,
     schema: &Value,
     system: &str,
     message: &str,
     checkout: Option<&Path>,
 ) -> Invoked {
-    let provider = Provider::of(program);
-    let model = Model::of(provider, selection);
-    let called = match provider {
-        Provider::Claude => claude(program, &model, schema, system, message, checkout),
-        Provider::Codex => codex(program, &model, schema, system, message, checkout),
+    let model = program.model(selection);
+    let called = match &model {
+        Model::Claude(name) => claude(
+            program.executable(),
+            name,
+            schema,
+            system,
+            message,
+            checkout,
+        ),
+        Model::Codex { name, effort } => {
+            codex(program, name, effort, schema, system, message, checkout)
+        }
     };
     match called {
         Ok(invoked) => invoked,
-        Err(error) => Invoked::failed(model.name, error.text()),
+        Err(error) => Invoked::failed(
+            format!("unknown (requested {})", model.name()),
+            error.text(),
+        ),
     }
 }
 
-fn run(mut command: Command, message: &str) -> Result<Output> {
+fn run(command: &mut Command, message: &str) -> Result<Output> {
     let program = command.get_program().to_string_lossy().into_owned();
-    let mut child = command
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
+    let (output, written) = crate::child_input::run(command, message.as_bytes())
         .context(|| format!("running {program}"))?;
-    let mut stdin = child.stdin.take().expect("stdin is piped");
-    std::thread::scope(|scope| -> Result<Output> {
-        let writer = scope.spawn(move || stdin.write_all(message.as_bytes()));
-        let output = child
-            .wait_with_output()
-            .context(|| format!("waiting for {program}"))?;
-        let sent = writer
-            .join()
-            .expect("the prompt writer only writes to a pipe");
-        if output.status.success() {
-            sent.context(|| format!("writing the prompt to {program}"))?;
-        }
-        Ok(output)
-    })
+    if output.status.success() {
+        written.context(|| format!("writing the prompt to {program}"))?;
+    }
+    Ok(output)
 }
 
 fn failed_output(program: &Path, output: &Output) -> String {
@@ -130,7 +219,7 @@ fn failed_output(program: &Path, output: &Output) -> String {
 
 fn claude(
     program: &Path,
-    model: &Model,
+    model: &str,
     schema: &Value,
     system: &str,
     message: &str,
@@ -140,7 +229,7 @@ fn claude(
     let mut command = Command::new(program);
     command
         .args(["-p", "--output-format", "json", "--json-schema", &schema])
-        .args(["--model", &model.name])
+        .args(["--model", model])
         .args(["--no-session-persistence", "--disable-slash-commands"])
         .args(["--strict-mcp-config", "--system-prompt", system])
         .env("CLAUDE_CODE_DISABLE_CLAUDE_MDS", "1");
@@ -155,110 +244,173 @@ fn claude(
             command.args(["--tools", ""]);
         }
     }
-    let output = run(command, message)?;
+    let output = run(&mut command, message)?;
     Ok(if output.status.success() {
-        envelope(&String::from_utf8_lossy(&output.stdout), &model.name)
+        claude_envelope(&output.stdout, model)
     } else {
-        Invoked::failed(model.name.clone(), failed_output(program, &output))
+        Invoked::failed(
+            format!("unknown (requested {model})"),
+            failed_output(program, &output),
+        )
     })
 }
 
-/// Holds the schema only while Codex reads it.
-struct SchemaDirectory(PathBuf);
+/// Reads the JSON `claude -p --output-format json` prints.
+pub(super) fn claude_envelope(text: &[u8], requested: &str) -> Invoked {
+    let Ok(value) = serde_json::from_slice::<Value>(text) else {
+        return Invoked::failed(
+            format!("unknown (requested {requested})"),
+            "the reviewer printed no JSON".to_string(),
+        );
+    };
+    let count = |key: &str| value["usage"][key].as_i64().unwrap_or(0);
+    let tokens_in = count("input_tokens")
+        + count("cache_creation_input_tokens")
+        + count("cache_read_input_tokens");
+    let tokens_out = count("output_tokens");
+    let body = body_of(&value);
+    let model = value["modelUsage"]
+        .as_object()
+        .and_then(|models| {
+            if models.len() == 1 {
+                models.keys().next()
+            } else {
+                models.keys().find(|name| {
+                    name.as_str() == requested || name.starts_with(&format!("claude-{requested}-"))
+                })
+            }
+        })
+        .map_or_else(|| format!("unknown (requested {requested})"), Clone::clone);
+    Invoked {
+        model,
+        usage: Usage {
+            tokens_in,
+            tokens_out,
+            tokens_cached: count("cache_read_input_tokens"),
+            tokens_written: count("cache_creation_input_tokens"),
+            cost_microdollars: value["total_cost_usd"]
+                .as_f64()
+                .map(|cost| (cost * 1_000_000.0).round() as i64),
+        },
+        body,
+    }
+}
 
-impl Drop for SchemaDirectory {
-    fn drop(&mut self) {
-        if let Err(error) = std::fs::remove_dir_all(&self.0) {
-            crate::text::note(format!("could not remove {}: {error}", self.0.display()));
-        }
+fn body_of(value: &Value) -> std::result::Result<Value, String> {
+    if value["is_error"].as_bool().unwrap_or(false) {
+        let said = value["result"].as_str().unwrap_or("no reason given");
+        return Err(format!("the reviewer reported an error: {said}"));
+    }
+    match value.get("structured_output").filter(|v| v.is_object()) {
+        Some(body) => Ok(body.clone()),
+        None => value["result"]
+            .as_str()
+            .and_then(|text| serde_json::from_str(text).ok())
+            .ok_or_else(|| "the reviewer gave no answer in the schema".to_string()),
     }
 }
 
 fn codex(
-    program: &Path,
-    model: &Model,
+    program: &Program,
+    model: &str,
+    effort: &str,
     schema: &Value,
     system: &str,
     message: &str,
     checkout: Option<&Path>,
 ) -> Result<Invoked> {
-    let temporary = SchemaDirectory(crate::evict::make_temp_dir(
-        &std::env::temp_dir(),
-        "builds-review.",
-    )?);
-    let path = temporary.0.join("schema.json");
-    let mut schema = schema.clone();
-    require_properties(&mut schema);
-    std::fs::write(&path, schema.to_string()).context(|| format!("writing {}", path.display()))?;
-    let mut command = Command::new(program);
-    command
-        .args([
-            "-a",
-            "never",
-            "exec",
-            "--json",
-            "--ephemeral",
-            "--ignore-user-config",
-        ])
-        .args(["--sandbox", "read-only", "--skip-git-repo-check"])
-        .args([
-            "--disable",
-            "plugins",
-            "--disable",
-            "hooks",
-            "--disable",
-            "apps",
-            "--disable",
-            "multi_agent",
-            "--disable",
-            "image_generation",
-        ])
-        .args(["--disable", "goals", "--disable", "view_image"])
-        .args([
-            "-c",
-            "project_doc_max_bytes=0",
-            "-c",
-            "web_search=\"disabled\"",
-        ])
-        .args([
-            "-c",
-            &format!(
-                "developer_instructions={}",
-                Value::String(system.to_string())
-            ),
-        ])
-        .args([
-            "--model",
-            &model.name,
-            "-c",
-            &format!("model_reasoning_effort=\"{}\"", model.effort),
-        ])
-        .arg("--output-schema")
-        .arg(path);
-    match checkout {
-        Some(dir) => {
-            command.current_dir(dir);
+    let mut usage = Usage::default();
+    let body = crate::evict::in_temp_dir(&program.temporary, "builds-review.", |temporary| {
+        let path = temporary.join("schema.json");
+        let mut schema = schema.clone();
+        require_properties(&mut schema);
+        std::fs::write(&path, schema.to_string())
+            .context(|| format!("writing {}", path.display()))?;
+        let instructions = format!(
+            "{system}\n\nReturn null for optional fields these instructions say to omit. Null represents an omitted field in the output schema."
+        );
+        let mut command = Command::new(program.executable());
+        command
+            .args([
+                "-a",
+                "never",
+                "exec",
+                "--json",
+                "--ephemeral",
+                "--ignore-user-config",
+            ])
+            .args(["--sandbox", "read-only", "--skip-git-repo-check"])
+            .args([
+                "--disable",
+                "plugins",
+                "--disable",
+                "hooks",
+                "--disable",
+                "apps",
+            ])
+            .args([
+                "--disable",
+                "multi_agent",
+                "--disable",
+                "image_generation",
+                "--disable",
+                "goals",
+                "--disable",
+                "view_image",
+            ])
+            .args([
+                "-c",
+                "project_doc_max_bytes=0",
+                "-c",
+                "web_search=\"disabled\"",
+            ])
+            .args([
+                "-c",
+                &format!("developer_instructions={}", Value::String(instructions)),
+            ])
+            .args([
+                "--model",
+                model,
+                "-c",
+                &format!("model_reasoning_effort=\"{effort}\""),
+            ])
+            .arg("--output-schema")
+            .arg(path);
+        match checkout {
+            Some(dir) => {
+                command.current_dir(dir);
+            }
+            None => {
+                command
+                    .args(["--disable", "shell_tool", "--disable", "unified_exec"])
+                    .current_dir(temporary);
+            }
         }
-        None => {
-            command
-                .args(["--disable", "shell_tool", "--disable", "unified_exec"])
-                .current_dir(&temporary.0);
+        let output = run(&mut command, message)?;
+        let invoked = codex_events(&output.stdout, model, checkout.is_some());
+        usage = invoked.usage;
+        if !output.status.success() {
+            let reason = failed_output(program.executable(), &output);
+            let detail = match invoked.body {
+                Err(why) if !output.stderr.is_empty() => {
+                    format!("{reason}. Codex also reported {why}")
+                }
+                Err(why) => format!(
+                    "{} exited with {}: {why}",
+                    program.executable().display(),
+                    output.status
+                ),
+                Ok(_) => reason,
+            };
+            return Err(crate::fail::Fail::Message(detail));
         }
-    }
-    let output = run(command, message)?;
-    let mut invoked = codex_events(
-        &String::from_utf8_lossy(&output.stdout),
-        &model.name,
-        checkout.is_some(),
-    );
-    if !output.status.success() {
-        let why = match invoked.body {
-            Err(why) => format!("{} exited with {}: {why}", program.display(), output.status),
-            Ok(_) => failed_output(program, &output),
-        };
-        invoked.body = Err(why);
-    }
-    Ok(invoked)
+        invoked.body.map_err(crate::fail::Fail::Message)
+    });
+    Ok(Invoked {
+        model: model.to_string(),
+        usage,
+        body: body.map_err(|error| error.text()),
+    })
 }
 
 /// OpenAI structured output requires every object property to be listed in
@@ -297,18 +449,19 @@ fn remove_null_properties(value: &mut Value) {
     }
 }
 
-fn codex_events(text: &str, model: &str, read_tools: bool) -> Invoked {
+fn codex_events(text: &[u8], model: &str, read_tools: bool) -> Invoked {
     let mut completed = None;
     let mut answer = None;
     let mut failure = None;
-    for line in text.lines() {
-        let event: Value = match serde_json::from_str(line) {
+    for line in text
+        .split(|byte| *byte == b'\n')
+        .filter(|line| !line.is_empty())
+    {
+        let event: Value = match serde_json::from_slice(line) {
             Ok(event) => event,
             Err(error) => {
-                return Invoked::failed(
-                    model.to_string(),
-                    format!("Codex printed an invalid event: {error}"),
-                );
+                failure.get_or_insert_with(|| format!("Codex printed an invalid event: {error}"));
+                continue;
             }
         };
         match event["type"].as_str() {
@@ -372,7 +525,7 @@ fn codex_usage(usage: &Value) -> std::result::Result<Usage, String> {
         tokens_out: count("output_tokens")?,
         tokens_cached: count("cached_input_tokens")?,
         tokens_written: count("cache_write_input_tokens")?,
-        cost_microdollars: 0,
+        cost_microdollars: None,
     })
 }
 

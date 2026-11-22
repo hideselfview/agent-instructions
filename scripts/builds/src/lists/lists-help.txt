@@ -273,7 +273,7 @@ main checkout holds or that more than one holds; an absolute path is itself.
       runs no spec check and refuses --spec-decided. --rules-root names the
       agent-instructions checkout that holds the spec rule and the rules a
       brief cites (default ~/.codex/agent-instructions), and --reviewer the
-      program both checks run in place of claude.
+      program both checks run in place of the session reviewer.
 
   builds item handoff N --brief P
       Sets a running item's brief for its next agent, in every worktree it
@@ -486,7 +486,7 @@ RULINGS
 
 No text that builds keeps for the person or an agent says the person decided
 something unless the sentence names the record of it. Before each command
-below writes, builds asks a reviewer (claude, with no tools) to quote each
+below writes, builds asks a reviewer with no tools to quote each
 sentence of the command's text that says the person decided, ruled, chose,
 prefers, forbids or allowed something:
 

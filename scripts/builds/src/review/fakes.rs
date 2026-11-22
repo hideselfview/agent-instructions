@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 pub struct Fake {
     pub root: PathBuf,
     pub dir: PathBuf,
-    pub program: PathBuf,
+    pub program: super::Program,
 }
 
 /// Returns ten lines, "one" to "ten", and puts <line> at line <at> (counting
@@ -203,7 +203,18 @@ pub fn fake(scratch: &Path) -> Fake {
     std::fs::write(root.join("projects/demo.md"), "Demo project facts.\n").unwrap();
     let program = dir.join("claude");
     let script = format!(
-        "#!/bin/bash\nD='{d}'\ncat > \"$D/calls/$$.prompt\"\nprintf '%s\\n' \"$@\" >> \"$D/calls/$$.prompt\"\ngroup=$(sed -n 's/^Group: //p;s/^Task: //p' \"$D/calls/$$.prompt\" | head -1)\nif [ -f \"$D/fail-$group\" ]; then echo boom >&2; exit 3; fi\ncat \"$D/answer-$group.json\"\n",
+        r#"#!/bin/bash
+D='{d}'
+cat > "$D/calls/$$.prompt"
+printf '%s\n' "$@" >> "$D/calls/$$.prompt"
+group=$(sed -n 's/^Group: //p;s/^Task: //p' "$D/calls/$$.prompt" | head -1)
+if [ -f "$D/fail-$group" ]; then echo boom >&2; exit 3; fi
+while [ "$#" -gt 0 ]; do
+    if [ "$1" = --model ]; then model="$2"; break; fi
+    shift
+done
+sed "s/^{{/{{\"modelUsage\":{{\"$model\":{{}}}},/" "$D/answer-$group.json"
+"#,
         d = dir.display()
     );
     std::fs::write(&program, script).unwrap();
@@ -212,7 +223,11 @@ pub fn fake(scratch: &Path) -> Fake {
         std::os::unix::fs::PermissionsExt::from_mode(0o755),
     )
     .unwrap();
-    let fake = Fake { root, dir, program };
+    let fake = Fake {
+        root,
+        dir,
+        program: super::Program::new(program, scratch.to_path_buf()),
+    };
     fake.answer("alpha", &[("rule-a", None)]);
     fake.answer("beta", &[("rule-b", None)]);
     fake.answer_task("rulings", serde_json::json!({"claims": []}));

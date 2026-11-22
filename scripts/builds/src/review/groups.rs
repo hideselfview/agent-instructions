@@ -7,6 +7,7 @@ use std::path::Path;
 
 use serde::Deserialize;
 
+use super::provider::{Selection, Tier};
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::lists::design_paths::Globs;
@@ -15,8 +16,14 @@ use crate::review::rules::Rule;
 /// The file of a group's settings in its folder.
 pub const FILE: &str = "group.toml";
 
-fn high() -> String {
-    "high".to_string()
+fn high() -> Selection {
+    Selection::Tier(Tier::High)
+}
+
+fn tier<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> std::result::Result<Selection, D::Error> {
+    Tier::deserialize(deserializer).map(Selection::Tier)
 }
 
 fn one() -> usize {
@@ -29,8 +36,8 @@ pub struct Group {
     pub name: String,
     pub question: String,
     /// The capability tier, or a named model when a command overrides the tier.
-    #[serde(rename = "tier", default = "high")]
-    pub model: String,
+    #[serde(rename = "tier", default = "high", deserialize_with = "tier")]
+    pub model: Selection,
     /// The group's folder under `rules/`, set by the loader.
     #[serde(skip)]
     pub dir: String,
@@ -118,8 +125,7 @@ impl Groups {
 
     /// What is wrong with the grouping against <rules>, which must be every
     /// rule there is: a rule outside a group folder (a folder with no
-    /// `group.toml`, or none), a group with no rule, two groups of one name, an
-    /// unrecognized capability tier.
+    /// `group.toml`, or none), a group with no rule, or two groups with one name.
     pub fn faults(&self, rules: &[Rule]) -> Vec<String> {
         let mut faults = Vec::new();
         let mut names: Vec<&str> = Vec::new();
@@ -147,12 +153,6 @@ impl Groups {
                 faults.push(format!(
                     "group {} makes no call (`passes` is 0)",
                     group.name
-                ));
-            }
-            if !super::provider::TIERS.contains(&group.model.as_str()) {
-                faults.push(format!(
-                    "group {} names tier {}; choose high, medium, or fast",
-                    group.name, group.model
                 ));
             }
         }

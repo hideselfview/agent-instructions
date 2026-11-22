@@ -133,7 +133,7 @@ fn landed_card(scratch: &Scratch) -> (crate::lists::store::Store, Id) {
                 tokens_out: 0,
                 tokens_cached: 0,
                 tokens_written: 0,
-                cost_microdollars: 0,
+                cost_microdollars: Some(0),
                 sites: None,
                 failure: None,
                 verdicts: vec![("r".into(), "none".into())],

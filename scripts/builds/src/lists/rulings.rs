@@ -33,7 +33,7 @@ use crate::review::check::clause_in;
 const TASK: &str = "Task: rulings";
 
 /// The model the reviewer runs: the check sorts sentences and reads no code.
-const MODEL: &str = "medium";
+const MODEL: crate::review::Selection = crate::review::Selection::Tier(crate::review::Tier::Medium);
 
 /// What the texts a check reads are, which sets what the reviewer lists.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -237,7 +237,7 @@ fn check(
     }
     let invoked = crate::review::call::invoke(
         &reviewer.program,
-        MODEL,
+        &MODEL,
         &schema(),
         &system(source),
         &message(&texts),

@@ -11,7 +11,7 @@ fn call(group: &str, finding: Option<(&str, bool, Option<&str>)>) -> NewCall {
         tokens_out: 2,
         tokens_cached: 4,
         tokens_written: 3,
-        cost_microdollars: 500_000,
+        cost_microdollars: Some(500_000),
         sites: None,
         failure: None,
         exchanges: vec![NewExchange {

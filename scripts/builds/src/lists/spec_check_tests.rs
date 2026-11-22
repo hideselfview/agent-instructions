@@ -99,7 +99,7 @@ impl Bench {
     /// `builds item take 1` with the brief, in side worktree 1, with <extra>.
     fn take(&self, extra: &[&str]) -> Result<()> {
         let root = self.fake.root.display().to_string();
-        let program = self.fake.program.display().to_string();
+        let program = self.fake.program.executable().display().to_string();
         let mut args = vec![
             "take",
             "1",
@@ -383,7 +383,7 @@ pub fn record_one(db: &Connection, repo: &str, item: Id) {
             tokens_out: 1,
             tokens_cached: 0,
             tokens_written: 0,
-            cost_microdollars: 5,
+            cost_microdollars: Some(5),
         },
         failure: None,
         findings: vec![

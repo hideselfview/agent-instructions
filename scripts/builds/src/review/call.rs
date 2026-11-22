@@ -4,6 +4,7 @@ use std::path::Path;
 
 use serde_json::{Value, json};
 
+use super::provider::{Program, Selection};
 use crate::review::prompt;
 
 /// One finding as the reviewer wrote it.
@@ -48,9 +49,8 @@ pub struct Usage {
     pub tokens_out: i64,
     pub tokens_cached: i64,
     pub tokens_written: i64,
-    /// `total_cost_usd` in millionths of a US dollar: what the process cost;
-    /// 0 when it printed no cost, as a process that failed does.
-    pub cost_microdollars: i64,
+    /// Cost in millionths of a US dollar, when the provider reports one.
+    pub cost_microdollars: Option<i64>,
 }
 
 /// A reviewer's model, token usage and answer in the schema.
@@ -73,66 +73,12 @@ impl Invoked {
 
 pub use super::provider::invoke;
 
-/// Reads the JSON `claude -p --output-format json` prints.
-pub fn envelope(text: &str, requested: &str) -> Invoked {
-    let Ok(value) = serde_json::from_str::<Value>(text) else {
-        return Invoked::failed(
-            requested.to_string(),
-            "the reviewer printed no JSON".to_string(),
-        );
-    };
-    let count = |key: &str| value["usage"][key].as_i64().unwrap_or(0);
-    let tokens_in = count("input_tokens")
-        + count("cache_creation_input_tokens")
-        + count("cache_read_input_tokens");
-    let tokens_out = count("output_tokens");
-    let body = body_of(&value);
-    let model = value["modelUsage"]
-        .as_object()
-        .and_then(|models| {
-            if models.len() == 1 {
-                models.keys().next()
-            } else {
-                models.keys().find(|name| {
-                    name.as_str() == requested || name.starts_with(&format!("claude-{requested}-"))
-                })
-            }
-        })
-        .map_or_else(|| requested.to_string(), Clone::clone);
-    Invoked {
-        model,
-        usage: Usage {
-            tokens_in,
-            tokens_out,
-            tokens_cached: count("cache_read_input_tokens"),
-            tokens_written: count("cache_creation_input_tokens"),
-            cost_microdollars: (value["total_cost_usd"].as_f64().unwrap_or(0.0) * 1_000_000.0)
-                .round() as i64,
-        },
-        body,
-    }
-}
-
-fn body_of(value: &Value) -> Result<Value, String> {
-    if value["is_error"].as_bool().unwrap_or(false) {
-        let said = value["result"].as_str().unwrap_or("no reason given");
-        return Err(format!("the reviewer reported an error: {said}"));
-    }
-    match value.get("structured_output").filter(|v| v.is_object()) {
-        Some(body) => Ok(body.clone()),
-        None => value["result"]
-            .as_str()
-            .and_then(|text| serde_json::from_str(text).ok())
-            .ok_or_else(|| "the reviewer gave no answer in the schema".to_string()),
-    }
-}
-
 /// Runs a group's reviewer and reads its answer: verdicts per rule, or, for a
 /// group that lists sites, a summary and a verdict per site, and the open
 /// findings it closes, each one of <given>.
 pub fn run(
-    program: &Path,
-    model: &str,
+    program: &Program,
+    model: &Selection,
     names: &[String],
     given: &[i64],
     enumerate: bool,
@@ -174,7 +120,12 @@ fn output_of(invoked: Invoked, names: &[String], given: &[i64], enumerate: bool)
 /// Reads the answer of <text>, the JSON `claude -p` printed.
 #[cfg(test)]
 pub fn parse(text: &str, names: &[String]) -> Output {
-    output_of(envelope(text, "opus"), names, &[], false)
+    output_of(
+        super::provider::claude_envelope(text.as_bytes(), "opus"),
+        names,
+        &[],
+        false,
+    )
 }
 
 /// The open findings the answer closes: none when it names none, and each

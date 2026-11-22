@@ -162,7 +162,7 @@ exit 0"#
                 .expect("the scratch folder is writable");
         }
         crate::review::Reviewer {
-            program,
+            program: crate::review::Program::new(program, self.dir.clone()),
             rules_root,
         }
     }

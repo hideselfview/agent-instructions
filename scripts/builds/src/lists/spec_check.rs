@@ -121,7 +121,7 @@ impl Brief {
 /// What every check of one take reads from the rules checkout.
 pub struct Setup {
     /// The model of the review group that holds the rule.
-    pub model: String,
+    pub model: crate::review::Selection,
     /// The rule's whole file.
     pub rule_text: String,
     /// The rules checkout's commit, empty when it is no repo.
@@ -330,12 +330,22 @@ fn schema() -> Value {
 }
 
 /// Runs the reviewer <program> over <brief> in each of <targets>, at once.
-pub fn check_all(program: &Path, setup: &Setup, brief: &Brief, targets: &[Target]) -> Vec<Checked> {
+pub fn check_all(
+    program: &crate::review::Program,
+    setup: &Setup,
+    brief: &Brief,
+    targets: &[Target],
+) -> Vec<Checked> {
     reviewers_map(targets, |target| check(program, setup, brief, target))
 }
 
 /// Runs the reviewer <program> over <brief> in <target> and checks its quotes.
-fn check(program: &Path, setup: &Setup, brief: &Brief, target: &Target) -> Checked {
+fn check(
+    program: &crate::review::Program,
+    setup: &Setup,
+    brief: &Brief,
+    target: &Target,
+) -> Checked {
     let system = system(setup);
     let message = message(brief, target);
     let invoked = crate::review::call::invoke(
@@ -514,7 +524,8 @@ pub fn record(
                 check.usage.tokens_out,
                 check.usage.tokens_cached,
                 check.usage.tokens_written,
-                check.usage.cost_microdollars,
+                // The spec check table uses zero when the provider reports no cost.
+                check.usage.cost_microdollars.unwrap_or(0),
                 check.failure,
                 decided.map(|(id, _)| id),
                 decided.map(|(_, kind)| kind.word()),

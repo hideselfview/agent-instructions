@@ -40,16 +40,16 @@ fn every_rule_of_the_checkout_is_in_a_group_folder() {
 
 #[test]
 fn a_group_uses_the_high_tier_unless_it_names_another_tier() {
-    assert_eq!(group("a", "", &["x"]).model, "high");
-    assert_eq!(group("a", "tier = \"medium\"\n", &["x"]).model, "medium");
+    assert_eq!(group("a", "", &["x"]).model.to_string(), "high");
+    assert_eq!(
+        group("a", "tier = \"medium\"\n", &["x"]).model.to_string(),
+        "medium"
+    );
 }
 
 #[test]
-fn faults_name_a_rule_outside_a_group_folder_an_empty_group_and_a_bad_model() {
-    let g = groups(vec![
-        group("a", "", &["one"]),
-        group("b", "tier = \"gpt\"\n", &[]),
-    ]);
+fn faults_name_a_rule_outside_a_group_folder_and_an_empty_group() {
+    let g = groups(vec![group("a", "", &["one"]), group("b", "", &[])]);
     let mut loose = rule("loose", "**", "a");
     loose.group_dir = None;
     let rules = vec![
@@ -66,7 +66,6 @@ fn faults_name_a_rule_outside_a_group_folder_an_empty_group_and_a_bad_model() {
     );
     assert!(faults.iter().any(|f| f.contains("loose")));
     assert!(faults.iter().any(|f| f.contains("group b has no rule")));
-    assert!(faults.iter().any(|f| f.contains("names tier gpt")));
 }
 
 #[test]
@@ -265,4 +264,16 @@ fn a_review_of_capture_files_asks_only_the_rules_that_judge_capture_files() {
             .iter()
             .any(|rule| rule.slug == "write-only-what-is-needed-today")
     }),);
+}
+
+#[test]
+fn the_group_parser_rejects_an_unknown_tier() {
+    let error = Group::parse(
+        "a",
+        "name = \"A\"\nquestion = \"Q\"\ntier = \"sonnet\"\n",
+        vec![],
+    )
+    .unwrap_err();
+    let message = error.text();
+    assert!(message.contains("unknown variant"), "{message}");
 }

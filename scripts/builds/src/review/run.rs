@@ -85,7 +85,7 @@ impl Material {
     /// The same material with every group asked in <model>.
     pub fn with_model(mut self, model: &str) -> Material {
         for group in &mut self.groups.groups {
-            group.model = model.to_string();
+            group.model = super::provider::Selection::Named(model.to_string());
         }
         self
     }
@@ -564,7 +564,7 @@ fn not_read(
 /// call with the findings of all.
 pub fn ask_groups(
     scope: Scope,
-    reviewer: &Path,
+    reviewer: &crate::review::Program,
     picked: &[(&Group, Vec<&Rule>)],
     diff: &Diff,
     brief: Option<&crate::lists::spec_check::Brief>,
@@ -657,7 +657,7 @@ pub fn ask_groups(
             context: &context,
             open: &given,
         });
-        let setup = prompt::setup(group, unit.members);
+        let setup = reviewer.setup(&group.model, prompt::setup(group, unit.members));
         let given_ids: Vec<i64> = given.iter().map(|f| f.id).collect();
         let started_at = crate::app_timing::now();
         let began = crate::clock::Moment::now();
@@ -831,7 +831,12 @@ impl Material {
     /// Closes each finding of <gone> in the call of its group in <asked>,
     /// adding a call that ran no reviewer for a group with none: no reviewer
     /// decides whether a finding in a deleted file is fixed.
-    pub fn close_deleted(&self, reviewer: &Path, asked: &mut Asked, gone: &[Finding]) {
+    pub fn close_deleted(
+        &self,
+        reviewer: &crate::review::Program,
+        asked: &mut Asked,
+        gone: &[Finding],
+    ) {
         for (name, held) in self.holding_groups(gone) {
             let ids: Vec<i64> = held.iter().map(|finding| finding.id).collect();
             let at = asked.calls.iter().position(|call| call.group == name);
@@ -859,21 +864,21 @@ impl Material {
 /// A call of <group> that ran no reviewer: failed with <failure>, or, with
 /// none, an answer of no findings.
 fn bare_call(
-    reviewer: &Path,
+    reviewer: &crate::review::Program,
     group: &Group,
     members: &[&Rule],
     failure: Option<String>,
 ) -> NewCall {
     NewCall {
         group: group.name.clone(),
-        model: super::provider::model_name(reviewer, &group.model),
-        prompt: prompt::setup(group, members),
+        model: reviewer.model_name(&group.model),
+        prompt: reviewer.setup(&group.model, prompt::setup(group, members)),
         rules: prompt::answer_names(group, members),
         tokens_in: 0,
         tokens_out: 0,
         tokens_cached: 0,
         tokens_written: 0,
-        cost_microdollars: 0,
+        cost_microdollars: Some(0),
         sites: None,
         failure,
         verdicts: Vec::new(),
@@ -892,7 +897,10 @@ fn merge(held: &mut NewCall, more: NewCall) {
     held.tokens_out += more.tokens_out;
     held.tokens_cached += more.tokens_cached;
     held.tokens_written += more.tokens_written;
-    held.cost_microdollars += more.cost_microdollars;
+    held.cost_microdollars = held
+        .cost_microdollars
+        .zip(more.cost_microdollars)
+        .map(|(a, b)| a + b);
     held.failure = match (held.failure.take(), more.failure) {
         (Some(a), Some(b)) => Some(format!("{a}; {b}")),
         (a, b) => a.or(b),

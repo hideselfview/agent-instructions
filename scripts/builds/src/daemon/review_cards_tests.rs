@@ -81,7 +81,7 @@ fn standing(reads: &Reads, demo: &Demo, side: &Path) -> Option<ItemWait> {
     .unwrap()
 }
 
-fn review(demo: &Demo, root: &Path, program: &Path, side: &Path, key: &str) {
+fn review(demo: &Demo, root: &Path, program: &crate::review::Program, side: &Path, key: &str) {
     crate::review::review(&crate::review::Inputs {
         store: &demo.store,
         project: "demo",

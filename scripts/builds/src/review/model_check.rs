@@ -6,10 +6,9 @@
 //! text around each hunk, and answers whether the code breaks the rule as the
 //! finding says.
 
-use std::path::Path;
-
 use serde_json::{Value, json};
 
+use super::provider::{Selection, Tier};
 use crate::review::call::{self, Usage};
 use crate::review::check::names_file;
 use crate::review::files;
@@ -18,7 +17,11 @@ use crate::review::record::Finding;
 use crate::review::run::{Diff, Material};
 
 /// The model that checks a finding unless a command names another.
-pub const MODEL: &str = "high";
+pub const MODEL: Selection = Selection::Tier(Tier::High);
+
+pub fn selection(named: Option<&str>) -> Selection {
+    named.map_or(MODEL, |name| Selection::Named(name.to_string()))
+}
 
 /// The first line of every message, before the rule's slug.
 const TASK: &str = "Task: model-check";
@@ -36,14 +39,14 @@ pub struct Checked {
 impl Checked {
     /// The reason a settle records for this answer: the model's own words,
     /// after what it decided.
-    pub fn settle_why(&self) -> Option<(&'static str, String)> {
-        let (confirmed, why) = self.verdict.as_ref().ok()?;
+    pub fn settle_why(&self) -> Result<(&'static str, String), &str> {
+        let (confirmed, why) = self.verdict.as_ref().map_err(String::as_str)?;
         let (how, word) = if *confirmed {
             ("confirmed", "confirmed")
         } else {
             ("dropped", "rejected")
         };
-        Some((how, format!("the {} check {word} it: {why}", self.model)))
+        Ok((how, format!("the {} check {word} it: {why}", self.model)))
     }
 }
 
@@ -110,17 +113,12 @@ fn file_of(diff: &Diff, finding: &Finding) -> Option<(String, String)> {
 /// Asks <program> in <model> whether <finding>, over <diff>, breaks its rule
 /// in <material>.
 pub fn check(
-    program: &Path,
-    model: &str,
+    program: &crate::review::Program,
+    model: &Selection,
     material: &Material,
     finding: &Finding,
     diff: &Diff,
-) -> Checked {
-    let failed = |why: String| Checked {
-        model: super::provider::model_name(program, model),
-        verdict: Err(why),
-        usage: Usage::default(),
-    };
+) -> Result<Checked, String> {
     let rule_text = if finding.rule == PROJECT_FACTS {
         Some(material.project_text.as_str())
     } else {
@@ -131,10 +129,10 @@ pub fn check(
             .map(|r| r.text.as_str())
     };
     let Some(rule_text) = rule_text else {
-        return failed(format!("the rules checkout has no rule {}", finding.rule));
+        return Err(format!("the rules checkout has no rule {}", finding.rule));
     };
     let Some((file_diff, context)) = file_of(diff, finding) else {
-        return failed(format!("the diff has no file {}", finding.file));
+        return Err(format!("the diff has no file {}", finding.file));
     };
     let invoked = call::invoke(
         program,
@@ -157,11 +155,11 @@ pub fn check(
             _ => Err("the verdict is not confirmed or rejected".to_string()),
         }
     });
-    Checked {
+    Ok(Checked {
         model: invoked.model,
         verdict,
         usage: invoked.usage,
-    }
+    })
 }
 
 #[cfg(test)]

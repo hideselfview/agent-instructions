@@ -34,7 +34,7 @@ impl Tool {
             .expect("the clock is after 1970")
             .as_secs() as i64;
         Tool {
-            reviewer: Reviewer::installed(&places.home),
+            reviewer: Reviewer::installed(&places),
             program,
             places,
             rules,
