@@ -79,10 +79,11 @@ impl Feed {
         let since = Stream::current_event_id();
         // Opened before the first read, so a write after them moves them.
         let mut watches = HashMap::new();
-        databases_moved(&places, &mut watches);
+        let snapshot = databases_moved(&places, &mut watches).and_then(|_| load_all(&places));
+        report_snapshot_fault(&snapshot);
         let now = clock();
         let feed = Arc::new(Feed {
-            current: Mutex::new((1, Arc::new(load_all(&places)))),
+            current: Mutex::new((1, Arc::new(snapshot))),
             hooks: Mutex::new(Arc::new(crate::hook_stats::dashboard_json_at(&places, now))),
             hooks_minute: AtomicI64::new(now.div_euclid(60)),
             clock,
@@ -155,10 +156,7 @@ impl Feed {
         let Ok(stores) = stores(&self.places) else {
             // No store is known to check; the read of the stores names why
             // their folder can't be listed.
-            let mut held = self.integrity.lock().expect("no panic holding it");
-            let had = !held.is_empty();
-            held.clear();
-            return had;
+            return self.clear_integrity();
         };
         let before = self.integrity.lock().expect("no panic holding it").clone();
         let checked: BTreeMap<String, Vec<String>> = stores
@@ -174,6 +172,13 @@ impl Feed {
         let changed = checked != before;
         *self.integrity.lock().expect("no panic holding it") = checked;
         changed
+    }
+
+    fn clear_integrity(&self) -> bool {
+        let mut held = self.integrity.lock().expect("no panic holding it");
+        let had = !held.is_empty();
+        held.clear();
+        had
     }
 
     /// Reads after each burst of events, and at the start of each minute of
@@ -211,20 +216,28 @@ impl Feed {
             &self.places,
             &mut self.watches.lock().expect("no panic holding it"),
         );
-        let moved = !moved_databases.is_empty();
         let new_minute =
             self.hooks_minute.swap(now.div_euclid(60), Ordering::SeqCst) != now.div_euclid(60);
-        let mut changed = false;
-        if moved {
-            let previous = self.current.lock().expect("no panic holding it").1.clone();
-            let (read, stores_changed) = reload(&self.places, &previous);
-            if stores_changed {
-                let mut current = self.current.lock().expect("no panic holding it");
-                *current = (current.0 + 1, Arc::new(read));
-                changed = true;
+        let previous = self.current.lock().expect("no panic holding it").1.clone();
+        let update = match &moved_databases {
+            Ok(paths) if !paths.is_empty() || previous.is_err() => {
+                let (read, changed) = reload(&self.places, &previous);
+                changed.then_some(read)
             }
+            Ok(_) => None,
+            Err(fault) => {
+                let read = Err(fault.clone());
+                (*previous != read).then_some(read)
+            }
+        };
+        let mut changed = update.is_some();
+        if let Some(read) = update {
+            report_snapshot_fault(&read);
+            let mut current = self.current.lock().expect("no panic holding it");
+            *current = (current.0 + 1, Arc::new(read));
         }
-        if moved || new_minute {
+        let moved = matches!(&moved_databases, Ok(paths) if !paths.is_empty());
+        if changed || moved || new_minute {
             let hooks = crate::hook_stats::dashboard_json_at(&self.places, now);
             changed |= replace_if_changed(&self.hooks, hooks);
         }
@@ -233,7 +246,12 @@ impl Feed {
         }
         // After the lists and figures are out: the checks read every page
         // of the database.
-        if moved && self.check_integrity(&moved_databases) {
+        let integrity_changed = match moved_databases {
+            Ok(paths) if moved => self.check_integrity(&paths),
+            Ok(_) => false,
+            Err(_) => self.clear_integrity(),
+        };
+        if integrity_changed {
             self.tell();
         }
     }
@@ -248,21 +266,20 @@ impl Feed {
 
 /// The databases of <places>'s stores that changed since <watches> last
 /// looked: added, removed, or moved as their watch says. Keeps <watches> to
-/// the databases there now. When the stores' folder can't be listed, the
-/// daemon's log says why and every watched database counts as changed, so the
-/// feed reads the stores again and serves the fault. A watch that can't be
+/// the databases there now. When the stores' folder can't be listed, drops
+/// the watches and returns the fault for the feed to serve. A watch that can't be
 /// opened or read leaves unknown whether its database changed: the log says
 /// why, and the database counts as changed, so the feed reads the store again
 /// and serves what is wrong with it.
 fn databases_moved(
     places: &Places,
     watches: &mut HashMap<PathBuf, crate::db::Watch>,
-) -> Vec<PathBuf> {
+) -> Result<Vec<PathBuf>, String> {
     let databases: Vec<PathBuf> = match database_paths(places) {
         Ok(paths) => paths.into_iter().filter(|path| path.is_file()).collect(),
         Err(error) => {
-            crate::text::note(format!("following the stores: {}", error.text()));
-            return watches.drain().map(|(path, _)| path).collect();
+            watches.clear();
+            return Err(error.text());
         }
     };
     let mut moved: Vec<PathBuf> = watches
@@ -293,7 +310,13 @@ fn databases_moved(
             }
         }
     }
-    moved
+    Ok(moved)
+}
+
+fn report_snapshot_fault(snapshot: &Snapshot) {
+    if let Err(fault) = snapshot {
+        crate::text::note(format!("reading the project lists: {fault}"));
+    }
 }
 
 /// Puts <read> in <held> when it differs from what <held> holds, and returns

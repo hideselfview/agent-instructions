@@ -1046,6 +1046,17 @@ fn the_designs_page_distinguishes_missing_designs_from_an_unreadable_store_folde
 }
 
 #[test]
+fn the_designs_page_reports_a_store_in_a_folder_with_an_invalid_project_name() {
+    let server = server_with("http-designs-invalid-project-folder", |_, places| {
+        let store = crate::lists::fixtures::make_store(places, &["bae"]);
+        std::fs::rename(store.dir, places.lists.join(".invalid")).unwrap();
+    });
+    let (status, _, body) = server.get("/designs/demo");
+    assert_eq!(status, 500, "{body}");
+    assert!(body.contains("'.invalid' is not a project name"), "{body}");
+}
+
+#[test]
 fn the_designs_page_lists_the_scratch_boards_only_on_this_mac() {
     let s = server_with("http-scratch-list", scratch_store);
     assert_eq!(

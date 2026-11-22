@@ -295,7 +295,7 @@ fn the_feeds_own_reads_change_no_database_and_a_write_does() {
     let store = make_store(&places, &["bae", "coven"]);
     let mut watches = HashMap::new();
     assert_eq!(
-        databases_moved(&places, &mut watches),
+        databases_moved(&places, &mut watches).unwrap(),
         vec![store.database()]
     );
     let loaded = load_all(&places);
@@ -303,12 +303,12 @@ fn the_feeds_own_reads_change_no_database_and_a_write_does() {
     assert_eq!(store.integrity(), Vec::<String>::new());
     crate::hook_stats::dashboard_json_at(&places, NOON);
     assert_eq!(
-        databases_moved(&places, &mut watches),
+        databases_moved(&places, &mut watches).unwrap(),
         Vec::<PathBuf>::new()
     );
     store.write(&stamp(NOON), "touch", |_| Ok(())).unwrap();
     assert_eq!(
-        databases_moved(&places, &mut watches),
+        databases_moved(&places, &mut watches).unwrap(),
         vec![store.database()]
     );
 }

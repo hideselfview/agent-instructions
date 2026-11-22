@@ -2758,10 +2758,13 @@ STATUS, HEALTH AND THE DASHBOARD
                               tabs, a link opens the chosen project's
                               Designs page (/designs/<project>), for a
                               project with design places. When the dashboard
-                              cannot read the project lists, the Designs page
-                              says what failed. The page shows every board
-                              of the repo that holds them as it
-                              stands on origin/main, in a tab per page of
+                              cannot read the project lists, it reports the
+                              failure when you open the Designs page, view
+                              a board, component preview, color group or
+                              comparison, open a scratch view, take or view
+                              component shots, or ask to publish. The page
+                              shows every board of the repo that holds them
+                              as it stands on origin/main, in a tab per page of
                               design/mocks/canvas.json, each drawn in the
                               dark as a review page draws it. A page's
                               boards stand on a canvas at the x, y, width
