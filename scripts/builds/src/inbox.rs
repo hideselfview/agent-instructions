@@ -139,7 +139,12 @@ impl Destinations {
                 })),
                 _ => Ok(None),
             },
-            _ => Ok(Messaging::claude_from_env()?.map(Self::Shared)),
+            Session::Claude { .. } => Ok(Messaging::claude_from_env()?.map(Self::Shared)),
+            Session::InvalidClaude => {
+                session.claude()?;
+                Ok(None)
+            }
+            Session::Terminal => Ok(None),
         }
     }
 
