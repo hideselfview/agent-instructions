@@ -378,10 +378,17 @@ fn pipe_within(
     let (mut stalled, mut receiver_ended_early) = (false, false);
     let ended = |which: &str, status: std::io::Result<std::process::ExitStatus>| {
         status.map_err(|error| {
-            // Stops what is left of the copy; its own failure is the cause.
-            let _ = stop(send_pid);
-            let _ = stop(receive_pid);
-            Fail::Message(format!("waiting for the {which} of {what}: {error}"))
+            // Stops what is left of the copy; a failure to stop it is said
+            // beside the failed wait.
+            let stopped: Vec<String> = [send_pid, receive_pid]
+                .into_iter()
+                .filter_map(|pid| stop(pid).err().map(Fail::text))
+                .collect();
+            let mut message = format!("waiting for the {which} of {what}: {error}");
+            if !stopped.is_empty() {
+                message.push_str(&format!(" ({})", stopped.join("; ")));
+            }
+            Fail::Message(message)
         })
     };
     while !(carried_done && sent.is_some() && received.is_some()) {
