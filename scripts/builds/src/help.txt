@@ -148,7 +148,7 @@ on it:
   <repo>/app.queue/     the builds waiting for the lane's locks: `order` holds
                         one ticket per line, next first, the holders' tickets
                         among them, and each process in line holds a ticket
-                        file named <pid>-<n>-here|hosts|anywhere, for where
+                        file named <pid>-<n>-here|anywhere, for where
                         its build may run
   <repo>/app-android-checkouts, app-android-checkouts-removed,
   app-android.locks/, app-android.queue/
@@ -905,8 +905,7 @@ tests, clippy and the hook use).
 
 The builds tool adds checkouts to a lane while other builds wait in its queue,
 and removes the ones it added that no build uses. A build that joins a lane's
-queue and has to wait adds a checkout `builds-<lane>-<n>` on a host, and so
-does a build that may run only on a host in a lane with no checkout there.
+queue and has to wait adds a checkout `builds-<lane>-<n>` on a host.
 builds picks the host with the most free cores (its cores less its one-minute
 load) among those with at least one core free, free disk above the floor
 (BUILDS_FREE_FLOOR_GIB) by one checkout of the lane (about 22 GB for mac and 10
@@ -953,10 +952,10 @@ app checkout keeps only its own lane's folders built. A checkout is one lane's,
 never both. A lane with several app checkouts builds in as many at once, and
 its queue gives each free checkout to the first build in line that may use it:
 waiters go in the order they came, a waiter takes a free checkout it may use
-even when a waiter ahead of it may not (a build that runs only on this Mac
-passes one that waits for a host's checkout, and the reverse), and one that
-dies in line never lets anyone past the holders. A ticket's name ends in the
-words here, hosts or anywhere, which say where its build may run.
+even when a waiter ahead of it may not (a build that may run anywhere passes
+one that waits for a checkout on this Mac), and one that dies in line never
+lets anyone past the holders. A ticket's name ends in the words here or anywhere,
+which say where its build may run.
 
 An app checkout's working tree belongs to whoever holds its lock, and only for
 the command they run holding it: nobody edits there or leaves changes behind.
@@ -1017,10 +1016,9 @@ A repo's `.app-build` at its root says what its app builds run, one line each:
                     step)
   opens-windows <lane>[:<name>]...
                     the test lines whose runs open windows (bae's mac:ui line,
-                    for its UI tests); a --test run of such a line never runs
-                    on this Mac, where the windows would cover the person's
-                    screen, only on a host, and one such run at a time on each
-                    host (APP BUILDS)
+                    for its UI tests); a --test run of such a line runs on this
+                    Mac or on a host, and one such run at a time on each
+                    host, this Mac included (APP BUILDS)
   ci-only <step>...
                     steps that only CI runs, such as a whole test suite
                     (bae's macos-tests-all); app-build refuses such a step
@@ -1299,8 +1297,7 @@ built again.
                               --all-shots mac runs); a
                               lane with runs and no step builds its `needs`
                               steps; each lane takes the free app checkout on
-                              the less loaded host (only a host's for a test
-                              line that opens windows). A --shots or
+                              the less loaded host. A --shots or
                               --all-shots pick whose run builds has already cached
                               and that a passing app build of <ref>'s commit
                               ran (the build `builds land` counts) prints its
