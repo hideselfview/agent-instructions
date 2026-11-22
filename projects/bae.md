@@ -150,12 +150,13 @@ full set of shots with `builds app-build bae <branch> --all-shots mac` (or
 `android`) as a background task. builds runs the `shots` line of `.app-build`
 with every shot of the platform selected and keeps the findings and the report,
 which `builds shots findings bae <branch> mac mac.` prints again. The run fails
-only on the pairs that are new or worse than in the run of the branch's merge
-base with origin/main, which builds keeps and makes first when it has none. The
-renderer draws every Mac window scene on one virtual display of 1600 by 1200
-points at 2 pixels a point, which the shot test adds beside the Mac's own
-displays, so a scene renders the same on each Mac. The renderer fails a scene
-whose window does not fit that display's free area.
+only on the pairs that are worse than in the run of the branch's merge base with
+origin/main, which builds keeps and makes first when it has none. A scene that
+run did not check lists its findings and fails nothing. The renderer draws every
+Mac window scene on one virtual display of 1600 by 1200 points at 2 pixels a
+point, which the shot test adds beside the Mac's own displays, so a scene
+renders the same on each Mac. The renderer fails a scene whose window does not
+fit that display's free area.
 
 The `ci-only` line of `.app-build` names steps that only CI runs, such as the
 whole test suites (`macos-tests-run`, `macos-tests-all`, `android-tests`), and
