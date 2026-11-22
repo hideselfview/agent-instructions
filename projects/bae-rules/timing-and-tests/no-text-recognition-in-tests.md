@@ -1,5 +1,4 @@
 ---
-digest: Tests never read text off a screenshot with text recognition (Vision OCR); they check words through accessibility or the view's values, and shots check how a screen looks.
 paths:
   - bae-macos/**
   - bae-android/**

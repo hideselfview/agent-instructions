@@ -1,5 +1,4 @@
 ---
-digest: No agent, test or probe connects to a real AirPlay or Cast receiver, this Mac's included; they use bae-cast's fake receivers on 127.0.0.1, and a check that needs real hardware is a your-step question for the person.
 paths:
   - bae-cast/**
   - bae-bridge/**

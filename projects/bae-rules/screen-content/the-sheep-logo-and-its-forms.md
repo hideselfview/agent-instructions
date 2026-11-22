@@ -1,5 +1,4 @@
 ---
-digest: "bae's logo is the sheep (assets/Logos/bae-sheep.svg) with the drawn word bae: together where bae introduces itself, in a line where height is short, the sheep alone on app icons and favicons (pixel-drawn at 16 and 32), the word alone where the sheep doesn't fit, and plain text for bae in sentences; Welcome's bob and glow and Import's playing sheep follow set timings and hold still for reduced motion."
 paths:
   - design/**
   - assets/**

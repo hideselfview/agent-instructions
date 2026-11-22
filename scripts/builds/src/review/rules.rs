@@ -1,8 +1,8 @@
 //! The rules a review reads: every `.md` under `rules/` and under the
 //! project's `projects/<project>-rules/` of an agent-instructions checkout
 //! (each in its group's folder), with the
-//! front matter `scripts/rules_review/matching_rules.py` reads (`paths`,
-//! `blocking`, `review`), whether the rule judges design files (`design`) or capture files
+//! front matter (`paths`, `blocking`, `review`), whether the rule judges
+//! design files (`design`) or capture files
 //! (`capture`),
 //! and the full body.
 
@@ -12,6 +12,11 @@ use crate::fail;
 use crate::fail::{Context, Result};
 use crate::glob::{Question, segments_match};
 use crate::lists::design_paths::{FileKind, Globs};
+
+/// The agent-instructions checkout linked by the installer.
+pub fn installed_root(home: &Path) -> PathBuf {
+    home.join(".codex/agent-instructions")
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Rule {
@@ -89,14 +94,22 @@ impl Rule {
         changed.iter().any(|path| self.covers(path, files))
     }
 
+    /// Whether the rule applies when authoring any of these paths.
+    pub fn matches_paths(&self, paths: &[String]) -> bool {
+        paths.iter().any(|path| self.matches_path(path))
+    }
+
     /// Whether the rule covers <path>, in a repo whose design and capture
     /// files <files> names.
     fn covers(&self, path: &str, files: &Globs) -> bool {
-        let matched = match &self.paths {
+        self.matches_path(path) && files.kind_of(path).is_none_or(|kind| self.judges(kind))
+    }
+
+    fn matches_path(&self, path: &str) -> bool {
+        match &self.paths {
             None => true,
             Some(globs) => globs.iter().any(|glob| glob_matches(glob, path)),
-        };
-        matched && files.kind_of(path).is_none_or(|kind| self.judges(kind))
+        }
     }
 }
 
@@ -151,29 +164,45 @@ pub fn glob_matches(glob: &str, path: &str) -> bool {
 /// each `projects/*-rules/` when <project> is None, or only under
 /// `projects/<project>-rules/`. Each tree in path order.
 pub fn load(root: &Path, project: Option<&str>) -> Result<Vec<Rule>> {
-    let mut trees: Vec<PathBuf> = vec![root.join("rules")];
-    match project {
-        Some(project) => trees.push(root.join("projects").join(format!("{project}-rules"))),
-        None => {
-            let projects = root.join("projects");
-            let mut dirs: Vec<PathBuf> = std::fs::read_dir(&projects)
-                .context(|| format!("listing {}", projects.display()))?
-                .filter_map(|entry| entry.ok().map(|e| e.path()))
-                .filter(|path| {
-                    path.is_dir()
-                        && path
-                            .file_name()
-                            .is_some_and(|n| n.to_string_lossy().ends_with("-rules"))
-                })
-                .collect();
-            dirs.sort();
-            trees.extend(dirs);
+    if let Some(project) = project {
+        let dir = root.join("projects").join(format!("{project}-rules"));
+        return load_trees(root, [(dir, true)]);
+    }
+    let projects = root.join("projects");
+    let entries =
+        std::fs::read_dir(&projects).context(|| format!("listing {}", projects.display()))?;
+    let mut trees = Vec::new();
+    for entry in entries {
+        let entry = entry.context(|| format!("listing {}", projects.display()))?;
+        if entry.file_name().to_string_lossy().ends_with("-rules") {
+            trees.push(entry.path());
         }
     }
+    trees.sort();
+    load_trees(root, trees.into_iter().map(|tree| (tree, false)))
+}
+
+/// The rules shared by all projects.
+pub fn load_shared(root: &Path) -> Result<Vec<Rule>> {
+    load_trees(root, [])
+}
+
+/// The shared rules and a project rule directory that must exist.
+pub fn load_project(root: &Path, project: &str) -> Result<Vec<Rule>> {
+    load_trees(
+        root,
+        [(
+            root.join("projects").join(format!("{project}-rules")),
+            false,
+        )],
+    )
+}
+
+fn load_trees(root: &Path, trees: impl IntoIterator<Item = (PathBuf, bool)>) -> Result<Vec<Rule>> {
     let mut rules: Vec<Rule> = Vec::new();
-    for tree in trees {
+    for (tree, optional) in std::iter::once((root.join("rules"), false)).chain(trees) {
         let mut files = Vec::new();
-        markdown_under(&tree, &mut files)?;
+        markdown_under(&tree, &mut files, optional)?;
         files.sort();
         for file in files {
             let text =
@@ -208,11 +237,11 @@ pub fn load(root: &Path, project: Option<&str>) -> Result<Vec<Rule>> {
     Ok(rules)
 }
 
-/// Every `.md` file under <dir>, at any depth; none when <dir> is missing.
-fn markdown_under(dir: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
+/// Every `.md` file under <dir>, at any depth.
+fn markdown_under(dir: &Path, files: &mut Vec<PathBuf>, optional: bool) -> Result<()> {
     let entries = match std::fs::read_dir(dir) {
         Ok(entries) => entries,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) if optional && error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
         Err(error) => fail!("listing {}: {error}", dir.display()),
     };
     for entry in entries {
@@ -220,7 +249,7 @@ fn markdown_under(dir: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
             .context(|| format!("listing {}", dir.display()))?
             .path();
         if path.is_dir() {
-            markdown_under(&path, files)?;
+            markdown_under(&path, files, false)?;
         } else if path.extension().is_some_and(|ext| ext == "md") {
             files.push(path);
         }

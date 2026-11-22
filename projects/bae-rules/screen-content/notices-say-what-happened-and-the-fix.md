@@ -1,5 +1,4 @@
 ---
-digest: A bae notice says what happened, what is wrong and the fix, each once, in words the person can act on; it never shows the error itself, whose causes open from Details; it is quiet inside an alert or dialog; a failed part's Retry is its box's action, and a view that failed whole is a centred notice.
 paths:
   - design/**
   - bae-macos/**

@@ -1,5 +1,4 @@
 ---
-digest: Never use real artist, album or song names in durable artifacts; use descriptive placeholders.
 paths:
   - '**/*'
 blocking: true

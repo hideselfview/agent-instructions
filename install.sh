@@ -25,23 +25,7 @@ fi
 git -C "$repo" config core.hooksPath .githooks
 echo "Configured $repo git hooks -> .githooks"
 
-# Generate gitignored tool-specific instruction files. Claude gets shared
-# always-on behavior; Codex gets that plus the rules index it needs because it
-# lacks Claude Code's path-scoped rule loading. Rule bodies are delivered
-# separately by Claude Code's rules/ symlinks and by Codex's matching_rules.py.
-python3 "$repo/generate.py"
-mdformat "$repo/claude/CLAUDE.md" "$repo/codex/AGENTS.md"
-
-ln -sf "claude/CLAUDE.md" "$repo/CLAUDE.md"
-ln -sf "codex/AGENTS.md" "$repo/AGENTS.md"
-
 mkdir -p "$HOME/.claude" "$HOME/.codex"
-
-ln -sf "$repo/claude/CLAUDE.md" "$HOME/.claude/CLAUDE.md"
-echo "Linked ~/.claude/CLAUDE.md -> $repo/claude/CLAUDE.md"
-
-ln -sf "$repo/codex/AGENTS.md" "$HOME/.codex/AGENTS.md"
-echo "Linked ~/.codex/AGENTS.md -> $repo/codex/AGENTS.md"
 
 ln -sfn "$repo" "$HOME/.codex/agent-instructions"
 echo "Linked ~/.codex/agent-instructions -> $repo"
@@ -94,23 +78,6 @@ if [[ -d "$repo/claude/skills" ]]; then
   done
 fi
 
-mkdir -p "$HOME/.claude/rules"
-# A link to a rule since removed or merged into another is dropped.
-for link in "$HOME/.claude/rules"/*.md; do
-  if [[ -L "$link" && ! -e "$link" && "$(readlink "$link")" == "$repo/rules"/* ]]; then
-    rm "$link"
-    echo "Removed ~/.claude/rules/$(basename "$link") (its file is gone)"
-  fi
-done
-# Each rule sits in its group's folder, and is linked directly into
-# ~/.claude/rules/ without it: Claude Code has open bugs loading path-scoped
-# rules from subfolders.
-while IFS= read -r f; do
-  name="$(basename "$f")"
-  ln -sf "$f" "$HOME/.claude/rules/$name"
-  echo "Linked ~/.claude/rules/$name -> $f"
-done < <(find "$repo/rules" -name '*.md' -type f | sort)
-
 # Per-project instruction symlinks. Convention: each projects/<name>.md
 # targets ~/dev/<name>/CLAUDE.md and ~/dev/<name>/AGENTS.md. Skip projects whose
 # target dir doesn't exist on this machine.
@@ -125,37 +92,6 @@ for f in "$repo/projects"/*.md; do
     echo "Linked $target_dir/AGENTS.md -> $f"
   else
     echo "Skipped $name (no $target_dir)"
-  fi
-done
-
-# Per-project rule files. Convention: projects/<name>-rules/<group>/*.md are
-# path-scoped rules for that project, linked without their group folder into
-# .claude/rules/ of ~/dev/<name> and of each of its worktrees, so Claude Code
-# loads them wherever an agent edits; a link to a rule since removed is dropped. A repo's
-# post-checkout links them into a worktree it creates. Gitignore .claude/rules/
-# in the target repo.
-for rules_dir in "$repo/projects"/*-rules; do
-  [[ -d "$rules_dir" ]] || continue
-  name="$(basename "$rules_dir")"
-  name="${name%-rules}"
-  if [[ -d "$HOME/dev/$name" ]]; then
-    checkouts="$(git -C "$HOME/dev/$name" worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p')"
-    [[ -n "$checkouts" ]] || checkouts="$HOME/dev/$name"
-    while IFS= read -r checkout; do
-      target_dir="$checkout/.claude/rules"
-      mkdir -p "$target_dir"
-      for link in "$target_dir"/*.md; do
-        if [[ -L "$link" && ! -e "$link" && "$(readlink "$link")" == "$rules_dir"/* ]]; then
-          rm "$link"
-        fi
-      done
-      while IFS= read -r f; do
-        ln -sf "$f" "$target_dir/$(basename "$f")"
-      done < <(find "$rules_dir" -name '*.md' -type f | sort)
-      echo "Linked $name's rules into $target_dir"
-    done <<< "$checkouts"
-  else
-    echo "Skipped ${name}-rules (no $HOME/dev/$name)"
   fi
 done
 
@@ -178,3 +114,33 @@ rsync -rc --delete "$head/export/scripts/shots/" "$head/shots/"
 rm -rf "$head/export"
 cargo build --release --quiet --locked --manifest-path "$head/src/Cargo.toml" --target-dir "$head/target"
 "$head/target/release/builds" install
+
+for file in "$HOME/.claude/CLAUDE.md" "$HOME/.codex/AGENTS.md"; do
+  ln -sf "$repo/instructions-agent.md" "$file"
+  echo "Linked $file -> $repo/instructions-agent.md"
+done
+rm -f "$repo/claude/CLAUDE.md" "$repo/codex/AGENTS.md"
+
+# Remove links installed by the old rule loader. Leave other rules in place.
+remove_rule_links() {
+  local path target
+  for path in "$1"/*.md; do
+    [[ -L "$path" ]] || continue
+    target="$(readlink "$path")"
+    [[ "$target" == "$2"/* ]] || continue
+    rm "$path"
+  done
+}
+
+remove_rule_links "$HOME/.claude/rules" "$repo/rules"
+
+for rules_dir in "$repo/projects/"*-rules; do
+  [[ -d "$rules_dir" ]] || continue
+  name="${rules_dir##*/}"
+  project="$HOME/dev/${name%-rules}"
+  [[ -e "$project/.git" ]] || continue
+  checkouts="$(git -C "$project" worktree list --porcelain | sed -n 's/^worktree //p')"
+  while IFS= read -r checkout; do
+    remove_rule_links "$checkout/.claude/rules" "$rules_dir"
+  done <<< "$checkouts"
+done

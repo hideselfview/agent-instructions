@@ -1,5 +1,4 @@
 ---
-digest: Before any change, ask whether it is needed and what could make it unneeded. Model today's logic, never a shape for a future change (no Vec for a future second item). Code that nothing outside tests calls is dead; whoever finds it deletes it or queues its deletion and never asks the person, and a commit never adds it without its caller. Delete dead code at its root, with the chain it orphans; never-varying parameters and unread fields go, and fields that modeled the dead case become required. In Rust, delete unused code or restrict it with `#[cfg]`, never `#[allow(dead_code)]`.
 paths:
   - '**/*.rs'
   - '**/*.swift'

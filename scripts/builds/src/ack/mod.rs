@@ -12,9 +12,7 @@
 //! agent (agent.rs).
 //!
 //! builds keeps the acknowledgement in the store of the project whose repo
-//! the command runs in, else of the project `--project` names. The text holds
-//! no CLAUDE.md: Claude Code loads ~/.claude/CLAUDE.md and the repo's
-//! CLAUDE.md into every agent's context itself. builds refuses an agent that
+//! the command runs in, else of the project `--project` names. builds refuses an agent that
 //! has no acknowledgement of the text. An acknowledgement lasts until Claude
 //! Code compacts the agent: its SessionStart hook then runs `builds ack
 //! --compacted`, which deletes every acknowledgement of that agent
@@ -57,7 +55,7 @@ const USAGE: &str = "usage: builds ack [--agent ID] [--project P]\n       builds
 /// Refuses `builds <command> <args>` when an agent runs it with no
 /// acknowledgement, and prints the notice of a change of the text once
 /// (`check`). Passes the person's commands, `ack`, which records the
-/// acknowledgement, `status --json --no-folders` (`lists_checkouts`), and the commands a builds command that passed runs. The
+/// acknowledgement, read-only `brief`, `status --json --no-folders` (`lists_checkouts`), and the commands a builds command that passed runs. The
 /// gate also passes the commands that do not use the stores
 /// (`install_gate::STORELESS`): the gate reads a store, and install must run
 /// while the stores still have an older schema, because install migrates them
@@ -109,7 +107,7 @@ fn lists_checkouts(command: &str, args: &[String]) -> bool {
 /// in a repo's main checkout. No agent commits in a main checkout (`builds
 /// help workflow`, WORKTREES), so a commit there is the person's, even when
 /// the person's Claude Code session makes it, and the gate, which makes
-/// agents read the rules, does not apply to its hook.
+/// agents read the workflow instructions, does not apply to its hook.
 fn commits_in_main_checkout(command: &str, args: &[String]) -> Result<bool> {
     if command != "checks" {
         return Ok(false);
@@ -191,10 +189,6 @@ impl Agent {
     /// The agent as messages name it.
     fn name(&self) -> String {
         format!("agent {}", self.id)
-    }
-
-    fn text(&self, places: &Places) -> Result<Text> {
-        Text::read(places, &self.store.project)
     }
 
     /// The version of the text the agent last acknowledged.
@@ -334,7 +328,7 @@ fn check(
     now: i64,
 ) -> Result<Option<String>> {
     let agent = Agent::resolve(places, session, id, project, cwd)?;
-    let text = agent.text(places)?;
+    let text = Text::read();
     match agent.standing(places, &text, now)? {
         Standing::Current => Ok(None),
         Standing::Changed(changes) => Ok(changes.notice(&text)),
@@ -397,7 +391,7 @@ fn ack(
     now: i64,
 ) -> Result<String> {
     let agent = Agent::resolve(places, session, id, args.value("project")?, cwd)?;
-    let text = agent.text(places)?;
+    let text = Text::read();
     match args.positional() {
         [] => start(places, &agent, &text, now),
         [word, part, token] if word == "part" => part_of(places, &agent, &text, part, token),

@@ -127,14 +127,9 @@ fn rules_root(args: &Args) -> Result<PathBuf> {
 /// The checkout `install.sh` links at ~/.codex/agent-instructions.
 pub fn default_rules_root() -> Result<PathBuf> {
     match std::env::var_os("HOME") {
-        Some(home) => Ok(installed_rules_root(Path::new(&home))),
+        Some(home) => Ok(rules::installed_root(Path::new(&home))),
         None => fail!("HOME is not set; name the checkout with --rules-root"),
     }
-}
-
-/// The checkout `install.sh` links at .codex/agent-instructions in <home>.
-pub fn installed_rules_root(home: &Path) -> PathBuf {
-    home.join(".codex/agent-instructions")
 }
 
 /// The reviewer program a command asks and the rules checkout it reads, for
@@ -168,7 +163,7 @@ impl Reviewer {
             .clone();
         Reviewer {
             program: Program::new(executable, temporary),
-            rules_root: installed_rules_root(&places.home),
+            rules_root: rules::installed_root(&places.home),
         }
     }
 }
@@ -191,7 +186,7 @@ pub fn workflow_section(places: &crate::places::Places, cwd: &Path) -> Result<St
         .filter(|store| store.project != project)
         .map(|store| store.open_existing())
         .collect::<Result<Vec<_>>>()?;
-    let rules = rules::load(&installed_rules_root(&places.home), Some(&project))?;
+    let rules = rules::load(&rules::installed_root(&places.home), Some(&project))?;
     let others: Vec<&rusqlite::Connection> = others.iter().map(|held| &**held).collect();
     frequent::section(&conn, &others, &project, &rules)
 }

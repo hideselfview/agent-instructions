@@ -1,5 +1,4 @@
 ---
-digest: A test or shot that captures a view, or reads its layout, turns animation off first, so it captures the same frame every run. On macOS every window it opens sets `animationBehavior = .none` before it is shown; on Android a compose-rule test sets `mainClock.autoAdvance = false` and advances the clock a fixed amount before it captures.
 paths:
   - bae-macos/**
   - bae-android/**

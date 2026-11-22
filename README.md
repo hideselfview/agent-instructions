@@ -12,17 +12,11 @@ them into `~/.claude/` and `~/.codex/`, so both tools read the same files.
   turn.
   - They cover how to design and judge work, how to find out what is true, how
     to talk with the user, and commits.
-- `generate.py` writes two gitignored files from `instructions-agent.md`:
-  - `claude/CLAUDE.md` holds `instructions-agent.md` alone.
-  - `codex/AGENTS.md` adds an index of the rules, built from each rule's
-    `digest`.
-  - `CLAUDE.md` and `AGENTS.md` at the repo root link to them, so Claude Code or
-    Codex opened in this repo loads them.
+- Both `AGENTS.md` and `CLAUDE.md` link to `instructions-agent.md`.
 - `rules/<group>/*.md` holds one code rule per file, in the folder of its review
   group (see below). Each file's frontmatter has these fields:
-  - `digest`: the one line that goes into the Codex index.
-  - `paths`: globs for the files the rule covers. Claude Code loads the rule's
-    body when it reads a matching file.
+  - `paths`: globs for the files the rule covers. Builds uses them when it
+    prepares briefs and runs reviews.
   - `blocking`: whether the reviewer's prompt and the report mark the rule's
     findings blocking. Every finding, blocking or not, must be settled before
     `builds land` takes the commits.
@@ -62,8 +56,6 @@ them into `~/.claude/` and `~/.codex/`, so both tools read the same files.
   - They refuse full local test suites, polling loops and other waits on a
     process or a time (such as `caffeinate -w`), and moves in an app checkout
     without its lock.
-- `scripts/rules_review/matching_rules.py` lists the rule files whose `paths`
-  match given repo paths.
 - `.githooks/` holds this repo's git hooks.
   - `pre-commit` runs `builds checks run`, which runs the checks `.checks` lists
     on the staged files.
@@ -73,15 +65,8 @@ them into `~/.claude/` and `~/.codex/`, so both tools read the same files.
 
 ## Where a rule goes
 
-Claude Code loads the rules itself. A file with `paths` frontmatter loads only
-when Claude Code reads a matching file; a file with no `paths` loads at launch,
-on every turn, like `CLAUDE.md`. So:
-
-- Every `rules/` file has `paths`.
-  - A language rule gets narrow globs (`**/*.rs`).
-  - A design rule for all code gets the code globs (`**/*.rs`, `**/*.swift`,
-    `**/*.kt`, `**/*.ts`, `**/*.tsx`), so it loads when an agent reads code but
-    not during chat.
+- Give each rule the `paths` of the files it covers. A Rust rule uses `**/*.rs`,
+  for example.
 - Agent behavior that applies on every turn (be terse, hold your position) goes
   in `instructions-agent.md`, not in `rules/`.
 - A rule for one project goes in `projects/<name>-rules/`.
@@ -97,16 +82,14 @@ git clone git@github.com:hideselfview/agent-instructions.git ~/dev/agent-instruc
 
 - installs mdformat if it is missing, and sets this repo's hooks folder to
   `.githooks`
-- runs `generate.py` and links `claude/CLAUDE.md` into `~/.claude/CLAUDE.md` and
-  `codex/AGENTS.md` into `~/.codex/AGENTS.md`
+- links `instructions-agent.md` into `~/.claude/CLAUDE.md` and
+  `~/.codex/AGENTS.md`
 - links `claude/settings.json` into `~/.claude/` and `codex/config.toml` into
   `~/.codex/`
   - It first moves an existing `~/.codex/config.toml` that is not a link aside.
 - links each skill folder of `claude/skills/` into `~/.claude/skills/` and of
   `codex/skills/` into `~/.codex/skills/`
-- links every rule file under `rules/` into `~/.claude/rules/`, directly and
-  without its group folder (Claude Code has open bugs loading path-scoped rules
-  from subfolders), and this repo into `~/.codex/agent-instructions`
+- links this repo into `~/.codex/agent-instructions` for Builds
 - links each project's files, as the next section describes
 - builds `builds` from the committed HEAD and runs `builds install`
 
@@ -126,41 +109,22 @@ live until it is on main there. After each landing, `builds land` moves the main
 checkout's main to the landed commits with
 `git -C ~/dev/agent-instructions merge --ff-only origin/main`, as it does for
 every repo's main checkout, and the checkout's post-merge hook runs
-`install.sh`, which installs the new `builds` and links the new rules and
-skills. When the main checkout is not on main, or the person's commits or
+`install.sh`, which installs the new `builds` and links the shared instructions
+and skills. When the main checkout is not on main, or the person's commits or
 uncommitted edits there stop the fast-forward, `builds land` prints a
 `MAIN CHECKOUT BEHIND` line with the command that the person runs after they
 check out main or commit, push or discard those changes.
 
 ## Per-project setup
 
-`install.sh` links two things for each project whose folder (`~/dev/<name>`)
-exists on this machine, and skips the rest:
+`install.sh` links `projects/<name>.md` to both `CLAUDE.md` and `AGENTS.md` in
+`~/dev/<name>` when that checkout exists. Gitignore both links in the project.
 
-- `projects/<name>.md` → `~/dev/<name>/CLAUDE.md` and `~/dev/<name>/AGENTS.md`
-- `projects/<name>-rules/<group>/*.md` → `.claude/rules/` in `~/dev/<name>` and
-  in each of its worktrees, without the group folder
-  - A project's own post-checkout hook links them into a worktree it creates.
-  - Claude Code loads these rules the same way as the ones in `rules/`, and
-    `builds review` reviews against them too.
+## Rules in briefs
 
-Gitignore `CLAUDE.md`, `AGENTS.md` and `.claude/rules/` in the project, because
-they are links to this machine's files.
-
-## Rules in Codex
-
-Codex reads `AGENTS.md` but doesn't load rules by path. The generated
-`codex/AGENTS.md` holds the rule index and tells Codex to list the matching rule
-files before it edits:
-
-```bash
-python3 ~/.codex/agent-instructions/scripts/rules_review/matching_rules.py \
-  --project <project> <repo-relative-path>...
-```
-
-The script prints the rule files whose `paths` match, including the project's
-rules under `projects/<project>-rules/`. Codex reads each of them before it
-edits.
+Send the output of `builds brief --file FILE PATH...` to the worker. Pass
+repo-relative paths and use `--project P` to include project rules. Omit
+`--file` to print the rules by themselves.
 
 ## Code review
 

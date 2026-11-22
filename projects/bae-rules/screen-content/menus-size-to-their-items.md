@@ -1,5 +1,4 @@
 ---
-digest: A bae menu is as wide as its longest item, as macOS menus are, with no minimum width, and draws separator lines only between groups of items, never at its top or bottom.
 paths:
   - design/**
   - bae-macos/**

@@ -1,79 +1,18 @@
 use super::*;
-use crate::testing::Scratch;
-use std::path::Path;
-
-fn rule(paths: &str, body: &str) -> String {
-    format!("---\ndigest: d\npaths:\n  - '{paths}'\nblocking: true\n---\n\n{body}\n")
-}
-
-fn write(path: &Path, text: &str) {
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    std::fs::write(path, text).unwrap();
-}
-
-/// A home whose agent-instructions checkout holds a rule for every file, one
-/// for Rust files only, and a bae rule for every file, with a
-/// ~/.claude/CLAUDE.md, which the text leaves out.
-fn home(scratch: &Scratch) -> Places {
-    let places = scratch.places();
-    let root = scratch.dir.join("agent-instructions");
-    write(
-        &root.join("rules/text/plain.md"),
-        &rule("**/*", "Write plain sentences."),
-    );
-    write(
-        &root.join("rules/code/rust-only.md"),
-        &rule("**/*.rs", "Rust only."),
-    );
-    write(
-        &root.join("projects/bae-rules/screen/no-notes.md"),
-        &rule("**/*", "No music notes."),
-    );
-    std::fs::create_dir_all(places.home.join(".codex")).unwrap();
-    std::os::unix::fs::symlink(&root, places.home.join(".codex/agent-instructions")).unwrap();
-    write(&places.home.join(".claude/CLAUDE.md"), "Global rules.\n");
-    places
-}
 
 fn names(text: &Text) -> Vec<String> {
     text.sections.iter().map(|s| s.name.clone()).collect()
 }
 
 #[test]
-fn the_text_holds_the_workflow_the_lists_overview_and_the_rules_for_every_file_and_no_claude_md() {
-    let scratch = Scratch::new("ack-text");
-    let places = home(&scratch);
-    let text = Text::read(&places, "bae").unwrap();
+fn the_text_holds_only_the_workflow_and_the_lists_overview() {
+    let text = Text::read();
     assert_eq!(
         names(&text),
-        vec![
-            "builds help workflow",
-            "builds help lists overview",
-            "rules/text/plain.md",
-            "projects/bae-rules/screen/no-notes.md",
-        ]
+        vec!["builds help workflow", "builds help lists overview"]
     );
-    let builds = Text::read(&places, "builds").unwrap();
-    assert!(!names(&builds).contains(&"projects/bae-rules/screen/no-notes.md".to_string()));
-}
-
-#[test]
-fn an_edit_of_a_rule_changes_the_version_and_names_that_rule() {
-    let scratch = Scratch::new("ack-text-edit");
-    let places = home(&scratch);
-    let before = Text::read(&places, "bae").unwrap();
-    write(
-        &scratch.dir.join("agent-instructions/rules/text/plain.md"),
-        &rule("**/*", "Write plain, literal sentences."),
-    );
-    let after = Text::read(&places, "bae").unwrap();
-    assert_ne!(before.version(), after.version());
-    assert_eq!(
-        after.changed_since(&before.hashes()),
-        vec!["rules/text/plain.md"]
-    );
-    assert!(after.changed_since(&after.hashes()).is_empty());
-    assert!(after.removed_since(&after.hashes()).is_empty());
+    assert_eq!(text.sections[0].text, crate::help::WORKFLOW_HELP);
+    assert_eq!(text.sections[1].text, crate::help::LISTS_OVERVIEW);
 }
 
 #[test]
@@ -125,7 +64,7 @@ fn random_numbers_differ_on_each_draw() {
 #[test]
 fn a_part_shows_its_lines_unchanged_between_its_two_marker_lines_and_ends_with_the_next_command() {
     let lines = vec![
-        "===== rules/a.md (section 1 of 1) =====".to_string(),
+        "===== Example instructions (section 1 of 1) =====".to_string(),
         "A reader considers elephants carefully.".to_string(),
     ];
     let shown = show_part(&lines, 2, 3, "v1", "  builds ack part 3 tok");
@@ -139,9 +78,7 @@ fn a_part_shows_its_lines_unchanged_between_its_two_marker_lines_and_ends_with_t
 
 #[test]
 fn the_unread_sections_are_those_whose_name_and_hash_the_agent_lacks() {
-    let scratch = Scratch::new("ack-text-unread");
-    let places = home(&scratch);
-    let text = Text::read(&places, "bae").unwrap();
+    let text = Text::read();
     let mut known = text.hashes();
     assert!(text.unread(&known).sections.is_empty());
     known.remove(0);

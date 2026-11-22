@@ -33,13 +33,8 @@ READ FIRST
     refuses a brief with such a sentence that names none, or names one that
     does not exist. Never copy such a sentence from another brief: find its
     source, or leave it out.
-  - Every rule file the matching-rules script lists for the files your items
-    touch:
-      ~/.codex/agent-instructions/scripts/rules_review/matching_rules.py \
-        --project <project> <path>...
-    For a repo with rules of its own (coven), read its AGENTS.md or CLAUDE.md
-    and its rules the same way.
-
+  - The rules printed by `builds brief PATH...` for the files your items
+    touch. Pass `--project P` when the project has its own rules.
 
 READ CODE THROUGH GIT
 

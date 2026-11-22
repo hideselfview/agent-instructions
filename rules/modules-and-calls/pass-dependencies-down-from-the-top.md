@@ -1,5 +1,4 @@
 ---
-digest: Create dependencies at the top and pass them down; no singletons. Calls to the clock, environment, randomness or file system are dependencies too - read once at the top or inject a service. Inject what already exists or what a test needs; don't invent an abstraction nothing uses, and a system call on a value that was already injected is fine.
 paths:
   - '**/*.rs'
   - '**/*.swift'

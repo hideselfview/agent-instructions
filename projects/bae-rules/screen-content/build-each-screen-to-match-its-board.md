@@ -1,5 +1,4 @@
 ---
-digest: Every board draws the app as it should be, never as the app is today; the app changes to match the board, and a board never copies the app's words, sizes, names or layout. For a change the person decided to an existing screen that existing design-system components can draw, the implementing agent edits the board in the same commit and names the decision; the design session draws new screens, new layouts and new or changed components. A plan that builds a board transcribes its markup; every built board has a shot of the real view, named from its board or component and checked by a program, never by reading pictures. Screens show one thing, put the action under what it acts on, wait without a button, use design-system components, and take every colour from the design system.
 paths:
   - design/**
   - bae-macos/**

@@ -1,5 +1,4 @@
 ---
-digest: The repo holds the product; anything development produces that could be recreated in an instant (a script, a check, a generated copy, scaffolding, a probe) stays out of it and its hooks, and a hook never runs one.
 paths:
   - '**/*.rs'
   - '**/*.swift'

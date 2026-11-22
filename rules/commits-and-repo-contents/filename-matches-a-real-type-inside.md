@@ -1,5 +1,4 @@
 ---
-digest: Every .swift file's name names something in the file - its primary type, the type it extends, or a caseless enum used as a namespace.
 paths:
   - '**/*.swift'
 blocking: false

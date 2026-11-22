@@ -1,5 +1,4 @@
 ---
-digest: A change to @Observable state that reads the current value and writes a new one is a mutating method on the state type, called once from the view, never a read and a write in a view's action handler. Such a method is for a change the person makes without choosing a value, such as Next Image or a Toggle Queue menu item with no checkmark; a view that shows the value the person changes sends that value to the setter instead.
 paths:
   - '**/*.swift'
 blocking: false

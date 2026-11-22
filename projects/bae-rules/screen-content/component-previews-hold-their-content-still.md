@@ -1,5 +1,4 @@
 ---
-digest: A design-system component's preview is a set of named rows, each changing one state or option of the same example with the same words, one row per value, no combinations, and a container shows a dashed stand-in for its content.
 paths:
   - design/system/**
 blocking: true

@@ -1,5 +1,4 @@
 ---
-digest: Every sentence a person reads, outside code comments and commit messages, is plain, literal and active: who does what, in the words for what it does, starting with the verb for a title or task; no figures of speech, borrowed metaphors, coinages, headline grammar, passive voice, dashes as punctuation or marketing adjectives (public website pages that aren't docs are exempt from the last). The grammar forms are English's; a translation follows the localization rule.
 paths:
   - '**/*'
 blocking: true

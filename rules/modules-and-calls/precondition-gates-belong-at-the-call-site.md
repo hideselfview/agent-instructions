@@ -1,5 +1,4 @@
 ---
-digest: A function that returns either its result or a "didn't do it" case, and whose only caller switches on that, holds a check that belongs to the caller; move the check to the caller and make the function unconditional.
 paths:
   - '**/*.rs'
   - '**/*.swift'

@@ -1,5 +1,4 @@
 ---
-digest: In any UI framework, a reducer computes what it writes from the event alone; widen the event's payload instead of looking up other parts of the state.
 paths:
   - '**/*.swift'
   - '**/*.kt'

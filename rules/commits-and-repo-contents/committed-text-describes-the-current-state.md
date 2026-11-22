@@ -1,5 +1,4 @@
 ---
-digest: Committed code, tests, comments and notes describe what is true now; no references to the current task (plan or step codes like A7 or phase 2, phrases like "for now" or "today's bug", "will replace" references to unshipped work). Transitions go in commit messages, PR descriptions and plans/; stale text in notes/ is deleted or rewritten.
 paths:
   - '**/*.rs'
   - '**/*.swift'

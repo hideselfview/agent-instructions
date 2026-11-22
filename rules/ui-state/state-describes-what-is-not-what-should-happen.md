@@ -1,5 +1,4 @@
 ---
-digest: In any UI framework, observable state says what the UI is; a one-shot command (scroll, flash, focus, play once) travels on a stream the receiver subscribes to, not a flag that is set, observed and reset; and a component that pushes commands to another publishes to a stream the other subscribes to, rather than registering references through containers.
 paths:
   - '**/*.swift'
   - '**/*.kt'

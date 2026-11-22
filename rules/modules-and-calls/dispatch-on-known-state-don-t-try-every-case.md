@@ -1,5 +1,4 @@
 ---
-digest: When state the code already holds (a field, an enum tag, a column) decides which source, branch or case applies, dispatch on it; never a fall-through that tries every possibility and takes the first hit. Probe only a fact no state holds, and when you can't find the key that decides, thread it through, model it in the type, or ask, rather than trying every case.
 paths:
   - '**/*.rs'
   - '**/*.swift'

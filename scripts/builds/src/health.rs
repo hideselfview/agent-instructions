@@ -1342,7 +1342,7 @@ pub fn health(tool: &Tool) -> Result<Health> {
                 ),
             ),
             reviews: &crate::review::verdicts::Reads::with_root(Ok(
-                crate::review::installed_rules_root(&tool.places.home),
+                crate::review::rules::installed_root(&tool.places.home),
             )),
         },
     )?;

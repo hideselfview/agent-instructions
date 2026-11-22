@@ -4,14 +4,9 @@ dispatch an agent. A command refuses a step that lacks what it needs, so this
 page states only what no command checks. The project file
 (projects/<project>.md in agent-instructions) names the project's lists,
 worktrees and standing rules. The lists hold what waits on the person and what
-agents can do (`builds help lists`). builds refuses an agent's commands until
-the agent has read this page, the overview that opens `builds help lists` and
-the rules that cover every file, and has acknowledged them with `builds ack`
-once, when its session starts and after each compaction (`builds help`,
-ACKNOWLEDGING THE RULES). When this text changes later, builds tells the agent
-which sections changed, once, and blocks nothing. Claude Code loads ~/.claude/CLAUDE.md
-and the repo's CLAUDE.md into every agent's context, so `builds ack` leaves
-them out. The rest of `builds help` says what each command does.
+agents can do (`builds help lists`). Read this page and the lists overview, then
+acknowledge them with `builds ack` at session start and after compaction. Use
+`builds brief` to read the coding rules for the paths you will edit.
 
 
 ROLES
@@ -285,11 +280,13 @@ DISPATCH
     finished work there. Send that agent a message to resume it. Start a new
     agent only when no finished agent under the handoff size knows the area,
     or the item needs a different model.
-  - Each brief names its worktree, its items, the rules to read, the
-    project's hard limits (the person's checkouts, the keychain, devices,
+  - Each brief names its worktree, its items, and the project's hard limits
+    (the person's checkouts, the keychain, devices,
     cargo through the wrapper, no `git add -A` or stash, no --no-verify), and
-    "review and land through builds; don't push main". Each worker credits
-    its own model in the commit trailer.
+    "review and land through builds; don't push main". Send the worker
+    `builds brief --file FILE PATH...` output. Pass the paths it will edit
+    relative to the repo root, and `--project P` when the project has its own
+    rules. Each worker credits its own model in the commit trailer.
   - Critical work starts first. Critical work is what the person sees in the
     apps (a screen, a bug, a feature the person asked for), builds work that
     blocks or slows the agents, and the cleanups the person marks critical. The

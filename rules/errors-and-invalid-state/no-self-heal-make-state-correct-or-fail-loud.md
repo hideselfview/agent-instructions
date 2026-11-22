@@ -1,5 +1,4 @@
 ---
-digest: Never leave durable state wrong and trust a later pass to repair it (self-heal, reconcile later, converge next cycle); make the bad state impossible to represent, or make the operation atomic - it commits whole or rolls back, else fails loudly to its caller, who retries it idempotently.
 paths:
   - '**/*.rs'
   - '**/*.swift'

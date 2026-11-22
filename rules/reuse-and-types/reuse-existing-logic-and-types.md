@@ -1,5 +1,4 @@
 ---
-digest: Before adding a type, function or other primitive, combine what exists; call existing logic or move it into a shared helper, merge near-copies into one parameterized unit, use the full type instead of a display copy (a copy is allowed only where a boundary stops the original), and build composites from existing types.
 paths:
   - '**/*.rs'
   - '**/*.swift'

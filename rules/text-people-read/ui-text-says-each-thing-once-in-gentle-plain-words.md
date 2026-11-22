@@ -1,5 +1,4 @@
 ---
-digest: Screen text says each thing once (no phrase repeated across a screen), uses the gentler verb for what people do to each other, says a coming action with "will" ("bae will delete 540 MB", not "bae deletes 540 MB"), and headlines wrap balanced so no word hangs alone.
 paths:
   - '**/*.swift'
   - '**/*.kt'

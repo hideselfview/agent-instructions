@@ -1,5 +1,4 @@
 ---
-digest: Never swallow or default around an error (unwrap_or, .ok(), let _ =, try?, ??, a silent continue or return); surface it, and log a skip that is correct. Keep one mechanism for each guarantee, with no "just in case" backup. Never pass 0, nil, "" or an empty collection because it type-checks; trace the real value, or make the parameter optional.
 paths:
   - '**/*.rs'
   - '**/*.swift'

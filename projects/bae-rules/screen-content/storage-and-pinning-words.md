@@ -1,5 +1,4 @@
 ---
-digest: bae says the cloud for the person's cloud storage and cloud home for the place the library lives in it, never storage alone; keeping a release's files on a device is pinning and moving it to This Mac has its own words; a waiting state names what it waits to do; a release shows its state and at most one pill.
 paths:
   - design/**
   - bae-macos/**

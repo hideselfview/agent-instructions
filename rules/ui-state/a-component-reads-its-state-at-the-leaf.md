@@ -1,5 +1,4 @@
 ---
-digest: In any UI framework, pass the observable object down and read each field in the leaf view that shows it; a child that changes its parent's state takes a handle to that state, not a copy; and a component reaches each piece of state one way, as a parameter or from the environment, never both.
 paths:
   - '**/*.swift'
   - '**/*.kt'

@@ -1,5 +1,4 @@
 ---
-digest: A pre-commit hook does two things only, formatting and static analysis, only on what the commit changed, and finishes within 45 seconds; tests of any kind, including the tools' own tests, never run in a hook.
 paths:
   - '**/hooks/**'
   - '**/*.sh'

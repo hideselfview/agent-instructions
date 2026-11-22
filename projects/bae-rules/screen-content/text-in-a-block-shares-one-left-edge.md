@@ -1,5 +1,4 @@
 ---
-digest: "Text in a bae block shares one left edge: markers (track numbers, times, status glyphs, chevrons, bullets) hang in the margin to its left and never push the text in; a row's leading icon keeps a leading column so rows without one keep the edge; the edge holds within one group, and a marker hangs only into a margin its block owns."
 paths:
   - design/**
   - bae-macos/**

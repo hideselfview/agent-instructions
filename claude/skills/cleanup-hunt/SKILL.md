@@ -12,7 +12,8 @@ check that would catch it being wrong. The output is landed batches plus a list
 of the cuts you declined and why: a declined cut with its reason is a result,
 not a failure.
 
-The rules this skill names are in `~/.claude/rules/`.
+Run `builds brief [--project P] PATH...` to read the rules for the files you
+inspect.
 
 ## Duplication versus structural parallelism
 

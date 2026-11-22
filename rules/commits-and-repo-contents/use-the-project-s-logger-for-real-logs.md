@@ -1,5 +1,4 @@
 ---
-digest: Committed logs go through the project's structured logger, not println, print or console.log.
 paths:
   - '**/*.rs'
   - '**/*.swift'

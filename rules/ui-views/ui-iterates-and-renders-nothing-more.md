@@ -1,5 +1,4 @@
 ---
-digest: UI code, in any framework, iterates over the data it receives and renders it; sorting, filtering, grouping, deriving and domain decisions belong in the data layer, and the bridge between core and UI only translates types. The UI may convert types for display, format numbers and dates for the locale, resolve message keys, and compute a command's target from the value it shows.
 paths:
   - '**/*.swift'
   - '**/*.kt'

@@ -1,5 +1,4 @@
 ---
-digest: When adding a dependency, check its registry for the current version and pin that; don't take a version from memory or from elsewhere in the codebase.
 paths:
   - '**/Cargo.toml'
   - '**/package.json'

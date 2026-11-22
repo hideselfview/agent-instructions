@@ -100,9 +100,9 @@ There are two exceptions:
 The full rules are
 `projects/bae-rules/screen-reads/reactive-screens-read-plain-live-queries.md`
 and `projects/bae-rules/ui-views/native-views-draw-fast-changing-values.md`.
-They load only when an agent edits matching files, so every plan, brief and
-review checks a change's reads and fast values against them. A plan that
-proposes a shape they forbid is wrong: raise it instead of building it.
+Every plan, brief and review checks a change's reads and fast values against
+these rules. A plan that proposes a shape they forbid is wrong: raise it instead
+of building it.
 
 ## Building and testing
 

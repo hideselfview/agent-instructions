@@ -1,5 +1,4 @@
 ---
-digest: Correct, well-tested code can still be dead weight; a mechanism is justified only if deleting it breaks an outcome a user would notice - check by stubbing it out and running the tests of the code that uses it, not by its own passing tests.
 paths:
   - '**/*.rs'
   - '**/*.swift'

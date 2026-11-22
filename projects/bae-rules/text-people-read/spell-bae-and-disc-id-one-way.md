@@ -1,5 +1,4 @@
 ---
-digest: bae is always lowercase and Disc ID always has both capitals in user-visible strings (UI, docs, errors, filenames, URLs, the spec); code identifiers are exempt.
 paths:
   - '**/*'
 blocking: true

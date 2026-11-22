@@ -1,5 +1,4 @@
 ---
-digest: 'A bae control that adds an entry to a list inside a form or editor is a + with words: inline beside entries a field label already names, it says "+ Add" and never repeats the label or stands as a bare +; on a line of its own, it names what it adds ("+ Add label"). A bare + is fine in a pane or list header whose title names what it adds, with that name for screen readers.'
 paths:
   - design/**
   - bae-macos/**

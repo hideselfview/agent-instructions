@@ -1,6 +1,12 @@
 use super::*;
 
 #[test]
+fn loading_requires_a_shared_rules_directory() {
+    let scratch = crate::testing::Scratch::new("missing-shared-rules");
+    let error = load_shared(&scratch.dir).unwrap_err().text();
+    assert!(error.contains("listing") && error.contains("/rules"));
+}
+#[test]
 fn front_matter_gives_paths_blocking_and_review() {
     let rule = Rule::parse(
         "r",
@@ -11,6 +17,23 @@ fn front_matter_gives_paths_blocking_and_review() {
         Some(vec!["**/*.rs".to_string(), "bae-web/**/*.rs".to_string()])
     );
     assert!(rule.blocking && !rule.reviewable);
+}
+
+#[test]
+fn loading_project_rules_requires_the_projects_directory() {
+    let scratch = crate::testing::Scratch::new("missing-project-rules");
+    std::fs::create_dir(scratch.dir.join("rules")).unwrap();
+    let error = load_project(&scratch.dir, "bae").unwrap_err().text();
+    assert!(error.contains("listing") && error.contains("/projects"));
+}
+
+#[test]
+fn an_explicit_rule_directory_must_exist() {
+    let scratch = crate::testing::Scratch::new("unknown-brief-project");
+    std::fs::create_dir(scratch.dir.join("rules")).unwrap();
+    std::fs::create_dir(scratch.dir.join("projects")).unwrap();
+    let error = load_project(&scratch.dir, "missing").unwrap_err().text();
+    assert!(error.contains("listing") && error.contains("/projects/missing-rules"));
 }
 
 #[test]

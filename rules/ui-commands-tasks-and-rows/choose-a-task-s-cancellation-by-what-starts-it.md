@@ -1,5 +1,4 @@
 ---
-digest: In SwiftUI, work that a state change starts runs in .task(id:) keyed on that state; work that an event starts is a Task kept in @State and cancelled from handlers; never invent a flag only to give .task(id:) a key.
 paths:
   - '**/*.swift'
 blocking: false

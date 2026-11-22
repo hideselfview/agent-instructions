@@ -1,5 +1,4 @@
 ---
-digest: A component looks and aligns the way its own props say. Never restyle it from where it is used (a parent's CSS that reaches into it); when it must look different there, give it a variant. A component sets its own text alignment.
 paths:
   - design/**
   - bae-macos/**

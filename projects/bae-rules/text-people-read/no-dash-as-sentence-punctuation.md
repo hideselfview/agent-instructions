@@ -1,5 +1,4 @@
 ---
-digest: A bae UI string never breaks a sentence with a dash (em dash, or an en dash with spaces); a pause is a comma, a new thought a new sentence, a definition a colon.
 paths:
   - bae-macos/**/*.swift
   - bae-ios/**/*.swift

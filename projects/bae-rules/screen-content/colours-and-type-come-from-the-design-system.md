@@ -1,5 +1,4 @@
 ---
-digest: Every colour bae shows comes from the design system's tokens (the chosen tone and accent, the surfaces, the text), never from the platform; accents are measured in OKLCH; each status carries a word, never colour alone; Mac secondary text is the system's own colour; text styles are the design system's, with title, hero and display only for pages and Welcome.
 paths:
   - design/**
   - bae-macos/**

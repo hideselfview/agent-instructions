@@ -1,5 +1,4 @@
 ---
-digest: A command carries the value it wants, such as set(on) or setMode(x), never "flip the current one" (toggle, cycle), because a toggle isn't idempotent: a retry, a double tap or a stale or duplicate dispatch ends in the wrong state. A caller that shows the value computes the target from it (set(!shuffled)) and sends that value down, even across a bridge to a core that holds the state. A caller that shows no value, such as a Toggle Queue menu item with no checkmark, calls one method on the type that holds the state, which flips that state itself (toggleSidePane()). That method is the only toggle the code holds, and every command to a core, a bridge or another store carries a value.
 paths:
   - '**/*.rs'
   - '**/*.swift'

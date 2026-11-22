@@ -1,5 +1,4 @@
 ---
-digest: "A bae board's sample data agrees with itself: a count matches the rows drawn (a \"12 tracks\" line has 12 rows), a length matches its tracks, and the same album, person or playlist has the same name, cover and facts on every board that shows it."
 paths:
   - design/**
   - plans/**

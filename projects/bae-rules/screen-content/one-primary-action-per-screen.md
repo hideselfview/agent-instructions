@@ -1,5 +1,4 @@
 ---
-digest: Each bae screen has one primary button, the action the screen is for, at the right of its footer; everything else is secondary; one button in a row has colour, red only for what deletes or wipes something that can't come back; a sheet's Cancel goes back one screen; a button that can come back turns off instead of hiding.
 paths:
   - design/**
   - bae-macos/**

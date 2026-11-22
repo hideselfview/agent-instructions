@@ -1,5 +1,4 @@
 ---
-digest: When a shape changes (a table, a type that crosses a boundary, an event payload, a file layout, a wire or storage format), edit the definition and every caller in the same commit; no dual-shape flags, serde defaults that absorb renames, fallback decoders or migration shims; regenerate stale fixtures. Resetting development data is normal and never a factor in a design decision.
 paths:
   - '**/*.rs'
   - '**/*.swift'

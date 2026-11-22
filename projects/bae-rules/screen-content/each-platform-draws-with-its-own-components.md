@@ -1,5 +1,4 @@
 ---
-digest: bae's screens use the design system's components for their platform (Mac… on macOS, Android… on Android; Windows and Linux follow macOS); Mac settings are sections over boxes of rows in the settings window, Android screens are sections over cards of rows with changes in a dialog; a wait with no length shows the platform's own spinner; an empty list is one sentence in its box.
 paths:
   - design/**
   - bae-macos/**

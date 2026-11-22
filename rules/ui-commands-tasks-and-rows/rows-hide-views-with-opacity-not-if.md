@@ -1,5 +1,4 @@
 ---
-digest: In SwiftUI ForEach and List rows, keep every child that hover, focus or selection shows or hides in the view tree and change it with opacity and hit testing, never with an if. A line that only the row's data sets may leave out with an if.
 paths:
   - '**/*.swift'
 blocking: false

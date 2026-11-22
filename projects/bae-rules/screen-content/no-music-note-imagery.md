@@ -1,5 +1,4 @@
 ---
-digest: 'bae never shows a music note: no note glyph, icon, emoji or drawing in the apps, placeholders, app icons, website or docs.'
 paths:
   - '**/*'
 blocking: true

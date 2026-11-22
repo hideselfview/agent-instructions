@@ -1,5 +1,4 @@
 ---
-digest: 'bae picks a dialog, sheet or popover by what it asks of the person: a confirmation is an alert or dialog; a pick from a short list is a menu on macOS and a sheet on Android; something to look at is a popover on macOS and a sheet on Android and iOS; a task with fields or steps is a sheet on the Mac window, a dialog or screen on Android. Folding away uses a disclosure row, an Android collapsible section, or a Mac sidebar heading, each for its own job.'
 paths:
   - design/**
   - bae-macos/**

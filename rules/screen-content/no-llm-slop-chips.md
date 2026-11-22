@@ -1,5 +1,4 @@
 ---
-digest: Chips are allowed; LLM slop chips are banned - a colored pill on every row or card restating its status, kind or category. Group rows under a heading per state or say the state in the line's words; a chip marks only a control, a count, or the exception nothing else on screen says.
 paths:
   - '**/*.swift'
   - '**/*.kt'

@@ -36,26 +36,13 @@ it does in every repo (LANDING AND REVIEW). To try an edit to builds before
 
 ACKNOWLEDGING THE RULES
 
-builds refuses every command an agent runs, except `help`, `ack`, `agent`,
-`install`, `dashboard` and `version`, until the agent has read the text every agent reads
-before it works and has acknowledged it with `builds ack`. The text is
-`builds help workflow` (without its WHAT REVIEWS CONFIRM MOST OFTEN section,
-which changes with each settled finding), the overview that opens `builds help
-lists`, and the rules of agent-instructions whose paths cover every file (those
-under rules/ and under the project's projects/<project>-rules/). The text
-leaves out ~/.claude/CLAUDE.md and the repo's CLAUDE.md, which Claude Code
-loads into every agent's context itself. An edit of any part of the text
-changes its version. An agent acknowledges each section of the text once, when
-its session starts, and again after Claude Code compacts it. A section that
-several projects' texts share (the workflow, the lists overview, and the rules
-under rules/) is read once for all of them, and each project's own rules once
-for that project. The acknowledgement lasts
-until a compaction, however long that takes. When the text changes while the
-agent works, builds prints, once and before the next command's output, which
-sections changed and the command that prints each (`builds help workflow`,
-`builds help lists`, or the path of the rule file), and the command runs: a
-change of the text refuses no command. The rest of this help, and of `builds help lists` and
-`builds help briefs`, is for looking up what a command does.
+An agent runs `builds ack` to acknowledge the workflow and lists overview at
+session start and after compaction. These sections apply to every project.
+Builds tells the agent once when either section changes. Use `builds brief`
+to read the coding rules for the paths you will edit.
+
+Builds requires acknowledgement for agent commands other than `help`, `ack`,
+`agent`, `brief`, `install`, `dashboard` and `version`.
 
   builds ack [--agent ID] [--project P]
       Start a reading. Its first line says why builds asks agents to read the
@@ -3701,6 +3688,12 @@ run `review replay --rules-root` on it.
                               an audit of a landing whose commits are design
                               files only, the commits `builds design only`
                               accepts (decision #323)
+  builds brief [--project P] [--file FILE] PATH...
+                              Print the brief followed by full coding rules for the
+                              repo-relative paths. Pass --project to include that
+                              project's rules.
+                              Omit --file to print the rules alone.
+
   builds review groups [--rules-root DIR] [--project P --repo R --changed PATH...]
                               list the groups of rules, and fail naming every
                               rule outside a group folder (one with no

@@ -1,5 +1,4 @@
 ---
-digest: "A bae page's header follows the album page's pattern: the picture beside a column as tall as it holding the name, then the owner or artist, then the facts, then the actions left-aligned under the text, with secondary actions in the options menu. On macOS the options button sits beside Play; on Android it sits in the top bar."
 paths:
   - design/**
   - bae-macos/**

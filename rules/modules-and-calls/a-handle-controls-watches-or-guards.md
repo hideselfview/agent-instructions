@@ -1,5 +1,4 @@
 ---
-digest: A handle lets its holder control, watch or guard something its owner runs, across a boundary, and nothing more. A handle holds only state its owner made to share with it, never a capability or an owner, by value, through a shared or weak pointer, or by reference. Work that needs a capability runs in the owner.
 paths:
   - '**/*.rs'
   - '**/*.swift'

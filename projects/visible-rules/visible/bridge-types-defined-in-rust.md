@@ -1,5 +1,4 @@
 ---
-digest: Bridge* types are defined once in visible-bridge/src/types.rs; the Swift and Kotlin versions are generated and gitignored, so read the Rust, never a generated file. An app type that restates a Bridge* type's fields is a duplicate.
 paths:
   - visible-bridge/**/*.rs
   - '**/*.swift'

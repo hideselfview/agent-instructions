@@ -1,5 +1,4 @@
 ---
-digest: A test, screenshot test or preview runs the real code of the unit it checks, never a copy of it; faking the unit's dependencies is fine.
 paths:
   - '**/*.rs'
   - '**/*.swift'

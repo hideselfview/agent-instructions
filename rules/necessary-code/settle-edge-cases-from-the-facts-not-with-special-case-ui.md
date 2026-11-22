@@ -1,5 +1,4 @@
 ---
-digest: Before adding UI for an edge case, make it impossible or settle it from the facts; add UI only for what only the app's user knows, and only once the user you work for agrees.
 paths:
   - '**/*.rs'
   - '**/*.swift'

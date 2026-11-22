@@ -9,8 +9,8 @@ const SESSION_ID: &str = "session-1";
 /// The agent most tests run as, which `world` registers.
 const AGENT: &str = "a1";
 
-/// A scratch home with one rule for every file and a ~/.claude/CLAUDE.md that
-/// the text leaves out, project bae's store of repos bae and coven, a checkout of repo bae with no
+/// A scratch home with a ~/.claude/CLAUDE.md, project bae's store of repos
+/// bae and coven, a checkout of repo bae with no
 /// CLAUDE.md and one of repo coven with its own, each claimed by `agent`, and
 /// agent `AGENT` registered in session `SESSION_ID`.
 struct World {
@@ -23,15 +23,6 @@ struct World {
 fn world(name: &str) -> World {
     let scratch = Scratch::new(name);
     let places = scratch.places();
-    let root = scratch.dir.join("agent-instructions");
-    std::fs::create_dir_all(root.join("rules/text")).unwrap();
-    std::fs::write(
-        root.join("rules/text/plain.md"),
-        "---\npaths:\n  - '**/*'\n---\n\nWrite plain sentences.\n",
-    )
-    .unwrap();
-    std::fs::create_dir_all(places.home.join(".codex")).unwrap();
-    std::os::unix::fs::symlink(&root, places.home.join(".codex/agent-instructions")).unwrap();
     std::fs::create_dir_all(places.home.join(".claude")).unwrap();
     std::fs::write(places.home.join(".claude/CLAUDE.md"), "Global rules.\n").unwrap();
     make_store_named(&places, "bae", &["bae", "coven"]);
@@ -186,7 +177,7 @@ fn an_agent_that_fetched_every_part_in_order_and_gave_the_last_token_passes() {
 fn each_part_shows_the_text_unchanged_and_ends_with_the_next_commands_token() {
     let world = world("ack-chain");
     let started = world.ack(&[], NOON).unwrap();
-    let text = Text::read(&world.places, "bae").unwrap();
+    let text = Text::read();
     let parts = text.parts();
     assert!(parts.len() >= 2, "the workflow alone fills two parts");
     assert!(
@@ -270,49 +261,46 @@ fn every_part_stays_well_under_the_size_claude_code_shows_whole() {
 }
 
 impl World {
-    /// Edits the rule for every file, so the text gets a new version.
-    fn edit_rule(&self, body: &str) {
-        std::fs::write(
-            self.scratch
-                .dir
-                .join("agent-instructions/rules/text/plain.md"),
-            format!("---\npaths:\n  - '**/*'\n---\n\n{body}\n"),
+    fn record_acknowledgement(&self, project: &str, agent: &str, text: &Text) {
+        let store = Store::named(&self.places, project).unwrap();
+        let db = db::open(&store.database(), Make::Never).unwrap();
+        record::acknowledge(
+            &db,
+            SESSION_ID,
+            agent,
+            &text.version(),
+            NOON,
+            &text.hashes(),
         )
         .unwrap();
     }
 }
 
+fn older_lists_overview() -> Text {
+    let mut text = Text::read();
+    text.sections[1].text.push_str("\nEarlier lists help.");
+    text
+}
+
 /// The notice for an agent whose text changed: the check passes and returns it
 /// once.
 #[test]
-fn an_edit_of_a_rule_passes_the_command_with_one_notice_naming_the_changed_section() {
+fn an_edit_of_the_lists_overview_passes_the_command_with_one_notice_naming_the_changed_section() {
     let world = world("ack-edited");
-    world.acknowledge(NOON);
-    assert_eq!(world.check(NOON + 60).unwrap(), None);
-    world.edit_rule("Write plain, literal sentences.");
+    world.record_acknowledgement("bae", AGENT, &older_lists_overview());
     let notice = world.check(NOON + 120).unwrap().expect("the text changed");
-    let rule = world
-        .places
-        .home
-        .join(".codex/agent-instructions/rules/text/plain.md");
     assert!(
         notice.contains("changed since you acknowledged it. This command runs as usual."),
         "{notice}"
     );
-    assert!(
-        notice.contains(&format!("  {}\n", rule.display())),
-        "{notice}"
-    );
+    assert!(notice.contains("  builds help lists\n"), "{notice}");
     assert!(!notice.contains("builds help workflow"), "{notice}");
     assert_eq!(world.check(NOON + 180).unwrap(), None);
-    world.edit_rule("Write plain, literal, active sentences.");
-    assert!(world.check(NOON + 240).unwrap().is_some());
 }
 
 #[test]
 fn each_section_says_how_to_read_it() {
-    let world = world("ack-how-to-read");
-    let text = Text::read(&world.places, "bae").unwrap();
+    let text = Text::read();
     assert_eq!(
         text.how_to_read("builds help workflow"),
         "builds help workflow"
@@ -326,7 +314,7 @@ fn each_section_says_how_to_read_it() {
 #[test]
 fn an_agent_whose_version_builds_no_longer_keeps_gets_a_notice_listing_every_section() {
     let world = world("ack-not-kept");
-    world.acknowledge(NOON);
+    world.record_acknowledgement("bae", AGENT, &older_lists_overview());
     {
         let checkout = Checkout::at(&world.checkout).unwrap().unwrap();
         let store = project_of(&world.places, &checkout, None).unwrap().unwrap();
@@ -339,7 +327,6 @@ fn an_agent_whose_version_builds_no_longer_keeps_gets_a_notice_listing_every_sec
             record::acknowledge(&db, "s2", "other", &format!("v{n}"), NOON + n + 1, &[]).unwrap();
         }
     }
-    world.edit_rule("Write plain, literal sentences.");
     let notice = world.check(NOON + 60).unwrap().expect("the text changed");
     assert!(
         notice.contains("builds no longer keeps the version you acknowledged"),
@@ -347,21 +334,19 @@ fn an_agent_whose_version_builds_no_longer_keeps_gets_a_notice_listing_every_sec
     );
     assert!(notice.contains("builds help workflow"), "{notice}");
     assert!(notice.contains("builds help lists"), "{notice}");
-    assert!(notice.contains("plain.md"), "{notice}");
     assert_eq!(world.check(NOON + 120).unwrap(), None);
 }
 
 #[test]
 fn a_section_that_left_the_text_is_named_as_removed() {
     let world = world("ack-section-left");
-    world.acknowledge(NOON);
-    std::fs::remove_file(
-        world
-            .scratch
-            .dir
-            .join("agent-instructions/rules/text/plain.md"),
-    )
-    .unwrap();
+    let mut older = Text::read();
+    older.sections.push(text::Section {
+        name: "rules/text/plain.md".to_string(),
+        text: "Write plain sentences.".to_string(),
+        how_to_read: "rules/text/plain.md".to_string(),
+    });
+    world.record_acknowledgement("bae", AGENT, &older);
     let notice = world.check(NOON + 60).unwrap().expect("a section left");
     assert!(
         notice.contains("Sections removed: rules/text/plain.md"),
@@ -381,8 +366,7 @@ fn an_acknowledgement_never_expires() {
 #[test]
 fn a_reading_after_a_change_holds_only_the_changed_sections() {
     let world = world("ack-changed-only");
-    world.acknowledge(NOON);
-    world.edit_rule("Write plain, literal sentences.");
+    world.record_acknowledgement("bae", AGENT, &older_lists_overview());
     // A command the agent runs first passes with a notice and records the
     // change, so the agent reads the change again only by starting here.
     let started = world.ack(&[], NOON + 60).unwrap();
@@ -394,23 +378,17 @@ fn a_reading_after_a_change_holds_only_the_changed_sections() {
     let first = world
         .ack(&["part", "1", &next_command(&started)[2]], NOON + 60)
         .unwrap();
-    assert!(first.contains("Write plain, literal sentences."), "{first}");
-    assert!(!first.contains("builds help workflow"), "{first}");
+    assert!(
+        first.contains("===== builds help lists overview"),
+        "{first}"
+    );
+    assert!(!first.contains("===== builds help workflow"), "{first}");
 }
 
 impl World {
-    /// Project second, whose own rule covers every file, and a folder that no
-    /// repo holds, from which `ack_second` runs.
-    fn with_second_project(&self, rule: Option<&str>) -> PathBuf {
+    /// Adds a second project and returns a folder outside both repos.
+    fn with_second_project(&self) -> PathBuf {
         make_store_named(&self.places, "second", &["other"]);
-        if let Some(rule) = rule {
-            let path = self
-                .scratch
-                .dir
-                .join("agent-instructions/projects/second-rules/text/own.md");
-            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-            std::fs::write(path, format!("---\npaths:\n  - '**/*'\n---\n\n{rule}\n")).unwrap();
-        }
         let elsewhere = self.scratch.dir.join("elsewhere");
         std::fs::create_dir_all(&elsewhere).unwrap();
         elsewhere
@@ -436,32 +414,9 @@ impl World {
 }
 
 #[test]
-fn a_second_projects_reading_holds_only_the_sections_the_agent_has_not_acknowledged() {
-    let world = world("ack-second-project");
-    let elsewhere = world.with_second_project(Some("Second project rule."));
-    world.acknowledge(NOON);
-    assert!(message(world.check_second(&elsewhere)).contains("has not acknowledged"));
-    let started = world.ack_second(&elsewhere, &[]).unwrap();
-    assert!(started.contains("in 1 parts"), "{started}");
-    let command = next_command(&started);
-    let shown = world
-        .ack_second(&elsewhere, &["part", "1", &command[2]])
-        .unwrap();
-    assert!(shown.contains("Second project rule."), "{shown}");
-    assert!(!shown.contains("builds help workflow"), "{shown}");
-    assert!(!shown.contains("Write plain sentences."), "{shown}");
-    let (version, token) = (
-        next_command_version(&started),
-        next_command(&shown)[1].clone(),
-    );
-    world.ack_second(&elsewhere, &[&version, &token]).unwrap();
-    world.check_second(&elsewhere).unwrap();
-}
-
-#[test]
 fn a_project_whose_sections_the_agent_acknowledged_elsewhere_needs_no_reading() {
     let world = world("ack-second-project-shared-only");
-    let elsewhere = world.with_second_project(None);
+    let elsewhere = world.with_second_project();
     world.acknowledge(NOON);
     assert_eq!(world.check_second(&elsewhere).unwrap(), None);
     let shown = world.ack_second(&elsewhere, &[]).unwrap();
@@ -471,10 +426,10 @@ fn a_project_whose_sections_the_agent_acknowledged_elsewhere_needs_no_reading() 
 #[test]
 fn a_change_of_a_shared_section_is_told_once_across_projects() {
     let world = world("ack-shared-notice");
-    let elsewhere = world.with_second_project(None);
-    world.acknowledge(NOON);
-    world.check_second(&elsewhere).unwrap();
-    world.edit_rule("Write plain, literal sentences.");
+    let elsewhere = world.with_second_project();
+    let older = older_lists_overview();
+    world.record_acknowledgement("bae", AGENT, &older);
+    world.record_acknowledgement("second", AGENT, &older);
     assert!(world.check(NOON + 60).unwrap().is_some());
     assert_eq!(world.check_second(&elsewhere).unwrap(), None);
 }
@@ -766,8 +721,7 @@ fn a_judge_with_no_acknowledgement_is_told_so() {
 #[test]
 fn a_judge_whose_acknowledged_text_changed_has_nothing_to_acknowledge() {
     let world = judge_world("ack-judge-changed");
-    world.acknowledge_as(SESSION_ID, NOON);
-    world.edit_rule("Write plain, literal sentences.");
+    world.record_acknowledgement("bae", SESSION_ID, &older_lists_overview());
     assert_eq!(outdated_at(&world), None);
 }
 
@@ -805,7 +759,6 @@ fn a_reading_after_a_compaction_says_the_text_left_the_agents_context_until_it_a
         "Claude Code compacted you, so this text is no longer in your context."
     );
     world.acknowledge(NOON + 120);
-    world.edit_rule("Write plain, literal sentences.");
     let again = world.ack(&[], NOON + 180).unwrap();
     assert!(!again.contains("compacted you"), "{again}");
 }
@@ -821,8 +774,17 @@ fn a_compaction_of_another_agent_leaves_the_opening_of_this_one_as_it_was() {
 #[test]
 fn a_reading_whose_sections_changed_before_a_part_is_refused_even_with_the_same_part_count() {
     let world = world("ack-reading-changed");
-    let started = world.ack(&[], NOON).unwrap();
-    world.edit_rule("Write plain, literal sentences.");
+    let agent = Agent::resolve(
+        &world.places,
+        SESSION_ID,
+        Some(AGENT),
+        None,
+        &world.checkout,
+    )
+    .unwrap();
+    let older = older_lists_overview();
+    assert_eq!(older.parts().len(), Text::read().parts().len());
+    let started = start(&world.places, &agent, &older, NOON).unwrap();
     let refusal = message(world.ack(&["part", "1", &next_command(&started)[2]], NOON));
     assert!(refusal.contains("changed since"), "{refusal}");
 }

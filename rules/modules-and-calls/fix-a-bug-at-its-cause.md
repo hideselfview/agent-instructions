@@ -1,5 +1,4 @@
 ---
-digest: A bug fix starts with a test that fails on the real code, finds the cause in the current code and spec, never by bisecting or digging through history unless the user asks, fixes the bad value where it comes from rather than in the consumer that trips on it, and commits only the change for the confirmed cause; investigation logs and mechanisms built for a disproved cause come out.
 paths:
   - '**/*.rs'
   - '**/*.swift'

@@ -1,7 +1,5 @@
 .DS_Store
 __pycache__/
-claude/CLAUDE.md
-codex/AGENTS.md
 .worktrees/
 plans/
 # Scratch boards: boards a design session draws to compare versions with the

@@ -1,5 +1,4 @@
 ---
-digest: No decorative icons or emoji; an icon appears only where it is the control or says something the text beside it doesn't.
 paths:
   - '**/*.swift'
   - '**/*.kt'

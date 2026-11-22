@@ -1,5 +1,4 @@
 ---
-digest: The product spec is a draft that the coding rules outrank. Read the spec's text on a behavior before you plan, brief, build or review a change to it, and never treat that text as a decision the person made. When working code already does something sensible and the spec differs only on a detail, the code holds and the agent edits the spec without asking. When the spec contradicts a rule, the code in a way the person would notice, or what a change builds, ask the person, say which text looks wrong and why, offer the edit, and edit the spec only after they agree. A commit adds to the spec what it builds where the spec states nothing or the person already decided, such as a column or table the work needs that the spec's schema text does not list.
 paths:
   - '**/*'
 blocking: true

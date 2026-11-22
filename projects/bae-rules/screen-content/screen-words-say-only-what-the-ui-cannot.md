@@ -1,5 +1,4 @@
 ---
-digest: "bae's screens use few words, in sentence case: a full sentence ends in a period and a fragment has none, buttons are verbs, a cut line ends or breaks in \"…\" by what it holds, placeholders never repeat the label, names take no quotes, and no screen has exclamation marks, emoji, marketing words or a storage company the person did not choose."
 paths:
   - design/**
   - bae-macos/**

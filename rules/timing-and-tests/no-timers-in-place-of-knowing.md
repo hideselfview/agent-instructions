@@ -1,5 +1,4 @@
 ---
-digest: Never use a timer, sleep, delay or poll to stand in for knowing something happened. Wait on the event, completion or revision itself, or model the moment in between as state (a flag, an enum value). Timers are only for time that is the requirement - rate pacing, backoff after a failure, a timeout that fails loudly, debouncing input, playback clocks.
 paths:
   - '**/*.rs'
   - '**/*.swift'

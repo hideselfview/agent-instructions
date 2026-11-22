@@ -1,5 +1,4 @@
 ---
-digest: Several fields set to None together in one branch mean a missing type; extract a sub-struct or an enum variant, and put a variant's data in the variant. In Rust, no `Default` or `#[default]` on an enum.
 paths:
   - '**/*.rs'
   - '**/*.swift'

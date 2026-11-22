@@ -1,5 +1,4 @@
 ---
-digest: The apps never swizzle or monkeypatch a system framework's methods (Objective-C method exchange, reflection into a framework's private members, undocumented defaults); a framework fault is fixed through its documented API. The Mac shot tool alone may use CGVirtualDisplay.
 paths:
   - bae-macos/**
   - bae-ios/**

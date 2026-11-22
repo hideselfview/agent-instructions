@@ -1,5 +1,4 @@
 ---
-digest: Three kinds of failure, three treatments. Expected failures (network, storage, missing file, unreachable device, bad input) are typed errors shown to the app's user and logged. Bugs (a broken invariant, a "can't fail" call failing, a use-after-close) are reported to the crash reporter as non-fatal, logged, and shown as "Something went wrong", never silently swallowed. Crash only when continuing could damage data or the process state can no longer be trusted.
 paths:
   - '**/*.rs'
   - '**/*.swift'

@@ -1,7 +1,6 @@
 //! The flags every lists command takes, parsed one way: `--name value`,
 //! `--switch`, the rest positional. A flag the command doesn't list is
-//! refused by name, never ignored. `--project` and `--by` are every
-//! command's.
+//! refused by name, never ignored. Lists commands share `--project` and `--by`.
 
 use std::io::Read;
 
@@ -26,6 +25,20 @@ impl Args {
     /// argument as their value and <switches> taking none. `--` ends the
     /// flags.
     pub fn parse(args: &[String], valued: &[&str], switches: &[&str]) -> Result<Args> {
+        Self::parse_with(args, valued, switches, &COMMON)
+    }
+
+    /// Parse a command that takes only the flags it names.
+    pub fn parse_only(args: &[String], valued: &[&str]) -> Result<Args> {
+        Self::parse_with(args, valued, &[], &[])
+    }
+
+    fn parse_with(
+        args: &[String],
+        valued: &[&str],
+        switches: &[&str],
+        common: &[&str],
+    ) -> Result<Args> {
         let mut positional = Vec::new();
         let mut flags = Vec::new();
         let mut rest = args.iter();
@@ -38,7 +51,7 @@ impl Args {
                 positional.push(arg.clone());
                 continue;
             };
-            if valued.contains(&name) || COMMON.contains(&name) {
+            if valued.contains(&name) || common.contains(&name) {
                 let Some(value) = rest.next() else {
                     fail!("--{name} needs a value")
                 };
@@ -48,7 +61,7 @@ impl Args {
             } else {
                 let mut known: Vec<String> = valued
                     .iter()
-                    .chain(&COMMON)
+                    .chain(common)
                     .chain(switches)
                     .map(|n| format!("--{n}"))
                     .collect();

@@ -79,10 +79,11 @@ pub const VARIABLE: &str = "BUILDS_USE";
 /// help, `agent`, which registers an agent outside the stores
 /// (ack/agent.rs), `version`, which prints only what the program was built
 /// from, and `programs`, which runs a lane's step on a host (programs.rs).
-pub const STORELESS: [&str; 8] = [
+pub const STORELESS: [&str; 9] = [
     "install",
     "dashboard",
     "help",
+    "brief",
     "-h",
     "--help",
     "agent",

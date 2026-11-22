@@ -1,15 +1,4 @@
 ---
-digest: >-
-  A fast stream carries a value that changes many times a second, one latest
-  value per key, as a channel would inside Rust: a value in Rust's memory
-  (playback position, transfer bytes, rates, levels), or one that Rust computes
-  from such a value and a live query's values, such as an upload bar: the
-  release's stored bytes plus the bytes of its files that bae has sent so far. A
-  fast stream never carries a plain query result, and core never writes its
-  value to a table. In every bae app, that value reaches the screen through a
-  native view or layer that reads the stream's latest value per key once per
-  display frame, never through the UI framework's observed state (SwiftUI,
-  Compose, Avalonia bindings) and never with a main-thread hop per change.
 paths:
   - '**/*.swift'
   - '**/*.kt'

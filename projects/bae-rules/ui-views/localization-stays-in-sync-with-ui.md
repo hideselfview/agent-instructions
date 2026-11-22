@@ -1,5 +1,4 @@
 ---
-digest: A change that adds, removes or rewords user-facing text updates the string catalogs (key and every locale's translation) in the same change. Core formats no text for a locale, and the one locale value core holds is the language the app sets for ordering names. A translation says what the English says the way that language's apps say it, never in the English sentence's structure.
 paths:
   - bae-macos/**/*.swift
   - bae-ios/**/*.swift

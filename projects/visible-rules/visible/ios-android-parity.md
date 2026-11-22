@@ -1,5 +1,4 @@
 ---
-digest: Every user-facing capability ships on both visible-ios and visible-android against the same bridge calls; a feature on one platform without the other is incomplete.
 paths:
   - visible-ios/**
   - visible-android/**

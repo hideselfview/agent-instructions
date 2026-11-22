@@ -1,5 +1,4 @@
 ---
-digest: Split code, SQL and tests along domains (what owns a set of data and the rules that keep it right), never along a topic several domains share; a domain's tables, triggers, code and tests stay together. A type, layer or method that exists only to get around a crate or module boundary is the wrong shape; merge it, make the extra method a function in the higher crate, or move the type to where it belongs.
 paths:
   - '**/*.rs'
   - '**/*.swift'

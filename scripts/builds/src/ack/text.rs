@@ -1,10 +1,5 @@
-//! The text builds asks every agent to read before it runs a builds command:
-//! the workflow help, the overview that opens the lists help, and the rules
-//! whose paths cover every file. Claude Code loads ~/.claude/CLAUDE.md and
-//! the repo's CLAUDE.md into every agent's context itself, so the text leaves
-//! them out.
-//! builds reads the rules from disk each time, so an edit of any of them
-//! changes the text's version.
+//! The text builds asks agents to acknowledge: the workflow help and the
+//! overview that opens the lists help.
 //!
 //! `builds ack` prints the text in parts of at most `PART_BYTES` bytes each,
 //! with no word added to it. Each part's last line gives the command for the
@@ -15,8 +10,6 @@
 //! passes about 30 KB, so each part stays well under that.
 
 use crate::fail::{Context, Result};
-use crate::places::Places;
-use crate::review::rules;
 
 /// The most bytes of the text one part holds. Its first and last line add
 /// about 400 bytes more.
@@ -47,33 +40,21 @@ pub struct Text {
 }
 
 impl Text {
-    /// The text for an agent whose work is in <project>: the workflow help,
-    /// the lists overview, and the rules of the agent-instructions checkout
-    /// that install.sh links whose paths cover every file (those under
-    /// `rules/` and under the project's `projects/<project>-rules/`).
-    pub fn read(places: &Places, project: &str) -> Result<Text> {
-        let mut sections = Vec::new();
-        sections.push(Section {
-            name: "builds help workflow".to_string(),
-            text: crate::help::WORKFLOW_HELP.to_string(),
-            how_to_read: "builds help workflow".to_string(),
-        });
-        sections.push(Section {
-            name: "builds help lists overview".to_string(),
-            text: crate::help::LISTS_OVERVIEW.to_string(),
-            how_to_read: "builds help lists".to_string(),
-        });
-        let root = crate::review::installed_rules_root(&places.home);
-        for rule in rules::load(&root, Some(project))? {
-            if covers_every_file(&rule) {
-                sections.push(Section {
-                    how_to_read: root.join(&rule.path).display().to_string(),
-                    name: rule.path.clone(),
-                    text: rule.text,
-                });
-            }
+    pub fn read() -> Text {
+        Text {
+            sections: vec![
+                Section {
+                    name: "builds help workflow".to_string(),
+                    text: crate::help::WORKFLOW_HELP.to_string(),
+                    how_to_read: "builds help workflow".to_string(),
+                },
+                Section {
+                    name: "builds help lists overview".to_string(),
+                    text: crate::help::LISTS_OVERVIEW.to_string(),
+                    how_to_read: "builds help lists".to_string(),
+                },
+            ],
         }
-        Ok(Text { sections })
     }
 
     /// The version: the hash of every section's name and text, in order.
@@ -183,15 +164,6 @@ impl Text {
             parts.push(lines);
         }
         parts
-    }
-}
-
-/// Whether <rule>'s paths cover every file: it names no paths, or one of its
-/// globs is `**/*` or `**`.
-fn covers_every_file(rule: &rules::Rule) -> bool {
-    match &rule.paths {
-        None => true,
-        Some(globs) => globs.iter().any(|glob| glob == "**/*" || glob == "**"),
     }
 }
 

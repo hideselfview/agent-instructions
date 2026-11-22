@@ -1,5 +1,4 @@
 ---
-digest: bae's icons are Material Symbols Rounded 400 on Android and SF Symbols on Apple platforms (stand-ins on boards), shown only as the control or for meaning the words don't carry; a status glyph is a ring with its mark inside, never filled, never a road-sign shape.
 paths:
   - design/**
   - bae-macos/**

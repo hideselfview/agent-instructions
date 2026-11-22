@@ -1,5 +1,4 @@
 ---
-digest: Check a fact once, at the step where it can become false, and nowhere else. No re-hashing or re-reading to confirm what an earlier or later step already confirms, no reading back what was just written, no repeating a caller's check in the callee. A read behaves like the platform's own API - opening a file doesn't hash it.
 paths:
   - '**/*.rs'
   - '**/*.swift'
