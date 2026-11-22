@@ -107,7 +107,7 @@ struct Sample {
     disk: DiskSpace,
 }
 
-#[derive(Clone, Default)]
+#[derive(Default)]
 struct State {
     version: u64,
     roots: Vec<Root>,
@@ -141,7 +141,6 @@ struct State {
 }
 
 /// What the daemon last read of a repo's branches.
-#[derive(Clone)]
 enum BranchReading {
     /// The branches with commits waiting to land that no worktree checks
     /// out, and what the reading found of each branch tip, for the next
@@ -149,6 +148,71 @@ enum BranchReading {
     Read(crate::unlanded::Judged, Vec<crate::unlanded::LooseBranch>),
     /// Why the reading failed.
     Failed(String),
+}
+
+/// The readings health needs after releasing the model lock.
+struct HealthInputs {
+    roots: Vec<Root>,
+    facts: HashMap<PathBuf, Facts>,
+    loose: Vec<crate::unlanded::LooseBranch>,
+    unread: Vec<crate::health::Finding>,
+}
+
+impl HealthInputs {
+    fn of(state: &State) -> Self {
+        let mut inputs = Self {
+            roots: state.roots.clone(),
+            facts: state.facts.clone(),
+            loose: Vec::new(),
+            unread: Vec::new(),
+        };
+        for (main, reading) in &state.loose {
+            match reading {
+                BranchReading::Read(_, branches) => inputs.loose.extend(branches.iter().cloned()),
+                BranchReading::Failed(error) => {
+                    inputs
+                        .unread
+                        .push(crate::health::branches_unread(main, error));
+                }
+            }
+        }
+        inputs
+    }
+}
+
+/// The readings the page joins with the lists and run records.
+struct PageRead {
+    version: u64,
+    roots: Vec<Root>,
+    facts: HashMap<PathBuf, Facts>,
+    sample: Option<Sample>,
+    cpu_percent: HashMap<i32, f64>,
+    load: Vec<(i64, f64)>,
+    health: Option<Health>,
+    health_error: Option<String>,
+    hosts: Vec<super::hosts::HostPage>,
+    compile_cache: Vec<crate::sccache_history::HostRates>,
+    compile_cache_error: Option<String>,
+    host_findings: Vec<crate::health::Finding>,
+}
+
+impl PageRead {
+    fn of(state: &State) -> Self {
+        Self {
+            version: state.version,
+            roots: state.roots.clone(),
+            facts: state.facts.clone(),
+            sample: state.sample.clone(),
+            cpu_percent: state.cpu_percent.clone(),
+            load: state.load.iter().copied().collect(),
+            health: state.health.clone(),
+            health_error: state.health_error.clone(),
+            hosts: state.hosts.clone(),
+            compile_cache: state.compile_cache.clone(),
+            compile_cache_error: state.compile_cache_error.clone(),
+            host_findings: state.host_findings.clone(),
+        }
+    }
 }
 
 pub struct Model {
@@ -857,16 +921,19 @@ impl Model {
     /// processes: a reading takes seconds on a loaded machine, longer than a
     /// command waits.
     pub fn health_now(&self) -> crate::fail::Result<Option<Health>> {
-        let state = self.state.lock().expect("no panic holding it").clone();
-        match state.sample.clone() {
-            Some(sample) => self.judge(&state, now_seconds(), sample).map(Some),
-            None => Ok(None),
-        }
+        let (inputs, sample) = {
+            let state = self.state.lock().expect("no panic holding it");
+            let Some(sample) = &state.sample else {
+                return Ok(None);
+            };
+            (HealthInputs::of(&state), sample.clone())
+        };
+        self.judge(inputs, now_seconds(), sample).map(Some)
     }
 
     /// Judges health at <now> from <sample>, the roots and their facts in
-    /// <state>, and the claims as their files say now.
-    fn judge(&self, state: &State, now: i64, sample: Sample) -> crate::fail::Result<Health> {
+    /// <inputs>, and the claims as their files say now.
+    fn judge(&self, inputs: HealthInputs, now: i64, sample: Sample) -> crate::fail::Result<Health> {
         let Sample {
             machine,
             places,
@@ -875,16 +942,16 @@ impl Model {
         let (_, loaded) = self.lists.current();
         let (mut claimed, held) = claimed_of(
             &self.places,
-            &state.roots,
-            &state.facts,
+            &inputs.roots,
+            &inputs.facts,
             &places,
             &machine.commits,
             &loaded,
         )?;
         let unclaimed = unclaimed_of(
             &self.places,
-            &state.roots,
-            &state.facts,
+            &inputs.roots,
+            &inputs.facts,
             &places,
             &crate::lists::kept_work::kept_worktrees(&loaded),
         )?;
@@ -900,16 +967,6 @@ impl Model {
                 reviews: &self.review_reads,
             },
         )?;
-        let mut loose: Vec<crate::unlanded::LooseBranch> = Vec::new();
-        let mut unread: Vec<crate::health::Finding> = Vec::new();
-        for (main, reading) in &state.loose {
-            match reading {
-                BranchReading::Read(_, branches) => loose.extend(branches.iter().cloned()),
-                BranchReading::Failed(error) => {
-                    unread.push(crate::health::branches_unread(main, error));
-                }
-            }
-        }
         let mut health = assess(
             now,
             disk,
@@ -918,23 +975,23 @@ impl Model {
             claimed,
             crate::health::LeftBehind {
                 worktrees: unclaimed,
-                branches: crate::unlanded::unheld(loose, &loaded),
+                branches: crate::unlanded::unheld(inputs.loose, &loaded),
             },
             lists,
         );
         health
             .findings
             .extend(crate::main_checkout::findings(&self.places.home, &loaded));
-        health.findings.extend(unread);
+        health.findings.extend(inputs.unread);
         Ok(health)
     }
 
     /// Reads the processes and judges health now.
     pub fn sample_now(&self) -> crate::fail::Result<Health> {
         let (now, sample) = self.read_processes()?;
-        let snapshot = self.state.lock().expect("no panic holding it").clone();
+        let inputs = HealthInputs::of(&self.state.lock().expect("no panic holding it"));
         let health = self
-            .judge(&snapshot, now, sample)
+            .judge(inputs, now, sample)
             .map_err(crate::fail::Fail::text);
         let mut state = self.state.lock().expect("no panic holding it");
         state.health = health.as_ref().ok().cloned();
@@ -1494,7 +1551,7 @@ impl Model {
     pub fn page(&self) -> crate::fail::Result<Page> {
         let space = volume_space(&self.places.root)?;
         let (_, snapshot) = self.lists.current();
-        let state = self.state.lock().expect("no panic holding it").clone();
+        let state = PageRead::of(&self.state.lock().expect("no panic holding it"));
         let machine = state.sample.as_ref().map(|sample| &sample.machine);
         let mut repos: Vec<RepoPage> = Vec::new();
         for root in &state.roots {
@@ -1673,16 +1730,16 @@ impl Model {
             load: machine.map(|m| LoadPage {
                 now: m.load,
                 cores: m.cores,
-                history: state.load.iter().copied().collect(),
+                history: state.load,
             }),
-            health: state.health.clone().map(|mut health| {
-                health.findings.extend(state.host_findings.iter().cloned());
+            health: state.health.map(|mut health| {
+                health.findings.extend(state.host_findings);
                 health
             }),
             health_error: state.health_error,
-            hosts: state.hosts.clone(),
-            compile_cache: state.compile_cache.clone(),
-            compile_cache_error: state.compile_cache_error.clone(),
+            hosts: state.hosts,
+            compile_cache: state.compile_cache,
+            compile_cache_error: state.compile_cache_error,
             repos,
         })
     }
@@ -1697,17 +1754,25 @@ impl Model {
     /// reads them.
     pub fn cards(&self) -> crate::fail::Result<Option<Vec<CardNow>>> {
         let (_, snapshot) = self.lists.current();
-        let state = self.state.lock().expect("no panic holding it").clone();
-        let Some(machine) = state.sample.as_ref().map(|sample| &sample.machine) else {
-            return Ok(None);
+        let (roots, facts, machine, health) = {
+            let state = self.state.lock().expect("no panic holding it");
+            let Some(sample) = &state.sample else {
+                return Ok(None);
+            };
+            (
+                state.roots.clone(),
+                state.facts.clone(),
+                sample.machine.clone(),
+                state.health.clone(),
+            )
         };
         let mut cards = Vec::new();
-        for root in &state.roots {
+        for root in &roots {
             let Some(live) = &root.live else { continue };
             if live.is_main() || root.is_app_checkout(&self.places)? {
                 continue;
             }
-            let Some(facts) = state.facts.get(&root.path) else {
+            let Some(facts) = facts.get(&root.path) else {
                 // The daemon has not read the worktree yet.
                 cards.push(CardNow {
                     worktree: live.top.display().to_string(),
@@ -1718,8 +1783,8 @@ impl Model {
                 continue;
             };
             let repo = live.repo();
-            let locks = repo_locks(machine, &repo);
-            let queues = repo_queues(machine, &repo);
+            let locks = repo_locks(&machine, &repo);
+            let queues = repo_queues(&machine, &repo);
             let name = root.name();
             let seen = Seen {
                 live,
@@ -1729,7 +1794,7 @@ impl Model {
                 git: facts.git.as_ref(),
                 branch: facts.branch.as_deref(),
             };
-            let judged = self.judge_card(&snapshot, &seen, &locks, &queues, state.health.as_ref());
+            let judged = self.judge_card(&snapshot, &seen, &locks, &queues, health.as_ref());
             cards.push(CardNow {
                 worktree: live.top.display().to_string(),
                 lists: judged.lists,
