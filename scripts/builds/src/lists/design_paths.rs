@@ -603,13 +603,13 @@ pub fn drawing_at<'a>(
     command.args(["cat-file", "--batch-check=%(objectname)"]);
     let (output, written) = crate::child_input::run(&mut command, asked.as_bytes())
         .context(|| format!("running git to {what}"))?;
-    written.context(|| format!("running git to {what}"))?;
     if !output.status.success() {
         fail!(
             "git failed to {what}: {}",
             String::from_utf8_lossy(&output.stderr).trim()
         );
     }
+    written.context(|| format!("writing to git to {what}"))?;
     let answers = String::from_utf8_lossy(&output.stdout);
     let answers: Vec<&str> = answers.lines().collect();
     if answers.len() != paths.len() {
