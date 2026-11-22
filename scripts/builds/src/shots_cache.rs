@@ -587,6 +587,10 @@ fn group(places: &Places, repo: &str, named: &Named) -> Result<Group> {
                             // A run is placed whole, with its run.json: a
                             // folder at this depth without one is no run.
                             if !folder.join(RUN_FILE).is_file() {
+                                note(format!(
+                                    "the cap leaves {} alone: it holds no {RUN_FILE}, so it is no run of the current layout",
+                                    folder.display()
+                                ));
                                 continue;
                             }
                             kept.push(match named.get(&folder) {
