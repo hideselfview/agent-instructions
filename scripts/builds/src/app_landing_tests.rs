@@ -393,6 +393,7 @@ fn a_landing_whose_covering_build_skipped_a_failed_prefix_is_refused_until_it_is
             steps: steps
                 .iter()
                 .map(|(name, kind, result)| StepRecord {
+                    at_merge_base: None,
                     name: name.to_string(),
                     kind: *kind,
                     started_at: at,
@@ -490,6 +491,7 @@ fn a_landing_is_judged_over_its_own_commits() {
         outcome: RunEnd::Passed,
         load: None,
         steps: vec![StepRecord {
+            at_merge_base: None,
             name: "macos".to_string(),
             kind: StepKind::Step,
             started_at: since + 1,

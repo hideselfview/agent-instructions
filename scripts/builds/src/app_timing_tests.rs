@@ -10,6 +10,7 @@ fn store(scratch: &Scratch) -> std::path::PathBuf {
 
 fn step(name: &str, kind: StepKind, at: i64, wall_ms: u64, result: StepResult) -> StepRecord {
     StepRecord {
+        at_merge_base: None,
         name: name.to_string(),
         kind,
         started_at: at,
@@ -696,4 +697,17 @@ fn the_shots_prefixes_a_branch_ran_come_back_once_each_whatever_their_result() {
         shots_ran(&conn, "bae", Lane::Mac, "branch", NOW - 200, &path).unwrap(),
         ["mac.nowplaying.", "mac.old.", "mac.seek."]
     );
+}
+
+#[test]
+fn a_step_keeps_whether_it_ran_at_the_merge_base_or_at_the_commit() {
+    let scratch = Scratch::new("timing-at-merge-base");
+    let path = store(&scratch);
+    let at = |base| StepRecord {
+        at_merge_base: Some(base),
+        ..step("macos", StepKind::Step, NOW, 1, StepResult::Passed)
+    };
+    let recorded = run(NOW, Lane::Mac, 0, RunEnd::Passed, vec![at(true), at(false)]);
+    record(&path, &recorded).unwrap();
+    assert_eq!(read_run(&path).unwrap(), recorded);
 }

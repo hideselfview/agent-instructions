@@ -57,6 +57,7 @@ fn build(branch: &str, commit: &str, prefix: &str) -> RunRecord {
         outcome: RunEnd::Passed,
         load: None,
         steps: vec![StepRecord {
+            at_merge_base: None,
             name: format!("shots {prefix}"),
             kind: StepKind::Shots,
             started_at: 4_000_000_000,

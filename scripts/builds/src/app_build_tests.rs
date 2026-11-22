@@ -1369,6 +1369,7 @@ fn a_build_that_reuses_a_cached_run_leaves_the_passing_build_that_land_counts() 
     let pick: Pick = (Lane::Mac, PickKind::Shots, "mac.a.".to_string());
     let record = |outcome: RunEnd, shots: StepResult| {
         let step = |name: &str, kind, result| StepRecord {
+            at_merge_base: None,
             name: name.to_string(),
             kind,
             started_at: 5,

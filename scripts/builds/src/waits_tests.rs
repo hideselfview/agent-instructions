@@ -149,6 +149,7 @@ fn a_store_gives_each_kind_its_own_rows_and_leaves_out_other_cargo_runs() {
     )
     .unwrap();
     let step = |name: &str, wall_ms: u64| crate::app_timing::StepRecord {
+        at_merge_base: None,
         name: name.into(),
         kind: crate::app_timing::StepKind::Step,
         started_at: 1_100,

@@ -253,6 +253,7 @@ fn landed_card(scratch: &Scratch) -> (crate::lists::store::Store, Id) {
             outcome: crate::run_end::RunEnd::Passed,
             load: None,
             steps: vec![crate::app_timing::StepRecord {
+                at_merge_base: None,
                 name: "build".into(),
                 kind: crate::app_timing::StepKind::Step,
                 started_at: T0 + 500,
@@ -580,6 +581,7 @@ fn a_failed_shots_step_names_its_shots_in_the_cards_failures_and_totals() {
             outcome: crate::run_end::RunEnd::Failed,
             load: None,
             steps: vec![crate::app_timing::StepRecord {
+                at_merge_base: None,
                 name: "shots mac.a.".into(),
                 kind: crate::app_timing::StepKind::Shots,
                 started_at: T0 + 300,

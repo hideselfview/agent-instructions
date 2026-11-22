@@ -392,6 +392,7 @@ CREATE TABLE design_deleted (
 /// returned as it is.
 #[cfg(test)]
 pub fn with_deleted_boards_only(schema: String) -> String {
+    let schema = without_at_merge_base(schema);
     const START: &str = "-- A board or component the change deletes";
     if !schema.contains(START) {
         return schema;
@@ -403,6 +404,24 @@ pub fn with_deleted_boards_only(schema: String) -> String {
             .expect("it starts with START")
     );
     schema.replacen(&table, DELETED_BOARDS_ONLY, 1)
+}
+
+/// <schema> as it was before the app build steps' table kept whether a step
+/// ran at the merge base: without its `at_merge_base` column.
+#[cfg(test)]
+pub fn without_at_merge_base(schema: String) -> String {
+    schema.replacen(
+        "    at_merge_base INTEGER CHECK (at_merge_base IN (0, 1)),\n",
+        "",
+        1,
+    )
+}
+
+/// The schema as it was before the app build steps' table kept whether a step
+/// ran at the merge base.
+#[cfg(test)]
+pub fn schema_before_app_build_at_merge_base() -> String {
+    without_at_merge_base(SCHEMA.to_string())
 }
 
 /// The schema as it was before a change could delete a component.

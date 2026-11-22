@@ -17,6 +17,7 @@ fn run() -> RunRecord {
         outcome: RunEnd::Passed,
         load: None,
         steps: vec![StepRecord {
+            at_merge_base: None,
             name: "macos".to_string(),
             kind: StepKind::Step,
             started_at: 1_000_002,

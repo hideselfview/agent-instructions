@@ -125,6 +125,11 @@ pub struct StepRecord {
     /// How long the step took, the time the Mac slept during it included.
     pub wall_ms: u64,
     pub cpu_ms: u64,
+    /// Whether the step ran at the merge base to make the run the commit's
+    /// shots compare with (true) or at the commit (false); None for a step
+    /// that builds recorded before it kept this, and until the lane's run of
+    /// the commit sets it.
+    pub at_merge_base: Option<bool>,
     pub result: StepResult,
 }
 
@@ -191,6 +196,7 @@ impl Timer {
             started_at: self.started_at,
             wall_ms: self.began.elapsed().as_millis() as u64,
             cpu_ms: children_cpu().saturating_sub(self.cpu).as_millis() as u64,
+            at_merge_base: None,
             result,
         }
     }
@@ -238,7 +244,7 @@ pub fn record(path: &Path, run: &RunRecord) -> Result<()> {
     let id = tx.last_insert_rowid();
     {
         let mut step = tx
-            .prepare("INSERT INTO app_build_steps (run_id, position, name, kind, started_at, wall_ms, cpu_ms, result) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)")
+            .prepare("INSERT INTO app_build_steps (run_id, position, name, kind, started_at, wall_ms, cpu_ms, at_merge_base, result) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)")
             .context(what)?;
         for (position, s) in run.steps.iter().enumerate() {
             step.execute(params![
@@ -249,6 +255,7 @@ pub fn record(path: &Path, run: &RunRecord) -> Result<()> {
                 s.started_at,
                 s.wall_ms as i64,
                 s.cpu_ms as i64,
+                s.at_merge_base,
                 s.result.word()
             ])
             .context(what)?;
@@ -260,6 +267,10 @@ pub fn record(path: &Path, run: &RunRecord) -> Result<()> {
     }
     tx.commit().context(what)
 }
+
+/// A step's columns as `read_run` reads them: name, kind, start, wall time,
+/// CPU time, whether it ran at the merge base, and result.
+type StepRow = (String, String, i64, i64, i64, Option<bool>, String);
 
 /// The one run the database at <path> records, as `record` wrote it: what a
 /// lane's run hands the installed builds when an install moved the stores
@@ -336,9 +347,9 @@ pub fn read_run(path: &Path) -> Result<RunRecord> {
         steps: Vec::new(),
     };
     let mut said = crate::app_build_step_failure::read(&conn, id)?;
-    let steps: Vec<(String, String, i64, i64, i64, String)> = conn
+    let steps: Vec<StepRow> = conn
         .prepare(
-            "SELECT name, kind, started_at, wall_ms, cpu_ms, result FROM app_build_steps
+            "SELECT name, kind, started_at, wall_ms, cpu_ms, at_merge_base, result FROM app_build_steps
              WHERE run_id = ?1 ORDER BY position",
         )
         .context(what)?
@@ -350,12 +361,13 @@ pub fn read_run(path: &Path) -> Result<RunRecord> {
                 row.get(3)?,
                 row.get(4)?,
                 row.get(5)?,
+                row.get(6)?,
             ))
         })
         .context(what)?
         .collect::<std::result::Result<_, _>>()
         .context(what)?;
-    for (position, (name, kind, started_at, wall_ms, cpu_ms, result)) in
+    for (position, (name, kind, started_at, wall_ms, cpu_ms, at_merge_base, result)) in
         steps.into_iter().enumerate()
     {
         let Some(kind) = StepKind::from_word(&kind) else {
@@ -378,6 +390,7 @@ pub fn read_run(path: &Path) -> Result<RunRecord> {
             started_at,
             wall_ms: wall_ms as u64,
             cpu_ms: cpu_ms as u64,
+            at_merge_base,
             result,
         });
     }
@@ -414,6 +427,34 @@ pub fn record_stopped_runs(db: &Connection) -> Result<()> {
             ";",
         )],
     )?;
+    remake_table(
+        db,
+        "app_build_steps",
+        statement(
+            schema,
+            "CREATE TABLE IF NOT EXISTS app_build_steps",
+            ") STRICT, WITHOUT ROWID;",
+        ),
+        |db| {
+            db.execute_batch(
+                "INSERT INTO app_build_steps (run_id, position, name, kind, started_at, wall_ms, cpu_ms, result) SELECT run_id, position, name, kind, started_at, wall_ms, cpu_ms, result FROM app_build_steps_old",
+            )
+            .sql()
+        },
+        &[statement(
+            schema,
+            "CREATE INDEX IF NOT EXISTS idx_app_build_steps_name",
+            ";",
+        )],
+    )
+}
+
+/// Makes `app_build_steps` again as app_timing.sql writes it, with whether
+/// each step ran at the merge base: a store from before kept no such column,
+/// and each step in it has NULL, since builds never recorded which it was.
+pub fn add_at_merge_base(db: &Connection) -> Result<()> {
+    use crate::db::{Sql, remake_table, statement};
+    let schema = include_str!("app_timing.sql");
     remake_table(
         db,
         "app_build_steps",

@@ -408,6 +408,7 @@ fn a_recorded_app_build_run_reaches_the_feeds_hooks_json() {
         outcome: crate::run_end::RunEnd::Passed,
         load: None,
         steps: vec![StepRecord {
+            at_merge_base: None,
             name: "macos".into(),
             kind: StepKind::Step,
             started_at: at,

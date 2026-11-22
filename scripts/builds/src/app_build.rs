@@ -1940,7 +1940,12 @@ impl LaneBuild<'_> {
             base_run,
             &programs.builds(),
         )?;
-        self.run_steps_in(site, held, built_file, timing, steps, &shots, config)
+        let from = timing.steps.len();
+        let ended = self.run_steps_in(site, held, built_file, timing, steps, &shots, config);
+        for step in &mut timing.steps[from..] {
+            step.at_merge_base = Some(base_run);
+        }
+        ended
     }
 
     /// Runs <steps>, the lane's steps that build and then its test and shots

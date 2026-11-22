@@ -48,6 +48,11 @@ CREATE TABLE IF NOT EXISTS app_build_steps (
     wall_ms INTEGER NOT NULL CHECK (wall_ms >= 0),
     -- User and system CPU time of the step's processes.
     cpu_ms INTEGER NOT NULL CHECK (cpu_ms >= 0),
+    -- 1 when the step ran at the merge base of the run's commit with
+    -- origin/main, to make the run that the commit's shots compare with
+    -- (`ensure_base` in app_build.rs), 0 when it ran at the commit itself.
+    -- NULL for a step that builds recorded before it kept this.
+    at_merge_base INTEGER CHECK (at_merge_base IN (0, 1)),
     result TEXT NOT NULL CHECK (result IN ('passed', 'failed', 'timed out', 'taken over', 'stopped')),
     PRIMARY KEY (run_id, position)
 ) STRICT, WITHOUT ROWID;

@@ -1576,6 +1576,7 @@ INSERT INTO app_build_steps (run_id, position, name, kind, started_at, wall_ms, 
             outcome: crate::run_end::RunEnd::Stopped,
             load: None,
             steps: vec![crate::app_timing::StepRecord {
+                at_merge_base: None,
                 name: "macos".into(),
                 kind: crate::app_timing::StepKind::Step,
                 started_at: 7,
@@ -2104,5 +2105,50 @@ fn a_store_from_before_deleted_components_keeps_each_deleted_board() {
     assert_eq!(
         kept,
         ["design/mocks/Old.dc.html", "design/system/components/Gone/"]
+    );
+}
+
+#[test]
+fn the_app_build_at_merge_base_stamp_is_the_schema_before_it() {
+    assert_eq!(
+        db::stamp_of_text(&db::schema_before_app_build_at_merge_base()),
+        BEFORE_APP_BUILD_AT_MERGE_BASE_STAMP
+    );
+}
+
+/// A store from before builds recorded where each step ran keeps each step
+/// with no flag, since builds never recorded which it was, and equals a fresh
+/// schema.
+#[test]
+fn a_store_from_before_the_merge_base_flag_keeps_each_step_with_no_flag_and_equals_a_fresh_schema()
+{
+    let scratch = Scratch::new("move-at-merge-base");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&db::schema_before_app_build_at_merge_base())
+            .unwrap();
+        conn.execute_batch(
+            "INSERT INTO app_build_runs (id, started_at, repo, lane, checkout, built_ref, wait_ms, outcome) VALUES (1, 5, 'bae', 'mac', 'side-1', 'one', 0, 'passed');
+             INSERT INTO app_build_steps (run_id, position, name, kind, started_at, wall_ms, cpu_ms, result) VALUES (1, 0, 'macos', 'step', 5, 1, 1, 'passed')",
+        )
+        .unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_APP_BUILD_AT_MERGE_BASE_STAMP)
+            .unwrap();
+    }
+    migrate_stores(&places, 0).unwrap();
+    let conn = db::open(&path, db::Make::Never).unwrap();
+    let flag: Option<bool> = conn
+        .query_row("SELECT at_merge_base FROM app_build_steps", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(flag, None);
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
     );
 }
