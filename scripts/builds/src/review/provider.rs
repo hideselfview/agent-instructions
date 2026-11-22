@@ -20,13 +20,16 @@ enum Provider {
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Executable {
     Claude(PathBuf),
-    Codex(PathBuf),
+    Codex { path: PathBuf, purpose: Purpose },
 }
 
 impl Executable {
     fn of(path: PathBuf) -> Self {
         match path.file_stem().and_then(|stem| stem.to_str()) {
-            Some("codex") => Self::Codex(path),
+            Some("codex") => Self::Codex {
+                path,
+                purpose: Purpose::Check,
+            },
             _ => Self::Claude(path),
         }
     }
@@ -34,13 +37,13 @@ impl Executable {
     fn provider(&self) -> Provider {
         match self {
             Self::Claude(_) => Provider::Claude,
-            Self::Codex(_) => Provider::Codex,
+            Self::Codex { .. } => Provider::Codex,
         }
     }
 
     fn path(&self) -> &Path {
         match self {
-            Self::Claude(path) | Self::Codex(path) => path,
+            Self::Claude(path) | Self::Codex { path, .. } => path,
         }
     }
 }
@@ -50,7 +53,6 @@ impl Executable {
 pub struct Program {
     executable: Executable,
     temporary: PathBuf,
-    purpose: Purpose,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -64,18 +66,19 @@ impl Program {
         Self {
             executable: Executable::of(executable),
             temporary,
-            purpose: Purpose::Check,
         }
     }
 
-    pub fn uses_code_review_effort(&self) -> bool {
-        self.executable.provider() == Provider::Codex
-    }
-
-    pub fn for_code_review(&self) -> Self {
-        Self {
-            purpose: Purpose::CodeReview,
-            ..self.clone()
+    pub(super) fn for_branch_review(&self, reads_code: impl FnOnce() -> bool) -> Self {
+        match &self.executable {
+            Executable::Codex { path, .. } if reads_code() => Self {
+                executable: Executable::Codex {
+                    path: path.clone(),
+                    purpose: Purpose::CodeReview,
+                },
+                temporary: self.temporary.clone(),
+            },
+            _ => self.clone(),
         }
     }
 
@@ -118,8 +121,8 @@ impl Program {
     }
 
     fn model(&self, selection: &Selection) -> Model {
-        match self.executable.provider() {
-            Provider::Claude => {
+        match &self.executable {
+            Executable::Claude(_) => {
                 let name = match selection {
                     Selection::Tier(Tier::High) => "opus",
                     Selection::Tier(Tier::Medium) => "sonnet",
@@ -128,13 +131,13 @@ impl Program {
                 };
                 Model::Claude(name.to_string())
             }
-            Provider::Codex => {
+            Executable::Codex { purpose, .. } => {
                 if let Selection::Named(requested) = selection
                     && requested != CODEX_MODEL
                 {
                     return Model::UnsupportedCodex(requested.clone());
                 }
-                let effort = match (self.purpose, selection) {
+                let effort = match (purpose, selection) {
                     (_, Selection::Named(_)) | (Purpose::CodeReview, Selection::Tier(_)) => "high",
                     (Purpose::Check, Selection::Tier(Tier::High | Tier::Medium)) => "medium",
                     (Purpose::Check, Selection::Tier(Tier::Fast)) => "low",
@@ -202,8 +205,12 @@ impl Model {
     }
 
     fn unavailable(&self) -> String {
-        format!("unknown (requested {})", self.requested_name())
+        unknown_model(self.requested_name())
     }
+}
+
+fn unknown_model(requested: &str) -> String {
+    format!("unknown (requested {requested})")
 }
 
 pub fn invoke(
@@ -343,7 +350,7 @@ fn claude(
 pub(super) fn claude_envelope(text: &[u8], requested: &str) -> Invoked {
     let Ok(value) = serde_json::from_slice::<Value>(text) else {
         return Invoked::failed(
-            format!("unknown (requested {requested})"),
+            unknown_model(requested),
             "the reviewer printed no JSON".to_string(),
         );
     };
@@ -358,12 +365,15 @@ pub(super) fn claude_envelope(text: &[u8], requested: &str) -> Invoked {
                 })
             }
         })
-        .map_or_else(|| format!("unknown (requested {requested})"), Clone::clone);
+        .map_or_else(|| unknown_model(requested), Clone::clone);
     let mut body = body_of(&value);
     let mut diagnostics = Vec::new();
     let tokens = match value.get("usage") {
         Some(usage) => reported_tokens(usage, Provider::Claude, &mut body, &mut diagnostics),
-        None => Tokens::default(),
+        None => {
+            diagnostics.push("Claude omitted its usage report".to_string());
+            Tokens::default()
+        }
     };
     let cost_microdollars = match claude_cost(&value) {
         Ok(cost) => cost,
@@ -644,7 +654,7 @@ fn codex(
         invoked = Some(Invoked {
             model: match completion {
                 Completion::Completed(_) => CODEX_MODEL.to_string(),
-                Completion::Incomplete => format!("unknown (requested {CODEX_MODEL})"),
+                Completion::Incomplete => unknown_model(CODEX_MODEL),
             },
             usage: Usage {
                 tokens: completion.tokens(),
@@ -790,7 +800,10 @@ fn codex_events(text: &[u8], read_tools: bool) -> Decoded {
             &mut body,
             &mut diagnostics,
         )),
-        Some(None) => Completion::Completed(Tokens::default()),
+        Some(None) => {
+            diagnostics.push("Codex omitted its usage report".to_string());
+            Completion::Completed(Tokens::default())
+        }
         None => Completion::Incomplete,
     };
     Decoded {

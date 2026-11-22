@@ -15,6 +15,7 @@ fn call(id: i64, run: i64, group: &str, rules: &[&str], cost: Option<i64>) -> Ca
         model: "opus".to_string(),
         prompt: format!("prompt-of-{group}"),
         rules: rules.iter().map(|r| r.to_string()).collect(),
+        token_subtotals: Default::default(),
         usage: crate::review::call::Usage {
             tokens: crate::review::call::Tokens {
                 input: Some(100),

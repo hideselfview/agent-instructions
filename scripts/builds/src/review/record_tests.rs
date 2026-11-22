@@ -594,14 +594,11 @@ fn migrating_failed_review_exchanges_preserves_measured_zero_and_removes_unknown
         }
     );
     assert_eq!(calls[2].usage.tokens, Tokens::default());
-    let subtotal: i64 = db
-        .query_row(
-            "SELECT tokens_in FROM review_call WHERE id = ?1",
-            [calls[2].id],
-            |row| row.get(0),
-        )
-        .unwrap();
-    assert_eq!(subtotal, 9, "the parent retains the measured subtotal");
+    assert_eq!(calls[2].token_subtotals.input, Some(9));
+    assert!(
+        crate::review::render::totals(&calls, &[])
+            .contains("ambiguous reported subtotals: 9 tokens in")
+    );
     let results = db
         .prepare("SELECT tokens_in FROM review_exchange ORDER BY id")
         .unwrap()

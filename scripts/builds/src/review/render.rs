@@ -130,9 +130,17 @@ pub fn totals(calls: &[Call], findings: &[Finding]) -> String {
         super::call::sum_tokens(calls.iter().map(|call| call.usage.tokens)),
         true,
     );
-    format!(
+    let mut report = format!(
         "{}, {} ({blocking} blocking), {dropped} dropped by builds, {tokens}",
         plural(calls.len(), "group"),
         plural(accepted, "finding"),
-    )
+    );
+    for call in calls
+        .iter()
+        .filter(|call| call.token_subtotals != super::call::Tokens::default())
+    {
+        let subtotals = super::call::tokens_text(Ok(call.token_subtotals), true);
+        report.push_str(&format!("\n{} reported subtotals: {subtotals}", call.group));
+    }
+    report
 }

@@ -234,6 +234,8 @@ pub struct Call {
     pub prompt: String,
     /// The rule slugs it answers for.
     pub rules: Vec<String>,
+    /// The measured parts of counters whose complete totals are unknown.
+    pub token_subtotals: super::call::Tokens,
     pub usage: super::call::Usage,
     pub failure: Option<String>,
 }
@@ -517,6 +519,7 @@ pub fn add_calls(
                 exchange.ms,
             )?;
         }
+        record_token_subtotals(db, call_id)?;
         let mut finding_ids = Vec::new();
         for f in &call.findings {
             db.execute(
@@ -755,24 +758,42 @@ pub fn calls_of_kind(db: &Connection, kind: Kind) -> Result<Vec<Call>> {
     calls_where(db, "r.kind = ?1", kind.word())
 }
 
-/// Columns for token measurements in the call and exchange records.
-const TOKEN_COLUMNS: [&str; 6] = [
-    "tokens_in",
-    "tokens_out",
-    "tokens_cached",
-    "tokens_written",
-    "tokens_uncached",
-    "tokens_reasoning",
+/// Field names and columns for the token values a call can measure.
+const TOKEN_FIELDS: [(&str, &str); 6] = [
+    ("input", "tokens_in"),
+    ("output", "tokens_out"),
+    ("cached", "tokens_cached"),
+    ("written", "tokens_written"),
+    ("uncached", "tokens_uncached"),
+    ("reasoning", "tokens_reasoning"),
 ];
 
+/// Keeps the measured part of an unknown total without changing that total.
+fn record_token_subtotals(db: &Connection, call: i64) -> Result<()> {
+    let fields = TOKEN_FIELDS
+        .map(|(key, column)| {
+            format!("'{key}', CASE WHEN c.{column} IS NULL THEN SUM(e.{column}) END")
+        })
+        .join(", ");
+    let has_partial = TOKEN_FIELDS
+        .map(|(_, column)| format!("(c.{column} IS NULL AND COUNT(e.{column}) > 0)"))
+        .join(" OR ");
+    db.execute(
+        &format!(
+            "UPDATE review_call AS c SET token_subtotals = (
+            SELECT json_object({fields}) FROM review_exchange e WHERE e.call_id = c.id
+            HAVING {has_partial}
+        ) WHERE c.id = ?1"
+        ),
+        [call],
+    )
+    .sql()?;
+    Ok(())
+}
+
 fn calls_where(db: &Connection, condition: &str, value: impl rusqlite::ToSql) -> Result<Vec<Call>> {
-    // A migrated call can hold a known subtotal. It is a total only when
-    // every recorded exchange for the call supplied that measurement.
-    let totals = TOKEN_COLUMNS.map(|column| format!(
-        "CASE WHEN EXISTS (SELECT 1 FROM review_exchange e WHERE e.call_id = c.id AND e.{column} IS NULL) THEN NULL ELSE c.{column} END"
-    )).join(", ");
     let sql = format!(
-        "SELECT c.id, c.run_id, r.kind, c.group_name, c.model, c.prompt, c.rules, {totals}, c.cost_microdollars, c.failure FROM review_call c JOIN review_run r ON r.id = c.run_id WHERE {condition} ORDER BY c.id"
+        "SELECT c.id, c.run_id, r.kind, c.group_name, c.model, c.prompt, c.rules, c.tokens_in, c.tokens_out, c.tokens_cached, c.tokens_written, c.tokens_uncached, c.tokens_reasoning, c.cost_microdollars, c.failure, c.token_subtotals FROM review_call c JOIN review_run r ON r.id = c.run_id WHERE {condition} ORDER BY c.id"
     );
     let mut statement = db.prepare(&sql).sql()?;
     let rows = statement
@@ -802,6 +823,16 @@ fn calls_where(db: &Connection, condition: &str, value: impl rusqlite::ToSql) ->
                         reasoning: row.get(12)?,
                     },
                     cost_microdollars: row.get(13)?,
+                },
+                token_subtotals: match row.get::<_, Option<String>>(15)? {
+                    None => super::call::Tokens::default(),
+                    Some(subtotals) => serde_json::from_str(&subtotals).map_err(|error| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            15,
+                            rusqlite::types::Type::Text,
+                            Box::new(error),
+                        )
+                    })?,
                 },
                 failure: row.get(14)?,
             })
@@ -1107,21 +1138,13 @@ pub fn allow_unreported_tokens(db: &Connection, texts: &texts::Texts) -> Result<
             affected_calls.insert(call);
         }
     }
-    if !affected_calls.is_empty() {
-        let columns = TOKEN_COLUMNS.join(", ");
-        let subtotals = TOKEN_COLUMNS
-            .map(|column| format!("SUM(e.{column})"))
-            .join(", ");
-        let mut record = db
-            .prepare(&format!(
-                "UPDATE review_call SET ({columns}) = (
-                SELECT {subtotals} FROM review_exchange e WHERE e.call_id = ?1
-             ) WHERE id = ?1"
-            ))
-            .sql()?;
-        for call in affected_calls {
-            record.execute([call]).sql()?;
-        }
+    for call in affected_calls {
+        db.execute(
+            &format!("UPDATE review_call SET {CLEAR_LEGACY_TOKENS} WHERE id = ?1"),
+            [call],
+        )
+        .sql()?;
+        record_token_subtotals(db, call)?;
     }
     Ok(())
 }

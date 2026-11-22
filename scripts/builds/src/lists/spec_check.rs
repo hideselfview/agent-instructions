@@ -356,16 +356,11 @@ fn check(
         &message,
         Some(&target.worktree),
     );
-    if !invoked.diagnostics.is_empty() {
-        crate::review::call::note_diagnostics(
-            format_args!("the check of {} against {}'s spec", brief.name, target.repo),
-            &invoked.diagnostics,
-        );
-    }
-    let output = match &invoked.body {
-        Ok(body) => body.to_string(),
-        Err(why) => crate::review::call::failed_answer_text(why),
-    };
+    crate::review::call::note_diagnostics(
+        format_args!("the check of {} against {}'s spec", brief.name, target.repo),
+        &invoked.diagnostics,
+    );
+    let output = invoked.answer_text();
     let (failure, findings) = match invoked
         .body
         .and_then(|body| findings_of(&body, brief, target))

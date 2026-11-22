@@ -3181,9 +3181,11 @@ blocking or not, must be settled before the commits land.
 
 Builds keeps the input and output totals, the uncached input count, cache
 read and write counts, and the reasoning output count. A count stays unknown
-if Builds cannot read or derive it. Builds reports omitted counts and invalid
-reasoning counts alongside the review group's name. A valid answer still goes
-through the review checks.
+if Builds cannot read or derive it. Builds keeps a separate subtotal when at
+least one exchange reported a count and the call's total is unknown.
+Builds names the review group when the reviewer omits its usage report or any
+of the input, output or cache counts. Builds also reports an invalid reasoning
+count. A valid answer still goes through the review checks.
 
 The review checks design files only against the rules about how a screen,
 board or component looks, never against the rules about code (decision

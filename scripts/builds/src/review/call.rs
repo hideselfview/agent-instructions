@@ -43,7 +43,7 @@ pub struct Output {
 }
 
 /// Reported and derived token counts. An absent count has no known value.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Deserialize)]
 pub struct Tokens {
     pub input: Option<i64>,
     pub output: Option<i64>,
@@ -208,6 +208,13 @@ pub struct Invoked {
 }
 
 impl Invoked {
+    pub fn answer_text(&self) -> String {
+        match &self.body {
+            Ok(body) => body.to_string(),
+            Err(why) => failed_answer_text(why),
+        }
+    }
+
     pub fn failed(model: String, why: String) -> Self {
         Self {
             model,
@@ -246,10 +253,7 @@ pub(super) fn run(
 }
 
 fn output_of(invoked: Invoked, names: &[String], given: &[i64], enumerate: bool) -> Output {
-    let output = match &invoked.body {
-        Ok(body) => body.to_string(),
-        Err(why) => failed_answer_text(why),
-    };
+    let output = invoked.answer_text();
     Output {
         model: invoked.model,
         output,

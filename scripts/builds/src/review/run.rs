@@ -666,11 +666,10 @@ pub fn ask_groups(
         .iter()
         .enumerate()
         .map(|(at, (group, members))| {
-            if kind == ReviewKind::Branch
-                && reviewer.uses_code_review_effort()
-                && judges_code(group, members, &units[at], &diffs[at], files, open)
-            {
-                reviewer.for_code_review()
+            if kind == ReviewKind::Branch {
+                reviewer.for_branch_review(|| {
+                    judges_code(group, members, &units[at], &diffs[at], files, open)
+                })
             } else {
                 reviewer.clone()
             }

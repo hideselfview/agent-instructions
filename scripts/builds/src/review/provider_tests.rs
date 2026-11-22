@@ -629,6 +629,7 @@ fn codex_keeps_a_completed_answer_without_a_usage_event() {
         matches!(answer.completion, Completion::Completed(tokens) if tokens == Tokens::default())
     );
     assert_eq!(answer.body.unwrap(), json!({"claims": []}));
+    assert_eq!(answer.diagnostics, ["Codex omitted its usage report"]);
 }
 
 #[test]
