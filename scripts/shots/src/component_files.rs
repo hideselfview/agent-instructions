@@ -30,6 +30,10 @@ pub(crate) struct Listing {
     /// name, relative to the repo's top: no capture file can be named for
     /// them.
     pub(crate) unnamed: Vec<String>,
+    /// How many components, counted once for each platform, the listing
+    /// leaves out because the platform draws them for the design only
+    /// (`shots-design-only`): its app has no view their shots could draw.
+    pub(crate) design_only: usize,
 }
 
 /// A component on one platform: its capture file and its preview's rows.
@@ -81,6 +85,7 @@ impl Listing {
             &self.components.iter().collect::<Vec<_>>(),
             self.strays.len(),
             self.unnamed.len(),
+            self.design_only,
         )
     }
 
@@ -121,6 +126,19 @@ pub(crate) fn list(
     let relative = |path: &Path| path.strip_prefix(root).unwrap_or(path).to_path_buf();
 
     let mut components = Vec::new();
+    let mut design_only = 0;
+    for (platform, name) in &settings.design_only {
+        let drawn = previews
+            .components
+            .iter()
+            .any(|(known, key)| known == name && key.platform.is_none_or(|p| p == platform.word()));
+        if !drawn {
+            return Err(format!(
+                "shots-design-only names {name} on {}, which has no preview there",
+                platform.word()
+            ));
+        }
+    }
     for (name, key) in &previews.components {
         let preview = root.join(boards::preview::preview_path(name));
         let html = std::fs::read_to_string(&preview)
@@ -128,6 +146,14 @@ pub(crate) fn list(
         let states = crate::lint::rows(&html, &settings.preview_calls);
         for (platform, extension, folder) in &platforms {
             if key.platform.is_some_and(|p| p != platform.word()) {
+                continue;
+            }
+            if settings
+                .design_only
+                .iter()
+                .any(|(only, component)| only == platform && component == name)
+            {
+                design_only += 1;
                 continue;
             }
             let file = folder.join(COMPONENTS).join(format!("{name}.{extension}"));
@@ -190,6 +216,7 @@ pub(crate) fn list(
         components,
         strays,
         unnamed,
+        design_only,
     })
 }
 
@@ -289,13 +316,19 @@ pub(crate) fn lines(listing: &Listing, only: &[String]) -> Vec<String> {
             lines.push(format!("  {folder}"));
         }
     }
-    lines.push(counts(&components, strays.len(), unnamed.len()));
+    lines.push(counts(
+        &components,
+        strays.len(),
+        unnamed.len(),
+        listing.design_only,
+    ));
     lines
 }
 
 /// The sentence that counts the rows <components> leave out of their capture
-/// files, the <strays> and the <unnamed> preview folders.
-fn counts(components: &[&Component], strays: usize, unnamed: usize) -> String {
+/// files, the <strays>, the <unnamed> preview folders and the components the
+/// listing leaves out because they draw for the <design_only>.
+fn counts(components: &[&Component], strays: usize, unnamed: usize, design_only: usize) -> String {
     let rows = components
         .iter()
         .map(|c| c.missing().count())
@@ -339,11 +372,22 @@ fn counts(components: &[&Component], strays: usize, unnamed: usize) -> String {
             }
         ));
     }
-    match parts.split_last() {
+    let gaps = match parts.split_last() {
         None => "Each preview row has its shot in its component's capture file.".to_string(),
         Some((last, [])) => format!("{last}."),
         Some((last, rest)) => format!("{}, and {last}.", rest.join(", ")),
+    };
+    if design_only == 0 {
+        return gaps;
     }
+    format!(
+        "{gaps} {design_only} {} draw for the design only and have no shots.",
+        if design_only == 1 {
+            "component"
+        } else {
+            "components"
+        }
+    )
 }
 
 #[cfg(test)]

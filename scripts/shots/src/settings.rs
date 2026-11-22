@@ -11,6 +11,7 @@
 //! shots-preview .preview-row .preview-name .preview-cell
 //! shots-preview-calls N W
 //! shots-unshot .keyboard
+//! shots-design-only mac AppIcon Sym
 //! ```
 //!
 //! - `shots-capture <platform> <command>...`: the command that takes the
@@ -25,6 +26,11 @@
 //! - `shots-preview-calls <function>...`: the functions a preview page calls
 //!   with a row's name as the first string argument, which the lint reads to
 //!   find a preview's states without a browser (lint.rs).
+//! - `shots-design-only <platform> <Component>...`: the components the
+//!   design draws and the platform's app has no view for (an app icon's
+//!   artwork, a glyph library), whose preview rows have no shot and never
+//!   will, so the listing of component capture files leaves them out and
+//!   says how many (component_files.rs).
 //! - `shots-unshot <selector>...`: the parts of a board the app draws no
 //!   counterpart for, such as an on-screen keyboard, which the picture
 //!   comparison leaves out (render/read.rs).
@@ -66,6 +72,9 @@ pub(crate) struct Settings {
     pub(crate) preview: Option<Preview>,
     pub(crate) preview_calls: Vec<String>,
     pub(crate) unshot: Vec<String>,
+    /// Each component a platform draws for the design only, in the order
+    /// written.
+    pub(crate) design_only: Vec<(Platform, String)>,
 }
 
 impl Settings {
@@ -123,6 +132,19 @@ impl Settings {
                     if settings.preview.replace(preview).is_some() {
                         return Err(bad("repeats shots-preview"));
                     }
+                }
+                "shots-design-only" => {
+                    let [platform, components @ ..] = rest.as_slice() else {
+                        return Err(bad("names no platform"));
+                    };
+                    let platform = Platform::parse(platform)
+                        .ok_or_else(|| bad("names a platform other than mac, android or web"))?;
+                    if components.is_empty() {
+                        return Err(bad("names no component"));
+                    }
+                    settings
+                        .design_only
+                        .extend(components.iter().map(|c| (platform, c.clone())));
                 }
                 "shots-preview-calls" | "shots-unshot" => {
                     if rest.is_empty() {

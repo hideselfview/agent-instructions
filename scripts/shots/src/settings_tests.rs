@@ -60,6 +60,23 @@ fn a_repo_with_no_shots_lines_has_no_settings() {
 }
 
 #[test]
+fn a_design_only_line_names_the_components_a_platform_draws_for_the_design_alone() {
+    let settings = Settings::parse(
+        "shots-design-only mac AppIcon Sym\nshots-design-only android AppIcon ImportSheep\n",
+    )
+    .unwrap();
+    assert_eq!(
+        settings.design_only,
+        [
+            (Platform::Mac, "AppIcon".to_string()),
+            (Platform::Mac, "Sym".to_string()),
+            (Platform::Android, "AppIcon".to_string()),
+            (Platform::Android, "ImportSheep".to_string()),
+        ]
+    );
+}
+
+#[test]
 fn a_shots_line_it_cannot_read_is_refused() {
     for (line, why) in [
         ("shots-capture", "names no platform"),
@@ -69,6 +86,9 @@ fn a_shots_line_it_cannot_read_is_refused() {
         ("shots-declared mac ../out", "outside the repo"),
         ("shots-preview .row .name", "selectors"),
         ("shots-unshot", "names nothing"),
+        ("shots-design-only", "names no platform"),
+        ("shots-design-only mac", "names no component"),
+        ("shots-design-only ios Sym", "mac, android or web"),
         ("shots-guess x", "no line builds shots knows"),
         ("shots-source app-shots", "no line builds shots knows"),
     ] {

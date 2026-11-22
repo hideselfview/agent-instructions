@@ -27,6 +27,7 @@ fn a_run_passes_without_findings_or_problems() {
             why: "no preview".to_string(),
         }],
         unnamed: Vec::new(),
+        design_only: 0,
     };
     assert!(
         outcome.passed(),

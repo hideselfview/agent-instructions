@@ -208,6 +208,59 @@ fn the_listing_names_each_gap_under_its_component_and_ends_with_the_counts() {
     );
 }
 
+fn listing_with(root: &Path, extra: &str) -> Result<Listing, String> {
+    let settings = Settings::parse(&format!(
+        "shots-declared mac {MAC}\nshots-declared android {ANDROID}\nshots-preview-calls N W\n{extra}"
+    ))
+    .unwrap();
+    let declared = crate::declared::read(root, &settings.declared).unwrap();
+    list(root, &Previews::of(root).unwrap(), &settings, &declared)
+}
+
+/// A component the design draws that the app has no view for has no shot to
+/// keep: the listing leaves it out on that platform and says how many it left
+/// out.
+#[test]
+fn a_design_only_component_is_left_out_of_the_listing_and_counted() {
+    let root = repo();
+    let found = listing_with(
+        root.path(),
+        "shots-design-only mac Artwork\nshots-design-only android Artwork\n",
+    )
+    .unwrap();
+    assert!(found.components.iter().all(|c| c.name != "Artwork"));
+    assert_eq!(found.design_only, 2);
+    let text = lines(&found, &[]);
+    assert!(
+        !text.iter().any(|line| line.contains("Artwork")),
+        "{text:?}"
+    );
+    assert_eq!(
+        text.last().unwrap(),
+        "1 preview row of 1 component has no shot in its capture file, 2 capture files have no preview, and 1 preview folder has no component name. 2 components draw for the design only and have no shots."
+    );
+    // On one platform only: the component stays listed on the other.
+    let one = listing_with(root.path(), "shots-design-only android Artwork\n").unwrap();
+    assert_eq!(one.design_only, 1);
+    assert!(
+        one.components
+            .iter()
+            .any(|c| c.name == "Artwork" && c.platform == Platform::Mac)
+    );
+}
+
+#[test]
+fn a_design_only_line_for_a_component_with_no_preview_there_is_refused() {
+    let root = repo();
+    for line in [
+        "shots-design-only mac Missing",
+        "shots-design-only mac AndroidRow",
+    ] {
+        let error = listing_with(root.path(), &format!("{line}\n")).unwrap_err();
+        assert!(error.contains("has no preview"), "{line}: {error}");
+    }
+}
+
 #[test]
 fn a_named_component_shows_every_row_whether_its_file_declares_it_or_not() {
     let root = repo();

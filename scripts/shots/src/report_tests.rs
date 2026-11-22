@@ -50,6 +50,7 @@ fn component_gaps() -> Listing {
             why: "no folder design/system/components/MacGone holds a preview.html".to_string(),
         }],
         unnamed: Vec::new(),
+        design_only: 0,
     }
 }
 
