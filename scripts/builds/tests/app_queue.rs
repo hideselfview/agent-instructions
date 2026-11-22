@@ -770,7 +770,16 @@ fn app_build_refuses_a_ci_only_step_in_each_form_and_lists_it_as_ci_only() {
     std::fs::write(volume.dir.join("go-two"), "").unwrap();
     for form in [
         &["app-build", "demo", "main", "two"][..],
-        &["app-build", "demo", "--lane", "mac", "main", "two"][..],
+        &[
+            "app-build",
+            "demo",
+            "--lane",
+            "mac",
+            "main",
+            "--built-ref",
+            "main",
+            "two",
+        ][..],
     ] {
         let refused = volume.run(form);
         assert!(!refused.status.success(), "{form:?} ran");
@@ -953,7 +962,16 @@ fn a_build_failing_in_one_lane_fails_the_build_naming_the_lane_and_the_other_lan
 fn a_step_is_refused_by_the_lane_it_is_not_in() {
     let volume = Volume::new("lane-refuses");
     volume.app_repo_with(LANES);
-    let refused = volume.run(&["app-build", "demo", "--lane", "mac", "main", "droid"]);
+    let refused = volume.run(&[
+        "app-build",
+        "demo",
+        "--lane",
+        "mac",
+        "main",
+        "--built-ref",
+        "main",
+        "droid",
+    ]);
     assert!(!refused.status.success());
     assert!(
         String::from_utf8_lossy(&refused.stderr)
@@ -1094,6 +1112,8 @@ fn a_class_only_run_tests_the_commit_the_checkout_last_built() {
         "--lane",
         "mac",
         "main",
+        "--built-ref",
+        "main",
         "--test",
         "mac",
         "Foo",
@@ -1114,6 +1134,8 @@ fn a_class_only_run_tests_the_commit_the_checkout_last_built() {
         "demo",
         "--lane",
         "mac",
+        "main",
+        "--built-ref",
         "main",
         "--test",
         "mac",
@@ -1149,6 +1171,8 @@ fn a_class_only_run_tests_the_commit_the_checkout_last_built() {
         "--lane",
         "mac",
         "origin/other",
+        "--built-ref",
+        "origin/other",
         "--test",
         "mac",
         "Foo",
@@ -1178,6 +1202,8 @@ fn a_shots_only_run_tests_the_commit_the_checkout_last_built() {
         "--lane",
         "mac",
         "main",
+        "--built-ref",
+        "main",
         "--shots",
         "mac",
         "mac.welcome.",
@@ -1197,6 +1223,8 @@ fn a_shots_only_run_tests_the_commit_the_checkout_last_built() {
         "demo",
         "--lane",
         "mac",
+        "main",
+        "--built-ref",
         "main",
         "--shots",
         "mac",
@@ -1219,6 +1247,8 @@ fn a_shots_only_run_tests_the_commit_the_checkout_last_built() {
         "demo",
         "--lane",
         "android",
+        "main",
+        "--built-ref",
         "main",
         "--shots",
         "android",
