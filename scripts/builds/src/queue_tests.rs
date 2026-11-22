@@ -380,7 +380,7 @@ fn a_ticket_name_says_where_its_build_may_run_and_a_reissued_one_keeps_it() {
 }
 
 #[test]
-fn a_dead_ticket_of_an_earlier_builds_is_dropped_before_its_name_is_read() {
+fn a_dead_ticket_of_an_earlier_builds_is_dropped_and_lets_the_waiter_go() {
     let scratch = Scratch::new("queue-dead-old-name");
     let queue = queue(&scratch);
     plant_dead(&queue, "85902-1-hosts");

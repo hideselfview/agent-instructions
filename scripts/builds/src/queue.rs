@@ -358,28 +358,6 @@ impl Queue {
         self.unlink(name)
     }
 
-    /// Takes every ticket whose process is gone out of the order and removes
-    /// its file, whatever its name: a ticket is locked for the life of its
-    /// process, so one that can be locked has no owner, and so has an entry
-    /// with no file. Runs before any name is read, so a dead build of another
-    /// builds never stops this one.
-    fn drop_gone(&self) -> Result<()> {
-        let _guard = self.guard()?;
-        let order = self.order();
-        let mut kept = Vec::new();
-        for name in &order {
-            if is_held(&self.ticket_path(name))? {
-                kept.push(name.clone());
-            } else {
-                self.unlink(name)?;
-            }
-        }
-        if kept.len() != order.len() {
-            self.write_order(&kept)?;
-        }
-        Ok(())
-    }
-
     /// Whether the build behind <mine>, with the tickets <ahead> in front of
     /// it, may take a lock now: a free checkout it may use is left once each
     /// earlier waiter has taken one. A ticket whose owner holds a lock (its
@@ -457,7 +435,6 @@ impl Queue {
                     "waited for its turn in {}",
                     self.dir.display()
                 ))?;
-                self.drop_gone()?;
                 let order = self.order();
                 let Some(at) = order.iter().position(|name| name == mine) else {
                     fail!(
