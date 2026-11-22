@@ -1768,7 +1768,9 @@ pub fn ensure_before_runs(
     ));
     let config = config_at(places, repo, &tip)?;
     let lanes = crate::derive::plan(&config, &[], &wanted);
-    let built = run_lanes(pinned, repo, &tip, &lanes, &wanted, &[], false, true);
+    let built = run_lanes(
+        places, pinned, repo, &tip, &lanes, &wanted, &[], false, true,
+    );
     if PASSED_ON.load(Ordering::SeqCst) != 0 {
         return built;
     }
@@ -1906,6 +1908,7 @@ pub fn pin(places: &Places) -> Result<Pinned> {
 /// and the command, once they have ended, fails saying it stopped.
 #[allow(clippy::too_many_arguments)]
 pub fn run_lanes(
+    places: &Places,
     pinned: &Pinned,
     repo: &str,
     commit: &str,
@@ -1920,7 +1923,7 @@ pub fn run_lanes(
             libc::signal(signal, pass_to_lanes as *const () as libc::sighandler_t);
         }
     }
-    let xcode_cache = crate::xcode_cache::ensure(&Places::from_env()?)?;
+    let xcode_cache = crate::xcode_cache::ensure(places)?;
     let mut running = Vec::new();
     for (at, (lane, names)) in lanes.iter().enumerate() {
         let mut command = Command::new(pinned.builds());
@@ -2213,7 +2216,17 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
     if lanes.is_empty() {
         fail!("{CONFIG} names no step");
     }
-    run_lanes(&pinned, repo, commit, &lanes, &picks, &[], fresh, false)
+    run_lanes(
+        places,
+        &pinned,
+        repo,
+        commit,
+        &lanes,
+        &picks,
+        &[],
+        fresh,
+        false,
+    )
 }
 
 /// Whether <names> start with the flag <flag>, and <names> without it.
