@@ -74,12 +74,37 @@ fn a_pair_with_a_finding_fails_a_run_with_no_before_run() {
 }
 
 #[test]
-fn a_new_or_worse_pair_with_a_finding_fails_the_run() {
-    for against in [Against::New, Against::Worse] {
-        let outcome = outcome(vec![pair_with_finding(Some(against))]);
-        assert!(!outcome.passed(), "{against:?}");
-        assert_eq!(outcome.failing().count(), 1);
-    }
+fn a_worse_pair_with_a_finding_fails_the_run() {
+    let outcome = outcome(vec![pair_with_finding(Some(Against::Worse))]);
+    assert!(!outcome.passed());
+    assert_eq!(outcome.failing().count(), 1);
+}
+
+#[test]
+fn a_pair_the_base_did_not_check_lists_its_findings_and_fails_nothing() {
+    let outcome = outcome(vec![pair_with_finding(Some(Against::New))]);
+    assert!(
+        outcome.passed(),
+        "a scene with no run to compare with shows its findings for the first time"
+    );
+    assert_eq!(outcome.failing().count(), 0);
+    assert_eq!(outcome.listed().count(), 1);
+}
+
+#[test]
+fn a_new_pair_still_fails_the_run_when_a_shot_has_no_board_or_a_capture_failed() {
+    let mut without_board = outcome(vec![pair_with_finding(Some(Against::New))]);
+    without_board.problems.push(Problem {
+        name: "mac.new.scene".to_string(),
+        sentence: "its shot has no board".to_string(),
+    });
+    assert!(!without_board.passed());
+    let mut failed = outcome(vec![pair_with_finding(Some(Against::New))]);
+    failed.failed.push(Failed {
+        name: name("mac.new.scene"),
+        why: "the capture wrote no picture".to_string(),
+    });
+    assert!(!failed.passed());
 }
 
 #[test]

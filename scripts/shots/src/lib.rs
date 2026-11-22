@@ -78,7 +78,7 @@ enum Action {
     /// run's findings.json names.
     Version,
     /// Take the shots into shots/, a folder for each platform, and check them.
-    /// With --before, only pairs new or worse against that run fail the run,
+    /// With --before, only pairs worse against that run fail the run,
     /// and the rest are listed; without it, every pair with a finding fails.
     Run {
         #[command(flatten)]

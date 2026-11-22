@@ -1,13 +1,12 @@
 //! The run a run is compared with: another run's `findings.json`
 //! (findings_file.rs), which `run --before` names. builds passes the file of
 //! the run of a branch's merge base with origin/main, which it keeps, so a
-//! branch's run fails only on the pairs it makes new or worse.
+//! branch's run fails only on the pairs it makes worse.
 //!
 //! A pair is new against the before run when that run did not check its
 //! scene, never rendered when the before run tried its scene and the capture
 //! wrote no usable shot of it (its `failed` list), and worse when it has a
-//! finding that no finding of the before run
-//! for the scene covers. A finding covers another when both are of one kind
+//! finding that no finding of the before run for the scene covers. A finding covers another when both are of one kind
 //! about one element (its role and words), and for a state, about one aspect,
 //! and the shot is at least as far from the board in it as in the other
 //! (`Size`). Each before finding covers one finding of the pair. So a value
@@ -19,10 +18,11 @@
 //! that makes it match shows these findings for the first time. Each such
 //! finding is judged alone, so the before run's report of the element
 //! excuses every one of them. A new missing or extra finding is always new.
-//! Warnings never fail a run, so only findings count. A pair the before run
-//! never rendered has no picture to compare with, so its findings are listed
-//! and fail nothing: a branch that makes a crashed scene render again can
-//! land.
+//! Warnings never fail a run, so only findings count. A new pair has no run
+//! to compare with, and a pair the before run never rendered has no picture to
+//! compare with, so the findings of both are listed and fail nothing: a branch
+//! can add a scene for a board before the screen matches it, and one that
+//! makes a crashed scene render again can land.
 //!
 //! Findings made by another comparison version of the checker would not
 //! compare, so a file whose `version` is not this checker's comparison version
@@ -42,7 +42,8 @@ pub(crate) enum Against {
     /// run and fails no pair, since its findings are what the branch's run
     /// compares with.
     Base,
-    /// The before run did not check the scene.
+    /// The before run did not check the scene, so the pair's findings are its
+    /// first observations: they fail nothing.
     New,
     /// The before run tried the scene and its capture wrote no usable shot,
     /// so the run has no picture of the pair to compare with.

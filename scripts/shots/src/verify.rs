@@ -31,7 +31,7 @@ pub(crate) enum Comparison<'a> {
     /// that the branch's run compares with: it has no before run, and no pair
     /// with a finding fails it.
     Base,
-    /// A before run: only the pairs new or worse against it fail the run.
+    /// A before run: only the pairs worse against it fail the run.
     Before(&'a Before),
 }
 
@@ -108,14 +108,16 @@ pub(crate) struct Outcome {
 
 impl Outcome {
     /// Whether the pair's findings fail the run: it has findings, and the run
-    /// has no before run, or the pair is new or worse against it. A pair the
+    /// has no before run, or the pair is worse against it. A pair the
+    /// before run did not check shows its findings for the first time, so
+    /// they are listed. A pair the
     /// before run never rendered has no picture to be worse than, and the
     /// merge base's own run fails no pair.
     fn gated(pair: &Checked) -> bool {
         !pair.findings.is_empty()
             && !matches!(
                 pair.against,
-                Some(Against::Held | Against::Unrendered | Against::Base)
+                Some(Against::New | Against::Held | Against::Unrendered | Against::Base)
             )
     }
 
