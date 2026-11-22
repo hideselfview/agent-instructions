@@ -160,6 +160,8 @@ cd "$home" && HOME="$home" exec sh -c "$*"
             .env("BUILDS_ROOT", self.dir.join("volume"))
             .env("HOME", self.dir.join("home"))
             .env_remove("CLAUDE_CODE_SESSION_ID")
+            .env_remove("CODEX_SESSION_ID")
+            .env_remove("CODEX_THREAD_ID")
             .env("BUILDS_LISTS", self.dir.join("lists"))
             .env("BUILDS_SSH", self.dir.join("bin/ssh"));
         command

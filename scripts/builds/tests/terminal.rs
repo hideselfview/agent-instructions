@@ -38,6 +38,8 @@ fn a_build_that_sets_terminal_modes_finishes_when_builds_runs_on_a_terminal() {
         .env("BUILDS_ROOT", dir.join("volume"))
         .env("HOME", dir.join("home"))
         .env_remove("CLAUDE_CODE_SESSION_ID")
+        .env_remove("CODEX_SESSION_ID")
+        .env_remove("CODEX_THREAD_ID")
         .args([
             "lock",
             "demo",

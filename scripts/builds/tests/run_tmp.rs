@@ -39,6 +39,8 @@ fn a_child_of_builds_cargo_sees_a_tmpdir_on_the_build_volume_that_the_end_of_the
         .env("TMPDIR", dir.join("system-tmp"))
         .env("RECORD", &record)
         .env_remove("CLAUDE_CODE_SESSION_ID")
+        .env_remove("CODEX_SESSION_ID")
+        .env_remove("CODEX_THREAD_ID")
         .output()
         .unwrap();
     let said = String::from_utf8_lossy(&ran.stderr).into_owned();

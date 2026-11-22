@@ -155,7 +155,7 @@ pub(super) fn default_program(
     if let Some(executable) = explicit {
         return PathBuf::from(executable);
     }
-    if matches!(session, crate::ack::agent::Session::Codex) {
+    if matches!(session, crate::ack::agent::Session::Codex { .. }) {
         PathBuf::from("codex")
     } else {
         PathBuf::from("claude")

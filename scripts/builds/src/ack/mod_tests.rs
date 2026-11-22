@@ -43,6 +43,36 @@ fn world(name: &str) -> World {
     }
 }
 
+fn test_identity(session: &str, id: Option<&str>) -> Result<agent::Identity> {
+    Ok(
+        agent::Session::of(Some(session.into()), None, None, id.map(str::to_string))
+            .identity()?
+            .expect("a Claude test session"),
+    )
+}
+
+fn check(
+    places: &Places,
+    session: &str,
+    id: Option<&str>,
+    project: Option<&str>,
+    cwd: &Path,
+    now: i64,
+) -> Result<Option<String>> {
+    super::check(places, &test_identity(session, id)?, project, cwd, now)
+}
+
+fn ack(
+    places: &Places,
+    session: &str,
+    id: Option<&str>,
+    args: &Args,
+    cwd: &Path,
+    now: i64,
+) -> Result<String> {
+    super::ack(places, &test_identity(session, id)?, args, cwd, now)
+}
+
 fn message<T: std::fmt::Debug>(result: Result<T>) -> String {
     match result.unwrap_err() {
         fail::Fail::Exit(code) => panic!("exit {code}"),
@@ -519,24 +549,17 @@ fn a_compaction_of_an_agent_no_hook_registered_fails_and_deletes_nothing() {
 }
 
 #[test]
-fn an_unregistered_or_missing_agent_id_is_refused_saying_how_to_find_it() {
+fn an_unregistered_agent_id_is_refused_saying_how_to_find_it() {
     let world = world("ack-unregistered");
     let refusal = message(world.check_as("stranger", NOON));
     assert!(
         refusal.contains("no agent stranger in session session-1"),
         "{refusal}"
     );
-    assert!(refusal.contains("Your builds agent id is"), "{refusal}");
-    let refusal = message(check(
-        &world.places,
-        SESSION_ID,
-        None,
-        None,
-        &world.checkout,
-        NOON,
-    ));
-    assert!(refusal.contains("pass --agent ID"), "{refusal}");
-    assert!(refusal.contains("BUILDS_AGENT=ID"), "{refusal}");
+    assert!(
+        refusal.contains("Use the id that your Claude Code hook printed."),
+        "{refusal}"
+    );
 }
 
 #[test]
@@ -787,4 +810,28 @@ fn a_reading_whose_sections_changed_before_a_part_is_refused_even_with_the_same_
     let started = start(&world.places, &agent, &older, NOON).unwrap();
     let refusal = message(world.ack(&["part", "1", &next_command(&started)[2]], NOON));
     assert!(refusal.contains("changed since"), "{refusal}");
+}
+
+#[test]
+fn codex_compaction_clears_only_the_thread_named_in_the_event() {
+    let world = world("codex-compaction");
+    let store = Store::named(&world.places, "bae").unwrap();
+    let mut db = db::open(&store.database(), Make::Never).unwrap();
+    let session = "00000000-0000-4000-8000-000000000001";
+    let worker = "00000000-0000-4000-8000-000000000002";
+    let other = "00000000-0000-4000-8000-000000000003";
+    for thread in [session, worker, other] {
+        let tx = db.transaction().unwrap();
+        record::acknowledge(&tx, session, thread, "v1", NOON, &[]).unwrap();
+        tx.commit().unwrap();
+    }
+    let event = |agent_id: Option<&str>| {
+        agent::HookInput::parse(&serde_json::json!({"hook_event_name": "PostCompact", "session_id": session, "agent_id": agent_id}).to_string()).unwrap()
+    };
+    codex_compacted(&world.places, event(Some(worker))).unwrap();
+    assert_eq!(record::last(&db, session, worker).unwrap(), None);
+    assert!(record::last(&db, session, session).unwrap().is_some());
+    codex_compacted(&world.places, event(None)).unwrap();
+    assert_eq!(record::last(&db, session, session).unwrap(), None);
+    assert!(record::last(&db, session, other).unwrap().is_some());
 }

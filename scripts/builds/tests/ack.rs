@@ -15,6 +15,8 @@ fn command(dir: &PathBuf, session: Option<&str>, args: &[&str]) -> Command {
         .env("HOME", dir.join("home"))
         .env("BUILDS_LISTS", dir.join("lists"))
         .env_remove("CLAUDE_CODE_SESSION_ID")
+        .env_remove("CODEX_SESSION_ID")
+        .env_remove("CODEX_THREAD_ID")
         .env_remove("BUILDS_ACKNOWLEDGED")
         .env_remove("BUILDS_AGENT")
         .args(args);
@@ -73,6 +75,7 @@ fn an_agents_command_waits_for_its_acknowledgement_and_the_persons_runs() {
     assert!(!unnamed.status.success());
     let said = String::from_utf8_lossy(&unnamed.stderr);
     assert!(said.contains("pass --agent ID"), "{said}");
+    assert!(said.contains("BUILDS_AGENT=ID"), "{said}");
 
     let agent = builds(&dir, Some("s1"), &["du", "home", "--agent", "s1"]);
     assert!(!agent.status.success());
@@ -232,4 +235,49 @@ fn an_agent_without_a_current_acknowledgement_gets_a_refusal_from_cargo_and_no_o
     }
 
     std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn dashboard_startup_children_do_not_inherit_the_installing_agents_identity() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = std::env::temp_dir().canonicalize().unwrap().join(format!(
+        "builds-test-dashboard-identity-{}",
+        std::process::id()
+    ));
+    std::fs::create_dir(&dir).unwrap();
+    let git = dir.join("git");
+    std::fs::write(
+        &git,
+        r#"#!/bin/sh
+printf '%s:%s
+' "${CODEX_SESSION_ID-unset}" "${CODEX_THREAD_ID-unset}" > "$CAPTURED_IDENTITY"
+exec /usr/bin/git "$@"
+"#,
+    )
+    .unwrap();
+    std::fs::set_permissions(&git, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let path = std::env::join_paths(
+        std::iter::once(dir.clone())
+            .chain(std::env::split_paths(&std::env::var_os("PATH").unwrap())),
+    )
+    .unwrap();
+    let captured = dir.join("captured");
+    let output = command(&dir, None, &["dashboard", "--unknown"])
+        .env("CODEX_SESSION_ID", "00000000-0000-4000-8000-000000000001")
+        .env("CODEX_THREAD_ID", "00000000-0000-4000-8000-000000000002")
+        .env("CAPTURED_IDENTITY", &captured)
+        .env("PATH", path)
+        .output()
+        .unwrap();
+    // Stop before binding a server. The actual dashboard startup already ran
+    // the git child that lists git's local environment variables.
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("usage: builds dashboard"),
+        "{output:?}"
+    );
+    let inherited = std::fs::read_to_string(captured).unwrap();
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert_eq!(inherited, "unset:unset\n");
 }

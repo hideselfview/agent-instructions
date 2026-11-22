@@ -22,7 +22,9 @@ fn run(toolchain: &str, layout: &str, older: Option<&str>) {
         .env("BUILDS_BIN", env!("CARGO_BIN_EXE_builds"))
         .env("TOOLCHAIN", toolchain)
         .env("LAYOUT", layout)
-        .env_remove("CLAUDE_CODE_SESSION_ID");
+        .env_remove("CLAUDE_CODE_SESSION_ID")
+        .env_remove("CODEX_SESSION_ID")
+        .env_remove("CODEX_THREAD_ID");
     if let Some(older) = older {
         command.env("OLDER_TOOLCHAIN", older);
     }

@@ -81,6 +81,10 @@ Builds requires acknowledgement for agent commands other than `help`, `ack`,
       again before its next builds command and every other agent keeps its
       acknowledgements. builds refuses an agent no hook registered, and
       deletes nothing.
+  builds ack --codex-compacted
+      The Codex PostCompact hook runs this command and gives it the compacted
+      thread. builds clears that thread's acknowledgements. Trust the hook
+      definition in Codex so it can run after compaction.
   builds agent start
       Claude Code's SessionStart hook (when a session starts, resumes,
       clears or forks) and its SubagentStart hook run this. builds reads the
@@ -88,29 +92,20 @@ Builds requires acknowledgement for agent commands other than `help`, `ack`,
       builds agent id is ID. Pass --agent ID to every builds command ..." to
       the agent's context.
 
-builds never refuses the person's own commands: it tells an agent's command by
-the Claude Code session id in its environment (CLAUDE_CODE_SESSION_ID), which
-the person's terminal lacks. No agent commits in a repo's main checkout, so
-builds also passes the pre-commit hook's `builds checks run` there, even when
-the person's Claude Code session makes the commit, and `builds status --json
---no-folders`, which the hook against unlocked app-checkout moves runs before an
-agent acknowledges. The agents a session dispatches share its session
-id, and no shell of an agent sees anything that tells the agents apart, so
-builds names an agent by the session and the id Claude Code gives the agent. A
-subagent's id is the id the hooks' input names (agent_id); the main agent has
-none, and its id is its session id. `builds agent start` registers each id in
-<the lists folder's parent>/agents/<session>/<id>, which every project reads.
-An agent passes its id to every builds command with --agent ID, anywhere
-before a `--`, or sets BUILDS_AGENT=ID in front of a script that runs builds
-(BUILDS_AGENT=ID scripts/cargo.sh test). builds refuses a command that names
-no id, or an id no hook registered in the session, and says where the agent
-finds its id. builds keeps the acknowledgement in the store of the project
-whose repo the command runs in, else of the project --project names. builds
-refuses an agent that has no acknowledgement there of the text. When the text
-changed since the agent's last acknowledgement, builds prints the changed
-sections once and runs the command. A builds command that
-passed lets the builds commands it runs pass too, such as a commit hook's
-checks or the install after a landing.
+builds identifies Codex commands by CODEX_SESSION_ID and CODEX_THREAD_ID.
+The session id identifies the coordinator. The thread id identifies the agent
+running the command. Codex agents run builds without --agent. If an agent
+passes that option, its value must match the thread id.
+
+Claude Code supplies CLAUDE_CODE_SESSION_ID. Its hooks register each agent in
+<the lists folder's parent>/agents/<session>/<id>. Claude Code agents pass
+--agent ID before a `--`, or set BUILDS_AGENT=ID when running a script that
+calls builds. The main agent's id is its session id. A dispatched agent uses
+the id its hook gives it.
+
+The person's terminal has neither runtime identity, so builds accepts its
+commands without acknowledgement. The acknowledgement gate also passes
+pre-commit checks in the main checkout and `builds status --json --no-folders`.
 
 
 BUILD VOLUME

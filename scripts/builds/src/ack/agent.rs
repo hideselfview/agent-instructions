@@ -215,12 +215,100 @@ pub struct Caller {
     pub id: String,
 }
 
+pub const CODEX_SESSION: &str = "CODEX_SESSION_ID";
+pub const CODEX_THREAD: &str = "CODEX_THREAD_ID";
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ThreadId(String);
+
+impl ThreadId {
+    pub fn parse(id: &str) -> Result<Self> {
+        if id.len() != 36
+            || !id.bytes().enumerate().all(|(index, byte)| match index {
+                8 | 13 | 18 | 23 => byte == b'-',
+                _ => byte.is_ascii_hexdigit(),
+            })
+        {
+            fail!("{id:?} is not a Codex thread UUID.");
+        }
+        Ok(Self(id.to_ascii_lowercase()))
+    }
+
+    pub fn id(&self) -> &str {
+        &self.0
+    }
+}
+
+/// A runtime's own identification of the caller and its coordinator.
+pub enum Identity {
+    Claude(Caller),
+    Codex { session: ThreadId, thread: ThreadId },
+}
+
+impl Identity {
+    pub(super) fn codex(
+        session: Option<&str>,
+        thread: Option<&str>,
+        chosen: Option<&str>,
+    ) -> Result<Self> {
+        let (Some(session), Some(thread)) = (session, thread) else {
+            fail!("Codex must provide both {CODEX_SESSION} and {CODEX_THREAD}.");
+        };
+        let session = ThreadId::parse(session)?;
+        let thread = ThreadId::parse(thread)?;
+        if let Some(agent) = chosen
+            && agent != thread.id()
+        {
+            fail!(
+                "This Codex thread has agent id {}. Remove --agent {agent} or pass the thread's id.",
+                thread.id()
+            );
+        }
+        Ok(Self::Codex { session, thread })
+    }
+
+    pub fn caller(&self) -> Caller {
+        match self {
+            Self::Claude(caller) => caller.clone(),
+            Self::Codex { session, thread } => Caller {
+                session: session.id().to_string(),
+                id: thread.id().to_string(),
+            },
+        }
+    }
+}
+
+/// Remove agent identity before launching a daemon that serves the person.
+pub fn clear_for_daemon() {
+    for name in [
+        CODEX_SESSION,
+        CODEX_THREAD,
+        super::SESSION,
+        VARIABLE,
+        super::PASSED,
+        "CLAUDE_CODE_MESSAGING_SOCKET",
+        "CLAUDE_CODE_MESSAGING_TOKEN",
+    ] {
+        // SAFETY: main calls this before it starts any threads.
+        unsafe { std::env::remove_var(name) };
+    }
+}
+
 /// The agent session this invocation inherited from its shell.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Session {
-    Claude { id: String, agent: Option<String> },
+    Claude {
+        id: String,
+        agent: Option<String>,
+    },
     InvalidClaude,
-    Codex,
+    /// A Codex shell: its coordinator's session and its own thread, as
+    /// Codex gave them, and the agent id the command passed.
+    Codex {
+        session: Option<std::ffi::OsString>,
+        thread: Option<std::ffi::OsString>,
+        agent: Option<String>,
+    },
     Terminal,
 }
 
@@ -228,8 +316,8 @@ impl Session {
     pub fn from_env(agent: Option<String>) -> Self {
         Self::of(
             std::env::var_os(super::SESSION),
-            std::env::var_os("CODEX_SESSION_ID"),
-            std::env::var_os("CODEX_THREAD_ID"),
+            std::env::var_os(CODEX_SESSION),
+            std::env::var_os(CODEX_THREAD),
             agent,
         )
     }
@@ -245,14 +333,17 @@ impl Session {
                 Ok(id) => Self::Claude { id, agent },
                 Err(_) => Self::InvalidClaude,
             }
-        } else if codex_session
-            .into_iter()
-            .chain(codex_thread)
-            .any(|id| !id.is_empty())
-        {
-            Self::Codex
         } else {
-            Self::Terminal
+            let codex_session = codex_session.filter(|id| !id.is_empty());
+            let codex_thread = codex_thread.filter(|id| !id.is_empty());
+            if codex_session.is_none() && codex_thread.is_none() {
+                return Self::Terminal;
+            }
+            Self::Codex {
+                session: codex_session,
+                thread: codex_thread,
+                agent,
+            }
         }
     }
 
@@ -260,11 +351,43 @@ impl Session {
         match self {
             Self::Claude { id, agent } => Ok(Some((id, agent.as_deref()))),
             Self::InvalidClaude => fail!("{} is not a UTF-8 session ID", super::SESSION),
-            Self::Codex | Self::Terminal => Ok(None),
+            Self::Codex { .. } | Self::Terminal => Ok(None),
+        }
+    }
+
+    /// The runtime identity of the agent that runs this command, or None for
+    /// the person's terminal. Fails for a Claude Code shell with no agent id
+    /// and for a Codex shell whose identity is incomplete or malformed.
+    pub fn identity(&self) -> Result<Option<Identity>> {
+        match self {
+            Self::Codex {
+                session,
+                thread,
+                agent,
+            } => {
+                let text = |name, value: &Option<std::ffi::OsString>| match value {
+                    Some(value) => match value.to_str() {
+                        Some(value) => Ok(Some(value.to_string())),
+                        None => fail!("{name} is not UTF-8."),
+                    },
+                    None => Ok(None),
+                };
+                Identity::codex(
+                    text(CODEX_SESSION, session)?.as_deref(),
+                    text(CODEX_THREAD, thread)?.as_deref(),
+                    agent.as_deref(),
+                )
+                .map(Some)
+            }
+            _ => Ok(self.claude_caller()?.map(Identity::Claude)),
         }
     }
 
     pub fn caller(&self) -> Result<Option<Caller>> {
+        Ok(self.identity()?.map(|identity| identity.caller()))
+    }
+
+    fn claude_caller(&self) -> Result<Option<Caller>> {
         let Some((session, agent)) = self.claude()? else {
             return Ok(None);
         };

@@ -113,7 +113,9 @@ impl Demo {
         command
             .env("BUILDS_ROOT", self.volume())
             .env("HOME", self.dir.join("home"))
-            .env_remove("CLAUDE_CODE_SESSION_ID");
+            .env_remove("CLAUDE_CODE_SESSION_ID")
+            .env_remove("CODEX_SESSION_ID")
+            .env_remove("CODEX_THREAD_ID");
         command
     }
 

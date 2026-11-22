@@ -167,3 +167,22 @@ fn a_running_command_line_loses_its_agent_option_wherever_it_stands() {
         ["builds", "cargo", "test", "--", "--agent", "a1"]
     );
 }
+
+#[test]
+fn codex_workers_identify_themselves_by_thread_and_cannot_claim_the_coordinator() {
+    let session = "00000000-0000-4000-8000-000000000001";
+    let worker = "00000000-0000-4000-8000-000000000002";
+    let main = Identity::codex(Some(session), Some(session), None)
+        .unwrap()
+        .caller();
+    assert!(!main.is_dispatched());
+    let child = Identity::codex(Some(session), Some(worker), Some(worker))
+        .unwrap()
+        .caller();
+    assert_eq!(child.session, session);
+    assert_eq!(child.id, worker);
+    assert!(child.is_dispatched());
+    assert!(Identity::codex(Some(session), Some(worker), Some(session)).is_err());
+    assert!(Identity::codex(Some(session), None, None).is_err());
+    assert!(Identity::codex(None, Some(worker), None).is_err());
+}

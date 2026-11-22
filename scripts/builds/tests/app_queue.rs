@@ -101,6 +101,8 @@ impl Volume {
             .env("HOME", self.dir.join("home"))
             .env("PATH", path_with(&self.dir.join("bin")))
             .env_remove("CLAUDE_CODE_SESSION_ID")
+            .env_remove("CODEX_SESSION_ID")
+            .env_remove("CODEX_THREAD_ID")
             .env("QUEUE_TEST_DIR", &self.dir);
         command
     }

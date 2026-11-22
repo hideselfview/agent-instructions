@@ -9,6 +9,12 @@ approvals_reviewer = "auto_review"
 default_permissions = ":workspace"
 service_tier = "default"
 
+[[hooks.PostCompact]]
+
+[[hooks.PostCompact.hooks]]
+type = "command"
+command = '"$HOME/.local/bin/builds" ack --codex-compacted'
+
 [shell_environment_policy]
 inherit = "core"
 

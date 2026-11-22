@@ -411,6 +411,9 @@ fn run(command: &str, args: &[String], session: ack::agent::Session) -> Result<(
         }
         _ => {}
     }
+    if command == "dashboard" {
+        ack::agent::clear_for_daemon();
+    }
     checkout::drop_git_local_env()?;
     text::use_callers_collation();
     let mut tool = Tool::new(
