@@ -1328,7 +1328,8 @@ function render() {
   const timingErrors = [...new Set(waitLanes().map(w => w.error).filter(Boolean))];
   document.getElementById("errors").append(...timingErrors.map(e => h("div", {class: "error"}, "The app build times: " + e)));
   const lanes = waitLanes();
-  document.getElementById("top").replaceChildren(loadFigure(state.load, state.hosts.length ? "local" : null), ...state.hosts.map(hostLoadFigure), ...state.compile_cache.map(r => cacheFigure(r, state.compile_cache.length > 1)), diskFigure(state.volume),
+  document.getElementById("top").replaceChildren(loadFigure(state.load, state.hosts.length ? "local" : null), ...state.hosts.map(hostLoadFigure), ...(state.compile_cache_error ? [figure("bad line", state.compile_cache_error, h("div", {class: "row"}, h("span", {class: "h"}, "cache"), h("span", {class: "v"}, "history not readable")))] : []),
+    ...state.compile_cache.map(r => cacheFigure(r, state.compile_cache.length > 1)), diskFigure(state.volume),
     ...lanes.map(w => waitFigure(w, lanes)), waitsFigure());
   hookDetails();
   waitDetails();

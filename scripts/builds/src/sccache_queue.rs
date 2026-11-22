@@ -21,7 +21,6 @@ use crate::health::Advice;
 use crate::host::{Host, place};
 use crate::host_scan::{Scan, arguments, program};
 use crate::sccache::CacheStats;
-use crate::sccache_history::Sample;
 use crate::sccache_readings::Reading;
 use crate::text::{human_bytes, local_minute};
 
@@ -35,7 +34,7 @@ const FULL_SHARE: f64 = 0.99;
 /// The Rust compiles a server's cache answered (hits) and those it ran
 /// (misses), since <since> (seconds since 1970), or since the server started
 /// when <since> is None.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
 pub struct Rate {
     pub since: Option<i64>,
     pub hits: u64,
@@ -43,18 +42,26 @@ pub struct Rate {
 }
 
 impl Rate {
+    /// `50% of 824`, or None when no Rust compile ran.
+    pub fn share(&self) -> Option<String> {
+        match self.hits + self.misses {
+            0 => None,
+            all => Some(format!(
+                "{:.0}% of {all}",
+                self.hits as f64 * 100.0 / all as f64
+            )),
+        }
+    }
+
     /// `50% of 824 Rust compiles since 01:40`.
     fn text(&self) -> String {
         let since = match self.since {
             Some(at) => format!("since {}", local_minute(at)),
             None => "since the server started".to_string(),
         };
-        match self.hits + self.misses {
-            0 => format!("no Rust compile {since}"),
-            all => format!(
-                "{:.0}% of {all} Rust compiles {since}",
-                self.hits as f64 * 100.0 / all as f64
-            ),
+        match self.share() {
+            None => format!("no Rust compile {since}"),
+            Some(share) => format!("{share} Rust compiles {since}"),
         }
     }
 }
@@ -123,7 +130,7 @@ fn rate(readings: &[Reading], host: &str, pid: i32, stats: &CacheStats, now: i64
 fn judge_with(
     scans: &[(Host, std::result::Result<Scan, String>)],
     readings: &mut Vec<Reading>,
-    history: &mut Vec<Sample>,
+    history: &mut Vec<Reading>,
     now: i64,
 ) -> (Vec<Cache>, bool, bool) {
     let mut changed = false;
@@ -142,13 +149,7 @@ fn judge_with(
                     );
                     history_changed |= crate::sccache_history::record(
                         history,
-                        Sample {
-                            host: host.name.clone(),
-                            server: server.pid,
-                            at: now,
-                            hits: server.stats.rust_hits,
-                            misses: server.stats.rust_misses,
-                        },
+                        Reading::of(&host.name, server.pid, now, &server.stats),
                     );
                     Server {
                         pid: server.pid,

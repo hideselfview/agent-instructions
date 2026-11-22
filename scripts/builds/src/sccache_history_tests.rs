@@ -2,13 +2,14 @@ use super::*;
 
 const NOW: i64 = 1_795_069_061;
 
-fn sample(host: &str, server: i32, ago: i64, hits: u64, misses: u64) -> Sample {
-    Sample {
+fn sample(host: &str, server: i32, ago: i64, hits: u64, misses: u64) -> Reading {
+    Reading {
         host: host.to_string(),
         server,
         at: NOW - ago,
-        hits,
-        misses,
+        executed: hits + misses,
+        rust_hits: hits,
+        rust_misses: misses,
     }
 }
 
@@ -24,7 +25,7 @@ fn a_host_gets_a_sample_every_five_minutes_and_the_last_week_stays() {
     assert!(record(&mut samples, sample("local", 7, 0, 6, 6)));
     assert!(record(&mut samples, sample("m1", 7, -100, 7, 7)));
     assert_eq!(
-        samples.iter().map(|s| s.hits).collect::<Vec<_>>(),
+        samples.iter().map(|s| s.rust_hits).collect::<Vec<_>>(),
         [5, 6, 7],
         "the sample older than a week went"
     );
@@ -44,7 +45,7 @@ fn the_rate_is_the_growth_since_the_sample_at_the_window_start() {
     assert_eq!(
         rate(&samples, "m1", NOW, HOUR),
         Some(Rate {
-            since: NOW - 3600,
+            since: Some(NOW - 3600),
             hits: 100,
             misses: 20,
         })
@@ -52,7 +53,7 @@ fn the_rate_is_the_growth_since_the_sample_at_the_window_start() {
     assert_eq!(
         rate(&samples, "m1", NOW, DAY),
         Some(Rate {
-            since: NOW - 7200,
+            since: Some(NOW - 7200),
             hits: 200,
             misses: 30,
         }),
@@ -73,7 +74,7 @@ fn a_sample_across_a_server_restart_starts_from_zero() {
     assert_eq!(
         rate(&samples, "m1", NOW, HOUR),
         Some(Rate {
-            since: NOW - 3600,
+            since: Some(NOW - 3600),
             hits: 100 + 30 + 50,
             misses: 10 + 20 + 5,
         })
@@ -82,7 +83,7 @@ fn a_sample_across_a_server_restart_starts_from_zero() {
     assert_eq!(
         rate(&same_pid, "m1", NOW, HOUR),
         Some(Rate {
-            since: NOW - 1800,
+            since: Some(NOW - 1800),
             hits: 30,
             misses: 20,
         }),

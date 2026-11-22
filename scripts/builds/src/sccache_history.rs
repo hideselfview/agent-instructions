@@ -14,9 +14,11 @@
 
 use std::path::{Path, PathBuf};
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use crate::fail::Result;
+use crate::sccache_queue::Rate;
+use crate::sccache_readings::Reading;
 use crate::text::local_minute;
 
 /// A host gets a sample when its newest is this old or older.
@@ -30,73 +32,50 @@ pub const KEEP_SECONDS: i64 = WEEK + HOUR;
 /// The windows the rates cover, by name.
 pub const WINDOWS: [(&str, i64); 3] = [("hour", HOUR), ("day", DAY), ("week", WEEK)];
 
-/// One server's counts at one time.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Sample {
-    /// The host's name; `local` for this Mac.
-    pub host: String,
-    /// The server's pid: a server that started again counts from zero.
-    pub server: i32,
-    /// Seconds since 1970.
-    pub at: i64,
-    /// Rust compiles the cache answered, and those it ran, since the server
-    /// started.
-    pub hits: u64,
-    pub misses: u64,
-}
-
 fn file(home: &Path) -> PathBuf {
     home.join("Library/Caches/builds/sccache-host-history.json")
 }
 
 /// The samples kept under <home>; none when there is no file yet.
-pub fn read(home: &Path) -> Result<Vec<Sample>> {
+pub fn read(home: &Path) -> Result<Vec<Reading>> {
     crate::readings_file::read(&file(home))
 }
 
 /// Writes <samples> as the record under <home>.
-pub fn write(home: &Path, samples: &[Sample]) -> Result<()> {
+pub fn write(home: &Path, samples: &[Reading]) -> Result<()> {
     crate::readings_file::write(&file(home), samples)
 }
 
 /// Adds <sample> to <samples> when the newest of its host is
 /// `EVERY_SECONDS` old or more, and drops those over `KEEP_SECONDS` old.
 /// Returns whether it added it.
-pub fn record(samples: &mut Vec<Sample>, sample: Sample) -> bool {
-    if samples
-        .iter()
-        .any(|s| s.host == sample.host && sample.at - s.at < EVERY_SECONDS)
-    {
-        return false;
-    }
-    let now = sample.at;
-    samples.push(sample);
-    samples.retain(|s| now - s.at <= KEEP_SECONDS);
-    true
+pub fn record(samples: &mut Vec<Reading>, sample: Reading) -> bool {
+    let (now, host) = (sample.at, sample.host.clone());
+    crate::readings_file::record(
+        samples,
+        sample,
+        now,
+        |r| r.at,
+        |r| r.host == host,
+        EVERY_SECONDS,
+        KEEP_SECONDS,
+    )
 }
 
-/// The Rust compiles a host's cache answered and ran since <since>, which is
-/// when the window starts, or later when the history starts later.
-#[derive(Clone, Debug, PartialEq, Serialize)]
-pub struct Rate {
-    pub since: i64,
-    pub hits: u64,
-    pub misses: u64,
-}
-
-/// The rate of <host> over the <window> seconds before <now>: the growth of
+/// The rate of <host> over the <window> seconds before <now>, which starts
+/// when the window does or when the history does, if later: the growth of
 /// its counts from the newest sample at or before the window's start (the
 /// oldest sample in the window when none is) to the newest. None when fewer
 /// than two samples are in reach.
-pub fn rate(samples: &[Sample], host: &str, now: i64, window: i64) -> Option<Rate> {
-    let mut of_host: Vec<&Sample> = samples.iter().filter(|s| s.host == host).collect();
+pub fn rate(samples: &[Reading], host: &str, now: i64, window: i64) -> Option<Rate> {
+    let mut of_host: Vec<&Reading> = samples.iter().filter(|s| s.host == host).collect();
     of_host.sort_by_key(|s| s.at);
     let start = now - window;
     let first = of_host
         .iter()
         .rposition(|s| s.at <= start)
         .unwrap_or_else(|| of_host.iter().position(|s| s.at > start).unwrap_or(0));
-    let chain: Vec<&&Sample> = of_host[first..].iter().filter(|s| s.at <= now).collect();
+    let chain: Vec<&&Reading> = of_host[first..].iter().filter(|s| s.at <= now).collect();
     if chain.len() < 2 {
         return None;
     }
@@ -104,8 +83,8 @@ pub fn rate(samples: &[Sample], host: &str, now: i64, window: i64) -> Option<Rat
     for pair in chain.windows(2) {
         let (before, after) = (pair[0], pair[1]);
         let grown = (
-            after.hits.checked_sub(before.hits),
-            after.misses.checked_sub(before.misses),
+            after.rust_hits.checked_sub(before.rust_hits),
+            after.rust_misses.checked_sub(before.rust_misses),
         );
         match grown {
             (Some(h), Some(m)) if before.server == after.server => {
@@ -113,13 +92,13 @@ pub fn rate(samples: &[Sample], host: &str, now: i64, window: i64) -> Option<Rat
                 misses += m;
             }
             _ => {
-                hits += after.hits;
-                misses += after.misses;
+                hits += after.rust_hits;
+                misses += after.rust_misses;
             }
         }
     }
     Some(Rate {
-        since: chain[0].at,
+        since: Some(chain[0].at),
         hits,
         misses,
     })
@@ -128,21 +107,15 @@ pub fn rate(samples: &[Sample], host: &str, now: i64, window: i64) -> Option<Rat
 /// `90% of 100`, with `(since 2026-11-21 01:40)` when the history covers less
 /// than the <window> seconds before <now>.
 fn rate_text(rate: &Rate, now: i64, window: i64) -> String {
-    let all = rate.hits + rate.misses;
-    let share = if all == 0 {
-        "no compile".to_string()
-    } else {
-        format!("{:.0}% of {all}", rate.hits as f64 * 100.0 / all as f64)
-    };
-    if rate.since > now - window {
-        format!("{share} (since {})", local_minute(rate.since))
-    } else {
-        share
+    let share = rate.share().unwrap_or_else(|| "no compile".to_string());
+    match rate.since {
+        Some(since) if since > now - window => format!("{share} (since {})", local_minute(since)),
+        _ => share,
     }
 }
 
 /// The line that says each window's rate of <host>, as of <now>.
-pub fn rates_text(samples: &[Sample], host: &str, now: i64) -> String {
+pub fn rates_text(samples: &[Reading], host: &str, now: i64) -> String {
     let rates: Vec<String> = WINDOWS
         .iter()
         .filter_map(|(name, window)| {
@@ -167,7 +140,7 @@ pub struct HostRates {
 
 /// The rates of every host that has a sample in <samples>, as of <now>, in
 /// the order the hosts first appear.
-pub fn host_rates(samples: &[Sample], now: i64) -> Vec<HostRates> {
+pub fn host_rates(samples: &[Reading], now: i64) -> Vec<HostRates> {
     let mut hosts: Vec<&str> = Vec::new();
     for sample in samples {
         if !hosts.contains(&sample.host.as_str()) {

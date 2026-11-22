@@ -68,7 +68,15 @@ pub fn write(home: &Path, readings: &[Reading]) -> Result<()> {
 /// or more, and keeps the last hour. Returns whether it added it.
 pub fn record(readings: &mut Vec<Reading>, reading: Reading) -> bool {
     let (now, host) = (reading.at, reading.host.clone());
-    crate::readings_file::record(readings, reading, now, |r| r.at, |r| r.host == host, 3600)
+    crate::readings_file::record(
+        readings,
+        reading,
+        now,
+        |r| r.at,
+        |r| r.host == host,
+        crate::readings_file::KEEP_SECONDS,
+        3600,
+    )
 }
 
 /// The newest of <readings> of server <server> on <host> at least

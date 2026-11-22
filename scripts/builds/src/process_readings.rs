@@ -89,7 +89,15 @@ pub fn write(home: &Path, host: &str, readings: &[Reading]) -> Result<()> {
 /// drops those older than MAX_SECONDS. Returns whether it added it.
 pub fn record(readings: &mut Vec<Reading>, reading: Reading) -> bool {
     let now = reading.at;
-    crate::readings_file::record(readings, reading, now, |r| r.at, |_| true, MAX_SECONDS)
+    crate::readings_file::record(
+        readings,
+        reading,
+        now,
+        |r| r.at,
+        |_| true,
+        crate::readings_file::KEEP_SECONDS,
+        MAX_SECONDS,
+    )
 }
 
 /// The newest of <readings> that is between <least> and MAX_SECONDS before

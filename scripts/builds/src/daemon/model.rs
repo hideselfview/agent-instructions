@@ -125,6 +125,8 @@ struct State {
     /// Each host's hit rate of Rust compiles over the last hour, day and
     /// week (sccache_history.rs), empty before the first reading.
     compile_cache: Vec<crate::sccache_history::HostRates>,
+    /// Why the history could not be read, when it could not.
+    compile_cache_error: Option<String>,
     /// What the hosts' reading found that `assess` does not (busy processes,
     /// hosts that refuse jobs: `health::host_findings`), which the page shows
     /// after the health's own findings.
@@ -740,14 +742,15 @@ impl Model {
                 }
             };
             // The findings' reading added this round's samples.
-            let rates = match crate::sccache_history::read(&self.places.home) {
-                Ok(samples) => crate::sccache_history::host_rates(&samples, now_seconds()),
+            let (rates, rates_error) = match crate::sccache_history::read(&self.places.home) {
+                Ok(samples) => (
+                    crate::sccache_history::host_rates(&samples, now_seconds()),
+                    None,
+                ),
                 Err(error) => {
-                    crate::text::note(format!(
-                        "reading the compile cache history: {}",
-                        error.text()
-                    ));
-                    Vec::new()
+                    let text = format!("reading the compile cache history: {}", error.text());
+                    crate::text::note(&text);
+                    (Vec::new(), Some(text))
                 }
             };
             let mut state = self.state.lock().expect("no panic holding it");
@@ -756,8 +759,9 @@ impl Model {
                 state.version += 1;
                 self.changed.notify_all();
             }
-            if state.compile_cache != rates {
+            if state.compile_cache != rates || state.compile_cache_error != rates_error {
                 state.compile_cache = rates;
+                state.compile_cache_error = rates_error;
                 state.version += 1;
                 self.changed.notify_all();
             }
@@ -1615,6 +1619,7 @@ impl Model {
             }),
             hosts: state.hosts.clone(),
             compile_cache: state.compile_cache.clone(),
+            compile_cache_error: state.compile_cache_error.clone(),
             repos,
         })
     }
@@ -2097,6 +2102,8 @@ pub struct Page {
     /// Each host's hit rate of Rust compiles over the last hour, day and
     /// week, this Mac's included.
     pub compile_cache: Vec<crate::sccache_history::HostRates>,
+    /// Why the history behind `compile_cache` could not be read.
+    pub compile_cache_error: Option<String>,
     pub repos: Vec<RepoPage>,
 }
 

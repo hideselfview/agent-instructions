@@ -12,7 +12,8 @@ use serde::de::DeserializeOwned;
 
 use crate::fail::{Context, Fail, Result};
 
-/// A reading is added when the newest of its series is this old or older.
+/// The usual spacing of readings: one is added when the newest of its series
+/// is this old or older.
 pub const KEEP_SECONDS: i64 = 60;
 
 /// The readings in <file>; none when there is no file yet.
@@ -55,7 +56,7 @@ pub fn write_value<V: Serialize + ?Sized>(file: &Path, value: &V) -> Result<()> 
 }
 
 /// Adds <reading>, taken at <now>, to <readings> unless a reading of its
-/// series (<in_series>) is under KEEP_SECONDS old, and drops those more than
+/// series (<in_series>) is under <every> seconds old, and drops those more than
 /// <max_age> seconds old. <at> is when a reading was taken. Returns whether
 /// it added it.
 pub fn record<T>(
@@ -64,12 +65,10 @@ pub fn record<T>(
     now: i64,
     at: impl Fn(&T) -> i64,
     in_series: impl Fn(&T) -> bool,
+    every: i64,
     max_age: i64,
 ) -> bool {
-    if readings
-        .iter()
-        .any(|r| in_series(r) && now - at(r) < KEEP_SECONDS)
-    {
+    if readings.iter().any(|r| in_series(r) && now - at(r) < every) {
         return false;
     }
     readings.push(reading);
