@@ -186,7 +186,7 @@ fn fseventsd_says(asked: Moment) -> String {
         "--predicate",
         REFUSALS,
     ]);
-    match crate::host::output_of(command, "/usr/bin/log show", crate::host::Accept::Zero) {
+    match crate::host::output_of(command, "/usr/bin/log show") {
         Ok(text) => {
             let refusals = refusals_of(&text, std::process::id());
             if refusals.is_empty() {

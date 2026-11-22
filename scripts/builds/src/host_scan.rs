@@ -10,7 +10,7 @@ use std::path::Path;
 
 use crate::fail;
 use crate::fail::Result;
-use crate::host::{Accept, Host, Ssh, Terminal, command_at, output_of, place};
+use crate::host::{Host, Ssh, Terminal, command_at, output_of, place};
 use crate::host_front_app::FrontApp;
 use crate::process_readings::{self, Reading, measure};
 use crate::stuck::{PS_FORMAT, Row, parse_ps};
@@ -111,7 +111,6 @@ impl JobRun {
 pub fn script(host: &Host) -> String {
     format!(
         r#"{root}echo "uid=$(id -u)"
-echo "now=$(date +%s)"
 case "$(uname -s)" in
 Darwin) echo "cpu=$(top -l 2 -n 0 -s 1 2>&1 | awk '/^CPU usage/{{line=$0}} END{{print line}}')"
   {front_app}
@@ -125,6 +124,8 @@ for claim in "$HOME"/dev/*-worktrees/*.job; do
   kill -0 "-$1" 2>/dev/null && echo "job=${{claim%.job}} $1 $2"
 done
 {listener}
+now=$(date +%s) || exit $?
+echo "now=$now"
 echo {PS_FOLLOWS}
 ps -axww -o {PS_FORMAT}"#,
         root = crate::remote::root_script(host),
@@ -207,7 +208,6 @@ pub fn read(ssh: &Ssh, host: &Host, home: &Path) -> std::result::Result<Scan, St
     let text = output_of(
         command_at(ssh, host, &script(host), Terminal::None),
         &format!("reading {}", place(&host.name)),
-        Accept::Zero,
     )?;
     let scan = parse(&text, &readings)?;
     if process_readings::record(&mut readings, Reading::of(scan.at, &scan.rows)) {

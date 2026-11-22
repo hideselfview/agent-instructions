@@ -15,7 +15,7 @@
 use crate::fail;
 use crate::fail::Result;
 use crate::health::Advice;
-use crate::host::{Accept, Host, Ssh, Terminal, command_at, output_of, place};
+use crate::host::{Host, Ssh, Terminal, command_at, output_of, place};
 use crate::host_scan::Scan;
 use crate::lock::Ran;
 
@@ -91,7 +91,6 @@ pub fn read(ssh: &Ssh, host: &Host) -> std::result::Result<bool, String> {
             "reading whether {} has its screen locked",
             place(&host.name)
         ),
-        Accept::Zero,
     )?;
     parse(crate::host::answer_value(&said, "screen_locked"))?
         .ok_or_else(|| format!("{} printed no lock state: {said:?}", place(&host.name)))

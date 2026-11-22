@@ -1671,6 +1671,14 @@ pub fn host_findings(
             "sccache: health could not judge the hosts' compile caches: {error}"
         ))],
     };
+    let placement_errors = busy.iter().filter_map(|host| {
+        let error = host.error()?;
+        scanned
+            .scans
+            .iter()
+            .any(|(scanned, result)| scanned.name == host.host && result.is_ok())
+            .then(|| Advice::said(format!("busy processes: {}: {error}", host.host)))
+    });
     let landing_wait = |pid: i32| {
         let Some(argv) = crate::procs::live_args(pid)? else {
             return Ok(None);
@@ -1703,6 +1711,7 @@ pub fn host_findings(
     .chain(
         crate::stuck::findings(busy)
             .into_iter()
+            .chain(placement_errors)
             .map(|advice| Finding::new(FindingKind::Busy, advice)),
     )
     .chain(
@@ -1951,7 +1960,6 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
             crate::host::output_of(
                 crate::host::command_at(&ssh, host, script, crate::host::Terminal::None),
                 &format!("the stop script on {}", crate::host::place(&host.name)),
-                crate::host::Accept::Zero,
             )
         });
     stopped.iter().for_each(crate::text::note);
@@ -1966,7 +1974,7 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
                 .map(|host| serde_json::json!({
                     "host": host.host,
                     "busy": host.read.as_ref().ok().map(|read| &read.busy),
-                    "error": host.read.as_ref().err(),
+                    "error": host.error(),
                 }))
                 .collect::<Vec<_>>()
         );
@@ -3069,6 +3077,40 @@ mod tests {
             "{}",
             found[0].advice.line()
         );
+    }
+
+    #[test]
+    fn a_process_placement_error_is_a_finding_after_a_successful_scan() {
+        let host = Host {
+            name: "m1".into(),
+            target: Some("m1".into()),
+            cores: 8,
+            speed: None,
+            band: None,
+        };
+        let mut scanned = nothing_scanned();
+        scanned.scans.push((
+            host,
+            Ok(crate::host_scan::Scan {
+                uid: 501,
+                at: 1_000,
+                rows: Vec::new(),
+                cpu_idle: Ok(10.0),
+                jobs: Vec::new(),
+                sccache: Ok(None),
+                front_app: Ok(None),
+                screen_locked: Ok(None),
+            }),
+        ));
+        let busy = [crate::stuck::HostBusy {
+            host: "m1".into(),
+            read: Err("process lifetimes on m1: Permission denied".into()),
+        }];
+
+        let found = host_findings(&scanned, &busy, &[], &[]);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!(found[0].kind, FindingKind::Busy);
+        assert!(found[0].advice.line().contains("Permission denied"));
     }
 
     /// A host whose Xcode cannot start is a finding that names the fix

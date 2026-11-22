@@ -31,7 +31,13 @@ pub const MAX_SECONDS: i64 = 15 * 60;
 pub const SPAN_SECONDS: i64 = 10 * 60;
 /// Two start times this close or closer are the same process's: `ps` prints
 /// whole seconds of age, and each reading rounds them.
-const START_TOLERANCE: i64 = 2;
+const START_TOLERANCE: u64 = 2;
+
+/// Whether two readings put a PID's start at the same time, within the
+/// precision of ps's elapsed-time field.
+pub fn same_start(earlier: i64, later: i64) -> bool {
+    earlier.abs_diff(later) <= START_TOLERANCE
+}
 
 /// One process in a reading.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -113,8 +119,7 @@ fn newest_since(readings: &[Reading], now: i64, least: i64) -> Option<&Reading> 
 /// or None when they are not one process or <later> used less CPU time.
 fn interval_share(earlier: &Proc, later: &Proc, seconds: i64) -> Option<f64> {
     let used = later.cpu - earlier.cpu;
-    ((later.start - earlier.start).abs() <= START_TOLERANCE && used >= 0.0)
-        .then(|| used / seconds as f64 * 100.0)
+    (same_start(earlier.start, later.start) && used >= 0.0).then(|| used / seconds as f64 * 100.0)
 }
 
 /// The lowest share that process <current> had in any interval between the

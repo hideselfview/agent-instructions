@@ -251,7 +251,6 @@ fn run_script(ssh: &Ssh, host: &Host, script: &str) -> std::result::Result<Strin
     crate::host::output_of(
         crate::host::command_at(ssh, host, script, Terminal::None),
         &format!("`{script}` on {}", host.name),
-        crate::host::Accept::Zero,
     )
 }
 

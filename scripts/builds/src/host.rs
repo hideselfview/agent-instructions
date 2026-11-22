@@ -126,48 +126,25 @@ pub fn command_at(ssh: &Ssh, host: &Host, script: &str, terminal: Terminal) -> C
     }
 }
 
-/// Which exits of a command `output_of` counts as success.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Accept {
-    /// Exit 0 only.
-    Zero,
-    /// `lsof` exits 1 when some or all requested folders are missing. Keep
-    /// any rows it reported and surface diagnostics. An empty result with a
-    /// diagnostic, an SSH failure, or a signal fails the lookup.
-    Lsof,
-}
-
-/// What <command> printed. It fails, naming <what>, the status and what the
-/// command wrote to stderr, when it cannot run or exits in a way <accept> does
-/// not allow.
-pub fn output_of(
+/// The command's exit status and output, or why it could not run.
+pub fn command_output(
     mut command: Command,
     what: &str,
-    accept: Accept,
-) -> std::result::Result<String, String> {
-    let output = command
-        .stdin(std::process::Stdio::null())
+) -> std::result::Result<std::process::Output, String> {
+    command
+        .stdin(Stdio::null())
         .output()
-        .map_err(|error| format!("running {what}: {error}"))?;
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let ok = output.status.success()
-        || (accept == Accept::Lsof
-            && output.status.code() == Some(1)
-            && (!output.stdout.is_empty() || stderr.trim().is_empty()));
-    if !ok {
+        .map_err(|error| format!("running {what}: {error}"))
+}
+
+/// What <command> printed when it exited successfully, or why it failed.
+pub fn output_of(command: Command, what: &str) -> std::result::Result<String, String> {
+    let output = command_output(command, what)?;
+    if !output.status.success() {
         return Err(format!(
             "{what} failed ({}): {}",
             output.status,
-            stderr.trim()
-        ));
-    }
-    // An accepted exit 1 may also be a per-process error (lsof's permission
-    // denied), so say what the command wrote.
-    if !output.status.success() && !stderr.trim().is_empty() {
-        crate::text::note(format!(
-            "{what} exited with {} and wrote: {}",
-            output.status,
-            stderr.trim()
+            String::from_utf8_lossy(&output.stderr).trim()
         ));
     }
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
@@ -546,11 +523,7 @@ pub fn screen_lacking(text: &str) -> std::result::Result<Option<String>, String>
 /// say.
 pub fn screen_lacks(ssh: &Ssh, host: &Host) -> std::result::Result<Option<String>, String> {
     let what = format!("asking host {} about its displays", host.name);
-    let said = output_of(
-        command_at(ssh, host, SCREEN_SCRIPT, Terminal::None),
-        &what,
-        Accept::Zero,
-    )?;
+    let said = output_of(command_at(ssh, host, SCREEN_SCRIPT, Terminal::None), &what)?;
     screen_lacking(&said).map_err(|why| format!("{what}: {why}"))
 }
 

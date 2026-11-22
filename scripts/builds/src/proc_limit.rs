@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
 use crate::health::Advice;
-use crate::host::{Accept, Host, Probe, Ssh, Terminal, answer_value, command_at, output_of, place};
+use crate::host::{Host, Probe, Ssh, Terminal, answer_value, command_at, output_of, place};
 use crate::shells::{basename, shown};
 use crate::stuck::{HostBusy, Row, Sampling, is_test_binary, now_seconds, rows_on};
 use crate::text::duration;
@@ -85,7 +85,6 @@ pub fn local() -> Result<ProcessUse> {
             Terminal::None,
         ),
         "counting this Mac's processes",
-        Accept::Zero,
     )
     .map_err(Fail::Message)?;
     parse(&printed)

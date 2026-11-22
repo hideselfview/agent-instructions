@@ -17,7 +17,7 @@
 //!
 //! where the last number is how long the Mac slept.
 
-use crate::host::{self, Accept, Host, Ssh, Terminal};
+use crate::host::{self, Host, Ssh, Terminal};
 use crate::text::{local_second, parse_tm};
 
 /// Prints the lines of the power log that record a sleep. The log of a Mac
@@ -122,7 +122,6 @@ fn read(ssh: &Ssh, host: &Host, from: i64, to: i64) -> std::result::Result<Vec<S
     let printed = host::output_of(
         host::command_at(ssh, host, SCRIPT, Terminal::None),
         "reading the power log",
-        Accept::Zero,
     )?;
     Ok(parse(&printed)?
         .into_iter()

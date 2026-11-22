@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use crate::app_config::{app_checkout_top, resolve, run_git, switch_to};
 use crate::app_remote::{RemoteApp, fetched_local_source};
 use crate::fail::{Fail, Result};
-use crate::host::{Accept, Ssh, output_of};
+use crate::host::{Ssh, output_of};
 use crate::lane::Lane;
 use crate::places::Places;
 use crate::side_git::{UNCOMMITTED_STATUS, paths_in_status};
@@ -55,7 +55,7 @@ impl Site {
             Site::Local(..) => {
                 let mut command = std::process::Command::new("sh");
                 command.args(["-c", script]);
-                output_of(command, what, Accept::Zero).map_err(Fail::Message)
+                output_of(command, what).map_err(Fail::Message)
             }
             Site::Remote(remote) => remote.on_host(script, what),
         }

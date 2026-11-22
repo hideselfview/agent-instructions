@@ -464,12 +464,8 @@ pub fn parse_scene_count(said: &str) -> Result<usize> {
 
 /// The number of scenes <count> prints when it runs in the checkout <top>.
 pub fn count_scenes(top: &Path, count: &[String]) -> Result<usize> {
-    let said = crate::host::output_of(
-        start_of(top, count)?,
-        &count.join(" "),
-        crate::host::Accept::Zero,
-    )
-    .map_err(crate::fail::Fail::Message)?;
+    let said = crate::host::output_of(start_of(top, count)?, &count.join(" "))
+        .map_err(crate::fail::Fail::Message)?;
     parse_scene_count(&said)
 }
 

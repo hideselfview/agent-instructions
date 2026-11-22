@@ -16,13 +16,13 @@
 //! process: a finding says what to run.
 
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use serde::Serialize;
 
 use crate::app_config::DEFAULT_STEP_LIMIT;
 use crate::health::Advice;
-use crate::host::{Accept, Host, Ssh, command_at, output_of};
+use crate::host::{Host, Ssh, command_at, command_output, output_of};
 use crate::shells::{IDLE_MINUTES, IDLE_SHARE, basename, command_of, is_agent_argv, shown};
 use crate::text::duration;
 
@@ -650,6 +650,8 @@ pub struct HostBusy {
 /// What one listing of a host's processes showed.
 pub struct HostRead {
     pub busy: Vec<Busy>,
+    /// Why lsof could only place some of the processes.
+    pub placement_diagnostic: Option<String>,
     /// Set on this Mac only, the one host whose fseventsd health can ask.
     pub wedged: Option<Wedged>,
     pub hung: Vec<Hung>,
@@ -657,12 +659,21 @@ pub struct HostRead {
     pub zombie_parents: Vec<crate::proc_limit::ZombieParent>,
 }
 
+impl HostBusy {
+    /// Why either the entire read or only some process placements failed.
+    pub fn error(&self) -> Option<&str> {
+        match &self.read {
+            Ok(read) => read.placement_diagnostic.as_deref(),
+            Err(error) => Some(error),
+        }
+    }
+}
+
 /// The rows of <host>'s processes, from one `ps` there.
 pub fn rows_on(ssh: &Ssh, host: &Host) -> Result<Vec<Row>, String> {
     let listing = output_of(
         command_at(ssh, host, &ps_script(), crate::host::Terminal::None),
         &format!("ps on {}", crate::host::place(&host.name)),
-        Accept::Zero,
     )?;
     parse_ps(&listing)
 }
@@ -670,6 +681,60 @@ pub fn rows_on(ssh: &Ssh, host: &Host) -> Result<Vec<Row>, String> {
 /// The `ps` line of a host, as the script `ssh` runs.
 fn ps_script() -> String {
     format!("ps -axww -o {PS_FORMAT}")
+}
+
+/// The start time of each process that still runs, by the host's clock.
+fn live_starts(ssh: &Ssh, host: &Host) -> Result<HashMap<i32, i64>, String> {
+    let what = format!("process lifetimes on {}", crate::host::place(&host.name));
+    let script = format!("date +%s && {}", ps_script());
+    let listing = output_of(
+        command_at(ssh, host, &script, crate::host::Terminal::None),
+        &what,
+    )?;
+    let (at, rows) = listing
+        .split_once('\n')
+        .ok_or_else(|| format!("{what}: ps printed no process listing"))?;
+    let at = at
+        .parse::<i64>()
+        .map_err(|_| format!("{what}: date printed an invalid timestamp {at:?}"))?;
+    Ok(parse_ps(rows)?
+        .into_iter()
+        .filter(|row| !row.zombie)
+        .map(|row| (row.pid, at - row.age_seconds))
+        .collect())
+}
+
+/// The working folders found by lsof and any diagnostic beside those rows.
+fn folders_on(
+    ssh: &Ssh,
+    host: &Host,
+    pids: &[i32],
+) -> Result<(HashMap<i32, String>, Option<String>), String> {
+    let list: Vec<String> = pids.iter().map(|pid| pid.to_string()).collect();
+    let what = format!("lsof on {}", crate::host::place(&host.name));
+    let output = command_output(
+        command_at(
+            ssh,
+            host,
+            &format!("lsof -a -d cwd -Fpn -p {}", list.join(",")),
+            crate::host::Terminal::None,
+        ),
+        &what,
+    )?;
+    let folders = parse_lsof(&String::from_utf8_lossy(&output.stdout));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stderr = stderr.trim();
+    let diagnostic = (!stderr.is_empty()).then(|| format!("{what} wrote: {stderr}"));
+    if output.status.success()
+        || (output.status.code() == Some(1) && (diagnostic.is_none() || !folders.is_empty()))
+    {
+        return Ok((folders, diagnostic));
+    }
+    Err(format!(
+        "{what} failed ({}){}",
+        output.status,
+        diagnostic.map_or_else(String::new, |said| format!(". {said}"))
+    ))
 }
 
 /// The folders `lsof -Fpn` lists, as pid to path.
@@ -702,37 +767,42 @@ pub fn read(
     dashboard: Option<i32>,
 ) -> HostBusy {
     let read = (|| {
-        let mut rows = Cow::Borrowed(scan.as_ref().map_err(String::clone)?.rows.as_slice());
+        let scan = scan.as_ref().map_err(String::clone)?;
+        let mut rows = Cow::Borrowed(scan.rows.as_slice());
         let pids = pids_to_place(&rows);
+        let mut placement_diagnostic = None;
         let cwds = if pids.is_empty() {
             HashMap::new()
         } else {
             match &host.target {
                 Some(_) => {
-                    let list: Vec<String> = pids.iter().map(|p| p.to_string()).collect();
-                    let cwds = parse_lsof(&output_of(
-                        command_at(
-                            ssh,
-                            host,
-                            &format!("lsof -a -d cwd -Fpn -p {}", list.join(",")),
-                            crate::host::Terminal::None,
-                        ),
-                        &format!("lsof on host {}", host.name),
-                        Accept::Lsof,
-                    )?);
-                    if pids.iter().any(|pid| !cwds.contains_key(pid)) {
+                    let (cwds, diagnostic) = folders_on(ssh, host, &pids)?;
+                    placement_diagnostic = diagnostic;
+                    let unplaced: HashSet<_> = pids
+                        .iter()
+                        .copied()
+                        .filter(|pid| !cwds.contains_key(pid))
+                        .collect();
+                    if !unplaced.is_empty() {
                         // lsof can omit a living process whose working folder
-                        // it cannot see. ps separates those from the exits.
-                        let live: HashMap<_, _> = rows_on(ssh, host)?
-                            .into_iter()
-                            .map(|row| (row.pid, row.age_seconds))
-                            .collect();
+                        // it cannot see. Recheck only the unplaced rows' lifetimes.
+                        let live = live_starts(ssh, host)?;
                         rows.to_mut().retain(|row| {
-                            !pids.contains(&row.pid)
-                                || cwds.contains_key(&row.pid)
-                                || live
-                                    .get(&row.pid)
-                                    .is_some_and(|age| *age >= row.age_seconds)
+                            if !unplaced.contains(&row.pid)
+                                || live.get(&row.pid).is_some_and(|start| {
+                                    crate::process_readings::same_start(
+                                        scan.at - row.age_seconds,
+                                        *start,
+                                    )
+                                })
+                            {
+                                return true;
+                            }
+                            crate::text::note(format!(
+                                "busy processes on {}: PID {} exited after the scan",
+                                host.name, row.pid
+                            ));
+                            false
                         });
                     }
                     cwds
@@ -757,9 +827,10 @@ pub fn read(
         };
         Ok(HostRead {
             busy: judge(&host.name, &rows, &cwds, &sampling, dashboard),
+            placement_diagnostic,
             wedged,
             hung: hung_tests(&host.name, &rows, &cwds, &sampling),
-            zombie_parents: crate::proc_limit::zombie_parents(&rows, &sampling),
+            zombie_parents: crate::proc_limit::zombie_parents(&scan.rows, &sampling),
         })
     })();
     HostBusy {
