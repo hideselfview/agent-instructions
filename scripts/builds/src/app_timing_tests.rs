@@ -549,10 +549,7 @@ fn a_failed_step_with_no_failure_row_fails_the_read() {
         &run(NOW, Lane::Android, 0, RunEnd::Failed, vec![failed]),
     )
     .unwrap();
-    rusqlite::Connection::open(&path)
-        .unwrap()
-        .execute("DELETE FROM app_build_step_failure", [])
-        .unwrap();
+    crate::app_build_step_failure::remove_every_failure(&path).unwrap();
     let said = read_run(&path).unwrap_err().text();
     assert!(said.contains("step android"), "{said}");
     assert!(said.contains("no failure row"), "{said}");

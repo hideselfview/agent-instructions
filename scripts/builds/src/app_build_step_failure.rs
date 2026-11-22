@@ -79,6 +79,19 @@ pub fn read(db: &Connection, run_id: i64) -> Result<HashMap<u32, StepFailure>> {
     crate::step_failure::read(db, &TABLES, run_id)
 }
 
+/// Removes every failure row from the store at <path>, so a step that failed
+/// has no failure row: the damage a test of reading a run needs, which
+/// nothing else can write.
+#[cfg(test)]
+pub fn remove_every_failure(path: &std::path::Path) -> crate::fail::Result<()> {
+    use crate::db::Sql;
+    Connection::open(path)
+        .sql()?
+        .execute("DELETE FROM app_build_step_failure", [])
+        .sql()?;
+    Ok(())
+}
+
 #[cfg(test)]
 #[path = "app_build_step_failure_tests.rs"]
 mod tests;
