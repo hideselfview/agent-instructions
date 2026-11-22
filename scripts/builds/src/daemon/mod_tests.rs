@@ -28,14 +28,24 @@ fn ask(model: &Model, question: &Question) -> Reply {
 fn health_answers_from_the_reading_the_daemon_holds() {
     let scratch = Scratch::new("held-health");
     let model = model_in(&scratch);
+    model.stop_sampling();
     model.sample_now().unwrap();
     let places = scratch.places();
-    std::fs::rename(&places.root, scratch.dir.join("volume-away")).unwrap();
+    let away = scratch.dir.join("volume-away");
+    std::fs::rename(&places.root, &away).unwrap();
     match ask(&model, &Question::Health) {
         Reply::Health(_) => {}
         Reply::Failed(message) => panic!("answered a failure: {message}"),
         Reply::Done => panic!("answered a note of writes to a health question"),
     }
+    let why = model.sample_now().unwrap_err().to_string();
+    match ask(&model, &Question::Health) {
+        Reply::Failed(message) => assert!(message.contains(&why), "{message}"),
+        Reply::Health(_) | Reply::Done => panic!("the daemon hid the failed sample"),
+    }
+    std::fs::rename(&away, &places.root).unwrap();
+    model.sample_now().unwrap();
+    assert!(matches!(ask(&model, &Question::Health), Reply::Health(_)));
 }
 
 /// A command that wrote build roots tells the daemon, which answers at once

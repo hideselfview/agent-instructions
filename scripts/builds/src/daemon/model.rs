@@ -129,7 +129,7 @@ enum HealthReading {
     Read(Arc<Health>),
     Failed {
         last: Option<Arc<Health>>,
-        error: String,
+        error: Arc<crate::fail::Fail>,
     },
 }
 
@@ -141,7 +141,7 @@ impl HealthReading {
         }
     }
 
-    fn failure(&self) -> Option<&str> {
+    fn failure(&self) -> Option<&crate::fail::Fail> {
         match self {
             Self::Read(_) => None,
             Self::Failed { error, .. } => Some(error),
@@ -195,6 +195,7 @@ struct PageRead {
     roots: Vec<Root>,
     facts: HashMap<PathBuf, Facts>,
     sample: Option<Sample>,
+    sample_error: Option<Arc<crate::fail::Fail>>,
     cpu_percent: HashMap<i32, f64>,
     load: VecDeque<(i64, f64)>,
     health: Option<HealthReading>,
@@ -837,7 +838,7 @@ impl Model {
             let read = self.sample_now();
             drop(reading);
             if let Err(error) = read {
-                eprintln!("builds: reading the processes: {}", error.text());
+                crate::text::note(format!("reading health: {error}"));
             }
             // Pacing: the processes are read at a rate, not on an event. A
             // page that starts watching ends the wait.
@@ -997,6 +998,11 @@ impl Model {
     pub fn health_now(&self) -> crate::fail::Result<Option<Health>> {
         let (inputs, sample) = {
             let state = self.state.lock().expect("no panic holding it");
+            if let Some(error) = &state.page.sample_error {
+                return Err(crate::fail::Fail::Message(format!(
+                    "the daemon could not read processes: {error}"
+                )));
+            }
             let Some(sample) = &state.page.sample else {
                 return Ok(None);
             };
@@ -1061,36 +1067,53 @@ impl Model {
     }
 
     /// Reads the processes and judges health now.
-    pub fn sample_now(&self) -> crate::fail::Result<Health> {
+    pub fn sample_now(&self) -> std::result::Result<(), Arc<crate::fail::Fail>> {
         let health = self.read_processes().and_then(|(now, sample)| {
             let inputs = HealthInputs::of(&self.state.lock().expect("no panic holding it"));
-            self.judge(inputs, now, sample)
+            self.judge(inputs, now, sample).map_err(Arc::new)
         });
         let mut state = self.state.lock().expect("no panic holding it");
-        state.page.health = Some(match &health {
-            Ok(health) => HealthReading::Read(Arc::new(health.clone())),
-            Err(error) => HealthReading::Failed {
-                last: state
-                    .page
-                    .health
-                    .as_ref()
-                    .and_then(HealthReading::last)
-                    .cloned(),
-                error: error.to_string(),
-            },
-        });
+        let (reading, result) = match health {
+            Ok(health) => (HealthReading::Read(Arc::new(health)), Ok(())),
+            Err(error) => (
+                HealthReading::Failed {
+                    last: state
+                        .page
+                        .health
+                        .as_ref()
+                        .and_then(HealthReading::last)
+                        .cloned(),
+                    error: error.clone(),
+                },
+                Err(error),
+            ),
+        };
+        state.page.health = Some(reading);
         self.changes.advance();
-        health
+        result
     }
 
     /// Reads the processes after an action changes the queue. The next
     /// health reading judges the worktrees separately.
     pub fn refresh_processes(&self) -> crate::fail::Result<()> {
-        self.read_processes().map(|_| ())
+        let _sampling = self.sampling.lock().expect("no panic holding it");
+        self.read_processes()
+            .map(|_| ())
+            .map_err(|error| crate::fail::Fail::Message(error.to_string()))
+    }
+
+    fn read_processes(&self) -> std::result::Result<(i64, Sample), Arc<crate::fail::Fail>> {
+        self.take_process_sample().map_err(|error| {
+            let error = Arc::new(error);
+            let mut state = self.state.lock().expect("no panic holding it");
+            state.page.sample_error = Some(error.clone());
+            self.changes.advance();
+            error
+        })
     }
 
     /// Updates the process and queue data as soon as the read finishes.
-    fn read_processes(&self) -> crate::fail::Result<(i64, Sample)> {
+    fn take_process_sample(&self) -> crate::fail::Result<(i64, Sample)> {
         let now = now_seconds();
         let (roots, sccache_due) = {
             let state = self.state.lock().expect("no panic holding it");
@@ -1153,6 +1176,7 @@ impl Model {
             state.page.load.pop_front();
         }
         state.page.sample = Some(sample.clone());
+        state.page.sample_error = None;
         self.changes.advance();
         Ok((now, sample))
     }
@@ -1815,10 +1839,10 @@ impl Model {
             }),
             health,
             health_error: state
-                .health
-                .as_ref()
-                .and_then(HealthReading::failure)
-                .map(str::to_string),
+                .sample_error
+                .as_deref()
+                .or_else(|| state.health.as_ref().and_then(HealthReading::failure))
+                .map(ToString::to_string),
             host_findings,
             hosts: state.hosts,
             compile_cache: state.compile_cache,
