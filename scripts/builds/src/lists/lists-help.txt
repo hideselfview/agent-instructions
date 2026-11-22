@@ -794,8 +794,10 @@ sent again.
       changed no drawing. Naming the app work of places changes none of these, so
       the design session gives it after approval and the approval stays.
       Otherwise the amend clears the approval, since the person
-      approved the boards the session drew before; an amend of a fix without
-      `fix`, or of a decided change without `decision`, clears it too.
+      approved the boards the session drew before. An amend of a fix without
+      `fix`, or of a decided change without `decision`, keeps the fix or the
+      decision and the approval when the change keeps all of the above, and
+      otherwise clears the approval and the fix or decision.
 
   builds design approve N --by-person
       Records the person's approval, which only they give: pass --by-person

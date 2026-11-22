@@ -1526,6 +1526,8 @@ fn an_amend_without_the_fix_makes_the_change_wait_on_review_again() {
     let mut request = base_request(&w, json!({ "design/mocks/A.dc.html": { "matches": "x" } }));
     request["fix"] = json!("a drawing mistake in the last change");
     w.request(request).unwrap();
+    // A new commit draws the board again, which the fix said it did not.
+    w.commit(&["design/mocks/A.dc.html"]);
     let amended = w
         .amend(
             1,
@@ -1538,6 +1540,59 @@ fn an_amend_without_the_fix_makes_the_change_wait_on_review_again() {
     );
     let design = &w.state().designs[0];
     assert!(design.approved.is_none() && design.settlement == Settlement::Review);
+}
+
+#[test]
+fn an_amend_that_only_names_app_work_keeps_the_approval_of_a_fix() {
+    let w = world("design-fix-places-amend");
+    let board = "design/mocks/A.dc.html";
+    w.commit(&[board]);
+    let mut request = base_request(&w, json!({ board: { "matches": "x" } }));
+    request.as_object_mut().unwrap().remove("review");
+    request["fix"] = json!("a drawing mistake in the last change");
+    w.request(request).unwrap();
+    let amended = w
+        .amend(
+            1,
+            json!({ "worktree": w.worktree(), "range": "base..HEAD",
+                    "places": { board: { "matches": "the app shows it" } } }),
+        )
+        .unwrap();
+    assert!(!amended.contains("approval is cleared"), "{amended}");
+    let design = &w.state().designs[0];
+    assert!(design.approved.is_some(), "the amend cleared the approval");
+    assert_eq!(
+        design.settlement,
+        Settlement::Fix("a drawing mistake in the last change".into())
+    );
+}
+
+#[test]
+fn an_amend_that_only_names_app_work_keeps_the_approval_of_a_decided_change() {
+    let w = world("design-decided-places-amend");
+    let board = "design/mocks/A.dc.html";
+    let work = w
+        .store
+        .write(&stamp(NOON), "seed", |db| {
+            Ok(crate::lists::fixtures::item(db, vec![]))
+        })
+        .unwrap();
+    let decision = decide(&w);
+    w.commit(&[board]);
+    w.request(decided_request(&w, board, work, decision))
+        .unwrap();
+    let id = w.state().designs[0].id.0;
+    let amended = w
+        .amend(
+            id,
+            json!({ "worktree": w.worktree(), "range": "base..HEAD",
+                    "places": { board: { "matches": "the app shows it" } } }),
+        )
+        .unwrap();
+    assert!(!amended.contains("approval is cleared"), "{amended}");
+    let design = &w.state().designs[0];
+    assert!(design.approved.is_some());
+    assert_eq!(design.settlement, Settlement::Decision(decision));
 }
 
 /// Records in <w>'s store a decision the person made, and returns its id.

@@ -1066,7 +1066,9 @@ fn open_design_of<'a>(lists: &'a Lists, id: Id, repo: &str) -> Result<&'a Design
 /// approval stays only when what they approved stays: the same places,
 /// deleted boards and review page, every place drawn the same as the
 /// last commit they approved draws it (`Drawn::same_as`), and no fix turned
-/// into a change that needs their review. Otherwise the amend clears it.
+/// into a change that needs their review. Otherwise the amend clears it. A
+/// change settled by a fix or a decision that keeps all of these stays
+/// settled when the amend names neither again.
 pub fn amend(
     db: &Connection,
     id: Id,
@@ -1103,12 +1105,24 @@ pub fn amend(
     let new_items = resolve(db, id, request, drawn, changes, affected, stamp)?;
     let after = store::read(db)?;
     let after = after.design(id).expect("resolve keeps the change open");
-    let approval_holds = same_as.is_some()
+    let drawing_holds = same_as.is_some()
         && same_as == before.tip.as_deref()
         && before.places.keys().eq(after.places.keys())
         && before.deleted == after.deleted
-        && before.review == after.review
-        && (before.settlement.needs_review() || !request.settlement.needs_review());
+        && before.review == after.review;
+    // An amend that gives no `fix` or `decision` to a change that has one,
+    // and changes no drawing, only names app work: the change stays as it
+    // was settled and approved.
+    let keeps_settlement =
+        drawing_holds && request.settlement.needs_review() && !before.settlement.needs_review();
+    if keeps_settlement {
+        return Ok(Recorded {
+            design: id,
+            new_items,
+        });
+    }
+    let approval_holds =
+        drawing_holds && (before.settlement.needs_review() || !request.settlement.needs_review());
     if !approval_holds {
         db.execute("DELETE FROM design_approval WHERE design_id = ?1", [id])
             .sql()?;
