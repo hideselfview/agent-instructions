@@ -75,6 +75,11 @@
           },
           {
             "type": "command",
+            "command": "python3 -I \"$HOME/dev/agent-instructions/scripts/hooks/no-skipped-hooks-or-hard-resets.py\"",
+            "timeout": 10
+          },
+          {
+            "type": "command",
             "command": "python3 -I \"$HOME/dev/agent-instructions/scripts/hooks/no-unlocked-app-checkout-moves.py\"",
             "timeout": 10
           },
