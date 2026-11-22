@@ -140,7 +140,8 @@ pub struct Spend {
     pub calls: usize,
     pub tokens_in: i128,
     pub tokens_out: i128,
-    pub uncounted: usize,
+    pub uncounted_in: usize,
+    pub uncounted_out: usize,
     /// In millionths of a US dollar.
     pub cost_microdollars: i128,
     /// Calls whose cost builds never recorded.
@@ -150,11 +151,14 @@ pub struct Spend {
 impl Spend {
     fn add(&mut self, call: &Call) {
         self.calls += 1;
-        if let Some(tokens) = call.usage.tokens {
-            self.tokens_in += i128::from(tokens.input);
-            self.tokens_out += i128::from(tokens.output);
-        } else {
-            self.uncounted += 1;
+        let tokens = call.usage.tokens;
+        match tokens.input {
+            Some(input) => self.tokens_in += i128::from(input),
+            None => self.uncounted_in += 1,
+        }
+        match tokens.output {
+            Some(output) => self.tokens_out += i128::from(output),
+            None => self.uncounted_out += 1,
         }
         match call.usage.cost_microdollars {
             Some(cost) => self.cost_microdollars += i128::from(cost),
@@ -168,7 +172,8 @@ impl Spend {
         self.tokens_out += other.tokens_out;
         self.cost_microdollars += other.cost_microdollars;
         self.uncosted += other.uncosted;
-        self.uncounted += other.uncounted;
+        self.uncounted_in += other.uncounted_in;
+        self.uncounted_out += other.uncounted_out;
     }
 }
 
@@ -440,13 +445,19 @@ fn spend_text(s: &Spend) -> String {
         s.uncosted,
         s.calls,
     );
-    let tokens = measurement_text(
-        format!("{} tokens in, {} out", s.tokens_in, s.tokens_out),
-        "token usage not recorded",
-        s.uncounted,
+    let input = measurement_text(
+        format!("{} tokens in", s.tokens_in),
+        "input tokens not recorded",
+        s.uncounted_in,
         s.calls,
     );
-    format!("{} calls, {tokens}, {cost}", s.calls)
+    let output = measurement_text(
+        format!("{} out", s.tokens_out),
+        "output tokens not recorded",
+        s.uncounted_out,
+        s.calls,
+    );
+    format!("{} calls, {input}, {output}, {cost}", s.calls)
 }
 
 fn measurement_text(measured: String, absent: &str, missing: usize, calls: usize) -> String {

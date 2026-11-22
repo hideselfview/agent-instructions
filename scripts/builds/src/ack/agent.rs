@@ -218,13 +218,16 @@ pub struct Caller {
 /// The agent session this invocation inherited from its shell.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Session {
-    Claude { id: String, agent: Option<String> },
+    Claude {
+        id: std::ffi::OsString,
+        agent: Option<String>,
+    },
     Codex,
     Terminal,
 }
 
 impl Session {
-    pub fn from_env(agent: Option<String>) -> Result<Self> {
+    pub fn from_env(agent: Option<String>) -> Self {
         Self::of(
             std::env::var_os(super::SESSION),
             std::env::var_os("CODEX_SESSION_ID"),
@@ -238,32 +241,37 @@ impl Session {
         codex_session: Option<std::ffi::OsString>,
         codex_thread: Option<std::ffi::OsString>,
         agent: Option<String>,
-    ) -> Result<Self> {
+    ) -> Self {
         if let Some(id) = claude.filter(|id| !id.is_empty()) {
-            let id = id.into_string().map_err(|_| {
-                crate::fail::Fail::Message(format!("{} is not a UTF-8 session ID", super::SESSION))
-            })?;
-            Ok(Self::Claude { id, agent })
+            Self::Claude { id, agent }
         } else if codex_session
             .into_iter()
             .chain(codex_thread)
             .any(|id| !id.is_empty())
         {
-            Ok(Self::Codex)
+            Self::Codex
         } else {
-            Ok(Self::Terminal)
+            Self::Terminal
         }
     }
 
-    pub fn claude(&self) -> Option<(&str, Option<&str>)> {
+    pub fn claude(&self) -> Result<Option<(&str, Option<&str>)>> {
         match self {
-            Self::Claude { id, agent } => Some((id, agent.as_deref())),
-            Self::Codex | Self::Terminal => None,
+            Self::Claude { id, agent } => {
+                let id = id.to_str().ok_or_else(|| {
+                    crate::fail::Fail::Message(format!(
+                        "{} is not a UTF-8 session ID",
+                        super::SESSION
+                    ))
+                })?;
+                Ok(Some((id, agent.as_deref())))
+            }
+            Self::Codex | Self::Terminal => Ok(None),
         }
     }
 
     pub fn caller(&self) -> Result<Option<Caller>> {
-        let Some((session, agent)) = self.claude() else {
+        let Some((session, agent)) = self.claude()? else {
             return Ok(None);
         };
         let Some(id) = agent else {

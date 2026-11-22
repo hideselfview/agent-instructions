@@ -42,12 +42,13 @@ fn codex_returns_the_final_structured_message_and_the_turns_usage() {
     let called = codex_events(events.as_bytes(), false);
     assert_eq!(called.body.unwrap(), json!({"claims": []}));
     assert_eq!(
-        called.usage.unwrap(),
+        called.completion.tokens(),
         Tokens {
-            input: 31,
-            output: 12,
-            cached: 7,
-            written: 2
+            input: Some(31),
+            output: Some(12),
+            cached: Some(7),
+            written: Some(2),
+            uncached: Some(22),
         }
     );
 }
@@ -102,7 +103,7 @@ fn a_codex_session_runs_the_ruling_check_with_the_codex_protocol() {
     }
     let scratch = crate::testing::Scratch::new("codex-rulings");
     let mut tool = scratch.tool(0);
-    let session = crate::ack::agent::Session::from_env(None).unwrap();
+    let session = crate::ack::agent::Session::from_env(None);
     let reviewer = crate::review::Reviewer::installed(&tool.places, &session, None);
     let executable = reviewer.program.executable();
     let script = scratch.script(
@@ -156,7 +157,7 @@ fn an_invalid_event_cannot_change_an_answer_or_erase_reported_usage() {
     events.extend_from_slice(br#""}}"#);
     let called = codex_events(&events, false);
     assert!(called.body.unwrap_err().contains("invalid event"));
-    assert_eq!(called.usage.unwrap().input, 31);
+    assert_eq!(called.completion.tokens().input, Some(31));
 }
 
 #[test]
@@ -172,7 +173,7 @@ fn a_codex_failure_reports_the_cli_diagnostic() {
         None,
     );
     assert!(called.body.unwrap_err().contains("unsupported option"));
-    assert!(called.usage.tokens.is_none());
+    assert_eq!(called.usage.tokens, Tokens::default());
 }
 
 #[test]
@@ -301,7 +302,6 @@ fn code_design_capture_and_replay_use_sol() {
     );
     let retries = branch(&retry, "branch:retry", &online);
     assert!(retries.refusal.is_none(), "{}", retries.text);
-    assert!(retries.text.contains("gpt-6.2-sol"), "{}", retries.text);
     assert!(retries.text.contains("gpt-6.2-sol"), "{}", retries.text);
 
     let capture = demo.add_side(5, "agent", "capture-code");
@@ -481,7 +481,7 @@ exit 2"#);
         "check",
         None,
     );
-    assert_eq!(called.usage.tokens.unwrap().input, 5);
+    assert_eq!(called.usage.tokens.input, Some(5));
     assert_eq!(called.usage.cost_microdollars, Some(0));
     assert_eq!(called.model, "claude-opus-4-8");
     assert!(
@@ -532,22 +532,24 @@ fn a_claude_error_keeps_its_reported_price_when_tokens_are_invalid() {
         "usage": {"input_tokens": -1, "output_tokens": 0},
     });
     let called = claude_envelope(reply.to_string().as_bytes(), "opus");
-    assert!(called.usage.tokens.is_none());
+    assert_eq!(called.usage.tokens.output, Some(0));
+    assert_eq!(called.usage.tokens.uncached, None);
     assert_eq!(called.usage.cost_microdollars, Some(10_000));
     let diagnostic = called.body.unwrap_err();
     assert!(diagnostic.contains("rate limited") && diagnostic.contains("invalid input_tokens"));
 }
 
 #[test]
-fn an_unreported_output_count_leaves_the_answer_and_records_no_tokens() {
+fn an_unreported_claude_output_count_reports_the_omission_and_keeps_uncached_input() {
     let reply = json!({
         "is_error": false,
         "structured_output": {"claims": []},
         "usage": {"input_tokens": 20},
     });
     let called = claude_envelope(reply.to_string().as_bytes(), "opus");
-    assert!(called.usage.tokens.is_none());
-    assert!(called.body.is_ok());
+    assert_eq!(called.usage.tokens.output, None);
+    assert_eq!(called.usage.tokens.uncached, Some(20));
+    assert!(called.body.unwrap_err().contains("omitted output_tokens"));
     assert!(claude_cost(&json!({"total_cost_usd": -0.0000001})).is_err());
 }
 
@@ -559,7 +561,7 @@ fn invalid_codex_usage_keeps_a_tool_violation_visible() {
     ]
     .join("\n");
     let called = codex_events(reply.as_bytes(), false);
-    assert!(called.usage.is_none());
+    assert_eq!(called.completion.tokens(), Tokens::default());
     let diagnostic = called.body.unwrap_err();
     assert!(
         diagnostic.contains("command_execution") && diagnostic.contains("invalid input_tokens")
@@ -587,7 +589,7 @@ EVENTS"#
         "check",
         None,
     );
-    assert_eq!(response.usage.tokens.unwrap().input, 31);
+    assert_eq!(response.usage.tokens.input, Some(31));
     let why = response.body.unwrap_err();
     assert!(
         why.contains("the provider could not finish") && why.contains("removing"),
@@ -603,17 +605,37 @@ fn codex_keeps_a_completed_answer_without_a_usage_event() {
         r#"{"type":"turn.completed"}"#,
     );
     let answer = codex_events(events.as_bytes(), false);
-    assert!(answer.completed);
-    assert!(answer.usage.is_none());
+    assert!(
+        matches!(answer.completion, Completion::Completed(tokens) if tokens == Tokens::default())
+    );
     assert_eq!(answer.body.unwrap(), json!({"claims": []}));
 }
 
 #[test]
 fn codex_refuses_cache_usage_above_the_total_input() {
     let usage = json!({"input_tokens": 4, "cached_input_tokens": 5, "cache_write_input_tokens": 2, "output_tokens": 1});
+    let mut body = Ok(json!({}));
+    let tokens = reported_tokens(&usage, Provider::Codex, &mut body);
+    assert!(body.unwrap_err().contains("more input tokens"));
+    assert_eq!(tokens.input, Some(4));
+    assert_eq!(tokens.output, Some(1));
+    assert_eq!(tokens.uncached, None);
+}
+
+#[test]
+fn an_explicit_codex_model_other_than_sol_starts_no_reviewer() {
+    let scratch = crate::testing::Scratch::new("codex-other-model");
+    let called = invoke(
+        &Program::new(scratch.dir.join("codex"), scratch.dir.clone()),
+        &Selection::Named("gpt-6.2-astra".into()),
+        &json!({}),
+        "",
+        "check",
+        None,
+    );
+    let error = called.body.unwrap_err();
     assert!(
-        codex_usage(&usage)
-            .unwrap_err()
-            .contains("more input tokens")
+        error.contains("Replace --model gpt-6.2-astra with --model gpt-6.2-sol"),
+        "{error}"
     );
 }

@@ -466,8 +466,8 @@ fn the_tables_refuse_a_row_that_breaks_a_constraint() {
             vec![("tokens_written", v(-1))],
         ),
         (
-            "spec_check_records_all_tokens_or_none",
-            vec![("tokens_out", rusqlite::types::Value::Null)],
+            "spec_check_tokens_uncached_not_negative",
+            vec![("tokens_uncached", v(-1))],
         ),
         (
             "spec_check_cost_not_negative",
@@ -546,6 +546,26 @@ fn recording_keeps_unknown_cost_distinct_from_zero() {
     // Each attempt belongs to the same item and has its own recorded cost.
     record_one(&db, item, "opus", Usage::ZERO);
     assert_eq!(recorded_usage(&db), [(None, None), (Some(0), Some(0))]);
+}
+
+/// Plants a check in the schema before the token counters could be unknown.
+pub fn plant_before_unreported_usage(db: &Connection, item: Id, model: &str) {
+    db.execute(
+        r#"INSERT INTO spec_check (at, by, brief, brief_text, repo, worktree, head, spec_files, model, rules_version, system, message, output, tokens_in, tokens_out, tokens_cached, tokens_written, cost_microdollars)
+         VALUES (?1, 'tester', 'plans/briefs/b.md', ?2, 'bae', '/d/wt', ?3, '["spec/demo.md"]', ?4, '', 's', 'm', '{}', 0, 0, 0, 0, 0)"#,
+        rusqlite::params![NOON, BRIEF, "a".repeat(40), model],
+    ).unwrap();
+    let check = db.last_insert_rowid();
+    db.execute(
+        "INSERT INTO spec_check_item (check_id, item_id) VALUES (?1, ?2)",
+        rusqlite::params![check, item],
+    )
+    .unwrap();
+    db.execute(
+        "INSERT INTO spec_check_finding (check_id, kind, brief_quote, spec_file, spec_line, spec_quote, why)
+         VALUES (?1, 'conflict', ?2, 'spec/demo.md', 5, ?3, 'w'), (?1, 'unstated', ?4, NULL, NULL, NULL, 'w')",
+        rusqlite::params![check, CONFLICT, SPEC_TEXT, UNSTATED],
+    ).unwrap();
 }
 
 pub fn recorded_usage(db: &Connection) -> Vec<(Option<i64>, Option<i64>)> {

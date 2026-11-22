@@ -181,12 +181,8 @@ fn a_replay_counts_the_expected_findings_found_and_the_false_blocking_ones() {
         (found.expected, found.found, found.false_blocking),
         (1, 1, 0)
     );
-    let usage = totals(std::slice::from_ref(&found))
-        .usage
-        .tokens
-        .unwrap()
-        .unwrap();
-    assert_eq!((usage.input, usage.output), (100, 10));
+    let usage = totals(std::slice::from_ref(&found)).usage.tokens.unwrap();
+    assert_eq!((usage.input, usage.output), (Some(100), Some(10)));
     fake.answer("alpha", &[("rule-a", None)]);
     let missed = replay_case(
         Scope {
@@ -342,13 +338,13 @@ fn a_group_that_lists_sites_is_asked_once_per_file_its_rule_covers() {
         "the same finding raised by several calls is kept once"
     );
     assert_eq!(
-        alpha[0].usage.tokens.unwrap().input,
-        200,
+        alpha[0].usage.tokens.input,
+        Some(200),
         "four calls of 50 tokens"
     );
     assert_eq!(
-        result.repeat.unwrap().unwrap().input,
-        100,
+        result.repeat.unwrap().input,
+        Some(100),
         "the second pass is two calls"
     );
     let prompts = fake.prompts();

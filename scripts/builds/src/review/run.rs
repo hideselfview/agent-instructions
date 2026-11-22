@@ -472,6 +472,10 @@ fn holds_open(group: &Group, members: &[&Rule], paths: &[String], open: &[Findin
 /// when it holds a finding of <open>, and one for the commit messages when it
 /// reads them; any other group gets one for the whole diff, with the commit
 /// messages when it reads them (`Diff::text_for`).
+fn group_covers(members: &[&Rule], paths: &[String], files: &Globs) -> bool {
+    members.iter().any(|rule| rule.matches(paths, files))
+}
+
 fn units_of<'a>(
     group: &'a Group,
     members: &'a [&'a Rule],
@@ -492,12 +496,7 @@ fn units_of<'a>(
     let holds = !held_by(group, members, open).is_empty();
     let mut units: Vec<Unit> = files::split(&diff.text)
         .into_iter()
-        .filter(|file| {
-            holds
-                || members
-                    .iter()
-                    .any(|rule| rule.matches(&file.paths(), files))
-        })
+        .filter(|file| holds || group_covers(members, &file.paths(), files))
         .map(|file| unit(Some(file)))
         .collect();
     if let (true, Some((file, _))) = (
@@ -519,7 +518,7 @@ fn unjudged(members: &[&Rule], diff: &Diff, files: &Globs) -> Vec<String> {
         .filter(|file| {
             let paths = file.paths();
             paths.iter().any(|path| files.kind_of(path).is_some())
-                && !members.iter().any(|rule| rule.matches(&paths, files))
+                && !group_covers(members, &paths, files)
         })
         .map(|file| file.path)
         .collect()
@@ -550,7 +549,7 @@ fn not_read(
         .collect()
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(PartialEq, Eq)]
 pub enum ReviewKind {
     Branch,
     Check,
@@ -559,28 +558,36 @@ pub enum ReviewKind {
 fn judges_code(
     group: &Group,
     members: &[&Rule],
+    units: &[Unit],
+    excluded: &[String],
     diff: &Diff,
     files: &Globs,
     open: &[Finding],
 ) -> bool {
-    let paths = files::split(&diff.text)
-        .into_iter()
-        .flat_map(|file| {
-            let paths = file.paths();
-            if members.iter().any(|rule| rule.matches(&paths, files)) {
-                paths
-            } else {
-                Vec::new()
-            }
-        })
-        .chain(
-            held_by(group, members, open)
-                .into_iter()
-                .filter(|finding| finding.file != files::COMMIT_MESSAGE)
-                .map(|finding| finding.file.clone()),
-        )
-        .collect::<Vec<_>>();
-    files.includes_code(&paths)
+    let held = held_by(group, members, open);
+    if held.iter().any(|finding| {
+        finding.file != files::COMMIT_MESSAGE
+            && files.includes_code(std::slice::from_ref(&finding.file))
+    }) {
+        return true;
+    }
+    if group.enumerate {
+        return units
+            .iter()
+            .filter_map(|unit| unit.file.as_ref())
+            .any(|file| {
+                file.path != files::COMMIT_MESSAGE && !excluded.contains(&file.path) && {
+                    let paths = file.paths();
+                    // With no open findings, units_of already checked coverage.
+                    (held.is_empty() || group_covers(members, &paths, files))
+                        && files.includes_code(&paths)
+                }
+            });
+    }
+    files::split(&diff.text).into_iter().any(|file| {
+        let paths = file.paths();
+        group_covers(members, &paths, files) && files.includes_code(&paths)
+    })
 }
 
 /// Asks the reviewers of <picked> and checks what comes back: one per group,
@@ -644,7 +651,18 @@ pub fn ask_groups(
         .iter()
         .enumerate()
         .map(|(at, (group, members))| {
-            if kind == ReviewKind::Branch && judges_code(group, members, &diffs[at], files, open) {
+            if kind == ReviewKind::Branch
+                && reviewer.uses_code_review_effort()
+                && judges_code(
+                    group,
+                    members,
+                    &first[at],
+                    &not_read[at],
+                    &diffs[at],
+                    files,
+                    open,
+                )
+            {
                 reviewer.for_code_review()
             } else {
                 reviewer.clone()
@@ -665,7 +683,7 @@ pub fn ask_groups(
                         bare_call(&reviewers[at], group, members, Some(why.clone()))
                     })
                     .collect(),
-                repeat: Ok(Some(call::Tokens::ZERO)),
+                repeat: Ok(call::Tokens::ZERO),
                 nothing_to_read: Vec::new(),
                 not_read: Vec::new(),
             };
@@ -773,7 +791,7 @@ pub fn ask_groups(
         done[*i].push(call);
     }
     let most = units.iter().map(|u| u.group.passes).max().unwrap_or(1);
-    let mut repeat = Ok(Some(call::Tokens::ZERO));
+    let mut repeat = Ok(call::Tokens::ZERO);
     for pass in 1..most {
         let again: Vec<usize> = (0..units.len())
             .filter(|&i| units[i].group.passes > pass)

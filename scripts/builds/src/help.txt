@@ -3276,9 +3276,10 @@ checks this, and so does builds' test. The group.toml fields are top-level keys:
   question      the one design question the group's rules answer
   tier          optional. Choose high, medium or fast. The default is high.
                 Claude uses Opus, Sonnet and Haiku respectively.
-                Codex uses GPT-6.2 Sol for reviews and checks. It uses high
-                reasoning effort for code reviews and records the effort
-                it used with the prompt.
+                Codex uses GPT-6.2 Sol for reviews and checks. A command
+                with --model accepts gpt-6.2-sol when it runs Codex. Codex
+                uses high reasoning effort for code reviews. Builds records
+                the effort with the prompt.
   instructions  optional; extra words for the reviewer
   enumerate     true when the reviewer lists every site of the diff that
                 `sites` describes, one changed file per call, and judges each

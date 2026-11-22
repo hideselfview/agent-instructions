@@ -56,7 +56,7 @@ fn the_model_reads_the_rule_and_the_finding_and_its_answer_settles_the_finding()
             "the opus check confirmed it: a.rs does the bad thing.".to_string()
         ))
     );
-    assert_eq!(checked.usage.tokens.unwrap().input, 50);
+    assert_eq!(checked.usage.tokens.input, Some(50));
     let prompt = fake.dir.join("calls");
     let sent: String = std::fs::read_dir(prompt)
         .unwrap()

@@ -80,6 +80,7 @@ CREATE TABLE review_call (
     -- Of tokens_in, the part read from the prompt cache and the part written to it.
     tokens_cached INTEGER CONSTRAINT review_call_tokens_cached_not_negative CHECK (tokens_cached >= 0),
     tokens_written INTEGER CONSTRAINT review_call_tokens_written_not_negative CHECK (tokens_written >= 0),
+    tokens_uncached INTEGER CONSTRAINT review_call_tokens_uncached_not_negative CHECK (tokens_uncached >= 0),
     -- What `claude -p` reported the call cost, in millionths of a US dollar,
     -- summed over its processes; null for a call made before builds recorded
     -- the cost.
@@ -87,12 +88,7 @@ CREATE TABLE review_call (
     -- For a group that lists the sites it judges: its summary and the sites, as JSON.
     sites TEXT,
     -- Why the call gave no usable answer; null when it did.
-    failure TEXT,
-    CONSTRAINT review_call_records_all_tokens_or_none CHECK (
-        (tokens_in IS NULL) = (tokens_out IS NULL)
-        AND (tokens_in IS NULL) = (tokens_cached IS NULL)
-        AND (tokens_in IS NULL) = (tokens_written IS NULL)
-    )
+    failure TEXT
 ) STRICT;
 CREATE INDEX review_call_run ON review_call (run_id);
 
@@ -115,11 +111,7 @@ CREATE TABLE review_exchange (
     tokens_out INTEGER CONSTRAINT review_exchange_tokens_out_not_negative CHECK (tokens_out >= 0),
     tokens_cached INTEGER CONSTRAINT review_exchange_tokens_cached_not_negative CHECK (tokens_cached >= 0),
     tokens_written INTEGER CONSTRAINT review_exchange_tokens_written_not_negative CHECK (tokens_written >= 0),
-    CONSTRAINT review_exchange_records_all_tokens_or_none CHECK (
-        (tokens_in IS NULL) = (tokens_out IS NULL)
-        AND (tokens_in IS NULL) = (tokens_cached IS NULL)
-        AND (tokens_in IS NULL) = (tokens_written IS NULL)
-    )
+    tokens_uncached INTEGER CONSTRAINT review_exchange_tokens_uncached_not_negative CHECK (tokens_uncached >= 0)
 ) STRICT;
 CREATE INDEX review_exchange_call ON review_exchange (call_id);
 

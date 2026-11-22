@@ -48,6 +48,10 @@ impl Program {
         }
     }
 
+    pub fn uses_code_review_effort(&self) -> bool {
+        Provider::of(&self.executable) == Provider::Codex
+    }
+
     pub fn for_code_review(&self) -> Self {
         Self {
             purpose: Purpose::CodeReview,
@@ -111,19 +115,12 @@ impl Program {
                 Model::Claude(name.to_string())
             }
             Provider::Codex => {
-                let name = match selection {
-                    Selection::Tier(_) => "gpt-6.2-sol",
-                    Selection::Named(name) => name.as_str(),
-                };
                 let effort = match (self.purpose, selection) {
                     (_, Selection::Named(_)) | (Purpose::CodeReview, Selection::Tier(_)) => "high",
                     (Purpose::Check, Selection::Tier(Tier::High | Tier::Medium)) => "medium",
                     (Purpose::Check, Selection::Tier(Tier::Fast)) => "low",
                 };
-                Model::Codex {
-                    name: name.to_string(),
-                    effort,
-                }
+                Model::Codex { effort }
             }
         }
     }
@@ -169,15 +166,18 @@ impl std::fmt::Display for Selection {
     }
 }
 
+const CODEX_MODEL: &str = "gpt-6.2-sol";
+
 enum Model {
     Claude(String),
-    Codex { name: String, effort: &'static str },
+    Codex { effort: &'static str },
 }
 
 impl Model {
     fn name(&self) -> &str {
         match self {
-            Self::Claude(name) | Self::Codex { name, .. } => name,
+            Self::Claude(name) => name,
+            Self::Codex { .. } => CODEX_MODEL,
         }
     }
 }
@@ -190,6 +190,17 @@ pub fn invoke(
     message: &str,
     checkout: Option<&Path>,
 ) -> Invoked {
+    if Provider::of(program.executable()) == Provider::Codex
+        && let Selection::Named(requested) = selection
+        && requested != CODEX_MODEL
+    {
+        return Invoked::failed(
+            format!("unknown (requested {requested})"),
+            format!(
+                "Codex uses {CODEX_MODEL}. Replace --model {requested} with --model {CODEX_MODEL} or omit --model."
+            ),
+        );
+    }
     let model = program.model(selection);
     let called = match &model {
         Model::Claude(name) => claude(
@@ -200,9 +211,15 @@ pub fn invoke(
             message,
             checkout,
         ),
-        Model::Codex { name, effort } => {
-            codex(program, name, effort, schema, system, message, checkout)
-        }
+        Model::Codex { effort } => codex(
+            program,
+            CODEX_MODEL,
+            effort,
+            schema,
+            system,
+            message,
+            checkout,
+        ),
     };
     match called {
         Ok(invoked) => invoked,
@@ -294,12 +311,9 @@ pub(super) fn claude_envelope(text: &[u8], requested: &str) -> Invoked {
         })
         .map_or_else(|| format!("unknown (requested {requested})"), Clone::clone);
     let mut body = body_of(&value);
-    let tokens = match claude_tokens(&value) {
-        Ok(tokens) => tokens,
-        Err(why) => {
-            add_diagnostic(&mut body, why);
-            None
-        }
+    let tokens = match value.get("usage") {
+        Some(usage) => reported_tokens(usage, Provider::Claude, &mut body),
+        None => Tokens::default(),
     };
     let cost_microdollars = match claude_cost(&value) {
         Ok(cost) => cost,
@@ -345,31 +359,69 @@ fn reported_count(usage: &Value, key: &str) -> std::result::Result<Option<i64>, 
         .transpose()
 }
 
-fn claude_tokens(envelope: &Value) -> std::result::Result<Option<Tokens>, String> {
-    let Some(usage) = envelope.get("usage") else {
-        return Ok(None);
-    };
+fn reported_tokens(
+    usage: &Value,
+    protocol: Provider,
+    body: &mut std::result::Result<Value, String>,
+) -> Tokens {
     if !usage.is_object() {
-        return Err("Claude reported invalid usage".to_string());
+        add_diagnostic(body, "the reviewer reported invalid usage".to_string());
+        return Tokens::default();
     }
-    let input = reported_count(usage, "input_tokens")?;
-    let output = reported_count(usage, "output_tokens")?;
-    let cached = reported_count(usage, "cache_read_input_tokens")?;
-    let written = reported_count(usage, "cache_creation_input_tokens")?;
-    let (Some(input), Some(output), Some(cached), Some(written)) = (input, output, cached, written)
-    else {
-        return Ok(None);
+    let mut count = |key| match reported_count(usage, key) {
+        Ok(value) => value,
+        Err(why) => {
+            add_diagnostic(body, why);
+            None
+        }
     };
-    let input = input
-        .checked_add(cached)
-        .and_then(|sum| sum.checked_add(written))
-        .ok_or("Claude's total input tokens exceed the supported range")?;
-    Ok(Some(Tokens {
+    let (cache_read, cache_write) = match protocol {
+        Provider::Claude => ("cache_read_input_tokens", "cache_creation_input_tokens"),
+        Provider::Codex => ("cached_input_tokens", "cache_write_input_tokens"),
+    };
+    let reported_input = count("input_tokens");
+    let output = count("output_tokens");
+    let cached = count(cache_read);
+    let written = count(cache_write);
+    if protocol == Provider::Claude {
+        for key in ["input_tokens", "output_tokens"] {
+            if usage.get(key).is_none() {
+                add_diagnostic(body, format!("Claude omitted {key} from its usage report"));
+            }
+        }
+    }
+    let computed = match (reported_input, cached, written) {
+        (Some(input), Some(cached), Some(written)) => match protocol {
+            Provider::Claude => input
+                .checked_add(cached)
+                .and_then(|sum| sum.checked_add(written)),
+            Provider::Codex => input
+                .checked_sub(cached)
+                .and_then(|sum| sum.checked_sub(written))
+                .filter(|sum| *sum >= 0),
+        },
+        _ => None,
+    };
+    if computed.is_none() && reported_input.is_some() && cached.is_some() && written.is_some() {
+        let message = match protocol {
+            Provider::Claude => "Claude's total input tokens exceed the supported range",
+            Provider::Codex => {
+                "Codex reported more input tokens in the cache than total input tokens"
+            }
+        };
+        add_diagnostic(body, message.to_string());
+    }
+    let (input, uncached) = match protocol {
+        Provider::Claude => (computed, reported_input),
+        Provider::Codex => (reported_input, computed),
+    };
+    Tokens {
         input,
         output,
         cached,
         written,
-    }))
+        uncached,
+    }
 }
 
 fn claude_cost(envelope: &Value) -> std::result::Result<Option<i64>, String> {
@@ -493,21 +545,19 @@ fn codex(
         }
         let output = run(&mut command, message)?;
         let Decoded {
-            usage,
-            completed,
+            completion,
             mut body,
         } = codex_events(&output.stdout, checkout.is_some());
         if !output.status.success() {
             attach_exit(program.executable(), &output, &mut body);
         }
         invoked = Some(Invoked {
-            model: if completed {
-                model.to_string()
-            } else {
-                format!("unknown (requested {model})")
+            model: match completion {
+                Completion::Completed(_) => model.to_string(),
+                Completion::Incomplete => format!("unknown (requested {model})"),
             },
             usage: Usage {
-                tokens: usage,
+                tokens: completion.tokens(),
                 cost_microdollars: None,
             },
             body,
@@ -517,11 +567,7 @@ fn codex(
     match (invoked, result) {
         (Some(response), Ok(())) => Ok(response),
         (Some(mut response), Err(error)) => {
-            if response.body.is_ok() {
-                crate::text::note(error.text());
-            } else {
-                add_diagnostic(&mut response.body, error.text());
-            }
+            add_diagnostic(&mut response.body, error.text());
             Ok(response)
         }
         (None, Err(error)) => Err(error),
@@ -565,9 +611,22 @@ fn remove_null_properties(value: &mut Value) {
     }
 }
 
+enum Completion {
+    Incomplete,
+    Completed(Tokens),
+}
+
+impl Completion {
+    fn tokens(&self) -> Tokens {
+        match self {
+            Self::Incomplete => Tokens::default(),
+            Self::Completed(tokens) => *tokens,
+        }
+    }
+}
+
 struct Decoded {
-    completed: bool,
-    usage: Option<Tokens>,
+    completion: Completion,
     body: std::result::Result<Value, String>,
 }
 
@@ -621,12 +680,7 @@ fn codex_events(text: &[u8], read_tools: bool) -> Decoded {
             _ => {}
         }
     }
-    let usage = match &completed {
-        Some(Some(usage)) => codex_usage(usage),
-        _ => Ok(None),
-    };
-    let completed = completed.is_some();
-    let mut body = match (failure, completed, answer) {
+    let mut body = match (failure, completed.is_some(), answer) {
         (Some(why), _, _) => Err(why),
         (None, true, Some(answer)) => serde_json::from_str(&answer)
             .map(|mut body| {
@@ -636,46 +690,14 @@ fn codex_events(text: &[u8], read_tools: bool) -> Decoded {
             .map_err(|error| format!("Codex did not answer in the schema: {error}")),
         _ => Err("Codex did not finish with a structured answer".to_string()),
     };
-    match usage {
-        Ok(usage) => Decoded {
-            completed,
-            usage,
-            body,
-        },
-        Err(why) => {
-            add_diagnostic(&mut body, why);
-            Decoded {
-                completed,
-                usage: None,
-                body,
-            }
+    let completion = match completed {
+        Some(Some(usage)) => {
+            Completion::Completed(reported_tokens(&usage, Provider::Codex, &mut body))
         }
-    }
-}
-
-fn codex_usage(usage: &Value) -> std::result::Result<Option<Tokens>, String> {
-    if !usage.is_object() {
-        return Err("Codex reported invalid usage".to_string());
-    }
-    let input = reported_count(usage, "input_tokens")?;
-    let output = reported_count(usage, "output_tokens")?;
-    let cached = reported_count(usage, "cached_input_tokens")?;
-    let written = reported_count(usage, "cache_write_input_tokens")?;
-    let (Some(input), Some(output), Some(cached), Some(written)) = (input, output, cached, written)
-    else {
-        return Ok(None);
+        Some(None) => Completion::Completed(Tokens::default()),
+        None => Completion::Incomplete,
     };
-    if i128::from(cached) + i128::from(written) > i128::from(input) {
-        return Err(
-            "Codex reported more input tokens in the cache than total input tokens".to_string(),
-        );
-    }
-    Ok(Some(Tokens {
-        input,
-        output,
-        cached,
-        written,
-    }))
+    Decoded { completion, body }
 }
 
 #[cfg(test)]

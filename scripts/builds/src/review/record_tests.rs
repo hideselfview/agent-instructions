@@ -8,12 +8,13 @@ fn call(group: &str, finding: Option<(&str, bool, Option<&str>)>) -> NewCall {
         prompt: format!("the prompt of {group}"),
         rules: vec!["r".to_string()],
         usage: crate::review::call::Usage {
-            tokens: Some(crate::review::call::Tokens {
-                input: 10,
-                output: 2,
-                cached: 4,
-                written: 3,
-            }),
+            tokens: crate::review::call::Tokens {
+                input: Some(10),
+                output: Some(2),
+                cached: Some(4),
+                written: Some(3),
+                uncached: None,
+            },
             cost_microdollars: Some(500_000),
         },
         sites: None,
@@ -25,12 +26,13 @@ fn call(group: &str, finding: Option<(&str, bool, Option<&str>)>) -> NewCall {
             system: "system".to_string(),
             message: "message".to_string(),
             output: "{}".to_string(),
-            tokens: Some(crate::review::call::Tokens {
-                input: 10,
-                output: 2,
-                cached: 4,
-                written: 3,
-            }),
+            tokens: crate::review::call::Tokens {
+                input: Some(10),
+                output: Some(2),
+                cached: Some(4),
+                written: Some(3),
+                uncached: None,
+            },
             started_at: 1_790_000_000,
             ms: 2_000,
         }],
@@ -466,7 +468,7 @@ INSERT INTO review_exchange (id, call_id, model, unit, pass, system_hash, messag
 }
 
 #[test]
-fn a_review_with_unreported_usage_keeps_null_counters_and_a_measured_zero() {
+fn a_review_records_each_reported_counter_and_distinguishes_zero_from_unknown() {
     use crate::review::call::{Tokens, Usage};
     let db = db();
     let repo = first_repo(&db);
@@ -480,35 +482,44 @@ fn a_review_with_unreported_usage_keeps_null_counters_and_a_measured_zero() {
     )
     .unwrap();
     let mut failed = call("failed", None);
-    failed.usage = Usage::default();
-    failed.exchanges[0].tokens = None;
+    let partial = Tokens {
+        input: Some(18),
+        cached: Some(0),
+        ..Tokens::default()
+    };
+    failed.usage = Usage {
+        tokens: partial,
+        cost_microdollars: None,
+    };
+    failed.exchanges[0].tokens = partial;
     failed.failure = Some("the provider did not report usage".to_string());
     let mut measured = call("measured", None);
     measured.usage = Usage::ZERO;
-    measured.exchanges[0].tokens = Some(Tokens::ZERO);
+    measured.exchanges[0].tokens = Tokens::ZERO;
     add_run(
         &db,
         &crate::review::texts::scratch(),
         &run(Some(landing), 6, "base", "head"),
-        &[failed, measured],
+        &[failed.clone(), measured],
     )
     .unwrap();
     let calls = calls_of_landing(&db, landing).unwrap();
     assert_eq!(
         calls.iter().map(|call| call.usage).collect::<Vec<_>>(),
-        [Usage::default(), Usage::ZERO]
+        [failed.usage, Usage::ZERO]
     );
-    assert!(
-        crate::review::render::totals(&calls, &[])
-            .contains("token usage not recorded for every call")
-    );
+    assert!(crate::review::render::totals(&calls, &[]).contains(
+        "18 tokens in (unknown uncached, 0 read from the cache, unknown written to it), unknown out"
+    ));
 }
 
 #[test]
 fn migrating_failed_review_exchanges_preserves_measured_zero_and_removes_unknown_zero() {
     use crate::review::call::{Tokens, Usage};
     let db = db();
-    let texts = crate::review::texts::scratch();
+    let scratch = crate::testing::Scratch::new("migrate-review-usage");
+    let places = scratch.places();
+    let texts = crate::review::texts::Texts::of(&places, "demo");
     let repo = first_repo(&db);
     let landing = add_landing(
         &db,
@@ -524,7 +535,7 @@ fn migrating_failed_review_exchanges_preserves_measured_zero_and_removes_unknown
         call.usage = Usage::ZERO;
         call.failure = Some(failure.to_string());
         call.exchanges[0].output = output.to_string();
-        call.exchanges[0].tokens = Some(Tokens::ZERO);
+        call.exchanges[0].tokens = Tokens::ZERO;
         call
     };
     let legacy = old(
@@ -534,21 +545,40 @@ fn migrating_failed_review_exchanges_preserves_measured_zero_and_removes_unknown
     );
     let measured = old(
         "measured",
-        "the reviewer reported an error: no verdict",
-        "no answer: the reviewer reported an error: no verdict",
+        "the reviewer reported an error: subprocess exited with exit status: 1",
+        "no answer: the reviewer reported an error: subprocess exited with exit status: 1",
+    );
+    let ambiguous = old(
+        "ambiguous",
+        "two different failures",
+        "no answer: the reviewer printed no JSON",
     );
     add_run(
         &db,
         &texts,
         &run(Some(landing), 6, "base", "head"),
-        &[legacy, measured],
+        &[legacy, measured, ambiguous.clone()],
+    )
+    .unwrap();
+    let run_id = db
+        .query_row("SELECT MAX(id) FROM review_run", [], |row| {
+            row.get::<_, i64>(0)
+        })
+        .unwrap();
+    let hash = crate::review::texts::hash(&ambiguous.exchanges[0].output);
+    std::fs::remove_file(
+        crate::review::texts::root(&places)
+            .join("demo")
+            .join(run_id.to_string())
+            .join(hash),
     )
     .unwrap();
     db.pragma_update(None, "foreign_keys", false).unwrap();
     allow_unreported_tokens(&db, &texts).unwrap();
     let calls = calls_of_landing(&db, landing).unwrap();
-    assert_eq!(calls[0].usage.tokens, None);
-    assert_eq!(calls[1].usage.tokens, Some(Tokens::ZERO));
+    assert_eq!(calls[0].usage.tokens, Tokens::default());
+    assert_eq!(calls[1].usage.tokens, Tokens::ZERO);
+    assert_eq!(calls[2].usage.tokens, Tokens::default());
     let results = db
         .prepare("SELECT tokens_in FROM review_exchange ORDER BY id")
         .unwrap()
@@ -556,5 +586,5 @@ fn migrating_failed_review_exchanges_preserves_measured_zero_and_removes_unknown
         .unwrap()
         .collect::<rusqlite::Result<Vec<_>>>()
         .unwrap();
-    assert_eq!(results, [None, Some(0)]);
+    assert_eq!(results, [None, Some(0), None]);
 }

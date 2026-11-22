@@ -77,7 +77,7 @@ pub fn gate(
     {
         return Ok(());
     }
-    let Some((session, agent)) = session.claude() else {
+    let Some((session, agent)) = session.claude()? else {
         return Ok(());
     };
     if let Some(notice) = check(
@@ -367,7 +367,7 @@ pub fn cmd_ack(places: &Places, session: &agent::Session, args: &[String]) -> Re
         println!("{}", compacted(places, agent::HookInput::from_stdin()?)?);
         return Ok(());
     }
-    let Some((session, agent)) = session.claude() else {
+    let Some((session, agent)) = session.claude()? else {
         fail!(
             "builds ack records an agent's acknowledgement under its Claude Code session ({SESSION}), which this shell lacks; builds never refuses a command run outside Claude Code"
         );

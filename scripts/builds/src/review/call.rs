@@ -41,93 +41,97 @@ pub struct Output {
     pub answer: Result<Answer, String>,
 }
 
-/// The input and output counters the reviewer reports together.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// Independently reported token counters. An absent count means the provider omitted it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Tokens {
-    pub input: i64,
-    pub output: i64,
-    pub cached: i64,
-    pub written: i64,
+    pub input: Option<i64>,
+    pub output: Option<i64>,
+    pub cached: Option<i64>,
+    pub written: Option<i64>,
+    pub uncached: Option<i64>,
 }
 
 impl Tokens {
     pub const ZERO: Self = Self {
-        input: 0,
-        output: 0,
-        cached: 0,
-        written: 0,
+        input: Some(0),
+        output: Some(0),
+        cached: Some(0),
+        written: Some(0),
+        uncached: Some(0),
     };
 
-    /// The nullable SQLite columns for input, output, cache reads and cache writes.
-    pub fn columns(report: Option<Self>) -> [Option<i64>; 4] {
-        match report {
-            Some(Self {
-                input,
-                output,
-                cached,
-                written,
-            }) => [Some(input), Some(output), Some(cached), Some(written)],
-            None => [None; 4],
-        }
-    }
-
-    pub fn checked_add(self, other: Self) -> Option<Self> {
-        Some(Self {
-            input: self.input.checked_add(other.input)?,
-            output: self.output.checked_add(other.output)?,
-            cached: self.cached.checked_add(other.cached)?,
-            written: self.written.checked_add(other.written)?,
-        })
+    fn add(self, other: Self) -> (Self, bool) {
+        let mut overflowed = false;
+        let mut add = |left: Option<i64>, right: Option<i64>| {
+            let (Some(left), Some(right)) = (left, right) else {
+                return None;
+            };
+            let sum = left.checked_add(right);
+            overflowed |= sum.is_none();
+            sum
+        };
+        let tokens = Self {
+            input: add(self.input, other.input),
+            output: add(self.output, other.output),
+            cached: add(self.cached, other.cached),
+            written: add(self.written, other.written),
+            uncached: add(self.uncached, other.uncached),
+        };
+        (tokens, overflowed)
     }
 }
 
-pub type TokenTotal = Result<Option<Tokens>, &'static str>;
+const TOKEN_OVERFLOW: &str = "the token total exceeds the range builds can record";
 
-pub fn sum_tokens(tokens: impl IntoIterator<Item = Option<Tokens>>) -> TokenTotal {
-    tokens
-        .into_iter()
-        .try_fold(Some(Tokens::ZERO), |total, next| match (total, next) {
-            (Some(total), Some(next)) => total
-                .checked_add(next)
-                .map(Some)
-                .ok_or("the token total exceeds the range builds can record"),
-            _ => Ok(None),
-        })
+pub type TokenTotal = Result<Tokens, &'static str>;
+
+pub fn sum_tokens(tokens: impl IntoIterator<Item = Tokens>) -> TokenTotal {
+    tokens.into_iter().try_fold(Tokens::ZERO, |total, next| {
+        let (total, overflowed) = total.add(next);
+        if overflowed {
+            Err(TOKEN_OVERFLOW)
+        } else {
+            Ok(total)
+        }
+    })
 }
 
 pub(super) fn tokens_text(tokens: TokenTotal, detailed: bool) -> String {
-    match tokens {
-        Ok(Some(Tokens {
-            input,
-            output,
-            cached,
-            written,
-        })) if detailed => format!(
-            "{input} tokens in ({} uncached, {cached} read from the cache, {written} written to it), {output} out",
-            i128::from(input) - i128::from(cached) - i128::from(written),
-        ),
-        Ok(Some(Tokens { input, output, .. })) => format!("{input} tokens in, {output} out"),
-        Ok(None) => "token usage not recorded for every call".to_string(),
-        Err(why) => why.to_string(),
+    let tokens = match tokens {
+        Ok(tokens) => tokens,
+        Err(why) => return why.to_string(),
+    };
+    let count = |n: Option<i64>| n.map_or_else(|| "unknown".to_string(), |n| n.to_string());
+    let input = count(tokens.input);
+    let output = count(tokens.output);
+    if detailed {
+        let uncached = count(tokens.uncached);
+        let cached = count(tokens.cached);
+        let written = count(tokens.written);
+        format!(
+            "{input} tokens in ({uncached} uncached, {cached} read from the cache, {written} written to it), {output} out"
+        )
+    } else {
+        format!("{input} tokens in, {output} out")
     }
 }
 
 /// The tokens a reviewer used and the cost the provider reported.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Usage {
-    pub tokens: Option<Tokens>,
+    pub tokens: Tokens,
     /// Cost in millionths of a US dollar, when the provider reports one.
     pub cost_microdollars: Option<i64>,
 }
 
 impl Usage {
     pub const ZERO: Self = Self {
-        tokens: Some(Tokens::ZERO),
+        tokens: Tokens::ZERO,
         cost_microdollars: Some(0),
     };
 
     pub(super) fn merge(&mut self, other: Self) -> Result<(), String> {
-        let tokens = sum_tokens([self.tokens, other.tokens]);
+        let (tokens, token_overflowed) = self.tokens.add(other.tokens);
         let cost = add_cost(
             self.cost_microdollars.map(i128::from),
             other.cost_microdollars,
@@ -137,10 +141,10 @@ impl Usage {
             .transpose()
             .map_err(|_| "the review cost exceeds the range builds can record");
         let mut errors = Vec::new();
-        self.tokens = tokens.unwrap_or_else(|why| {
-            errors.push(why);
-            None
-        });
+        self.tokens = tokens;
+        if token_overflowed {
+            errors.push(TOKEN_OVERFLOW);
+        }
         self.cost_microdollars = cost.unwrap_or_else(|why| {
             errors.push(why);
             None
@@ -162,7 +166,7 @@ pub struct UsageTotal {
 pub(super) fn sum_usage(calls: impl IntoIterator<Item = Usage>) -> UsageTotal {
     calls.into_iter().fold(
         UsageTotal {
-            tokens: Ok(Some(Tokens::ZERO)),
+            tokens: Ok(Tokens::ZERO),
             cost_microdollars: Some(0),
         },
         |total, call| UsageTotal {

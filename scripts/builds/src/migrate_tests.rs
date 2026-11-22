@@ -2228,8 +2228,8 @@ fn a_move_allows_unknown_spec_cost_and_keeps_previous_checks_and_findings() {
         .unwrap();
         crate::lists::area::add_area(&conn, "Alpha", None).unwrap();
         let item = fixtures::item(&conn, Vec::new());
-        spec_check::tests::record_one(&conn, item, "opus", Usage::ZERO);
-        spec_check::tests::record_one(&conn, item, "gpt-6.2-sol", Usage::ZERO);
+        spec_check::tests::plant_before_unreported_usage(&conn, item, "opus");
+        spec_check::tests::plant_before_unreported_usage(&conn, item, "gpt-6.2-sol");
         item
     };
     move_store(&places, &path, 0).unwrap();

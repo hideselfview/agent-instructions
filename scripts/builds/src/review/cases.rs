@@ -575,7 +575,7 @@ pub fn totals(results: &[CaseResult]) -> Totals {
                 .iter()
                 .flat_map(|case| case.calls.iter().map(|call| call.usage)),
         ),
-        repeat: results.iter().try_fold(Some(Tokens::ZERO), |total, case| {
+        repeat: results.iter().try_fold(Tokens::ZERO, |total, case| {
             sum_tokens([total, case.repeat?])
         }),
     };
@@ -719,7 +719,7 @@ pub fn report(results: &[CaseResult]) -> String {
         tokens_text(t.usage.tokens, true),
         cost_text(t.usage.cost_microdollars),
     ));
-    if t.repeat != Ok(Some(Tokens::ZERO)) {
+    if t.repeat != Ok(Tokens::ZERO) {
         out.push_str(&format!("repeat passes: {}\n", tokens_text(t.repeat, true)));
     }
     out.push_str(&site_report(results));

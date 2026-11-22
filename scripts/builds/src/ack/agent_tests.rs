@@ -100,34 +100,29 @@ fn a_lists_folder_with_no_parent_has_no_place_for_the_agents() {
 fn a_caller_is_a_session_and_an_agent_and_the_person_has_no_session() {
     assert_eq!(
         Session::of(None, None, None, Some("a1".into()))
-            .unwrap()
             .caller()
             .unwrap(),
         None
     );
     assert_eq!(
         Session::of(Some("".into()), None, None, None)
-            .unwrap()
             .caller()
             .unwrap(),
         None
     );
     assert!(
         Session::of(Some("s1".into()), None, None, None)
-            .unwrap()
             .caller()
             .unwrap_err()
             .text()
             .contains("--agent")
     );
     let main = Session::of(Some("s1".into()), None, None, Some("s1".into()))
-        .unwrap()
         .caller()
         .unwrap()
         .unwrap();
     assert!(!main.is_dispatched());
     let dispatched = Session::of(Some("s1".into()), None, None, Some("a1".into()))
-        .unwrap()
         .caller()
         .unwrap()
         .unwrap();

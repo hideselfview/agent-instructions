@@ -8,6 +8,8 @@
 //! closes a confirmed finding when the changes it read fix it, and the person
 //! may allow an open confirmed finding to land.
 
+use std::path::Path;
+
 use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::db::Sql;
@@ -41,7 +43,7 @@ pub struct NewExchange {
     pub message: String,
     /// The reviewer's JSON answer, or why it gave none.
     pub output: String,
-    pub tokens: Option<super::call::Tokens>,
+    pub tokens: super::call::Tokens,
     /// When the process began, seconds since 1970, and how long it ran.
     pub started_at: i64,
     pub ms: i64,
@@ -325,6 +327,8 @@ pub struct NewRun<'a> {
     pub rules_version: &'a str,
 }
 
+const LEGACY_CALL_COLUMNS: &str = "id, run_id, group_name, model, prompt, rules, tokens_in, tokens_out, tokens_cached, tokens_written, cost_microdollars, sites, failure";
+
 /// Moves a store's review texts to <texts>, for a store from before builds
 /// kept them there: keeps each run's texts, makes `review_call` and
 /// `review_exchange` again as record.sql writes them, with each answer's hash
@@ -364,7 +368,9 @@ pub fn move_texts_to_volume(db: &Connection, texts: &Texts) -> Result<()> {
             ") STRICT;",
         ),
         |db| {
-            db.execute_batch("INSERT INTO review_call SELECT * FROM review_call_old")
+            db.execute_batch(&format!(
+                "INSERT INTO review_call ({LEGACY_CALL_COLUMNS}) SELECT {LEGACY_CALL_COLUMNS} FROM review_call_old"
+            ))
                 .sql()
         },
         &[crate::db::statement(
@@ -468,10 +474,16 @@ pub fn add_calls(
     for call in calls {
         let rules = serde_json::to_string(&call.rules).expect("strings serialize");
         let prompt = texts::hash(&call.prompt);
-        let [input, output, cached, written] = super::call::Tokens::columns(call.usage.tokens);
+        let super::call::Tokens {
+            input,
+            output,
+            cached,
+            written,
+            uncached,
+        } = call.usage.tokens;
         db.execute(
-            "INSERT INTO review_call (run_id, group_name, model, prompt, rules, tokens_in, tokens_out, tokens_cached, tokens_written, cost_microdollars, sites, failure) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
-            params![run_id, call.group, call.model, prompt, rules, input, output, cached, written, call.usage.cost_microdollars, call.sites, call.failure],
+            "INSERT INTO review_call (run_id, group_name, model, prompt, rules, tokens_in, tokens_out, tokens_cached, tokens_written, tokens_uncached, cost_microdollars, sites, failure) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+            params![run_id, call.group, call.model, prompt, rules, input, output, cached, written, uncached, call.usage.cost_microdollars, call.sites, call.failure],
         )
         .sql()?;
         let call_id = db.last_insert_rowid();
@@ -486,10 +498,16 @@ pub fn add_calls(
             let system_hash = texts::hash(&exchange.system);
             let message_hash = texts::hash(&exchange.message);
             let output_hash = texts::hash(&exchange.output);
-            let [input, output, cached, written] = super::call::Tokens::columns(exchange.tokens);
+            let super::call::Tokens {
+                input,
+                output,
+                cached,
+                written,
+                uncached,
+            } = exchange.tokens;
             db.execute(
-                "INSERT INTO review_exchange (call_id, model, unit, pass, system_hash, message_hash, output_hash, tokens_in, tokens_out, tokens_cached, tokens_written) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-                params![call_id, exchange.model, exchange.unit, exchange.pass, system_hash, message_hash, output_hash, input, output, cached, written],
+                "INSERT INTO review_exchange (call_id, model, unit, pass, system_hash, message_hash, output_hash, tokens_in, tokens_out, tokens_cached, tokens_written, tokens_uncached) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                params![call_id, exchange.model, exchange.unit, exchange.pass, system_hash, message_hash, output_hash, input, output, cached, written, uncached],
             )
             .sql()?;
             crate::review::exchange_time::record(
@@ -739,7 +757,7 @@ pub fn calls_of_kind(db: &Connection, kind: Kind) -> Result<Vec<Call>> {
 
 fn calls_where(db: &Connection, condition: &str, value: impl rusqlite::ToSql) -> Result<Vec<Call>> {
     let sql = format!(
-        "SELECT c.id, c.run_id, r.kind, c.group_name, c.model, c.prompt, c.rules, c.tokens_in, c.tokens_out, c.tokens_cached, c.tokens_written, c.cost_microdollars, c.failure FROM review_call c JOIN review_run r ON r.id = c.run_id WHERE {condition} ORDER BY c.id"
+        "SELECT c.id, c.run_id, r.kind, c.group_name, c.model, c.prompt, c.rules, c.tokens_in, c.tokens_out, c.tokens_cached, c.tokens_written, c.tokens_uncached, c.cost_microdollars, c.failure FROM review_call c JOIN review_run r ON r.id = c.run_id WHERE {condition} ORDER BY c.id"
     );
     let mut statement = db.prepare(&sql).sql()?;
     let rows = statement
@@ -760,18 +778,16 @@ fn calls_where(db: &Connection, condition: &str, value: impl rusqlite::ToSql) ->
                     )
                 })?,
                 usage: super::call::Usage {
-                    tokens: match row.get::<_, Option<i64>>(7)? {
-                        Some(input) => Some(super::call::Tokens {
-                            input,
-                            output: row.get(8)?,
-                            cached: row.get(9)?,
-                            written: row.get(10)?,
-                        }),
-                        None => None,
+                    tokens: super::call::Tokens {
+                        input: row.get(7)?,
+                        output: row.get(8)?,
+                        cached: row.get(9)?,
+                        written: row.get(10)?,
+                        uncached: row.get(11)?,
                     },
-                    cost_microdollars: row.get(11)?,
+                    cost_microdollars: row.get(12)?,
                 },
-                failure: row.get(12)?,
+                failure: row.get(13)?,
             })
         })
         .sql()?;
@@ -1020,7 +1036,15 @@ pub fn allow_unreported_tokens(db: &Connection, texts: &texts::Texts) -> Result<
             table,
             statement(REVIEW_PART, &create, ") STRICT;"),
             |db| {
-                db.execute_batch(&format!("INSERT INTO {table} SELECT * FROM {table}_old"))
+                let columns = if table == "review_call" {
+                    LEGACY_CALL_COLUMNS
+                } else {
+                    "id, call_id, model, unit, pass, system_hash, message_hash, output_hash, tokens_in, tokens_out, tokens_cached, tokens_written"
+                };
+                db.execute_batch(&format!(
+                    "INSERT INTO {table} ({columns}, tokens_uncached)
+                     SELECT {columns}, CASE WHEN tokens_in - tokens_cached >= tokens_written THEN tokens_in - tokens_cached - tokens_written END FROM {table}_old"
+                ))
                     .sql()
             },
             &[statement(REVIEW_PART, index, ";")],
@@ -1028,7 +1052,7 @@ pub fn allow_unreported_tokens(db: &Connection, texts: &texts::Texts) -> Result<
     }
     let unreported = {
         let mut query = db.prepare(
-            "SELECT e.id, c.id, c.run_id, e.output_hash, c.failure
+            "SELECT e.id, c.id, c.run_id, e.output_hash
              FROM review_exchange e JOIN review_call c ON c.id = e.call_id
              WHERE c.failure IS NOT NULL AND (e.tokens_in, e.tokens_out, e.tokens_cached, e.tokens_written) = (0, 0, 0, 0)",
         ).sql()?;
@@ -1039,22 +1063,16 @@ pub fn allow_unreported_tokens(db: &Connection, texts: &texts::Texts) -> Result<
                     row.get::<_, i64>(1)?,
                     row.get::<_, i64>(2)?,
                     row.get::<_, String>(3)?,
-                    row.get::<_, String>(4)?,
                 ))
             })
             .sql()?;
         rows.collect::<rusqlite::Result<Vec<_>>>().sql()?
     };
-    for (exchange, call, run, hash, failure) in unreported {
-        let whole = format!("no answer: {failure}");
-        let output = if texts::hash(&whole) == hash {
-            Some(whole)
-        } else {
-            texts.kept(run, &hash)?
-        };
-        if output.as_deref().is_some_and(legacy_failure_had_no_usage) {
-            db.execute("UPDATE review_exchange SET tokens_in = NULL, tokens_out = NULL, tokens_cached = NULL, tokens_written = NULL WHERE id = ?1", [exchange]).sql()?;
-            db.execute("UPDATE review_call SET tokens_in = NULL, tokens_out = NULL, tokens_cached = NULL, tokens_written = NULL WHERE id = ?1", [call]).sql()?;
+    for (exchange, call, run, hash) in unreported {
+        let output = texts.kept(run, &hash)?;
+        if output.as_deref().is_none_or(legacy_failure_had_no_usage) {
+            db.execute("UPDATE review_exchange SET tokens_in = NULL, tokens_out = NULL, tokens_cached = NULL, tokens_written = NULL, tokens_uncached = NULL WHERE id = ?1", [exchange]).sql()?;
+            db.execute("UPDATE review_call SET tokens_in = NULL, tokens_out = NULL, tokens_cached = NULL, tokens_written = NULL, tokens_uncached = NULL WHERE id = ?1", [call]).sql()?;
         }
     }
     Ok(())
@@ -1068,7 +1086,13 @@ fn legacy_failure_had_no_usage(output: &str) -> bool {
     why == "the reviewer printed no JSON"
         || why.starts_with("running ")
         || why.starts_with("waiting for ")
-        || why.split_once(" exited with ").is_some_and(|(_, status)| {
-            status.starts_with("exit status: ") || status.starts_with("signal: ")
-        })
+        || why
+            .split_once(" exited with ")
+            .is_some_and(|(program, status)| {
+                let path = Path::new(program);
+                (program == "claude"
+                    || path.is_absolute()
+                        && path.file_name() == Some(std::ffi::OsStr::new("claude")))
+                    && (status.starts_with("exit status: ") || status.starts_with("signal: "))
+            })
 }

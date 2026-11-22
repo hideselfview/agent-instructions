@@ -213,10 +213,7 @@ fn main() -> ExitCode {
         print!("{}", help::HELP);
         return ExitCode::from(2);
     };
-    let session = match ack::agent::Session::from_env(agent) {
-        Ok(session) => session,
-        Err(fail) => return exit_code(fail),
-    };
+    let session = ack::agent::Session::from_env(agent);
     let nested = std::env::var_os(ack::PASSED).is_some();
     let _use = match enter_stores(command, &args) {
         Ok(held) => held,

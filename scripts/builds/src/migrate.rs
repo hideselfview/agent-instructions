@@ -277,7 +277,7 @@ const BEFORE_UNREPORTED_USAGE_STAMP: i64 = 1_690_253_367;
 /// adds the move, puts this stamp at the end of `STAMPS` under a name that
 /// says what the schema lacked, and sets this to the new schema's stamp, which
 /// the compiler's error names.
-const SCHEMA_STAMP: i64 = 1_191_552_669;
+const SCHEMA_STAMP: i64 = 309_746_098;
 
 // The compiler refuses a schema whose stamp is not SCHEMA_STAMP. A const
 // assert could not print the new stamp, so the check compares two array
@@ -552,10 +552,17 @@ pub fn move_store(places: &Places, path: &Path, now: i64) -> Result<()> {
     }
     // Every store from before builds kept the review texts on the build
     // volume writes them there, and holds hashes in their place.
-    let project = path
+    let absolute = std::path::absolute(path)
+        .context(|| format!("resolving the store at {}", path.display()))?;
+    let project = absolute
         .parent()
         .and_then(Path::file_name)
-        .expect("a store's database is in its project's folder")
+        .ok_or_else(|| {
+            crate::fail::Fail::Message(format!(
+                "builds cannot name the project folder for {}",
+                path.display()
+            ))
+        })?
         .to_string_lossy();
     let texts = crate::review::texts::Texts::of(places, &project);
     if before(found, BEFORE_REVIEW_TEXTS_ON_VOLUME_STAMP) {

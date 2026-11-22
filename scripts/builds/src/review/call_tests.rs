@@ -15,11 +15,8 @@ fn an_answer_gives_verdicts_findings_and_tokens() {
     let body = r#"{"rules":[{"rule":"a","verdict":"none","findings":[]},{"rule":"b","verdict":"finding","findings":[{"clause":"c","file":"f.rs","line":3,"code":"x","problem":"p"}]}]}"#;
     let out = parse(&wrap(body), &names());
     assert_eq!(
-        (
-            out.usage.tokens.unwrap().input,
-            out.usage.tokens.unwrap().output
-        ),
-        (17, 7)
+        (out.usage.tokens.input, out.usage.tokens.output),
+        (Some(17), Some(7))
     );
     assert_eq!(out.usage.cost_microdollars, Some(250_000));
     let answer = out.answer.unwrap();
@@ -79,11 +76,11 @@ fn the_cache_read_and_write_tokens_are_kept_apart_from_the_rest_of_the_input() {
     let out = parse(&wrap(r#"{"rules":[]}"#), &[]);
     assert_eq!(
         (
-            out.usage.tokens.unwrap().input,
-            out.usage.tokens.unwrap().cached,
-            out.usage.tokens.unwrap().written
+            out.usage.tokens.input,
+            out.usage.tokens.cached,
+            out.usage.tokens.written
         ),
-        (17, 5, 10)
+        (Some(17), Some(5), Some(10))
     );
 }
 
@@ -135,24 +132,31 @@ fn a_group_that_lists_sites_answers_with_a_summary_and_a_verdict_for_each_site()
 fn merging_usage_reports_overflow_and_keeps_other_recorded_counters() {
     let mut previous = Usage {
         cost_microdollars: Some(i64::MAX),
-        tokens: Some(Tokens {
-            input: i64::MAX,
+        tokens: Tokens {
+            input: Some(i64::MAX),
             ..Tokens::ZERO
-        }),
+        },
     };
     let new = Usage {
         cost_microdollars: Some(1),
-        tokens: Some(Tokens {
-            input: 1,
+        tokens: Tokens {
+            input: Some(1),
             ..Tokens::ZERO
-        }),
+        },
     };
     let diagnostic = previous.merge(new).unwrap_err();
     assert!(diagnostic.contains("token total") && diagnostic.contains("review cost"));
-    assert!(previous.tokens.is_none() && previous.cost_microdollars.is_none());
-    assert_eq!(sum_tokens([Some(Tokens::ZERO), None]).unwrap(), None);
     assert_eq!(
-        sum_tokens([Some(Tokens::ZERO)]).unwrap(),
-        Some(Tokens::ZERO)
+        previous.tokens,
+        Tokens {
+            input: None,
+            ..Tokens::ZERO
+        }
     );
+    assert!(previous.cost_microdollars.is_none());
+    assert_eq!(
+        sum_tokens([Tokens::ZERO, Tokens::default()]).unwrap(),
+        Tokens::default()
+    );
+    assert_eq!(sum_tokens([Tokens::ZERO]).unwrap(), Tokens::ZERO);
 }

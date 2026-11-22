@@ -410,10 +410,10 @@ fn without_unreported_usage(mut schema: String) -> String {
                 &format!("{start} NOT NULL{constraint}"),
             );
         }
-        let clause = format!(
-            ",\n    CONSTRAINT {table}_records_all_tokens_or_none CHECK (\n        (tokens_in IS NULL) = (tokens_out IS NULL)\n        AND (tokens_in IS NULL) = (tokens_cached IS NULL)\n        AND (tokens_in IS NULL) = (tokens_written IS NULL)\n    )"
+        let column = format!(
+            ",\n    tokens_uncached INTEGER CONSTRAINT {table}_tokens_uncached_not_negative CHECK (tokens_uncached >= 0)"
         );
-        schema = schema.replace(&clause, "");
+        schema = schema.replace(&column, "");
     }
     schema.replacen(
         "cost_microdollars INTEGER CONSTRAINT spec_check_cost_not_negative",

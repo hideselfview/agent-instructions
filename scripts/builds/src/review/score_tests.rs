@@ -16,12 +16,13 @@ fn call(id: i64, run: i64, group: &str, rules: &[&str], cost: Option<i64>) -> Ca
         prompt: format!("prompt-of-{group}"),
         rules: rules.iter().map(|r| r.to_string()).collect(),
         usage: crate::review::call::Usage {
-            tokens: Some(crate::review::call::Tokens {
-                input: 100,
-                output: 10,
-                cached: 0,
-                written: 0,
-            }),
+            tokens: crate::review::call::Tokens {
+                input: Some(100),
+                output: Some(10),
+                cached: Some(0),
+                written: Some(0),
+                uncached: None,
+            },
             cost_microdollars: cost,
         },
         failure: None,
@@ -422,12 +423,13 @@ fn a_finding_settled_again_counts_as_dropped_and_a_closed_or_allowed_one_as_conf
         prompt: "the prompt".to_string(),
         rules: vec!["r".to_string()],
         usage: crate::review::call::Usage {
-            tokens: Some(crate::review::call::Tokens {
-                input: 0,
-                output: 0,
-                cached: 0,
-                written: 0,
-            }),
+            tokens: crate::review::call::Tokens {
+                input: Some(0),
+                output: Some(0),
+                cached: Some(0),
+                written: Some(0),
+                uncached: None,
+            },
             cost_microdollars: Some(0),
         },
         sites: None,
@@ -551,12 +553,13 @@ fn a_first_review_records_its_changed_lines_and_its_groups_confirmed_findings() 
         prompt: "the prompt".to_string(),
         rules: vec!["r".to_string()],
         usage: crate::review::call::Usage {
-            tokens: Some(crate::review::call::Tokens {
-                input: 0,
-                output: 0,
-                cached: 0,
-                written: 0,
-            }),
+            tokens: crate::review::call::Tokens {
+                input: Some(0),
+                output: Some(0),
+                cached: Some(0),
+                written: Some(0),
+                uncached: None,
+            },
             cost_microdollars: Some(0),
         },
         sites: None,

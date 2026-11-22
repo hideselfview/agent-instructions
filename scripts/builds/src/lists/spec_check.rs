@@ -503,11 +503,16 @@ pub fn record(
     for check in checked {
         let spec_files =
             serde_json::to_string(&check.target.spec_files).expect("a list of paths serializes");
-        let [input, tokens_out, cached, written] =
-            crate::review::call::Tokens::columns(check.usage.tokens);
+        let crate::review::call::Tokens {
+            input,
+            output: tokens_out,
+            cached,
+            written,
+            uncached,
+        } = check.usage.tokens;
         db.execute(
-            "INSERT INTO spec_check (at, by, brief, brief_text, repo, worktree, head, spec_files, model, rules_version, system, message, output, tokens_in, tokens_out, tokens_cached, tokens_written, cost_microdollars, failure, decided_id, decided_kind)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
+            "INSERT INTO spec_check (at, by, brief, brief_text, repo, worktree, head, spec_files, model, rules_version, system, message, output, tokens_in, tokens_out, tokens_cached, tokens_written, tokens_uncached, cost_microdollars, failure, decided_id, decided_kind)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
             params![
                 stamp.at,
                 stamp.by,
@@ -526,6 +531,7 @@ pub fn record(
                 tokens_out,
                 cached,
                 written,
+                uncached,
                 check.usage.cost_microdollars,
                 check.failure,
                 decided.map(|(id, _)| id),
@@ -754,6 +760,7 @@ pub fn allow_unreported_usage(db: &rusqlite::Connection) -> Result<()> {
             db.execute_batch(
                 "INSERT INTO spec_check SELECT id, at, by, brief, brief_text, repo, worktree, head, spec_files, model, rules_version,
                     system, message, output, tokens_in, tokens_out, tokens_cached, tokens_written,
+                    CASE WHEN tokens_in - tokens_cached >= tokens_written THEN tokens_in - tokens_cached - tokens_written END,
                     CASE WHEN model IN ('gpt-6.2-astra', 'gpt-6.2-sol') AND cost_microdollars = 0 THEN NULL ELSE cost_microdollars END,
                     failure, decided_id, decided_kind FROM spec_check_old",
             ).sql()
