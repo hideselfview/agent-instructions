@@ -1787,6 +1787,68 @@ fn a_prefix_that_starts_no_shot_declared_at_the_merge_base_compares_with_nothing
     );
 }
 
+/// A lane with two shots prefixes starts the shots program's capture once for
+/// both, then runs each prefix without capturing; the merge base's runs do the
+/// same.
+#[test]
+fn a_lane_with_two_shots_prefixes_captures_once_and_runs_each_prefix_without_capturing() {
+    let volume = Volume::new("capture-once");
+    volume.app_repo_with(SHOTS_CONFIG);
+    let top = volume.dir.join("checkout");
+    commit_shots(&top, "");
+    declare_scenes(
+        &top,
+        "declared-mac",
+        "Shots.swift",
+        "let scenes = [\"mac.a.one\", \"mac.b.one\"]\n",
+    );
+    git_in(&top, &["add", "declared-mac"]);
+    git_in(&top, &["commit", "-q", "-m", "Declare a second screen"]);
+    git_in(&top, &["push", "-q", "origin", "main"]);
+    branch_from_main(&top, "work", "mac/Foo.txt");
+    volume.open_gate("one");
+    let built = volume.run(&[
+        "app-build",
+        "demo",
+        "work",
+        "--shots",
+        "mac.a.",
+        "--shots",
+        "mac.b.",
+    ]);
+    let said = String::from_utf8_lossy(&built.stderr).into_owned();
+    assert!(built.status.success(), "{said}");
+    let log = volume.log();
+    let captures: Vec<&String> = log
+        .iter()
+        .filter(|line| line.contains("--capture-only"))
+        .collect();
+    assert_eq!(
+        captures.len(),
+        2,
+        "one at the merge base, one at the branch: {log:?}"
+    );
+    for capture in captures {
+        assert!(
+            capture.starts_with("shots --select mac.a. --select mac.b. ")
+                && !capture.contains("--base")
+                && !capture.contains("--before"),
+            "{capture}"
+        );
+    }
+    for prefix in ["mac.a.", "mac.b."] {
+        let runs: Vec<String> = shots_runs(&volume, prefix)
+            .into_iter()
+            .filter(|run| !run.contains("--capture-only"))
+            .collect();
+        assert_eq!(runs.len(), 2, "{log:?}");
+        assert!(
+            runs.iter().all(|run| run.contains("--no-capture")),
+            "{runs:?}"
+        );
+    }
+}
+
 /// A base run whose capture fails, with no findings, fails the branch's
 /// build, which prints what the capture said.
 #[test]

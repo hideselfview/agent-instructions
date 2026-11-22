@@ -328,6 +328,38 @@ impl Picker {
             })
             .collect()
     }
+
+    /// The command that runs all of <args> in one run, for a line whose
+    /// placeholder stands after a flag (`--select {select}`): the flag and
+    /// each argument, once for each of <args>, in order, where `command_for`
+    /// puts every argument after one flag. A word that holds the placeholder
+    /// beside other text (`--select={select}`) is copied for each argument.
+    /// Fails for a line whose placeholder stands after no flag, which no
+    /// repetition can say.
+    pub fn command_repeating(&self, args: &[&str]) -> Result<Vec<String>> {
+        let placeholder = self.kind.placeholder();
+        let mut command: Vec<String> = Vec::new();
+        for word in &self.command {
+            if word == placeholder {
+                let flag = command.pop().filter(|flag| flag.starts_with('-'));
+                let Some(flag) = flag else {
+                    fail!(
+                        "{CONFIG}: the {} line for {} puts {placeholder} after no flag, so one run cannot name several of them",
+                        self.kind.line(),
+                        self.lane.word()
+                    );
+                };
+                for arg in args {
+                    command.extend([flag.clone(), arg.to_string()]);
+                }
+            } else if word.contains(placeholder) {
+                command.extend(args.iter().map(|arg| word.replace(placeholder, arg)));
+            } else {
+                command.push(word.clone());
+            }
+        }
+        Ok(command)
+    }
 }
 
 /// The `mac` lines.

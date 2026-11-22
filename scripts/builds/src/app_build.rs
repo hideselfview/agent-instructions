@@ -69,6 +69,11 @@
 //! with `--base`, and then builds the branch. A build never asks a branch to
 //! rebase for a comparison.
 //!
+//! A lane with two or more shots prefixes starts the app's capture once: a
+//! capture step runs the shots line with every prefix and `--capture-only`
+//! (`capture_step`), and each prefix's run then takes its shots from the
+//! picture folder with `--no-capture`.
+//!
 //! A takeover stops the step running; the lane's build then runs again from
 //! the checkout, behind the build that took over.
 //!
@@ -318,7 +323,10 @@ struct PickRun<'a> {
 /// None, and each program runs all of its classes in one invocation, placed
 /// in the order of its first class: each start of Gradle or xcodebuild takes
 /// seconds before any test runs. Each shots prefix runs on its own, since
-/// builds caches the findings of each prefix's run. A shots run opens windows
+/// builds caches the findings of each prefix's run; a lane with two or more
+/// prefixes first takes all their shots in one capture step (`capture_step`),
+/// and each prefix's run then reads them from the picture folder with
+/// `--no-capture`. A shots run opens windows
 /// only when its prefix is one of <windowed>, the prefixes that select a scene
 /// shown in its window (`shots_declared::windowed_prefixes`).
 fn lane_steps(
@@ -354,20 +362,41 @@ fn lane_steps(
             }),
         }
     }
+    // A lane with several shots prefixes takes all their shots in one run of
+    // the shots line, which each prefix's run then reads from the picture
+    // folder: each start of the app's capture (Gradle, xcodebuild) takes
+    // seconds before any shot.
+    let prefixes: Vec<&str> = runs
+        .iter()
+        .filter(|run| run.picker.kind == PickKind::Shots)
+        .flat_map(|run| run.args.iter().copied())
+        .collect();
+    let captures_once = prefixes.len() >= 2;
+    let mut captured = false;
     for run in runs {
         let kind = run.picker.kind;
-        let command = run.picker.command_for(&run.args);
+        if captures_once && kind == PickKind::Shots && !captured {
+            captured = true;
+            steps.push(capture_step(lane, run.picker, &prefixes, windowed)?);
+        }
+        let mut command = run.picker.command_for(&run.args);
+        let scenes = kind
+            .scene_time()
+            .zip(crate::app_config::counting(&command))
+            .map(|(each, count)| Scenes { count, each });
+        let reads_pictures = captures_once && kind == PickKind::Shots;
+        if reads_pictures {
+            command.push(NO_CAPTURE.to_string());
+        }
         steps.push(Step {
             name: format!("{}{}", kind.step_prefix(), run.args.join(" ")),
             lane,
             limit: Some(kind.limit()),
-            scenes: kind
-                .scene_time()
-                .zip(crate::app_config::counting(&command))
-                .map(|(each, count)| Scenes { count, each }),
+            scenes,
             command,
             place: lock::Where::Anywhere,
             opens_windows: run.picker.opens_windows
+                && !reads_pictures
                 && (kind != PickKind::Shots
                     || run
                         .args
@@ -377,6 +406,60 @@ fn lane_steps(
         });
     }
     Ok(steps)
+}
+
+/// The start of the name of a lane's capture step (`capture_step`).
+const CAPTURE_STEP: &str = "capture shots ";
+
+/// The flag of `builds shots run` that makes a run fail instead of capturing
+/// when the picture folder lacks a shot it takes.
+const NO_CAPTURE: &str = "--no-capture";
+
+/// The flag of `builds shots run` that takes the selected shots into the
+/// picture folder and ends there.
+const CAPTURE_ONLY: &str = "--capture-only";
+
+/// Whether <step> reads or writes the picture folder: a shots run or a lane's
+/// capture step.
+fn takes_pictures(step: &Step) -> bool {
+    pick_kind_of(&step.name) == Some(PickKind::Shots) || is_capture(&step.name)
+}
+
+/// Whether the step named <name> is a lane's capture step.
+pub fn is_capture(name: &str) -> bool {
+    name.starts_with(CAPTURE_STEP)
+}
+
+/// The step that takes the shots of all of <prefixes> into the picture folder
+/// in one run of the lane's `shots` line <picker>, which the runs of the
+/// prefixes then read (`lane_steps`). It opens windows when a prefix
+/// selects a scene shown in its window (<windowed>), and its limit grows with
+/// the scenes of every prefix.
+fn capture_step(
+    lane: Lane,
+    picker: &Picker,
+    prefixes: &[&str],
+    windowed: &[String],
+) -> Result<Step> {
+    let mut command = picker.command_repeating(prefixes)?;
+    let scenes = PickKind::Shots
+        .scene_time()
+        .zip(crate::app_config::counting(&command))
+        .map(|(each, count)| Scenes { count, each });
+    command.push(CAPTURE_ONLY.to_string());
+    Ok(Step {
+        name: format!("{CAPTURE_STEP}{}", prefixes.join(" ")),
+        lane,
+        limit: Some(PickKind::Shots.limit()),
+        scenes,
+        command,
+        place: lock::Where::Anywhere,
+        opens_windows: picker.opens_windows
+            && prefixes
+                .iter()
+                .any(|arg| windowed.iter().any(|prefix| prefix == arg)),
+        ci_only: false,
+    })
 }
 
 /// Where a lane's checkout must be to run all of <steps>: on this Mac when
@@ -597,9 +680,10 @@ impl StepRunner for LocalSteps<'_> {
         let (top, shots) = (self.top, self.shots);
         let kept = lock::Captured::default();
         let keep = keep_for(kind, &kept, fault, read);
-        let (command, _writing) = match kind {
-            StepKind::Shots => (shots.local_command(step), Some(shots.writing()?)),
-            _ => (step.command.clone(), None),
+        let (command, _writing) = if takes_pictures(step) {
+            (shots.local_command(step), Some(shots.writing()?))
+        } else {
+            (step.command.clone(), None)
         };
         let outcome = run_command_keeping(top, &command, Some(limit), keep, self.xcode_settings);
         if kind == StepKind::Shots {
@@ -877,7 +961,7 @@ fn run_remote_step(
     read: &lock::EachLine,
 ) -> Result<Within> {
     let StepsWith { results, shots, .. } = *with;
-    let store = (kind == StepKind::Shots).then_some(shots);
+    let store = takes_pictures(step).then_some(shots);
     // Held while the copies read the before run and the picture folder,
     // which the prune then leaves.
     let reading = store.map(|store| store.writing()).transpose()?;
@@ -910,7 +994,9 @@ fn run_remote_step(
     }
     if let (Some(store), Some(there)) = (store, &pictures) {
         store.bring_back_pictures(remote, there);
-        store.cache_of(&ran, &kept, step, remote);
+        if kind == StepKind::Shots {
+            store.cache_of(&ran, &kept, step, remote);
+        }
     }
     if results.is_empty() || matches!(ran, Ok(Within::Ran(Ran::Stopped))) {
         return ran;
@@ -1208,13 +1294,17 @@ impl ShotsCache {
             "--app-tree".to_string(),
             self.app_tree.clone(),
         ]);
-        if self.no_capture {
-            command.push("--no-capture".to_string());
+        // A run that follows the lane's capture step already carries
+        // `--no-capture` and takes nothing again; the capture step takes the
+        // shots of the merge base without `--base`, which its prefixes pass.
+        let after_capture = step.command.iter().any(|word| word == NO_CAPTURE);
+        if self.no_capture && !after_capture {
+            command.push(NO_CAPTURE.to_string());
         }
-        if self.retake {
+        if self.retake && !after_capture {
             command.push("--retake".to_string());
         }
-        if self.base_run {
+        if self.base_run && !is_capture(&step.name) {
             command.push("--base".to_string());
         }
         command
@@ -1703,7 +1793,7 @@ fn build_lane(
     // host's screen.
     let draws = steps
         .iter()
-        .any(|step| step.opens_windows && pick_kind_of(&step.name) == Some(PickKind::Shots));
+        .any(|step| step.opens_windows && takes_pictures(step));
     let mut held = if draws {
         lock::take_drawing(places, &ssh, repo, lane, allowed, floor_kib)?
     } else {
@@ -1922,7 +2012,11 @@ impl LaneBuild<'_> {
             }
             Ok(program)
         };
-        let steps = lane_steps(config, lane, names, picks, windowed, &program_of)?;
+        let mut steps = lane_steps(config, lane, names, picks, windowed, &program_of)?;
+        if cached_shots {
+            // The picture folder holds every shot: nothing to capture.
+            steps.retain(|step| !is_capture(&step.name));
+        }
         if steps.is_empty() {
             fail!("{CONFIG} names no step in the {} lane", lane.word());
         }
@@ -1965,7 +2059,7 @@ impl LaneBuild<'_> {
     ) -> Result<Ended> {
         let (tests, builds): (Vec<Step>, Vec<Step>) = steps
             .into_iter()
-            .partition(|step| pick_kind_of(&step.name).is_some());
+            .partition(|step| pick_kind_of(&step.name).is_some() || is_capture(&step.name));
         let with = |results| StepsWith {
             results,
             shots,

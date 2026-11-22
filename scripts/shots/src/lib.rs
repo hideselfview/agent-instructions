@@ -109,6 +109,16 @@ enum Action {
         /// folder until a run takes it again.
         #[arg(long, requires = "app_tree", conflicts_with = "no_capture")]
         retake: bool,
+        /// Take every selected shot into the picture folder, mark each
+        /// selected prefix taken, and end without drawing boards or comparing
+        /// anything: builds takes the shots of all a lane's prefixes in one
+        /// run, then runs each prefix with --no-capture.
+        #[arg(
+            long,
+            requires = "app_tree",
+            conflicts_with_all = ["before", "no_capture", "base"]
+        )]
+        capture_only: bool,
     },
     /// Print the number of shots a run of the same selection takes, which
     /// builds counts to give the run a time limit that grows with its work.
@@ -344,6 +354,16 @@ fn capture(
     Ok(all)
 }
 
+/// What a run with `--capture-only` ends with, once it took the shots: it
+/// prints each shot the harness wrote no usable files of, and passes when
+/// there is none. The run marks a prefix taken only when none failed
+/// (`capture`), so a later run with `--no-capture` fails on a prefix whose
+/// shots are missing.
+fn capture_only_outcome(taken: &capture::Taken) -> bool {
+    capture::print_failed(&taken.failed);
+    taken.failed.is_empty()
+}
+
 /// A picture folder and the app source tree a run keeps its shots by.
 #[derive(Clone, Copy)]
 struct Kept<'a> {
@@ -445,6 +465,7 @@ fn run(checker: &Checker, action: Action) -> Result<bool, String> {
             app_tree,
             no_capture,
             retake,
+            capture_only,
         } => {
             // The one time the run marks each picture it takes used.
             let now = std::time::SystemTime::now();
@@ -480,6 +501,9 @@ fn run(checker: &Checker, action: Action) -> Result<bool, String> {
                 kept,
                 |p| shots.join(p.word()),
             )?;
+            if capture_only {
+                return Ok(capture_only_outcome(&taken));
+            }
             let outcome = verify::verify(&verify::Verification {
                 root: &root,
                 settings: &settings,
@@ -660,5 +684,140 @@ mod tests {
             .err()
             .expect("clap refuses the two flags together");
         assert_eq!(error.kind(), clap::error::ErrorKind::ArgumentConflict);
+    }
+
+    #[test]
+    fn a_capture_only_run_needs_the_picture_folder_and_refuses_a_comparison_or_a_failing_capture() {
+        let ok = parse(&[
+            "run",
+            "--capture-only",
+            "--pictures",
+            "pictures",
+            "--app-tree",
+            "tree",
+            "--select",
+            "mac.a.",
+            "--select",
+            "mac.b.",
+        ]);
+        assert!(ok.is_ok());
+        for refused in [
+            &["--before", "findings.json"][..],
+            &["--no-capture"][..],
+            &["--base"][..],
+        ] {
+            let mut args = vec![
+                "run",
+                "--capture-only",
+                "--pictures",
+                "pictures",
+                "--app-tree",
+                "tree",
+            ];
+            args.extend_from_slice(refused);
+            let error = parse(&args)
+                .err()
+                .unwrap_or_else(|| panic!("clap refuses --capture-only with {refused:?}"));
+            assert_eq!(error.kind(), clap::error::ErrorKind::ArgumentConflict);
+        }
+        let error = parse(&["run", "--capture-only"])
+            .err()
+            .expect("without an app tree the shots have nowhere to be kept");
+        assert_eq!(
+            error.kind(),
+            clap::error::ErrorKind::MissingRequiredArgument
+        );
+    }
+
+    /// A shot's element list and picture, as a harness writes them.
+    fn write_shot(dir: &Path, name: &str) {
+        let name = Name::parse(name).unwrap();
+        let list = crate::shots::tests::LIST.replace("mac.welcome.a", &name.to_string());
+        crate::shots::tests::write_pair(dir, &name, &list, 800, 380);
+    }
+
+    fn declared(names: &[&str]) -> Vec<Declared> {
+        names
+            .iter()
+            .map(|name| Declared {
+                name: Name::parse(name).unwrap(),
+                file: PathBuf::from("Scenes.swift"),
+                needs_window: false,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn one_capture_of_several_prefixes_fills_the_picture_folder_so_each_prefix_runs_without_capturing()
+     {
+        let dir = tempfile::tempdir().unwrap();
+        let ready = dir.path().join("ready");
+        std::fs::create_dir_all(&ready).unwrap();
+        write_shot(&ready, "mac.welcome.a");
+        write_shot(&ready, "mac.settings.b");
+        let script = dir.path().join("copy.sh");
+        std::fs::write(
+            &script,
+            format!("cp {}/* \"$BUILDS_SHOTS_OUT\"\n", ready.display()),
+        )
+        .unwrap();
+        let settings =
+            Settings::parse(&format!("shots-capture mac sh {}\n", script.display())).unwrap();
+        let versions = Versions {
+            capture: "c".to_string(),
+            comparison: "k".to_string(),
+        };
+        let checker = Checker {
+            versions: &versions,
+            cache: dir.path(),
+        };
+        let shots = declared(&["mac.welcome.a", "mac.settings.b", "mac.other.c"]);
+        let pictures =
+            pictures::Pictures::new(dir.path().join("pictures"), std::time::SystemTime::now());
+        let selection = |prefixes: &[&str]| Selection {
+            platforms: Vec::new(),
+            prefixes: prefixes.iter().map(|p| Prefix::parse(p).unwrap()).collect(),
+            windows: false,
+            base: false,
+        };
+        let kept = |no_capture| {
+            Some(Kept {
+                pictures: &pictures,
+                tree: "tree",
+                no_capture,
+                retake: false,
+            })
+        };
+        let out = |_| dir.path().join("out");
+        let first = capture(
+            dir.path(),
+            &checker,
+            &settings,
+            &shots,
+            &selection(&["mac.welcome.", "mac.settings."]),
+            kept(false),
+            out,
+        )
+        .unwrap();
+        assert!(capture_only_outcome(&first));
+        let marks = |prefix: &str| {
+            dir.path()
+                .join(format!("pictures/mac/tree/.taken/{prefix}@no-windows"))
+        };
+        assert!(marks("mac.welcome.").is_file());
+        assert!(marks("mac.settings.").is_file());
+        // A run of one prefix that may capture none takes its shots from the folder.
+        std::fs::remove_dir_all(&ready).unwrap();
+        let second = capture(
+            dir.path(),
+            &checker,
+            &settings,
+            &shots,
+            &selection(&["mac.settings."]),
+            kept(true),
+            out,
+        )
+        .unwrap();
+        assert_eq!(second.names, vec![Name::parse("mac.settings.b").unwrap()]);
     }
 }

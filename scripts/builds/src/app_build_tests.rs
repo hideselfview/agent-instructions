@@ -655,21 +655,170 @@ fn a_class_runs_through_the_program_its_folder_names() {
 }
 
 #[test]
-fn each_shots_prefix_runs_on_its_own() {
+fn a_lane_with_one_shots_prefix_runs_it_in_one_step_that_captures() {
+    let config = parse_config("shots mac ./s --select {select}\n").unwrap();
+    let picks = [(Lane::Mac, PickKind::Shots, "mac.welcome.".to_string())];
+    let steps = lane_steps(&config, Lane::Mac, &[], &picks, &[], &|_| Ok(None)).unwrap();
+    assert_eq!(names(&steps), vec!["shots mac.welcome."]);
+    assert_eq!(steps[0].command, args(&["./s", "--select", "mac.welcome."]));
+}
+
+#[test]
+fn a_lane_with_several_shots_prefixes_captures_them_once_and_then_runs_each_without_capturing() {
     let config = parse_config(
-        "shots mac ./s --select {select}
-",
+        "step mac one ./one\ntest mac ./t {class}\nshots mac builds shots run --platform mac --windows --select {select}\n",
     )
     .unwrap();
     let picks = [
+        (Lane::Mac, PickKind::Class, "A".to_string()),
         (Lane::Mac, PickKind::Shots, "mac.welcome.".to_string()),
         (Lane::Mac, PickKind::Shots, "mac.settings.".to_string()),
+        (Lane::Mac, PickKind::Shots, "mac.component.row.".to_string()),
+    ];
+    let windowed = ["mac.welcome.".to_string()];
+    let steps = lane_steps(&config, Lane::Mac, &[], &picks, &windowed, &|_| Ok(None)).unwrap();
+    assert_eq!(
+        names(&steps),
+        vec![
+            "test A",
+            "capture shots mac.welcome. mac.settings. mac.component.row.",
+            "shots mac.welcome.",
+            "shots mac.settings.",
+            "shots mac.component.row.",
+        ]
+    );
+    let capture = &steps[1];
+    assert_eq!(
+        capture.command,
+        args(&[
+            "builds",
+            "shots",
+            "run",
+            "--platform",
+            "mac",
+            "--windows",
+            "--select",
+            "mac.welcome.",
+            "--select",
+            "mac.settings.",
+            "--select",
+            "mac.component.row.",
+            "--capture-only",
+        ])
+    );
+    assert!(is_capture(&capture.name));
+    assert_eq!(pick_kind_of(&capture.name), None);
+    assert_eq!(capture.limit(), PickKind::Shots.limit());
+    let scenes = capture
+        .scenes
+        .as_ref()
+        .expect("counts the scenes of every prefix");
+    assert_eq!(
+        scenes.count,
+        args(&[
+            "builds",
+            "shots",
+            "scenes",
+            "--platform",
+            "mac",
+            "--windows",
+            "--select",
+            "mac.welcome.",
+            "--select",
+            "mac.settings.",
+            "--select",
+            "mac.component.row.",
+        ]),
+        "the count takes no flag that only a run has"
+    );
+    for (step, prefix) in
+        steps[2..]
+            .iter()
+            .zip(["mac.welcome.", "mac.settings.", "mac.component.row."])
+    {
+        assert_eq!(
+            step.command,
+            args(&[
+                "builds",
+                "shots",
+                "run",
+                "--platform",
+                "mac",
+                "--windows",
+                "--select",
+                prefix,
+                "--no-capture",
+            ])
+        );
+        assert_eq!(
+            step.scenes.as_ref().expect("counts its scenes").count,
+            args(&[
+                "builds",
+                "shots",
+                "scenes",
+                "--platform",
+                "mac",
+                "--windows",
+                "--select",
+                prefix,
+            ])
+        );
+        assert!(!is_capture(&step.name));
+    }
+    assert!(!steps[0].opens_windows);
+    assert!(
+        capture.opens_windows,
+        "the capture takes the window scenes of the prefixes"
+    );
+    assert!(
+        steps[2..].iter().all(|step| !step.opens_windows),
+        "a run that captures nothing opens no window"
+    );
+}
+
+#[test]
+fn the_capture_of_prefixes_with_no_window_scene_opens_no_window() {
+    let config = parse_config("shots mac ./s --windows --select {select}\n").unwrap();
+    let picks = [
+        (Lane::Mac, PickKind::Shots, "mac.component.a.".to_string()),
+        (Lane::Mac, PickKind::Shots, "mac.component.b.".to_string()),
+    ];
+    let steps = lane_steps(&config, Lane::Mac, &[], &picks, &[], &|_| Ok(None)).unwrap();
+    assert!(steps.iter().all(|step| !step.opens_windows));
+}
+
+#[test]
+fn a_shots_line_with_the_placeholder_beside_other_text_repeats_the_word_for_each_prefix() {
+    let config = parse_config("shots mac ./s --select={select}\n").unwrap();
+    let picks = [
+        (Lane::Mac, PickKind::Shots, "mac.a.".to_string()),
+        (Lane::Mac, PickKind::Shots, "mac.b.".to_string()),
     ];
     let steps = lane_steps(&config, Lane::Mac, &[], &picks, &[], &|_| Ok(None)).unwrap();
     assert_eq!(
-        names(&steps),
-        vec!["shots mac.welcome.", "shots mac.settings."]
+        steps[0].command,
+        args(&[
+            "./s",
+            "--select=mac.a.",
+            "--select=mac.b.",
+            "--capture-only"
+        ])
     );
+}
+
+#[test]
+fn a_shots_line_that_puts_the_placeholder_after_no_flag_cannot_repeat_it_and_is_refused() {
+    let config = parse_config("shots mac ./s {select}\n").unwrap();
+    let picks = [
+        (Lane::Mac, PickKind::Shots, "mac.a.".to_string()),
+        (Lane::Mac, PickKind::Shots, "mac.b.".to_string()),
+    ];
+    let Err(Fail::Message(message)) =
+        lane_steps(&config, Lane::Mac, &[], &picks, &[], &|_| Ok(None))
+    else {
+        panic!("refused")
+    };
+    assert!(message.contains("{select}"), "{message}");
 }
 
 #[test]
@@ -724,15 +873,30 @@ fn a_test_run_that_opens_windows_may_take_any_checkout_and_holds_the_window_lock
 #[test]
 fn a_shots_run_with_windows_opens_windows_only_for_a_prefix_that_selects_a_window_scene() {
     let config = parse_config("shots mac ./s --windows --select {select}\n").unwrap();
-    let picks = [
-        (Lane::Mac, PickKind::Shots, "mac.welcome.".to_string()),
-        (Lane::Mac, PickKind::Shots, "mac.component.row.".to_string()),
-    ];
     let windowed = ["mac.welcome.".to_string()];
-    let steps = lane_steps(&config, Lane::Mac, &[], &picks, &windowed, &|_| Ok(None)).unwrap();
+    let window_pick = (Lane::Mac, PickKind::Shots, "mac.welcome.".to_string());
+    let component_pick = (Lane::Mac, PickKind::Shots, "mac.component.row.".to_string());
+    let steps = lane_steps(
+        &config,
+        Lane::Mac,
+        &[],
+        std::slice::from_ref(&window_pick),
+        &windowed,
+        &|_| Ok(None),
+    )
+    .unwrap();
     assert!(steps[0].opens_windows);
+    let steps = lane_steps(
+        &config,
+        Lane::Mac,
+        &[],
+        &[component_pick],
+        &windowed,
+        &|_| Ok(None),
+    )
+    .unwrap();
     assert!(
-        !steps[1].opens_windows,
+        !steps[0].opens_windows,
         "a component run draws no window, so it takes no window lock"
     );
     assert_eq!(place_of(&steps), lock::Where::Anywhere);

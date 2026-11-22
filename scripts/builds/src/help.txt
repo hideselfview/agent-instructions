@@ -1289,7 +1289,23 @@ folder holds a mark for each prefix (a mark of mac. covers mac.welcome.),
 the lane runs no step: it checks out the commit and runs the shots line with
 --no-capture, which takes every shot from the folder and fails rather than
 capture from an app nobody built. The output says which lanes build nothing
-and why. For a shots run on a host,
+and why.
+
+A lane with two or more --shots prefixes takes the shots of all of them once:
+before the runs of the prefixes it runs a "capture shots <prefixes>" step, the
+lane's `shots` line with one `--select <prefix>` for each prefix (a line whose
+{select} stands after a flag, or beside other text, as `--select={select}`) and
+--capture-only, which takes every selected shot into the picture folder, marks
+each prefix taken and ends without drawing boards or comparing. Each prefix then
+runs with --no-capture and takes its shots from the folder, so the app's capture
+(Gradle, xcodebuild) starts once for the lane, not once for each prefix. The
+capture step holds the window lock when any prefix starts a scene shown in its
+window, and its time limit counts the scenes of every prefix; the prefix runs
+open no window. A capture step that fails fails the build with its output, and
+a prefix run that finds a shot missing in the folder fails as --no-capture does.
+A lane with one prefix runs that prefix alone, as before. The merge base's runs
+(below) are made the same way, and its capture step passes no --base. The steps
+are recorded as "capture shots ..." and "shots <prefix>". For a shots run on a host,
 app-build copies the board pictures and the shots cached for the lane's app
 tree to a temporary folder on the host, passes that folder to the run, and
 afterwards moves the pictures the run added into the folder here.
@@ -1552,7 +1568,11 @@ built again.
                               every selected one for that app source tree,
                               and otherwise captures them and caches them
                               there; with --no-capture as well, `run`
-                              fails instead of capturing; `scenes` prints the
+                              fails instead of capturing; with --capture-only
+                              as well (it refuses --before, --no-capture and
+                              --base), `run` takes every selected shot into
+                              the folder, marks each prefix taken and ends,
+                              drawing and comparing nothing; `scenes` prints the
                               number of shots a `run` of the same --platform,
                               --select and --windows takes, which builds uses
                               for the run's time limit (APP BUILDS); `capture` takes the
