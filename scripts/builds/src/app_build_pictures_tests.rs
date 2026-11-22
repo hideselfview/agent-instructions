@@ -145,6 +145,6 @@ fn a_lane_refuses_an_invalid_shot_prefix_before_starting_a_build() {
         &mut Timing::start(),
     )
     .unwrap_err();
-    assert!(matches!(error, shots_cache::PictureLeaseError::Prefix(_)));
+    assert!(matches!(error, LaneError::Prefix(_)));
     assert!(!tool.places.root.join("demo").exists());
 }

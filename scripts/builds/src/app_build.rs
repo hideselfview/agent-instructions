@@ -1163,7 +1163,7 @@ struct ShotPick<'a> {
 }
 
 impl<'a> ShotPick<'a> {
-    fn of_lane(lane: Lane, picks: &'a [Pick]) -> shots_cache::PictureLeaseResult<Vec<Self>> {
+    fn of_lane(lane: Lane, picks: &'a [Pick]) -> std::result::Result<Vec<Self>, shots::NameError> {
         picks
             .iter()
             .filter(|(own, kind, _)| *own == lane && *kind == PickKind::Shots)
@@ -1299,7 +1299,7 @@ impl ShotsCache {
         environment: &str,
         commit: &str,
         app_tree: String,
-        picks: &[Pick],
+        picks: &[ShotPick<'_>],
         no_capture: bool,
         retake: bool,
         base_run: bool,
@@ -1310,13 +1310,11 @@ impl ShotsCache {
         let mut befores = Vec::new();
         let mut bases = Vec::new();
         let mut base_declared_names = None;
-        for (_, _, prefix) in picks
-            .iter()
-            .filter(|(own, kind, _)| *own == lane && *kind == PickKind::Shots)
-        {
+        for pick in picks {
+            let prefix = pick.prefix.as_str();
             let base = crate::derive::merge_base(source, commit)?;
             if base == commit {
-                bases.push((prefix.clone(), BaseRun::NotNeeded));
+                bases.push((prefix.to_string(), BaseRun::NotNeeded));
                 continue;
             }
             match crate::shots_compare_again::before_run(
@@ -1329,13 +1327,13 @@ impl ShotsCache {
                 program,
             )? {
                 Some(before) => {
-                    let how = if built.contains(prefix) {
+                    let how = if built.iter().any(|built| built == prefix) {
                         BaseRun::Built
                     } else {
                         BaseRun::Saved
                     };
-                    bases.push((prefix.clone(), how));
-                    befores.push((prefix.clone(), Compared::With(before.findings_json())))
+                    bases.push((prefix.to_string(), how));
+                    befores.push((prefix.to_string(), Compared::With(before.findings_json())))
                 }
                 // A prefix that starts no shot declared at the merge base has
                 // nothing to compare with: its scenes are all new.
@@ -1344,8 +1342,8 @@ impl ShotsCache {
                     prefix,
                 ) =>
                 {
-                    bases.push((prefix.clone(), BaseRun::NotNeeded));
-                    befores.push((prefix.clone(), Compared::Nothing(base.clone())));
+                    bases.push((prefix.to_string(), BaseRun::NotNeeded));
+                    befores.push((prefix.to_string(), Compared::Nothing(base.clone())));
                     note(format!(
                         "{prefix} starts no shot declared at the merge base {}, so its run compares with an empty run and every scene it selects is new",
                         short(&base)
@@ -1708,6 +1706,43 @@ fn who_asked() -> Option<String> {
     Some(claim.who).filter(|who| !who.is_empty())
 }
 
+#[derive(Debug)]
+enum LaneError {
+    Build(Fail),
+    Pictures(shots_cache::PictureLeaseError),
+    Prefix(shots::NameError),
+}
+
+type LaneResult<T> = std::result::Result<T, LaneError>;
+
+impl From<Fail> for LaneError {
+    fn from(error: Fail) -> Self {
+        Self::Build(error)
+    }
+}
+
+impl From<shots_cache::PictureLeaseError> for LaneError {
+    fn from(error: shots_cache::PictureLeaseError) -> Self {
+        Self::Pictures(error)
+    }
+}
+
+impl From<shots::NameError> for LaneError {
+    fn from(error: shots::NameError) -> Self {
+        Self::Prefix(error)
+    }
+}
+
+impl From<LaneError> for Fail {
+    fn from(error: LaneError) -> Self {
+        match error {
+            LaneError::Build(error) => error,
+            LaneError::Pictures(error) => error.into(),
+            LaneError::Prefix(error) => Fail::Message(error.to_string()),
+        }
+    }
+}
+
 /// Builds what <request> asks for in <lane>'s app checkout on the lane's
 /// lock, and times the run and its steps and records them (app_timing.rs). A
 /// lane that adds a checkout on a host keeps the host's free disk above
@@ -1724,14 +1759,14 @@ fn run_lane(
 ) -> Result<()> {
     lock::end_on_stop_signals();
     let mut timing = Timing::start();
-    let result = build_lane(tool, repo, lane, request, programs, &mut timing).map_err(Fail::from);
+    let result = build_lane(tool, repo, lane, request, programs, &mut timing);
     let outcome = match &result {
         Ok(()) => RunEnd::Passed,
         Err(_) if lock::stop_signal().is_some() => RunEnd::Stopped,
         Err(_) => RunEnd::Failed,
     };
     timing.record(&tool.places, repo, lane, request.named, outcome);
-    result
+    result.map_err(Fail::from)
 }
 
 /// What a caller asked one lane to build: <commit>, with the lane's steps
@@ -1881,7 +1916,7 @@ fn build_lane(
     request: LaneRequest,
     programs: &Pinned,
     timing: &mut Timing,
-) -> shots_cache::PictureLeaseResult<()> {
+) -> LaneResult<()> {
     let places = &tool.places;
     let floor_kib = tool.rules.floor_kib;
     let LaneRequest { commit, picks, .. } = request;
@@ -1984,6 +2019,7 @@ struct CommitRun<'a> {
     /// The lane's steps to run, then the runs of <picks>.
     names: &'a [String],
     picks: &'a [Pick],
+    shot_picks: &'a [ShotPick<'a>],
     /// The prefixes of <picks> that select a scene shown in its window.
     windowed: &'a [String],
     environment: &'a str,
@@ -2031,7 +2067,7 @@ impl<'a> LaneBuild<'a> {
         held: &lock::Held,
         built_file: &Path,
         timing: &mut Timing,
-    ) -> shots_cache::PictureLeaseResult<Ended> {
+    ) -> LaneResult<Ended> {
         let LaneBuild {
             places, repo, lane, ..
         } = *self;
@@ -2090,6 +2126,7 @@ impl<'a> LaneBuild<'a> {
                 tree,
                 names,
                 picks,
+                shot_picks: &self.shot_picks,
                 windowed: &self.windowed,
                 environment: &environment,
                 cached_shots,
@@ -2134,6 +2171,7 @@ impl<'a> LaneBuild<'a> {
             tree,
             names,
             picks,
+            shot_picks,
             windowed,
             environment,
             cached_shots,
@@ -2172,7 +2210,7 @@ impl<'a> LaneBuild<'a> {
             environment,
             sha,
             tree,
-            picks,
+            shot_picks,
             cached_shots,
             retake,
             base_run,
@@ -2251,7 +2289,7 @@ impl<'a> LaneBuild<'a> {
         held: &lock::Held,
         built_file: &Path,
         timing: &mut Timing,
-    ) -> shots_cache::PictureLeaseResult<(Ended, Vec<String>)> {
+    ) -> LaneResult<(Ended, Vec<String>)> {
         let LaneBuild {
             places,
             repo,
@@ -2338,6 +2376,7 @@ impl<'a> LaneBuild<'a> {
                 tree,
                 names: &base.names,
                 picks: &commands,
+                shot_picks: &wanted,
                 windowed: &base.windowed,
                 environment,
                 cached_shots,

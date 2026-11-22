@@ -247,14 +247,13 @@ impl AppPictures {
 
 #[derive(Debug)]
 pub enum PictureLeaseError {
-    Build(Fail),
+    Access(Fail),
     Mark(shots::CaptureMarkError),
-    Prefix(shots::NameError),
 }
 
 impl From<Fail> for PictureLeaseError {
     fn from(error: Fail) -> Self {
-        Self::Build(error)
+        Self::Access(error)
     }
 }
 
@@ -264,18 +263,11 @@ impl From<shots::CaptureMarkError> for PictureLeaseError {
     }
 }
 
-impl From<shots::NameError> for PictureLeaseError {
-    fn from(error: shots::NameError) -> Self {
-        Self::Prefix(error)
-    }
-}
-
 impl From<PictureLeaseError> for Fail {
     fn from(error: PictureLeaseError) -> Self {
         match error {
-            PictureLeaseError::Build(error) => error,
+            PictureLeaseError::Access(error) => error,
             PictureLeaseError::Mark(error) => Fail::Message(error.to_string()),
-            PictureLeaseError::Prefix(error) => Fail::Message(error.to_string()),
         }
     }
 }
