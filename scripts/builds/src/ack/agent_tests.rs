@@ -186,3 +186,26 @@ fn codex_workers_identify_themselves_by_thread_and_cannot_claim_the_coordinator(
     assert!(Identity::codex(Some(session), None, None).is_err());
     assert!(Identity::codex(None, Some(worker), None).is_err());
 }
+
+#[test]
+fn a_claude_session_holds_the_inbox_its_shell_names_or_why_it_cannot() {
+    let claude = || Session::of(Some("s1".into()), None, None, Some("s1".into()));
+    let inbox = |session: Session| match session {
+        Session::Claude { inbox, .. } => inbox,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(inbox(claude().with_inbox(None, None)), None);
+    assert_eq!(inbox(claude().with_inbox(Some(" ".into()), None)), None);
+    let held = inbox(claude().with_inbox(Some("/tmp/s.sock".into()), Some("t".into())));
+    assert_eq!(
+        held.unwrap().unwrap().stored(),
+        ("claude", "/tmp/s.sock", Some("t"))
+    );
+    let relative = inbox(claude().with_inbox(Some("s.sock".into()), None));
+    assert!(relative.unwrap().unwrap_err().contains("absolute"));
+    // A terminal has no inbox to hold.
+    assert_eq!(
+        Session::Terminal.with_inbox(Some("/tmp/s.sock".into()), None),
+        Session::Terminal
+    );
+}

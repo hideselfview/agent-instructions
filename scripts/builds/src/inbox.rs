@@ -96,28 +96,6 @@ impl Messaging {
     ) -> Result<Option<Self>> {
         Ok(Destinations::for_session(session)?.map(|destinations| destinations.at(to)))
     }
-
-    /// The inbox a Claude Code shell names, if it names one.
-    fn claude(
-        inbox: Option<&(std::ffi::OsString, Option<std::ffi::OsString>)>,
-    ) -> Result<Option<Self>> {
-        let Some((socket, token)) = inbox else {
-            return Ok(None);
-        };
-        let text = |name: &str, value: &std::ffi::OsStr| match value.to_str() {
-            Some(value) => Ok(value.to_string()),
-            None => fail!("{name} is not UTF-8."),
-        };
-        let socket = text(crate::ack::agent::MESSAGING_SOCKET, socket)?;
-        if socket.trim().is_empty() {
-            return Ok(None);
-        }
-        let token = token
-            .as_deref()
-            .map(|token| text(crate::ack::agent::MESSAGING_TOKEN, token))
-            .transpose()?;
-        Self::new(&socket, token.as_deref()).map(Some)
-    }
 }
 
 /// The two destinations of a recording agent. Claude uses one inbox for
@@ -143,9 +121,11 @@ impl Destinations {
                 })),
                 _ => Ok(None),
             },
-            Session::Claude { inbox, .. } => {
-                Ok(Messaging::claude(inbox.as_ref())?.map(Self::Shared))
-            }
+            Session::Claude { inbox, .. } => match inbox {
+                Some(Ok(inbox)) => Ok(Some(Self::Shared(inbox.clone()))),
+                Some(Err(why)) => fail!("{why}"),
+                None => Ok(None),
+            },
             Session::InvalidClaude => {
                 session.claude()?;
                 Ok(None)

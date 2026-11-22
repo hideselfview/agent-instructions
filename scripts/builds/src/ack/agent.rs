@@ -302,9 +302,9 @@ pub enum Session {
     Claude {
         id: String,
         agent: Option<String>,
-        /// The socket and token of the session's inbox, as Claude Code gave
-        /// them to the shell: the socket, then the token.
-        inbox: Option<(std::ffi::OsString, Option<std::ffi::OsString>)>,
+        /// The inbox Claude Code's shell names, or why the shell's socket or
+        /// token cannot be one. None when the shell names no inbox.
+        inbox: Option<std::result::Result<crate::inbox::Messaging, String>>,
     },
     InvalidClaude,
     /// A Codex shell: its coordinator's session and its own thread, as
@@ -339,9 +339,26 @@ impl Session {
         token: Option<std::ffi::OsString>,
     ) -> Self {
         if let Self::Claude { inbox, .. } = &mut self {
+            let text = |name: &str, value: std::ffi::OsString| {
+                value
+                    .into_string()
+                    .map_err(|_| format!("{name} is not UTF-8."))
+            };
             *inbox = socket
-                .filter(|socket| !socket.is_empty())
-                .map(|socket| (socket, token));
+                .map(|socket| text(MESSAGING_SOCKET, socket))
+                .transpose()
+                .and_then(|socket| {
+                    let Some(socket) = socket.filter(|socket| !socket.trim().is_empty()) else {
+                        return Ok(None);
+                    };
+                    let token = token
+                        .map(|token| text(MESSAGING_TOKEN, token))
+                        .transpose()?;
+                    crate::inbox::Messaging::new(&socket, token.as_deref())
+                        .map(Some)
+                        .map_err(|error| error.text())
+                })
+                .transpose();
         }
         self
     }
