@@ -6,9 +6,8 @@ use std::path::{Path, PathBuf};
 use crate::fail::{Context, Result};
 
 /// Writes <contents> to the file beside <file> with the extension `part`,
-/// then renames that file onto <file> in one step. Two processes may write
-/// one file at once, since each writes its own `part` file; two writers in
-/// one process must not, because both write to that same `part` file.
+/// then renames that file onto <file> in one step. Each write has a `part`
+/// file of its own, so writers of one file may run at once.
 pub fn write(file: &Path, contents: impl AsRef<[u8]>) -> Result<()> {
     stage(file, contents)?.put()
 }
@@ -25,7 +24,7 @@ pub struct Staged {
 /// folder needs no new disk space, so the put does not fail where writing
 /// the contents could.
 pub fn stage(file: &Path, contents: impl AsRef<[u8]>) -> Result<Staged> {
-    let part = file.with_extension(format!("{}.part", std::process::id()));
+    let part = file.with_extension(format!("{}.part", crate::text::staged_suffix()));
     std::fs::write(&part, contents).context(|| format!("writing {}", part.display()))?;
     Ok(Staged {
         part,
