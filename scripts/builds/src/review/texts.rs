@@ -117,6 +117,7 @@ fn group(places: &Places) -> Result<Group> {
                 folder,
                 last_use: Use::At(last_use),
                 what: "a run's review texts",
+                reader_lock: None,
             });
         }
     }

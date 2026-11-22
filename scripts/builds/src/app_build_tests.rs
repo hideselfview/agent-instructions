@@ -1999,9 +1999,10 @@ fn the_picture_folder_caches_the_shots_of_the_prefixes_its_marks_cover_for_the_a
         tree,
         crate::app_tree::in_environment(&source_tree, ENVIRONMENT)
     );
-    let caches = |prefixes: &[&str]| {
-        picture_folder_caches(&places, "demo", &config, Lane::Mac, &tree, prefixes).unwrap()
-    };
+    let pictures = |tree| shots_cache::AppPictures::hold(&places, "demo", Lane::Mac, tree).unwrap();
+    let held = pictures(&tree);
+    let caches =
+        |prefixes: &[&str]| picture_folder_caches(&config, Lane::Mac, &held, prefixes).unwrap();
     assert!(!caches(&["mac.a."]), "the folder caches nothing yet");
     let taken = shots_cache::pictures(&places, "demo")
         .join("mac")
@@ -2011,25 +2012,15 @@ fn the_picture_folder_caches_the_shots_of_the_prefixes_its_marks_cover_for_the_a
     std::fs::write(taken.join("mac.@no-windows"), "").unwrap();
     assert!(caches(&["mac.a."]) && caches(&["mac.a.", "mac.b."]));
     assert!(
-        !picture_folder_caches(
-            &places,
-            "demo",
-            &config,
-            Lane::Mac,
-            "another-tree",
-            &["mac.a."]
-        )
-        .unwrap(),
+        !picture_folder_caches(&config, Lane::Mac, &pictures("another-tree"), &["mac.a."]).unwrap(),
         "another app tree has no shots cached"
     );
     let other_environment = crate::app_tree::in_environment(&source_tree, "25G241-27B52");
     assert!(
         !picture_folder_caches(
-            &places,
-            "demo",
             &config,
             Lane::Mac,
-            &other_environment,
+            &pictures(&other_environment),
             &["mac.a."]
         )
         .unwrap(),

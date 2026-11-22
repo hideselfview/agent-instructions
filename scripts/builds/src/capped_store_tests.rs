@@ -34,6 +34,7 @@ fn group(root: &Path) -> Group {
                 folder,
                 last_use: Use::At(last_use),
                 what: "unit",
+                reader_lock: None,
             });
         }
     }
@@ -145,6 +146,7 @@ fn the_folders_deleted_units_leave_empty_go_and_the_root_stays() {
             folder: unit.clone(),
             last_use: Use::At(0),
             what: "unit",
+            reader_lock: None,
         }],
     };
     prune(&tool, Run::Real, &root, 100, vec![group]).unwrap();

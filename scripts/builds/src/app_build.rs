@@ -1156,17 +1156,13 @@ fn picture_tree(
     ))
 }
 
-/// Whether the picture folder of <repo> caches every shot that runs of the
-/// shots <prefixes> take for the picture folder's id <tree> of <lane>
-/// (`picture_tree`, shots_cache.rs `shots_cached`), so that a lane needs no
-/// build of the app to run them. <prefixes> holds the lane's shots picks, so
-/// it is never empty.
+/// Whether the held tree <pictures> has every shot the runs of <prefixes>
+/// select for <lane>, so the lane needs no app build. <prefixes> holds the
+/// lane's shots picks, so it is never empty.
 fn picture_folder_caches(
-    places: &Places,
-    repo: &str,
     config: &Config,
     lane: Lane,
-    tree: &str,
+    pictures: &shots_cache::AppPictures,
     prefixes: &[&str],
 ) -> Result<bool> {
     let Some(picker) = config.picker(lane, PickKind::Shots) else {
@@ -1177,7 +1173,7 @@ fn picture_folder_caches(
     };
     let windows = picker.command.iter().any(|word| word == "--windows");
     for prefix in prefixes {
-        if !shots_cache::shots_cached(places, repo, lane, tree, prefix, windows)? {
+        if !pictures.caches(prefix, windows)? {
             return Ok(false);
         }
     }
@@ -2039,8 +2035,17 @@ impl LaneBuild<'_> {
         // A lane whose steps are only what its shots need, and whose shots
         // the picture folder caches, builds nothing.
         let tree = picture_tree(&self.source, commit, &self.config, lane, &environment)?;
-        let cached_shots =
-            needs_only && !fresh && self.folder_caches(&self.config, &tree, picks)?;
+        let pictures = picks
+            .iter()
+            .any(|(own, kind, _)| *own == lane && *kind == PickKind::Shots)
+            .then(|| shots_cache::AppPictures::hold(places, repo, lane, &tree))
+            .transpose()?;
+        let cached_shots = match &pictures {
+            Some(pictures) if needs_only && !fresh => {
+                self.folder_caches(&self.config, pictures, picks)?
+            }
+            _ => false,
+        };
         let names: &[String] = if cached_shots { &[] } else { names };
         let mut built = Vec::new();
         if let Some(base) = &self.base {
@@ -2088,15 +2093,20 @@ impl LaneBuild<'_> {
     }
 
     /// Whether the picture folder caches every shot that runs of the lane's
-    /// shots among <picks> take for the picture folder's id <tree> of the
-    /// commit whose `.app-build` is <config> (`picture_folder_caches`).
-    fn folder_caches(&self, config: &Config, tree: &str, picks: &[Pick]) -> Result<bool> {
+    /// shots among <picks> take for the held tree <pictures> of the commit
+    /// whose `.app-build` is <config> (`picture_folder_caches`).
+    fn folder_caches(
+        &self,
+        config: &Config,
+        pictures: &shots_cache::AppPictures,
+        picks: &[Pick],
+    ) -> Result<bool> {
         let prefixes: Vec<&str> = picks
             .iter()
             .filter(|(own, kind, _)| *own == self.lane && *kind == PickKind::Shots)
             .map(|(_, _, prefix)| prefix.as_str())
             .collect();
-        picture_folder_caches(self.places, self.repo, config, self.lane, tree, &prefixes)
+        picture_folder_caches(config, self.lane, pictures, &prefixes)
     }
 
     /// Runs what <run> says in <site>, which is on the commit <run> names:
@@ -2314,7 +2324,8 @@ impl LaneBuild<'_> {
         Built::clear(built_file)?;
         let CheckedOut { sha, config } = site.check_out(places, repo, &base.commit)?;
         let tree = picture_tree(&self.source, &sha, &config, lane, environment)?;
-        let cached_shots = self.folder_caches(&config, &tree, &wanted)?;
+        let pictures = shots_cache::AppPictures::hold(places, repo, lane, &tree)?;
+        let cached_shots = self.folder_caches(&config, &pictures, &wanted)?;
         let run = CommitRun {
             sha: &sha,
             config: &config,

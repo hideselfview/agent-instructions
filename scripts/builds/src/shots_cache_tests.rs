@@ -551,6 +551,36 @@ fn the_cap_deletes_an_app_source_trees_shots_whole_when_they_are_used_least_rece
 }
 
 #[test]
+fn a_lane_can_read_its_cached_app_pictures_after_a_prune_between_steps() {
+    let scratch = Scratch::new("shot-store-lane-pictures");
+    let places = scratch.places();
+    let tool = scratch.tool(0);
+    let picture_root = pictures(&places, "demo");
+    let lane_tree = picture_root.join("mac/active");
+    let other_tree = picture_root.join("mac/other");
+    let shot = "mac.a.b@macos.png";
+    for tree in [&lane_tree, &other_tree] {
+        fill(&tree.join(shot), 400);
+        std::fs::write(tree.join("mac.a.b@macos.json"), "{}").unwrap();
+        std::fs::create_dir(tree.join(TAKEN)).unwrap();
+        std::fs::write(tree.join(TAKEN).join("mac.a.@windows"), "").unwrap();
+        crate::testing::age_all(tree, 2);
+    }
+    let pictures = AppPictures::hold(&places, "demo", Lane::Mac, "active").unwrap();
+    assert!(pictures.caches("mac.a.", true).unwrap());
+
+    prune_runs(&tool, Run::Real, 100).unwrap();
+
+    assert!(lane_tree.join(shot).is_file());
+    assert!(pictures.caches("mac.a.", true).unwrap());
+    assert!(!other_tree.exists());
+    drop(pictures);
+
+    prune_runs(&tool, Run::Real, 100).unwrap();
+    assert!(!lane_tree.exists());
+}
+
+#[test]
 fn pictures_a_host_made_move_into_place_and_cached_ones_stay() {
     let scratch = Scratch::new("shot-store-merge");
     let places = scratch.places();
@@ -595,9 +625,8 @@ fn a_prefix_is_cached_when_a_taken_mark_starts_it_and_took_the_window_shots_it_a
     let places = scratch.places();
     let taken = pictures(&places, "demo").join("mac/tree1").join(TAKEN);
     std::fs::create_dir_all(&taken).unwrap();
-    let kept = |prefix: &str, windows: bool| {
-        shots_cached(&places, "demo", Lane::Mac, "tree1", prefix, windows).unwrap()
-    };
+    let tree1 = AppPictures::hold(&places, "demo", Lane::Mac, "tree1").unwrap();
+    let kept = |prefix: &str, windows: bool| tree1.caches(prefix, windows).unwrap();
     assert!(!kept("mac.a.", false));
     std::fs::write(taken.join("mac.a.@no-windows"), "").unwrap();
     assert!(kept("mac.a.b.", false));
@@ -608,11 +637,14 @@ fn a_prefix_is_cached_when_a_taken_mark_starts_it_and_took_the_window_shots_it_a
     );
     std::fs::write(taken.join("mac.@windows"), "").unwrap();
     assert!(kept("mac.", true) && kept("mac.b.", false));
-    assert!(!shots_cached(&places, "demo", Lane::Mac, "tree2", "mac.a.", false).unwrap());
+    let tree2 = AppPictures::hold(&places, "demo", Lane::Mac, "tree2").unwrap();
+    assert!(!tree2.caches("mac.a.", false).unwrap());
     let other = pictures(&places, "demo").join("mac/tree3").join(TAKEN);
     std::fs::create_dir_all(&other).unwrap();
     std::fs::write(other.join("mac.c."), "").unwrap();
-    let error = shots_cached(&places, "demo", Lane::Mac, "tree3", "mac.c.", false)
+    let tree3 = AppPictures::hold(&places, "demo", Lane::Mac, "tree3").unwrap();
+    let error = tree3
+        .caches("mac.c.", false)
         .expect_err("a mark the shots program never writes fails")
         .text();
     assert!(error.contains("mac.c."), "{error}");

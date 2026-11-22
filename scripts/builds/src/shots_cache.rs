@@ -59,6 +59,9 @@
 //! `shots/.writing` is held by each run that caches its output, and by
 //! app-build while a shots step reads a before run or the picture folder or
 //! writes to it, so the prune deletes nothing a run reads or writes.
+//! A lane holds its app tree separately from before it checks its taken
+//! marks through its last comparison of that tree (`AppPictures`), so
+//! pruning other pictures between its steps leaves the ones it needs.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -204,36 +207,49 @@ pub fn pictures(places: &Places, repo: &str) -> PathBuf {
     root(places).join(repo).join("pictures")
 }
 
-/// Whether <repo>'s picture folder caches every shot a run of <prefix> takes
-/// for <lane>'s app source tree <tree>: the shots program marked taken, for
-/// that tree, a prefix that starts <prefix>, by a run that took the shots
-/// shown in a window when <windows> asks for them.
-pub fn shots_cached(
-    places: &Places,
-    repo: &str,
-    lane: Lane,
-    tree: &str,
-    prefix: &str,
-    windows: bool,
-) -> Result<bool> {
-    let taken = pictures(places, repo)
-        .join(lane.word())
-        .join(tree)
-        .join(TAKEN);
-    for (name, path) in entries_in(&taken)? {
-        let (marked, took_windows) = match name.rsplit_once('@') {
-            Some((marked, "windows")) => (marked, true),
-            Some((marked, "no-windows")) => (marked, false),
-            _ => fail!(
-                "{} is no mark the shots program writes (<prefix>@windows or <prefix>@no-windows)",
-                path.display()
-            ),
-        };
-        if prefix.starts_with(marked) && (took_windows || !windows) {
-            return Ok(true);
-        }
+/// Holds the app pictures of one tree while a lane captures or compares
+/// them. Prune takes the same lock exclusively before deleting that tree.
+pub struct AppPictures {
+    taken: PathBuf,
+    _reading: std::fs::File,
+}
+
+impl AppPictures {
+    pub fn hold(places: &Places, repo: &str, lane: Lane, tree: &str) -> Result<Self> {
+        // Open the directory under the root lock, so prune cannot replace
+        // its inode before the shared lock has been acquired.
+        let _root = writing(places)?;
+        let taken = pictures(places, repo)
+            .join(lane.word())
+            .join(tree)
+            .join(TAKEN);
+        std::fs::create_dir_all(&taken).context(|| format!("creating {}", taken.display()))?;
+        let reading =
+            std::fs::File::open(&taken).context(|| format!("opening {}", taken.display()))?;
+        crate::flock::lock(&reading, libc::LOCK_SH, &taken)?;
+        Ok(Self {
+            taken,
+            _reading: reading,
+        })
     }
-    Ok(false)
+
+    /// Whether the marks cover <prefix> and include window shots when asked.
+    pub fn caches(&self, prefix: &str, windows: bool) -> Result<bool> {
+        for (name, path) in entries_in(&self.taken)? {
+            let (marked, took_windows) = match name.rsplit_once('@') {
+                Some((marked, "windows")) => (marked, true),
+                Some((marked, "no-windows")) => (marked, false),
+                _ => fail!(
+                    "{} is no mark the shots program writes (<prefix>@windows or <prefix>@no-windows)",
+                    path.display()
+                ),
+            };
+            if prefix.starts_with(marked) && (took_windows || !windows) {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
 }
 
 /// A new folder in the picture folder <pictures> for the pictures a run on a
@@ -602,6 +618,7 @@ fn group(places: &Places, repo: &str, named: &Named) -> Result<Group> {
                                     last_use: Use::At(written_at(&folder.join(RUN_FILE))?),
                                     folder,
                                     what: "a shots run",
+                                    reader_lock: None,
                                 },
                             });
                         }
@@ -616,6 +633,7 @@ fn group(places: &Places, repo: &str, named: &Named) -> Result<Group> {
         } else if name != BOARD_PICTURES && !name.starts_with('.') {
             for (_, tree) in folders_in(&platform)? {
                 kept.push(Kept::Folder {
+                    reader_lock: Some(tree.join(TAKEN)),
                     folder: tree,
                     last_use: Use::NewestInside,
                     what: "an app source tree's shots",
