@@ -214,24 +214,13 @@ fn is_system(row: &Row) -> bool {
             .any(|prefix| program.starts_with(prefix))
 }
 
-/// `name-<16 hex digits>`, the file name of a test binary cargo builds.
-pub fn is_test_binary(row: &Row) -> bool {
-    let program = row.command.split_whitespace().next().unwrap_or("");
-    basename(program)
-        .rsplit_once('-')
-        .is_some_and(|(name, hash)| {
-            !name.is_empty() && hash.len() == 16 && hash.chars().all(|c| c.is_ascii_hexdigit())
-        })
-        && program.contains("/target/")
-}
-
 /// Is <row> a test binary that a `builds cargo` above it runs, that has run
 /// IDLE_MINUTES or more and used less than IDLE_SHARE of a core since it
 /// started? This is the rule `builds health` uses to call an agent shell idle
 /// (shells.rs), because a test that works uses CPU.
 fn is_hung_test(by_pid: &HashMap<i32, &Row>, row: &Row) -> bool {
     let age = row.age_seconds as f64;
-    is_test_binary(row)
+    row.is_test_binary()
         && row.age_seconds >= IDLE_MINUTES * 60
         && row.cpu_seconds < IDLE_SHARE * age
         && chain(by_pid, row).iter().any(|ancestor| {
@@ -303,7 +292,7 @@ pub fn hung_tests(
 /// while it keeps using CPU, not for one interval.
 fn owner_of(by_pid: &HashMap<i32, &Row>, row: &Row, cwds: &HashMap<i32, String>) -> Option<Owner> {
     let ancestors = chain(by_pid, row);
-    if is_test_binary(row) {
+    if row.is_test_binary() {
         return Some(Owner::Test {
             checkout: checkout_of(&ancestors, cwds),
         });

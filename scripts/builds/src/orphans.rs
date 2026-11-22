@@ -180,7 +180,7 @@ fn judge(row: &Row, targets: &[&str]) -> Option<bool> {
             && words.iter().any(|word| targets.contains(word)))
         .then_some(true),
         tool if TOOLS.contains(&tool) => Some(true),
-        _ => crate::stuck::is_test_binary(row).then_some(true),
+        _ => row.is_test_binary().then_some(true),
     }
 }
 

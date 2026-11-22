@@ -20,7 +20,6 @@ use crate::health::Advice;
 use crate::host::{Host, Ssh, Terminal, answer_value, command_at, output_of, place};
 use crate::host_scan::Row;
 use crate::shells::{basename, shown};
-use crate::stuck::is_test_binary;
 use crate::text::duration;
 
 /// A host above this share of its process limit needs action.
@@ -122,7 +121,7 @@ fn zombie_parents(rows: &[Row]) -> Vec<ZombieParent> {
                 command: row.command.clone(),
                 age_seconds: row.age_seconds,
                 zombies,
-                test_binary: is_test_binary(row),
+                test_binary: row.is_test_binary(),
             })
         })
         .collect();

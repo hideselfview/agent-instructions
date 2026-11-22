@@ -173,6 +173,19 @@ pub struct Row {
     pub command: String,
 }
 
+impl Row {
+    /// `name-<16 hex digits>`, the file name of a test binary cargo builds.
+    pub fn is_test_binary(&self) -> bool {
+        let program = self.command.split_whitespace().next().unwrap_or("");
+        crate::shells::basename(program)
+            .rsplit_once('-')
+            .is_some_and(|(name, hash)| {
+                !name.is_empty() && hash.len() == 16 && hash.chars().all(|c| c.is_ascii_hexdigit())
+            })
+            && program.contains("/target/")
+    }
+}
+
 /// What `ps` prints, one process a line: pid, parent, user, CPU share, CPU
 /// time, time since start, state, command with its arguments.
 pub const PS_FORMAT: &str = "pid=,ppid=,uid=,pcpu=,cputime=,etime=,stat=,command=";

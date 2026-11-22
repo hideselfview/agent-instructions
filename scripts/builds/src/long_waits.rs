@@ -174,7 +174,7 @@ fn under_job(scan: &Scan, job: &JobRun) -> String {
     if compilers > 0 {
         parts.push(crate::text::counted(compilers, "compiler", "compilers"));
     }
-    for test in under.iter().filter(|row| crate::stuck::is_test_binary(row)) {
+    for test in under.iter().filter(|row| row.is_test_binary()) {
         parts.push(format!(
             "test binary {} (pid {}, {})",
             program(test),
