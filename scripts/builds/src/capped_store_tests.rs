@@ -280,6 +280,23 @@ fn an_access_during_planning_keeps_the_updated_unit() {
 }
 
 #[test]
+fn an_invalidated_plan_does_not_prepare_a_trash_slot() {
+    let scratch = Scratch::new("capped-invalidated-trash");
+    let tool = scratch.tool(0);
+    let root = scratch.dir.join("root");
+    let unit = store(&root, "g/a", 400, 30);
+    std::fs::write(tool.places.trash(), "this path cannot hold a slot").unwrap();
+
+    prune(&tool, Run::Real, &root, 100, || {
+        let planned = group(&root);
+        let _reading = writing(&root)?;
+        Ok(vec![planned])
+    })
+    .unwrap();
+    assert!(unit.is_dir());
+}
+
+#[test]
 fn an_access_does_not_hide_an_unrelated_planning_error() {
     let scratch = Scratch::new("capped-planning-error");
     let tool = scratch.tool(0);

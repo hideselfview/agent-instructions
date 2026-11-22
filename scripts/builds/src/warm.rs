@@ -403,7 +403,15 @@ pub fn fill(tool: &Tool, checkout: &Checkout) -> Result<()> {
         Run::Real,
         std::slice::from_ref(&dest),
     )?;
-    prune_root(tool, &root, checkout, Run::Real, 0, 0)
+    prune_root(
+        tool,
+        &root,
+        checkout,
+        Run::Real,
+        0,
+        0,
+        crate::floor::Keeper::Setup,
+    )
 }
 
 /// `builds app-clone mac|android <source> <dest>`: `clone_lane` for two

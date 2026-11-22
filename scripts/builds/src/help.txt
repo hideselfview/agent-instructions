@@ -2128,8 +2128,9 @@ as it exits. The dashboard runs `builds prune` every 6 hours, and `builds
 health` says when a prune last finished. Builds keeps folders its open-file
 scan finds in use and folders whose checkout guard a build holds. A process
 outside builds can open a file after that scan. Builds warns during a build
-if it cannot move a folder to the trash. If removal fails after the move,
-the next prune can remove that folder from the trash.
+if cleanup cannot move a folder to the trash. An explicit prune reports a
+failed move and exits with an error. If removal fails after the move, the
+next prune can remove that folder from the trash.
 
 Unused build copies. Cargo names each unit it builds (one crate target, for one
 profile, target and feature set) by a hash of everything that build depends on,
@@ -2285,8 +2286,9 @@ project's store holds only the findings, verdicts and settles, and the hash of
 each text. `setup` and `prune` delete whole runs' texts while the folder is
 over its cap, least recently used first, as they do shots runs: a run's last
 use is when it was recorded or when builds last read a text of it, and a run
-used in the last 30 minutes stays. Once a run's texts are gone, a command that
-needs one (`builds review audit`, `propose`) says so and goes on to the next.
+used in the last 30 minutes stays. Builds reports an error if a published run
+has no file recording its last use. Once a run's texts are gone, a command
+that needs one (`builds review audit`, `propose`) says so and goes on to the next.
 `status` shows the folder's size against its cap.
 
 When xcodebuild fails with "Couldn't check out revision" or "file not found" on

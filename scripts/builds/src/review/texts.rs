@@ -105,29 +105,29 @@ impl Texts {
 /// The review texts as the cap sees them: one group, every project's run
 /// folders.
 fn group(places: &Places) -> Result<Group> {
+    let root = root(places);
     let mut kept = Vec::new();
-    for (_, project) in capped_store::tops_in(&root(places))? {
+    for (_, project) in capped_store::tops_in(&root)? {
         for (_, folder) in folders_in(&project)? {
             let used = folder.join(USED);
-            let last_use = match std::fs::metadata(&used) {
-                Ok(meta) if meta.is_file() => {
-                    use std::os::unix::fs::MetadataExt;
-                    meta.mtime()
-                }
-                Ok(_) => fail!("{} must be a file", used.display()),
-                Err(error)
-                    if fail::gone(&error)
-                        && !folder
-                            .try_exists()
-                            .context(|| format!("checking {}", folder.display()))? =>
+            let Some(last_use) = capped_store::written_at(&used)? else {
+                // Publishing removes the plan marker before changing any
+                // files. A valid plan and the exclusive lock rule out a
+                // replacement between the missing file and this diagnosis.
+                let Some(_valid) = capped_store::lock_plan(&root)? else {
+                    return Ok(Group { folder: root, kept });
+                };
+                if folder
+                    .try_exists()
+                    .context(|| format!("checking {}", folder.display()))?
                 {
-                    crate::text::note(format!(
-                        "{} disappeared during prune planning",
-                        folder.display()
-                    ));
-                    continue;
+                    fail!("The published review run is missing {}.", used.display());
                 }
-                Err(error) => fail!("reading {}: {error}", used.display()),
+                crate::text::note(format!(
+                    "{} disappeared during prune planning",
+                    folder.display()
+                ));
+                continue;
             };
             kept.push(Kept::Folder {
                 folder: capped_store::Folder {
@@ -139,10 +139,7 @@ fn group(places: &Places) -> Result<Group> {
             });
         }
     }
-    Ok(Group {
-        folder: root(places),
-        kept,
-    })
+    Ok(Group { folder: root, kept })
 }
 
 /// Deletes the oldest runs' texts that keep the folder over `CAP_KIB`

@@ -98,12 +98,27 @@ pub enum Keeper {
     Prune,
 }
 
+impl Keeper {
+    /// Setup warns for a refused rename, leaving later entries eligible for
+    /// cleanup. An explicit prune returns the error.
+    pub(crate) fn after_move<T>(self, result: Result<T>) -> Result<Option<T>> {
+        match (self, result) {
+            (Self::Setup, Err(error @ Fail::Move { .. })) => {
+                note(format!("warning: {}; builds kept the entry", error.text()));
+                Ok(None)
+            }
+            (_, result) => result.map(Some),
+        }
+    }
+}
+
 /// The volume's free space as the floor's deletions go: read again after
 /// each deletion, or on a dry run, the first reading plus what each deletion
 /// would free.
 struct Free<'a> {
     tool: &'a Tool,
     run: Run,
+    keeper: Keeper,
     kib: u64,
 }
 
@@ -122,7 +137,8 @@ impl Free<'_> {
     /// so the next reading counts it, or on a dry run says it would; a
     /// folder in use stays.
     fn delete(&mut self, path: &Path, kib: u64, recreate: Recreate, why: &str) -> Result<()> {
-        if delete_folder(self.tool, path, self.run, why, recreate, Removal::Now, "")? {
+        let deleted = delete_folder(self.tool, path, self.run, why, recreate, Removal::Now, "");
+        if self.keeper.after_move(deleted)? == Some(true) {
             self.freed(kib)?;
         }
         Ok(())
@@ -256,6 +272,7 @@ pub fn keep_floor(tool: &Tool, roots: &[Root], keeper: Keeper, run: Run) -> Resu
     let mut free = Free {
         tool,
         run,
+        keeper,
         kib: start,
     };
     if !run.dry() {

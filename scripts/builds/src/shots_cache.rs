@@ -639,16 +639,7 @@ fn group(places: &Places, repo: &str, named: &Named) -> Result<Group> {
                             // A run is placed whole, with its run.json: a
                             // folder at this depth without one is no run.
                             let marker = folder.join(RUN_FILE);
-                            let last_use = match std::fs::metadata(&marker) {
-                                Ok(meta) if meta.is_file() => {
-                                    use std::os::unix::fs::MetadataExt;
-                                    Some(meta.mtime())
-                                }
-                                Ok(_) => None,
-                                Err(error) if crate::fail::gone(&error) => None,
-                                Err(error) => fail!("reading {}: {error}", marker.display()),
-                            };
-                            let Some(last_use) = last_use else {
+                            let Some(last_use) = capped_store::written_at(&marker)? else {
                                 note(format!(
                                     "The cap skips {} because it has no {RUN_FILE} file.",
                                     folder.display()
@@ -694,6 +685,10 @@ fn group(places: &Places, repo: &str, named: &Named) -> Result<Group> {
             kept.push(Kept::Loose { file: path });
         } else if let Some(hash) = name.strip_suffix(".png") {
             let Some(last_use) = capped_store::written_at(&path)? else {
+                note(format!(
+                    "{} disappeared during prune planning",
+                    path.display()
+                ));
                 continue;
             };
             kept.push(Kept::Files {

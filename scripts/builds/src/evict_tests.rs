@@ -174,6 +174,25 @@ fn an_eviction_of_a_build_root_without_a_guard_makes_the_guard_and_moves_the_fol
 }
 
 #[test]
+fn a_refused_move_returns_the_filesystem_error_and_cleans_the_empty_slot() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let scratch = Scratch::new("evict-refused-move");
+    let places = scratch.places();
+    let parent = places.root.join("DerivedData");
+    let folder = parent.join("entry");
+    fill(&folder.join("Build/blob"), 4);
+    std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o500)).unwrap();
+    let moved = evict(&places, &folder, Recreate::No, Removal::Now);
+    std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o700)).unwrap();
+
+    assert!(matches!(moved, Err(Fail::Move { from, error, .. })
+        if from == folder.canonicalize().unwrap() && error.kind() == std::io::ErrorKind::PermissionDenied));
+    assert!(folder.is_dir());
+    assert_eq!(std::fs::read_dir(places.trash()).unwrap().count(), 0);
+}
+
+#[test]
 fn a_removal_that_never_completes_leaves_the_slot_to_the_next_emptier() {
     // A folder the removal cannot empty: its files cannot be unlinked while
     // their directory is read-only. No process holds anything in the folder,

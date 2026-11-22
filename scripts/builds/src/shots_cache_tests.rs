@@ -311,6 +311,25 @@ fn a_read_in_any_environment_finds_the_newest_run_and_names_its_environment() {
 }
 
 #[test]
+fn the_shots_cap_reports_a_malformed_run_marker() {
+    let scratch = Scratch::new("shot-store-invalid-marker");
+    let tool = scratch.tool(0);
+    let cached = cache_run(&tool.places, &key("mac.a."), 0, "ok\n", true);
+    let marker = cached.folder.join(RUN_FILE);
+    std::fs::remove_file(&marker).unwrap();
+    std::os::unix::fs::symlink(RUN_FILE, &marker).unwrap();
+
+    let error = prune_runs(&tool, Run::Real, 0).unwrap_err().text();
+    assert!(error.contains(marker.to_str().unwrap()), "{error}");
+    assert!(cached.folder.is_dir());
+
+    std::fs::remove_file(&marker).unwrap();
+    std::fs::create_dir(&marker).unwrap();
+    let error = prune_runs(&tool, Run::Real, 0).unwrap_err().text();
+    assert!(error.contains("must be a file"), "{error}");
+}
+
+#[test]
 fn the_cap_leaves_a_folder_of_the_layout_without_an_environment_alone() {
     let scratch = Scratch::new("shot-store-old-layout");
     let places = scratch.places();

@@ -32,12 +32,13 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use crate::checkout::Checkout;
-use crate::evict::{Recreate, Removal, evict};
+use crate::evict::{Recreate, Removal};
 use crate::fail;
 use crate::fail::Result;
+use crate::floor::Keeper;
 use crate::manifest::kept_builds;
 use crate::prune::Run;
-use crate::text::{human, note};
+use crate::text::human;
 use crate::tool::Tool;
 use crate::usage::Measure;
 
@@ -174,6 +175,7 @@ pub fn prune_trees(
     checkout: &Checkout,
     folders: &[PathBuf],
     run: Run,
+    keeper: Keeper,
 ) -> Result<Vec<(PathBuf, u64)>> {
     // The builds the manifest keeps stay in the checkouts the person builds
     // and runs in; in any other checkout they age like the rest.
@@ -205,16 +207,17 @@ pub fn prune_trees(
             human(measured.kib),
             tool.rules.unused_days
         );
-        if run.dry() {
-            note(format!("would delete {} ({reason})", tree.path.display()));
+        let deleted = crate::prune::delete_folder(
+            tool,
+            &tree.path,
+            run,
+            &reason,
+            Recreate::No,
+            Removal::Background,
+            "; the next build makes it again",
+        );
+        if keeper.after_move(deleted)? == Some(true) && run.dry() {
             freed.push((folder, measured.kib));
-        } else if evict(&tool.places, &tree.path, Recreate::No, Removal::Background)? {
-            note(format!(
-                "deleted {} ({reason}); the next build makes it again",
-                tree.path.display()
-            ));
-        } else {
-            note(format!("in use, kept: {} ({reason})", tree.path.display()));
         }
     }
     Ok(freed)

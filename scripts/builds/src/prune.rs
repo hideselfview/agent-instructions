@@ -10,7 +10,8 @@ use std::process::Command;
 use crate::checkout::{Checkout, Root};
 use crate::evict::{Recreate, Removal, evict, make_temp_dir};
 use crate::fail;
-use crate::fail::{Context, Result};
+use crate::fail::{Context, Fail, Result};
+use crate::floor::Keeper;
 use crate::free_worktrees::retire_idle;
 use crate::manifest::{SHARED_CACHES, build_dirs, has_manifest};
 use crate::places::{DERIVED_DATA_CAP_KIB, DERIVED_DATA_IDLE_MINUTES, FLOOR_IDLE_MINUTES, Places};
@@ -55,6 +56,7 @@ pub fn prune_root(
     run: Run,
     idle: u64,
     warm_idle: u64,
+    keeper: Keeper,
 ) -> Result<()> {
     let manifest = build_dirs(&checkout.top)?;
     let folders: Vec<PathBuf> = manifest
@@ -66,7 +68,7 @@ pub fn prune_root(
         return Ok(());
     }
     let mut freed = units::prune::prune(&cargo_ages(tool), run, &folders)?;
-    freed.extend(prune_trees(tool, root, checkout, &folders, run)?);
+    freed.extend(prune_trees(tool, root, checkout, &folders, run, keeper)?);
     let claimed = checkout.claim_file().is_file();
     let lane = checkout.app_lane(&tool.places)?;
     // Measured together, after the pruning: deleting one folder changes no
@@ -109,7 +111,7 @@ pub fn prune_root(
             note(format!("claimed, kept: {} ({reason})", folder.display()));
             continue;
         }
-        delete_folder(
+        let deleted = delete_folder(
             tool,
             &folder,
             run,
@@ -117,7 +119,8 @@ pub fn prune_root(
             Recreate::Yes,
             Removal::Background,
             "; the next build refills it",
-        )?;
+        );
+        keeper.after_move(deleted)?;
     }
     Ok(())
 }
@@ -211,7 +214,7 @@ pub fn derived_data(tool: &Tool) -> Result<(Measure, Vec<Entry>)> {
 /// is over its cap, each one nothing wrote to in the last FLOOR_IDLE_MINUTES
 /// (a one-off run between two steps holds no file open). An entry in use is
 /// kept.
-pub fn prune_derived_data(tool: &Tool, run: Run, idle: u64) -> Result<()> {
+pub fn prune_derived_data(tool: &Tool, run: Run, idle: u64, keeper: Keeper) -> Result<()> {
     let dir = tool.places.derived_data();
     if !dir.is_dir() {
         return Ok(());
@@ -239,17 +242,16 @@ pub fn prune_derived_data(tool: &Tool, run: Run, idle: u64) -> Result<()> {
         } else {
             continue;
         };
-        let deleted = if run.dry() {
-            note(format!("would delete {} ({reason})", entry.path.display()));
-            true
-        } else if evict(&tool.places, &entry.path, Recreate::No, Removal::Background)? {
-            note(format!("deleted {} ({reason})", entry.path.display()));
-            true
-        } else {
-            note(format!("in use, kept: {} ({reason})", entry.path.display()));
-            false
-        };
-        if deleted {
+        let deleted = delete_folder(
+            tool,
+            &entry.path,
+            run,
+            &reason,
+            Recreate::No,
+            Removal::Background,
+            "",
+        );
+        if keeper.after_move(deleted)? == Some(true) {
             total = total.saturating_sub(entry.kib);
         }
     }
@@ -304,7 +306,7 @@ fn copy_preserving(from: &Path, to: &Path) -> Result<()> {
 /// once nothing has written to it in the last FLOOR_IDLE_MINUTES (a package
 /// resolve between two fetches holds no file open) and no process holds a
 /// file in it. sccache bounds its own cache.
-pub fn prune_caches(tool: &Tool, run: Run) -> Result<()> {
+fn prune_caches(tool: &Tool, run: Run, keeper: Keeper) -> Result<()> {
     let caches = tool.places.caches();
     if !caches.is_dir() {
         return Ok(());
@@ -329,23 +331,31 @@ pub fn prune_caches(tool: &Tool, run: Run) -> Result<()> {
             note(format!("would delete {} ({reason})", dir.display()));
         } else {
             let keep = stage_settings(tool, &dir, cache.name, cache.settings)?;
-            if evict(&tool.places, &dir, Recreate::Yes, Removal::Background)? {
-                if let Some(keep) = &keep {
-                    copy_preserving(&keep.join("."), &dir.join(""))?;
-                    std::fs::remove_dir_all(keep)
-                        .context(|| format!("removing {}", keep.display()))?;
-                    reason += "; its settings put back";
+            let moved = evict(&tool.places, &dir, Recreate::Yes, Removal::Background);
+            if matches!(moved, Ok(true))
+                && let Some(keep) = &keep
+            {
+                copy_preserving(&keep.join("."), &dir.join(""))?;
+                reason += "; its settings put back";
+            }
+            // A refused move leaves the original settings intact. A failure
+            // after the move leaves the copy in place for recovery.
+            if matches!(moved, Ok(_) | Err(Fail::Move { .. }))
+                && let Some(keep) = &keep
+            {
+                let removed = std::fs::remove_dir_all(keep)
+                    .context(|| format!("removing {}", keep.display()));
+                if let Err(error) = removed {
+                    return fail::with_cleanup(Err(error), moved.map(drop));
                 }
-                note(format!(
+            }
+            match keeper.after_move(moved)? {
+                Some(true) => note(format!(
                     "deleted {} ({reason}); every checkout downloads into it again",
                     dir.display()
-                ));
-            } else {
-                if let Some(keep) = &keep {
-                    std::fs::remove_dir_all(keep)
-                        .context(|| format!("removing {}", keep.display()))?;
-                }
-                note(format!("in use, kept: {} ({reason})", dir.display()));
+                )),
+                Some(false) => note(format!("in use, kept: {} ({reason})", dir.display())),
+                None => {}
             }
         }
     }
@@ -353,18 +363,12 @@ pub fn prune_caches(tool: &Tool, run: Run) -> Result<()> {
 }
 
 /// Prunes caches and temporary output both setup and explicit prune own.
-pub fn prune_shared(tool: &Tool, run: Run, keeper: crate::floor::Keeper) -> Result<()> {
-    prune_caches(tool, run)?;
-    for prune in [crate::shots_cache::prune, crate::review::texts::prune] {
-        match (keeper, prune(tool, run)) {
-            (crate::floor::Keeper::Setup, Err(error @ fail::Fail::Move { .. })) => {
-                note(format!("warning: {}; builds kept the entry", error.text()));
-            }
-            (_, result) => result?,
-        }
-    }
+pub fn prune_shared(tool: &Tool, run: Run, keeper: Keeper) -> Result<()> {
+    prune_caches(tool, run, keeper)?;
+    keeper.after_move(crate::shots_cache::prune(tool, run))?;
+    keeper.after_move(crate::review::texts::prune(tool, run))?;
     prune_test_temps(tool, run)?;
-    prune_temp_builds(tool, run)?;
+    prune_temp_builds(tool, run, keeper)?;
     prune_scratchpads(tool, run)
 }
 
@@ -574,7 +578,7 @@ pub fn prune_test_temps(tool: &Tool, run: Run) -> Result<()> {
 /// Build output in the temporary folders: each one nothing wrote to in the
 /// last FLOOR_IDLE_MINUTES (a build between two of its steps holds no file
 /// open) and no process holds a file in is deleted.
-pub fn prune_temp_builds(tool: &Tool, run: Run) -> Result<()> {
+fn prune_temp_builds(tool: &Tool, run: Run, keeper: Keeper) -> Result<()> {
     let folders = temp_build_folders(&tool.places)?;
     let measures = tool.measure_all(&folders)?;
     for (folder, measured) in folders.into_iter().zip(measures) {
@@ -585,16 +589,16 @@ pub fn prune_temp_builds(tool: &Tool, run: Run) -> Result<()> {
             "{} of build output in a temporary folder, no write in {FLOOR_IDLE_MINUTES}m",
             human(measured.kib)
         );
-        if run.dry() {
-            note(format!("would delete {} ({what})", folder.display()));
-        } else if evict(&tool.places, &folder, Recreate::No, Removal::Background)? {
-            note(format!("deleted {} ({what})", folder.display()));
-        } else {
-            note(format!(
-                "in use, kept: {} (build output in a temporary folder)",
-                folder.display()
-            ));
-        }
+        let deleted = delete_folder(
+            tool,
+            &folder,
+            run,
+            &what,
+            Recreate::No,
+            Removal::Background,
+            "",
+        );
+        keeper.after_move(deleted)?;
     }
     Ok(())
 }
@@ -827,6 +831,7 @@ pub fn cmd_prune(tool: &Tool, args: &[String]) -> Result<()> {
             run,
             idle,
             if warm { idle } else { 0 },
+            Keeper::Prune,
         )?;
     }
     let derived_idle = if idle > 0 && idle < DERIVED_DATA_IDLE_MINUTES {
@@ -834,8 +839,8 @@ pub fn cmd_prune(tool: &Tool, args: &[String]) -> Result<()> {
     } else {
         DERIVED_DATA_IDLE_MINUTES
     };
-    prune_derived_data(tool, run, derived_idle)?;
-    prune_shared(tool, run, crate::floor::Keeper::Prune)?;
+    prune_derived_data(tool, run, derived_idle, Keeper::Prune)?;
+    prune_shared(tool, run, Keeper::Prune)?;
     prune_agents(tool, run)?;
     prune_cargo_git(tool, &roots, run)?;
     prune_installed(tool, &roots, run)?;

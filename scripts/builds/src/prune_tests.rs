@@ -280,7 +280,7 @@ fn a_hosts_prune_keeps_its_app_checkouts_lane_folders_warm() {
         }
     }
     for (checkout, root) in &roots {
-        prune_root(&tool, root, checkout, Run::Real, 60, 0).unwrap();
+        prune_root(&tool, root, checkout, Run::Real, 60, 0, Keeper::Prune).unwrap();
     }
     assert!(
         roots[0].1.join("xcode/blob").exists(),

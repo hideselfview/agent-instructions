@@ -84,12 +84,7 @@ pub fn write(places: &Places, root: &Path, sizes: &Sizes) -> Result<()> {
 
 /// Removes <root>'s record.
 fn remove(places: &Places, root: &Path) -> Result<()> {
-    let file = record_file(places, root)?;
-    match std::fs::remove_file(&file) {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(error) => crate::fail!("removing {}: {error}", file.display()),
-    }
+    crate::whole_file::remove_if_present(&record_file(places, root)?)
 }
 
 /// The keys of <root>'s record: its manifest folders while its checkout is

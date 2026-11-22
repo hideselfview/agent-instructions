@@ -1,5 +1,6 @@
 use super::*;
 use crate::checkout::Checkout;
+use crate::floor::Keeper;
 use crate::lane::Lane;
 use crate::prune::prune_root;
 use crate::setup::setup;
@@ -126,9 +127,9 @@ fn a_tree_used_within_three_days_stays_and_a_dry_run_deletes_nothing() {
     age_all(&build.join("recent"), 24 * 3 - 1);
     age_all(&build.join("old"), 24 * 4);
 
-    prune_root(&tool, &root, &checkout, Run::Dry, 0, 0).unwrap();
+    prune_root(&tool, &root, &checkout, Run::Dry, 0, 0, Keeper::Prune).unwrap();
     assert!(build.join("old").exists(), "a dry run deleted a tree");
-    prune_root(&tool, &root, &checkout, Run::Real, 0, 0).unwrap();
+    prune_root(&tool, &root, &checkout, Run::Real, 0, 0, Keeper::Prune).unwrap();
     assert!(build.join("recent").exists());
     assert!(!build.join("old").exists());
 }

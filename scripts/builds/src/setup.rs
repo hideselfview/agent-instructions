@@ -195,8 +195,8 @@ pub fn setup_with(tool: &Tool, ssh: &Ssh, checkout: &Checkout, prepare: Prepare)
             ));
         }
     }
-    prune_root(tool, &root, checkout, Run::Real, 0, 0)?;
-    prune_derived_data(tool, Run::Real, 0)?;
+    prune_root(tool, &root, checkout, Run::Real, 0, 0, Keeper::Setup)?;
+    prune_derived_data(tool, Run::Real, 0, Keeper::Setup)?;
     prune_shared(tool, Run::Real, Keeper::Setup)?;
     let roots = tool.roots()?;
     prune_cargo_git(tool, &roots, Run::Real)?;
