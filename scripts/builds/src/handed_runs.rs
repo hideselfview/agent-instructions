@@ -91,7 +91,9 @@ pub fn cmd_record_handed(places: &Places, args: &[String]) -> Result<()> {
     let [repo, store] = args else {
         fail!("usage: builds app-build {FLAG} <repo> <store>");
     };
-    receive(places, repo, Path::new(store), app_timing::now())
+    let path =
+        std::path::absolute(store).context(|| format!("resolving the handed store at {store}"))?;
+    receive(places, repo, &path, app_timing::now())
 }
 
 #[cfg(test)]

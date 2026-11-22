@@ -2228,8 +2228,14 @@ fn a_move_allows_unknown_spec_cost_and_keeps_previous_checks_and_findings() {
         .unwrap();
         crate::lists::area::add_area(&conn, "Alpha", None).unwrap();
         let item = fixtures::item(&conn, Vec::new());
-        spec_check::tests::plant_before_unreported_usage(&conn, item, "opus");
-        spec_check::tests::plant_before_unreported_usage(&conn, item, "gpt-6.2-sol");
+        spec_check::tests::plant_before_unreported_usage(&conn, item, "opus", None);
+        spec_check::tests::plant_before_unreported_usage(&conn, item, "gpt-6.2-sol", None);
+        spec_check::tests::plant_before_unreported_usage(
+            &conn,
+            item,
+            "opus",
+            Some("./claude exited with exit status: 1: limit"),
+        );
         item
     };
     move_store(&places, &path, 0).unwrap();
@@ -2237,10 +2243,15 @@ fn a_move_allows_unknown_spec_cost_and_keeps_previous_checks_and_findings() {
     spec_check::tests::record_one(&conn, item, "gpt-6.2-astra", Usage::default());
     assert_eq!(
         spec_check::tests::recorded_usage(&conn),
-        [(Some(0), Some(0)), (Some(0), None), (None, None)]
+        [
+            (Some(0), Some(0)),
+            (Some(0), None),
+            (None, Some(0)),
+            (None, None)
+        ]
     );
     let check = &spec_check::read_all(&conn).unwrap()[&item];
-    assert_eq!(check.len(), 3);
+    assert_eq!(check.len(), 4);
     assert!(
         check
             .iter()

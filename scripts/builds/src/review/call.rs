@@ -41,7 +41,7 @@ pub struct Output {
     pub answer: Result<Answer, String>,
 }
 
-/// Independently reported token counters. An absent count means the provider omitted it.
+/// Reported and derived token counts. An absent count has no known value.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Tokens {
     pub input: Option<i64>,
@@ -49,6 +49,7 @@ pub struct Tokens {
     pub cached: Option<i64>,
     pub written: Option<i64>,
     pub uncached: Option<i64>,
+    pub reasoning: Option<i64>,
 }
 
 impl Tokens {
@@ -58,6 +59,7 @@ impl Tokens {
         cached: Some(0),
         written: Some(0),
         uncached: Some(0),
+        reasoning: Some(0),
     };
 
     fn add(self, other: Self) -> (Self, bool) {
@@ -76,6 +78,7 @@ impl Tokens {
             cached: add(self.cached, other.cached),
             written: add(self.written, other.written),
             uncached: add(self.uncached, other.uncached),
+            reasoning: add(self.reasoning, other.reasoning),
         };
         (tokens, overflowed)
     }
@@ -105,11 +108,15 @@ pub(super) fn tokens_text(tokens: TokenTotal, detailed: bool) -> String {
     let input = count(tokens.input);
     let output = count(tokens.output);
     if detailed {
+        let out = tokens.reasoning.map_or_else(
+            || format!("{output} out"),
+            |reasoning| format!("{output} out ({reasoning} reasoning)"),
+        );
         let uncached = count(tokens.uncached);
         let cached = count(tokens.cached);
         let written = count(tokens.written);
         format!(
-            "{input} tokens in ({uncached} uncached, {cached} read from the cache, {written} written to it), {output} out"
+            "{input} tokens in ({uncached} uncached, {cached} read from the cache, {written} written to it), {out}"
         )
     } else {
         format!("{input} tokens in, {output} out")
@@ -196,6 +203,7 @@ pub struct Invoked {
     pub model: String,
     pub usage: Usage,
     pub body: Result<Value, String>,
+    pub diagnostics: Vec<String>,
 }
 
 impl Invoked {
@@ -204,11 +212,25 @@ impl Invoked {
             model,
             usage: Usage::default(),
             body: Err(why),
+            diagnostics: Vec::new(),
         }
     }
 }
 
-pub use super::provider::invoke;
+pub fn invoke(
+    program: &Program,
+    model: &Selection,
+    schema: &Value,
+    system: &str,
+    message: &str,
+    checkout: Option<&Path>,
+) -> Invoked {
+    let invoked = super::provider::invoke(program, model, schema, system, message, checkout);
+    for diagnostic in &invoked.diagnostics {
+        crate::text::note(diagnostic);
+    }
+    invoked
+}
 
 /// Runs a group's reviewer and reads its answer: verdicts per rule, or, for a
 /// group that lists sites, a summary and a verdict per site, and the open

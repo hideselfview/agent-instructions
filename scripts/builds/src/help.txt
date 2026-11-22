@@ -3167,7 +3167,7 @@ file's language: `//`, `/*` or `*/` in Rust, Swift, Kotlin and C# (and `*` in
 a block comment of all but Rust), `#` in Python, shell and TOML, and `--` in
 SQL. Every review goes in the project's store: the change's landing under
 review (found by its key until the change lands) with its last review, the
-net change each run read, the group, rules, model, prompt, tokens, cost,
+net change each run read, the group, rules, model, prompt, token counts, cost,
 verdicts, findings, how each was settled (both settles of a finding settled
 again), and the run that closed each closed one. A call's prompt is its
 system prompt without the project's instructions and the brief (the opening,
@@ -3178,6 +3178,10 @@ calls with the same setup were asked the same way. Every audit and replay
 records the same, with the commit of the rules checkout it read. A rule's `blocking` marks its
 findings blocking in the reviewer's prompt and the report; every finding,
 blocking or not, must be settled before the commits land.
+
+Builds keeps the input and output totals, the uncached input count, cache
+read and write counts, and the reasoning output count. A count stays unknown
+if Builds cannot read or derive it.
 
 The review checks design files only against the rules about how a screen,
 board or component looks, never against the rules about code (decision
@@ -3220,7 +3224,8 @@ When the reviewer finds a conflict, take refuses the items unless
 choice; take prints each unstated behavior and takes the items. take records
 every check in the project's store: the brief's text, the spec files and the
 commit the reviewer read them at, the model, prompt, answer,
-token usage and cost when the reviewer reports them, each finding, and the --spec-decided
+the same token counts as a branch review, the cost when the reviewer reports
+it, each finding, and the --spec-decided
 record (`builds help lists`, item take). Before the spec check, take runs the
 rulings check over
 the brief with a reviewer that has no tools, and refuses a brief whose

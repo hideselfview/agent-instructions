@@ -466,6 +466,10 @@ fn the_tables_refuse_a_row_that_breaks_a_constraint() {
             vec![("tokens_written", v(-1))],
         ),
         (
+            "spec_check_tokens_reasoning_not_negative",
+            vec![("tokens_reasoning", v(-1))],
+        ),
+        (
             "spec_check_tokens_uncached_not_negative",
             vec![("tokens_uncached", v(-1))],
         ),
@@ -542,18 +546,44 @@ fn the_tables_refuse_a_row_that_breaks_a_constraint() {
 fn recording_keeps_unknown_cost_distinct_from_zero() {
     let db = crate::lists::fixtures::db();
     let item = crate::lists::fixtures::item(&db, Vec::new());
-    record_one(&db, item, "gpt-6.2-sol", Usage::default());
+    record_one(
+        &db,
+        item,
+        "gpt-6.2-sol",
+        Usage {
+            tokens: crate::review::call::Tokens {
+                reasoning: Some(4),
+                ..Default::default()
+            },
+            cost_microdollars: None,
+        },
+    );
     // Each attempt belongs to the same item and has its own recorded cost.
     record_one(&db, item, "opus", Usage::ZERO);
     assert_eq!(recorded_usage(&db), [(None, None), (Some(0), Some(0))]);
+    assert_eq!(
+        db.query_row(
+            "SELECT tokens_reasoning FROM spec_check WHERE model = 'gpt-6.2-sol'",
+            [],
+            |row| row.get::<_, i64>(0)
+        )
+        .unwrap(),
+        4,
+    );
 }
 
 /// Plants a check in the schema before the token counters could be unknown.
-pub fn plant_before_unreported_usage(db: &Connection, item: Id, model: &str) {
+pub fn plant_before_unreported_usage(
+    db: &Connection,
+    item: Id,
+    model: &str,
+    failure: Option<&str>,
+) {
+    let output = failure.map_or_else(|| "{}".to_string(), |why| format!("no answer: {why}"));
     db.execute(
-        r#"INSERT INTO spec_check (at, by, brief, brief_text, repo, worktree, head, spec_files, model, rules_version, system, message, output, tokens_in, tokens_out, tokens_cached, tokens_written, cost_microdollars)
-         VALUES (?1, 'tester', 'plans/briefs/b.md', ?2, 'bae', '/d/wt', ?3, '["spec/demo.md"]', ?4, '', 's', 'm', '{}', 0, 0, 0, 0, 0)"#,
-        rusqlite::params![NOON, BRIEF, "a".repeat(40), model],
+        r#"INSERT INTO spec_check (at, by, brief, brief_text, repo, worktree, head, spec_files, model, rules_version, system, message, output, tokens_in, tokens_out, tokens_cached, tokens_written, cost_microdollars, failure)
+         VALUES (?1, 'tester', 'plans/briefs/b.md', ?2, 'bae', '/d/wt', ?3, '["spec/demo.md"]', ?4, '', 's', 'm', ?5, 0, 0, 0, 0, 0, ?6)"#,
+        rusqlite::params![NOON, BRIEF, "a".repeat(40), model, output, failure],
     ).unwrap();
     let check = db.last_insert_rowid();
     db.execute(

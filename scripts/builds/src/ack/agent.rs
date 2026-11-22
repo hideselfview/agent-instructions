@@ -218,10 +218,8 @@ pub struct Caller {
 /// The agent session this invocation inherited from its shell.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Session {
-    Claude {
-        id: std::ffi::OsString,
-        agent: Option<String>,
-    },
+    Claude { id: String, agent: Option<String> },
+    InvalidClaude,
     Codex,
     Terminal,
 }
@@ -243,7 +241,10 @@ impl Session {
         agent: Option<String>,
     ) -> Self {
         if let Some(id) = claude.filter(|id| !id.is_empty()) {
-            Self::Claude { id, agent }
+            match id.into_string() {
+                Ok(id) => Self::Claude { id, agent },
+                Err(_) => Self::InvalidClaude,
+            }
         } else if codex_session
             .into_iter()
             .chain(codex_thread)
@@ -257,15 +258,8 @@ impl Session {
 
     pub fn claude(&self) -> Result<Option<(&str, Option<&str>)>> {
         match self {
-            Self::Claude { id, agent } => {
-                let id = id.to_str().ok_or_else(|| {
-                    crate::fail::Fail::Message(format!(
-                        "{} is not a UTF-8 session ID",
-                        super::SESSION
-                    ))
-                })?;
-                Ok(Some((id, agent.as_deref())))
-            }
+            Self::Claude { id, agent } => Ok(Some((id, agent.as_deref()))),
+            Self::InvalidClaude => fail!("{} is not a UTF-8 session ID", super::SESSION),
             Self::Codex | Self::Terminal => Ok(None),
         }
     }

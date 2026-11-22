@@ -49,6 +49,7 @@ fn codex_returns_the_final_structured_message_and_the_turns_usage() {
             cached: Some(7),
             written: Some(2),
             uncached: Some(22),
+            reasoning: Some(5),
         }
     );
 }
@@ -540,7 +541,7 @@ fn a_claude_error_keeps_its_reported_price_when_tokens_are_invalid() {
 }
 
 #[test]
-fn an_unreported_claude_output_count_reports_the_omission_and_keeps_uncached_input() {
+fn an_unreported_claude_output_count_keeps_the_answer_and_uncached_input() {
     let reply = json!({
         "is_error": false,
         "structured_output": {"claims": []},
@@ -549,7 +550,13 @@ fn an_unreported_claude_output_count_reports_the_omission_and_keeps_uncached_inp
     let called = claude_envelope(reply.to_string().as_bytes(), "opus");
     assert_eq!(called.usage.tokens.output, None);
     assert_eq!(called.usage.tokens.uncached, Some(20));
-    assert!(called.body.unwrap_err().contains("omitted output_tokens"));
+    assert!(called.body.is_ok());
+    assert!(
+        called
+            .diagnostics
+            .iter()
+            .any(|why| why.contains("omitted output_tokens"))
+    );
     assert!(claude_cost(&json!({"total_cost_usd": -0.0000001})).is_err());
 }
 
@@ -569,32 +576,42 @@ fn invalid_codex_usage_keeps_a_tool_violation_visible() {
 }
 
 #[test]
-fn codex_keeps_its_answer_failure_and_usage_after_cleanup_fails() {
+fn codex_keeps_the_original_answer_and_usage_after_cleanup_fails() {
     let scratch = crate::testing::Scratch::new("codex-cleanup-diagnostic");
     let shell = format!(
         r#"set -e
-cat >/dev/null
+mode=$(cat)
 mv "$PWD" "$PWD.renamed"
-cat <<'EVENTS'
-{{"type":"turn.failed","error":{{"message":"the provider could not finish"}}}}
-{COMPLETED}
-EVENTS"#
+case "$mode" in
+succeed) echo '{{"type":"item.completed","item":{{"type":"agent_message","text":"{{\"claims\":[]}}"}}}}' ;;
+fail) echo '{{"type":"turn.failed","error":{{"message":"the provider could not finish"}}}}' ;;
+esac
+printf '%s\n' '{COMPLETED}'"#
     );
     let executable = scratch.script("codex", &shell);
-    let response = invoke(
-        &Program::new(executable, scratch.dir.clone()),
-        &Selection::Tier(Tier::Fast),
-        &json!({}),
-        "",
-        "check",
-        None,
-    );
-    assert_eq!(response.usage.tokens.input, Some(31));
-    let why = response.body.unwrap_err();
-    assert!(
-        why.contains("the provider could not finish") && why.contains("removing"),
-        "{why}"
-    );
+    let program = Program::new(executable, scratch.dir.clone());
+    let call = |mode| {
+        invoke(
+            &program,
+            &Selection::Tier(Tier::Fast),
+            &json!({}),
+            "",
+            mode,
+            None,
+        )
+    };
+    let success = call("succeed");
+    assert_eq!(success.body.unwrap(), json!({"claims": []}));
+    let failure = call("fail");
+    assert_eq!(failure.body.unwrap_err(), "the provider could not finish");
+    for response in [&success.diagnostics, &failure.diagnostics] {
+        assert!(
+            response.iter().any(|why| why.contains("removing")),
+            "{response:?}"
+        );
+    }
+    assert_eq!(success.usage.tokens.input, Some(31));
+    assert_eq!(failure.usage.tokens.reasoning, Some(5));
 }
 
 #[test]
@@ -613,13 +630,46 @@ fn codex_keeps_a_completed_answer_without_a_usage_event() {
 
 #[test]
 fn codex_refuses_cache_usage_above_the_total_input() {
-    let usage = json!({"input_tokens": 4, "cached_input_tokens": 5, "cache_write_input_tokens": 2, "output_tokens": 1});
+    let usage = json!({"input_tokens": 4, "cached_input_tokens": 5, "output_tokens": 1});
     let mut body = Ok(json!({}));
-    let tokens = reported_tokens(&usage, Provider::Codex, &mut body);
+    let mut diagnostics = Vec::new();
+    let tokens = reported_tokens(&usage, Provider::Codex, &mut body, &mut diagnostics);
     assert!(body.unwrap_err().contains("more input tokens"));
     assert_eq!(tokens.input, Some(4));
     assert_eq!(tokens.output, Some(1));
     assert_eq!(tokens.uncached, None);
+}
+
+#[test]
+fn an_incomplete_codex_report_keeps_present_counts_and_diagnoses_omissions() {
+    let events = concat!(
+        r#"{"type":"item.completed","item":{"type":"agent_message","text":"{\"claims\":[]}"}}"#,
+        "\n",
+        r#"{"type":"turn.completed","usage":{"input_tokens":15,"cached_input_tokens":0,"reasoning_output_tokens":4}}"#,
+    );
+    let called = codex_events(events.as_bytes(), false);
+    assert_eq!(called.body.unwrap(), json!({"claims": []}));
+    assert_eq!(
+        called.completion.tokens(),
+        Tokens {
+            input: Some(15),
+            cached: Some(0),
+            reasoning: Some(4),
+            ..Tokens::default()
+        }
+    );
+    assert!(
+        called
+            .diagnostics
+            .iter()
+            .any(|why| why.contains("output_tokens"))
+    );
+    assert!(
+        called
+            .diagnostics
+            .iter()
+            .any(|why| why.contains("cache_write_input_tokens"))
+    );
 }
 
 #[test]

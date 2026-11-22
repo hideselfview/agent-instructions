@@ -24,6 +24,7 @@ fn call(clauses: &[&str]) -> NewCall {
                 cached: Some(0),
                 written: Some(0),
                 uncached: None,
+                reasoning: None,
             },
             cost_microdollars: Some(0),
         },

@@ -410,10 +410,12 @@ fn without_unreported_usage(mut schema: String) -> String {
                 &format!("{start} NOT NULL{constraint}"),
             );
         }
-        let column = format!(
-            ",\n    tokens_uncached INTEGER CONSTRAINT {table}_tokens_uncached_not_negative CHECK (tokens_uncached >= 0)"
-        );
-        schema = schema.replace(&column, "");
+        for counter in ["uncached", "reasoning"] {
+            let column = format!(
+                ",\n    tokens_{counter} INTEGER CONSTRAINT {table}_tokens_{counter}_not_negative CHECK (tokens_{counter} >= 0)"
+            );
+            schema = schema.replace(&column, "");
+        }
     }
     schema.replacen(
         "cost_microdollars INTEGER CONSTRAINT spec_check_cost_not_negative",
@@ -421,6 +423,9 @@ fn without_unreported_usage(mut schema: String) -> String {
         1,
     )
 }
+
+/// Derives uncached input from the counters that legacy stores kept.
+pub const LEGACY_UNCACHED_INPUT: &str = "CASE WHEN tokens_in - tokens_cached >= tokens_written THEN tokens_in - tokens_cached - tokens_written END";
 
 /// The schema before review records could omit usage and spec-check cost.
 #[cfg(test)]

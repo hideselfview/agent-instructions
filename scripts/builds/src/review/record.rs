@@ -8,8 +8,6 @@
 //! closes a confirmed finding when the changes it read fix it, and the person
 //! may allow an open confirmed finding to land.
 
-use std::path::Path;
-
 use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::db::Sql;
@@ -480,10 +478,11 @@ pub fn add_calls(
             cached,
             written,
             uncached,
+            reasoning,
         } = call.usage.tokens;
         db.execute(
-            "INSERT INTO review_call (run_id, group_name, model, prompt, rules, tokens_in, tokens_out, tokens_cached, tokens_written, tokens_uncached, cost_microdollars, sites, failure) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
-            params![run_id, call.group, call.model, prompt, rules, input, output, cached, written, uncached, call.usage.cost_microdollars, call.sites, call.failure],
+            "INSERT INTO review_call (run_id, group_name, model, prompt, rules, tokens_in, tokens_out, tokens_cached, tokens_written, tokens_uncached, tokens_reasoning, cost_microdollars, sites, failure) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+            params![run_id, call.group, call.model, prompt, rules, input, output, cached, written, uncached, reasoning, call.usage.cost_microdollars, call.sites, call.failure],
         )
         .sql()?;
         let call_id = db.last_insert_rowid();
@@ -504,10 +503,11 @@ pub fn add_calls(
                 cached,
                 written,
                 uncached,
+                reasoning,
             } = exchange.tokens;
             db.execute(
-                "INSERT INTO review_exchange (call_id, model, unit, pass, system_hash, message_hash, output_hash, tokens_in, tokens_out, tokens_cached, tokens_written, tokens_uncached) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
-                params![call_id, exchange.model, exchange.unit, exchange.pass, system_hash, message_hash, output_hash, input, output, cached, written, uncached],
+                "INSERT INTO review_exchange (call_id, model, unit, pass, system_hash, message_hash, output_hash, tokens_in, tokens_out, tokens_cached, tokens_written, tokens_uncached, tokens_reasoning) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                params![call_id, exchange.model, exchange.unit, exchange.pass, system_hash, message_hash, output_hash, input, output, cached, written, uncached, reasoning],
             )
             .sql()?;
             crate::review::exchange_time::record(
@@ -757,7 +757,7 @@ pub fn calls_of_kind(db: &Connection, kind: Kind) -> Result<Vec<Call>> {
 
 fn calls_where(db: &Connection, condition: &str, value: impl rusqlite::ToSql) -> Result<Vec<Call>> {
     let sql = format!(
-        "SELECT c.id, c.run_id, r.kind, c.group_name, c.model, c.prompt, c.rules, c.tokens_in, c.tokens_out, c.tokens_cached, c.tokens_written, c.tokens_uncached, c.cost_microdollars, c.failure FROM review_call c JOIN review_run r ON r.id = c.run_id WHERE {condition} ORDER BY c.id"
+        "SELECT c.id, c.run_id, r.kind, c.group_name, c.model, c.prompt, c.rules, c.tokens_in, c.tokens_out, c.tokens_cached, c.tokens_written, c.tokens_uncached, c.tokens_reasoning, c.cost_microdollars, c.failure FROM review_call c JOIN review_run r ON r.id = c.run_id WHERE {condition} ORDER BY c.id"
     );
     let mut statement = db.prepare(&sql).sql()?;
     let rows = statement
@@ -784,10 +784,11 @@ fn calls_where(db: &Connection, condition: &str, value: impl rusqlite::ToSql) ->
                         cached: row.get(9)?,
                         written: row.get(10)?,
                         uncached: row.get(11)?,
+                        reasoning: row.get(12)?,
                     },
-                    cost_microdollars: row.get(12)?,
+                    cost_microdollars: row.get(13)?,
                 },
-                failure: row.get(13)?,
+                failure: row.get(14)?,
             })
         })
         .sql()?;
@@ -1023,7 +1024,7 @@ pub mod tests;
 
 /// Keeps the existing calls and exchanges while allowing a provider to omit its token report.
 pub fn allow_unreported_tokens(db: &Connection, texts: &texts::Texts) -> Result<()> {
-    use crate::db::{REVIEW_PART, remake_table, statement};
+    use crate::db::{LEGACY_UNCACHED_INPUT, REVIEW_PART, remake_table, statement};
     for table in ["review_call", "review_exchange"] {
         let create = format!("CREATE TABLE {table} (");
         let index = if table == "review_call" {
@@ -1043,16 +1044,16 @@ pub fn allow_unreported_tokens(db: &Connection, texts: &texts::Texts) -> Result<
                 };
                 db.execute_batch(&format!(
                     "INSERT INTO {table} ({columns}, tokens_uncached)
-                     SELECT {columns}, CASE WHEN tokens_in - tokens_cached >= tokens_written THEN tokens_in - tokens_cached - tokens_written END FROM {table}_old"
+                     SELECT {columns}, {LEGACY_UNCACHED_INPUT} FROM {table}_old"
                 ))
-                    .sql()
+                .sql()
             },
             &[statement(REVIEW_PART, index, ";")],
         )?;
     }
     let unreported = {
         let mut query = db.prepare(
-            "SELECT e.id, c.id, c.run_id, e.output_hash
+            "SELECT e.id, c.id, c.run_id, e.output_hash, c.failure
              FROM review_exchange e JOIN review_call c ON c.id = e.call_id
              WHERE c.failure IS NOT NULL AND (e.tokens_in, e.tokens_out, e.tokens_cached, e.tokens_written) = (0, 0, 0, 0)",
         ).sql()?;
@@ -1063,36 +1064,27 @@ pub fn allow_unreported_tokens(db: &Connection, texts: &texts::Texts) -> Result<
                     row.get::<_, i64>(1)?,
                     row.get::<_, i64>(2)?,
                     row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
                 ))
             })
             .sql()?;
         rows.collect::<rusqlite::Result<Vec<_>>>().sql()?
     };
-    for (exchange, call, run, hash) in unreported {
-        let output = texts.kept(run, &hash)?;
-        if output.as_deref().is_none_or(legacy_failure_had_no_usage) {
+    for (exchange, call, run, hash, failure) in unreported {
+        let output = match texts.kept(run, &hash)? {
+            Some(output) => Some(output),
+            None => {
+                let candidate = format!("no answer: {failure}");
+                (texts::hash(&candidate) == hash).then_some(candidate)
+            }
+        };
+        if output
+            .as_deref()
+            .is_none_or(super::provider::legacy_failure_had_no_usage)
+        {
             db.execute("UPDATE review_exchange SET tokens_in = NULL, tokens_out = NULL, tokens_cached = NULL, tokens_written = NULL, tokens_uncached = NULL WHERE id = ?1", [exchange]).sql()?;
             db.execute("UPDATE review_call SET tokens_in = NULL, tokens_out = NULL, tokens_cached = NULL, tokens_written = NULL, tokens_uncached = NULL WHERE id = ?1", [call]).sql()?;
         }
     }
     Ok(())
-}
-
-/// These legacy failures returned before builds could read a Claude usage record.
-fn legacy_failure_had_no_usage(output: &str) -> bool {
-    let Some(why) = output.strip_prefix("no answer: ") else {
-        return false;
-    };
-    why == "the reviewer printed no JSON"
-        || why.starts_with("running ")
-        || why.starts_with("waiting for ")
-        || why
-            .split_once(" exited with ")
-            .is_some_and(|(program, status)| {
-                let path = Path::new(program);
-                (program == "claude"
-                    || path.is_absolute()
-                        && path.file_name() == Some(std::ffi::OsStr::new("claude")))
-                    && (status.starts_with("exit status: ") || status.starts_with("signal: "))
-            })
 }

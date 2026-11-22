@@ -134,46 +134,60 @@ impl GroupScore {
     }
 }
 
+#[derive(Clone, Debug, Default, PartialEq)]
+struct Measurement {
+    sum: i128,
+    missing: usize,
+}
+
+impl Measurement {
+    fn add(&mut self, count: Option<i64>) {
+        match count {
+            Some(count) => self.sum += i128::from(count),
+            None => self.missing += 1,
+        }
+    }
+
+    fn join(&mut self, other: &Self) {
+        self.sum += other.sum;
+        self.missing += other.missing;
+    }
+
+    fn text(&self, calls: usize, format: impl FnOnce(i128) -> String, absent: &str) -> String {
+        match self.missing {
+            0 => format(self.sum),
+            missing if missing == calls => absent.to_string(),
+            missing => format!(
+                "{} (not recorded for {missing} of {calls} calls)",
+                format(self.sum)
+            ),
+        }
+    }
+}
+
 /// The calls of some runs: how many, their tokens and their cost.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Spend {
-    pub calls: usize,
-    pub tokens_in: i128,
-    pub tokens_out: i128,
-    pub uncounted_in: usize,
-    pub uncounted_out: usize,
+    calls: usize,
+    input: Measurement,
+    output: Measurement,
     /// In millionths of a US dollar.
-    pub cost_microdollars: i128,
-    /// Calls whose cost builds never recorded.
-    pub uncosted: usize,
+    cost: Measurement,
 }
 
 impl Spend {
     fn add(&mut self, call: &Call) {
         self.calls += 1;
-        let tokens = call.usage.tokens;
-        match tokens.input {
-            Some(input) => self.tokens_in += i128::from(input),
-            None => self.uncounted_in += 1,
-        }
-        match tokens.output {
-            Some(output) => self.tokens_out += i128::from(output),
-            None => self.uncounted_out += 1,
-        }
-        match call.usage.cost_microdollars {
-            Some(cost) => self.cost_microdollars += i128::from(cost),
-            None => self.uncosted += 1,
-        }
+        self.input.add(call.usage.tokens.input);
+        self.output.add(call.usage.tokens.output);
+        self.cost.add(call.usage.cost_microdollars);
     }
 
     fn join(&mut self, other: &Spend) {
         self.calls += other.calls;
-        self.tokens_in += other.tokens_in;
-        self.tokens_out += other.tokens_out;
-        self.cost_microdollars += other.cost_microdollars;
-        self.uncosted += other.uncosted;
-        self.uncounted_in += other.uncounted_in;
-        self.uncounted_out += other.uncounted_out;
+        self.input.join(&other.input);
+        self.output.join(&other.output);
+        self.cost.join(&other.cost);
     }
 }
 
@@ -439,33 +453,20 @@ fn tally_text(t: &Tally, unsettled: &str) -> String {
 }
 
 fn spend_text(s: &Spend) -> String {
-    let cost = measurement_text(
-        super::call::known_cost_text(s.cost_microdollars),
-        "cost not recorded",
-        s.uncosted,
+    let cost = s
+        .cost
+        .text(s.calls, super::call::known_cost_text, "cost not recorded");
+    let input = s.input.text(
         s.calls,
-    );
-    let input = measurement_text(
-        format!("{} tokens in", s.tokens_in),
+        |n| format!("{n} tokens in"),
         "input tokens not recorded",
-        s.uncounted_in,
-        s.calls,
     );
-    let output = measurement_text(
-        format!("{} out", s.tokens_out),
-        "output tokens not recorded",
-        s.uncounted_out,
+    let output = s.output.text(
         s.calls,
+        |n| format!("{n} out"),
+        "output tokens not recorded",
     );
     format!("{} calls, {input}, {output}, {cost}", s.calls)
-}
-
-fn measurement_text(measured: String, absent: &str, missing: usize, calls: usize) -> String {
-    match missing {
-        0 => measured,
-        missing if missing == calls => absent.to_string(),
-        missing => format!("{measured} (not recorded for {missing} of {calls} calls)"),
-    }
 }
 
 fn setup_text(setup: &Setup) -> String {

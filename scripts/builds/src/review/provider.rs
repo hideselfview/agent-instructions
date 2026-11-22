@@ -29,6 +29,7 @@ impl Provider {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Program {
     executable: PathBuf,
+    provider: Provider,
     temporary: PathBuf,
     purpose: Purpose,
 }
@@ -42,6 +43,7 @@ enum Purpose {
 impl Program {
     pub fn new(executable: PathBuf, temporary: PathBuf) -> Self {
         Self {
+            provider: Provider::of(&executable),
             executable,
             temporary,
             purpose: Purpose::Check,
@@ -49,7 +51,7 @@ impl Program {
     }
 
     pub fn uses_code_review_effort(&self) -> bool {
-        Provider::of(&self.executable) == Provider::Codex
+        self.provider == Provider::Codex
     }
 
     pub fn for_code_review(&self) -> Self {
@@ -65,17 +67,22 @@ impl Program {
 
     pub fn with_executable(&self, executable: PathBuf) -> Self {
         Self {
+            provider: Provider::of(&executable),
             executable,
             ..self.clone()
         }
     }
 
     pub fn model_name(&self, selection: &Selection) -> String {
-        self.model(selection).name().to_string()
+        let model = self.model(selection);
+        match &model {
+            Model::UnsupportedCodex(requested) => format!("unknown (requested {requested})"),
+            _ => model.name().to_string(),
+        }
     }
 
     pub fn schema<'a>(&self, schema: &'a Value) -> Cow<'a, Value> {
-        match Provider::of(&self.executable) {
+        match self.provider {
             Provider::Claude => Cow::Borrowed(schema),
             Provider::Codex => {
                 let mut schema = schema.clone();
@@ -86,7 +93,7 @@ impl Program {
     }
 
     pub fn instructions<'a>(&self, system: &'a str) -> Cow<'a, str> {
-        match Provider::of(&self.executable) {
+        match self.provider {
             Provider::Claude => Cow::Borrowed(system),
             Provider::Codex => Cow::Owned(format!(
                 "{system}\n\nReturn null for optional fields these instructions say to omit. Null represents an omitted field in the output schema."
@@ -96,7 +103,7 @@ impl Program {
 
     pub fn setup(&self, selection: &Selection, prompt: String) -> String {
         match self.model(selection) {
-            Model::Claude(_) => prompt,
+            Model::Claude(_) | Model::UnsupportedCodex(_) => prompt,
             Model::Codex { effort, .. } => {
                 format!("{prompt}\n# Codex\n\nreasoning effort: {effort}\n")
             }
@@ -104,7 +111,7 @@ impl Program {
     }
 
     fn model(&self, selection: &Selection) -> Model {
-        match Provider::of(&self.executable) {
+        match self.provider {
             Provider::Claude => {
                 let name = match selection {
                     Selection::Tier(Tier::High) => "opus",
@@ -115,6 +122,11 @@ impl Program {
                 Model::Claude(name.to_string())
             }
             Provider::Codex => {
+                if let Selection::Named(requested) = selection
+                    && requested != CODEX_MODEL
+                {
+                    return Model::UnsupportedCodex(requested.clone());
+                }
                 let effort = match (self.purpose, selection) {
                     (_, Selection::Named(_)) | (Purpose::CodeReview, Selection::Tier(_)) => "high",
                     (Purpose::Check, Selection::Tier(Tier::High | Tier::Medium)) => "medium",
@@ -171,12 +183,13 @@ const CODEX_MODEL: &str = "gpt-6.2-sol";
 enum Model {
     Claude(String),
     Codex { effort: &'static str },
+    UnsupportedCodex(String),
 }
 
 impl Model {
     fn name(&self) -> &str {
         match self {
-            Self::Claude(name) => name,
+            Self::Claude(name) | Self::UnsupportedCodex(name) => name,
             Self::Codex { .. } => CODEX_MODEL,
         }
     }
@@ -190,17 +203,6 @@ pub fn invoke(
     message: &str,
     checkout: Option<&Path>,
 ) -> Invoked {
-    if Provider::of(program.executable()) == Provider::Codex
-        && let Selection::Named(requested) = selection
-        && requested != CODEX_MODEL
-    {
-        return Invoked::failed(
-            format!("unknown (requested {requested})"),
-            format!(
-                "Codex uses {CODEX_MODEL}. Replace --model {requested} with --model {CODEX_MODEL} or omit --model."
-            ),
-        );
-    }
     let model = program.model(selection);
     let called = match &model {
         Model::Claude(name) => claude(
@@ -211,15 +213,15 @@ pub fn invoke(
             message,
             checkout,
         ),
-        Model::Codex { effort } => codex(
-            program,
-            CODEX_MODEL,
-            effort,
-            schema,
-            system,
-            message,
-            checkout,
-        ),
+        Model::Codex { effort } => codex(program, effort, schema, system, message, checkout),
+        Model::UnsupportedCodex(requested) => {
+            return Invoked::failed(
+                format!("unknown (requested {requested})"),
+                format!(
+                    "Codex uses {CODEX_MODEL}. Replace --model {requested} with --model {CODEX_MODEL} or omit --model."
+                ),
+            );
+        }
     };
     match called {
         Ok(invoked) => invoked,
@@ -311,8 +313,9 @@ pub(super) fn claude_envelope(text: &[u8], requested: &str) -> Invoked {
         })
         .map_or_else(|| format!("unknown (requested {requested})"), Clone::clone);
     let mut body = body_of(&value);
+    let mut diagnostics = Vec::new();
     let tokens = match value.get("usage") {
-        Some(usage) => reported_tokens(usage, Provider::Claude, &mut body),
+        Some(usage) => reported_tokens(usage, Provider::Claude, &mut body, &mut diagnostics),
         None => Tokens::default(),
     };
     let cost_microdollars = match claude_cost(&value) {
@@ -329,6 +332,7 @@ pub(super) fn claude_envelope(text: &[u8], requested: &str) -> Invoked {
             cost_microdollars,
         },
         body,
+        diagnostics,
     }
 }
 
@@ -363,12 +367,17 @@ fn reported_tokens(
     usage: &Value,
     protocol: Provider,
     body: &mut std::result::Result<Value, String>,
+    diagnostics: &mut Vec<String>,
 ) -> Tokens {
     if !usage.is_object() {
         add_diagnostic(body, "the reviewer reported invalid usage".to_string());
         return Tokens::default();
     }
-    let mut count = |key| match reported_count(usage, key) {
+    let mut count = |key, expected| match reported_count(usage, key) {
+        Ok(None) if expected => {
+            diagnostics.push(format!("the reviewer omitted {key} from its usage report"));
+            None
+        }
         Ok(value) => value,
         Err(why) => {
             add_diagnostic(body, why);
@@ -379,38 +388,51 @@ fn reported_tokens(
         Provider::Claude => ("cache_read_input_tokens", "cache_creation_input_tokens"),
         Provider::Codex => ("cached_input_tokens", "cache_write_input_tokens"),
     };
-    let reported_input = count("input_tokens");
-    let output = count("output_tokens");
-    let cached = count(cache_read);
-    let written = count(cache_write);
-    if protocol == Provider::Claude {
-        for key in ["input_tokens", "output_tokens"] {
-            if usage.get(key).is_none() {
-                add_diagnostic(body, format!("Claude omitted {key} from its usage report"));
+    let reported_input = count("input_tokens", true);
+    let output = count("output_tokens", true);
+    let cached = count(cache_read, true);
+    let written = count(cache_write, true);
+    let reasoning = match protocol {
+        Provider::Codex => count("reasoning_output_tokens", false),
+        Provider::Claude => None,
+    };
+    let computed = match (protocol, reported_input) {
+        (Provider::Claude, Some(input)) => match (cached, written) {
+            (Some(cached), Some(written)) => {
+                let total = input
+                    .checked_add(cached)
+                    .and_then(|sum| sum.checked_add(written));
+                if total.is_none() {
+                    add_diagnostic(
+                        body,
+                        "Claude's total input tokens exceed the supported range".to_string(),
+                    );
+                }
+                total
+            }
+            _ => None,
+        },
+        (Provider::Codex, Some(input)) => {
+            let known_cache: i128 = [cached, written]
+                .into_iter()
+                .flatten()
+                .map(i128::from)
+                .sum();
+            if known_cache > i128::from(input) {
+                add_diagnostic(
+                    body,
+                    "Codex reported more input tokens in the cache than total input tokens"
+                        .to_string(),
+                );
+                None
+            } else {
+                cached
+                    .zip(written)
+                    .map(|(cached, written)| input - cached - written)
             }
         }
-    }
-    let computed = match (reported_input, cached, written) {
-        (Some(input), Some(cached), Some(written)) => match protocol {
-            Provider::Claude => input
-                .checked_add(cached)
-                .and_then(|sum| sum.checked_add(written)),
-            Provider::Codex => input
-                .checked_sub(cached)
-                .and_then(|sum| sum.checked_sub(written))
-                .filter(|sum| *sum >= 0),
-        },
-        _ => None,
+        (_, None) => None,
     };
-    if computed.is_none() && reported_input.is_some() && cached.is_some() && written.is_some() {
-        let message = match protocol {
-            Provider::Claude => "Claude's total input tokens exceed the supported range",
-            Provider::Codex => {
-                "Codex reported more input tokens in the cache than total input tokens"
-            }
-        };
-        add_diagnostic(body, message.to_string());
-    }
     let (input, uncached) = match protocol {
         Provider::Claude => (computed, reported_input),
         Provider::Codex => (reported_input, computed),
@@ -421,6 +443,7 @@ fn reported_tokens(
         cached,
         written,
         uncached,
+        reasoning,
     }
 }
 
@@ -471,7 +494,6 @@ fn body_of(value: &Value) -> std::result::Result<Value, String> {
 
 fn codex(
     program: &Program,
-    model: &str,
     effort: &str,
     schema: &Value,
     system: &str,
@@ -527,7 +549,7 @@ fn codex(
             ])
             .args([
                 "--model",
-                model,
+                CODEX_MODEL,
                 "-c",
                 &format!("model_reasoning_effort=\"{effort}\""),
             ])
@@ -547,27 +569,29 @@ fn codex(
         let Decoded {
             completion,
             mut body,
+            diagnostics,
         } = codex_events(&output.stdout, checkout.is_some());
         if !output.status.success() {
             attach_exit(program.executable(), &output, &mut body);
         }
         invoked = Some(Invoked {
             model: match completion {
-                Completion::Completed(_) => model.to_string(),
-                Completion::Incomplete => format!("unknown (requested {model})"),
+                Completion::Completed(_) => CODEX_MODEL.to_string(),
+                Completion::Incomplete => format!("unknown (requested {CODEX_MODEL})"),
             },
             usage: Usage {
                 tokens: completion.tokens(),
                 cost_microdollars: None,
             },
             body,
+            diagnostics,
         });
         Ok(())
     });
     match (invoked, result) {
         (Some(response), Ok(())) => Ok(response),
         (Some(mut response), Err(error)) => {
-            add_diagnostic(&mut response.body, error.text());
+            response.diagnostics.push(error.text());
             Ok(response)
         }
         (None, Err(error)) => Err(error),
@@ -628,6 +652,7 @@ impl Completion {
 struct Decoded {
     completion: Completion,
     body: std::result::Result<Value, String>,
+    diagnostics: Vec<String>,
 }
 
 fn codex_events(text: &[u8], read_tools: bool) -> Decoded {
@@ -690,14 +715,39 @@ fn codex_events(text: &[u8], read_tools: bool) -> Decoded {
             .map_err(|error| format!("Codex did not answer in the schema: {error}")),
         _ => Err("Codex did not finish with a structured answer".to_string()),
     };
+    let mut diagnostics = Vec::new();
     let completion = match completed {
-        Some(Some(usage)) => {
-            Completion::Completed(reported_tokens(&usage, Provider::Codex, &mut body))
-        }
+        Some(Some(usage)) => Completion::Completed(reported_tokens(
+            &usage,
+            Provider::Codex,
+            &mut body,
+            &mut diagnostics,
+        )),
         Some(None) => Completion::Completed(Tokens::default()),
         None => Completion::Incomplete,
     };
-    Decoded { completion, body }
+    Decoded {
+        completion,
+        body,
+        diagnostics,
+    }
+}
+
+/// These legacy failures returned before builds could read a Claude usage record.
+pub(crate) fn legacy_failure_had_no_usage(output: &str) -> bool {
+    let Some(why) = output.strip_prefix("no answer: ") else {
+        return false;
+    };
+    why == "the reviewer printed no JSON"
+        || why.starts_with("running ")
+        || why.starts_with("waiting for ")
+        || why
+            .split_once(" exited with ")
+            .is_some_and(|(program, status)| {
+                let path = Path::new(program);
+                path.file_name() == Some(std::ffi::OsStr::new("claude"))
+                    && (status.starts_with("exit status: ") || status.starts_with("signal: "))
+            })
 }
 
 #[cfg(test)]

@@ -509,10 +509,11 @@ pub fn record(
             cached,
             written,
             uncached,
+            reasoning,
         } = check.usage.tokens;
         db.execute(
-            "INSERT INTO spec_check (at, by, brief, brief_text, repo, worktree, head, spec_files, model, rules_version, system, message, output, tokens_in, tokens_out, tokens_cached, tokens_written, tokens_uncached, cost_microdollars, failure, decided_id, decided_kind)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
+            "INSERT INTO spec_check (at, by, brief, brief_text, repo, worktree, head, spec_files, model, rules_version, system, message, output, tokens_in, tokens_out, tokens_cached, tokens_written, tokens_uncached, tokens_reasoning, cost_microdollars, failure, decided_id, decided_kind)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)",
             params![
                 stamp.at,
                 stamp.by,
@@ -532,6 +533,7 @@ pub fn record(
                 cached,
                 written,
                 uncached,
+                reasoning,
                 check.usage.cost_microdollars,
                 check.failure,
                 decided.map(|(id, _)| id),
@@ -750,21 +752,43 @@ pub mod tests;
 
 /// Keeps stored checks while allowing a provider to omit token usage or cost.
 pub fn allow_unreported_usage(db: &rusqlite::Connection) -> Result<()> {
-    use crate::db::{SPEC_CHECK_PART, remake_table, statement};
+    use crate::db::{LEGACY_UNCACHED_INPUT, SPEC_CHECK_PART, remake_table, statement};
     remake_table(
         db,
         "spec_check",
         statement(SPEC_CHECK_PART, "CREATE TABLE spec_check (", ") STRICT;"),
         |db| {
             use crate::db::Sql;
-            db.execute_batch(
-                "INSERT INTO spec_check SELECT id, at, by, brief, brief_text, repo, worktree, head, spec_files, model, rules_version,
+            db.execute_batch(&format!(
+                "INSERT INTO spec_check (id, at, by, brief, brief_text, repo, worktree, head, spec_files, model, rules_version,
+                    system, message, output, tokens_in, tokens_out, tokens_cached, tokens_written, tokens_uncached,
+                    cost_microdollars, failure, decided_id, decided_kind)
+                 SELECT id, at, by, brief, brief_text, repo, worktree, head, spec_files, model, rules_version,
                     system, message, output, tokens_in, tokens_out, tokens_cached, tokens_written,
-                    CASE WHEN tokens_in - tokens_cached >= tokens_written THEN tokens_in - tokens_cached - tokens_written END,
+                    {LEGACY_UNCACHED_INPUT},
                     CASE WHEN model IN ('gpt-6.2-astra', 'gpt-6.2-sol') AND cost_microdollars = 0 THEN NULL ELSE cost_microdollars END,
                     failure, decided_id, decided_kind FROM spec_check_old",
-            ).sql()
+            )).sql()
         },
         &[],
-    )
+    )?;
+    let unreported = db
+        .prepare(
+            "SELECT id, output FROM spec_check
+             WHERE failure IS NOT NULL AND (tokens_in, tokens_out, tokens_cached, tokens_written) = (0, 0, 0, 0)",
+        )
+        .sql()?
+        .query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)))
+        .sql()?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .sql()?;
+    for (id, output) in unreported {
+        if crate::review::legacy_failure_had_no_usage(&output) {
+            db.execute(
+                "UPDATE spec_check SET tokens_in = NULL, tokens_out = NULL, tokens_cached = NULL, tokens_written = NULL, tokens_uncached = NULL WHERE id = ?1",
+                [id],
+            ).sql()?;
+        }
+    }
+    Ok(())
 }

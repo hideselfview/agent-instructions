@@ -81,6 +81,7 @@ CREATE TABLE review_call (
     tokens_cached INTEGER CONSTRAINT review_call_tokens_cached_not_negative CHECK (tokens_cached >= 0),
     tokens_written INTEGER CONSTRAINT review_call_tokens_written_not_negative CHECK (tokens_written >= 0),
     tokens_uncached INTEGER CONSTRAINT review_call_tokens_uncached_not_negative CHECK (tokens_uncached >= 0),
+    tokens_reasoning INTEGER CONSTRAINT review_call_tokens_reasoning_not_negative CHECK (tokens_reasoning >= 0),
     -- What `claude -p` reported the call cost, in millionths of a US dollar,
     -- summed over its processes; null for a call made before builds recorded
     -- the cost.
@@ -111,7 +112,8 @@ CREATE TABLE review_exchange (
     tokens_out INTEGER CONSTRAINT review_exchange_tokens_out_not_negative CHECK (tokens_out >= 0),
     tokens_cached INTEGER CONSTRAINT review_exchange_tokens_cached_not_negative CHECK (tokens_cached >= 0),
     tokens_written INTEGER CONSTRAINT review_exchange_tokens_written_not_negative CHECK (tokens_written >= 0),
-    tokens_uncached INTEGER CONSTRAINT review_exchange_tokens_uncached_not_negative CHECK (tokens_uncached >= 0)
+    tokens_uncached INTEGER CONSTRAINT review_exchange_tokens_uncached_not_negative CHECK (tokens_uncached >= 0),
+    tokens_reasoning INTEGER CONSTRAINT review_exchange_tokens_reasoning_not_negative CHECK (tokens_reasoning >= 0)
 ) STRICT;
 CREATE INDEX review_exchange_call ON review_exchange (call_id);
 

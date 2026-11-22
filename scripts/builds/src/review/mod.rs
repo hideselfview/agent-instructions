@@ -86,6 +86,8 @@ pub mod over_cap;
 mod prompt;
 mod propose;
 mod provider;
+
+pub(crate) use provider::legacy_failure_had_no_usage;
 pub use provider::{Program, Selection, Tier};
 pub mod record;
 mod render;

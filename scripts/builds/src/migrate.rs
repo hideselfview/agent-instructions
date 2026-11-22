@@ -277,7 +277,7 @@ const BEFORE_UNREPORTED_USAGE_STAMP: i64 = 1_690_253_367;
 /// adds the move, puts this stamp at the end of `STAMPS` under a name that
 /// says what the schema lacked, and sets this to the new schema's stamp, which
 /// the compiler's error names.
-const SCHEMA_STAMP: i64 = 309_746_098;
+const SCHEMA_STAMP: i64 = 807_141_969;
 
 // The compiler refuses a schema whose stamp is not SCHEMA_STAMP. A const
 // assert could not print the new stamp, so the check compares two array
@@ -552,9 +552,7 @@ pub fn move_store(places: &Places, path: &Path, now: i64) -> Result<()> {
     }
     // Every store from before builds kept the review texts on the build
     // volume writes them there, and holds hashes in their place.
-    let absolute = std::path::absolute(path)
-        .context(|| format!("resolving the store at {}", path.display()))?;
-    let project = absolute
+    let project = path
         .parent()
         .and_then(Path::file_name)
         .ok_or_else(|| {

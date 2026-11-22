@@ -14,6 +14,7 @@ fn call(group: &str, finding: Option<(&str, bool, Option<&str>)>) -> NewCall {
                 cached: Some(4),
                 written: Some(3),
                 uncached: None,
+                reasoning: None,
             },
             cost_microdollars: Some(500_000),
         },
@@ -32,6 +33,7 @@ fn call(group: &str, finding: Option<(&str, bool, Option<&str>)>) -> NewCall {
                 cached: Some(4),
                 written: Some(3),
                 uncached: None,
+                reasoning: None,
             },
             started_at: 1_790_000_000,
             ms: 2_000,
@@ -540,8 +542,8 @@ fn migrating_failed_review_exchanges_preserves_measured_zero_and_removes_unknown
     };
     let legacy = old(
         "failed",
-        "claude exited with exit status: 1: limit",
-        "no answer: claude exited with exit status: 1: limit",
+        "./claude exited with exit status: 1: limit",
+        "no answer: ./claude exited with exit status: 1: limit",
     );
     let measured = old(
         "measured",
@@ -557,7 +559,7 @@ fn migrating_failed_review_exchanges_preserves_measured_zero_and_removes_unknown
         &db,
         &texts,
         &run(Some(landing), 6, "base", "head"),
-        &[legacy, measured, ambiguous.clone()],
+        &[legacy, measured.clone(), ambiguous.clone()],
     )
     .unwrap();
     let run_id = db
@@ -565,19 +567,24 @@ fn migrating_failed_review_exchanges_preserves_measured_zero_and_removes_unknown
             row.get::<_, i64>(0)
         })
         .unwrap();
-    let hash = crate::review::texts::hash(&ambiguous.exchanges[0].output);
-    std::fs::remove_file(
-        crate::review::texts::root(&places)
-            .join("demo")
-            .join(run_id.to_string())
-            .join(hash),
-    )
-    .unwrap();
+    let answers = crate::review::texts::root(&places)
+        .join("demo")
+        .join(run_id.to_string());
+    for call in [measured, ambiguous] {
+        let hash = crate::review::texts::hash(&call.exchanges[0].output);
+        std::fs::remove_file(answers.join(hash)).unwrap();
+    }
     db.pragma_update(None, "foreign_keys", false).unwrap();
     allow_unreported_tokens(&db, &texts).unwrap();
     let calls = calls_of_landing(&db, landing).unwrap();
     assert_eq!(calls[0].usage.tokens, Tokens::default());
-    assert_eq!(calls[1].usage.tokens, Tokens::ZERO);
+    assert_eq!(
+        calls[1].usage.tokens,
+        Tokens {
+            reasoning: None,
+            ..Tokens::ZERO
+        }
+    );
     assert_eq!(calls[2].usage.tokens, Tokens::default());
     let results = db
         .prepare("SELECT tokens_in FROM review_exchange ORDER BY id")

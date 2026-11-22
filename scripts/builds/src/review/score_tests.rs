@@ -22,6 +22,7 @@ fn call(id: i64, run: i64, group: &str, rules: &[&str], cost: Option<i64>) -> Ca
                 cached: Some(0),
                 written: Some(0),
                 uncached: None,
+                reasoning: None,
             },
             cost_microdollars: cost,
         },
@@ -185,7 +186,7 @@ fn settled_findings_count_as_true_and_false_positives_and_a_confirmed_miss_as_a_
         .iter()
         .find(|g| g.setup.group == "reads")
         .unwrap();
-    assert_eq!((reads.spend.calls, reads.spend.uncosted), (1, 1));
+    assert_eq!((reads.spend.calls, reads.spend.cost.missing), (1, 1));
     assert!(spend_text(&reads.spend).contains("cost not recorded"));
     assert_eq!(reads.total().precision(), None);
 }
@@ -377,7 +378,7 @@ fn the_store_scores_each_setup_from_settled_findings_and_confirmed_audit_misses(
         .unwrap();
     assert_eq!(alpha.setup.model, "sonnet");
     assert_eq!(alpha.spend.calls, 1);
-    assert_eq!(alpha.spend.cost_microdollars, 10_000);
+    assert_eq!(alpha.spend.cost.sum, 10_000);
     assert!(scores.audits.calls >= 3);
     let report = store_report("demo", &scores);
     assert!(
@@ -429,6 +430,7 @@ fn a_finding_settled_again_counts_as_dropped_and_a_closed_or_allowed_one_as_conf
                 cached: Some(0),
                 written: Some(0),
                 uncached: None,
+                reasoning: None,
             },
             cost_microdollars: Some(0),
         },
@@ -559,6 +561,7 @@ fn a_first_review_records_its_changed_lines_and_its_groups_confirmed_findings() 
                 cached: Some(0),
                 written: Some(0),
                 uncached: None,
+                reasoning: None,
             },
             cost_microdollars: Some(0),
         },

@@ -130,6 +130,28 @@ fn a_caller_is_a_session_and_an_agent_and_the_person_has_no_session() {
 }
 
 #[test]
+fn help_and_version_work_with_a_malformed_claude_session_id() {
+    use std::os::unix::ffi::OsStringExt;
+    use std::process::ExitCode;
+
+    for command in ["help", "version"] {
+        let invalid = std::ffi::OsString::from_vec(vec![0xff]);
+        let session = Session::of(Some(invalid), None, None, None);
+        assert!(
+            session
+                .caller()
+                .unwrap_err()
+                .text()
+                .contains("not a UTF-8 session ID")
+        );
+        assert_eq!(
+            crate::run_command(&[command.to_string()], session),
+            ExitCode::SUCCESS
+        );
+    }
+}
+
+#[test]
 fn a_running_command_line_loses_its_agent_option_wherever_it_stands() {
     let words = |line: &str| line.split(' ').map(str::to_string).collect::<Vec<_>>();
     assert_eq!(

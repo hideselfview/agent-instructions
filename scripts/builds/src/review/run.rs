@@ -466,16 +466,16 @@ fn holds_open(group: &Group, members: &[&Rule], paths: &[String], open: &[Findin
         .any(|finding| paths.iter().any(|path| names_file(path, &finding.file)))
 }
 
+fn group_covers(members: &[&Rule], paths: &[String], files: &Globs) -> bool {
+    members.iter().any(|rule| rule.matches(paths, files))
+}
+
 /// The units of group <at>, <group> with <members>, over <diff>, its view
 /// of the change (`unjudged`): a group that lists sites gets one per changed
 /// file its rules cover, by either path of a rename, or one per changed file
 /// when it holds a finding of <open>, and one for the commit messages when it
 /// reads them; any other group gets one for the whole diff, with the commit
 /// messages when it reads them (`Diff::text_for`).
-fn group_covers(members: &[&Rule], paths: &[String], files: &Globs) -> bool {
-    members.iter().any(|rule| rule.matches(paths, files))
-}
-
 fn units_of<'a>(
     group: &'a Group,
     members: &'a [&'a Rule],
@@ -559,7 +559,6 @@ fn judges_code(
     group: &Group,
     members: &[&Rule],
     units: &[Unit],
-    excluded: &[String],
     diff: &Diff,
     files: &Globs,
     open: &[Finding],
@@ -576,7 +575,7 @@ fn judges_code(
             .iter()
             .filter_map(|unit| unit.file.as_ref())
             .any(|file| {
-                file.path != files::COMMIT_MESSAGE && !excluded.contains(&file.path) && {
+                file.path != files::COMMIT_MESSAGE && {
                     let paths = file.paths();
                     // With no open findings, units_of already checked coverage.
                     (held.is_empty() || group_covers(members, &paths, files))
@@ -647,21 +646,29 @@ pub fn ask_groups(
         .zip(&views)
         .map(|(paths, view)| view.without(paths))
         .collect();
+    // Builds asks only the units that can read their files.
+    let units: Vec<Vec<Unit>> = first
+        .into_iter()
+        .map(|units| {
+            units
+                .into_iter()
+                .filter(|unit| match &unit.file {
+                    Some(file) => !not_read[unit.diff].contains(&file.path),
+                    None => {
+                        (not_read[unit.diff].is_empty() && unjudged[unit.diff].is_empty())
+                            || !diffs[unit.diff].text_for(unit.group).trim().is_empty()
+                    }
+                })
+                .collect()
+        })
+        .collect();
     let reviewers: Vec<_> = picked
         .iter()
         .enumerate()
         .map(|(at, (group, members))| {
             if kind == ReviewKind::Branch
                 && reviewer.uses_code_review_effort()
-                && judges_code(
-                    group,
-                    members,
-                    &first[at],
-                    &not_read[at],
-                    &diffs[at],
-                    files,
-                    open,
-                )
+                && judges_code(group, members, &units[at], &diffs[at], files, open)
             {
                 reviewer.for_code_review()
             } else {
@@ -690,18 +697,7 @@ pub fn ask_groups(
         }
         None => None,
     };
-    // builds does not ask a unit whose files its group does not read now.
-    let units: Vec<Unit> = first
-        .into_iter()
-        .flatten()
-        .filter(|unit| match &unit.file {
-            Some(file) => !not_read[unit.diff].contains(&file.path),
-            None => {
-                (not_read[unit.diff].is_empty() && unjudged[unit.diff].is_empty())
-                    || !diffs[unit.diff].text_for(unit.group).trim().is_empty()
-            }
-        })
-        .collect();
+    let units: Vec<Unit> = units.into_iter().flatten().collect();
     let one = |unit: &Unit, pass: usize| {
         let reviewer = &reviewers[unit.diff];
         let group = unit.group;

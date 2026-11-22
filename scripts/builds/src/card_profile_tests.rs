@@ -159,6 +159,7 @@ fn landed_card(scratch: &Scratch) -> (crate::lists::store::Store, Id) {
                         cached: Some(0),
                         written: Some(0),
                         uncached: None,
+                        reasoning: None,
                     },
                     started_at,
                     ms,

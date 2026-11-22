@@ -33,6 +33,7 @@ CREATE TABLE spec_check (
     tokens_cached INTEGER CONSTRAINT spec_check_tokens_cached_not_negative CHECK (tokens_cached >= 0),
     tokens_written INTEGER CONSTRAINT spec_check_tokens_written_not_negative CHECK (tokens_written >= 0),
     tokens_uncached INTEGER CONSTRAINT spec_check_tokens_uncached_not_negative CHECK (tokens_uncached >= 0),
+    tokens_reasoning INTEGER CONSTRAINT spec_check_tokens_reasoning_not_negative CHECK (tokens_reasoning >= 0),
     cost_microdollars INTEGER CONSTRAINT spec_check_cost_not_negative CHECK (cost_microdollars >= 0),
     -- Why the check gave no usable answer; null when it did.
     failure TEXT,

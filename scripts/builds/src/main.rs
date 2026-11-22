@@ -209,13 +209,17 @@ fn main() -> ExitCode {
         Ok(args) => args,
         Err(fail) => return exit_code(fail),
     };
+    let session = ack::agent::Session::from_env(agent);
+    run_command(&args, session)
+}
+
+fn run_command(args: &[String], session: ack::agent::Session) -> ExitCode {
     let Some((command, rest)) = args.split_first() else {
         print!("{}", help::HELP);
         return ExitCode::from(2);
     };
-    let session = ack::agent::Session::from_env(agent);
     let nested = std::env::var_os(ack::PASSED).is_some();
-    let _use = match enter_stores(command, &args) {
+    let _use = match enter_stores(command, args) {
         Ok(held) => held,
         Err(fail) => return exit_code(fail),
     };
