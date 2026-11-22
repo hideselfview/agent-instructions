@@ -54,43 +54,25 @@ pub enum Recreate {
 pub fn evict(places: &Places, dir: &Path, recreate: Recreate, removal: Removal) -> Result<bool> {
     let folder = std::fs::canonicalize(dir).context(|| format!("resolving {}", dir.display()))?;
     crate::sizes::stale(places, &folder)?;
-    evict_folder(places, &folder, recreate, removal, None)
-}
-
-/// `evict` of <folder>, which is resolved already, without telling the daemon
-/// that its root changed: the caller does that once for its deletions. With
-/// <open>, a reading of the paths processes hold that the caller took, the
-/// check for a process that holds a file asks it and runs no `lsof`.
-pub(crate) fn evict_folder(
-    places: &Places,
-    folder: &Path,
-    recreate: Recreate,
-    removal: Removal,
-    open: Option<&HeldPaths>,
-) -> Result<bool> {
     let parent = folder
         .parent()
         .expect("a folder to delete has a parent")
         .to_path_buf();
     let same_volume = device(&parent)? == device(&places.root)?;
-    let _guard = match crate::units::lock_guard_creating(folder)? {
+    let _guard = match crate::units::lock_guard_creating(&folder)? {
         crate::units::Guard::Busy => return Ok(false),
         guard => guard,
     };
-    let Some(_locks) = cargo_locks(folder)? else {
+    let Some(_locks) = cargo_locks(&folder)? else {
         return Ok(false);
     };
-    let held = match open {
-        Some(open) => open.holds(folder),
-        None => held_by_a_process(folder)?,
-    };
-    if held {
+    if held_by_a_process(&folder)? {
         return Ok(false);
     }
     let name = folder.file_name().expect("a folder to delete has a name");
     if !same_volume {
         let slot = make_temp_dir(&parent, ".builds-deleting.")?;
-        let moved = move_in(folder, &slot, name, recreate)?;
+        let moved = move_in(&folder, &slot, name, recreate)?;
         drop(_locks);
         remove(&slot, removal)?;
         return Ok(moved);
@@ -100,7 +82,7 @@ pub(crate) fn evict_folder(
     // the slot while it is being removed.
     let _trash_lock = crate::trash::lock_shared(places)?;
     let slot = crate::trash::Slot::make(places)?;
-    let moved = move_in(folder, &slot.path, name, recreate)?;
+    let moved = move_in(&folder, &slot.path, name, recreate)?;
     drop(_locks);
     match removal {
         Removal::Now => slot.remove_now(),

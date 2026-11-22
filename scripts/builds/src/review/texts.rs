@@ -141,7 +141,7 @@ pub fn prune_texts(tool: &Tool, run: Run, cap_kib: u64) -> Result<()> {
     if !root.is_dir() {
         return Ok(());
     }
-    capped_store::prune(tool, run, &root, cap_kib, vec![group(&tool.places)?])
+    capped_store::prune(tool, run, &root, cap_kib, || Ok(vec![group(&tool.places)?]))
 }
 
 /// Texts of a project in a folder of its own that no other test shares.

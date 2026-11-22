@@ -163,38 +163,16 @@ pub fn delete_folder(
     removal: Removal,
     after: &str,
 ) -> Result<bool> {
-    delete_folder_among(tool, folder, run, reason, recreate, removal, after, None)
-}
-
-/// `delete_folder`. With <held>, a reading of the paths processes hold that
-/// the caller took, <folder> must be resolved already: the deletion runs no
-/// `lsof` and does not tell the daemon, which the caller does once for its
-/// deletions (`crate::sizes::stale`).
-#[allow(clippy::too_many_arguments)]
-pub fn delete_folder_among(
-    tool: &Tool,
-    folder: &Path,
-    run: Run,
-    reason: &str,
-    recreate: Recreate,
-    removal: Removal,
-    after: &str,
-    held: Option<&crate::evict::HeldPaths>,
-) -> Result<bool> {
     if run.dry() {
         note(format!("would delete {} ({reason})", folder.display()));
-        return Ok(true);
-    }
-    let deleted = match held {
-        None => evict(&tool.places, folder, recreate, removal)?,
-        Some(_) => crate::evict::evict_folder(&tool.places, folder, recreate, removal, held)?,
-    };
-    if deleted {
+        Ok(true)
+    } else if evict(&tool.places, folder, recreate, removal)? {
         note(format!("deleted {} ({reason}){after}", folder.display()));
+        Ok(true)
     } else {
         note(format!("in use, kept: {} ({reason})", folder.display()));
+        Ok(false)
     }
-    Ok(deleted)
 }
 
 /// A DerivedData entry and what it takes.

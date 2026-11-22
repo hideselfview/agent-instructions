@@ -47,7 +47,7 @@ fn group(root: &Path) -> Group {
 }
 
 fn prune_now(tool: &Tool, run: Run, root: &Path, cap_kib: u64) {
-    prune(tool, run, root, cap_kib, vec![group(root)]).unwrap();
+    prune(tool, run, root, cap_kib, || Ok(vec![group(root)])).unwrap();
 }
 
 #[test]
@@ -153,7 +153,7 @@ fn the_folders_deleted_units_leave_empty_go_and_the_root_stays() {
             what: "unit",
         }],
     };
-    prune(&tool, Run::Real, &root, 100, vec![group]).unwrap();
+    prune(&tool, Run::Real, &root, 100, || Ok(vec![group])).unwrap();
     assert!(!unit.exists());
     assert!(!root.join("g").exists());
     assert!(root.exists());
@@ -190,7 +190,7 @@ fn files_and_loose_files_go_in_order_and_each_group_has_its_own_cap() {
     }
     // Only the first group, with 501 KiB, is over the cap of 450 KiB.
     fill(&root.join("x").join("more"), 100);
-    prune(&tool, Run::Real, &root, 450, groups).unwrap();
+    prune(&tool, Run::Real, &root, 450, || Ok(groups)).unwrap();
     let (x, y) = (&files[0], &files[1]);
     assert!(!x.0.exists() && !x.0.with_extension("json").exists() && !x.1.exists());
     assert!(
@@ -258,4 +258,38 @@ fn a_writer_waits_for_a_prunes_renames_not_for_its_questions_to_the_daemon() {
         "a writer waited {waited:?} for a prune"
     );
     std::fs::remove_dir_all(&volume).unwrap();
+}
+
+#[test]
+fn deleting_a_unit_leaves_empty_directories_inside_retained_units() {
+    let scratch = Scratch::new("capped-retained-empty");
+    let tool = scratch.tool(0);
+    let root = scratch.dir.join("root");
+    let old = store(&root, "g/old", 400, 30);
+    let retained = store(&root, "g/retained", 400, 0);
+    let empty = retained.join("report/empty");
+    std::fs::create_dir_all(&empty).unwrap();
+
+    prune_now(&tool, Run::Real, &root, 500);
+
+    assert!(!old.exists());
+    assert!(empty.is_dir());
+}
+
+#[test]
+fn an_access_during_planning_keeps_the_updated_unit() {
+    let scratch = Scratch::new("capped-plan-invalidated");
+    let tool = scratch.tool(0);
+    let root = scratch.dir.join("root");
+    let unit = store(&root, "g/a", 400, 30);
+    prune(&tool, Run::Real, &root, 100, || {
+        let stale = group(&root);
+        // The plan is already open. A reader can acquire the shared lock
+        // and update the unit before the planner returns its old snapshot.
+        let _reading = writing(&root)?;
+        mark_used(&unit.join("data"))?;
+        Ok(vec![stale])
+    })
+    .unwrap();
+    assert!(unit.join("data").is_file());
 }

@@ -740,11 +740,12 @@ fn prune_naming(
     if !shots.is_dir() {
         return Ok(());
     }
-    let mut groups = Vec::new();
-    for (repo, _) in capped_store::tops_in(&shots)? {
-        groups.push(group(&tool.places, &repo, &named(&repo)?)?);
-    }
-    capped_store::prune(tool, run, &shots, cap_kib, groups)
+    capped_store::prune(tool, run, &shots, cap_kib, || {
+        capped_store::tops_in(&shots)?
+            .into_iter()
+            .map(|(repo, _)| group(&tool.places, &repo, &named(&repo)?))
+            .collect()
+    })
 }
 
 /// A repo whose runs that branches waiting to land name take more than

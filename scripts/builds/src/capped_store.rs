@@ -23,17 +23,22 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use crate::evict::{Recreate, Removal};
+use crate::evict::Recreate;
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::places::FLOOR_IDLE_MINUTES;
-use crate::prune::{Run, delete_folder_among};
+use crate::prune::Run;
 use crate::text::{human, note};
 use crate::tool::Tool;
 
 /// The lock file in a root that each writer holds shared and the prune
 /// exclusively while it deletes staging folders and empty folders.
 const WRITING: &str = ".writing";
+/// Serializes prune plans without excluding readers and writers.
+const PRUNING: &str = ".pruning";
+/// An access removes this file before touching the cache. A prune can use
+/// its plan only while the file it created still exists.
+const PLAN: &str = ".prune-plan";
 /// What a staging folder's name starts with after the dot that hides it.
 const STAGING: &str = ".staging-";
 
@@ -57,7 +62,9 @@ pub struct Staging {
 /// exclusively; the lock lasts as long as the file it returns.
 pub fn writing(root: &Path) -> Result<std::fs::File> {
     std::fs::create_dir_all(root).context(|| format!("creating {}", root.display()))?;
-    crate::evict::lock_shared_creating(&root.join(WRITING))
+    let shared = crate::evict::lock_shared_creating(&root.join(WRITING))?;
+    remove_file(&root.join(PLAN))?;
+    Ok(shared)
 }
 
 /// Starts storing a unit at <into>, under <root>: an empty staging folder at
@@ -226,14 +233,9 @@ enum Unit {
     Files(Vec<PathBuf>),
 }
 
-/// One deletion of a prune, which it makes while it holds the root.
-enum Step {
-    /// A folder a writer of the group left half filled.
-    Staging { folder: PathBuf, reason: String },
-    /// A file a writer left half written.
-    Loose { file: PathBuf, reason: String },
-    /// A whole unit the cap deletes.
-    Unit { unit: Unit, reason: String },
+struct Deletion {
+    unit: Unit,
+    reason: String,
 }
 
 /// Deletes nothing while a writer or reader holds <root>; else each staging
@@ -243,132 +245,238 @@ enum Step {
 /// the deletions left empty. A unit used in the last FLOOR_IDLE_MINUTES
 /// stays: a reader may have it open.
 ///
-/// The prune measures and picks what to delete before it takes the lock, and
-/// holds the lock only while it renames the picked folders into the trash:
-/// one reading of the open files, no question to the daemon (it hears of each
-/// changed root once, after the lock goes), and no measuring. A writer that
-/// arrives meanwhile waits for the renames.
-pub fn prune(tool: &Tool, run: Run, root: &Path, cap_kib: u64, groups: Vec<Group>) -> Result<()> {
-    let mut plans = Vec::new();
-    for group in groups {
-        plans.push(plan_group(tool, cap_kib, group)?);
-    }
-    let Some(alone) = crate::evict::try_lock_creating(&root.join(WRITING))? else {
-        note(format!(
-            "a writer or reader holds {}, so prune deletes nothing in it",
-            root.display()
-        ));
+/// The prune walks and measures the cache without the exclusive lock. It
+/// takes that lock for each planned deletion, and stops if someone has
+/// accessed the cache since planning began.
+pub fn prune(
+    tool: &Tool,
+    run: Run,
+    root: &Path,
+    cap_kib: u64,
+    groups: impl FnOnce() -> Result<Vec<Group>>,
+) -> Result<()> {
+    let Some(_pruning) = crate::evict::try_lock_creating(&root.join(PRUNING))? else {
+        note(format!("Another prune is working in {}.", root.display()));
         return Ok(());
     };
-    // Nobody reads or writes the root until the lock goes.
-    let held = crate::evict::HeldPaths::read()?;
-    let mut changed = BTreeSet::new();
-    let deleted = delete_planned(tool, run, root, plans, &held, &mut changed);
+    let Some(alone) = idle(root)? else {
+        return Ok(());
+    };
+    let marker = root.join(PLAN);
+    std::fs::File::create(&marker).context(|| format!("creating {}", marker.display()))?;
     drop(alone);
-    // The daemon hears of each root a deletion changed, also when a later
-    // deletion failed.
-    let told: Result<()> = {
-        let failed: Vec<String> = changed
-            .iter()
-            .filter_map(|folder| crate::sizes::stale(&tool.places, folder).err())
-            .map(crate::fail::Fail::text)
-            .collect();
-        if failed.is_empty() {
-            Ok(())
-        } else {
-            Err(crate::fail::Fail::Message(failed.join("; ")))
+
+    let planned = plan(tool, root, cap_kib, groups);
+    let mut changed = BTreeSet::new();
+    let deleted = apply_plan(tool, run, root, &marker, planned, &mut changed);
+    let cleanup = remove_file(&marker);
+    let errors = [deleted, cleanup]
+        .into_iter()
+        .chain(
+            changed
+                .iter()
+                .map(|folder| crate::sizes::stale(&tool.places, folder)),
+        )
+        .filter_map(Result::err)
+        .map(crate::fail::Fail::text)
+        .collect::<Vec<_>>();
+    if errors.is_empty() {
+        return Ok(());
+    }
+    fail!("{}", errors.join("; "))
+}
+
+fn idle(root: &Path) -> Result<Option<std::fs::File>> {
+    let lock = crate::evict::try_lock_creating(&root.join(WRITING))?;
+    if lock.is_none() {
+        note(format!(
+            "A reader or writer holds {}. The prune skips it.",
+            root.display()
+        ));
+    }
+    Ok(lock)
+}
+
+fn plan_valid(marker: &Path) -> Result<bool> {
+    let valid = marker
+        .try_exists()
+        .context(|| format!("checking {}", marker.display()))?;
+    if !valid {
+        note(format!(
+            "A reader or writer used {} during planning. The prune skips the remaining deletions.",
+            marker
+                .parent()
+                .expect("a plan belongs to a cache")
+                .display()
+        ));
+    }
+    Ok(valid)
+}
+
+fn plan(
+    tool: &Tool,
+    root: &Path,
+    cap_kib: u64,
+    groups: impl FnOnce() -> Result<Vec<Group>>,
+) -> Result<Vec<Deletion>> {
+    let mut steps = Vec::new();
+    let mut held = None;
+    for (name, folder) in folders_in(root)? {
+        if is_staging(&name) {
+            let reason = "the staging folder of a writer that ended".to_string();
+            if folder_available(&folder, &reason, &mut held)? {
+                steps.push(Deletion {
+                    unit: Unit::Folder(folder),
+                    reason,
+                });
+            }
+        }
+    }
+    for group in groups()? {
+        steps.extend(plan_group(tool, cap_kib, group, &mut held)?);
+    }
+    Ok(steps)
+}
+
+fn apply_plan(
+    tool: &Tool,
+    run: Run,
+    root: &Path,
+    marker: &Path,
+    planned: Result<Vec<Deletion>>,
+    changed: &mut BTreeSet<PathBuf>,
+) -> Result<()> {
+    let steps = match planned {
+        Ok(steps) => steps,
+        Err(error) => {
+            // Concurrent access can invalidate a path while it is measured.
+            let Some(_alone) = idle(root)? else {
+                return Ok(());
+            };
+            return if plan_valid(marker)? {
+                Err(error)
+            } else {
+                Ok(())
+            };
         }
     };
-    match (deleted, told) {
+    if steps.is_empty() {
+        return Ok(());
+    }
+    let trash = if run.dry() {
+        None
+    } else {
+        let hold = crate::trash::lock_shared(&tool.places)?;
+        Some((hold, crate::trash::Slot::make(&tool.places)?))
+    };
+    let deleted = apply_steps(
+        &tool.places,
+        marker,
+        steps,
+        trash.as_ref().map(|(_, slot)| slot),
+        changed,
+    );
+    let removed = match trash {
+        Some((hold, slot)) => {
+            let removed = slot.remove_background();
+            drop(hold);
+            removed
+        }
+        None => Ok(()),
+    };
+    match (deleted, removed) {
         (Err(error), Err(also)) => fail!("{}; {}", error.text(), also.text()),
         (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
         (Ok(()), Ok(())) => Ok(()),
     }
 }
 
-/// The deletions of `prune` while it holds <root>: the staging folders at its
-/// top, then each plan's steps, then the folders they left empty.
-fn delete_planned(
-    tool: &Tool,
-    run: Run,
-    root: &Path,
-    plans: Vec<Vec<Step>>,
-    held: &crate::evict::HeldPaths,
+fn apply_steps(
+    places: &crate::places::Places,
+    marker: &Path,
+    steps: Vec<Deletion>,
+    trash: Option<&crate::trash::Slot>,
     changed: &mut BTreeSet<PathBuf>,
 ) -> Result<()> {
-    for (name, folder) in folders_in(root)? {
-        if is_staging(&name) {
-            delete_folder_noting(
-                tool,
-                run,
-                &folder,
-                "the staging folder of a writer that ended",
-                held,
-                changed,
-            )?;
+    let root = marker.parent().expect("a plan belongs to a cache");
+    for (index, Deletion { unit, reason }) in steps.into_iter().enumerate() {
+        let Some(alone) = idle(root)? else {
+            break;
+        };
+        if !plan_valid(marker)? {
+            break;
         }
-    }
-    for plan in plans {
-        for step in plan {
-            match step {
-                Step::Staging { folder, reason }
-                | Step::Unit {
-                    unit: Unit::Folder(folder),
-                    reason,
-                } => {
-                    delete_folder_noting(tool, run, &folder, &reason, held, changed)?;
+        let shown = match &unit {
+            Unit::Folder(folder) => folder,
+            Unit::Files(files) => &files[0],
+        };
+        let Some(slot) = trash else {
+            drop(alone);
+            note(format!("would delete {} ({reason})", shown.display()));
+            continue;
+        };
+        let moved = match &unit {
+            Unit::Folder(folder) => {
+                let moved = crate::evict::move_in(
+                    folder,
+                    &slot.path,
+                    std::ffi::OsStr::new(&index.to_string()),
+                    Recreate::No,
+                )?;
+                if moved {
+                    if let Some(changed_root) = crate::sizes::root_of(places, folder) {
+                        changed.insert(changed_root);
+                    }
+                    remove_empty_parents(root, folder)?;
                 }
-                Step::Loose { file, reason } => {
-                    delete_files(run, &[&file], &reason)?;
-                }
-                Step::Unit {
-                    unit: Unit::Files(files),
-                    reason,
-                } => {
-                    delete_files(run, &files.iter().collect::<Vec<_>>(), &reason)?;
-                }
+                moved
             }
+            Unit::Files(files) => {
+                for file in files {
+                    remove_file(file)?;
+                }
+                for file in files {
+                    remove_empty_parents(root, file)?;
+                }
+                true
+            }
+        };
+        drop(alone);
+        if moved {
+            note(format!("deleted {} ({reason})", shown.display()));
         }
-    }
-    if !run.dry() {
-        remove_empty(root)?;
     }
     Ok(())
 }
 
-/// `delete_folder_among` of <folder>, resolved first, adding the resolved
-/// folder to <changed> when it went (a dry run changes nothing).
-fn delete_folder_noting(
-    tool: &Tool,
-    run: Run,
+fn folder_available(
     folder: &Path,
     reason: &str,
-    held: &crate::evict::HeldPaths,
-    changed: &mut BTreeSet<PathBuf>,
-) -> Result<()> {
-    let resolved =
+    held: &mut Option<crate::evict::HeldPaths>,
+) -> Result<bool> {
+    let open = match held {
+        Some(open) => open,
+        None => held.insert(crate::evict::HeldPaths::read()?),
+    };
+    let folder =
         std::fs::canonicalize(folder).context(|| format!("resolving {}", folder.display()))?;
-    if delete_folder_among(
-        tool,
-        &resolved,
-        run,
-        reason,
-        Recreate::No,
-        Removal::Background,
-        "",
-        Some(held),
-    )? && !run.dry()
-    {
-        changed.insert(resolved);
+    if open.holds(&folder) {
+        note(format!("in use, kept: {} ({reason})", folder.display()));
+        return Ok(false);
     }
-    Ok(())
+    Ok(true)
 }
 
 /// What `prune` deletes in one group, in order, read without holding the
 /// root: the staging folders and loose files, then the least recently used
 /// units, while the group is over <cap_kib>. A unit a process holds open (one
 /// reading of the open files) stays and counts as kept.
-fn plan_group(tool: &Tool, cap_kib: u64, group: Group) -> Result<Vec<Step>> {
+fn plan_group(
+    tool: &Tool,
+    cap_kib: u64,
+    group: Group,
+    held: &mut Option<crate::evict::HeldPaths>,
+) -> Result<Vec<Deletion>> {
     let mut steps = Vec::new();
     let mut paths = vec![group.folder.clone()];
     for kept in &group.kept {
@@ -396,8 +504,13 @@ fn plan_group(tool: &Tool, cap_kib: u64, group: Group) -> Result<Vec<Step>> {
                     "{}, the staging folder of a writer that ended",
                     human(measured.kib)
                 );
-                total = total.saturating_sub(measured.kib);
-                steps.push(Step::Staging { folder, reason });
+                if folder_available(&folder, &reason, held)? {
+                    total = total.saturating_sub(measured.kib);
+                    steps.push(Deletion {
+                        unit: Unit::Folder(folder),
+                        reason,
+                    });
+                }
             }
             Kept::Loose { file } => {
                 let kib = file_kib(&file)?;
@@ -406,7 +519,10 @@ fn plan_group(tool: &Tool, cap_kib: u64, group: Group) -> Result<Vec<Step>> {
                     human(kib)
                 );
                 total = total.saturating_sub(kib);
-                steps.push(Step::Loose { file, reason });
+                steps.push(Deletion {
+                    unit: Unit::Files(vec![file]),
+                    reason,
+                });
             }
             Kept::Folder {
                 folder,
@@ -416,11 +532,9 @@ fn plan_group(tool: &Tool, cap_kib: u64, group: Group) -> Result<Vec<Step>> {
                 let measured = measures.next().expect("the folder was measured");
                 let used = match last_use {
                     Use::At(time) => time,
-                    // None: the folder went while the prune held the root
-                    // exclusively, and only the prune deletes it.
                     Use::NewestInside => measured.newest.ok_or_else(|| {
                         fail::Fail::Message(format!(
-                            "{} went while the prune held {WRITING} exclusively, and only the prune deletes it",
+                            "{} disappeared during prune planning",
                             folder.path.display()
                         ))
                     })?,
@@ -442,26 +556,11 @@ fn plan_group(tool: &Tool, cap_kib: u64, group: Group) -> Result<Vec<Step>> {
     }
     units.sort_by_key(|unit| unit.0);
     let recent = tool.now - (FLOOR_IDLE_MINUTES * 60) as i64;
-    let open = if total > cap_kib {
-        Some(crate::evict::HeldPaths::read()?)
-    } else {
-        None
-    };
     for (used, kib, what, unit) in units {
         if total <= cap_kib {
             break;
         }
         if used >= recent {
-            continue;
-        }
-        if let (Unit::Folder(folder), Some(open)) = (&unit, &open)
-            && open.holds(folder)
-        {
-            note(format!(
-                "in use, kept: {} ({}, {what})",
-                folder.display(),
-                human(kib)
-            ));
             continue;
         }
         let reason = format!(
@@ -471,8 +570,13 @@ fn plan_group(tool: &Tool, cap_kib: u64, group: Group) -> Result<Vec<Step>> {
             human(total),
             human(cap_kib)
         );
+        if let Unit::Folder(folder) = &unit
+            && !folder_available(folder, &reason, held)?
+        {
+            continue;
+        }
         total = total.saturating_sub(kib);
-        steps.push(Step::Unit { unit, reason });
+        steps.push(Deletion { unit, reason });
     }
     let (in_use_kib, count, by) = in_use;
     if in_use_kib > cap_kib {
@@ -497,54 +601,28 @@ fn file_kib(path: &Path) -> Result<u64> {
     }
 }
 
-/// Deletes <files> in order for <reason>, or says it would; returns whether
-/// they went, or on a dry run would go.
-fn delete_files(run: Run, files: &[&PathBuf], reason: &str) -> Result<bool> {
-    let shown = files[0].display();
-    if run.dry() {
-        note(format!("would delete {shown} ({reason})"));
-        return Ok(true);
+/// Removes the file if it is present.
+fn remove_file(file: &Path) -> Result<()> {
+    match std::fs::remove_file(file) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => fail!("deleting {}: {error}", file.display()),
     }
-    for file in files {
-        match std::fs::remove_file(file) {
-            Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
-                fail!("deleting {}: {error}", file.display())
-            }
-            _ => {}
-        }
-    }
-    note(format!("deleted {shown} ({reason})"));
-    Ok(true)
 }
 
-/// Removes each folder under <root> that holds nothing, deepest first, and
-/// leaves hidden folders alone. The caller holds `WRITING` exclusively.
-fn remove_empty(root: &Path) -> Result<()> {
-    let entries = match std::fs::read_dir(root) {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => fail!("listing {}: {error}", root.display()),
-    };
-    for entry in entries {
-        let entry = entry.context(|| format!("listing {}", root.display()))?;
-        let path = entry.path();
-        if entry.file_name().as_encoded_bytes().first() == Some(&b'.')
-            || !path.is_dir()
-            || path.is_symlink()
-        {
-            continue;
-        }
-        remove_empty(&path)?;
-        match std::fs::remove_dir(&path) {
-            Err(error)
-                if !matches!(
-                    error.kind(),
-                    std::io::ErrorKind::NotFound | std::io::ErrorKind::DirectoryNotEmpty
-                ) =>
-            {
-                fail!("removing {}: {error}", path.display())
-            }
-            _ => {}
+/// Removes only the ancestors a deletion could have emptied. The caller
+/// holds `WRITING` exclusively, so no writer is about to populate them.
+fn remove_empty_parents(root: &Path, deleted: &Path) -> Result<()> {
+    for parent in deleted
+        .ancestors()
+        .skip(1)
+        .take_while(|parent| *parent != root)
+    {
+        match std::fs::remove_dir(parent) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) if error.kind() == std::io::ErrorKind::DirectoryNotEmpty => break,
+            Err(error) => fail!("removing {}: {error}", parent.display()),
         }
     }
     Ok(())
