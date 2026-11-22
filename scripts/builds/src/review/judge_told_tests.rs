@@ -233,7 +233,7 @@ fn a_dispute_that_reached_no_judge_is_sent_when_the_judge_settles_another_findin
 /// acknowledgement, which judge_ack_tests.rs covers.
 fn health(r: &Reviewed) -> Vec<String> {
     let mut lines = crate::health_fix::tell_judges(&r.demo.scratch.tool(0)).unwrap();
-    lines.retain(|line| !line.contains("acknowledge the text again"));
+    lines.retain(|line| !line.contains(crate::review::judge_ack::ACKNOWLEDGE));
     lines
 }
 

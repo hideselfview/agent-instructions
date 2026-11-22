@@ -10,6 +10,9 @@ use crate::inbox::{Sent, send};
 use crate::lists::store::Store;
 use crate::review::judge;
 
+/// What each line `tell_outdated` returns says the judge should do.
+pub const ACKNOWLEDGE: &str = "acknowledge the text";
+
 /// Sends the judge of <store>'s project, while its session runs
 /// (`judge::listening`, the fact that `review settle` reads too), that it has
 /// no acknowledgement and how to acknowledge. Returns the line to print, or
@@ -29,11 +32,11 @@ pub fn tell_outdated(store: &Store, sessions: &Path) -> Result<Option<String>> {
     );
     Ok(Some(match send(&judge.inbox, &message)? {
         Sent::Delivered => format!(
-            "builds told the judge {} of project {project} to acknowledge the text: {why}",
+            "builds told the judge {} of project {project} to {ACKNOWLEDGE}: {why}",
             judge.by
         ),
         Sent::Gone => format!(
-            "the inbox of the judge {} of project {project} is gone, so builds could not tell it to acknowledge the text: {why}",
+            "the inbox of the judge {} of project {project} is gone, so builds could not tell it to {ACKNOWLEDGE}: {why}",
             judge.by
         ),
     }))
