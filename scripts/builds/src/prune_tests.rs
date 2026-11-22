@@ -507,11 +507,12 @@ fn a_record_of_sessions_builds_cannot_read_deletes_no_registration() {
 }
 
 #[test]
-fn setup_pruning_tries_the_next_build_folder_after_a_refused_move() {
+fn setup_tries_the_next_folder_and_checks_the_hard_floor_after_a_refused_move() {
     use std::os::unix::fs::PermissionsExt;
 
     let scratch = Scratch::new("prune-refused-alternative");
-    let tool = scratch.tool(0);
+    let mut tool = scratch.tool(1 << 30);
+    tool.rules.hard_floor_kib = u64::MAX;
     let main = scratch.dir.join("demo");
     crate::testing::repo(&main, "guarded/build 1M\nother 1M\n");
     let checkout = Checkout::find(main.to_str().unwrap()).unwrap();
@@ -521,15 +522,30 @@ fn setup_pruning_tries_the_next_build_folder_after_a_refused_move() {
     let next = root.join("other");
     fill(&first.join("blob"), 2048);
     fill(&next.join("blob"), 2048);
+    let old_scratch = tool
+        .places
+        .scratch_base()
+        .join("project/session/scratchpad/old");
+    fill(&old_scratch.join("file"), 1);
+    age_all(&old_scratch, 80);
     std::fs::set_permissions(&guarded, std::fs::Permissions::from_mode(0o500)).unwrap();
 
     let explicit = prune_root(&tool, &root, &checkout, Run::Real, 0, 0, Pruner::Prune);
-    let setup = prune_root(&tool, &root, &checkout, Run::Real, 0, 0, Pruner::Setup);
+    let setup = crate::setup::setup_with(
+        &tool,
+        &crate::testing::no_ssh(),
+        &checkout,
+        crate::setup::Prepare::No,
+    );
     std::fs::set_permissions(&guarded, std::fs::Permissions::from_mode(0o700)).unwrap();
 
     assert!(matches!(explicit, Err(Fail::Move { .. })));
-    setup.unwrap();
+    assert!(matches!(setup, Err(Fail::Exit(1))), "{setup:?}");
     assert!(first.join("blob").is_file());
+    assert!(
+        !old_scratch.exists(),
+        "setup reached the later scratchpad cleanup"
+    );
     assert!(next.is_dir());
     assert!(!next.join("blob").exists());
 }

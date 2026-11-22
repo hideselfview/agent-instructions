@@ -75,6 +75,7 @@ use std::process::{Command, Stdio};
 
 use crate::fail;
 use crate::fail::{Context, Result, gone};
+use crate::whole_file::stat;
 
 /// Folders a profile folder in shared folders keeps per-unit files in, beside
 /// .fingerprint.
@@ -137,16 +138,6 @@ fn is_hash(text: &str) -> bool {
         && text
             .bytes()
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-}
-
-/// <path>'s metadata, following links; None when it does not exist. Any
-/// other failure to read it is an error that names it.
-pub fn stat(path: &Path) -> Result<Option<std::fs::Metadata>> {
-    match std::fs::metadata(path) {
-        Ok(meta) => Ok(Some(meta)),
-        Err(error) if gone(&error) => Ok(None),
-        Err(error) => fail!("reading {}: {error}", path.display()),
-    }
 }
 
 /// <path>'s own metadata, not following a link; None when it does not

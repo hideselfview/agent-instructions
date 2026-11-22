@@ -104,7 +104,7 @@ impl Texts {
 
 /// The review texts as the cap sees them: one group, every project's run
 /// folders.
-fn group(places: &Places) -> Result<Group> {
+fn group(places: &Places) -> Result<Option<Group>> {
     let root = root(places);
     let mut kept = Vec::new();
     for (_, project) in capped_store::tops_in(&root)? {
@@ -115,7 +115,7 @@ fn group(places: &Places) -> Result<Group> {
                 // files. A valid plan and the exclusive lock rule out a
                 // replacement between the missing file and this diagnosis.
                 let Some(_valid) = capped_store::lock_plan(&root)? else {
-                    return Ok(Group { folder: root, kept });
+                    return Ok(None);
                 };
                 if folder
                     .try_exists()
@@ -139,7 +139,7 @@ fn group(places: &Places) -> Result<Group> {
             });
         }
     }
-    Ok(Group { folder: root, kept })
+    Ok(Some(Group { folder: root, kept }))
 }
 
 /// Deletes the oldest runs' texts that keep the folder over `CAP_KIB`
@@ -154,7 +154,9 @@ pub fn prune_texts(tool: &Tool, run: Run, cap_kib: u64) -> Result<()> {
     if !root.is_dir() {
         return Ok(());
     }
-    capped_store::prune(tool, run, &root, cap_kib, || Ok(vec![group(&tool.places)?]))
+    capped_store::prune(tool, run, &root, cap_kib, || {
+        Ok(group(&tool.places)?.map(|group| vec![group]))
+    })
 }
 
 /// Texts of a project in a folder of its own that no other test shares.

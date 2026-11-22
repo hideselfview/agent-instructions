@@ -268,7 +268,7 @@ pub fn prune(
     run: Run,
     root: &Path,
     cap_kib: u64,
-    groups: impl FnOnce() -> Result<Vec<Group>>,
+    groups: impl FnOnce() -> Result<Option<Vec<Group>>>,
 ) -> Result<()> {
     prune_with(tool, run, root, cap_kib, groups, HeldPaths::read)
 }
@@ -278,7 +278,7 @@ fn prune_with(
     run: Run,
     root: &Path,
     cap_kib: u64,
-    groups: impl FnOnce() -> Result<Vec<Group>>,
+    groups: impl FnOnce() -> Result<Option<Vec<Group>>>,
     open_files: impl Fn() -> Result<HeldPaths>,
 ) -> Result<()> {
     let Some(_pruning) = crate::evict::try_lock_creating(&root.join(PRUNING))? else {
@@ -326,7 +326,7 @@ fn plan(
     tool: &Tool,
     root: &Path,
     cap_kib: u64,
-    groups: impl FnOnce() -> Result<Vec<Group>>,
+    groups: impl FnOnce() -> Result<Option<Vec<Group>>>,
     open_files: impl Fn() -> Result<HeldPaths>,
 ) -> Result<Vec<Deletion>> {
     let staging = folders_in(root)?
@@ -334,7 +334,9 @@ fn plan(
         .filter(|(name, _)| is_staging(name))
         .map(|(_, folder)| folder)
         .collect::<Vec<_>>();
-    let groups = groups()?;
+    let Some(groups) = groups()? else {
+        return Ok(Vec::new());
+    };
     if !plan_current(root)? {
         note_plan_invalid(root);
         return Ok(Vec::new());
@@ -431,22 +433,25 @@ fn apply_plan(tool: &Tool, run: Run, root: &Path, steps: Vec<Deletion>) -> Resul
                 break;
             }
         };
-        let path = unit.path();
-        let deleted = target.delete(index).and_then(|deleted| {
-            if deleted {
-                remove_empty_parents(root, path)?;
+        let mut changes = Vec::new();
+        let deleted = target.delete(index, &mut changes).and_then(|()| {
+            if changes.iter().any(|entry| entry.removed) {
+                remove_empty_parents(root, unit.path())?;
             }
-            Ok(deleted)
+            Ok(())
         });
         drop(alone);
-        match deleted {
-            Ok(true) => note(format!("deleted {} ({reason})", path.display())),
-            Ok(false) => note(format!(
-                "{} disappeared before the prune could delete it",
-                path.display()
-            )),
-            Err(error) => failures = with_move_cleanup(failures, Err(error)),
+        for entry in changes {
+            if entry.removed {
+                note(format!("deleted {} ({reason})", entry.path.display()));
+            } else {
+                note(format!(
+                    "{} disappeared before the prune could delete it",
+                    entry.path.display()
+                ));
+            }
         }
+        failures = with_move_cleanup(failures, deleted);
     }
     match trash {
         Some(slot) => with_move_cleanup(failures, slot.remove_background()),
@@ -473,22 +478,34 @@ enum Target<'a> {
     Files(&'a [PathBuf]),
 }
 
-impl Target<'_> {
-    fn delete(self, index: usize) -> Result<bool> {
+/// What happened to one path, reported after the cache lock is released.
+struct Deleted<'a> {
+    path: &'a Path,
+    removed: bool,
+}
+
+impl<'a> Target<'a> {
+    fn delete(self, index: usize, changes: &mut Vec<Deleted<'a>>) -> Result<()> {
         match self {
-            Self::Folder { path, slot } => crate::evict::move_to_slot(
-                path,
-                &slot.path,
-                std::ffi::OsStr::new(&index.to_string()),
-            ),
+            Self::Folder { path, slot } => {
+                let removed = crate::evict::move_to_slot(
+                    path,
+                    &slot.path,
+                    std::ffi::OsStr::new(&index.to_string()),
+                )?;
+                changes.push(Deleted { path, removed });
+            }
             Self::Files(files) => {
-                let mut deleted = false;
                 for file in files {
-                    deleted |= remove_if_present(file)?;
+                    let removed = remove_if_present(file)?;
+                    changes.push(Deleted {
+                        path: file,
+                        removed,
+                    });
                 }
-                Ok(deleted)
             }
         }
+        Ok(())
     }
 }
 
@@ -688,7 +705,7 @@ impl MeasuredGroup {
 /// The modification time of a regular file, or none if its path is absent.
 pub(super) fn written_at(path: &Path) -> Result<Option<i64>> {
     use std::os::unix::fs::MetadataExt;
-    match crate::units::stat(path)? {
+    match crate::whole_file::stat(path)? {
         Some(meta) if meta.is_file() => Ok(Some(meta.mtime())),
         Some(_) => fail!("{} must be a file", path.display()),
         None => Ok(None),

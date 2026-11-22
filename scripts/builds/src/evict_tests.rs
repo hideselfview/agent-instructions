@@ -1,4 +1,5 @@
 use super::*;
+use crate::fail::Fail;
 use crate::testing::{Scratch, fill};
 use std::os::unix::process::CommandExt;
 

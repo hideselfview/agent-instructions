@@ -47,7 +47,7 @@ fn group(root: &Path) -> Group {
 }
 
 fn prune_now(tool: &Tool, run: Run, root: &Path, cap_kib: u64) {
-    prune(tool, run, root, cap_kib, || Ok(vec![group(root)])).unwrap();
+    prune(tool, run, root, cap_kib, || Ok(Some(vec![group(root)]))).unwrap();
 }
 
 #[test]
@@ -153,7 +153,7 @@ fn the_folders_deleted_units_leave_empty_go_and_the_root_stays() {
             what: "unit",
         }],
     };
-    prune(&tool, Run::Real, &root, 100, || Ok(vec![group])).unwrap();
+    prune(&tool, Run::Real, &root, 100, || Ok(Some(vec![group]))).unwrap();
     assert!(!unit.exists());
     assert!(!root.join("g").exists());
     assert!(root.exists());
@@ -190,7 +190,7 @@ fn files_and_loose_files_go_in_order_and_each_group_has_its_own_cap() {
     }
     // Only the first group, with 501 KiB, is over the cap of 450 KiB.
     fill(&root.join("x").join("more"), 100);
-    prune(&tool, Run::Real, &root, 450, || Ok(groups)).unwrap();
+    prune(&tool, Run::Real, &root, 450, || Ok(Some(groups))).unwrap();
     let (x, y) = (&files[0], &files[1]);
     assert!(!x.0.exists() && !x.0.with_extension("json").exists() && !x.1.exists());
     assert!(
@@ -220,7 +220,7 @@ fn a_writer_can_take_its_lease_while_prune_waits_for_the_process_scan() {
                 Run::Real,
                 cache,
                 100,
-                || Ok(vec![group(cache)]),
+                || Ok(Some(vec![group(cache)])),
                 || {
                     scanning.send(()).unwrap();
                     finish.recv().unwrap();
@@ -273,7 +273,7 @@ fn an_access_during_planning_keeps_the_updated_unit() {
         // and update the unit before the planner returns its old snapshot.
         let _reading = writing(&root)?;
         mark_used(&unit.join("data"))?;
-        Ok(vec![stale])
+        Ok(Some(vec![stale]))
     })
     .unwrap();
     assert!(unit.join("data").is_file());
@@ -290,7 +290,7 @@ fn an_invalidated_plan_does_not_prepare_a_trash_slot() {
     prune(&tool, Run::Real, &root, 100, || {
         let planned = group(&root);
         let _reading = writing(&root)?;
-        Ok(vec![planned])
+        Ok(Some(vec![planned]))
     })
     .unwrap();
     assert!(unit.is_dir());
@@ -338,7 +338,7 @@ fn the_open_file_snapshot_follows_discovery_and_prune_selects_an_alternative() {
             .unwrap();
         assert_eq!(observed.trim(), "open");
         reader = Some(child);
-        Ok(vec![group(&root)])
+        Ok(Some(vec![group(&root)]))
     });
     let mut child = reader.unwrap();
     drop(child.stdin.take());
@@ -354,10 +354,17 @@ fn missing_files_are_not_counted_as_a_deletion() {
     let missing = scratch.dir.join("gone");
     let second = scratch.dir.join("second");
     let files = [missing, second.clone()];
+    let mut changes = Vec::new();
 
-    assert!(!Target::Files(&files).delete(0).unwrap());
+    Target::Files(&files).delete(0, &mut changes).unwrap();
+    assert!(changes.iter().all(|entry| !entry.removed));
+    changes.clear();
     std::fs::write(&second, "entry").unwrap();
-    assert!(Target::Files(&files).delete(0).unwrap());
+    Target::Files(&files).delete(0, &mut changes).unwrap();
+    assert_eq!(changes[0].path, files[0]);
+    assert!(!changes[0].removed);
+    assert_eq!(changes[1].path, second);
+    assert!(changes[1].removed);
     assert!(!second.exists());
 }
 
@@ -408,7 +415,7 @@ fn a_failed_open_file_scan_keeps_folder_candidates() {
         Run::Real,
         &root,
         100,
-        || Ok(vec![group(&root)]),
+        || Ok(Some(vec![group(&root)])),
         || HeldPaths::read_with(&probe),
     )
     .unwrap_err()

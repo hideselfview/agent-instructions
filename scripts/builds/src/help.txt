@@ -2273,7 +2273,7 @@ back. A lane also keeps the pictures of its app tree from before it checks
 which pictures the folder has until its last comparison of that tree. When a reader or writer accesses the cache during a prune pass, builds
 skips the remaining deletions. A later prune measures the cache again.
 Before deleting folders, builds checks which files other processes hold open.
-Builds reports an error if a shots run has a last-use file it cannot read.
+Builds reports an error if it cannot read a shots run's last-use time.
 Each host keeps the board pictures it was sent in
 ~/.cache/builds-pictures/<repo>/boards and builds sends it only the ones it
 lacks, deleting the ones this Mac no longer holds only when no other step has

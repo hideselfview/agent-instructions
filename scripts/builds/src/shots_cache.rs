@@ -490,8 +490,32 @@ fn read(folder: &Path, key: &Key) -> Result<Option<Cached>> {
 }
 
 /// Marks <cached> used now, so the cap deletes it later.
-pub fn mark_used(cached: &Cached) -> Result<()> {
+fn mark_used(cached: &Cached) -> Result<()> {
     capped_store::mark_used(&cached.folder.join(RUN_FILE))
+}
+
+/// Selects and reads a cached run under the same lease. A successful read
+/// renews the run's last use before releasing the lease.
+pub fn read_cached<T>(
+    places: &Places,
+    select: impl FnOnce() -> Result<Option<Cached>>,
+    read: impl FnOnce(&Cached) -> Result<Option<T>>,
+) -> Result<Option<T>> {
+    let reading = writing(places)?;
+    let Some(cached) = select()? else {
+        return Ok(None);
+    };
+    let read = read(&cached)?;
+    if read.is_some() {
+        let marked = mark_used(&cached);
+        drop(reading);
+        if let Err(error) = marked {
+            let message = error.text();
+            note(&message);
+            return Err(crate::fail::Fail::Message(message));
+        }
+    }
+    Ok(read)
 }
 
 /// The run cached under <key>, if any; reading it marks it used.
@@ -738,7 +762,8 @@ fn prune_naming(
         capped_store::tops_in(&shots)?
             .into_iter()
             .map(|(repo, _)| group(&tool.places, &repo, &named(&repo)?))
-            .collect()
+            .collect::<Result<Vec<_>>>()
+            .map(Some)
     })
 }
 

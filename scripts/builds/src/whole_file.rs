@@ -54,3 +54,13 @@ pub(crate) fn remove_if_present(path: &Path) -> Result<bool> {
         Err(error) => fail!("removing {}: {error}", path.display()),
     }
 }
+
+/// <path>'s metadata, following links; None when it does not exist. Any
+/// other failure to read it is an error that names it.
+pub(crate) fn stat(path: &Path) -> Result<Option<std::fs::Metadata>> {
+    match std::fs::metadata(path) {
+        Ok(meta) => Ok(Some(meta)),
+        Err(error) if fail::gone(&error) => Ok(None),
+        Err(error) => fail!("reading {}: {error}", path.display()),
+    }
+}

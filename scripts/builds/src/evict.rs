@@ -25,7 +25,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use crate::fail;
-use crate::fail::{Context, Fail, Result, with_move_cleanup};
+use crate::fail::{Context, Result, with_move_cleanup};
 use crate::places::Places;
 
 /// How the folder's space comes back.
@@ -100,12 +100,12 @@ pub(crate) fn move_in(
     recreate: Recreate,
 ) -> Result<bool> {
     let moved = match move_to_slot(folder, slot, name) {
-        Err(error @ Fail::Move { .. }) => {
+        Err(error) => {
             let cleanup =
                 std::fs::remove_dir(slot).context(|| format!("removing {}", slot.display()));
             return with_move_cleanup(Err(error), cleanup);
         }
-        moved => moved?,
+        Ok(moved) => moved,
     };
     if !moved {
         return Ok(false);

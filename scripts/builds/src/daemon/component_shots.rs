@@ -213,24 +213,21 @@ fn read_cached<T>(
     prefix: &str,
     read: impl FnOnce(&Cached) -> Result<Option<T>>,
 ) -> Result<Option<T>> {
-    let _reading = shots_cache::writing(places)?;
-    let Some(cached) = shots_cache::covering_run(
+    shots_cache::read_cached(
         places,
-        repo,
-        commit,
-        lane,
-        Made::Anywhere,
-        prefix,
-        &VERSIONS,
-    )?
-    else {
-        return Ok(None);
-    };
-    let read = read(&cached)?;
-    if read.is_some() {
-        shots_cache::mark_used(&cached)?;
-    }
-    Ok(read)
+        || {
+            shots_cache::covering_run(
+                places,
+                repo,
+                commit,
+                lane,
+                Made::Anywhere,
+                prefix,
+                &VERSIONS,
+            )
+        },
+        read,
+    )
 }
 
 /// <component>'s rows on <lane> in the cached run <cached>: the rows its

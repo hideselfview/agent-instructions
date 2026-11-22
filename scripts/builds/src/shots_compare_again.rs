@@ -92,17 +92,12 @@ pub fn before_run(
     if found.is_some() {
         return Ok(found);
     }
-    let mut newest: Option<Cached> = None;
     for key in shots_cache::covering_keys(places, repo, commit, lane, made, prefix, &VERSIONS)? {
-        if let Some(cached) = compare_again(places, &key, program)?
-            && newest
-                .as_ref()
-                .is_none_or(|run| cached.recorded_at >= run.recorded_at)
-        {
-            newest = Some(cached);
-        }
+        compare_again(places, &key, program)?;
     }
-    Ok(newest)
+    // Another writer can publish while these comparisons run. Choose from
+    // the current cache, including runs that writer placed.
+    shots_cache::covering_run_used(places, repo, commit, lane, made, prefix, &VERSIONS)
 }
 
 /// Compares again the newest cached run that has <key>'s commit, lane, prefix
