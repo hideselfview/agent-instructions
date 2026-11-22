@@ -838,10 +838,7 @@ fn an_idle_branch_with_an_open_finding_names_the_finding_and_who_acts() {
         )]
     );
     assert!(advice.command.is_none(), "{advice:?}");
-    assert!(
-        advice.text.contains(&blocked[0]) && !advice.text.contains("nothing blocks landing"),
-        "{advice:?}"
-    );
+    assert!(advice.text.contains(&blocked[0]), "{advice:?}");
 }
 
 #[test]
@@ -876,7 +873,7 @@ fn an_idle_branch_changed_since_its_review_names_the_unread_paths() {
 }
 
 #[test]
-fn an_idle_branch_whose_confirmed_finding_was_settled_dropped_blocks_nothing() {
+fn an_idle_branch_with_review_clear_still_mentions_app_coverage() {
     let (demo, fake, side, first, second, finding) =
         confirmed_on_the_second_commit("idle-settled-dropped");
     let stamp = stamp();
@@ -888,7 +885,10 @@ fn an_idle_branch_whose_confirmed_finding_was_settled_dropped_blocks_nothing() {
     let shas = [first, second.clone()];
     let (blocked, advice) = idle_says(&demo, &fake, &side, &shas);
     assert!(blocked.is_empty(), "{blocked:?}");
-    assert_eq!(advice.text, "nothing blocks landing: run");
+    assert_eq!(
+        advice.text,
+        "the review check allows these commits. To check app coverage and land, run"
+    );
     assert_eq!(
         advice.command.as_deref(),
         Some(format!("builds land {} {} {second}", side.display(), shas[0]).as_str())

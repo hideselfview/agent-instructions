@@ -1,6 +1,5 @@
-//! What `builds health` says of an idle claimed worktree's branch: whether
-//! its review lets the commits land, as the verdict that `landing::judge`
-//! gives from the same records and branch `builds land` reads.
+//! What `builds health` says of an idle claimed worktree's review. It uses
+//! the same verdict as the review check in `builds land`.
 
 use crate::health::Advice;
 use crate::lists::Lists;
@@ -12,8 +11,9 @@ use crate::review::landing::{self, Verdict};
 pub enum Landing {
     /// The review does not take them yet: the clauses of `landing::blockers`.
     Blocked(Vec<String>),
-    /// Nothing blocks landing: the command that lands them.
-    Free(String),
+    /// The review permits the commits. The command checks the other
+    /// requirements before landing.
+    ReviewClear(String),
 }
 
 impl Landing {
@@ -24,18 +24,19 @@ impl Landing {
                 "its branch cannot land yet: {}",
                 blockers.join("; ")
             )),
-            Landing::Free(command) => {
-                Advice::run("nothing blocks landing: run".to_string(), command.clone())
-            }
+            Landing::ReviewClear(command) => Advice::run(
+                "the review check allows these commits. To check app coverage and land, run"
+                    .to_string(),
+                command.clone(),
+            ),
         }
     }
 }
 
-/// What blocks the commits of the worktree <top>, whose project's lists are
-/// <lists>, from landing, as <verdict> says of them: the clauses of
-/// `landing::blockers`, or the command that lands them, which names the items
-/// running there. <ahead> holds the full hashes of the commits origin/main
-/// lacks, oldest first.
+/// The review status of the worktree <top> from <verdict>: the review
+/// blockers, or the landing command with the items from <lists> running
+/// there. <ahead> holds the full hashes of the commits origin/main lacks,
+/// oldest first.
 pub fn landing(
     verdict: &Verdict,
     lists: &Lists,
@@ -54,5 +55,5 @@ pub fn landing(
         command.push(' ');
         command.push_str(sha);
     }
-    Landing::Free(command)
+    Landing::ReviewClear(command)
 }

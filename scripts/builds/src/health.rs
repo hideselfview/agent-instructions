@@ -1211,7 +1211,10 @@ pub fn lists_findings(
             .find(|worktree| worktree.label == places[one.place].label)
             .and_then(|worktree| worktree.landing(places_in, loaded, reviews));
         one.awaiting_review = approving.contains(&places[one.place].label)
-            && matches!(landing, Some(Ok(crate::review::idle::Landing::Free(_))));
+            && matches!(
+                landing,
+                Some(Ok(crate::review::idle::Landing::ReviewClear(_)))
+            );
         one.landing = landing.map(|landing| match landing {
             Ok(landing) => landing.advice(),
             Err(fault) => Advice::said(format!(
@@ -2151,8 +2154,8 @@ mod tests {
         );
     }
 
-    /// An idle claim's finding says what blocks its branch from landing, and
-    /// suggests the landing command when nothing does.
+    /// An idle claim's finding names its review blockers or the command
+    /// that checks app coverage and lands the commits.
     #[test]
     fn an_idle_claims_finding_says_what_blocks_its_landing() {
         let now = 1_800_000_000;
@@ -2213,10 +2216,10 @@ mod tests {
             vec![
                 claimed(
                     1,
-                    Advice::run(
-                        "nothing blocks landing: run".to_string(),
+                    crate::review::idle::Landing::ReviewClear(
                         "builds land /demo-worktrees/side-1 --done 7 abc".to_string(),
-                    ),
+                    )
+                    .advice(),
                 ),
                 claimed(
                     2,
@@ -2230,7 +2233,7 @@ mod tests {
         assert_eq!(lines.len(), 2, "{lines:?}");
         assert!(
             lines[0].ends_with(
-                "no build runs there; nothing blocks landing: run `builds land /demo-worktrees/side-1 --done 7 abc`"
+                "no build runs there; the review check allows these commits. To check app coverage and land, run `builds land /demo-worktrees/side-1 --done 7 abc`"
             ),
             "{lines:?}"
         );
@@ -2663,10 +2666,12 @@ mod tests {
                     last_write: Some(now - 2 * 3600),
                 }),
                 awaiting_review: false,
-                landing: Some(Advice::run(
-                    "nothing blocks landing: run".to_string(),
-                    "builds land /demo-worktrees/side-1 --done 7 abc".to_string(),
-                )),
+                landing: Some(
+                    crate::review::idle::Landing::ReviewClear(
+                        "builds land /demo-worktrees/side-1 --done 7 abc".to_string(),
+                    )
+                    .advice(),
+                ),
             };
             assess(
                 now,
