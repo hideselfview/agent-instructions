@@ -555,6 +555,16 @@ fn remote_busy_processes_survive_a_cwd_lookup_without_matches() {
   m1) ;;
   denied) echo "lsof: Permission denied" >&2; exit 1 ;;
   invalid) echo "not a folder record"; echo "lsof: failed" >&2; exit 1 ;;
+  complete)
+    case "${10}" in
+      *"lsof -a -d cwd -Fpn -p 42,43,44,45'")
+        for pid in 42 43 44 45; do
+          printf '%s\n' "p$pid" fcwd n/Users/x/dev/bae-worktrees/side-7
+        done
+        echo "lsof: Permission denied" >&2
+        exit 0 ;;
+      *) exit 2 ;;
+    esac ;;
   partial|partial-ps-denied|partial-success)
     case "${10}" in
       *"lsof "*) printf '%s\n' p43 fcwd n/Users/x/dev/bae-worktrees/side-7
@@ -572,7 +582,7 @@ fn remote_busy_processes_survive_a_cwd_lookup_without_matches() {
   unreachable) echo "ssh: Connection refused" >&2; exit 255 ;;
 esac
 case "${10}" in
-  *"lsof -a -d cwd -Fpn -p 42,43,44,45"*) exit 1 ;;
+  *"lsof -a -d cwd -Fpn -p 42,43,44,45'") exit 1 ;;
   *"ps -axww -o "*) printf '%s\n' now=5003 ps_follows=1 \
     '43 0 0 0.0 16:40.00 40:03 R /usr/bin/live' \
     '44 0 501 0.0 16:40.00 40:03 Z (zombie)' \
@@ -652,6 +662,17 @@ esac"#,
     );
     assert_eq!(partial.activity().unwrap().busy[0].pid, 43);
 
+    host.target = Some("complete".into());
+    let complete = read(&ssh, &host, &scan, None);
+    let (busy, diagnostic) = complete.report();
+    assert_eq!(busy.unwrap().len(), 4);
+    assert!(diagnostic.unwrap().contains("lsof: Permission denied"));
+    assert!(
+        findings(&[complete])
+            .iter()
+            .any(|finding| { finding.text.contains("lsof: Permission denied") })
+    );
+
     host.target = Some("partial-ps-denied".into());
     let partial = read(&ssh, &host, &scan, None);
     let error = partial.report().1.unwrap();
@@ -667,17 +688,6 @@ esac"#,
             .unwrap()
             .contains("ps: Permission denied")
     );
-
-    let parents = crate::proc_limit::finding(
-        &host,
-        crate::proc_limit::ProcessUse {
-            count: 7_300,
-            limit: 8_000,
-        },
-        Ok(&scan.as_ref().unwrap().rows),
-    )
-    .unwrap();
-    assert!(parents.text.contains("pid 43"));
 
     host.target = Some("unreachable".into());
     let unreachable = read(&ssh, &host, &scan, None)

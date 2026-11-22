@@ -1735,6 +1735,35 @@ fn dashboard_finding(dashboard: Option<i32>) -> Option<Finding> {
     })
 }
 
+/// The process listing and its separate working-folder lookup on one host.
+struct HostProcesses {
+    scan: std::result::Result<crate::host_scan::Scan, String>,
+    busy: crate::stuck::HostBusy,
+}
+
+impl HostProcesses {
+    fn read(
+        ssh: &crate::host::Ssh,
+        host: &Host,
+        home: &std::path::Path,
+        dashboard: Option<i32>,
+    ) -> Self {
+        let scan = crate::host_scan::read(ssh, host, home);
+        let busy = crate::stuck::read(ssh, host, &scan, dashboard);
+        Self { scan, busy }
+    }
+
+    fn limit_finding(&self, host: &Host, used: crate::proc_limit::ProcessUse) -> Option<Finding> {
+        let rows = self
+            .scan
+            .as_ref()
+            .map(|scan| scan.rows.as_slice())
+            .map_err(String::as_str);
+        crate::proc_limit::finding(host, used, rows)
+            .map(|advice| Finding::new(FindingKind::ProcessLimit, advice))
+    }
+}
+
 /// `builds health [--json]`: exits 1 when something needs acting on.
 pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
     let (json, stop_junk) = match args {
@@ -1811,27 +1840,17 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
     // Read before the scans, so a job that a process here started after
     // this reading counts as running (job_claim.rs).
     let holders = crate::job_claim::Holders::read()?;
-    let mut scans = Vec::new();
-    let mut busy = Vec::new();
-    let mut probes = Vec::new();
-    for (scan, host_busy, probe) in parallel_map(&hosts, |host| {
-        let scan = crate::host_scan::read(&ssh, host, &tool.places.home);
-        let host_busy = crate::stuck::read(
+    let (processes, mut probes): (Vec<_>, Vec<_>) = parallel_map(&hosts, |host| {
+        let processes = HostProcesses::read(
             &ssh,
             host,
-            &scan,
+            &tool.places.home,
             host.target.is_none().then_some(dashboard).flatten(),
         );
-        (
-            scan,
-            host_busy,
-            crate::host::probe(&tool.places, &ssh, host),
-        )
-    }) {
-        scans.push(scan);
-        busy.push(host_busy);
-        probes.push(probe);
-    }
+        (processes, crate::host::probe(&tool.places, &ssh, host))
+    })
+    .into_iter()
+    .unzip();
     let fixed = crate::health_fix::fix_hosts(
         &mut hosts,
         &mut probes,
@@ -1861,26 +1880,41 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
         },
     );
     fixed.iter().for_each(crate::text::note);
-    for (host, probe) in hosts.iter().zip(&probes) {
-        if probe.is_err() {
-            continue;
-        }
-        let place = crate::host::place(&host.name);
-        match crate::run_tmp::sweep(&tool.places, &ssh, host, &holders) {
-            Ok(swept) => {
-                for folder in swept.deleted {
-                    crate::text::note(format!(
-                        "deleted the temporary folder {folder} on {place}: the run that made it ended"
-                    ));
+    let mut scans = Vec::new();
+    let mut busy = Vec::new();
+    let mut measured = Vec::new();
+    let mut process_limits = Vec::new();
+    for ((host, probe), processes) in hosts.iter().zip(probes).zip(processes) {
+        if let Ok(probe) = &probe {
+            process_limits.extend(processes.limit_finding(host, probe.processes));
+            let place = crate::host::place(&host.name);
+            match crate::run_tmp::sweep(&tool.places, &ssh, host, &holders) {
+                Ok(swept) => {
+                    for folder in swept.deleted {
+                        crate::text::note(format!(
+                            "deleted the temporary folder {folder} on {place}: the run that made it ended"
+                        ));
+                    }
+                    for entry in swept.unexpected {
+                        crate::text::note(format!(
+                            "{place} has an entry in its run folders that no run of builds made: {entry}"
+                        ));
+                    }
                 }
-                for entry in swept.unexpected {
-                    crate::text::note(format!(
-                        "{place} has an entry in its run folders that no run of builds made: {entry}"
-                    ));
-                }
+                Err(fault) => crate::text::note(fault.text()),
             }
-            Err(fault) => crate::text::note(fault.text()),
         }
+        measured.push(crate::host_load::Measured {
+            host: host.clone(),
+            probe,
+            idle: processes
+                .scan
+                .as_ref()
+                .map_err(String::clone)
+                .and_then(|scan| scan.cpu_idle.clone()),
+        });
+        scans.push((host.clone(), processes.scan));
+        busy.push(processes.busy);
     }
     health.findings.extend(dashboard_finding(dashboard));
     let (prune_line, prune_late) = crate::prune_schedule::health(&tool.places, tool.now);
@@ -1909,46 +1943,13 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
         .extend(crate::fsevents_log::finding(&tool.places));
     let loaded = crate::lists::store::load_all(&tool.places);
     let ready = crate::host_load::ready_items(&loaded);
-    let probed: Vec<_> = hosts.iter().cloned().zip(probes).collect();
-    let mut scanned = Scanned::judge(
-        &tool.places,
-        hosts.iter().cloned().zip(scans).collect(),
-        &holders,
-        tool.now,
-    );
-    let measured: Vec<crate::host_load::Measured> = probed
-        .iter()
-        .zip(scanned.scans.iter().map(|(_, scan)| scan))
-        .map(|((host, probe), scan)| crate::host_load::Measured {
-            host: host.clone(),
-            probe: probe.clone(),
-            idle: scan
-                .as_ref()
-                .map_err(String::clone)
-                .and_then(|scan| scan.cpu_idle.clone()),
-        })
-        .collect();
+    let mut scanned = Scanned::judge(&tool.places, scans, &holders, tool.now);
     health.findings.extend(
         crate::host_load::findings(&measured, ready, tool.rules.floor_kib)
             .into_iter()
             .map(|advice| Finding::new(FindingKind::Load, advice)),
     );
-    health
-        .findings
-        .extend(
-            probed
-                .iter()
-                .zip(&scanned.scans)
-                .filter_map(|((host, probe), (_, scan))| {
-                    let used = probe.as_ref().ok()?.processes;
-                    let rows = scan
-                        .as_ref()
-                        .map(|scan| scan.rows.as_slice())
-                        .map_err(String::as_str);
-                    crate::proc_limit::finding(host, used, rows)
-                        .map(|advice| Finding::new(FindingKind::ProcessLimit, advice))
-                }),
-        );
+    health.findings.extend(process_limits);
     health.findings.extend(
         crate::host_load::builds_items_ready(&loaded)
             .map(|advice| Finding::new(FindingKind::Load, advice)),
@@ -3118,6 +3119,55 @@ mod tests {
         assert_eq!(found.len(), 1, "{found:?}");
         assert_eq!(found[0].kind, FindingKind::Busy);
         assert!(found[0].advice.line().contains("Permission denied"));
+    }
+
+    #[test]
+    fn process_limit_health_keeps_zombie_parents_when_placement_fails() {
+        let scratch = crate::testing::Scratch::new("health-lost-placement");
+        let ssh = crate::host::Ssh {
+            program: scratch
+                .script(
+                    "ssh",
+                    r#"case "${10}" in
+  *"cpu_idle="*) printf '%s\n' uid=501 now=5000 cpu_idle=10 ps_follows=1 \
+    '41 0 501 0.0 0:01 40:00 S /usr/bin/builds cargo test' \
+    '43 41 501 0.0 0:01 40:00 S /tmp/target/debug/deps/demo-0123456789abcdef' \
+    '46 43 501 0.0 0:01 39:00 Z (zombie)' ;;
+  *"lsof -a -d cwd -Fpn -p 43,41'") exit 1 ;;
+  *"ps -axww -o "*) echo "ps: Permission denied" >&2; exit 1 ;;
+  *) exit 2 ;;
+esac"#,
+                )
+                .display()
+                .to_string(),
+        };
+        let host = Host {
+            name: "m1".into(),
+            target: Some("m1".into()),
+            cores: 8,
+            speed: None,
+            band: None,
+        };
+        let processes = HostProcesses::read(&ssh, &host, &scratch.places().home, None);
+        assert!(
+            processes
+                .busy
+                .report()
+                .1
+                .unwrap()
+                .contains("ps: Permission denied")
+        );
+        let finding = processes
+            .limit_finding(
+                &host,
+                crate::proc_limit::ProcessUse {
+                    count: 7_300,
+                    limit: 8_000,
+                },
+            )
+            .unwrap();
+        assert_eq!(finding.kind, FindingKind::ProcessLimit);
+        assert!(finding.advice.text.contains("pid 43"));
     }
 
     /// A host whose Xcode cannot start is a finding that names the fix

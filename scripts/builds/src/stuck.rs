@@ -575,15 +575,23 @@ impl HostBusy {
         }
     }
 
+    /// A placement diagnostic, once the initial host scan succeeded.
+    fn placement_diagnostic(&self) -> Option<&str> {
+        match &self.read {
+            HostRead::ScanFailed(_) => None,
+            HostRead::PlacementFailed(error) => Some(error),
+            HostRead::Activity(activity) => activity.placement_diagnostic.as_deref(),
+        }
+    }
+
     /// The busy rows and diagnostic the report can show together.
     pub fn report(&self) -> (Option<&[Busy]>, Option<&str>) {
-        match self.activity() {
-            Ok(activity) => (
-                Some(&activity.busy),
-                activity.placement_diagnostic.as_deref(),
-            ),
-            Err(error) => (None, Some(error)),
-        }
+        let activity = self.activity().ok();
+        let error = match &self.read {
+            HostRead::ScanFailed(error) => Some(error.as_str()),
+            _ => self.placement_diagnostic(),
+        };
+        (activity.map(|activity| activity.busy.as_slice()), error)
     }
 }
 
@@ -675,16 +683,8 @@ pub fn read(
         Ok(scan) => {
             let sampling = Sampling::new(host, now_seconds());
             match read_activity(ssh, host, scan, &sampling, dashboard) {
-                Ok(activity) => {
-                    if let Some(error) = &activity.placement_diagnostic {
-                        crate::text::note(error);
-                    }
-                    HostRead::Activity(activity)
-                }
-                Err(error) => {
-                    crate::text::note(&error);
-                    HostRead::PlacementFailed(error)
-                }
+                Ok(activity) => HostRead::Activity(activity),
+                Err(error) => HostRead::PlacementFailed(error),
             }
         }
     };
@@ -722,12 +722,8 @@ fn read_activity(
                     .copied()
                     .filter(|pid| !cwds.contains_key(pid))
                     .collect();
-                if unplaced.is_empty() {
-                    if let Some(diagnostic) = diagnostic {
-                        crate::text::note(diagnostic);
-                    }
-                } else {
-                    placement_diagnostic = diagnostic;
+                placement_diagnostic = diagnostic;
+                if !unplaced.is_empty() {
                     // lsof can omit a living process whose working folder
                     // it cannot see. Recheck only the unplaced rows' lifetimes.
                     match live_starts(ssh, host) {
@@ -823,20 +819,13 @@ pub fn lines(hosts: &[HostBusy]) -> Vec<String> {
 pub fn findings(hosts: &[HostBusy]) -> Vec<Advice> {
     let mut out = Vec::new();
     for host in hosts {
-        let (activity, error) = match &host.read {
-            HostRead::ScanFailed(_) => continue,
-            HostRead::PlacementFailed(error) => (None, Some(error.as_str())),
-            HostRead::Activity(activity) => {
-                (Some(activity), activity.placement_diagnostic.as_deref())
-            }
-        };
-        if let Some(error) = error {
+        if let Some(error) = host.placement_diagnostic() {
             out.push(Advice::said(format!(
                 "busy processes on {}: {error}",
                 host.host
             )));
         }
-        let Some(read) = activity else { continue };
+        let Ok(read) = host.activity() else { continue };
         // A wedged fseventsd gets its own finding, in place of the busy one.
         out.extend(read.wedged.iter().map(|w| w.finding.clone()));
         let skip = read.wedged.as_ref().map(|w| w.pid);
