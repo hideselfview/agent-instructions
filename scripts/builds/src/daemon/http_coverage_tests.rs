@@ -128,15 +128,15 @@ print("alike board Held")
     let health = server.get("/api/health");
     assert_eq!(health.0, 200, "{}", health.2);
     let data: serde_json::Value = serde_json::from_str(&health.2).unwrap();
-    // Health also reads this machine's real processes, so it may list
-    // findings about them; none may concern the checkout under comparison.
-    let about_the_checkout: Vec<&serde_json::Value> = data["findings"]
+    // Health also lists findings about this machine's real processes. The
+    // design comparison only produces findings of the lists kind.
+    let from_lists: Vec<&serde_json::Value> = data["findings"]
         .as_array()
         .unwrap()
         .iter()
-        .filter(|finding| finding["text"].as_str().unwrap().contains("side-2"))
+        .filter(|finding| finding["kind"] == "lists")
         .collect();
-    assert!(about_the_checkout.is_empty(), "{about_the_checkout:?}");
+    assert!(from_lists.is_empty(), "{from_lists:?}");
     assert_eq!(data["worktrees"][0]["stalled"], false);
 
     gate.write_all(b"x").unwrap();
