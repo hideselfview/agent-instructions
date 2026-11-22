@@ -1999,8 +1999,9 @@ fn the_picture_folder_caches_the_shots_of_the_prefixes_its_marks_cover_for_the_a
         tree,
         crate::app_tree::in_environment(&source_tree, ENVIRONMENT)
     );
-    let pictures = |tree| shots_cache::AppPictures::hold(&places, "demo", Lane::Mac, tree).unwrap();
+    let pictures = |tree| shots_cache::AppPictures::of(&places, "demo", Lane::Mac, tree);
     let held = pictures(&tree);
+    let _first_lock = held.hold().unwrap();
     let caches =
         |prefixes: &[&str]| picture_folder_caches(&config, Lane::Mac, &held, prefixes).unwrap();
     assert!(!caches(&["mac.a."]), "the folder caches nothing yet");
@@ -2011,21 +2012,12 @@ fn the_picture_folder_caches_the_shots_of_the_prefixes_its_marks_cover_for_the_a
     std::fs::create_dir_all(&taken).unwrap();
     std::fs::write(taken.join("mac.@no-windows"), "").unwrap();
     assert!(caches(&["mac.a."]) && caches(&["mac.a.", "mac.b."]));
-    assert!(
-        !picture_folder_caches(&config, Lane::Mac, &pictures("another-tree"), &["mac.a."]).unwrap(),
-        "another app tree has no shots cached"
-    );
     let other_environment = crate::app_tree::in_environment(&source_tree, "25G241-27B52");
-    assert!(
-        !picture_folder_caches(
-            &config,
-            Lane::Mac,
-            &pictures(&other_environment),
-            &["mac.a."]
-        )
-        .unwrap(),
-        "the same app tree in another environment has no shots cached"
-    );
+    for tree in ["another-tree", &other_environment] {
+        let other = pictures(tree);
+        let _lock = other.hold().unwrap();
+        assert!(!picture_folder_caches(&config, Lane::Mac, &other, &["mac.a."]).unwrap());
+    }
 }
 
 /// A global `--agent` before the subcommand hides neither a request nor a lane.
@@ -2177,3 +2169,6 @@ fn the_capture_step_counts_the_screenshots_and_the_runs_after_it_count_none() {
     );
     assert_eq!(used(1).pictures, None);
 }
+
+#[path = "app_build_pictures_tests.rs"]
+mod pictures;

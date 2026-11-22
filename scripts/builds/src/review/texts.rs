@@ -114,10 +114,12 @@ fn group(places: &Places) -> Result<Group> {
                 .context(|| format!("reading the time of {}", used.display()))?
                 .mtime();
             kept.push(Kept::Folder {
-                folder,
+                folder: capped_store::Folder {
+                    path: folder,
+                    reader_lock: None,
+                },
                 last_use: Use::At(last_use),
                 what: "a run's review texts",
-                reader_lock: None,
             });
         }
     }

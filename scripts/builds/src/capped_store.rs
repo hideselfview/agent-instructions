@@ -182,16 +182,21 @@ pub enum Use {
     NewestInside,
 }
 
+/// The folder a capped unit occupies and the lock its readers hold, if any.
+pub struct Folder {
+    pub path: PathBuf,
+    /// Readers acquire this lock while holding WRITING.
+    pub reader_lock: Option<PathBuf>,
+}
+
 /// What a group of a root holds, as the cap sees it.
 pub enum Kept {
     /// A unit that is one folder; <what> names it in the reason its deletion
     /// gives.
     Folder {
-        folder: PathBuf,
+        folder: Folder,
         last_use: Use,
         what: &'static str,
-        /// Readers lock this path under WRITING before using the folder.
-        reader_lock: Option<PathBuf>,
     },
     /// A unit that is one folder and that a reader the cap cannot see still
     /// needs, the branches of <by>: the cap never deletes it, but counts its
@@ -217,10 +222,7 @@ pub struct Group {
 
 /// What the cap deletes of a group.
 enum Unit {
-    Folder {
-        path: PathBuf,
-        reader_lock: Option<PathBuf>,
-    },
+    Folder(Folder),
     Files(Vec<PathBuf>),
 }
 
@@ -267,9 +269,8 @@ fn prune_group(tool: &Tool, run: Run, cap_kib: u64, group: Group) -> Result<()> 
     let mut paths = vec![group.folder.clone()];
     for kept in &group.kept {
         match kept {
-            Kept::Folder { folder, .. } | Kept::InUse { folder, .. } | Kept::Staging { folder } => {
-                paths.push(folder.clone())
-            }
+            Kept::Folder { folder, .. } => paths.push(folder.path.clone()),
+            Kept::InUse { folder, .. } | Kept::Staging { folder } => paths.push(folder.clone()),
             Kept::Files { .. } | Kept::Loose { .. } => {}
         }
     }
@@ -317,7 +318,6 @@ fn prune_group(tool: &Tool, run: Run, cap_kib: u64, group: Group) -> Result<()> 
                 folder,
                 last_use,
                 what,
-                reader_lock,
             } => {
                 let measured = measures.next().expect("the folder was measured");
                 let used = match last_use {
@@ -327,19 +327,11 @@ fn prune_group(tool: &Tool, run: Run, cap_kib: u64, group: Group) -> Result<()> 
                     Use::NewestInside => measured.newest.ok_or_else(|| {
                         fail::Fail::Message(format!(
                             "{} went while the prune held {WRITING} exclusively, and only the prune deletes it",
-                            folder.display()
+                            folder.path.display()
                         ))
                     })?,
                 };
-                units.push((
-                    used,
-                    measured.kib,
-                    what,
-                    Unit::Folder {
-                        path: folder,
-                        reader_lock,
-                    },
-                ));
+                units.push((used, measured.kib, what, Unit::Folder(folder)));
             }
             Kept::Files {
                 files,
@@ -371,9 +363,10 @@ fn prune_group(tool: &Tool, run: Run, cap_kib: u64, group: Group) -> Result<()> 
             human(cap_kib)
         );
         let deleted = match &unit {
-            Unit::Folder { path, reader_lock } => {
+            Unit::Folder(Folder { path, reader_lock }) => {
+                // A reader cannot take this lock while prune holds WRITING.
                 if let Some(lock) = reader_lock
-                    && used_by_reader(lock)?
+                    && crate::queue::is_held(lock)?
                 {
                     note(format!("in use, kept: {} ({reason})", path.display()));
                     continue;
@@ -405,16 +398,6 @@ fn prune_group(tool: &Tool, run: Run, cap_kib: u64, group: Group) -> Result<()> 
         ));
     }
     Ok(())
-}
-
-/// Tests a unit's lock while holding WRITING exclusively. A reader cannot
-/// acquire the unit's lock until WRITING is released, even after this check.
-fn used_by_reader(path: &Path) -> Result<bool> {
-    match std::fs::File::open(path) {
-        Ok(file) => Ok(!crate::flock::try_lock(&file, libc::LOCK_EX, path)?),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
-        Err(error) => fail!("opening {}: {error}", path.display()),
-    }
 }
 
 /// The KiB the file <path> takes on disk; 0 when it is gone.
