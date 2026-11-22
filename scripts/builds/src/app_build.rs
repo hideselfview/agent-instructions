@@ -1028,14 +1028,14 @@ struct ShotsCache {
 /// once into <cache> and then reused, so every prefix of a run is checked
 /// against one tip.
 fn tip_declared<'a>(cache: &'a mut Option<Vec<String>>, source: &Path) -> Result<&'a [String]> {
-    if cache.is_none() {
-        let tip = resolve(source, "origin/main")?;
-        let names = crate::shots_declared::declared_names_at(source, &tip)?;
-        return Ok(cache.insert(names));
-    }
-    cache
-        .as_deref()
-        .ok_or_else(|| Fail::Message("the declared shots of origin/main were not read".to_string()))
+    let names = match cache.take() {
+        Some(names) => names,
+        None => {
+            let tip = resolve(source, "origin/main")?;
+            crate::shots_declared::declared_names_at(source, &tip)?
+        }
+    };
+    Ok(cache.insert(names))
 }
 
 impl ShotsCache {
