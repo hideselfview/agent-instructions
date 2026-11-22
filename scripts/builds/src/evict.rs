@@ -101,6 +101,21 @@ impl EvictionSlot {
             (Self::Sibling(path), removal) => remove(&path, removal).map(drop),
         }
     }
+
+    /// Removes the slot of a replacement that did not happen. A trash slot
+    /// that cannot be emptied stays for the next emptier; a folder beside the
+    /// cache has no emptier, so its failure reaches the caller.
+    fn discard(self) -> Result<()> {
+        match self {
+            Self::Trash(slot) => {
+                slot.remove_now();
+                Ok(())
+            }
+            Self::Sibling(path) => {
+                std::fs::remove_dir_all(&path).context(|| format!("removing {}", path.display()))
+            }
+        }
+    }
 }
 
 fn displace(places: &Places, dir: &Path, change: Change<'_>) -> Result<bool> {
@@ -130,12 +145,11 @@ fn displace(places: &Places, dir: &Path, change: Change<'_>) -> Result<bool> {
             let replacement = slot.path().join(name);
             let moved = replace_from(&folder, &replacement, prepare);
             drop(locks);
-            let removal = if matches!(moved, Ok(true)) {
-                Removal::Background
+            let cleanup = if matches!(moved, Ok(true)) {
+                slot.remove(Removal::Background)
             } else {
-                Removal::Now
+                slot.discard()
             };
-            let cleanup = slot.remove(removal);
             with_move_cleanup(moved, cleanup)
         }
     }
@@ -164,6 +178,19 @@ fn replace_from(
     Ok(true)
 }
 
+/// What <read> returns for <path>; None when <path> is gone, any other
+/// failure to the caller.
+fn read_if_present<T>(
+    path: &Path,
+    read: impl Fn(&Path) -> std::io::Result<T>,
+) -> Result<Option<T>> {
+    match read(path) {
+        Ok(value) => Ok(Some(value)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error).context(|| format!("reading {}", path.display())),
+    }
+}
+
 /// The first file of <replacement> whose live counterpart under <live> holds
 /// other bytes or another link target.
 fn changed_since_copy(live: &Path, replacement: &Path) -> Result<Option<PathBuf>> {
@@ -183,11 +210,13 @@ fn changed_since_copy(live: &Path, replacement: &Path) -> Result<Option<PathBuf>
                 changed_since_copy(&original, &copy)?
             }
         } else if kind.is_symlink() {
-            let target = |path: &Path| std::fs::read_link(path).ok();
-            (target(&copy) != target(&original)).then_some(original)
+            (read_if_present(&copy, |path: &Path| std::fs::read_link(path))?
+                != read_if_present(&original, |path: &Path| std::fs::read_link(path))?)
+            .then_some(original)
         } else {
-            let bytes = |path: &Path| std::fs::read(path).ok();
-            (bytes(&copy) != bytes(&original)).then_some(original)
+            (read_if_present(&copy, |path: &Path| std::fs::read(path))?
+                != read_if_present(&original, |path: &Path| std::fs::read(path))?)
+            .then_some(original)
         };
         if changed.is_some() {
             return Ok(changed);
