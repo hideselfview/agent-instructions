@@ -227,13 +227,9 @@ pub fn shown(text: &str) -> String {
     }
 }
 
-/// Is <command> `builds dashboard`, which runs until it is stopped on
-/// purpose?
-pub fn runs_the_dashboard(command: &str) -> bool {
-    let words: Vec<&str> = command.split_whitespace().collect();
-    words.windows(2).next().is_some_and(|pair| {
-        (pair[0] == "builds" || pair[0].ends_with("/builds")) && pair[1] == "dashboard"
-    })
+/// Is the command a dashboard that runs until it is stopped on purpose?
+fn runs_the_dashboard(command: &str) -> bool {
+    crate::daemon::dashboard_args(command.split_whitespace()).is_some()
 }
 
 /// A leading `cd <dir> &&` (or `;`) of <command>: the folder and the rest.

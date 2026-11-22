@@ -24,6 +24,8 @@ pub mod http;
 pub mod lists;
 pub mod live;
 pub mod model;
+#[cfg(target_os = "macos")]
+pub mod restart;
 pub mod review_cards;
 pub mod runs;
 pub mod scratch_view;
@@ -47,6 +49,17 @@ use crate::text::note;
 use crate::tool::Tool;
 use model::Model;
 use runs::Runs;
+
+/// The dashboard's own options, after builds' global agent option.
+pub fn dashboard_args<'a>(words: impl IntoIterator<Item = &'a str>) -> Option<Vec<&'a str>> {
+    let words = crate::ack::agent::without_flag_of(words);
+    match words.as_slice() {
+        [program, "dashboard", args @ ..] if crate::shells::basename(program) == "builds" => {
+            Some(args.to_vec())
+        }
+        _ => None,
+    }
+}
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -110,11 +123,7 @@ fn log_to_file(log: &Path) -> Result<()> {
     if unsafe { libc::isatty(2) } == 1 {
         return Ok(());
     }
-    let file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(log)
-        .context(|| format!("opening {}", log.display()))?;
+    let file = open_log(log)?;
     if unsafe { libc::dup2(file.as_raw_fd(), 2) } < 0 {
         fail!(
             "pointing the daemon's notes at {}: {}",
@@ -123,6 +132,19 @@ fn log_to_file(log: &Path) -> Result<()> {
         );
     }
     Ok(())
+}
+
+fn open_log(log: &Path) -> Result<std::fs::File> {
+    std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log)
+        .context(|| {
+            format!(
+                "Builds could not open the dashboard log at {}",
+                log.display()
+            )
+        })
 }
 
 /// Answers one question.
@@ -193,6 +215,13 @@ pub fn cmd_dashboard(tool: &Tool, args: &[String]) -> Result<()> {
     };
     let names: std::sync::Arc<[String]> = names.into();
     let (socket, _claim) = bind(tool)?;
+    #[cfg(target_os = "macos")]
+    let ready = restart::report_to_installer()?;
+    #[cfg(target_os = "macos")]
+    if ready.is_none() {
+        log_to_file(&tool.places.daemon_log())?;
+    }
+    #[cfg(not(target_os = "macos"))]
     log_to_file(&tool.places.daemon_log())?;
     let exe = tool.program.clone();
     let runs = Runs::start(
@@ -241,6 +270,12 @@ pub fn cmd_dashboard(tool: &Tool, args: &[String]) -> Result<()> {
         at.join(" and "),
         std::process::id()
     ));
+    #[cfg(target_os = "macos")]
+    if let Some(mut ready) = ready {
+        ready.write_all(&[restart::READY]).context(|| {
+            "Builds could not tell the installer that the dashboard is ready".to_string()
+        })?;
+    }
     http::serve(web, names, model);
     Ok(())
 }

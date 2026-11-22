@@ -183,7 +183,8 @@ fn put_on_path(places: &Places, builds: &Path) -> Result<()> {
     std::fs::create_dir_all(&bin).context(|| format!("creating {}", bin.display()))?;
     require_new_build(builds, &bin.join("builds"))?;
     put_in(&bin, builds, "builds")?;
-    restart_dashboards(places)?;
+    #[cfg(target_os = "macos")]
+    crate::daemon::restart::run(places)?;
     for link in crate::links::LINKS {
         link_to_builds(home, link.name)?;
     }
@@ -205,77 +206,6 @@ fn link_to_builds(home: &Path, name: &str) -> Result<()> {
     std::os::unix::fs::symlink("builds", &link)
         .context(|| format!("linking {} to builds", link.display()))?;
     note(format!("linked ~/.local/bin/{name} to builds"));
-    Ok(())
-}
-
-/// The current user's running dashboards, with the arguments each dashboard
-/// received. The kernel keeps argument boundaries even in paths with spaces.
-fn running_dashboards(
-    processes: &[crate::procs::Process],
-    uid: u32,
-    read_args: impl Fn(i32) -> std::result::Result<Option<Vec<String>>, String>,
-) -> Result<Vec<(i32, Vec<String>)>> {
-    let mut dashboards = Vec::new();
-    for process in processes
-        .iter()
-        .filter(|p| p.uid == uid && p.name == "builds")
-    {
-        let Some(argv) = read_args(process.pid).map_err(crate::fail::Fail::Message)? else {
-            continue;
-        };
-        let words = crate::ack::agent::without_flag(&argv);
-        if let [program, "dashboard", args @ ..] = words.as_slice()
-            && crate::shells::basename(program) == "builds"
-        {
-            dashboards.push((
-                process.pid,
-                args.iter().map(|arg| (*arg).to_owned()).collect(),
-            ));
-        }
-    }
-    Ok(dashboards)
-}
-
-/// Stops each running dashboard daemon and starts it again, detached, from the
-/// binary just installed, so it runs the new code. The daemon holds only
-/// state it rebuilds from the volume.
-fn restart_dashboards(places: &Places) -> Result<()> {
-    let processes = crate::procs::Processes::read()?;
-    for (pid, args) in running_dashboards(&processes.list, places.uid, crate::procs::live_args)? {
-        // SAFETY: kill(2) on a pid the kernel just listed; no memory is touched.
-        if unsafe { libc::kill(pid, libc::SIGTERM) } != 0 {
-            fail!(
-                "stopping the dashboard (pid {pid}): {}",
-                std::io::Error::last_os_error()
-            );
-        }
-        let mut waited = 0;
-        // SAFETY: signal 0 only checks that the process exists.
-        while unsafe { libc::kill(pid, 0) } == 0 {
-            if waited >= 100 {
-                fail!("the dashboard (pid {pid}) did not stop within 10 s");
-            }
-            std::thread::sleep(std::time::Duration::from_millis(100));
-            waited += 1;
-        }
-        let child = {
-            use std::os::unix::process::CommandExt;
-            Command::new(crate::links::path(&places.home, "builds"))
-                .arg0("builds")
-                .arg("dashboard")
-                .args(&args)
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .process_group(0)
-                .spawn()
-                .context(|| "starting the dashboard".to_string())?
-        };
-        note(format!(
-            "restarted the dashboard (was pid {pid}, now pid {})",
-            child.id()
-        ));
-    }
     Ok(())
 }
 
@@ -625,53 +555,6 @@ mod tests {
 
     use crate::sccache::parse_job;
     use crate::sccache::tests::{RESPAWNING, RUNNING};
-
-    #[test]
-    fn install_finds_a_dashboard_started_with_an_absolute_executable_path() {
-        let process = |pid, uid, name: &str| crate::procs::Process {
-            pid,
-            ppid: 1,
-            uid,
-            name: name.to_string(),
-            started: 100,
-        };
-        let processes = [
-            process(11, 501, "builds"),
-            process(12, 501, "builds"),
-            process(13, 501, "builds"),
-            process(14, 502, "builds"),
-            process(15, 501, "bash"),
-        ];
-        let dashboards = running_dashboards(&processes, 501, |pid| {
-            let args = match pid {
-                11 => vec![
-                    "/Users/test user/.local/bin/builds",
-                    "dashboard",
-                    "--listen",
-                    "192.168.1.166",
-                ],
-                12 => vec![
-                    "builds",
-                    "--agent",
-                    "local-agent",
-                    "dashboard",
-                    "--port",
-                    "7788",
-                ],
-                13 => vec!["builds", "help", "dashboard"],
-                _ => panic!("install should not read process {pid}"),
-            };
-            Ok(Some(args.into_iter().map(String::from).collect()))
-        })
-        .unwrap();
-        assert_eq!(
-            dashboards,
-            [
-                (11, vec!["--listen".into(), "192.168.1.166".into()]),
-                (12, vec!["--port".into(), "7788".into()]),
-            ]
-        );
-    }
 
     #[test]
     fn a_comment_is_no_setting() {

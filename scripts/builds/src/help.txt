@@ -3892,12 +3892,14 @@ INSTALLING
                               schema change records the new stamp beside its
                               move from the schema before), copy builds onto
                               PATH in one rename (a failed build leaves the
-                              installed one), restart each running dashboard with
-                              the new builds, link
+                              installed one), restart each running dashboard
+                              with the new builds, link
                               ~/.local/bin/builds-linker and
                               ~/.local/bin/builds-rustc to it, and let the
-                              waiting commands start. Then create the
-                              shared caches and their links (moving a real
+                              waiting commands start. If a dashboard fails to
+                              restart, install reports the failure and keeps
+                              its options so you can retry the install. Then
+                              create the shared caches and their links (moving a real
                               folder already there onto the volume), write the
                               sccache config, run the sccache server under
                               launchd (restarting it only when its settings
