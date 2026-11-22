@@ -20,10 +20,24 @@ impl Fail {
     /// What to say of it: the message, or the exit status.
     pub fn text(self) -> String {
         match self {
-            Fail::Message(message) => message,
-            Fail::Exit(code) => format!("exit {code}"),
-            Fail::Move { from, to, error } => {
-                format!("moving {} to {}: {error}", from.display(), to.display())
+            Self::Message(message) => message,
+            other => other.to_string(),
+        }
+    }
+}
+
+impl Display for Fail {
+    fn fmt(&self, output: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Message(message) => output.write_str(message),
+            Self::Exit(code) => write!(output, "exit {code}"),
+            Self::Move { from, to, error } => {
+                write!(
+                    output,
+                    "moving {} to {}: {error}",
+                    from.display(),
+                    to.display()
+                )
             }
         }
     }
@@ -79,26 +93,36 @@ impl<T, E: Display> Context<T> for std::result::Result<T, E> {
 /// it ended: <first>'s error when it failed, with <then>'s error noted on
 /// stderr when that failed too; else <then>'s error; else <first>'s value.
 pub fn with_cleanup<T>(first: Result<T>, then: Result<()>) -> Result<T> {
-    match (first, then) {
-        (Err(error), Err(also)) => {
-            crate::text::note(also.text());
-            Err(error)
-        }
-        (first, then) => {
-            then?;
-            first
-        }
-    }
+    finish_cleanup(first, then, |_, _| false)
 }
 
 /// Setup may continue after a refused move, but it must stop on a
 /// separate cleanup failure. Keep both diagnostics when both steps fail.
 pub fn with_move_cleanup<T>(moved: Result<T>, cleanup: Result<()>) -> Result<T> {
-    match (moved, cleanup) {
-        (Err(error @ Fail::Move { .. }), Err(cleanup)) if !matches!(cleanup, Fail::Move { .. }) => {
-            with_cleanup(Err(cleanup), Err(error))
+    finish_cleanup(moved, cleanup, |first, then| {
+        matches!(first, Fail::Move { .. }) && !matches!(then, Fail::Move { .. })
+    })
+}
+
+fn finish_cleanup<T>(
+    first: Result<T>,
+    then: Result<()>,
+    prefer_cleanup: impl FnOnce(&Fail, &Fail) -> bool,
+) -> Result<T> {
+    match (first, then) {
+        (Err(first), Err(then)) => {
+            let (reported, returned) = if prefer_cleanup(&first, &then) {
+                (first, then)
+            } else {
+                (then, first)
+            };
+            crate::text::note(reported.text());
+            Err(returned)
         }
-        (moved, cleanup) => with_cleanup(moved, cleanup),
+        (first, then) => {
+            then?;
+            first
+        }
     }
 }
 

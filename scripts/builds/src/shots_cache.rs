@@ -77,7 +77,7 @@ use crate::lane::Lane;
 use crate::places::Places;
 use crate::prune::Run;
 use crate::shots_in_use::{self, Named};
-use crate::shots_program::Versions;
+use crate::shots_program::{VERSIONS, Versions};
 use crate::text::note;
 use crate::tool::Tool;
 
@@ -494,26 +494,32 @@ fn mark_used(cached: &Cached) -> Result<()> {
     capped_store::mark_used(&cached.folder.join(RUN_FILE))
 }
 
-/// Selects and reads a cached run under the same lease. A successful read
-/// renews the run's last use before releasing the lease.
-pub fn read_cached<T>(
+/// Reads a covering run in any environment with the current shots program
+/// versions. The cache lease protects both the read and its last-use renewal.
+pub fn read_covering<T>(
     places: &Places,
-    select: impl FnOnce() -> Result<Option<Cached>>,
+    repo: &str,
+    commit: &str,
+    lane: Lane,
+    prefix: &str,
     read: impl FnOnce(&Cached) -> Result<Option<T>>,
 ) -> Result<Option<T>> {
-    let reading = writing(places)?;
-    let Some(cached) = select()? else {
+    let _reading = writing(places)?;
+    let Some(cached) = covering_run(
+        places,
+        repo,
+        commit,
+        lane,
+        Made::Anywhere,
+        prefix,
+        &VERSIONS,
+    )?
+    else {
         return Ok(None);
     };
     let read = read(&cached)?;
     if read.is_some() {
-        let marked = mark_used(&cached);
-        drop(reading);
-        if let Err(error) = marked {
-            let message = error.text();
-            note(&message);
-            return Err(crate::fail::Fail::Message(message));
-        }
+        mark_used(&cached)?;
     }
     Ok(read)
 }

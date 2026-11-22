@@ -445,10 +445,7 @@ fn apply_plan(tool: &Tool, run: Run, root: &Path, steps: Vec<Deletion>) -> Resul
             if entry.removed {
                 note(format!("deleted {} ({reason})", entry.path.display()));
             } else {
-                note(format!(
-                    "{} disappeared before the prune could delete it",
-                    entry.path.display()
-                ));
+                note_disappeared(entry.path);
             }
         }
         failures = with_move_cleanup(failures, deleted);
@@ -457,6 +454,13 @@ fn apply_plan(tool: &Tool, run: Run, root: &Path, steps: Vec<Deletion>) -> Resul
         Some(slot) => with_move_cleanup(failures, slot.remove_background()),
         None => failures,
     }
+}
+
+fn note_disappeared(path: &Path) {
+    note(format!(
+        "{} disappeared before the prune could delete it",
+        path.display()
+    ));
 }
 
 impl Unit {
@@ -522,10 +526,7 @@ impl<F: Fn() -> Result<HeldPaths>> OpenFiles<F> {
         let folder = match std::fs::canonicalize(folder) {
             Ok(folder) => folder,
             Err(error) if fail::gone(&error) => {
-                note(format!(
-                    "{} disappeared before the prune could delete it",
-                    folder.display()
-                ));
+                note_disappeared(folder);
                 return Ok(false);
             }
             Err(error) => fail!("resolving {}: {error}", folder.display()),

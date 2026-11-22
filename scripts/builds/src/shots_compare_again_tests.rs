@@ -193,7 +193,13 @@ fn a_change_to_the_capture_compares_nothing_again() {
     cache_run(&places, &key("capture-1", "comparison-1"));
     let program = recheck_program(&scratch, "capture-2", "comparison-1", true);
     let new = key("capture-2", "comparison-1");
-    assert!(compare_again(&places, &new, &program).unwrap().is_none());
+    assert!(
+        compare_again(&places, &new, &|source| shots_check_program::recheck(
+            &program, source
+        ))
+        .unwrap()
+        .is_none()
+    );
     assert_eq!(calls(&scratch), "", "no program ran");
     assert!(shots_cache::lookup(&places, &new).unwrap().is_none());
 }
@@ -205,7 +211,11 @@ fn a_run_whose_findings_a_program_of_other_versions_made_is_refused() {
     cache_run(&places, &key("capture-1", "comparison-1"));
     let program = recheck_program(&scratch, "capture-1", "comparison-3", true);
     let new = key("capture-1", "comparison-2");
-    let error = compare_again(&places, &new, &program).unwrap_err().text();
+    let error = compare_again(&places, &new, &|source| {
+        shots_check_program::recheck(&program, source)
+    })
+    .unwrap_err()
+    .text();
     assert!(error.contains("comparison-3"), "{error}");
     assert!(shots_cache::lookup(&places, &new).unwrap().is_none());
 }
@@ -222,7 +232,11 @@ fn only_a_run_of_the_same_environment_is_compared_again() {
     let program = recheck_program(&scratch, capture, &VERSIONS.comparison, true);
     let new = key(capture, &VERSIONS.comparison);
     assert!(
-        compare_again(&places, &new, &program).unwrap().is_none(),
+        compare_again(&places, &new, &|source| shots_check_program::recheck(
+            &program, source
+        ))
+        .unwrap()
+        .is_none(),
         "the run of another environment is no source"
     );
     assert!(
@@ -253,6 +267,43 @@ fn only_a_run_of_the_same_environment_is_compared_again() {
     .expect("the run of its own environment is compared again");
     assert_eq!(made.key.environment, ENVIRONMENT);
     assert!(calls(&scratch).contains(&own.report().display().to_string()));
+}
+
+#[test]
+fn before_run_considers_a_covering_run_published_during_recheck() {
+    let scratch = Scratch::new("compare-again-concurrent");
+    let places = scratch.places();
+    let capture = VERSIONS.capture.as_str();
+    cache_run(&places, &key(capture, "old-comparison"));
+    let program = recheck_program(&scratch, capture, &VERSIONS.comparison, true);
+    let concurrent_key = Key {
+        prefix: "mac.a.".into(),
+        ..key(capture, &VERSIONS.comparison)
+    };
+
+    let find = before_run_with(
+        &places,
+        "demo",
+        COMMIT,
+        Lane::Mac,
+        ENVIRONMENT,
+        "mac.a.",
+        &|source| {
+            let checked = shots_check_program::recheck(&program, source)?;
+            let concurrent = cache_run(&places, &concurrent_key);
+            let record = concurrent.folder.join("run.json");
+            let mut json: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(&record).unwrap()).unwrap();
+            // The other writer's published run has the later recorded time.
+            json["recorded_at"] = serde_json::json!(i64::MAX);
+            std::fs::write(record, json.to_string()).unwrap();
+            Ok(checked)
+        },
+    )
+    .unwrap()
+    .unwrap();
+
+    assert_eq!(find.key, concurrent_key);
 }
 
 #[test]

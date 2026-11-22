@@ -12,7 +12,7 @@ use crate::evict::{Recreate, Removal, evict, make_temp_dir};
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
 use crate::free_worktrees::retire_idle;
-use crate::manifest::{SHARED_CACHES, build_dirs, has_manifest};
+use crate::manifest::{SHARED_CACHES, SharedCache, build_dirs, has_manifest};
 use crate::places::{DERIVED_DATA_CAP_KIB, DERIVED_DATA_IDLE_MINUTES, FLOOR_IDLE_MINUTES, Places};
 use crate::temp_builds::temp_build_folders;
 use crate::text::{human, note};
@@ -325,12 +325,12 @@ fn copy_preserving(from: &Path, to: &Path) -> Result<()> {
 /// once nothing has written to it in the last FLOOR_IDLE_MINUTES (a package
 /// resolve between two fetches holds no file open) and no process holds a
 /// file in it. sccache bounds its own cache.
-fn prune_caches(tool: &Tool, run: Run, pruner: Pruner) -> Result<()> {
+fn prune_caches(tool: &Tool, run: Run, pruner: Pruner, capped: &[SharedCache]) -> Result<()> {
     let caches = tool.places.caches();
     if !caches.is_dir() {
         return Ok(());
     }
-    let capped: Vec<_> = SHARED_CACHES
+    let capped: Vec<_> = capped
         .iter()
         .filter(|cache| cache.name != "sccache" && caches.join(cache.name).is_dir())
         .collect();
@@ -383,7 +383,7 @@ fn prune_caches(tool: &Tool, run: Run, pruner: Pruner) -> Result<()> {
 
 /// Prunes caches and temporary output both setup and explicit prune own.
 pub fn prune_shared(tool: &Tool, run: Run, pruner: Pruner) -> Result<()> {
-    prune_caches(tool, run, pruner)?;
+    prune_caches(tool, run, pruner, SHARED_CACHES)?;
     pruner.after_move(crate::shots_cache::prune(tool, run))?;
     pruner.after_move(crate::review::texts::prune(tool, run))?;
     prune_test_temps(tool, run)?;

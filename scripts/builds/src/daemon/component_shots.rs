@@ -213,21 +213,8 @@ fn read_cached<T>(
     prefix: &str,
     read: impl FnOnce(&Cached) -> Result<Option<T>>,
 ) -> Result<Option<T>> {
-    shots_cache::read_cached(
-        places,
-        || {
-            shots_cache::covering_run(
-                places,
-                repo,
-                commit,
-                lane,
-                Made::Anywhere,
-                prefix,
-                &VERSIONS,
-            )
-        },
-        read,
-    )
+    shots_cache::read_covering(places, repo, commit, lane, prefix, read)
+        .inspect_err(|error| crate::text::note(error.to_string()))
 }
 
 /// <component>'s rows on <lane> in the cached run <cached>: the rows its

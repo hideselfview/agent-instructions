@@ -549,3 +549,63 @@ fn setup_tries_the_next_folder_and_checks_the_hard_floor_after_a_refused_move() 
     assert!(next.is_dir());
     assert!(!next.join("blob").exists());
 }
+
+#[cfg(target_os = "macos")]
+#[test]
+fn a_refused_shared_cache_move_removes_the_staged_settings_and_tries_later_caches() {
+    let scratch = Scratch::new("cache-settings-refused");
+    let tool = scratch.tool(0);
+    let caches = tool.places.caches();
+    let first = caches.join("first");
+    let next = caches.join("next");
+    for cache in [&first, &next] {
+        fill(&cache.join("data"), 16);
+        std::fs::write(cache.join("settings"), "kept").unwrap();
+        age_all(cache, 2);
+    }
+    let shared = ["first", "next"].map(|name| SharedCache {
+        name,
+        cap_kib: 1,
+        link: None,
+        settings: &["settings"],
+    });
+    let flags = |value: &str| {
+        assert!(
+            Command::new("/usr/bin/chflags")
+                .arg(value)
+                .arg(&first)
+                .status()
+                .unwrap()
+                .success()
+        );
+    };
+    // A per-folder flag refuses the rename even though its parent can still
+    // hold a staging copy or let the next cache move.
+    flags("uchg");
+    let pruned = prune_caches(&tool, Run::Real, Pruner::Setup, &shared);
+    flags("nouchg");
+    pruned.unwrap();
+
+    assert!(first.join("data").is_file());
+    assert!(!next.join("data").exists());
+    assert_eq!(
+        std::fs::read_to_string(first.join("settings")).unwrap(),
+        "kept"
+    );
+    assert_eq!(
+        std::fs::read_to_string(next.join("settings")).unwrap(),
+        "kept"
+    );
+    let staged = std::fs::read_dir(caches)
+        .unwrap()
+        .filter_map(|entry| {
+            let entry = entry.unwrap();
+            entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".settings-")
+                .then(|| entry.path())
+        })
+        .collect::<Vec<_>>();
+    assert!(staged.is_empty(), "{staged:?}");
+}
