@@ -90,9 +90,9 @@ fn the_background_is_the_most_common_colour_and_the_foreground_the_most_frequent
         width: 10.0,
         height: 10.0,
     };
-    let (background, foreground) = palette(&picture, 1.0, bounds, Role::Button).unwrap();
-    assert_eq!(background, dark);
-    assert_eq!(foreground, Some(white));
+    let palette = palette(&picture, 1.0, bounds).unwrap();
+    assert_eq!(palette.background, dark);
+    assert_eq!(palette.mode().map(|(colour, _)| colour), Some(white));
 }
 
 #[test]
@@ -117,9 +117,13 @@ fn a_background_of_many_near_shades_beats_a_text_of_one_fill() {
         width: 10.0,
         height: 10.0,
     };
-    let (background, foreground) = palette(&picture, 1.0, bounds, Role::Text).unwrap();
-    assert!(rgb_delta(background, [21, 20, 33]) < 6.0, "{background:?}");
-    assert_eq!(foreground, Some(text));
+    let palette = palette(&picture, 1.0, bounds).unwrap();
+    assert!(
+        rgb_delta(palette.background, [21, 20, 33]) < 6.0,
+        "{:?}",
+        palette.background
+    );
+    assert_eq!(palette.glyph_colour(), Some(text));
 }
 
 #[test]
@@ -131,10 +135,9 @@ fn a_box_of_one_colour_has_no_foreground() {
         width: 4.0,
         height: 4.0,
     };
-    assert_eq!(
-        palette(&picture, 1.0, bounds, Role::Text),
-        Some(([9, 9, 9], None))
-    );
+    let palette = palette(&picture, 1.0, bounds).unwrap();
+    assert_eq!(palette.background, [9, 9, 9]);
+    assert_eq!(palette.glyph_colour(), None);
 }
 
 #[test]
@@ -148,7 +151,7 @@ fn a_box_is_read_in_pixels_at_the_scale() {
         height: 2.0,
     };
     assert_eq!(
-        palette(&picture, 2.0, bounds, Role::Text).unwrap().0,
+        palette(&picture, 2.0, bounds).unwrap().background,
         [255, 0, 0]
     );
 }
@@ -283,4 +286,24 @@ fn text_ignores_a_contrasting_control_inside_its_bounds() {
     let shot = picture(8, 8, |x, _| if x <= 2 { ink } else { background });
     let warnings = warn(Role::Text, &board, &shot);
     assert!(warnings.is_empty(), "{warnings:?}");
+}
+
+#[test]
+fn text_warns_when_only_one_picture_has_measurable_glyph_colour() {
+    let background = [40, 40, 48];
+    let visible = picture(
+        8,
+        8,
+        |x, _| if x < 3 { [240, 240, 240] } else { background },
+    );
+    let flat = picture(8, 8, |_, _| background);
+    assert_eq!(
+        warn(Role::Text, &visible, &flat),
+        ["The checker found no measurable glyph colour for the text “Word” in the shot."]
+    );
+    assert_eq!(
+        warn(Role::Text, &flat, &visible),
+        ["The checker found no measurable glyph colour for the text “Word” on the board."]
+    );
+    assert!(warn(Role::Text, &flat, &flat).is_empty());
 }

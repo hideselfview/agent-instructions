@@ -81,6 +81,7 @@ pub enum What {
         board: String,
         shot: String,
     },
+    TextColourUnavailable {},
     Region {},
 }
 
@@ -135,6 +136,7 @@ impl What {
                 Part::Foreground => "an element has another foreground colour in the shot",
                 Part::Text => "a text has another colour in the shot",
             },
+            What::TextColourUnavailable { .. } => "the checker could not measure a glyph colour",
             What::Region { .. } => "the pictures differ in an area",
         }
     }

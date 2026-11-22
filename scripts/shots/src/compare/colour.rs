@@ -2,8 +2,8 @@
 //! them.
 
 use super::normalize::Entry;
-use super::{DELTA_E_TOLERANCE, Part, Side, Warning};
-use crate::shots::{Bounds, Picture, Role};
+use super::{DELTA_E_TOLERANCE, Part, PictureSide, Side, Warning};
+use crate::shots::{Bounds, Element, Picture, Role};
 use std::collections::HashMap;
 
 pub(crate) type Rgb = [u8; 3];
@@ -153,46 +153,56 @@ fn dot(first: [i32; 3], second: [i32; 3]) -> i32 {
     first.into_iter().zip(second).map(|(a, b)| a * b).sum()
 }
 
-/// Follow the dominant foreground colour away from the background to find
-/// the glyph pixels with the highest coverage. Another colour inside the
-/// text box can have more contrast without lying on that blend line.
-fn glyph_colour(background: Rgb, mode: (Rgb, usize), colours: &[(Rgb, usize)]) -> Rgb {
-    let offset = |colour: Rgb| {
-        std::array::from_fn(|channel| i32::from(colour[channel]) - i32::from(background[channel]))
-    };
-    let dominant = offset(mode.0);
-    let mut strongest = (dot(dominant, dominant), mode.1, mode.0);
-    for &(colour, count) in colours {
-        let candidate = offset(colour);
-        let distance = dot(candidate, candidate);
-        let key = (distance, count, colour);
-        if key <= strongest {
-            continue;
-        }
-        let coverage = f64::from(dot(dominant, candidate)) / f64::from(distance);
-        // The dominant colour can be a partial blend of this candidate
-        // with the background. Allow one RGB step for 8-bit rounding.
-        if (0.0..=1.0).contains(&coverage)
-            && dominant
-                .into_iter()
-                .zip(candidate)
-                .all(|(sample, full)| (f64::from(sample) - coverage * f64::from(full)).abs() <= 1.0)
-        {
-            strongest = key;
-        }
-    }
-    strongest.2
+struct Palette {
+    background: Rgb,
+    foreground: Vec<(Rgb, usize)>,
 }
 
-/// The dominant background and the foreground of `bounds`, in points
-/// from the picture's top-left. Text uses the glyph colour. Other elements
-/// use the most frequent foreground colour.
-fn palette(
-    picture: &Picture,
-    scale: f64,
-    bounds: Bounds,
-    role: Role,
-) -> Option<(Rgb, Option<Rgb>)> {
+impl Palette {
+    fn mode(&self) -> Option<(Rgb, usize)> {
+        self.foreground
+            .iter()
+            .copied()
+            .max_by_key(|(colour, count)| (*count, *colour))
+    }
+
+    /// Follow the dominant foreground colour away from the background to find
+    /// the glyph pixels with the highest coverage. Another colour inside the
+    /// text box can have more contrast without lying on that blend line.
+    fn glyph_colour(&self) -> Option<Rgb> {
+        let (mode, count) = self.mode()?;
+        let offset = |colour: Rgb| {
+            std::array::from_fn(|channel| {
+                i32::from(colour[channel]) - i32::from(self.background[channel])
+            })
+        };
+        let dominant = offset(mode);
+        let mut strongest = (dot(dominant, dominant), count, mode);
+        for &(colour, count) in &self.foreground {
+            let candidate = offset(colour);
+            let distance = dot(candidate, candidate);
+            let key = (distance, count, colour);
+            if key <= strongest {
+                continue;
+            }
+            let coverage = f64::from(dot(dominant, candidate)) / f64::from(distance);
+            // The dominant colour can be a partial blend of this candidate
+            // with the background. Allow one RGB step for 8-bit rounding.
+            if coverage >= 0.0
+                && dominant.into_iter().zip(candidate).all(|(sample, full)| {
+                    (f64::from(sample) - coverage * f64::from(full)).abs() <= 1.0
+                })
+            {
+                strongest = key;
+            }
+        }
+        Some(strongest.2)
+    }
+}
+
+/// The dominant background and the foreground colours in `bounds`, in points
+/// from the picture's top-left.
+fn palette(picture: &Picture, scale: f64, bounds: Bounds) -> Option<Palette> {
     let (left, top) = (
         (bounds.x * scale).round() as i64,
         (bounds.y * scale).round() as i64,
@@ -208,19 +218,14 @@ fn palette(
         }
     }
     let (background, lab) = background_of(&counts)?;
-    let far: Vec<_> = counts
+    let foreground = counts
         .into_iter()
         .filter(|(colour, _)| delta_e(lab, Lab::of(*colour)) > FAR_FROM_BACKGROUND)
         .collect();
-    let mode = far
-        .iter()
-        .copied()
-        .max_by_key(|(colour, count)| (*count, *colour));
-    let foreground = mode.map(|mode| match role {
-        Role::Text => glyph_colour(background, mode, &far),
-        _ => mode.0,
-    });
-    Some((background, foreground))
+    Some(Palette {
+        background,
+        foreground,
+    })
 }
 
 /// `#RRGGBB`.
@@ -231,39 +236,50 @@ pub(crate) fn hex(colour: Rgb) -> String {
 /// The colour warnings of the pairs, measured from each element's picture.
 pub(crate) fn pairs(board: &Side, shot: &Side, pairs: &[(Entry, Entry)]) -> Vec<Warning> {
     let mut warnings = Vec::new();
-    let mut differ = |entry: &Entry, part: Part, from: Rgb, to: Rgb| {
+    let differ = |entry: &Entry, part: Part, from: Rgb, to: Rgb| {
         let delta = rgb_delta(from, to);
-        if delta > DELTA_E_TOLERANCE {
-            warnings.push(Warning::Colour {
-                entry: entry.clone(),
-                part,
-                board: from,
-                shot: to,
-                delta,
-            });
-        }
+        (delta > DELTA_E_TOLERANCE).then(|| Warning::Colour {
+            entry: entry.clone(),
+            part,
+            board: from,
+            shot: to,
+            delta,
+        })
     };
     for (b, s) in pairs {
-        if let (Some((from_back, from_fore)), Some((to_back, to_fore))) = (
-            palette(board.picture, board.scale, b.bounds(board.elements), b.kind),
-            palette(
-                shot.picture,
-                shot.scale,
-                shot.elements[s.index].bounds,
-                s.kind,
-            ),
-        ) {
-            differ(b, Part::Background, from_back, to_back);
-            if let (Some(from_fore), Some(to_fore)) = (from_fore, to_fore) {
-                let part = match b.kind {
-                    Role::Text => Part::Text,
-                    _ => Part::Foreground,
-                };
-                differ(b, part, from_fore, to_fore);
-            }
+        let from = palette(board.picture, board.scale, b.bounds(board.elements));
+        let to = palette(shot.picture, shot.scale, shot.elements[s.index].bounds);
+        if let (Some(from), Some(to)) = (&from, &to) {
+            warnings.extend(differ(b, Part::Background, from.background, to.background));
         }
+        let foreground = match b.kind {
+            Role::Text => match (
+                from.as_ref().and_then(Palette::glyph_colour),
+                to.as_ref().and_then(Palette::glyph_colour),
+            ) {
+                (Some(from), Some(to)) => differ(b, Part::Text, from, to),
+                (None, Some(_)) => {
+                    Some(unmeasured(b, PictureSide::Board, &board.elements[b.index]))
+                }
+                (Some(_), None) => Some(unmeasured(b, PictureSide::Shot, &shot.elements[s.index])),
+                (None, None) => None,
+            },
+            _ => match (from.and_then(|p| p.mode()), to.and_then(|p| p.mode())) {
+                (Some((from, _)), Some((to, _))) => differ(b, Part::Foreground, from, to),
+                _ => None,
+            },
+        };
+        warnings.extend(foreground);
     }
     warnings
+}
+
+fn unmeasured(entry: &Entry, side: PictureSide, element: &Element) -> Warning {
+    Warning::TextColourUnavailable {
+        entry: entry.clone(),
+        side,
+        recorded: element.text.as_ref().and_then(|style| style.color.clone()),
+    }
 }
 
 #[cfg(test)]

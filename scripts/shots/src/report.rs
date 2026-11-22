@@ -127,7 +127,8 @@ fn marks(pair: &Checked) -> (Vec<Mark>, Vec<Mark>) {
             | Warning::Resized { entry, .. }
             | Warning::FontSize { entry, .. }
             | Warning::FontWeight { entry, .. }
-            | Warning::Colour { entry, .. } => {
+            | Warning::Colour { entry, .. }
+            | Warning::TextColourUnavailable { entry, .. } => {
                 board.push(on_board(entry.index, "warning", &sentence));
                 if let Some(s) = partner(entry.index) {
                     shot.push(on_shot(s, "warning", &sentence));

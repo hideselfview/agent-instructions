@@ -394,6 +394,13 @@ pub(crate) enum Part {
     Text,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum PictureSide {
+    Board,
+    Shot,
+}
+
 /// A difference that is reported and never fails the run.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Warning {
@@ -430,6 +437,11 @@ pub(crate) enum Warning {
         board: Rgb,
         shot: Rgb,
         delta: f64,
+    },
+    TextColourUnavailable {
+        entry: Entry,
+        side: PictureSide,
+        recorded: Option<String>,
     },
     /// A region of the board's frame where the pictures differ.
     Region {
@@ -566,7 +578,8 @@ impl Warning {
             | Self::Resized { entry, .. }
             | Self::FontSize { entry, .. }
             | Self::FontWeight { entry, .. }
-            | Self::Colour { entry, .. } => Some(entry),
+            | Self::Colour { entry, .. }
+            | Self::TextColourUnavailable { entry, .. } => Some(entry),
             Self::FrameOffset { .. } | Self::Region { .. } => None,
         }
     }
@@ -653,6 +666,24 @@ impl Warning {
                     hex(*board),
                     hex(*shot)
                 )
+            }
+            Self::TextColourUnavailable {
+                entry,
+                side,
+                recorded,
+            } => {
+                let place = match side {
+                    PictureSide::Board => "on the board",
+                    PictureSide::Shot => "in the shot",
+                };
+                let mut sentence = format!(
+                    "The checker found no measurable glyph colour for {} {place}.",
+                    the(entry)
+                );
+                if let Some(colour) = recorded {
+                    sentence.push_str(&format!(" The text style records {colour}."));
+                }
+                sentence
             }
             Self::Region { bounds, .. } => format!(
                 "The pictures differ in the area {} wide and {} high at ({}, {})",
