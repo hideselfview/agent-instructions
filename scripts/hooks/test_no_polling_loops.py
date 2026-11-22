@@ -82,6 +82,19 @@ CASES = [
     (False, 'grep -n "sleep 5; cat" notes.txt'),
     (False, 'echo "sleep 5; tail x" > fixture.sh'),
     (False, 'tail -1 build.log'),
+    (True, 'cd w && sleep 240; tail -1 build.log'),
+    (True, 'cd /tmp/w; sleep 30; cat out'),
+    (True, 'pushd w >/dev/null && sleep 5 && tail x'),
+    (True, 'export BUILDS_AGENT=a1; sleep 60; tail -1 log'),
+    (True, 'FOO=1; sleep 60 && tail -1 log'),
+    (True, 'set -e\nsleep 60\ntail log'),
+    (True, 'cd w && export A=1 && A=2 && sleep 9 && tail log'),
+    (True, 'cd w && timeout 300 sleep 240 && tail log'),
+    (False, 'cd w && sleep 5'),
+    (False, 'cd w && export A=1; sleep 5 &'),
+    (False, 'cd w && echo hi; sleep 5; tail log'),
+    (False, 'cd w && ls'),
+    (False, 'export A=1; tail -1 log'),
 ]
 bad = 0
 for want, cmd in CASES:

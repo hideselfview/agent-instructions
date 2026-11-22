@@ -161,17 +161,27 @@ def sleeps_in_loop(command: str) -> bool:
     return False
 
 
+# Programs that only change the shell's own state: a step of one of these
+# (or a bare assignment) before a `sleep` does not make the sleep a later
+# step of the command.
+SETUP = {"cd", "pushd", "popd", "export", "set", "unset"}
+
+
 def sleeps_then_runs(command: str) -> bool:
-    """A command whose first step is `sleep` (or a wrapper around one, such as
-    `timeout 300 sleep 240`) and that has any later step: `sleep 240; tail -1
-    build.log`. One wait followed by a read polls a background task by hand, and
-    the harness reports when the task ends. A `sleep` alone, a `sleep` after
-    another step, and the word inside a quoted string are not refused."""
+    """A command whose first step after its setup steps (`cd w`, `export
+    A=1`, `A=1`, `set -e`) is `sleep` (or a wrapper around one, such as
+    `timeout 300 sleep 240`) and that has any later step: `cd w && sleep 240;
+    tail -1 build.log`. One wait followed by a read polls a background task by
+    hand, and the harness reports when the task ends. A `sleep` alone, a
+    `sleep` after any other step, and the word inside a quoted string are not
+    refused."""
     steps = [words for words, _ in shell_words.commands(command) if words]
-    if len(steps) < 2:
+    i = 0
+    while i < len(steps) and (not program(steps[i]) or program(steps[i])[0] in SETUP):
+        i += 1
+    if i + 1 >= len(steps):
         return False
-    first = program(steps[0])
-    return bool(first) and Path(first[0]).name == "sleep"
+    return Path(program(steps[i])[0]).name == "sleep"
 
 
 def blocked(command: str) -> bool:
