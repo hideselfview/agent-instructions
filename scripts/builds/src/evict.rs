@@ -52,42 +52,136 @@ pub enum Recreate {
 /// folder beside it, since a rename can't cross volumes. Returns false, deleting nothing,
 /// when the folder is in use.
 pub fn evict(places: &Places, dir: &Path, recreate: Recreate, removal: Removal) -> Result<bool> {
+    displace(places, dir, removal, Change::Move(recreate))
+}
+
+/// Prepares a replacement and exchanges it with the live folder in one
+/// rename. After the exchange, only the old contents remain in the trash.
+pub fn replace(
+    places: &Places,
+    dir: &Path,
+    prepare: &dyn Fn(&Path, &Path) -> Result<()>,
+) -> Result<bool> {
+    displace(places, dir, Removal::Background, Change::Replace(prepare))
+}
+
+enum Change<'a> {
+    Move(Recreate),
+    Replace(&'a dyn Fn(&Path, &Path) -> Result<()>),
+}
+
+enum EvictionSlot {
+    Trash(crate::trash::Slot),
+    Sibling(PathBuf),
+}
+
+impl EvictionSlot {
+    fn make(places: &Places, parent: &Path) -> Result<Self> {
+        if device(parent)? == device(&places.root)? {
+            Ok(Self::Trash(crate::trash::Slot::make(places)?))
+        } else {
+            Ok(Self::Sibling(make_temp_dir(parent, ".builds-deleting.")?))
+        }
+    }
+
+    fn path(&self) -> &Path {
+        match self {
+            Self::Trash(slot) => &slot.path,
+            Self::Sibling(path) => path,
+        }
+    }
+
+    fn remove(self, removal: Removal) -> Result<()> {
+        match (self, removal) {
+            (Self::Trash(slot), Removal::Now) => {
+                slot.remove_now();
+                Ok(())
+            }
+            (Self::Trash(slot), Removal::Background) => slot.remove_background(),
+            (Self::Sibling(path), removal) => remove(&path, removal).map(drop),
+        }
+    }
+
+    fn discard(self) -> Result<()> {
+        std::fs::remove_dir_all(self.path())
+            .context(|| format!("removing {}", self.path().display()))
+    }
+}
+
+fn displace(places: &Places, dir: &Path, removal: Removal, change: Change<'_>) -> Result<bool> {
     let folder = std::fs::canonicalize(dir).context(|| format!("resolving {}", dir.display()))?;
     crate::sizes::stale(places, &folder)?;
-    let parent = folder
-        .parent()
-        .expect("a folder to delete has a parent")
-        .to_path_buf();
-    let same_volume = device(&parent)? == device(&places.root)?;
+    let parent = folder.parent().expect("a folder to delete has a parent");
     let _guard = match crate::units::lock_guard_creating(&folder)? {
         crate::units::Guard::Busy => return Ok(false),
         guard => guard,
     };
-    let Some(_locks) = cargo_locks(&folder)? else {
+    let Some(locks) = cargo_locks(&folder)? else {
         return Ok(false);
     };
-    if held_by_a_process(&folder)? {
+    if matches!(change, Change::Move(_)) && held_by_a_process(&folder)? {
         return Ok(false);
     }
+    let slot = EvictionSlot::make(places, parent)?;
     let name = folder.file_name().expect("a folder to delete has a name");
-    if !same_volume {
-        let slot = make_temp_dir(&parent, ".builds-deleting.")?;
-        let moved = move_in(&folder, &slot, name, recreate)?;
-        drop(_locks);
-        remove(&slot, removal)?;
-        return Ok(moved);
+    match change {
+        Change::Move(recreate) => {
+            let moved = move_in(&folder, slot.path(), name, recreate)?;
+            drop(locks);
+            slot.remove(removal)?;
+            Ok(moved)
+        }
+        Change::Replace(prepare) => {
+            let replacement = slot.path().join(name);
+            let moved = replace_from(&folder, &replacement, prepare);
+            drop(locks);
+            let cleanup = if matches!(moved, Ok(true)) {
+                slot.remove(removal)
+            } else {
+                slot.discard()
+            };
+            with_move_cleanup(moved, cleanup)
+        }
     }
-    // The shared trash lock keeps an emptier from renaming the trash away
-    // between making the slot and the folder reaching it, or from emptying
-    // the slot while it is being removed.
-    let slot = crate::trash::Slot::make(places)?;
-    let moved = move_in(&folder, &slot.path, name, recreate)?;
-    drop(_locks);
-    match removal {
-        Removal::Now => slot.remove_now(),
-        Removal::Background => slot.remove_background()?,
+}
+
+fn replace_from(
+    folder: &Path,
+    replacement: &Path,
+    prepare: &dyn Fn(&Path, &Path) -> Result<()>,
+) -> Result<bool> {
+    std::fs::create_dir(replacement).context(|| format!("creating {}", replacement.display()))?;
+    prepare(folder, replacement)?;
+    if held_by_a_process(folder)? {
+        return Ok(false);
     }
-    Ok(moved)
+    exchange(folder, replacement)?;
+    Ok(true)
+}
+
+fn exchange(folder: &Path, replacement: &Path) -> Result<()> {
+    let live = CString::new(folder.as_os_str().as_bytes()).expect("a path holds no NUL");
+    let staged = CString::new(replacement.as_os_str().as_bytes()).expect("a path holds no NUL");
+    #[cfg(target_os = "macos")]
+    let result = unsafe { libc::renamex_np(live.as_ptr(), staged.as_ptr(), libc::RENAME_SWAP) };
+    #[cfg(target_os = "linux")]
+    let result = unsafe {
+        libc::renameat2(
+            libc::AT_FDCWD,
+            live.as_ptr(),
+            libc::AT_FDCWD,
+            staged.as_ptr(),
+            libc::RENAME_EXCHANGE,
+        )
+    };
+    if result == 0 {
+        return Ok(());
+    }
+    Err(crate::fail::Fail::Move {
+        from: folder.to_path_buf(),
+        to: replacement.to_path_buf(),
+        error: std::io::Error::last_os_error(),
+    })
 }
 
 /// Renames <folder> into <slot>: false, moving nothing, when another process

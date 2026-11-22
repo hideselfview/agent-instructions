@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::checkout::{Checkout, Root};
-use crate::evict::{Recreate, Removal, evict, make_temp_dir};
+use crate::evict::{Recreate, Removal, evict};
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
 use crate::free_worktrees::retire_idle;
@@ -277,33 +277,26 @@ pub fn prune_derived_data(tool: &Tool, run: Run, idle: u64, pruner: Pruner) -> R
     Ok(())
 }
 
-/// Copies the settings files <settings> that <dir> holds into a new folder
-/// beside it, and returns that folder; None when <dir> holds none of them.
-fn stage_settings(
-    tool: &Tool,
+/// Copies the settings the live cache holds into an empty replacement.
+fn copy_settings(
     dir: &Path,
-    name: &str,
+    replacement: &Path,
     settings: &[&str],
-) -> Result<Option<PathBuf>> {
-    let mut keep: Option<PathBuf> = None;
+    copy: &impl Fn(&Path, &Path) -> Result<()>,
+) -> Result<()> {
     for path in settings {
-        if !dir.join(path).exists() {
+        let from = dir.join(path);
+        if crate::whole_file::lstat(&from)?.is_none() {
             continue;
         }
-        if keep.is_none() {
-            keep = Some(make_temp_dir(
-                &tool.places.caches(),
-                &format!(".settings-{name}."),
-            )?);
-        }
-        let keep = keep.as_ref().expect("made above");
-        let target = keep.join(path);
-        if let Some(parent) = target.parent() {
-            std::fs::create_dir_all(parent).context(|| format!("creating {}", parent.display()))?;
-        }
-        copy_preserving(&dir.join(path), &target)?;
+        let target = replacement.join(path);
+        let parent = target
+            .parent()
+            .expect("settings paths lie inside the cache");
+        std::fs::create_dir_all(parent).context(|| format!("creating {}", parent.display()))?;
+        copy(&from, &target)?;
     }
-    Ok(keep)
+    Ok(())
 }
 
 /// `cp -Rp <from> <to>`: the files with their modes and times.
@@ -320,16 +313,34 @@ fn copy_preserving(from: &Path, to: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Deletes each shared cache that is over its cap, whole, and recreates it
-/// empty, with its settings files put back, so its link stays valid; only
+/// Replaces each shared cache that is over its cap with an otherwise empty
+/// folder holding its settings, so the live path and its links stay valid; only
 /// once nothing has written to it in the last FLOOR_IDLE_MINUTES (a package
 /// resolve between two fetches holds no file open) and no process holds a
 /// file in it. sccache bounds its own cache.
-fn prune_caches(tool: &Tool, run: Run, pruner: Pruner, capped: &[SharedCache]) -> Result<()> {
+fn prune_caches(
+    tool: &Tool,
+    run: Run,
+    pruner: Pruner,
+    capped: &[SharedCache],
+    copy: impl Fn(&Path, &Path) -> Result<()>,
+) -> Result<()> {
     let caches = tool.places.caches();
     if !caches.is_dir() {
         return Ok(());
     }
+    // A second prune must measure and copy the live cache after the first
+    // one finishes replacing it. Other builds do not take this lock.
+    let _pruning = if run.dry() {
+        None
+    } else {
+        let lock = tool.places.root.join(".shared-cache-pruning");
+        let Some(pruning) = crate::evict::try_lock_creating(&lock)? else {
+            note("Another prune is clearing shared caches.");
+            return Ok(());
+        };
+        Some(pruning)
+    };
     let capped: Vec<_> = capped
         .iter()
         .filter(|cache| cache.name != "sccache" && caches.join(cache.name).is_dir())
@@ -340,7 +351,7 @@ fn prune_caches(tool: &Tool, run: Run, pruner: Pruner, capped: &[SharedCache]) -
         if measured.kib <= cache.cap_kib {
             continue;
         }
-        let mut reason = format!("{} > {}", human(measured.kib), human(cache.cap_kib));
+        let reason = format!("{} > {}", human(measured.kib), human(cache.cap_kib));
         if tool.written_within(&measured, FLOOR_IDLE_MINUTES) {
             note(format!(
                 "over its cap but written in the last {FLOOR_IDLE_MINUTES}m, kept: {} ({reason})",
@@ -349,25 +360,9 @@ fn prune_caches(tool: &Tool, run: Run, pruner: Pruner, capped: &[SharedCache]) -
         } else if run.dry() {
             note(format!("would delete {} ({reason})", dir.display()));
         } else {
-            let keep = stage_settings(tool, &dir, cache.name, cache.settings)?;
-            let moved = evict(&tool.places, &dir, Recreate::Yes, Removal::Background);
-            if matches!(moved, Ok(true))
-                && let Some(keep) = &keep
-            {
-                copy_preserving(&keep.join("."), &dir.join(""))?;
-                reason += "; its settings put back";
-            }
-            // A refused move leaves the original settings intact. A failure
-            // after the move leaves the copy in place for recovery.
-            if matches!(moved, Ok(_) | Err(Fail::Move { .. }))
-                && let Some(keep) = &keep
-            {
-                let removed = std::fs::remove_dir_all(keep)
-                    .context(|| format!("removing {}", keep.display()));
-                if let Err(error) = removed {
-                    return fail::with_move_cleanup(moved.map(drop), Err(error));
-                }
-            }
+            let moved = crate::evict::replace(&tool.places, &dir, &|live, replacement| {
+                copy_settings(live, replacement, cache.settings, &copy)
+            });
             match pruner.after_move(moved)? {
                 Some(true) => note(format!(
                     "deleted {} ({reason}); every checkout downloads into it again",
@@ -383,7 +378,7 @@ fn prune_caches(tool: &Tool, run: Run, pruner: Pruner, capped: &[SharedCache]) -
 
 /// Prunes caches and temporary output both setup and explicit prune own.
 pub fn prune_shared(tool: &Tool, run: Run, pruner: Pruner) -> Result<()> {
-    prune_caches(tool, run, pruner, SHARED_CACHES)?;
+    prune_caches(tool, run, pruner, SHARED_CACHES, copy_preserving)?;
     pruner.after_move(crate::shots_cache::prune(tool, run))?;
     pruner.after_move(crate::review::texts::prune(tool, run))?;
     prune_test_temps(tool, run)?;

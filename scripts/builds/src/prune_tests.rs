@@ -582,7 +582,7 @@ fn a_refused_shared_cache_move_removes_the_staged_settings_and_tries_later_cache
     // A per-folder flag refuses the rename even though its parent can still
     // hold a staging copy or let the next cache move.
     flags("uchg");
-    let pruned = prune_caches(&tool, Run::Real, Pruner::Setup, &shared);
+    let pruned = prune_caches(&tool, Run::Real, Pruner::Setup, &shared, copy_preserving);
     flags("nouchg");
     pruned.unwrap();
 
@@ -602,4 +602,99 @@ fn a_refused_shared_cache_move_removes_the_staged_settings_and_tries_later_cache
         .collect::<Vec<_>>();
     entries.sort();
     assert_eq!(entries, ["first", "next"]);
+}
+
+#[test]
+fn a_shared_cache_replacement_needs_no_copy_back_into_its_live_path() {
+    let scratch = Scratch::new("cache-settings-live-path");
+    let tool = scratch.tool(0);
+    let live = tool.places.caches().join("cache");
+    fill(&live.join("data"), 16);
+    std::fs::create_dir(live.join("settings")).unwrap();
+    std::fs::write(live.join("settings/config"), "keep me").unwrap();
+    age_all(&live, 2);
+    let shared = [SharedCache {
+        name: "cache",
+        cap_kib: 1,
+        link: None,
+        settings: &["settings/config"],
+    }];
+
+    let pruned = prune_caches(&tool, Run::Real, Pruner::Prune, &shared, |from, to| {
+        if to.starts_with(&live) {
+            crate::fail!("the test refuses restoring settings into {}", to.display());
+        }
+        copy_preserving(from, to)
+    });
+
+    assert_eq!(
+        std::fs::read_to_string(live.join("settings/config")).unwrap(),
+        "keep me"
+    );
+    pruned.unwrap();
+    assert!(!live.join("data").exists());
+}
+
+#[test]
+fn a_failed_replacement_preparation_keeps_all_live_cache_contents() {
+    let scratch = Scratch::new("cache-settings-prepare-failed");
+    let tool = scratch.tool(0);
+    let live = tool.places.caches().join("cache");
+    fill(&live.join("data"), 16);
+    for setting in ["first", "second"] {
+        std::fs::write(live.join(setting), setting).unwrap();
+    }
+    age_all(&live, 2);
+    let shared = [SharedCache {
+        name: "cache",
+        cap_kib: 1,
+        link: None,
+        settings: &["first", "second"],
+    }];
+    let error = prune_caches(&tool, Run::Real, Pruner::Prune, &shared, |from, to| {
+        if from.ends_with("second") {
+            crate::fail!("the test cannot copy the second setting");
+        }
+        copy_preserving(from, to)
+    })
+    .unwrap_err();
+
+    assert_eq!(error.text(), "the test cannot copy the second setting");
+    assert!(live.join("data").is_file());
+    for setting in ["first", "second"] {
+        assert_eq!(
+            std::fs::read_to_string(live.join(setting)).unwrap(),
+            setting
+        );
+    }
+    assert_eq!(std::fs::read_dir(tool.places.trash()).unwrap().count(), 0);
+}
+
+#[test]
+fn a_second_shared_cache_prune_leaves_an_in_progress_replacement_alone() {
+    let scratch = Scratch::new("cache-settings-concurrent");
+    let tool = scratch.tool(0);
+    let live = tool.places.caches().join("cache");
+    fill(&live.join("data"), 16);
+    std::fs::write(live.join("settings"), "keep me").unwrap();
+    age_all(&live, 2);
+    let shared = [SharedCache {
+        name: "cache",
+        cap_kib: 1,
+        link: None,
+        settings: &["settings"],
+    }];
+    prune_caches(&tool, Run::Real, Pruner::Prune, &shared, |from, to| {
+        prune_caches(&tool, Run::Real, Pruner::Setup, &shared, |_, _| {
+            panic!("another prune started preparing the same cache");
+        })?;
+        assert!(live.join("data").is_file());
+        copy_preserving(from, to)
+    })
+    .unwrap();
+    assert_eq!(
+        std::fs::read_to_string(live.join("settings")).unwrap(),
+        "keep me"
+    );
+    assert!(!live.join("data").exists());
 }

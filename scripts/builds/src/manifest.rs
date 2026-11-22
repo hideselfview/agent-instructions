@@ -326,8 +326,8 @@ pub struct SharedCache {
     pub cap_kib: u64,
     /// Relative to $HOME; None for a cache whose tool is told the folder.
     pub link: Option<&'static str>,
-    /// Settings the person writes into the tool's home folder, which a
-    /// deletion copies out first and puts back in the emptied folder.
+    /// Settings the person writes into the tool's home folder. Builds
+    /// copies them into the replacement before it exchanges the folders.
     pub settings: &'static [&'static str],
 }
 
