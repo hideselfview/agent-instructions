@@ -1072,6 +1072,7 @@ pub fn allow_unreported_tokens(db: &Connection, texts: &texts::Texts) -> Result<
             .sql()?;
         rows.collect::<rusqlite::Result<Vec<_>>>().sql()?
     };
+    let mut affected_calls = std::collections::BTreeSet::new();
     for (exchange, call, run, hash, failure) in unreported {
         let candidate = super::call::failed_answer_text(&failure);
         let output = if texts::hash(&candidate) == hash {
@@ -1088,12 +1089,15 @@ pub fn allow_unreported_tokens(db: &Connection, texts: &texts::Texts) -> Result<
                 [exchange],
             )
             .sql()?;
-            db.execute(
-                &format!("UPDATE review_call SET {CLEAR_LEGACY_TOKENS} WHERE id = ?1"),
-                [call],
-            )
-            .sql()?;
+            affected_calls.insert(call);
         }
+    }
+    for call in affected_calls {
+        db.execute(
+            &format!("UPDATE review_call SET {CLEAR_LEGACY_TOKENS} WHERE id = ?1"),
+            [call],
+        )
+        .sql()?;
     }
     Ok(())
 }
