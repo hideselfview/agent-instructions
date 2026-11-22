@@ -104,10 +104,19 @@ impl ShotsUse {
         Ok(ShotsUse {
             environment,
             base_run: BaseRun::from_word(base_run)?,
-            pictures: reused.zip(captured).map(|(reused, captured)| Pictures {
-                reused: reused as u64,
-                captured: captured as u64,
-            }),
+            pictures: match reused.zip(captured) {
+                Some((reused, captured)) => Some(Pictures {
+                    reused: u64::try_from(reused).map_err(|_| {
+                        fail::Fail::Message(format!("a stored count of reused shots is {reused}"))
+                    })?,
+                    captured: u64::try_from(captured).map_err(|_| {
+                        fail::Fail::Message(format!(
+                            "a stored count of shot screenshots is {captured}"
+                        ))
+                    })?,
+                }),
+                None => None,
+            },
         })
     }
 }
@@ -186,14 +195,23 @@ pub fn record(tx: &Transaction, run_id: i64, steps: &[StepRecord]) -> Result<()>
         let Some(used) = &step.shots else {
             continue;
         };
+        let count = |count: u64| {
+            i64::try_from(count).map_err(|_| {
+                fail::Fail::Message(format!("{count} screenshots are too many to store"))
+            })
+        };
+        let pictures = used
+            .pictures
+            .map(|p| Ok::<_, fail::Fail>((count(p.reused)?, count(p.captured)?)))
+            .transpose()?;
         insert
             .execute(params![
                 run_id,
                 position as i64,
                 used.environment,
                 used.base_run.word(),
-                used.pictures.map(|p| p.reused as i64),
-                used.pictures.map(|p| p.captured as i64),
+                pictures.map(|(reused, _)| reused),
+                pictures.map(|(_, captured)| captured),
             ])
             .sql()?;
     }
