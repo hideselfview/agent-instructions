@@ -1242,16 +1242,22 @@ impl<'a> Drawings<'a> {
 /// check`, which land runs, and health's search for design commits that no
 /// change covers both decide coverage here.
 pub fn covers(designs: &[DrawnChange], changes: &Changes) -> Result<()> {
-    let ids: Vec<Id> = designs.iter().map(|d| d.design.id).collect();
-    let named = named(&ids);
-    let holds = |d: &DrawnChange, place: &str| d.design.places.contains_key(place);
+    let records: Vec<&DesignChange> = designs.iter().map(|drawn| drawn.design).collect();
+    covers_places(&records, changes)?;
+    covers_drawings(designs, changes)
+}
+
+/// What the design records can answer before any boards are drawn.
+fn covers_places(designs: &[&DesignChange], changes: &Changes) -> Result<()> {
     let unresolved: Vec<&str> = changes
         .resolvable()
         .into_iter()
         .map(String::as_str)
-        .filter(|place| !designs.iter().any(|d| holds(d, place)))
+        .filter(|place| !designs.iter().any(|d| d.places.contains_key(*place)))
         .collect();
     if !unresolved.is_empty() {
+        let ids: Vec<Id> = designs.iter().map(|d| d.id).collect();
+        let named = named(&ids);
         let verb = if ids.len() == 1 { "does" } else { "do" };
         fail!(
             "{named} {verb} not resolve {}. {}",
@@ -1259,16 +1265,41 @@ pub fn covers(designs: &[DrawnChange], changes: &Changes) -> Result<()> {
             amend_hint(&ids, "each place", "the change that draws the place")
         );
     }
+    if let Err(error) = needs_answer(designs, changes, "the commits") {
+        let ids: Vec<Id> = designs.iter().map(|d| d.id).collect();
+        return Err(match error {
+            crate::fail::Fail::Message(message) => crate::fail::Fail::Message(format!(
+                "{message} ({}). {}",
+                named(&ids),
+                amend_hint(&ids, "the answer", "one of these changes")
+            )),
+            other => other,
+        });
+    }
+    if let Some(stray) = designs.iter().find(|design| !takes_part(design, changes)) {
+        fail!(
+            "design change {} resolves nothing the commits change, so landing them must not close it; leave it out",
+            stray.id
+        );
+    }
+    Ok(())
+}
+
+/// Checks the drawings for records that already resolve the changed places.
+fn covers_drawings(designs: &[DrawnChange], changes: &Changes) -> Result<()> {
     let redrawn: Vec<&str> = changes
         .drawn()
         .map(String::as_str)
         .filter(|path| {
-            !designs
-                .iter()
-                .any(|d| (changes.sources.contains(*path) || holds(d, path)) && d.same.path(path))
+            !designs.iter().any(|d| {
+                (changes.sources.contains(*path) || d.design.places.contains_key(*path))
+                    && d.same.path(path)
+            })
         })
         .collect();
     if !redrawn.is_empty() {
+        let ids: Vec<Id> = designs.iter().map(|d| d.design.id).collect();
+        let named = named(&ids);
         let pronoun = if redrawn.len() == 1 { "it" } else { "them" };
         fail!(
             "{named} drew {}, and the commits draw {pronoun} differently; the person approves each board as its change drew it. {}",
@@ -1278,20 +1309,6 @@ pub fn covers(designs: &[DrawnChange], changes: &Changes) -> Result<()> {
                 "the boards and sources as the commits draw them",
                 "the change that draws the path"
             )
-        );
-    }
-    let plain: Vec<&DesignChange> = designs.iter().map(|d| d.design).collect();
-    needs_answer(&plain, changes, "the commits").map_err(|error| match error {
-        crate::fail::Fail::Message(message) => crate::fail::Fail::Message(format!(
-            "{message} ({named}). {}",
-            amend_hint(&ids, "the answer", "one of these changes")
-        )),
-        other => other,
-    })?;
-    if let Some(stray) = plain.iter().find(|design| !takes_part(design, changes)) {
-        fail!(
-            "design change {} resolves nothing the commits change, so landing them must not close it; leave it out",
-            stray.id
         );
     }
     Ok(())
@@ -1382,49 +1399,43 @@ pub fn design_commits(
     for sha in ahead {
         let changes = changes_of(top, &globs, std::slice::from_ref(sha))?;
         if changes.is_design_change() {
-            commits.push((sha, changes));
+            commits.push(DesignCommit {
+                sha: sha.clone(),
+                changes,
+                covered_by: None,
+            });
         }
     }
     if commits.is_empty() {
         return Ok(Vec::new());
     }
-    let drawn: BTreeSet<&String> = commits
-        .iter()
-        .flat_map(|(_, changes)| changes.drawn())
-        .collect();
-    let sources: BTreeSet<String> = commits
-        .iter()
-        .flat_map(|(_, changes)| changes.sources.iter().cloned())
-        .collect();
     let last = ahead.last().expect("it holds the design commits");
-    // A record can cover one of these commits only if it resolves every
-    // place of that commit. Only compare drawings for records that can cover
-    // a commit on their own.
-    let candidates = open_designs(lists, repo).filter(|design| {
-        commits.iter().any(|(_, changes)| {
-            takes_part(design, changes)
-                && changes
-                    .resolvable()
-                    .into_iter()
-                    .all(|place| design.places.contains_key(place))
-        })
-    });
-    let drawings = Drawings::read(top, last, candidates, &drawn, &sources, renders)?;
-    Ok(commits
-        .into_iter()
-        .map(|(sha, changes)| {
-            let covered_by = drawings
-                .changes
-                .iter()
-                .find(|drawn| covers(std::slice::from_ref(*drawn), &changes).is_ok())
-                .map(|drawn| drawn.design.id);
-            DesignCommit {
-                sha: sha.clone(),
-                changes,
-                covered_by,
+    for design in open_designs(lists, repo) {
+        let candidates: Vec<&mut DesignCommit> = commits
+            .iter_mut()
+            .filter(|commit| {
+                commit.covered_by.is_none() && covers_places(&[design], &commit.changes).is_ok()
+            })
+            .collect();
+        if candidates.is_empty() {
+            continue;
+        }
+        let drawn = candidates
+            .iter()
+            .flat_map(|commit| commit.changes.drawn())
+            .collect();
+        let sources = candidates
+            .iter()
+            .flat_map(|commit| commit.changes.sources.iter().cloned())
+            .collect();
+        let drawings = Drawings::read(top, last, [design], &drawn, &sources, renders)?;
+        for commit in candidates {
+            if covers_drawings(&drawings.changes, &commit.changes).is_ok() {
+                commit.covered_by = Some(design.id);
             }
-        })
-        .collect())
+        }
+    }
+    Ok(commits)
 }
 
 /// The open design changes of <repo>.
