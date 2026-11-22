@@ -1156,31 +1156,45 @@ fn picture_tree(
     ))
 }
 
-fn shot_prefixes(
-    lane: Lane,
-    picks: &[Pick],
-) -> shots_cache::PictureLeaseResult<Vec<shots::Prefix>> {
-    picks
-        .iter()
-        .filter(|(own, kind, _)| *own == lane && *kind == PickKind::Shots)
-        .map(|(_, _, prefix)| Ok(shots::Prefix::parse(prefix)?))
-        .collect()
+#[derive(Clone)]
+struct ShotPick<'a> {
+    pick: &'a Pick,
+    prefix: shots::Prefix,
+}
+
+impl<'a> ShotPick<'a> {
+    fn of_lane(lane: Lane, picks: &'a [Pick]) -> shots_cache::PictureLeaseResult<Vec<Self>> {
+        picks
+            .iter()
+            .filter(|(own, kind, _)| *own == lane && *kind == PickKind::Shots)
+            .map(|pick| {
+                Ok(Self {
+                    pick,
+                    prefix: shots::Prefix::parse(&pick.2)?,
+                })
+            })
+            .collect()
+    }
+
+    fn commands(picks: &[Self]) -> Vec<Pick> {
+        picks.iter().map(|pick| pick.pick.clone()).collect()
+    }
 }
 
 /// The marks a lane needs to run its shots without building the app.
-/// The prefixes come from the lane's shots picks.
-fn capture_query<'a>(
+fn capture_query(
     config: &Config,
     lane: Lane,
-    prefixes: &'a [shots::Prefix],
-) -> Result<shots_cache::CaptureQuery<'a>> {
+    picks: &[ShotPick<'_>],
+) -> Result<shots_cache::CaptureQuery> {
     let Some(picker) = config.picker(lane, PickKind::Shots) else {
-        let first = prefixes
+        let first = picks
             .first()
             .expect("a lane has shots picks when it asks whether the folder caches them");
-        return Err(missing_line(lane, PickKind::Shots, first.as_str()));
+        return Err(missing_line(lane, PickKind::Shots, first.prefix.as_str()));
     };
     let windows = picker.command.iter().any(|word| word == "--windows");
+    let prefixes = picks.iter().map(|pick| pick.prefix.clone()).collect();
     Ok(shots_cache::CaptureQuery { prefixes, windows })
 }
 
@@ -1710,7 +1724,7 @@ fn run_lane(
 ) -> Result<()> {
     lock::end_on_stop_signals();
     let mut timing = Timing::start();
-    let result = build_lane(tool, repo, lane, request, programs, &mut timing);
+    let result = build_lane(tool, repo, lane, request, programs, &mut timing).map_err(Fail::from);
     let outcome = match &result {
         Ok(()) => RunEnd::Passed,
         Err(_) if lock::stop_signal().is_some() => RunEnd::Stopped,
@@ -1740,7 +1754,7 @@ struct LaneRequest<'a> {
 /// The merge base of a lane's commit with origin/main, whose runs the shots
 /// of the commit compare with, read from git alone, before the lane takes a
 /// checkout.
-struct MergeBase {
+struct MergeBase<'a> {
     commit: String,
     /// The repo's `.app-build` at the merge base.
     config: Config,
@@ -1748,13 +1762,13 @@ struct MergeBase {
     /// the lane's `needs` steps.
     names: Vec<String>,
     /// The shots picks of the lane.
-    picks: Vec<Pick>,
+    picks: Vec<ShotPick<'a>>,
     /// The prefixes of the picks that select a scene shown in its window at
     /// the merge base.
     windowed: Vec<String>,
 }
 
-impl MergeBase {
+impl<'a> MergeBase<'a> {
     /// The merge base of <commit> when it is not <commit> itself, and the
     /// lane has shots picks among <picks>; None otherwise.
     fn of(
@@ -1763,14 +1777,9 @@ impl MergeBase {
         lane: Lane,
         source: &Path,
         commit: &str,
-        picks: &[Pick],
-    ) -> Result<Option<MergeBase>> {
-        let own: Vec<Pick> = picks
-            .iter()
-            .filter(|(pick_lane, kind, _)| *pick_lane == lane && *kind == PickKind::Shots)
-            .cloned()
-            .collect();
-        if own.is_empty() {
+        picks: &[ShotPick<'a>],
+    ) -> Result<Option<Self>> {
+        if picks.is_empty() {
             return Ok(None);
         }
         let base = crate::derive::merge_base(source, commit)?;
@@ -1778,17 +1787,18 @@ impl MergeBase {
             return Ok(None);
         }
         let config = config_at(places, repo, &base)?;
-        let names = crate::derive::plan(&config, &[], &own)
+        let commands = ShotPick::commands(picks);
+        let names = crate::derive::plan(&config, &[], &commands)
             .into_iter()
             .find(|(own_lane, _)| *own_lane == lane)
             .map(|(_, names)| names)
             .expect("derive::plan lists each lane that has picks");
-        let windowed = windowed_at(source, &base, lane, &own)?;
+        let windowed = windowed_at(source, &base, lane, &commands)?;
         Ok(Some(MergeBase {
             commit: base,
             config,
             names,
-            picks: own,
+            picks: picks.to_vec(),
             windowed,
         }))
     }
@@ -1799,7 +1809,7 @@ impl MergeBase {
             &self.config,
             lane,
             &self.names,
-            &self.picks,
+            &ShotPick::commands(&self.picks),
             &self.windowed,
             &|_| Ok(None),
         )
@@ -1848,7 +1858,7 @@ struct LaneBuild<'a> {
     repo: &'a str,
     lane: Lane,
     request: LaneRequest<'a>,
-    shot_prefixes: Vec<shots::Prefix>,
+    shot_picks: Vec<ShotPick<'a>>,
     programs: &'a Pinned,
     /// The folder on this Mac that holds the repo's commits.
     source: std::path::PathBuf,
@@ -1861,7 +1871,7 @@ struct LaneBuild<'a> {
     /// that compare with a run of it. None for a lane that runs its picks
     /// against the checkout as it is (no step named): it cannot switch the
     /// checkout to the merge base.
-    base: Option<MergeBase>,
+    base: Option<MergeBase<'a>>,
 }
 
 fn build_lane(
@@ -1871,11 +1881,11 @@ fn build_lane(
     request: LaneRequest,
     programs: &Pinned,
     timing: &mut Timing,
-) -> Result<()> {
+) -> shots_cache::PictureLeaseResult<()> {
     let places = &tool.places;
     let floor_kib = tool.rules.floor_kib;
     let LaneRequest { commit, picks, .. } = request;
-    let shot_prefixes = shot_prefixes(lane, picks)?;
+    let shot_picks = ShotPick::of_lane(lane, picks)?;
     note(format!(
         "waiting for {repo}'s {} app lock, then building {commit}",
         lane.word()
@@ -1892,14 +1902,14 @@ fn build_lane(
     let base = if runs_checkout_as_it_is {
         None
     } else {
-        MergeBase::of(places, repo, lane, &source, commit, picks)?
+        MergeBase::of(places, repo, lane, &source, commit, &shot_picks)?
     };
     let build = LaneBuild {
         places,
         repo,
         lane,
         request,
-        shot_prefixes,
+        shot_picks,
         programs,
         source,
         config,
@@ -1989,7 +1999,7 @@ struct CommitRun<'a> {
     built: &'a [String],
 }
 
-impl LaneBuild<'_> {
+impl<'a> LaneBuild<'a> {
     /// The lane's steps at the commit, as `lane_steps` makes them from the
     /// commit's own `.app-build`.
     fn steps(&self) -> Result<Vec<Step>> {
@@ -2042,7 +2052,7 @@ impl LaneBuild<'_> {
         // A lane whose steps are only what its shots need, and whose shots
         // the picture folder caches, builds nothing.
         let tree = picture_tree(&self.source, commit, &self.config, lane, &environment)?;
-        let pictures = (!self.shot_prefixes.is_empty())
+        let pictures = (!self.shot_picks.is_empty())
             .then(|| shots_cache::AppPictures::of(places, repo, lane, &tree));
         let run = |cached_shots| {
             let mut built = Vec::new();
@@ -2092,7 +2102,7 @@ impl LaneBuild<'_> {
         match &pictures {
             Some(pictures) => {
                 let query = (needs_only && !fresh)
-                    .then(|| capture_query(&self.config, lane, &self.shot_prefixes))
+                    .then(|| capture_query(&self.config, lane, &self.shot_picks))
                     .transpose()?;
                 pictures.while_held(query.as_ref(), run)?
             }
@@ -2235,7 +2245,7 @@ impl LaneBuild<'_> {
     /// missing when it looked.
     fn ensure_base(
         &self,
-        base: &MergeBase,
+        base: &MergeBase<'a>,
         environment: &str,
         site: &mut Site,
         held: &lock::Held,
@@ -2251,10 +2261,10 @@ impl LaneBuild<'_> {
         } = *self;
         let commit = self.request.commit;
         let program = programs.builds();
-        let missing = |picks: &[Pick]| -> Result<Vec<Pick>> {
+        let missing = |picks: &[ShotPick<'a>]| -> Result<Vec<ShotPick<'a>>> {
             let mut missing = Vec::new();
             for pick in picks {
-                let (_, _, prefix) = pick;
+                let prefix = pick.prefix.as_str();
                 if crate::shots_compare_again::before_run(
                     places,
                     repo,
@@ -2276,13 +2286,13 @@ impl LaneBuild<'_> {
             return Ok((Ended::Finished, Vec::new()));
         }
         let declared = crate::shots_declared::declared_names_at(&self.source, &base.commit)?;
-        let (asked, new): (Vec<Pick>, Vec<Pick>) = lacking
-            .into_iter()
-            .partition(|(_, _, prefix)| crate::shots_declared::starts_a_shot(&declared, prefix));
+        let (asked, new): (Vec<_>, Vec<_>) = lacking.into_iter().partition(|pick| {
+            crate::shots_declared::starts_a_shot(&declared, pick.prefix.as_str())
+        });
         if !new.is_empty() {
             note(format!(
                 "{} start no shot declared at the merge base {}, so their runs compare with nothing and every scene they select is new",
-                prefixes_of(&new),
+                prefixes_of(&ShotPick::commands(&new)),
                 short(&base.commit)
             ));
         }
@@ -2290,7 +2300,10 @@ impl LaneBuild<'_> {
             return Ok((Ended::Finished, Vec::new()));
         }
         // The runs this build had to wait for or make: missing when it looked.
-        let built: Vec<String> = asked.iter().map(|(_, _, prefix)| prefix.clone()).collect();
+        let built: Vec<String> = asked
+            .iter()
+            .map(|pick| pick.prefix.as_str().to_string())
+            .collect();
         let Some(_lock) = lock_base_run(places, repo, lane, &base.commit, environment)? else {
             return Ok((Ended::Stopped, Vec::new()));
         };
@@ -2305,7 +2318,7 @@ impl LaneBuild<'_> {
         let versions = &crate::shots_program::VERSIONS;
         note(format!(
             "builds has no cached run of {} on {} at {}, the merge base of {} with origin/main, made in environment {environment} by shots checker {} (comparison) over {} (capture): building the merge base in this turn and running only them there",
-            prefixes_of(&wanted),
+            prefixes_of(&ShotPick::commands(&wanted)),
             lane.word(),
             short(&base.commit),
             short(commit),
@@ -2316,24 +2329,15 @@ impl LaneBuild<'_> {
         let CheckedOut { sha, config } = site.check_out(places, repo, &base.commit)?;
         let tree = picture_tree(&self.source, &sha, &config, lane, environment)?;
         let pictures = shots_cache::AppPictures::of(places, repo, lane, &tree);
-        let prefixes: Vec<_> = self
-            .shot_prefixes
-            .iter()
-            .filter(|prefix| {
-                wanted
-                    .iter()
-                    .any(|(_, _, wanted)| wanted == prefix.as_str())
-            })
-            .cloned()
-            .collect();
-        let query = capture_query(&config, lane, &prefixes)?;
+        let query = capture_query(&config, lane, &wanted)?;
+        let commands = ShotPick::commands(&wanted);
         let ran = pictures.while_held(Some(&query), |cached_shots| {
             let run = CommitRun {
                 sha: &sha,
                 config: &config,
                 tree,
                 names: &base.names,
-                picks: &wanted,
+                picks: &commands,
                 windowed: &base.windowed,
                 environment,
                 cached_shots,
@@ -2351,7 +2355,8 @@ impl LaneBuild<'_> {
             Err(Fail::Exit(code)) => Some(format!("a step failed (exit {code})")),
             Err(other) => return Err(other.into()),
         };
-        if let Some((lane, _, prefix)) = missing(&wanted)?.first() {
+        if let Some(pick) = missing(&wanted)?.first() {
+            let prefix = pick.prefix.as_str();
             let why = failed.unwrap_or_else(|| "it cached no findings".to_string());
             return Err(Fail::Message(format!(
                 "the run of {prefix} on {} at {}, the merge base of {} with origin/main, gave nothing to compare with: {why}",

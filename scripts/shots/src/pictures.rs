@@ -18,8 +18,13 @@
 //! picture whose element list is missing is never there.
 
 use crate::names::{Name, Platform, Prefix};
-use crate::{CaptureMarkError, CaptureMarks, app_picture_tree};
+use crate::{CaptureMarkError, CaptureMarks};
 use std::path::{Path, PathBuf};
+
+/// The folder that holds screenshots captured for one app tree and platform.
+pub fn app_picture_tree(root: &Path, platform: Platform, tree: &str) -> PathBuf {
+    root.join(platform.word()).join(tree)
+}
 
 /// A picture folder.
 pub(crate) struct Pictures {

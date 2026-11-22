@@ -224,7 +224,7 @@ impl AppPictures {
     /// Keep this tree in the cache while the lane runs <work>.
     pub fn while_held<T>(
         &self,
-        query: Option<&CaptureQuery<'_>>,
+        query: Option<&CaptureQuery>,
         work: impl FnOnce(bool) -> T,
     ) -> PictureLeaseResult<T> {
         let _reader = {
@@ -238,7 +238,7 @@ impl AppPictures {
             reader
         };
         let cached = match query {
-            Some(query) => self.marks.cover(query.prefixes, query.windows)?,
+            Some(query) => self.marks.cover(&query.prefixes, query.windows)?,
             None => false,
         };
         Ok(work(cached))
@@ -282,8 +282,8 @@ impl From<PictureLeaseError> for Fail {
 
 pub type PictureLeaseResult<T> = std::result::Result<T, PictureLeaseError>;
 
-pub struct CaptureQuery<'a> {
-    pub prefixes: &'a [shots::Prefix],
+pub struct CaptureQuery {
+    pub prefixes: Vec<shots::Prefix>,
     pub windows: bool,
 }
 

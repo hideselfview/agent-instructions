@@ -83,7 +83,7 @@ esac"#,
             needs_only: true,
             fresh: false,
         },
-        shot_prefixes: shot_prefixes(Lane::Mac, &picks).unwrap(),
+        shot_picks: ShotPick::of_lane(Lane::Mac, &picks).unwrap(),
         programs: &programs,
         source: top.clone(),
         config: parse_config(&config_text).unwrap(),
@@ -94,7 +94,7 @@ esac"#,
         commit: base,
         config,
         names: needs.to_vec(),
-        picks: picks.to_vec(),
+        picks: build.shot_picks.clone(),
         windowed: Vec::new(),
     };
     let mut site = Site::Local(top, scratch.dir.join("no.xcconfig"));
@@ -123,8 +123,28 @@ esac"#,
 }
 
 #[test]
-fn the_lane_leaves_invalid_shot_prefixes_to_its_command_error() {
+fn a_lane_refuses_an_invalid_shot_prefix_before_starting_a_build() {
+    let scratch = Scratch::new("bad-shot-prefix");
+    let tool = scratch.tool(0);
     let picks = [(Lane::Mac, PickKind::Shots, "mac.Upper".to_string())];
-    let error = shot_prefixes(Lane::Mac, &picks).unwrap_err();
+    let programs = crate::testing::pinned_programs(&scratch.dir, &tool.places.home);
+    let request = LaneRequest {
+        commit: "branch",
+        named: "branch",
+        names: &[],
+        picks: &picks,
+        needs_only: true,
+        fresh: false,
+    };
+    let error = build_lane(
+        &tool,
+        "demo",
+        Lane::Mac,
+        request,
+        &programs,
+        &mut Timing::start(),
+    )
+    .unwrap_err();
     assert!(matches!(error, shots_cache::PictureLeaseError::Prefix(_)));
+    assert!(!tool.places.root.join("demo").exists());
 }
