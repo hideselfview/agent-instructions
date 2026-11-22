@@ -130,6 +130,7 @@ mod run_tmp;
 mod rust_stable;
 mod rustc_wrapper;
 mod sccache;
+mod sccache_history;
 mod sccache_queue;
 mod sccache_readings;
 mod sccache_service;

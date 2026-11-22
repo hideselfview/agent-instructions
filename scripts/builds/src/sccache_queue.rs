@@ -21,6 +21,7 @@ use crate::health::Advice;
 use crate::host::{Host, place};
 use crate::host_scan::{Scan, arguments, program};
 use crate::sccache::CacheStats;
+use crate::sccache_history::Sample;
 use crate::sccache_readings::Reading;
 use crate::text::{human_bytes, local_minute};
 
@@ -88,6 +89,9 @@ impl Server {
 pub struct Cache {
     pub host: Host,
     pub server: std::result::Result<Option<Server>, String>,
+    /// The host's hit rate over the last hour, day and week
+    /// (sccache_history.rs).
+    pub history: String,
 }
 
 /// The rate of the server <pid> on <host> with <stats>, against the reading
@@ -119,9 +123,11 @@ fn rate(readings: &[Reading], host: &str, pid: i32, stats: &CacheStats, now: i64
 fn judge_with(
     scans: &[(Host, std::result::Result<Scan, String>)],
     readings: &mut Vec<Reading>,
+    history: &mut Vec<Sample>,
     now: i64,
-) -> (Vec<Cache>, bool) {
+) -> (Vec<Cache>, bool, bool) {
     let mut changed = false;
+    let mut history_changed = false;
     let caches = scans
         .iter()
         .filter_map(|(host, scan)| {
@@ -133,6 +139,16 @@ fn judge_with(
                     changed |= crate::sccache_readings::record(
                         readings,
                         Reading::of(&host.name, server.pid, now, &server.stats),
+                    );
+                    history_changed |= crate::sccache_history::record(
+                        history,
+                        Sample {
+                            host: host.name.clone(),
+                            server: server.pid,
+                            at: now,
+                            hits: server.stats.rust_hits,
+                            misses: server.stats.rust_misses,
+                        },
                     );
                     Server {
                         pid: server.pid,
@@ -158,24 +174,31 @@ fn judge_with(
             Some(Cache {
                 host: host.clone(),
                 server,
+                history: crate::sccache_history::rates_text(history, &host.name, now),
             })
         })
         .collect();
-    (caches, changed)
+    (caches, changed, history_changed)
 }
 
 /// Each host's server in <scans>, with the share of Rust compiles its cache
 /// answered since a reading in the record kept under <home>
-/// (sccache_readings.rs), to which it adds a reading of each server.
+/// (sccache_readings.rs), to which it adds a reading of each server, and
+/// each host's rates over the last week (sccache_history.rs), to which it
+/// adds a sample of each server.
 pub fn judge(
     home: &Path,
     scans: &[(Host, std::result::Result<Scan, String>)],
     now: i64,
 ) -> Result<Vec<Cache>> {
     let mut readings = crate::sccache_readings::read(home)?;
-    let (caches, changed) = judge_with(scans, &mut readings, now);
+    let mut history = crate::sccache_history::read(home)?;
+    let (caches, changed, history_changed) = judge_with(scans, &mut readings, &mut history, now);
     if changed {
         crate::sccache_readings::write(home, &readings)?;
+    }
+    if history_changed {
+        crate::sccache_history::write(home, &history)?;
     }
     Ok(caches)
 }
@@ -190,13 +213,14 @@ pub fn lines(caches: &[Cache]) -> Vec<String> {
                 Err(error) => format!("compile cache on {place}: not read: {error}"),
                 Ok(None) => format!("compile cache on {place}: no sccache server listens"),
                 Ok(Some(server)) => format!(
-                    "compile cache on {place} (sccache pid {}): {} compiles run, {} clients wait; it answered {}; cache {} of {}",
+                    "compile cache on {place} (sccache pid {}): {} compiles run, {} clients wait; it answered {}; cache {} of {}; {}",
                     server.pid,
                     server.running,
                     server.waiting(),
                     server.rate.text(),
                     human_bytes(server.stats.cache_size),
                     human_bytes(server.stats.max_cache_size),
+                    cache.history,
                 ),
             }
         })

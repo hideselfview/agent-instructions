@@ -122,6 +122,9 @@ struct State {
     sccache: Option<crate::health::SccacheServer>,
     /// The other hosts' load cards (hosts.rs), empty before the first reading.
     hosts: Vec<super::hosts::HostPage>,
+    /// Each host's hit rate of Rust compiles over the last hour, day and
+    /// week (sccache_history.rs), empty before the first reading.
+    compile_cache: Vec<crate::sccache_history::HostRates>,
     /// What the hosts' reading found that `assess` does not (busy processes,
     /// hosts that refuse jobs: `health::host_findings`), which the page shows
     /// after the health's own findings.
@@ -736,9 +739,25 @@ impl Model {
                     )]
                 }
             };
+            // The findings' reading added this round's samples.
+            let rates = match crate::sccache_history::read(&self.places.home) {
+                Ok(samples) => crate::sccache_history::host_rates(&samples, now_seconds()),
+                Err(error) => {
+                    crate::text::note(format!(
+                        "reading the compile cache history: {}",
+                        error.text()
+                    ));
+                    Vec::new()
+                }
+            };
             let mut state = self.state.lock().expect("no panic holding it");
             if state.host_findings != found {
                 state.host_findings = found;
+                state.version += 1;
+                self.changed.notify_all();
+            }
+            if state.compile_cache != rates {
+                state.compile_cache = rates;
                 state.version += 1;
                 self.changed.notify_all();
             }
@@ -1595,6 +1614,7 @@ impl Model {
                 health
             }),
             hosts: state.hosts.clone(),
+            compile_cache: state.compile_cache.clone(),
             repos,
         })
     }
@@ -2074,6 +2094,9 @@ pub struct Page {
     pub health: Option<Health>,
     /// Every recorded host besides this Mac, with its load.
     pub hosts: Vec<super::hosts::HostPage>,
+    /// Each host's hit rate of Rust compiles over the last hour, day and
+    /// week, this Mac's included.
+    pub compile_cache: Vec<crate::sccache_history::HostRates>,
     pub repos: Vec<RepoPage>,
 }
 

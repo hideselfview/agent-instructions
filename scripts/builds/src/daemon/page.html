@@ -1013,6 +1013,23 @@ function hostLoadFigure(host) {
   const load = host.load && {now: host.load, cores: host.cores, history: host.history};
   return loadFigure(load, host.name, host);
 }
+// A host's hit rate of Rust compiles through sccache over the last hour, day
+// and week (<rates> is its row of the state's compile_cache): three shares,
+// each with its count of compiles as the title, and a "~" where the history
+// starts after the window's start. A host with no rate yet says so.
+function cacheFigure(rates, many) {
+  const title = "Share of Rust compiles the sccache server answered from its cache over the last hour, day and week, on " + rates.host;
+  const label = many ? [h("span", {class: "h"}, rates.host)] : [];
+  const shares = rates.windows.map(([name, rate]) => {
+    if (!rate) return h("span", {class: "v", title: name + ": no history yet"}, "–");
+    const all = rate.hits + rate.misses;
+    const partial = rate.since > state.generated_at - {hour: 3600, day: 86400, week: 604800}[name];
+    const text = all === 0 ? "–" : Math.round(rate.hits * 100 / all) + "%";
+    return h("span", {class: "v", title: name + ": " + rate.hits + " of " + all + " Rust compiles answered by the cache" + (partial ? ", counted since " + new Date(rate.since * 1000).toLocaleString() : "")},
+      (partial ? "~" : "") + text, h("small", {}, name));
+  });
+  return figure("line", title, h("div", {class: "row"}, h("span", {class: "h"}, "cache"), ...label, ...shares));
+}
 // Disk: the free space alone, red under the floor where builds warn.
 function diskFigure(v) {
   const under = v.free_kib < v.floor_kib;
@@ -1311,7 +1328,7 @@ function render() {
   const timingErrors = [...new Set(waitLanes().map(w => w.error).filter(Boolean))];
   document.getElementById("errors").append(...timingErrors.map(e => h("div", {class: "error"}, "The app build times: " + e)));
   const lanes = waitLanes();
-  document.getElementById("top").replaceChildren(loadFigure(state.load, state.hosts.length ? "local" : null), ...state.hosts.map(hostLoadFigure), diskFigure(state.volume),
+  document.getElementById("top").replaceChildren(loadFigure(state.load, state.hosts.length ? "local" : null), ...state.hosts.map(hostLoadFigure), ...state.compile_cache.map(r => cacheFigure(r, state.compile_cache.length > 1)), diskFigure(state.volume),
     ...lanes.map(w => waitFigure(w, lanes)), waitsFigure());
   hookDetails();
   waitDetails();

@@ -1337,7 +1337,7 @@ pub fn probe_all(
     hosts.into_iter().zip(probes).collect()
 }
 
-const USAGE: &str = "usage: builds host add <name> <ssh target> | setup <name> | setup-here [<version>...] | speed-here | band <name> <low> <high> | band <name> clear | list | remove <name> | clear-xcode <name>";
+const USAGE: &str = "usage: builds host add <name> <ssh target> | setup <name> | setup-here [<version>...] | speed-here | band <name> <low> <high> | band <name> clear | list | cache | remove <name> | clear-xcode <name>";
 
 /// The build volume, where a host that has one keeps its builds root, as this
 /// Mac does.
@@ -1384,6 +1384,7 @@ pub fn cmd_host(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
             println!("removed host {name}");
             Ok(())
         }
+        [word] if word == "cache" => crate::sccache_history::cmd_cache(tool),
         [word] if word == "list" => {
             for (host, probe) in probe_all(&tool.places, ssh, all(&tool.places)?) {
                 println!("{}", list_line(&host, &probe));

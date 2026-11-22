@@ -125,9 +125,10 @@ fn m1_with_server(
 #[test]
 fn a_host_whose_clients_wait_more_than_twice_its_cores_has_too_much_compile_work() {
     let mut readings = vec![reading("m1", 44790, 10, 35000, 34000)];
-    let (caches, changed) = judge_with(
+    let (caches, changed, _) = judge_with(
         &[m1_with_server(10, 119, 53_670_801_410)],
         &mut readings,
+        &mut Vec::new(),
         NOW,
     );
     assert!(changed);
@@ -136,7 +137,7 @@ fn a_host_whose_clients_wait_more_than_twice_its_cores_has_too_much_compile_work
     assert_eq!(
         lines(&caches),
         [format!(
-            "compile cache on host m1 (sccache pid 44790): 10 compiles run, 109 clients wait; it answered 32% of 1135 Rust compiles since {since}; cache 50.0G of 50.0G"
+            "compile cache on host m1 (sccache pid 44790): 10 compiles run, 109 clients wait; it answered 32% of 1135 Rust compiles since {since}; cache 50.0G of 50.0G; hit rate of Rust compiles: no history yet"
         )]
     );
     assert_eq!(
@@ -148,7 +149,12 @@ fn a_host_whose_clients_wait_more_than_twice_its_cores_has_too_much_compile_work
             "sccache: host m1's server has 109 clients waiting while it runs 10 compiles, more than 2 for each of the host's 10 cores, so the host has more compile work than it can run; its cache answered 32% of 1135 Rust compiles since {since}; its cache is full (50.0G of 50.0G), so each new entry pushes an old one out; start nothing new for host m1"
         )]
     );
-    let (calm, _) = judge_with(&[m1_with_server(10, 30, 10 << 30)], &mut Vec::new(), NOW);
+    let (calm, _, _) = judge_with(
+        &[m1_with_server(10, 30, 10 << 30)],
+        &mut Vec::new(),
+        &mut Vec::new(),
+        NOW,
+    );
     assert!(findings(&calm).is_empty());
 }
 
@@ -161,8 +167,9 @@ fn a_host_with_no_server_or_an_unread_one_gets_a_line() {
     none.sccache = Ok(None);
     let mut unread = scan.unwrap();
     unread.sccache = Err("sccache printed no stats".to_string());
-    let (caches, _) = judge_with(
+    let (caches, _, _) = judge_with(
         &[(host.clone(), Ok(none)), (host, Ok(unread))],
+        &mut Vec::new(),
         &mut Vec::new(),
         NOW,
     );

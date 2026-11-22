@@ -1856,6 +1856,7 @@ volume's device>` (`df /Volumes/Builds` names it).
   builds host band <name> <low> <high>
   builds host band <name> clear
   builds host list
+  builds host cache
   builds host remove <name>
   builds host clear-xcode <name>
                               manage the hosts. `add` asks the host (over ssh,
@@ -1944,6 +1945,19 @@ volume's device>` (`df /Volumes/Builds` names it).
                               swap in use), its free disk, whether it answers and
                               whether it refuses jobs, and keeps each host's record of
                               refusing jobs current with the answer.
+                              `cache` prints each host's hit rate of Rust
+                              compiles through sccache over the last hour, day
+                              and week, with the count of compiles each covers:
+                              the growth of the server's hit and miss counts
+                              across the samples in the window, from
+                              ~/Library/Caches/builds/sccache-host-history.json,
+                              which holds a sample of each server every 5
+                              minutes for a week. A window the history does not
+                              yet cover says since when it counts. A server
+                              that started again counts from zero. Health runs
+                              and the dashboard daemon add the samples, so a
+                              host has none while neither runs. `cache` asks no
+                              host.
                               `clear-xcode` removes the record that the host's
                               Xcode cannot start, once the fix xcodebuild
                               named has run there, so mac app builds use its
@@ -2363,7 +2377,9 @@ STATUS, HEALTH AND THE DASHBOARD
                                 most once a minute, for an hour, in
                                 ~/Library/Caches/builds/sccache-host-readings.json;
                                 since the server started when it has none),
-                                and the cache's size against its most
+                                the host's hit rates over the last hour, day
+                                and week (`builds host cache`), and the
+                                cache's size against its most
                               - the busy processes on this Mac and every host
                                 that answers (over 50% of a core
                                 since the host's previous reading, which is
