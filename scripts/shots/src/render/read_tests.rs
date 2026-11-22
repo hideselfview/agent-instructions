@@ -459,13 +459,14 @@ async fn each_board_element_names_the_nearest_component_that_draws_it() {
     assert_eq!(component("Loose words"), None);
 }
 
+const THROWING_GLOBAL: &str = "<script>Object.defineProperty(window, 'Broken', \
+    { get() { throw new Error('no reading this'); } });</script>";
+
 #[tokio::test]
 async fn a_page_global_that_throws_when_read_fails_the_read() {
     let root = fixture::tree(&[(
         "fixture.throws",
-        "<script>Object.defineProperty(window, 'Broken', \
-         { get() { throw new Error('no reading this'); } });</script>\
-         <x-dc><p>Words</p></x-dc>",
+        &format!("{THROWING_GLOBAL}<x-dc><p>Words</p></x-dc>"),
     )]);
     let read = fixture::with_browser(root.path(), async |server, chrome| {
         let page = chrome.new_page().await.unwrap();
@@ -478,6 +479,34 @@ async fn a_page_global_that_throws_when_read_fails_the_read() {
     .await;
     let error = read.expect_err("the read fails").to_string();
     assert!(error.contains("no reading this"), "{error}");
+}
+
+#[tokio::test]
+async fn the_reader_leaves_out_a_clipped_node_without_reading_its_component() {
+    let root = fixture::tree(&[(
+        "fixture.clipped",
+        &format!(
+            "{THROWING_GLOBAL}<x-dc><div style='height:0;overflow:hidden'><p>Words</p></div></x-dc>"
+        ),
+    )]);
+    let elements = fixture::with_browser(root.path(), async |server, chrome| {
+        let page = chrome.new_page().await.unwrap();
+        let url = server.board_url("fixture.clipped");
+        let rendered = render(
+            &page,
+            "fixture.clipped",
+            &url,
+            Frame { w: 300, h: 200 },
+            1.0,
+        )
+        .await
+        .unwrap();
+        elements(&page, rendered.frame, Platform::Mac)
+            .await
+            .unwrap()
+    })
+    .await;
+    assert!(elements.is_empty());
 }
 
 #[test]

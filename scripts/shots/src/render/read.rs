@@ -18,7 +18,7 @@ use chromiumoxide::cdp::browser_protocol::accessibility::{
 };
 use chromiumoxide::cdp::browser_protocol::dom::ResolveNodeParams;
 use chromiumoxide::cdp::js_protocol::runtime::{CallArgument, CallFunctionOnParams};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 
 #[derive(Debug, thiserror::Error)]
@@ -237,11 +237,24 @@ fn masked(typed: &str, platform: Platform) -> String {
     }
 }
 
-/// What a DOM node reports about its box and its font.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Clipping {
+    frame: Bounds,
+    body_overflow_applies_to_viewport: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "visibility", rename_all = "snake_case")]
+enum Measurement {
+    Clipped,
+    Visible(Geometry),
+}
+
+/// What a visible DOM node reports about its box and its font.
 #[derive(Debug, Deserialize)]
 struct Geometry {
     bounds: Bounds,
-    visible: bool,
     size: Option<f64>,
     weight: Option<u32>,
     color: Option<String>,
@@ -260,7 +273,7 @@ struct Geometry {
     secret: bool,
 }
 
-const GEOMETRY: &str = r#"function(frame) {
+const GEOMETRY: &str = r#"function({frame, bodyOverflowAppliesToViewport}) {
   // The nearest component above a DOM node in React's tree: the first fiber
   // up from the node's own (or its nearest ancestor's) whose type is one.
   const componentOf = (node) => {
@@ -296,11 +309,7 @@ const GEOMETRY: &str = r#"function(frame) {
     let right = Math.min(rect.right, frame.x + frame.width);
     let bottom = Math.min(rect.bottom, frame.y + frame.height);
     const root = document.documentElement;
-    const rootStyle = getComputedStyle(root);
-    // The root's overflow applies to the viewport, as does the body's when
-    // the root lets overflow through.
-    const viewportBody = rootStyle.overflowX === 'visible' && rootStyle.overflowY === 'visible'
-      ? document.body : null;
+    const viewportBody = bodyOverflowAppliesToViewport ? document.body : null;
     while (ancestor && ancestor !== root && left < right && top < bottom) {
       const style = getComputedStyle(ancestor);
       const clips = ancestor !== viewportBody && style.display !== 'inline' && style.display !== 'contents';
@@ -336,9 +345,12 @@ const GEOMETRY: &str = r#"function(frame) {
   }
   const element = isText ? this.parentElement : this;
   const style = element ? getComputedStyle(element) : null;
+  if (!visible(rect, isText ? element : clippingParent(element, style))) {
+    return {visibility: 'clipped'};
+  }
   return {
+    visibility: 'visible',
     bounds: {x: rect.x, y: rect.y, width: rect.width, height: rect.height},
-    visible: visible(rect, isText ? element : clippingParent(element, style)),
     size: style ? parseFloat(style.fontSize) : null,
     weight: style ? parseInt(style.fontWeight, 10) : null,
     color: style ? style.color : null,
@@ -515,8 +527,23 @@ fn subtree(raw: &[Raw], backend: i64) -> Result<Vec<Raw>, ReadError> {
 }
 
 async fn gather(page: &Page, frame: Bounds) -> Result<Vec<Raw>, ReadError> {
-    let frame_argument = CallArgument::builder()
-        .value(serde_json::to_value(frame).map_err(protocol)?)
+    // The root's overflow applies to the viewport, as does the body's when
+    // the root lets overflow through.
+    let body_overflow_applies_to_viewport = page
+        .evaluate(
+            "(() => { const root = getComputedStyle(document.documentElement); \
+             return root.overflowX === 'visible' && root.overflowY === 'visible'; })()",
+        )
+        .await
+        .map_err(protocol)?
+        .into_value()
+        .map_err(protocol)?;
+    let clipping = Clipping {
+        frame,
+        body_overflow_applies_to_viewport,
+    };
+    let clipping_argument = CallArgument::builder()
+        .value(serde_json::to_value(clipping).map_err(protocol)?)
         .build();
     page.execute(EnableParams::default())
         .await
@@ -529,9 +556,9 @@ async fn gather(page: &Page, frame: Bounds) -> Result<Vec<Raw>, ReadError> {
     for node in &tree.result.nodes {
         let mut raw = raw(node);
         if !raw.ignored && !STRUCTURE.contains(&raw.chrome_role.as_str()) {
-            match measure(page, node, &frame_argument).await? {
-                Ok(geometry) => {
-                    raw.ignored = !geometry.visible;
+            match measure(page, node, &clipping_argument).await? {
+                Ok(Measurement::Clipped) => raw.ignored = true,
+                Ok(Measurement::Visible(geometry)) => {
                     raw.bounds = Some(relative_to(geometry.bounds, (frame.x, frame.y)));
                     raw.text = match (geometry.size, geometry.weight, geometry.color) {
                         (Some(size), Some(weight), Some(color)) => {
@@ -565,13 +592,13 @@ async fn gather(page: &Page, frame: Bounds) -> Result<Vec<Raw>, ReadError> {
     Ok(nodes)
 }
 
-/// The box and style of the DOM node <node> describes, or why Chrome gave
-/// none.
+/// Whether the DOM node <node> describes is clipped, its box and style if it
+/// is visible, or why Chrome gave it no box.
 async fn measure(
     page: &Page,
     node: &AxNode,
-    frame: &CallArgument,
-) -> Result<Result<Geometry, &'static str>, ReadError> {
+    clipping: &CallArgument,
+) -> Result<Result<Measurement, &'static str>, ReadError> {
     let Some(backend) = node.backend_dom_node_id else {
         return Ok(Err("the accessibility node describes no DOM node"));
     };
@@ -588,7 +615,7 @@ async fn measure(
     };
     let mut call = CallFunctionOnParams::new(GEOMETRY);
     call.object_id = Some(object_id);
-    call.arguments = Some(vec![frame.clone()]);
+    call.arguments = Some(vec![clipping.clone()]);
     call.return_by_value = Some(true);
     let called = page.execute(call).await.map_err(protocol)?;
     if let Some(thrown) = &called.result.exception_details {
