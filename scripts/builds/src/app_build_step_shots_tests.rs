@@ -8,15 +8,20 @@ const TOOK: &str = "builds shots: took the 12 mac shots of app tree 0123abcd fro
 
 #[test]
 fn the_checkers_line_for_shots_taken_from_the_picture_folder_gives_their_count() {
-    assert_eq!(reused_in(TOOK), Some(12));
-    assert_eq!(reused_in(&format!("[mac side-1] {TOOK}")), Some(12));
+    assert_eq!(reused_in(TOOK), Some(Ok(12)));
+    assert_eq!(reused_in(&format!("[mac side-1] {TOOK}")), Some(Ok(12)));
     assert_eq!(
         reused_in("builds shots: comparing with the run of abc"),
         None
     );
-    assert_eq!(
-        reused_in("builds shots: took the many mac shots from the picture folder; capturing none"),
-        None
+    assert!(
+        matches!(
+            reused_in(
+                "builds shots: took the many mac shots from the picture folder; capturing none"
+            ),
+            Some(Err(_))
+        ),
+        "a count that is no number is an error"
     );
 }
 
@@ -29,8 +34,11 @@ fn a_read_adds_up_the_lines_that_say_shots_came_from_the_picture_folder() {
     each(
         "builds shots: took the 3 android shots of app tree x from the picture folder; capturing none",
     );
-    assert_eq!(read.reused(), 15);
-    assert_eq!(ReusedRead::default().reused(), 0);
+    assert_eq!(read.reused(), Ok(15));
+    assert_eq!(ReusedRead::default().reused(), Ok(0));
+    each("builds shots: took the many mac shots from the picture folder; capturing none");
+    each(TOOK);
+    assert!(read.reused().is_err(), "a bad count stays an error");
 }
 
 #[test]

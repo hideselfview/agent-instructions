@@ -56,8 +56,8 @@ impl BaseRun {
 /// folder and those shot.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Pictures {
-    pub reused: u32,
-    pub captured: u32,
+    pub reused: u64,
+    pub captured: u64,
 }
 
 impl Pictures {
@@ -66,8 +66,8 @@ impl Pictures {
     /// again. The checker takes either every selected shot from the folder
     /// or shoots every one, so the two never mix. None when <scenes> is None:
     /// the step's command counts no scenes.
-    pub fn of(scenes: Option<usize>, reused: u32) -> Option<Pictures> {
-        let scenes = u32::try_from(scenes?).ok()?;
+    pub fn of(scenes: Option<usize>, reused: u64) -> Option<Pictures> {
+        let scenes = scenes? as u64;
         Some(if reused > 0 {
             Pictures {
                 reused,
@@ -92,6 +92,26 @@ pub struct ShotsUse {
     pub pictures: Option<Pictures>,
 }
 
+impl ShotsUse {
+    /// The use a stored row says: the row's environment, base run word and
+    /// counts.
+    pub fn stored(
+        environment: String,
+        base_run: &str,
+        reused: Option<i64>,
+        captured: Option<i64>,
+    ) -> Result<ShotsUse> {
+        Ok(ShotsUse {
+            environment,
+            base_run: BaseRun::from_word(base_run)?,
+            pictures: reused.zip(captured).map(|(reused, captured)| Pictures {
+                reused: reused as u64,
+                captured: captured as u64,
+            }),
+        })
+    }
+}
+
 /// The line the shots checker prints when a run takes every selected shot of
 /// a platform from the picture folder, in two parts around the shot count
 /// and the platform: `builds shots: took the 12 mac shots of app tree <tree>
@@ -101,27 +121,45 @@ const REUSED_START: &str = "builds shots: took the ";
 const REUSED_END: &str = " from the picture folder; capturing none";
 
 /// The count of screenshots <line> says the checker took from the picture
-/// folder; None for any other line.
-pub fn reused_in(line: &str) -> Option<u32> {
+/// folder; None for any other line, and an error for a line with the
+/// checker's words around a count that is no number.
+pub fn reused_in(line: &str) -> Option<std::result::Result<u64, String>> {
     let (_, rest) = line.split_once(REUSED_START)?;
     if !rest.contains(REUSED_END) {
         return None;
     }
-    rest.split(' ').next()?.parse().ok()
+    let count = rest.split(' ').next().unwrap_or_default();
+    Some(
+        count
+            .parse()
+            .map_err(|_| format!("the shots checker said it took {count:?} shots from the picture folder, which is no count: {line}")),
+    )
 }
 
 /// Reads each line of a shots step's output, from both streams, and adds up
 /// the screenshots it says the checker took from the picture folder. Clones
 /// share the count.
-#[derive(Clone, Default)]
-pub struct ReusedRead(Arc<Mutex<u32>>);
+#[derive(Clone)]
+pub struct ReusedRead(Arc<Mutex<std::result::Result<u64, String>>>);
+
+impl Default for ReusedRead {
+    fn default() -> Self {
+        ReusedRead(Arc::new(Mutex::new(Ok(0))))
+    }
+}
 
 impl ReusedRead {
     /// Reads one line, without its newline.
     pub fn line(&self, text: &str) {
-        if let Some(count) = reused_in(text) {
-            *self.0.lock().expect("no panic holding it") += count;
-        }
+        let Some(count) = reused_in(text) else {
+            return;
+        };
+        let mut total = self.0.lock().expect("no panic holding it");
+        *total = match (&*total, count) {
+            (Ok(so_far), Ok(count)) => Ok(so_far + count),
+            (Err(first), _) => Err(first.clone()),
+            (_, Err(why)) => Err(why),
+        };
     }
 
     /// The reader a run gives each line of the step's output to.
@@ -130,9 +168,9 @@ impl ReusedRead {
         Arc::new(move |text: &str| read.line(text))
     }
 
-    /// The screenshots read so far.
-    pub fn reused(&self) -> u32 {
-        *self.0.lock().expect("no panic holding it")
+    /// The screenshots read so far, or why a line's count was no number.
+    pub fn reused(&self) -> std::result::Result<u64, String> {
+        self.0.lock().expect("no panic holding it").clone()
     }
 }
 
@@ -154,8 +192,8 @@ pub fn record(tx: &Transaction, run_id: i64, steps: &[StepRecord]) -> Result<()>
                 position as i64,
                 used.environment,
                 used.base_run.word(),
-                used.pictures.map(|p| p.reused),
-                used.pictures.map(|p| p.captured),
+                used.pictures.map(|p| p.reused as i64),
+                used.pictures.map(|p| p.captured as i64),
             ])
             .sql()?;
     }
@@ -163,7 +201,7 @@ pub fn record(tx: &Transaction, run_id: i64, steps: &[StepRecord]) -> Result<()>
 }
 
 /// A stored row: position, environment, base run, reused and captured.
-type StoredUse = (u32, String, String, Option<u32>, Option<u32>);
+type StoredUse = (u32, String, String, Option<i64>, Option<i64>);
 
 /// What each shots step of run <run_id> used, by its position, when builds
 /// kept it.
@@ -189,13 +227,7 @@ pub fn read(db: &Connection, run_id: i64) -> Result<HashMap<u32, ShotsUse>> {
         .map(|(position, environment, base_run, reused, captured)| {
             Ok((
                 position,
-                ShotsUse {
-                    environment,
-                    base_run: BaseRun::from_word(&base_run)?,
-                    pictures: reused
-                        .zip(captured)
-                        .map(|(reused, captured)| Pictures { reused, captured }),
-                },
+                ShotsUse::stored(environment, &base_run, reused, captured)?,
             ))
         })
         .collect()

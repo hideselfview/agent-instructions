@@ -7,15 +7,17 @@ fn row(
     environment: &str,
     ago: i64,
     base_run: BaseRun,
-    pictures: Option<(u32, u32)>,
+    pictures: Option<(u64, u64)>,
 ) -> Row {
     Row {
         repo: "bae".to_string(),
         lane: lane.to_string(),
-        environment: environment.to_string(),
         at: NOW - ago,
-        base_run,
-        pictures,
+        used: ShotsUse {
+            environment: environment.to_string(),
+            base_run,
+            pictures: pictures.map(|(reused, captured)| Pictures { reused, captured }),
+        },
     }
 }
 

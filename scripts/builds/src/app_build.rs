@@ -833,10 +833,16 @@ fn run_steps_with(
         if kind == StepKind::Shots {
             // A step that ended before its run finished counted no screenshots.
             let finished = matches!(record.result, StepResult::Passed) || failed_pairs;
-            let pictures = finished
-                .then(|| Pictures::of(scene_count, reused.reused()))
-                .flatten();
+            let counted = reused.reused();
+            let pictures = match (&counted, finished) {
+                (Ok(reused), true) => Pictures::of(scene_count, *reused),
+                _ => None,
+            };
             record.shots = Some(runner.shots().use_of(step, pictures));
+            if let Err(why) = counted {
+                log.push(record);
+                fail!("{why}");
+            }
         }
         log.push(record);
         if let Some(signal) = stopped_by {

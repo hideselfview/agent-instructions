@@ -10,7 +10,7 @@
 
 use std::collections::BTreeMap;
 
-use crate::app_build_step_shots::BaseRun;
+use crate::app_build_step_shots::{BaseRun, Pictures, ShotsUse};
 use crate::fail::Result;
 use crate::health::Advice;
 use crate::places::Places;
@@ -28,13 +28,9 @@ const MIN_COMPARISONS: u64 = 5;
 pub struct Row {
     pub repo: String,
     pub lane: String,
-    pub environment: String,
     /// Seconds since 1970.
     pub at: i64,
-    pub base_run: BaseRun,
-    /// The screenshots taken from the picture folder and the ones shot;
-    /// None for a step that ended before its run finished.
-    pub pictures: Option<(u32, u32)>,
+    pub used: ShotsUse,
 }
 
 /// The shots steps that started in the last week, in every project's store.
@@ -57,8 +53,8 @@ type Stored = (
     String,
     i64,
     String,
-    Option<u32>,
-    Option<u32>,
+    Option<i64>,
+    Option<i64>,
 );
 
 fn read_from(conn: &rusqlite::Connection, now: i64, path: &std::path::Path) -> Result<Vec<Row>> {
@@ -93,10 +89,8 @@ fn read_from(conn: &rusqlite::Connection, now: i64, path: &std::path::Path) -> R
                 Ok(Row {
                     repo,
                     lane,
-                    environment,
                     at,
-                    base_run: BaseRun::from_word(&base_run)?,
-                    pictures: reused.zip(captured),
+                    used: ShotsUse::stored(environment, &base_run, reused, captured)?,
                 })
             },
         )
@@ -110,7 +104,11 @@ fn groups(rows: &[Row]) -> BTreeMap<Group, Vec<&Row>> {
     let mut found: BTreeMap<Group, Vec<&Row>> = BTreeMap::new();
     for row in rows {
         found
-            .entry((row.repo.clone(), row.lane.clone(), row.environment.clone()))
+            .entry((
+                row.repo.clone(),
+                row.lane.clone(),
+                row.used.environment.clone(),
+            ))
             .or_default()
             .push(row);
     }
@@ -126,7 +124,7 @@ fn base_rate(rows: &[&Row], now: i64, window: i64) -> Rate {
         misses: 0,
     };
     for row in rows.iter().filter(|row| row.at > now - window) {
-        match row.base_run {
+        match row.used.base_run {
             BaseRun::Saved => rate.hits += 1,
             BaseRun::Built => rate.misses += 1,
             BaseRun::NotNeeded => {}
@@ -143,13 +141,13 @@ fn shots_rate(rows: &[&Row], now: i64, window: i64) -> Rate {
         hits: 0,
         misses: 0,
     };
-    for (reused, captured) in rows
+    for Pictures { reused, captured } in rows
         .iter()
         .filter(|row| row.at > now - window)
-        .filter_map(|row| row.pictures)
+        .filter_map(|row| row.used.pictures)
     {
-        rate.hits += u64::from(reused);
-        rate.misses += u64::from(captured);
+        rate.hits += reused;
+        rate.misses += captured;
     }
     rate
 }
