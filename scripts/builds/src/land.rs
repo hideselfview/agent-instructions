@@ -512,22 +512,29 @@ fn resolve_on_head(
     Ok(full)
 }
 
+/// The commits of the worktree's branch that origin/main lacks, newest first.
+/// Refuses when git cannot say.
+fn waiting_commits(
+    dir: &Path,
+    start: &Start,
+    out: &mut dyn Write,
+) -> Result<Vec<crate::side_git::Commit>> {
+    crate::side_git::waiting_to_land(dir, start.rev()).map_err(|error| {
+        refuse(
+            out,
+            format!(
+                "refusing: reading what waits to land on {} failed: {error}",
+                start.name()
+            ),
+        )
+    })
+}
+
 /// The commits of the worktree's branch that origin/main lacks, oldest first,
 /// for a landing that names none; says which it took. Refuses a branch that
 /// holds none.
 fn branch_commits(dir: &Path, start: &Start, out: &mut dyn Write) -> Result<Vec<String>> {
-    let mut waiting = match crate::side_git::waiting_to_land(dir, start.rev()) {
-        Ok(waiting) => waiting,
-        Err(error) => {
-            return Err(refuse(
-                out,
-                format!(
-                    "refusing: reading the commits of {} that origin/main lacks failed: {error}",
-                    start.name()
-                ),
-            ));
-        }
-    };
+    let mut waiting = waiting_commits(dir, start, out)?;
     if waiting.is_empty() {
         return Err(refuse(
             out,
@@ -715,18 +722,7 @@ impl Landing<'_> {
         if !self.request.items.iter().any(|word| word == "--done") {
             return Ok(());
         }
-        let waiting = match crate::side_git::waiting_to_land(&self.workdir, self.start.rev()) {
-            Ok(waiting) => waiting,
-            Err(error) => {
-                return Err(refuse(
-                    out,
-                    format!(
-                        "refusing: reading what waits to land on {} failed: {error}",
-                        self.start.name()
-                    ),
-                ));
-            }
-        };
+        let waiting = waiting_commits(&self.workdir, &self.start, out)?;
         let left: Vec<_> = waiting
             .into_iter()
             .filter(|commit| !self.request.shas.contains(&commit.full))
@@ -1376,10 +1372,12 @@ fn open_landing<'a>(
     let mut request = parse(args, out)?;
     let start = Start::read(&workdir)?;
     require_clean(&workdir, out)?;
-    if request.shas.is_empty() {
-        request.shas = branch_commits(&workdir, &start, out)?;
-    }
-    request.shas = resolve_on_head(&workdir, &start, &request.shas, out)?;
+    // Commits read from the branch are on its HEAD by construction.
+    request.shas = if request.shas.is_empty() {
+        branch_commits(&workdir, &start, out)?
+    } else {
+        resolve_on_head(&workdir, &start, &request.shas, out)?
+    };
     Ok(Landing {
         program,
         workdir,
