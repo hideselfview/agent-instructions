@@ -5,6 +5,7 @@ mod ack;
 mod app_build;
 mod app_build_commit;
 mod app_build_step_failure;
+mod app_clone;
 mod app_config;
 mod app_landing;
 mod app_remote;
@@ -401,6 +402,7 @@ fn run(command: &str, args: &[String]) -> Result<()> {
         "note" => claim::cmd_note(&tool.places, args, tool.now),
         "release" => claim::cmd_release(&tool.places, args),
         "app-checkout" => worktree::cmd_app_checkout(&tool, &host::Ssh::from_env(), args),
+        "app-clone" => warm::cmd_app_clone(&tool, args),
         "build-app" => build_app::cmd_build_app(&tool, args),
         "status" => status::cmd_status(&mut tool, &host::Ssh::from_env(), args),
         "prune" => prune::cmd_prune(&tool, args),
@@ -420,7 +422,7 @@ fn run(command: &str, args: &[String]) -> Result<()> {
         "remote" => remote::cmd_remote(&tool, &host::Ssh::from_env(), args),
         "tool" => built_tools::cmd_tool(&tool.places, &host::Ssh::from_env(), args),
         other => fail!(
-            "builds has no command {other}. Its commands are ack, agent, setup, new, land, review, judge, claim, note, release, retire, app-checkout, status, health, lists, decision, design, question, item, next, area, dashboard, host, remote, prune, tool, cargo, lake, lock, app-build, shots, queue, takeover, build-app, install, checks, install-hook and version."
+            "builds has no command {other}. Its commands are ack, agent, setup, new, land, review, judge, claim, note, release, retire, app-checkout, app-clone, status, health, lists, decision, design, question, item, next, area, dashboard, host, remote, prune, tool, cargo, lake, lock, app-build, shots, queue, takeover, build-app, install, checks, install-hook and version."
         ),
     }
 }

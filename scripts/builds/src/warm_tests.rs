@@ -3,6 +3,7 @@ use std::os::unix::fs::MetadataExt;
 use super::*;
 use crate::claim::cmd_release;
 use crate::evict::lock_shared_creating;
+use crate::manifest::build_dirs;
 use crate::setup::setup;
 use crate::testing::{Scratch, fill as fill_file, git, repo};
 use crate::worktree::{cmd_new, cmd_retire};
@@ -361,4 +362,163 @@ fn a_new_tree_takes_the_sources_mtimes_for_the_files_that_match() {
     assert_eq!(mtime("same.rs"), built);
     assert_ne!(mtime("changed.rs"), built);
     assert_ne!(mtime("only-here-or-there.rs"), built);
+}
+
+const LANE_MANIFEST: &str = "target 1G app 1G\ntarget-macos 1G app 1G lane mac\ntarget-android 1G app 1G lane android\nxcode 1G app 1G lane mac\ngradle 1G app 1G lane android\n";
+
+/// Two side worktrees of a repo whose lanes build into target-macos, an Xcode
+/// tree, target-android and a Gradle folder; the first has built them all.
+fn lane_checkouts(scratch: &Scratch, tool: &Tool) -> (Checkout, Checkout) {
+    let main = scratch.dir.join("demo");
+    repo(&main, LANE_MANIFEST);
+    let origin = scratch.dir.join("origin.git");
+    git(
+        &scratch.dir,
+        &["init", "-q", "--bare", &origin.display().to_string()],
+    );
+    git(
+        &main,
+        &["remote", "add", "origin", &origin.display().to_string()],
+    );
+    git(&main, &["push", "-q", "origin", "main"]);
+    for _ in 0..2 {
+        cmd_new(
+            tool,
+            &crate::testing::no_ssh(),
+            &[main.display().to_string()],
+        )
+        .unwrap();
+    }
+    let side = |n: u32| {
+        Checkout::find(
+            &scratch
+                .dir
+                .join(format!("demo-worktrees/side-{n}"))
+                .display()
+                .to_string(),
+        )
+        .unwrap()
+    };
+    let (source, dest) = (side(1), side(2));
+    let built = source.build_root(&tool.places);
+    for cargo in ["target", "target-macos", "target-android"] {
+        fill_file(
+            &built
+                .join(cargo)
+                .join("debug/.fingerprint/dep-1/fingerprint"),
+            8,
+        );
+        fill_file(&built.join(cargo).join("debug/deps/libdep-1.rlib"), 64);
+        fill_file(
+            &built.join(cargo).join("debug/incremental/crate-1/state"),
+            8,
+        );
+    }
+    for other in ["xcode/Build/Products/app", "gradle/caches/state"] {
+        fill_file(&built.join(other), 64);
+    }
+    (source, dest)
+}
+
+#[test]
+fn a_new_app_checkout_clones_the_cargo_folders_of_its_lane_and_no_others() {
+    let scratch = Scratch::new("warm-lane");
+    let tool = scratch.tool(0);
+    let (source, dest) = lane_checkouts(&scratch, &tool);
+    let (from, to) = (
+        source.build_root(&tool.places),
+        dest.build_root(&tool.places),
+    );
+
+    clone_lane(&tool, Lane::Mac, &source, &dest).unwrap();
+
+    let rlib = "debug/deps/libdep-1.rlib";
+    for cloned in ["target", "target-macos"] {
+        assert_eq!(
+            std::fs::read(to.join(cloned).join(rlib)).unwrap(),
+            std::fs::read(from.join(cloned).join(rlib)).unwrap(),
+            "{cloned}"
+        );
+        assert_ne!(
+            to.join(cloned).join(rlib).metadata().unwrap().ino(),
+            from.join(cloned).join(rlib).metadata().unwrap().ino(),
+            "{cloned} is a clone, not a link"
+        );
+        assert!(
+            !to.join(cloned).join("debug/incremental/crate-1").exists(),
+            "an app checkout builds without incremental compilation"
+        );
+    }
+    for left_empty in ["xcode", "target-android", "gradle"] {
+        assert!(
+            std::fs::read_dir(to.join(left_empty))
+                .unwrap()
+                .next()
+                .is_none(),
+            "{left_empty} is not cloned for the mac lane"
+        );
+    }
+    assert!(
+        from.join("target-macos/debug/incremental/crate-1/state")
+            .is_file(),
+        "the source is as it was"
+    );
+}
+
+#[test]
+fn the_android_lane_clones_target_android() {
+    let scratch = Scratch::new("warm-lane-android");
+    let tool = scratch.tool(0);
+    let (source, dest) = lane_checkouts(&scratch, &tool);
+    clone_lane(&tool, Lane::Android, &source, &dest).unwrap();
+    let to = dest.build_root(&tool.places);
+    assert!(to.join("target-android/debug/deps/libdep-1.rlib").is_file());
+    assert!(
+        std::fs::read_dir(to.join("target-macos"))
+            .unwrap()
+            .next()
+            .is_none()
+    );
+}
+
+#[test]
+fn only_folders_that_hold_a_cargo_build_and_are_empty_are_cloned() {
+    let scratch = Scratch::new("warm-lane-folders");
+    let tool = scratch.tool(0);
+    let (source, dest) = lane_checkouts(&scratch, &tool);
+    let (from, to) = (
+        source.build_root(&tool.places),
+        dest.build_root(&tool.places),
+    );
+    // The destination built in target-macos already.
+    fill_file(&to.join("target-macos/debug/own"), 4);
+    let dirs = build_dirs(&dest.top).unwrap();
+    let paths = |lane| -> Vec<String> {
+        cloned_folders(&dirs, lane, &from, &to)
+            .unwrap()
+            .into_iter()
+            .map(|dir| dir.path)
+            .collect()
+    };
+    assert_eq!(paths(Lane::Mac), ["target"]);
+    assert_eq!(paths(Lane::Android), ["target", "target-android"]);
+}
+
+#[test]
+fn a_source_with_no_cargo_build_leaves_the_new_checkout_cold() {
+    let scratch = Scratch::new("warm-lane-cold");
+    let tool = scratch.tool(0);
+    let (source, dest) = lane_checkouts(&scratch, &tool);
+    let from = source.build_root(&tool.places);
+    for cargo in ["target", "target-macos"] {
+        std::fs::remove_dir_all(from.join(cargo).join("debug")).unwrap();
+    }
+    clone_lane(&tool, Lane::Mac, &source, &dest).unwrap();
+    let to = dest.build_root(&tool.places);
+    assert!(
+        std::fs::read_dir(to.join("target-macos"))
+            .unwrap()
+            .next()
+            .is_none()
+    );
 }

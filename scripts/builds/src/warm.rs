@@ -6,7 +6,9 @@
 //! hook clippy against 12.9 s warm). The build volume is APFS, so
 //! `clonefile(2)` copies another checkout's `target` in one call, sharing
 //! blocks until either side writes. `builds new` does that for the host
-//! `target` of the worktree it hands out, never for an app lane's folders.
+//! `target` of the worktree it hands out. A new app checkout of a lane clones
+//! its lane's cargo folders from the lane's warmest checkout by the same
+//! means (`clone_lane`).
 //!
 //! Source choice: among the repo's other checkouts (main's `target` is only
 //! read) whose `target` holds a built debug profile and fits the new
@@ -50,7 +52,8 @@ use crate::checkout::{Checkout, Root};
 use crate::evict::{cargo_locks, lock_exclusive_creating};
 use crate::fail;
 use crate::fail::{Context, Result};
-use crate::manifest::build_dirs;
+use crate::lane::Lane;
+use crate::manifest::{BuildDir, build_dirs};
 use crate::prune::{Run, prune_root};
 use crate::text::note;
 use crate::tool::Tool;
@@ -99,6 +102,11 @@ pub fn rank(candidates: &mut [Candidate]) {
 /// What a taken source holds until the clone is made.
 pub struct Held {
     pub candidate: Candidate,
+    _hold: Hold,
+}
+
+/// A source checkout's guard and the cargo locks of some of its folders.
+pub struct Hold {
     _guard: Guard,
     _locks: Vec<File>,
 }
@@ -123,6 +131,28 @@ fn hold_rest(candidate: &Candidate, guard: Guard) -> Result<Option<Held>> {
     };
     Ok(Some(Held {
         candidate: candidate.clone(),
+        _hold: Hold {
+            _guard: guard,
+            _locks: locks,
+        },
+    }))
+}
+
+/// The guard of the checkout whose build root is <root> and the cargo locks of
+/// each of <folders>, taken without waiting; None when a build holds any.
+pub(crate) fn try_hold_folders(root: &Path, folders: &[PathBuf]) -> Result<Option<Hold>> {
+    let guard = match lock_guard_creating(root)? {
+        Guard::Busy => return Ok(None),
+        guard => guard,
+    };
+    let mut locks = Vec::new();
+    for folder in folders {
+        let Some(held) = cargo_locks(folder)? else {
+            return Ok(None);
+        };
+        locks.extend(held);
+    }
+    Ok(Some(Hold {
         _guard: guard,
         _locks: locks,
     }))
@@ -153,7 +183,7 @@ const CLONE_NOFOLLOW: u32 = 0x0001;
 /// Off macOS no side worktree is handed out: `builds new` runs on the Mac
 /// the person works on.
 #[cfg(not(target_os = "macos"))]
-fn clone_dir(source: &Path, _staging: &Path) -> Result<()> {
+pub(crate) fn clone_dir(source: &Path, _staging: &Path) -> Result<()> {
     fail!(
         "cloning {} needs macOS's clonefile, and this machine runs Linux",
         source.display()
@@ -162,7 +192,7 @@ fn clone_dir(source: &Path, _staging: &Path) -> Result<()> {
 
 /// Clones <source> to <staging> (which must not exist).
 #[cfg(target_os = "macos")]
-fn clone_dir(source: &Path, staging: &Path) -> Result<()> {
+pub(crate) fn clone_dir(source: &Path, staging: &Path) -> Result<()> {
     use std::ffi::CString;
     let from = CString::new(source.as_os_str().as_bytes()).expect("a path holds no NUL");
     let to = CString::new(staging.as_os_str().as_bytes()).expect("a path holds no NUL");
@@ -177,7 +207,7 @@ fn clone_dir(source: &Path, staging: &Path) -> Result<()> {
     Ok(())
 }
 
-fn is_empty_dir(dir: &Path) -> Result<bool> {
+pub(crate) fn is_empty_dir(dir: &Path) -> Result<bool> {
     Ok(std::fs::read_dir(dir)
         .context(|| format!("listing {}", dir.display()))?
         .next()
@@ -257,7 +287,7 @@ fn candidates(tool: &Tool, checkout: &Checkout, cap_kib: u64) -> Result<Vec<Cand
 /// Gives each tracked file of <dest_top> that is byte for byte the same file of
 /// <source_top> that file's mtime. A file the source lacks, a link, or a file
 /// whose content differs keeps its own.
-fn match_times(source_top: &Path, dest_top: &Path) -> Result<()> {
+pub(crate) fn match_times(source_top: &Path, dest_top: &Path) -> Result<()> {
     let listed = Command::new("git")
         .arg("-C")
         .arg(dest_top)
@@ -358,6 +388,128 @@ pub fn fill(tool: &Tool, checkout: &Checkout) -> Result<()> {
         std::slice::from_ref(&dest),
     )?;
     prune_root(tool, &root, checkout, Run::Real, 0, 0)
+}
+
+/// `builds app-clone mac|android <source> <dest>`: `clone_lane` for two
+/// checkouts of this machine, which a host runs for the new app checkout that
+/// this Mac's build makes there (app_remote.rs).
+pub fn cmd_app_clone(tool: &Tool, args: &[String]) -> Result<()> {
+    let [lane, source, dest] = args else {
+        fail!("usage: builds app-clone mac|android <source checkout> <new checkout>")
+    };
+    let lane = Lane::parse_or_fail(lane)?;
+    tool.places.require_volume()?;
+    clone_lane(tool, lane, &Checkout::find(source)?, &Checkout::find(dest)?)
+}
+
+/// The folders of <dest_root> that a new checkout of <lane> starts from a clone
+/// of <source_root>'s: the build folders the lane's builds write that hold a
+/// cargo build in the source (a built debug profile) and are empty in the
+/// destination. A cargo build survives a move to another checkout path (see
+/// `clone_lane`); Xcode's trees and Gradle's build folders do not, so no other
+/// folder is cloned.
+pub fn cloned_folders(
+    dirs: &[BuildDir],
+    lane: Lane,
+    source_root: &Path,
+    dest_root: &Path,
+) -> Result<Vec<BuildDir>> {
+    let mut folders = Vec::new();
+    for dir in dirs {
+        if !dir.is_app_in(Some(lane)) {
+            continue;
+        }
+        let dest = dest_root.join(&dir.path);
+        if !is_profile_dir(&source_root.join(&dir.path).join("debug"))?
+            || !dest.is_dir()
+            || !is_empty_dir(&dest)?
+        {
+            continue;
+        }
+        folders.push(dir.clone());
+    }
+    Ok(folders)
+}
+
+/// Fills the empty cargo build folders of <dest>, a new app checkout of
+/// <lane>, with copy-on-write clones of <source>'s, the lane's warmest
+/// checkout on this host. The caller holds <source>'s lane lock, so no app
+/// build runs there; this function also holds its guard and cargo locks, as
+/// `fill` does, and ends without cloning when a build holds them.
+///
+/// Only cargo's folders are cloned. Cargo names a unit by a hash that leaves
+/// out where the workspace is, and the mtimes that `match_times` copies make
+/// its fingerprints read as fresh, which is what lets `fill` clone a host
+/// `target`. Xcode's trees are named by their own real path and hold the
+/// checkout's path in the build description (XCBuildData's manifest) and in
+/// every compile command, so a moved tree recompiles everything; SwiftPM's
+/// SourcePackages holds the checkout's path in workspace-state.json and in
+/// each checkout's git alternates, so a clone would point into the source and
+/// break when builds removes it. Gradle keeps each task's recorded outputs by
+/// absolute path, so a moved build folder reruns its tasks.
+pub fn clone_lane(tool: &Tool, lane: Lane, source: &Checkout, dest: &Checkout) -> Result<()> {
+    let source_root = source.build_root(&tool.places);
+    let dest_root = dest.build_root(&tool.places);
+    let dirs = build_dirs(&dest.top)?;
+    let mut folders = cloned_folders(&dirs, lane, &source_root, &dest_root)?;
+    let paths: Vec<PathBuf> = folders
+        .iter()
+        .map(|dir| source_root.join(&dir.path))
+        .collect();
+    let sizes = tool.measure_all(&paths)?;
+    // A clone over the cap would be deleted whole by the next prune.
+    let mut kept = sizes.iter();
+    folders.retain(|dir| {
+        kept.next()
+            .is_some_and(|size| size.kib <= dir.cap_kib(true))
+    });
+    if folders.is_empty() {
+        note(format!(
+            "{} has no cargo build to clone into {}; its first build is cold",
+            source.top.display(),
+            dest.top.display()
+        ));
+        return Ok(());
+    }
+    let paths: Vec<PathBuf> = folders
+        .iter()
+        .map(|dir| source_root.join(&dir.path))
+        .collect();
+    let Some(held) = try_hold_folders(&source_root, &paths)? else {
+        note(format!(
+            "cargo runs in {}, so nothing is cloned from it; {}'s first build is cold",
+            source.top.display(),
+            dest.top.display()
+        ));
+        return Ok(());
+    };
+    let mut cloned = Vec::new();
+    for dir in &folders {
+        let (from, to) = (source_root.join(&dir.path), dest_root.join(&dir.path));
+        let staging = to.with_file_name(format!(
+            ".{}.warm.{}",
+            crate::checkout::file_name(&to),
+            crate::text::staged_suffix()
+        ));
+        let _ = std::fs::remove_dir_all(&staging);
+        let moved = clone_dir(&from, &staging).and_then(|()| {
+            std::fs::rename(&staging, &to)
+                .context(|| format!("moving the clone into {}", to.display()))
+        });
+        if let Err(error) = moved {
+            let _ = std::fs::remove_dir_all(&staging);
+            return Err(error);
+        }
+        note(format!("cloned {} into {}", from.display(), to.display()));
+        cloned.push(to);
+    }
+    // The source's files are read while its guard is held: no build there
+    // writes them, so their mtimes are what its fingerprints were made from.
+    match_times(&source.top, &dest.top)?;
+    drop(held);
+    // An app checkout's builds run without incremental compilation.
+    units::prune::prune(&Ages::new(tool.rules.unused_days, 0), Run::Real, &cloned)?;
+    Ok(())
 }
 
 #[cfg(test)]

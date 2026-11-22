@@ -285,9 +285,9 @@ fn a_host_that_cannot_build_the_mac_lane_takes_no_mac_checkout() {
             },
         }),
     )];
-    let (fits, _) = fitting_hosts(Lane::Mac, 0, &probes, &[]);
+    let (fits, _) = fitting_hosts(Lane::Mac, 0, &probes, &[], &[]);
     assert_eq!(fits.len(), 1);
-    let (fits, lacks) = fitting_hosts(Lane::Mac, 0, &probes, &["m1".to_string()]);
+    let (fits, lacks) = fitting_hosts(Lane::Mac, 0, &probes, &["m1".to_string()], &[]);
     assert!(fits.is_empty());
     assert!(lacks[0].contains("cannot build the mac lane"), "{lacks:?}");
     let mut linux = probes.clone();
@@ -295,7 +295,7 @@ fn a_host_that_cannot_build_the_mac_lane_takes_no_mac_checkout() {
         probe.platform.os = crate::host_platform::Os::Linux;
     }
     for lane in Lane::ALL {
-        let (fits, lacks) = fitting_hosts(lane, 0, &linux, &[]);
+        let (fits, lacks) = fitting_hosts(lane, 0, &linux, &[], &[]);
         assert!(fits.is_empty(), "a Linux host takes no {lane:?} checkout");
         assert!(lacks[0].contains("m1 runs Linux"), "{lacks:?}");
     }
@@ -391,4 +391,15 @@ fn a_build_that_must_run_on_a_host_in_a_lane_with_none_there_adds_one() {
     assert_eq!(held.checkout, "m1:builds-android-1");
     held.release();
     assert_eq!(world.entries(), ["side-1", "m1:builds-android-1"]);
+}
+
+#[test]
+fn a_host_with_a_checkout_to_clone_needs_only_what_the_clone_does_not_share() {
+    const GIB: u64 = 1024 * 1024;
+    assert_eq!(new_checkout_kib(Lane::Mac, false), 22 * GIB);
+    assert_eq!(new_checkout_kib(Lane::Android, false), 10 * GIB);
+    let mac = new_checkout_kib(Lane::Mac, true);
+    let android = new_checkout_kib(Lane::Android, true);
+    assert!(mac > 12 * GIB && mac < 13 * GIB, "{mac}");
+    assert!(android > GIB && android < 2 * GIB, "{android}");
 }

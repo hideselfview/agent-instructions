@@ -11,7 +11,9 @@
 //! than `LANE_CAP`. builds names it `builds-<lane>-<n>` and records it in the
 //! lane's set as its own, with when and why (lane.rs `AppCheckout`). Its first
 //! build makes it on the host, as for a checkout `builds app-checkout --host`
-//! records. A waiting build adds checkouts only on hosts: this Mac is the
+//! records, and starts its cargo build folders from clones of the lane's
+//! warmest checkout on that host (app_clone.rs), which is why a host with such
+//! a checkout needs less free disk (`new_checkout_kib`). A waiting build adds checkouts only on hosts: this Mac is the
 //! person's, and its disk holds every side worktree's builds. A build that
 //! may run only on this Mac, in a lane with no checkout here, makes one local
 //! checkout (worktree.rs `ensure_local_app_checkout`) that stays.
@@ -80,6 +82,34 @@ pub fn checkout_kib(lane: Lane) -> u64 {
     match lane {
         Lane::Mac => 22 * GIB,
         Lane::Android => 10 * GIB,
+    }
+}
+
+/// How much of `checkout_kib` a new checkout of <lane> shares with the warmest
+/// checkout it is cloned from (warm.rs `clone_lane`): its cargo folders,
+/// target-macos 9.0 GiB and the host target 0.7 for the mac lane,
+/// target-android 8.0 and the host target 0.7 for the android lane, as
+/// measured with `checkout_kib`. A clone shares every block with its source
+/// until a build rewrites it, and a new checkout's first build rewrites only
+/// the units of the crates that changed, so the clone adds none of these
+/// blocks when the host is asked; `checkout_kib` less this is what the
+/// checkout adds before its first build.
+pub fn cloned_kib(lane: Lane) -> u64 {
+    const GIB_TENTHS: u64 = 1024 * 1024 / 10;
+    match lane {
+        Lane::Mac => 97 * GIB_TENTHS,
+        Lane::Android => 87 * GIB_TENTHS,
+    }
+}
+
+/// The disk a new checkout of <lane> adds on a host: `checkout_kib`, less
+/// what its clone shares with a source there (`cloned_kib`) when the host has
+/// one.
+pub fn new_checkout_kib(lane: Lane, has_source: bool) -> u64 {
+    if has_source {
+        checkout_kib(lane) - cloned_kib(lane)
+    } else {
+        checkout_kib(lane)
     }
 }
 
@@ -165,7 +195,13 @@ pub fn grow(at: RepoLane, floor_kib: u64, need: Need, now: i64) -> Result<Option
         ));
         return Ok(None);
     }
-    let (fits, mut lacks) = fitting_hosts(lane, floor_kib, &probes, &refusing);
+    let mut cloning = Vec::new();
+    for (host, _) in &probes {
+        if crate::app_clone::has_source(at, &host.name)? {
+            cloning.push(host.name.clone());
+        }
+    }
+    let (fits, mut lacks) = fitting_hosts(lane, floor_kib, &probes, &refusing, &cloning);
     for (host, probe) in fits {
         let host_guard = queue::guard_at(&places.app_host_guard_file(&host.name))?;
         let held = checkouts_on(places, &host.name)?;
@@ -220,13 +256,16 @@ pub fn grow(at: RepoLane, floor_kib: u64, need: Need, now: i64) -> Result<Option
 /// The hosts that may take a checkout of <lane>, the one with the most cores
 /// free first: of the hosts in <probes>, those that answer, take jobs, are
 /// Macs, are not in <refusing>, have `FREE_CORES` free and would keep their free disk
-/// above <floor_kib> with one more checkout of the lane. With them, what each
-/// other host lacks. The caller checks `HOST_CAP` under the host's guard.
+/// above <floor_kib> with one more checkout of the lane, which takes only
+/// what its clone does not share (`new_checkout_kib`) on a host in <cloning>,
+/// the hosts with a checkout of the lane to clone. With them, what each other
+/// host lacks. The caller checks `HOST_CAP` under the host's guard.
 fn fitting_hosts(
     lane: Lane,
     floor_kib: u64,
     probes: &[(Host, std::result::Result<Probe, String>)],
     refusing: &[String],
+    cloning: &[String],
 ) -> (Vec<(Host, Probe)>, Vec<String>) {
     let mut fits: Vec<(Host, Probe)> = Vec::new();
     let mut lacks = Vec::new();
@@ -255,13 +294,14 @@ fn fitting_hosts(
                 host.name,
                 probe.room()
             ));
-        } else if probe.free_kib < floor_kib + checkout_kib(lane) {
+        } else if probe.free_kib < floor_kib + new_checkout_kib(lane, cloning.contains(&host.name))
+        {
             lacks.push(format!(
-                "{} has {} free, and a {} lane checkout of about {} would take it under the floor of {}",
+                "{} has {} free, and a {} lane checkout that adds about {} would take it under the floor of {}",
                 host.name,
                 human(probe.free_kib),
                 lane.word(),
-                human(checkout_kib(lane)),
+                human(new_checkout_kib(lane, cloning.contains(&host.name))),
                 human(floor_kib)
             ));
         } else {

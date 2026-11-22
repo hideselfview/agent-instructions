@@ -42,6 +42,7 @@ use crate::places::Places;
 use crate::remote::{
     JOB_WORKTREE_PREFIX, JOBS_REF, Transport, job_id, release_script, root_script, worktree_in,
 };
+use crate::text::note;
 
 /// What separates the host from the checkout's name in a lane's entry.
 const SEPARATOR: char = ':';
@@ -253,7 +254,57 @@ impl RemoteApp {
         let dropped = self.unsend(&id);
         let made = crate::fail::with_cleanup(made, dropped)?;
         self.worktree = Some(worktree_in(&made)?);
+        if made.lines().any(|line| line == NEW_CHECKOUT) {
+            self.start_from_warmest()?;
+        }
         Ok(())
+    }
+
+    /// Fills the build folders of the checkout that `ensure_script` just made
+    /// from the lane's warmest checkout on this host (`builds app-clone`, run
+    /// there), while this build holds that checkout's lock. A host with no
+    /// such checkout, or none that came free in time, leaves the first build
+    /// cold. When the clone fails, the new checkout is removed, so the next
+    /// build makes it and clones again rather than finding it half filled.
+    fn start_from_warmest(&mut self) -> Result<()> {
+        let at = crate::lane_size::RepoLane {
+            places: &self.places,
+            ssh: &self.ssh,
+            repo: &self.repo,
+            lane: self.lane,
+        };
+        let me = entry_of(&self.host.name, &self.name);
+        let Some(taken) =
+            crate::app_clone::take_source(at, &self.host.name, &me, crate::app_clone::SOURCE_WAIT)?
+        else {
+            note(format!(
+                "{} has no warm {} checkout to clone into {me}; its first build is cold",
+                self.host.name,
+                self.lane.word()
+            ));
+            return Ok(());
+        };
+        let source_name = split(&taken.entry).map_or(taken.entry.as_str(), |(_, name)| name);
+        let script = CLONE
+            .replace("@ROOT@", &root_script(&self.host))
+            .replace("@REPO@", &self.repo)
+            .replace("@SOURCE@", source_name)
+            .replace("@NAME@", &self.name)
+            .replace("@LANE@", self.lane.word());
+        let cloned = self
+            .transport()
+            .capture(&script, "cloning the warmest app checkout")
+            .map(|_| ());
+        let removed = match &cloned {
+            Ok(()) => Ok(()),
+            Err(_) => self.remove().map_err(|said| {
+                crate::fail::Fail::Message(format!(
+                    "removing {me} on {} after its clone failed: {said}",
+                    self.host.name
+                ))
+            }),
+        };
+        crate::fail::with_cleanup(cloned, removed)
     }
 
     /// Runs git with <args> in the checkout on the host, with the index file
@@ -579,6 +630,7 @@ fn ensure_script(host: &Host, repo: &str, name: &str, sha: &str, lane: Lane) -> 
         .replace("@ANDROID@", android)
         .replace("@LANE@", lane.word())
         .replace("@LANE_FILE@", APP_LANE_FILE)
+        .replace("@NEW_CHECKOUT@", NEW_CHECKOUT)
 }
 
 /// What a lane's checkout needs besides the repo's post-checkout: in the
@@ -637,8 +689,22 @@ else
     exit 93
   fi
   exclude_links
+  echo "@NEW_CHECKOUT@"
 fi
 echo "worktree=$wt""#;
+
+/// The line `ENSURE` prints when it made the checkout, before the
+/// `worktree=` line.
+const NEW_CHECKOUT: &str = "new-checkout=yes";
+
+/// The script that clones the build folders of the checkout <@SOURCE@> of
+/// <@REPO@> into the new checkout <@NAME@> on the host, with the host's
+/// `builds app-clone`.
+const CLONE: &str = r#"@ROOT@set -e
+src="$HOME/dev/@REPO@-worktrees/@SOURCE@"
+wt="$HOME/dev/@REPO@-worktrees/@NAME@"
+if [ ! -e "$src/.git" ]; then echo "no checkout @SOURCE@ to clone" >&2; exit 95; fi
+"$HOME/.local/bin/builds" app-clone @LANE@ "$src" "$wt""#;
 
 /// The shell function that writes @LANE@ to the lane file of the checkout
 /// "$wt"; it fails when git cannot name the checkout's git dir.
