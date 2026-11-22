@@ -2256,8 +2256,8 @@ which a step on this Mac does while it runs and a step on a host does while
 builds copies a before run and pictures to the host and the new pictures
 back. Each host keeps the board pictures it was sent in
 ~/.cache/builds-pictures/<repo>/boards and builds sends it only the ones it
-lacks, deleting the ones this Mac no longer holds and no step has used for a
-day (each step marks the pictures it uses); a step brings back only the
+lacks, deleting the ones this Mac no longer holds only when no other step has
+a picture folder there that changed within a day; a step brings back only the
 board pictures it made. `status` shows each repo's folder's
 size against the cap.
 

@@ -1,6 +1,6 @@
 use super::*;
 use crate::host::tests::fake_ssh;
-use crate::testing::{Scratch, age, git, host_builds};
+use crate::testing::{Scratch, git, host_builds};
 use std::os::unix::fs::PermissionsExt;
 
 #[test]
@@ -413,7 +413,6 @@ fn board_pictures_go_to_a_host_once_and_a_step_brings_back_only_what_it_made() {
     std::fs::write(host_boards(&s).join("h.png"), "HOST").unwrap();
     let old = host_boards(&s).join("old.png");
     std::fs::write(&old, "old").unwrap();
-    age(&old, 48);
     std::fs::write(local.join("boards/n.png"), "new").unwrap();
     let there = app.put_pictures(&local, "mac/tree1").unwrap();
     let there_path = Path::new(&there);
@@ -464,22 +463,17 @@ fn board_pictures_go_to_a_host_once_and_a_step_brings_back_only_what_it_made() {
 
 /// Two steps overlap on a host. The first sent a picture and its step still
 /// runs; this Mac has since dropped the picture, and the second step's
-/// cleanup must leave it, while a picture nothing has used for a day goes.
+/// cleanup must leave it and the picture another build made. Once the first
+/// step ends, a later step's cleanup deletes them.
 #[test]
-fn a_steps_cleanup_leaves_the_pictures_another_running_step_uses() {
+fn a_steps_cleanup_leaves_the_pictures_while_another_step_runs() {
     let s = setup("remote-app-pictures-overlap");
     let mut first = remote_app(&s, Lane::Mac);
     let mut second = remote_app(&s, Lane::Mac);
     let local = s.places.root.join("pictures");
     std::fs::create_dir_all(local.join("boards")).unwrap();
     std::fs::write(local.join("boards/used.png"), "used").unwrap();
-    // Sent long ago: its modification time says so.
-    age(&local.join("boards/used.png"), 48);
     let running = first.put_pictures(&local, "mac/tree1").unwrap();
-    // The host also holds a picture of a step that ended a long time ago.
-    let stale = host_boards(&s).join("stale.png");
-    std::fs::write(&stale, "stale").unwrap();
-    age(&stale, 48);
     // Another build's step made a picture the first step has not brought back.
     std::fs::write(host_boards(&s).join("made.png"), "made").unwrap();
 
@@ -491,11 +485,19 @@ fn a_steps_cleanup_leaves_the_pictures_another_running_step_uses() {
     );
     assert!(
         host_boards(&s).join("made.png").is_file(),
-        "a step's cleanup deleted a picture a step just made"
+        "a step's cleanup deleted a picture a running step made"
     );
-    assert!(!stale.exists(), "a picture nothing used for a day stayed");
     first.remove_temporary(&running).unwrap();
     second.remove_temporary(&other).unwrap();
+
+    // A folder a dead step left a day ago holds nothing back.
+    let left = s.home.join(".cache/builds-pictures/demo/steps/left");
+    std::fs::create_dir_all(&left).unwrap();
+    crate::testing::age(&left, 48);
+    let last = second.put_pictures(&local, "mac/tree1").unwrap();
+    assert!(!host_boards(&s).join("used.png").exists());
+    assert!(!host_boards(&s).join("made.png").exists());
+    second.remove_temporary(&last).unwrap();
 }
 
 /// A lane's step on a host runs this build's programs there: the first step
