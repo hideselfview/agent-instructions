@@ -750,9 +750,7 @@ impl Landing<'_> {
         let dir = &self.workdir;
         let shas = &member.shas;
         let last = shas.last().expect("a landing names a commit").as_str();
-        let base = crate::app_config::run_git(dir, &["rev-parse", "HEAD"])?
-            .trim()
-            .to_string();
+        let base = crate::app_config::resolve(dir, "HEAD")?;
         // A fast-forward lands every commit between the result and the last
         // one, so it is taken only when those are exactly the commits named:
         // an unnamed commit below them (an earlier one on the agent's branch)
