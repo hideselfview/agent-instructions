@@ -532,11 +532,19 @@ Land the fixes you have ready together, in one batch (WORKTREES).
   - Landings in different worktrees may run at the same time. When origin/main
     moves while a landing runs, origin refuses that landing's push, and the
     landing fetches again and pushes again. Two landings in one worktree run
-    one after the other, and so do two landings that change the apps of the
-    same lane (mac or android) of one repo: each waits for the other from
-    before its fetch until its push, so each builds its result in the lane at
-    most once. Landings that change the apps of different lanes run at the
-    same time.
+    one after the other. Landings that change the apps of the same lane (mac
+    or android) of one repo take turns, and the landings that wait for a
+    turn land as one batch: the landing that gets the turn picks the commits
+    of every waiting landing onto origin/main, builds the result once, with
+    the steps, test classes and shots of all their app builds, and pushes
+    every branch whose result passes. Each branch keeps its own review and its
+    own `--done` and `--design` records, and its landing ends with its own
+    result. A branch whose commits conflict, or that has no app build of its
+    own, is refused alone. When the build fails on a batch of several
+    branches, land builds each half of it and so finds the branch that fails:
+    the other branches land, and the agent of the failing branch gets the
+    build's output. Landings that change the apps of different lanes run at
+    the same time.
   - A landing that leaves nothing to land on the branch leaves the worktree
     detached at the landed commit and releases it. A landing that leaves
     commits on the branch checks the branch out again and keeps the claim, and

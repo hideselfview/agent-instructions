@@ -1,8 +1,12 @@
 //! `builds app-build --landing-build <worktree> <before> <result> <branch>
-//! <ref>`: the app build that a landing needs before its push. `builds land`
-//! runs it once it has picked the commits onto origin/main (<before>) into
-//! <result>, with <branch>, the last commit it lands as the branch holds it,
-//! and <ref>, the name the branch's app builds were asked to build.
+//! <ref> [<own commit>...]`: the app build that a landing needs before its
+//! push. `builds land` runs it once it has picked the commits onto
+//! origin/main (<before>) into <result>, with <branch>, the last commit it
+//! lands as the branch holds it, and <ref>, the name the branch's app builds
+//! were asked to build. When <result> holds other landings' commits too (a
+//! batch, land_batch.rs), the <own commit>s are the landing's own, and the
+//! paths they change, not those between <before> and <result>, decide which
+//! lanes and steps the landing needs.
 //!
 //! Each lane's `on` lines in the result's `.app-build` (app_config.rs) name the
 //! paths whose change the lane's apps compile. The landing changes a lane's
@@ -54,8 +58,7 @@ use crate::places::Places;
 /// The flag of `builds app-build` that names this command.
 pub const FLAG: &str = "--landing-build";
 
-const USAGE: &str =
-    "usage: builds app-build --landing-build <worktree> <before> <result> <branch> <ref>";
+const USAGE: &str = "usage: builds app-build --landing-build <worktree> <before> <result> <branch> <ref> [<own commit>...]";
 
 /// What starts each line that tells of a dropped shots prefix.
 pub const DROPPED: &str = "shots dropped:";
@@ -450,7 +453,7 @@ pub fn split_output(said: &str) -> (Vec<&str>, String) {
 /// in no project records no runs, and a result with no `.app-build` builds no
 /// apps, so neither needs a build.
 pub fn cmd_landing_build(places: &Places, args: &[String]) -> Result<()> {
-    let [worktree, before, result, branch, named] = args else {
+    let [worktree, before, result, branch, named, own @ ..] = args else {
         fail!("{USAGE}");
     };
     let top = Path::new(worktree);
@@ -470,7 +473,19 @@ pub fn cmd_landing_build(places: &Places, args: &[String]) -> Result<()> {
         ));
         return Ok(());
     };
-    let changed = paths_between(top, before, result)?;
+    let changed = if own.is_empty() {
+        paths_between(top, before, result)?
+    } else {
+        // The result holds other landings' commits too: the need is that of
+        // the commits named.
+        let mut paths = Vec::new();
+        for sha in own {
+            paths.extend(paths_between(top, &format!("{sha}^"), sha)?);
+        }
+        paths.sort();
+        paths.dedup();
+        paths
+    };
     let since = branch_since(top, before, branch)?;
     let conn = crate::db::open(&database, crate::db::Make::Never)?;
     let mut drops_of = std::collections::HashMap::new();

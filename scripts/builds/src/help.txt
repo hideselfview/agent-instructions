@@ -1374,7 +1374,7 @@ built again.
                               print the steps (lane, name, command, and "(CI
                               only)" for a step a `ci-only` line names) and
                               each lane's test and shots lines
-  builds app-build --landing-build <worktree> <before> <result> <branch> <ref>
+  builds app-build --landing-build <worktree> <before> <result> <branch> <ref> [<own commit>...]
                               the app build a landing needs before its push:
                               `builds land` runs it on the result it built on
                               origin/main (<before>), with <branch>, the last
@@ -1383,7 +1383,10 @@ built again.
                               apps when a path that differs between <before>
                               and <result> matches an `on` line of the
                               result's .app-build that names a step of the
-                              lane. A passing run of the lane covers a commit
+                              lane. When <result> holds other landings'
+                              commits too (a batch), the <own commit>s name
+                              the landing's own, and the paths they change
+                              decide the lanes and steps it needs. A passing run of the lane covers a commit
                               when it passed every step the change needs in
                               the lane, ran every shots prefix that the
                               branch's own app builds ran since its merge
@@ -3215,10 +3218,29 @@ run `review replay --rules-root` on it.
                               landing that finds a lock held names the
                               landing that holds it and waits. So no other
                               landing that changes a lane's apps reaches main
-                              between a landing's fetch and its push, and
-                              each builds its result in each lane at most
-                              once. Landings that change the apps of
-                              different lanes build at the same time.
+                              between a landing's fetch and its push.
+                              Landings that change the apps of different
+                              lanes build at the same time. Before it waits,
+                              each such landing registers in the queue of its
+                              first lane (land-batch-mac or land-batch-android
+                              in the repo's git folder). The landing that
+                              gets the turn leads the batch of every landing
+                              in the queue: it picks all their commits onto
+                              origin/main, runs the whole checks once, asks
+                              each branch which app build the result needs,
+                              runs one app build with the steps, test classes
+                              and shots of all of them, and pushes the result
+                              once it passes, so a lane builds the landings
+                              that waited together once. Each landing keeps
+                              its own review, --done and --design records,
+                              and ends with its own verdict. A landing whose
+                              commits conflict, or whose branch has no app
+                              build of its own, is refused alone. When the
+                              checks or the build fail on the result of
+                              several landings, land runs them again on each
+                              half, so the halves that pass land, and the
+                              landing that fails is refused with the build's
+                              output.
                               Land reads the project from the worktree's
                               claim; --project P only checks it and refuses
                               when the worktree's project is another.

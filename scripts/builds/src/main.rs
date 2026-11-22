@@ -94,6 +94,7 @@ mod job_claim;
 mod kept;
 mod lake_run;
 mod land;
+mod land_batch;
 mod land_run;
 mod land_squash;
 mod land_turns;

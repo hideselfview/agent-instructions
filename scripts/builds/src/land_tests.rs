@@ -142,7 +142,7 @@ fn stub(f: &Fixture, cues: &Cues) -> (PathBuf, PathBuf) {
     let stub = f.scratch.dir.join("stub-builds");
     let log = f.scratch.dir.join("calls.log");
     let script = format!(
-        "#!/bin/bash\necho \"$*\" >> '{log}'\n[ \"$1\" = app-build ] && [ \"$2\" != --landing-build ] && echo \"app-build ran in $PWD\" >> '{log}'\n[ '{refuse}' = \"$1 $2\" ] && {{ echo '{says}'; exit 1; }}\ncase \"$1 $2\" in\n  'lists project-of') echo '{project}' ;;\n  'design places') printf '%s' '{places}' ;;\n  'design title') echo '{title}' ;;\n  'app-build --landing-build') {landing_build} ;;\n  'app-build repo') {app_build} ;;\nesac\nexit 0\n",
+        "#!/bin/bash\necho \"$*\" >> '{log}'\n[ \"$1\" = app-build ] && [ \"$2\" != --landing-build ] && echo \"app-build ran in $PWD\" >> '{log}'\n[ '{refuse}' = \"$1 $2\" ] && {{ echo '{says}'; exit 1; }}\ncase \"$1 $2\" in\n  'lists project-of') echo '{project}' ;;\n  'design places') printf '%s' '{places}' ;;\n  'design title') echo '{title}' ;;\n  'app-build --landing-build') {landing_build} ;;\n  'app-build repo') {app_build} || exit 1 ;;\nesac\nexit 0\n",
         log = log.display(),
         refuse = cues.refuse,
         says = if cues.says.is_empty() {
@@ -2222,5 +2222,256 @@ fn two_app_landings_each_build_once_and_the_second_waits_for_the_first() {
             .iter()
             .all(|commit| on_main.lines().any(|on| on == *commit)),
         "{built:?} are not all on main:\n{on_main}"
+    );
+}
+
+/// A stand-in for `app-build --landing-build` that names the build of the
+/// result, and refuses a branch that holds app/<refused> as having no app
+/// build of its own.
+fn landing_build_refusing(refused: &str) -> &'static str {
+    Box::leak(
+        format!(
+            "git -C \"$3\" cat-file -e \"$6:app/{refused}\" 2>/dev/null && {{ echo 'no passing mac app build built the branch'; exit 1; }}; echo \"builds app-build repo $5 macos\""
+        )
+        .into_boxed_str(),
+    )
+}
+
+/// The result of two waiting landings: both on main and the build of the
+/// result run <built> times, each time on a commit that reached main.
+const BUILT_ONCE: &str = "echo \"$3\" >> '{root}/built'";
+
+/// Lands the branches of <dirs> together: each landing starts while another
+/// landing holds the turn, and they run once the test lets the turn go.
+/// Returns what each landing said and whether it landed, in the order of
+/// <dirs>.
+fn land_together(
+    f: &Fixture,
+    stub: &Path,
+    lands: &[(&Path, &[&str])],
+    lane: Lane,
+) -> Vec<(bool, Vec<String>)> {
+    let held = hold_app_turn(f, lane);
+    let mut running = Vec::new();
+    for (dir, args) in lands {
+        let (reader, writer) = std::io::pipe().unwrap();
+        let landing = land_on_thread(f, stub, dir, args, writer);
+        let mut lines = std::io::BufReader::new(reader).lines();
+        let mut seen = Vec::new();
+        let waiting = line_starting(&mut lines, "waiting for");
+        seen.push(waiting);
+        running.push((landing, lines, seen));
+    }
+    drop(held);
+    running
+        .into_iter()
+        .map(|(landing, lines, mut seen)| {
+            seen.extend(lines.map(|line| line.unwrap()));
+            (landing.join().unwrap(), seen)
+        })
+        .collect()
+}
+
+/// Landings that wait for the same lane's turn build their result once, in
+/// one batch, and each pushes: both branches reach main, the app build runs
+/// once, and each landing records its own item with its own commit.
+#[test]
+fn landings_that_wait_for_a_lane_build_together_once_and_all_land() {
+    let f = app_fixture("land-batch-together");
+    let (one, a) = app_branch(&f, 1, "a", "a.swift");
+    let (two, b) = app_branch(&f, 2, "b", "b.swift");
+    let (stub, log) = stub(
+        &f,
+        &Cues {
+            landing_build: landing_build_refusing("nothing"),
+            app_build: BUILT_ONCE,
+            ..project()
+        },
+    );
+    let done = land_together(
+        &f,
+        &stub,
+        &[(&one, &["--done", "7", &a]), (&two, &["--done", "8", &b])],
+        Lane::Mac,
+    );
+    assert!(done.iter().all(|(landed, _)| *landed), "{done:?}");
+    assert_eq!(git_out(&f.origin, &["show", "main:app/a.swift"]), "app");
+    assert_eq!(git_out(&f.origin, &["show", "main:app/b.swift"]), "app");
+    let built = std::fs::read_to_string(f.scratch.dir.join("built")).unwrap();
+    let on_main = git_out(&f.origin, &["rev-list", "main"]);
+    assert_eq!(built.lines().count(), 1, "one build of the batch: {built}");
+    assert_eq!(built.trim(), main_of(&f), "built the pushed result");
+    assert!(on_main.lines().any(|on| on == built.trim()));
+    let calls = std::fs::read_to_string(&log).unwrap();
+    for item in ["7", "8"] {
+        let landed: Vec<&str> = calls
+            .lines()
+            .filter(|c| c.starts_with("item landed") && c.contains(&format!("--done {item} ")))
+            .collect();
+        assert_eq!(landed.len(), 1, "item {item}: {calls}");
+        let shas: Vec<&str> = landed[0].split(' ').filter(|w| w.len() == 40).collect();
+        assert_eq!(shas.len(), 1, "{landed:?}");
+        assert!(on_main.lines().any(|on| on == shas[0]), "{landed:?}");
+    }
+    for dir in [&one, &two] {
+        assert_eq!(git_out(dir, &["status", "--porcelain"]), "");
+    }
+}
+
+/// A change both lanes compile joins the batch of the mac landings, and the
+/// batch builds once for all of them.
+#[test]
+fn a_landing_of_both_lanes_joins_the_batch_of_the_mac_landings() {
+    let f = app_fixture("land-batch-lanes");
+    let (one, a) = app_branch(&f, 1, "a", "a.swift");
+    let (two, b) = branch_with(&f, 2, "b", "shared/b.txt");
+    let (stub, _) = stub(
+        &f,
+        &Cues {
+            landing_build: landing_build_refusing("nothing"),
+            app_build: BUILT_ONCE,
+            ..project()
+        },
+    );
+    let done = land_together(
+        &f,
+        &stub,
+        &[(&one, &["--done", "7", &a]), (&two, &["--done", "8", &b])],
+        Lane::Mac,
+    );
+    assert!(done.iter().all(|(landed, _)| *landed), "{done:?}");
+    assert_eq!(git_out(&f.origin, &["show", "main:shared/b.txt"]), "app");
+    assert_eq!(git_out(&f.origin, &["show", "main:app/a.swift"]), "app");
+    let built = std::fs::read_to_string(f.scratch.dir.join("built")).unwrap();
+    assert_eq!(built.lines().count(), 1, "{built}");
+}
+
+/// When the build of the batch fails, builds finds the branch that breaks it
+/// by building halves: the branch that passes lands, the one that fails is
+/// refused with the build's output, and nothing of it reaches main.
+#[test]
+fn a_failing_batch_lands_the_branches_that_pass_and_refuses_the_one_that_fails() {
+    let f = app_fixture("land-batch-fails");
+    let (one, a) = app_branch(&f, 1, "a", "a.swift");
+    let (two, b) = app_branch(&f, 2, "b", "b.swift");
+    let (stub, log) = stub(
+        &f,
+        &Cues {
+            landing_build: landing_build_refusing("nothing"),
+            app_build: "! test -e app/b.swift || { echo 'CardTests failed: the card has no title'; exit 1; }",
+            ..project()
+        },
+    );
+    let done = land_together(
+        &f,
+        &stub,
+        &[(&one, &["--done", "7", &a]), (&two, &["--done", "8", &b])],
+        Lane::Mac,
+    );
+    assert!(done[0].0, "{:?}", done[0]);
+    assert!(!done[1].0, "{:?}", done[1]);
+    let said = done[1].1.join("\n");
+    assert!(
+        said.contains("CardTests failed: the card has no title")
+            && said.contains("APP BUILD FAILED on the result, nothing pushed"),
+        "{said}"
+    );
+    assert_eq!(git_out(&f.origin, &["show", "main:app/a.swift"]), "app");
+    let tree = git_out(&f.origin, &["ls-tree", "-r", "--name-only", "main"]);
+    assert!(!tree.contains("app/b.swift"), "{tree}");
+    assert_eq!(branch_of(&two).as_deref(), Some("b"));
+    assert_eq!(head_of(&two), b);
+    assert_eq!(git_out(&two, &["status", "--porcelain"]), "");
+    assert_eq!(branch_of(&one).as_deref().unwrap_or("detached"), "detached");
+    let calls = std::fs::read_to_string(&log).unwrap();
+    assert!(
+        calls.contains("item landed") && calls.contains("--done 7 "),
+        "{calls}"
+    );
+    assert!(
+        !calls
+            .lines()
+            .any(|c| c.starts_with("item landed") && c.contains("--done 8 ")),
+        "{calls}"
+    );
+}
+
+/// A branch with no app build of its own is refused with the reason while
+/// the others in its batch land.
+#[test]
+fn a_branch_with_no_app_build_is_refused_and_the_rest_of_its_batch_lands() {
+    let f = app_fixture("land-batch-unbuilt");
+    let (one, a) = app_branch(&f, 1, "a", "a.swift");
+    let (two, b) = app_branch(&f, 2, "b", "b.swift");
+    let (stub, _) = stub(
+        &f,
+        &Cues {
+            landing_build: landing_build_refusing("b.swift"),
+            app_build: BUILT_ONCE,
+            ..project()
+        },
+    );
+    let done = land_together(
+        &f,
+        &stub,
+        &[(&one, &["--done", "7", &a]), (&two, &["--done", "8", &b])],
+        Lane::Mac,
+    );
+    assert!(done[0].0, "{:?}", done[0]);
+    assert!(!done[1].0, "{:?}", done[1]);
+    let said = done[1].1.join("\n");
+    assert!(
+        said.contains("APP BUILDS DO NOT COVER the result, nothing pushed:")
+            && said.contains("no passing mac app build built the branch"),
+        "{said}"
+    );
+    let tree = git_out(&f.origin, &["ls-tree", "-r", "--name-only", "main"]);
+    assert!(
+        tree.contains("app/a.swift") && !tree.contains("app/b.swift"),
+        "{tree}"
+    );
+    assert_eq!(head_of(&two), b);
+}
+
+/// A branch whose commits conflict with an earlier branch of its batch is
+/// refused with the conflict, and the earlier one lands.
+#[test]
+fn a_branch_that_conflicts_with_its_batch_is_refused_and_the_rest_lands() {
+    let f = app_fixture("land-batch-conflict");
+    let one = f.side(1, "a");
+    std::fs::create_dir_all(one.join("app")).unwrap();
+    let a = commit_file(&one, "app/x.swift", "one\n", "one x");
+    let two = f.side(2, "b");
+    std::fs::create_dir_all(two.join("app")).unwrap();
+    let b = commit_file(&two, "app/x.swift", "two\n", "two x");
+    let (stub, _) = stub(
+        &f,
+        &Cues {
+            landing_build: landing_build_refusing("nothing"),
+            app_build: BUILT_ONCE,
+            ..project()
+        },
+    );
+    let done = land_together(
+        &f,
+        &stub,
+        &[(&one, &["--done", "7", &a]), (&two, &["--done", "8", &b])],
+        Lane::Mac,
+    );
+    let landed: Vec<bool> = done.iter().map(|(landed, _)| *landed).collect();
+    assert_eq!(
+        landed.iter().filter(|landed| **landed).count(),
+        1,
+        "{done:?}"
+    );
+    let refused = done
+        .iter()
+        .find(|(landed, _)| !landed)
+        .unwrap()
+        .1
+        .join("\n");
+    assert!(
+        refused.contains("CONFLICT: these files conflict with origin/main:\n  app/x.swift"),
+        "{refused}"
     );
 }

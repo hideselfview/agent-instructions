@@ -538,3 +538,72 @@ fn a_landing_whose_covering_build_skipped_a_failed_prefix_is_refused_until_it_is
         .unwrap();
     cmd_landing_build(&places, &args).unwrap();
 }
+
+/// A result that holds another landing's commits beside the branch's: the
+/// other landing changes the android apps, so judged over the whole result
+/// the branch needs an android build it never made, while judged over its own
+/// commits it needs the mac build it has.
+#[test]
+fn a_result_of_a_batch_is_judged_over_the_commits_of_each_landing() {
+    use crate::app_timing::{StepKind, StepRecord, StepResult};
+    use crate::run_end::RunEnd;
+    let scratch = crate::testing::Scratch::new("app-landing-own");
+    let places = scratch.places();
+    let dir = scratch.dir.join("bae");
+    crate::testing::repo(&dir, "target 1\n");
+    let write = |path: &str, text: &str| {
+        std::fs::create_dir_all(dir.join(path).parent().unwrap()).unwrap();
+        std::fs::write(dir.join(path), text).unwrap();
+    };
+    write(
+        ".app-build",
+        "step mac macos ./macos.sh\nstep android android ./android.sh\non bae-macos/ macos\non bae-android/ android\n",
+    );
+    write("bae-macos/a.swift", "one\n");
+    write("bae-android/a.kt", "one\n");
+    crate::testing::git(&dir, &["add", "."]);
+    crate::testing::git(&dir, &["commit", "-q", "-m", "base"]);
+    let before = crate::testing::git_out(&dir, &["rev-parse", "HEAD"]);
+    crate::testing::git(&dir, &["checkout", "-q", "-b", "work"]);
+    write("bae-macos/a.swift", "two\n");
+    crate::testing::git(&dir, &["commit", "-q", "-a", "-m", "mac change"]);
+    let branch = crate::testing::git_out(&dir, &["rev-parse", "HEAD"]);
+    let since: i64 = crate::testing::git_out(&dir, &["log", "-1", "--format=%at"])
+        .parse()
+        .unwrap();
+    write("bae-android/a.kt", "two\n");
+    crate::testing::git(&dir, &["commit", "-q", "-a", "-m", "android change"]);
+    let result = crate::testing::git_out(&dir, &["rev-parse", "HEAD"]);
+    let store = crate::lists::fixtures::make_store_named(&places, "demo", &["bae"]);
+    let run = crate::app_timing::RunRecord {
+        started_at: since + 1,
+        repo: "bae".to_string(),
+        lane: Lane::Mac,
+        checkout: "side-1".to_string(),
+        built_ref: "work".to_string(),
+        built_commit: Some(branch.clone()),
+        who: None,
+        wait_ms: 0,
+        outcome: RunEnd::Passed,
+        load: None,
+        steps: vec![StepRecord {
+            name: "macos".to_string(),
+            kind: StepKind::Step,
+            started_at: since + 1,
+            wall_ms: 1,
+            cpu_ms: 1,
+            result: StepResult::Passed,
+        }],
+    };
+    crate::app_timing::record(&store.database(), &run).unwrap();
+    let mut args = vec![
+        dir.display().to_string(),
+        before,
+        result,
+        branch.clone(),
+        "work".to_string(),
+    ];
+    assert!(cmd_landing_build(&places, &args).is_err());
+    args.push(branch);
+    cmd_landing_build(&places, &args).unwrap();
+}
