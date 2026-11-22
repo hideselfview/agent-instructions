@@ -2025,6 +2025,36 @@ pub fn add_review_board_show_now(db: &Connection) -> Result<()> {
     )
 }
 
+/// Makes `design_deleted` again as design.sql writes it, so that its path can
+/// be a component's folder: a store from before kept only deleted boards, and
+/// each keeps its row. A store that an earlier move already made the table
+/// for, from today's text, keeps the table.
+pub fn allow_deleted_components(db: &Connection) -> Result<()> {
+    let made: bool = db
+        .query_row(
+            "SELECT count(*) > 0 FROM sqlite_master WHERE name = 'design_deleted' AND sql LIKE '%design_deleted_path_is_a_place%'",
+            [],
+            |row| row.get(0),
+        )
+        .sql()?;
+    if made {
+        return Ok(());
+    }
+    let schema = include_str!("design.sql");
+    crate::db::remake_table(
+        db,
+        "design_deleted",
+        crate::db::statement(schema, "CREATE TABLE design_deleted", ";"),
+        |db| {
+            db.execute_batch(
+                "INSERT INTO design_deleted (design_id, path) SELECT design_id, path FROM design_deleted_old",
+            )
+            .sql()
+        },
+        &[],
+    )
+}
+
 /// Makes `review_board` again as design.sql writes it, with the column for a
 /// component's name: a store from before kept only boards on a review page,
 /// so each entry keeps its board and theme and has no component. A store that

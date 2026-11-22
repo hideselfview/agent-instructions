@@ -104,12 +104,12 @@ CREATE TABLE review_circle (
     CONSTRAINT review_circle_is_on_a_board FOREIGN KEY (design_id, board) REFERENCES review_board (design_id, position) ON DELETE CASCADE
 ) STRICT, WITHOUT ROWID;
 
--- A board the change deletes: a board place of its range that is no file at the
--- range's last commit. It needs no answer, canvas link or place on the review
--- page, which names it as deleted.
+-- A board or component the change deletes: a place of its range that is no file
+-- or folder at the range's last commit. It needs no answer, canvas link or
+-- place on the review page, which names a deleted board as deleted.
 CREATE TABLE design_deleted (
     design_id INTEGER NOT NULL REFERENCES design (id) ON DELETE CASCADE,
-    path TEXT NOT NULL CONSTRAINT design_deleted_path_is_a_board_file CHECK (path NOT GLOB '*#*' AND path NOT GLOB '*/'),
+    path TEXT NOT NULL CONSTRAINT design_deleted_path_is_a_place CHECK (path NOT GLOB '*#*'),
     PRIMARY KEY (design_id, path)
 ) STRICT, WITHOUT ROWID;
 

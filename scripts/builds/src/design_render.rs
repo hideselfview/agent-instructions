@@ -310,9 +310,18 @@ pub fn other_board(design: &DesignChange, k: usize) -> Option<&String> {
     other_boards(design).nth(k)
 }
 
+/// The boards <design> deletes, in path order. A deleted component has no
+/// board to show.
+fn deleted_boards(design: &DesignChange) -> impl Iterator<Item = &String> {
+    design
+        .deleted
+        .iter()
+        .filter(|place| PlaceKind::of(place) == PlaceKind::Board)
+}
+
 /// The <k>th board <design> deletes, in path order.
 pub fn deleted_board(design: &DesignChange, k: usize) -> Option<&String> {
-    design.deleted.iter().nth(k)
+    deleted_boards(design).nth(k)
 }
 
 /// Which drawing of a board.
@@ -466,9 +475,7 @@ pub fn review_page(
             json!({ "path": path, "proposed": drawing(design, Side::Proposed, path, &src) })
         })
         .collect();
-    let deleted: Vec<Value> = design
-        .deleted
-        .iter()
+    let deleted: Vec<Value> = deleted_boards(design)
         .enumerate()
         .map(|(k, path)| {
             let src = format!("/design/{project}/{}/deleted/{k}", design.id.0);

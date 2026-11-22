@@ -208,9 +208,9 @@ pub struct Changes {
     /// Changed files under the globs' root directories that are none of
     /// the above.
     pub shared: BTreeSet<String>,
-    /// Board files the commits delete: a board place that is a file on
-    /// origin/main and no file at the last commit. It needs no answer, canvas link or place on the review
-    /// page, and is not among `places`.
+    /// Board files and component folders the commits delete: a place that is
+    /// on origin/main and not at the last commit. It needs no answer, canvas
+    /// link or place on the review page, and is not among `places`.
     pub deleted: BTreeSet<String>,
     /// Changed paths that are no design file.
     pub outside: BTreeSet<String>,
@@ -510,24 +510,31 @@ pub fn changes_of(top: &Path, globs: &Globs, shas: &[String]) -> Result<Changes>
     }
     let mut changes = classify(globs, &paths);
     if let Some(tip) = shas.last() {
-        let boards: Vec<String> = changes
+        let drawn: Vec<String> = changes
             .places
             .iter()
-            .filter(|place| PlaceKind::of(place) == PlaceKind::Board)
+            .filter(|place| {
+                matches!(
+                    PlaceKind::of(place),
+                    PlaceKind::Board | PlaceKind::Component
+                )
+            })
             .cloned()
             .collect();
         let mut main: Option<String> = None;
-        for board in boards {
-            if !boards::exists_in(top, tip, &board)? {
-                changes.places.remove(&board);
-                // A board the range adds and deletes again was never on
-                // origin/main, so the change deletes nothing.
+        for place in drawn {
+            // A component place is a folder with a trailing `/`.
+            let path = place.trim_end_matches('/');
+            if !boards::exists_in(top, tip, path)? {
+                changes.places.remove(&place);
+                // A board or component the range adds and deletes again was
+                // never on origin/main, so the change deletes nothing.
                 if main.is_none() {
                     main = Some(main_commit(top)?);
                 }
                 let on_main = main.as_deref().expect("resolved above");
-                if boards::exists_in(top, on_main, &board)? {
-                    changes.deleted.insert(board);
+                if boards::exists_in(top, on_main, path)? {
+                    changes.deleted.insert(place);
                 }
             }
         }

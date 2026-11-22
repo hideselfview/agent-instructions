@@ -219,6 +219,41 @@ fn a_board_the_commits_delete_is_listed_as_deleted_and_is_no_place() {
 }
 
 #[test]
+fn a_component_the_commits_delete_is_listed_as_deleted_and_is_no_place() {
+    let scratch = Scratch::new("design-paths-component-deleted");
+    let dir = scratch.dir.join("bae");
+    repo(&dir, "target 1\n");
+    let gone = "design/system/components/Gone/";
+    commit(
+        &dir,
+        &[
+            ("design/system/components/Gone/preview.html", "1"),
+            ("design/system/components/Gone/Gone.jsx", "1"),
+            ("design/system/components/Kept/preview.html", "1"),
+        ],
+        "components",
+    );
+    git(&dir, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    git(&dir, &["rm", "-q", "-r", gone]);
+    git(&dir, &["commit", "-q", "-m", "delete Gone"]);
+    let deleted = full_sha(&dir, "HEAD").unwrap();
+    let changes = changes_of(&dir, &globs(), std::slice::from_ref(&deleted)).unwrap();
+    assert!(changes.places.is_empty());
+    assert_eq!(changes.deleted, set(&[gone]));
+    // One that a range adds and deletes again was never on origin/main.
+    let added = commit(
+        &dir,
+        &[("design/system/components/New/preview.html", "1")],
+        "add New",
+    );
+    git(&dir, &["rm", "-q", "-r", "design/system/components/New/"]);
+    git(&dir, &["commit", "-q", "-m", "delete New"]);
+    let removed = full_sha(&dir, "HEAD").unwrap();
+    let changes = changes_of(&dir, &globs(), &[added, removed]).unwrap();
+    assert!(changes.deleted.is_empty() && changes.places.is_empty());
+}
+
+#[test]
 fn a_board_the_range_adds_and_deletes_is_neither_a_place_nor_deleted() {
     let scratch = Scratch::new("design-paths-added-deleted");
     let dir = scratch.dir.join("bae");

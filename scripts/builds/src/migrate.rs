@@ -256,13 +256,17 @@ const BEFORE_ACK_UNREAD_STAMP: i64 = 1_804_179_352;
 /// component's preview.
 const BEFORE_REVIEW_COMPONENT_STAMP: i64 = 670_251_313;
 
+/// The stamp of the schema before a design change could delete a component:
+/// its deleted places were boards only.
+const BEFORE_DELETED_COMPONENT_STAMP: i64 = 290_659_286;
+
 /// The stamp of today's schema (`db::STAMP`). A change to the schema changes
 /// its stamp, and builds then fails to compile until the change gives it a
 /// move from this schema, since every store carries this stamp: the change
 /// adds the move, puts this stamp at the end of `STAMPS` under a name that
 /// says what the schema lacked, and sets this to the new schema's stamp, which
 /// the compiler's error names.
-const SCHEMA_STAMP: i64 = 290_659_286;
+const SCHEMA_STAMP: i64 = 47_299_978;
 
 // The compiler refuses a schema whose stamp is not SCHEMA_STAMP. A const
 // assert could not print the new stamp, so the check compares two array
@@ -272,7 +276,7 @@ const _: [(); SCHEMA_STAMP as usize] = [(); db::STAMP as usize];
 
 /// Every stamp a store can carry that `move_store` moves, oldest schema first.
 /// A new move adds the stamp of the schema before it at the end.
-const STAMPS: [i64; 32] = [
+const STAMPS: [i64; 33] = [
     BEFORE_CONDITION_ENDERS_STAMP,
     BEFORE_ITEM_EVENT_STAMP,
     BEFORE_LAND_RUN_STAMP,
@@ -305,6 +309,7 @@ const STAMPS: [i64; 32] = [
     BEFORE_ACK_TOKENS_STAMP,
     BEFORE_ACK_UNREAD_STAMP,
     BEFORE_REVIEW_COMPONENT_STAMP,
+    BEFORE_DELETED_COMPONENT_STAMP,
 ];
 
 /// Whether a store stamped <found> comes before the move that follows the
@@ -577,6 +582,11 @@ pub fn move_store(places: &Places, path: &Path, now: i64) -> Result<()> {
     // entry keeps its board and theme.
     if before(found, BEFORE_REVIEW_COMPONENT_STAMP) {
         crate::lists::design::add_review_component(&tx)?;
+    }
+    // Every store from before a design change could delete a component gets
+    // the deleted places' table again, which accepts a folder; each row stays.
+    if before(found, BEFORE_DELETED_COMPONENT_STAMP) {
+        crate::lists::design::allow_deleted_components(&tx)?;
     }
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     let broken: Option<String> = tx

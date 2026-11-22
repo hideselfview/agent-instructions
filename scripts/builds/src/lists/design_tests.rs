@@ -244,6 +244,36 @@ fn a_deleted_board_needs_no_answer_no_link_and_no_place_on_the_review_page() {
     assert!(w.run(&format!("check 1 {wt} {first} {head}")).is_ok());
 }
 
+/// A change that deletes a component keeps the person's approval through a
+/// rebase, and health and land cover its commits, as for a change that edits
+/// one.
+#[test]
+fn a_change_that_deletes_a_component_keeps_its_approval_through_a_rebase() {
+    let w = world("design-component-deleted");
+    let (a, gone) = ("design/mocks/A.dc.html", "design/system/components/Gone/");
+    w.commit(&[a, "design/system/components/Gone/preview.html"]);
+    git(&w.dir, &["tag", "-f", "base"]);
+    git(&w.dir, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    git(&w.dir, &["rm", "-q", "-r", gone]);
+    git(&w.dir, &["commit", "-q", "-m", "delete Gone"]);
+    w.commit(&[a]);
+    w.request(base_request(&w, json!({ a: { "matches": "x" } })))
+        .unwrap();
+    let state = w.state();
+    let design = state.design(Id(1)).unwrap();
+    assert_eq!(design.deleted, BTreeSet::from([gone.to_string()]));
+    assert_eq!(design.places.keys().collect::<Vec<_>>(), vec![a]);
+    w.approve(1);
+    let approved = w.state().designs[0].approved.clone();
+    rebase_onto_moved_main(&w);
+    git(&w.dir, &["update-ref", "refs/remotes/origin/main", "moved"]);
+    assert_eq!(health_of(&w, "moved..HEAD"), Vec::<String>::new());
+    let request = json!({ "worktree": w.worktree(), "range": "moved..HEAD", "places": {} });
+    let amended = w.amend(1, request).unwrap();
+    assert!(amended.contains("approval stays"), "{amended}");
+    assert_eq!(w.state().designs[0].approved, approved);
+}
+
 #[test]
 fn a_range_that_only_deletes_boards_records_with_a_review_page_of_words() {
     let w = world("design-deleted-only");
@@ -2465,12 +2495,14 @@ fn every_named_constraint_of_the_design_tables_refuses_its_row() {
         ("design_id", v(good.0)),
         ("path", v("design/mocks/Old.dc.html")),
     ];
-    for path in ["design/system/components/B/", "spec/x.md#Heading"] {
-        refused.check(
-            "design_deleted_path_is_a_board_file",
-            plant(&db, "design_deleted", &row(&deleted, &[("path", v(path))])),
-        );
-    }
+    refused.check(
+        "design_deleted_path_is_a_place",
+        plant(
+            &db,
+            "design_deleted",
+            &row(&deleted, &[("path", v("spec/x.md#Heading"))]),
+        ),
+    );
     for tip in ["abc", "not-a-sha", "ABCDEF1234"] {
         refused.check(
             "design_tip_is_a_commit",

@@ -375,10 +375,49 @@ const REVIEW_BOARD_ONLY_BOARDS: &str = "CREATE TABLE review_board (
     CONSTRAINT review_board_is_on_a_section FOREIGN KEY (design_id) REFERENCES review_section (design_id) ON DELETE CASCADE
 ) STRICT, WITHOUT ROWID;";
 
+/// The comment and table of the deleted places as the schema had them when a
+/// change could delete only boards.
+#[cfg(test)]
+const DELETED_BOARDS_ONLY: &str = "-- A board the change deletes: a board place of its range that is no file at the
+-- range's last commit. It needs no answer, canvas link or place on the review
+-- page, which names it as deleted.
+CREATE TABLE design_deleted (
+    design_id INTEGER NOT NULL REFERENCES design (id) ON DELETE CASCADE,
+    path TEXT NOT NULL CONSTRAINT design_deleted_path_is_a_board_file CHECK (path NOT GLOB '*#*' AND path NOT GLOB '*/'),
+    PRIMARY KEY (design_id, path)
+) STRICT, WITHOUT ROWID;";
+
+/// <schema> as it was before a change could delete a component: with the
+/// deleted places' table refusing a folder. A schema with no such table is
+/// returned as it is.
+#[cfg(test)]
+pub fn with_deleted_boards_only(schema: String) -> String {
+    const START: &str = "-- A board or component the change deletes";
+    if !schema.contains(START) {
+        return schema;
+    }
+    let table = format!(
+        "{START}{}",
+        statement(&schema, START, ") STRICT, WITHOUT ROWID;")
+            .strip_prefix(START)
+            .expect("it starts with START")
+    );
+    schema.replacen(&table, DELETED_BOARDS_ONLY, 1)
+}
+
+/// The schema as it was before a change could delete a component.
+#[cfg(test)]
+pub fn schema_before_deleted_place() -> String {
+    with_deleted_boards_only(SCHEMA.to_string())
+}
+
 /// <schema> as it was before a review page's entry could be a component's
-/// preview. A schema with no such table is returned as it is.
+/// preview. A schema with no such table is returned as it is. It also puts
+/// back the deleted places' boards-only table (`with_deleted_boards_only`),
+/// so each older schema has it.
 #[cfg(test)]
 pub fn with_review_boards_only(schema: String) -> String {
+    let schema = with_deleted_boards_only(schema);
     const START: &str = "CREATE TABLE review_board (";
     if !schema.contains(START) {
         return schema;
