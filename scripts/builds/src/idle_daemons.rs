@@ -24,7 +24,7 @@ use crate::host::{Host, Ssh, Terminal};
 use crate::lane::Lane;
 use crate::lane_size::{IDLE_MINUTES, RepoLane, last_use};
 use crate::places::Places;
-use crate::stuck::{PS_FORMAT, Row, parse_ps};
+use crate::stuck::{Row, parse_ps};
 use crate::text::duration;
 
 /// A daemon using this share of a core or more is working now, whatever the
@@ -267,7 +267,7 @@ pub fn read_listing(listing: &str) -> std::result::Result<(u32, Vec<Row>), Strin
 
 /// The user id and every process, in the form `read_listing` reads.
 fn listing_script() -> String {
-    format!("echo uid=$(id -u); ps -axww -o {PS_FORMAT}")
+    format!("echo uid=$(id -u); {}", crate::host_scan::ps_script())
 }
 
 /// Stops each daemon on <host> that no build uses, when the host is under

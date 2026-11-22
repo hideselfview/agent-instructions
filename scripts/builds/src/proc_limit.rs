@@ -19,7 +19,7 @@ use crate::fail::{Context, Fail, Result};
 use crate::health::Advice;
 use crate::host::{Host, Probe, Ssh, Terminal, answer_value, command_at, output_of, place};
 use crate::shells::{basename, shown};
-use crate::stuck::{HostBusy, Row, Sampling, is_test_binary, local_rows, now_seconds};
+use crate::stuck::{Row, Sampling, is_test_binary, now_seconds};
 use crate::text::duration;
 
 /// A host above this share of its process limit needs action.
@@ -161,7 +161,8 @@ fn head_of(host: &Host, used: &ProcessUse) -> String {
 /// parent only when it is a test binary.
 pub fn findings(
     hosts: &[(Host, std::result::Result<Probe, String>)],
-    reads: &[HostBusy],
+    scans: &[(Host, std::result::Result<crate::host_scan::Scan, String>)],
+    now: i64,
 ) -> Vec<Advice> {
     let mut found = Vec::new();
     for (host, probe) in hosts {
@@ -170,13 +171,9 @@ pub fn findings(
         if !used.near_limit() {
             continue;
         }
-        let parents = match reads
-            .iter()
-            .find(|read| read.host == host.name)
-            .map(|read| &read.read)
-        {
-            Some(Ok(read)) => &read.zombie_parents[..],
-            Some(Err(error)) => {
+        let parents = match scans.iter().find(|(scanned, _)| scanned.name == host.name) {
+            Some((_, Ok(scan))) => zombie_parents(&scan.rows, &Sampling::new(host, now)),
+            Some((_, Err(error))) => {
                 found.push(Advice::said(format!(
                     "{}; reading its processes failed, so the parents of zombies are unknown: {error}",
                     head_of(host, &used)
@@ -227,7 +224,7 @@ pub fn stop(uid: u32) -> Result<(Vec<String>, usize)> {
     if !used.near_limit() {
         return Ok((Vec::new(), 0));
     }
-    let rows = local_rows().map_err(Fail::Message)?;
+    let rows = crate::host_scan::local_rows().map_err(Fail::Message)?;
     let sampling = Sampling::new(&Host::local(), now_seconds());
     let mut lines = Vec::new();
     let mut failed = 0;

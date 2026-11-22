@@ -342,32 +342,29 @@ fn findings_come_only_from_hosts_that_were_read() {
     let hosts = vec![
         HostBusy {
             host: "m1".into(),
-            read: Err("ssh failed".into()),
+            read: HostRead::ScanFailed("ssh failed".into()),
         },
         HostBusy {
             host: "local".into(),
-            read: Ok(HostRead {
-                activity: Ok(ProcessActivity {
-                    busy: judge(
-                        "local",
-                        &[row(
-                            17,
-                            1,
-                            0,
-                            140.0,
-                            200_000.0,
-                            500_000,
-                            "/usr/libexec/fseventsd",
-                        )],
-                        &HashMap::new(),
-                        &sampling(),
-                        None,
-                    ),
-                    placement_diagnostic: None,
-                    wedged: None,
-                    hung: Vec::new(),
-                }),
-                zombie_parents: Vec::new(),
+            read: HostRead::Activity(ProcessActivity {
+                busy: judge(
+                    "local",
+                    &[row(
+                        17,
+                        1,
+                        0,
+                        140.0,
+                        200_000.0,
+                        500_000,
+                        "/usr/libexec/fseventsd",
+                    )],
+                    &HashMap::new(),
+                    &sampling(),
+                    None,
+                ),
+                placement_diagnostic: None,
+                wedged: None,
+                hung: Vec::new(),
             }),
         },
     ];
@@ -459,14 +456,11 @@ fn a_wedged_fseventsd_replaces_its_busy_finding() {
     let rows = vec![row(17, 1, 0, 100.0, 40.0 * 60.0, 3 * 3600, FSEVENTSD_PATH)];
     let hosts = vec![HostBusy {
         host: "local".into(),
-        read: Ok(HostRead {
-            activity: Ok(ProcessActivity {
-                busy: judge("local", &rows, &HashMap::new(), &sampling(), None),
-                placement_diagnostic: None,
-                wedged: wedged("local", &rows, 0, &sampling()),
-                hung: Vec::new(),
-            }),
-            zombie_parents: Vec::new(),
+        read: HostRead::Activity(ProcessActivity {
+            busy: judge("local", &rows, &HashMap::new(), &sampling(), None),
+            placement_diagnostic: None,
+            wedged: wedged("local", &rows, 0, &sampling()),
+            hung: Vec::new(),
         }),
     }];
     let found = findings(&hosts);
@@ -540,14 +534,11 @@ fn an_idle_test_that_builds_cargo_runs_on_a_host_is_hung() {
     );
     let host = HostBusy {
         host: "m1".into(),
-        read: Ok(HostRead {
-            activity: Ok(ProcessActivity {
-                busy: Vec::new(),
-                placement_diagnostic: None,
-                wedged: None,
-                hung,
-            }),
-            zombie_parents: Vec::new(),
+        read: HostRead::Activity(ProcessActivity {
+            busy: Vec::new(),
+            placement_diagnostic: None,
+            wedged: None,
+            hung,
         }),
     };
     assert_eq!(findings(&[host]).len(), 1);
@@ -618,6 +609,8 @@ esac"#,
         speed: None,
         band: None,
     };
+    let mut zombie = row(46, 43, 501, 90.0, 1_000.0, 2_400, "(already exited)");
+    zombie.zombie = true;
     let scan = Ok(crate::host_scan::Scan {
         uid: 501,
         at: 5_000,
@@ -626,6 +619,7 @@ esac"#,
             row(43, 0, 0, 90.0, 1_000.0, 2_400, "/usr/bin/live"),
             row(44, 0, 501, 90.0, 1_000.0, 2_400, "/usr/bin/zombie"),
             row(45, 0, 501, 90.0, 1_000.0, 2_400, "/usr/bin/old"),
+            zombie,
         ],
         cpu_idle: Ok(10.0),
         jobs: vec![],
@@ -634,7 +628,8 @@ esac"#,
         screen_locked: Ok(None),
     });
 
-    let answer = read(&ssh, &host, &scan, None);
+    let answer = read(&ssh, &host, &scan, None, 5_000);
+    assert!(answer.error().unwrap().contains("living PIDs: 43"));
     let answer = answer.activity().unwrap();
     assert_eq!(
         answer.busy.iter().map(|busy| busy.pid).collect::<Vec<_>>(),
@@ -642,31 +637,37 @@ esac"#,
     );
 
     host.target = Some("denied".into());
-    let denied = read(&ssh, &host, &scan, None).error().unwrap().to_string();
+    let denied = read(&ssh, &host, &scan, None, 5_000)
+        .error()
+        .unwrap()
+        .to_string();
     assert!(denied.contains("lsof: Permission denied"), "{denied}");
 
     host.target = Some("invalid".into());
-    let invalid = read(&ssh, &host, &scan, None);
-    assert!(invalid.activity().is_none());
+    let invalid = read(&ssh, &host, &scan, None, 5_000);
+    assert!(invalid.activity().is_err());
     assert!(invalid.error().unwrap().contains("lsof: failed"));
 
     host.target = Some("partial".into());
-    let partial = read(&ssh, &host, &scan, None);
+    let partial = read(&ssh, &host, &scan, None, 5_000);
     assert!(partial.error().unwrap().contains("lsof: Permission denied"));
     assert_eq!(partial.activity().unwrap().busy[0].pid, 43);
 
     host.target = Some("partial-ps-denied".into());
-    let partial = read(&ssh, &host, &scan, None);
+    let partial = read(&ssh, &host, &scan, None, 5_000);
     let error = partial.error().unwrap();
     assert!(error.contains("lsof: Permission denied") && error.contains("ps: Permission denied"));
     assert_eq!(partial.activity().unwrap().busy[0].pid, 43);
 
     host.target = Some("ps-denied".into());
-    let refused = read(&ssh, &host, &scan, None);
+    let refused = read(&ssh, &host, &scan, None, 5_000);
     assert!(refused.error().unwrap().contains("ps: Permission denied"));
 
     host.target = Some("unreachable".into());
-    let unreachable = read(&ssh, &host, &scan, None).error().unwrap().to_string();
+    let unreachable = read(&ssh, &host, &scan, None, 5_000)
+        .error()
+        .unwrap()
+        .to_string();
     assert!(
         unreachable.contains("255") && unreachable.contains("Connection refused"),
         "{unreachable}"

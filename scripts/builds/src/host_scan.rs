@@ -142,13 +142,28 @@ fn parse_cpu(line: &str) -> std::result::Result<f64, String> {
         .ok_or_else(|| format!("top printed no idle share: {line:?}"))
 }
 
+const PS_ARGS: [&str; 3] = ["-axww", "-o", PS_FORMAT];
+
+/// The command to list every process with the fields the process reader uses.
+pub fn ps_script() -> String {
+    format!("ps {}", PS_ARGS.join(" "))
+}
+
+/// The rows of this Mac's processes, from one ps.
+pub fn local_rows() -> std::result::Result<Vec<Row>, String> {
+    let mut command = std::process::Command::new("ps");
+    command.args(PS_ARGS);
+    parse_ps(&output_of(command, "ps on this Mac")?)
+}
+
 /// The timestamp and the rows of a process listing, by the host's clock.
 pub fn timed_ps_script() -> String {
     format!(
         r#"now=$(date +%s) || exit $?
 echo "now=$now"
 echo {PS_FOLLOWS}
-ps -axww -o {PS_FORMAT}"#
+{ps}"#,
+        ps = ps_script()
     )
 }
 

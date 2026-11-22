@@ -54,6 +54,16 @@ pub struct Proc {
     pub cpu: f64,
 }
 
+impl Proc {
+    fn of(at: i64, row: &Row) -> Self {
+        Self {
+            pid: row.pid,
+            start: start_of(at, row),
+            cpu: row.cpu_seconds,
+        }
+    }
+}
+
 /// One host's processes at one time.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Reading {
@@ -67,14 +77,7 @@ impl Reading {
     pub fn of(at: i64, rows: &[Row]) -> Reading {
         Reading {
             at,
-            procs: rows
-                .iter()
-                .map(|row| Proc {
-                    pid: row.pid,
-                    start: start_of(at, row),
-                    cpu: row.cpu_seconds,
-                })
-                .collect(),
+            procs: rows.iter().map(|row| Proc::of(at, row)).collect(),
         }
     }
 }
@@ -166,11 +169,7 @@ pub fn measure(mut rows: Vec<Row>, now: i64, readings: &[Reading]) -> Vec<Row> {
         .map(|reading| reading.procs.iter().map(|p| (p.pid, p)).collect())
         .unwrap_or_default();
     for row in &mut rows {
-        let current = Proc {
-            pid: row.pid,
-            start: start_of(now, row),
-            cpu: row.cpu_seconds,
-        };
+        let current = Proc::of(now, row);
         row.cpu_percent = previous
             .and_then(|reading| interval_share(before.get(&row.pid)?, &current, now - reading.at));
         row.sustained = sustained(readings, now, &current);

@@ -1821,6 +1821,7 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
             host,
             &scan,
             host.target.is_none().then_some(dashboard).flatten(),
+            tool.now,
         );
         (
             scan,
@@ -1934,7 +1935,7 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
             .map(|advice| Finding::new(FindingKind::Load, advice)),
     );
     health.findings.extend(
-        crate::proc_limit::findings(&probed, &busy)
+        crate::proc_limit::findings(&probed, &scanned.scans, tool.now)
             .into_iter()
             .map(|advice| Finding::new(FindingKind::ProcessLimit, advice)),
     );
@@ -1964,7 +1965,7 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
             busy.iter()
                 .map(|host| serde_json::json!({
                     "host": host.host,
-                    "busy": host.activity().map(|activity| &activity.busy),
+                    "busy": host.activity().ok().map(|activity| &activity.busy),
                     "error": host.error(),
                 }))
                 .collect::<Vec<_>>()
@@ -3054,7 +3055,7 @@ mod tests {
         };
         let busy = vec![crate::stuck::HostBusy {
             host: "m1".to_string(),
-            read: Err("ssh failed".to_string()),
+            read: crate::stuck::HostRead::ScanFailed("ssh failed".to_string()),
         }];
         let found = host_findings(&nothing_scanned(), &busy, &[refusal], &[]);
         assert_eq!(found.len(), 1, "{found:?}");
@@ -3095,10 +3096,9 @@ mod tests {
         ));
         let busy = [crate::stuck::HostBusy {
             host: "m1".into(),
-            read: Ok(crate::stuck::HostRead {
-                activity: Err("process lifetimes on m1: Permission denied".into()),
-                zombie_parents: Vec::new(),
-            }),
+            read: crate::stuck::HostRead::PlacementFailed(
+                "process lifetimes on m1: Permission denied".into(),
+            ),
         }];
 
         let found = host_findings(&scanned, &busy, &[], &[]);
