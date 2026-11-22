@@ -48,8 +48,9 @@
 //! signing identity only this Mac has. An `opens-windows <lane>[:<program>]...`
 //! line names test lines whose runs open windows (bae's UI tests). A `shots`
 //! line that passes `--windows` opens windows too, with no `opens-windows`
-//! line. Each run of such a line holds its host's window lock while it runs
-//! (window_lock.rs), on this Mac as on a host. A lane's build takes a checkout
+//! line, but only a run whose prefix starts a scene shown in its window
+//! (shots_declared.rs). Each run that opens windows holds its host's window
+//! lock while it runs (window_lock.rs), on this Mac as on a host. A lane's build takes a checkout
 //! where all its steps may run.
 //!
 //! A `ci-only <step>...` line names steps that only CI runs, such as a whole
@@ -295,7 +296,9 @@ pub struct Picker {
     pub command: Vec<String>,
     /// True for a test line an `opens-windows` line names and for a shots
     /// line that passes `--windows`: its runs open windows, so each holds its
-    /// host's window lock while it runs (window_lock.rs).
+    /// host's window lock while it runs (window_lock.rs). A shots run opens
+    /// one only when its prefix starts a scene shown in its window
+    /// (`Step::opens_windows`).
     pub opens_windows: bool,
 }
 

@@ -1096,20 +1096,25 @@ password.
 
 Each host, this Mac included, has one display, so a step that opens windows (a test run of an
 `opens-windows` line, or a --shots or --all-shots run of a `shots` line that
-passes --windows) holds the host's window lock while it runs, and no second
+passes --windows whose prefix starts a scene shown in its window) holds the host's window lock while it runs, and no second
 such step runs on that host: UI tests of two builds, in two app checkouts, never
 share the display. This Mac's window lock is its own, beside each host's. The lock covers the host across repos, lanes and checkouts,
 and a step on another host takes its own. A step that finds the lock held waits
 for it and prints that it waits, naming the run that holds it. The build keeps
 its app checkout and its place in the lane while it waits, and a takeover ends
-the wait. Steps that open no windows never wait for it. builds cannot tell
+the wait. Steps that open no windows never wait for it, and neither does a
+--shots run whose prefix starts only scenes drawn without a window (bae's
+`mac.component.` scenes, which the harness draws into a bitmap without
+activating the app): builds reads which declared scenes need a window from the
+harness source (`frame: .window(`), so component shots run at once on every app
+checkout. builds cannot tell
 whether the command of a `builds remote run` job opens windows, so every such
 job on a Mac holds that Mac's window lock from before it sends its commit
 until it ends, and waits for it the same way; a job on a Linux host takes no
 lock. `builds cargo` jobs open no windows and take no lock.
 
-A --shots or --all-shots run of a `shots` line that passes --windows draws each
-scene on the host's screen, and macOS makes the shot display only when the Mac
+A --shots or --all-shots run of a `shots` line that passes --windows whose prefix
+starts a scene shown in its window draws that scene on the host's screen, and macOS makes the shot display only when the Mac
 has a display to add it to. A Mac whose lid is closed has none unless another
 display is attached. Before such a run takes a checkout on a host, builds asks
 the host once (`ioreg` for the lid, `system_profiler` for the displays) and

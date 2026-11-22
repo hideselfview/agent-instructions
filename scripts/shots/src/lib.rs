@@ -45,13 +45,27 @@ pub struct Versions {
     pub comparison: String,
 }
 
-/// The name of each shot the harnesses declare under <root>, a repo's files
-/// as they are at one commit, in name order. <config> is the text of the
-/// repo's `.app-build` at that commit, which names the declare folders.
-pub fn declared_names(root: &Path, config: &str) -> Result<Vec<String>, String> {
+/// A shot a harness declares: its name, and whether the scene is shown in its
+/// window, which takes the focus, so only a run given `--windows` takes it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Scene {
+    pub name: String,
+    pub needs_window: bool,
+}
+
+/// Each shot the harnesses declare under <root>, a repo's files as they are
+/// at one commit, in name order. <config> is the text of the repo's
+/// `.app-build` at that commit, which names the declare folders.
+pub fn declared_scenes(root: &Path, config: &str) -> Result<Vec<Scene>, String> {
     let settings = Settings::parse(config).map_err(|e| e.to_string())?;
     let declared = declared::read(root, &settings.declared).map_err(|e| e.to_string())?;
-    Ok(declared.iter().map(|d| d.name.to_string()).collect())
+    Ok(declared
+        .iter()
+        .map(|d| Scene {
+            name: d.name.to_string(),
+            needs_window: d.needs_window,
+        })
+        .collect())
 }
 
 /// What builds runs the checker with.

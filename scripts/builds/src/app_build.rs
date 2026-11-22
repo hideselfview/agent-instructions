@@ -303,12 +303,15 @@ struct PickRun<'a> {
 /// None, and each program runs all of its classes in one invocation, placed
 /// in the order of its first class: each start of Gradle or xcodebuild takes
 /// seconds before any test runs. Each shots prefix runs on its own, since
-/// builds caches the findings of each prefix's run.
+/// builds caches the findings of each prefix's run. A shots run opens windows
+/// only when its prefix is one of <windowed>, the prefixes that select a scene
+/// shown in its window (`shots_declared::windowed_prefixes`).
 fn lane_steps(
     config: &Config,
     lane: Lane,
     names: &[String],
     picks: &[Pick],
+    windowed: &[String],
     program_of: &dyn Fn(&str) -> Result<Option<String>>,
 ) -> Result<Vec<Step>> {
     let mut steps = if names.is_empty() && !picks.is_empty() {
@@ -349,7 +352,12 @@ fn lane_steps(
                 .map(|(each, count)| Scenes { count, each }),
             command,
             place: lock::Where::Anywhere,
-            opens_windows: run.picker.opens_windows,
+            opens_windows: run.picker.opens_windows
+                && (kind != PickKind::Shots
+                    || run
+                        .args
+                        .iter()
+                        .any(|arg| windowed.iter().any(|prefix| prefix == arg))),
             ci_only: false,
         });
     }
@@ -1447,19 +1455,30 @@ fn build_lane(
     let config = config_at(places, repo, commit)?;
     let source = local_source(places, repo)?;
     let program_of = |class: &str| crate::derive::program_of(&source, &config, commit, lane, class);
-    let steps = lane_steps(&config, lane, names, picks, &program_of)?;
+    // Only a shots prefix that selects a scene shown in its window draws one.
+    let windowed = if config
+        .picker(lane, PickKind::Shots)
+        .is_some_and(|picker| picker.opens_windows)
+    {
+        let own: Vec<Pick> = picks
+            .iter()
+            .filter(|(pick_lane, _, _)| *pick_lane == lane)
+            .cloned()
+            .collect();
+        crate::shots_declared::windowed_prefixes(&source, commit, &own)?
+    } else {
+        Vec::new()
+    };
+    let steps = lane_steps(&config, lane, names, picks, &windowed, &program_of)?;
     let allowed = place_of(&steps);
     if allowed == lock::Where::Here {
         crate::worktree::ensure_local_app_checkout(tool, &ssh, repo, lane)?;
     }
-    // A shots run of a line that opens a window for each shot draws on the
+    // A shots run that selects a scene shown in its window draws it on the
     // host's screen.
-    let draws = picks
+    let draws = steps
         .iter()
-        .any(|(own, kind, _)| *own == lane && *kind == PickKind::Shots)
-        && config
-            .picker(lane, PickKind::Shots)
-            .is_some_and(|picker| picker.opens_windows);
+        .any(|step| step.opens_windows && pick_kind_of(&step.name) == Some(PickKind::Shots));
     let mut held = if draws {
         lock::take_drawing(places, &ssh, repo, lane, allowed, floor_kib)?
     } else {
@@ -1511,7 +1530,7 @@ fn build_lane(
             }
             Ok(program)
         };
-        let steps = lane_steps(&config, lane, names, picks, &program_of)?;
+        let steps = lane_steps(&config, lane, names, picks, &windowed, &program_of)?;
         if steps.is_empty() {
             fail!("{CONFIG} names no step in the {} lane", lane.word());
         }
