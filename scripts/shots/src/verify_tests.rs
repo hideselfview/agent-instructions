@@ -49,7 +49,7 @@ fn pair_with_finding(against: Option<Against>) -> Checked {
         kind: crate::shots::Role::Text,
         words: "x".into(),
         value: String::new(),
-        enabled: true,
+        enabled: None,
         selected: false,
     });
     let list = crate::shots::ElementList::parse(crate::shots::tests::LIST).unwrap();

@@ -19,7 +19,8 @@ pub(crate) struct Entry {
     /// empty when none, and for every role whose value the board does not
     /// state (`Role::has_value`), whatever the list says.
     pub(crate) value: String,
-    pub(crate) enabled: bool,
+    /// Static text has no enabled state of its own.
+    pub(crate) enabled: Option<bool>,
     pub(crate) selected: bool,
 }
 
@@ -60,6 +61,11 @@ fn name(element: &Element) -> String {
     }
 }
 
+/// AppKit can report a parent's disabled state on a static label.
+pub(crate) fn enabled_state(kind: Role, enabled: bool) -> Option<bool> {
+    (kind != Role::Text).then_some(enabled)
+}
+
 /// The entries of `list`, in its order.
 pub(crate) fn entries(list: &[Element]) -> Vec<Entry> {
     // Whether a named control holds the element, directly or further up.
@@ -90,7 +96,7 @@ pub(crate) fn entries(list: &[Element]) -> Vec<Entry> {
                 .filter(|_| element.role.has_value())
                 .map(crate::shots::words)
                 .unwrap_or_default(),
-            enabled: element.enabled,
+            enabled: enabled_state(element.role, element.enabled),
             selected: element.selected.unwrap_or(false),
         });
     }

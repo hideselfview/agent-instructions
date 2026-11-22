@@ -93,17 +93,20 @@ fn state_is_the_value_enabled_and_selected() {
     toggle.enabled = false;
     toggle.selected = Some(true);
     let blank = element(Role::Field, Some("Name"), None);
-    let entries = entries(&[toggle, blank]);
+    let mut static_text = element(Role::Text, Some("Loading"), None);
+    static_text.enabled = false;
+    let entries = entries(&[toggle, blank, static_text]);
     assert_eq!(
         (
             entries[0].value.as_str(),
             entries[0].enabled,
             entries[0].selected
         ),
-        ("on", false, true)
+        ("on", Some(false), true)
     );
     assert_eq!(
         (entries[1].value.as_str(), entries[1].selected),
         ("", false)
     );
+    assert_eq!(entries[2].enabled, None);
 }

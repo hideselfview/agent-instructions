@@ -8,7 +8,7 @@ pub(crate) mod geometry;
 pub(crate) mod normalize;
 pub(crate) mod regions;
 
-use crate::shots::{Bounds, Element, Picture, Role, Size};
+use crate::shots::{Bounds, Element, Picture, Size};
 use align::Step;
 use colour::{Rgb, hex};
 use normalize::{Entry, entries, fold_merged};
@@ -52,8 +52,11 @@ impl Aspect {
     pub(crate) fn of(self, entry: &Entry) -> String {
         let word = match self {
             Self::Value => return entry.value.clone(),
-            Self::Enabled if entry.enabled => "enabled",
-            Self::Enabled => "disabled",
+            Self::Enabled => match entry.enabled {
+                Some(true) => "enabled",
+                Some(false) => "disabled",
+                None => unreachable!("an enabled-state finding holds two enabled states"),
+            },
             Self::Selected if entry.selected => "selected",
             Self::Selected => "not selected",
         };
@@ -469,8 +472,7 @@ fn differences(board: &Entry, shot: &Entry) -> Vec<Aspect> {
     if board.value != shot.value {
         differing.push(Aspect::Value);
     }
-    // AppKit also reports inherited enablement on static text.
-    if board.kind != Role::Text && board.enabled != shot.enabled {
+    if board.enabled != shot.enabled {
         differing.push(Aspect::Enabled);
     }
     if board.selected != shot.selected {

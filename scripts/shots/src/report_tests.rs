@@ -1,5 +1,5 @@
 use super::*;
-use crate::compare::normalize::Entry;
+use crate::compare::normalize::{Entry, enabled_state};
 use crate::component_files::{self, Listing, Place};
 use crate::lint::Problem;
 use crate::lists::Lists;
@@ -14,7 +14,7 @@ fn entry(index: usize, words: &str, kind: Role) -> Entry {
         kind,
         words: words.to_string(),
         value: String::new(),
-        enabled: true,
+        enabled: enabled_state(kind, true),
         selected: false,
     }
 }
