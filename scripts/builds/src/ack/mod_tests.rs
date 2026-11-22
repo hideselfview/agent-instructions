@@ -762,14 +762,7 @@ fn a_compaction_of_another_agent_leaves_the_opening_of_this_one_as_it_was() {
 #[test]
 fn a_reading_whose_sections_changed_before_a_part_is_refused_even_with_the_same_part_count() {
     let world = world("ack-reading-changed");
-    let agent = Agent::resolve(
-        &world.places,
-        SESSION_ID,
-        Some(AGENT),
-        None,
-        &world.checkout,
-    )
-    .unwrap();
+    let agent = Agent::resolve(&world.places, &identity(AGENT), None, &world.checkout).unwrap();
     let older = older_lists_overview();
     assert_eq!(older.parts().len(), Text::read().parts().len());
     let started = start(&world.places, &agent, &older, NOON).unwrap();
