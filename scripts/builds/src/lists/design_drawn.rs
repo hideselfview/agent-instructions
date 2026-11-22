@@ -71,22 +71,15 @@ impl ProgramRenders {
             "{}\n{before}\n{after}\n{place}",
             crate::shots_program::VERSIONS.capture
         );
-        let digest: String = Sha256::digest(key.as_bytes())
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect();
+        let digest = crate::text::hex(&Sha256::digest(key.as_bytes()));
         self.kept.join(digest)
     }
 
-    /// Keeps <alike> as the answer in <file>: written beside it and renamed
-    /// onto it, so no reader sees half of it.
+    /// Keeps <alike> as the answer in <file>.
     fn keep(&self, file: &Path, alike: bool) -> Result<()> {
         std::fs::create_dir_all(&self.kept)
             .context(|| format!("making {}", self.kept.display()))?;
-        let part = file.with_extension(format!("{}.part", std::process::id()));
-        std::fs::write(&part, if alike { "alike" } else { "differs" })
-            .context(|| format!("writing {}", part.display()))?;
-        std::fs::rename(&part, file).context(|| format!("keeping {}", file.display()))
+        crate::whole_file::write(file, if alike { "alike" } else { "differs" })
     }
 }
 
