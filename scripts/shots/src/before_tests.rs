@@ -18,6 +18,25 @@ fn before() -> Before {
         "problems": 0,
         "sizes": {},
         "components": [],
+        "seen": {
+            "mac.a.b": {
+                "board": [
+                    {"role": "button", "words": "Set up"},
+                    {"role": "slider", "words": "Position"},
+                    {"role": "slider", "words": "Volume"},
+                    {"role": "text", "words": "Beta"},
+                ],
+                "shot": [
+                    {"role": "slider", "words": "Position"},
+                    {"role": "slider", "words": "Volume"},
+                    {"role": "text", "words": "Beta"},
+                ],
+            },
+            "mac.a.c": {
+                "board": [{"role": "button", "words": "Set up"}],
+                "shot": [{"role": "button", "words": "Set up"}],
+            },
+        },
         "findings": [
             {"scene": "mac.a.b", "level": "finding", "kind": "missing",
              "element": {"role": "button", "words": "Set up"}, "sentence": MISSING},
@@ -170,7 +189,7 @@ fn a_finding_on_an_element_the_before_run_reported_missing_is_a_first_observatio
 fn a_finding_on_an_element_the_before_run_reported_extra_is_a_first_observation() {
     let text = serde_json::json!({
         "version": "v1", "capture_version": "c1", "commit": "abc", "scenes": ["s"], "failed": [], "problems": 0, "sizes": {},
-        "components": [],
+        "components": [], "seen": {},
         "findings": [{"scene": "s", "level": "finding", "kind": "extra",
             "element": {"role": "text", "words": "Beta"}, "sentence": EXTRA}],
     })
@@ -183,6 +202,52 @@ fn a_finding_on_an_element_the_before_run_reported_extra_is_a_first_observation(
         shot: "b".to_string(),
     };
     assert_eq!(before.against("s", &[state]), Against::Held);
+}
+
+/// A text element as a record names it.
+fn text(words: &str) -> Element {
+    element("text", words)
+}
+
+#[test]
+fn a_finding_on_a_row_the_before_run_never_had_in_view_is_a_first_observation() {
+    // The before run's board and shot hold no row `7`: its shot ended above
+    // it. The branch reaches it, so the row's findings show for the first
+    // time, whichever side lacks it.
+    let before = before();
+    let new_row = [
+        What::Missing { element: text("7") },
+        What::Extra {
+            element: text("7 Weather Report Card 3:34"),
+        },
+        What::OutOfOrder { element: text("7") },
+    ];
+    let mut findings = vec![missing(), slider("0.3366")];
+    findings.extend(new_row);
+    assert_eq!(before.against("mac.a.b", &findings), Against::Held);
+}
+
+#[test]
+fn a_finding_on_an_element_the_before_run_compared_is_still_worse_beside_new_rows() {
+    // `Beta` is on the before run's board, so a missing `Beta` is new.
+    let before = before();
+    let findings = [
+        missing(),
+        slider("0.3366"),
+        What::Missing { element: text("7") },
+        What::Missing {
+            element: text("Beta"),
+        },
+    ];
+    assert_eq!(before.against("mac.a.b", &findings), Against::Worse);
+    // An extra element the before run's shot held is new too.
+    let extra = What::Extra {
+        element: element("slider", "Volume"),
+    };
+    assert_eq!(
+        before.against("mac.a.b", &[missing(), slider("0.3366"), extra]),
+        Against::Worse
+    );
 }
 
 #[test]
@@ -230,7 +295,7 @@ fn a_value_that_is_no_number_counts_as_farther_than_a_number() {
     };
     let text = serde_json::json!({
         "version": "v1", "capture_version": "c1", "commit": "abc", "scenes": ["s"], "failed": [], "problems": 0, "sizes": {},
-        "components": [],
+        "components": [], "seen": {},
         "findings": [{"scene": "s", "level": "finding", "kind": "state-differs",
             "element": {"role": "field", "words": "Name"}, "aspect": "value",
             "board": "35", "shot": "34", "sentence": "x"}],
@@ -247,7 +312,7 @@ fn a_value_that_is_no_number_counts_as_farther_than_a_number() {
 
 #[test]
 fn a_file_of_another_version_is_refused() {
-    let text = r#"{"version": "v2", "capture_version": "c1", "commit": "abc", "scenes": [], "failed": [], "problems": 0, "sizes": {}, "components": [], "findings": []}"#;
+    let text = r#"{"version": "v2", "capture_version": "c1", "commit": "abc", "scenes": [], "failed": [], "problems": 0, "sizes": {}, "components": [], "seen": {}, "findings": []}"#;
     let error = Before::parse(text, "before.json", "v1").unwrap_err();
     assert!(error.contains("shots checker version v2"), "{error}");
     assert!(error.contains("this is version v1"), "{error}");

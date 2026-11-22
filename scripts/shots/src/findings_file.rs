@@ -7,7 +7,8 @@
 //! The file is one object: `version`, the comparison version of the checker
 //! that wrote it, and `capture_version`, the capture version of the checker
 //! that made the pictures it compares (`builds shots version`); `commit`, the commit the run checked;
-//! `scenes`, every pair the run checked; `failed`, each selected scene the
+//! `scenes`, every pair the run checked; `seen`, the elements of each pair's
+//! board and shot that the comparison read; `failed`, each selected scene the
 //! capture wrote no usable shot of, with its `error`; `sizes`, each pair's board and shot
 //! sizes in points, by scene, at which a reader shows the report's pictures
 //! side by side; `components`, each design-system
@@ -319,7 +320,37 @@ struct Rechecked<'a> {
     capture_version: &'a str,
     commit: &'a str,
     scenes: Vec<String>,
+    /// The elements each pair compared, by scene.
+    seen: BTreeMap<String, Seen>,
     findings: Vec<Record>,
+}
+
+/// The elements of a pair's board and of its shot that the comparison read,
+/// each role and words once. A later run's finding on an element that is in
+/// neither list is that element's first observation (before.rs).
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) struct Seen {
+    pub(crate) board: Vec<Element>,
+    pub(crate) shot: Vec<Element>,
+}
+
+impl Seen {
+    fn of(pair: &Checked) -> Self {
+        let elements = |list: &crate::shots::ElementList| {
+            let mut found: Vec<Element> = Vec::new();
+            for entry in crate::compare::normalize::entries(&list.elements) {
+                let element = Element::from(&entry);
+                if !found.contains(&element) {
+                    found.push(element);
+                }
+            }
+            found
+        };
+        Self {
+            board: elements(&pair.board),
+            shot: elements(&pair.shot),
+        }
+    }
 }
 
 /// The text `recheck` prints for the pairs <checked>, which the checker of
@@ -356,6 +387,10 @@ fn compared<'a>(
         capture_version,
         commit,
         scenes: checked.iter().map(|pair| pair.name.to_string()).collect(),
+        seen: checked
+            .iter()
+            .map(|pair| (pair.name.to_string(), Seen::of(pair)))
+            .collect(),
         findings: records(checked),
     }
 }

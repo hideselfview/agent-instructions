@@ -108,6 +108,13 @@ fn each_finding_and_warning_is_a_record_with_its_kind_component_element_and_numb
         0,
     ))
     .unwrap();
+    // The elements of the checked() pairs' board and shot, which are alike.
+    let seen_elements = serde_json::json!([
+        {"role": "text", "words": "Enter code"},
+        {"role": "field", "words": "Restore code or invite"},
+        {"role": "button", "words": "Continue"},
+    ]);
+    let seen = serde_json::json!({"board": seen_elements, "shot": seen_elements});
     let expected = serde_json::json!({
         "version": VERSION,
         "capture_version": CAPTURE,
@@ -115,6 +122,10 @@ fn each_finding_and_warning_is_a_record_with_its_kind_component_element_and_numb
         "scenes": ["mac.welcome.a", "mac.welcome.b"],
         "failed": [],
         "problems": 0,
+        "seen": {
+            "mac.welcome.a": seen,
+            "mac.welcome.b": seen,
+        },
         "sizes": {
             "mac.welcome.a": {"board": checked[0].board.size, "shot": checked[0].shot.size},
             "mac.welcome.b": {"board": checked[1].board.size, "shot": checked[1].shot.size},
@@ -209,8 +220,14 @@ fn a_later_run_compares_with_the_file_as_its_before_run() {
     };
     assert_eq!(against(&[beta]), crate::before::Against::Held);
     assert_eq!(
+        against(&[Finding::Missing(entry("Continue", Role::Button))]),
+        crate::before::Against::Worse,
+        "the base compared Continue and had no finding on it"
+    );
+    assert_eq!(
         against(&[Finding::Missing(entry("Set up", Role::Button))]),
-        crate::before::Against::Worse
+        crate::before::Against::Held,
+        "neither side of the base's pair held Set up, so its finding is a first observation"
     );
 }
 

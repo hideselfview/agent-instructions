@@ -17,7 +17,10 @@
 //! finding: the before run could not compare that element, so the branch
 //! that makes it match shows these findings for the first time. Each such
 //! finding is judged alone, so the before run's report of the element
-//! excuses every one of them. A new missing or extra finding is always new.
+//! excuses every one of them. A new missing or extra finding is always new,
+//! unless it names an element that the before run's board or shot (an extra
+//! element's shot) did not hold at all: a row that its shot ended above, which
+//! a branch brings into view, shows its findings for the first time.
 //! Warnings never fail a run, so only findings count. A new pair has no run
 //! to compare with, and a pair the before run never rendered has no picture to
 //! compare with, so the findings of both are listed and fail nothing: a branch
@@ -29,7 +32,7 @@
 //! is refused.
 
 use crate::compare::Aspect;
-use crate::findings_file::{Element, Level, What};
+use crate::findings_file::{Element, Level, Seen, What};
 use crate::shots::Role;
 use serde::Deserialize;
 use std::collections::{BTreeMap, BTreeSet};
@@ -65,6 +68,9 @@ struct File {
     _capture_version: serde::de::IgnoredAny,
     commit: String,
     scenes: Vec<String>,
+    /// The elements each scene's board and shot held, which a finding on an
+    /// element in neither is a first observation of.
+    seen: BTreeMap<String, Seen>,
     /// The pairs' sizes and the components' preview rows, which the
     /// comparison leaves unread.
     failed: Vec<crate::findings_file::FailedScene>,
@@ -94,6 +100,8 @@ pub(crate) struct Before {
     scenes: BTreeSet<String>,
     /// The scenes whose capture wrote no usable shot.
     failed: BTreeSet<String>,
+    /// The elements each checked scene's board and shot held.
+    seen: BTreeMap<String, Seen>,
     findings: BTreeMap<String, Vec<What>>,
 }
 
@@ -146,6 +154,22 @@ impl What {
             | Self::RoleDiffers { element, .. }
             | Self::StateDiffers { element, .. } => Some(element),
             _ => None,
+        }
+    }
+
+    /// Whether <self> names an element that the before run's comparison of
+    /// the scene did not read: a board element for a finding of a missing
+    /// element, a state, an order or a role, and a shot element for an extra
+    /// one. The before run could not compare it, so <self> is its first
+    /// observation.
+    fn names_unseen(&self, seen: &Seen) -> bool {
+        match self {
+            Self::Missing { element }
+            | Self::OutOfOrder { element }
+            | Self::RoleDiffers { element, .. }
+            | Self::StateDiffers { element, .. } => !seen.board.contains(element),
+            Self::Extra { element } => !seen.shot.contains(element),
+            _ => false,
         }
     }
 
@@ -205,6 +229,7 @@ impl Before {
             commit: file.commit,
             scenes: file.scenes.into_iter().collect(),
             failed: file.failed.into_iter().map(|f| f.scene).collect(),
+            seen: file.seen,
             findings,
         })
     }
@@ -246,6 +271,10 @@ impl Before {
                 None if finding.compared_element().is_some_and(|element| {
                     had.iter().any(|before| before.leaves_unmatched(element))
                 }) => {}
+                None if self
+                    .seen
+                    .get(scene)
+                    .is_some_and(|seen| finding.names_unseen(seen)) => {}
                 None => return Against::Worse,
             }
         }

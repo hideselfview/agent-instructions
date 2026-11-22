@@ -1339,7 +1339,10 @@ their counts. A pair the merge base's run rendered still fails when the
 branch adds findings to it, except a finding about the state, reading
 order or role of an element that run reported as missing from the shot or
 extra in it: that run could not compare the element, so the branch shows
-the finding for the first time. The run it compares with is the newest cached run of the
+the finding for the first time. The same holds for a finding on an element
+that neither the base run's board nor its shot held at all, such as a row its
+shot ended above, which the branch brings into view (findings.json lists the
+elements each pair compared, under `seen`). The run it compares with is the newest cached run of the
 merge base in the same lane and environment, by the same shots versions, whose prefix starts
 the run's own (a run of mac. stands in for a run of mac.welcome.), and whose
 report holds findings.json. When builds has none cached, the lane's process
