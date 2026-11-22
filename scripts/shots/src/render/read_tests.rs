@@ -203,6 +203,7 @@ const BOARD: &str = r##"<x-dc><helmet><style>body{margin:0;font:13px sans-serif}
 <input type="text" aria-label="Name" placeholder="Library name" value="Odile">
 <input type="text" aria-label="Restore" placeholder="Restore code">
 <input type="password" aria-label="Secret" value="abc">
+<input type="password" aria-label="Secret empty" value="">
 <div role="textbox" aria-label="Code empty"><span aria-hidden="true">Code empty</span></div>
 <div role="textbox" aria-label="Code typed">CVR1 ABCD</div>
 <select aria-label="Mode"><option>Never</option><option selected>Always</option></select>
@@ -308,6 +309,12 @@ async fn a_board_reads_as_the_shots_do() {
         find(&elements, Role::Field, "Secret").value.as_deref(),
         Some("\u{F79A}"),
         "a password field reads masked, as a Mac's secure field does"
+    );
+    assert_eq!(
+        find(&elements, Role::Field, "Secret empty")
+            .value
+            .as_deref(),
+        Some("")
     );
     assert_eq!(
         find(&elements, Role::Field, "Code empty").value.as_deref(),
@@ -484,6 +491,7 @@ fn a_password_field_reads_masked_as_each_platform_masks_it() {
 fn mac_masking_uses_empty_and_filled_states_only_for_passwords() {
     let mut empty = named(node("2", "textbox", &[]), "Empty password");
     empty.secret = true;
+    empty.value = Some(String::new());
     let mut plain = named(node("3", "textbox", &[]), "Ordinary field");
     plain.value = Some("\u{F79A}\u{F79A}".to_string());
     let raw = [node("1", "RootWebArea", &["2", "3"]), empty, plain];
