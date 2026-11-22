@@ -1829,17 +1829,7 @@ pub fn ensure_before_runs(
     ));
     let config = config_at(places, repo, tip)?;
     let lanes = crate::derive::plan(&config, &[], &wanted);
-    let built = run_lanes(
-        pinned,
-        repo,
-        tip,
-        tip,
-        &lanes,
-        &wanted,
-        &[],
-        false,
-        true,
-    );
+    let built = run_lanes(pinned, repo, tip, tip, &lanes, &wanted, &[], false, true);
     if PASSED_ON.load(Ordering::SeqCst) != 0 {
         return built;
     }
