@@ -214,32 +214,48 @@ impl Chrome {
             Ok(out) => out.map_err(|e| format!("{what}: {e}")),
             Err(_) => Err(late("drawing it", last_said(&page).await)),
         };
-        match tokio::time::timeout(CLOSE_DEADLINE, page.close()).await {
-            Ok(Ok(())) => {}
-            Ok(Err(error)) => crate::log::note(format_args!("closing a page failed: {error}")),
-            Err(_) => crate::log::note(format_args!(
-                "closing the page of {what} took over {} seconds",
-                CLOSE_DEADLINE.as_secs()
-            )),
-        }
+        note_unless_done(&format!("closing the page of {what}"), page.close()).await;
         out
     }
 }
 
+/// Runs <step> for at most `CLOSE_DEADLINE`, and notes that <doing> failed,
+/// with the error, or took too long.
+async fn note_unless_done<T, E: std::fmt::Display>(
+    doing: &str,
+    step: impl Future<Output = Result<T, E>>,
+) {
+    match tokio::time::timeout(CLOSE_DEADLINE, step).await {
+        Ok(Ok(_)) => {}
+        Ok(Err(error)) => crate::log::note(format_args!("{doing} failed: {error}")),
+        Err(_) => crate::log::note(format_args!(
+            "{doing} took over {} seconds",
+            CLOSE_DEADLINE.as_secs()
+        )),
+    }
+}
+
 /// What <page> still answers after its draw ran out of time: its address and
-/// how far the board's watch script got, or that Chrome answers neither.
+/// how far the board's watch script got, or the error of each question that
+/// failed, or that Chrome answered none within `CLOSE_DEADLINE`.
 async fn last_said(page: &Page) -> String {
     let ask = async {
-        let url = page.url().await.ok().flatten().unwrap_or_default();
-        let state: Option<String> = match page.evaluate("window.__buildsShots.state").await {
-            Ok(result) => result.into_value().ok(),
-            Err(_) => None,
+        let url = match page.url().await {
+            Ok(Some(url)) => url,
+            Ok(None) => "no address".to_string(),
+            Err(error) => format!("an address that failed to read ({error})"),
         };
-        (url, state)
+        let state = match page.evaluate("window.__buildsShots.state").await {
+            Ok(result) => match result.into_value::<String>() {
+                Ok(state) => format!("reached '{state}'"),
+                Err(error) => format!("a state that failed to read ({error})"),
+            },
+            Err(error) => format!("a state that failed to read ({error})"),
+        };
+        format!("; the page at {url} had {state}")
     };
     match tokio::time::timeout(CLOSE_DEADLINE, ask).await {
-        Ok((url, Some(state))) => format!("; the page at {url} had reached '{state}'"),
-        Ok((url, None)) => format!("; the page at {url} answered no question about its state"),
+        Ok(said) => said,
         Err(_) => format!(
             "; Chrome answered no question about the page within {} seconds",
             CLOSE_DEADLINE.as_secs()
@@ -283,16 +299,8 @@ pub(crate) async fn with_chrome<T>(
                 actual: chrome.version.clone(),
             })
         };
-        match tokio::time::timeout(CLOSE_DEADLINE, chrome.browser.close()).await {
-            Ok(Ok(_)) => {}
-            Ok(Err(error)) => crate::log::note(format_args!("closing Chrome failed: {error}")),
-            Err(_) => crate::log::note("Chrome did not close in time"),
-        }
-        match tokio::time::timeout(CLOSE_DEADLINE, chrome.browser.wait()).await {
-            Ok(Ok(_)) => {}
-            Ok(Err(error)) => crate::log::note(format_args!("waiting for Chrome failed: {error}")),
-            Err(_) => crate::log::note("Chrome did not exit in time"),
-        }
+        note_unless_done("closing Chrome", chrome.browser.close()).await;
+        note_unless_done("waiting for Chrome", chrome.browser.wait()).await;
         out
     };
     // The events end when the browser closes, which `running` does last; a
