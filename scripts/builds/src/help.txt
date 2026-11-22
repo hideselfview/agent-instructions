@@ -3898,8 +3898,10 @@ INSTALLING
                               ~/.local/bin/builds-rustc to it, and let the
                               waiting commands start. If a dashboard fails to
                               restart, install reports the failure and keeps
-                              its options so you can retry the install. Then
-                              create the shared caches and their links (moving a real
+                              its options for that build root so you can retry.
+                              If you start a dashboard on that root, install
+                              uses the running dashboard's options. Then create
+                              the shared caches and their links (moving a real
                               folder already there onto the volume), write the
                               sccache config, run the sccache server under
                               launchd (restarting it only when its settings

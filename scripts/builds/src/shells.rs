@@ -881,11 +881,8 @@ pub fn stop(shells: &Shells, uid: u32) -> crate::fail::Result<(Vec<String>, usiz
         let tree = tree_of(&pairs, junk.pid);
         let mut errors = Vec::new();
         for pid in &tree {
-            if unsafe { libc::kill(*pid, libc::SIGTERM) } != 0 {
-                let error = std::io::Error::last_os_error();
-                if error.raw_os_error() != Some(libc::ESRCH) {
-                    errors.push(format!("pid {pid}: {error}"));
-                }
+            if let Err(error) = crate::procs::terminate(*pid) {
+                errors.push(format!("pid {pid}: {error}"));
             }
         }
         if errors.is_empty() {

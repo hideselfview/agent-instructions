@@ -27,6 +27,9 @@ pub const DERIVED_DATA_IDLE_MINUTES: u64 = 1440;
 pub const FREE_WORKTREE_IDLE_MINUTES: u64 = 1440;
 /// The port `dashboard` serves on unless `--port` names another.
 pub const DASHBOARD_PORT: u16 = 7787;
+pub const ROOT_VARIABLE: &str = "BUILDS_ROOT";
+pub const LISTS_VARIABLE: &str = "BUILDS_LISTS";
+pub const DEFAULT_ROOT: &str = "/Volumes/Builds";
 
 /// macOS's own entries at the root of a volume. Nothing builds there, and
 /// most are closed to the user.
@@ -82,9 +85,9 @@ impl Places {
             Some(home) => PathBuf::from(home),
             None => fail!("HOME is not set"),
         };
-        let root = std::env::var_os("BUILDS_ROOT")
+        let root = std::env::var_os(ROOT_VARIABLE)
             .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("/Volumes/Builds"));
+            .unwrap_or_else(|| PathBuf::from(DEFAULT_ROOT));
         let cargo_home = std::env::var_os("CARGO_HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| home.join(".cargo"));
@@ -95,7 +98,7 @@ impl Places {
         let tmpdir = std::env::var_os("TMPDIR")
             .filter(|value| !value.is_empty())
             .map(PathBuf::from);
-        let lists = std::env::var_os("BUILDS_LISTS")
+        let lists = std::env::var_os(LISTS_VARIABLE)
             .filter(|value| !value.is_empty())
             .map(PathBuf::from)
             .unwrap_or_else(|| default_lists(&home));

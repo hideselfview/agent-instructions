@@ -95,6 +95,8 @@ mod install_gate;
 mod install_hook;
 mod job_claim;
 mod kept;
+#[cfg(target_os = "macos")]
+mod kqueue;
 mod lake_run;
 mod land;
 mod land_run;

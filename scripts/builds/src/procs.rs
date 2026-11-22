@@ -17,6 +17,8 @@ mod os;
 #[path = "procs_linux.rs"]
 pub(crate) mod os;
 
+#[cfg(target_os = "macos")]
+pub use os::terminate_and_wait;
 pub use os::{args, cwd, ended, environment, open_files, tree_cpu, usage};
 
 /// The bytes of one value in the process's NUL-separated environment.
@@ -111,6 +113,23 @@ impl Processes {
 pub fn runs(pid: i32) -> bool {
     let signalled = unsafe { libc::kill(pid, 0) };
     signalled == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+}
+
+/// Sends SIGTERM to a process. A process that has exited needs no signal.
+pub fn terminate(pid: i32) -> std::io::Result<()> {
+    // SAFETY: kill touches no caller memory.
+    if unsafe { libc::kill(pid, libc::SIGTERM) } < 0 {
+        return accept_gone(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+fn accept_gone(error: std::io::Error) -> std::io::Result<()> {
+    if error.raw_os_error() == Some(libc::ESRCH) {
+        Ok(())
+    } else {
+        Err(error)
+    }
 }
 
 /// The arguments of <pid>: None when it has exited, and an error that names

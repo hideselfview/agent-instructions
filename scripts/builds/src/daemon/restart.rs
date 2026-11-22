@@ -2,18 +2,21 @@
 //! their dashboard options. The install lock covers both steps and the launch
 //! record, which lets an install retry a restart whose process is gone.
 
+use std::collections::BTreeMap;
 use std::fs::{self, File};
 use std::io::{self, Read};
-use std::os::fd::{AsFd, AsRawFd, FromRawFd, OwnedFd};
+use std::os::fd::{AsFd, AsRawFd, OwnedFd};
 use std::os::unix::net::UnixStream;
 use std::os::unix::process::CommandExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
-use crate::places::Places;
+use serde::{Deserialize, Serialize};
+
+use crate::places::{DEFAULT_ROOT, LISTS_VARIABLE, Places, ROOT_VARIABLE};
 use crate::procs::{self, Process, Processes};
 use crate::text::note;
 
@@ -21,6 +24,59 @@ const STOP_LIMIT: Duration = Duration::from_secs(10);
 const START_LIMIT: Duration = Duration::from_secs(30);
 const STARTING: &str = "BUILDS_DASHBOARD_RESTART";
 pub(super) const READY: u8 = 1;
+
+/// How to start a dashboard at the root that identifies it in the restart record.
+#[derive(Deserialize, Serialize)]
+struct Launch {
+    cwd: PathBuf,
+    lists: Option<String>,
+    args: Vec<String>,
+}
+
+impl Launch {
+    fn command(&self, program: &Path, root: &Path) -> Command {
+        let mut command = Command::new(program);
+        command
+            .current_dir(&self.cwd)
+            .env(ROOT_VARIABLE, root)
+            .arg("dashboard")
+            .args(&self.args);
+        if let Some(lists) = &self.lists {
+            command.env(LISTS_VARIABLE, lists);
+        } else {
+            command.env_remove(LISTS_VARIABLE);
+        }
+        command
+    }
+}
+
+fn read_launch(pid: i32, args: Vec<String>) -> Result<Option<(PathBuf, Launch)>> {
+    let (Some(environment), Some(cwd)) = (procs::environment(pid), procs::cwd(pid)) else {
+        if procs::ended(pid) {
+            return Ok(None);
+        }
+        fail!("Builds could not read the launch settings of dashboard process {pid}.");
+    };
+    let variable = |name| {
+        environment.iter().find_map(|entry| {
+            let (key, value) = entry.split_once('=')?;
+            (key == name).then_some(value)
+        })
+    };
+    let root = cwd.join(variable(ROOT_VARIABLE).unwrap_or(DEFAULT_ROOT));
+    let root = fs::canonicalize(&root).context(|| {
+        format!(
+            "Builds could not resolve the dashboard root at {}",
+            root.display()
+        )
+    })?;
+    let launch = Launch {
+        cwd,
+        lists: variable(LISTS_VARIABLE).map(str::to_owned),
+        args,
+    };
+    Ok(Some((root, launch)))
+}
 
 /// Pids and dashboard options for this user's dashboards, including one
 /// that has begun startup and has yet to claim its socket.
@@ -48,14 +104,50 @@ fn running_dashboards(
 /// install just put on PATH. Called while install holds its lock.
 pub fn run(places: &Places) -> Result<()> {
     let processes = Processes::read()?;
-    let dashboards = running_dashboards(&processes.list, places.uid, procs::live_args)?;
+    let mut running = BTreeMap::new();
+    let mut stop_pids = Vec::new();
+    let places_at = |root: &Path| {
+        let mut at = places.clone();
+        at.root = root.to_path_buf();
+        at
+    };
+    for (pid, args) in running_dashboards(&processes.list, places.uid, procs::live_args)? {
+        let Some((root, launch)) = read_launch(pid, args)? else {
+            continue;
+        };
+        stop_pids.push(pid);
+        if running.contains_key(&root) {
+            // A competing startup does not replace the options of the dashboard
+            // that already claimed this root.
+            let lock = places_at(&root).daemon_lock();
+            let owner = super::live::daemon_pid(&lock).context(|| {
+                format!(
+                    "Builds could not read the dashboard claim at {}",
+                    lock.display()
+                )
+            })?;
+            if owner != Some(pid) {
+                continue;
+            }
+        }
+        running.insert(root, launch);
+    }
     let program = crate::links::path(&places.home, "builds");
-    let log = places.daemon_log();
     restart(
         &places.install_dir().join("dashboard-restart.json"),
-        &dashboards,
-        |pid| stop(pid).context(|| format!("Builds could not stop dashboard process {pid}")),
-        |args| start(&program, args, &log, START_LIMIT).map(|child| child.id()),
+        running,
+        &stop_pids,
+        |pid| {
+            procs::terminate_and_wait(pid, Instant::now() + STOP_LIMIT)
+                .context(|| format!("Builds could not stop dashboard process {pid}"))
+        },
+        |root, launch| {
+            start(
+                launch.command(&program, root),
+                &places_at(root).daemon_log(),
+            )
+            .map(|child| child.id())
+        },
     )
 }
 
@@ -63,47 +155,49 @@ pub fn run(places: &Places) -> Result<()> {
 /// keeps the launches that have yet to report readiness for the next attempt.
 fn restart(
     record: &Path,
-    dashboards: &[(i32, Vec<String>)],
+    running: BTreeMap<PathBuf, Launch>,
+    stop_pids: &[i32],
     stop: impl Fn(i32) -> Result<()>,
-    start: impl Fn(&[String]) -> Result<u32>,
+    start: impl Fn(&Path, &Launch) -> Result<u32>,
 ) -> Result<()> {
-    let mut pending: Vec<Vec<String>> = match fs::read(record) {
-        Ok(bytes) => serde_json::from_slice(&bytes).context(|| {
-            format!(
-                "Builds could not read the dashboard launches in {}",
-                record.display()
-            )
-        })?,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Vec::new(),
-        Err(error) => fail!("Builds could not read {}. {error}.", record.display()),
-    };
-    for (_, args) in dashboards {
-        if !pending.contains(args) {
-            pending.push(args.clone());
-        }
-    }
+    let mut pending: BTreeMap<PathBuf, Launch> = crate::readings_file::read_value(record)?;
+    pending.extend(running);
     if pending.is_empty() {
         return Ok(());
     }
     save(record, &pending)?;
-    for (pid, _) in dashboards {
+    for pid in stop_pids {
         stop(*pid)?;
     }
-    for (index, args) in pending.iter().enumerate() {
-        let pid = start(args)?;
-        let remaining = &pending[index + 1..];
-        if remaining.is_empty() {
+    let roots: Vec<_> = pending.keys().cloned().collect();
+    let mut failed = Vec::new();
+    for root in roots {
+        let pid = match start(&root, &pending[&root]) {
+            Ok(pid) => pid,
+            Err(error) => {
+                failed.push(format!("{}: {}", root.display(), error.text()));
+                continue;
+            }
+        };
+        pending.remove(&root);
+        if pending.is_empty() {
             fs::remove_file(record)
                 .context(|| format!("Builds could not remove {}", record.display()))?;
         } else {
-            save(record, remaining)?;
+            save(record, &pending)?;
         }
         note(format!("Builds restarted the dashboard as process {pid}."));
+    }
+    if !failed.is_empty() {
+        fail!(
+            "Builds could not restart these dashboards. {}",
+            failed.join("\n")
+        );
     }
     Ok(())
 }
 
-fn save(record: &Path, pending: &[Vec<String>]) -> Result<()> {
+fn save(record: &Path, pending: &BTreeMap<PathBuf, Launch>) -> Result<()> {
     let bytes = serde_json::to_vec(pending).context(|| {
         format!(
             "Builds could not record the dashboard launches in {}",
@@ -113,97 +207,20 @@ fn save(record: &Path, pending: &[Vec<String>]) -> Result<()> {
     crate::whole_file::write(record, bytes)
 }
 
-/// Registers for process exit before signaling, so a fast exit still wakes
-/// the installer. The event also arrives for a dashboard we did not spawn.
-fn stop(pid: i32) -> io::Result<()> {
-    // SAFETY: kqueue returns a new descriptor on success.
-    let queue = unsafe { libc::kqueue() };
-    if queue < 0 {
-        return Err(io::Error::last_os_error());
-    }
-    let queue = unsafe { OwnedFd::from_raw_fd(queue) };
-    let mut event = libc::kevent {
-        ident: pid as libc::uintptr_t,
-        filter: libc::EVFILT_PROC,
-        flags: libc::EV_ADD | libc::EV_ONESHOT,
-        fflags: libc::NOTE_EXIT,
-        data: 0,
-        udata: std::ptr::null_mut(),
-    };
-    // SAFETY: the call reads one change and writes no events.
-    let registered = unsafe {
-        libc::kevent(
-            queue.as_raw_fd(),
-            &event,
-            1,
-            std::ptr::null_mut(),
-            0,
-            std::ptr::null(),
-        )
-    };
-    if registered < 0 {
-        return if_gone(io::Error::last_os_error());
-    }
-    // SAFETY: pid is the process the exit watch is registered for.
-    if unsafe { libc::kill(pid, libc::SIGTERM) } < 0 {
-        return if_gone(io::Error::last_os_error());
-    }
-    let deadline = Instant::now() + STOP_LIMIT;
-    loop {
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        let timeout = libc::timespec {
-            tv_sec: remaining.as_secs() as libc::time_t,
-            tv_nsec: remaining.subsec_nanos().into(),
-        };
-        // SAFETY: the call reads no changes and writes at most one event.
-        let count = unsafe {
-            libc::kevent(
-                queue.as_raw_fd(),
-                std::ptr::null(),
-                0,
-                &mut event,
-                1,
-                &timeout,
-            )
-        };
-        match count {
-            -1 => {
-                let error = io::Error::last_os_error();
-                if error.kind() != io::ErrorKind::Interrupted {
-                    return Err(error);
-                }
-            }
-            0 => {
-                return Err(io::Error::new(
-                    io::ErrorKind::TimedOut,
-                    "The dashboard did not exit within 10 seconds.",
-                ));
-            }
-            _ => return Ok(()),
-        }
-    }
-}
-
-fn if_gone(error: io::Error) -> io::Result<()> {
-    if error.raw_os_error() == Some(libc::ESRCH) {
-        Ok(())
-    } else {
-        Err(error)
-    }
-}
-
-fn start(program: &Path, args: &[String], log: &Path, timeout: Duration) -> Result<Child> {
+fn start(mut command: Command, log: &Path) -> Result<Child> {
     let dir = log.parent().expect("the dashboard log has a folder");
-    fs::create_dir_all(dir).context(|| format!("Builds could not create {}", dir.display()))?;
+    match fs::create_dir(dir) {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+        Err(error) => fail!("Builds could not create {}. {error}.", dir.display()),
+    }
     let log_file = super::open_log(log)?;
     let (mut ready, report) = UnixStream::pair()
         .context(|| "Builds could not open a channel to the dashboard".to_string())?;
     ready
-        .set_read_timeout(Some(timeout))
+        .set_read_timeout(Some(START_LIMIT))
         .context(|| "Builds could not set a timeout for dashboard startup".to_string())?;
-    let mut child = Command::new(program)
-        .arg("dashboard")
-        .args(args)
+    let mut child = command
         .env(STARTING, "1")
         .stdin(Stdio::from(OwnedFd::from(report)))
         .stdout(Stdio::null())
@@ -213,12 +230,22 @@ fn start(program: &Path, args: &[String], log: &Path, timeout: Duration) -> Resu
         .context(|| {
             format!(
                 "Builds could not start the dashboard with {}",
-                program.display()
+                command.get_program().to_string_lossy()
             )
         })?;
+    // Command keeps the supplied stdin descriptor for another spawn until it
+    // drops. Only the child may keep that end while install waits for readiness.
+    drop(command);
     let mut message = [0];
     let started = ready
         .read_exact(&mut message)
+        .map_err(|error| {
+            if error.kind() == io::ErrorKind::UnexpectedEof {
+                io::Error::new(error.kind(), "The dashboard closed its startup connection.")
+            } else {
+                error
+            }
+        })
         .context(|| {
             format!(
                 "Dashboard process {} did not report that it was ready. See {}",
@@ -334,6 +361,7 @@ mod tests {
         let record = scratch.dir.join("restart.json");
         let log = scratch.dir.join("log");
         let program = scratch.dir.join("builds");
+        let root = scratch.dir.join("dashboard volume");
         fs::write(
             &program,
             "#!/bin/sh\necho 'Port already in use' >&2\nexit 1\n",
@@ -342,11 +370,20 @@ mod tests {
         fs::set_permissions(&program, fs::Permissions::from_mode(0o700)).unwrap();
         let mut previous = Command::new("/bin/sleep").arg("60").spawn().unwrap();
         let args = vec!["--port".to_string(), "7788".to_string()];
+        let launch = Launch {
+            cwd: scratch.dir.clone(),
+            lists: Some("dashboard lists".to_string()),
+            args: args.clone(),
+        };
         let error = restart(
             &record,
-            &[(previous.id() as i32, args.clone())],
-            |pid| stop(pid).context(|| "stopping the old test process".to_string()),
-            |args| start(&program, args, &log, START_LIMIT).map(|child| child.id()),
+            BTreeMap::from([(root.clone(), launch)]),
+            &[previous.id() as i32],
+            |pid| {
+                procs::terminate_and_wait(pid, Instant::now() + STOP_LIMIT)
+                    .context(|| "stopping the old test process".to_string())
+            },
+            |root, launch| start(launch.command(&program, root), &log).map(|child| child.id()),
         )
         .unwrap_err()
         .text();
@@ -355,6 +392,7 @@ mod tests {
             error.contains("did not report that it was ready"),
             "{error}"
         );
+        assert!(error.contains("closed its startup connection"), "{error}");
         assert!(error.contains(log.to_str().unwrap()), "{error}");
         assert!(
             fs::read_to_string(&log)
@@ -364,18 +402,52 @@ mod tests {
 
         fs::write(
             &program,
-            "#!/bin/sh\ntest \"$*\" = 'dashboard --port 7788' || exit 1\nprintf '\\001' >&0\n",
+            "#!/bin/sh\ntest \"$*\" = 'dashboard --port 7788' || exit 1\n\
+             test \"$BUILDS_ROOT\" = \"$PWD/dashboard volume\" || exit 1\n\
+             test \"$BUILDS_LISTS\" = 'dashboard lists' || exit 1\n\
+             printf '\\001' >&0\n",
         )
         .unwrap();
         restart(
             &record,
+            BTreeMap::new(),
             &[],
             |pid| panic!("unexpected dashboard process {pid}"),
-            |used| {
-                assert_eq!(used, args);
-                let mut child = start(&program, used, &log, START_LIMIT)?;
+            |location, launch| {
+                assert_eq!(location, root);
+                assert_eq!(launch.args, args);
+                let mut child = start(launch.command(&program, location), &log)?;
                 assert!(child.wait().unwrap().success());
                 Ok(child.id())
+            },
+        )
+        .unwrap();
+        assert!(!record.exists());
+    }
+
+    #[test]
+    fn a_running_dashboard_replaces_the_saved_launch_for_its_root() {
+        let scratch = crate::testing::Scratch::new("dashboard-running-options");
+        let record = scratch.dir.join("restart.json");
+        let root = scratch.dir.join("volume");
+        let launch = |port: &str| Launch {
+            cwd: scratch.dir.clone(),
+            lists: None,
+            args: vec!["--port".to_string(), port.to_string()],
+        };
+        save(&record, &BTreeMap::from([(root.clone(), launch("7787"))])).unwrap();
+        restart(
+            &record,
+            BTreeMap::from([(root.clone(), launch("7788"))]),
+            &[11],
+            |pid| {
+                assert_eq!(pid, 11);
+                Ok(())
+            },
+            |location, actual| {
+                assert_eq!(location, root);
+                assert_eq!(actual.args, ["--port", "7788"]);
+                Ok(12)
             },
         )
         .unwrap();

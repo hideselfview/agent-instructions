@@ -2,8 +2,10 @@
 //! and sysctl.
 
 use std::ffi::{CStr, OsString};
+use std::io;
 use std::os::unix::ffi::OsStringExt;
 use std::path::PathBuf;
+use std::time::Instant;
 
 use super::Process;
 use crate::fail;
@@ -121,6 +123,24 @@ pub fn ended(pid: i32) -> bool {
         )
     };
     (read != size && !super::runs(pid)) || (read == size && info.pbi_status == SZOMB)
+}
+
+/// Registers before sending SIGTERM so an exit during the signal is recorded.
+/// The kernel reports exits even for processes this caller did not start.
+pub fn terminate_and_wait(pid: i32, deadline: Instant) -> io::Result<()> {
+    use crate::kqueue::{Queue, event};
+    let queue = Queue::new()?;
+    if let Err(error) = queue.change(&[event(
+        pid as libc::uintptr_t,
+        libc::EVFILT_PROC,
+        libc::EV_ADD | libc::EV_ONESHOT,
+        libc::NOTE_EXIT,
+    )]) {
+        return super::accept_gone(error);
+    }
+    super::terminate(pid)?;
+    queue.wait(Some(deadline))?;
+    Ok(())
 }
 
 /// The working directory of <pid>; None when it exited or can't be read.
