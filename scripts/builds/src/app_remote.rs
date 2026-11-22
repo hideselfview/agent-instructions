@@ -536,7 +536,8 @@ boards="{boards}"
 mkdir -p "$boards" || exit 1
 ln -s "$boards" "$there/boards" || exit 1
 echo "there=$there"
-ls -1A "$boards" | sed 's/^/have=/'"#
+ls -1A "$boards" > "$there/.listed" || exit 1
+sed 's/^/have=/' "$there/.listed""#
             ),
             "making a temporary folder and listing its pictures",
         )?;
@@ -595,6 +596,7 @@ ls -1A "$boards" | sed 's/^/have=/'"#
             return Ok(());
         }
         let list = ListFile::of(
+            &self.places,
             names
                 .iter()
                 .map(|name| format!("{}/{name}", crate::shots_cache::BOARD_PICTURES)),
@@ -629,31 +631,31 @@ cd / && rm -rf "$stage""#,
         if names.is_empty() {
             return Ok(());
         }
-        let list = ListFile::of(names.iter().map(|name| name.to_string()))?;
-        let mut cat = Command::new("cat");
-        cat.arg(list.path());
-        crate::remote::pipe(
-            cat,
-            self.transport()
-                .command(&format!("cd \"{boards}\" && xargs -n 500 rm -f --")),
-            &format!(
-                "the list of board pictures to delete on host {}",
-                self.host.name
-            ),
+        let host = self.host.name.clone();
+        self.send_list(
+            names,
+            &format!("cd \"{boards}\" && xargs -n 500 rm -f --"),
+            &format!("the list of board pictures to delete on host {host}"),
         )
     }
 
     /// Writes <names>, one a line, to the file <there> on the host.
     fn send_names(&mut self, names: &[&String], there: &str) -> Result<()> {
-        let list = ListFile::of(names.iter().map(|name| name.to_string()))?;
+        let host = self.host.name.clone();
+        self.send_list(
+            names,
+            &format!("cat > {}", sh_quote(there)),
+            &format!("the list of board pictures sent to host {host}"),
+        )
+    }
+
+    /// Sends <names>, one a line, to the standard input of <script> on the
+    /// host.
+    fn send_list(&mut self, names: &[&String], script: &str, what: &str) -> Result<()> {
+        let list = ListFile::of(&self.places, names.iter().map(|name| name.to_string()))?;
         let mut cat = Command::new("cat");
         cat.arg(list.path());
-        crate::remote::pipe(
-            cat,
-            self.transport()
-                .command(&format!("cat > {}", sh_quote(there))),
-            &format!("the list of board pictures sent to host {}", self.host.name),
-        )
+        crate::remote::pipe(cat, self.transport().command(script), what)
     }
 
     /// Copies what a step made in the picture folder <there> on the host into
@@ -666,7 +668,7 @@ cd / && rm -rf "$stage""#,
         let host = &self.host.name;
         crate::remote::unpack(
             self.transport().command(&format!(
-                "cd {} && tar -cf - --exclude=./boards --exclude=./.sent --exclude=./.new .",
+                "cd {} && tar -cf - --exclude=./boards --exclude=./.sent --exclude=./.new --exclude=./.sent.sorted --exclude=./.listed --exclude=./.have .",
                 sh_quote(there)
             )),
             into,
@@ -678,9 +680,10 @@ cd / && rm -rf "$stage""#,
             &format!(
                 r#"there={there}
 cd "$there" || exit 1
-LC_ALL=C sort .sent > .sent.sorted
-ls -1 boards/ | LC_ALL=C sort > .have
-LC_ALL=C comm -13 .sent.sorted .have > .new
+LC_ALL=C sort .sent > .sent.sorted || exit 1
+ls -1 boards/ > .listed || exit 1
+LC_ALL=C sort .listed > .have || exit 1
+LC_ALL=C comm -13 .sent.sorted .have > .new || exit 1
 cat .new"#,
                 there = sh_quote(there)
             ),
@@ -792,17 +795,15 @@ fn picture_names(folder: &Path) -> Result<std::collections::BTreeSet<String>> {
     Ok(names)
 }
 
-/// A temporary file of lines, deleted when it drops.
+/// A temporary file of lines in builds' scratch folder, deleted when it
+/// drops.
 struct ListFile(PathBuf);
 
 impl ListFile {
-    fn of(lines: impl Iterator<Item = String>) -> Result<ListFile> {
-        static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-        let path = std::env::temp_dir().join(format!(
-            "builds-list.{}.{}",
-            std::process::id(),
-            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-        ));
+    fn of(places: &Places, lines: impl Iterator<Item = String>) -> Result<ListFile> {
+        let folder = places.root.join(".lists");
+        std::fs::create_dir_all(&folder).context(|| format!("creating {}", folder.display()))?;
+        let path = folder.join(crate::text::staged_suffix());
         let mut text = String::new();
         for line in lines {
             text.push_str(&line);
@@ -819,8 +820,9 @@ impl ListFile {
 
 impl Drop for ListFile {
     fn drop(&mut self) {
-        // A list left in the temporary folder is cleaned out with it.
-        let _ = std::fs::remove_file(&self.0);
+        if let Err(error) = std::fs::remove_file(&self.0) {
+            note(format!("could not delete {}: {error}", self.0.display()));
+        }
     }
 }
 
