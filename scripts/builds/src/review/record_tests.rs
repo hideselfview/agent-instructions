@@ -550,11 +550,19 @@ fn migrating_failed_review_exchanges_preserves_measured_zero_and_removes_unknown
         "the reviewer reported an error: subprocess exited with exit status: 1",
         "no answer: the reviewer reported an error: subprocess exited with exit status: 1",
     );
-    let ambiguous = old(
+    let mut ambiguous = old(
         "ambiguous",
         "two different failures",
         "no answer: the reviewer printed no JSON",
     );
+    let mut reported = measured.exchanges[0].clone();
+    reported.output = "{}".to_string();
+    reported.tokens = Tokens {
+        input: Some(9),
+        ..Tokens::ZERO
+    };
+    ambiguous.usage.tokens = reported.tokens;
+    ambiguous.exchanges.push(reported);
     add_run(
         &db,
         &texts,
@@ -593,5 +601,5 @@ fn migrating_failed_review_exchanges_preserves_measured_zero_and_removes_unknown
         .unwrap()
         .collect::<rusqlite::Result<Vec<_>>>()
         .unwrap();
-    assert_eq!(results, [None, Some(0), None]);
+    assert_eq!(results, [None, Some(0), None, Some(9)]);
 }

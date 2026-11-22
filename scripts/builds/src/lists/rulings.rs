@@ -243,6 +243,17 @@ fn check(
         &message(&texts),
         None,
     );
+    if !invoked.diagnostics.is_empty() {
+        let names = texts
+            .iter()
+            .map(|text| text.name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        crate::review::call::note_diagnostics(
+            format_args!("the rulings check of {names}"),
+            &invoked.diagnostics,
+        );
+    }
     let quoted = match invoked.body.and_then(|body| quoted_of(&body)) {
         Ok(quoted) => quoted,
         Err(why) => fail!(

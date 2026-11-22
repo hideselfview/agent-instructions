@@ -1024,7 +1024,9 @@ pub mod tests;
 
 /// Keeps the existing calls and exchanges while allowing a provider to omit its token report.
 pub fn allow_unreported_tokens(db: &Connection, texts: &texts::Texts) -> Result<()> {
-    use crate::db::{LEGACY_UNCACHED_INPUT, REVIEW_PART, remake_table, statement};
+    use crate::db::{
+        CLEAR_LEGACY_TOKENS, LEGACY_UNCACHED_INPUT, REVIEW_PART, remake_table, statement,
+    };
     for table in ["review_call", "review_exchange"] {
         let create = format!("CREATE TABLE {table} (");
         let index = if table == "review_call" {
@@ -1071,19 +1073,26 @@ pub fn allow_unreported_tokens(db: &Connection, texts: &texts::Texts) -> Result<
         rows.collect::<rusqlite::Result<Vec<_>>>().sql()?
     };
     for (exchange, call, run, hash, failure) in unreported {
-        let output = match texts.kept(run, &hash)? {
-            Some(output) => Some(output),
-            None => {
-                let candidate = format!("no answer: {failure}");
-                (texts::hash(&candidate) == hash).then_some(candidate)
-            }
+        let candidate = super::call::failed_answer_text(&failure);
+        let output = if texts::hash(&candidate) == hash {
+            Some(candidate)
+        } else {
+            texts.kept(run, &hash)?
         };
         if output
             .as_deref()
-            .is_none_or(super::provider::legacy_failure_had_no_usage)
+            .is_none_or(crate::migrate::legacy_failure_had_no_usage)
         {
-            db.execute("UPDATE review_exchange SET tokens_in = NULL, tokens_out = NULL, tokens_cached = NULL, tokens_written = NULL, tokens_uncached = NULL WHERE id = ?1", [exchange]).sql()?;
-            db.execute("UPDATE review_call SET tokens_in = NULL, tokens_out = NULL, tokens_cached = NULL, tokens_written = NULL, tokens_uncached = NULL WHERE id = ?1", [call]).sql()?;
+            db.execute(
+                &format!("UPDATE review_exchange SET {CLEAR_LEGACY_TOKENS} WHERE id = ?1"),
+                [exchange],
+            )
+            .sql()?;
+            db.execute(
+                &format!("UPDATE review_call SET {CLEAR_LEGACY_TOKENS} WHERE id = ?1"),
+                [call],
+            )
+            .sql()?;
         }
     }
     Ok(())

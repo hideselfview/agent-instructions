@@ -182,10 +182,13 @@ fn the_same_codex_model_at_different_reasoning_efforts_has_a_distinct_setup() {
     let program = Program::new(PathBuf::from("codex"), PathBuf::from("/temp"));
     let medium = Selection::Tier(Tier::Medium);
     let fast = Selection::Tier(Tier::Fast);
-    assert_eq!(program.model_name(&medium), program.model_name(&fast));
+    assert_eq!(
+        program.select(&medium).model_name(),
+        program.select(&fast).model_name()
+    );
     assert_ne!(
-        program.setup(&medium, "prompt".into()),
-        program.setup(&fast, "prompt".into())
+        program.select(&medium).setup("prompt".into()),
+        program.select(&fast).setup("prompt".into())
     );
 }
 
@@ -670,6 +673,33 @@ fn an_incomplete_codex_report_keeps_present_counts_and_diagnoses_omissions() {
             .iter()
             .any(|why| why.contains("cache_write_input_tokens"))
     );
+}
+
+#[test]
+fn an_invalid_reasoning_count_keeps_the_answer_and_the_output_total() {
+    for reason in [Value::Null, json!(6)] {
+        let event = json!({
+            "type": "turn.completed",
+            "usage": {
+                "input_tokens": 15,
+                "output_tokens": 5,
+                "cached_input_tokens": 0,
+                "cache_write_input_tokens": 0,
+                "reasoning_output_tokens": reason
+            }
+        });
+        let events = [
+            r#"{"type":"item.completed","item":{"type":"agent_message","text":"{\"claims\":[]}"}}"#,
+            &event.to_string(),
+        ]
+        .join("\n");
+        let called = codex_events(events.as_bytes(), false);
+        assert!(called.body.is_ok());
+        assert_eq!(called.completion.tokens().output, Some(5));
+        assert_eq!(called.completion.tokens().reasoning, None);
+        assert_eq!(called.diagnostics.len(), 1);
+        assert!(called.diagnostics[0].contains("reasoning"));
+    }
 }
 
 #[test]

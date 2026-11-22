@@ -96,7 +96,7 @@ fn the_setup_a_call_records_follows_the_rules_settings_and_passes_but_not_the_mo
     one.passes = 2;
     one.commit_text = true;
     let reviewer = crate::review::Program::new("claude".into(), "/tmp".into());
-    let recorded = setup(&one, &[&rule], &reviewer);
+    let recorded = setup(&one, &[&rule], &reviewer.select(&one.model));
     assert!(recorded.contains("Rule A body.") && recorded.contains("passes: 2"));
     assert!(
         !recorded.contains("Project facts.") && !recorded.contains("The brief."),
@@ -105,16 +105,32 @@ fn the_setup_a_call_records_follows_the_rules_settings_and_passes_but_not_the_mo
     // The rules' text, the group's settings and its passes each change it;
     // the model is recorded beside it.
     let edited = Rule::parse("a", "---\npaths: ['**']\n---\nRule A body, edited.\n");
-    assert_ne!(setup(&one, &[&edited], &reviewer), recorded);
+    assert_ne!(
+        setup(&one, &[&edited], &reviewer.select(&one.model)),
+        recorded
+    );
     let mut asked_otherwise = one.clone();
     asked_otherwise.instructions = Some("Look harder.".to_string());
-    assert_ne!(setup(&asked_otherwise, &[&rule], &reviewer), recorded);
+    assert_ne!(
+        setup(
+            &asked_otherwise,
+            &[&rule],
+            &reviewer.select(&asked_otherwise.model)
+        ),
+        recorded
+    );
     let mut once = one.clone();
     once.passes = 1;
-    assert_ne!(setup(&once, &[&rule], &reviewer), recorded);
+    assert_ne!(
+        setup(&once, &[&rule], &reviewer.select(&once.model)),
+        recorded
+    );
     let mut on_haiku = one.clone();
     on_haiku.model = crate::review::Selection::Named("haiku".to_string());
-    assert_eq!(setup(&on_haiku, &[&rule], &reviewer), recorded);
+    assert_eq!(
+        setup(&on_haiku, &[&rule], &reviewer.select(&on_haiku.model)),
+        recorded
+    );
 }
 
 #[test]

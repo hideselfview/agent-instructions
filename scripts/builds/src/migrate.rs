@@ -656,6 +656,27 @@ pub fn move_store(places: &Places, path: &Path, now: i64) -> Result<()> {
     Ok(())
 }
 
+/// Whether a legacy exchange stopped before its reviewer reported usage.
+pub(crate) fn legacy_failure_had_no_usage(output: &str) -> bool {
+    let Some(why) = output.strip_prefix("no answer: ") else {
+        return false;
+    };
+    if why == "the reviewer printed no JSON" {
+        return true;
+    }
+    if why.starts_with("the reviewer ") {
+        return false;
+    }
+    why.starts_with("running ")
+        || why.starts_with("waiting for ")
+        || why
+            .split_once(" exited with ")
+            .is_some_and(|(program, status)| {
+                !program.is_empty()
+                    && (status.starts_with("exit status: ") || status.starts_with("signal: "))
+            })
+}
+
 /// Deletes the folder `shots` beside the database at <path>, where builds
 /// kept the shots runs' reports before it kept the runs on the build volume.
 fn remove_kept_reports(path: &Path) -> Result<()> {

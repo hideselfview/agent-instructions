@@ -16,11 +16,31 @@ enum Provider {
     Codex,
 }
 
-impl Provider {
-    fn of(program: &Path) -> Self {
-        match program.file_stem().and_then(|stem| stem.to_str()) {
-            Some("codex") => Self::Codex,
-            _ => Self::Claude,
+/// An executable and the protocol Builds uses to call it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Executable {
+    Claude(PathBuf),
+    Codex(PathBuf),
+}
+
+impl Executable {
+    fn of(path: PathBuf) -> Self {
+        match path.file_stem().and_then(|stem| stem.to_str()) {
+            Some("codex") => Self::Codex(path),
+            _ => Self::Claude(path),
+        }
+    }
+
+    fn provider(&self) -> Provider {
+        match self {
+            Self::Claude(_) => Provider::Claude,
+            Self::Codex(_) => Provider::Codex,
+        }
+    }
+
+    fn path(&self) -> &Path {
+        match self {
+            Self::Claude(path) | Self::Codex(path) => path,
         }
     }
 }
@@ -28,8 +48,7 @@ impl Provider {
 /// A reviewer executable and the directory in which builds stages its inputs.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Program {
-    executable: PathBuf,
-    provider: Provider,
+    executable: Executable,
     temporary: PathBuf,
     purpose: Purpose,
 }
@@ -43,15 +62,14 @@ enum Purpose {
 impl Program {
     pub fn new(executable: PathBuf, temporary: PathBuf) -> Self {
         Self {
-            provider: Provider::of(&executable),
-            executable,
+            executable: Executable::of(executable),
             temporary,
             purpose: Purpose::Check,
         }
     }
 
     pub fn uses_code_review_effort(&self) -> bool {
-        self.provider == Provider::Codex
+        self.executable.provider() == Provider::Codex
     }
 
     pub fn for_code_review(&self) -> Self {
@@ -62,27 +80,25 @@ impl Program {
     }
 
     pub fn executable(&self) -> &Path {
-        &self.executable
+        self.executable.path()
     }
 
     pub fn with_executable(&self, executable: PathBuf) -> Self {
         Self {
-            provider: Provider::of(&executable),
-            executable,
+            executable: Executable::of(executable),
             ..self.clone()
         }
     }
 
-    pub fn model_name(&self, selection: &Selection) -> String {
-        let model = self.model(selection);
-        match &model {
-            Model::UnsupportedCodex(requested) => format!("unknown (requested {requested})"),
-            _ => model.name().to_string(),
+    pub(super) fn select(&self, selection: &Selection) -> Selected<'_> {
+        Selected {
+            program: self,
+            model: self.model(selection),
         }
     }
 
     pub fn schema<'a>(&self, schema: &'a Value) -> Cow<'a, Value> {
-        match self.provider {
+        match self.executable.provider() {
             Provider::Claude => Cow::Borrowed(schema),
             Provider::Codex => {
                 let mut schema = schema.clone();
@@ -93,7 +109,7 @@ impl Program {
     }
 
     pub fn instructions<'a>(&self, system: &'a str) -> Cow<'a, str> {
-        match self.provider {
+        match self.executable.provider() {
             Provider::Claude => Cow::Borrowed(system),
             Provider::Codex => Cow::Owned(format!(
                 "{system}\n\nReturn null for optional fields these instructions say to omit. Null represents an omitted field in the output schema."
@@ -101,17 +117,8 @@ impl Program {
         }
     }
 
-    pub fn setup(&self, selection: &Selection, prompt: String) -> String {
-        match self.model(selection) {
-            Model::Claude(_) | Model::UnsupportedCodex(_) => prompt,
-            Model::Codex { effort, .. } => {
-                format!("{prompt}\n# Codex\n\nreasoning effort: {effort}\n")
-            }
-        }
-    }
-
     fn model(&self, selection: &Selection) -> Model {
-        match self.provider {
+        match self.executable.provider() {
             Provider::Claude => {
                 let name = match selection {
                     Selection::Tier(Tier::High) => "opus",
@@ -187,11 +194,15 @@ enum Model {
 }
 
 impl Model {
-    fn name(&self) -> &str {
+    fn requested_name(&self) -> &str {
         match self {
             Self::Claude(name) | Self::UnsupportedCodex(name) => name,
             Self::Codex { .. } => CODEX_MODEL,
         }
+    }
+
+    fn unavailable(&self) -> String {
+        format!("unknown (requested {})", self.requested_name())
     }
 }
 
@@ -203,32 +214,68 @@ pub fn invoke(
     message: &str,
     checkout: Option<&Path>,
 ) -> Invoked {
-    let model = program.model(selection);
-    let called = match &model {
-        Model::Claude(name) => claude(
-            program.executable(),
-            name,
-            schema,
-            system,
-            message,
-            checkout,
-        ),
-        Model::Codex { effort } => codex(program, effort, schema, system, message, checkout),
-        Model::UnsupportedCodex(requested) => {
-            return Invoked::failed(
-                format!("unknown (requested {requested})"),
-                format!(
-                    "Codex uses {CODEX_MODEL}. Replace --model {requested} with --model {CODEX_MODEL} or omit --model."
-                ),
-            );
+    program
+        .select(selection)
+        .invoke(schema, system, message, checkout)
+}
+
+/// The chosen provider and model for one review or check.
+pub(super) struct Selected<'a> {
+    program: &'a Program,
+    model: Model,
+}
+
+impl Selected<'_> {
+    pub(super) fn model_name(&self) -> String {
+        match self.model {
+            Model::UnsupportedCodex(_) => self.model.unavailable(),
+            _ => self.model.requested_name().to_string(),
         }
-    };
-    match called {
-        Ok(invoked) => invoked,
-        Err(error) => Invoked::failed(
-            format!("unknown (requested {})", model.name()),
-            error.text(),
-        ),
+    }
+
+    pub(super) fn program(&self) -> &Program {
+        self.program
+    }
+
+    pub(super) fn setup(&self, prompt: String) -> String {
+        match self.model {
+            Model::Claude(_) | Model::UnsupportedCodex(_) => prompt,
+            Model::Codex { effort } => format!("{prompt}\n# Codex\n\nreasoning effort: {effort}\n"),
+        }
+    }
+
+    pub(super) fn invoke(
+        &self,
+        schema: &Value,
+        system: &str,
+        message: &str,
+        checkout: Option<&Path>,
+    ) -> Invoked {
+        let called = match &self.model {
+            Model::Claude(name) => claude(
+                self.program.executable(),
+                name,
+                schema,
+                system,
+                message,
+                checkout,
+            ),
+            Model::Codex { effort } => {
+                codex(self.program, effort, schema, system, message, checkout)
+            }
+            Model::UnsupportedCodex(requested) => {
+                return Invoked::failed(
+                    self.model.unavailable(),
+                    format!(
+                        "Codex uses {CODEX_MODEL}. Replace --model {requested} with --model {CODEX_MODEL} or omit --model."
+                    ),
+                );
+            }
+        };
+        match called {
+            Ok(invoked) => invoked,
+            Err(error) => Invoked::failed(self.model.unavailable(), error.text()),
+        }
     }
 }
 
@@ -373,12 +420,12 @@ fn reported_tokens(
         add_diagnostic(body, "the reviewer reported invalid usage".to_string());
         return Tokens::default();
     }
-    let mut count = |key, expected| match reported_count(usage, key) {
-        Ok(None) if expected => {
+    let mut count = |key| match reported_count(usage, key) {
+        Ok(None) => {
             diagnostics.push(format!("the reviewer omitted {key} from its usage report"));
             None
         }
-        Ok(value) => value,
+        Ok(Some(value)) => Some(value),
         Err(why) => {
             add_diagnostic(body, why);
             None
@@ -388,12 +435,12 @@ fn reported_tokens(
         Provider::Claude => ("cache_read_input_tokens", "cache_creation_input_tokens"),
         Provider::Codex => ("cached_input_tokens", "cache_write_input_tokens"),
     };
-    let reported_input = count("input_tokens", true);
-    let output = count("output_tokens", true);
-    let cached = count(cache_read, true);
-    let written = count(cache_write, true);
+    let reported_input = count("input_tokens");
+    let output = count("output_tokens");
+    let cached = count(cache_read);
+    let written = count(cache_write);
     let reasoning = match protocol {
-        Provider::Codex => count("reasoning_output_tokens", false),
+        Provider::Codex => reasoning_count(usage, output, diagnostics),
         Provider::Claude => None,
     };
     let computed = match (protocol, reported_input) {
@@ -444,6 +491,26 @@ fn reported_tokens(
         written,
         uncached,
         reasoning,
+    }
+}
+
+fn reasoning_count(
+    usage: &Value,
+    output: Option<i64>,
+    diagnostics: &mut Vec<String>,
+) -> Option<i64> {
+    match reported_count(usage, "reasoning_output_tokens") {
+        Ok(Some(count)) if output.is_some_and(|output| count > output) => {
+            diagnostics.push(format!(
+                "Codex reported {count} reasoning tokens, more than its total output count"
+            ));
+            None
+        }
+        Ok(count) => count,
+        Err(why) => {
+            diagnostics.push(why);
+            None
+        }
     }
 }
 
@@ -731,23 +798,6 @@ fn codex_events(text: &[u8], read_tools: bool) -> Decoded {
         body,
         diagnostics,
     }
-}
-
-/// These legacy failures returned before builds could read a Claude usage record.
-pub(crate) fn legacy_failure_had_no_usage(output: &str) -> bool {
-    let Some(why) = output.strip_prefix("no answer: ") else {
-        return false;
-    };
-    why == "the reviewer printed no JSON"
-        || why.starts_with("running ")
-        || why.starts_with("waiting for ")
-        || why
-            .split_once(" exited with ")
-            .is_some_and(|(program, status)| {
-                let path = Path::new(program);
-                path.file_name() == Some(std::ffi::OsStr::new("claude"))
-                    && (status.starts_with("exit status: ") || status.starts_with("signal: "))
-            })
 }
 
 #[cfg(test)]

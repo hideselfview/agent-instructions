@@ -2234,7 +2234,7 @@ fn a_move_allows_unknown_spec_cost_and_keeps_previous_checks_and_findings() {
             &conn,
             item,
             "opus",
-            Some("./claude exited with exit status: 1: limit"),
+            Some("bin/custom-reviewer exited with exit status: 1: limit"),
         );
         item
     };
@@ -2246,7 +2246,7 @@ fn a_move_allows_unknown_spec_cost_and_keeps_previous_checks_and_findings() {
         [
             (Some(0), Some(0)),
             (Some(0), None),
-            (None, Some(0)),
+            (None, None),
             (None, None)
         ]
     );

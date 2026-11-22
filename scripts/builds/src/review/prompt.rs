@@ -244,7 +244,11 @@ fn system_text(input: &Input) -> String {
 /// opening, the group's part, its passes, whether it reads the commit
 /// messages, and the answer schema. The store keeps it with every call, so
 /// calls with the same model and the same prompt ran the same setup.
-pub fn setup(group: &Group, rules: &[&Rule], reviewer: &super::Program) -> String {
+pub(super) fn setup(
+    group: &Group,
+    rules: &[&Rule],
+    reviewer: &super::provider::Selected,
+) -> String {
     let system = system_text(&Input {
         group,
         rules,
@@ -256,12 +260,12 @@ pub fn setup(group: &Group, rules: &[&Rule], reviewer: &super::Program) -> Strin
     });
     let schema = schema();
     let prompt = setup_text(
-        &reviewer.instructions(&system),
+        &reviewer.program().instructions(&system),
         group.passes,
         group.commit_text,
-        &reviewer.schema(&schema),
+        &reviewer.program().schema(&schema),
     );
-    reviewer.setup(&group.model, prompt)
+    reviewer.setup(prompt)
 }
 
 fn setup_text(system: &str, passes: usize, commit_text: bool, schema: &Value) -> String {

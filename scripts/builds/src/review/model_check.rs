@@ -142,6 +142,10 @@ pub fn check(
         &message(finding, &file_diff, &context),
         None,
     );
+    call::note_diagnostics(
+        format_args!("the check of finding {}", finding.id),
+        &invoked.diagnostics,
+    );
     let verdict = invoked.body.and_then(|body| {
         let why = body["why"]
             .as_str()

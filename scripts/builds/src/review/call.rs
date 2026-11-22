@@ -4,7 +4,7 @@ use std::path::Path;
 
 use serde_json::{Value, json};
 
-use super::provider::{Program, Selection};
+use super::provider::Selected;
 use crate::review::prompt;
 
 /// One finding as the reviewer wrote it.
@@ -39,6 +39,7 @@ pub struct Output {
     pub usage: Usage,
     /// The answer, or why there is none.
     pub answer: Result<Answer, String>,
+    pub diagnostics: Vec<String>,
 }
 
 /// Reported and derived token counts. An absent count has no known value.
@@ -217,53 +218,43 @@ impl Invoked {
     }
 }
 
-pub fn invoke(
-    program: &Program,
-    model: &Selection,
-    schema: &Value,
-    system: &str,
-    message: &str,
-    checkout: Option<&Path>,
-) -> Invoked {
-    let invoked = super::provider::invoke(program, model, schema, system, message, checkout);
-    for diagnostic in &invoked.diagnostics {
-        crate::text::note(diagnostic);
+pub use super::provider::invoke;
+
+pub fn note_diagnostics(subject: impl std::fmt::Display, diagnostics: &[String]) {
+    for diagnostic in diagnostics {
+        crate::text::note(format!("{subject}: {diagnostic}"));
     }
-    invoked
+}
+
+pub fn failed_answer_text(why: &str) -> String {
+    format!("no answer: {why}")
 }
 
 /// Runs a group's reviewer and reads its answer: verdicts per rule, or, for a
 /// group that lists sites, a summary and a verdict per site, and the open
 /// findings it closes, each one of <given>.
-pub fn run(
-    program: &Program,
-    model: &Selection,
+pub(super) fn run(
+    reviewer: &Selected,
     names: &[String],
     given: &[i64],
     enumerate: bool,
     parts: &prompt::Parts,
     checkout: Option<&Path>,
 ) -> Output {
-    let invoked = invoke(
-        program,
-        model,
-        &prompt::schema(),
-        &parts.system,
-        &parts.message,
-        checkout,
-    );
+    let invoked = reviewer.invoke(&prompt::schema(), &parts.system, &parts.message, checkout);
     output_of(invoked, names, given, enumerate)
 }
 
 fn output_of(invoked: Invoked, names: &[String], given: &[i64], enumerate: bool) -> Output {
     let output = match &invoked.body {
         Ok(body) => body.to_string(),
-        Err(why) => format!("no answer: {why}"),
+        Err(why) => failed_answer_text(why),
     };
     Output {
         model: invoked.model,
         output,
         usage: invoked.usage,
+        diagnostics: invoked.diagnostics,
         answer: invoked.body.and_then(|body| {
             let mut answer = if enumerate {
                 sites_of(&body, names)?

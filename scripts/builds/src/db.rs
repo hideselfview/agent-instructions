@@ -427,6 +427,9 @@ fn without_unreported_usage(mut schema: String) -> String {
 /// Derives uncached input from the counters that legacy stores kept.
 pub const LEGACY_UNCACHED_INPUT: &str = "CASE WHEN tokens_in - tokens_cached >= tokens_written THEN tokens_in - tokens_cached - tokens_written END";
 
+/// Assignments that remove all legacy counters when the reviewer reported none.
+pub const CLEAR_LEGACY_TOKENS: &str = "tokens_in = NULL, tokens_out = NULL, tokens_cached = NULL, tokens_written = NULL, tokens_uncached = NULL";
+
 /// The schema before review records could omit usage and spec-check cost.
 #[cfg(test)]
 pub fn schema_before_unreported_usage() -> String {

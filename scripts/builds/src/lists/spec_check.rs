@@ -356,9 +356,15 @@ fn check(
         &message,
         Some(&target.worktree),
     );
+    if !invoked.diagnostics.is_empty() {
+        crate::review::call::note_diagnostics(
+            format_args!("the check of {} against {}'s spec", brief.name, target.repo),
+            &invoked.diagnostics,
+        );
+    }
     let output = match &invoked.body {
         Ok(body) => body.to_string(),
-        Err(why) => format!("no answer: {why}"),
+        Err(why) => crate::review::call::failed_answer_text(why),
     };
     let (failure, findings) = match invoked
         .body
@@ -752,7 +758,9 @@ pub mod tests;
 
 /// Keeps stored checks while allowing a provider to omit token usage or cost.
 pub fn allow_unreported_usage(db: &rusqlite::Connection) -> Result<()> {
-    use crate::db::{LEGACY_UNCACHED_INPUT, SPEC_CHECK_PART, remake_table, statement};
+    use crate::db::{
+        CLEAR_LEGACY_TOKENS, LEGACY_UNCACHED_INPUT, SPEC_CHECK_PART, remake_table, statement,
+    };
     remake_table(
         db,
         "spec_check",
@@ -783,9 +791,9 @@ pub fn allow_unreported_usage(db: &rusqlite::Connection) -> Result<()> {
         .collect::<rusqlite::Result<Vec<_>>>()
         .sql()?;
     for (id, output) in unreported {
-        if crate::review::legacy_failure_had_no_usage(&output) {
+        if crate::migrate::legacy_failure_had_no_usage(&output) {
             db.execute(
-                "UPDATE spec_check SET tokens_in = NULL, tokens_out = NULL, tokens_cached = NULL, tokens_written = NULL, tokens_uncached = NULL WHERE id = ?1",
+                &format!("UPDATE spec_check SET {CLEAR_LEGACY_TOKENS}, cost_microdollars = NULLIF(cost_microdollars, 0) WHERE id = ?1"),
                 [id],
             ).sql()?;
         }

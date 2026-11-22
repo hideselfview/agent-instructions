@@ -720,19 +720,26 @@ pub fn ask_groups(
             context: &context,
             open: &given,
         });
-        let setup = prompt::setup(group, unit.members, reviewer);
+        let selected = reviewer.select(&group.model);
+        let setup = prompt::setup(group, unit.members, &selected);
         let given_ids: Vec<i64> = given.iter().map(|f| f.id).collect();
         let started_at = crate::app_timing::now();
         let began = crate::clock::Moment::now();
         let output = call::run(
-            reviewer,
-            &group.model,
+            &selected,
             &names,
             &given_ids,
             group.enumerate,
             &parts,
             checkout.as_ref().map(|c| c.path.as_path()),
         );
+        if !output.diagnostics.is_empty() {
+            let label = match &unit.file {
+                Some(file) => format!("{} reviewing {}", group.name, file.path),
+                None => group.name.clone(),
+            };
+            call::note_diagnostics(label, &output.diagnostics);
+        }
         let exchange = NewExchange {
             model: output.model.clone(),
             unit: unit
@@ -912,10 +919,11 @@ fn bare_call(
     members: &[&Rule],
     failure: Option<String>,
 ) -> NewCall {
+    let selected = reviewer.select(&group.model);
     NewCall {
         group: group.name.clone(),
-        model: reviewer.model_name(&group.model),
-        prompt: prompt::setup(group, members, reviewer),
+        model: selected.model_name(),
+        prompt: prompt::setup(group, members, &selected),
         rules: prompt::answer_names(group, members),
         usage: call::Usage::ZERO,
         sites: None,
