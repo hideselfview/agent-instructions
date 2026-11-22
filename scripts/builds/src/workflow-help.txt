@@ -390,24 +390,6 @@ other rule reads a design file. Screenshot capture files (the files below each
 only against the rules marked `capture: true`, because the shots run checks
 them (decision #397; `builds help`, LANDING AND REVIEW).
 
-If the client refuses to start a review and needs the person's approval, the
-agent records that wait under Waiting on you before asking in chat (decision
-#531 in builds). The agent checks the affected items with `builds item show`
-and reuses an open entry for the same permission and review. Otherwise the
-agent runs `builds question ask --kind your-step --effect slows-agents --title
-"Approve the branch review" --details-file F --blocks N[,N]`, with `--first
-WHY` when the refusal prevents dispatch. F names the affected work, the
-reviewer and destination, and what the person needs to approve sending. The
-agent tells its coordinator immediately. If the question command also fails,
-the agent runs `builds note <worktree> --state waiting-on-you "TEXT"` with the
-permission the review needs, then tells its coordinator.
-
-When the person answers and a retry reaches the reviewer, the agent closes
-the entry with `builds question done Q --request F`. F gives the evidence
-in `shown_by`, maps every blocked item to `"proceeds"` in `blocked`, and
-says in `no_work` that the existing work continues. The agent clears any
-note it set with `builds note <worktree>`.
-
 Spend review usage only where a review can find something (decision #401).
 `builds review` takes a required `--kind code|mechanical`. `--kind code` runs
 the reviewers. `--kind mechanical --checked-by TEXT` starts no reviewer: the
