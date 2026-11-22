@@ -19,22 +19,11 @@ pub enum Fail {
 impl Fail {
     /// What to say of it: the message, or the exit status.
     pub fn text(self) -> String {
-        self.to_string()
-    }
-}
-
-impl Display for Fail {
-    fn fmt(&self, output: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Message(message) => output.write_str(message),
-            Self::Exit(code) => write!(output, "exit {code}"),
+            Self::Message(message) => message,
+            Self::Exit(code) => format!("exit {code}"),
             Self::Move { from, to, error } => {
-                write!(
-                    output,
-                    "moving {} to {}: {error}",
-                    from.display(),
-                    to.display()
-                )
+                format!("moving {} to {}: {error}", from.display(), to.display())
             }
         }
     }
@@ -116,8 +105,7 @@ fn finish_cleanup<T>(
             crate::text::note(reported.text());
             Err(returned)
         }
-        (Ok(value), Ok(())) => Ok(value),
-        (Err(error), Ok(())) | (Ok(_), Err(error)) => Err(error),
+        (first, then) => then.and(first),
     }
 }
 
