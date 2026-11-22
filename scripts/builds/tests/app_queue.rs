@@ -24,6 +24,38 @@ struct Volume {
     started: Vec<Child>,
 }
 
+/// Writes `xcodebuild` and `sw_vers` into <bin>: the mac lane reads the host's
+/// Xcode and macOS from them, so a test never depends on the Xcode the Mac it
+/// runs on has installed or has agreed to the license of.
+fn fake_apple_tools(bin: &Path) {
+    std::fs::create_dir_all(bin).unwrap();
+    for (name, script) in [
+        (
+            "xcodebuild",
+            "#!/bin/sh\nif [ \"$1\" = -version ]; then echo 'Xcode 26.3'; echo 'Build version 17C529'; else exit 1; fi\n",
+        ),
+        (
+            "sw_vers",
+            "#!/bin/sh\nif [ \"$1\" = -buildVersion ]; then echo 26B131; else exit 1; fi\n",
+        ),
+    ] {
+        let path = bin.join(name);
+        std::fs::write(&path, script).unwrap();
+        let mut mode = std::fs::metadata(&path).unwrap().permissions();
+        std::os::unix::fs::PermissionsExt::set_mode(&mut mode, 0o755);
+        std::fs::set_permissions(&path, mode).unwrap();
+    }
+}
+
+/// This process's PATH with <bin> in front.
+fn path_with(bin: &Path) -> std::ffi::OsString {
+    let mut paths = vec![bin.to_path_buf()];
+    paths.extend(std::env::split_paths(
+        &std::env::var_os("PATH").unwrap_or_default(),
+    ));
+    std::env::join_paths(paths).unwrap()
+}
+
 /// The build: logs `start <label>`, starts a background sleep whose pid it
 /// writes down in `background-<label>` (whole, through a rename, so a reader
 /// never sees half of it), waits for the gate file `go-<label>` to appear,
@@ -55,6 +87,7 @@ impl Volume {
         std::fs::create_dir_all(dir.join("volume/demo")).unwrap();
         std::fs::write(dir.join("volume/demo/app-checkouts"), "side-1\n").unwrap();
         programs_folder(&dir.join("home"));
+        fake_apple_tools(&dir.join("bin"));
         Volume {
             dir,
             started: Vec::new(),
@@ -66,6 +99,7 @@ impl Volume {
         command
             .env("BUILDS_ROOT", self.dir.join("volume"))
             .env("HOME", self.dir.join("home"))
+            .env("PATH", path_with(&self.dir.join("bin")))
             .env_remove("CLAUDE_CODE_SESSION_ID")
             .env("QUEUE_TEST_DIR", &self.dir);
         command
@@ -1209,7 +1243,8 @@ fn app_build_with_no_step_named_builds_both_lanes_and_runs_each_class_and_shots_
          sources mac mac\nsources android droid\n\
          needs mac one\nneeds android droid\n\
          test mac ./one.sh {class}\ntest android ./droid.sh {class}\n\
-         shots mac ./shot.sh --select {select}\nshots android ./shot.sh --select {select}\n",
+         shots mac ./shot.sh --select {select}\nshots android ./shot.sh --select {select}\n\
+         shots-declared mac declared-mac\nshots-declared android declared-android\n",
     );
     let top = volume.dir.join("checkout");
     reporting_shots(&top);
@@ -1276,6 +1311,13 @@ fn app_build_with_no_step_named_builds_both_lanes_and_runs_each_class_and_shots_
     }
 }
 
+/// Writes <file> with <text> in the declare folder <folder> of <top>, which
+/// the `shots-declared` lines of `.app-build` name.
+fn declare_scenes(top: &Path, folder: &str, file: &str, text: &str) {
+    std::fs::create_dir_all(top.join(folder)).unwrap();
+    std::fs::write(top.join(folder).join(file), text).unwrap();
+}
+
 /// Writes shot.sh in <top> and commits it: a shots program that logs its
 /// arguments and writes a report, outside the checkout, whose findings.json
 /// names the shots checker this builds keeps runs of, so builds keeps each
@@ -1301,8 +1343,20 @@ echo \"builds shots: report at $report/index.html\" >&2
     let mut mode = std::fs::metadata(&shot).unwrap().permissions();
     std::os::unix::fs::PermissionsExt::set_mode(&mut mode, 0o755);
     std::fs::set_permissions(&shot, mode).unwrap();
+    declare_scenes(
+        top,
+        "declared-mac",
+        "Shots.swift",
+        "let scenes = [\"mac.a.one\"]\n",
+    );
+    declare_scenes(
+        top,
+        "declared-android",
+        "Shots.kt",
+        "val scenes = listOf(shot(\"android.a.one\"))\n",
+    );
     for args in [
-        &["add", "shot.sh"][..],
+        &["add", "shot.sh", "declared-mac", "declared-android"][..],
         &["commit", "-q", "-m", "Add the shots program"],
         &["push", "-q", "origin", "main"],
     ] {
@@ -1497,5 +1551,296 @@ fn a_stop_signal_ends_a_holder_that_waits_to_run_again_after_a_takeover() {
         volume.log(),
         lines(&["start H", "stop H", "start A", "end A"]),
         "H never ran again"
+    );
+}
+
+/// A `.app-build` of the mac lane with a build step, a shots line and the
+/// folder that declares the shots.
+const SHOTS_CONFIG: &str = "step mac one ./one.sh\non mac/ one\nneeds mac one\nshots mac ./shot.sh --select {select}\nshots-declared mac declared-mac\n";
+
+/// What `git <args>` printed in <top>.
+fn git_in(top: &Path, args: &[&str]) -> String {
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(top)
+        .args(args)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8(out.stdout).unwrap().trim().to_string()
+}
+
+/// Commits the shots program (see `reporting_shots`) with <hook>, shell that
+/// runs before it reports, and the declared scene `mac.a.one` on main, and
+/// returns main's commit.
+fn commit_shots(top: &Path, hook: &str) -> String {
+    let shot = top.join("shot.sh");
+    assert!(!shot.exists(), "shot.sh exists already");
+    std::fs::write(
+        &shot,
+        format!(
+            "#!/bin/sh
+echo \"shots $*\" >> \"$QUEUE_TEST_DIR/log\"
+{hook}
+report=\"$QUEUE_TEST_DIR/report-$$\"
+mkdir -p \"$report\"
+echo '<html></html>' > \"$report/index.html\"
+echo '{{\"version\": \"{}\", \"capture_version\": \"{}\", \"commit\": \"c\", \"scenes\": [], \"findings\": []}}' > \"$report/findings.json\"
+echo \"builds shots: report at $report/index.html\" >&2
+",
+            env!("COMPARISON_SOURCE"),
+            env!("CAPTURE_SOURCE")
+        ),
+    )
+    .unwrap();
+    let mut mode = std::fs::metadata(&shot).unwrap().permissions();
+    std::os::unix::fs::PermissionsExt::set_mode(&mut mode, 0o755);
+    std::fs::set_permissions(&shot, mode).unwrap();
+    declare_scenes(
+        top,
+        "declared-mac",
+        "Shots.swift",
+        "let scenes = [\"mac.a.one\"]\n",
+    );
+    git_in(top, &["add", "shot.sh", "declared-mac"]);
+    git_in(top, &["commit", "-q", "-m", "Add the shots program"]);
+    git_in(top, &["push", "-q", "origin", "main"]);
+    git_in(top, &["rev-parse", "HEAD"])
+}
+
+/// Makes the branch <name> from main's commit, with a commit that changes
+/// <file> (a path of the mac lane's app), pushes it and checks main out
+/// again.
+fn branch_from_main(top: &Path, name: &str, file: &str) {
+    git_in(top, &["checkout", "-q", "-b", name]);
+    std::fs::create_dir_all(top.join("mac")).unwrap();
+    std::fs::write(top.join(file), format!("{name}\n")).unwrap();
+    git_in(top, &["add", file]);
+    git_in(
+        top,
+        &["commit", "-q", "-m", &format!("Change the app in {name}")],
+    );
+    git_in(top, &["push", "-q", "origin", name]);
+    git_in(top, &["checkout", "-q", "main"]);
+}
+
+/// The lines of the log that are runs of the shots program for <prefix>.
+fn shots_runs(volume: &Volume, prefix: &str) -> Vec<String> {
+    volume
+        .log()
+        .into_iter()
+        .filter(|line| line.starts_with(&format!("shots --select {prefix} ")))
+        .collect()
+}
+
+/// A branch whose merge base has no cached run does not wait for another
+/// build to make it and is not told to rebase: its lane builds the merge
+/// base, runs the prefix there with `--base`, and then builds the branch,
+/// all in the turn it waited for once.
+#[test]
+fn a_branch_whose_merge_base_has_no_run_builds_the_base_and_the_branch_in_one_lane_turn() {
+    let volume = Volume::new("base-same-turn");
+    volume.app_repo_with(SHOTS_CONFIG);
+    let top = volume.dir.join("checkout");
+    let base = commit_shots(&top, "");
+    branch_from_main(&top, "work", "mac/Foo.txt");
+    volume.open_gate("one");
+    let built = volume.run(&["app-build", "demo", "work", "--shots", "mac.a."]);
+    let said = String::from_utf8_lossy(&built.stderr).into_owned();
+    assert!(built.status.success(), "{said}");
+    let runs = shots_runs(&volume, "mac.a.");
+    assert_eq!(runs.len(), 2, "{:?}\n{said}", volume.log());
+    assert!(
+        runs[0].contains("--base") && !runs[0].contains("--before"),
+        "{runs:?}"
+    );
+    assert!(
+        runs[1].contains("--before") && !runs[1].contains("--base"),
+        "{runs:?}"
+    );
+    assert!(
+        runs[1].contains(&format!("/runs/{base}/mac/")),
+        "the branch compares with the run of its merge base: {runs:?}"
+    );
+    assert_eq!(
+        said.matches("waiting for demo's mac app lock").count(),
+        1,
+        "the base and the branch build in one turn of the lane's queue: {said}"
+    );
+    assert!(!said.contains("rebase"), "{said}");
+    let log = volume.log();
+    let at = |line: &str| log.iter().position(|l| l == line).unwrap();
+    assert!(
+        at("end one") < at(&runs[0]),
+        "the merge base is built before its shots run: {log:?}"
+    );
+}
+
+/// A branch cut before origin/main moved compares with the cached run of its
+/// merge base, builds no run at the tip and is not told to rebase.
+#[test]
+fn a_branch_behind_origin_mains_tip_compares_with_its_merge_bases_run_and_is_not_told_to_rebase() {
+    let volume = Volume::new("base-behind-tip");
+    volume.app_repo_with(SHOTS_CONFIG);
+    let top = volume.dir.join("checkout");
+    let base = commit_shots(&top, "");
+    branch_from_main(&top, "work", "mac/Foo.txt");
+    std::fs::write(top.join("notes.txt"), "main moved\n").unwrap();
+    git_in(&top, &["add", "notes.txt"]);
+    git_in(&top, &["commit", "-q", "-m", "Move main"]);
+    git_in(&top, &["push", "-q", "origin", "main"]);
+    volume.open_gate("one");
+    // Caches the run of the merge base.
+    let first = volume.run(&["app-build", "demo", &base, "--shots", "mac.a."]);
+    assert!(
+        first.status.success(),
+        "{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+    assert_eq!(shots_runs(&volume, "mac.a.").len(), 1);
+    let built = volume.run(&["app-build", "demo", "work", "--shots", "mac.a."]);
+    let said = String::from_utf8_lossy(&built.stderr).into_owned();
+    assert!(built.status.success(), "{said}");
+    let runs = shots_runs(&volume, "mac.a.");
+    assert_eq!(
+        runs.len(),
+        2,
+        "no run at the tip, none at the base: {runs:?}"
+    );
+    assert!(
+        runs[1].contains("--before") && runs[1].contains(&format!("/runs/{base}/mac/")),
+        "{runs:?}"
+    );
+    assert!(!runs[1].contains("--base"), "{runs:?}");
+    assert!(!said.contains("rebase"), "{said}");
+}
+
+/// A shots prefix that starts no shot declared at the merge base compares
+/// with nothing: every scene it selects is new, and no base run is built.
+#[test]
+fn a_prefix_that_starts_no_shot_declared_at_the_merge_base_compares_with_nothing_and_builds_no_base_run()
+ {
+    let volume = Volume::new("base-new-prefix");
+    volume.app_repo_with(SHOTS_CONFIG);
+    let top = volume.dir.join("checkout");
+    commit_shots(&top, "");
+    git_in(&top, &["checkout", "-q", "-b", "work"]);
+    declare_scenes(
+        &top,
+        "declared-mac",
+        "New.swift",
+        "let scenes = [\"mac.new.one\"]\n",
+    );
+    std::fs::create_dir_all(top.join("mac")).unwrap();
+    std::fs::write(top.join("mac/Foo.txt"), "work\n").unwrap();
+    git_in(&top, &["add", "declared-mac", "mac"]);
+    git_in(&top, &["commit", "-q", "-m", "Add a screen"]);
+    git_in(&top, &["push", "-q", "origin", "work"]);
+    git_in(&top, &["checkout", "-q", "main"]);
+    volume.open_gate("one");
+    let built = volume.run(&["app-build", "demo", "work", "--shots", "mac.new."]);
+    let said = String::from_utf8_lossy(&built.stderr).into_owned();
+    assert!(built.status.success(), "{said}");
+    let runs = shots_runs(&volume, "mac.new.");
+    assert_eq!(runs.len(), 1, "{runs:?}");
+    assert!(
+        !runs[0].contains("--before") && !runs[0].contains("--base"),
+        "{runs:?}"
+    );
+    assert!(
+        said.contains("starts no shot declared at the merge base"),
+        "{said}"
+    );
+}
+
+/// A base run whose capture fails, with no findings, fails the branch's
+/// build, which prints what the capture said.
+#[test]
+fn a_base_run_whose_capture_fails_fails_the_branch_build_with_its_output() {
+    let volume = Volume::new("base-capture-fails");
+    volume.app_repo_with(SHOTS_CONFIG);
+    let top = volume.dir.join("checkout");
+    commit_shots(
+        &top,
+        "case \" $* \" in *\" --base \"*) echo 'base-capture-crashed' >&2; exit 1;; esac",
+    );
+    branch_from_main(&top, "work", "mac/Foo.txt");
+    volume.open_gate("one");
+    let built = volume.run(&["app-build", "demo", "work", "--shots", "mac.a."]);
+    let said = String::from_utf8_lossy(&built.stderr).into_owned();
+    assert!(!built.status.success(), "{said}");
+    assert!(said.contains("base-capture-crashed"), "{said}");
+    assert!(said.contains("gave nothing to compare with"), "{said}");
+    let runs = shots_runs(&volume, "mac.a.");
+    assert_eq!(
+        runs.len(),
+        1,
+        "the branch's own run never started: {runs:?}"
+    );
+}
+
+/// Two builds with one merge base, in two checkouts of the lane at once: one
+/// builds the base run while the other waits for it, then reads it from the
+/// cache and builds none.
+#[test]
+fn two_builds_with_one_merge_base_build_its_run_once_and_the_other_waits_for_it() {
+    let volume = Volume::new("base-lock");
+    volume.app_repo_with(SHOTS_CONFIG);
+    let top = volume.dir.join("checkout");
+    commit_shots(&top, "");
+    branch_from_main(&top, "work-a", "mac/A.txt");
+    branch_from_main(&top, "work-b", "mac/B.txt");
+    let second = volume.dir.join("checkout-mac-2");
+    let cloned = Command::new("git")
+        .args(["clone", "-q"])
+        .arg(volume.dir.join("origin.git"))
+        .arg(&second)
+        .output()
+        .unwrap();
+    assert!(cloned.status.success());
+    std::fs::create_dir_all(volume.dir.join("volume/demo/side-4")).unwrap();
+    std::fs::write(
+        volume.dir.join("volume/demo/side-4/.checkout"),
+        second.to_str().unwrap(),
+    )
+    .unwrap();
+    std::fs::write(
+        volume.dir.join("volume/demo/app-checkouts"),
+        "side-1\nside-4\n",
+    )
+    .unwrap();
+    let start = |branch: &str, errors: &Path| {
+        volume
+            .builds()
+            .args(["app-build", "demo", branch, "--shots", "mac.a."])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(std::fs::File::create(errors).unwrap())
+            .spawn()
+            .unwrap()
+    };
+    let (a_said, b_said) = (volume.dir.join("a.err"), volume.dir.join("b.err"));
+    let mut a = start("work-a", &a_said);
+    // A holds the base run's lock, in its build of the merge base.
+    volume.until_logged("start one");
+    let mut b = start("work-b", &b_said);
+    until("B waits for A's run of the merge base", || {
+        std::fs::read_to_string(&b_said)
+            .unwrap_or_default()
+            .contains("being made by another build")
+    });
+    volume.open_gate("one");
+    assert!(a.wait().unwrap().success());
+    assert!(b.wait().unwrap().success());
+    let runs = shots_runs(&volume, "mac.a.");
+    assert_eq!(runs.len(), 3, "{runs:?}");
+    assert_eq!(
+        runs.iter().filter(|run| run.contains("--base")).count(),
+        1,
+        "one build made the base run: {runs:?}"
     );
 }

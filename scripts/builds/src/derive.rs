@@ -21,6 +21,10 @@
 //! prints them instead of running, unless `--fresh`, which also builds the
 //! app and takes the shots again, replacing their pictures in the folder.
 //!
+//! A lane with shots picks and no step that a changed path needs runs the
+//! lane's `needs` steps for them, or none when its picture folder caches every
+//! shot of the picks (the lane's process decides, app_build.rs `NEEDS_ONLY`).
+//!
 //! The lane's process (app_build.rs) then picks the checkout: the free one on
 //! the less loaded host, `here`-only steps staying on this Mac (lock.rs).
 
@@ -320,8 +324,6 @@ pub fn derive_and_run(places: &Places, args: &[String]) -> Result<()> {
     }
     crate::shots_declared::refuse_undeclared(&top, &commit, &picks)?;
     let pinned = app_build::pin(places)?;
-    let tip = app_build::main_tip(places, repo)?;
-    app_build::ensure_before_runs(places, &pinned, repo, &commit, &tip, &picks)?;
     let changed = changed_paths(&top, &commit)?;
     let lanes = plan(&config, &changed, &picks);
     if lanes.is_empty() {
@@ -330,31 +332,33 @@ pub fn derive_and_run(places: &Places, args: &[String]) -> Result<()> {
         ));
         return Ok(());
     }
-    // --fresh takes the shots again, so no lane may skip its build for them.
-    let kept = if fresh {
+    // A lane whose only reason to build is its shots picks builds nothing when
+    // the picture folder caches the shots (the lane decides, once it knows
+    // the environment its shots are taken in). --fresh takes the shots again,
+    // so no lane skips its build for them.
+    let built_for_changes: Vec<Lane> = plan(&config, &changed, &[])
+        .into_iter()
+        .map(|(lane, _)| lane)
+        .collect();
+    let needs_only: Vec<Lane> = if fresh {
         Vec::new()
     } else {
-        app_build::cached_shots_lanes(
-            places, repo, &top, &commit, &config, &changed, &lanes, &picks,
-        )?
+        lanes
+            .iter()
+            .map(|(lane, _)| *lane)
+            .filter(|lane| {
+                let own: Vec<&Pick> = picks.iter().filter(|(own, _, _)| own == lane).collect();
+                !own.is_empty()
+                    && own.iter().all(|(_, kind, _)| *kind == PickKind::Shots)
+                    && !built_for_changes.contains(lane)
+            })
+            .collect()
     };
-    let lanes: Vec<(Lane, Vec<String>)> = lanes
-        .into_iter()
-        .map(|(lane, names)| {
-            if kept.contains(&lane) {
-                (lane, Vec::new())
-            } else {
-                (lane, names)
-            }
-        })
-        .collect();
     for (lane, names) in &lanes {
         note(format!(
             "{} lane: {}",
             lane.word(),
-            if kept.contains(lane) {
-                "no build: the picture folder holds every shot the runs take for the lane's app tree".to_string()
-            } else if names.is_empty() {
+            if names.is_empty() {
                 "no build, only the runs asked for".to_string()
             } else {
                 names.join(" ")
@@ -365,12 +369,10 @@ pub fn derive_and_run(places: &Places, args: &[String]) -> Result<()> {
         &pinned,
         repo,
         (&commit, git_ref),
-        &tip,
         &lanes,
         &picks,
-        &kept,
+        &needs_only,
         fresh,
-        false,
     )
 }
 

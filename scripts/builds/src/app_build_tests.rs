@@ -1094,12 +1094,11 @@ fn a_lane_is_told_the_ref_the_caller_named_beside_the_commit_it_builds() {
         "bae",
         Lane::Mac,
         (commit, "my-branch"),
-        "tip",
-        (false, false, false),
+        (false, false),
         (&["macos".to_string()], &[]),
     );
     assert_eq!(
-        words[..9],
+        words[..7],
         [
             "app-build",
             "bae",
@@ -1107,9 +1106,7 @@ fn a_lane_is_told_the_ref_the_caller_named_beside_the_commit_it_builds() {
             "mac",
             commit,
             "--built-ref",
-            "my-branch",
-            "--main-tip",
-            "tip"
+            "my-branch"
         ]
     );
 }
@@ -1591,7 +1588,6 @@ fn a_lanes_shots_runs_compare_with_the_cached_run_of_the_merge_base_and_a_run_of
             "demo",
             Lane::Mac,
             commit,
-            &main,
             &config,
             &a_screens(),
             false,
@@ -1625,13 +1621,12 @@ fn a_lanes_shots_runs_compare_with_the_cached_run_of_the_merge_base_and_a_run_of
 }
 
 #[test]
-fn a_prefix_that_starts_no_shot_at_mains_tip_compares_with_no_run() {
+fn a_prefix_that_starts_no_shot_declared_at_the_merge_base_compares_with_no_run() {
     let scratch = crate::testing::Scratch::new("shots-store-new-prefix");
     let places = scratch.places();
     let top = scratch.dir.join("repo");
     shots_repo(&top);
     let config = parse_config(&std::fs::read_to_string(top.join(CONFIG)).unwrap()).unwrap();
-    let main = resolve(&top, "HEAD").unwrap();
     crate::testing::git(&top, &["checkout", "-q", "-b", "work"]);
     crate::testing::git(&top, &["commit", "-q", "--allow-empty", "-m", "Work"]);
     let work = resolve(&top, "HEAD").unwrap();
@@ -1642,7 +1637,6 @@ fn a_prefix_that_starts_no_shot_at_mains_tip_compares_with_no_run() {
         "demo",
         Lane::Mac,
         &work,
-        &main,
         &config,
         &new,
         false,
@@ -1652,33 +1646,6 @@ fn a_prefix_that_starts_no_shot_at_mains_tip_compares_with_no_run() {
     )
     .unwrap();
     assert!(store.befores.is_empty());
-}
-
-#[test]
-fn a_branch_whose_merge_base_run_is_cached_builds_no_before_run() {
-    let scratch = crate::testing::Scratch::new("shots-ensure");
-    let places = scratch.places();
-    let top = scratch.dir.join("repo");
-    shots_repo(&top);
-    places
-        .write_app_checkouts(
-            "demo",
-            Lane::Mac,
-            &[crate::lane::AppCheckout::by_person("side-1")],
-        )
-        .unwrap();
-    let marker = places.root.join("demo/side-1");
-    std::fs::create_dir_all(&marker).unwrap();
-    std::fs::write(marker.join(".checkout"), top.display().to_string()).unwrap();
-    let main = resolve(&top, "HEAD").unwrap();
-    // A commit on origin/main needs none, and no lane starts (one would run
-    // this test program as `builds`).
-    let pinned = crate::testing::pinned_programs(&scratch.dir.join("bin-started"), &places.home);
-    ensure_before_runs(&places, &pinned, "demo", &main, &main, &a_screens()).unwrap();
-    crate::testing::git(&top, &["checkout", "-q", "-b", "work"]);
-    crate::testing::git(&top, &["commit", "-q", "--allow-empty", "-m", "Work"]);
-    cache_with_records(&places, &shots_key(&main, "mac.a."));
-    ensure_before_runs(&places, &pinned, "demo", "work", &main, &a_screens()).unwrap();
 }
 
 /// A request names its repo and ref; a lane's process, `--list` and other
@@ -1768,39 +1735,36 @@ fn a_shots_run_of_a_fresh_build_takes_every_shot_again() {
 }
 
 #[test]
-fn a_shots_only_lane_whose_shots_the_picture_folder_caches_builds_nothing() {
+fn the_picture_folder_caches_the_shots_of_the_prefixes_its_marks_cover_for_the_app_tree() {
     let scratch = crate::testing::Scratch::new("shots-cached-lanes");
     let places = scratch.places();
     let top = scratch.dir.join("repo");
     shots_repo(&top);
     let commit = resolve(&top, "HEAD").unwrap();
     let config = parse_config(&std::fs::read_to_string(top.join(CONFIG)).unwrap()).unwrap();
-    let lanes = vec![(Lane::Mac, vec!["macos".to_string()])];
-    let cached = |picks: &[Pick], changed: &[String]| {
-        cached_shots_lanes(
-            &places, "demo", &top, &commit, &config, changed, &lanes, picks,
-        )
-        .unwrap()
-    };
-    assert!(
-        cached(&a_screens(), &[]).is_empty(),
-        "the folder caches nothing yet"
-    );
     let tree = crate::app_tree::of(&top, &commit, &config, Lane::Mac).unwrap();
+    let caches = |prefixes: &[&str]| {
+        picture_folder_caches(&places, "demo", &config, Lane::Mac, &tree, prefixes).unwrap()
+    };
+    assert!(!caches(&["mac.a."]), "the folder caches nothing yet");
     let taken = shots_cache::pictures(&places, "demo")
         .join("mac")
         .join(&tree)
         .join(".taken");
     std::fs::create_dir_all(&taken).unwrap();
     std::fs::write(taken.join("mac.@no-windows"), "").unwrap();
-    assert_eq!(cached(&a_screens(), &[]), [Lane::Mac]);
-    let with_test = vec![
-        a_screens()[0].clone(),
-        (Lane::Mac, PickKind::Class, "SomeTests".to_string()),
-    ];
+    assert!(caches(&["mac.a."]) && caches(&["mac.a.", "mac.b."]));
     assert!(
-        cached(&with_test, &[]).is_empty(),
-        "a test class needs the app built"
+        !picture_folder_caches(
+            &places,
+            "demo",
+            &config,
+            Lane::Mac,
+            "another-tree",
+            &["mac.a."]
+        )
+        .unwrap(),
+        "another app tree has no shots cached"
     );
 }
 
