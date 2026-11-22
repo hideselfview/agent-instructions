@@ -477,17 +477,15 @@ pub fn passed_runs(
                 "SELECT r.id, c.built_commit FROM app_build_runs r
                  JOIN app_build_run_commit c ON c.run_id = r.id
                  WHERE r.repo = ?1 AND r.lane = ?2 AND r.outcome = 'passed'
-                   AND (r.built_ref = ?3 OR c.built_commit IN ({marks}))
+                   AND (r.built_ref IS ?3 OR c.built_commit IN ({marks}))
                  ORDER BY r.id DESC"
             )
             .as_str(),
         )
         .context(what)?;
-    // A run's ref is never empty (`built_ref`'s CHECK), so no run has the
-    // ref of a caller that names none.
-    let words = [repo, lane.word(), named.unwrap_or("")]
-        .into_iter()
-        .chain(commits.iter().map(String::as_str));
+    let lane = lane.word();
+    let mut words: Vec<&dyn rusqlite::ToSql> = vec![&repo, &lane, &named];
+    words.extend(commits.iter().map(|commit| commit as &dyn rusqlite::ToSql));
     let found: Vec<(i64, String)> = runs
         .query_map(rusqlite::params_from_iter(words), |row| {
             Ok((row.get(0)?, row.get(1)?))
