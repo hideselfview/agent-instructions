@@ -703,7 +703,10 @@ fn commits_whose_rules_review_is_not_finished_are_in_review_and_the_card_says_wh
         CardState::Working
     );
     assert_eq!(
-        state(CardState::ReadyToLand, &[ItemWait::DesignCoverage]),
+        state(
+            CardState::ReadyToLand,
+            &[ItemWait::RulesReview(ReviewWait::DesignCoverage)]
+        ),
         CardState::InReview(ReviewWait::DesignCoverage)
     );
     let said = |wait| {

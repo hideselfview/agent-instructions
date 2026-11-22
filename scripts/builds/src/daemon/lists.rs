@@ -53,7 +53,7 @@ pub struct Feed {
     dirty: AtomicBool,
     wake: Condvar,
     wake_lock: Mutex<()>,
-    listener: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
+    listener: Mutex<Option<Listener>>,
     stream: Mutex<Option<Stream>>,
 }
 
@@ -81,7 +81,7 @@ impl Feed {
         let mut watches = HashMap::new();
         let snapshot =
             scan_databases(&places, &mut watches).and_then(|scan| load_paths(&places, &scan.paths));
-        report_snapshot_fault(&snapshot);
+        report_snapshot_fault(&snapshot, None);
         let now = clock();
         let feed = Arc::new(Feed {
             current: Mutex::new((1, Arc::new(snapshot))),
@@ -121,8 +121,8 @@ impl Feed {
         feed
     }
 
-    /// Calls <listener> after each read that found something new.
-    pub fn listen(&self, listener: Box<dyn Fn() + Send + Sync>) {
+    /// Calls <listener> after a changed reading, with whether project lists changed.
+    pub fn listen(&self, listener: Listener) {
         *self.listener.lock().expect("no panic holding it") = Some(listener);
     }
 
@@ -232,9 +232,10 @@ impl Feed {
                 (*previous != read).then_some(read)
             }
         };
-        let mut changed = update.is_some();
+        let stores_changed = update.is_some();
+        let mut changed = stores_changed;
         if let Some(read) = update {
-            report_snapshot_fault(&read);
+            report_snapshot_fault(&read, Some(&previous));
             let mut current = self.current.lock().expect("no panic holding it");
             *current = (current.0 + 1, Arc::new(read));
         }
@@ -243,7 +244,7 @@ impl Feed {
             changed |= replace_if_changed(&self.hooks, hooks);
         }
         if changed {
-            self.tell();
+            self.tell(stores_changed);
         }
         // After the lists and figures are out: the checks read every page
         // of the database.
@@ -253,14 +254,14 @@ impl Feed {
             Err(_) => self.clear_integrity(),
         };
         if integrity_changed {
-            self.tell();
+            self.tell(false);
         }
     }
 
     /// Calls the listener, which says that something the feed serves changed.
-    fn tell(&self) {
+    fn tell(&self, stores_changed: bool) {
         if let Some(listener) = &*self.listener.lock().expect("no panic holding it") {
-            listener();
+            listener(stores_changed);
         }
     }
 }
@@ -323,9 +324,21 @@ fn scan_databases(
     Ok(DatabaseScan { paths, moved })
 }
 
-fn report_snapshot_fault(snapshot: &Snapshot) {
-    if let Err(fault) = snapshot {
-        crate::text::note(format!("reading the project lists: {fault}"));
+fn report_snapshot_fault(snapshot: &Snapshot, previous: Option<&Snapshot>) {
+    let rows = match snapshot {
+        Ok(rows) => rows,
+        Err(fault) => {
+            crate::text::note(format!("reading the project lists: {fault}"));
+            return;
+        }
+    };
+    let previous = previous.and_then(|snapshot| snapshot.as_ref().ok());
+    for loaded in rows {
+        if let Err(fault) = &loaded.lists
+            && !previous.is_some_and(|previous| previous.contains(loaded))
+        {
+            crate::text::note(format!("reading the lists of {}: {fault}", loaded.project));
+        }
     }
 }
 
@@ -629,6 +642,9 @@ fn compose_view(
         }
     }
 }
+
+/// Notifies the dashboard when a feed changes, with whether the stores moved.
+type Listener = Box<dyn Fn(bool) + Send + Sync>;
 
 #[cfg(test)]
 #[path = "lists_tests.rs"]

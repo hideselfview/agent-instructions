@@ -779,10 +779,9 @@ pub struct Claimed {
     pub claim: Claim,
     pub branch: Option<String>,
     pub git: GitRead,
-    /// Do its commits wait on the person's review of a design change: one
-    /// that waits on their approval covers them, and the rules review takes
-    /// them (decision #362)?
-    pub awaiting_review: bool,
+    /// Design coverage is unknown, or the worktree awaits approval after
+    /// its rules review clears (decision #362).
+    pub design_prevents_stalled: bool,
     /// What blocks its branch from landing, from the review records; None
     /// when health did not read them (nothing waits to land there).
     pub landing: Option<Advice>,
@@ -924,7 +923,7 @@ pub fn assess(
         claim,
         branch,
         git,
-        awaiting_review,
+        design_prevents_stalled,
         landing,
     } in claimed
     {
@@ -986,11 +985,11 @@ pub fn assess(
             })
             .collect();
         // A held claim is quiet on purpose: its note says why. A worktree
-        // whose design change waits on the person's review is waiting on them.
+        // whose design coverage is unknown or awaits approval is also out of scope.
         let held = claim.is_held();
         schedule_needed |= !held || git.is_err();
         let stalled = !held
-            && !awaiting_review
+            && !design_prevents_stalled
             && building.is_empty()
             && remote_runs.is_empty()
             && app_builds.is_empty()
@@ -1204,17 +1203,21 @@ pub fn lists_findings(
     reads: WorktreeReads,
 ) -> Result<Vec<Advice>> {
     let WorktreeReads { designs, reviews } = reads;
-    let approving = crate::lists::held::awaiting_approval(loaded, worktrees, designs);
+    use crate::lists::held::DesignWait;
+    let held = crate::lists::held::inspect(loaded, worktrees, designs);
     for one in claimed.iter_mut() {
         let landing = worktrees
             .iter()
             .find(|worktree| worktree.label == places[one.place].label)
             .and_then(|worktree| worktree.landing(places_in, loaded, reviews));
-        one.awaiting_review = approving.contains(&places[one.place].label)
-            && matches!(
+        one.design_prevents_stalled = match held.design_waits.get(&places[one.place].label) {
+            Some(DesignWait::Checking | DesignWait::Unread) => true,
+            Some(DesignWait::Approval) => matches!(
                 landing,
                 Some(Ok(crate::review::idle::Landing::ReviewClear(_)))
-            );
+            ),
+            None => false,
+        };
         one.landing = landing.map(|landing| match landing {
             Ok(landing) => landing.advice(),
             Err(fault) => Advice::said(format!(
@@ -1226,7 +1229,7 @@ pub fn lists_findings(
         crate::lists::store::Store::named(places_in, project)?.load()
     })?;
     lists.extend(crate::lists::kept_work::findings(loaded)?);
-    lists.extend(crate::lists::held::findings(loaded, worktrees, designs));
+    lists.extend(held.findings);
     lists.extend(crate::lists::rust_check::findings(places_in));
     lists.extend(crate::lists::project::missing_globs_findings(
         &places_in.home,
@@ -1320,7 +1323,7 @@ pub fn health(tool: &Tool) -> Result<Health> {
             claim,
             branch,
             git,
-            awaiting_review: false,
+            design_prevents_stalled: false,
             landing: None,
         });
     }
@@ -2120,7 +2123,7 @@ mod tests {
                 uncommitted: 3,
                 last_write: Some(now - 3 * 3600),
             }),
-            awaiting_review: n == 3,
+            design_prevents_stalled: n == 3,
             landing: None,
         };
         let health = assess(
@@ -2203,7 +2206,7 @@ mod tests {
                 uncommitted: 3,
                 last_write: Some(now - 3 * 3600),
             }),
-            awaiting_review: false,
+            design_prevents_stalled: false,
             landing: Some(landing),
         };
         let health = assess(
@@ -2318,7 +2321,7 @@ mod tests {
                     },
                     branch: Some("work".to_string()),
                     git: git(ahead, claimed_unread),
-                    awaiting_review: false,
+                    design_prevents_stalled: false,
                     landing: None,
                 })
                 .collect();
@@ -2419,7 +2422,7 @@ mod tests {
                 uncommitted: 3,
                 last_write: Some(now - changed_ago),
             }),
-            awaiting_review: false,
+            design_prevents_stalled: false,
             landing: None,
         };
         assess(
@@ -2506,7 +2509,7 @@ mod tests {
                 uncommitted: 3,
                 last_write: Some(now - 2 * 3600),
             }),
-            awaiting_review: false,
+            design_prevents_stalled: false,
             landing: None,
         };
         let health = assess(
@@ -2588,7 +2591,7 @@ mod tests {
                     uncommitted: 0,
                     last_write: Some(now - 2 * 3600),
                 }),
-                awaiting_review: false,
+                design_prevents_stalled: false,
                 landing: None,
             };
             assess(
@@ -2667,7 +2670,7 @@ mod tests {
                     uncommitted: 0,
                     last_write: Some(now - 2 * 3600),
                 }),
-                awaiting_review: false,
+                design_prevents_stalled: false,
                 landing: Some(
                     crate::review::idle::Landing::ReviewClear(
                         "builds land /demo-worktrees/side-1 --done 7 abc".to_string(),
@@ -2795,7 +2798,7 @@ mod tests {
                     uncommitted: 0,
                     last_write: None,
                 }),
-                awaiting_review: false,
+                design_prevents_stalled: false,
                 landing: None,
             };
             assess(

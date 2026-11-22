@@ -58,6 +58,27 @@ fn claim_of(top: &std::path::Path) -> Claim {
         .unwrap()
 }
 
+fn findings(
+    loaded: &std::result::Result<Vec<Loaded>, String>,
+    worktrees: &[Worktree],
+    reads: Coverage<'_>,
+) -> Vec<Advice> {
+    inspect(loaded, worktrees, reads).findings
+}
+
+fn awaiting_approval(
+    loaded: &std::result::Result<Vec<Loaded>, String>,
+    worktrees: &[Worktree],
+    reads: Coverage<'_>,
+) -> Vec<String> {
+    inspect(loaded, worktrees, reads)
+        .design_waits
+        .into_iter()
+        .filter(|(_, wait)| *wait == DesignWait::Approval)
+        .map(|(label, _)| label)
+        .collect()
+}
+
 #[test]
 fn a_hold_is_refused_while_nothing_runs_in_the_worktree() {
     let demo = demo("held-nothing");
@@ -755,4 +776,16 @@ fn health_advises_no_release_of_a_claim_waiting_for_its_item() {
             .all(|f| !f.line().contains("release it with")),
         "{starting:?}"
     );
+}
+
+#[test]
+fn a_pending_design_comparison_blocks_quiet_advice_without_creating_a_finding() {
+    let (_demo, tree, lists) = design_branch("held-design-pending", true);
+    let reads = DesignReads::default();
+    let reading = inspect(&loaded(lists), &[tree], Coverage::Completed(&reads));
+    assert_eq!(
+        reading.design_waits.get("demo/side-1"),
+        Some(&DesignWait::Checking)
+    );
+    assert!(reading.findings.is_empty());
 }

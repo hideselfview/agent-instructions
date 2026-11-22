@@ -17,6 +17,7 @@
 //! canvas.json names no design system has no boards the checker can draw, so
 //! its files' bytes decide and nothing is drawn.
 
+use std::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -256,6 +257,34 @@ struct System {
     namespace: String,
 }
 
+/// The files at a comparison tip, with its canvas availability read on demand.
+pub(crate) struct TipDrawing<'a> {
+    rev: &'a str,
+    files: &'a Drawing,
+    has_system: Cell<Option<bool>>,
+}
+
+impl<'a> TipDrawing<'a> {
+    pub(crate) fn new(rev: &'a str, files: &'a Drawing) -> Self {
+        Self {
+            rev,
+            files,
+            has_system: Cell::new(None),
+        }
+    }
+
+    fn names_design_system(&self, top: &Path) -> Result<bool> {
+        match self.has_system.get() {
+            Some(has_system) => Ok(has_system),
+            None => {
+                let has_system = names_design_system(top, self.rev)?;
+                self.has_system.set(Some(has_system));
+                Ok(has_system)
+            }
+        }
+    }
+}
+
 /// Whether each path a design change shows draws the same at two commits.
 #[derive(Debug, Default)]
 pub struct Sameness {
@@ -280,24 +309,24 @@ impl Sameness {
     /// commit <after>, for a change that holds the places <held>. <sources>
     /// are the shared design-system sources among <paths>. Asks <renders>
     /// only when some file of <paths> differs.
-    pub fn between(
+    pub(crate) fn between(
         renders: &dyn Renders,
         top: &Path,
         before: (&str, &Drawing),
-        after: (&str, &Drawing),
+        after: &TipDrawing,
         held: &BTreeSet<String>,
         sources: &BTreeSet<String>,
         paths: &BTreeSet<&String>,
     ) -> Result<Sameness> {
         let identical: BTreeSet<String> = paths
             .iter()
-            .filter(|path| before.1.same(after.1, path))
+            .filter(|path| before.1.same(after.files, path))
             .map(|path| path.to_string())
             .collect();
         let mut drawn = BTreeMap::new();
         if identical.len() < paths.len()
             && names_design_system(top, before.0)?
-            && names_design_system(top, after.0)?
+            && after.names_design_system(top)?
         {
             let places: BTreeSet<String> = held
                 .iter()
@@ -310,7 +339,7 @@ impl Sameness {
                 .cloned()
                 .collect();
             if !places.is_empty() {
-                let alike = renders.alike(top, before.0, after.0, &places)?;
+                let alike = renders.alike(top, before.0, after.rev, &places)?;
                 for place in places {
                     let same = alike.contains(&place);
                     drawn.insert(place, same);

@@ -13,6 +13,7 @@ use crate::fail::Fail;
 use crate::lists::Lists;
 use crate::lists::design::{DesignCommit, design_commits};
 use crate::lists::design_drawn::{ProgramRenders, Renders};
+use crate::lists::design_paths::Globs;
 use crate::side_git::SideRead;
 
 /// What a worktree's design commits are read from besides the files of its
@@ -43,7 +44,6 @@ impl Tip {
 /// its Git and renderer processes.
 struct Read {
     tip: Tip,
-    reading: Mutex<()>,
     outcome: RwLock<Option<Outcome>>,
 }
 
@@ -141,7 +141,7 @@ impl DesignReads {
     }
 
     fn has_nothing_to_read(lists: &Lists, repo: &str, git: &SideRead) -> bool {
-        git.ahead.is_empty() || !crate::lists::design_paths::Globs::has_design_files(lists, repo)
+        git.ahead.is_empty() || !Globs::has_design_files(lists, repo)
     }
 
     /// The design commits in the worktree at <top> of <repo>, whose side
@@ -176,7 +176,6 @@ impl DesignReads {
                 None => {
                     let read = Arc::new(Read {
                         tip,
-                        reading: Mutex::new(()),
                         outcome: RwLock::new(None),
                     });
                     by_project.insert(lists.project.clone(), read.clone());
@@ -184,15 +183,22 @@ impl DesignReads {
                 }
             }
         };
-        let _reading = read.reading.lock().expect("no panic holding it");
         if let Some(kept) = read.outcome.read().expect("no panic holding it").as_ref()
             && (!retry_failed || kept.is_ok())
         {
             return (kept.clone(), false);
         }
-        let found = design_commits(lists, repo, top, &read.tip.ahead, self.renders.as_ref())
-            .map(Arc::new)
-            .map_err(Arc::new);
+        let globs = Globs::of(lists, repo);
+        let found = design_commits(
+            lists,
+            repo,
+            &globs,
+            top,
+            &read.tip.ahead,
+            self.renders.as_ref(),
+        )
+        .map(Arc::new)
+        .map_err(Arc::new);
         *read.outcome.write().expect("no panic holding it") = Some(found.clone());
         (found, true)
     }

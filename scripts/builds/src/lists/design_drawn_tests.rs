@@ -102,7 +102,7 @@ fn between_in(
         renders,
         &dir,
         ("HEAD~1", &before),
-        ("HEAD", &after),
+        &TipDrawing::new("HEAD", &after),
         &set(held),
         &set(sources),
         &asked,

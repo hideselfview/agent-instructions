@@ -89,13 +89,15 @@ pub fn read(
     let ahead = crate::side_git::read(top)
         .map_err(Fail::Message)?
         .ahead_oldest_first();
-    let covers = design_commits(lists, &design.repo, top, &ahead, renders)?
-        .iter()
-        .any(|commit| commit.covered_by == Some(design.id));
-    if !covers {
+    if !Globs::has_design_files(lists, &design.repo) {
         return Ok(Standing::Uncovered);
     }
-    let design_files = Globs::of(lists, &design.repo).with_capture_folders(top)?;
+    let globs = Globs::of(lists, &design.repo);
+    let commits = design_commits(lists, &design.repo, &globs, top, &ahead, renders)?;
+    if !crate::lists::design::covers_any_commit(&commits, design.id) {
+        return Ok(Standing::Uncovered);
+    }
+    let design_files = globs.with_capture_folders(top)?;
     let scope = Scope {
         material,
         files: &design_files,

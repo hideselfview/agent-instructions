@@ -195,7 +195,7 @@ fn a_write_to_the_store_moves_the_version_the_feed_reports() {
         3
     );
     let (sent, moved) = mpsc::channel();
-    feed.listen(Box::new(move || {
+    feed.listen(Box::new(move |_| {
         let _ = sent.send(());
     }));
 
@@ -255,7 +255,7 @@ fn a_store_edited_outside_builds_reaches_the_feeds_integrity_findings() {
     let feed = Feed::start(places);
     assert_eq!(*feed.integrity(), Vec::<String>::new());
     let (sent, moved) = mpsc::channel();
-    feed.listen(Box::new(move || {
+    feed.listen(Box::new(move |_| {
         let _ = sent.send(());
     }));
 
@@ -345,7 +345,7 @@ fn a_recorded_hook_run_reaches_the_feeds_hooks_json_and_moves_no_version() {
     let before = feed.hooks();
     assert!(before.contains("\"repos\":[]"), "{before}");
     let (sent, moved) = mpsc::channel();
-    feed.listen(Box::new(move || {
+    feed.listen(Box::new(move |_| {
         let _ = sent.send(());
     }));
 
@@ -394,7 +394,7 @@ fn a_recorded_app_build_run_reaches_the_feeds_hooks_json() {
     let before = feed.hooks();
     assert!(!before.contains("\"median_wait_ms\""), "{before}");
     let (sent, moved) = mpsc::channel();
-    feed.listen(Box::new(move || {
+    feed.listen(Box::new(move |_| {
         let _ = sent.send(());
     }));
     let at = NOON - 60;

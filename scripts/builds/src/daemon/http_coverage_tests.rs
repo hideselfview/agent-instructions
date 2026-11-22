@@ -4,8 +4,9 @@ use crate::lists::fixtures::{NOON, design_drawn, design_place, design_tipped, st
 use crate::lists::project::NewProject;
 use crate::lists::store::Store;
 use crate::testing::{git, repo};
+use std::os::fd::FromRawFd;
 use std::sync::mpsc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 const BOARD: &str = "design/mocks/Held.dc.html";
 
@@ -90,6 +91,7 @@ fn checkout_lists_and_health_answer_before_a_board_comparison_finishes() {
 exec /usr/bin/python3 -c '
 import socket
 with socket.create_connection(("127.0.0.1", {port}), timeout=8) as gate:
+    gate.settimeout(None)
     assert gate.recv(1) == b"x"
 print("alike board Held")
 '"#
@@ -98,23 +100,36 @@ print("alike board Held")
     });
     let mut gate = drawing.recv_timeout(Duration::from_secs(5)).unwrap();
     server.model.refresh_processes().unwrap();
-    let started = Instant::now();
-    let checkout = server.get("/api/state");
-    let lists = server.get("/api/lists");
+    let host = format!("127.0.0.1:{}", server.port);
+    let mut stream = TcpStream::connect(&host).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .unwrap();
+    write!(stream, "GET /events HTTP/1.1\r\nHost: {host}\r\n\r\n").unwrap();
+    let mut events = BufReader::new(stream);
+    assert!(next_event(&mut events, "state").contains("side-2"));
+    assert!(next_event(&mut events, "lists").contains("checking-design"));
+
+    let places = &server.model.places;
+    let line = crate::queue::Queue::of(places, "demo", crate::lane::Lane::Mac);
+    let (ticket, _) = line.join(crate::lock::Where::Anywhere).unwrap();
+    let ticket_fd = unsafe { std::os::fd::OwnedFd::from_raw_fd(ticket.fd) };
+    let pid = std::process::id();
+    let (status, reply) = server.post_to(
+        "/api/queue",
+        &host,
+        Some(&format!("http://{host}")),
+        &format!(r#"{{"action":"top","repo":"demo","pid":{pid}}}"#),
+    );
+    drop(ticket_fd);
+    line.drop_ticket(&ticket.name).unwrap();
+    assert_eq!(status, 200, "{reply}");
+
     let health = server.get("/api/health");
-    gate.write_all(b"x").unwrap();
-    assert!(
-        started.elapsed() < Duration::from_secs(4),
-        "render was still blocked"
-    );
-    assert_eq!(checkout.0, 200, "{}", checkout.2);
-    assert!(checkout.2.contains("side-2"), "{}", checkout.2);
-    assert_eq!(lists.0, 200, "{}", lists.2);
-    assert!(lists.2.contains("checking-design"), "{}", lists.2);
     assert_eq!(health.0, 200, "{}", health.2);
-    assert!(
-        health.2.contains("checking design coverage"),
-        "{}",
-        health.2
-    );
+    let data: serde_json::Value = serde_json::from_str(&health.2).unwrap();
+    assert_eq!(data["findings"], serde_json::json!([]));
+    assert_eq!(data["worktrees"][0]["stalled"], false);
+
+    gate.write_all(b"x").unwrap();
 }

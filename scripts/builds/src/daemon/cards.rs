@@ -35,10 +35,7 @@ pub enum ItemWait {
     Landing { id: u32, title: String },
     /// Commits of a design branch that no recorded design change covers.
     Unrecorded,
-    /// The dashboard is checking whether a design change covers the commits.
-    DesignCoverage,
-    /// Commits waiting to land whose rules review `builds land` would not
-    /// take yet (review_cards.rs).
+    /// Commits that wait on rules review or design coverage.
     RulesReview(ReviewWait),
     /// A condition in words, which holds until its ender removes it from the
     /// item.
@@ -55,6 +52,8 @@ pub enum ReviewWait {
     Running,
     /// Builds is checking which design changes cover the branch's commits.
     DesignCoverage,
+    /// Builds could not read the commits' design coverage.
+    DesignUnread,
     /// This many findings wait for the settler to settle them.
     ToSettle(usize, Settler),
     /// This many confirmed findings are open: they wait for a review that
@@ -79,6 +78,7 @@ impl ReviewWait {
         match self {
             ReviewWait::NotRun => "Needs review",
             ReviewWait::Running | ReviewWait::DesignCoverage => "Reviewing",
+            ReviewWait::DesignUnread => "Cannot read design coverage",
             ReviewWait::ToSettle(..) => "Findings to settle",
             ReviewWait::Open(_) => "Open findings",
             ReviewWait::Unreviewed(_) => "Unreviewed changes",
@@ -90,6 +90,7 @@ impl ReviewWait {
         let text = match self {
             ReviewWait::NotRun | ReviewWait::Running => return None,
             ReviewWait::DesignCoverage => "Design coverage".to_string(),
+            ReviewWait::DesignUnread => return None,
             ReviewWait::ToSettle(n, _) | ReviewWait::Open(n) => {
                 crate::text::counted(n, "finding", "findings")
             }
@@ -112,6 +113,7 @@ impl ReviewWait {
             ReviewWait::NotRun => String::new(),
             ReviewWait::Running => "The rules review of its commits runs.".to_string(),
             ReviewWait::DesignCoverage => "Builds checks which design changes cover the commits.".to_string(),
+            ReviewWait::DesignUnread => "Builds could not read design coverage.".to_string(),
             ReviewWait::ToSettle(n, settler) => format!(
                 "{} on the {} to settle {}.",
                 findings(n, "review"),
@@ -166,7 +168,7 @@ impl ItemWait {
             ItemWait::AppBuild { .. } => 2,
             ItemWait::Item { .. } | ItemWait::Landing { .. } => 3,
             ItemWait::Unrecorded => 4,
-            ItemWait::RulesReview(_) | ItemWait::DesignCoverage => 5,
+            ItemWait::RulesReview(_) => 5,
             ItemWait::Condition { .. } => 6,
         }
     }
@@ -191,7 +193,6 @@ impl ItemWait {
             ItemWait::AppBuild { running: false, .. } => return None,
             ItemWait::Item { id, .. } | ItemWait::Landing { id, .. } => format!("After #{id}"),
             ItemWait::Unrecorded => "No design change".to_string(),
-            ItemWait::DesignCoverage => return ReviewWait::DesignCoverage.pill(),
             ItemWait::RulesReview(review) => return review.pill(),
             ItemWait::Condition { .. } => return None,
         };
@@ -228,7 +229,6 @@ impl ItemWait {
                     .to_string()
             }
             ItemWait::RulesReview(review) => review.sentence(),
-            ItemWait::DesignCoverage => ReviewWait::DesignCoverage.sentence(),
             ItemWait::Condition { text, until } => {
                 format!("Waits until {text}; the {} ends this wait", until.word())
             }
@@ -311,6 +311,7 @@ impl CardState {
             CardState::Paused => "paused",
             CardState::InReview(ReviewWait::NotRun) => "needs-review",
             CardState::InReview(ReviewWait::Running | ReviewWait::DesignCoverage) => "reviewing",
+            CardState::InReview(ReviewWait::DesignUnread) => "waits-unread",
             CardState::InReview(ReviewWait::ToSettle(..)) => "findings-to-settle",
             CardState::InReview(ReviewWait::Open(_)) => "open-findings",
             CardState::InReview(ReviewWait::Unreviewed(_)) => "unreviewed-changes",
@@ -371,8 +372,8 @@ pub fn card_state(
     }
     if state == CardState::ReadyToLand {
         state = match wait {
+            Some(ItemWait::RulesReview(ReviewWait::DesignUnread)) => CardState::WaitsUnread,
             Some(ItemWait::RulesReview(review)) => CardState::InReview(*review),
-            Some(ItemWait::DesignCoverage) => CardState::InReview(ReviewWait::DesignCoverage),
             _ => state,
         };
     }

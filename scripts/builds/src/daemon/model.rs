@@ -192,7 +192,6 @@ impl HealthInputs {
 /// The readings the page joins with the lists and run records.
 #[derive(Clone, Default)]
 struct PageRead {
-    version: u64,
     roots: Vec<Root>,
     facts: HashMap<PathBuf, Facts>,
     sample: Option<Sample>,
@@ -212,7 +211,7 @@ pub struct Model {
     pub places: Places,
     rules: Rules,
     state: Mutex<State>,
-    changed: Condvar,
+    changes: Arc<Revision>,
     dirty: Mutex<Dirty>,
     wake: Condvar,
     viewers: AtomicUsize,
@@ -229,13 +228,39 @@ pub struct Model {
     /// Each worktree's design commits, which its card and health's findings
     /// both read.
     design_reads: crate::lists::design_reads::DesignReads,
-    design_work: DesignWork,
+    design_work: Arc<DesignWork>,
     /// What git said of each branch's commits for its rules review.
     review_reads: crate::review::verdicts::Reads,
     /// The build-app runs the page starts.
     pub runs: Arc<Runs>,
     /// The lists JSON last built and what it was built from.
     served: Mutex<Option<(ServedKey, Arc<String>)>>,
+}
+
+/// The dashboard's stream revision and the signal that it advanced.
+#[derive(Default)]
+struct Revision {
+    number: Mutex<u64>,
+    changed: Condvar,
+}
+
+impl Revision {
+    fn current(&self) -> u64 {
+        *self.number.lock().expect("no panic holding it")
+    }
+
+    fn advance(&self) {
+        *self.number.lock().expect("no panic holding it") += 1;
+        self.changed.notify_all();
+    }
+
+    fn wait_after(&self, seen: u64) -> u64 {
+        let number = self.number.lock().expect("no panic holding it");
+        *self
+            .changed
+            .wait_while(number, |number| *number <= seen)
+            .expect("no panic holding it")
+    }
 }
 
 /// Wakes the design worker when checkout or lists inputs change.
@@ -289,7 +314,7 @@ impl Model {
             places: places.clone(),
             rules,
             state: Mutex::new(State::default()),
-            changed: Condvar::new(),
+            changes: Arc::default(),
             dirty: Mutex::new(Dirty {
                 layout: true,
                 ..Dirty::default()
@@ -303,25 +328,22 @@ impl Model {
             git_stream: Mutex::new(None),
             rules_stream: Mutex::new(None),
             design_reads: crate::lists::design_reads::DesignReads::with_program(&places, program),
-            design_work: DesignWork::default(),
+            design_work: Arc::default(),
             lists: Feed::start(places),
             review_reads: Default::default(),
             runs,
             served: Mutex::new(None),
         });
-        let weak = Arc::downgrade(&model);
-        model.lists.listen(Box::new(move || {
-            if let Some(model) = weak.upgrade() {
-                model.publish();
-                model.design_work.mark();
+        let changes = model.changes.clone();
+        let design_work = model.design_work.clone();
+        model.lists.listen(Box::new(move |stores_changed| {
+            if stores_changed {
+                design_work.mark();
             }
+            changes.advance();
         }));
-        let weak = Arc::downgrade(&model);
-        model.runs.listen(Box::new(move || {
-            if let Some(model) = weak.upgrade() {
-                model.publish();
-            }
-        }));
+        let changes = model.changes.clone();
+        model.runs.listen(Box::new(move || changes.advance()));
         let designs = model.clone();
         std::thread::Builder::new()
             .name("builds-designs".into())
@@ -598,13 +620,14 @@ impl Model {
             } else {
                 Claim::read(&checkout.claim_file())
             };
-            let (branch, git) = match before.get(&root.path) {
+            let (branch, git, read_commits) = match before.get(&root.path) {
                 Some((branch, Some(SideGit::Side(Ok(read))))) => (
                     Ok(branch.clone()),
                     Some(SideGit::Side(crate::side_git::read_files(
                         &checkout.top,
                         read.clone(),
                     ))),
+                    false,
                 ),
                 _ => (
                     checkout.branch(),
@@ -613,13 +636,23 @@ impl Model {
                     } else {
                         SideGit::Side(crate::side_git::read(&checkout.top))
                     }),
+                    !checkout.is_main(),
                 ),
             };
-            (root.path.clone(), manifest, claim, branch, git)
+            (
+                root.path.clone(),
+                manifest,
+                claim,
+                branch,
+                git,
+                read_commits,
+            )
         });
+        let mut read_designs = dirty.layout;
         {
             let mut state = self.state.lock().expect("no panic holding it");
-            for (path, manifest, claim, branch, git) in read {
+            for (path, manifest, claim, branch, git, read_commits) in read {
+                read_designs |= read_commits;
                 let facts = state.page.facts.entry(path.clone()).or_default();
                 if facts.manifest != manifest {
                     dirty.sizes.insert(path.clone());
@@ -630,7 +663,7 @@ impl Model {
                 facts.git = git;
             }
         }
-        if dirty.layout || !dirty.git.is_empty() {
+        if read_designs {
             self.design_work.mark();
         }
         // The daemon reads each repo's branches again when any checkout of
@@ -720,9 +753,7 @@ impl Model {
     }
 
     fn publish(&self) {
-        let mut state = self.state.lock().expect("no panic holding it");
-        state.page.version += 1;
-        self.changed.notify_all();
+        self.changes.advance();
     }
 
     /// Looks up design coverage when commits or the lists change.
@@ -756,11 +787,26 @@ impl Model {
             };
             for (live, git) in worktrees {
                 let repo = live.repo();
+                let selected = checkout_lists(&snapshot, &live, &repo);
+                let selected = match selected {
+                    Ok(lists) => lists,
+                    Err(error) => {
+                        crate::text::note(format!(
+                            "choosing design lists for {}: {error}",
+                            live.top.display()
+                        ));
+                        None
+                    }
+                };
                 for loaded in stores {
-                    if let Ok(lists) = &loaded.lists
-                        && lists.repos.contains(&repo)
-                        && self.design_reads.fill(lists, &repo, &live.top, &git)
-                    {
+                    let Ok(lists) = &loaded.lists else { continue };
+                    let wanted = selected.is_some_and(|selected| selected.project == lists.project)
+                        || lists.designs.iter().any(|design| {
+                            design.awaits_approval()
+                                && design.repo == repo
+                                && Path::new(&design.worktree) == live.top
+                        });
+                    if wanted && self.design_reads.fill(lists, &repo, &live.top, &git) {
                         self.publish();
                     }
                 }
@@ -848,8 +894,7 @@ impl Model {
                     }
                     if state.page.hosts != hosts {
                         state.page.hosts = hosts;
-                        state.page.version += 1;
-                        self.changed.notify_all();
+                        self.changes.advance();
                     }
                 }
                 Err(error) => crate::text::note(format!("reading the hosts: {}", error.text())),
@@ -886,14 +931,12 @@ impl Model {
             let mut state = self.state.lock().expect("no panic holding it");
             if state.page.host_findings != found {
                 state.page.host_findings = found;
-                state.page.version += 1;
-                self.changed.notify_all();
+                self.changes.advance();
             }
             if state.page.compile_cache != rates || state.page.compile_cache_error != rates_error {
                 state.page.compile_cache = rates;
                 state.page.compile_cache_error = rates_error;
-                state.page.version += 1;
-                self.changed.notify_all();
+                self.changes.advance();
             }
             drop(state);
             let pace = if self.viewers.load(Ordering::SeqCst) > 0 {
@@ -1036,8 +1079,7 @@ impl Model {
                 error: error.to_string(),
             },
         });
-        state.page.version += 1;
-        self.changed.notify_all();
+        self.changes.advance();
         health
     }
 
@@ -1111,18 +1153,13 @@ impl Model {
             state.page.load.pop_front();
         }
         state.page.sample = Some(sample.clone());
-        state.page.version += 1;
-        self.changed.notify_all();
+        self.changes.advance();
         Ok((now, sample))
     }
 
     /// Waits until the state moved past <seen>, and returns the new version.
     pub fn wait_change(&self, seen: u64) -> u64 {
-        let mut state = self.state.lock().expect("no panic holding it");
-        while state.page.version <= seen {
-            state = self.changed.wait(state).expect("no panic holding it");
-        }
-        state.page.version
+        self.changes.wait_after(seen)
     }
 
     /// The lists JSON the page reads: the stores as last read, and
@@ -1522,10 +1559,7 @@ impl Model {
             Some(Err(error)) => return RulesReview::Unread(error.to_string()),
             None => return RulesReview::CheckingDesign,
         };
-        if !commits
-            .iter()
-            .any(|commit| commit.covered_by == Some(design.id))
-        {
+        if !crate::lists::design::covers_any_commit(&commits, design.id) {
             return RulesReview::InReview;
         }
         let worktree = crate::review::verdicts::Worktree {
@@ -1593,6 +1627,7 @@ impl Model {
     pub fn page(&self) -> crate::fail::Result<Page> {
         let space = volume_space(&self.places.root)?;
         let (_, snapshot) = self.lists.current();
+        let version = self.changes.current();
         let state = self.state.lock().expect("no panic holding it").page.clone();
         let machine = state.sample.as_ref().map(|sample| &sample.machine);
         let last_health = state.health.as_ref().and_then(HealthReading::last);
@@ -1766,7 +1801,7 @@ impl Model {
             health.findings.append(&mut host_findings);
         }
         Ok(Page {
-            version: state.version,
+            version,
             generated_at: now_seconds(),
             root: self.places.root.display().to_string(),
             volume: VolumePage {
@@ -1886,7 +1921,7 @@ impl Model {
         let items = project
             .map(|lists| super::lists::running_items(lists, &path))
             .unwrap_or_default();
-        let mut checking_design = false;
+        let mut coverage_wait = None;
         let design = match (project, seen.git) {
             (Some(lists), Some(SideGit::Side(Ok(git)))) => {
                 match self.design_reads.completed(lists, seen.repo, top, git) {
@@ -1895,13 +1930,11 @@ impl Model {
                         errors.push(format!(
                             "The daemon can't read which design changes cover this worktree's commits: {error}"
                         ));
-                        if worktree == CardState::ReadyToLand {
-                            worktree = CardState::WaitsUnread;
-                        }
+                        coverage_wait = Some(ReviewWait::DesignUnread);
                         None
                     }
                     None => {
-                        checking_design = true;
+                        coverage_wait = Some(ReviewWait::DesignCoverage);
                         None
                     }
                 }
@@ -1962,7 +1995,7 @@ impl Model {
                     .chain(design)
                     .chain(build)
                     .chain(review)
-                    .chain(checking_design.then_some(ItemWait::DesignCoverage)),
+                    .chain(coverage_wait.map(ItemWait::RulesReview)),
             )),
             Err(error) => {
                 errors.push(format!(
@@ -2183,7 +2216,7 @@ fn claimed_of(
             claim: claim.clone(),
             branch: branch.clone(),
             git: git.clone(),
-            awaiting_review: false,
+            design_prevents_stalled: false,
             landing: None,
         });
     }

@@ -91,6 +91,9 @@ impl Server {
             body.len()
         );
         let mut stream = TcpStream::connect(("127.0.0.1", self.port)).unwrap();
+        stream
+            .set_read_timeout(Some(std::time::Duration::from_secs(10)))
+            .unwrap();
         stream.write_all(request.as_bytes()).unwrap();
         let mut reply = String::new();
         stream.read_to_string(&mut reply).unwrap();
@@ -230,6 +233,9 @@ impl Server {
             self.port
         );
         let mut stream = TcpStream::connect(("127.0.0.1", self.port)).unwrap();
+        stream
+            .set_read_timeout(Some(std::time::Duration::from_secs(10)))
+            .unwrap();
         stream.write_all(request.as_bytes()).unwrap();
         let mut reply = String::new();
         stream.read_to_string(&mut reply).unwrap();

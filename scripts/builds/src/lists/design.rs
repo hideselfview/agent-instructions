@@ -19,8 +19,8 @@ use crate::fail;
 use crate::fail::Result;
 use crate::lists::derive::{self, ItemState};
 use crate::lists::design_circle_box;
-use crate::lists::design_drawn::{Renders, Sameness};
-use crate::lists::design_paths::{Changes, Drawing, Globs, PlaceKind, changes_of, drawing_at};
+use crate::lists::design_drawn::{Renders, Sameness, TipDrawing};
+use crate::lists::design_paths::{Changes, Globs, PlaceKind, changes_of, drawing_at};
 use crate::lists::design_session::{self, SessionState};
 use crate::lists::item::{ItemDraft, RecordWait, add_item};
 use crate::lists::record;
@@ -1220,11 +1220,12 @@ impl<'a> Drawings<'a> {
         sources: &BTreeSet<String>,
         renders: &dyn Renders,
     ) -> Result<Drawings<'a>> {
-        let now = drawing_at(top, last, paths.iter().copied())?;
+        let drawing = drawing_at(top, last, paths.iter().copied())?;
+        let now = TipDrawing::new(last, &drawing);
         let changes = designs
             .into_iter()
             .map(|design| {
-                draw_change(top, (last, &now), design, paths, sources, renders)
+                draw_change(top, &now, design, paths, sources, renders)
                     .map(|same| DrawnChange { design, same })
             })
             .collect::<Result<_>>()?;
@@ -1234,7 +1235,7 @@ impl<'a> Drawings<'a> {
 
 fn draw_change(
     top: &Path,
-    now: (&str, &Drawing),
+    now: &TipDrawing,
     design: &DesignChange,
     paths: &BTreeSet<&String>,
     sources: &BTreeSet<String>,
@@ -1328,18 +1329,21 @@ fn covers_places(designs: &[&DesignChange], changes: &Changes) -> Result<()> {
     }
 }
 
+fn missing_drawings<'a>(
+    designs: &'a [DrawnChange],
+    changes: &'a Changes,
+) -> impl Iterator<Item = &'a str> {
+    changes.drawn().map(String::as_str).filter(|path| {
+        !designs.iter().any(|d| {
+            (changes.sources.contains(*path) || d.design.places.contains_key(*path))
+                && d.same.path(path)
+        })
+    })
+}
+
 /// Checks the drawings for records that already resolve the changed places.
 fn covers_drawings(designs: &[DrawnChange], changes: &Changes) -> Result<()> {
-    let redrawn: Vec<&str> = changes
-        .drawn()
-        .map(String::as_str)
-        .filter(|path| {
-            !designs.iter().any(|d| {
-                (changes.sources.contains(*path) || d.design.places.contains_key(*path))
-                    && d.same.path(path)
-            })
-        })
-        .collect();
+    let redrawn: Vec<_> = missing_drawings(designs, changes).collect();
     if !redrawn.is_empty() {
         let ids: Vec<Id> = designs.iter().map(|d| d.design.id).collect();
         let named = named(&ids);
@@ -1416,6 +1420,13 @@ impl DesignCommit {
     }
 }
 
+/// Whether any of the branch's design commits is covered by <design>.
+pub fn covers_any_commit(commits: &[DesignCommit], design: Id) -> bool {
+    commits
+        .iter()
+        .any(|commit| commit.covered_by == Some(design))
+}
+
 /// Each commit of <ahead> (the commits past origin/main, oldest first) in
 /// the worktree at <top> of <repo> that changes design files, with the open
 /// design change of the repo that covers it, approved or waiting on the
@@ -1425,22 +1436,19 @@ impl DesignCommit {
 /// last of <ahead> does (`Sameness`, which <renders> draws when files differ),
 /// so a change still covers its commits after an agent rebases them onto a
 /// moved main.
-/// Health and the dashboard's design card both read coverage here. Empty
-/// when the lists name no design globs for the repo.
+/// Health and the dashboard's design card both read coverage here. The
+/// caller supplies the applicable design globs for the repo.
 pub fn design_commits(
     lists: &Lists,
     repo: &str,
+    globs: &Globs,
     top: &Path,
     ahead: &[String],
     renders: &dyn Renders,
 ) -> Result<Vec<DesignCommit>> {
-    if !Globs::has_design_files(lists, repo) {
-        return Ok(Vec::new());
-    }
-    let globs = Globs::of(lists, repo);
     let mut commits = Vec::new();
     for sha in ahead {
-        let changes = changes_of(top, &globs, std::slice::from_ref(sha))?;
+        let changes = changes_of(top, globs, std::slice::from_ref(sha))?;
         if changes.is_design_change() {
             commits.push(DesignCommit {
                 sha: sha.clone(),
@@ -1470,7 +1478,8 @@ pub fn design_commits(
         .flat_map(|&index| commits[index].changes.drawn())
         .collect();
     let last = ahead.last().expect("it holds the design commits");
-    let now = drawing_at(top, last, all_drawn)?;
+    let drawing = drawing_at(top, last, all_drawn)?;
+    let now = TipDrawing::new(last, &drawing);
 
     for (design, indexes) in candidates {
         let remaining: Vec<usize> = indexes
@@ -1488,10 +1497,14 @@ pub fn design_commits(
             .iter()
             .flat_map(|&index| commits[index].changes.sources.iter().cloned())
             .collect();
-        let same = draw_change(top, (last, &now), design, &drawn, &sources, renders)?;
+        let same = draw_change(top, &now, design, &drawn, &sources, renders)?;
+        let compared = [DrawnChange { design, same }];
         for index in remaining {
             let commit = &mut commits[index];
-            if commit.changes.drawn().all(|path| same.path(path)) {
+            if missing_drawings(&compared, &commit.changes)
+                .next()
+                .is_none()
+            {
                 commit.covered_by = Some(design.id);
             }
         }

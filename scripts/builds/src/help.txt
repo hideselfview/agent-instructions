@@ -504,8 +504,9 @@ The dashboard gives each side worktree the first state that matches: Waits met
 commits or resume its agent), Waiting (no claim, and an open item keeps the
 worktree while it waits on an open record: the card names each), Ready (no
 claim, and an open item with no waits keeps the worktree with its unfinished
-work: `builds item stop`, `builds help lists`), Can't read what this worktree waits on (the daemon could
-not read what a running item waits on, and the card says why), Waiting on you
+work: `builds item stop`, `builds help lists`), Can't read what this worktree
+waits on (the daemon could not read an item's waits or the branch's design
+coverage, and the card says why), Waiting on you
 (the claim's note says so, a running item waits on a question or on a design
 change the person has not approved, or the worktree's commits are a design
 change the person has not approved whose rules review takes them), Paused (the claim's note has --state
@@ -516,8 +517,9 @@ Winding down, Working (claimed) and Free. Commits
 waiting to land show as Ready to land only when `builds land` would take them
 as far as the rules review goes; until then the card shows the review's
 progress instead: Needs review (no review read these commits, or a group still
-has to answer: the branch's agent runs `builds review`), Reviewing (a review
-of the branch's newest commit runs), Findings to settle (with the count, and
+has to answer: the branch's agent runs `builds review`), Reviewing (Builds
+checks design coverage or runs a rules review of the branch's newest commit),
+Findings to settle (with the count, and
 whether they wait on the judge or, with no judge listening, the coordinator),
 Open
 findings (confirmed findings that wait for a review that closes them) or
@@ -2577,7 +2579,9 @@ STATUS, HEALTH AND THE DASHBOARD
                               each changed board, component and source, so a
                               rebase keeps it covered; a worktree whose
                               open design change waits on the person's review
-                              is not idle); a builds install that has
+                              is not idle. Health leaves the idle decision
+                              open while Builds checks coverage or cannot read
+                              it); a builds install that has
                               waited 2+ minutes at the gates it closed, with
                               each use it waits for and what that command
                               waits on, and which commands wait behind it; a

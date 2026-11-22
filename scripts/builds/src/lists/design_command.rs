@@ -598,7 +598,7 @@ fn drawn_the_same(scope: &Scope, id: Id, renders: &dyn Renders) -> Result<Option
         renders,
         top,
         (tip, &before),
-        (&scope.tip, &after),
+        &super::design_drawn::TipDrawing::new(&scope.tip, &after),
         &held,
         &scope.changes.sources,
         &paths,

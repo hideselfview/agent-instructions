@@ -1,10 +1,10 @@
 //! Held work: a worktree kept on purpose with no agent running must wait on
 //! something that can end, or no list would ever restart it. `builds note
 //! --state held` asks `require_hold_allowed`; `builds health` asks
-//! `findings` for the holds whose wait closed and for design changes in a
+//! `inspect` for the holds whose wait closed and for design changes in a
 //! branch that no recorded design change covers.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::path::PathBuf;
 
 use crate::checkout::Checkout;
@@ -276,7 +276,7 @@ impl Worktree {
     /// What blocks its branch from landing, read from the review records
     /// (`review::idle::landing`), or why builds cannot tell: None for a held
     /// worktree, an app checkout, one with no commits that origin/main lacks,
-    /// and one whose lists `findings` already names as unreadable.
+    /// and one whose lists `inspect` already names as unreadable.
     pub fn landing(
         &self,
         places: &Places,
@@ -311,40 +311,18 @@ impl Worktree {
     }
 }
 
-/// The labels of the worktrees whose commits an open design change covers
-/// that waits on the person's approval. Such a worktree waits on the
-/// person's review once the rules review takes its commits (decision #362),
-/// and then it is not quiet; once the person approves, the change waits on
-/// landing and the worktree is quiet again. <reads> holds the design commits
-/// read so far.
-pub fn awaiting_approval(
-    loaded: &std::result::Result<Vec<Loaded>, String>,
-    worktrees: &[Worktree],
-    reads: Coverage<'_>,
-) -> Vec<String> {
-    worktrees
-        .iter()
-        .filter(|worktree| {
-            // `findings` names a worktree whose lists health can't choose.
-            let Ok(Some(lists)) = worktree.lists(loaded) else {
-                return false;
-            };
-            // `findings` names a worktree whose commits or design files
-            // health can't read.
-            let Ok(Read { side: git, .. }) = &worktree.git else {
-                return false;
-            };
-            let Some(Ok(commits)) = reads.of(lists, &worktree.repo, &worktree.top, git) else {
-                return false;
-            };
-            commits.iter().any(|commit| {
-                commit
-                    .covering(lists)
-                    .is_some_and(DesignChange::awaits_approval)
-            })
-        })
-        .map(|worktree| worktree.label.clone())
-        .collect()
+/// Design coverage that prevents health from declaring a checkout idle.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DesignWait {
+    Checking,
+    Unread,
+    Approval,
+}
+
+#[derive(Default)]
+pub struct Inspection {
+    pub findings: Vec<Advice>,
+    pub design_waits: HashMap<String, DesignWait>,
 }
 
 /// What `builds health` says about held work, one line each: a claimed
@@ -356,16 +334,16 @@ pub fn awaiting_approval(
 /// can't choose: its claim names a project that does not hold its repo,
 /// names none of the two that do, or names a project whose store fails its
 /// check. `running::findings` names the stores when builds can't list them
-/// and each store that fails its check, so `findings` says nothing more when
+/// and each store that fails its check, so `inspect` says nothing more when
 /// builds can't list the stores. <reads> holds the design commits read so
 /// far.
-pub fn findings(
+pub fn inspect(
     loaded: &std::result::Result<Vec<Loaded>, String>,
     worktrees: &[Worktree],
     reads: Coverage<'_>,
-) -> Vec<Advice> {
+) -> Inspection {
     let Ok(every) = loaded else {
-        return Vec::new();
+        return Inspection::default();
     };
     // Health reads the items of every project, whatever project the claim
     // names: in a repo two projects hold, either project's items run in its
@@ -374,7 +352,7 @@ pub fn findings(
         .iter()
         .filter_map(|project| project.lists.clone().ok())
         .collect();
-    let mut found = Vec::new();
+    let mut inspection = Inspection::default();
     for worktree in worktrees {
         let top = worktree.top.display().to_string();
         let running = running_in_any(&every, &top);
@@ -385,7 +363,7 @@ pub fn findings(
             && worktree.claim.is_held()
             && let Some(fault) = hold_fault(&running, &top)
         {
-            found.push(Advice::run(
+            inspection.findings.push(Advice::run(
                 format!(
                     "lists: {} is held, but {fault}; start its work again (builds item take or builds item handoff), then clear the hold with",
                     worktree.label
@@ -397,7 +375,7 @@ pub fn findings(
         // commit that nothing else holds, so health says to release only one
         // with none of them.
         if worktree.claim_is_idle(running.is_empty()) {
-            found.push(Advice::run(
+            inspection.findings.push(Advice::run(
                 format!(
                     "lists: {} claims {}, but no item runs there and the worktree has no commits that origin/main lacks, no files not committed and no git commit running; release it with",
                     worktree.claim.who, worktree.label
@@ -409,7 +387,7 @@ pub fn findings(
             Ok(Some(lists)) => lists,
             Ok(None) => continue,
             Err(fault) => {
-                found.push(Advice::said(format!(
+                inspection.findings.push(Advice::said(format!(
                     "lists: health can't choose the lists of {}: {fault}",
                     worktree.label
                 )));
@@ -419,7 +397,7 @@ pub fn findings(
         let git = match &worktree.git {
             Ok(read) => &read.side,
             Err(error) => {
-                found.push(Advice::said(format!(
+                inspection.findings.push(Advice::said(format!(
                     "lists: could not read the commits of {}, so health can't tell whether a design change covers them: {error}",
                     worktree.label
                 )));
@@ -428,7 +406,10 @@ pub fn findings(
         };
         let commits = match reads.of(lists, &worktree.repo, &worktree.top, git) {
             Some(Err(error)) => {
-                found.push(Advice::said(format!(
+                inspection
+                    .design_waits
+                    .insert(worktree.label.clone(), DesignWait::Unread);
+                inspection.findings.push(Advice::said(format!(
                     "lists: could not read the design files {} changes: {error}",
                     worktree.label
                 )));
@@ -436,13 +417,21 @@ pub fn findings(
             }
             Some(Ok(commits)) => commits,
             None => {
-                found.push(Advice::said(format!(
-                    "lists: Builds is checking design coverage for {}.",
-                    worktree.label
-                )));
+                inspection
+                    .design_waits
+                    .insert(worktree.label.clone(), DesignWait::Checking);
                 continue;
             }
         };
+        if commits.iter().any(|commit| {
+            commit
+                .covering(lists)
+                .is_some_and(DesignChange::awaits_approval)
+        }) {
+            inspection
+                .design_waits
+                .insert(worktree.label.clone(), DesignWait::Approval);
+        }
         let uncovered: Vec<&DesignCommit> = commits
             .iter()
             .filter(|commit| commit.covered_by.is_none())
@@ -467,7 +456,7 @@ pub fn findings(
             .iter()
             .map(|commit| &commit.sha[..commit.sha.len().min(10)])
             .collect();
-        found.push(Advice::run(
+        inspection.findings.push(Advice::run(
             format!(
                 "lists: {} has commits ({}) that change design files ({}) and no recorded design change covers them; record one with",
                 worktree.label,
@@ -477,7 +466,7 @@ pub fn findings(
             "builds design record".to_string(),
         ));
     }
-    found
+    inspection
 }
 
 #[cfg(test)]
