@@ -41,37 +41,137 @@ pub struct Output {
     pub answer: Result<Answer, String>,
 }
 
+/// The input and output counters the reviewer reports together.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Tokens {
+    pub input: i64,
+    pub output: i64,
+    pub cached: i64,
+    pub written: i64,
+}
+
+impl Tokens {
+    pub const ZERO: Self = Self {
+        input: 0,
+        output: 0,
+        cached: 0,
+        written: 0,
+    };
+
+    pub fn checked_add(self, other: Self) -> Option<Self> {
+        Some(Self {
+            input: self.input.checked_add(other.input)?,
+            output: self.output.checked_add(other.output)?,
+            cached: self.cached.checked_add(other.cached)?,
+            written: self.written.checked_add(other.written)?,
+        })
+    }
+}
+
+pub type TokenTotal = Result<Option<Tokens>, &'static str>;
+
+pub fn sum_tokens(tokens: impl IntoIterator<Item = Option<Tokens>>) -> TokenTotal {
+    tokens
+        .into_iter()
+        .try_fold(Some(Tokens::ZERO), |total, next| match (total, next) {
+            (Some(total), Some(next)) => total
+                .checked_add(next)
+                .map(Some)
+                .ok_or("the token total exceeds the range builds can record"),
+            _ => Ok(None),
+        })
+}
+
+pub(super) fn tokens_text(tokens: TokenTotal, detailed: bool) -> String {
+    match tokens {
+        Ok(Some(Tokens {
+            input,
+            output,
+            cached,
+            written,
+        })) if detailed => format!(
+            "{input} tokens in ({} uncached, {cached} read from the cache, {written} written to it), {output} out",
+            i128::from(input) - i128::from(cached) - i128::from(written),
+        ),
+        Ok(Some(Tokens { input, output, .. })) => format!("{input} tokens in, {output} out"),
+        Ok(None) => "token usage not recorded for every call".to_string(),
+        Err(why) => why.to_string(),
+    }
+}
+
 /// The tokens a reviewer used and the cost the provider reported.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Usage {
-    /// All input tokens: uncached, read from the cache and written to it.
-    pub tokens_in: i64,
-    pub tokens_out: i64,
-    pub tokens_cached: i64,
-    pub tokens_written: i64,
+    pub tokens: Option<Tokens>,
     /// Cost in millionths of a US dollar, when the provider reports one.
     pub cost_microdollars: Option<i64>,
 }
 
 impl Usage {
-    pub(super) fn add(&mut self, other: Self) {
-        self.tokens_in += other.tokens_in;
-        self.tokens_out += other.tokens_out;
-        self.tokens_cached += other.tokens_cached;
-        self.tokens_written += other.tokens_written;
-        self.cost_microdollars = sum_cost([self.cost_microdollars, other.cost_microdollars]);
+    pub const ZERO: Self = Self {
+        tokens: Some(Tokens::ZERO),
+        cost_microdollars: Some(0),
+    };
+
+    pub(super) fn merge(&mut self, other: Self) -> Result<(), String> {
+        let tokens = sum_tokens([self.tokens, other.tokens]);
+        let cost = sum_cost([self.cost_microdollars, other.cost_microdollars]);
+        let cost = cost
+            .map(i64::try_from)
+            .transpose()
+            .map_err(|_| "the review cost exceeds the range builds can record");
+        let mut errors = Vec::new();
+        self.tokens = tokens.unwrap_or_else(|why| {
+            errors.push(why);
+            None
+        });
+        self.cost_microdollars = cost.unwrap_or_else(|why| {
+            errors.push(why);
+            None
+        });
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors.join(". "))
+        }
     }
 }
 
-pub(super) fn sum_cost(costs: impl IntoIterator<Item = Option<i64>>) -> Option<i64> {
-    costs.into_iter().sum()
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UsageTotal {
+    pub tokens: TokenTotal,
+    pub cost_microdollars: Option<i128>,
 }
 
-pub(super) fn cost_text(cost: Option<i64>) -> String {
-    match cost {
-        Some(cost) => format!("${:.2}", cost as f64 / 1_000_000.0),
-        None => "cost not recorded".to_string(),
-    }
+pub(super) fn sum_usage(calls: impl IntoIterator<Item = Usage>) -> UsageTotal {
+    calls.into_iter().fold(
+        UsageTotal {
+            tokens: Ok(Some(Tokens::ZERO)),
+            cost_microdollars: Some(0),
+        },
+        |total, call| UsageTotal {
+            tokens: total
+                .tokens
+                .and_then(|tokens| sum_tokens([tokens, call.tokens])),
+            cost_microdollars: add_cost(total.cost_microdollars, call.cost_microdollars),
+        },
+    )
+}
+
+pub(super) fn sum_cost(costs: impl IntoIterator<Item = Option<i64>>) -> Option<i128> {
+    costs.into_iter().fold(Some(0), add_cost)
+}
+
+fn add_cost(total: Option<i128>, cost: Option<i64>) -> Option<i128> {
+    Some(total? + i128::from(cost?))
+}
+
+pub(super) fn known_cost_text(cost: impl Into<i128>) -> String {
+    format!("${:.2}", cost.into() as f64 / 1_000_000.0)
+}
+
+pub(super) fn cost_text(cost: Option<i128>) -> String {
+    cost.map_or_else(|| "cost not recorded".to_string(), known_cost_text)
 }
 
 /// A reviewer's model, token usage and answer in the schema.

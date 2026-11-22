@@ -154,16 +154,12 @@ impl Reviewer {
     }
 
     /// The session's reviewer and the rules checkout install links in the home folder.
-    pub fn installed(places: &crate::places::Places) -> Reviewer {
-        let claude = std::env::var_os(crate::ack::SESSION);
-        let codex = ["CODEX_SESSION_ID", "CODEX_THREAD_ID"]
-            .iter()
-            .any(|key| std::env::var_os(key).is_some_and(|value| !value.is_empty()));
-        let executable = provider::default_program(
-            std::env::var_os("BUILDS_REVIEWER"),
-            claude.as_deref(),
-            codex,
-        );
+    pub fn installed(
+        places: &crate::places::Places,
+        session: &crate::ack::agent::Session,
+        explicit: Option<std::ffi::OsString>,
+    ) -> Reviewer {
+        let executable = provider::default_program(explicit, session);
         let temporary = places
             .tmpdir
             .as_ref()
@@ -246,14 +242,14 @@ pub fn cmd_review(tool: &Tool, args: &[String]) -> Result<()> {
     match command.as_str() {
         "groups" => list_groups(tool, rest),
         "wait" => wait_command(tool, rest),
-        "settle" => settle(tool, rest, Caller::from_env()?.as_ref()),
+        "settle" => settle(tool, rest, tool.session.caller()?.as_ref()),
         "dispute" => dispute_command(
             tool,
             rest,
-            Caller::from_env()?.as_ref(),
+            tool.session.caller()?.as_ref(),
             crate::inbox::Messaging::from_env()?.as_ref(),
         ),
-        "keep" => keep_command(tool, rest, Caller::from_env()?.as_ref()),
+        "keep" => keep_command(tool, rest, tool.session.caller()?.as_ref()),
         "show" => show(tool, rest),
         "run" => run_command(tool, rest),
         "copy" => copy_command(tool, rest),
@@ -447,11 +443,20 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
             running.push((ask.change.head.clone(), Running::start(file)?));
         }
         let picked = material.groups.named(&material.rules, &ask.groups);
-        let reviewer = if design.includes_code(&ask.change.diff.changed) {
-            inputs.reviewer.for_code_review()
-        } else {
-            inputs.reviewer.clone()
-        };
+        let open_code = material
+            .holding_groups(&open_findings)
+            .into_iter()
+            .filter(|(name, _)| ask.groups.contains(name))
+            .flat_map(|(_, findings)| findings)
+            .filter(|finding| finding.file != files::COMMIT_MESSAGE)
+            .map(|finding| finding.file.clone())
+            .collect::<Vec<_>>();
+        let reviewer =
+            if design.includes_code(&ask.change.diff.changed) || design.includes_code(&open_code) {
+                inputs.reviewer.for_code_review()
+            } else {
+                inputs.reviewer.clone()
+            };
         answers.push(run::ask_groups(
             scope,
             &reviewer,
@@ -944,7 +949,7 @@ fn run_command(tool: &Tool, args: &[String]) -> Result<()> {
         ],
         &[],
     )?;
-    let caller = Caller::from_env()?;
+    let caller = tool.session.caller()?;
     if let Some(ReviewKind::Mechanical { checked_by }) = kind_of(tool, &args)? {
         return call_mechanical(tool, &args, &checked_by, caller.as_ref());
     }

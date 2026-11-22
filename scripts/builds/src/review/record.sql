@@ -75,11 +75,11 @@ CREATE TABLE review_call (
     -- The rule slugs the reviewer answers for, as a JSON array.
     rules TEXT NOT NULL,
     -- All input tokens: uncached, read from the cache and written to it.
-    tokens_in INTEGER NOT NULL CONSTRAINT review_call_tokens_in_not_negative CHECK (tokens_in >= 0),
-    tokens_out INTEGER NOT NULL CONSTRAINT review_call_tokens_out_not_negative CHECK (tokens_out >= 0),
+    tokens_in INTEGER CONSTRAINT review_call_tokens_in_not_negative CHECK (tokens_in >= 0),
+    tokens_out INTEGER CONSTRAINT review_call_tokens_out_not_negative CHECK (tokens_out >= 0),
     -- Of tokens_in, the part read from the prompt cache and the part written to it.
-    tokens_cached INTEGER NOT NULL CONSTRAINT review_call_tokens_cached_not_negative CHECK (tokens_cached >= 0),
-    tokens_written INTEGER NOT NULL CONSTRAINT review_call_tokens_written_not_negative CHECK (tokens_written >= 0),
+    tokens_cached INTEGER CONSTRAINT review_call_tokens_cached_not_negative CHECK (tokens_cached >= 0),
+    tokens_written INTEGER CONSTRAINT review_call_tokens_written_not_negative CHECK (tokens_written >= 0),
     -- What `claude -p` reported the call cost, in millionths of a US dollar,
     -- summed over its processes; null for a call made before builds recorded
     -- the cost.
@@ -87,7 +87,12 @@ CREATE TABLE review_call (
     -- For a group that lists the sites it judges: its summary and the sites, as JSON.
     sites TEXT,
     -- Why the call gave no usable answer; null when it did.
-    failure TEXT
+    failure TEXT,
+    CONSTRAINT review_call_records_all_tokens_or_none CHECK (
+        (tokens_in IS NULL) = (tokens_out IS NULL)
+        AND (tokens_in IS NULL) = (tokens_cached IS NULL)
+        AND (tokens_in IS NULL) = (tokens_written IS NULL)
+    )
 ) STRICT;
 CREATE INDEX review_call_run ON review_call (run_id);
 
@@ -106,10 +111,15 @@ CREATE TABLE review_exchange (
     system_hash TEXT NOT NULL,
     message_hash TEXT NOT NULL,
     output_hash TEXT NOT NULL,
-    tokens_in INTEGER NOT NULL CONSTRAINT review_exchange_tokens_in_not_negative CHECK (tokens_in >= 0),
-    tokens_out INTEGER NOT NULL CONSTRAINT review_exchange_tokens_out_not_negative CHECK (tokens_out >= 0),
-    tokens_cached INTEGER NOT NULL CONSTRAINT review_exchange_tokens_cached_not_negative CHECK (tokens_cached >= 0),
-    tokens_written INTEGER NOT NULL CONSTRAINT review_exchange_tokens_written_not_negative CHECK (tokens_written >= 0)
+    tokens_in INTEGER CONSTRAINT review_exchange_tokens_in_not_negative CHECK (tokens_in >= 0),
+    tokens_out INTEGER CONSTRAINT review_exchange_tokens_out_not_negative CHECK (tokens_out >= 0),
+    tokens_cached INTEGER CONSTRAINT review_exchange_tokens_cached_not_negative CHECK (tokens_cached >= 0),
+    tokens_written INTEGER CONSTRAINT review_exchange_tokens_written_not_negative CHECK (tokens_written >= 0),
+    CONSTRAINT review_exchange_records_all_tokens_or_none CHECK (
+        (tokens_in IS NULL) = (tokens_out IS NULL)
+        AND (tokens_in IS NULL) = (tokens_cached IS NULL)
+        AND (tokens_in IS NULL) = (tokens_written IS NULL)
+    )
 ) STRICT;
 CREATE INDEX review_exchange_call ON review_exchange (call_id);
 

@@ -14,7 +14,13 @@ fn wrap(body: &str) -> String {
 fn an_answer_gives_verdicts_findings_and_tokens() {
     let body = r#"{"rules":[{"rule":"a","verdict":"none","findings":[]},{"rule":"b","verdict":"finding","findings":[{"clause":"c","file":"f.rs","line":3,"code":"x","problem":"p"}]}]}"#;
     let out = parse(&wrap(body), &names());
-    assert_eq!((out.usage.tokens_in, out.usage.tokens_out), (17, 7));
+    assert_eq!(
+        (
+            out.usage.tokens.unwrap().input,
+            out.usage.tokens.unwrap().output
+        ),
+        (17, 7)
+    );
     assert_eq!(out.usage.cost_microdollars, Some(250_000));
     let answer = out.answer.unwrap();
     assert_eq!(
@@ -49,7 +55,9 @@ fn an_answer_is_refused_when_it_skips_a_rule_or_contradicts_itself() {
 #[test]
 fn a_text_result_is_read_when_there_is_no_structured_output_and_an_error_is_named() {
     let body = r#"{\"rules\":[{\"rule\":\"a\",\"verdict\":\"none\",\"findings\":[]},{\"rule\":\"b\",\"verdict\":\"none\",\"findings\":[]}]}"#;
-    let text = format!(r#"{{"is_error":false,"usage":{{}},"result":"{body}"}}"#);
+    let text = format!(
+        r#"{{"is_error":false,"usage":{{"input_tokens":3,"output_tokens":1}},"result":"{body}"}}"#
+    );
     let read = parse(&text, &names());
     assert!(read.answer.is_ok());
     assert_eq!(
@@ -71,9 +79,9 @@ fn the_cache_read_and_write_tokens_are_kept_apart_from_the_rest_of_the_input() {
     let out = parse(&wrap(r#"{"rules":[]}"#), &[]);
     assert_eq!(
         (
-            out.usage.tokens_in,
-            out.usage.tokens_cached,
-            out.usage.tokens_written
+            out.usage.tokens.unwrap().input,
+            out.usage.tokens.unwrap().cached,
+            out.usage.tokens.unwrap().written
         ),
         (17, 5, 10)
     );
@@ -121,4 +129,30 @@ fn a_group_that_lists_sites_answers_with_a_summary_and_a_verdict_for_each_site()
         ]
     );
     assert_eq!(answer.findings[0].rule, "b");
+}
+
+#[test]
+fn merging_usage_reports_overflow_and_keeps_other_recorded_counters() {
+    let mut previous = Usage {
+        cost_microdollars: Some(i64::MAX),
+        tokens: Some(Tokens {
+            input: i64::MAX,
+            ..Tokens::ZERO
+        }),
+    };
+    let new = Usage {
+        cost_microdollars: Some(1),
+        tokens: Some(Tokens {
+            input: 1,
+            ..Tokens::ZERO
+        }),
+    };
+    let diagnostic = previous.merge(new).unwrap_err();
+    assert!(diagnostic.contains("token total") && diagnostic.contains("review cost"));
+    assert!(previous.tokens.is_none() && previous.cost_microdollars.is_none());
+    assert_eq!(sum_tokens([Some(Tokens::ZERO), None]).unwrap(), None);
+    assert_eq!(
+        sum_tokens([Some(Tokens::ZERO)]).unwrap(),
+        Some(Tokens::ZERO)
+    );
 }

@@ -15,11 +15,15 @@ fn call(id: i64, run: i64, group: &str, rules: &[&str], cost: Option<i64>) -> Ca
         model: "opus".to_string(),
         prompt: format!("prompt-of-{group}"),
         rules: rules.iter().map(|r| r.to_string()).collect(),
-        tokens_in: 100,
-        tokens_out: 10,
-        tokens_cached: 0,
-        tokens_written: 0,
-        cost_microdollars: cost,
+        usage: crate::review::call::Usage {
+            tokens: Some(crate::review::call::Tokens {
+                input: 100,
+                output: 10,
+                cached: 0,
+                written: 0,
+            }),
+            cost_microdollars: cost,
+        },
         failure: None,
     }
 }
@@ -418,10 +422,12 @@ fn a_finding_settled_again_counts_as_dropped_and_a_closed_or_allowed_one_as_conf
         prompt: "the prompt".to_string(),
         rules: vec!["r".to_string()],
         usage: crate::review::call::Usage {
-            tokens_in: 0,
-            tokens_out: 0,
-            tokens_cached: 0,
-            tokens_written: 0,
+            tokens: Some(crate::review::call::Tokens {
+                input: 0,
+                output: 0,
+                cached: 0,
+                written: 0,
+            }),
             cost_microdollars: Some(0),
         },
         sites: None,
@@ -545,10 +551,12 @@ fn a_first_review_records_its_changed_lines_and_its_groups_confirmed_findings() 
         prompt: "the prompt".to_string(),
         rules: vec!["r".to_string()],
         usage: crate::review::call::Usage {
-            tokens_in: 0,
-            tokens_out: 0,
-            tokens_cached: 0,
-            tokens_written: 0,
+            tokens: Some(crate::review::call::Tokens {
+                input: 0,
+                output: 0,
+                cached: 0,
+                written: 0,
+            }),
             cost_microdollars: Some(0),
         },
         sites: None,

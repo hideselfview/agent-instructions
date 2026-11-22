@@ -63,7 +63,12 @@ const USAGE: &str = "usage: builds ack [--agent ID] [--project P]\n       builds
 /// while the stores still have an older schema, because install migrates them
 /// to its schema. The gate passes the pre-commit hook's checks in a main
 /// checkout too (`commits_in_main_checkout`).
-pub fn gate(places: &Places, command: &str, args: &[String]) -> Result<()> {
+pub fn gate(
+    places: &Places,
+    session: &agent::Session,
+    command: &str,
+    args: &[String],
+) -> Result<()> {
     if command == "ack"
         || install_gate::STORELESS.contains(&command)
         || std::env::var_os(PASSED).is_some()
@@ -72,12 +77,12 @@ pub fn gate(places: &Places, command: &str, args: &[String]) -> Result<()> {
     {
         return Ok(());
     }
-    let Some(session) = session() else {
+    let Some(session) = session.claude()? else {
         return Ok(());
     };
     if let Some(notice) = check(
         places,
-        &session,
+        session,
         agent::from_env()?.as_deref(),
         flag(args, "project"),
         &current_dir()?,
@@ -113,12 +118,6 @@ fn commits_in_main_checkout(command: &str, args: &[String]) -> Result<bool> {
         return Ok(false);
     };
     Ok(Checkout::at(worktree)?.is_some_and(|checkout| checkout.is_main()))
-}
-
-/// The session id of the agent that runs this command, or None for the
-/// person.
-fn session() -> Option<String> {
-    std::env::var(SESSION).ok().filter(|id| !id.is_empty())
 }
 
 /// The value of flag <name> in a command's arguments <args>, before any `--`.
@@ -362,13 +361,13 @@ pub fn outdated(store: &Store, session: &str) -> Result<Option<String>> {
 }
 
 /// `builds ack`.
-pub fn cmd_ack(places: &Places, args: &[String]) -> Result<()> {
+pub fn cmd_ack(places: &Places, session: &agent::Session, args: &[String]) -> Result<()> {
     let args = Args::parse(args, &[], &["compacted"])?;
     if args.switch("compacted") {
         println!("{}", compacted(places, agent::HookInput::from_stdin()?)?);
         return Ok(());
     }
-    let Some(session) = session() else {
+    let Some(session) = session.claude()? else {
         fail!(
             "builds ack records an agent's acknowledgement under its Claude Code session ({SESSION}), which this shell lacks; builds never refuses a command run outside Claude Code"
         );
@@ -377,7 +376,7 @@ pub fn cmd_ack(places: &Places, args: &[String]) -> Result<()> {
         "{}",
         ack(
             places,
-            &session,
+            session,
             agent::from_env()?.as_deref(),
             &args,
             &current_dir()?,

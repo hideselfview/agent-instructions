@@ -290,7 +290,7 @@ pub const SHOT_FINDINGS_TABLE: &str = "CREATE TABLE IF NOT EXISTS shot_findings 
 /// with the shot findings' table before the review's tables.
 #[cfg(test)]
 pub fn with_shot_findings(schema: String) -> String {
-    match schema.find(REVIEW_PART) {
+    match schema.find("CREATE TABLE review_landing (") {
         Some(at) => format!("{}{SHOT_FINDINGS_TABLE}\n{}", &schema[..at], &schema[at..]),
         None => format!("{schema}\n{SHOT_FINDINGS_TABLE}"),
     }
@@ -396,15 +396,25 @@ CREATE TABLE design_deleted (
 /// the schema.
 #[cfg(test)]
 fn without_step_shots(schema: String) -> String {
-    without_unknown_spec_check_cost(schema.replacen(
-        &format!("\n{APP_BUILD_STEP_SHOTS_PART}"),
-        "",
-        1,
-    ))
+    without_unreported_usage(schema.replacen(&format!("\n{APP_BUILD_STEP_SHOTS_PART}"), "", 1))
 }
 
 #[cfg(test)]
-fn without_unknown_spec_check_cost(schema: String) -> String {
+fn without_unreported_usage(mut schema: String) -> String {
+    for table in ["review_call", "review_exchange", "spec_check"] {
+        for counter in ["in", "out", "cached", "written"] {
+            let start = format!("tokens_{counter} INTEGER");
+            let constraint = format!(" CONSTRAINT {table}_tokens_{counter}_not_negative");
+            schema = schema.replace(
+                &format!("{start}{constraint}"),
+                &format!("{start} NOT NULL{constraint}"),
+            );
+        }
+        let clause = format!(
+            ",\n    CONSTRAINT {table}_records_all_tokens_or_none CHECK (\n        (tokens_in IS NULL) = (tokens_out IS NULL)\n        AND (tokens_in IS NULL) = (tokens_cached IS NULL)\n        AND (tokens_in IS NULL) = (tokens_written IS NULL)\n    )"
+        );
+        schema = schema.replace(&clause, "");
+    }
     schema.replacen(
         "cost_microdollars INTEGER CONSTRAINT spec_check_cost_not_negative",
         "cost_microdollars INTEGER NOT NULL CONSTRAINT spec_check_cost_not_negative",
@@ -412,10 +422,10 @@ fn without_unknown_spec_check_cost(schema: String) -> String {
     )
 }
 
-/// The schema before a spec check could record an unknown cost.
+/// The schema before review records could omit usage and spec-check cost.
 #[cfg(test)]
-pub fn schema_before_unknown_spec_check_cost() -> String {
-    without_unknown_spec_check_cost(SCHEMA.to_string())
+pub fn schema_before_unreported_usage() -> String {
+    without_unreported_usage(SCHEMA.to_string())
 }
 
 /// <schema> as it was before a change could delete a component: with the

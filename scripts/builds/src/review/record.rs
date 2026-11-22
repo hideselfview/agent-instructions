@@ -41,10 +41,7 @@ pub struct NewExchange {
     pub message: String,
     /// The reviewer's JSON answer, or why it gave none.
     pub output: String,
-    pub tokens_in: i64,
-    pub tokens_out: i64,
-    pub tokens_cached: i64,
-    pub tokens_written: i64,
+    pub tokens: Option<super::call::Tokens>,
     /// When the process began, seconds since 1970, and how long it ran.
     pub started_at: i64,
     pub ms: i64,
@@ -237,12 +234,7 @@ pub struct Call {
     pub prompt: String,
     /// The rule slugs it answers for.
     pub rules: Vec<String>,
-    pub tokens_in: i64,
-    pub tokens_out: i64,
-    pub tokens_cached: i64,
-    pub tokens_written: i64,
-    /// None for a call made before builds recorded the cost.
-    pub cost_microdollars: Option<i64>,
+    pub usage: super::call::Usage,
     pub failure: Option<String>,
 }
 
@@ -478,7 +470,7 @@ pub fn add_calls(
         let prompt = texts::hash(&call.prompt);
         db.execute(
             "INSERT INTO review_call (run_id, group_name, model, prompt, rules, tokens_in, tokens_out, tokens_cached, tokens_written, cost_microdollars, sites, failure) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
-            params![run_id, call.group, call.model, prompt, rules, call.usage.tokens_in, call.usage.tokens_out, call.usage.tokens_cached, call.usage.tokens_written, call.usage.cost_microdollars, call.sites, call.failure],
+            params![run_id, call.group, call.model, prompt, rules, call.usage.tokens.map(|tokens| tokens.input), call.usage.tokens.map(|tokens| tokens.output), call.usage.tokens.map(|tokens| tokens.cached), call.usage.tokens.map(|tokens| tokens.written), call.usage.cost_microdollars, call.sites, call.failure],
         )
         .sql()?;
         let call_id = db.last_insert_rowid();
@@ -495,7 +487,7 @@ pub fn add_calls(
             let output_hash = texts::hash(&exchange.output);
             db.execute(
                 "INSERT INTO review_exchange (call_id, model, unit, pass, system_hash, message_hash, output_hash, tokens_in, tokens_out, tokens_cached, tokens_written) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-                params![call_id, exchange.model, exchange.unit, exchange.pass, system_hash, message_hash, output_hash, exchange.tokens_in, exchange.tokens_out, exchange.tokens_cached, exchange.tokens_written],
+                params![call_id, exchange.model, exchange.unit, exchange.pass, system_hash, message_hash, output_hash, exchange.tokens.map(|tokens| tokens.input), exchange.tokens.map(|tokens| tokens.output), exchange.tokens.map(|tokens| tokens.cached), exchange.tokens.map(|tokens| tokens.written)],
             )
             .sql()?;
             crate::review::exchange_time::record(
@@ -765,11 +757,18 @@ fn calls_where(db: &Connection, condition: &str, value: impl rusqlite::ToSql) ->
                         Box::new(error),
                     )
                 })?,
-                tokens_in: row.get(7)?,
-                tokens_out: row.get(8)?,
-                tokens_cached: row.get(9)?,
-                tokens_written: row.get(10)?,
-                cost_microdollars: row.get(11)?,
+                usage: super::call::Usage {
+                    tokens: match row.get::<_, Option<i64>>(7)? {
+                        Some(input) => Some(super::call::Tokens {
+                            input,
+                            output: row.get(8)?,
+                            cached: row.get(9)?,
+                            written: row.get(10)?,
+                        }),
+                        None => None,
+                    },
+                    cost_microdollars: row.get(11)?,
+                },
                 failure: row.get(12)?,
             })
         })
@@ -1003,3 +1002,27 @@ pub fn first_reviews(db: &Connection) -> Result<Vec<FirstReview>> {
 #[cfg(test)]
 #[path = "record_tests.rs"]
 pub mod tests;
+
+/// Keeps the existing calls and exchanges while allowing a provider to omit its token report.
+pub fn allow_unreported_tokens(db: &Connection) -> Result<()> {
+    use crate::db::{REVIEW_PART, remake_table, statement};
+    for table in ["review_call", "review_exchange"] {
+        let create = format!("CREATE TABLE {table} (");
+        let index = if table == "review_call" {
+            "CREATE INDEX review_call_run"
+        } else {
+            "CREATE INDEX review_exchange_call"
+        };
+        remake_table(
+            db,
+            table,
+            statement(REVIEW_PART, &create, ") STRICT;"),
+            |db| {
+                db.execute_batch(&format!("INSERT INTO {table} SELECT * FROM {table}_old"))
+                    .sql()
+            },
+            &[statement(REVIEW_PART, index, ";")],
+        )?;
+    }
+    Ok(())
+}

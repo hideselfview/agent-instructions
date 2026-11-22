@@ -4,6 +4,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use crate::ack::agent::Session;
 use crate::checkout::{Root, all_roots};
 use crate::fail::Result;
 use crate::places::{DiskSpace, Places, Rules};
@@ -17,6 +18,7 @@ pub struct Tool {
     pub now: i64,
     /// The reviewer the commands that check text before they write it ask.
     pub reviewer: Reviewer,
+    pub session: Session,
     /// This builds program (`crate::this_program`), which `builds install`
     /// copies, and which `builds design record` and `amend` run as `builds
     /// shots states` to find the component states a design change adds
@@ -28,13 +30,14 @@ pub struct Tool {
 
 impl Tool {
     /// A tool whose builds program is <program>.
-    pub fn new(places: Places, rules: Rules, program: PathBuf) -> Tool {
+    pub fn new(places: Places, rules: Rules, program: PathBuf, session: Session) -> Tool {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .expect("the clock is after 1970")
             .as_secs() as i64;
         Tool {
-            reviewer: Reviewer::installed(&places),
+            reviewer: Reviewer::installed(&places, &session, std::env::var_os("BUILDS_REVIEWER")),
+            session,
             program,
             places,
             rules,

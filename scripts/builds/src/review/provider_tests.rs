@@ -43,12 +43,11 @@ fn codex_returns_the_final_structured_message_and_the_turns_usage() {
     assert_eq!(called.body.unwrap(), json!({"claims": []}));
     assert_eq!(
         called.usage.unwrap(),
-        Usage {
-            tokens_in: 31,
-            tokens_out: 12,
-            tokens_cached: 7,
-            tokens_written: 2,
-            cost_microdollars: None,
+        Tokens {
+            input: 31,
+            output: 12,
+            cached: 7,
+            written: 2
         }
     );
 }
@@ -86,7 +85,9 @@ fn codex_cannot_pass_a_check_after_a_failed_turn() {
 fn a_codex_session_runs_the_ruling_check_with_the_codex_protocol() {
     let scratch = crate::testing::Scratch::new("codex-rulings");
     let mut tool = scratch.tool(0);
-    let executable = default_program(None, Some(OsStr::new("")), true);
+    let session = crate::ack::agent::Session::of(Some("".into()), None, Some("thread-id".into()));
+    let reviewer = crate::review::Reviewer::installed(&tool.places, &session, None);
+    let executable = reviewer.program.executable();
     let script = scratch.script(
         "codex",
         &format!(
@@ -98,7 +99,9 @@ cat <<'EVENTS'
 EVENTS"#
         ),
     );
-    tool.reviewer.program = Program::new(scratch.dir.join(executable), scratch.dir.clone());
+    tool.reviewer.program = reviewer
+        .program
+        .with_executable(scratch.dir.join(executable));
     assert_eq!(tool.reviewer.program.executable(), script);
     let store = crate::lists::fixtures::make_store(&tool.places, &["demo"]);
     let details = scratch.dir.join("wait.md");
@@ -136,8 +139,7 @@ fn an_invalid_event_cannot_change_an_answer_or_erase_reported_usage() {
     events.extend_from_slice(br#""}}"#);
     let called = codex_events(&events, false);
     assert!(called.body.unwrap_err().contains("invalid event"));
-    assert_eq!(called.usage.unwrap().tokens_in, 31);
-    assert!(called.usage.unwrap().cost_microdollars.is_none());
+    assert_eq!(called.usage.unwrap().input, 31);
 }
 
 #[test]
@@ -153,6 +155,7 @@ fn a_codex_failure_reports_the_cli_diagnostic() {
         None,
     );
     assert!(called.body.unwrap_err().contains("unsupported option"));
+    assert!(called.usage.tokens.is_none());
 }
 
 #[test]
@@ -168,26 +171,30 @@ fn the_same_codex_model_at_different_reasoning_efforts_has_a_distinct_setup() {
 }
 
 fn expecting_model(scratch: &crate::testing::Scratch, name: &str, answer: Value) -> Program {
-    let event = json!({
-        "type": "item.completed",
-        "item": {"type": "agent_message", "text": answer.to_string()}
-    });
-    let shell = format!(
+    expecting_models(scratch, &[(name, answer)])
+}
+
+fn expecting_models(scratch: &crate::testing::Scratch, answers: &[(&str, Value)]) -> Program {
+    let mut shell = String::from(
         r#"set -e
-cat > /dev/null
-while [ "$#" -gt 0 ]; do
-    if [ "$1" = --model ]; then
-        test "$2" = "{name}"
-        break
-    fi
-    shift
-done
-test "$#" -gt 0
-cat <<'EVENTS'
-{event}
-{COMPLETED}
-EVENTS"#
+cat >/dev/null
+while [ "$#" -gt 1 ] && [ "$1" != --model ]; do shift; done
+test "$#" -gt 1
+case "$2" in
+"#,
     );
+    for (index, (model, answer)) in answers.iter().enumerate() {
+        let event = json!({
+            "type": "item.completed",
+            "item": {"type": "agent_message", "text": answer.to_string()}
+        });
+        shell.push_str(&format!(
+            "    {model}) cat <<'ANSWER_{index}'\n{event}\nANSWER_{index}\n        ;;\n"
+        ));
+    }
+    shell.push_str(&format!(
+        "    *) exit 2 ;;\nesac\ncat <<'DONE'\n{COMPLETED}\nDONE"
+    ));
     Program::new(scratch.script("codex", &shell), scratch.dir.clone())
 }
 
@@ -208,6 +215,11 @@ fn actual_code_review_uses_astra_and_design_and_replay_use_sol() {
                 db,
                 GlobKind::Place,
                 &parse_globs("design-places", "demo:design/*.html")?,
+            )?;
+            set_design_globs(
+                db,
+                GlobKind::Spec,
+                &parse_globs("spec-files", "demo:spec/*.md")?,
             )
         })
         .unwrap();
@@ -258,39 +270,69 @@ fn actual_code_review_uses_astra_and_design_and_replay_use_sol() {
     let offline = Program::new(executable, demo.scratch.dir.clone());
     assert!(branch(&retry, "branch:retry", &offline).refusal.is_some());
     demo.commit(&retry, "a.rs");
-    let event = |rule| {
-        json!({
-            "type": "item.completed",
-            "item": {"type": "agent_message", "text": answer(rule).to_string()},
-        })
-    };
-    let shell = format!(
-        r#"set -e
-cat >/dev/null
-while [ "$1" != --model ]; do shift; done
-case "$2" in
-    gpt-6.2-sol) cat <<'SOL'
-{sol}
-SOL
-        ;;
-    gpt-6.2-astra) cat <<'ASTRA'
-{astra}
-ASTRA
-        ;;
-    *) exit 2 ;;
-esac
-cat <<'DONE'
-{COMPLETED}
-DONE"#,
-        sol = event("rule-d"),
-        astra = event("rule-a"),
+    let online = expecting_models(
+        &demo.scratch,
+        &[
+            ("gpt-6.2-sol", answer("rule-d")),
+            ("gpt-6.2-astra", answer("rule-a")),
+        ],
     );
-    let executable = demo.scratch.script("codex", &shell);
-    let online = Program::new(executable, demo.scratch.dir.clone());
     let retries = branch(&retry, "branch:retry", &online);
     assert!(retries.refusal.is_none(), "{}", retries.text);
     assert!(retries.text.contains("gpt-6.2-sol"), "{}", retries.text);
     assert!(retries.text.contains("gpt-6.2-astra"), "{}", retries.text);
+
+    let capture = demo.add_side(5, "agent", "capture-code");
+    std::fs::write(capture.join(".app-build"), "shots-declared mac app/shots\n").unwrap();
+    std::fs::create_dir_all(capture.join("app/shots")).unwrap();
+    demo.commit(&capture, "app/shots/AccessibilitySnapshot.swift");
+    fakes::capture_rule_file(
+        &fake.root,
+        "beta",
+        "rule-b",
+        "app/shots/**",
+        "Write the accessibility snapshot.",
+    );
+    let astra = expecting_model(&demo.scratch, "gpt-6.2-astra", answer("rule-b"));
+    let reviewed = branch(&capture, "branch:capture-code", &astra);
+    assert!(reviewed.refusal.is_none(), "{}", reviewed.text);
+    assert!(reviewed.text.contains("gpt-6.2-astra"));
+
+    let code_fix = demo.add_side(4, "agent", "review-code-finding");
+    demo.commit(&code_fix, "a.rs");
+    let mut finding = answer("rule-a");
+    finding["rules"][0]["verdict"] = json!("finding");
+    finding["rules"][0]["findings"] = json!([{
+        "clause": "Never do the bad thing here.", "file": "a.rs", "line": 1,
+        "code": "a.rs", "problem": "The code does the bad thing.",
+    }]);
+    let astra_raises = expecting_model(&demo.scratch, "gpt-6.2-astra", finding);
+    let first = branch(&code_fix, "branch:review-code-finding", &astra_raises);
+    let landing = first.landing.unwrap();
+    let open = demo
+        .store
+        .write(&stamp(NOON), "settle code finding", |db| {
+            let findings = crate::review::record::findings_of_landing(db, landing)?;
+            let id = findings.iter().find(|finding| finding.counts()).unwrap().id;
+            crate::review::record::settle(
+                db,
+                id,
+                "confirmed",
+                "It is a code finding.",
+                NOON,
+                "judge",
+            )?;
+            Ok(id)
+        })
+        .unwrap();
+    std::fs::create_dir_all(code_fix.join("spec")).unwrap();
+    demo.commit(&code_fix, "spec/app.md");
+    let mut closes = answer("rule-a");
+    closes["closed"] = json!([open]);
+    let astra_closes = expecting_model(&demo.scratch, "gpt-6.2-astra", closes);
+    let rereviewed = branch(&code_fix, "branch:review-code-finding", &astra_closes);
+    assert!(rereviewed.refusal.is_none(), "{}", rereviewed.text);
+    assert!(rereviewed.text.contains("gpt-6.2-astra"));
 
     let sol = expecting_model(&demo.scratch, "gpt-6.2-sol", answer("rule-a"));
     let case = cases::Case {
@@ -310,7 +352,7 @@ DONE"#,
     let replayed = cases::replay_case(scope, &sol, &case, None);
     assert_eq!(replayed.calls[0].model, "gpt-6.2-sol");
     assert!(replayed.calls[0].failure.is_none());
-    assert!(cases::totals(&[replayed]).cost_microdollars.is_none());
+    assert!(cases::totals(&[replayed]).usage.cost_microdollars.is_none());
 }
 
 #[test]
@@ -353,6 +395,8 @@ fn a_codex_spec_check_uses_sol_even_when_the_rule_uses_the_high_tier() {
 #[test]
 fn claude_records_the_model_that_answered_instead_of_its_alias() {
     let reply = serde_json::json!({
+        "is_error": false,
+        "usage": {"input_tokens": 0, "output_tokens": 0},
         "structured_output": {"rules": []},
         "modelUsage": {
             "claude-opus-4-8": {},
@@ -380,7 +424,7 @@ fn claude_refuses_invalid_envelope_fields_and_token_overflow() {
         ),
         (
             "usage",
-            json!({"input_tokens": i64::MAX, "cache_read_input_tokens": 1}),
+            json!({"input_tokens": i64::MAX, "output_tokens": 0, "cache_read_input_tokens": 1}),
             "supported range",
         ),
     ] {
@@ -396,7 +440,7 @@ fn a_failed_claude_process_keeps_reported_usage() {
     let scratch = crate::testing::Scratch::new("claude-failed-envelope");
     let executable = scratch.script("claude", r#"cat >/dev/null
 cat <<'REPLY'
-{"is_error":true,"result":"rate limit","total_cost_usd":0,"usage":{"input_tokens":5},"modelUsage":{"claude-opus-4-8":{}}}
+{"is_error":true,"result":"rate limit","total_cost_usd":0,"usage":{"input_tokens":5,"output_tokens":0},"modelUsage":{"claude-opus-4-8":{}}}
 REPLY
 exit 2"#);
     let called = invoke(
@@ -407,7 +451,7 @@ exit 2"#);
         "check",
         None,
     );
-    assert_eq!(called.usage.tokens_in, 5);
+    assert_eq!(called.usage.tokens.unwrap().input, 5);
     assert_eq!(called.usage.cost_microdollars, Some(0));
     assert_eq!(called.model, "claude-opus-4-8");
     assert!(
@@ -447,4 +491,76 @@ fn codex_startup_errors_do_not_claim_a_model_ran() {
     );
     assert!(called.body.unwrap_err().contains("running"));
     assert_eq!(called.model, "unknown (requested gpt-6.2-sol)");
+}
+
+#[test]
+fn a_claude_error_keeps_its_reported_price_when_tokens_are_invalid() {
+    let reply = json!({
+        "is_error": true,
+        "result": "rate limited",
+        "total_cost_usd": 0.01,
+        "usage": {"input_tokens": -1, "output_tokens": 0},
+    });
+    let called = claude_envelope(reply.to_string().as_bytes(), "opus");
+    assert!(called.usage.tokens.is_none());
+    assert_eq!(called.usage.cost_microdollars, Some(10_000));
+    let diagnostic = called.body.unwrap_err();
+    assert!(diagnostic.contains("rate limited") && diagnostic.contains("invalid input_tokens"));
+}
+
+#[test]
+fn an_unreported_output_count_cannot_be_recorded_as_zero() {
+    let reply = json!({
+        "is_error": false,
+        "structured_output": {"claims": []},
+        "usage": {"input_tokens": 20},
+    });
+    let called = claude_envelope(reply.to_string().as_bytes(), "opus");
+    assert!(called.usage.tokens.is_none());
+    assert!(called.body.unwrap_err().contains("output_tokens"));
+    assert!(claude_cost(&json!({"total_cost_usd": -0.0000001})).is_err());
+}
+
+#[test]
+fn invalid_codex_usage_keeps_a_tool_violation_visible() {
+    let reply = [
+        r#"{"type":"item.completed","item":{"type":"command_execution"}}"#,
+        r#"{"type":"turn.completed","usage":{"input_tokens":-4}}"#,
+    ]
+    .join("\n");
+    let called = codex_events(reply.as_bytes(), false);
+    assert!(called.usage.is_none());
+    let diagnostic = called.body.unwrap_err();
+    assert!(
+        diagnostic.contains("command_execution") && diagnostic.contains("invalid input_tokens")
+    );
+}
+
+#[test]
+fn codex_keeps_its_answer_failure_and_usage_after_cleanup_fails() {
+    let scratch = crate::testing::Scratch::new("codex-cleanup-diagnostic");
+    let shell = format!(
+        r#"set -e
+cat >/dev/null
+mv "$PWD" "$PWD.renamed"
+cat <<'EVENTS'
+{{"type":"turn.failed","error":{{"message":"the provider could not finish"}}}}
+{COMPLETED}
+EVENTS"#
+    );
+    let executable = scratch.script("codex", &shell);
+    let response = invoke(
+        &Program::new(executable, scratch.dir.clone()),
+        &Selection::Tier(Tier::Fast),
+        &json!({}),
+        "",
+        "check",
+        None,
+    );
+    assert_eq!(response.usage.tokens.unwrap().input, 31);
+    let why = response.body.unwrap_err();
+    assert!(
+        why.contains("the provider could not finish") && why.contains("removing"),
+        "{why}"
+    );
 }

@@ -213,15 +213,18 @@ fn main() -> ExitCode {
         print!("{}", help::HELP);
         return ExitCode::from(2);
     };
+    let session = ack::agent::Session::from_env();
     let nested = std::env::var_os(ack::PASSED).is_some();
     let _use = match enter_stores(command, &args) {
         Ok(held) => held,
         Err(fail) => return exit_code(fail),
     };
-    if let Err(fail) = Places::from_env().and_then(|places| ack::gate(&places, command, rest)) {
+    if let Err(fail) =
+        Places::from_env().and_then(|places| ack::gate(&places, &session, command, rest))
+    {
         return exit_code(fail);
     }
-    if let Err(fail) = claimed_branch::gate(command, nested) {
+    if let Err(fail) = claimed_branch::gate(command, nested, &session) {
         return exit_code(fail);
     }
     // Held until the command ends: dropping it deletes the run's temporary
@@ -230,7 +233,7 @@ fn main() -> ExitCode {
         Ok(held) => held,
         Err(fail) => return exit_code(fail),
     };
-    let result = run(command, rest);
+    let result = run(command, rest, session);
     // The command's folders are measured whether it succeeded or not: a
     // failed build left what it wrote.
     if let Ok(places) = Places::from_env() {
@@ -352,7 +355,7 @@ pub fn version() -> String {
     format!("builds {}", env!("BUILDS_SOURCE"))
 }
 
-fn run(command: &str, args: &[String]) -> Result<()> {
+fn run(command: &str, args: &[String], session: ack::agent::Session) -> Result<()> {
     match command {
         // These run in the caller's environment as it is, which cargo
         // inherits; `cargo` asks git about its checkout without changing it.
@@ -369,12 +372,17 @@ fn run(command: &str, args: &[String]) -> Result<()> {
         "lock" => return lock::cmd_lock(&Places::from_env()?, args),
         "app-build" => {
             return app_build::cmd_app_build(
-                &Tool::new(Places::from_env()?, Rules::from_env()?, this_program()?),
+                &Tool::new(
+                    Places::from_env()?,
+                    Rules::from_env()?,
+                    this_program()?,
+                    session,
+                ),
                 args,
             );
         }
         "shots" => return shots_program::cmd_shots(&Places::from_env()?, args),
-        "ack" => return ack::cmd_ack(&Places::from_env()?, args),
+        "ack" => return ack::cmd_ack(&Places::from_env()?, &session, args),
         "agent" => return ack::agent::cmd_agent(&Places::from_env()?, args),
         "queue" => return queue::cmd_queue(&Places::from_env()?, args),
         "takeover" => return queue::cmd_takeover(&Places::from_env()?, args),
@@ -396,7 +404,12 @@ fn run(command: &str, args: &[String]) -> Result<()> {
     }
     checkout::drop_git_local_env()?;
     text::use_callers_collation();
-    let mut tool = Tool::new(Places::from_env()?, Rules::from_env()?, this_program()?);
+    let mut tool = Tool::new(
+        Places::from_env()?,
+        Rules::from_env()?,
+        this_program()?,
+        session,
+    );
     match command {
         "setup" => setup::cmd_setup(&tool, &host::Ssh::from_env(), args),
         "new" => worktree::cmd_new(&tool, &host::Ssh::from_env(), args),

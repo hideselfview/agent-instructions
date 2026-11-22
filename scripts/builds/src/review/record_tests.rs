@@ -8,10 +8,12 @@ fn call(group: &str, finding: Option<(&str, bool, Option<&str>)>) -> NewCall {
         prompt: format!("the prompt of {group}"),
         rules: vec!["r".to_string()],
         usage: crate::review::call::Usage {
-            tokens_in: 10,
-            tokens_out: 2,
-            tokens_cached: 4,
-            tokens_written: 3,
+            tokens: Some(crate::review::call::Tokens {
+                input: 10,
+                output: 2,
+                cached: 4,
+                written: 3,
+            }),
             cost_microdollars: Some(500_000),
         },
         sites: None,
@@ -23,10 +25,12 @@ fn call(group: &str, finding: Option<(&str, bool, Option<&str>)>) -> NewCall {
             system: "system".to_string(),
             message: "message".to_string(),
             output: "{}".to_string(),
-            tokens_in: 10,
-            tokens_out: 2,
-            tokens_cached: 4,
-            tokens_written: 3,
+            tokens: Some(crate::review::call::Tokens {
+                input: 10,
+                output: 2,
+                cached: 4,
+                written: 3,
+            }),
             started_at: 1_790_000_000,
             ms: 2_000,
         }],
@@ -459,4 +463,43 @@ INSERT INTO review_text (hash, text) VALUES ('{prompt}', 'the prompt'), ('{syste
 INSERT INTO review_call (id, run_id, group_name, model, prompt, rules, tokens_in, tokens_out, tokens_cached, tokens_written) VALUES (9, 4, 'g', 'm', '{prompt}', '[]', 1, 1, 0, 0);
 INSERT INTO review_exchange (id, call_id, model, unit, pass, system_hash, message_hash, output, tokens_in, tokens_out, tokens_cached, tokens_written) VALUES (6, 9, 'm', 'f', 0, '{system}', '{message}', 'the answer', 1, 1, 0, 0);"
     ))
+}
+
+#[test]
+fn a_review_with_unreported_usage_keeps_null_counters_and_a_measured_zero() {
+    use crate::review::call::{Tokens, Usage};
+    let db = db();
+    let repo = first_repo(&db);
+    let landing = add_landing(
+        &db,
+        Change {
+            repo: &repo,
+            key: "k",
+        },
+        5,
+    )
+    .unwrap();
+    let mut failed = call("failed", None);
+    failed.usage = Usage::default();
+    failed.exchanges[0].tokens = None;
+    failed.failure = Some("the provider did not report usage".to_string());
+    let mut measured = call("measured", None);
+    measured.usage = Usage::ZERO;
+    measured.exchanges[0].tokens = Some(Tokens::ZERO);
+    add_run(
+        &db,
+        &crate::review::texts::scratch(),
+        &run(Some(landing), 6, "base", "head"),
+        &[failed, measured],
+    )
+    .unwrap();
+    let calls = calls_of_landing(&db, landing).unwrap();
+    assert_eq!(
+        calls.iter().map(|call| call.usage).collect::<Vec<_>>(),
+        [Usage::default(), Usage::ZERO]
+    );
+    assert!(
+        crate::review::render::totals(&calls, &[])
+            .contains("token usage not recorded for every call")
+    );
 }

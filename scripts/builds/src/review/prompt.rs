@@ -240,7 +240,7 @@ pub fn build(input: &Input) -> Parts {
 /// opening, the group's part, its passes, whether it reads the commit
 /// messages, and the answer schema. The store keeps it with every call, so
 /// calls with the same model and the same prompt ran the same setup.
-pub fn setup(group: &Group, rules: &[&Rule]) -> String {
+pub fn setup(group: &Group, rules: &[&Rule], reviewer: &super::Program) -> String {
     let part = group_part(&Input {
         group,
         rules,
@@ -250,14 +250,20 @@ pub fn setup(group: &Group, rules: &[&Rule]) -> String {
         context: "",
         open: &[],
     });
-    setup_text(SYSTEM, &part, group.passes, group.commit_text)
+    let system = format!("{SYSTEM}\n\n{part}");
+    let schema = schema();
+    setup_text(
+        &reviewer.instructions(&system),
+        group.passes,
+        group.commit_text,
+        &reviewer.schema(&schema),
+    )
 }
 
-fn setup_text(opening: &str, group_part: &str, passes: usize, commit_text: bool) -> String {
+fn setup_text(system: &str, passes: usize, commit_text: bool, schema: &Value) -> String {
     format!(
-        "{opening}\n\n{group_part}\n# Settings\n\npasses: {passes}\ncommit messages read: {}\n\n# Answer schema\n\n{}\n",
+        "{system}\n# Settings\n\npasses: {passes}\ncommit messages read: {}\n\n# Answer schema\n\n{schema}\n",
         if commit_text { "yes" } else { "no" },
-        schema()
     )
 }
 

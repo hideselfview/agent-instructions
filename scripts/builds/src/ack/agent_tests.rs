@@ -98,17 +98,34 @@ fn a_lists_folder_with_no_parent_has_no_place_for_the_agents() {
 
 #[test]
 fn a_caller_is_a_session_and_an_agent_and_the_person_has_no_session() {
-    assert_eq!(Caller::of(None, Some("a1")).unwrap(), None);
-    assert_eq!(Caller::of(Some(""), None).unwrap(), None);
+    assert_eq!(
+        Session::of(None, None, None)
+            .caller_with(Some("a1"))
+            .unwrap(),
+        None
+    );
+    assert_eq!(
+        Session::of(Some("".into()), None, None)
+            .caller_with(None)
+            .unwrap(),
+        None
+    );
     assert!(
-        Caller::of(Some("s1"), None)
+        Session::of(Some("s1".into()), None, None)
+            .caller_with(None)
             .unwrap_err()
             .text()
             .contains("--agent")
     );
-    let main = Caller::of(Some("s1"), Some("s1")).unwrap().unwrap();
+    let main = Session::of(Some("s1".into()), None, None)
+        .caller_with(Some("s1"))
+        .unwrap()
+        .unwrap();
     assert!(!main.is_dispatched());
-    let dispatched = Caller::of(Some("s1"), Some("a1")).unwrap().unwrap();
+    let dispatched = Session::of(Some("s1".into()), None, None)
+        .caller_with(Some("a1"))
+        .unwrap()
+        .unwrap();
     assert!(dispatched.is_dispatched());
 }
 

@@ -520,11 +520,10 @@ pub fn record(
                 check.system,
                 check.message,
                 check.output,
-                check.usage.tokens_in,
-                check.usage.tokens_out,
-                check.usage.tokens_cached,
-                check.usage.tokens_written,
-                // The spec check table uses zero when the provider reports no cost.
+                check.usage.tokens.map(|tokens| tokens.input),
+                check.usage.tokens.map(|tokens| tokens.output),
+                check.usage.tokens.map(|tokens| tokens.cached),
+                check.usage.tokens.map(|tokens| tokens.written),
                 check.usage.cost_microdollars,
                 check.failure,
                 decided.map(|(id, _)| id),
@@ -741,8 +740,8 @@ pub fn plant(
 #[path = "spec_check_tests.rs"]
 pub mod tests;
 
-/// Keeps each recorded check while allowing a reviewer to leave the cost unknown.
-pub fn allow_unknown_cost(db: &rusqlite::Connection) -> Result<()> {
+/// Keeps stored checks while allowing a provider to omit token usage or cost.
+pub fn allow_unreported_usage(db: &rusqlite::Connection) -> Result<()> {
     use crate::db::{SPEC_CHECK_PART, remake_table, statement};
     remake_table(
         db,
@@ -750,8 +749,12 @@ pub fn allow_unknown_cost(db: &rusqlite::Connection) -> Result<()> {
         statement(SPEC_CHECK_PART, "CREATE TABLE spec_check (", ") STRICT;"),
         |db| {
             use crate::db::Sql;
-            db.execute_batch("INSERT INTO spec_check SELECT * FROM spec_check_old")
-                .sql()
+            db.execute_batch(
+                "INSERT INTO spec_check SELECT id, at, by, brief, brief_text, repo, worktree, head, spec_files, model, rules_version,
+                    system, message, output, tokens_in, tokens_out, tokens_cached, tokens_written,
+                    CASE WHEN model IN ('gpt-6.2-astra', 'gpt-6.2-sol') AND cost_microdollars = 0 THEN NULL ELSE cost_microdollars END,
+                    failure, decided_id, decided_kind FROM spec_check_old",
+            ).sql()
         },
         &[],
     )

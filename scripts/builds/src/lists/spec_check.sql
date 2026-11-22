@@ -28,10 +28,10 @@ CREATE TABLE spec_check (
     message TEXT NOT NULL,
     -- The reviewer's JSON answer, or why it gave none.
     output TEXT NOT NULL,
-    tokens_in INTEGER NOT NULL CONSTRAINT spec_check_tokens_in_not_negative CHECK (tokens_in >= 0),
-    tokens_out INTEGER NOT NULL CONSTRAINT spec_check_tokens_out_not_negative CHECK (tokens_out >= 0),
-    tokens_cached INTEGER NOT NULL CONSTRAINT spec_check_tokens_cached_not_negative CHECK (tokens_cached >= 0),
-    tokens_written INTEGER NOT NULL CONSTRAINT spec_check_tokens_written_not_negative CHECK (tokens_written >= 0),
+    tokens_in INTEGER CONSTRAINT spec_check_tokens_in_not_negative CHECK (tokens_in >= 0),
+    tokens_out INTEGER CONSTRAINT spec_check_tokens_out_not_negative CHECK (tokens_out >= 0),
+    tokens_cached INTEGER CONSTRAINT spec_check_tokens_cached_not_negative CHECK (tokens_cached >= 0),
+    tokens_written INTEGER CONSTRAINT spec_check_tokens_written_not_negative CHECK (tokens_written >= 0),
     cost_microdollars INTEGER CONSTRAINT spec_check_cost_not_negative CHECK (cost_microdollars >= 0),
     -- Why the check gave no usable answer; null when it did.
     failure TEXT,
@@ -40,7 +40,12 @@ CREATE TABLE spec_check (
     decided_id INTEGER,
     decided_kind TEXT CONSTRAINT spec_check_decided_by_a_decision_or_question CHECK (decided_kind IN ('decision', 'question')),
     CONSTRAINT spec_check_decided_whole CHECK ((decided_id IS NULL) = (decided_kind IS NULL)),
-    CONSTRAINT spec_check_decided_names_its_record FOREIGN KEY (decided_id, decided_kind) REFERENCES record (id, kind)
+    CONSTRAINT spec_check_decided_names_its_record FOREIGN KEY (decided_id, decided_kind) REFERENCES record (id, kind),
+    CONSTRAINT spec_check_records_all_tokens_or_none CHECK (
+        (tokens_in IS NULL) = (tokens_out IS NULL)
+        AND (tokens_in IS NULL) = (tokens_cached IS NULL)
+        AND (tokens_in IS NULL) = (tokens_written IS NULL)
+    )
 ) STRICT;
 
 -- The items the take took, or meant to take, with the checked brief.

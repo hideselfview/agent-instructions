@@ -2203,18 +2203,16 @@ fn a_store_from_before_the_shots_uses_keeps_its_steps_and_gains_the_table() {
 #[test]
 fn a_move_allows_unknown_spec_cost_and_keeps_previous_checks_and_findings() {
     use crate::lists::{fixtures, project, spec_check};
+    use crate::review::call::Usage;
     let scratch = Scratch::new("move-spec-check-cost");
     let places = scratch.places();
     let path = scratch.dir.join(DATABASE);
     let item = {
         let conn = Connection::open(&path).unwrap();
-        let prior = db::schema_before_unknown_spec_check_cost();
-        assert_eq!(
-            db::stamp_of_text(&prior),
-            BEFORE_UNKNOWN_SPEC_CHECK_COST_STAMP
-        );
+        let prior = db::schema_before_unreported_usage();
+        assert_eq!(db::stamp_of_text(&prior), BEFORE_UNREPORTED_USAGE_STAMP);
         conn.execute_batch(&prior).unwrap();
-        conn.pragma_update(None, "user_version", BEFORE_UNKNOWN_SPEC_CHECK_COST_STAMP)
+        conn.pragma_update(None, "user_version", BEFORE_UNREPORTED_USAGE_STAMP)
             .unwrap();
         project::init(
             &conn,
@@ -2230,22 +2228,19 @@ fn a_move_allows_unknown_spec_cost_and_keeps_previous_checks_and_findings() {
         .unwrap();
         crate::lists::area::add_area(&conn, "Alpha", None).unwrap();
         let item = fixtures::item(&conn, Vec::new());
-        spec_check::tests::record_one(&conn, "bae", item, Some(0));
+        spec_check::tests::record_one(&conn, item, "opus", Usage::ZERO);
+        spec_check::tests::record_one(&conn, item, "gpt-6.2-sol", Usage::ZERO);
         item
     };
     move_store(&places, &path, 0).unwrap();
     let conn = db::open(&path, db::Make::Never).unwrap();
-    spec_check::tests::record_one(&conn, "bae", item, None);
-    let costs = conn
-        .prepare("SELECT cost_microdollars FROM spec_check ORDER BY id")
-        .unwrap()
-        .query_map([], |row| row.get::<_, Option<i64>>(0))
-        .unwrap()
-        .collect::<rusqlite::Result<Vec<_>>>()
-        .unwrap();
-    assert_eq!(costs, [Some(0), None]);
+    spec_check::tests::record_one(&conn, item, "gpt-6.2-astra", Usage::default());
+    assert_eq!(
+        spec_check::tests::recorded_usage(&conn),
+        [(Some(0), Some(0)), (Some(0), None), (None, None)]
+    );
     let check = &spec_check::read_all(&conn).unwrap()[&item];
-    assert_eq!(check.len(), 2);
+    assert_eq!(check.len(), 3);
     assert!(
         check
             .iter()

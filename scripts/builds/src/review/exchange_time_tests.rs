@@ -9,10 +9,12 @@ fn call(exchanges: Vec<NewExchange>) -> NewCall {
         prompt: "the prompt".to_string(),
         rules: vec!["r".to_string()],
         usage: crate::review::call::Usage {
-            tokens_in: 0,
-            tokens_out: 0,
-            tokens_cached: 0,
-            tokens_written: 0,
+            tokens: Some(crate::review::call::Tokens {
+                input: 0,
+                output: 0,
+                cached: 0,
+                written: 0,
+            }),
             cost_microdollars: Some(0),
         },
         sites: None,
@@ -32,10 +34,12 @@ fn exchange(unit: &str, started_at: i64, ms: i64) -> NewExchange {
         system: "system".to_string(),
         message: format!("message {unit}"),
         output: "{}".to_string(),
-        tokens_in: 0,
-        tokens_out: 0,
-        tokens_cached: 0,
-        tokens_written: 0,
+        tokens: Some(crate::review::call::Tokens {
+            input: 0,
+            output: 0,
+            cached: 0,
+            written: 0,
+        }),
         started_at,
         ms,
     }

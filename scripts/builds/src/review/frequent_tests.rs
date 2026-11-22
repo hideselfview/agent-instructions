@@ -18,10 +18,12 @@ fn call(clauses: &[&str]) -> NewCall {
         prompt: "prompt".to_string(),
         rules: vec!["plain".to_string()],
         usage: crate::review::call::Usage {
-            tokens_in: 0,
-            tokens_out: 0,
-            tokens_cached: 0,
-            tokens_written: 0,
+            tokens: Some(crate::review::call::Tokens {
+                input: 0,
+                output: 0,
+                cached: 0,
+                written: 0,
+            }),
             cost_microdollars: Some(0),
         },
         sites: None,

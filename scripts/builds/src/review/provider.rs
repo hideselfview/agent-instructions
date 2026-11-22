@@ -2,14 +2,13 @@
 //! protocol to the common schemas and checks.
 
 use std::borrow::Cow;
-use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 use serde_json::Value;
 
 use crate::fail::{Context, Result};
-use crate::review::call::{Invoked, Usage};
+use crate::review::call::{Invoked, Tokens, Usage};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Provider {
@@ -71,6 +70,17 @@ impl Program {
         self.model(selection).name().to_string()
     }
 
+    pub fn schema<'a>(&self, schema: &'a Value) -> Cow<'a, Value> {
+        match Provider::of(&self.executable) {
+            Provider::Claude => Cow::Borrowed(schema),
+            Provider::Codex => {
+                let mut schema = schema.clone();
+                require_properties(&mut schema);
+                Cow::Owned(schema)
+            }
+        }
+    }
+
     pub fn instructions<'a>(&self, system: &'a str) -> Cow<'a, str> {
         match Provider::of(&self.executable) {
             Provider::Claude => Cow::Borrowed(system),
@@ -120,13 +130,12 @@ impl Program {
 
 pub(super) fn default_program(
     explicit: Option<std::ffi::OsString>,
-    claude_session: Option<&OsStr>,
-    codex_session: bool,
+    session: &crate::ack::agent::Session,
 ) -> PathBuf {
     if let Some(executable) = explicit {
         return PathBuf::from(executable);
     }
-    if !crate::ack::agent::has_claude_session(claude_session) && codex_session {
+    if session.uses_codex() {
         PathBuf::from("codex")
     } else {
         PathBuf::from("claude")
@@ -283,14 +292,36 @@ pub(super) fn claude_envelope(text: &[u8], requested: &str) -> Invoked {
             }
         })
         .map_or_else(|| format!("unknown (requested {requested})"), Clone::clone);
-    match claude_usage(&value) {
-        Ok(usage) => Invoked {
-            model,
-            usage,
-            body: body_of(&value),
+    let mut body = body_of(&value);
+    let tokens = match claude_tokens(&value) {
+        Ok(tokens) => tokens,
+        Err(why) => {
+            add_diagnostic(&mut body, why);
+            None
+        }
+    };
+    let cost_microdollars = match claude_cost(&value) {
+        Ok(cost) => cost,
+        Err(why) => {
+            add_diagnostic(&mut body, why);
+            None
+        }
+    };
+    Invoked {
+        model,
+        usage: Usage {
+            tokens,
+            cost_microdollars,
         },
-        Err(why) => Invoked::failed(model, why),
+        body,
     }
+}
+
+fn add_diagnostic<T>(body: &mut std::result::Result<T, String>, diagnostic: String) {
+    *body = Err(match body {
+        Ok(_) => diagnostic,
+        Err(why) => format!("{why}. Also, {diagnostic}"),
+    });
 }
 
 fn attach_exit(program: &Path, output: &Output, body: &mut std::result::Result<Value, String>) {
@@ -313,34 +344,53 @@ fn reported_count(usage: &Value, key: &str) -> std::result::Result<Option<i64>, 
         .transpose()
 }
 
-fn claude_usage(envelope: &Value) -> std::result::Result<Usage, String> {
-    let mut result = Usage::default();
-    if let Some(usage) = envelope.get("usage") {
-        if !usage.is_object() {
-            return Err("Claude reported invalid usage".to_string());
-        }
-        let input = reported_count(usage, "input_tokens")?;
-        let read = reported_count(usage, "cache_read_input_tokens")?;
-        let written = reported_count(usage, "cache_creation_input_tokens")?;
-        let output = reported_count(usage, "output_tokens")?;
-        result.tokens_in = [input, read, written]
-            .into_iter()
-            .flatten()
-            .try_fold(0_i64, i64::checked_add)
-            .ok_or("Claude's total input tokens exceed the supported range")?;
-        result.tokens_cached = read.unwrap_or_default();
-        result.tokens_written = written.unwrap_or_default();
-        result.tokens_out = output.unwrap_or_default();
+fn claude_tokens(envelope: &Value) -> std::result::Result<Option<Tokens>, String> {
+    let Some(usage) = envelope.get("usage") else {
+        return match envelope.get("is_error") {
+            Some(Value::Bool(false)) => Err("Claude did not report token usage".to_string()),
+            _ => Ok(None),
+        };
+    };
+    if !usage.is_object() {
+        return Err("Claude reported invalid usage".to_string());
     }
-    if let Some(value) = envelope.get("total_cost_usd") {
-        let micros = value
-            .as_f64()
-            .map(|cost| (cost * 1_000_000.0).round())
-            .filter(|cost| *cost >= 0.0 && *cost < i64::MAX as f64)
-            .ok_or_else(|| format!("Claude reported invalid cost: {value}"))?;
-        result.cost_microdollars = Some(micros as i64);
-    }
-    Ok(result)
+    let input = reported_count(usage, "input_tokens")?;
+    let output = reported_count(usage, "output_tokens")?;
+    let cached = reported_count(usage, "cache_read_input_tokens")?.unwrap_or(0);
+    let written = reported_count(usage, "cache_creation_input_tokens")?.unwrap_or(0);
+    let (Some(input), Some(output)) = (input, output) else {
+        return match envelope.get("is_error") {
+            Some(Value::Bool(false)) => {
+                Err("Claude did not report both input_tokens and output_tokens".to_string())
+            }
+            _ => Ok(None),
+        };
+    };
+    let input = input
+        .checked_add(cached)
+        .and_then(|sum| sum.checked_add(written))
+        .ok_or("Claude's total input tokens exceed the supported range")?;
+    Ok(Some(Tokens {
+        input,
+        output,
+        cached,
+        written,
+    }))
+}
+
+fn claude_cost(envelope: &Value) -> std::result::Result<Option<i64>, String> {
+    envelope
+        .get("total_cost_usd")
+        .map(|value| {
+            let micros = value
+                .as_f64()
+                .filter(|cost| *cost >= 0.0)
+                .map(|cost| (cost * 1_000_000.0).round())
+                .filter(|cost| *cost < i64::MAX as f64)
+                .ok_or_else(|| format!("Claude reported invalid cost: {value}"))?;
+            Ok(micros as i64)
+        })
+        .transpose()
 }
 
 fn body_of(value: &Value) -> std::result::Result<Value, String> {
@@ -354,7 +404,8 @@ fn body_of(value: &Value) -> std::result::Result<Value, String> {
                 None => format!("the reviewer reported an error: {said}"),
             });
         }
-        Some(Value::Bool(false)) | None => {}
+        Some(Value::Bool(false)) => {}
+        None => return Err("the reviewer omitted is_error".to_string()),
         Some(value) => return Err(format!("the reviewer reported invalid is_error: {value}")),
     }
     match value.get("structured_output") {
@@ -381,11 +432,10 @@ fn codex(
     message: &str,
     checkout: Option<&Path>,
 ) -> Result<Invoked> {
-    crate::evict::in_temp_dir(&program.temporary, "builds-review.", |temporary| {
+    let mut invoked = None;
+    let result = crate::evict::in_temp_dir(&program.temporary, "builds-review.", |temporary| {
         let path = temporary.join("schema.json");
-        let mut schema = schema.clone();
-        require_properties(&mut schema);
-        std::fs::write(&path, schema.to_string())
+        std::fs::write(&path, program.schema(schema).to_string())
             .context(|| format!("writing {}", path.display()))?;
         let mut command = Command::new(program.executable());
         command
@@ -452,16 +502,29 @@ fn codex(
         if !output.status.success() {
             attach_exit(program.executable(), &output, &mut body);
         }
-        Ok(Invoked {
+        invoked = Some(Invoked {
             model: if usage.is_some() {
                 model.to_string()
             } else {
                 format!("unknown (requested {model})")
             },
-            usage: usage.unwrap_or_default(),
+            usage: Usage {
+                tokens: usage,
+                cost_microdollars: None,
+            },
             body,
-        })
-    })
+        });
+        Ok(())
+    });
+    match (invoked, result) {
+        (Some(response), Ok(())) => Ok(response),
+        (Some(mut response), Err(error)) => {
+            add_diagnostic(&mut response.body, error.text());
+            Ok(response)
+        }
+        (None, Err(error)) => Err(error),
+        (None, Ok(())) => unreachable!("a completed Codex invocation supplies its result"),
+    }
 }
 
 /// OpenAI structured output requires every object property to be listed in
@@ -501,7 +564,7 @@ fn remove_null_properties(value: &mut Value) {
 }
 
 struct Decoded {
-    usage: Option<Usage>,
+    usage: Option<Tokens>,
     body: std::result::Result<Value, String>,
 }
 
@@ -556,7 +619,7 @@ fn codex_events(text: &[u8], read_tools: bool) -> Decoded {
         }
     }
     let usage = completed.as_ref().map(codex_usage).transpose();
-    let body = match (failure, completed, answer) {
+    let mut body = match (failure, completed, answer) {
         (Some(why), _, _) => Err(why),
         (None, Some(_), Some(answer)) => serde_json::from_str(&answer)
             .map(|mut body| {
@@ -568,22 +631,21 @@ fn codex_events(text: &[u8], read_tools: bool) -> Decoded {
     };
     match usage {
         Ok(usage) => Decoded { usage, body },
-        Err(why) => Decoded {
-            usage: None,
-            body: Err(why),
-        },
+        Err(why) => {
+            add_diagnostic(&mut body, why);
+            Decoded { usage: None, body }
+        }
     }
 }
 
-fn codex_usage(usage: &Value) -> std::result::Result<Usage, String> {
+fn codex_usage(usage: &Value) -> std::result::Result<Tokens, String> {
     let count =
         |key| reported_count(usage, key)?.ok_or_else(|| format!("Codex did not report {key}"));
-    Ok(Usage {
-        tokens_in: count("input_tokens")?,
-        tokens_out: count("output_tokens")?,
-        tokens_cached: count("cached_input_tokens")?,
-        tokens_written: count("cache_write_input_tokens")?,
-        cost_microdollars: None,
+    Ok(Tokens {
+        input: count("input_tokens")?,
+        output: count("output_tokens")?,
+        cached: count("cached_input_tokens")?,
+        written: count("cache_write_input_tokens")?,
     })
 }
 

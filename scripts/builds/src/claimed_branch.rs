@@ -11,7 +11,7 @@
 
 use std::path::Path;
 
-use crate::ack::agent::Caller;
+use crate::ack::agent::{Caller, Session};
 use crate::checkout::Checkout;
 use crate::claim::Claim;
 use crate::fail;
@@ -30,11 +30,11 @@ const GUARDED: [&str; 6] = ["app-build", "review", "land", "cargo", "checks", "i
 /// marks the environment (`PASSED`) of the commands it lets run, so a command
 /// that `builds land` runs inside the landing, after it detached HEAD itself,
 /// inherits the mark and passes. The caller reads it before `ack::gate` sets it.
-pub fn gate(command: &str, nested: bool) -> Result<()> {
+pub fn gate(command: &str, nested: bool, session: &Session) -> Result<()> {
     if !applies(command, nested) {
         return Ok(());
     }
-    require_claimed_branch(&crate::lists::args::current_dir()?, Caller::from_env)
+    require_claimed_branch(&crate::lists::args::current_dir()?, || session.caller())
 }
 
 /// Does the check cover `builds <command>`, which <nested> says another builds
@@ -46,7 +46,10 @@ fn applies(command: &str, nested: bool) -> bool {
 /// Fails when <dir> is in a claimed side worktree whose running items'
 /// branches do not include the branch checked out. <caller> reads the agent
 /// that runs the command, and runs only in a claimed side worktree.
-fn require_claimed_branch(dir: &Path, caller: fn() -> Result<Option<Caller>>) -> Result<()> {
+fn require_claimed_branch(
+    dir: &Path,
+    caller: impl FnOnce() -> Result<Option<Caller>>,
+) -> Result<()> {
     let Some(checkout) = Checkout::at_keeping_env(dir)? else {
         return Ok(());
     };

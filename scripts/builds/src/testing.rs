@@ -103,6 +103,7 @@ impl Scratch {
             // adds, and whose `shots draws` finds every board it is asked
             // about drawn differently.
             self.shots_script("states-shown", "differs"),
+            crate::ack::agent::Session::of(None, None, None),
         );
         tool.reviewer = self.no_rulings_reviewer();
         tool
@@ -151,7 +152,7 @@ exit 0"#
         if !program.exists() {
             self.script(
                 "no-rulings-reviewer",
-                "cat > /dev/null\necho '{\"is_error\": false, \"structured_output\": {\"claims\": []}}'",
+                "cat > /dev/null\necho '{\"is_error\": false, \"usage\": {\"input_tokens\": 0, \"output_tokens\": 0}, \"structured_output\": {\"claims\": []}}'",
             );
         }
         // A rules checkout with no group: a review reads nothing in it, so

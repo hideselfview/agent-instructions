@@ -214,28 +214,60 @@ pub struct Caller {
     pub id: String,
 }
 
-/// An empty Claude session variable names no session.
-pub fn has_claude_session(value: Option<&std::ffi::OsStr>) -> bool {
-    value.is_some_and(|session| !session.is_empty())
+/// The agent session this invocation inherited from its shell.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Session {
+    claude: Option<std::ffi::OsString>,
+    codex: bool,
 }
 
-impl Caller {
-    /// The agent that runs this command, from `CLAUDE_CODE_SESSION_ID` and
-    /// `BUILDS_AGENT`; None for the person's own terminal, which has no
-    /// session. Fails as `of` does.
-    pub fn from_env() -> Result<Option<Caller>> {
-        let session = std::env::var(super::SESSION).ok();
-        Caller::of(session.as_deref(), from_env()?.as_deref())
+impl Session {
+    pub fn from_env() -> Self {
+        Self::of(
+            std::env::var_os(super::SESSION),
+            std::env::var_os("CODEX_SESSION_ID"),
+            std::env::var_os("CODEX_THREAD_ID"),
+        )
     }
 
-    /// The agent of <session> with id <agent>: None with no session, and a
-    /// failure for a session with no agent id, since builds cannot tell
-    /// that session's agents apart.
-    pub fn of(session: Option<&str>, agent: Option<&str>) -> Result<Option<Caller>> {
-        match (
-            session.filter(|session| has_claude_session(Some(std::ffi::OsStr::new(session)))),
-            agent,
-        ) {
+    pub fn of(
+        claude: Option<std::ffi::OsString>,
+        codex_session: Option<std::ffi::OsString>,
+        codex_thread: Option<std::ffi::OsString>,
+    ) -> Self {
+        Self {
+            claude: claude.filter(|id| !id.is_empty()),
+            codex: codex_session
+                .into_iter()
+                .chain(codex_thread)
+                .any(|id| !id.is_empty()),
+        }
+    }
+
+    pub fn uses_codex(&self) -> bool {
+        self.claude.is_none() && self.codex
+    }
+
+    pub fn claude(&self) -> Result<Option<&str>> {
+        self.claude
+            .as_ref()
+            .map(|id| {
+                id.to_str().ok_or_else(|| {
+                    crate::fail::Fail::Message(format!(
+                        "{} is not a UTF-8 session ID",
+                        super::SESSION
+                    ))
+                })
+            })
+            .transpose()
+    }
+
+    pub fn caller(&self) -> Result<Option<Caller>> {
+        self.caller_with(from_env()?.as_deref())
+    }
+
+    fn caller_with(&self, agent: Option<&str>) -> Result<Option<Caller>> {
+        match (self.claude()?, agent) {
             (None, _) => Ok(None),
             (Some(_), None) => fail!(
                 "builds names each agent by the id Claude Code gives it, and this command names none: pass --agent ID, or set {VARIABLE}=ID"
@@ -246,7 +278,9 @@ impl Caller {
             })),
         }
     }
+}
 
+impl Caller {
     /// Whether a session dispatched this agent: it is not the session's main
     /// agent. A dispatched agent shares its session's inbox.
     pub fn is_dispatched(&self) -> bool {

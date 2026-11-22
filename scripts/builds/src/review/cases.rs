@@ -10,10 +10,11 @@ use serde::{Deserialize, Serialize};
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::lists::design_paths::Globs;
+use crate::review::call::{TokenTotal, Tokens, cost_text, sum_tokens, sum_usage, tokens_text};
 use crate::review::check::{parse_diff, squash};
 use crate::review::files::{self, Source};
 use crate::review::record::{Kind, NewCall, NewRun};
-use crate::review::run::{Diff, Material, Scope, Tokens, ask_groups};
+use crate::review::run::{Diff, Material, Scope, ask_groups};
 use crate::text::plural;
 
 pub const DIR: &str = "review/cases";
@@ -295,7 +296,7 @@ pub struct CaseResult {
     pub false_blocking: usize,
     pub calls: Vec<NewCall>,
     /// The tokens of the passes after each group's first.
-    pub repeat: Tokens,
+    pub repeat: TokenTotal,
     /// How the case's site labels scored, by rule.
     pub sites: Vec<SiteScore>,
 }
@@ -386,13 +387,6 @@ impl CaseResult {
     /// findings on a `none` site.
     pub fn wrong_flags(&self) -> usize {
         self.false_blocking + self.sites.iter().map(|s| s.wrong).sum::<usize>()
-    }
-
-    pub fn tokens(&self) -> (i64, i64) {
-        (
-            self.calls.iter().map(|c| c.usage.tokens_in).sum(),
-            self.calls.iter().map(|c| c.usage.tokens_out).sum(),
-        )
     }
 }
 
@@ -557,15 +551,9 @@ pub struct Totals {
     pub found: usize,
     pub false_blocking: usize,
     pub failed_calls: usize,
-    pub tokens_in: i64,
-    pub tokens_out: i64,
-    /// Of tokens_in, the part read from the prompt cache and the part written to it.
-    pub tokens_cached: i64,
-    pub tokens_written: i64,
-    /// Of those, what the passes after each group's first used.
-    pub repeat: Tokens,
-    /// Total cost in millionths of a US dollar when all calls report it.
-    pub cost_microdollars: Option<i64>,
+    pub usage: super::call::UsageTotal,
+    /// What passes after each group's first used.
+    pub repeat: TokenTotal,
 }
 
 pub fn totals(results: &[CaseResult]) -> Totals {
@@ -574,31 +562,20 @@ pub fn totals(results: &[CaseResult]) -> Totals {
         found: 0,
         false_blocking: 0,
         failed_calls: 0,
-        tokens_in: 0,
-        tokens_out: 0,
-        tokens_cached: 0,
-        tokens_written: 0,
-        repeat: Tokens::default(),
-        cost_microdollars: Some(0),
+        usage: sum_usage(
+            results
+                .iter()
+                .flat_map(|case| case.calls.iter().map(|call| call.usage)),
+        ),
+        repeat: results.iter().try_fold(Some(Tokens::ZERO), |total, case| {
+            sum_tokens([total, case.repeat?])
+        }),
     };
     for r in results {
         t.expected += r.expected;
         t.found += r.found;
         t.false_blocking += r.false_blocking;
         t.failed_calls += r.calls.iter().filter(|c| c.failure.is_some()).count();
-        let (i, o) = r.tokens();
-        t.tokens_in += i;
-        t.tokens_out += o;
-        t.tokens_cached += r.calls.iter().map(|c| c.usage.tokens_cached).sum::<i64>();
-        t.tokens_written += r.calls.iter().map(|c| c.usage.tokens_written).sum::<i64>();
-        t.cost_microdollars = super::call::sum_cost(
-            std::iter::once(t.cost_microdollars)
-                .chain(r.calls.iter().map(|c| c.usage.cost_microdollars)),
-        );
-        t.repeat.input += r.repeat.input;
-        t.repeat.cached += r.repeat.cached;
-        t.repeat.written += r.repeat.written;
-        t.repeat.output += r.repeat.output;
     }
     t
 }
@@ -663,14 +640,13 @@ fn site_report(results: &[CaseResult]) -> String {
 fn setup_line(name: &str, results: &[CaseResult]) -> String {
     let t = totals(results);
     format!(
-        "{name}: caught {} of {}, missed {}, wrong flags {}, {} tokens in, {} out, {}{}\n",
+        "{name}: caught {} of {}, missed {}, wrong flags {}, {}, {}{}\n",
         t.found,
         t.expected,
         t.expected - t.found,
         results.iter().map(CaseResult::wrong_flags).sum::<usize>(),
-        t.tokens_in,
-        t.tokens_out,
-        super::call::cost_text(t.cost_microdollars),
+        tokens_text(t.usage.tokens, false),
+        cost_text(t.usage.cost_microdollars),
         match t.failed_calls {
             0 => String::new(),
             n => format!(", {} failed", plural(n, "call")),
@@ -703,13 +679,15 @@ pub fn report(results: &[CaseResult]) -> String {
     let mut out = String::new();
     for r in results {
         out.push_str(&format!(
-            "{}: found {} of {} expected, {} false blocking, {} tokens in, {} out\n",
+            "{}: found {} of {} expected, {} false blocking, {}\n",
             r.name,
             r.found,
             r.expected,
             r.false_blocking,
-            r.tokens().0,
-            r.tokens().1
+            tokens_text(
+                sum_tokens(r.calls.iter().map(|call| call.usage.tokens)),
+                false
+            ),
         ));
         for miss in &r.missed {
             out.push_str(&format!("  missed {} in {}\n", miss.rule, miss.file));
@@ -725,27 +703,16 @@ pub fn report(results: &[CaseResult]) -> String {
     let t = totals(results);
     let percent = (t.found * 100).checked_div(t.expected).unwrap_or(100);
     out.push_str(&format!(
-        "recall {} of {} expected findings ({percent}%), {} false blocking findings on clean cases, {} failed calls, {} tokens in ({} uncached, {} read from the cache, {} written to it), {} out, {}\n",
+        "recall {} of {} expected findings ({percent}%), {} false blocking findings on clean cases, {} failed calls, {}, {}\n",
         t.found,
         t.expected,
         t.false_blocking,
         t.failed_calls,
-        t.tokens_in,
-        t.tokens_in - t.tokens_cached - t.tokens_written,
-        t.tokens_cached,
-        t.tokens_written,
-        t.tokens_out,
-        super::call::cost_text(t.cost_microdollars)
+        tokens_text(t.usage.tokens, true),
+        cost_text(t.usage.cost_microdollars),
     ));
-    if t.repeat != Tokens::default() {
-        out.push_str(&format!(
-            "repeat passes: {} tokens in ({} uncached, {} read from the cache, {} written to it), {} out\n",
-            t.repeat.input,
-            t.repeat.input - t.repeat.cached - t.repeat.written,
-            t.repeat.cached,
-            t.repeat.written,
-            t.repeat.output
-        ));
+    if t.repeat != Ok(Some(Tokens::ZERO)) {
+        out.push_str(&format!("repeat passes: {}\n", tokens_text(t.repeat, true)));
     }
     out.push_str(&site_report(results));
     out

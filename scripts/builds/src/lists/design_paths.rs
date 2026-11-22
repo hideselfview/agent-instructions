@@ -135,11 +135,9 @@ impl Globs {
         })
     }
 
+    /// Whether the change includes code, including code that captures screenshots.
     pub fn includes_code(&self, paths: &[String]) -> bool {
-        classify(self, paths)
-            .outside
-            .iter()
-            .any(|path| !self.is_capture(path))
+        !classify(self, paths).outside.is_empty()
     }
 
     /// Does <key> name a design place of these globs: a board file, or a

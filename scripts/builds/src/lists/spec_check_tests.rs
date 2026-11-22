@@ -363,28 +363,22 @@ fn a_quote_is_found_on_the_line_it_starts_on_across_lines_and_marks() {
     assert_eq!(line_of(SPEC, "  "), None);
 }
 
-/// Records one check of a brief in repo <repo> for item <item>, with one
+/// Records one check of a brief in bae for item <item>, with one
 /// conflict and one unstated behavior, through `record`.
-pub fn record_one(db: &Connection, repo: &str, item: Id, cost: Option<i64>) {
+pub fn record_one(db: &Connection, item: Id, model: &str, usage: Usage) {
     let checked = Checked {
         target: Target {
-            repo: repo.to_string(),
+            repo: "bae".to_string(),
             worktree: PathBuf::from("/d/wt"),
             head: "a".repeat(40),
             spec_files: vec!["spec/demo.md".to_string()],
         },
-        model: "opus".to_string(),
+        model: model.to_string(),
         rules_version: String::new(),
         system: "s".to_string(),
         message: "m".to_string(),
         output: "{}".to_string(),
-        usage: Usage {
-            tokens_in: 1,
-            tokens_out: 1,
-            tokens_cached: 0,
-            tokens_written: 0,
-            cost_microdollars: cost,
-        },
+        usage,
         failure: None,
         findings: vec![
             Finding {
@@ -417,7 +411,15 @@ pub fn record_one(db: &Connection, repo: &str, item: Id, cost: Option<i64>) {
 fn the_tables_refuse_a_row_that_breaks_a_constraint() {
     let db = crate::lists::fixtures::db();
     let item = crate::lists::fixtures::item(&db, Vec::new());
-    record_one(&db, "bae", item, Some(5));
+    record_one(
+        &db,
+        item,
+        "opus",
+        Usage {
+            cost_microdollars: Some(5),
+            ..Usage::ZERO
+        },
+    );
     let check = [
         ("at", v(1)),
         ("by", v("tester")),
@@ -462,6 +464,10 @@ fn the_tables_refuse_a_row_that_breaks_a_constraint() {
         (
             "spec_check_tokens_written_not_negative",
             vec![("tokens_written", v(-1))],
+        ),
+        (
+            "spec_check_records_all_tokens_or_none",
+            vec![("tokens_out", rusqlite::types::Value::Null)],
         ),
         (
             "spec_check_cost_not_negative",
@@ -536,15 +542,17 @@ fn the_tables_refuse_a_row_that_breaks_a_constraint() {
 fn recording_keeps_unknown_cost_distinct_from_zero() {
     let db = crate::lists::fixtures::db();
     let item = crate::lists::fixtures::item(&db, Vec::new());
-    record_one(&db, "bae", item, None);
+    record_one(&db, item, "gpt-6.2-sol", Usage::default());
     // Each attempt belongs to the same item and has its own recorded cost.
-    record_one(&db, "bae", item, Some(0));
-    let costs = db
-        .prepare("SELECT cost_microdollars FROM spec_check ORDER BY id")
+    record_one(&db, item, "opus", Usage::ZERO);
+    assert_eq!(recorded_usage(&db), [(None, None), (Some(0), Some(0))]);
+}
+
+pub fn recorded_usage(db: &Connection) -> Vec<(Option<i64>, Option<i64>)> {
+    db.prepare("SELECT tokens_in, cost_microdollars FROM spec_check ORDER BY id")
         .unwrap()
-        .query_map([], |row| row.get::<_, Option<i64>>(0))
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
         .unwrap()
         .collect::<rusqlite::Result<Vec<_>>>()
-        .unwrap();
-    assert_eq!(costs, [None, Some(0)]);
+        .unwrap()
 }

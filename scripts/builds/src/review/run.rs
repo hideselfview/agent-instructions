@@ -617,7 +617,7 @@ pub fn ask_groups(
                     .iter()
                     .map(|(group, members)| bare_call(reviewer, group, members, Some(why.clone())))
                     .collect(),
-                repeat: Tokens::default(),
+                repeat: Ok(Some(call::Tokens::ZERO)),
                 nothing_to_read: Vec::new(),
                 not_read: Vec::new(),
             };
@@ -657,7 +657,7 @@ pub fn ask_groups(
             context: &context,
             open: &given,
         });
-        let setup = reviewer.setup(&group.model, prompt::setup(group, unit.members));
+        let setup = reviewer.setup(&group.model, prompt::setup(group, unit.members, reviewer));
         let given_ids: Vec<i64> = given.iter().map(|f| f.id).collect();
         let started_at = crate::app_timing::now();
         let began = crate::clock::Moment::now();
@@ -681,10 +681,7 @@ pub fn ask_groups(
             system: reviewer.instructions(&parts.system).into_owned(),
             message: parts.message.clone(),
             output: output.output.clone(),
-            tokens_in: output.usage.tokens_in,
-            tokens_out: output.usage.tokens_out,
-            tokens_cached: output.usage.tokens_cached,
-            tokens_written: output.usage.tokens_written,
+            tokens: output.usage.tokens,
             started_at,
             ms: began.elapsed().as_millis() as i64,
         };
@@ -727,7 +724,7 @@ pub fn ask_groups(
         done[*i].push(call);
     }
     let most = units.iter().map(|u| u.group.passes).max().unwrap_or(1);
-    let mut repeat = Tokens::default();
+    let mut repeat = Ok(Some(call::Tokens::ZERO));
     for pass in 1..most {
         let again: Vec<usize> = (0..units.len())
             .filter(|&i| units[i].group.passes > pass)
@@ -736,7 +733,7 @@ pub fn ask_groups(
             .iter()
             .zip(reviewers_map(&again, |&i| one(&units[i], pass)))
         {
-            repeat.add(&call);
+            repeat = repeat.and_then(|total| call::sum_tokens([total, call.usage.tokens]));
             done[*i].push(call);
         }
     }
@@ -782,7 +779,7 @@ pub fn ask_groups(
 /// findings in them.
 pub struct Asked {
     pub calls: Vec<NewCall>,
-    pub repeat: Tokens,
+    pub repeat: call::TokenTotal,
     /// Groups that found no file of theirs in the diff: each has a call with
     /// no findings that ran no reviewer.
     pub nothing_to_read: Vec<String>,
@@ -790,23 +787,6 @@ pub struct Asked {
     /// groups hold the open findings in them. A group that read none of the
     /// diff's files has no call.
     pub not_read: Vec<(String, Vec<String>)>,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Tokens {
-    pub input: i64,
-    pub cached: i64,
-    pub written: i64,
-    pub output: i64,
-}
-
-impl Tokens {
-    fn add(&mut self, call: &NewCall) {
-        self.input += call.usage.tokens_in;
-        self.cached += call.usage.tokens_cached;
-        self.written += call.usage.tokens_written;
-        self.output += call.usage.tokens_out;
-    }
 }
 
 /// The findings of <open> whose file is in no commit's tree at <head>: the
@@ -872,12 +852,9 @@ fn bare_call(
     NewCall {
         group: group.name.clone(),
         model: reviewer.model_name(&group.model),
-        prompt: reviewer.setup(&group.model, prompt::setup(group, members)),
+        prompt: reviewer.setup(&group.model, prompt::setup(group, members, reviewer)),
         rules: prompt::answer_names(group, members),
-        usage: call::Usage {
-            cost_microdollars: Some(0),
-            ..call::Usage::default()
-        },
+        usage: call::Usage::ZERO,
         sites: None,
         failure,
         verdicts: Vec::new(),
@@ -892,11 +869,14 @@ fn bare_call(
 /// keeps the failures.
 fn merge(held: &mut NewCall, more: NewCall) {
     held.exchanges.extend(more.exchanges);
-    held.usage.add(more.usage);
-    held.failure = match (held.failure.take(), more.failure) {
-        (Some(a), Some(b)) => Some(format!("{a}; {b}")),
-        (a, b) => a.or(b),
-    };
+    let usage_error = held.usage.merge(more.usage).err();
+    let failures: Vec<_> = [held.failure.take(), more.failure, usage_error]
+        .into_iter()
+        .flatten()
+        .collect();
+    if !failures.is_empty() {
+        held.failure = Some(failures.join(". "));
+    }
     for (rule, verdict) in more.verdicts {
         match held.verdicts.iter_mut().find(|(r, _)| *r == rule) {
             Some((_, held_verdict)) => {

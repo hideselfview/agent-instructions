@@ -138,21 +138,26 @@ impl GroupScore {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Spend {
     pub calls: usize,
-    pub tokens_in: i64,
-    pub tokens_out: i64,
+    pub tokens_in: i128,
+    pub tokens_out: i128,
+    pub uncounted: usize,
     /// In millionths of a US dollar.
-    pub cost_microdollars: i64,
-    /// Calls made before builds recorded the cost.
+    pub cost_microdollars: i128,
+    /// Calls whose cost builds never recorded.
     pub uncosted: usize,
 }
 
 impl Spend {
     fn add(&mut self, call: &Call) {
         self.calls += 1;
-        self.tokens_in += call.tokens_in;
-        self.tokens_out += call.tokens_out;
-        match call.cost_microdollars {
-            Some(cost) => self.cost_microdollars += cost,
+        if let Some(tokens) = call.usage.tokens {
+            self.tokens_in += i128::from(tokens.input);
+            self.tokens_out += i128::from(tokens.output);
+        } else {
+            self.uncounted += 1;
+        }
+        match call.usage.cost_microdollars {
+            Some(cost) => self.cost_microdollars += i128::from(cost),
             None => self.uncosted += 1,
         }
     }
@@ -163,6 +168,7 @@ impl Spend {
         self.tokens_out += other.tokens_out;
         self.cost_microdollars += other.cost_microdollars;
         self.uncosted += other.uncosted;
+        self.uncounted += other.uncounted;
     }
 }
 
@@ -440,10 +446,17 @@ fn spend_text(s: &Spend) -> String {
             s.calls
         )
     };
-    format!(
-        "{} calls, {} tokens in, {} out, {cost}",
-        s.calls, s.tokens_in, s.tokens_out
-    )
+    let tokens = if s.uncounted > 0 && s.uncounted == s.calls {
+        "token usage not recorded".to_string()
+    } else if s.uncounted > 0 {
+        format!(
+            "{} tokens in, {} out (not recorded for {} of {} calls)",
+            s.tokens_in, s.tokens_out, s.uncounted, s.calls
+        )
+    } else {
+        format!("{} tokens in, {} out", s.tokens_in, s.tokens_out)
+    };
+    format!("{} calls, {tokens}, {cost}", s.calls)
 }
 
 fn setup_text(setup: &Setup) -> String {

@@ -47,7 +47,7 @@ pub fn run_in_session(
     args: &[String],
     session: impl FnOnce() -> Result<Option<Messaging>>,
 ) -> Result<String> {
-    run_as(tool, args, session, Caller::from_env)
+    run_as(tool, args, session, || tool.session.caller())
 }
 
 /// `run_in_session`, run by the agent that <runner> gives: only `record` and

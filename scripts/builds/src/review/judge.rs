@@ -747,7 +747,7 @@ pub fn cmd_judge(tool: &Tool, args: &[String]) -> Result<()> {
                 tool,
                 rest,
                 &current_dir()?,
-                Caller::from_env()?.as_ref(),
+                tool.session.caller()?.as_ref(),
                 Messaging::from_env()?.as_ref(),
             )?;
             print!("{said}");
