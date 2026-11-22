@@ -97,6 +97,18 @@ fn config_of(top: &Path, rev: &str) -> Result<Option<Config>> {
     parse_config(&run_git(top, &["show", &format!("{rev}:{CONFIG}")])?).map(Some)
 }
 
+/// The paths that the commits <shas> in the repository at <top> change, each
+/// against its parent, without repeats.
+fn paths_of_commits(top: &Path, shas: &[String]) -> Result<Vec<String>> {
+    let mut paths = Vec::new();
+    for sha in shas {
+        paths.extend(paths_between(top, &format!("{sha}^"), sha)?);
+    }
+    paths.sort();
+    paths.dedup();
+    Ok(paths)
+}
+
 /// The lanes whose apps the commits <shas> in the repository at <top>, a
 /// landing's, change, in the order of `Lane::ALL`, by the `.app-build` of the
 /// last one: the lanes that `needs` builds for the landing. Commits whose last
@@ -106,10 +118,7 @@ pub fn lanes_changed(top: &Path, shas: &[String]) -> Result<Vec<Lane>> {
     let Some(config) = config_of(top, last)? else {
         return Ok(Vec::new());
     };
-    let mut paths = Vec::new();
-    for sha in shas {
-        paths.extend(paths_between(top, &format!("{sha}^"), sha)?);
-    }
+    let paths = paths_of_commits(top, shas)?;
     Ok(Lane::ALL
         .into_iter()
         .filter(|lane| !lane_paths(&config, *lane, &paths).is_empty())
@@ -289,6 +298,38 @@ pub fn build_command(repo: &str, result: &str, builds: &[(Lane, &[String])]) -> 
     words.extend(steps);
     words.extend(flags);
     words.join(" ")
+}
+
+/// The arguments after `app-build` of one build of the result that holds
+/// every step, test class and shots run of <builds>, each the arguments after
+/// `app-build` of a build of the same repo and result (`build_command`): the
+/// steps once each, in the order they first appear, then each pick once.
+pub fn merge_builds(builds: &[Vec<String>]) -> Result<Vec<String>> {
+    let mut merged: Vec<String> = builds[0][..2].to_vec();
+    let mut steps: Vec<String> = Vec::new();
+    let mut picks: Vec<crate::app_build::Pick> = Vec::new();
+    for build in builds {
+        let (names, own) = crate::app_build::split_picks(&build[2..])?;
+        for name in names {
+            if !steps.contains(&name) {
+                steps.push(name);
+            }
+        }
+        for pick in own {
+            if !picks.contains(&pick) {
+                picks.push(pick);
+            }
+        }
+    }
+    merged.extend(steps);
+    for pick in &picks {
+        merged.extend(
+            crate::app_build::pick_words(pick)
+                .into_iter()
+                .map(str::to_string),
+        );
+    }
+    Ok(merged)
 }
 
 /// What land prints when some lanes of the landing of <repo> from <worktree>
@@ -478,13 +519,7 @@ pub fn cmd_landing_build(places: &Places, args: &[String]) -> Result<()> {
     } else {
         // The result holds other landings' commits too: the need is that of
         // the commits named.
-        let mut paths = Vec::new();
-        for sha in own {
-            paths.extend(paths_between(top, &format!("{sha}^"), sha)?);
-        }
-        paths.sort();
-        paths.dedup();
-        paths
+        paths_of_commits(top, own)?
     };
     let since = branch_since(top, before, branch)?;
     let conn = crate::db::open(&database, crate::db::Make::Never)?;

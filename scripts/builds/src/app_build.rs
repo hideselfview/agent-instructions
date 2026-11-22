@@ -241,7 +241,7 @@ pub fn pick_kind_of(name: &str) -> Option<PickKind> {
 /// <args> (the steps, then `--test` and `--shots` flags, each with a lane and
 /// an argument, and `--all-shots` flags, each with a lane) as the step names
 /// and the flags.
-fn split_picks(args: &[String]) -> Result<(Vec<String>, Vec<Pick>)> {
+pub fn split_picks(args: &[String]) -> Result<(Vec<String>, Vec<Pick>)> {
     let is_flag =
         |arg: &String| arg == ALL_SHOTS || PickKind::ALL.iter().any(|kind| arg == kind.flag());
     let at = args.iter().position(is_flag).unwrap_or(args.len());

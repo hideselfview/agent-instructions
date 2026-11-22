@@ -18,42 +18,58 @@ use super::*;
 use crate::land_batch::{self, Entry, Registered, Verdict};
 use crate::lane::Lane;
 
-/// One landing of a batch, as its entry tells it.
-struct Member {
-    /// The id the landing has in the queue; None for a landing that took no
-    /// turn among those that change the apps.
-    id: Option<String>,
-    dir: PathBuf,
-    shas: Vec<String>,
-    rev: String,
-    start: String,
-    /// Is it the landing that leads the batch?
-    own: bool,
+/// The landings that wait with the landing that leads a batch, and what the
+/// leader holds for them.
+struct Batch {
+    queue: PathBuf,
+    /// Each other landing's id in the queue and its entry, oldest first.
+    others: Vec<(String, Entry)>,
+    _turns: Vec<std::fs::File>,
+    _registered: Registered,
 }
 
-/// What the leader has settled so far for the landings of a batch.
+/// What the leader has settled so far for the landings of a batch: its own
+/// (index 0) and each of the batch's others (index 1 and up).
 struct Settled<'a> {
-    members: &'a [Member],
-    queue: Option<&'a Path>,
+    own: &'a Entry,
+    batch: Option<&'a Batch>,
     verdicts: Vec<Option<Verdict>>,
 }
 
-impl Settled<'_> {
+impl<'a> Settled<'a> {
+    fn new(own: &'a Entry, batch: Option<&'a Batch>) -> Settled<'a> {
+        let others = batch.map_or(0, |batch| batch.others.len());
+        Settled {
+            own,
+            batch,
+            verdicts: vec![None; others + 1],
+        }
+    }
+
+    fn entry(&self, index: usize) -> &'a Entry {
+        match (index.checked_sub(1), self.batch) {
+            (Some(other), Some(batch)) => &batch.others[other].1,
+            _ => self.own,
+        }
+    }
+
     /// Settles the landing <index> with <verdict>: the leader keeps its own,
-    /// and every other landing reads its verdict from the queue.
-    fn deliver(&mut self, index: usize, verdict: Verdict) {
-        let member = &self.members[index];
-        if !member.own
-            && let (Some(queue), Some(id)) = (self.queue, &member.id)
-            && let Err(error) = land_batch::write_verdict(queue, id, &verdict)
-        {
-            crate::text::note(format!(
-                "the verdict of the landing in {} was not written: {}",
-                member.dir.display(),
-                error.text()
-            ));
+    /// and every other landing reads its verdict from the queue. When the
+    /// verdict cannot be written, the batch ends with the error: the landing
+    /// waits for a verdict that never comes, and leads a batch of its own.
+    fn deliver(&mut self, index: usize, verdict: Verdict) -> Result<()> {
+        if let (Some(other), Some(batch)) = (index.checked_sub(1), self.batch) {
+            let (id, entry) = &batch.others[other];
+            if let Err(error) = land_batch::write_verdict(&batch.queue, id, &verdict) {
+                fail!(
+                    "writing the verdict of the landing in {}: {}",
+                    entry.worktree,
+                    error.text()
+                );
+            }
         }
         self.verdicts[index] = Some(verdict);
+        Ok(())
     }
 }
 
@@ -66,7 +82,7 @@ enum Failure {
 }
 
 impl Failure {
-    fn verdict_for(&self, member: &Member) -> Verdict {
+    fn verdict_for(&self, member: &Entry) -> Verdict {
         match self {
             Failure::Checks(said) => Verdict::Refused {
                 output: String::new(),
@@ -76,8 +92,7 @@ impl Failure {
                 output: output.clone(),
                 said: format!(
                     "APP BUILD FAILED on the result, nothing pushed:\nthe app build above failed on the result, the branch's commits on origin/main. Next: in {}, run `git fetch origin && git rebase origin/main` on {}, fix what the build names, commit, run `builds app-build` on the branch, review the branch again and land the new commit ids.",
-                    member.dir.display(),
-                    member.start
+                    member.worktree, member.start
                 ),
             },
         }
@@ -91,12 +106,7 @@ enum Turn {
     Alone,
     /// The landing holds the turns of every lane its batch changes and leads
     /// the batch.
-    Lead {
-        _turns: Vec<std::fs::File>,
-        members: Vec<Member>,
-        queue: PathBuf,
-        _registered: Registered,
-    },
+    Lead(Batch),
     /// The leader of an earlier batch settled this landing.
     Settled(Verdict),
 }
@@ -127,6 +137,18 @@ fn tail(bytes: &[u8]) -> String {
     lines[lines.len().saturating_sub(OUTPUT_LINES)..].join("\n")
 }
 
+/// What the git command printed, without trailing newlines, failing when git
+/// fails.
+fn git_must(dir: &Path, args: &[&str]) -> Result<String> {
+    git_text(dir, args).ok_or_else(|| {
+        Fail::Message(format!(
+            "git {} failed in {}",
+            args.join(" "),
+            dir.display()
+        ))
+    })
+}
+
 /// How picking one landing's commits onto the result ended.
 enum Picked {
     /// The commits are on the result: their ids there, oldest first.
@@ -140,9 +162,9 @@ impl Landing<'_> {
     /// result failed: the files that conflict (<paths>, one per line, None
     /// when git could not list them), or git's own words when none are
     /// listed, and what the agent does next.
-    fn pick_refusal(member: &Member, paths: Option<&str>, said: &str) -> String {
+    fn pick_refusal(member: &Entry, paths: Option<&str>, said: &str) -> String {
         let start = &member.start;
-        let dir = member.dir.display();
+        let dir = &member.worktree;
         let what = if paths.is_none() {
             format!(
                 "the cherry-pick onto origin/main failed and git could not list the conflicting files:\n{said}"
@@ -257,7 +279,7 @@ impl Landing<'_> {
     /// build of its own, the text land says of it.
     fn app_build_needed(
         &self,
-        member: &Member,
+        member: &Entry,
         (before, landed): (&str, &str),
         with_own: bool,
         out: &mut dyn Write,
@@ -265,7 +287,7 @@ impl Landing<'_> {
         if self.recording.is_none() {
             return Ok(None);
         }
-        let workdir = member.dir.display().to_string();
+        let workdir = member.worktree.clone();
         let branch = member.shas.last().expect("a landing names a commit");
         let mut command = Command::new(self.program);
         command
@@ -383,16 +405,7 @@ impl Landing<'_> {
         };
         stores.end();
         let queue = land_batch::queue_dir(Path::new(&common), home);
-        let registered = land_batch::register(
-            &queue,
-            &Entry {
-                worktree: dir.display().to_string(),
-                shas: self.request.shas.clone(),
-                rev: self.start.rev().to_string(),
-                start: self.start.name(),
-                lanes: lanes.iter().map(|lane| lane.word().to_string()).collect(),
-            },
-        )?;
+        let registered = land_batch::register(&queue, &self.entry(lanes.clone()))?;
         let me = turn_record(
             std::process::id(),
             &format!("{} from {}", shell_words(&self.request.shas), dir.display()),
@@ -423,11 +436,7 @@ impl Landing<'_> {
             let waiting = land_batch::waiting(&queue)?;
             let wanted: Vec<Lane> = Lane::ALL
                 .into_iter()
-                .filter(|lane| {
-                    waiting
-                        .iter()
-                        .any(|(_, entry)| entry.lanes().contains(lane))
-                })
+                .filter(|lane| waiting.iter().any(|(_, entry)| entry.lanes.contains(lane)))
                 .collect();
             let missing: Vec<Lane> = wanted
                 .into_iter()
@@ -440,37 +449,26 @@ impl Landing<'_> {
                 take(lane, &mut held)?;
             }
         };
-        let members: Vec<Member> = waiting
+        let others = waiting
             .into_iter()
-            .map(|(id, entry)| Member {
-                own: id == registered.id,
-                id: Some(id),
-                dir: PathBuf::from(entry.worktree),
-                shas: entry.shas,
-                rev: entry.rev,
-                start: entry.start,
-            })
+            .filter(|(id, _)| *id != registered.id)
             .collect();
-        if !members.iter().any(|member| member.own) {
-            fail!("the queue of the landings that change the apps lost this landing's entry");
-        }
-        Ok(Turn::Lead {
-            _turns: held.into_iter().map(|(_, file)| file).collect(),
-            members,
+        Ok(Turn::Lead(Batch {
             queue,
+            others,
+            _turns: held.into_iter().map(|(_, file)| file).collect(),
             _registered: registered,
-        })
+        }))
     }
 
-    /// The landing as a member of a batch of one.
-    fn own_member(&self) -> Member {
-        Member {
-            id: None,
-            dir: self.workdir.clone(),
+    /// What the landing tells the leader of a batch, for the lanes <lanes>.
+    fn entry(&self, lanes: Vec<Lane>) -> Entry {
+        Entry {
+            worktree: self.workdir.display().to_string(),
             shas: self.request.shas.clone(),
             rev: self.start.rev().to_string(),
             start: self.start.name(),
-            own: true,
+            lanes,
         }
     }
 
@@ -507,57 +505,51 @@ impl Landing<'_> {
         stores: &mut StoreUse,
         out: &mut dyn Write,
     ) -> Result<Schema<Vec<String>>> {
-        let (members, queue, _turn) = match self.take_app_turn(stores, out)? {
+        let batch = match self.take_app_turn(stores, out)? {
             Turn::Settled(verdict) => {
                 if let Schema::Moved = stores.take_again()? {
                     return Ok(Schema::Moved);
                 }
                 return Self::end_with(verdict, false, out);
             }
-            Turn::Alone => (vec![self.own_member()], None, None),
-            Turn::Lead {
-                _turns,
-                members,
-                queue,
-                _registered,
-            } => (members, Some(queue), Some((_turns, _registered))),
+            Turn::Alone => None,
+            Turn::Lead(batch) => Some(batch),
         };
-        if members.len() > 1 {
+        if let Some(batch) = &batch
+            && !batch.others.is_empty()
+        {
             let _ = writeln!(
                 out,
-                "this landing leads a batch of {} landings that waited for the turn: {}",
-                members.len(),
-                members
+                "this landing leads a batch of {} landings that waited for the turn, with {}",
+                batch.others.len() + 1,
+                batch
+                    .others
                     .iter()
-                    .map(|member| member.dir.display().to_string())
+                    .map(|(_, entry)| entry.worktree.as_str())
                     .collect::<Vec<_>>()
                     .join(", ")
             );
         }
-        match self.lead(&members, queue.as_deref(), stores, out)? {
+        match self.lead(batch.as_ref(), stores, out)? {
             Schema::Moved => Ok(Schema::Moved),
             Schema::Kept(verdict) => Self::end_with(verdict, true, out),
         }
     }
 
-    /// Builds the commits of <members>, the landings of a batch this landing
-    /// leads, on origin/main and pushes those whose result passes, and
-    /// returns this landing's own verdict. Each other landing finds its
-    /// verdict in <queue>. The landing checks out what the worktree had
-    /// when it began if its own commits did not land.
+    /// Builds this landing's commits and those of the landings of <batch>,
+    /// which it leads, on origin/main and pushes those whose result passes,
+    /// and returns this landing's own verdict. Each other landing finds its
+    /// verdict in the batch's queue. The landing checks out what the
+    /// worktree had when it began if its own commits did not land.
     fn lead(
         &self,
-        members: &[Member],
-        queue: Option<&Path>,
+        batch: Option<&Batch>,
         stores: &mut StoreUse,
         out: &mut dyn Write,
     ) -> Result<Schema<Verdict>> {
-        let mut settled = Settled {
-            members,
-            queue,
-            verdicts: vec![None; members.len()],
-        };
-        let all: Vec<usize> = (0..members.len()).collect();
+        let own = self.entry(Vec::new());
+        let mut settled = Settled::new(&own, batch);
+        let all: Vec<usize> = (0..settled.verdicts.len()).collect();
         if let Schema::Moved = self.settle(&all, &mut settled, stores, out)? {
             self.go_back(out);
             let _ = writeln!(
@@ -566,13 +558,9 @@ impl Landing<'_> {
             );
             return Ok(Schema::Moved);
         }
-        let own = members
-            .iter()
-            .position(|member| member.own)
-            .expect("the batch holds the landing");
-        let verdict = settled.verdicts[own]
-            .take()
-            .expect("the leader settles every landing of its batch");
+        let Some(verdict) = settled.verdicts[0].take() else {
+            fail!("the leader of a batch settled every landing but its own");
+        };
         if matches!(verdict, Verdict::Refused { .. }) {
             self.go_back(out);
         }
@@ -609,9 +597,9 @@ impl Landing<'_> {
             let before = git_text(dir, &["rev-parse", "origin/main"]).unwrap_or_default();
             let mut picked: Vec<(usize, Vec<String>)> = Vec::new();
             for &index in &left {
-                match self.pick(&settled.members[index]) {
+                match self.pick(settled.entry(index))? {
                     Picked::Applied(on_main) => picked.push((index, on_main)),
-                    Picked::Ended(verdict) => settled.deliver(index, verdict),
+                    Picked::Ended(verdict) => settled.deliver(index, verdict)?,
                 }
             }
             left = picked.iter().map(|(index, _)| *index).collect();
@@ -629,7 +617,7 @@ impl Landing<'_> {
                     return self.fail(&picked, &Failure::Checks(said), settled, stores, out);
                 }
                 for (index, _) in &picked {
-                    let member = &settled.members[*index];
+                    let member = settled.entry(*index);
                     match self.app_build_needed(member, (&before, &landed), with_own, out) {
                         Ok(Some(args)) => builds.push(args),
                         Ok(None) => {}
@@ -647,7 +635,7 @@ impl Landing<'_> {
                             output: String::new(),
                             said,
                         },
-                    );
+                    )?;
                     left.retain(|other| *other != index);
                 }
                 continue;
@@ -656,7 +644,7 @@ impl Landing<'_> {
                 let args = if builds.len() == 1 {
                     builds.remove(0)
                 } else {
-                    let merged = land_batch::merge_builds(&builds);
+                    let merged = crate::app_landing::merge_builds(&builds)?;
                     let _ = writeln!(
                         out,
                         "{} landings of the batch need a build of the result, so land builds it once with all their steps, test classes and shots:\nbuilds app-build {}",
@@ -710,7 +698,7 @@ impl Landing<'_> {
                             on_main,
                             said: shown.join("\n"),
                         },
-                    );
+                    )?;
                 }
                 drop(pushing);
                 return Ok(Schema::Kept(()));
@@ -730,7 +718,7 @@ impl Landing<'_> {
                     output: String::new(),
                     said: format!("LANDING FAILED: no push succeeded in {ATTEMPTS} tries"),
                 },
-            );
+            )?;
         }
         Ok(Schema::Kept(()))
     }
@@ -748,8 +736,8 @@ impl Landing<'_> {
         out: &mut dyn Write,
     ) -> Result<Schema<()>> {
         if let [(index, _)] = picked {
-            let verdict = failure.verdict_for(&settled.members[*index]);
-            settled.deliver(*index, verdict);
+            let verdict = failure.verdict_for(settled.entry(*index));
+            settled.deliver(*index, verdict)?;
             return Ok(Schema::Kept(()));
         }
         let _ = writeln!(
@@ -770,11 +758,11 @@ impl Landing<'_> {
     /// Picks <member>'s commits onto the worktree's HEAD, the result so far:
     /// a fast-forward when they sit on it, else a cherry-pick. A landing
     /// whose commits conflict, or are already on origin/main, ends there.
-    fn pick(&self, member: &Member) -> Picked {
+    fn pick(&self, member: &Entry) -> Result<Picked> {
         let dir = &self.workdir;
         let shas = &member.shas;
         let last = shas.last().expect("a landing names a commit").as_str();
-        let base = git_text(dir, &["rev-parse", "HEAD"]).unwrap_or_default();
+        let base = git_must(dir, &["rev-parse", "HEAD"])?;
         // A fast-forward lands every commit between the result and the last
         // one, so it is taken only when those are exactly the commits named:
         // an unnamed commit below them (an earlier one on the agent's branch)
@@ -791,33 +779,32 @@ impl Landing<'_> {
             // else may have landed the same change: pick only the commits
             // whose change isn't on origin/main yet, so a retry doesn't call
             // an applied commit a conflict.
-            let todo: Vec<&String> = shas
-                .iter()
-                .filter(|sha| {
-                    let parent = format!("{sha}^");
-                    let marks =
-                        git_text(dir, &["cherry", "origin/main", sha, &parent]).unwrap_or_default();
-                    let firsts: Vec<String> = marks
-                        .lines()
-                        .map(|line| line.chars().take(1).collect())
-                        .collect();
-                    firsts == ["+"]
-                })
-                .collect();
+            let mut todo: Vec<&String> = Vec::new();
+            for sha in shas {
+                let parent = format!("{sha}^");
+                let marks = git_must(dir, &["cherry", "origin/main", sha, &parent])?;
+                let firsts: Vec<String> = marks
+                    .lines()
+                    .map(|line| line.chars().take(1).collect())
+                    .collect();
+                if firsts == ["+"] {
+                    todo.push(sha);
+                }
+            }
             if todo.is_empty() {
                 let (on_main, shown) = self.copies_on_main(shas);
                 // An earlier push that reported failure may have landed
                 // without its record.
                 if self.recording.is_some() && on_main.iter().any(String::is_empty) {
-                    return Picked::Ended(Verdict::Refused {
+                    return Ok(Picked::Ended(Verdict::Refused {
                         output: String::new(),
                         said: "LANDED, NOT RECORDED: a commit's copy on origin/main was not found by its subject; record by hand with builds item landed".to_string(),
-                    });
+                    }));
                 }
-                return Picked::Ended(Verdict::Landed {
+                return Ok(Picked::Ended(Verdict::Landed {
                     on_main,
                     said: format!("already on origin/main:\n{shown}"),
-                });
+                }));
             }
             let mut pick = git(dir);
             pick.arg("cherry-pick").args(todo);
@@ -825,17 +812,16 @@ impl Landing<'_> {
             if !picked {
                 let paths = git_text(dir, &["diff", "--name-only", "--diff-filter=U"]);
                 git_ok(dir, &["cherry-pick", "--abort"]);
-                return Picked::Ended(Verdict::Refused {
+                return Ok(Picked::Ended(Verdict::Refused {
                     output: String::new(),
                     said: Self::pick_refusal(member, paths.as_deref(), &said),
-                });
+                }));
             }
         }
-        let on_main = git_text(dir, &["rev-list", "--reverse", &format!("{base}..HEAD")])
-            .unwrap_or_default()
+        let on_main = git_must(dir, &["rev-list", "--reverse", &format!("{base}..HEAD")])?
             .lines()
             .map(str::to_string)
             .collect();
-        Picked::Applied(on_main)
+        Ok(Picked::Applied(on_main))
     }
 }

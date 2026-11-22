@@ -2245,13 +2245,8 @@ const BUILT_ONCE: &str = "echo \"$3\" >> '{root}/built'";
 /// landing holds the turn, and they run once the test lets the turn go.
 /// Returns what each landing said and whether it landed, in the order of
 /// <dirs>.
-fn land_together(
-    f: &Fixture,
-    stub: &Path,
-    lands: &[(&Path, &[&str])],
-    lane: Lane,
-) -> Vec<(bool, Vec<String>)> {
-    let held = hold_app_turn(f, lane);
+fn land_together(f: &Fixture, stub: &Path, lands: &[(&Path, &[&str])]) -> Vec<(bool, Vec<String>)> {
+    let held = hold_app_turn(f, Lane::Mac);
     let mut running = Vec::new();
     for (dir, args) in lands {
         let (reader, writer) = std::io::pipe().unwrap();
@@ -2292,7 +2287,6 @@ fn landings_that_wait_for_a_lane_build_together_once_and_all_land() {
         &f,
         &stub,
         &[(&one, &["--done", "7", &a]), (&two, &["--done", "8", &b])],
-        Lane::Mac,
     );
     assert!(done.iter().all(|(landed, _)| *landed), "{done:?}");
     assert_eq!(git_out(&f.origin, &["show", "main:app/a.swift"]), "app");
@@ -2337,7 +2331,6 @@ fn a_landing_of_both_lanes_joins_the_batch_of_the_mac_landings() {
         &f,
         &stub,
         &[(&one, &["--done", "7", &a]), (&two, &["--done", "8", &b])],
-        Lane::Mac,
     );
     assert!(done.iter().all(|(landed, _)| *landed), "{done:?}");
     assert_eq!(git_out(&f.origin, &["show", "main:shared/b.txt"]), "app");
@@ -2366,7 +2359,6 @@ fn a_failing_batch_lands_the_branches_that_pass_and_refuses_the_one_that_fails()
         &f,
         &stub,
         &[(&one, &["--done", "7", &a]), (&two, &["--done", "8", &b])],
-        Lane::Mac,
     );
     assert!(done[0].0, "{:?}", done[0]);
     assert!(!done[1].0, "{:?}", done[1]);
@@ -2415,7 +2407,6 @@ fn a_branch_with_no_app_build_is_refused_and_the_rest_of_its_batch_lands() {
         &f,
         &stub,
         &[(&one, &["--done", "7", &a]), (&two, &["--done", "8", &b])],
-        Lane::Mac,
     );
     assert!(done[0].0, "{:?}", done[0]);
     assert!(!done[1].0, "{:?}", done[1]);
@@ -2456,7 +2447,6 @@ fn a_branch_that_conflicts_with_its_batch_is_refused_and_the_rest_lands() {
         &f,
         &stub,
         &[(&one, &["--done", "7", &a]), (&two, &["--done", "8", &b])],
-        Lane::Mac,
     );
     let landed: Vec<bool> = done.iter().map(|(landed, _)| *landed).collect();
     assert_eq!(

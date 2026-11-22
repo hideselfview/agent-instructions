@@ -38,18 +38,8 @@ pub struct Entry {
     pub rev: String,
     /// What the landing calls it, for its refusals.
     pub start: String,
-    /// The words of the lanes whose apps the commits change.
-    pub lanes: Vec<String>,
-}
-
-impl Entry {
     /// The lanes whose apps the commits change.
-    pub fn lanes(&self) -> Vec<Lane> {
-        self.lanes
-            .iter()
-            .filter_map(|word| Lane::parse(word))
-            .collect()
-    }
+    pub lanes: Vec<Lane>,
 }
 
 /// How the leader of a batch settled one landing.
@@ -95,7 +85,8 @@ pub fn register(dir: &Path, entry: &Entry) -> Result<Registered> {
     std::fs::create_dir_all(dir).context(|| format!("making {}", dir.display()))?;
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |since| since.as_nanos());
+        .context(|| "reading the clock".to_string())?
+        .as_nanos();
     let id = format!(
         "{now:038}-{}-{}",
         std::process::id(),
@@ -108,8 +99,8 @@ pub fn register(dir: &Path, entry: &Entry) -> Result<Registered> {
         fail!("{} is locked by another landing", temp.display());
     }
     let text = serde_json::to_string(entry).context(|| "writing the entry".to_string())?;
-    std::fs::write(&temp, text).context(|| format!("writing {}", temp.display()))?;
-    std::fs::rename(&temp, &path).context(|| format!("renaming {}", temp.display()))?;
+    // The write keeps the locked file: it fills the temporary file and renames it.
+    write_whole(&path, &text)?;
     Ok(Registered {
         dir: dir.to_path_buf(),
         id,
@@ -200,47 +191,6 @@ pub fn waiting(dir: &Path) -> Result<Vec<(String, Entry)>> {
         let _ = std::fs::remove_file(verdict_path(dir, id));
     }
     Ok(found)
-}
-
-/// The words of the `builds app-build` commands <builds>, each as its
-/// arguments after `app-build` (the repo, the result, the steps and then the
-/// `--test`, `--shots` and `--all-shots` flags), as one command's arguments
-/// that builds the result with every step and pick of each: the steps once
-/// each, in the order they first appear, then each flag once.
-pub fn merge_builds(builds: &[Vec<String>]) -> Vec<String> {
-    let first = &builds[0];
-    let mut merged: Vec<String> = first[..2].to_vec();
-    let mut steps: Vec<&String> = Vec::new();
-    let mut flags: Vec<&[String]> = Vec::new();
-    for build in builds {
-        let words = &build[2..];
-        let at = words
-            .iter()
-            .position(|word| word.starts_with("--"))
-            .unwrap_or(words.len());
-        for step in &words[..at] {
-            if !steps.contains(&step) {
-                steps.push(step);
-            }
-        }
-        let mut rest = &words[at..];
-        while let Some(flag) = rest.first() {
-            let length = if flag == crate::app_build::ALL_SHOTS {
-                2
-            } else {
-                3
-            }
-            .min(rest.len());
-            let (group, after) = rest.split_at(length);
-            if !flags.contains(&group) {
-                flags.push(group);
-            }
-            rest = after;
-        }
-    }
-    merged.extend(steps.into_iter().cloned());
-    merged.extend(flags.into_iter().flatten().cloned());
-    merged
 }
 
 #[cfg(test)]

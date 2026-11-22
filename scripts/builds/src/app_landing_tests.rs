@@ -607,3 +607,31 @@ fn a_result_of_a_batch_is_judged_over_the_commits_of_each_landing() {
     args.push(branch);
     cmd_landing_build(&places, &args).unwrap();
 }
+
+fn words(text: &str) -> Vec<String> {
+    text.split_whitespace().map(str::to_string).collect()
+}
+
+#[test]
+fn merged_builds_run_every_step_once_and_every_pick_once() {
+    let merged = merge_builds(&[
+        words("bae r1 macos --test mac CardTests --shots mac card."),
+        words(
+            "bae r1 macos macos-shots --test mac CardTests --test mac RowTests --all-shots android",
+        ),
+        words("bae r1 macos --all-shots android"),
+    ])
+    .unwrap();
+    assert_eq!(
+        merged,
+        words(
+            "bae r1 macos macos-shots --test mac CardTests --shots mac card. --test mac RowTests --all-shots android"
+        )
+    );
+}
+
+#[test]
+fn one_build_merges_to_itself() {
+    let one = words("bae r1 macos --test mac CardTests");
+    assert_eq!(merge_builds(std::slice::from_ref(&one)).unwrap(), one);
+}

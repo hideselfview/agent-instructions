@@ -6,12 +6,8 @@ fn entry(worktree: &str) -> Entry {
         shas: vec!["abc".to_string()],
         rev: "a".to_string(),
         start: "branch a".to_string(),
-        lanes: vec!["mac".to_string()],
+        lanes: vec![Lane::Mac],
     }
-}
-
-fn words(text: &str) -> Vec<String> {
-    text.split_whitespace().map(str::to_string).collect()
 }
 
 #[test]
@@ -68,27 +64,4 @@ fn a_missing_queue_has_no_waiting_landing() {
             .unwrap()
             .is_empty()
     );
-}
-
-#[test]
-fn merged_builds_run_every_step_once_and_every_pick_once() {
-    let merged = merge_builds(&[
-        words("bae r1 macos --test mac CardTests --shots mac card."),
-        words(
-            "bae r1 macos macos-shots --test mac CardTests --test mac RowTests --all-shots android",
-        ),
-        words("bae r1 macos --all-shots android"),
-    ]);
-    assert_eq!(
-        merged,
-        words(
-            "bae r1 macos macos-shots --test mac CardTests --shots mac card. --test mac RowTests --all-shots android"
-        )
-    );
-}
-
-#[test]
-fn one_build_merges_to_itself() {
-    let one = words("bae r1 macos --test mac CardTests");
-    assert_eq!(merge_builds(std::slice::from_ref(&one)), one);
 }
