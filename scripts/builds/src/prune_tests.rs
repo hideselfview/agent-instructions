@@ -698,3 +698,32 @@ fn a_second_shared_cache_prune_leaves_an_in_progress_replacement_alone() {
     );
     assert!(!live.join("data").exists());
 }
+
+#[test]
+fn a_setting_written_after_its_copy_keeps_the_live_cache_and_fails_the_prune() {
+    let scratch = Scratch::new("cache-settings-written-after-copy");
+    let tool = scratch.tool(0);
+    let live = tool.places.caches().join("cache");
+    fill(&live.join("data"), 16);
+    std::fs::write(live.join("settings"), "old").unwrap();
+    age_all(&live, 2);
+    let shared = [SharedCache {
+        name: "cache",
+        cap_kib: 1,
+        link: None,
+        settings: &["settings"],
+    }];
+    let error = prune_caches(&tool, Run::Real, Pruner::Prune, &shared, |from, to| {
+        copy_preserving(from, to)?;
+        std::fs::write(from, "new").unwrap();
+        Ok(())
+    })
+    .unwrap_err();
+
+    assert!(error.text().contains("changed while builds copied it"));
+    assert!(live.join("data").is_file());
+    assert_eq!(
+        std::fs::read_to_string(live.join("settings")).unwrap(),
+        "new"
+    );
+}

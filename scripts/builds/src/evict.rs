@@ -52,7 +52,7 @@ pub enum Recreate {
 /// folder beside it, since a rename can't cross volumes. Returns false, deleting nothing,
 /// when the folder is in use.
 pub fn evict(places: &Places, dir: &Path, recreate: Recreate, removal: Removal) -> Result<bool> {
-    displace(places, dir, removal, Change::Move(recreate))
+    displace(places, dir, Change::Move(recreate, removal))
 }
 
 /// Prepares a replacement and exchanges it with the live folder in one
@@ -62,11 +62,11 @@ pub fn replace(
     dir: &Path,
     prepare: &dyn Fn(&Path, &Path) -> Result<()>,
 ) -> Result<bool> {
-    displace(places, dir, Removal::Background, Change::Replace(prepare))
+    displace(places, dir, Change::Replace(prepare))
 }
 
 enum Change<'a> {
-    Move(Recreate),
+    Move(Recreate, Removal),
     Replace(&'a dyn Fn(&Path, &Path) -> Result<()>),
 }
 
@@ -101,14 +101,9 @@ impl EvictionSlot {
             (Self::Sibling(path), removal) => remove(&path, removal).map(drop),
         }
     }
-
-    fn discard(self) -> Result<()> {
-        std::fs::remove_dir_all(self.path())
-            .context(|| format!("removing {}", self.path().display()))
-    }
 }
 
-fn displace(places: &Places, dir: &Path, removal: Removal, change: Change<'_>) -> Result<bool> {
+fn displace(places: &Places, dir: &Path, change: Change<'_>) -> Result<bool> {
     let folder = std::fs::canonicalize(dir).context(|| format!("resolving {}", dir.display()))?;
     crate::sizes::stale(places, &folder)?;
     let parent = folder.parent().expect("a folder to delete has a parent");
@@ -119,13 +114,13 @@ fn displace(places: &Places, dir: &Path, removal: Removal, change: Change<'_>) -
     let Some(locks) = cargo_locks(&folder)? else {
         return Ok(false);
     };
-    if matches!(change, Change::Move(_)) && held_by_a_process(&folder)? {
+    if matches!(change, Change::Move(..)) && held_by_a_process(&folder)? {
         return Ok(false);
     }
     let slot = EvictionSlot::make(places, parent)?;
     let name = folder.file_name().expect("a folder to delete has a name");
     match change {
-        Change::Move(recreate) => {
+        Change::Move(recreate, removal) => {
             let moved = move_in(&folder, slot.path(), name, recreate)?;
             drop(locks);
             slot.remove(removal)?;
@@ -135,11 +130,12 @@ fn displace(places: &Places, dir: &Path, removal: Removal, change: Change<'_>) -
             let replacement = slot.path().join(name);
             let moved = replace_from(&folder, &replacement, prepare);
             drop(locks);
-            let cleanup = if matches!(moved, Ok(true)) {
-                slot.remove(removal)
+            let removal = if matches!(moved, Ok(true)) {
+                Removal::Background
             } else {
-                slot.discard()
+                Removal::Now
             };
+            let cleanup = slot.remove(removal);
             with_move_cleanup(moved, cleanup)
         }
     }
@@ -155,8 +151,49 @@ fn replace_from(
     if held_by_a_process(folder)? {
         return Ok(false);
     }
+    // A writer can change a copied file and close it before the check above.
+    // The live folder then holds a newer file than the replacement, so the
+    // exchange would send the newer file to the trash.
+    if let Some(changed) = changed_since_copy(folder, replacement)? {
+        fail!(
+            "{} changed while builds copied it; the folder stays as it is",
+            changed.display()
+        );
+    }
     exchange(folder, replacement)?;
     Ok(true)
+}
+
+/// The first file of <replacement> whose live counterpart under <live> holds
+/// other bytes or another link target.
+fn changed_since_copy(live: &Path, replacement: &Path) -> Result<Option<PathBuf>> {
+    for entry in
+        std::fs::read_dir(replacement).context(|| format!("listing {}", replacement.display()))?
+    {
+        let entry = entry.context(|| format!("listing {}", replacement.display()))?;
+        let copy = entry.path();
+        let original = live.join(entry.file_name());
+        let kind = entry
+            .file_type()
+            .context(|| format!("reading {}", copy.display()))?;
+        let changed = if kind.is_dir() {
+            if !original.is_dir() {
+                Some(original)
+            } else {
+                changed_since_copy(&original, &copy)?
+            }
+        } else if kind.is_symlink() {
+            let target = |path: &Path| std::fs::read_link(path).ok();
+            (target(&copy) != target(&original)).then_some(original)
+        } else {
+            let bytes = |path: &Path| std::fs::read(path).ok();
+            (bytes(&copy) != bytes(&original)).then_some(original)
+        };
+        if changed.is_some() {
+            return Ok(changed);
+        }
+    }
+    Ok(None)
 }
 
 fn exchange(folder: &Path, replacement: &Path) -> Result<()> {
