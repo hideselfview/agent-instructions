@@ -389,7 +389,9 @@ fn caches_lines(tool: &Tool, out: &mut Vec<String>) -> Result<()> {
                 last_write(measured.newest)
             ));
         }
-        let link = cache.link_path(home);
+        let Some(link) = cache.link_path(home) else {
+            continue;
+        };
         let shown = tilde(&link, home);
         if link.is_symlink() {
             if absolute_link_target(&link)? != dir {

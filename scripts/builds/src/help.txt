@@ -976,6 +976,22 @@ person asks for an app build in a worktree, or parallel agents each need one).
 Clear it once that work has moved on: retire the worktree, or delete the
 folders behind its app links while nothing builds there.
 
+Xcode's compilation cache. Every step of an app build, here and on a host, runs
+with XCODE_XCCONFIG_FILE naming <root>/.xcode-compilation-cache.xcconfig, which
+turns on COMPILATION_CACHE_ENABLE_CACHING and sets COMPILATION_CACHE_CAS_PATH
+to <root>/caches/xcode-cas, one store for the host. Xcode keys each Swift and
+Clang compile by its content and its command line, which holds the checkout's
+and the build tree's absolute paths, so a compile is a hit only in the checkout
+and tree that made it: on 2026-11-21 with Xcode 26.3, rebuilding bae's unsigned
+tree after deleting it hit 279 of 279 cacheable compiles (80 s against 185 s
+cold), and a build in another checkout at the same commit hit 23 of 279 (the
+SDK's modules). The settings that map paths (SWIFT_ENABLE_PREFIX_MAPPING and
+CLANG_ENABLE_PREFIX_MAPPING, with SWIFT_OTHER_PREFIX_MAPPINGS) raised the hits
+to 62-70% but made swift-frontend crash in bae's `bae` target (bad_optional_access
+in CachingDiagnosticsProcessor), so builds does not set them. `builds prune`
+deletes the store whole when it is over its 10 GiB cap, as for the other shared
+caches.
+
 A repo's `.app-build` at its root says what its app builds run, one line each:
 
   step <lane> <name> <program> [<args>...]
@@ -2152,6 +2168,7 @@ caches/<name>, linked from where the tool looks, with a cap each:
   nuget    6 GiB  ~/.nuget
   swiftpm  3 GiB  ~/Library/Caches/org.swift.swiftpm
   sccache 50 GiB  ~/Library/Caches/Mozilla.sccache
+  xcode-cas 10 GiB  no link: builds names the folder to Xcode (APP BUILDS)
 
 `setup` and `prune` delete a cache that is over its cap, whole, once nothing
 has written to it for 30 minutes and no process holds a file in it, and put

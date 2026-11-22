@@ -516,7 +516,13 @@ pub fn cmd_install(tool: &Tool, args: &[String]) -> Result<()> {
         std::fs::create_dir_all(dir).context(|| format!("creating {}", dir.display()))?;
     }
     for cache in SHARED_CACHES {
-        link_cache(&caches.join(cache.name), &cache.link_path(home), home)?;
+        match cache.link_path(home) {
+            Some(link) => link_cache(&caches.join(cache.name), &link, home)?,
+            None => {
+                let dir = caches.join(cache.name);
+                std::fs::create_dir_all(&dir).context(|| format!("creating {}", dir.display()))?;
+            }
+        }
     }
     crate::cargo_program::install_all(home)?;
     run_sccache_server(&tool.places)?;

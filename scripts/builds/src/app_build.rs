@@ -1920,6 +1920,7 @@ pub fn run_lanes(
             libc::signal(signal, pass_to_lanes as *const () as libc::sighandler_t);
         }
     }
+    let xcode_cache = crate::xcode_cache::ensure(&Places::from_env()?)?;
     let mut running = Vec::new();
     for (at, (lane, names)) in lanes.iter().enumerate() {
         let mut command = Command::new(pinned.builds());
@@ -1936,6 +1937,7 @@ pub fn run_lanes(
                     .flat_map(pick_words),
             )
             .env(PREFIXED, "1")
+            .env(crate::xcode_cache::ENV, &xcode_cache)
             .env("PATH", pinned.path(std::env::var_os("PATH").as_deref()))
             .stdin(Stdio::null())
             .stdout(Stdio::piped())

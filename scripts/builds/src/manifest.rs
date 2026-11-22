@@ -317,29 +317,32 @@ pub fn cap_kib(cap: &str, what: &str) -> Result<u64> {
     fail!("{what} needs a cap like 20G or 500M, got '{cap}'")
 }
 
-/// A download cache every checkout shares: a folder in <root>/caches with a
-/// link to it from where its tool looks.
+/// A cache every checkout shares: a folder in <root>/caches, with a link to it
+/// from where its tool looks, or none when the tool takes the folder's path
+/// (Xcode's compilation cache, xcode_cache.rs).
 #[derive(Clone, Debug)]
 pub struct SharedCache {
     pub name: &'static str,
     pub cap_kib: u64,
-    /// Relative to $HOME.
-    pub link: &'static str,
+    /// Relative to $HOME; None for a cache whose tool is told the folder.
+    pub link: Option<&'static str>,
     /// Settings the person writes into the tool's home folder, which a
     /// deletion copies out first and puts back in the emptied folder.
     pub settings: &'static [&'static str],
 }
 
 impl SharedCache {
-    pub fn link_path(&self, home: &Path) -> PathBuf {
-        home.join(self.link)
+    pub fn link_path(&self, home: &Path) -> Option<PathBuf> {
+        self.link.map(|link| home.join(link))
     }
 }
 
 const GIB: u64 = 1024 * 1024;
 
 /// The shared caches. Caps are about twice each cache's size when they got
-/// them (Oct 2026: gradle 3.4G, npm 0.3G, nuget 2.6G, swiftpm 1.0G). Old
+/// them (Oct 2026: gradle 3.4G, npm 0.3G, nuget 2.6G, swiftpm 1.0G). The Xcode compilation
+/// cache holds each distinct compile once: 0.6G after one cold build of the
+/// bae app's unsigned tree (Nov 2026), so 10G holds many commits' changes. Old
 /// Gradle, AGP and NuGet package versions pile up as dependencies move, and
 /// deleting a cache costs every checkout a download, so the cap leaves room
 /// rather than fitting tightly. sccache's cap is the size `install` writes
@@ -357,7 +360,7 @@ pub const SHARED_CACHES: &[SharedCache] = &[
     SharedCache {
         name: "gradle",
         cap_kib: 8 * GIB,
-        link: ".gradle",
+        link: Some(".gradle"),
         settings: &[
             "gradle.properties",
             "init.d",
@@ -368,25 +371,31 @@ pub const SHARED_CACHES: &[SharedCache] = &[
     SharedCache {
         name: "npm",
         cap_kib: GIB,
-        link: ".npm",
+        link: Some(".npm"),
         settings: &[],
     },
     SharedCache {
         name: "nuget",
         cap_kib: 6 * GIB,
-        link: ".nuget",
+        link: Some(".nuget"),
         settings: &["NuGet/NuGet.Config"],
     },
     SharedCache {
         name: "swiftpm",
         cap_kib: 3 * GIB,
-        link: "Library/Caches/org.swift.swiftpm",
+        link: Some("Library/Caches/org.swift.swiftpm"),
         settings: &[],
     },
     SharedCache {
         name: "sccache",
         cap_kib: 50 * GIB,
-        link: "Library/Caches/Mozilla.sccache",
+        link: Some("Library/Caches/Mozilla.sccache"),
+        settings: &[],
+    },
+    SharedCache {
+        name: crate::xcode_cache::CAS,
+        cap_kib: 10 * GIB,
+        link: None,
         settings: &[],
     },
 ];
