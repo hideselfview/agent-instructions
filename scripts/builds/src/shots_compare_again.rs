@@ -1,16 +1,18 @@
 //! Compares a cached shots run's pictures again, so a change to the shots
 //! checker's comparison makes no run take its shots or draw its boards again.
 //!
-//! builds keys a cached run by the checker's capture version and, under it, by
-//! its comparison version (shots_cache.rs). When a run of a commit is cached
-//! under the capture version this builds is built with, and under another
-//! comparison version only, the run's report holds the pictures and element
-//! lists that the capture made. `builds shots recheck` of this program
+//! builds keys a cached run by the environment it was made in, the checker's
+//! capture version and, under it, its comparison version (shots_cache.rs).
+//! When a run of a commit is cached in an environment under the capture
+//! version this builds is built with, and under another comparison version
+//! only, the run's report holds the pictures and element lists that the
+//! capture made. `builds shots recheck` of this program
 //! (scripts/shots/src/recheck.rs) compares them again, and the result is
-//! cached as the run of this builds' comparison version: the run's findings
-//! come from the pictures with no app build. A run whose capture version is
-//! another one is no source: the capture side changed, and the run takes its
-//! shots again.
+//! cached as the run of this builds' comparison version in the same
+//! environment: the run's findings come from the pictures with no app build.
+//! A run whose capture version is another one is no source: the capture side
+//! changed, and the run takes its shots again. A run made in another
+//! environment is no source either: its pictures are another environment's.
 //!
 //! A run made this way holds the pictures of its source (hard links, since the
 //! cache folder is one volume), the findings the comparison made as
@@ -43,11 +45,11 @@ pub fn lookup(places: &Places, key: &Key, program: &Path) -> Result<Option<Cache
     }
 }
 
-/// The run a branch's run of <prefix> on <lane> compares with
-/// (`shots_cache::before_run`), made by comparing again with the builds
-/// program <program> the cached run of another comparison version when this
-/// version has none.
-pub fn before_run(
+/// The newest cached run of <commit>'s <prefix> on <lane> made in any
+/// environment (`lookup` of each environment's key), marking it used: a read
+/// of a commit's own run, which says the environment the run was made in.
+/// None when no environment has one.
+pub fn lookup_newest(
     places: &Places,
     repo: &str,
     commit: &str,
@@ -55,13 +57,45 @@ pub fn before_run(
     prefix: &str,
     program: &Path,
 ) -> Result<Option<Cached>> {
-    if let Some(cached) = shots_cache::before_run(places, repo, commit, lane, prefix, &VERSIONS)? {
-        return Ok(Some(cached));
+    let mut newest: Option<Cached> = None;
+    for environment in shots_cache::environments(places, repo, commit, lane)? {
+        let key = Key::new(repo, commit, lane, &environment, prefix, &VERSIONS);
+        if let Some(cached) = lookup(places, &key, program)?
+            && newest
+                .as_ref()
+                .is_none_or(|known| cached.recorded_at > known.recorded_at)
+        {
+            newest = Some(cached);
+        }
     }
-    for key in shots_cache::covering_keys(places, repo, commit, lane, prefix, &VERSIONS)? {
+    Ok(newest)
+}
+
+/// The run a branch's run of <prefix> on <lane> compares with
+/// (`shots_cache::before_run`): a run made in <environment>, the branch run's
+/// own, made by comparing again with the builds program <program> the cached
+/// run of another comparison version when this version has none. A run made
+/// in another environment is neither a before run nor a source to compare
+/// again.
+pub fn before_run(
+    places: &Places,
+    repo: &str,
+    commit: &str,
+    lane: Lane,
+    environment: &str,
+    prefix: &str,
+    program: &Path,
+) -> Result<Option<Cached>> {
+    let found =
+        shots_cache::before_run(places, repo, commit, lane, environment, prefix, &VERSIONS)?;
+    if found.is_some() {
+        return Ok(found);
+    }
+    let made = shots_cache::Made::In(environment);
+    for key in shots_cache::covering_keys(places, repo, commit, lane, made, prefix, &VERSIONS)? {
         compare_again(places, &key, program)?;
     }
-    shots_cache::before_run(places, repo, commit, lane, prefix, &VERSIONS)
+    shots_cache::before_run(places, repo, commit, lane, environment, prefix, &VERSIONS)
 }
 
 /// Compares again the newest cached run that has <key>'s commit, lane, prefix

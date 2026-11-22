@@ -142,6 +142,7 @@ mod shots_cache;
 mod shots_check_program;
 mod shots_compare_again;
 mod shots_declared;
+mod shots_environment;
 mod shots_in_use;
 mod shots_program;
 mod side_git;

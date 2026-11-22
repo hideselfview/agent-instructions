@@ -187,9 +187,10 @@ pub fn cmd(places: &Places, args: &[String]) -> Result<()> {
     let program = build(&top)?;
     let report = compare(&cached, &program)?;
     note(format!(
-        "{repo} {} {} {prefix}: findings of the cached run (shots program comparison version {}) beside those of the program built in {}",
+        "{repo} {} {} {prefix}: findings of the cached run made in environment {} (shots program comparison version {}) beside those of the program built in {}",
         &cached.key.commit[..cached.key.commit.len().min(12)],
         lane.word(),
+        cached.key.environment,
         &cached.key.versions.comparison[..cached.key.versions.comparison.len().min(12)],
         top.display()
     ));

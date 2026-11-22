@@ -14,6 +14,7 @@ fn cache_run(places: &Places, lane: Lane, prefix: &str, findings: Value, picture
             repo: "demo".to_string(),
             commit: COMMIT.to_string(),
             lane,
+            environment: "26B131-17C529".to_string(),
             prefix: prefix.to_string(),
             versions: crate::shots_program::Versions {
                 capture: VERSIONS.capture.clone(),

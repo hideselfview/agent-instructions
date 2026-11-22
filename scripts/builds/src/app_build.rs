@@ -54,6 +54,12 @@
 //! checkout first (lock.rs). After each `--test` or `--shots` run on a host,
 //! the `results` lines of `.app-build` name the folders copied back here.
 //!
+//! A lane reads the environment that draws its shots (the macOS and Xcode
+//! builds on a Mac, the OS and architecture for android) from the host of the
+//! checkout it holds (shots_environment.rs). That environment keys the runs it
+//! caches and the pictures it takes, and a shots run compares only with a run
+//! made in the same environment.
+//!
 //! A shots run of a branch compares with the cached run of the branch's merge
 //! base with origin/main (shots_cache.rs). When the cache lacks the run of a
 //! prefix that starts a shot declared at the merge base, the lane's process
@@ -1010,8 +1016,12 @@ struct ShotsCache {
     /// The findings.json of the run each shots prefix of the lane compares
     /// with, by its prefix.
     befores: Vec<(String, std::path::PathBuf)>,
-    /// The lane's app source tree at the commit (app_tree.rs), which keys
-    /// the shots the app takes in the picture folder.
+    /// The host software that draws the lane's shots (shots_environment.rs),
+    /// which keys the runs this store caches and compares with.
+    environment: String,
+    /// The id that keys the shots the app takes in the picture folder: the
+    /// lane's app source tree at the commit (app_tree.rs) combined with the
+    /// environment (`app_tree::in_environment`).
     app_tree: String,
     /// The lane built no app, so a shots run fails instead of capturing
     /// (`builds shots run --no-capture`).
@@ -1054,6 +1064,7 @@ impl ShotsCache {
         source: &Path,
         repo: &str,
         lane: Lane,
+        environment: &str,
         commit: &str,
         config: &Config,
         picks: &[Pick],
@@ -1074,7 +1085,13 @@ impl ShotsCache {
                 continue;
             }
             match crate::shots_compare_again::before_run(
-                places, repo, &base, lane, prefix, program,
+                places,
+                repo,
+                &base,
+                lane,
+                environment,
+                prefix,
+                program,
             )? {
                 Some(before) => befores.push((prefix.clone(), before.findings_json())),
                 // A prefix that starts no shot declared at the merge base has
@@ -1090,7 +1107,7 @@ impl ShotsCache {
                     ))
                 }
                 None => fail!(
-                    "builds holds no run of {prefix} on {} for {}, the merge base of {} with origin/main, by shots checker {} (comparison) over {} (capture), so the run has nothing to compare with; `{}` makes one",
+                    "builds holds no run of {prefix} on {} for {}, the merge base of {} with origin/main, made in environment {environment} by shots checker {} (comparison) over {} (capture), so the run has nothing to compare with; `{}` makes one",
                     lane.word(),
                     short(&base),
                     short(commit),
@@ -1106,7 +1123,11 @@ impl ShotsCache {
             lane,
             versions: crate::shots_program::Versions::clone(versions),
             befores,
-            app_tree: crate::app_tree::of(source, commit, config, lane)?,
+            environment: environment.to_string(),
+            app_tree: crate::app_tree::in_environment(
+                &crate::app_tree::of(source, commit, config, lane)?,
+                environment,
+            ),
             no_capture,
             retake,
             base_run,
@@ -1219,7 +1240,14 @@ impl ShotsCache {
             return;
         }
         let staged = site.commit().and_then(|commit| {
-            let key = shots_cache::Key::new(&self.repo, &commit, self.lane, prefix, &self.versions);
+            let key = shots_cache::Key::new(
+                &self.repo,
+                &commit,
+                self.lane,
+                &self.environment,
+                prefix,
+                &self.versions,
+            );
             shots_cache::stage(&self.places, &key)
         });
         let staging = match staged {
@@ -1533,14 +1561,24 @@ impl MergeBase {
 }
 
 /// Takes the exclusive lock on the run of <lane>'s shots at the merge base
-/// <base> of <repo> (a file in the repo's folder on the volume), so that one
-/// lane's process at a time runs a base commit's shots while the others wait
+/// <base> of <repo> in <environment> (a file in the repo's folder on the
+/// volume), so that one lane's process at a time runs a base commit's shots in
+/// an environment while the others wait
 /// for it and then find the runs cached. A wait says so, and ends when a stop
 /// signal reaches the process. The lock lasts as long as the file returned.
-fn lock_base_run(places: &Places, repo: &str, lane: Lane, base: &str) -> Result<std::fs::File> {
+fn lock_base_run(
+    places: &Places,
+    repo: &str,
+    lane: Lane,
+    base: &str,
+    environment: &str,
+) -> Result<std::fs::File> {
     let folder = places.root.join(repo);
     std::fs::create_dir_all(&folder).context(|| format!("creating {}", folder.display()))?;
-    let path = folder.join(format!("base-run-{}-{base}.lock", lane.word()));
+    let path = folder.join(format!(
+        "base-run-{}-{base}-{environment}.lock",
+        lane.word()
+    ));
     if let Some(file) = crate::evict::try_lock_creating(&path)? {
         return Ok(file);
     }
@@ -1735,10 +1773,19 @@ impl LaneBuild<'_> {
             fresh,
             ..
         } = self.request;
+        // The host software that draws the shots keys the runs and the
+        // pictures this lane makes and reads, and is read from the host now.
+        let environment = site.environment(lane)?;
+        note(format!(
+            "the shots of this build are drawn in environment {environment}"
+        ));
         // A lane whose steps are only what its shots need, and whose shots
         // the picture folder caches, builds nothing.
         let cached_shots = needs_only && !fresh && {
-            let tree = crate::app_tree::of(&self.source, commit, &self.config, lane)?;
+            let tree = crate::app_tree::in_environment(
+                &crate::app_tree::of(&self.source, commit, &self.config, lane)?,
+                &environment,
+            );
             let prefixes: Vec<&str> = picks
                 .iter()
                 .filter(|(own, _, _)| *own == lane)
@@ -1748,7 +1795,7 @@ impl LaneBuild<'_> {
         };
         let names: &[String] = if cached_shots { &[] } else { names };
         if let Some(base) = &self.base {
-            let ended = self.ensure_base(base, site, held, built_file, timing)?;
+            let ended = self.ensure_base(base, &environment, site, held, built_file, timing)?;
             if ended != Ended::Finished {
                 return Ok(ended);
             }
@@ -1792,6 +1839,7 @@ impl LaneBuild<'_> {
             &self.source,
             repo,
             lane,
+            &environment,
             &sha,
             &config,
             picks,
@@ -1861,6 +1909,7 @@ impl LaneBuild<'_> {
     fn ensure_base(
         &self,
         base: &MergeBase,
+        environment: &str,
         site: &mut Site,
         held: &lock::Held,
         built_file: &Path,
@@ -1884,6 +1933,7 @@ impl LaneBuild<'_> {
                     repo,
                     &base.commit,
                     lane,
+                    environment,
                     prefix,
                     &program,
                 )?
@@ -1912,7 +1962,7 @@ impl LaneBuild<'_> {
         if asked.is_empty() {
             return Ok(Ended::Finished);
         }
-        let _lock = lock_base_run(places, repo, lane, &base.commit)?;
+        let _lock = lock_base_run(places, repo, lane, &base.commit, environment)?;
         let wanted = missing(&asked)?;
         if wanted.is_empty() {
             note(format!(
@@ -1923,7 +1973,7 @@ impl LaneBuild<'_> {
         }
         let versions = &crate::shots_program::VERSIONS;
         note(format!(
-            "builds has no cached run of {} on {} at {}, the merge base of {} with origin/main, by shots checker {} (comparison) over {} (capture): building the merge base in this turn and running only them there",
+            "builds has no cached run of {} on {} at {}, the merge base of {} with origin/main, made in environment {environment} by shots checker {} (comparison) over {} (capture): building the merge base in this turn and running only them there",
             prefixes_of(&wanted),
             lane.word(),
             short(&base.commit),
@@ -1933,7 +1983,10 @@ impl LaneBuild<'_> {
         ));
         Built::clear(built_file)?;
         let CheckedOut { sha, config } = site.check_out(places, repo, &base.commit)?;
-        let tree = crate::app_tree::of(&self.source, &sha, &config, lane)?;
+        let tree = crate::app_tree::in_environment(
+            &crate::app_tree::of(&self.source, &sha, &config, lane)?,
+            environment,
+        );
         let prefixes: Vec<&str> = wanted
             .iter()
             .map(|(_, _, prefix)| prefix.as_str())
@@ -1946,6 +1999,7 @@ impl LaneBuild<'_> {
             &self.source,
             repo,
             lane,
+            environment,
             &sha,
             &config,
             &wanted,
@@ -2044,6 +2098,7 @@ pub fn serve_cached(
         }
         None => None,
     };
+    let commit = shot_findings::commit_of(places, repo, git_ref)?;
     let mut left = Vec::new();
     for pick in picks {
         let (lane, kind, prefix) = &pick;
@@ -2051,14 +2106,16 @@ pub fn serve_cached(
             left.push(pick);
             continue;
         }
-        let key = shot_findings::key_for(places, repo, git_ref, *lane, prefix)?;
-        let Some(cached) = crate::shots_compare_again::lookup(places, &key, program)? else {
+        let Some(cached) = crate::shots_compare_again::lookup_newest(
+            places, repo, &commit, *lane, prefix, program,
+        )?
+        else {
             left.push(pick);
             continue;
         };
         let passed = match &recorded {
             Some((conn, database)) => {
-                app_timing::passed_shots(conn, repo, *lane, &key.commit, prefix, database)?
+                app_timing::passed_shots(conn, repo, *lane, &commit, prefix, database)?
             }
             None => true,
         };
@@ -2069,7 +2126,7 @@ pub fn serve_cached(
         } else {
             note(format!(
                 "{prefix} has a cached run, but no passing app build of {} ran it, so the build runs it again",
-                &key.commit[..key.commit.len().min(12)]
+                short(&commit)
             ));
             left.push(pick);
         }

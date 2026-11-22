@@ -5,12 +5,18 @@ use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::PathBuf;
 
 const COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
+const ENVIRONMENT: &str = "26B131-17C529";
 
 fn key(capture: &str, comparison: &str) -> Key {
+    in_environment(ENVIRONMENT, capture, comparison)
+}
+
+fn in_environment(environment: &str, capture: &str, comparison: &str) -> Key {
     Key::new(
         "demo",
         COMMIT,
         Lane::Mac,
+        environment,
         "mac.",
         &Versions {
             capture: capture.to_string(),
@@ -131,9 +137,17 @@ fn the_run_a_branch_compares_with_is_made_by_comparing_the_base_s_cached_run_aga
     let capture = VERSIONS.capture.as_str();
     let old = cache_run(&places, &key(capture, "old-comparison"));
     let program = recheck_program(&scratch, capture, &VERSIONS.comparison, true);
-    let made = before_run(&places, "demo", COMMIT, Lane::Mac, "mac.a.", &program)
-        .unwrap()
-        .expect("the base's run of another comparison version is compared again");
+    let made = before_run(
+        &places,
+        "demo",
+        COMMIT,
+        Lane::Mac,
+        ENVIRONMENT,
+        "mac.a.",
+        &program,
+    )
+    .unwrap()
+    .expect("the base's run of another comparison version is compared again");
     assert_eq!(made.key.versions, *VERSIONS);
     assert_eq!(made.key.prefix, old.key.prefix);
     assert_eq!(made.exit_code, 0);
@@ -167,4 +181,70 @@ fn a_run_whose_findings_a_program_of_other_versions_made_is_refused() {
     let error = compare_again(&places, &new, &program).unwrap_err().text();
     assert!(error.contains("comparison-3"), "{error}");
     assert!(shots_cache::lookup(&places, &new).unwrap().is_none());
+}
+
+#[test]
+fn only_a_run_of_the_same_environment_is_compared_again() {
+    let scratch = Scratch::new("compare-again-environment");
+    let places = scratch.places();
+    let capture = VERSIONS.capture.as_str();
+    cache_run(
+        &places,
+        &in_environment("25G241-27B52", capture, "old-comparison"),
+    );
+    let program = recheck_program(&scratch, capture, &VERSIONS.comparison, true);
+    let new = key(capture, &VERSIONS.comparison);
+    assert!(
+        compare_again(&places, &new, &program).unwrap().is_none(),
+        "the run of another environment is no source"
+    );
+    assert!(
+        before_run(
+            &places,
+            "demo",
+            COMMIT,
+            Lane::Mac,
+            ENVIRONMENT,
+            "mac.a.",
+            &program
+        )
+        .unwrap()
+        .is_none()
+    );
+    assert_eq!(calls(&scratch), "", "no program ran");
+    let own = cache_run(&places, &key(capture, "old-comparison"));
+    let made = before_run(
+        &places,
+        "demo",
+        COMMIT,
+        Lane::Mac,
+        ENVIRONMENT,
+        "mac.a.",
+        &program,
+    )
+    .unwrap()
+    .expect("the run of its own environment is compared again");
+    assert_eq!(made.key.environment, ENVIRONMENT);
+    assert!(calls(&scratch).contains(&own.report().display().to_string()));
+}
+
+#[test]
+fn the_newest_run_of_a_commit_and_prefix_is_found_in_any_environment() {
+    let scratch = Scratch::new("compare-again-newest");
+    let places = scratch.places();
+    let capture = VERSIONS.capture.as_str();
+    cache_run(
+        &places,
+        &in_environment("25G241-27B52", capture, &VERSIONS.comparison),
+    );
+    let program = recheck_program(&scratch, capture, &VERSIONS.comparison, true);
+    let found = lookup_newest(&places, "demo", COMMIT, Lane::Mac, "mac.", &program)
+        .unwrap()
+        .expect("a run of another environment is a commit's own run");
+    assert_eq!(found.key.environment, "25G241-27B52");
+    assert!(
+        lookup_newest(&places, "demo", COMMIT, Lane::Mac, "mac.b.", &program)
+            .unwrap()
+            .is_none()
+    );
 }

@@ -5,8 +5,9 @@
 //! run is read from the cache and not built again, and an agent that wants a
 //! commit's findings reads what an earlier run printed.
 //!
-//! A run is cached under the repo, the full commit id, the platform, the prefix
-//! the run was given and the two versions of the shots checker (`VERSIONS` in
+//! A run is cached under the repo, the full commit id, the platform, the
+//! environment it was made in (shots_environment.rs), the prefix the run was
+//! given and the two versions of the shots checker (`VERSIONS` in
 //! shots_program.rs: hashes of its capture and comparison sources, which each
 //! run's findings.json names). A run by another capture version has another
 //! key. A run of the same capture version and another comparison version is
@@ -29,8 +30,9 @@
 //! the run's folder in the cache. The run prints the local path of the report
 //! when it ends, and `builds shots findings` prints it again.
 //!
-//! `builds shots findings <repo> <ref> <platform> <prefix>` prints a cached
-//! run, and with `--by-cause` its findings grouped by cause, from the records
+//! `builds shots findings <repo> <ref> <platform> <prefix>` prints the newest
+//! cached run of the commit made in any environment, with the environment it
+//! was made in, and with `--by-cause` its findings grouped by cause, from the records
 //! its report holds (shot_causes.rs). `builds app-build <repo> <ref>
 //! --shots <prefix>` (or, in its lane form, `--shots <platform> <prefix>` with
 //! no build step) prints it too, in place of taking the lane's lock, unless
@@ -206,23 +208,11 @@ pub fn has_findings(exit: i64, findings: &str) -> bool {
     exit == 0 || findings.contains(PAIRS_FAIL)
 }
 
-/// The key of a run of <prefix> on <lane> for <repo> at <git_ref> by this
-/// builds' shots checker: the commit is read from the repo's app checkout.
-pub fn key_for(
-    places: &Places,
-    repo: &str,
-    git_ref: &str,
-    lane: Lane,
-    prefix: &str,
-) -> Result<Key> {
+/// The full id of the commit <git_ref> names in <repo>, read from the repo's
+/// app checkout.
+pub fn commit_of(places: &Places, repo: &str, git_ref: &str) -> Result<String> {
     let (_, commit, _) = app_build::commit_and_config(places, repo, git_ref)?;
-    Ok(Key::new(
-        repo,
-        &commit,
-        lane,
-        prefix,
-        &crate::shots_program::VERSIONS,
-    ))
+    Ok(commit)
 }
 
 /// The capture and comparison versions of the shots checker that the
@@ -256,11 +246,12 @@ fn note_run(cached: &Cached) {
         repo,
         commit,
         lane,
+        environment,
         prefix,
         versions,
     } = &cached.key;
     note(format!(
-        "{repo} {} {} {prefix}: findings of a run that ended {} ago (shots program version {}), which exited {}",
+        "{repo} {} {} {prefix}: findings of a run made in environment {environment} that ended {} ago (shots program version {}), which exited {}",
         &commit[..commit.len().min(12)],
         lane.word(),
         age(now() - cached.recorded_at),
@@ -314,11 +305,11 @@ pub fn how_to_make(repo: &str, git_ref: &str, lane: Lane, prefix: &str) -> Strin
     }
 }
 
-/// The cached run of <prefix> on <lane> for <repo> at <git_ref> by this
-/// builds' shots checker, which it marks used, comparing again with the builds
-/// program <program> the run of another comparison version when this one has
-/// none. Fails, naming the app-build command that makes the run, when none is
-/// cached.
+/// The newest cached run of <prefix> on <lane> for <repo> at <git_ref> by this
+/// builds' shots checker, made in any environment, which it marks used,
+/// comparing again with the builds program <program> the run of another
+/// comparison version when this one has none. Fails, naming the app-build
+/// command that makes the run, when none is cached.
 pub fn cached_run(
     places: &Places,
     repo: &str,
@@ -327,15 +318,16 @@ pub fn cached_run(
     prefix: &str,
     program: &Path,
 ) -> Result<Cached> {
-    let key = key_for(places, repo, git_ref, lane, prefix)?;
-    match crate::shots_compare_again::lookup(places, &key, program)? {
+    let commit = commit_of(places, repo, git_ref)?;
+    let versions = &crate::shots_program::VERSIONS;
+    match crate::shots_compare_again::lookup_newest(places, repo, &commit, lane, prefix, program)? {
         Some(cached) => Ok(cached),
         None => fail!(
             "no run of {prefix} on {} is cached for {repo} at {} (shots program capture version {}, comparison version {}); `{}` makes one",
             lane.word(),
-            &key.commit[..12.min(key.commit.len())],
-            &key.versions.capture[..12.min(key.versions.capture.len())],
-            &key.versions.comparison[..12.min(key.versions.comparison.len())],
+            &commit[..12.min(commit.len())],
+            &versions.capture[..12.min(versions.capture.len())],
+            &versions.comparison[..12.min(versions.comparison.len())],
             how_to_make(repo, git_ref, lane, prefix)
         ),
     }

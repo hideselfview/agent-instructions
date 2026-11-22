@@ -106,6 +106,7 @@ fn a_run_grouped_by_cause_reads_the_records_its_cached_report_holds() {
         repo: "demo".to_string(),
         commit: "a".repeat(40),
         lane: Lane::Mac,
+        environment: "26B131-17C529".to_string(),
         prefix: "mac.".to_string(),
         versions: crate::shots_program::Versions {
             capture: "c".repeat(16),

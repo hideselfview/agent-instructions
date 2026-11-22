@@ -134,3 +134,20 @@ fn a_crate_the_bridge_does_not_use_leaves_the_app_tree_alone() {
     let unrelated = commit_change(&top, "other/src/lib.rs", "changed");
     assert_eq!(of(&top, &unrelated, &config, Lane::Mac).unwrap(), base);
 }
+
+#[test]
+fn the_picture_folder_id_differs_between_environments_for_one_app_tree() {
+    let tree = "0123456789abcdef";
+    let one = in_environment(tree, "26B131-17C529");
+    let other = in_environment(tree, "25G241-27B52");
+    assert_eq!(one.len(), 16);
+    assert!(one.chars().all(|c| c.is_ascii_hexdigit()));
+    assert_ne!(one, other);
+    assert_ne!(one, tree);
+    assert_eq!(one, in_environment(tree, "26B131-17C529"));
+    assert_ne!(
+        in_environment("fedcba9876543210", "26B131-17C529"),
+        one,
+        "another app tree has another id in the same environment"
+    );
+}

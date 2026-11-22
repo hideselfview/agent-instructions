@@ -5,8 +5,8 @@
 //! (app_landing.rs). So a branch names two runs for each shots prefix of each
 //! of its app builds: the run of the build's commit, which covers the prefix,
 //! and the run of that commit's merge base with origin/main, which the run
-//! compared with. The cap never deletes a run that a branch names
-//! (capped_store.rs `Kept::InUse`).
+//! compared with, made in any environment. The cap never deletes a run that a
+//! branch names (capped_store.rs `Kept::InUse`).
 //!
 //! Which app builds a branch made is in the project's store
 //! (app_timing.sql); which branches wait to land is in git.
@@ -70,6 +70,7 @@ pub fn named_in(
                 repo,
                 commit,
                 build.lane,
+                crate::shots_cache::Made::Anywhere,
                 &build.prefix,
                 versions,
             )? {

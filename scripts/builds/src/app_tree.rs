@@ -2,6 +2,9 @@
 //! commit, so that the shots the app takes are cached by it (shots_cache.rs's
 //! picture folder) and a commit that changes none of it takes none again.
 //!
+//! The picture folder's key for a shot is this tree combined with the
+//! environment the shot is taken in (`in_environment`).
+//!
 //! The paths the lane's app build reads are those the `.app-build` `on`
 //! lines name for the lane's steps (`Rule::matches`). The app tree is a hash
 //! of the git object of each file at the commit that such a line matches,
@@ -66,6 +69,19 @@ pub fn of(top: &Path, commit: &str, config: &Config, lane: Lane) -> Result<Strin
         }
     }
     Ok(crate::text::hex(&hasher.finalize()[..8]))
+}
+
+/// The id that keys <tree>'s shots in the picture folder for a shots run made
+/// in <environment> (shots_environment.rs): 16 hex digits of the two together.
+/// builds passes it to the shots program as the app tree, so the one id means
+/// everything that draws the shots, the app's source and the host software,
+/// and a shot cached in one environment is never reused in another.
+pub fn in_environment(tree: &str, environment: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(tree.as_bytes());
+    hasher.update([0]);
+    hasher.update(environment.as_bytes());
+    crate::text::hex(&hasher.finalize()[..8])
 }
 
 /// The files every crate builds from, which the workspace has at its top:

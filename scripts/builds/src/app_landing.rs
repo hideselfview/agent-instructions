@@ -312,14 +312,20 @@ fn dropped_lines(lane: Lane, drops: &[Drop]) -> Vec<String> {
 }
 
 /// What land prints for the shots run of <prefix> in <lane> that the build of
-/// <commit> made, when the run's output <findings> has pairs the base never
-/// rendered; None when it has none.
-fn unrendered_line(lane: Lane, commit: &str, prefix: &str, findings: &str) -> Option<String> {
+/// <commit> made in <environment>, when the run's output <findings> has pairs
+/// the base never rendered; None when it has none.
+fn unrendered_line(
+    lane: Lane,
+    commit: &str,
+    environment: &str,
+    prefix: &str,
+    findings: &str,
+) -> Option<String> {
     let said = findings
         .lines()
         .find(|line| crate::shot_findings::says_unrendered(line))?;
     Some(format!(
-        "{UNRENDERED} the {} shots run {prefix} of {}: {}",
+        "{UNRENDERED} the {} shots run {prefix} of {}, made in environment {environment}: {}",
         lane.word(),
         &commit[..commit.len().min(12)],
         said.trim()
@@ -342,6 +348,7 @@ fn unrendered_lines(
             repo,
             &run.commit,
             lane,
+            crate::shots_cache::Made::Anywhere,
             prefix,
             &crate::shots_program::VERSIONS,
         )?;
@@ -349,6 +356,7 @@ fn unrendered_lines(
             Some(cached) => lines.extend(unrendered_line(
                 lane,
                 &run.commit,
+                &cached.key.environment,
                 prefix,
                 &cached.findings,
             )),

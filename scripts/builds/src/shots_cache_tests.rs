@@ -1,11 +1,14 @@
 use super::*;
 use crate::testing::{Scratch, age, fill};
 
+const ENVIRONMENT: &str = "26B131-17C529";
+
 fn key(prefix: &str) -> Key {
     Key {
         repo: "demo".to_string(),
         commit: "a".repeat(40),
         lane: Lane::Mac,
+        environment: ENVIRONMENT.to_string(),
         prefix: prefix.to_string(),
         versions: Versions {
             capture: "c0c0c0c0c0c0c0c0".to_string(),
@@ -27,14 +30,14 @@ fn cache_run(places: &Places, key: &Key, exit: i64, findings: &str, records: boo
 }
 
 #[test]
-fn a_run_is_cached_on_the_build_volume_under_its_repo_commit_lane_prefix_and_version() {
+fn a_run_is_cached_on_the_build_volume_under_its_repo_commit_lane_environment_prefix_and_version() {
     let scratch = Scratch::new("shot-store-place");
     let places = scratch.places();
     let cached = cache_run(&places, &key("mac.welcome."), 1, "FAIL x\n", true);
     assert_eq!(
         cached.folder,
         places.root.join(format!(
-            "shots/demo/runs/{}/mac/mac.welcome./c0c0c0c0c0c0c0c0/0123456789abcdef",
+            "shots/demo/runs/{}/mac/26B131-17C529/mac.welcome./c0c0c0c0c0c0c0c0/0123456789abcdef",
             "a".repeat(40)
         ))
     );
@@ -63,6 +66,10 @@ fn a_cached_run_is_found_by_its_whole_key_and_a_later_run_of_the_key_replaces_it
         },
         Key {
             lane: Lane::Android,
+            ..key.clone()
+        },
+        Key {
+            environment: "25G241-27B52".to_string(),
             ..key.clone()
         },
         Key {
@@ -152,9 +159,17 @@ fn the_before_run_is_the_newest_run_of_the_version_whose_prefix_starts_the_runs_
         comparison: "v1".to_string(),
     };
     let find = |prefix: &str| {
-        before_run(&places, "demo", &base, Lane::Mac, prefix, &versions)
-            .unwrap()
-            .map(|before| before.key.prefix)
+        before_run(
+            &places,
+            "demo",
+            &base,
+            Lane::Mac,
+            ENVIRONMENT,
+            prefix,
+            &versions,
+        )
+        .unwrap()
+        .map(|before| before.key.prefix)
     };
     assert_eq!(find("mac.welcome."), None);
     cache_run(&places, &key("mac.welcome.", "v2"), 1, "x\n", true);
@@ -180,9 +195,17 @@ fn the_before_run_is_the_newest_run_of_the_version_whose_prefix_starts_the_runs_
     );
     let all = cache_run(&places, &key("mac.", "v1"), 1, "x\n", true);
     assert_eq!(find("mac.welcome."), Some("mac.".to_string()));
-    let before = before_run(&places, "demo", &base, Lane::Mac, "mac.welcome.", &versions)
-        .unwrap()
-        .unwrap();
+    let before = before_run(
+        &places,
+        "demo",
+        &base,
+        Lane::Mac,
+        ENVIRONMENT,
+        "mac.welcome.",
+        &versions,
+    )
+    .unwrap()
+    .unwrap();
     assert_eq!(before.findings_json(), all.findings_json());
     // A run kept later wins; one whose report keeps no findings.json does
     // not count. The run of mac. ended ten seconds before the runs below.
@@ -192,9 +215,129 @@ fn the_before_run_is_the_newest_run_of_the_version_whose_prefix_starts_the_runs_
     cache_run(&places, &key("mac.welcome.", "v1"), 1, "x\n", true);
     assert_eq!(find("mac.welcome."), Some("mac.welcome.".to_string()));
     assert_eq!(
-        before_run(&places, "demo", &base, Lane::Android, "android.", &versions).unwrap(),
+        before_run(
+            &places,
+            "demo",
+            &base,
+            Lane::Android,
+            ENVIRONMENT,
+            "android.",
+            &versions
+        )
+        .unwrap(),
         None
     );
+}
+
+#[test]
+fn the_before_run_is_a_run_made_in_the_same_environment_and_no_other() {
+    let scratch = Scratch::new("shot-store-environment");
+    let places = scratch.places();
+    let commit = "a".repeat(40);
+    let versions = key("mac.a.").versions;
+    let other = Key {
+        environment: "25G241-27B52".to_string(),
+        ..key("mac.a.")
+    };
+    cache_run(&places, &other, 1, "x\n", true);
+    let find = |environment: &str| {
+        before_run(
+            &places,
+            "demo",
+            &commit,
+            Lane::Mac,
+            environment,
+            "mac.a.",
+            &versions,
+        )
+        .unwrap()
+        .map(|before| before.key.environment)
+    };
+    assert_eq!(
+        find(ENVIRONMENT),
+        None,
+        "another environment's run is no before run"
+    );
+    assert_eq!(find("25G241-27B52"), Some("25G241-27B52".to_string()));
+    cache_run(&places, &key("mac.a."), 1, "x\n", true);
+    assert_eq!(find(ENVIRONMENT), Some(ENVIRONMENT.to_string()));
+    assert_eq!(find("25G241-27B52"), Some("25G241-27B52".to_string()));
+}
+
+#[test]
+fn a_read_in_any_environment_finds_the_newest_run_and_names_its_environment() {
+    let scratch = Scratch::new("shot-store-anywhere");
+    let places = scratch.places();
+    let commit = "a".repeat(40);
+    let versions = key("mac.a.").versions;
+    let covering = |made: Made| {
+        covering_run(
+            &places,
+            "demo",
+            &commit,
+            Lane::Mac,
+            made,
+            "mac.a.",
+            &versions,
+        )
+        .unwrap()
+    };
+    assert!(covering(Made::Anywhere).is_none());
+    let old = cache_run(&places, &key("mac.a."), 1, "x\n", true);
+    ended_earlier(&old.folder, 10);
+    let other = Key {
+        environment: "25G241-27B52".to_string(),
+        ..key("mac.a.")
+    };
+    cache_run(&places, &other, 1, "x\n", true);
+    assert_eq!(
+        covering(Made::Anywhere).unwrap().key.environment,
+        "25G241-27B52"
+    );
+    assert_eq!(
+        covering(Made::In(ENVIRONMENT)).unwrap().key.environment,
+        ENVIRONMENT
+    );
+    assert_eq!(
+        environments(&places, "demo", &commit, Lane::Mac).unwrap(),
+        ["25G241-27B52", ENVIRONMENT]
+    );
+    assert_eq!(
+        covering_folders(
+            &places,
+            "demo",
+            &commit,
+            Lane::Mac,
+            Made::Anywhere,
+            "mac.a.",
+            &versions
+        )
+        .unwrap()
+        .len(),
+        2
+    );
+}
+
+#[test]
+fn the_cap_deletes_a_run_cached_before_the_key_held_an_environment() {
+    let scratch = Scratch::new("shot-store-old-layout");
+    let places = scratch.places();
+    let tool = scratch.tool(0);
+    let old = root(&places)
+        .join("demo/runs")
+        .join("b".repeat(40))
+        .join("mac/mac.a./c0c0c0c0c0c0c0c0/0123456789abcdef");
+    std::fs::create_dir_all(old.join("report/img")).unwrap();
+    std::fs::write(old.join(RUN_FILE), r#"{"recorded_at": 1, "exit_code": 0}"#).unwrap();
+    std::fs::write(old.join(OUTPUT_FILE), "ok\n").unwrap();
+    fill(&old.join("report/img/a.png"), 400);
+    crate::testing::age_all(&root(&places), 48);
+    let current = cache_run(&places, &key("mac.b."), 0, "ok\n", true);
+    fill(&current.report().join("img/a.png"), 400);
+    age(&current.folder.join(RUN_FILE), 1);
+    prune_runs(&tool, Run::Real, 500).unwrap();
+    assert!(!old.exists(), "the run without an environment went first");
+    assert!(current.folder.exists());
 }
 
 #[test]
@@ -210,6 +353,7 @@ fn the_run_that_covers_a_prefix_is_found_without_marking_it_used() {
         "demo",
         &"a".repeat(40),
         Lane::Mac,
+        Made::Anywhere,
         "mac.component.checkbox.",
         &Versions {
             capture: "c0c0c0c0c0c0c0c0".to_string(),

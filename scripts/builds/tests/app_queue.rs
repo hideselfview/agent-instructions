@@ -36,7 +36,7 @@ fn fake_apple_tools(bin: &Path) {
         ),
         (
             "sw_vers",
-            "#!/bin/sh\nif [ \"$1\" = -buildVersion ]; then echo 26B131; else exit 1; fi\n",
+            "#!/bin/sh\nif [ \"$1\" = -buildVersion ]; then cat \"$QUEUE_TEST_DIR/macos-build\" 2>/dev/null || echo 26B131; else exit 1; fi\n",
         ),
     ] {
         let path = bin.join(name);
@@ -1663,8 +1663,8 @@ fn a_branch_whose_merge_base_has_no_run_builds_the_base_and_the_branch_in_one_la
         "{runs:?}"
     );
     assert!(
-        runs[1].contains(&format!("/runs/{base}/mac/")),
-        "the branch compares with the run of its merge base: {runs:?}"
+        runs[1].contains(&format!("/runs/{base}/mac/26B131-17C529/")),
+        "the branch compares with the run of its merge base made in the host's environment: {runs:?}"
     );
     assert_eq!(
         said.matches("waiting for demo's mac app lock").count(),
@@ -1842,5 +1842,41 @@ fn two_builds_with_one_merge_base_build_its_run_once_and_the_other_waits_for_it(
         runs.iter().filter(|run| run.contains("--base")).count(),
         1,
         "one build made the base run: {runs:?}"
+    );
+}
+
+/// A run of the merge base that another environment made is no run to compare
+/// with: a branch built in a host whose macOS differs builds the merge base
+/// again, in its own environment, and compares with that run.
+#[test]
+fn a_run_of_the_merge_base_made_in_another_environment_is_no_run_to_compare_with() {
+    let volume = Volume::new("base-environment");
+    volume.app_repo_with(SHOTS_CONFIG);
+    let top = volume.dir.join("checkout");
+    let base = commit_shots(&top, "");
+    branch_from_main(&top, "work", "mac/Foo.txt");
+    volume.open_gate("one");
+    let first = volume.run(&["app-build", "demo", &base, "--shots", "mac.a."]);
+    assert!(
+        first.status.success(),
+        "{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+    assert_eq!(shots_runs(&volume, "mac.a.").len(), 1);
+    // The host's macOS changes, as when the person upgrades it.
+    std::fs::write(volume.dir.join("macos-build"), "27A100\n").unwrap();
+    let built = volume.run(&["app-build", "demo", "work", "--shots", "mac.a."]);
+    let said = String::from_utf8_lossy(&built.stderr).into_owned();
+    assert!(built.status.success(), "{said}");
+    let runs = shots_runs(&volume, "mac.a.");
+    assert_eq!(runs.len(), 3, "{runs:?}");
+    assert!(runs[1].contains("--base"), "{runs:?}");
+    assert!(
+        runs[2].contains(&format!("/runs/{base}/mac/27A100-17C529/")),
+        "{runs:?}"
+    );
+    assert!(
+        said.contains("environment 27A100-17C529"),
+        "the lane says which environment it draws in: {said}"
     );
 }

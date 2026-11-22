@@ -7,7 +7,8 @@ use std::path::PathBuf;
 
 use crate::app_config::{app_checkout_top, resolve, run_git, switch_to};
 use crate::app_remote::{RemoteApp, fetched_local_source};
-use crate::fail::Result;
+use crate::fail;
+use crate::fail::{Context, Result};
 use crate::host::Ssh;
 use crate::lane::Lane;
 use crate::places::Places;
@@ -46,6 +47,36 @@ impl Site {
             }
             Site::Remote(_) => fetched_local_source(places, repo),
         }
+    }
+
+    /// What <script> printed, run with `sh` on the checkout's host (in no
+    /// checkout); a failure says <what> and what the script printed.
+    fn print_of(&self, script: &str, what: &str) -> Result<String> {
+        match self {
+            Site::Local(..) => {
+                let ran = std::process::Command::new("sh")
+                    .args(["-c", script])
+                    .stdin(std::process::Stdio::null())
+                    .output()
+                    .context(|| what.to_string())?;
+                if !ran.status.success() {
+                    fail!(
+                        "{what}: `{script}` failed ({}): {}{}",
+                        ran.status,
+                        String::from_utf8_lossy(&ran.stdout).trim_end(),
+                        String::from_utf8_lossy(&ran.stderr).trim_end()
+                    );
+                }
+                Ok(String::from_utf8_lossy(&ran.stdout).into_owned())
+            }
+            Site::Remote(remote) => remote.on_host(script, what),
+        }
+    }
+
+    /// The environment <lane>'s shots are drawn in on the checkout's host
+    /// (shots_environment.rs), read from the host now.
+    pub fn environment(&self, lane: Lane) -> Result<String> {
+        crate::shots_environment::read(lane, &mut |script, what| self.print_of(script, what))
     }
 
     /// The commit the checkout is on.

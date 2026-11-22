@@ -299,15 +299,23 @@ fn a_dropped_prefix_is_printed_with_who_dropped_it_and_why() {
 #[test]
 fn land_prints_the_pairs_the_base_never_rendered() {
     let findings = "FAIL x\nbuilds shots: 2 pair(s) the base never rendered, with 3 finding(s) that fail nothing: mac.a.b, mac.a.c\nbuilds shots: no pair fails the run\n";
-    let line = unrendered_line(Lane::Mac, "0123456789abcdef", "mac.a.", findings).unwrap();
+    let line = unrendered_line(
+        Lane::Mac,
+        "0123456789abcdef",
+        "26B131-17C529",
+        "mac.a.",
+        findings,
+    )
+    .unwrap();
     assert_eq!(
         line,
-        "shots the base never rendered: the mac shots run mac.a. of 0123456789ab: builds shots: 2 pair(s) the base never rendered, with 3 finding(s) that fail nothing: mac.a.b, mac.a.c"
+        "shots the base never rendered: the mac shots run mac.a. of 0123456789ab, made in environment 26B131-17C529: builds shots: 2 pair(s) the base never rendered, with 3 finding(s) that fail nothing: mac.a.b, mac.a.c"
     );
     assert_eq!(
         unrendered_line(
             Lane::Mac,
             "abc",
+            "26B131-17C529",
             "mac.a.",
             "builds shots: no pair fails the run\n"
         ),

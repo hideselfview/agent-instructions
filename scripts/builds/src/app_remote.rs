@@ -333,6 +333,12 @@ impl RemoteApp {
             .capture(&format!("cd {} && {script}", sh_quote(&worktree)), what)
     }
 
+    /// Runs <script> with `sh` on the host, in no checkout, and returns what
+    /// it printed; a failure names the host and <what>.
+    pub fn on_host(&self, script: &str, what: &str) -> Result<String> {
+        self.transport().capture(script, what)
+    }
+
     /// Sends <sha> from <source> to the host's clone as the ref of a new job,
     /// so that git there can read it, and returns the job's id; `unsend`
     /// deletes the ref.

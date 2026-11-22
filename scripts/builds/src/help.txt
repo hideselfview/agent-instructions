@@ -1196,13 +1196,32 @@ folder there that no step holds and that this Mac no longer keeps, so a
 host keeps the folder of every build that runs here.
 
 builds caches each --shots and --all-shots run on the build volume, in
-/Volumes/Builds/shots/<repo>/runs/<commit>/<lane>/<prefix>/<capture>/<comparison>/,
+/Volumes/Builds/shots/<repo>/runs/<commit>/<lane>/<environment>/<prefix>/<capture>/<comparison>/,
 so the next run in the checkout cannot overwrite it: run.json (when the run
 ended and its exit status), output.txt (all that the shots program printed)
 and report/ (the report's index.html, the pictures it shows and
 findings.json, the findings as records). The folder's path is the run's
-key: the repo, the full commit, the lane, the prefix, the capture version and
-the comparison version. A later run of the same key replaces the folder whole.
+key: the repo, the full commit, the lane, the environment, the prefix, the
+capture version and the comparison version. A later run of the same key
+replaces the folder whole.
+
+The environment is the host software that draws the shots, which the lane
+reads from the host of the checkout it builds in, each time it takes the
+checkout, and never from a constant. For the mac lane it is the macOS build
+and the Xcode build, such as 26B131-17C529, from `sw_vers -buildVersion` and
+the `Build version` line of `xcodebuild -version`. For the android lane it is
+the host's OS name and machine, such as Darwin-arm64, from `uname -sm`, since
+Robolectric loads native graphics per OS and architecture. A command that
+fails fails the build with what it printed. Another macOS or Xcode draws the
+same app's shots with other element labels and other pixels, so a shots run
+compares only with a run made in its own environment, and builds reuses a
+cached shot only in the environment that took it. The lane prints the
+environment it draws in. A read of a commit's own run (`builds app-build
+--shots` printing a cached run, `builds shots findings`, `builds shots
+check-program`) takes the newest run of the commit and prefix made in any
+environment and says which environment made it. Runs and pictures that builds
+cached before the key held an environment stay where they are, and the cap
+deletes them like any other run.
 
 The shots checker that builds is built with has two versions, which `builds
 shots version` prints. The capture version is a hash of the files that take a
@@ -1249,14 +1268,15 @@ the folder lacks and adds each new drawing to it, so builds draws a board
 once for its inputs.
 
 The same folder caches the app's shots by the lane's app source tree, in
-pictures/<platform>/<app tree>/: a hash of the git objects, at the commit,
+pictures/<platform>/<app tree>/, where <app tree> is a hash of the lane's
+environment and of the lane's app source tree: a hash of the git objects, at the commit,
 of each path the `on` lines name for a step of the lane, of .app-build, and
 of the Rust the app builds from: every file of each crate whose folder an
 `on` line of the lane matches or that a matched script builds with `-p
 <crate>`, of every workspace crate those depend on (from the manifests at
 the commit), and of Cargo.toml, Cargo.lock, rust-toolchain(.toml) and .cargo/.
-app-build passes the lane's app tree to each shots run on this Mac (`run
---app-tree`). When the folder caches every shot the run selects for that
+app-build passes that id to each shots run on this Mac (`run
+--app-tree`), so the one id means everything that draws the shots. When the folder caches every shot the run selects for that
 tree, the run takes the shots from it and runs no capture command;
 otherwise it captures them and caches them there. A commit that changes no
 path of the lane's app takes no shot again. Once a run has cached every shot
@@ -1296,7 +1316,7 @@ compare with: the run reports it as a pair the base never rendered, with its
 findings, and does not fail on it. `builds land` prints those pairs and
 their counts. A pair the merge base's run rendered still fails when the
 branch adds findings to it. The run it compares with is the newest cached run of the
-merge base in the same lane, by the same shots versions, whose prefix starts
+merge base in the same lane and environment, by the same shots versions, whose prefix starts
 the run's own (a run of mac. stands in for a run of mac.welcome.), and whose
 report holds findings.json. When builds has none cached, the lane's process
 that builds the branch builds the merge base first, in the same app checkout

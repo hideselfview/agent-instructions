@@ -1145,6 +1145,9 @@ fn shots_cache(dir: &std::path::Path, places: &Places) -> ShotsCache {
     a_store(places)
 }
 
+/// The environment the shots of these tests are made in.
+const ENVIRONMENT: &str = "26B131-17C529";
+
 /// The shots cache of repo `demo`'s Mac lane in <places>.
 fn a_store(places: &Places) -> ShotsCache {
     ShotsCache {
@@ -1153,6 +1156,7 @@ fn a_store(places: &Places) -> ShotsCache {
         lane: Lane::Mac,
         versions: crate::shots_program::VERSIONS.clone(),
         befores: Vec::new(),
+        environment: ENVIRONMENT.to_string(),
         app_tree: "0123456789abcdef".to_string(),
         no_capture: false,
         retake: false,
@@ -1185,6 +1189,7 @@ fn shots_key(commit: &str, prefix: &str) -> shots_cache::Key {
         "demo",
         commit,
         Lane::Mac,
+        ENVIRONMENT,
         prefix,
         &crate::shots_program::VERSIONS,
     )
@@ -1587,6 +1592,7 @@ fn a_lanes_shots_runs_compare_with_the_cached_run_of_the_merge_base_and_a_run_of
             &top,
             "demo",
             Lane::Mac,
+            ENVIRONMENT,
             commit,
             &config,
             &a_screens(),
@@ -1636,6 +1642,7 @@ fn a_prefix_that_starts_no_shot_declared_at_the_merge_base_compares_with_no_run(
         &top,
         "demo",
         Lane::Mac,
+        ENVIRONMENT,
         &work,
         &config,
         &new,
@@ -1646,6 +1653,40 @@ fn a_prefix_that_starts_no_shot_declared_at_the_merge_base_compares_with_no_run(
     )
     .unwrap();
     assert!(store.befores.is_empty());
+}
+
+#[test]
+fn a_cached_run_made_in_another_environment_is_a_commits_own_run_and_is_printed() {
+    let scratch = crate::testing::Scratch::new("shots-serve-environment");
+    let places = scratch.places();
+    let top = scratch.dir.join("repo");
+    shots_repo(&top);
+    places
+        .write_app_checkouts(
+            "demo",
+            Lane::Mac,
+            &[crate::lane::AppCheckout::by_person("side-1")],
+        )
+        .unwrap();
+    let marker = places.root.join("demo/side-1");
+    std::fs::create_dir_all(&marker).unwrap();
+    std::fs::write(marker.join(".checkout"), top.display().to_string()).unwrap();
+    let commit = resolve(&top, "HEAD").unwrap();
+    let program = Path::new("/nonexistent/builds");
+    let serve = || serve_cached(&places, "demo", "HEAD", a_screens(), program).unwrap();
+    assert_eq!(serve(), a_screens(), "no run is cached");
+    let key = shots_cache::Key {
+        environment: "25G241-27B52".to_string(),
+        ..shots_key(&commit, "mac.a.")
+    };
+    cache_with_records(&places, &key);
+    assert!(
+        serve().is_empty(),
+        "a commit's own run is printed whatever environment made it"
+    );
+    let cached =
+        shot_findings::cached_run(&places, "demo", "HEAD", Lane::Mac, "mac.a.", program).unwrap();
+    assert_eq!(cached.key.environment, "25G241-27B52");
 }
 
 /// A request names its repo and ref; a lane's process, `--list` and other
@@ -1735,14 +1776,16 @@ fn a_shots_run_of_a_fresh_build_takes_every_shot_again() {
 }
 
 #[test]
-fn the_picture_folder_caches_the_shots_of_the_prefixes_its_marks_cover_for_the_app_tree() {
+fn the_picture_folder_caches_the_shots_of_the_prefixes_its_marks_cover_for_the_app_tree_and_environment()
+ {
     let scratch = crate::testing::Scratch::new("shots-cached-lanes");
     let places = scratch.places();
     let top = scratch.dir.join("repo");
     shots_repo(&top);
     let commit = resolve(&top, "HEAD").unwrap();
     let config = parse_config(&std::fs::read_to_string(top.join(CONFIG)).unwrap()).unwrap();
-    let tree = crate::app_tree::of(&top, &commit, &config, Lane::Mac).unwrap();
+    let source_tree = crate::app_tree::of(&top, &commit, &config, Lane::Mac).unwrap();
+    let tree = crate::app_tree::in_environment(&source_tree, ENVIRONMENT);
     let caches = |prefixes: &[&str]| {
         picture_folder_caches(&places, "demo", &config, Lane::Mac, &tree, prefixes).unwrap()
     };
@@ -1765,6 +1808,19 @@ fn the_picture_folder_caches_the_shots_of_the_prefixes_its_marks_cover_for_the_a
         )
         .unwrap(),
         "another app tree has no shots cached"
+    );
+    let other_environment = crate::app_tree::in_environment(&source_tree, "25G241-27B52");
+    assert!(
+        !picture_folder_caches(
+            &places,
+            "demo",
+            &config,
+            Lane::Mac,
+            &other_environment,
+            &["mac.a."]
+        )
+        .unwrap(),
+        "the same app tree in another environment has no shots cached"
     );
 }
 

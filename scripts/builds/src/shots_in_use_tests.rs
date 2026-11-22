@@ -21,6 +21,7 @@ fn cache_by(
         repo: BAE.to_string(),
         commit: commit.to_string(),
         lane: Lane::Mac,
+        environment: "26B131-17C529".to_string(),
         prefix: prefix.to_string(),
         versions: crate::shots_program::Versions {
             capture: capture.to_string(),
@@ -104,6 +105,22 @@ fn a_waiting_branchs_builds_name_their_covering_runs_and_their_base_runs() {
         &crate::shots_program::VERSIONS.comparison,
     );
     let other_prefix = cache(&places, &waiting, "mac.seek.", version);
+    let other_environment = {
+        let key = Key {
+            repo: BAE.to_string(),
+            commit: waiting.clone(),
+            lane: Lane::Mac,
+            environment: "25G241-27B52".to_string(),
+            prefix: "mac.".to_string(),
+            versions: crate::shots_program::Versions {
+                capture: crate::shots_program::VERSIONS.capture.clone(),
+                comparison: version.to_string(),
+            },
+        };
+        let staging = stage(&places, &key).unwrap();
+        std::fs::create_dir_all(staging.report()).unwrap();
+        staging.finish(0, "ok\n").unwrap().folder
+    };
     let landed_run = cache(&places, &landed, "mac.welcome.", version);
 
     let store = make_store_named(&places, "demo", &[BAE]);
@@ -124,6 +141,11 @@ fn a_waiting_branchs_builds_name_their_covering_runs_and_their_base_runs() {
         named.get(&other_comparison),
         Some(&work),
         "its pictures are what a comparison again reads"
+    );
+    assert_eq!(
+        named.get(&other_environment),
+        Some(&work),
+        "a run made in another environment is the build's run too"
     );
     assert_eq!(named.get(&other_capture), None);
     assert_eq!(named.get(&other_prefix), None);
