@@ -126,33 +126,30 @@ fn watch_script(mounted: &str, body_class: Option<&str>) -> String {
   const freeze = document.createElement('style');
   freeze.textContent = '*, *::before, *::after {{ animation: none !important; '
     + 'transition: none !important; }}';
-  const attach = () => {{
+  // Runs <step> now, or as soon as the document changes enough for it to
+  // return true.
+  const whenPossible = (step) => {{
+    if (step()) return;
+    const waiting = new MutationObserver(() => {{
+      if (step()) waiting.disconnect();
+    }});
+    waiting.observe(document, {{ childList: true, subtree: true }});
+  }};
+  whenPossible(() => {{
     if (!document.documentElement) return false;
     document.documentElement.appendChild(freeze);
     return true;
-  }};
-  if (!attach()) {{
-    const waiting = new MutationObserver(() => {{
-      if (attach()) waiting.disconnect();
-    }});
-    waiting.observe(document, {{ childList: true }});
-  }}
+  }});
   // A class the page's <body> carries from the moment it exists, so the
   // fonts its styles name load within the page's virtual time budget, as they
   // do for a page whose HTML holds the class.
   const bodyClass = {class};
   if (bodyClass) {{
-    const mark = () => {{
+    whenPossible(() => {{
       if (!document.body) return false;
       document.body.classList.add(bodyClass);
       return true;
-    }};
-    if (!mark()) {{
-      const waiting = new MutationObserver(() => {{
-        if (mark()) waiting.disconnect();
-      }});
-      waiting.observe(document, {{ childList: true, subtree: true }});
-    }}
+    }});
   }}
   new Promise((resolve) => {{
     const look = () => {{
