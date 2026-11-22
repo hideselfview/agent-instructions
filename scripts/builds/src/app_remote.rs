@@ -47,6 +47,10 @@ use crate::text::note;
 /// What separates the host from the checkout's name in a lane's entry.
 const SEPARATOR: char = ':';
 
+/// How long a picture on a host goes unused before a step's cleanup may
+/// delete it when this Mac no longer holds it.
+const STALE_MINUTES: u32 = 24 * 60;
+
 /// The folder under the host's home where it keeps the board pictures it
 /// was sent.
 const HOST_PICTURES: &str = ".cache/builds-pictures";
@@ -560,14 +564,16 @@ sed 's/^/have=/' "$there/.listed""#
         let missing: Vec<&String> = ours.difference(&have).collect();
         let sent = missing.len();
         self.send_boards(local, &boards, &missing)?;
-        // Hidden files are pictures a step is still writing.
+        let names: Vec<&String> = ours.iter().collect();
+        self.send_names(&names, &boards, &format!("{there}/.sent"))?;
+        // Hidden files are pictures a step is still writing. Another running
+        // step may use or have made a picture this Mac lacks, so the cleanup
+        // below deletes only ones that no step has used for a day.
         let gone: Vec<&String> = have
             .iter()
             .filter(|name| !ours.contains(*name) && !name.starts_with('.'))
             .collect();
         self.delete_boards(&boards, &gone)?;
-        let names: Vec<&String> = ours.iter().collect();
-        self.send_names(&names, &format!("{there}/.sent"))?;
         if local.join(tree).is_dir() {
             let mut tar = Command::new("tar");
             tar.arg("-cf").arg("-").arg("-C").arg(local).arg(tree);
@@ -625,8 +631,8 @@ cd / && rm -rf "$stage""#,
         )
     }
 
-    /// Deletes the board pictures <names> from the host's board folder
-    /// <boards>.
+    /// Deletes those of the board pictures <names> in the host's board folder
+    /// <boards> that no step has used for `STALE_MINUTES`.
     fn delete_boards(&mut self, boards: &str, names: &[&String]) -> Result<()> {
         if names.is_empty() {
             return Ok(());
@@ -634,17 +640,30 @@ cd / && rm -rf "$stage""#,
         let host = self.host.name.clone();
         self.send_list(
             names,
-            &format!("cd \"{boards}\" && xargs -n 500 rm -f --"),
+            &format!(
+                r#"cd "{boards}" || exit 1
+while IFS= read -r name; do
+  if [ -f "$name" ] && [ -n "$(find "$name" -maxdepth 0 -mmin +{STALE_MINUTES})" ]; then
+    rm -f -- "$name" || exit 1
+  fi
+done"#
+            ),
             &format!("the list of board pictures to delete on host {host}"),
         )
     }
 
-    /// Writes <names>, one a line, to the file <there> on the host.
-    fn send_names(&mut self, names: &[&String], there: &str) -> Result<()> {
+    /// Writes <names>, one a line, to the file <there> on the host and marks
+    /// each of them in the host's board folder <boards> as used now, which
+    /// keeps other steps' cleanup from deleting them while this step runs.
+    fn send_names(&mut self, names: &[&String], boards: &str, there: &str) -> Result<()> {
         let host = self.host.name.clone();
+        let there = sh_quote(there);
         self.send_list(
             names,
-            &format!("cat > {}", sh_quote(there)),
+            &format!(
+                r#"cat > {there} || exit 1
+if [ -s {there} ]; then cd "{boards}" && xargs -n 500 touch -c -- < {there}; fi"#
+            ),
             &format!("the list of board pictures sent to host {host}"),
         )
     }

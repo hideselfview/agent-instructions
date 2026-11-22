@@ -370,6 +370,17 @@ fn marking_reads_only_the_hosts_two_answers() {
     }
 }
 
+/// Sets the modification time of <file> to two days ago.
+fn age_by_two_days(file: &Path) {
+    let two_days = std::time::Duration::from_secs(2 * 24 * 60 * 60);
+    std::fs::File::options()
+        .write(true)
+        .open(file)
+        .unwrap()
+        .set_modified(std::time::SystemTime::now() - two_days)
+        .unwrap();
+}
+
 /// The folder where the host keeps the board pictures it was sent.
 fn host_boards(s: &Setup) -> PathBuf {
     s.home.join(".cache/builds-pictures/demo/boards")
@@ -411,7 +422,9 @@ fn board_pictures_go_to_a_host_once_and_a_step_brings_back_only_what_it_made() {
     // already has is not sent again, a new one is, and one this Mac no longer
     // holds goes.
     std::fs::write(host_boards(&s).join("h.png"), "HOST").unwrap();
-    std::fs::write(host_boards(&s).join("old.png"), "old").unwrap();
+    let old = host_boards(&s).join("old.png");
+    std::fs::write(&old, "old").unwrap();
+    age_by_two_days(&old);
     std::fs::write(local.join("boards/n.png"), "new").unwrap();
     let there = app.put_pictures(&local, "mac/tree1").unwrap();
     let there_path = Path::new(&there);
@@ -444,12 +457,56 @@ fn board_pictures_go_to_a_host_once_and_a_step_brings_back_only_what_it_made() {
     );
     app.remove_temporary(&there).unwrap();
 
-    // A step that made no board picture brings none back.
+    // The Mac keeps what came back, so a step that makes no board picture
+    // brings none back.
+    for made in ["made.png", "made.json"] {
+        std::fs::copy(
+            back.join("boards").join(made),
+            local.join("boards").join(made),
+        )
+        .unwrap();
+    }
     let there = app.put_pictures(&local, "mac/tree1").unwrap();
     let again = s.places.root.join("again");
     app.fetch_pictures(&there, &again).unwrap();
     assert_eq!(std::fs::read_dir(again.join("boards")).unwrap().count(), 0);
     app.remove_temporary(&there).unwrap();
+}
+
+/// Two steps overlap on a host. The first sent a picture and its step still
+/// runs; this Mac has since dropped the picture, and the second step's
+/// cleanup must leave it, while a picture nothing has used for a day goes.
+#[test]
+fn a_steps_cleanup_leaves_the_pictures_another_running_step_uses() {
+    let s = setup("remote-app-pictures-overlap");
+    let mut first = remote_app(&s, Lane::Mac);
+    let mut second = remote_app(&s, Lane::Mac);
+    let local = s.places.root.join("pictures");
+    std::fs::create_dir_all(local.join("boards")).unwrap();
+    std::fs::write(local.join("boards/used.png"), "used").unwrap();
+    // Sent long ago: its modification time says so.
+    age_by_two_days(&local.join("boards/used.png"));
+    let running = first.put_pictures(&local, "mac/tree1").unwrap();
+    // The host also holds a picture of a step that ended a long time ago.
+    let stale = host_boards(&s).join("stale.png");
+    std::fs::write(&stale, "stale").unwrap();
+    age_by_two_days(&stale);
+    // Another build's step made a picture the first step has not brought back.
+    std::fs::write(host_boards(&s).join("made.png"), "made").unwrap();
+
+    std::fs::remove_file(local.join("boards/used.png")).unwrap();
+    let other = second.put_pictures(&local, "mac/tree1").unwrap();
+    assert!(
+        host_boards(&s).join("used.png").is_file(),
+        "a step's cleanup deleted a picture a running step uses"
+    );
+    assert!(
+        host_boards(&s).join("made.png").is_file(),
+        "a step's cleanup deleted a picture a step just made"
+    );
+    assert!(!stale.exists(), "a picture nothing used for a day stayed");
+    first.remove_temporary(&running).unwrap();
+    second.remove_temporary(&other).unwrap();
 }
 
 /// A lane's step on a host runs this build's programs there: the first step
