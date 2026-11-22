@@ -300,8 +300,12 @@ fn queue_with(scratch: &Scratch, entries: &[&str]) -> Queue {
 /// A ticket of the process <pid> that stays locked, last in line, as a
 /// waiter or a holder of another process has it. The test closes it.
 fn plant_live(queue: &Queue, pid: i32, allowed: Where) -> Ticket {
+    plant_live_named(queue, format!("{pid}-1-{}", allowed.word()))
+}
+
+/// `plant_live` with the whole name given, as an earlier builds named it.
+fn plant_live_named(queue: &Queue, name: String) -> Ticket {
     let _guard = queue.guard().unwrap();
-    let name = format!("{pid}-1-{}", allowed.word());
     let fd = open_locked(&queue.ticket_path(&name)).unwrap();
     let mut order = queue.order();
     order.push(name.clone());
@@ -373,4 +377,51 @@ fn a_ticket_name_says_where_its_build_may_run_and_a_reissued_one_keeps_it() {
     assert!(allowed_of("12-1").is_err());
     close(&ticket);
     close(&again);
+}
+
+#[test]
+fn a_dead_ticket_of_an_earlier_builds_is_dropped_before_its_name_is_read() {
+    let scratch = Scratch::new("queue-dead-old-name");
+    let queue = queue(&scratch);
+    plant_dead(&queue, "85902-1-hosts");
+    let (mine, _) = queue.join(Where::Anywhere).unwrap();
+    queue.wait_for_turn(&mine.name).unwrap();
+    assert_eq!(queue.order(), vec![mine.name.clone()]);
+    assert!(!queue.ticket_path("85902-1-hosts").exists());
+    close(&mine);
+}
+
+#[test]
+fn an_order_entry_with_no_ticket_file_is_dropped() {
+    let scratch = Scratch::new("queue-entry-no-file");
+    let queue = queue(&scratch);
+    std::fs::create_dir_all(&queue.dir).unwrap();
+    queue.write_order(&["85902-1-hosts".to_string()]).unwrap();
+    let (mine, _) = queue.join(Where::Anywhere).unwrap();
+    queue.wait_for_turn(&mine.name).unwrap();
+    assert_eq!(queue.order(), vec![mine.name.clone()]);
+    close(&mine);
+}
+
+#[test]
+fn a_live_ticket_of_an_earlier_builds_is_a_build_to_wait_behind() {
+    let scratch = Scratch::new("queue-live-old-name");
+    let queue = queue(&scratch);
+    let old = plant_live_named(&queue, "85902-1-hosts".to_string());
+    let (mine, _) = queue.join(Where::Anywhere).unwrap();
+    let (done, finished) = channel();
+    let waiting = queue.clone();
+    let name = mine.name.clone();
+    std::thread::spawn(move || done.send(waiting.wait_for_turn(&name).map_err(|_| "wait failed")));
+    assert!(
+        finished.recv_timeout(SETTLE).is_err(),
+        "the waiter neither fails nor goes ahead of the live ticket"
+    );
+    close(&old);
+    finished
+        .recv_timeout(Duration::from_secs(10))
+        .unwrap()
+        .unwrap();
+    assert_eq!(queue.order(), vec![mine.name.clone()]);
+    close(&mine);
 }

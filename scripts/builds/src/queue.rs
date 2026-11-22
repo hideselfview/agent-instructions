@@ -15,6 +15,10 @@
 //! the life of its process and of every process that process starts, and
 //! holding nothing else: the name carries the pid.
 //!
+//! A waiter first takes out every ticket whose process is gone, before it
+//! reads any name (`drop_gone`), and counts a live ticket whose name it cannot
+//! read (one of another builds) as a build that may take any checkout.
+//!
 //! A waiter blocks, in a thread inside `flock` for each, on the
 //! tickets of every other entry (one of those leaving frees a lock or a place
 //! for it). A build that takes a lock signals the waiters to read the locks
@@ -354,6 +358,36 @@ impl Queue {
         self.unlink(name)
     }
 
+    /// Takes every ticket whose process is gone out of the order and removes
+    /// its file, whatever its name: a ticket is locked for the life of its
+    /// process, so one that can be locked has no owner, and so has an entry
+    /// with no file. Runs before any name is read, so a dead build of another
+    /// builds never stops this one.
+    fn drop_gone(&self) -> Result<()> {
+        let _guard = self.guard()?;
+        let order = self.order();
+        let mut kept = Vec::new();
+        for name in &order {
+            let path = self.ticket_path(name);
+            // Close-on-exec, and no O_CREAT: this only probes.
+            match open_with(&path, libc::O_NONBLOCK | libc::O_CLOEXEC) {
+                Ok(fd) => {
+                    unsafe { libc::close(fd) };
+                    self.unlink(name)?;
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    kept.push(name.clone());
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => fail!("checking {}: {error}", path.display()),
+            }
+        }
+        if kept.len() != order.len() {
+            self.write_order(&kept)?;
+        }
+        Ok(())
+    }
+
     /// Whether the build behind <mine>, with the tickets <ahead> in front of
     /// it, may take a lock now: a free checkout it may use is left once each
     /// earlier waiter has taken one. A ticket whose owner holds a lock (its
@@ -382,7 +416,10 @@ impl Queue {
             if pid_of(name).is_some_and(|pid| holders.contains(&pid)) {
                 continue;
             }
-            match allowed_of(name)? {
+            // A ticket this builds cannot read belongs to a build of another
+            // builds, still running: it may take any checkout, so wait behind
+            // it like behind any other holder.
+            match allowed_of(name).unwrap_or(Where::Anywhere) {
                 Where::Here => here += 1,
                 Where::Anywhere => anywhere += 1,
             }
@@ -422,6 +459,7 @@ impl Queue {
                     "waited for its turn in {}",
                     self.dir.display()
                 ))?;
+                self.drop_gone()?;
                 let order = self.order();
                 let Some(at) = order.iter().position(|name| name == mine) else {
                     fail!(
