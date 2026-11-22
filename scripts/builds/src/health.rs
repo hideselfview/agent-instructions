@@ -1821,7 +1821,6 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
             host,
             &scan,
             host.target.is_none().then_some(dashboard).flatten(),
-            tool.now,
         );
         (
             scan,

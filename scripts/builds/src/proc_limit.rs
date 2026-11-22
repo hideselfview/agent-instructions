@@ -157,7 +157,7 @@ fn head_of(host: &Host, used: &ProcessUse) -> String {
 
 /// The "needs action" lines for <hosts>, each with its probe: one for each
 /// host whose process count is near its limit, naming the parents in
-/// <reads> that hold the most zombies. The line suggests stopping the top
+/// <scans> that hold the most zombies. The line suggests stopping the top
 /// parent only when it is a test binary.
 pub fn findings(
     hosts: &[(Host, std::result::Result<Probe, String>)],

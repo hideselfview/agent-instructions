@@ -963,7 +963,6 @@ impl Model {
         // Read before the scans, so a job that a process here started after
         // this reading counts as running (job_claim.rs).
         let holders = crate::job_claim::Holders::read()?;
-        let now = now_seconds();
         let mut scans = Vec::new();
         let mut busy = Vec::new();
         for (host, scan) in hosts
@@ -977,14 +976,13 @@ impl Model {
                 host,
                 &scan,
                 host.target.is_none().then_some(dashboard),
-                now,
             ));
             scans.push((host.clone(), scan));
         }
         let refusals = crate::host::refusals(&self.places)?;
         let installed = crate::host_installed::read_all_installed(&self.places, ssh, &hosts);
         Ok(crate::health::host_findings(
-            &crate::health::Scanned::judge(&self.places, scans, &holders, now),
+            &crate::health::Scanned::judge(&self.places, scans, &holders, now_seconds()),
             &busy,
             &refusals,
             &installed,

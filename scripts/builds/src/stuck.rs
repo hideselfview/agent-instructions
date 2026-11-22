@@ -769,12 +769,11 @@ pub fn read(
     host: &Host,
     scan: &Result<crate::host_scan::Scan, String>,
     dashboard: Option<i32>,
-    now: i64,
 ) -> HostBusy {
     let read = match scan {
         Err(error) => HostRead::ScanFailed(error.clone()),
         Ok(scan) => {
-            let sampling = Sampling::new(host, now);
+            let sampling = Sampling::new(host, now_seconds());
             match read_activity(ssh, host, scan, &sampling, dashboard) {
                 Ok(activity) => {
                     if let Some(error) = &activity.placement_diagnostic {

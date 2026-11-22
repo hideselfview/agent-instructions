@@ -628,7 +628,7 @@ esac"#,
         screen_locked: Ok(None),
     });
 
-    let answer = read(&ssh, &host, &scan, None, 5_000);
+    let answer = read(&ssh, &host, &scan, None);
     assert!(answer.error().unwrap().contains("living PIDs: 43"));
     let answer = answer.activity().unwrap();
     assert_eq!(
@@ -637,37 +637,31 @@ esac"#,
     );
 
     host.target = Some("denied".into());
-    let denied = read(&ssh, &host, &scan, None, 5_000)
-        .error()
-        .unwrap()
-        .to_string();
+    let denied = read(&ssh, &host, &scan, None).error().unwrap().to_string();
     assert!(denied.contains("lsof: Permission denied"), "{denied}");
 
     host.target = Some("invalid".into());
-    let invalid = read(&ssh, &host, &scan, None, 5_000);
+    let invalid = read(&ssh, &host, &scan, None);
     assert!(invalid.activity().is_err());
     assert!(invalid.error().unwrap().contains("lsof: failed"));
 
     host.target = Some("partial".into());
-    let partial = read(&ssh, &host, &scan, None, 5_000);
+    let partial = read(&ssh, &host, &scan, None);
     assert!(partial.error().unwrap().contains("lsof: Permission denied"));
     assert_eq!(partial.activity().unwrap().busy[0].pid, 43);
 
     host.target = Some("partial-ps-denied".into());
-    let partial = read(&ssh, &host, &scan, None, 5_000);
+    let partial = read(&ssh, &host, &scan, None);
     let error = partial.error().unwrap();
     assert!(error.contains("lsof: Permission denied") && error.contains("ps: Permission denied"));
     assert_eq!(partial.activity().unwrap().busy[0].pid, 43);
 
     host.target = Some("ps-denied".into());
-    let refused = read(&ssh, &host, &scan, None, 5_000);
+    let refused = read(&ssh, &host, &scan, None);
     assert!(refused.error().unwrap().contains("ps: Permission denied"));
 
     host.target = Some("unreachable".into());
-    let unreachable = read(&ssh, &host, &scan, None, 5_000)
-        .error()
-        .unwrap()
-        .to_string();
+    let unreachable = read(&ssh, &host, &scan, None).error().unwrap().to_string();
     assert!(
         unreachable.contains("255") && unreachable.contains("Connection refused"),
         "{unreachable}"
