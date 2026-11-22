@@ -184,11 +184,11 @@ impl Finding {
     }
 
     /// Whether <raised> is this finding again: the same rule, file and
-    /// quoted code line.
+    /// quoted code line (`cases::same_code`).
     pub fn matches(&self, raised: &NewFinding) -> bool {
         self.rule == raised.rule
             && self.file == raised.file
-            && self.code.trim() == raised.code.trim()
+            && super::cases::same_code(&self.code, &raised.code)
     }
 
     /// Whether it is an open confirmed finding of a review: settled once, as
