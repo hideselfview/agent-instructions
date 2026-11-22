@@ -370,30 +370,86 @@ fn marking_reads_only_the_hosts_two_answers() {
     }
 }
 
+/// The folder where the host keeps the board pictures it was sent.
+fn host_boards(s: &Setup) -> PathBuf {
+    s.home.join(".cache/builds-pictures/demo/boards")
+}
+
 #[test]
-fn a_picture_folders_parts_go_to_a_temporary_folder_on_the_host_and_come_back() {
+fn board_pictures_go_to_a_host_once_and_a_step_brings_back_only_what_it_made() {
     let s = setup("remote-app-pictures");
     let mut app = remote_app(&s, Lane::Mac);
     let local = s.places.root.join("pictures");
     std::fs::create_dir_all(local.join("boards")).unwrap();
     std::fs::write(local.join("boards/h.png"), "png").unwrap();
+    std::fs::write(local.join("boards/h.json"), "{}").unwrap();
+    std::fs::create_dir_all(local.join("mac/tree1")).unwrap();
+    std::fs::write(local.join("mac/tree1/cached.png"), "cached").unwrap();
     std::fs::create_dir_all(local.join("android/other")).unwrap();
     std::fs::write(local.join("android/other/x.png"), "x").unwrap();
-    let parts = ["boards".to_string(), "mac/tree1".to_string()];
-    let there = app.put_folder(&local, &parts).unwrap();
+
+    let there = app.put_pictures(&local, "mac/tree1").unwrap();
     let there_path = Path::new(&there);
-    assert!(there_path.join("boards/h.png").is_file());
+    assert_eq!(
+        std::fs::read_to_string(host_boards(&s).join("h.png")).unwrap(),
+        "png"
+    );
+    assert!(there_path.join("boards/h.json").is_file());
+    assert!(there_path.join("mac/tree1/cached.png").is_file());
     assert!(
         !there_path.join("android").exists(),
-        "only the parts named go"
+        "only the tree named goes"
     );
-    std::fs::create_dir_all(there_path.join("mac/tree1")).unwrap();
-    std::fs::write(there_path.join("mac/tree1/s.png"), "shot").unwrap();
-    let back = s.places.root.join("back");
-    app.fetch_folder(&there, &back).unwrap();
-    assert!(back.join("mac/tree1/s.png").is_file() && back.join("boards/h.png").is_file());
     app.remove_temporary(&there).unwrap();
     assert!(!there_path.exists());
+    assert!(
+        host_boards(&s).join("h.png").is_file(),
+        "the host keeps them"
+    );
+
+    // The host's copy is what the next step finds: a picture the host
+    // already has is not sent again, a new one is, and one this Mac no longer
+    // holds goes.
+    std::fs::write(host_boards(&s).join("h.png"), "HOST").unwrap();
+    std::fs::write(host_boards(&s).join("old.png"), "old").unwrap();
+    std::fs::write(local.join("boards/n.png"), "new").unwrap();
+    let there = app.put_pictures(&local, "mac/tree1").unwrap();
+    let there_path = Path::new(&there);
+    assert_eq!(
+        std::fs::read_to_string(host_boards(&s).join("h.png")).unwrap(),
+        "HOST",
+        "a picture the host has was sent again"
+    );
+    assert_eq!(
+        std::fs::read_to_string(host_boards(&s).join("n.png")).unwrap(),
+        "new"
+    );
+    assert!(!host_boards(&s).join("old.png").exists());
+
+    // The step makes a board picture and a shot; only they come back.
+    std::fs::write(there_path.join("boards/made.png"), "made").unwrap();
+    std::fs::write(there_path.join("boards/made.json"), "{}").unwrap();
+    std::fs::write(there_path.join("mac/tree1/shot.png"), "shot").unwrap();
+    let back = s.places.root.join("back");
+    app.fetch_pictures(&there, &back).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(back.join("boards/made.png")).unwrap(),
+        "made"
+    );
+    assert!(back.join("boards/made.json").is_file());
+    assert!(back.join("mac/tree1/shot.png").is_file());
+    assert!(
+        !back.join("boards/h.png").exists() && !back.join("boards/n.png").exists(),
+        "a picture this Mac holds came back"
+    );
+    app.remove_temporary(&there).unwrap();
+
+    // A step that made no board picture brings none back.
+    let there = app.put_pictures(&local, "mac/tree1").unwrap();
+    let again = s.places.root.join("again");
+    app.fetch_pictures(&there, &again).unwrap();
+    assert_eq!(std::fs::read_dir(again.join("boards")).unwrap().count(), 0);
+    app.remove_temporary(&there).unwrap();
 }
 
 /// A lane's step on a host runs this build's programs there: the first step

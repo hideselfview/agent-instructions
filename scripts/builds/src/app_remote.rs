@@ -47,6 +47,10 @@ use crate::text::note;
 /// What separates the host from the checkout's name in a lane's entry.
 const SEPARATOR: char = ':';
 
+/// The folder under the host's home where it keeps the board pictures it
+/// was sent.
+const HOST_PICTURES: &str = ".cache/builds-pictures";
+
 /// The host and the name in the entry <entry>, when it is a checkout on a
 /// host rather than one of this Mac's side worktrees.
 pub fn split(entry: &str) -> Option<(&str, &str)> {
@@ -504,47 +508,205 @@ if [ -x "$dir/builds" ]; then echo "present=$dir"; else echo "absent=$dir"; fi"#
         Ok(there)
     }
 
-    /// Copies the parts <parts> of the folder <local> that exist (folders in
-    /// it) to a new temporary folder on the host, and returns the folder's
-    /// path there.
-    pub fn put_folder(&mut self, local: &Path, parts: &[String]) -> Result<String> {
-        let made = self.transport().capture(
-            "mktemp -d \"${TMPDIR:-/tmp}/builds-pictures.XXXXXX\"",
-            "making a temporary folder",
-        )?;
-        let there = made.trim().to_string();
-        let present: Vec<&String> = parts
-            .iter()
-            .filter(|part| local.join(part).is_dir())
-            .collect();
-        if present.is_empty() {
-            return Ok(there);
-        }
-        let mut tar = Command::new("tar");
-        tar.arg("-cf").arg("-").arg("-C").arg(local).args(present);
-        crate::remote::pipe(
-            tar,
-            self.transport()
-                .command(&format!("tar -xf - -C {}", sh_quote(&there))),
-            &format!("{} to host {}", local.display(), self.host.name),
-        )?;
-        Ok(there)
-    }
-
-    /// Copies the folder <there> on the host into the new folder <into>
-    /// here.
-    pub fn fetch_folder(&mut self, there: &str, into: &Path) -> Result<()> {
-        std::fs::create_dir_all(into).context(|| format!("creating {}", into.display()))?;
-        crate::remote::unpack(
-            self.transport()
-                .command(&format!("cd {} && tar -cf - .", sh_quote(there))),
-            into,
-            &format!("{there} from host {}", self.host.name),
+    /// Where the host keeps the board pictures it has been sent: one folder
+    /// for each repo, which every step on the host shares. A picture's name
+    /// is the hash of its board, so a file in it never changes.
+    fn host_boards(&self) -> String {
+        format!(
+            "$HOME/{HOST_PICTURES}/{}/{}",
+            self.repo,
+            crate::shots_cache::BOARD_PICTURES
         )
     }
 
+    /// Makes a temporary picture folder on the host for one step and returns
+    /// its path there. The folder's `boards` is a link to the host's shared
+    /// board folder, which first gets the pictures of <local> it lacks, and
+    /// loses the ones <local> no longer holds. The folder also gets the
+    /// folder <tree> of <local> (the cached shots of the lane's app tree)
+    /// when <local> has it. Board pictures, which are most of the bytes, so
+    /// go over the first time a host needs them only.
+    pub fn put_pictures(&mut self, local: &Path, tree: &str) -> Result<String> {
+        let started = std::time::Instant::now();
+        let boards = self.host_boards();
+        let said = self.transport().capture(
+            &format!(
+                r#"there=$(mktemp -d "${{TMPDIR:-/tmp}}/builds-pictures.XXXXXX") || exit 1
+boards="{boards}"
+mkdir -p "$boards" || exit 1
+ln -s "$boards" "$there/boards" || exit 1
+echo "there=$there"
+ls -1A "$boards" | sed 's/^/have=/'"#
+            ),
+            "making a temporary folder and listing its pictures",
+        )?;
+        let mut there = None;
+        let mut have = std::collections::BTreeSet::new();
+        for line in said.lines() {
+            if let Some(path) = line.strip_prefix("there=") {
+                there = Some(path.to_string());
+            } else if let Some(name) = line.strip_prefix("have=") {
+                have.insert(name.to_string());
+            }
+        }
+        let Some(there) = there else {
+            fail!(
+                "host {} did not say where its temporary folder is: {said}",
+                self.host.name
+            );
+        };
+        let ours = picture_names(&local.join(crate::shots_cache::BOARD_PICTURES))?;
+        let missing: Vec<&String> = ours.difference(&have).collect();
+        let sent = missing.len();
+        self.send_boards(local, &boards, &missing)?;
+        // Hidden files are pictures a step is still writing.
+        let gone: Vec<&String> = have
+            .iter()
+            .filter(|name| !ours.contains(*name) && !name.starts_with('.'))
+            .collect();
+        self.delete_boards(&boards, &gone)?;
+        let names: Vec<&String> = ours.iter().collect();
+        self.send_names(&names, &format!("{there}/.sent"))?;
+        if local.join(tree).is_dir() {
+            let mut tar = Command::new("tar");
+            tar.arg("-cf").arg("-").arg("-C").arg(local).arg(tree);
+            crate::remote::pipe(
+                tar,
+                self.transport()
+                    .command(&format!("tar -xf - -C {}", sh_quote(&there))),
+                &format!("{}/{tree} to host {}", local.display(), self.host.name),
+            )?;
+        }
+        note(format!(
+            "sent {sent} of {} board pictures to host {} in {}s",
+            ours.len(),
+            self.host.name,
+            started.elapsed().as_secs()
+        ));
+        Ok(there)
+    }
+
+    /// Copies the board pictures <names> of <local> to the host's board
+    /// folder <boards>: into a folder of their own first, so that a step on
+    /// the host never finds half a picture, with the element lists before the
+    /// pictures that need them.
+    fn send_boards(&mut self, local: &Path, boards: &str, names: &[&String]) -> Result<()> {
+        if names.is_empty() {
+            return Ok(());
+        }
+        let list = ListFile::of(
+            names
+                .iter()
+                .map(|name| format!("{}/{name}", crate::shots_cache::BOARD_PICTURES)),
+        )?;
+        let mut tar = Command::new("tar");
+        tar.arg("-cf")
+            .arg("-")
+            .arg("-C")
+            .arg(local)
+            .arg("-T")
+            .arg(list.path());
+        let script = format!(
+            r#"base=$(dirname "{boards}")
+stage=$(mktemp -d "$base/.incoming.XXXXXX") || exit 1
+tar -xf - -C "$stage" || {{ rm -rf "$stage"; exit 1; }}
+cd "$stage/{folder}" || exit 1
+find . -type f -name '*.json' -exec mv -n {{}} "{boards}/" \; || exit 1
+find . -type f ! -name '*.json' -exec mv -n {{}} "{boards}/" \; || exit 1
+cd / && rm -rf "$stage""#,
+            folder = crate::shots_cache::BOARD_PICTURES
+        );
+        crate::remote::pipe(
+            tar,
+            self.transport().command(&script),
+            &format!("board pictures to host {}", self.host.name),
+        )
+    }
+
+    /// Deletes the board pictures <names> from the host's board folder
+    /// <boards>.
+    fn delete_boards(&mut self, boards: &str, names: &[&String]) -> Result<()> {
+        if names.is_empty() {
+            return Ok(());
+        }
+        let list = ListFile::of(names.iter().map(|name| name.to_string()))?;
+        let mut cat = Command::new("cat");
+        cat.arg(list.path());
+        crate::remote::pipe(
+            cat,
+            self.transport()
+                .command(&format!("cd \"{boards}\" && xargs -n 500 rm -f --")),
+            &format!(
+                "the list of board pictures to delete on host {}",
+                self.host.name
+            ),
+        )
+    }
+
+    /// Writes <names>, one a line, to the file <there> on the host.
+    fn send_names(&mut self, names: &[&String], there: &str) -> Result<()> {
+        let list = ListFile::of(names.iter().map(|name| name.to_string()))?;
+        let mut cat = Command::new("cat");
+        cat.arg(list.path());
+        crate::remote::pipe(
+            cat,
+            self.transport()
+                .command(&format!("cat > {}", sh_quote(there))),
+            &format!("the list of board pictures sent to host {}", self.host.name),
+        )
+    }
+
+    /// Copies what a step made in the picture folder <there> on the host into
+    /// the new folder <into> here: the shots and marks of the folder, and the
+    /// board pictures the host's board folder holds beyond the ones
+    /// `put_pictures` found there, which go to `<into>/boards`.
+    pub fn fetch_pictures(&mut self, there: &str, into: &Path) -> Result<()> {
+        let started = std::time::Instant::now();
+        std::fs::create_dir_all(into).context(|| format!("creating {}", into.display()))?;
+        let host = &self.host.name;
+        crate::remote::unpack(
+            self.transport().command(&format!(
+                "cd {} && tar -cf - --exclude=./boards --exclude=./.sent --exclude=./.new .",
+                sh_quote(there)
+            )),
+            into,
+            &format!("{there} from host {host}"),
+        )?;
+        let boards = into.join(crate::shots_cache::BOARD_PICTURES);
+        std::fs::create_dir_all(&boards).context(|| format!("creating {}", boards.display()))?;
+        let made = self.transport().capture(
+            &format!(
+                r#"there={there}
+cd "$there" || exit 1
+LC_ALL=C sort .sent > .sent.sorted
+ls -1 boards/ | LC_ALL=C sort > .have
+LC_ALL=C comm -13 .sent.sorted .have > .new
+cat .new"#,
+                there = sh_quote(there)
+            ),
+            "listing the board pictures the step made",
+        )?;
+        // An empty list gives tar nothing to archive, which some tars refuse.
+        if !made.trim().is_empty() {
+            crate::remote::unpack(
+                self.transport().command(&format!(
+                    "cd {boards} && tar -cf - -T {new}",
+                    boards = sh_quote(&format!("{there}/boards")),
+                    new = sh_quote(&format!("{there}/.new"))
+                )),
+                &boards,
+                &format!("the new board pictures from host {host}"),
+            )?;
+        }
+        note(format!(
+            "brought back the pictures of the step from host {host} in {}s",
+            started.elapsed().as_secs()
+        ));
+        Ok(())
+    }
+
     /// Deletes the temporary file or folder <there> that `put_temporary` or
-    /// `put_folder` made on the host.
+    /// `put_pictures` made on the host.
     pub fn remove_temporary(&mut self, there: &str) -> Result<()> {
         self.transport()
             .capture(
@@ -608,6 +770,57 @@ if [ -x "$dir/builds" ]; then echo "present=$dir"; else echo "absent=$dir"; fi"#
             )?;
         }
         Ok(())
+    }
+}
+
+/// The names of the files that are not hidden in the folder <folder>, none
+/// when it does not exist.
+fn picture_names(folder: &Path) -> Result<std::collections::BTreeSet<String>> {
+    let mut names = std::collections::BTreeSet::new();
+    let entries = match std::fs::read_dir(folder) {
+        Ok(entries) => entries,
+        Err(error) if crate::fail::gone(&error) => return Ok(names),
+        Err(error) => fail!("listing {}: {error}", folder.display()),
+    };
+    for entry in entries {
+        let entry = entry.context(|| format!("listing {}", folder.display()))?;
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if !name.starts_with('.') && entry.path().is_file() {
+            names.insert(name);
+        }
+    }
+    Ok(names)
+}
+
+/// A temporary file of lines, deleted when it drops.
+struct ListFile(PathBuf);
+
+impl ListFile {
+    fn of(lines: impl Iterator<Item = String>) -> Result<ListFile> {
+        static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        let path = std::env::temp_dir().join(format!(
+            "builds-list.{}.{}",
+            std::process::id(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        let mut text = String::new();
+        for line in lines {
+            text.push_str(&line);
+            text.push('\n');
+        }
+        std::fs::write(&path, text).context(|| format!("writing {}", path.display()))?;
+        Ok(ListFile(path))
+    }
+
+    fn path(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for ListFile {
+    fn drop(&mut self) {
+        // A list left in the temporary folder is cleaned out with it.
+        let _ = std::fs::remove_file(&self.0);
     }
 }
 

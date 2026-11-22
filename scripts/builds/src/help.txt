@@ -2251,7 +2251,10 @@ or that builds does not keep, leaves no folder under runs.
 They delete nothing in the folder while a shots step reads or writes it,
 which a step on this Mac does while it runs and a step on a host does while
 builds copies a before run and pictures to the host and the new pictures
-back. `status` shows each repo's folder's
+back. Each host keeps the board pictures it was sent in
+~/.cache/builds-pictures/<repo>/boards and builds sends it only the ones it
+lacks, deleting the ones this Mac no longer holds; a step brings back only the
+board pictures it made. `status` shows each repo's folder's
 size against the cap.
 
 Review texts. The folder review-texts holds what each review run sent its

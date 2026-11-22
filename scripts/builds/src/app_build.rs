@@ -1028,7 +1028,7 @@ fn run_remote_step(
         None => None,
     };
     let pictures = match store {
-        Some(store) => Some(remote.put_folder(&store.pictures(), &store.picture_parts())?),
+        Some(store) => Some(remote.put_pictures(&store.pictures(), &store.tree_part())?),
         None => None,
     };
     drop(reading);
@@ -1409,13 +1409,10 @@ impl ShotsCache {
         shots_cache::pictures(&self.places, &self.repo)
     }
 
-    /// The parts of the picture folder a run on a host reads: the board
-    /// pictures and the shots cached for the lane's app tree.
-    fn picture_parts(&self) -> Vec<String> {
-        vec![
-            shots_cache::BOARD_PICTURES.to_string(),
-            format!("{}/{}", self.lane.word(), self.app_tree),
-        ]
+    /// The part of the picture folder besides the board pictures that a run
+    /// on a host reads: the shots cached for the lane's app tree.
+    fn tree_part(&self) -> String {
+        format!("{}/{}", self.lane.word(), self.app_tree)
     }
 
     /// The findings.json of the run the shots run <step> compares with, when
@@ -1519,7 +1516,7 @@ impl ShotsCache {
         // The lock keeps the prune from deleting the incoming folder while
         // the copy fills it.
         let brought = self.writing().and_then(|_writing| {
-            remote.fetch_folder(there, &incoming)?;
+            remote.fetch_pictures(there, &incoming)?;
             shots_cache::merge_pictures(&incoming, &pictures)
         });
         let brought = brought.map_err(|error| {
