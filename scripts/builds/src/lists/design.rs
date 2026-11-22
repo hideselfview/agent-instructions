@@ -1397,14 +1397,19 @@ pub fn design_commits(
         .flat_map(|(_, changes)| changes.sources.iter().cloned())
         .collect();
     let last = ahead.last().expect("it holds the design commits");
-    let drawings = Drawings::read(
-        top,
-        last,
-        open_designs(lists, repo),
-        &drawn,
-        &sources,
-        renders,
-    )?;
+    // A record can cover one of these commits only if it resolves every
+    // place of that commit. Only compare drawings for records that can cover
+    // a commit on their own.
+    let candidates = open_designs(lists, repo).filter(|design| {
+        commits.iter().any(|(_, changes)| {
+            takes_part(design, changes)
+                && changes
+                    .resolvable()
+                    .into_iter()
+                    .all(|place| design.places.contains_key(place))
+        })
+    });
+    let drawings = Drawings::read(top, last, candidates, &drawn, &sources, renders)?;
     Ok(commits
         .into_iter()
         .map(|(sha, changes)| {

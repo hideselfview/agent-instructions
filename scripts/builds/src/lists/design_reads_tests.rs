@@ -22,6 +22,14 @@ fn a_worktree_is_read_once_per_tip_and_again_when_its_commits_main_or_store_move
     let id = design_drawn(&db, &top.display().to_string(), &[], None);
     design_tipped(&db, id, &sha);
     design_place(&db, id, BOARD, Resolution::Matches("checked".into()));
+    let unrelated = design_drawn(&db, &top.display().to_string(), &[], None);
+    design_tipped(&db, unrelated, &"4".repeat(40));
+    design_place(
+        &db,
+        unrelated,
+        "design/mocks/Other.dc.html",
+        Resolution::Matches("checked".into()),
+    );
     let mut lists = read(&db);
     lists
         .design_places

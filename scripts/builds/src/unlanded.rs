@@ -276,7 +276,7 @@ pub struct LooseBranch {
 /// What `loose_branches` found of each branch tip against origin/main's tip.
 /// The caller keeps it between readings, so `loose_branches` judges a branch
 /// again only when its tip or origin/main's tip moves.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct Judged(HashMap<(String, String), Vec<Commit>>);
 
 /// Every local branch of the repo at <main> whose tip origin/main does not

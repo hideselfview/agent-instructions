@@ -107,7 +107,7 @@ struct Sample {
     disk: DiskSpace,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct State {
     version: u64,
     roots: Vec<Root>,
@@ -140,6 +140,7 @@ struct State {
 }
 
 /// What the daemon last read of a repo's branches.
+#[derive(Clone)]
 enum BranchReading {
     /// The branches with commits waiting to land that no worktree checks
     /// out, and what the reading found of each branch tip, for the next
@@ -810,7 +811,7 @@ impl Model {
     /// processes: a reading takes seconds on a loaded machine, longer than a
     /// command waits.
     pub fn health_now(&self) -> crate::fail::Result<Option<Health>> {
-        let state = self.state.lock().expect("no panic holding it");
+        let state = self.state.lock().expect("no panic holding it").clone();
         match state.sample.clone() {
             Some(sample) => self.judge(&state, now_seconds(), sample).map(Some),
             None => Ok(None),
@@ -919,10 +920,17 @@ impl Model {
         )?;
         let read_at = Moment::now();
         let free_kib = volume_space(&self.places.root)?.free_kib;
+        let sample = Sample {
+            machine,
+            places,
+            disk: self.rules.disk_space(free_kib),
+        };
+        let snapshot = self.state.lock().expect("no panic holding it").clone();
+        let health = self.judge(&snapshot, now, sample.clone())?;
         let mut state = self.state.lock().expect("no panic holding it");
         let mut percent = HashMap::new();
         let mut cpu = HashMap::new();
-        for process in &machine.builds {
+        for process in &sample.machine.builds {
             if let Some((before, at)) = state.cpu.get(&process.pid) {
                 let seconds = read_at.duration_since(*at).as_secs_f64();
                 if seconds > 0.0 {
@@ -936,16 +944,10 @@ impl Model {
         }
         state.cpu = cpu;
         state.cpu_percent = percent;
-        state.load.push_back((now, machine.load[0]));
+        state.load.push_back((now, sample.machine.load[0]));
         while state.load.len() > LOAD_KEPT {
             state.load.pop_front();
         }
-        let sample = Sample {
-            machine,
-            places,
-            disk: self.rules.disk_space(free_kib),
-        };
-        let health = self.judge(&state, now, sample.clone())?;
         state.sample = Some(sample);
         state.health = Some(health.clone());
         state.version += 1;
@@ -1420,7 +1422,7 @@ impl Model {
     pub fn page(&self) -> crate::fail::Result<Page> {
         let space = volume_space(&self.places.root)?;
         let (_, snapshot) = self.lists.current();
-        let state = self.state.lock().expect("no panic holding it");
+        let state = self.state.lock().expect("no panic holding it").clone();
         let machine = state.sample.as_ref().map(|sample| &sample.machine);
         let mut repos: Vec<RepoPage> = Vec::new();
         for root in &state.roots {
@@ -1622,7 +1624,7 @@ impl Model {
     /// reads them.
     pub fn cards(&self) -> crate::fail::Result<Option<Vec<CardNow>>> {
         let (_, snapshot) = self.lists.current();
-        let state = self.state.lock().expect("no panic holding it");
+        let state = self.state.lock().expect("no panic holding it").clone();
         let Some(machine) = state.sample.as_ref().map(|sample| &sample.machine) else {
             return Ok(None);
         };
