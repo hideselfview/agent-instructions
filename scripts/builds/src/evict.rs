@@ -80,7 +80,6 @@ pub fn evict(places: &Places, dir: &Path, recreate: Recreate, removal: Removal) 
     // The shared trash lock keeps an emptier from renaming the trash away
     // between making the slot and the folder reaching it, or from emptying
     // the slot while it is being removed.
-    let _trash_lock = crate::trash::lock_shared(places)?;
     let slot = crate::trash::Slot::make(places)?;
     let moved = move_in(&folder, &slot.path, name, recreate)?;
     drop(_locks);
@@ -100,22 +99,11 @@ pub(crate) fn move_in(
     name: &std::ffi::OsStr,
     recreate: Recreate,
 ) -> Result<bool> {
-    match std::fs::rename(folder, slot.join(name)) {
-        Ok(()) => {}
-        Err(error)
-            if error.kind() == std::io::ErrorKind::NotFound
-                && !folder.exists()
-                && slot.is_dir() =>
-        {
-            return Ok(false);
-        }
+    match move_to_slot(folder, slot, name) {
+        Ok(true) => {}
+        Ok(false) => return Ok(false),
         Err(error) => {
-            // The folder stays where it was, as if it were in use.
-            crate::text::note(format!(
-                "warning: could not move {} into {}: {error}; it was not deleted",
-                folder.display(),
-                slot.display()
-            ));
+            crate::text::note(format!("warning: {}; builds kept the folder", error.text()));
             return Ok(false);
         }
     }
@@ -123,6 +111,26 @@ pub(crate) fn move_in(
         std::fs::create_dir(folder).context(|| format!("recreating {}", folder.display()))?;
     }
     Ok(true)
+}
+
+/// Moves a folder into its slot. A concurrent removal returns false; a
+/// filesystem failure reaches the caller that owns deletion policy.
+pub(crate) fn move_to_slot(folder: &Path, slot: &Path, name: &std::ffi::OsStr) -> Result<bool> {
+    match std::fs::rename(folder, slot.join(name)) {
+        Ok(()) => Ok(true),
+        Err(error)
+            if error.kind() == std::io::ErrorKind::NotFound
+                && !folder.exists()
+                && slot.is_dir() =>
+        {
+            Ok(false)
+        }
+        Err(error) => fail!(
+            "moving {} into {}: {error}",
+            folder.display(),
+            slot.display()
+        ),
+    }
 }
 
 fn device(path: &Path) -> Result<u64> {
@@ -209,9 +217,15 @@ impl HeldPaths {
         let output = Command::new("lsof")
             .args(["-n", "-Fpn"])
             .stdin(Stdio::null())
-            .stderr(Stdio::null())
             .output()
             .context(|| "running lsof".to_string())?;
+        if !output.status.success() {
+            fail!(
+                "lsof failed ({}), so builds cannot tell which files processes hold: {}",
+                output.status,
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+        }
         let mut names = Vec::new();
         let mut pid: &[u8] = b"";
         for line in output.stdout.split(|byte| *byte == b'\n') {

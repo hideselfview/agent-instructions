@@ -58,7 +58,6 @@ fn an_emptier_never_takes_a_slot_from_an_eviction_that_made_it() {
     let places = scratch.places();
     let folder = places.root.join("demo/side-1/target");
     fill(&folder.join("debug/blob"), 4);
-    let eviction = lock_shared(&places).unwrap();
     let slot = Slot::make(&places).unwrap();
     let finished = emptier_in_thread(&places);
     assert!(finished.recv_timeout(BLOCKED).is_err());
@@ -66,7 +65,6 @@ fn an_emptier_never_takes_a_slot_from_an_eviction_that_made_it() {
     // trash; it must still find the slot.
     std::fs::rename(&folder, slot.path.join("target")).unwrap();
     slot.remove_now();
-    drop(eviction);
     finished
         .recv_timeout(Duration::from_secs(30))
         .unwrap()
@@ -78,16 +76,15 @@ fn an_emptier_never_takes_a_slot_from_an_eviction_that_made_it() {
 fn an_emptier_waits_for_a_slot_another_process_is_removing() {
     let scratch = Scratch::new("trash-slot-lock");
     let places = scratch.places();
-    let eviction = lock_shared(&places).unwrap();
-    let slot = Slot::make(&places).unwrap();
-    fill(&slot.path.join("blob"), 4);
-    drop(eviction);
+    let slot = places.trash().join("evict.busy");
+    fill(&slot.join("blob"), 4);
+    let lock = lock_folder(&slot).unwrap();
     let finished = emptier_in_thread(&places);
     assert!(
         finished.recv_timeout(BLOCKED).is_err(),
         "the emptier removed a slot another process still holds"
     );
-    drop(slot);
+    drop(lock);
     finished
         .recv_timeout(Duration::from_secs(30))
         .unwrap()
@@ -130,17 +127,16 @@ fn a_folder_a_killed_emptier_left_is_emptied_by_the_next() {
 fn a_background_emptier_leaves_a_slot_being_removed_to_its_remover() {
     let scratch = Scratch::new("trash-background");
     let places = scratch.places();
-    let _eviction = lock_shared(&places).unwrap();
-    let busy = Slot::make(&places).unwrap();
-    fill(&busy.path.join("blob"), 4);
-    drop(_eviction);
+    let busy = places.trash().join("evict.busy");
+    fill(&busy.join("blob"), 4);
+    let _lock = lock_folder(&busy).unwrap();
     empty_background(&places).unwrap();
     assert!(!places.trash().exists());
     let moved: Vec<PathBuf> = emptying_folders(&places);
     assert_eq!(moved.len(), 1);
     assert!(
         moved[0]
-            .join(busy.path.file_name().unwrap())
+            .join(busy.file_name().unwrap())
             .join("blob")
             .exists(),
         "a slot being removed was started on again"

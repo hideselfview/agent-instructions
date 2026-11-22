@@ -145,8 +145,8 @@ fn undo(error: Fail, undone: Result<()>) -> Fail {
 /// project, and when <switched> (the checkout of <start> ran), detaches it at
 /// origin/main again and deletes the branch the checkout made.
 fn undo_reuse(main: &Path, free: &Checkout, start: &Start, switched: bool) -> Result<()> {
-    crate::claim::remove_if_present(&free.claim_file())?;
-    crate::claim::remove_if_present(&free.project_file())?;
+    crate::whole_file::remove_if_present(&free.claim_file())?;
+    crate::whole_file::remove_if_present(&free.project_file())?;
     if !switched {
         return Ok(());
     }

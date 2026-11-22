@@ -23,13 +23,14 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use crate::evict::Recreate;
+use crate::evict::HeldPaths;
 use crate::fail;
-use crate::fail::{Context, Result};
+use crate::fail::{Context, Result, with_cleanup};
 use crate::places::FLOOR_IDLE_MINUTES;
 use crate::prune::Run;
 use crate::text::{human, note};
 use crate::tool::Tool;
+use crate::whole_file::remove_if_present;
 
 /// The lock file in a root that each writer holds shared and the prune
 /// exclusively while it deletes staging folders and empty folders.
@@ -63,7 +64,7 @@ pub struct Staging {
 pub fn writing(root: &Path) -> Result<std::fs::File> {
     std::fs::create_dir_all(root).context(|| format!("creating {}", root.display()))?;
     let shared = crate::evict::lock_shared_creating(&root.join(WRITING))?;
-    remove_file(&root.join(PLAN))?;
+    remove_if_present(&root.join(PLAN))?;
     Ok(shared)
 }
 
@@ -209,7 +210,7 @@ pub enum Kept {
     /// needs, the branches of <by>: the cap never deletes it, but counts its
     /// size.
     InUse { folder: PathBuf, by: Vec<String> },
-    /// A unit that is several files, which the prune deletes in order.
+    /// A unit that is several files in one directory, deleted in order.
     Files {
         files: Vec<PathBuf>,
         last_use: i64,
@@ -238,6 +239,20 @@ struct Deletion {
     reason: String,
 }
 
+struct MeasuredUnit {
+    used: i64,
+    kib: u64,
+    what: &'static str,
+    unit: Unit,
+}
+
+struct MeasuredGroup {
+    folder: PathBuf,
+    total: u64,
+    abandoned: Vec<(Deletion, u64)>,
+    units: Vec<MeasuredUnit>,
+}
+
 /// Deletes nothing while a writer or reader holds <root>; else each staging
 /// folder at the top of <root> and, in each of <groups>, each staging folder
 /// and loose file (the writers that made them ended), then, while the group's folder holds more than <cap_kib>, whole
@@ -255,6 +270,17 @@ pub fn prune(
     cap_kib: u64,
     groups: impl FnOnce() -> Result<Vec<Group>>,
 ) -> Result<()> {
+    prune_with(tool, run, root, cap_kib, groups, HeldPaths::read)
+}
+
+fn prune_with(
+    tool: &Tool,
+    run: Run,
+    root: &Path,
+    cap_kib: u64,
+    groups: impl FnOnce() -> Result<Vec<Group>>,
+    open_files: impl FnOnce() -> Result<HeldPaths>,
+) -> Result<()> {
     let Some(_pruning) = crate::evict::try_lock_creating(&root.join(PRUNING))? else {
         note(format!("Another prune is working in {}.", root.display()));
         return Ok(());
@@ -266,24 +292,15 @@ pub fn prune(
     std::fs::File::create(&marker).context(|| format!("creating {}", marker.display()))?;
     drop(alone);
 
-    let planned = plan(tool, root, cap_kib, groups);
     let mut changed = BTreeSet::new();
-    let deleted = apply_plan(tool, run, root, &marker, planned, &mut changed);
-    let cleanup = remove_file(&marker);
-    let errors = [deleted, cleanup]
-        .into_iter()
-        .chain(
-            changed
-                .iter()
-                .map(|folder| crate::sizes::stale(&tool.places, folder)),
-        )
-        .filter_map(Result::err)
-        .map(crate::fail::Fail::text)
-        .collect::<Vec<_>>();
-    if errors.is_empty() {
-        return Ok(());
-    }
-    fail!("{}", errors.join("; "))
+    let deleted = plan(tool, root, cap_kib, groups, open_files)
+        .and_then(|steps| apply_plan(tool, run, &marker, steps, &mut changed));
+    let cleanup = remove_if_present(&marker);
+    let marked = changed
+        .iter()
+        .map(|root| crate::sizes::stale_root(&tool.places, root))
+        .fold(Ok(()), with_cleanup);
+    with_cleanup(with_cleanup(deleted, cleanup), marked)
 }
 
 fn idle(root: &Path) -> Result<Option<std::fs::File>> {
@@ -303,7 +320,7 @@ fn plan_valid(marker: &Path) -> Result<bool> {
         .context(|| format!("checking {}", marker.display()))?;
     if !valid {
         note(format!(
-            "A reader or writer used {} during planning. The prune skips the remaining deletions.",
+            "A reader or writer used {} after the prune began preparing its deletions. The prune skips the remaining deletions.",
             marker
                 .parent()
                 .expect("a plan belongs to a cache")
@@ -318,22 +335,43 @@ fn plan(
     root: &Path,
     cap_kib: u64,
     groups: impl FnOnce() -> Result<Vec<Group>>,
+    open_files: impl FnOnce() -> Result<HeldPaths>,
 ) -> Result<Vec<Deletion>> {
+    let staging = folders_in(root)?
+        .into_iter()
+        .filter(|(name, _)| is_staging(name))
+        .map(|(_, folder)| folder)
+        .collect::<Vec<_>>();
+    let groups = groups()?
+        .into_iter()
+        .map(|group| measure_group(tool, cap_kib, group))
+        .collect::<Result<Vec<_>>>()?;
+    let recent = tool.now - (FLOOR_IDLE_MINUTES * 60) as i64;
+    // Measure every group first. The one open-file observation happens just
+    // before selection and deletion, outside WRITING so a build can start.
+    let needs_snapshot = !staging.is_empty()
+        || groups.iter().any(|group| {
+            group
+                .abandoned
+                .iter()
+                .any(|(step, _)| matches!(step.unit, Unit::Folder(_)))
+                || (group.total > cap_kib
+                    && group
+                        .units
+                        .iter()
+                        .any(|unit| unit.used < recent && matches!(unit.unit, Unit::Folder(_))))
+        });
+    let held = needs_snapshot.then(open_files).transpose()?;
     let mut steps = Vec::new();
-    let mut held = None;
-    for (name, folder) in folders_in(root)? {
-        if is_staging(&name) {
-            let reason = "the staging folder of a writer that ended".to_string();
-            if folder_available(&folder, &reason, &mut held)? {
-                steps.push(Deletion {
-                    unit: Unit::Folder(folder),
-                    reason,
-                });
-            }
+    for folder in staging {
+        let unit = Unit::Folder(folder);
+        let reason = "the staging folder of a writer that ended".to_string();
+        if available(&unit, &reason, held.as_ref())? {
+            steps.push(Deletion { unit, reason });
         }
     }
-    for group in groups()? {
-        steps.extend(plan_group(tool, cap_kib, group, &mut held)?);
+    for group in groups {
+        group.choose(cap_kib, recent, held.as_ref(), &mut steps)?;
     }
     Ok(steps)
 }
@@ -341,58 +379,30 @@ fn plan(
 fn apply_plan(
     tool: &Tool,
     run: Run,
-    root: &Path,
     marker: &Path,
-    planned: Result<Vec<Deletion>>,
+    steps: Vec<Deletion>,
     changed: &mut BTreeSet<PathBuf>,
 ) -> Result<()> {
-    let steps = match planned {
-        Ok(steps) => steps,
-        Err(error) => {
-            // Concurrent access can invalidate a path while it is measured.
-            let Some(_alone) = idle(root)? else {
-                return Ok(());
-            };
-            return if plan_valid(marker)? {
-                Err(error)
-            } else {
-                Ok(())
-            };
-        }
-    };
-    if steps.is_empty() {
-        return Ok(());
-    }
-    let trash = if run.dry() {
-        None
+    let trash = if !run.dry()
+        && steps
+            .iter()
+            .any(|step| matches!(step.unit, Unit::Folder(_)))
+    {
+        Some(crate::trash::Slot::make(&tool.places)?)
     } else {
-        let hold = crate::trash::lock_shared(&tool.places)?;
-        Some((hold, crate::trash::Slot::make(&tool.places)?))
+        None
     };
-    let deleted = apply_steps(
-        &tool.places,
-        marker,
-        steps,
-        trash.as_ref().map(|(_, slot)| slot),
-        changed,
-    );
+    let deleted = apply_steps(&tool.places, run, marker, steps, trash.as_ref(), changed);
     let removed = match trash {
-        Some((hold, slot)) => {
-            let removed = slot.remove_background();
-            drop(hold);
-            removed
-        }
+        Some(slot) => slot.remove_background(),
         None => Ok(()),
     };
-    match (deleted, removed) {
-        (Err(error), Err(also)) => fail!("{}; {}", error.text(), also.text()),
-        (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
-        (Ok(()), Ok(())) => Ok(()),
-    }
+    with_cleanup(deleted, removed)
 }
 
 fn apply_steps(
     places: &crate::places::Places,
+    run: Run,
     marker: &Path,
     steps: Vec<Deletion>,
     trash: Option<&crate::trash::Slot>,
@@ -410,34 +420,40 @@ fn apply_steps(
             Unit::Folder(folder) => folder,
             Unit::Files(files) => &files[0],
         };
-        let Some(slot) = trash else {
+        if run.dry() {
             drop(alone);
             note(format!("would delete {} ({reason})", shown.display()));
             continue;
-        };
+        }
         let moved = match &unit {
             Unit::Folder(folder) => {
-                let moved = crate::evict::move_in(
+                let slot = trash.expect("a real folder deletion has a trash slot");
+                let moved = crate::evict::move_to_slot(
                     folder,
                     &slot.path,
                     std::ffi::OsStr::new(&index.to_string()),
-                    Recreate::No,
-                )?;
-                if moved {
-                    if let Some(changed_root) = crate::sizes::root_of(places, folder) {
-                        changed.insert(changed_root);
+                );
+                match moved {
+                    Ok(true) => {
+                        if let Some(changed_root) = crate::sizes::root_of(places, folder) {
+                            changed.insert(changed_root);
+                        }
+                        remove_empty_parents(root, folder)?;
+                        true
                     }
-                    remove_empty_parents(root, folder)?;
+                    Ok(false) => false,
+                    Err(error) => {
+                        drop(alone);
+                        note(format!("warning: {}; builds kept the folder", error.text()));
+                        continue;
+                    }
                 }
-                moved
             }
             Unit::Files(files) => {
                 for file in files {
-                    remove_file(file)?;
+                    remove_if_present(file)?;
                 }
-                for file in files {
-                    remove_empty_parents(root, file)?;
-                }
+                remove_empty_parents(root, shown)?;
                 true
             }
         };
@@ -449,35 +465,33 @@ fn apply_steps(
     Ok(())
 }
 
-fn folder_available(
-    folder: &Path,
-    reason: &str,
-    held: &mut Option<crate::evict::HeldPaths>,
-) -> Result<bool> {
-    let open = match held {
-        Some(open) => open,
-        None => held.insert(crate::evict::HeldPaths::read()?),
+fn available(unit: &Unit, reason: &str, held: Option<&HeldPaths>) -> Result<bool> {
+    let Unit::Folder(folder) = unit else {
+        return Ok(true);
     };
-    let folder =
-        std::fs::canonicalize(folder).context(|| format!("resolving {}", folder.display()))?;
-    if open.holds(&folder) {
+    let folder = match std::fs::canonicalize(folder) {
+        Ok(folder) => folder,
+        Err(error) if fail::gone(&error) => {
+            note(format!(
+                "{} disappeared before the prune could delete it",
+                folder.display()
+            ));
+            return Ok(false);
+        }
+        Err(error) => fail!("resolving {}: {error}", folder.display()),
+    };
+    if held
+        .expect("folder candidates require an open-file snapshot")
+        .holds(&folder)
+    {
         note(format!("in use, kept: {} ({reason})", folder.display()));
         return Ok(false);
     }
     Ok(true)
 }
 
-/// What `prune` deletes in one group, in order, read without holding the
-/// root: the staging folders and loose files, then the least recently used
-/// units, while the group is over <cap_kib>. A unit a process holds open (one
-/// reading of the open files) stays and counts as kept.
-fn plan_group(
-    tool: &Tool,
-    cap_kib: u64,
-    group: Group,
-    held: &mut Option<crate::evict::HeldPaths>,
-) -> Result<Vec<Deletion>> {
-    let mut steps = Vec::new();
+/// Measures all units before the process check, outside `WRITING`.
+fn measure_group(tool: &Tool, cap_kib: u64, group: Group) -> Result<MeasuredGroup> {
     let mut paths = vec![group.folder.clone()];
     for kept in &group.kept {
         match kept {
@@ -487,8 +501,9 @@ fn plan_group(
         }
     }
     let mut measures = tool.measure_all(&paths)?.into_iter();
-    let mut total = measures.next().expect("the folder was measured").kib;
-    let mut units: Vec<(i64, u64, &'static str, Unit)> = Vec::new();
+    let total = measures.next().expect("the folder was measured").kib;
+    let mut abandoned = Vec::new();
+    let mut units = Vec::new();
     let mut in_use: (u64, usize, BTreeSet<String>) = Default::default();
     for kept in group.kept {
         match kept {
@@ -504,25 +519,27 @@ fn plan_group(
                     "{}, the staging folder of a writer that ended",
                     human(measured.kib)
                 );
-                if folder_available(&folder, &reason, held)? {
-                    total = total.saturating_sub(measured.kib);
-                    steps.push(Deletion {
+                abandoned.push((
+                    Deletion {
                         unit: Unit::Folder(folder),
                         reason,
-                    });
-                }
+                    },
+                    measured.kib,
+                ));
             }
             Kept::Loose { file } => {
                 let kib = file_kib(&file)?;
                 let reason = format!(
-                    "{}, a file that a writer which ended left half written",
+                    "{}, a half-written file from a writer that ended",
                     human(kib)
                 );
-                total = total.saturating_sub(kib);
-                steps.push(Deletion {
-                    unit: Unit::Files(vec![file]),
-                    reason,
-                });
+                abandoned.push((
+                    Deletion {
+                        unit: Unit::Files(vec![file]),
+                        reason,
+                    },
+                    kib,
+                ));
             }
             Kept::Folder {
                 folder,
@@ -532,14 +549,23 @@ fn plan_group(
                 let measured = measures.next().expect("the folder was measured");
                 let used = match last_use {
                     Use::At(time) => time,
-                    Use::NewestInside => measured.newest.ok_or_else(|| {
-                        fail::Fail::Message(format!(
-                            "{} disappeared during prune planning",
-                            folder.path.display()
-                        ))
-                    })?,
+                    Use::NewestInside => {
+                        let Some(newest) = measured.newest else {
+                            note(format!(
+                                "{} disappeared during prune planning",
+                                folder.path.display()
+                            ));
+                            continue;
+                        };
+                        newest
+                    }
                 };
-                units.push((used, measured.kib, what, Unit::Folder(folder)));
+                units.push(MeasuredUnit {
+                    used,
+                    kib: measured.kib,
+                    what,
+                    unit: Unit::Folder(folder),
+                });
             }
             Kept::Files {
                 files,
@@ -550,34 +576,16 @@ fn plan_group(
                 for file in &files {
                     kib += file_kib(file)?;
                 }
-                units.push((last_use, kib, what, Unit::Files(files)));
+                units.push(MeasuredUnit {
+                    used: last_use,
+                    kib,
+                    what,
+                    unit: Unit::Files(files),
+                });
             }
         }
     }
-    units.sort_by_key(|unit| unit.0);
-    let recent = tool.now - (FLOOR_IDLE_MINUTES * 60) as i64;
-    for (used, kib, what, unit) in units {
-        if total <= cap_kib {
-            break;
-        }
-        if used >= recent {
-            continue;
-        }
-        let reason = format!(
-            "{}, {what}; {} is {} > {}",
-            human(kib),
-            group.folder.display(),
-            human(total),
-            human(cap_kib)
-        );
-        if let Unit::Folder(folder) = &unit
-            && !folder_available(folder, &reason, held)?
-        {
-            continue;
-        }
-        total = total.saturating_sub(kib);
-        steps.push(Deletion { unit, reason });
-    }
+    units.sort_by_key(|unit| unit.used);
     let (in_use_kib, count, by) = in_use;
     if in_use_kib > cap_kib {
         note(format!(
@@ -588,7 +596,53 @@ fn plan_group(
             human(cap_kib)
         ));
     }
-    Ok(steps)
+    Ok(MeasuredGroup {
+        folder: group.folder,
+        total,
+        abandoned,
+        units,
+    })
+}
+
+impl MeasuredGroup {
+    fn choose(
+        self,
+        cap_kib: u64,
+        recent: i64,
+        held: Option<&HeldPaths>,
+        steps: &mut Vec<Deletion>,
+    ) -> Result<()> {
+        let mut total = self.total;
+        for (step, kib) in self.abandoned {
+            if available(&step.unit, &step.reason, held)? {
+                total = total.saturating_sub(kib);
+                steps.push(step);
+            }
+        }
+        for MeasuredUnit {
+            used,
+            kib,
+            what,
+            unit,
+        } in self.units
+        {
+            if total <= cap_kib || used >= recent {
+                break;
+            }
+            let reason = format!(
+                "{}, {what}; {} is {} > {}",
+                human(kib),
+                self.folder.display(),
+                human(total),
+                human(cap_kib)
+            );
+            if available(&unit, &reason, held)? {
+                total = total.saturating_sub(kib);
+                steps.push(Deletion { unit, reason });
+            }
+        }
+        Ok(())
+    }
 }
 
 /// The KiB the file <path> takes on disk; 0 when it is gone.
@@ -598,15 +652,6 @@ fn file_kib(path: &Path) -> Result<u64> {
         Ok(meta) => Ok(meta.blocks() * 512 / 1024),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(0),
         Err(error) => fail!("reading the size of {}: {error}", path.display()),
-    }
-}
-
-/// Removes the file if it is present.
-fn remove_file(file: &Path) -> Result<()> {
-    match std::fs::remove_file(file) {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(error) => fail!("deleting {}: {error}", file.display()),
     }
 }
 

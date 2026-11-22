@@ -20,6 +20,7 @@ use crate::fail;
 use crate::fail::Result;
 use crate::places::Places;
 use crate::text::{local_minute, local_minute_epoch, note};
+use crate::whole_file::remove_if_present;
 
 /// The note of a claim in the starting state.
 const STARTING_TEXT: &str = "claimed; its item is not yet taken";
@@ -471,15 +472,6 @@ pub fn unclaim(checkout: &Checkout) -> Result<Option<Claim>> {
         ))
     })?;
     Ok(Some(claim))
-}
-
-/// Removes the file at <path>; a file that is already gone is no error.
-pub(crate) fn remove_if_present(path: &Path) -> Result<()> {
-    match std::fs::remove_file(path) {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(error) => fail!("removing {}: {error}", path.display()),
-    }
 }
 
 #[cfg(test)]

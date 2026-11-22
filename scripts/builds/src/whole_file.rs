@@ -3,6 +3,7 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::fail;
 use crate::fail::{Context, Result};
 
 /// Writes <contents> to the file beside <file> with the extension `part`,
@@ -42,5 +43,14 @@ impl Staged {
     /// Removes the `part` file and leaves the file as it was.
     pub fn discard(self) -> Result<()> {
         std::fs::remove_file(&self.part).context(|| format!("removing {}", self.part.display()))
+    }
+}
+
+/// Removes the file at <path>; a file that is already gone is no error.
+pub(crate) fn remove_if_present(path: &Path) -> Result<()> {
+    match std::fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => fail!("removing {}: {error}", path.display()),
     }
 }

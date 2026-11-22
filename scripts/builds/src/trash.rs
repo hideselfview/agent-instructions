@@ -51,21 +51,26 @@ fn try_lock_folder(dir: &Path) -> Result<Option<File>> {
     Ok(crate::flock::try_lock(&file, libc::LOCK_EX, dir)?.then_some(file))
 }
 
-/// A slot in the trash, locked while it is removed. Made while the caller
-/// holds the shared trash lock.
+/// A slot in the trash, locked while it is removed.
 pub struct Slot {
     pub path: PathBuf,
     hold: File,
+    _trash: File,
 }
 
 impl Slot {
     /// Makes the trash if it is missing and a slot in it.
     pub fn make(places: &Places) -> Result<Slot> {
+        let trash_lock = lock_shared(places)?;
         let trash = places.trash();
         std::fs::create_dir_all(&trash).context(|| format!("creating {}", trash.display()))?;
         let path = crate::evict::make_temp_dir(&trash, "evict.")?;
         let hold = lock_folder(&path)?;
-        Ok(Slot { path, hold })
+        Ok(Slot {
+            path,
+            hold,
+            _trash: trash_lock,
+        })
     }
 
     /// Removes the slot before returning. A removal that cannot finish (see

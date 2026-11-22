@@ -349,6 +349,7 @@ pub fn page(
     if !from.has(&preview_path(component))? {
         fail!("commit {commit} has no {}", preview_path(component));
     }
+    let reading = shots_cache::writing(places)?;
     for (lane, prefix) in &lanes {
         if let Some(cached) = shots_cache::covering_run(
             places,
@@ -362,6 +363,7 @@ pub fn page(
             shots_cache::mark_used(&cached)?;
         }
     }
+    drop(reading);
     let data = json!({
         "project": project,
         "component": component,

@@ -45,8 +45,13 @@ pub fn stale(places: &Places, path: &Path) -> Result<()> {
     let Some(root) = root_of(places, path) else {
         return Ok(());
     };
-    remove(places, &root)?;
-    crate::daemon::client::wrote(places, &[root]);
+    stale_root(places, &root)
+}
+
+/// Invalidates one known build root after its contents change.
+pub(crate) fn stale_root(places: &Places, root: &Path) -> Result<()> {
+    remove(places, root)?;
+    crate::daemon::client::wrote(places, &[root.to_path_buf()]);
     Ok(())
 }
 

@@ -293,3 +293,78 @@ fn an_access_during_planning_keeps_the_updated_unit() {
     .unwrap();
     assert!(unit.join("data").is_file());
 }
+
+#[test]
+fn one_failed_size_invalidation_does_not_stop_the_next_root() {
+    let scratch = Scratch::new("capped-size-records");
+    let tool = scratch.tool(0);
+    let root = tool.places.root.join("shots");
+    let a = store(&root, "a/run", 400, 30);
+    let b = store(&root, "b/run", 400, 30);
+    let records = tool.places.daemon_dir().join("sizes/shots");
+    let first = records.join("a.json");
+    let second = records.join("b.json");
+    std::fs::create_dir_all(&first).unwrap();
+    std::fs::write(&second, "{}").unwrap();
+
+    let error = prune(&tool, Run::Real, &root, 100, || Ok(vec![group(&root)]))
+        .unwrap_err()
+        .text();
+
+    assert!(error.contains(&first.display().to_string()), "{error}");
+    assert!(!a.exists() && !b.exists());
+    assert!(first.is_dir());
+    assert!(!second.exists());
+}
+
+#[test]
+fn an_access_does_not_hide_an_unrelated_planning_error() {
+    let scratch = Scratch::new("capped-planning-error");
+    let tool = scratch.tool(0);
+    let root = scratch.dir.join("root");
+    let unit = store(&root, "g/a", 400, 30);
+    let error = prune(&tool, Run::Real, &root, 100, || {
+        let _reading = writing(&root)?;
+        fail!("the branch records could not be read")
+    })
+    .unwrap_err()
+    .text();
+    assert!(error.contains("the branch records could not be read"));
+    assert!(unit.exists());
+}
+
+#[test]
+fn the_open_file_snapshot_follows_discovery_and_prune_selects_an_alternative() {
+    use std::io::{BufRead, BufReader};
+    use std::process::{Command, Stdio};
+    let scratch = Scratch::new("capped-held-in-discovery");
+    let tool = scratch.tool(0);
+    let root = scratch.dir.join("root");
+    let oldest = store(&root, "g/oldest", 400, 30);
+    let alternative = store(&root, "g/alternative", 400, 20);
+    let leftover = root.join(".staging-leftover");
+    fill(&leftover.join("data"), 1);
+    let hold = scratch.script("hold", "exec 4<\"$1\"; echo open; read line");
+    let mut reader = None;
+    let pruned = prune(&tool, Run::Real, &root, 500, || {
+        let mut child = Command::new(&hold)
+            .arg(oldest.join("data"))
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut observed = String::new();
+        BufReader::new(child.stdout.take().unwrap())
+            .read_line(&mut observed)
+            .unwrap();
+        assert_eq!(observed.trim(), "open");
+        reader = Some(child);
+        Ok(vec![group(&root)])
+    });
+    let mut child = reader.unwrap();
+    drop(child.stdin.take());
+    child.wait().unwrap();
+    pruned.unwrap();
+    assert!(oldest.is_dir());
+    assert!(!alternative.exists() && !leftover.exists());
+}
