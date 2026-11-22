@@ -1022,6 +1022,30 @@ fn page_data_at(s: &Server, path: &str, host: &str) -> serde_json::Value {
 }
 
 #[test]
+fn the_designs_page_distinguishes_missing_designs_from_an_unreadable_store_folder() {
+    let readable = server_with("http-designs-no-project-designs", |_, places| {
+        crate::lists::fixtures::make_store(places, &["bae"]);
+    });
+    for project in ["missing", "demo"] {
+        let (status, _, body) = readable.get(&format!("/designs/{project}"));
+        assert_eq!(status, 404, "{body}");
+    }
+
+    let unreadable = server_with("http-designs-unreadable-store-folder", |_, places| {
+        std::fs::write(&places.lists, "The lists path is a file.").unwrap();
+    });
+    let (status, _, body) = unreadable.get("/designs/demo");
+    assert_eq!(status, 500, "{body}");
+    assert!(
+        body.contains(&format!(
+            "listing {}",
+            unreadable.model.places.lists.display()
+        )),
+        "{body}"
+    );
+}
+
+#[test]
 fn the_designs_page_lists_the_scratch_boards_only_on_this_mac() {
     let s = server_with("http-scratch-list", scratch_store);
     assert_eq!(

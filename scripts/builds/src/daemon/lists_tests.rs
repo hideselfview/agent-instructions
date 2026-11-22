@@ -657,6 +657,15 @@ fn lists_id_of_first_design(snapshot: &Snapshot) -> u32 {
 }
 
 #[test]
+fn the_project_design_repo_reports_a_failed_snapshot() {
+    let snapshot = Err("could not list the project stores".to_string());
+    let Some(Err(error)) = project_design_repo(&snapshot, "demo") else {
+        panic!("the project lookup must return the snapshot error");
+    };
+    assert_eq!(error.text(), "could not list the project stores");
+}
+
+#[test]
 fn the_design_repo_is_the_one_repo_with_design_places_and_any_design_places_give_a_designs_page() {
     let mut lists = read(&db());
     lists.design_places.clear();

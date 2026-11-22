@@ -480,16 +480,16 @@ pub fn design_repo(lists: &crate::lists::Lists) -> crate::fail::Result<Option<&s
 
 /// The repo that holds project <project>'s design files, as `design_repo`
 /// finds it, with that repo's globs; None when the lists hold no such
-/// project.
+/// project. A snapshot or project read failure returns the error.
 pub fn project_design_repo(
     snapshot: &Snapshot,
     project: &str,
 ) -> Option<crate::fail::Result<Option<(String, Globs)>>> {
-    let loaded = snapshot
-        .as_deref()
-        .ok()?
-        .iter()
-        .find(|loaded| loaded.project == project)?;
+    let stores = match snapshot {
+        Ok(stores) => stores,
+        Err(fault) => return Some(Err(crate::fail::Fail::Message(fault.clone()))),
+    };
+    let loaded = stores.iter().find(|loaded| loaded.project == project)?;
     Some(match &loaded.lists {
         Ok(lists) => design_repo(lists)
             .map(|repo| repo.map(|repo| (repo.to_string(), Globs::of(lists, repo)))),
