@@ -75,3 +75,23 @@ pub fn names(file: &File, path: &Path) -> Result<bool> {
         Err(error) => fail!("reading {}: {error}", path.display()),
     }
 }
+
+/// A shared lock that closes when the holder drops it.
+pub struct Shared {
+    _file: File,
+}
+
+pub fn shared(path: &Path) -> Result<Shared> {
+    let file = File::open(path).context(|| format!("opening {}", path.display()))?;
+    lock(&file, libc::LOCK_SH, path)?;
+    Ok(Shared { _file: file })
+}
+
+/// Whether a process holds a lock at <path>. A missing path has no lock.
+pub fn is_held(path: &Path) -> Result<bool> {
+    match File::open(path) {
+        Ok(file) => Ok(!try_lock(&file, libc::LOCK_EX, path)?),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => fail!("opening {}: {error}", path.display()),
+    }
+}

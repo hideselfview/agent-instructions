@@ -27,14 +27,15 @@ fn a_base_lane_holds_cached_pictures_before_and_between_comparisons() {
     let head = resolve(&top, "HEAD").unwrap();
     let config = parse_config(&config_text).unwrap();
     let tree = picture_tree(&top, &base, &config, Lane::Mac, ENVIRONMENT).unwrap();
-    let taken = shots_cache::pictures(&places, "demo")
-        .join("mac")
-        .join(tree)
-        .join(".taken");
-    std::fs::create_dir_all(&taken).unwrap();
-    for prefix in ["mac.a.", "mac.b."] {
-        std::fs::write(taken.join(format!("{prefix}@no-windows")), "").unwrap();
-    }
+    let marks = shots::CaptureMarks::of(
+        &shots_cache::pictures(&places, "demo")
+            .join("mac")
+            .join(tree),
+    );
+    marks
+        .write(&["mac.a.".into(), "mac.b.".into()], false)
+        .unwrap();
+    let taken = marks.directory();
 
     // The checker counts scenes before each comparison takes the root lock.
     // At that point a competing process must still be unable to lock the tree.
@@ -67,12 +68,7 @@ esac"#,
             report = report_run(&crate::shots_program::VERSIONS)
         ),
     );
-    let program = scratch.script("builds-version", "echo 'builds test'");
-    let crate::programs::Pin::Pinned(programs) =
-        crate::programs::pin(&places.home, &program, "test").unwrap()
-    else {
-        panic!("pin the test builds version");
-    };
+    let programs = crate::testing::pinned_programs(&scratch.dir, &places.home);
     let picks = ["mac.a.", "mac.b."].map(|prefix| (Lane::Mac, PickKind::Shots, prefix.to_string()));
     let needs = ["macos".to_string()];
     let build = LaneBuild {
@@ -122,5 +118,5 @@ esac"#,
             .iter()
             .all(|step| step.at_merge_base == Some(true))
     );
-    assert!(!crate::queue::is_held(&taken).unwrap());
+    assert!(!crate::flock::is_held(taken).unwrap());
 }

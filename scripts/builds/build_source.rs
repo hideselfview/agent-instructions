@@ -93,8 +93,9 @@ const SHARED: [&str; 7] = [
 
 /// The files and folders of the shots crate's `src` that only the capture
 /// side reads: taking shots, drawing boards and keeping their pictures.
-const CAPTURE_ONLY: [&str; 6] = [
+const CAPTURE_ONLY: [&str; 7] = [
     "capture",
+    "capture_marks.rs",
     "render",
     "render.rs",
     "design.rs",

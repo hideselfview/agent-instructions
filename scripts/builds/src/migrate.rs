@@ -22,9 +22,9 @@ use rusqlite::{Connection, OptionalExtension};
 use crate::db::{self, Sql};
 use crate::fail;
 use crate::fail::{Context, Result};
+use crate::flock::is_held;
 use crate::lane::Lane;
 use crate::places::Places;
-use crate::queue::is_held;
 
 /// Moves every repo's old-layout lane files to the new layout; does nothing
 /// for a lane already moved.

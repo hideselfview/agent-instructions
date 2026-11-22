@@ -366,7 +366,7 @@ fn prune_group(tool: &Tool, run: Run, cap_kib: u64, group: Group) -> Result<()> 
             Unit::Folder(Folder { path, reader_lock }) => {
                 // A reader cannot take this lock while prune holds WRITING.
                 if let Some(lock) = reader_lock
-                    && crate::queue::is_held(lock)?
+                    && crate::flock::is_held(lock)?
                 {
                     note(format!("in use, kept: {} ({reason})", path.display()));
                     continue;

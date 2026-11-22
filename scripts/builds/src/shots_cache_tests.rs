@@ -562,8 +562,9 @@ fn a_lane_can_read_its_cached_app_pictures_after_a_prune_between_steps() {
     for tree in [&lane_tree, &other_tree] {
         fill(&tree.join(shot), 400);
         std::fs::write(tree.join("mac.a.b@macos.json"), "{}").unwrap();
-        std::fs::create_dir(tree.join(TAKEN)).unwrap();
-        std::fs::write(tree.join(TAKEN).join("mac.a.@windows"), "").unwrap();
+        CaptureMarks::of(tree)
+            .write(&["mac.a.".into()], true)
+            .unwrap();
         crate::testing::age_all(tree, 2);
     }
     let pictures = AppPictures::of(&places, "demo", Lane::Mac, "active");
@@ -624,7 +625,9 @@ fn pictures_a_host_made_move_into_place_and_cached_ones_stay() {
 fn a_prefix_is_cached_when_a_taken_mark_starts_it_and_took_the_window_shots_it_asks_for() {
     let scratch = Scratch::new("shot-store-taken");
     let places = scratch.places();
-    let taken = pictures(&places, "demo").join("mac/tree1").join(TAKEN);
+    let taken = pictures(&places, "demo")
+        .join("mac/tree1")
+        .join(CAPTURE_MARKS_DIR);
     std::fs::create_dir_all(&taken).unwrap();
     let tree1 = AppPictures::of(&places, "demo", Lane::Mac, "tree1");
     let _held = tree1.hold().unwrap();
@@ -642,7 +645,9 @@ fn a_prefix_is_cached_when_a_taken_mark_starts_it_and_took_the_window_shots_it_a
     let tree2 = AppPictures::of(&places, "demo", Lane::Mac, "tree2");
     let _held = tree2.hold().unwrap();
     assert!(!tree2.caches(&["mac.a."], false).unwrap());
-    let other = pictures(&places, "demo").join("mac/tree3").join(TAKEN);
+    let other = pictures(&places, "demo")
+        .join("mac/tree3")
+        .join(CAPTURE_MARKS_DIR);
     std::fs::create_dir_all(&other).unwrap();
     std::fs::write(other.join("mac.c."), "").unwrap();
     let tree3 = AppPictures::of(&places, "demo", Lane::Mac, "tree3");
@@ -660,10 +665,24 @@ fn a_mark_with_no_prefix_fails_instead_of_covering_every_shot() {
     let places = scratch.places();
     let pictures = AppPictures::of(&places, "demo", Lane::Mac, "tree");
     let _held = pictures.hold().unwrap();
-    std::fs::write(pictures.taken.join("@windows"), "").unwrap();
+    std::fs::write(pictures.marks.directory().join("@windows"), "").unwrap();
 
     let error = pictures.caches(&["mac.a."], true).unwrap_err().text();
     assert!(error.contains("@windows"), "{error}");
+}
+
+#[test]
+fn a_directory_cannot_mark_a_prefix_captured() {
+    let scratch = Scratch::new("shot-store-directory-mark");
+    let places = scratch.places();
+    let pictures = AppPictures::of(&places, "demo", Lane::Mac, "tree");
+    let _held = pictures.hold().unwrap();
+    let bad_mark = pictures.marks.directory().join("mac.@windows");
+    std::fs::create_dir(&bad_mark).unwrap();
+
+    let error = pictures.caches(&["mac.a."], true).unwrap_err().text();
+    assert!(error.contains("expected a capture mark file"), "{error}");
+    assert!(error.contains("mac.@windows"), "{error}");
 }
 
 #[test]

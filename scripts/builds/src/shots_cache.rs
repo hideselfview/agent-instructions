@@ -67,11 +67,12 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+use shots::{CAPTURE_MARKS_DIR, CaptureMarks};
 
 use crate::app_timing::now;
 use crate::capped_store::{self, Group, Kept, Use, entries_in, folders_in};
 use crate::fail;
-use crate::fail::{Context, Result};
+use crate::fail::{Context, Fail, Result};
 use crate::lane::Lane;
 use crate::places::Places;
 use crate::prune::Run;
@@ -96,9 +97,6 @@ const OUTPUT_FILE: &str = "output.txt";
 const REPORT: &str = "report";
 /// The folder of a picture folder that holds the board pictures.
 pub const BOARD_PICTURES: &str = "boards";
-/// The folder of an app source tree's shots where the shots program marks
-/// each prefix it took every shot of.
-const TAKEN: &str = ".taken";
 /// What the name of a folder starts with that holds, in a picture folder,
 /// the pictures a run on a host made while builds moves them into place.
 const INCOMING: &str = ".incoming-";
@@ -211,58 +209,31 @@ pub fn pictures(places: &Places, repo: &str) -> PathBuf {
 /// captures or compares them.
 pub struct AppPictures {
     root: PathBuf,
-    taken: PathBuf,
+    marks: CaptureMarks,
 }
 
 impl AppPictures {
     pub fn of(places: &Places, repo: &str, lane: Lane, tree: &str) -> Self {
-        let taken = pictures(places, repo)
-            .join(lane.word())
-            .join(tree)
-            .join(TAKEN);
+        let dir = pictures(places, repo).join(lane.word()).join(tree);
         Self {
             root: root(places),
-            taken,
+            marks: CaptureMarks::of(&dir),
         }
     }
 
     /// Pins this tree until the returned lock closes.
-    pub fn hold(&self) -> Result<std::fs::File> {
+    pub fn hold(&self) -> Result<crate::flock::Shared> {
         // Take the shared lock while prune cannot replace the directory inode.
         let _root = capped_store::writing(&self.root)?;
-        std::fs::create_dir_all(&self.taken)
-            .context(|| format!("creating {}", self.taken.display()))?;
-        let reading = std::fs::File::open(&self.taken)
-            .context(|| format!("opening {}", self.taken.display()))?;
-        crate::flock::lock(&reading, libc::LOCK_SH, &self.taken)?;
-        Ok(reading)
+        let marks = self.marks.directory();
+        std::fs::create_dir_all(marks).context(|| format!("creating {}", marks.display()))?;
+        crate::flock::shared(marks)
     }
 
     /// Whether the held tree's marks cover every requested prefix and
     /// include window shots when asked.
     pub fn caches(&self, prefixes: &[&str], windows: bool) -> Result<bool> {
-        let contents = std::fs::read_dir(&self.taken)
-            .context(|| format!("listing {}", self.taken.display()))?;
-        let mut covered = vec![false; prefixes.len()];
-        for entry in contents {
-            let entry = entry.context(|| format!("listing {}", self.taken.display()))?;
-            let name = entry.file_name();
-            let mark = name.to_str().and_then(|name| name.rsplit_once('@'));
-            let (marked, took_windows) = match mark {
-                Some((marked, "windows")) if !marked.is_empty() => (marked, true),
-                Some((marked, "no-windows")) if !marked.is_empty() => (marked, false),
-                _ => fail!(
-                    "{} is no mark the shots program writes (<prefix>@windows or <prefix>@no-windows)",
-                    entry.path().display()
-                ),
-            };
-            if took_windows || !windows {
-                for (prefix, has_mark) in prefixes.iter().zip(&mut covered) {
-                    *has_mark |= prefix.starts_with(marked);
-                }
-            }
-        }
-        Ok(covered.into_iter().all(|has_mark| has_mark))
+        self.marks.cover(prefixes, windows).map_err(Fail::Message)
     }
 }
 
@@ -298,7 +269,10 @@ pub fn merge_pictures(incoming: &Path, pictures: &Path) -> Result<()> {
         }
     }
     let order = |file: &PathBuf| {
-        if file.parent().is_some_and(|parent| parent.ends_with(TAKEN)) {
+        if file
+            .parent()
+            .is_some_and(|parent| parent.ends_with(CAPTURE_MARKS_DIR))
+        {
             2
         } else if file.extension().is_some_and(|ext| ext == "png") {
             1
@@ -650,7 +624,7 @@ fn group(places: &Places, repo: &str, named: &Named) -> Result<Group> {
             for (_, tree) in folders_in(&platform)? {
                 kept.push(Kept::Folder {
                     folder: capped_store::Folder {
-                        reader_lock: Some(tree.join(TAKEN)),
+                        reader_lock: Some(tree.join(CAPTURE_MARKS_DIR)),
                         path: tree,
                     },
                     last_use: Use::NewestInside,

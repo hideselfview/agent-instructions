@@ -24,7 +24,6 @@ use crate::host::{Host, Ssh, Terminal};
 use crate::lane::Lane;
 use crate::lane_size::{IDLE_MINUTES, RepoLane, last_use};
 use crate::places::Places;
-use crate::queue;
 use crate::stuck::{PS_FORMAT, Row, parse_ps};
 use crate::text::duration;
 
@@ -226,7 +225,7 @@ pub fn lane_use(places: &Places, ssh: &Ssh, host: &Host, lane: Lane) -> Result<L
             .iter()
             .filter(|entry| on_host(entry))
         {
-            if queue::is_held(&places.app_lock_file(&repo, lane, entry))? {
+            if crate::flock::is_held(&places.app_lock_file(&repo, lane, entry))? {
                 return Ok(LaneUse::Building);
             }
             let at = RepoLane {

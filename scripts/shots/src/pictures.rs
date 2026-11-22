@@ -17,6 +17,7 @@
 //! and renames it into place, the element list before the picture, so a
 //! picture whose element list is missing is never there.
 
+use crate::CaptureMarks;
 use crate::names::{Name, Platform};
 use std::path::{Path, PathBuf};
 
@@ -30,8 +31,6 @@ pub(crate) struct Pictures {
 
 /// The folder of the board pictures in a picture folder.
 const BOARDS: &str = "boards";
-/// The folder of an app source tree's shots that marks the prefixes taken.
-const TAKEN: &str = ".taken";
 
 impl Pictures {
     pub(crate) fn new(dir: PathBuf, now: std::time::SystemTime) -> Self {
@@ -146,16 +145,7 @@ impl Pictures {
         prefixes: &[String],
         windows: bool,
     ) -> Result<(), String> {
-        let taken = self.shots_dir(platform, tree).join(TAKEN);
-        std::fs::create_dir_all(&taken)
-            .map_err(|e| format!("cannot prepare {}: {e}", taken.display()))?;
-        let mark = if windows { "windows" } else { "no-windows" };
-        for prefix in prefixes {
-            let file = taken.join(format!("{prefix}@{mark}"));
-            std::fs::write(&file, "")
-                .map_err(|e| format!("cannot write {}: {e}", file.display()))?;
-        }
-        Ok(())
+        CaptureMarks::of(&self.shots_dir(platform, tree)).write(prefixes, windows)
     }
 
     /// Keeps the shots <names> of <platform> taken into <out> for the app

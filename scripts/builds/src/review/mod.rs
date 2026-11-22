@@ -184,7 +184,7 @@ pub fn running_file(store_dir: &Path, head: &str) -> PathBuf {
 
 /// Whether a review of the commits up to <head> runs now.
 pub fn is_running(store_dir: &Path, head: &str) -> bool {
-    crate::queue::is_held(&running_file(store_dir, head)).unwrap_or(false)
+    crate::flock::is_held(&running_file(store_dir, head)).unwrap_or(false)
 }
 
 /// Holds <path> locked until dropped, then removes it.

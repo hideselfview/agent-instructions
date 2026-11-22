@@ -6,6 +6,7 @@
 mod before;
 mod board_sizes;
 mod capture;
+mod capture_marks;
 mod compare;
 mod component_files;
 mod declared;
@@ -26,6 +27,7 @@ mod shots;
 mod states;
 mod verify;
 
+pub use crate::capture_marks::{CAPTURE_MARKS_DIR, CaptureMarks};
 pub use crate::declared::Declared;
 pub use crate::names::{ComponentName, Name, ScreenName};
 use crate::names::{Platform, Prefix};

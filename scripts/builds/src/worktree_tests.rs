@@ -216,7 +216,7 @@ fn a_lane_holds_several_app_checkouts_and_one_comes_out_while_no_build_holds_it(
     );
     unsafe { libc::close(held) };
     // A process another test forks meanwhile has the lock until it execs.
-    while crate::queue::is_held(&lock).unwrap() {
+    while crate::flock::is_held(&lock).unwrap() {
         std::thread::sleep(std::time::Duration::from_millis(5));
     }
     cmd_app_checkout(

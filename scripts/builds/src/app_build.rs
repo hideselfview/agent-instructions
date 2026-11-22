@@ -2310,7 +2310,10 @@ impl LaneBuild<'_> {
         let tree = picture_tree(&self.source, &sha, &config, lane, environment)?;
         let pictures = shots_cache::AppPictures::of(places, repo, lane, &tree);
         let _picture_lock = pictures.hold()?;
-        let prefixes = shot_prefixes(lane, &wanted);
+        let prefixes = wanted
+            .iter()
+            .map(|(_, _, prefix)| prefix.as_str())
+            .collect::<Vec<_>>();
         let cached_shots = picture_folder_caches(&config, lane, &pictures, &prefixes)?;
         let run = CommitRun {
             sha: &sha,

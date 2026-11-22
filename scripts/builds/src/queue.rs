@@ -119,21 +119,6 @@ pub fn try_lock(path: &Path) -> Result<Option<libc::c_int>> {
     }
 }
 
-/// Whether a process holds the lock on the file at <path>.
-pub fn is_held(path: &Path) -> Result<bool> {
-    // Close-on-exec: this descriptor only probes, and a process started while
-    // it is open must not keep the lock.
-    match open_with(path, libc::O_NONBLOCK | libc::O_CLOEXEC) {
-        Ok(fd) => {
-            unsafe { libc::close(fd) };
-            Ok(false)
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => Ok(true),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
-        Err(error) => fail!("checking {}: {error}", path.display()),
-    }
-}
-
 /// The pid in a ticket's name.
 pub fn pid_of(ticket: &str) -> Option<i32> {
     ticket.split_once('-')?.0.parse().ok()
@@ -234,7 +219,7 @@ impl Queue {
         let entries = self.entries()?;
         let (mut free, mut holders) = (Vec::new(), Vec::new());
         for entry in &entries {
-            if is_held(&self.lock_path(entry))? {
+            if crate::flock::is_held(&self.lock_path(entry))? {
                 let record = crate::places::run_file_in(&self.locks_dir, entry);
                 if let Some(run) = crate::holder_run::HolderRun::read(&record)? {
                     holders.push(run.pid);
@@ -758,7 +743,7 @@ pub fn cmd_queue(places: &Places, args: &[String]) -> Result<()> {
                 for recorded in places.app_checkouts_recorded(repo, lane)? {
                     let checkout = &recorded.entry;
                     let lock = places.app_lock_file(repo, lane, checkout);
-                    if !is_held(&lock)? {
+                    if !crate::flock::is_held(&lock)? {
                         println!("{} {checkout}: free", lane.word());
                     } else {
                         let real = std::fs::canonicalize(&lock).unwrap_or(lock.clone());
