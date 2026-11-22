@@ -334,7 +334,16 @@ pub fn audit(inputs: &Inputs) -> Result<String> {
             material: &material,
             files: &design,
         };
-        run::ask_groups(scope, inputs.reviewer, &picked, &diff, None, &[]).calls
+        run::ask_groups(
+            scope,
+            inputs.reviewer,
+            run::ReviewKind::Check,
+            &picked,
+            &diff,
+            None,
+            &[],
+        )
+        .calls
     };
     let calls_rules = ask(&per_rule);
     let calls_shuffled = ask(&shuffled);

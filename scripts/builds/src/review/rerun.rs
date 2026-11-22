@@ -138,7 +138,16 @@ pub fn replay(inputs: &Inputs) -> Result<Replayed> {
                 .flat_map(|(group, members)| prompt::answer_names(group, members))
                 .collect();
             let asks = |rule: &str| asked.iter().any(|a| a == rule);
-            let new_calls = run::ask_groups(scope, inputs.reviewer, &picked, diff, None, &[]).calls;
+            let new_calls = run::ask_groups(
+                scope,
+                inputs.reviewer,
+                run::ReviewKind::Check,
+                &picked,
+                diff,
+                None,
+                &[],
+            )
+            .calls;
             let stamp = inputs.stamp;
             let (run_id, now_calls, now_findings, now_verdicts) =
                 inputs

@@ -77,13 +77,13 @@ pub fn gate(
     {
         return Ok(());
     }
-    let Some(session) = session.claude()? else {
+    let Some((session, agent)) = session.claude() else {
         return Ok(());
     };
     if let Some(notice) = check(
         places,
         session,
-        agent::from_env()?.as_deref(),
+        agent,
         flag(args, "project"),
         &current_dir()?,
         crate::app_timing::now(),
@@ -367,7 +367,7 @@ pub fn cmd_ack(places: &Places, session: &agent::Session, args: &[String]) -> Re
         println!("{}", compacted(places, agent::HookInput::from_stdin()?)?);
         return Ok(());
     }
-    let Some(session) = session.claude()? else {
+    let Some((session, agent)) = session.claude() else {
         fail!(
             "builds ack records an agent's acknowledgement under its Claude Code session ({SESSION}), which this shell lacks; builds never refuses a command run outside Claude Code"
         );
@@ -377,7 +377,7 @@ pub fn cmd_ack(places: &Places, session: &agent::Session, args: &[String]) -> Re
         ack(
             places,
             session,
-            agent::from_env()?.as_deref(),
+            agent,
             &args,
             &current_dir()?,
             crate::app_timing::now()

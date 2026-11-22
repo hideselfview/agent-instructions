@@ -103,7 +103,7 @@ impl Scratch {
             // adds, and whose `shots draws` finds every board it is asked
             // about drawn differently.
             self.shots_script("states-shown", "differs"),
-            crate::ack::agent::Session::of(None, None, None),
+            crate::ack::agent::Session::Terminal,
         );
         tool.reviewer = self.no_rulings_reviewer();
         tool

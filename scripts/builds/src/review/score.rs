@@ -434,29 +434,27 @@ fn tally_text(t: &Tally, unsettled: &str) -> String {
 }
 
 fn spend_text(s: &Spend) -> String {
-    let cost = if s.calls > 0 && s.uncosted == s.calls {
-        "cost not recorded".to_string()
-    } else if s.uncosted == 0 {
-        super::call::cost_text(Some(s.cost_microdollars))
-    } else {
-        format!(
-            "{} (not recorded for {} of {} calls)",
-            super::call::cost_text(Some(s.cost_microdollars)),
-            s.uncosted,
-            s.calls
-        )
-    };
-    let tokens = if s.uncounted > 0 && s.uncounted == s.calls {
-        "token usage not recorded".to_string()
-    } else if s.uncounted > 0 {
-        format!(
-            "{} tokens in, {} out (not recorded for {} of {} calls)",
-            s.tokens_in, s.tokens_out, s.uncounted, s.calls
-        )
-    } else {
-        format!("{} tokens in, {} out", s.tokens_in, s.tokens_out)
-    };
+    let cost = measurement_text(
+        super::call::known_cost_text(s.cost_microdollars),
+        "cost not recorded",
+        s.uncosted,
+        s.calls,
+    );
+    let tokens = measurement_text(
+        format!("{} tokens in, {} out", s.tokens_in, s.tokens_out),
+        "token usage not recorded",
+        s.uncounted,
+        s.calls,
+    );
     format!("{} calls, {tokens}, {cost}", s.calls)
+}
+
+fn measurement_text(measured: String, absent: &str, missing: usize, calls: usize) -> String {
+    match missing {
+        0 => measured,
+        missing if missing == calls => absent.to_string(),
+        missing => format!("{measured} (not recorded for {missing} of {calls} calls)"),
+    }
 }
 
 fn setup_text(setup: &Setup) -> String {

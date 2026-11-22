@@ -291,7 +291,7 @@ pub fn propose(inputs: &Inputs) -> Result<Proposed> {
     let (all, lost) = candidates(&conn, &repo, inputs.repo_dir)?;
     let mut text = lost;
     let mut failed = false;
-    let mut costs = Vec::new();
+    let mut cost = Some(0);
     for i in sample(&all, inputs.per_group) {
         let candidate = &all[i];
         let name = candidate.name();
@@ -323,7 +323,7 @@ pub fn propose(inputs: &Inputs) -> Result<Proposed> {
         for ((finding, path), checked) in asked.iter().zip(&checked) {
             let verdict = match checked {
                 Ok(checked) => {
-                    costs.push(checked.usage.cost_microdollars);
+                    cost = super::call::add_cost(cost, checked.usage.cost_microdollars);
                     checked.verdict.as_ref()
                 }
                 Err(why) => Err(why),
@@ -380,7 +380,7 @@ pub fn propose(inputs: &Inputs) -> Result<Proposed> {
         ));
     }
     text.push_str(&misses(inputs, &conn)?);
-    let cost = super::call::sum_cost(costs).map_or_else(
+    let cost = cost.map_or_else(
         || "The reviewers did not report a total cost".to_string(),
         |cost| format!("The checks cost {}", super::call::known_cost_text(cost)),
     );

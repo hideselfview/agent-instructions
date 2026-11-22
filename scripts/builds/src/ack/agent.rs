@@ -114,14 +114,15 @@ pub fn is_registered(places: &Places, session: &str, agent: &str) -> Result<bool
 
 /// <args> without `--agent ID`, with `BUILDS_AGENT` set to ID for this
 /// command and every command it runs. Fails as `split_flag` and `chosen` do.
-pub fn take_flag(args: &[String]) -> Result<Vec<String>> {
+pub fn take_flag(args: &[String]) -> Result<(Vec<String>, Option<String>)> {
     let (rest, given) = split_flag(args)?;
-    if let Some(id) = chosen(given.as_deref(), from_env()?.as_deref())? {
+    let id = chosen(given.as_deref(), from_env()?.as_deref())?;
+    if let Some(id) = &id {
         // SAFETY: no other thread runs yet, so none reads the environment
         // while set_var writes it.
         unsafe { std::env::set_var(VARIABLE, id) };
     }
-    Ok(rest)
+    Ok((rest, id))
 }
 
 /// The words of a running builds command line <words> (its program first)
@@ -216,17 +217,19 @@ pub struct Caller {
 
 /// The agent session this invocation inherited from its shell.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Session {
-    claude: Option<std::ffi::OsString>,
-    codex: bool,
+pub enum Session {
+    Claude { id: String, agent: Option<String> },
+    Codex,
+    Terminal,
 }
 
 impl Session {
-    pub fn from_env() -> Self {
+    pub fn from_env(agent: Option<String>) -> Result<Self> {
         Self::of(
             std::env::var_os(super::SESSION),
             std::env::var_os("CODEX_SESSION_ID"),
             std::env::var_os("CODEX_THREAD_ID"),
+            agent,
         )
     }
 
@@ -234,49 +237,44 @@ impl Session {
         claude: Option<std::ffi::OsString>,
         codex_session: Option<std::ffi::OsString>,
         codex_thread: Option<std::ffi::OsString>,
-    ) -> Self {
-        Self {
-            claude: claude.filter(|id| !id.is_empty()),
-            codex: codex_session
-                .into_iter()
-                .chain(codex_thread)
-                .any(|id| !id.is_empty()),
+        agent: Option<String>,
+    ) -> Result<Self> {
+        if let Some(id) = claude.filter(|id| !id.is_empty()) {
+            let id = id.into_string().map_err(|_| {
+                crate::fail::Fail::Message(format!("{} is not a UTF-8 session ID", super::SESSION))
+            })?;
+            Ok(Self::Claude { id, agent })
+        } else if codex_session
+            .into_iter()
+            .chain(codex_thread)
+            .any(|id| !id.is_empty())
+        {
+            Ok(Self::Codex)
+        } else {
+            Ok(Self::Terminal)
         }
     }
 
-    pub fn uses_codex(&self) -> bool {
-        self.claude.is_none() && self.codex
-    }
-
-    pub fn claude(&self) -> Result<Option<&str>> {
-        self.claude
-            .as_ref()
-            .map(|id| {
-                id.to_str().ok_or_else(|| {
-                    crate::fail::Fail::Message(format!(
-                        "{} is not a UTF-8 session ID",
-                        super::SESSION
-                    ))
-                })
-            })
-            .transpose()
+    pub fn claude(&self) -> Option<(&str, Option<&str>)> {
+        match self {
+            Self::Claude { id, agent } => Some((id, agent.as_deref())),
+            Self::Codex | Self::Terminal => None,
+        }
     }
 
     pub fn caller(&self) -> Result<Option<Caller>> {
-        self.caller_with(from_env()?.as_deref())
-    }
-
-    fn caller_with(&self, agent: Option<&str>) -> Result<Option<Caller>> {
-        match (self.claude()?, agent) {
-            (None, _) => Ok(None),
-            (Some(_), None) => fail!(
+        let Some((session, agent)) = self.claude() else {
+            return Ok(None);
+        };
+        let Some(id) = agent else {
+            fail!(
                 "builds names each agent by the id Claude Code gives it, and this command names none: pass --agent ID, or set {VARIABLE}=ID"
-            ),
-            (Some(session), Some(id)) => Ok(Some(Caller {
-                session: session.to_string(),
-                id: id.to_string(),
-            })),
-        }
+            );
+        };
+        Ok(Some(Caller {
+            session: session.to_string(),
+            id: id.to_string(),
+        }))
     }
 }
 

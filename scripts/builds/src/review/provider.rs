@@ -111,13 +111,14 @@ impl Program {
                 Model::Claude(name.to_string())
             }
             Provider::Codex => {
-                let (name, effort) = match (self.purpose, selection) {
-                    (_, Selection::Named(name)) => (name.as_str(), "high"),
-                    (Purpose::CodeReview, Selection::Tier(_)) => ("gpt-6.2-astra", "high"),
-                    (Purpose::Check, Selection::Tier(Tier::High | Tier::Medium)) => {
-                        ("gpt-6.2-sol", "medium")
-                    }
-                    (Purpose::Check, Selection::Tier(Tier::Fast)) => ("gpt-6.2-sol", "low"),
+                let name = match selection {
+                    Selection::Tier(_) => "gpt-6.2-sol",
+                    Selection::Named(name) => name.as_str(),
+                };
+                let effort = match (self.purpose, selection) {
+                    (_, Selection::Named(_)) | (Purpose::CodeReview, Selection::Tier(_)) => "high",
+                    (Purpose::Check, Selection::Tier(Tier::High | Tier::Medium)) => "medium",
+                    (Purpose::Check, Selection::Tier(Tier::Fast)) => "low",
                 };
                 Model::Codex {
                     name: name.to_string(),
@@ -135,7 +136,7 @@ pub(super) fn default_program(
     if let Some(executable) = explicit {
         return PathBuf::from(executable);
     }
-    if session.uses_codex() {
+    if matches!(session, crate::ack::agent::Session::Codex) {
         PathBuf::from("codex")
     } else {
         PathBuf::from("claude")
@@ -317,7 +318,7 @@ pub(super) fn claude_envelope(text: &[u8], requested: &str) -> Invoked {
     }
 }
 
-fn add_diagnostic<T>(body: &mut std::result::Result<T, String>, diagnostic: String) {
+fn add_diagnostic(body: &mut std::result::Result<Value, String>, diagnostic: String) {
     *body = Err(match body {
         Ok(_) => diagnostic,
         Err(why) => format!("{why}. Also, {diagnostic}"),
@@ -346,25 +347,18 @@ fn reported_count(usage: &Value, key: &str) -> std::result::Result<Option<i64>, 
 
 fn claude_tokens(envelope: &Value) -> std::result::Result<Option<Tokens>, String> {
     let Some(usage) = envelope.get("usage") else {
-        return match envelope.get("is_error") {
-            Some(Value::Bool(false)) => Err("Claude did not report token usage".to_string()),
-            _ => Ok(None),
-        };
+        return Ok(None);
     };
     if !usage.is_object() {
         return Err("Claude reported invalid usage".to_string());
     }
     let input = reported_count(usage, "input_tokens")?;
     let output = reported_count(usage, "output_tokens")?;
-    let cached = reported_count(usage, "cache_read_input_tokens")?.unwrap_or(0);
-    let written = reported_count(usage, "cache_creation_input_tokens")?.unwrap_or(0);
-    let (Some(input), Some(output)) = (input, output) else {
-        return match envelope.get("is_error") {
-            Some(Value::Bool(false)) => {
-                Err("Claude did not report both input_tokens and output_tokens".to_string())
-            }
-            _ => Ok(None),
-        };
+    let cached = reported_count(usage, "cache_read_input_tokens")?;
+    let written = reported_count(usage, "cache_creation_input_tokens")?;
+    let (Some(input), Some(output), Some(cached), Some(written)) = (input, output, cached, written)
+    else {
+        return Ok(None);
     };
     let input = input
         .checked_add(cached)
@@ -498,12 +492,16 @@ fn codex(
             }
         }
         let output = run(&mut command, message)?;
-        let Decoded { usage, mut body } = codex_events(&output.stdout, checkout.is_some());
+        let Decoded {
+            usage,
+            completed,
+            mut body,
+        } = codex_events(&output.stdout, checkout.is_some());
         if !output.status.success() {
             attach_exit(program.executable(), &output, &mut body);
         }
         invoked = Some(Invoked {
-            model: if usage.is_some() {
+            model: if completed {
                 model.to_string()
             } else {
                 format!("unknown (requested {model})")
@@ -519,7 +517,11 @@ fn codex(
     match (invoked, result) {
         (Some(response), Ok(())) => Ok(response),
         (Some(mut response), Err(error)) => {
-            add_diagnostic(&mut response.body, error.text());
+            if response.body.is_ok() {
+                crate::text::note(error.text());
+            } else {
+                add_diagnostic(&mut response.body, error.text());
+            }
             Ok(response)
         }
         (None, Err(error)) => Err(error),
@@ -564,6 +566,7 @@ fn remove_null_properties(value: &mut Value) {
 }
 
 struct Decoded {
+    completed: bool,
     usage: Option<Tokens>,
     body: std::result::Result<Value, String>,
 }
@@ -607,7 +610,7 @@ fn codex_events(text: &[u8], read_tools: bool) -> Decoded {
                     failure = Some("Codex finished an item without naming what it did".to_string())
                 }
             },
-            Some("turn.completed") => completed = Some(event["usage"].clone()),
+            Some("turn.completed") => completed = Some(event.get("usage").cloned()),
             Some("turn.failed") => {
                 failure = Some(
                     event["error"]["message"]
@@ -618,10 +621,14 @@ fn codex_events(text: &[u8], read_tools: bool) -> Decoded {
             _ => {}
         }
     }
-    let usage = completed.as_ref().map(codex_usage).transpose();
+    let usage = match &completed {
+        Some(Some(usage)) => codex_usage(usage),
+        _ => Ok(None),
+    };
+    let completed = completed.is_some();
     let mut body = match (failure, completed, answer) {
         (Some(why), _, _) => Err(why),
-        (None, Some(_), Some(answer)) => serde_json::from_str(&answer)
+        (None, true, Some(answer)) => serde_json::from_str(&answer)
             .map(|mut body| {
                 remove_null_properties(&mut body);
                 body
@@ -630,23 +637,45 @@ fn codex_events(text: &[u8], read_tools: bool) -> Decoded {
         _ => Err("Codex did not finish with a structured answer".to_string()),
     };
     match usage {
-        Ok(usage) => Decoded { usage, body },
+        Ok(usage) => Decoded {
+            completed,
+            usage,
+            body,
+        },
         Err(why) => {
             add_diagnostic(&mut body, why);
-            Decoded { usage: None, body }
+            Decoded {
+                completed,
+                usage: None,
+                body,
+            }
         }
     }
 }
 
-fn codex_usage(usage: &Value) -> std::result::Result<Tokens, String> {
-    let count =
-        |key| reported_count(usage, key)?.ok_or_else(|| format!("Codex did not report {key}"));
-    Ok(Tokens {
-        input: count("input_tokens")?,
-        output: count("output_tokens")?,
-        cached: count("cached_input_tokens")?,
-        written: count("cache_write_input_tokens")?,
-    })
+fn codex_usage(usage: &Value) -> std::result::Result<Option<Tokens>, String> {
+    if !usage.is_object() {
+        return Err("Codex reported invalid usage".to_string());
+    }
+    let input = reported_count(usage, "input_tokens")?;
+    let output = reported_count(usage, "output_tokens")?;
+    let cached = reported_count(usage, "cached_input_tokens")?;
+    let written = reported_count(usage, "cache_write_input_tokens")?;
+    let (Some(input), Some(output), Some(cached), Some(written)) = (input, output, cached, written)
+    else {
+        return Ok(None);
+    };
+    if i128::from(cached) + i128::from(written) > i128::from(input) {
+        return Err(
+            "Codex reported more input tokens in the cache than total input tokens".to_string(),
+        );
+    }
+    Ok(Some(Tokens {
+        input,
+        output,
+        cached,
+        written,
+    }))
 }
 
 #[cfg(test)]

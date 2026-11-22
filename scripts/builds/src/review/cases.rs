@@ -14,7 +14,7 @@ use crate::review::call::{TokenTotal, Tokens, cost_text, sum_tokens, sum_usage, 
 use crate::review::check::{parse_diff, squash};
 use crate::review::files::{self, Source};
 use crate::review::record::{Kind, NewCall, NewRun};
-use crate::review::run::{Diff, Material, Scope, ask_groups};
+use crate::review::run::{Diff, Material, ReviewKind, Scope, ask_groups};
 use crate::text::plural;
 
 pub const DIR: &str = "review/cases";
@@ -410,7 +410,15 @@ pub fn replay_case(
         changed: files::paths(&case.patch),
     };
     let picked = scope.pick(&diff.changed);
-    let asked = ask_groups(scope, reviewer, &picked, &diff, None, &[]);
+    let asked = ask_groups(
+        scope,
+        reviewer,
+        ReviewKind::Check,
+        &picked,
+        &diff,
+        None,
+        &[],
+    );
     let (calls, repeat) = (asked.calls, asked.repeat);
     let accepted: Vec<&crate::review::record::NewFinding> = calls
         .iter()

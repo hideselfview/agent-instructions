@@ -552,16 +552,14 @@ pub fn move_store(places: &Places, path: &Path, now: i64) -> Result<()> {
     }
     // Every store from before builds kept the review texts on the build
     // volume writes them there, and holds hashes in their place.
+    let project = path
+        .parent()
+        .and_then(Path::file_name)
+        .expect("a store's database is in its project's folder")
+        .to_string_lossy();
+    let texts = crate::review::texts::Texts::of(places, &project);
     if before(found, BEFORE_REVIEW_TEXTS_ON_VOLUME_STAMP) {
-        let project = path
-            .parent()
-            .and_then(Path::file_name)
-            .expect("a store's database is in its project's folder")
-            .to_string_lossy();
-        crate::review::record::move_texts_to_volume(
-            &tx,
-            &crate::review::texts::Texts::of(places, &project),
-        )?;
+        crate::review::record::move_texts_to_volume(&tx, &texts)?;
     }
     // Every store from before the coordinator could mark a branch as
     // mechanical gets the empty table: none was marked yet.
@@ -619,7 +617,7 @@ pub fn move_store(places: &Places, path: &Path, now: i64) -> Result<()> {
     }
     if before(found, BEFORE_UNREPORTED_USAGE_STAMP) {
         crate::lists::spec_check::allow_unreported_usage(&tx)?;
-        crate::review::record::allow_unreported_tokens(&tx)?;
+        crate::review::record::allow_unreported_tokens(&tx, &texts)?;
     }
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     let broken: Option<String> = tx

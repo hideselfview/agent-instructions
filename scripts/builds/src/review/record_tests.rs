@@ -503,3 +503,58 @@ fn a_review_with_unreported_usage_keeps_null_counters_and_a_measured_zero() {
             .contains("token usage not recorded for every call")
     );
 }
+
+#[test]
+fn migrating_failed_review_exchanges_preserves_measured_zero_and_removes_unknown_zero() {
+    use crate::review::call::{Tokens, Usage};
+    let db = db();
+    let texts = crate::review::texts::scratch();
+    let repo = first_repo(&db);
+    let landing = add_landing(
+        &db,
+        Change {
+            repo: &repo,
+            key: "k",
+        },
+        5,
+    )
+    .unwrap();
+    let old = |group, failure: &str, output: &str| {
+        let mut call = call(group, None);
+        call.usage = Usage::ZERO;
+        call.failure = Some(failure.to_string());
+        call.exchanges[0].output = output.to_string();
+        call.exchanges[0].tokens = Some(Tokens::ZERO);
+        call
+    };
+    let legacy = old(
+        "failed",
+        "claude exited with exit status: 1: limit",
+        "no answer: claude exited with exit status: 1: limit",
+    );
+    let measured = old(
+        "measured",
+        "the reviewer reported an error: no verdict",
+        "no answer: the reviewer reported an error: no verdict",
+    );
+    add_run(
+        &db,
+        &texts,
+        &run(Some(landing), 6, "base", "head"),
+        &[legacy, measured],
+    )
+    .unwrap();
+    db.pragma_update(None, "foreign_keys", false).unwrap();
+    allow_unreported_tokens(&db, &texts).unwrap();
+    let calls = calls_of_landing(&db, landing).unwrap();
+    assert_eq!(calls[0].usage.tokens, None);
+    assert_eq!(calls[1].usage.tokens, Some(Tokens::ZERO));
+    let results = db
+        .prepare("SELECT tokens_in FROM review_exchange ORDER BY id")
+        .unwrap()
+        .query_map([], |row| row.get::<_, Option<i64>>(0))
+        .unwrap()
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .unwrap();
+    assert_eq!(results, [None, Some(0)]);
+}

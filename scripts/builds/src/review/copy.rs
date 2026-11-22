@@ -74,7 +74,15 @@ pub fn check(inputs: &Inputs) -> Result<Checked> {
         material: &material,
         files: &design,
     };
-    let asked = run::ask_groups(scope, inputs.reviewer, &picked, &change.diff, None, &[]);
+    let asked = run::ask_groups(
+        scope,
+        inputs.reviewer,
+        run::ReviewKind::Check,
+        &picked,
+        &change.diff,
+        None,
+        &[],
+    );
     let stamp = inputs.stamp;
     let (run, calls, findings) =
         inputs

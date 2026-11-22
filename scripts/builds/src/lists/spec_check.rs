@@ -503,6 +503,8 @@ pub fn record(
     for check in checked {
         let spec_files =
             serde_json::to_string(&check.target.spec_files).expect("a list of paths serializes");
+        let [input, tokens_out, cached, written] =
+            crate::review::call::Tokens::columns(check.usage.tokens);
         db.execute(
             "INSERT INTO spec_check (at, by, brief, brief_text, repo, worktree, head, spec_files, model, rules_version, system, message, output, tokens_in, tokens_out, tokens_cached, tokens_written, cost_microdollars, failure, decided_id, decided_kind)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
@@ -520,10 +522,10 @@ pub fn record(
                 check.system,
                 check.message,
                 check.output,
-                check.usage.tokens.map(|tokens| tokens.input),
-                check.usage.tokens.map(|tokens| tokens.output),
-                check.usage.tokens.map(|tokens| tokens.cached),
-                check.usage.tokens.map(|tokens| tokens.written),
+                input,
+                tokens_out,
+                cached,
+                written,
                 check.usage.cost_microdollars,
                 check.failure,
                 decided.map(|(id, _)| id),

@@ -443,23 +443,10 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
             running.push((ask.change.head.clone(), Running::start(file)?));
         }
         let picked = material.groups.named(&material.rules, &ask.groups);
-        let open_code = material
-            .holding_groups(&open_findings)
-            .into_iter()
-            .filter(|(name, _)| ask.groups.contains(name))
-            .flat_map(|(_, findings)| findings)
-            .filter(|finding| finding.file != files::COMMIT_MESSAGE)
-            .map(|finding| finding.file.clone())
-            .collect::<Vec<_>>();
-        let reviewer =
-            if design.includes_code(&ask.change.diff.changed) || design.includes_code(&open_code) {
-                inputs.reviewer.for_code_review()
-            } else {
-                inputs.reviewer.clone()
-            };
         answers.push(run::ask_groups(
             scope,
-            &reviewer,
+            inputs.reviewer,
+            run::ReviewKind::Branch,
             &picked,
             &ask.change.diff,
             inputs.brief.as_ref(),

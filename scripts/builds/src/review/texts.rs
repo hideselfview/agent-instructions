@@ -12,7 +12,7 @@
 //! the runs that agents still read. A run whose texts the cap deleted shows
 //! no text: a read says so.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::capped_store::{self, Group, Kept, Use, folders_in};
 use crate::fail;
@@ -87,18 +87,28 @@ impl Texts {
         // Held while reading, so that no prune deletes the run meanwhile.
         let _reading = capped_store::writing(&self.root)?;
         let folder = self.run_folder(run);
-        let file = folder.join(hash);
-        let text = match std::fs::read_to_string(&file) {
-            Ok(text) => text,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => fail!(
+        let text = match read_kept_text(&folder.join(hash))? {
+            Some(text) => text,
+            None => fail!(
                 "builds keeps no text {hash} of review run {run}: builds deletes the oldest runs' texts to keep {} under {} (`builds help`, DISK)",
                 self.root.display(),
                 crate::text::human(CAP_KIB)
             ),
-            Err(error) => fail!("reading {}: {error}", file.display()),
         };
         capped_store::mark_used(&folder.join(USED))?;
         Ok(text)
+    }
+
+    pub(super) fn kept(&self, run: i64, hash: &str) -> Result<Option<String>> {
+        read_kept_text(&self.run_folder(run).join(hash))
+    }
+}
+
+fn read_kept_text(file: &Path) -> Result<Option<String>> {
+    match std::fs::read_to_string(file) {
+        Ok(text) => Ok(Some(text)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => fail!("reading {}: {error}", file.display()),
     }
 }
 

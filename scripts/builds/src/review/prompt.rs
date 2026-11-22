@@ -230,9 +230,13 @@ pub struct Parts {
 
 pub fn build(input: &Input) -> Parts {
     Parts {
-        system: format!("{SYSTEM}\n\n{}{}", project_part(input), group_part(input)),
+        system: system_text(input),
         message: change_part(input),
     }
+}
+
+fn system_text(input: &Input) -> String {
+    format!("{SYSTEM}\n\n{}{}", project_part(input), group_part(input))
 }
 
 /// The prompt a group is given apart from what each review brings (the
@@ -241,7 +245,7 @@ pub fn build(input: &Input) -> Parts {
 /// messages, and the answer schema. The store keeps it with every call, so
 /// calls with the same model and the same prompt ran the same setup.
 pub fn setup(group: &Group, rules: &[&Rule], reviewer: &super::Program) -> String {
-    let part = group_part(&Input {
+    let system = system_text(&Input {
         group,
         rules,
         project_text: "",
@@ -250,14 +254,14 @@ pub fn setup(group: &Group, rules: &[&Rule], reviewer: &super::Program) -> Strin
         context: "",
         open: &[],
     });
-    let system = format!("{SYSTEM}\n\n{part}");
     let schema = schema();
-    setup_text(
+    let prompt = setup_text(
         &reviewer.instructions(&system),
         group.passes,
         group.commit_text,
         &reviewer.schema(&schema),
-    )
+    );
+    reviewer.setup(&group.model, prompt)
 }
 
 fn setup_text(system: &str, passes: usize, commit_text: bool, schema: &Value) -> String {

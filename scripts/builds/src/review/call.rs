@@ -42,7 +42,7 @@ pub struct Output {
 }
 
 /// The input and output counters the reviewer reports together.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Tokens {
     pub input: i64,
     pub output: i64,
@@ -57,6 +57,19 @@ impl Tokens {
         cached: 0,
         written: 0,
     };
+
+    /// The nullable SQLite columns for input, output, cache reads and cache writes.
+    pub fn columns(report: Option<Self>) -> [Option<i64>; 4] {
+        match report {
+            Some(Self {
+                input,
+                output,
+                cached,
+                written,
+            }) => [Some(input), Some(output), Some(cached), Some(written)],
+            None => [None; 4],
+        }
+    }
 
     pub fn checked_add(self, other: Self) -> Option<Self> {
         Some(Self {
@@ -115,7 +128,10 @@ impl Usage {
 
     pub(super) fn merge(&mut self, other: Self) -> Result<(), String> {
         let tokens = sum_tokens([self.tokens, other.tokens]);
-        let cost = sum_cost([self.cost_microdollars, other.cost_microdollars]);
+        let cost = add_cost(
+            self.cost_microdollars.map(i128::from),
+            other.cost_microdollars,
+        );
         let cost = cost
             .map(i64::try_from)
             .transpose()
@@ -158,16 +174,12 @@ pub(super) fn sum_usage(calls: impl IntoIterator<Item = Usage>) -> UsageTotal {
     )
 }
 
-pub(super) fn sum_cost(costs: impl IntoIterator<Item = Option<i64>>) -> Option<i128> {
-    costs.into_iter().fold(Some(0), add_cost)
-}
-
-fn add_cost(total: Option<i128>, cost: Option<i64>) -> Option<i128> {
+pub(super) fn add_cost(total: Option<i128>, cost: Option<i64>) -> Option<i128> {
     Some(total? + i128::from(cost?))
 }
 
-pub(super) fn known_cost_text(cost: impl Into<i128>) -> String {
-    format!("${:.2}", cost.into() as f64 / 1_000_000.0)
+pub(super) fn known_cost_text(cost: i128) -> String {
+    format!("${:.2}", cost as f64 / 1_000_000.0)
 }
 
 pub(super) fn cost_text(cost: Option<i128>) -> String {

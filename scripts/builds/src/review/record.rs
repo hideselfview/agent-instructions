@@ -468,9 +468,10 @@ pub fn add_calls(
     for call in calls {
         let rules = serde_json::to_string(&call.rules).expect("strings serialize");
         let prompt = texts::hash(&call.prompt);
+        let [input, output, cached, written] = super::call::Tokens::columns(call.usage.tokens);
         db.execute(
             "INSERT INTO review_call (run_id, group_name, model, prompt, rules, tokens_in, tokens_out, tokens_cached, tokens_written, cost_microdollars, sites, failure) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
-            params![run_id, call.group, call.model, prompt, rules, call.usage.tokens.map(|tokens| tokens.input), call.usage.tokens.map(|tokens| tokens.output), call.usage.tokens.map(|tokens| tokens.cached), call.usage.tokens.map(|tokens| tokens.written), call.usage.cost_microdollars, call.sites, call.failure],
+            params![run_id, call.group, call.model, prompt, rules, input, output, cached, written, call.usage.cost_microdollars, call.sites, call.failure],
         )
         .sql()?;
         let call_id = db.last_insert_rowid();
@@ -485,9 +486,10 @@ pub fn add_calls(
             let system_hash = texts::hash(&exchange.system);
             let message_hash = texts::hash(&exchange.message);
             let output_hash = texts::hash(&exchange.output);
+            let [input, output, cached, written] = super::call::Tokens::columns(exchange.tokens);
             db.execute(
                 "INSERT INTO review_exchange (call_id, model, unit, pass, system_hash, message_hash, output_hash, tokens_in, tokens_out, tokens_cached, tokens_written) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-                params![call_id, exchange.model, exchange.unit, exchange.pass, system_hash, message_hash, output_hash, exchange.tokens.map(|tokens| tokens.input), exchange.tokens.map(|tokens| tokens.output), exchange.tokens.map(|tokens| tokens.cached), exchange.tokens.map(|tokens| tokens.written)],
+                params![call_id, exchange.model, exchange.unit, exchange.pass, system_hash, message_hash, output_hash, input, output, cached, written],
             )
             .sql()?;
             crate::review::exchange_time::record(
@@ -1004,7 +1006,7 @@ pub fn first_reviews(db: &Connection) -> Result<Vec<FirstReview>> {
 pub mod tests;
 
 /// Keeps the existing calls and exchanges while allowing a provider to omit its token report.
-pub fn allow_unreported_tokens(db: &Connection) -> Result<()> {
+pub fn allow_unreported_tokens(db: &Connection, texts: &texts::Texts) -> Result<()> {
     use crate::db::{REVIEW_PART, remake_table, statement};
     for table in ["review_call", "review_exchange"] {
         let create = format!("CREATE TABLE {table} (");
@@ -1024,5 +1026,49 @@ pub fn allow_unreported_tokens(db: &Connection) -> Result<()> {
             &[statement(REVIEW_PART, index, ";")],
         )?;
     }
+    let unreported = {
+        let mut query = db.prepare(
+            "SELECT e.id, c.id, c.run_id, e.output_hash, c.failure
+             FROM review_exchange e JOIN review_call c ON c.id = e.call_id
+             WHERE c.failure IS NOT NULL AND (e.tokens_in, e.tokens_out, e.tokens_cached, e.tokens_written) = (0, 0, 0, 0)",
+        ).sql()?;
+        let rows = query
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                ))
+            })
+            .sql()?;
+        rows.collect::<rusqlite::Result<Vec<_>>>().sql()?
+    };
+    for (exchange, call, run, hash, failure) in unreported {
+        let whole = format!("no answer: {failure}");
+        let output = if texts::hash(&whole) == hash {
+            Some(whole)
+        } else {
+            texts.kept(run, &hash)?
+        };
+        if output.as_deref().is_some_and(legacy_failure_had_no_usage) {
+            db.execute("UPDATE review_exchange SET tokens_in = NULL, tokens_out = NULL, tokens_cached = NULL, tokens_written = NULL WHERE id = ?1", [exchange]).sql()?;
+            db.execute("UPDATE review_call SET tokens_in = NULL, tokens_out = NULL, tokens_cached = NULL, tokens_written = NULL WHERE id = ?1", [call]).sql()?;
+        }
+    }
     Ok(())
+}
+
+/// These legacy failures returned before builds could read a Claude usage record.
+fn legacy_failure_had_no_usage(output: &str) -> bool {
+    let Some(why) = output.strip_prefix("no answer: ") else {
+        return false;
+    };
+    why == "the reviewer printed no JSON"
+        || why.starts_with("running ")
+        || why.starts_with("waiting for ")
+        || why.split_once(" exited with ").is_some_and(|(_, status)| {
+            status.starts_with("exit status: ") || status.starts_with("signal: ")
+        })
 }

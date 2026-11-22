@@ -550,6 +550,39 @@ fn not_read(
         .collect()
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum ReviewKind {
+    Branch,
+    Check,
+}
+
+fn judges_code(
+    group: &Group,
+    members: &[&Rule],
+    diff: &Diff,
+    files: &Globs,
+    open: &[Finding],
+) -> bool {
+    let paths = files::split(&diff.text)
+        .into_iter()
+        .flat_map(|file| {
+            let paths = file.paths();
+            if members.iter().any(|rule| rule.matches(&paths, files)) {
+                paths
+            } else {
+                Vec::new()
+            }
+        })
+        .chain(
+            held_by(group, members, open)
+                .into_iter()
+                .filter(|finding| finding.file != files::COMMIT_MESSAGE)
+                .map(|finding| finding.file.clone()),
+        )
+        .collect::<Vec<_>>();
+    files.includes_code(&paths)
+}
+
 /// Asks the reviewers of <picked> and checks what comes back: one per group,
 /// except that a group that lists sites gets one per changed file its rule
 /// covers by either path of a rename, each given that file's diff and its new
@@ -565,6 +598,7 @@ fn not_read(
 pub fn ask_groups(
     scope: Scope,
     reviewer: &crate::review::Program,
+    kind: ReviewKind,
     picked: &[(&Group, Vec<&Rule>)],
     diff: &Diff,
     brief: Option<&crate::lists::spec_check::Brief>,
@@ -606,6 +640,17 @@ pub fn ask_groups(
         .zip(&views)
         .map(|(paths, view)| view.without(paths))
         .collect();
+    let reviewers: Vec<_> = picked
+        .iter()
+        .enumerate()
+        .map(|(at, (group, members))| {
+            if kind == ReviewKind::Branch && judges_code(group, members, &diffs[at], files, open) {
+                reviewer.for_code_review()
+            } else {
+                reviewer.clone()
+            }
+        })
+        .collect();
     let quotes: Vec<Vec<DiffFile>> = diffs.iter().map(Diff::quotes).collect();
     // The reviewers read the repository at the commit under review.
     let checkout = match diff.source.as_ref().map(files::Source::checkout) {
@@ -615,7 +660,10 @@ pub fn ask_groups(
             return Asked {
                 calls: picked
                     .iter()
-                    .map(|(group, members)| bare_call(reviewer, group, members, Some(why.clone())))
+                    .enumerate()
+                    .map(|(at, (group, members))| {
+                        bare_call(&reviewers[at], group, members, Some(why.clone()))
+                    })
                     .collect(),
                 repeat: Ok(Some(call::Tokens::ZERO)),
                 nothing_to_read: Vec::new(),
@@ -637,6 +685,7 @@ pub fn ask_groups(
         })
         .collect();
     let one = |unit: &Unit, pass: usize| {
+        let reviewer = &reviewers[unit.diff];
         let group = unit.group;
         let read = &diffs[unit.diff];
         let (text_diff, context) = match &unit.file {
@@ -657,7 +706,7 @@ pub fn ask_groups(
             context: &context,
             open: &given,
         });
-        let setup = reviewer.setup(&group.model, prompt::setup(group, unit.members, reviewer));
+        let setup = prompt::setup(group, unit.members, reviewer);
         let given_ids: Vec<i64> = given.iter().map(|f| f.id).collect();
         let started_at = crate::app_timing::now();
         let began = crate::clock::Moment::now();
@@ -756,7 +805,7 @@ pub fn ask_groups(
     let mut nothing_to_read = Vec::new();
     for (at, (group, members)) in picked.iter().enumerate() {
         if not_read[at].is_empty() && !units.iter().any(|unit| unit.group.name == group.name) {
-            calls.push(bare_call(reviewer, group, members, None));
+            calls.push(bare_call(&reviewers[at], group, members, None));
             nothing_to_read.push(group.name.clone());
         }
     }
@@ -852,7 +901,7 @@ fn bare_call(
     NewCall {
         group: group.name.clone(),
         model: reviewer.model_name(&group.model),
-        prompt: reviewer.setup(&group.model, prompt::setup(group, members, reviewer)),
+        prompt: prompt::setup(group, members, reviewer),
         rules: prompt::answer_names(group, members),
         usage: call::Usage::ZERO,
         sites: None,

@@ -3196,8 +3196,8 @@ The review checks screenshot capture files the same way, only against the
 rules about shots, never against the rules about code (decision #397). The
 capture files of a repo are the files below each folder that a `shots-declared`
 line of its .app-build names, which the checkout holds. A rule that judges
-capture files says so in its front matter with `capture: true`. Codex uses
-GPT-6.2 Astra to review code in capture files. Every other rule covers no capture file, whatever its paths match, and builds drops a
+capture files says so in its front matter with `capture: true`. Every other
+rule covers no capture file, whatever its paths match, and builds drops a
 finding of such a rule on a capture file and records it as dropped with that
 reason. Groups run and read capture files as they do design files. The shots
 run checks that a moved shot gives the findings it gave before. `builds review
@@ -3276,9 +3276,9 @@ checks this, and so does builds' test. The group.toml fields are top-level keys:
   question      the one design question the group's rules answer
   tier          optional. Choose high, medium or fast. The default is high.
                 Claude uses Opus, Sonnet and Haiku respectively.
-                Codex uses GPT-6.2 Astra for code reviews, and GPT-6.2 Sol
-                for implementation, spec, design, copy, replay and finding
-                checks. Codex records the reasoning effort with the prompt.
+                Codex uses GPT-6.2 Sol for reviews and checks. It uses high
+                reasoning effort for code reviews and records the effort
+                it used with the prompt.
   instructions  optional; extra words for the reviewer
   enumerate     true when the reviewer lists every site of the diff that
                 `sites` describes, one changed file per call, and judges each
