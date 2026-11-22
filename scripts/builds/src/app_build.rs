@@ -105,6 +105,7 @@ use crate::host::{Refused, Ssh};
 use crate::install_gate;
 use crate::lane::Lane;
 use crate::lock::{self, Found, Keep, Ran, Within};
+use crate::main_base::{self, Plan};
 use crate::places::Places;
 use crate::programs::Pinned;
 use crate::run_end::RunEnd;
@@ -1691,14 +1692,15 @@ pub fn serve_cached(
 
 /// Makes the store hold the run each `--shots` pick of <picks> compares
 /// with: the run of <git_ref>'s merge base with origin/main, by the
-/// shots checker this builds keys runs on (shots_cache.rs). For the picks
-/// with none, it builds the merge base first in their lanes, with each lane's
-/// `needs` steps, and runs the picks there, which caches their runs; the run
-/// of a commit on origin/main compares with none, so its pairs' findings
-/// fail it, and that failure stops nothing here. Fails when a pick still
-/// has no run to compare with, or a stop signal ended the build. A commit on
-/// origin/main is its own merge base and needs no before run. The merge
-/// base's lanes run from <pinned>, the build's programs.
+/// shots checker this builds keys runs on (shots_cache.rs). A merge base with
+/// no run does not get built for it: builds runs each such lane's whole set of
+/// shots at the tip of origin/main instead, once for every build of the lane
+/// (main_base.rs), and tells a branch that starts behind the tip to rebase
+/// onto it. The run of a commit on origin/main compares with none, so its
+/// pairs' findings fail it, and that failure stops nothing here. Fails when a
+/// pick still has no run to compare with, or a stop signal ended the build. A
+/// commit on origin/main is its own merge base and needs no before run. The
+/// lanes of the run of main's tip run from <pinned>, the build's programs.
 pub fn ensure_before_runs(
     places: &Places,
     pinned: &Pinned,
@@ -1720,62 +1722,103 @@ pub fn ensure_before_runs(
     if base == commit {
         return Ok(());
     }
-    let versions = &crate::shots_program::VERSIONS;
+    let tip = resolve(&source, "origin/main")?;
     let program = pinned.builds();
-    let missing = |picks: &[Pick]| -> Result<Vec<Pick>> {
-        let mut missing = Vec::new();
-        for pick in picks {
-            let (lane, _, prefix) = pick;
-            if crate::shots_compare_again::before_run(places, repo, &base, *lane, prefix, &program)?
-                .is_none()
-            {
-                missing.push(pick.clone());
-            }
-        }
-        Ok(missing)
-    };
-    let short = &base[..base.len().min(12)];
-    let wanted = missing(&shots)?;
-    if wanted.is_empty() {
+    let plan_now = || main_base::plan(places, repo, &base, &tip, &shots, &program);
+    if plan_now()? == Plan::Covered {
         note(format!(
-            "the shots runs compare with the runs of {short}, the merge base with origin/main, that builds has cached"
+            "the shots runs compare with the runs of {}, the merge base with origin/main, that builds has cached",
+            short_of(&base)
         ));
         return Ok(());
     }
+    // One build at a time makes main's whole-lane run of a lane: the others
+    // wait here, then find it cached.
+    let mut lanes: Vec<Lane> = Vec::new();
+    for (lane, _, _) in &shots {
+        if !lanes.contains(lane) {
+            lanes.push(*lane);
+        }
+    }
+    let mut held = Vec::new();
+    for lane in &lanes {
+        held.push(main_base::lock(places, repo, *lane)?);
+    }
+    let rebase = |why: &str| {
+        fail!(
+            "{why}: rebase {git_ref} onto origin/main ({}) with `git rebase origin/main`, and run the build again, so that the shots compare with the run of main that builds has cached",
+            short_of(&tip)
+        )
+    };
+    let wanted = match plan_now()? {
+        Plan::Covered => return Ok(()),
+        Plan::Rebase => {
+            return rebase(&format!(
+                "{git_ref} starts from {}, which builds has no run of",
+                short_of(&base)
+            ));
+        }
+        Plan::BuildMain(wanted) => wanted,
+    };
+    let versions = &crate::shots_program::VERSIONS;
     note(format!(
-        "builds has no cached run of {} for {short}, the merge base with origin/main, by shots checker {} (comparison) over {} (capture): building {short} and running them first, to compare with",
+        "builds has no cached run of {} on origin/main ({}) by shots checker {} (comparison) over {} (capture): building origin/main and running them there, once for every build of the lane",
         wanted
             .iter()
             .map(|(_, _, prefix)| prefix.as_str())
             .collect::<Vec<_>>()
             .join(", "),
+        short_of(&tip),
         versions.comparison,
         versions.capture
     ));
-    let config = config_at(places, repo, &base)?;
+    let config = config_at(places, repo, &tip)?;
     let lanes = crate::derive::plan(&config, &[], &wanted);
-    let built = run_lanes(pinned, repo, &base, &lanes, &wanted, &[], false, true);
+    let built = run_lanes(pinned, repo, &tip, &lanes, &wanted, &[], false, true);
     if PASSED_ON.load(Ordering::SeqCst) != 0 {
         return built;
     }
-    let still = missing(&wanted)?;
-    if let Some((lane, _, prefix)) = still.first() {
-        let why = match built {
-            Err(error) => error.text(),
-            Ok(()) => "it cached no findings".to_string(),
-        };
-        fail!(
-            "the run of {prefix} on {} for {short}, the merge base with origin/main, gave nothing to compare with: {why}",
-            lane.word()
-        );
+    match plan_now()? {
+        Plan::BuildMain(still) => {
+            let (lane, _, prefix) = &still[0];
+            let why = match built {
+                Err(error) => error.text(),
+                Ok(()) => "it cached no findings".to_string(),
+            };
+            fail!(
+                "the run of {prefix} on {} for origin/main ({}) gave nothing to compare with: {why}",
+                lane.word(),
+                short_of(&tip)
+            );
+        }
+        Plan::Rebase => {
+            if let Err(error) = built {
+                note(format!(
+                    "the build of origin/main failed ({}), and builds cached the findings of its shots runs, which the runs of {git_ref} compare with",
+                    error.text()
+                ));
+            }
+            rebase(&format!(
+                "builds ran the shots of origin/main ({}), and {git_ref} starts from {}",
+                short_of(&tip),
+                short_of(&base)
+            ))
+        }
+        Plan::Covered => {
+            if let Err(error) = built {
+                note(format!(
+                    "the build of origin/main failed ({}), and builds cached the findings of its shots runs, which the runs of {git_ref} compare with",
+                    error.text()
+                ));
+            }
+            Ok(())
+        }
     }
-    if let Err(error) = built {
-        note(format!(
-            "the build of {short} failed ({}), and builds cached the findings of its shots runs, which the runs of {git_ref} compare with",
-            error.text()
-        ));
-    }
-    Ok(())
+}
+
+/// The first 12 characters of a commit.
+fn short_of(commit: &str) -> &str {
+    &commit[..commit.len().min(12)]
 }
 
 /// The pids of the lanes' processes, for the signal handler to pass on to.

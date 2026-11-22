@@ -108,6 +108,7 @@ mod lock_diff;
 mod lock_wait;
 mod lock_wake;
 mod long_waits;
+mod main_base;
 mod main_checkout;
 mod manifest;
 mod migrate;

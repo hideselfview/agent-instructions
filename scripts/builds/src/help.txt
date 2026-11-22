@@ -1275,17 +1275,23 @@ their counts. A pair the merge base's run rendered still fails when the
 branch adds findings to it. The run it compares with is the newest cached run of the
 merge base in the same lane, by the same shots versions, whose prefix starts
 the run's own (a run of mac. stands in for a run of mac.welcome.), and whose
-report holds findings.json. When builds has none cached, `builds app-build` builds
-the merge base first in the lane, with the lane's `needs` steps, and runs the
-same prefixes there with `--base`. That run is the merge base's own: it
-compares with nothing and fails no pair with findings, since those findings
-are what the branch's run compares with, and it lists them as such. Its
-findings are cached, and the branch's run starts only after they are; only a
-step or a shots run that fails without failing pairs, as when it cannot
-render, stops the build. A run of a commit on origin/main compares with
-nothing, so its pairs' findings fail it. A lane's process (`--lane`)
-builds no merge base: it fails, naming the command that makes the run it
-lacks. A shots check's "before" side is read from the cached runs, never
+report holds findings.json. When builds has none cached, `builds app-build`
+does not build the merge base. It builds origin/main's tip first in the lane,
+with the lane's `needs` steps, and runs the lane's whole set of shots there
+(the prefix mac. or android.) with `--base`, once for every build of the lane:
+a build that finds the run being made waits for it, then finds it cached. That
+run is main's own: it compares with nothing and fails no pair with findings,
+since those findings are what the branch's run compares with, and it lists them
+as such. Its findings are cached, and the branch's run starts only after they
+are; only a step or a shots run that fails without failing pairs, as when it
+cannot render, stops the build. A branch that starts behind origin/main's tip
+(its merge base has no cached run) has nothing fair to compare with, since
+main's newer commits would show as findings it adds: the build stops and names
+the command, `git rebase origin/main`, and the run of the rebased branch
+compares with the tip's run. A merge base that has a cached run is used as it
+is, with no rebase. A run of a commit on origin/main compares with nothing, so
+its pairs' findings fail it. A lane's process (`--lane`) builds no base run: it
+fails, naming the command that makes the run it lacks. A shots check's "before" side is read from the cached runs, never
 built again.
 
   builds app-build <repo> <ref> [--test <Class>]... [--shots <prefix>]... [--all-shots mac|android]... [--fresh]
