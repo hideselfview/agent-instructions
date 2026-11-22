@@ -2273,8 +2273,16 @@ fn adding_codex_destinations_keeps_registered_claude_inboxes() {
         db.execute_batch(&old).unwrap();
         db.pragma_update(None, "user_version", BEFORE_CODEX_INBOX_STAMP)
             .unwrap();
-        db.execute_batch("INSERT INTO design_listener VALUES (1, '/tmp/listener.sock', 'design-secret', 10, 'designer');
-                          INSERT INTO review_judge VALUES (1, '/tmp/judge.sock', 'judge-secret', 'judge-id', 11, 'judge');").unwrap();
+        crate::lists::publish::tests::plant_legacy_listener(
+            &db,
+            ("/tmp/listener.sock", "design-secret"),
+            (10, "designer"),
+        );
+        crate::review::judge::tests::plant_legacy_judge(
+            &db,
+            ("/tmp/judge.sock", "judge-secret"),
+            ("judge-id", 11, "judge"),
+        );
     }
     migrate_stores(&places, 12).unwrap();
     let db = db::open(&path, db::Make::Never).unwrap();

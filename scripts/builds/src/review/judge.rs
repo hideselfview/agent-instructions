@@ -841,4 +841,4 @@ pub(crate) use tests::REVIEW_BRANCH_AGENT;
 
 #[cfg(test)]
 #[path = "judge_tests.rs"]
-pub(in crate::review) mod tests;
+pub(crate) mod tests;

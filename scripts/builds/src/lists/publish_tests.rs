@@ -4,6 +4,20 @@ use crate::lists::fixtures::{NOON, stamp};
 use crate::testing::{FakeInbox, Scratch, stale_socket};
 
 const TOKEN: &str = "s3cret-token-9a8b";
+
+/// Registers a design listener in a store that has the schema from before a
+/// destination could name a Codex thread, as a Claude Code session did then.
+pub(crate) fn plant_legacy_listener(
+    db: &rusqlite::Connection,
+    (socket, token): (&str, &str),
+    (at, by): (i64, &str),
+) {
+    db.execute(
+        "INSERT INTO design_listener (singleton, socket, token, at, by) VALUES (1, ?1, ?2, ?3, ?4)",
+        rusqlite::params![socket, token, at, by],
+    )
+    .unwrap();
+}
 const COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
 
 /// A store of project demo, in a scratch folder with a short path for

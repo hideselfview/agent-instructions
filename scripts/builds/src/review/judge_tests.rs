@@ -6,6 +6,20 @@ use crate::testing::{FakeInbox, Scratch, running_session};
 
 pub(in crate::review) const TOKEN: &str = "judge-token-7c1d";
 
+/// Registers a judge in a store that has the schema from before a destination
+/// could name a Codex thread, as a Claude Code session did then.
+pub(crate) fn plant_legacy_judge(
+    db: &rusqlite::Connection,
+    (socket, token): (&str, &str),
+    (session, at, by): (&str, i64, &str),
+) {
+    db.execute(
+        "INSERT INTO review_judge (singleton, socket, token, session, at, by) VALUES (1, ?1, ?2, ?3, ?4, ?5)",
+        rusqlite::params![socket, token, session, at, by],
+    )
+    .unwrap();
+}
+
 /// A store of project demo, in a scratch folder with a short path for
 /// sockets.
 struct Held {

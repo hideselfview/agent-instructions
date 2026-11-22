@@ -256,11 +256,16 @@ fn the_token_is_in_the_store_and_in_nothing_that_is_shown() {
     }
 }
 
-/// Recording and amending keep the environment's inbox; an amend clears what
-/// the session was told, and one made outside a session keeps the session.
-#[test]
-fn record_and_amend_keep_the_recording_sessions_inbox() {
-    let scratch = Scratch::new("session-record");
+/// A project demo whose repo has a base commit with design/system/tokens.css.
+struct Recording {
+    scratch: Scratch,
+    dir: std::path::PathBuf,
+    tool: crate::tool::Tool,
+    store: Store,
+}
+
+fn recording_project(name: &str) -> Recording {
+    let scratch = Scratch::new(name);
     let dir = scratch.dir.join("bae");
     repo(&dir, "target 1\n");
     git(&dir, &["tag", "base"]);
@@ -291,6 +296,24 @@ fn record_and_amend_keep_the_recording_sessions_inbox() {
     std::fs::write(dir.join("design/system/tokens.css"), "a{}").unwrap();
     git(&dir, &["add", "design"]);
     git(&dir, &["commit", "-q", "-m", "tokens"]);
+    Recording {
+        scratch,
+        dir,
+        tool,
+        store,
+    }
+}
+
+/// Recording and amending keep the environment's inbox; an amend clears what
+/// the session was told, and one made outside a session keeps the session.
+#[test]
+fn record_and_amend_keep_the_recording_sessions_inbox() {
+    let Recording {
+        scratch,
+        dir,
+        tool,
+        store,
+    } = recording_project("session-record");
     let run = |session: Option<Messaging>, command: &str| {
         let mut args: Vec<String> = command.split(' ').map(String::from).collect();
         args.extend([
@@ -338,6 +361,61 @@ fn record_and_amend_keep_the_recording_sessions_inbox() {
     let after = store.load().unwrap();
     assert_eq!(after.designs[0].session, SessionState::Waiting);
     assert!(after.designs[0].approved.is_none());
+}
+
+/// A Codex worker's approval goes to its own thread, never to its
+/// coordinator's thread.
+#[test]
+fn a_codex_workers_record_keeps_its_own_thread_and_not_its_coordinators() {
+    use crate::inbox::Destinations;
+    let worker =
+        crate::ack::agent::ThreadId::parse("00000000-0000-4000-8000-000000000001").unwrap();
+    let coordinator =
+        crate::ack::agent::ThreadId::parse("00000000-0000-4000-8000-000000000002").unwrap();
+    let Recording {
+        scratch,
+        dir,
+        tool,
+        store,
+    } = recording_project("session-codex-record");
+    let file = scratch.dir.join("request.json");
+    std::fs::write(
+        &file,
+        serde_json::json!({
+            "title": "Tokens", "details": "d", "worktree": dir.display().to_string(), "range": "base..HEAD",
+            "no_app_place": "tokens only",
+            "review": {"heading": "Tokens"},
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let args: Vec<String> = [
+        "record",
+        "--request",
+        file.to_str().unwrap(),
+        "--by",
+        "design",
+        "--project",
+        "demo",
+    ]
+    .map(String::from)
+    .to_vec();
+    crate::lists::design_command::run_with(
+        &tool,
+        &args,
+        || {
+            Ok(Some(Destinations::Codex {
+                thread: worker.clone(),
+                coordinator: coordinator.clone(),
+            }))
+        },
+        || Ok(None),
+    )
+    .unwrap();
+    let kept = kept(&store.open_existing().unwrap(), Id(1))
+        .unwrap()
+        .unwrap();
+    assert_eq!(kept.stored(), ("codex", worker.id(), None));
 }
 
 /// The messaging environment is read only by `record` and `amend`: a

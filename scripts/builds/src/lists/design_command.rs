@@ -74,7 +74,7 @@ pub fn run_as(
     )
 }
 
-fn run_with(
+pub(super) fn run_with(
     tool: &Tool,
     args: &[String],
     destinations: impl FnOnce() -> Result<Option<Destinations>>,

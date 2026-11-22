@@ -835,3 +835,15 @@ fn codex_compaction_clears_only_the_thread_named_in_the_event() {
     assert_eq!(record::last(&db, session, session).unwrap(), None);
     assert!(record::last(&db, session, other).unwrap().is_some());
 }
+
+#[test]
+fn the_gate_refuses_a_claude_agent_that_names_no_id() {
+    let world = world("ack-gate-no-id");
+    // SAFETY: each test of this suite runs in a process of its own, and this
+    // one starts no thread that reads the environment.
+    unsafe { std::env::remove_var(PASSED) };
+    let session = agent::Session::of(Some(SESSION_ID.into()), None, None, None);
+    let refusal = message(gate(&world.places, &session, "du", &[]));
+    assert!(refusal.contains("pass --agent ID"), "{refusal}");
+    assert!(refusal.contains("BUILDS_AGENT=ID"), "{refusal}");
+}

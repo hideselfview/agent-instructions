@@ -403,4 +403,4 @@ pub(crate) use tests::PUBLISH_REQUEST;
 
 #[cfg(test)]
 #[path = "publish_tests.rs"]
-mod tests;
+pub(crate) mod tests;
