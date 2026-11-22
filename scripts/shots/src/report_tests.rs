@@ -51,6 +51,7 @@ fn component_gaps() -> Listing {
         }],
         unnamed: Vec::new(),
         design_only: 0,
+        design_only_rows: 0,
     }
 }
 

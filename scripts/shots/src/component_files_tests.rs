@@ -261,6 +261,61 @@ fn a_design_only_line_for_a_component_with_no_preview_there_is_refused() {
     }
 }
 
+/// A platform that draws only some rows of a component marks the others as
+/// design only: those rows have no shot to keep, the component's other rows
+/// still need theirs, and the listing counts the rows it left out.
+#[test]
+fn a_design_only_row_is_left_out_of_its_components_rows_and_counted() {
+    let root = repo();
+    let found = listing_with(root.path(), "shots-design-only mac MacRow.nested-off\n").unwrap();
+    assert_eq!(found.design_only, 0);
+    assert_eq!(found.design_only_rows, 1);
+    let row = found
+        .components
+        .iter()
+        .find(|c| c.name == "MacRow")
+        .unwrap();
+    let shots: Vec<String> = row.rows.iter().map(|r| r.shot.to_string()).collect();
+    assert_eq!(shots, ["mac.component.row.label"]);
+    let text = lines(&found, &[]);
+    assert!(
+        !text.iter().any(|line| line.contains("nested-off")),
+        "{text:?}"
+    );
+    assert_eq!(
+        text.last().unwrap(),
+        "2 preview rows of 2 components have no shot in their capture files, 2 capture files have no preview, and 1 preview folder has no component name. 1 preview row draws for the design only and has no shot."
+    );
+    // The row stays on the other platform's components and in the rest of
+    // the component's rows: AndroidRow has one row, which stays.
+    let other = listing_with(root.path(), "shots-design-only android MacRow.nested-off\n");
+    assert!(other.unwrap_err().contains("has no preview there"));
+}
+
+#[test]
+fn a_design_only_row_that_is_no_row_of_its_component_is_refused() {
+    let root = repo();
+    for (line, why) in [
+        (
+            "shots-design-only mac MacRow.nested",
+            "is no row of MacRow's preview",
+        ),
+        (
+            "shots-design-only mac MacRow.Label",
+            "is no row of MacRow's preview",
+        ),
+        ("shots-design-only mac Missing.label", "has no preview"),
+        ("shots-design-only mac AndroidRow.default", "has no preview"),
+        (
+            "shots-design-only android AndroidRow.label",
+            "is no row of AndroidRow's preview",
+        ),
+    ] {
+        let error = listing_with(root.path(), &format!("{line}\n")).unwrap_err();
+        assert!(error.contains(why), "{line}: {error}");
+    }
+}
+
 #[test]
 fn a_named_component_shows_every_row_whether_its_file_declares_it_or_not() {
     let root = repo();

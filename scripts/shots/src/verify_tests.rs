@@ -28,6 +28,7 @@ fn a_run_passes_without_findings_or_problems() {
         }],
         unnamed: Vec::new(),
         design_only: 0,
+        design_only_rows: 0,
     };
     assert!(
         outcome.passed(),

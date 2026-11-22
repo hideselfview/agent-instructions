@@ -254,6 +254,7 @@ fn the_file_names_each_component_s_preview_rows_by_their_shots_in_the_preview_s_
         strays: Vec::new(),
         unnamed: Vec::new(),
         design_only: 0,
+        design_only_rows: 0,
     };
     let json: serde_json::Value =
         serde_json::from_str(&text(VERSION, CAPTURE, "abc123", &[], &[], &listing, 0)).unwrap();

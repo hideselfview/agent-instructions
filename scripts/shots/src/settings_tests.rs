@@ -77,6 +77,20 @@ fn a_design_only_line_names_the_components_a_platform_draws_for_the_design_alone
 }
 
 #[test]
+fn a_design_only_line_names_single_rows_as_component_dot_row() {
+    let settings =
+        Settings::parse("shots-design-only android Logo.inline Logo.sheep Sym\n").unwrap();
+    assert_eq!(
+        settings.design_only,
+        [
+            (Platform::Android, "Logo.inline".to_string()),
+            (Platform::Android, "Logo.sheep".to_string()),
+            (Platform::Android, "Sym".to_string()),
+        ]
+    );
+}
+
+#[test]
 fn a_shots_line_it_cannot_read_is_refused() {
     for (line, why) in [
         ("shots-capture", "names no platform"),
@@ -89,6 +103,8 @@ fn a_shots_line_it_cannot_read_is_refused() {
         ("shots-design-only", "names no platform"),
         ("shots-design-only mac", "names no component"),
         ("shots-design-only ios Sym", "mac, android or web"),
+        ("shots-design-only android Logo.", "names no row"),
+        ("shots-design-only android .inline", "names no component"),
         ("shots-guess x", "no line builds shots knows"),
         ("shots-source app-shots", "no line builds shots knows"),
     ] {

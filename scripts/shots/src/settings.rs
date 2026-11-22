@@ -12,6 +12,7 @@
 //! shots-preview-calls N W
 //! shots-unshot .keyboard
 //! shots-design-only mac AppIcon Sym
+//! shots-design-only android Logo.inline Logo.sheep
 //! ```
 //!
 //! - `shots-capture <platform> <command>...`: the command that takes the
@@ -30,7 +31,10 @@
 //!   design draws and the platform's app has no view for (an app icon's
 //!   artwork, a glyph library), whose preview rows have no shot and never
 //!   will, so the listing of component capture files leaves them out and
-//!   says how many (component_files.rs).
+//!   says how many (component_files.rs). `Component.row` marks one row of
+//!   the component's preview, named by its id (`Nested, off` is
+//!   `nested-off`), for a platform that draws the component's other rows
+//!   and not that one; the other rows keep their shots.
 //! - `shots-unshot <selector>...`: the parts of a board the app draws no
 //!   counterpart for, such as an on-screen keyboard, which the picture
 //!   comparison leaves out (render/read.rs).
@@ -41,6 +45,15 @@
 
 use crate::names::Platform;
 use std::path::{Path, PathBuf};
+
+/// A `shots-design-only` name split into its component and, for the form
+/// `Component.row`, the id of one row of the component's preview.
+pub(crate) fn split_design_only(name: &str) -> (&str, Option<&str>) {
+    match name.split_once('.') {
+        Some((component, row)) => (component, Some(row)),
+        None => (name, None),
+    }
+}
 
 /// The file the settings are read from, at the repo's top.
 pub(crate) const FILE: &str = ".app-build";
@@ -142,9 +155,13 @@ impl Settings {
                     if components.is_empty() {
                         return Err(bad("names no component"));
                     }
-                    settings
-                        .design_only
-                        .extend(components.iter().map(|c| (platform, c.clone())));
+                    for component in components {
+                        match split_design_only(component) {
+                            ("", _) => return Err(bad("names no component")),
+                            (_, Some("")) => return Err(bad("names no row")),
+                            _ => settings.design_only.push((platform, component.clone())),
+                        }
+                    }
                 }
                 "shots-preview-calls" | "shots-unshot" => {
                     if rest.is_empty() {

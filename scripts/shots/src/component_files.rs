@@ -14,7 +14,7 @@
 
 use crate::declared::{self, COMPONENTS, Declared};
 use crate::names::{Name, Platform, Previews};
-use crate::settings::Settings;
+use crate::settings::{Settings, split_design_only};
 use std::path::{Path, PathBuf};
 
 /// Every component's capture file and every capture file with no preview.
@@ -34,6 +34,11 @@ pub(crate) struct Listing {
     /// leaves out because the platform draws them for the design only
     /// (`shots-design-only`): its app has no view their shots could draw.
     pub(crate) design_only: usize,
+    /// How many preview rows, counted once for each platform, the listing
+    /// leaves out because the platform draws them for the design only
+    /// (`shots-design-only Component.row`) while it draws the component's
+    /// other rows.
+    pub(crate) design_only_rows: usize,
 }
 
 /// A component on one platform: its capture file and its preview's rows.
@@ -85,7 +90,7 @@ impl Listing {
             &self.components.iter().collect::<Vec<_>>(),
             self.strays.len(),
             self.unnamed.len(),
-            self.design_only,
+            (self.design_only, self.design_only_rows),
         )
     }
 
@@ -127,16 +132,28 @@ pub(crate) fn list(
 
     let mut components = Vec::new();
     let mut design_only = 0;
-    for (platform, name) in &settings.design_only {
-        let drawn = previews
-            .components
-            .iter()
-            .any(|(known, key)| known == name && key.platform.is_none_or(|p| p == platform.word()));
-        if !drawn {
+    let mut design_only_rows = 0;
+    for (platform, spec) in &settings.design_only {
+        let (name, row) = split_design_only(spec);
+        let drawn = previews.components.iter().find(|(known, key)| {
+            known == name && key.platform.is_none_or(|p| p == platform.word())
+        });
+        let Some((name, _)) = drawn else {
             return Err(format!(
                 "shots-design-only names {name} on {}, which has no preview there",
                 platform.word()
             ));
+        };
+        if let Some(row) = row {
+            let preview = root.join(boards::preview::preview_path(name));
+            let html = std::fs::read_to_string(&preview)
+                .map_err(|e| format!("cannot read {}: {e}", preview.display()))?;
+            if !crate::lint::rows(&html, &settings.preview_calls).contains(&row.to_string()) {
+                return Err(format!(
+                    "shots-design-only names {name}.{row} on {}, which is no row of {name}'s preview",
+                    platform.word()
+                ));
+            }
         }
     }
     for (name, key) in &previews.components {
@@ -148,11 +165,12 @@ pub(crate) fn list(
             if key.platform.is_some_and(|p| p != platform.word()) {
                 continue;
             }
-            if settings
-                .design_only
-                .iter()
-                .any(|(only, component)| only == platform && component == name)
-            {
+            let marked = |row: Option<&str>| {
+                settings.design_only.iter().any(|(only, spec)| {
+                    only == platform && split_design_only(spec) == (name.as_str(), row)
+                })
+            };
+            if marked(None) {
                 design_only += 1;
                 continue;
             }
@@ -160,6 +178,10 @@ pub(crate) fn list(
             let path = root.join(&file);
             let mut rows = Vec::new();
             for state in &states {
+                if marked(Some(state)) {
+                    design_only_rows += 1;
+                    continue;
+                }
                 let shot = crate::names::component_shot(key, *platform, state)
                     .map_err(|e| format!("{}: {e}", preview.display()))?;
                 let place = match declared.iter().find(|d| d.name == shot) {
@@ -217,6 +239,7 @@ pub(crate) fn list(
         strays,
         unnamed,
         design_only,
+        design_only_rows,
     })
 }
 
@@ -320,15 +343,21 @@ pub(crate) fn lines(listing: &Listing, only: &[String]) -> Vec<String> {
         &components,
         strays.len(),
         unnamed.len(),
-        listing.design_only,
+        (listing.design_only, listing.design_only_rows),
     ));
     lines
 }
 
 /// The sentence that counts the rows <components> leave out of their capture
 /// files, the <strays>, the <unnamed> preview folders and the components the
-/// listing leaves out because they draw for the <design_only>.
-fn counts(components: &[&Component], strays: usize, unnamed: usize, design_only: usize) -> String {
+/// listing leaves out because they draw for the design only, <design_only>
+/// whole components and <design_only_rows> single rows of the rest.
+fn counts(
+    components: &[&Component],
+    strays: usize,
+    unnamed: usize,
+    (design_only, design_only_rows): (usize, usize),
+) -> String {
     let rows = components
         .iter()
         .map(|c| c.missing().count())
@@ -377,17 +406,32 @@ fn counts(components: &[&Component], strays: usize, unnamed: usize, design_only:
         Some((last, [])) => format!("{last}."),
         Some((last, rest)) => format!("{}, and {last}.", rest.join(", ")),
     };
-    if design_only == 0 {
+    let mut left_out = Vec::new();
+    if design_only > 0 {
+        left_out.push(format!(
+            "{design_only} {} draw for the design only and have no shots.",
+            if design_only == 1 {
+                "component"
+            } else {
+                "components"
+            }
+        ));
+    }
+    if design_only_rows > 0 {
+        left_out.push(format!(
+            "{design_only_rows} preview {} for the design only and {} no shot.",
+            if design_only_rows == 1 {
+                "row draws"
+            } else {
+                "rows draw"
+            },
+            if design_only_rows == 1 { "has" } else { "have" },
+        ));
+    }
+    if left_out.is_empty() {
         return gaps;
     }
-    format!(
-        "{gaps} {design_only} {} draw for the design only and have no shots.",
-        if design_only == 1 {
-            "component"
-        } else {
-            "components"
-        }
-    )
+    format!("{gaps} {}", left_out.join(" "))
 }
 
 #[cfg(test)]

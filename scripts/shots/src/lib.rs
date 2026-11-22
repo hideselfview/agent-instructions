@@ -168,8 +168,9 @@ enum Action {
     /// List each design-system component's preview rows whose shot its
     /// capture file (Components/<Component>.<extension> under the platform's
     /// declare folder) does not declare, and each capture file with no
-    /// preview. A component that `shots-design-only` names for a platform is
-    /// left out there and counted. The listing fails nothing.
+    /// preview. A component, or a row (`Component.row`), that
+    /// `shots-design-only` names for a platform is left out there and counted.
+    /// The listing fails nothing.
     /// List each design-system component state that a board draws and no row
     /// of the component's preview shows: a value of a state prop, or a
     /// component no preview row draws, with the boards that draw it. A prop

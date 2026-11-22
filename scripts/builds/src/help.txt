@@ -1700,7 +1700,16 @@ built again.
                               <row> <name> <cell>` gives the selectors of a
                               component preview's rows, `shots-preview-calls
                               <function>...` the functions that name a
-                              preview's rows, and `shots-unshot
+                              preview's rows, `shots-design-only
+                              <platform> <Component>...` the components the
+                              platform's app has no view for, and
+                              `<Component>.<row>` one row of a component's
+                              preview (the row's id, as in `Logo.inline`)
+                              that the platform does not draw while it draws
+                              the component's other rows: `components` leaves
+                              them out and counts them, and a name that is no
+                              component with a preview there, or no row of its
+                              preview, is an error. `shots-unshot
                               <selector>...` the parts of a board that the
                               app draws nothing for. A board's elements with
                               the class `bae-preview-slot` are a container's
