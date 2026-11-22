@@ -137,9 +137,10 @@ fn draw(
                                 board::render(page, name, &server.board_url(name), *frame, 1.0)
                                     .await
                                     .map_err(|e| e.to_string())?;
-                            let elements = render::read::elements(page, Platform::Mac)
-                                .await
-                                .map_err(|e| e.to_string())?;
+                            let elements =
+                                render::read::elements(page, rendered.frame, Platform::Mac)
+                                    .await
+                                    .map_err(|e| e.to_string())?;
                             Picture::of(&rendered.png, &elements)
                         })
                         .await?,
@@ -163,20 +164,14 @@ fn draw(
                             )
                             .await
                             .map_err(|e| e.to_string())?;
-                            let png = page
-                                .screenshot(
-                                    chromiumoxide::page::ScreenshotParams::builder()
-                                        .format(chromiumoxide::cdp::browser_protocol::page::CaptureScreenshotFormat::Png)
-                                        .capture_beyond_viewport(true)
-                                        .full_page(true)
-                                        .build(),
-                                )
+                            let rendered = preview::capture(page, preview::CaptureArea::Page)
                                 .await
                                 .map_err(|e| e.to_string())?;
-                            let elements = render::read::elements(page, Platform::Mac)
-                                .await
-                                .map_err(|e| e.to_string())?;
-                            Picture::of(&png, &elements)
+                            let elements =
+                                render::read::elements(page, rendered.frame, Platform::Mac)
+                                    .await
+                                    .map_err(|e| e.to_string())?;
+                            Picture::of(&rendered.png, &elements)
                         })
                         .await?,
                 )

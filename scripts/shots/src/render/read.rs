@@ -290,11 +290,11 @@ const GEOMETRY: &str = r#"function(frame) {
     }
     return element.parentElement;
   };
-  const visible = (rect, ancestor, frameLeft, frameTop) => {
-    let left = Math.max(rect.left, frameLeft);
-    let top = Math.max(rect.top, frameTop);
-    let right = Math.min(rect.right, frameLeft + frame.width);
-    let bottom = Math.min(rect.bottom, frameTop + frame.height);
+  const visible = (rect, ancestor) => {
+    let left = Math.max(rect.left, frame.x);
+    let top = Math.max(rect.top, frame.y);
+    let right = Math.min(rect.right, frame.x + frame.width);
+    let bottom = Math.min(rect.bottom, frame.y + frame.height);
     const root = document.documentElement;
     const rootStyle = getComputedStyle(root);
     // The root's overflow applies to the viewport, as does the body's when
@@ -336,11 +336,9 @@ const GEOMETRY: &str = r#"function(frame) {
   }
   const element = isText ? this.parentElement : this;
   const style = element ? getComputedStyle(element) : null;
-  const frameLeft = frame.x - window.scrollX;
-  const frameTop = frame.y - window.scrollY;
   return {
-    bounds: {x: rect.x - frameLeft, y: rect.y - frameTop, width: rect.width, height: rect.height},
-    visible: visible(rect, isText ? element : clippingParent(element, style), frameLeft, frameTop),
+    bounds: {x: rect.x, y: rect.y, width: rect.width, height: rect.height},
+    visible: visible(rect, isText ? element : clippingParent(element, style)),
     size: style ? parseFloat(style.fontSize) : null,
     weight: style ? parseInt(style.fontWeight, 10) : null,
     color: style ? style.color : null,
@@ -429,30 +427,35 @@ fn raw(node: &AxNode) -> Raw {
     }
 }
 
-/// The page's elements in reading order.
-pub(crate) async fn elements(page: &Page, platform: Platform) -> Result<Vec<Element>, ReadError> {
-    let frame = page
-        .evaluate("({x: scrollX, y: scrollY, width: innerWidth, height: innerHeight})")
-        .await
-        .map_err(protocol)?
-        .into_value()
-        .map_err(protocol)?;
+/// The elements visible in `frame`, in reading order.
+pub(crate) async fn elements(
+    page: &Page,
+    frame: Bounds,
+    platform: Platform,
+) -> Result<Vec<Element>, ReadError> {
     build(&gather(page, frame).await?, platform)
+}
+
+fn relative_to(mut bounds: Bounds, origin: (f64, f64)) -> Bounds {
+    bounds.x -= origin.0;
+    bounds.y -= origin.1;
+    bounds
 }
 
 /// The boxes of the elements <selector> matches, measured from `origin`.
 async fn boxes(page: &Page, selector: &str, origin: (f64, f64)) -> Result<Vec<Bounds>, ReadError> {
     let selector = serde_json::to_string(selector).expect("a string serializes");
-    page.evaluate(format!(
-        "[...document.querySelectorAll({selector})].map(e => {{ \
-           const r = e.getBoundingClientRect(); \
-           return {{x: r.x - {}, y: r.y - {}, width: r.width, height: r.height}}; }})",
-        origin.0, origin.1
-    ))
-    .await
-    .map_err(protocol)?
-    .into_value()
-    .map_err(protocol)
+    let bounds: Vec<Bounds> = page
+        .evaluate(format!(
+            "[...document.querySelectorAll({selector})].map(e => {{ \
+             const r = e.getBoundingClientRect(); \
+             return {{x: r.x, y: r.y, width: r.width, height: r.height}}; }})"
+        ))
+        .await
+        .map_err(protocol)?
+        .into_value()
+        .map_err(protocol)?;
+    Ok(bounds.into_iter().map(|b| relative_to(b, origin)).collect())
 }
 
 /// The boxes of the parts of a board that the app draws no counterpart for,
@@ -512,7 +515,7 @@ fn subtree(raw: &[Raw], backend: i64) -> Result<Vec<Raw>, ReadError> {
 }
 
 async fn gather(page: &Page, frame: Bounds) -> Result<Vec<Raw>, ReadError> {
-    let frame = CallArgument::builder()
+    let frame_argument = CallArgument::builder()
         .value(serde_json::to_value(frame).map_err(protocol)?)
         .build();
     page.execute(EnableParams::default())
@@ -526,10 +529,10 @@ async fn gather(page: &Page, frame: Bounds) -> Result<Vec<Raw>, ReadError> {
     for node in &tree.result.nodes {
         let mut raw = raw(node);
         if !raw.ignored && !STRUCTURE.contains(&raw.chrome_role.as_str()) {
-            match measure(page, node, &frame).await? {
+            match measure(page, node, &frame_argument).await? {
                 Ok(geometry) => {
                     raw.ignored = !geometry.visible;
-                    raw.bounds = Some(geometry.bounds);
+                    raw.bounds = Some(relative_to(geometry.bounds, (frame.x, frame.y)));
                     raw.text = match (geometry.size, geometry.weight, geometry.color) {
                         (Some(size), Some(weight), Some(color)) => {
                             srgb(&color).map(|color| TextStyle {

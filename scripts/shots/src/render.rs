@@ -208,20 +208,20 @@ async fn draw_screen(
     let rendered = board::render(page, board, &server.board_url(board), frame, scale)
         .await
         .map_err(|e| e.to_string())?;
-    let elements = read::elements(page, platform)
+    let elements = read::elements(page, rendered.frame, platform)
         .await
         .map_err(|e| e.to_string())?;
     let unshot = read::unshot(page, &settings.unshot)
         .await
         .map_err(|e| e.to_string())?;
-    let slots = read::slots(page, (0.0, 0.0))
+    let slots = read::slots(page, (rendered.frame.x, rendered.frame.y))
         .await
         .map_err(|e| e.to_string())?;
     Ok(Drawn {
         png: rendered.png,
         size: Size {
-            width: f64::from(frame.w),
-            height: f64::from(frame.h),
+            width: rendered.frame.width,
+            height: rendered.frame.height,
         },
         elements,
         unshot,

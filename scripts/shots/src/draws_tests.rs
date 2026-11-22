@@ -83,6 +83,38 @@ fn a_board_whose_bytes_change_and_drawing_does_not_draws_alike_and_a_redrawn_one
     assert_eq!(moved, vec![format!("differs board {BOARD}")]);
 }
 
+#[test]
+fn a_label_below_the_viewport_changes_the_full_preview_drawing() {
+    let repo = history();
+    let component = "MacRow";
+    let path = boards::preview::preview_path(component);
+    let preview = repo.path().join(&path);
+    std::fs::create_dir_all(preview.parent().unwrap()).unwrap();
+    for (revision, label) in [
+        ("before-label", "Open album"),
+        ("after-label", "Open artist"),
+    ] {
+        std::fs::write(
+            &preview,
+            format!("<html><head></head><body><button style='margin-top:1200px' aria-label='{label}'>Open</button></body></html>"),
+        )
+        .unwrap();
+        git(repo.path(), &["add", "--", &path]);
+        git(repo.path(), &["commit", "-q", "-m", revision]);
+        git(repo.path(), &["tag", revision]);
+    }
+    let drawings = lines(
+        repo.path(),
+        "before-label",
+        "after-label",
+        &[],
+        &[component.to_string()],
+        &cache(),
+    )
+    .unwrap();
+    assert_eq!(drawings, ["differs component MacRow"]);
+}
+
 /// `history()` plus commit `p`, which adds the preview of a component, and
 /// commit `d`, which deletes that preview and the board's file, and commit
 /// `e`, which deletes them on a branch from `p`.

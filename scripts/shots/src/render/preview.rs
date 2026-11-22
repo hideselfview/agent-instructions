@@ -100,6 +100,43 @@ pub(crate) struct Row {
     pub(crate) slots: Vec<Bounds>,
 }
 
+pub(crate) enum CaptureArea {
+    Page,
+    Cell(Bounds),
+}
+
+/// Captures the whole preview page or one cell without resizing the viewport.
+pub(crate) async fn capture(page: &Page, area: CaptureArea) -> Result<board::Rendered, BoardError> {
+    let metrics = page.layout_metrics().await.map_err(board::protocol)?;
+    let viewport = metrics.css_visual_viewport;
+    let frame = match area {
+        CaptureArea::Page => Bounds {
+            x: -viewport.page_x,
+            y: -viewport.page_y,
+            width: metrics.css_content_size.width,
+            height: metrics.css_content_size.height,
+        },
+        CaptureArea::Cell(frame) => frame,
+    };
+    let png = page
+        .screenshot(
+            ScreenshotParams::builder()
+                .format(CaptureScreenshotFormat::Png)
+                .clip(Viewport {
+                    x: frame.x + viewport.page_x,
+                    y: frame.y + viewport.page_y,
+                    width: frame.width,
+                    height: frame.height,
+                    scale: 1.0,
+                })
+                .capture_beyond_viewport(true)
+                .build(),
+        )
+        .await
+        .map_err(board::protocol)?;
+    Ok(board::Rendered { png, frame })
+}
+
 /// Loads the preview at `url` and draws the row of `state`, at `scale` pixels
 /// per point: the picture of its cell and the elements inside it, measured
 /// from the cell's top-left, read as `platform`'s boards are. `marks` are the
@@ -152,7 +189,7 @@ pub(crate) async fn render_row(
     let rect: Bounds = page
         .evaluate(format!(
             "(() => {{ const r = {cell}.getBoundingClientRect(); \
-             return {{x: r.x + scrollX, y: r.y + scrollY, width: r.width, height: r.height}}; }})()"
+             return {{x: r.x, y: r.y, width: r.width, height: r.height}}; }})()"
         ))
         .await
         .map_err(board::protocol)?
@@ -175,37 +212,20 @@ pub(crate) async fn render_row(
         .execute(DescribeNodeParams::builder().object_id(object).build())
         .await
         .map_err(board::protocol)?;
-    let clip = Viewport::builder()
-        .x(rect.x)
-        .y(rect.y)
-        .width(rect.width)
-        .height(rect.height)
-        .scale(1.0)
-        .build()
-        .map_err(board::protocol)?;
-    let png = page
-        .screenshot(
-            ScreenshotParams::builder()
-                .format(CaptureScreenshotFormat::Png)
-                .clip(clip)
-                .capture_beyond_viewport(true)
-                .build(),
-        )
-        .await
-        .map_err(board::protocol)?;
+    let rendered = capture(page, CaptureArea::Cell(rect)).await?;
     let elements = read::elements_in(
         page,
         *described.result.node.backend_node_id.inner(),
-        rect,
+        rendered.frame,
         platform,
     )
     .await?;
-    let slots = read::slots(page, (rect.x, rect.y)).await?;
+    let slots = read::slots(page, (rendered.frame.x, rendered.frame.y)).await?;
     Ok(Row {
-        png,
+        png: rendered.png,
         size: Size {
-            width: rect.width,
-            height: rect.height,
+            width: rendered.frame.width,
+            height: rendered.frame.height,
         },
         elements,
         slots,

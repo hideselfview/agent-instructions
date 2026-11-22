@@ -230,10 +230,10 @@ async fn read_fixture() -> Vec<Element> {
     let elements = fixture::with_browser(root.path(), async |server, chrome| {
         let page = chrome.new_page().await.unwrap();
         let url = server.board_url("fixture.roles");
-        render(&page, "fixture.roles", &url, Frame { w: 500, h: 600 }, 1.0)
+        let rendered = render(&page, "fixture.roles", &url, Frame { w: 500, h: 600 }, 1.0)
             .await
             .unwrap();
-        elements(&page, Platform::Mac).await
+        elements(&page, rendered.frame, Platform::Mac).await
     })
     .await;
     elements.unwrap()
@@ -271,10 +271,12 @@ async fn a_board_reads_elements_with_area_inside_its_frame_and_overflow_clips() 
     let elements = fixture::with_browser(root.path(), async |server, chrome| {
         let page = chrome.new_page().await.unwrap();
         let url = server.board_url("fixture.clips");
-        render(&page, "fixture.clips", &url, Frame { w: 300, h: 120 }, 1.0)
+        let rendered = render(&page, "fixture.clips", &url, Frame { w: 300, h: 120 }, 1.0)
             .await
             .unwrap();
-        elements(&page, Platform::Mac).await.unwrap()
+        elements(&page, rendered.frame, Platform::Mac)
+            .await
+            .unwrap()
     })
     .await;
     let labels: Vec<_> = elements.iter().filter_map(|e| e.label.as_deref()).collect();
@@ -298,14 +300,16 @@ async fn a_boards_on_screen_keyboard_is_found_and_not_an_element() {
     let found = fixture::with_browser(root.path(), async |server, chrome| {
         let page = chrome.new_page().await.unwrap();
         let url = server.board_url("fixture.roles");
-        render(&page, "fixture.roles", &url, Frame { w: 500, h: 600 }, 1.0)
+        let rendered = render(&page, "fixture.roles", &url, Frame { w: 500, h: 600 }, 1.0)
             .await
             .unwrap();
         (
             unshot(&page, &[".demo-keyboard".to_string()])
                 .await
                 .unwrap(),
-            elements(&page, Platform::Android).await.unwrap(),
+            elements(&page, rendered.frame, Platform::Android)
+                .await
+                .unwrap(),
         )
     })
     .await;
@@ -436,7 +440,7 @@ async fn each_board_element_names_the_nearest_component_that_draws_it() {
     let elements = fixture::with_browser(root.path(), async |server, chrome| {
         let page = chrome.new_page().await.unwrap();
         let url = server.board_url("fixture.components");
-        render(
+        let rendered = render(
             &page,
             "fixture.components",
             &url,
@@ -445,7 +449,7 @@ async fn each_board_element_names_the_nearest_component_that_draws_it() {
         )
         .await
         .unwrap();
-        elements(&page, Platform::Mac).await
+        elements(&page, rendered.frame, Platform::Mac).await
     })
     .await
     .unwrap();
@@ -466,10 +470,10 @@ async fn a_page_global_that_throws_when_read_fails_the_read() {
     let read = fixture::with_browser(root.path(), async |server, chrome| {
         let page = chrome.new_page().await.unwrap();
         let url = server.board_url("fixture.throws");
-        render(&page, "fixture.throws", &url, Frame { w: 300, h: 200 }, 1.0)
+        let rendered = render(&page, "fixture.throws", &url, Frame { w: 300, h: 200 }, 1.0)
             .await
             .unwrap();
-        elements(&page, Platform::Mac).await
+        elements(&page, rendered.frame, Platform::Mac).await
     })
     .await;
     let error = read.expect_err("the read fails").to_string();

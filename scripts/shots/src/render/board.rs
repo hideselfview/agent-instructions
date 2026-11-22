@@ -12,6 +12,7 @@
 //! and so does one that wrote a runtime error to the console before then.
 
 use crate::design::Frame;
+use crate::shots::Bounds;
 use chromiumoxide::Page;
 use chromiumoxide::cdp::browser_protocol::emulation::{
     EventVirtualTimeBudgetExpired, MediaFeature, SetDeviceMetricsOverrideParams,
@@ -52,6 +53,8 @@ pub(crate) fn protocol(error: impl std::fmt::Display) -> BoardError {
 pub(crate) struct Rendered {
     /// The PNG at `scale` pixels per point.
     pub(crate) png: Vec<u8>,
+    /// The captured rectangle in viewport coordinates, in points.
+    pub(crate) frame: Bounds,
 }
 
 fn text(object: &RemoteObject) -> String {
@@ -192,7 +195,15 @@ pub(crate) async fn render(
         )
         .await
         .map_err(protocol)?;
-    Ok(Rendered { png })
+    Ok(Rendered {
+        png,
+        frame: Bounds {
+            x: 0.0,
+            y: 0.0,
+            width: f64::from(frame.w),
+            height: f64::from(frame.h),
+        },
+    })
 }
 
 /// Loads `url` in a frame of `frame` points at `scale` pixels per point, in
