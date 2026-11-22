@@ -447,6 +447,30 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
             });
         }
     }
+    // A group that raises an open finding again on the same code finds the
+    // same problem: the open finding stays, and the run records no new one.
+    let still_found: Vec<Vec<&record::Finding>> = answers
+        .iter_mut()
+        .map(|asked| {
+            let mut still: Vec<&record::Finding> = Vec::new();
+            for call in &mut asked.calls {
+                call.findings.retain(|raised| {
+                    let Some(open) = open_findings.iter().find(|held| {
+                        held.group == call.group
+                            && held.matches(raised)
+                            && !closed.contains(&held.id)
+                    }) else {
+                        return true;
+                    };
+                    if !still.iter().any(|seen| seen.id == open.id) {
+                        still.push(open);
+                    }
+                    false
+                });
+            }
+            still
+        })
+        .collect();
     let stamp = inputs.stamp;
     let (landing, runs) = inputs
         .store
@@ -498,7 +522,9 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
         })?;
     drop(running);
     let mut text = String::new();
-    for ((ask, asked), (run_id, calls, findings)) in asks.iter().zip(&answers).zip(&runs) {
+    for (at, ((ask, asked), (run_id, calls, findings))) in
+        asks.iter().zip(&answers).zip(&runs).enumerate()
+    {
         text.push_str(&format!(
             "review of {} (landing {landing}, run {run_id}) over {}...{}\n",
             inputs.key,
@@ -520,6 +546,12 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
             ));
         }
         text.push_str(&render::run_report(calls, findings));
+        for finding in &still_found[at] {
+            text.push_str(&format!(
+                "{} still finds finding {} ({}, {}): the code at its place has not changed, so builds records no new finding and tells the judge nothing\n",
+                finding.group, finding.id, finding.rule, finding.file
+            ));
+        }
         for finding in &open_findings {
             if asked.calls.iter().any(|c| c.closes.contains(&finding.id)) {
                 text.push_str(&format!(

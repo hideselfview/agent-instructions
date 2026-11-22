@@ -183,6 +183,14 @@ impl Finding {
         self.kind == "review" && self.counts() && self.settled.is_none()
     }
 
+    /// Whether <raised> is this finding again: the same rule, file and
+    /// quoted code line.
+    pub fn matches(&self, raised: &NewFinding) -> bool {
+        self.rule == raised.rule
+            && self.file == raised.file
+            && self.code.trim() == raised.code.trim()
+    }
+
     /// Whether it is an open confirmed finding of a review: settled once, as
     /// confirmed, and no review run closed it.
     pub fn is_open(&self) -> bool {

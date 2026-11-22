@@ -1963,3 +1963,33 @@ fn a_review_of_a_worktree_with_uncommitted_changes_starts_no_reviewer_and_names_
     .unwrap();
     assert!(landing.is_none(), "a refused review records nothing");
 }
+
+#[test]
+fn a_group_that_raises_an_open_finding_again_on_unchanged_code_records_nothing_new() {
+    let demo = demo("review-reraised");
+    let fake = fake(&demo.scratch.dir);
+    let side = demo.add_side(1, "agent", "work");
+    demo.commit(&side, "a.rs");
+    fake.answer("alpha", &[("rule-a", Some(BAD))]);
+    let landing = run_review(&demo, &fake, &side, "k").landing.unwrap();
+    let finding = findings_of(&demo, landing)[0].id;
+    settle_as(&demo, finding, "confirmed", "a real break");
+    // Nothing changed, so the group reads the whole net change again and
+    // raises the same finding on the same line.
+    fake.prompts();
+    fake.answer("alpha", &[("rule-a", Some(BAD))]);
+    let again = run_review(&demo, &fake, &side, "k");
+    assert_eq!(fake.prompts().len(), 1, "{}", again.text);
+    let held = findings_of(&demo, landing);
+    assert_eq!(held.len(), 1, "no new finding: {held:?}");
+    assert!(held[0].is_open());
+    assert!(
+        again.text.contains(&format!(
+            "alpha still finds finding {finding} (rule-a, a.rs)"
+        )),
+        "{}",
+        again.text
+    );
+    assert!(!again.text.contains("1 finding"), "{}", again.text);
+    assert!(unsettled(&demo.store, landing).unwrap().is_empty());
+}

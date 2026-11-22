@@ -3387,6 +3387,12 @@ run `review replay --rules-root` on it.
                               groups that hold open confirmed findings again
                               when it lacks nothing; builds refuses the run
                               when nothing is open either.
+                              A group that raises an open confirmed finding
+                              again on code the branch has not changed (the
+                              same rule, file and quoted code line) gets no
+                              new finding: builds keeps the open finding
+                              open, tells the judge nothing, and the run's
+                              report says the group still finds it.
                               --head SHA reviews the commits up to SHA from a
                               copy of their files, not the worktree. Prints
                               the findings by group and a total line, then
