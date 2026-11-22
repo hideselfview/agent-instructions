@@ -12,10 +12,16 @@
 -- JSON.
 CREATE TABLE design_listener (
     singleton INTEGER PRIMARY KEY CONSTRAINT design_listener_is_single CHECK (singleton = 1),
-    -- The session's inbox socket (CLAUDE_CODE_MESSAGING_SOCKET).
-    socket TEXT NOT NULL CONSTRAINT design_listener_socket_is_absolute CHECK (substr(socket, 1, 1) = '/'),
-    -- CLAUDE_CODE_MESSAGING_TOKEN; NULL when the session had none.
-    token TEXT CONSTRAINT design_listener_token_says_something CHECK (token IS NULL OR trim(token) <> ''),
+    runtime TEXT NOT NULL CONSTRAINT design_listener_runtime_known CHECK (runtime IN ('claude', 'codex')),
+    address TEXT NOT NULL CONSTRAINT design_listener_address_matches_runtime CHECK (
+        (runtime = 'claude' AND substr(address, 1, 1) = '/' AND instr(address, char(0)) = 0) OR
+        (runtime = 'codex' AND length(CAST(address AS BLOB)) = 36
+            AND substr(address, 9, 1) = '-' AND substr(address, 14, 1) = '-'
+            AND substr(address, 19, 1) = '-' AND substr(address, 24, 1) = '-'
+            AND length(replace(address, '-', '')) = 32
+            AND replace(address, '-', '') NOT GLOB '*[^0-9a-f]*')
+    ),
+    token TEXT CONSTRAINT design_listener_token_is_claude_inbox_secret CHECK (token IS NULL OR (runtime = 'claude' AND trim(token) <> '')),
     at INTEGER NOT NULL,
     by TEXT NOT NULL CONSTRAINT design_listener_by_is_named CHECK (trim(by) <> '')
 ) STRICT;
@@ -36,6 +42,8 @@ CREATE TABLE publish_request (
     outcome TEXT CONSTRAINT publish_request_outcome_known CHECK (outcome IS NULL OR outcome IN ('published', 'failed')),
     -- What stopped a failed request.
     error TEXT CONSTRAINT publish_request_error_says_something CHECK (error IS NULL OR trim(error) <> ''),
+    delivery TEXT CONSTRAINT publish_delivery_known CHECK (delivery IS NULL OR delivery IN ('unconfirmed', 'delivered', 'queued')),
+    CONSTRAINT publish_delivery_while_awaiting_pickup CHECK ((delivery IS NOT NULL) = (taken_at IS NULL AND ended_at IS NULL)),
     CONSTRAINT publish_request_taken_whole CHECK ((taken_at IS NULL) = (taken_by IS NULL)),
     CONSTRAINT publish_request_ended_whole CHECK ((ended_at IS NULL) = (outcome IS NULL)),
     CONSTRAINT publish_request_failed_says_why CHECK ((outcome IS 'failed') = (error IS NOT NULL)),

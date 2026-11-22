@@ -1,4 +1,4 @@
-//! The judge of a project's reviews: a standing Claude Code session that
+//! The judge of a project's reviews: a standing Codex or Claude Code session that
 //! settles the findings of every review of the project's branches, so that
 //! each finding is judged by a session that keeps the rules and the earlier
 //! settles in its context.
@@ -11,11 +11,10 @@
 //! ```
 //!
 //! `listen` keeps the inbox of the session that runs it (inbox.rs) as the
-//! project's judge, in place of any earlier one. A judge listens while its
-//! session runs, which Claude Code's record of its running sessions says
-//! (claude_sessions.rs). Only a session's main agent judges: an agent that a
-//! session dispatched shares that session's inbox, so a message to it would
-//! reach its session instead.
+//! project's judge, in place of any earlier one. Claude Code's running
+//! sessions (claude_sessions.rs) and Codex's resumable threads determine
+//! whether the judge can receive a message. Only a main session judges.
+//! A dispatched agent works on a branch the judge may need to settle.
 //!
 //! An implementing agent reviews its own branch. When a review leaves
 //! findings that nobody has settled, `builds review` tells the judge of them
@@ -53,7 +52,7 @@ use crate::ack::agent::Caller;
 use crate::db::Sql;
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
-use crate::inbox::{Messaging, Sent, send};
+use crate::inbox::{Messaging, Recipient, Sent, StoredEndpoint};
 use crate::lists::Stamp;
 use crate::lists::args::{Args, current_dir};
 use crate::lists::store::Store;
@@ -67,7 +66,7 @@ const USAGE: &str = "usage: builds judge listen --project P [--by WHO]";
 /// The session that judges a project's reviews.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Judge {
-    /// Its Claude Code session id, which is its main agent's id too.
+    /// Its session id, which is its main agent's id too.
     pub session: String,
     /// The name it listened under, which its settles carry.
     pub by: String,
@@ -84,49 +83,53 @@ impl Judge {
 /// The session that last listened as the project's judge, whether or not it
 /// still runs.
 fn last(db: &Connection) -> Result<Option<Judge>> {
-    let row: Option<(String, Option<String>, String, String)> = db
+    let row = db
         .query_row(
-            "SELECT socket, token, session, by FROM review_judge",
+            "SELECT runtime, address, token, session, by FROM review_judge",
             [],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            |row| {
+                Ok((
+                    StoredEndpoint::read(row)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                ))
+            },
         )
         .optional()
         .sql()?;
-    row.map(|(socket, token, session, by)| {
+    row.map(|(inbox, session, by)| {
         Ok(Judge {
             session,
             by,
-            inbox: Messaging::new(&socket, token.as_deref())?,
+            inbox: inbox.restore()?,
         })
     })
     .transpose()
 }
 
-/// The project's judge, when the session that last listened as it still
-/// runs: one of the running sessions that Claude Code records in
-/// <sessions>.
-pub fn listening(db: &Connection, sessions: &Path) -> Result<Option<Judge>> {
+/// The project's registered judge, while its Claude Code session runs or
+/// its Codex thread can be resumed.
+pub fn listening(db: &Connection, sessions: &crate::inbox::Sessions) -> Result<Option<Judge>> {
     let Some(judge) = last(db)? else {
         return Ok(None);
     };
-    let running = crate::claude_sessions::running(sessions).map_err(|why| {
-        Fail::Message(format!(
-            "reading which Claude Code sessions run, to learn whether the judge's session runs: {why}"
-        ))
-    })?;
-    Ok(running
-        .iter()
-        .any(|session| session.session_id == judge.session)
-        .then_some(judge))
+    let available = match &judge.inbox {
+        Messaging::Claude(_) => {
+            let running = crate::claude_sessions::running(&sessions.claude).map_err(|why| {
+                Fail::Message(format!("reading which Claude Code sessions run: {why}"))
+            })?;
+            running
+                .iter()
+                .any(|session| session.session_id == judge.session)
+        }
+        Messaging::Codex(thread) => sessions.codex_can_resume(thread)?,
+    };
+    Ok(available.then_some(judge))
 }
 
-/// Records <caller> as the agent of the branch that review run <run> read,
-/// when a session dispatched it; a session's main agent works on no branch
-/// of its own, so builds records nothing for it.
+/// Records the caller as the agent of the reviewed branch, including a main
+/// session that ran a review on its own branch.
 pub fn record_branch_agent(db: &Connection, run: i64, caller: &Caller) -> Result<()> {
-    if !caller.is_dispatched() {
-        return Ok(());
-    }
     db.execute(
         "INSERT INTO review_branch_agent (run_id, session, agent) VALUES (?1, ?2, ?3)",
         params![run, caller.session, caller.id],
@@ -152,6 +155,15 @@ pub fn branch_agent(db: &Connection, run: i64) -> Result<Option<Caller>> {
     .sql()
 }
 
+/// Whether <finding>'s review belongs to an agent that matches <is>.
+pub fn owner_matches(
+    db: &Connection,
+    finding: &Finding,
+    is: impl FnOnce(&Caller) -> bool,
+) -> Result<bool> {
+    Ok(branch_agent(db, finding.run_id)?.as_ref().is_some_and(is))
+}
+
 /// Refuses <caller> a settle of finding <id> that records no verdict, such as
 /// the person's words that allow a confirmed finding to land, when <caller>
 /// is the agent of the branch that holds the finding: the agent that ran the
@@ -161,7 +173,7 @@ pub fn may_record(db: &Connection, id: i64, caller: Option<&Caller>) -> Result<(
         return Ok(());
     };
     let finding = record::finding_of(db, id)?;
-    if branch_agent(db, finding.run_id)?.as_ref() == Some(caller) {
+    if owner_matches(db, &finding, |owner| owner == caller)? {
         fail!(
             "you ran review run {}, which raised finding {id} on your branch, so you never settle it: the judge settles it, or the coordinator when no judge listens",
             finding.run_id
@@ -174,7 +186,12 @@ pub fn may_record(db: &Connection, id: i64, caller: Option<&Caller>) -> Result<(
 /// on a second settle) as `may_record` does, and, while a judge listens
 /// (`listening`, with Claude Code's running sessions in <sessions>), unless
 /// <caller> is the judge. The person (no caller) is never refused.
-pub fn may_judge(db: &Connection, sessions: &Path, id: i64, caller: Option<&Caller>) -> Result<()> {
+pub fn may_judge(
+    db: &Connection,
+    sessions: &crate::inbox::Sessions,
+    id: i64,
+    caller: Option<&Caller>,
+) -> Result<()> {
     may_record(db, id, caller)?;
     let Some(caller) = caller else {
         return Ok(());
@@ -240,55 +257,6 @@ impl Settler<'_> {
             Settler::Coordinator(_) => "WHO",
         }
     }
-}
-
-/// Whom a message reached.
-enum Told {
-    Judge(Judge),
-    /// A judge listens (its session runs) and its inbox is gone: nobody was
-    /// told, and the coordinator does not settle while the judge's session
-    /// runs (`may_judge`).
-    JudgeGone(Judge),
-    Coordinator,
-    /// No judge listens, and <caller> is the person or a session's main
-    /// agent, which settles the findings itself: nothing was sent.
-    Caller,
-    /// No judge listens, and nothing reads the dispatched agent's session's
-    /// inbox.
-    Nobody,
-}
-
-/// Sends <message> for the session that settles, once: the judge when one
-/// listens (`listening`, with Claude Code's running sessions in
-/// <sessions>), the same fact that `may_judge` reads; else, when a session
-/// dispatched <caller>, the coordinator, which is <caller>'s own session and
-/// reads its inbox <own>. A judge whose inbox is gone stays the judge: the
-/// message goes to no one else. Any other failure of a send is the error.
-fn tell_settler(
-    db: &Connection,
-    sessions: &Path,
-    caller: Option<&Caller>,
-    own: Option<&Messaging>,
-    message: impl Fn(&Settler) -> String,
-) -> Result<Told> {
-    if let Some(judge) = listening(db, sessions)? {
-        return Ok(
-            match send(&judge.inbox, &message(&Settler::Judge(&judge)))? {
-                Sent::Delivered => Told::Judge(judge),
-                Sent::Gone => Told::JudgeGone(judge),
-            },
-        );
-    }
-    let Some(caller) = caller.filter(|caller| caller.is_dispatched()) else {
-        return Ok(Told::Caller);
-    };
-    let Some(own) = own else {
-        return Ok(Told::Nobody);
-    };
-    Ok(match send(own, &message(&Settler::Coordinator(caller)))? {
-        Sent::Delivered => Told::Coordinator,
-        Sent::Gone => Told::Nobody,
-    })
 }
 
 /// What an agent tells the session that settles: the findings of a review
@@ -388,59 +356,93 @@ pub fn dispute_notice(db: &Connection, project: &str, finding: &Finding) -> Resu
     })
 }
 
-/// Sends <notice> to the session that settles (`tell_settler`), and returns
+/// Sends <notice> to the eligible session that settles, and returns
 /// what to tell <caller>, the agent that sent it: whom builds told, and
 /// that it waits with `builds review wait`. A session's main agent or the
 /// person, with no judge listening, settles itself.
 pub fn tell(
     store: &Store,
     stamp: &Stamp,
-    sessions: &Path,
+    sessions: &crate::inbox::Sessions,
     notice: &Notice,
     caller: Option<&Caller>,
     own: Option<&Messaging>,
 ) -> Result<String> {
     let project = &notice.project;
-    let told = tell_settler(&*store.open_existing()?, sessions, caller, own, |settler| {
-        notice.text(settler)
-    })?;
+    let db = store.open_existing()?;
     let waits = format!(
         "Run `{}` as a background task: it ends once {}.\n",
         wait_command(project, notice.landing),
         notice.wait_ends
     );
     let asked = &notice.asked;
-    Ok(match told {
-        Told::Judge(judge) => {
-            judge_told::record(store, stamp, &notice.matters, &judge.session)?;
-            format!(
-                "builds told the judge of project {project} ({}) {asked}. {waits}",
+    if let Some(judge) = listening(&db, sessions)? {
+        if has_owner(&db, notice, |owner| judge.is(owner))? {
+            return Ok(format!(
+                "{} ran the review and cannot settle its findings. Ask an independent session to register as judge. {waits}",
                 judge.by
-            )
+            ));
         }
-        Told::JudgeGone(judge) => format!(
-            "The judge of project {project} ({}) runs, but its inbox is gone, so builds told nobody, and only the judge settles while its session runs: tell the judge to run `builds judge listen --project {project} --by {}` again, which sends it {asked}, then {}",
-            judge.by,
-            judge.by,
-            waits.replacen("Run", "run", 1)
-        ),
-        Told::Coordinator => format!(
-            "No judge listens for project {project}, so builds told your coordinator {asked}. {waits}"
-        ),
-        Told::Caller => format!(
+        return Ok(match tell_judge(sessions, &judge, notice)? {
+            delivery @ (Sent::Delivered | Sent::Queued) => {
+                judge_told::record(store, stamp, &notice.matters, &judge.session)?;
+                format!(
+                    "builds told the judge of project {project} ({}) {asked}. {}{waits}",
+                    judge.by,
+                    delivery.resume_notice()
+                )
+            }
+            Sent::Gone => format!(
+                "The judge of project {project} ({}) runs, but its inbox is gone, so builds told nobody, and only the judge settles while its session runs: tell the judge to run `builds judge listen --project {project} --by {}` again, which sends it {asked}, then {}",
+                judge.by,
+                judge.by,
+                waits.replacen("Run", "run", 1)
+            ),
+        });
+    }
+    match caller {
+        Some(caller) if caller.is_dispatched() => {
+            if let Some(own) = own {
+                let delivery = sessions.send(own, &notice.text(&Settler::Coordinator(caller)))?;
+                if delivery != Sent::Gone {
+                    return Ok(format!(
+                        "No judge listens for project {project}, so builds told your coordinator {asked}. {}{waits}",
+                        delivery.resume_notice()
+                    ));
+                }
+            }
+            Ok(format!(
+                "No judge listens for project {project}, and nothing reads your session's inbox, so builds told nobody: tell your coordinator {asked}, then {}",
+                waits.replacen("Run", "run", 1)
+            ))
+        }
+        Some(caller) if has_owner(&db, notice, |owner| owner == caller)? => Ok(format!(
+            "No judge listens for project {project}. Ask an independent session to settle the findings. {waits}"
+        )),
+        _ => Ok(format!(
             "No judge listens for project {project}: {}\n",
             notice.yourself
-        ),
-        Told::Nobody => format!(
-            "No judge listens for project {project}, and nothing reads your session's inbox, so builds told nobody: tell your coordinator {asked}, then {}",
-            waits.replacen("Run", "run", 1)
-        ),
-    })
+        )),
+    }
+}
+
+fn has_owner(db: &Connection, notice: &Notice, is: impl Fn(&Caller) -> bool) -> Result<bool> {
+    for (id, _) in &notice.matters {
+        let finding = record::finding_of(db, *id)?;
+        if owner_matches(db, &finding, &is)? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// Sends <notice> to <judge> alone, with no fallback to a coordinator.
-pub(super) fn tell_judge(judge: &Judge, notice: &Notice) -> Result<Sent> {
-    send(&judge.inbox, &notice.text(&Settler::Judge(judge)))
+pub(super) fn tell_judge(
+    sessions: &crate::inbox::Sessions,
+    judge: &Judge,
+    notice: &Notice,
+) -> Result<Sent> {
+    sessions.send(&judge.inbox, &notice.text(&Settler::Judge(judge)))
 }
 
 impl Notice {
@@ -722,11 +724,13 @@ pub fn listen(db: &Connection, inbox: &Messaging, caller: &Caller, stamp: &Stamp
             caller.id
         );
     }
+    let (runtime, address, token) = inbox.stored();
     db.execute(
-        "INSERT OR REPLACE INTO review_judge (singleton, socket, token, session, at, by) VALUES (1, ?1, ?2, ?3, ?4, ?5)",
+        "INSERT OR REPLACE INTO review_judge (singleton, runtime, address, token, session, at, by) VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6)",
         params![
-            inbox.socket(),
-            inbox.token(),
+            runtime,
+            address,
+            token,
             caller.session,
             stamp.at,
             stamp.by
@@ -734,6 +738,26 @@ pub fn listen(db: &Connection, inbox: &Messaging, caller: &Caller, stamp: &Stamp
     )
     .sql()?;
     Ok(())
+}
+
+pub fn move_legacy_judge(db: &Connection) -> Result<()> {
+    use crate::db::{self, SCHEMA};
+    crate::inbox::move_legacy_destination(
+        db,
+        "review_judge",
+        db::statement(SCHEMA, "CREATE TABLE review_judge (", ") STRICT;"),
+        "singleton",
+        ", session, at, by",
+    )?;
+    db::remake_table(
+        db,
+        "review_branch_agent",
+        db::statement(SCHEMA, "CREATE TABLE review_branch_agent (", ") STRICT;"),
+        |db| {
+            db.execute_batch("INSERT INTO review_branch_agent (run_id, session, agent) SELECT run_id, session, agent FROM review_branch_agent_old;").sql()
+        },
+        &[],
+    )
 }
 
 /// `builds judge <command>`.
@@ -748,7 +772,7 @@ pub fn cmd_judge(tool: &Tool, args: &[String]) -> Result<()> {
                 rest,
                 &current_dir()?,
                 tool.session.caller()?.as_ref(),
-                Messaging::from_env()?.as_ref(),
+                Messaging::for_session(&tool.session, Recipient::ThisThread)?.as_ref(),
             )?;
             print!("{said}");
             Ok(())
@@ -773,12 +797,12 @@ pub fn listen_command(
     };
     let Some(caller) = caller else {
         fail!(
-            "this command runs outside a Claude Code session (the environment has no CLAUDE_CODE_SESSION_ID), so builds could not reach the judge; run it from the judge's session"
+            "Run this command from the Codex or Claude Code session that will judge the project."
         );
     };
     let Some(inbox) = inbox else {
         fail!(
-            "this command runs in a Claude Code session with no inbox (the environment has no CLAUDE_CODE_MESSAGING_SOCKET), so builds could not reach the judge; run it from a session with cross-session messaging"
+            "This session cannot receive notifications. Run the command from a Codex thread or a Claude Code session with cross-session messaging."
         );
     };
     let store = Store::named(&tool.places, project)?;
@@ -787,9 +811,9 @@ pub fn listen_command(
         listen(db, inbox, caller, &stamp)
     })?;
     let mut said = format!(
-        "this session is project {project}'s judge while it runs: builds tells it of each review's findings to settle, and only it settles them\n"
+        "This session judges project {project}. Builds sends it each review finding to settle.\n"
     );
-    for line in judge_told::tell_waiting(&store, &stamp, &tool.places.claude_sessions())? {
+    for line in judge_told::tell_waiting(&store, &stamp, &tool.places.sessions())? {
         said.push_str(&line);
         said.push('\n');
     }
@@ -805,12 +829,15 @@ pub fn forget(db: &Connection) -> Result<()> {
 
 /// The judge that last listened, when its session no longer runs (`last`,
 /// `listening`).
-pub(super) fn ended(db: &Connection, sessions: &Path) -> Result<Option<Judge>> {
+pub(super) fn ended(db: &Connection, sessions: &crate::inbox::Sessions) -> Result<Option<Judge>> {
     Ok(match last(db)? {
         Some(judge) if listening(db, sessions)?.is_none() => Some(judge),
         _ => None,
     })
 }
+
+#[cfg(test)]
+pub(crate) use tests::REVIEW_BRANCH_AGENT;
 
 #[cfg(test)]
 #[path = "judge_tests.rs"]

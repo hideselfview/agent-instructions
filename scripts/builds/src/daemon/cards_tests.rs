@@ -726,7 +726,7 @@ fn commits_whose_rules_review_is_not_finished_are_in_review_and_the_card_says_wh
             "Findings to settle",
             pill(
                 "3 findings",
-                "3 review findings wait on the coordinator to settle them."
+                "3 review findings wait for the coordinator to settle them."
             )
         )
     );
@@ -736,7 +736,7 @@ fn commits_whose_rules_review_is_not_finished_are_in_review_and_the_card_says_wh
             "Findings to settle",
             pill(
                 "1 finding",
-                "1 review finding waits on the judge to settle it."
+                "1 review finding waits for the judge to settle it."
             )
         )
     );

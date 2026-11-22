@@ -68,6 +68,7 @@ impl Scratch {
             tmpdir: None,
             uid: unsafe { libc::getuid() },
             lists: self.dir.join("lists"),
+            codex_program: self.dir.join("codex"),
         }
     }
 

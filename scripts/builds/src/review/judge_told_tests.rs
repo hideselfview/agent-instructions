@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use super::*;
 use crate::inbox::Messaging;
 use crate::review::fakes::fake;
@@ -41,7 +43,7 @@ fn a_finding_raised_before_the_judge_listens_reaches_it_when_it_starts_listening
     end_writers(&r.demo.store);
     running_session(&r.demo.tool.places, "s-judge");
     let inbox = r.inbox("j.sock");
-    let received = FakeInbox::listen(Path::new(inbox.socket()));
+    let received = FakeInbox::listen(Path::new(inbox.stored().1));
     let said = listen(&r, "s-judge", &inbox);
     let lines = received.received();
     assert!(lines[0].contains(TOKEN), "the auth line carries the token");
@@ -54,7 +56,7 @@ fn a_finding_raised_before_the_judge_listens_reaches_it_when_it_starts_listening
         )),
         "{told}"
     );
-    assert!(said.contains("project demo's judge"), "{said}");
+    assert!(said.contains("judges project demo"), "{said}");
     assert!(
         said.contains(&format!("of findings {} of review landing", r.finding)),
         "{said}"
@@ -73,13 +75,13 @@ fn a_judge_in_another_session_is_told_again_of_what_the_earlier_one_was_told() {
     end_writers(&r.demo.store);
     running_session(&r.demo.tool.places, "s-old");
     let old = r.inbox("old.sock");
-    let received = FakeInbox::listen(Path::new(old.socket()));
+    let received = FakeInbox::listen(Path::new(old.stored().1));
     listen(&r, "s-old", &old);
     received.received();
     assert_eq!(told_sessions(&r, r.finding, "settle"), ["s-old"]);
     running_session(&r.demo.tool.places, "s-new");
     let new = r.inbox("new.sock");
-    let received = FakeInbox::listen(Path::new(new.socket()));
+    let received = FakeInbox::listen(Path::new(new.stored().1));
     listen(&r, "s-new", &new);
     let told = message(&received.received());
     assert!(
@@ -96,7 +98,7 @@ fn telling_the_judge_of_findings_records_each_one() {
     let judge = r.inbox("j.sock");
     r.listen_as_judge(&judge);
     running_session(&r.demo.tool.places, "s-judge");
-    let received = FakeInbox::listen(Path::new(judge.socket()));
+    let received = FakeInbox::listen(Path::new(judge.stored().1));
     let notice = ToSettle {
         project: "demo".to_string(),
         landing: r.landing,
@@ -109,7 +111,7 @@ fn telling_the_judge_of_findings_records_each_one() {
     let said = judge::tell(
         &r.demo.store,
         &stamp("tester"),
-        &r.demo.tool.places.claude_sessions(),
+        &r.demo.tool.places.sessions(),
         &notice,
         Some(&agent),
         None,
@@ -191,7 +193,7 @@ fn a_settle_sends_the_judge_a_finding_that_waits_and_reached_it_in_no_message() 
     let judge = r.inbox("j.sock");
     r.listen_as_judge(&judge);
     running_session(&r.demo.tool.places, "s-judge");
-    let received = FakeInbox::listen(Path::new(judge.socket()));
+    let received = FakeInbox::listen(Path::new(judge.stored().1));
     settle_as_judge(&r, other);
     let told = message(&received.received());
     assert!(
@@ -215,7 +217,7 @@ fn a_dispute_that_reached_no_judge_is_sent_when_the_judge_settles_another_findin
     assert!(told_sessions(&r, r.finding, "answer").is_empty());
     let other = another_review(&r, 2, "work2");
     end_writers(&r.demo.store);
-    let received = FakeInbox::listen(Path::new(r.inbox("j.sock").socket()));
+    let received = FakeInbox::listen(Path::new(r.inbox("j.sock").stored().1));
     settle_as_judge(&r, other);
     let told = message(&received.received());
     assert!(
@@ -258,7 +260,7 @@ fn a_process_with_the_pid_of_the_writer_and_another_start_time_is_another_proces
     running_session(&r.demo.tool.places, "s-judge");
     let me = std::process::id();
     reuse_writers_pids(&r.demo.store);
-    let received = FakeInbox::listen(Path::new(r.inbox("j.sock").socket()));
+    let received = FakeInbox::listen(Path::new(r.inbox("j.sock").stored().1));
     let lines = health(&r);
     assert_eq!(lines.len(), 1, "pid {me} is another process now: {lines:?}");
     received.received();
@@ -271,7 +273,7 @@ fn health_sends_the_judge_again_what_no_running_process_is_telling_it_of() {
     let judge = r.inbox("j.sock");
     r.listen_as_judge(&judge);
     running_session(&r.demo.tool.places, "s-judge");
-    let received = FakeInbox::listen(Path::new(judge.socket()));
+    let received = FakeInbox::listen(Path::new(judge.stored().1));
     let lines = health(&r);
     assert_eq!(lines.len(), 1, "{lines:?}");
     assert!(
@@ -296,7 +298,7 @@ fn health_sends_nothing_for_a_finding_it_already_told_the_judges_session_of() {
     let judge = r.inbox("j.sock");
     r.listen_as_judge(&judge);
     running_session(&r.demo.tool.places, "s-judge");
-    let received = FakeInbox::listen(Path::new(judge.socket()));
+    let received = FakeInbox::listen(Path::new(judge.stored().1));
     assert_eq!(health(&r).len(), 1);
     received.received();
     // The inbox is gone now, so a second send would say so.
@@ -309,7 +311,7 @@ fn health_sends_the_judge_again_a_dispute_whose_writer_ended() {
     r.answer_as("dispute", Some(&agent), "the rule allows it here", "agent")
         .unwrap();
     end_writers(&r.demo.store);
-    let received = FakeInbox::listen(Path::new(r.inbox("j.sock").socket()));
+    let received = FakeInbox::listen(Path::new(r.inbox("j.sock").stored().1));
     let lines = health(&r);
     // Checked before reading the inbox: a send that never happened would
     // leave the read waiting for a connection.

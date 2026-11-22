@@ -606,13 +606,14 @@ button works only from the page served at 127.0.0.1 or localhost on this Mac:
 the daemon refuses an approval from another address. The approval then sends
 "Design change #N of project P approved: land it." once to the inbox of the
 session that recorded the change, which `design record` and `design amend` keep
-from the session's environment (CLAUDE_CODE_MESSAGING_SOCKET and
-CLAUDE_CODE_MESSAGING_TOKEN; a session that bypasses permission prompts holds a
-message unless its token comes with it). The token is that session's secret: it
-stays in the store, and nothing prints it, logs it, puts it on a page or a
-board, or returns it in JSON. When no session listens on the socket any more,
-the card says the session that recorded the change has ended, and nothing is
-sent again.
+from the session's environment. builds queues the message to the Codex thread
+and asks Codex to resume it. If Codex accepts the message but cannot resume
+the thread, the card asks you to resume it. If builds cannot confirm delivery,
+the approval stands and the card asks you to tell the design session. For
+Claude Code, builds sends the message to the
+session's socket and keeps its token in the store. builds never prints or
+returns the token. When the destination no longer exists, the card says the
+session that recorded the change has ended. builds sends no second message.
 
   builds design places DIR REV...
       Each REV is a commit, or a range (A~1..A) that stands for its commits;
@@ -995,13 +996,14 @@ sent again.
       folder's last calls and deletes. Reads no store.
 
   builds design listen --project P
-      Keeps the inbox of the Claude session that runs it as the one the
-      dashboard wakes for project P's publish requests, in place of any
-      earlier one: the inbox socket and token from the session's
-      environment (CLAUDE_CODE_MESSAGING_SOCKET and
-      CLAUDE_CODE_MESSAGING_TOKEN), as `design record` keeps them. A design
-      session runs it when it starts. The command refuses to run outside a
-      session with an inbox.
+      Registers this Codex or Claude Code session for dashboard publish
+      requests, replacing the previous listener. For Codex, the dashboard
+      queues each request in the registered thread and asks Codex to resume
+      it. If Codex accepts a request but cannot resume the thread, the
+      dashboard asks you to resume it. Until builds confirms delivery, the
+      dashboard shows the open request number so you can tell the session.
+      For Claude Code, the dashboard sends each request to the session's
+      socket. A design session runs this command when it starts.
 
   builds design publish take N [--project P] [--by WHO]
   builds design publish done N --link TITLE=URL... [--project P] [--by WHO]

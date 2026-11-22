@@ -249,7 +249,7 @@ pub fn ask(places: &Places, project: &str, repo: &Path, rev: &str, now: i64) -> 
         at: now,
         by: super::approve::BY.to_string(),
     };
-    ask_and_tell(&store, &commit, &stamp)
+    ask_and_tell(&store, &places.sessions(), &commit, &stamp)
 }
 
 /// Board <name> of commit <commit> of the repo <repo> is in, drawn in the

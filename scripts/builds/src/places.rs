@@ -72,6 +72,8 @@ pub struct Places {
     /// The folder holding one store folder per project of the lists
     /// (BUILDS_LISTS, else `default_lists`).
     pub lists: PathBuf,
+    /// The Codex CLI that delivers and checks registered thread notifications.
+    pub codex_program: PathBuf,
 }
 
 impl Places {
@@ -111,6 +113,7 @@ impl Places {
             tmpdir,
             uid: unsafe { libc::getuid() },
             lists,
+            codex_program: PathBuf::from("codex"),
         })
     }
 
@@ -330,6 +333,14 @@ impl Places {
     /// naming the session's id.
     pub fn claude_sessions(&self) -> PathBuf {
         self.home.join(".claude/sessions")
+    }
+
+    /// How this machine reaches the agent sessions registered with builds.
+    pub fn sessions(&self) -> crate::inbox::Sessions {
+        crate::inbox::Sessions {
+            claude: self.claude_sessions(),
+            codex: self.codex_program.clone(),
+        }
     }
 
     /// The daemon's own folder: its socket, its log, its run records and the

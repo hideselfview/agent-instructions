@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use super::*;
 use crate::lists::Stamp;
 use crate::lists::fixtures::NOON;
@@ -63,7 +65,7 @@ fn standing_at(
         reads,
         &demo.store,
         version,
-        &demo.tool.places.claude_sessions(),
+        &demo.tool.places.sessions(),
         &worktree,
     )
 }
@@ -195,13 +197,7 @@ fn a_card_whose_project_has_no_store_says_so_and_never_that_land_takes_its_commi
         git: &git,
     };
     assert_eq!(
-        super::standing(
-            &reads,
-            &ghost,
-            1,
-            &demo.tool.places.claude_sessions(),
-            &worktree
-        ),
+        super::standing(&reads, &ghost, 1, &demo.tool.places.sessions(), &worktree),
         Err("there is no store for project ghost".to_string())
     );
 }

@@ -1615,7 +1615,7 @@ impl Model {
                     &self.review_reads,
                     &store,
                     lists.version,
-                    &self.places.claude_sessions(),
+                    &self.places.sessions(),
                     worktree,
                 )
             })

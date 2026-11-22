@@ -28,7 +28,7 @@ pub fn approve_design(places: &Places, now: i64, project: &str, id: u32) -> Resu
         at: now,
         by: BY.to_string(),
     };
-    approve_and_tell(&store, id, &stamp)
+    approve_and_tell(&store, &places.sessions(), id, &stamp)
 }
 
 #[cfg(test)]

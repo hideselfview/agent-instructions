@@ -501,10 +501,9 @@ as far as the rules review goes; until then the card shows the review's
 progress instead: Needs review (no review read these commits, or a group still
 has to answer: the branch's agent runs `builds review`), Reviewing (Builds
 checks design coverage or runs a rules review of the branch's newest commit),
-Findings to settle (with the count, and
-whether they wait on the judge or, with no judge listening, the coordinator),
-Open
-findings (confirmed findings that wait for a review that closes them) or
+Findings to settle (with the count and who settles them: the judge, the
+coordinator or an independent session),
+Open findings (confirmed findings that wait for a review that closes them) or
 Unreviewed changes (with the count of files that changed since the last
 review, which `builds review` reads as a new run of the review). A commit
 waits to land while origin/main has no commit with the same change (`git log
@@ -3568,10 +3567,10 @@ run `review replay --rules-root` on it.
                               settled already. While a judge listens (`judge
                               listen`), builds takes a verdict only from the
                               judge and the person; with none listening, the
-                              coordinator settles. builds refuses every
-                              settle, of any kind, from the agent of the
-                              finding's branch, which ran the review run that
-                              raised it
+                              coordinator settles, unless it ran the review.
+                              An independent session settles in that case.
+                              builds refuses every settle from the agent who
+                              ran the review that raised the finding.
   builds review settle <finding> --again --why <text>
                               change an open confirmed finding to dropped,
                               and keep the first settle beside the second;
@@ -3583,15 +3582,12 @@ run `review replay --rules-root` on it.
                               confirmed, and land no longer waits on it. Pass
                               --by-person only once the person has said so
   builds judge listen --project P [--by WHO]
-                              keep the inbox of the Claude Code session that
-                              runs it as project P's judge, in place of any
-                              earlier one: the inbox socket and token from the
-                              session's environment (CLAUDE_CODE_MESSAGING_SOCKET
-                              and CLAUDE_CODE_MESSAGING_TOKEN), and the
-                              session's id. The judge session runs it when it
-                              starts. The session judges while it runs, which
-                              Claude Code's record of its running sessions
-                              (~/.claude/sessions) says: builds tells it of
+                              register this Codex or Claude Code session as
+                              project P's judge, replacing any earlier judge.
+                              Codex queues a message to the registered thread
+                              and asks the daemon to resume it. A saved thread
+                              can judge while idle. A Claude Code session
+                              judges while its process runs. builds sends
                               each review's findings to settle (`review`), and
                               takes a verdict on a finding only from it and
                               the person (`review settle`). builds records
@@ -3601,13 +3597,15 @@ run `review replay --rules-root` on it.
                               every finding that waits for a settle, and
                               every dispute that waits for an answer, of
                               which it has not told that session and that
-                              no running builds process is telling it of, so a
-                              finding raised before the judge listened
-                              reaches it. `builds health` sends such a
+                              no running builds process is telling it of.
+                              Builds skips findings from the judge's own
+                              reviews. An independent judge must register to
+                              settle those findings. `builds health` sends such a
                               finding again once no running builds process
                               is still telling the judge of it, and forgets a
-                              judge whose session ended, so the
-                              coordinator settles. A judge whose session runs
+                              judge whose session ended. The coordinator can
+                              then settle findings from another agent.
+                              A judge whose session runs
                               stays the judge when its inbox is gone: builds
                               tells the agent so and tells nobody else, and
                               the judge runs `judge listen` again. `builds

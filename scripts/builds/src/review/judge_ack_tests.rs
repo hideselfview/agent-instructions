@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use super::*;
 use crate::review::judge::tests::{TOKEN, message, reviewed};
 use crate::testing::{FakeInbox, running_session};
@@ -8,8 +10,8 @@ fn a_listening_judge_with_no_acknowledgement_is_told_to_acknowledge() {
     let inbox = r.inbox("j.sock");
     r.listen_as_judge(&inbox);
     running_session(&r.demo.tool.places, "s-judge");
-    let received = FakeInbox::listen(Path::new(inbox.socket()));
-    let sessions = r.demo.tool.places.claude_sessions();
+    let received = FakeInbox::listen(Path::new(inbox.stored().1));
+    let sessions = r.demo.tool.places.sessions();
     let line = tell_outdated(&r.demo.store, &sessions)
         .unwrap()
         .expect("the judge is told");
@@ -26,6 +28,6 @@ fn a_listening_judge_with_no_acknowledgement_is_told_to_acknowledge() {
 #[test]
 fn nobody_is_told_when_no_judge_listens() {
     let r = reviewed("judge-ack-none", None);
-    let sessions = r.demo.tool.places.claude_sessions();
+    let sessions = r.demo.tool.places.sessions();
     assert_eq!(tell_outdated(&r.demo.store, &sessions).unwrap(), None);
 }

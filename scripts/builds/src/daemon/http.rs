@@ -748,7 +748,7 @@ fn refuse_not_here(stream: &mut TcpStream) -> std::io::Result<()> {
 /// Records the person's approval of design change <id> and tells the session
 /// that recorded it (`POST /design/PROJECT/N/approve`). Only the person at this Mac
 /// approves (`handle` checks `from_this_mac`). Answers `{"approved": true, "already": bool,
-/// "session": null|"unrecorded"|"told"|"ended"}`.
+/// "session": null|"unrecorded"|"told"|"queued"|"ended"}`.
 fn approve(stream: &mut TcpStream, model: &Model, project: &str, id: u32) -> std::io::Result<()> {
     use crate::lists::design_session::Approval;
     let answer =

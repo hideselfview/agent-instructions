@@ -309,7 +309,7 @@ pub fn release_stalled_claims(tool: &Tool, health: &crate::health::Health) -> Re
 /// for each message it sent, each judge it forgot and each store it could not
 /// read or send for.
 pub fn tell_judges(tool: &Tool) -> Result<Vec<String>> {
-    let sessions = tool.places.claude_sessions();
+    let sessions = tool.places.sessions();
     let stamp = crate::lists::Stamp {
         at: tool.now,
         by: "health".to_string(),

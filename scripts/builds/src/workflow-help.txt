@@ -17,7 +17,9 @@ session settles the findings of those reviews: when it starts, it runs `builds
 judge listen --project P` for each project it judges, and while it runs,
 builds tells it of each review's findings to settle, and only it and the
 person give a verdict on a finding (REVIEW). When no judge listens, the
-coordinator settles them. A design session
+coordinator settles them, unless the coordinator ran the review. An
+independent session settles findings from the coordinator's own review.
+A design session
 draws the boards (pictures of screens, kept in the repo) that the apps are
 built to match: new screens, new layouts, and anything that needs a new component or
 a change to the design system. It takes its items from `builds next --for
@@ -814,8 +816,8 @@ it again, releases a claim on a worktree that nothing holds, releases a claim on
 worktree that holds nothing origin/main lacks and has had no change and no build for
 2 hours (BUILDS_IDLE_CLAIM_HOURS) and stops an item marked running there, sends the judge
 again each finding that waits for a settle and that no running builds
-process is telling the judge's session of, forgets a judge whose session ended so that the
-coordinator settles, and stops each
+process is telling the judge's session of, forgets a judge whose session ended,
+and stops each
 process whose caller is gone and whose only work is what it prints (a cargo
 run, a compile, a test, a job on a host whose builds command here ended). It
 lists only what is left, each with its reason: a host that does not answer, a

@@ -2258,3 +2258,46 @@ fn a_move_allows_unknown_spec_cost_and_keeps_previous_checks_and_findings() {
             .all(|check| check.conflicts == 1 && check.unstated == 1)
     );
 }
+
+#[test]
+fn adding_codex_destinations_keeps_registered_claude_inboxes() {
+    let old = db::schema_before_codex_inboxes();
+    assert_eq!(db::stamp_of_text(&old), BEFORE_CODEX_INBOX_STAMP);
+    let scratch = Scratch::new("move-codex-inbox");
+    let places = scratch.places();
+    let dir = places.lists.join("demo");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let db = Connection::open(&path).unwrap();
+        db.execute_batch(&old).unwrap();
+        db.pragma_update(None, "user_version", BEFORE_CODEX_INBOX_STAMP)
+            .unwrap();
+        db.execute_batch("INSERT INTO design_listener VALUES (1, '/tmp/listener.sock', 'design-secret', 10, 'designer');
+                          INSERT INTO review_judge VALUES (1, '/tmp/judge.sock', 'judge-secret', 'judge-id', 11, 'judge');").unwrap();
+    }
+    migrate_stores(&places, 12).unwrap();
+    let db = db::open(&path, db::Make::Never).unwrap();
+    for (table, expected) in [
+        (
+            "design_listener",
+            ("claude", "/tmp/listener.sock", "design-secret"),
+        ),
+        (
+            "review_judge",
+            ("claude", "/tmp/judge.sock", "judge-secret"),
+        ),
+    ] {
+        let stored: (String, String, String) = db
+            .query_row(
+                &format!("SELECT runtime, address, token FROM {table}"),
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            (stored.0.as_str(), stored.1.as_str(), stored.2.as_str()),
+            expected
+        );
+    }
+}

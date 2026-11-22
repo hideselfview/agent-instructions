@@ -17,7 +17,7 @@ use serde::Serialize;
 use crate::db::Sql;
 use crate::fail;
 use crate::fail::Result;
-use crate::inbox::{Messaging, Sent, send};
+use crate::inbox::{Messaging, Sent, Sessions, StoredEndpoint};
 use crate::lists::Stamp;
 use crate::lists::store::Store;
 
@@ -32,6 +32,39 @@ pub struct Request {
     /// The session that took it, and when.
     pub taken: Option<Stamp>,
     pub ended: Option<Ended>,
+    pub delivery: Option<Delivery>,
+}
+
+/// What builds knows about the notification while a request awaits pickup.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Delivery {
+    Unconfirmed,
+    Delivered,
+    Queued,
+}
+
+impl Delivery {
+    fn sql(self) -> &'static str {
+        match self {
+            Self::Unconfirmed => "unconfirmed",
+            Self::Delivered => "delivered",
+            Self::Queued => "queued",
+        }
+    }
+}
+
+impl rusqlite::types::FromSql for Delivery {
+    fn column_result(value: rusqlite::types::ValueRef<'_>) -> rusqlite::types::FromSqlResult<Self> {
+        match value.as_str()? {
+            "unconfirmed" => Ok(Self::Unconfirmed),
+            "delivered" => Ok(Self::Delivered),
+            "queued" => Ok(Self::Queued),
+            other => Err(rusqlite::types::FromSqlError::Other(
+                format!("unknown publish delivery {other:?}").into(),
+            )),
+        }
+    }
 }
 
 /// One artifact a request published to.
@@ -84,33 +117,36 @@ pub fn asked_words(project: &str, id: i64, commit: &str) -> String {
 /// Keeps <to> as the inbox of the session that listens for the project's
 /// publish requests, in place of any earlier one.
 pub fn listen(db: &Connection, to: &Messaging, stamp: &Stamp) -> Result<()> {
+    let (runtime, address, token) = to.stored();
     db.execute(
-        "INSERT OR REPLACE INTO design_listener (singleton, socket, token, at, by) VALUES (1, ?1, ?2, ?3, ?4)",
-        params![to.socket(), to.token(), stamp.at, stamp.by],
+        "INSERT OR REPLACE INTO design_listener (singleton, runtime, address, token, at, by) VALUES (1, ?1, ?2, ?3, ?4, ?5)",
+        params![runtime, address, token, stamp.at, stamp.by],
     )
     .sql()?;
     Ok(())
 }
 
 fn listener(db: &Connection) -> Result<Option<Messaging>> {
-    let row: Option<(String, Option<String>)> = db
-        .query_row("SELECT socket, token FROM design_listener", [], |row| {
-            Ok((row.get(0)?, row.get(1)?))
-        })
+    let row: Option<StoredEndpoint> = db
+        .query_row(
+            "SELECT runtime, address, token FROM design_listener",
+            [],
+            StoredEndpoint::read,
+        )
         .optional()
         .sql()?;
-    row.map(|(socket, token)| Messaging::new(&socket, token.as_deref()))
-        .transpose()
+    row.map(StoredEndpoint::restore).transpose()
 }
 
 const COLUMNS: &str =
-    "id, commit_id, asked_at, asked_by, taken_at, taken_by, ended_at, outcome, error";
+    "id, commit_id, asked_at, asked_by, taken_at, taken_by, ended_at, outcome, error, delivery";
 
 fn request_of(row: &rusqlite::Row) -> rusqlite::Result<Request> {
     let stamp = |at: Option<i64>, by: Option<String>| at.zip(by).map(|(at, by)| Stamp { at, by });
     let ended_at: Option<i64> = row.get(6)?;
     Ok(Request {
         id: row.get(0)?,
+        delivery: row.get(9)?,
         commit: row.get(1)?,
         asked: Stamp {
             at: row.get(2)?,
@@ -209,12 +245,12 @@ fn ask(
     let Some(to) = listener(db)? else {
         fail!("{}", no_listener(project));
     };
-    db.execute(
-        "INSERT INTO publish_request (commit_id, asked_at, asked_by) VALUES (?1, ?2, ?3)",
+    let asked = db.query_row(
+        &format!("INSERT INTO publish_request (commit_id, asked_at, asked_by, delivery) VALUES (?1, ?2, ?3, 'unconfirmed') RETURNING {COLUMNS}"),
         params![commit, stamp.at, stamp.by],
-    )
-    .sql()?;
-    Ok((request(db, db.last_insert_rowid())?, to))
+        request_of,
+    ).sql()?;
+    Ok((asked, to))
 }
 
 /// Ends open request <id> at <at>, published or with <error>.
@@ -225,7 +261,7 @@ fn end(db: &Connection, id: i64, at: i64, error: Option<&str>) -> Result<()> {
         "published"
     };
     db.execute(
-        "UPDATE publish_request SET ended_at = ?2, outcome = ?3, error = ?4 WHERE id = ?1",
+        "UPDATE publish_request SET ended_at = ?2, outcome = ?3, error = ?4, delivery = NULL WHERE id = ?1",
         params![id, at, outcome, error],
     )
     .sql()?;
@@ -233,26 +269,55 @@ fn end(db: &Connection, id: i64, at: i64, error: Option<&str>) -> Result<()> {
 }
 
 /// Records a request to publish <commit> in <store> and sends the listening
-/// session a message naming it, once. When the send fails, the request ends
-/// failed with the reason, so the next ask can go ahead, and that reason is
-/// the error: `no_listener` when nothing listens on the inbox, the send's own
-/// error otherwise. Nothing retries the send.
-pub fn ask_and_tell(store: &Store, commit: &str, stamp: &Stamp) -> Result<Request> {
-    let project = store.project.clone();
+/// session one message naming it. The request can be taken before builds
+/// confirms notification. A failed send ends a request that nobody took.
+pub fn ask_and_tell(
+    store: &Store,
+    sessions: &Sessions,
+    commit: &str,
+    stamp: &Stamp,
+) -> Result<Request> {
+    let project = &store.project;
     let (asked, to) = store.write(stamp, &format!("design publish ask {commit}"), |db| {
-        ask(db, &project, commit, stamp)
+        ask(db, project, commit, stamp)
     })?;
-    let why = match send(&to, &asked_words(&project, asked.id, commit)) {
-        Ok(Sent::Delivered) => return Ok(asked),
-        Ok(Sent::Gone) => no_listener(&project),
-        Err(error) => error.text(),
+    let id = asked.id;
+    let delivery = match sessions.send(&to, &asked_words(project, id, commit)) {
+        Ok(Sent::Delivered) => Ok(Delivery::Delivered),
+        Ok(Sent::Queued) => Ok(Delivery::Queued),
+        Ok(Sent::Gone) => Err(crate::fail::Fail::Message(no_listener(project))),
+        Err(error) => Err(error),
     };
-    store.write(
-        stamp,
-        &format!("design publish failed {}", asked.id),
-        |db| end(db, asked.id, stamp.at, Some(&why)),
-    )?;
-    fail!("{why}")
+    match delivery {
+        Ok(delivery) => store.write(stamp, &format!("design publish notified {id}"), |db| {
+            let updated = db.query_row(
+                &format!("UPDATE publish_request SET delivery = CASE WHEN taken_at IS NULL AND ended_at IS NULL THEN ?2 ELSE NULL END WHERE id = ?1 RETURNING {COLUMNS}"),
+                params![id, delivery.sql()],
+                request_of,
+            ).sql()?;
+            with_links(db, updated)
+        }),
+        Err(error) => {
+            let why = error.text();
+            store.write(stamp, &format!("design publish failed {id}"), |db| {
+                let ended = db.execute(
+                    "UPDATE publish_request SET ended_at = ?2, outcome = 'failed', error = ?3, delivery = NULL WHERE id = ?1 AND taken_at IS NULL AND ended_at IS NULL",
+                    params![id, stamp.at, why],
+                ).sql()?;
+                if ended == 0 {
+                    return request(db, id).map(Some);
+                }
+                Ok(None)
+            })
+            .and_then(|completed| match completed {
+                Some(completed) => {
+                    crate::text::note(format!("Builds could not confirm notification of publish request {id}: {why}"));
+                    Ok(completed)
+                }
+                None => fail!("{why}"),
+            })
+        }
+    }
 }
 
 /// Records that <stamp>'s session took open request <id>.
@@ -265,7 +330,7 @@ pub fn take(db: &Connection, id: i64, stamp: &Stamp) -> Result<Request> {
         fail!("{} already took publish request {id}", taken.by);
     }
     db.execute(
-        "UPDATE publish_request SET taken_at = ?2, taken_by = ?3 WHERE id = ?1",
+        "UPDATE publish_request SET taken_at = ?2, taken_by = ?3, delivery = NULL WHERE id = ?1",
         params![id, stamp.at, stamp.by],
     )
     .sql()?;
@@ -308,6 +373,33 @@ pub fn failed(db: &Connection, id: i64, why: &str, at: i64) -> Result<()> {
     }
     end(db, id, at, Some(why))
 }
+
+pub fn move_legacy_destination(db: &Connection) -> Result<()> {
+    use crate::db::{self, SCHEMA};
+    crate::inbox::move_legacy_destination(
+        db,
+        "design_listener",
+        db::statement(SCHEMA, "CREATE TABLE design_listener (", ") STRICT;"),
+        "singleton",
+        ", at, by",
+    )?;
+    db::remake_table(
+        db,
+        "publish_request",
+        db::statement(SCHEMA, "CREATE TABLE publish_request (", ") STRICT;"),
+        |db| {
+            db.execute_batch(&format!("INSERT INTO publish_request ({COLUMNS}) SELECT id, commit_id, asked_at, asked_by, taken_at, taken_by, ended_at, outcome, error, CASE WHEN taken_at IS NULL AND ended_at IS NULL THEN 'unconfirmed' ELSE NULL END FROM publish_request_old;")).sql()
+        },
+        &[db::statement(
+            SCHEMA,
+            "CREATE UNIQUE INDEX publish_request_one_open",
+            ";",
+        )],
+    )
+}
+
+#[cfg(test)]
+pub(crate) use tests::PUBLISH_REQUEST;
 
 #[cfg(test)]
 #[path = "publish_tests.rs"]

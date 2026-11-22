@@ -63,7 +63,7 @@ impl Held {
             .open_existing()
             .unwrap()
             .query_row(
-                "SELECT socket, token, session, by FROM review_judge",
+                "SELECT address, token, session, by FROM review_judge",
                 [],
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
             )
@@ -79,8 +79,8 @@ fn the_session_that_listens_is_kept_as_the_judge_and_a_later_one_replaces_it() {
     let said = h
         .listen(Some(&caller("s-old", "s-old")), Some(&h.inbox()))
         .unwrap();
-    assert!(said.contains("project demo's judge"), "{said}");
-    let socket = h.inbox().socket().to_string();
+    assert!(said.contains("judges project demo"), "{said}");
+    let socket = h.inbox().stored().1.to_string();
     assert_eq!(
         h.kept(),
         Some((
@@ -107,15 +107,15 @@ fn only_a_sessions_main_agent_with_an_inbox_listens() {
         "{dispatched}"
     );
     let outside = h.listen(None, Some(&h.inbox())).unwrap_err().text();
-    assert!(
-        outside.contains("outside a Claude Code session"),
-        "{outside}"
-    );
+    assert!(outside.contains("Codex or Claude Code"), "{outside}");
     let no_inbox = h
         .listen(Some(&caller("s1", "s1")), None)
         .unwrap_err()
         .text();
-    assert!(no_inbox.contains("no inbox"), "{no_inbox}");
+    assert!(
+        no_inbox.contains("cannot receive notifications"),
+        "{no_inbox}"
+    );
     let unnamed = listen_command(
         &h.tool,
         &["--by".to_string(), "judge".to_string()],
@@ -142,7 +142,7 @@ fn the_judges_token_is_kept_and_not_logged() {
 #[test]
 fn the_judge_listens_while_its_session_runs() {
     let h = held("judge-runs");
-    let sessions = h.tool.places.claude_sessions();
+    let sessions = h.tool.places.sessions();
     let listening = || listening(&h.store.open_existing().unwrap(), &sessions).unwrap();
     assert_eq!(listening(), None, "no session has listened");
     h.listen(Some(&caller("s-old", "s-old")), Some(&h.inbox()))
@@ -240,7 +240,7 @@ impl Reviewed {
         tell(
             &self.demo.store,
             &stamp("tester"),
-            &self.demo.tool.places.claude_sessions(),
+            &self.demo.tool.places.sessions(),
             &self.to_settle().notice().unwrap(),
             caller,
             own,
@@ -296,16 +296,18 @@ fn a_dispatched_agents_review_records_it_as_the_branchs_agent() {
         .unwrap();
     assert_eq!(recorded, [("s1".to_string(), "a1".to_string())]);
     let main = reviewed("judge-main", Some(&caller("s1", "s1")));
-    let none: i64 = main
+    let recorded: (String, String) = main
         .demo
         .store
         .open_existing()
         .unwrap()
-        .query_row("SELECT count(*) FROM review_branch_agent", [], |row| {
-            row.get(0)
-        })
+        .query_row(
+            "SELECT session, agent FROM review_branch_agent",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
         .unwrap();
-    assert_eq!(none, 0, "a session's main agent works on no branch");
+    assert_eq!(recorded, ("s1".into(), "s1".into()));
 }
 
 #[test]
@@ -315,7 +317,7 @@ fn a_listening_judge_is_told_the_findings_to_settle() {
     let judge = r.inbox("j.sock");
     r.listen_as_judge(&judge);
     running_session(&r.demo.tool.places, "s-judge");
-    let received = FakeInbox::listen(Path::new(judge.socket()));
+    let received = FakeInbox::listen(Path::new(judge.stored().1));
     let coordinator = r.inbox("c.sock");
     let said = r.tell(Some(&agent), Some(&coordinator));
     let lines = received.received();
@@ -344,7 +346,7 @@ fn with_no_judge_a_dispatched_agents_coordinator_is_told() {
     // A judge listened, and its session no longer runs.
     r.listen_as_judge(&r.inbox("j.sock"));
     let own = r.inbox("c.sock");
-    let received = FakeInbox::listen(Path::new(own.socket()));
+    let received = FakeInbox::listen(Path::new(own.stored().1));
     let said = r.tell(Some(&agent), Some(&own));
     let told = message(&received.received());
     assert!(
@@ -375,7 +377,7 @@ fn a_judge_whose_session_runs_but_whose_inbox_is_gone_is_still_the_judge() {
     let conn = r.demo.store.open_existing().unwrap();
     let refused = may_judge(
         &conn,
-        &r.demo.tool.places.claude_sessions(),
+        &r.demo.tool.places.sessions(),
         r.finding,
         Some(&caller("s1", "s1")),
     )
@@ -596,7 +598,7 @@ impl Reviewed {
         tell(
             &self.demo.store,
             &stamp("tester"),
-            &self.demo.tool.places.claude_sessions(),
+            &self.demo.tool.places.sessions(),
             &dispute_notice(&conn, "demo", &finding).unwrap(),
             caller,
             own,
@@ -627,7 +629,7 @@ fn a_dispute_tells_the_judge_and_the_wait_ends_when_the_judge_keeps_the_finding(
     r.answer_as("dispute", Some(&agent), "the rule allows it here", "agent")
         .unwrap();
     let judge = r.inbox("j.sock");
-    let received = FakeInbox::listen(Path::new(judge.socket()));
+    let received = FakeInbox::listen(Path::new(judge.stored().1));
     let said = r.dispute(Some(&agent), None);
     let told = message(&received.received());
     assert!(
@@ -772,3 +774,46 @@ fn a_settle_that_cannot_tell_the_waits_fails_and_says_the_settle_stands() {
     );
     assert!(refused.contains("stop it and run it again"), "{refused}");
 }
+
+#[test]
+fn a_codex_main_thread_cannot_settle_a_finding_on_its_own_branch() {
+    let thread = "00000000-0000-4000-8000-000000000007";
+    let main = caller(thread, thread);
+    let r = reviewed("judge-main-thread", Some(&main));
+    let db = r.demo.store.open_existing().unwrap();
+    let refusal = may_judge(&db, &r.demo.tool.places.sessions(), r.finding, Some(&main))
+        .unwrap_err()
+        .text();
+    assert!(refusal.contains("on your branch"), "{refusal}");
+    let said = r.tell(Some(&main), None);
+    assert!(said.contains("independent session"), "{said}");
+}
+
+#[test]
+fn the_judge_does_not_receive_findings_from_its_own_review() {
+    let owner = caller("s-judge", "s-judge");
+    let r = reviewed("judge-self-review", Some(&owner));
+    let judge = r.inbox("j.sock");
+    r.listen_as_judge(&judge);
+    running_session(&r.demo.tool.places, "s-judge");
+
+    let said = r.tell(Some(&owner), None);
+    assert!(said.contains("ran the review and cannot settle"), "{said}");
+    assert!(said.contains("independent session"), "{said}");
+    assert!(
+        crate::review::judge_told::tell_waiting(
+            &r.demo.store,
+            &stamp("tester"),
+            &r.demo.tool.places.sessions()
+        )
+        .unwrap()
+        .is_empty()
+    );
+}
+
+pub(crate) const REVIEW_BRANCH_AGENT: &str = r#"CREATE TABLE review_branch_agent (
+    run_id INTEGER PRIMARY KEY REFERENCES review_run (id),
+    session TEXT NOT NULL CONSTRAINT review_branch_agent_session_is_named CHECK (session <> ''),
+    agent TEXT NOT NULL CONSTRAINT review_branch_agent_agent_is_named CHECK (agent <> ''),
+    CONSTRAINT review_branch_agent_is_dispatched CHECK (agent <> session)
+) STRICT;"#;

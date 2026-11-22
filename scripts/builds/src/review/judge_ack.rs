@@ -3,10 +3,8 @@
 //! every command of an agent that has no acknowledgement, so a judge that
 //! nobody told would find out only when it tries to settle. `builds health` calls `tell_outdated`.
 
-use std::path::Path;
-
 use crate::fail::Result;
-use crate::inbox::{Sent, send};
+use crate::inbox::Sent;
 use crate::lists::store::Store;
 use crate::review::judge;
 
@@ -17,7 +15,7 @@ pub const ACKNOWLEDGE: &str = "acknowledge the text";
 /// (`judge::listening`, the fact that `review settle` reads too), that it has
 /// no acknowledgement and how to acknowledge. Returns the line to print, or
 /// None when no judge listens or it has acknowledged the text.
-pub fn tell_outdated(store: &Store, sessions: &Path) -> Result<Option<String>> {
+pub fn tell_outdated(store: &Store, sessions: &crate::inbox::Sessions) -> Result<Option<String>> {
     let conn = store.open_existing()?;
     let Some(judge) = judge::listening(&conn, sessions)? else {
         return Ok(None);
@@ -30,10 +28,11 @@ pub fn tell_outdated(store: &Store, sessions: &Path) -> Result<Option<String>> {
         "You judge project {project}, and you have not acknowledged the text every agent reads: {why}. builds refuses your commands until you run `builds ack --agent {} --project {project}`, read every part and acknowledge it. Findings wait for you to settle.",
         judge.session
     );
-    Ok(Some(match send(&judge.inbox, &message)? {
-        Sent::Delivered => format!(
-            "builds told the judge {} of project {project} to {ACKNOWLEDGE}: {why}",
-            judge.by
+    Ok(Some(match sessions.send(&judge.inbox, &message)? {
+        accepted @ (Sent::Delivered | Sent::Queued) => format!(
+            "builds told the judge {} of project {project} to {ACKNOWLEDGE}: {why}. {}",
+            judge.by,
+            accepted.resume_notice()
         ),
         Sent::Gone => format!(
             "the inbox of the judge {} of project {project} is gone, so builds could not tell it to {ACKNOWLEDGE}: {why}",

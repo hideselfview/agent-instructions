@@ -11,27 +11,30 @@
 -- prints it, logs it, puts it on a page or returns it in JSON.
 CREATE TABLE review_judge (
     singleton INTEGER PRIMARY KEY CONSTRAINT review_judge_is_single CHECK (singleton = 1),
-    -- The session's inbox socket (CLAUDE_CODE_MESSAGING_SOCKET).
-    socket TEXT NOT NULL CONSTRAINT review_judge_socket_is_absolute CHECK (substr(socket, 1, 1) = '/'),
-    -- CLAUDE_CODE_MESSAGING_TOKEN; NULL when the session had none.
-    token TEXT CONSTRAINT review_judge_token_says_something CHECK (token IS NULL OR trim(token) <> ''),
+    runtime TEXT NOT NULL CONSTRAINT review_judge_runtime_known CHECK (runtime IN ('claude', 'codex')),
+    address TEXT NOT NULL CONSTRAINT review_judge_address_matches_runtime CHECK (
+        (runtime = 'claude' AND substr(address, 1, 1) = '/' AND instr(address, char(0)) = 0) OR
+        (runtime = 'codex' AND length(CAST(address AS BLOB)) = 36
+            AND substr(address, 9, 1) = '-' AND substr(address, 14, 1) = '-'
+            AND substr(address, 19, 1) = '-' AND substr(address, 24, 1) = '-'
+            AND length(replace(address, '-', '')) = 32
+            AND replace(address, '-', '') NOT GLOB '*[^0-9a-f]*')
+    ),
+    token TEXT CONSTRAINT review_judge_token_is_claude_inbox_secret CHECK (token IS NULL OR (runtime = 'claude' AND trim(token) <> '')),
     -- The session's Claude Code session id, which is also the agent id of
     -- its main agent: only a session's main agent judges.
     session TEXT NOT NULL CONSTRAINT review_judge_session_is_named CHECK (session <> ''),
     at INTEGER NOT NULL,
-    by TEXT NOT NULL CONSTRAINT review_judge_by_is_named CHECK (trim(by) <> '')
+    by TEXT NOT NULL CONSTRAINT review_judge_by_is_named CHECK (trim(by) <> ''),
+    CONSTRAINT codex_judge_uses_its_own_thread CHECK (runtime = 'claude' OR session = address)
 ) STRICT;
 
--- The agent that ran each review run, when a session dispatched it: the
--- agent of the branch the run read, which never settles the run's findings.
--- builds names an agent by its session and its agent id (ack/agent.rs). A run
--- that a session's main agent or the person ran has no row: the coordinator,
--- the judge and the person work on no branch of their own.
+-- The agent that ran each review run. The agent of the branch never settles
+-- a finding it raised. A review the person ran has no row.
 CREATE TABLE review_branch_agent (
     run_id INTEGER PRIMARY KEY REFERENCES review_run (id),
     session TEXT NOT NULL CONSTRAINT review_branch_agent_session_is_named CHECK (session <> ''),
-    agent TEXT NOT NULL CONSTRAINT review_branch_agent_agent_is_named CHECK (agent <> ''),
-    CONSTRAINT review_branch_agent_is_dispatched CHECK (agent <> session)
+    agent TEXT NOT NULL CONSTRAINT review_branch_agent_agent_is_named CHECK (agent <> '')
 ) STRICT;
 
 -- A confirmed finding that someone disputed: they think the judge settled it

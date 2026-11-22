@@ -68,6 +68,7 @@ pub enum ReviewWait {
 pub enum Settler {
     Judge,
     Coordinator,
+    Independent,
 }
 
 impl ReviewWait {
@@ -110,11 +111,12 @@ impl ReviewWait {
             ReviewWait::Running => "The rules review of its commits runs.".to_string(),
             ReviewWait::DesignCoverage => "Builds checks which design changes cover the commits.".to_string(),
             ReviewWait::ToSettle(n, settler) => format!(
-                "{} on the {} to settle {}.",
+                "{} for {} to settle {}.",
                 findings(n, "review"),
                 match settler {
-                    Settler::Judge => "judge",
-                    Settler::Coordinator => "coordinator",
+                    Settler::Judge => "the judge",
+                    Settler::Coordinator => "the coordinator",
+                    Settler::Independent => "an independent session",
                 },
                 if n == 1 { "it" } else { "them" }
             ),

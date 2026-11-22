@@ -907,7 +907,13 @@ fn the_publish_events_follow_the_store_and_a_project_with_no_design_files_has_no
         serde_json::from_str(&next_event(&mut reader, "publish")).unwrap();
     assert_eq!(first, serde_json::json!({ "latest": null }));
     let store = crate::lists::store::Store::named(&s.model.places, "demo").unwrap();
-    crate::lists::publish::ask_and_tell(&store, &"a".repeat(40), &stamp(NOON)).unwrap();
+    crate::lists::publish::ask_and_tell(
+        &store,
+        &s.model.places.sessions(),
+        &"a".repeat(40),
+        &stamp(NOON),
+    )
+    .unwrap();
     let next: serde_json::Value =
         serde_json::from_str(&next_event(&mut reader, "publish")).unwrap();
     assert_eq!(next["latest"]["id"], serde_json::json!(1));

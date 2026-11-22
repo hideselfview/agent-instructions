@@ -10,8 +10,6 @@
 //! session runs, change with no write to the store, so `standing` reads them
 //! each time.
 
-use std::path::Path;
-
 use super::cards::{ItemWait, ReviewWait, Settler};
 use crate::fail::Fail;
 use crate::lists::store::Store;
@@ -21,7 +19,7 @@ use crate::review::verdicts::{Reads, Worktree};
 /// What the review's records and the branch's net change say of a
 /// worktree's commits.
 #[derive(Clone, Copy)]
-enum Judgment {
+enum Judgment<'a> {
     /// No group's rules cover a path the commits change.
     NotNeeded,
     /// Land takes the commits as far as the review goes.
@@ -30,22 +28,22 @@ enum Judgment {
     /// diff the review read.
     NotRun,
     /// This many findings wait for a settle.
-    ToSettle(usize),
+    ToSettle(&'a [crate::review::record::Finding]),
     /// This many paths, or the commit messages, changed since the last review.
     Unreviewed(usize),
     /// This many confirmed findings are open.
     Open(usize),
 }
 
-impl Judgment {
+impl<'a> Judgment<'a> {
     /// What <verdict> says of the commits, as a card shows it.
-    fn of(verdict: &Verdict) -> Judgment {
+    fn of(verdict: &'a Verdict) -> Self {
         match verdict {
             Verdict::NotNeeded => Judgment::NotNeeded,
             Verdict::Takes(_) | Verdict::OverCap(_) => Judgment::Takes,
             Verdict::NoRun => Judgment::NotRun,
             Verdict::Unfinished(_, unfinished) if !unfinished.unsettled.is_empty() => {
-                Judgment::ToSettle(unfinished.unsettled.len())
+                Judgment::ToSettle(&unfinished.unsettled)
             }
             Verdict::Unfinished(_, unfinished) if !unfinished.unanswered.is_empty() => {
                 Judgment::NotRun
@@ -69,7 +67,7 @@ pub fn standing(
     reads: &Reads,
     store: &Store,
     version: u64,
-    sessions: &Path,
+    sessions: &crate::inbox::Sessions,
     worktree: &Worktree,
 ) -> Result<Option<ItemWait>, String> {
     let Some(newest) = worktree.git.ahead.first() else {
@@ -81,14 +79,29 @@ pub fn standing(
         _ if crate::review::is_running(&store.dir, &newest.full) => ReviewWait::Running,
         Judgment::Takes => return Ok(None),
         Judgment::NotRun => ReviewWait::NotRun,
-        Judgment::ToSettle(count) => {
+        Judgment::ToSettle(findings) => {
             let conn = store.open_existing().map_err(Fail::text)?;
-            let settler =
-                match crate::review::judge::listening(&conn, sessions).map_err(Fail::text)? {
-                    Some(_) => Settler::Judge,
-                    None => Settler::Coordinator,
+            let judge = crate::review::judge::listening(&conn, sessions).map_err(Fail::text)?;
+            let mut settler = if judge.is_some() {
+                Settler::Judge
+            } else {
+                Settler::Coordinator
+            };
+            let mut reviewed = std::collections::BTreeSet::new();
+            for finding in findings {
+                if !reviewed.insert(finding.run_id) {
+                    continue;
+                }
+                let is = |owner: &crate::ack::agent::Caller| match &judge {
+                    Some(judge) => judge.is(owner),
+                    None => !owner.is_dispatched(),
                 };
-            ReviewWait::ToSettle(count, settler)
+                if crate::review::judge::owner_matches(&conn, finding, is).map_err(Fail::text)? {
+                    settler = Settler::Independent;
+                    break;
+                }
+            }
+            ReviewWait::ToSettle(findings.len(), settler)
         }
         Judgment::Unreviewed(count) => ReviewWait::Unreviewed(count),
         Judgment::Open(count) => ReviewWait::Open(count),

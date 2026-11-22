@@ -1,6 +1,6 @@
 use super::*;
 use crate::fail;
-use crate::inbox::{Messaging, send};
+use crate::inbox::Messaging;
 use crate::lists::design_command::run_in_session;
 use crate::lists::fixtures::{NOON, stamp};
 use crate::lists::project::NewProject;
@@ -56,7 +56,13 @@ fn approving_sends_the_auth_line_then_the_user_message_and_marks_the_session_tol
     let inbox = FakeInbox::listen(&h.socket());
     h.keep(Some(&messaging(&h, Some(TOKEN))));
     assert_eq!(h.state(), SessionState::Waiting);
-    let approval = approve_and_tell(&h.store, Id(1), &stamp(NOON)).unwrap();
+    let approval = approve_and_tell(
+        &h.store,
+        &h.scratch.places().sessions(),
+        Id(1),
+        &stamp(NOON),
+    )
+    .unwrap();
     assert_eq!(approval, Approval::Recorded(SessionState::Told));
     let lines = inbox.received();
     assert_eq!(lines.len(), 2, "{lines:?}");
@@ -77,7 +83,13 @@ fn a_session_with_no_token_gets_the_message_line_alone() {
     let h = held("session-no-token");
     let inbox = FakeInbox::listen(&h.socket());
     h.keep(Some(&messaging(&h, None)));
-    approve_and_tell(&h.store, Id(1), &stamp(NOON)).unwrap();
+    approve_and_tell(
+        &h.store,
+        &h.scratch.places().sessions(),
+        Id(1),
+        &stamp(NOON),
+    )
+    .unwrap();
     let lines = inbox.received();
     assert_eq!(lines.len(), 1, "{lines:?}");
     assert!(lines[0].contains("\"type\":\"user\""));
@@ -91,7 +103,13 @@ fn a_gone_socket_keeps_the_approval_marks_the_session_ended_and_is_never_tried_a
             stale_socket(&h.socket());
         }
         h.keep(Some(&messaging(&h, Some(TOKEN))));
-        let approval = approve_and_tell(&h.store, Id(1), &stamp(NOON)).unwrap();
+        let approval = approve_and_tell(
+            &h.store,
+            &h.scratch.places().sessions(),
+            Id(1),
+            &stamp(NOON),
+        )
+        .unwrap();
         assert_eq!(approval, Approval::Recorded(SessionState::Ended), "{gone}");
         assert_eq!(h.state(), SessionState::Ended);
         assert!(
@@ -104,7 +122,13 @@ fn a_gone_socket_keeps_the_approval_marks_the_session_ended_and_is_never_tried_a
                 .is_some()
         );
         // The session coming back changes nothing: the approval is not sent again.
-        let again = approve_and_tell(&h.store, Id(1), &stamp(NOON)).unwrap();
+        let again = approve_and_tell(
+            &h.store,
+            &h.scratch.places().sessions(),
+            Id(1),
+            &stamp(NOON),
+        )
+        .unwrap();
         assert_eq!(again, Approval::Already);
         assert_eq!(h.state(), SessionState::Ended);
     }
@@ -113,9 +137,40 @@ fn a_gone_socket_keeps_the_approval_marks_the_session_ended_and_is_never_tried_a
 #[test]
 fn a_change_with_no_recorded_session_is_approved_and_says_so() {
     let h = held("session-none");
-    let approval = approve_and_tell(&h.store, Id(1), &stamp(NOON)).unwrap();
+    let approval = approve_and_tell(
+        &h.store,
+        &h.scratch.places().sessions(),
+        Id(1),
+        &stamp(NOON),
+    )
+    .unwrap();
     assert_eq!(approval, Approval::Recorded(SessionState::Unrecorded));
     assert_eq!(h.state(), SessionState::Unrecorded);
+}
+
+#[test]
+fn a_transport_failure_leaves_the_approval_with_unconfirmed_delivery() {
+    let h = held("session-send-failure");
+    let blocked = h.scratch.dir.join("file");
+    std::fs::write(&blocked, "").unwrap();
+    let to = Messaging::new(blocked.join("p.sock").to_str().unwrap(), Some(TOKEN)).unwrap();
+    h.keep(Some(&to));
+    let failed = approve_and_tell(
+        &h.store,
+        &h.scratch.places().sessions(),
+        Id(1),
+        &stamp(NOON),
+    )
+    .unwrap_err()
+    .text();
+    assert!(
+        failed.contains("connecting to the session's inbox"),
+        "{failed}"
+    );
+    let lists = h.store.load().unwrap();
+    let approved = lists.design(Id(1)).unwrap();
+    assert!(approved.approved.is_some());
+    assert_eq!(approved.session, SessionState::Unconfirmed);
 }
 
 #[test]
@@ -123,8 +178,20 @@ fn approving_twice_sends_once() {
     let h = held("session-twice");
     let inbox = FakeInbox::listen(&h.socket());
     h.keep(Some(&messaging(&h, Some(TOKEN))));
-    approve_and_tell(&h.store, Id(1), &stamp(NOON)).unwrap();
-    let again = approve_and_tell(&h.store, Id(1), &stamp(NOON)).unwrap();
+    approve_and_tell(
+        &h.store,
+        &h.scratch.places().sessions(),
+        Id(1),
+        &stamp(NOON),
+    )
+    .unwrap();
+    let again = approve_and_tell(
+        &h.store,
+        &h.scratch.places().sessions(),
+        Id(1),
+        &stamp(NOON),
+    )
+    .unwrap();
     assert_eq!(again, Approval::Already);
     assert_eq!(inbox.received().len(), 2, "one auth line and one message");
 }
@@ -139,7 +206,13 @@ fn the_token_is_in_the_store_and_in_nothing_that_is_shown() {
     let to = messaging(&h, Some(TOKEN));
     assert!(!format!("{to:?}").contains(TOKEN));
     h.keep(Some(&to));
-    approve_and_tell(&h.store, Id(1), &stamp(NOON)).unwrap();
+    approve_and_tell(
+        &h.store,
+        &h.scratch.places().sessions(),
+        Id(1),
+        &stamp(NOON),
+    )
+    .unwrap();
     inbox.received();
 
     let lists = h.store.load().unwrap();
@@ -171,7 +244,14 @@ fn the_token_is_in_the_store_and_in_nothing_that_is_shown() {
     // A send that fails says what failed, not the token.
     let blocked = Messaging::new("/nonexistent-dir/\u{0}", Some(TOKEN));
     if let Ok(blocked) = blocked {
-        let error = send(&blocked, "x").map(|_| ()).unwrap_err().text();
+        let error = h
+            .scratch
+            .places()
+            .sessions()
+            .send(&blocked, "x")
+            .map(|_| ())
+            .unwrap_err()
+            .text();
         assert!(!error.contains(TOKEN));
     }
 }
@@ -248,7 +328,7 @@ fn record_and_amend_keep_the_recording_sessions_inbox() {
     // changes tokens.css, and an amend from outside a session clears the
     // approval and leaves the session waiting to be told again.
     let inbox = FakeInbox::listen(&socket);
-    approve_and_tell(&store, Id(1), &stamp(NOON)).unwrap();
+    approve_and_tell(&store, &tool.places.sessions(), Id(1), &stamp(NOON)).unwrap();
     inbox.received();
     assert_eq!(store.load().unwrap().designs[0].session, SessionState::Told);
     std::fs::write(dir.join("design/system/tokens.css"), "b{}").unwrap();

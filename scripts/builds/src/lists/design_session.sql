@@ -5,12 +5,17 @@
 -- a page or returns it in JSON.
 CREATE TABLE IF NOT EXISTS design_session (
     design_id INTEGER PRIMARY KEY REFERENCES design (id) ON DELETE CASCADE,
-    -- The session's inbox socket (CLAUDE_CODE_MESSAGING_SOCKET).
-    socket TEXT NOT NULL CONSTRAINT design_session_socket_is_absolute CHECK (substr(socket, 1, 1) = '/'),
-    -- CLAUDE_CODE_MESSAGING_TOKEN; NULL when the session had none.
-    token TEXT CONSTRAINT design_session_token_says_something CHECK (token IS NULL OR trim(token) <> ''),
-    -- What the one send of the approval found: NULL before it is sent, then
-    -- `delivered` (the socket took the message) or `ended` (no session listens
-    -- on the socket any more). Nothing sends again; an amend clears it.
-    told TEXT CONSTRAINT design_session_told_known CHECK (told IS NULL OR told IN ('delivered', 'ended'))
+    runtime TEXT NOT NULL CONSTRAINT design_session_runtime_known CHECK (runtime IN ('claude', 'codex')),
+    address TEXT NOT NULL CONSTRAINT design_session_address_matches_runtime CHECK (
+        (runtime = 'claude' AND substr(address, 1, 1) = '/' AND instr(address, char(0)) = 0) OR
+        (runtime = 'codex' AND length(CAST(address AS BLOB)) = 36
+            AND substr(address, 9, 1) = '-' AND substr(address, 14, 1) = '-'
+            AND substr(address, 19, 1) = '-' AND substr(address, 24, 1) = '-'
+            AND length(replace(address, '-', '')) = 32
+            AND replace(address, '-', '') NOT GLOB '*[^0-9a-f]*')
+    ),
+    token TEXT CONSTRAINT design_session_token_is_claude_inbox_secret CHECK (token IS NULL OR (runtime = 'claude' AND trim(token) <> '')),
+    -- NULL before approval, then whether builds could confirm delivery.
+    -- An amend clears the result.
+    told TEXT CONSTRAINT design_session_told_known CHECK (told IS NULL OR told IN ('unconfirmed', 'delivered', 'queued', 'ended'))
 ) STRICT;

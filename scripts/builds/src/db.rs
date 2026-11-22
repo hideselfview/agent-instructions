@@ -433,7 +433,7 @@ pub const CLEAR_LEGACY_TOKENS: &str = "tokens_in = NULL, tokens_out = NULL, toke
 /// The schema before review records could omit usage and spec-check cost.
 #[cfg(test)]
 pub fn schema_before_unreported_usage() -> String {
-    without_unreported_usage(SCHEMA.to_string())
+    without_unreported_usage(schema_before_codex_inboxes())
 }
 
 /// <schema> as it was before a change could delete a component: with the
@@ -468,17 +468,81 @@ pub fn without_at_merge_base(schema: String) -> String {
     )
 }
 
+/// The inbox tables before a destination could name a Codex thread.
+#[cfg(test)]
+fn with_claude_inboxes(mut schema: String) -> String {
+    const DESIGN_SESSION: &str = r#"CREATE TABLE IF NOT EXISTS design_session (
+    design_id INTEGER PRIMARY KEY REFERENCES design (id) ON DELETE CASCADE,
+    -- The session's inbox socket (CLAUDE_CODE_MESSAGING_SOCKET).
+    socket TEXT NOT NULL CONSTRAINT design_session_socket_is_absolute CHECK (substr(socket, 1, 1) = '/'),
+    -- CLAUDE_CODE_MESSAGING_TOKEN; NULL when the session had none.
+    token TEXT CONSTRAINT design_session_token_says_something CHECK (token IS NULL OR trim(token) <> ''),
+    -- What the one send of the approval found: NULL before it is sent, then
+    -- `delivered` (the socket took the message) or `ended` (no session listens
+    -- on the socket any more). Nothing sends again; an amend clears it.
+    told TEXT CONSTRAINT design_session_told_known CHECK (told IS NULL OR told IN ('delivered', 'ended'))
+) STRICT;"#;
+    const DESIGN_LISTENER: &str = r#"CREATE TABLE design_listener (
+    singleton INTEGER PRIMARY KEY CONSTRAINT design_listener_is_single CHECK (singleton = 1),
+    -- The session's inbox socket (CLAUDE_CODE_MESSAGING_SOCKET).
+    socket TEXT NOT NULL CONSTRAINT design_listener_socket_is_absolute CHECK (substr(socket, 1, 1) = '/'),
+    -- CLAUDE_CODE_MESSAGING_TOKEN; NULL when the session had none.
+    token TEXT CONSTRAINT design_listener_token_says_something CHECK (token IS NULL OR trim(token) <> ''),
+    at INTEGER NOT NULL,
+    by TEXT NOT NULL CONSTRAINT design_listener_by_is_named CHECK (trim(by) <> '')
+) STRICT;"#;
+    const REVIEW_JUDGE: &str = r#"CREATE TABLE review_judge (
+    singleton INTEGER PRIMARY KEY CONSTRAINT review_judge_is_single CHECK (singleton = 1),
+    -- The session's inbox socket (CLAUDE_CODE_MESSAGING_SOCKET).
+    socket TEXT NOT NULL CONSTRAINT review_judge_socket_is_absolute CHECK (substr(socket, 1, 1) = '/'),
+    -- CLAUDE_CODE_MESSAGING_TOKEN; NULL when the session had none.
+    token TEXT CONSTRAINT review_judge_token_says_something CHECK (token IS NULL OR trim(token) <> ''),
+    -- The session's Claude Code session id, which is also the agent id of
+    -- its main agent: only a session's main agent judges.
+    session TEXT NOT NULL CONSTRAINT review_judge_session_is_named CHECK (session <> ''),
+    at INTEGER NOT NULL,
+    by TEXT NOT NULL CONSTRAINT review_judge_by_is_named CHECK (trim(by) <> '')
+) STRICT;"#;
+    for (start, old) in [
+        (
+            "CREATE TABLE IF NOT EXISTS design_session (",
+            DESIGN_SESSION,
+        ),
+        ("CREATE TABLE design_listener (", DESIGN_LISTENER),
+        (
+            "CREATE TABLE publish_request (",
+            crate::lists::publish::PUBLISH_REQUEST,
+        ),
+        ("CREATE TABLE review_judge (", REVIEW_JUDGE),
+        (
+            "CREATE TABLE review_branch_agent (",
+            crate::review::judge::REVIEW_BRANCH_AGENT,
+        ),
+    ] {
+        if schema.contains(start) {
+            let table = statement(&schema, start, ") STRICT;").to_string();
+            schema = schema.replacen(&table, old, 1);
+        }
+    }
+    schema
+}
+
+#[cfg(test)]
+pub fn schema_before_codex_inboxes() -> String {
+    with_claude_inboxes(SCHEMA.to_string())
+}
+
 /// The schema as it was before the app build steps' table kept whether a step
 /// ran at the merge base.
 #[cfg(test)]
 pub fn schema_before_app_build_at_merge_base() -> String {
-    without_at_merge_base(without_step_shots(SCHEMA.to_string()))
+    without_at_merge_base(without_step_shots(schema_before_codex_inboxes()))
 }
 
 /// The schema as it was before a change could delete a component.
 #[cfg(test)]
 pub fn schema_before_deleted_place() -> String {
-    with_deleted_boards_only(SCHEMA.to_string())
+    with_deleted_boards_only(schema_before_codex_inboxes())
 }
 
 /// <schema> as it was before a review page's entry could be a component's
@@ -500,7 +564,7 @@ pub fn with_review_boards_only(schema: String) -> String {
 /// preview.
 #[cfg(test)]
 pub fn schema_before_review_component() -> String {
-    with_review_boards_only(SCHEMA.to_string())
+    with_review_boards_only(schema_before_codex_inboxes())
 }
 
 /// <schema> as it was before nothing read the time of an acknowledgement or
@@ -533,7 +597,7 @@ pub fn with_ack_unread(schema: String) -> String {
 /// the sections of a reading.
 #[cfg(test)]
 pub fn schema_before_ack_unread() -> String {
-    with_ack_unread(SCHEMA.to_string())
+    with_ack_unread(schema_before_codex_inboxes())
 }
 
 /// The table of a reading's made-up words as it was before a reading's parts
@@ -566,7 +630,7 @@ pub fn with_ack_words(schema: String) -> String {
 /// The schema as it was before a reading's parts were chained by tokens.
 #[cfg(test)]
 pub fn schema_before_ack_tokens() -> String {
-    with_ack_words(SCHEMA.to_string())
+    with_ack_words(schema_before_codex_inboxes())
 }
 
 /// The table of the agents' acknowledgements as it was before the text left
@@ -601,7 +665,7 @@ pub fn with_ack_repo(schema: String) -> String {
 /// part, with the acknowledgements' table keyed by repo.
 #[cfg(test)]
 pub fn schema_before_ack_repo() -> String {
-    with_ack_repo(SCHEMA.to_string())
+    with_ack_repo(schema_before_codex_inboxes())
 }
 
 /// The schema as it was before <part> joined it: the parts of
@@ -614,16 +678,16 @@ fn schema_before(part: &str) -> String {
         .iter()
         .position(|known| *known == part)
         .expect("the part is one of the schema's parts");
-    with_ack_repo(with_review_texts(with_shot_findings(
+    with_ack_repo(with_review_texts(with_shot_findings(with_claude_inboxes(
         SCHEMA_PARTS[..at].join("\n"),
-    )))
+    ))))
 }
 
 /// The schema as it was before what the shots steps used joined it: every
 /// part but the last.
 #[cfg(test)]
 pub fn schema_before_app_build_step_shots() -> String {
-    without_step_shots(SCHEMA.to_string())
+    without_step_shots(schema_before_codex_inboxes())
 }
 
 /// The schema as it was before the shots prefixes dropped from a landing
@@ -631,7 +695,9 @@ pub fn schema_before_app_build_step_shots() -> String {
 /// differences put back.
 #[cfg(test)]
 pub fn schema_before_app_shots_drop() -> String {
-    with_ack_repo(SCHEMA_PARTS[..SCHEMA_PARTS.len() - 2].join("\n"))
+    with_ack_repo(with_claude_inboxes(
+        SCHEMA_PARTS[..SCHEMA_PARTS.len() - 2].join("\n"),
+    ))
 }
 
 /// The schema as it was before the branches the coordinator marked as
@@ -639,7 +705,9 @@ pub fn schema_before_app_shots_drop() -> String {
 /// older schemas' differences put back.
 #[cfg(test)]
 pub fn schema_before_marked_mechanical() -> String {
-    with_ack_repo(SCHEMA_PARTS[..SCHEMA_PARTS.len() - 3].join("\n"))
+    with_ack_repo(with_claude_inboxes(
+        SCHEMA_PARTS[..SCHEMA_PARTS.len() - 3].join("\n"),
+    ))
 }
 
 /// The schema as it was before the branches over the review's cap joined it,

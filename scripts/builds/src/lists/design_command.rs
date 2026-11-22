@@ -14,7 +14,7 @@ use crate::ack::agent::Caller;
 use crate::checkout::Checkout;
 use crate::fail;
 use crate::fail::{Context, Result};
-use crate::inbox::Messaging;
+use crate::inbox::{Destinations, Messaging, Recipient};
 use crate::lists::args::{Args, read_request};
 use crate::lists::design::{self, DesignRequest, Drawn, Landed, PlaceAnswer, Settlement, Shown};
 use crate::lists::design_drawn::{ProgramRenders, Renders, Sameness};
@@ -35,13 +35,19 @@ pub fn cmd_design(tool: &Tool, args: &[String]) -> Result<()> {
 
 /// A design command's output, which `cmd_design` prints.
 pub fn run_to_text(tool: &Tool, args: &[String]) -> Result<String> {
-    run_in_session(tool, args, Messaging::from_env)
+    run_with(
+        tool,
+        args,
+        || Destinations::for_session(&tool.session),
+        || tool.session.caller(),
+    )
 }
 
 /// A design command run by the session whose inbox <session> reads, if any:
 /// only `record`, `amend` and `listen` call it, and keep the inbox as the
 /// session to tell, so no other command depends on the environment. The
 /// agent that runs it is the one the environment names.
+#[cfg(test)]
 pub fn run_in_session(
     tool: &Tool,
     args: &[String],
@@ -53,10 +59,25 @@ pub fn run_in_session(
 /// `run_in_session`, run by the agent that <runner> gives: only `record` and
 /// `amend` call it, when they start the rules review of a change's branch
 /// (`design_review::start`), which records who runs the review.
+#[cfg(test)]
 pub fn run_as(
     tool: &Tool,
     args: &[String],
     session: impl FnOnce() -> Result<Option<Messaging>>,
+    runner: impl FnOnce() -> Result<Option<Caller>>,
+) -> Result<String> {
+    run_with(
+        tool,
+        args,
+        || Ok(session()?.map(Destinations::Shared)),
+        runner,
+    )
+}
+
+fn run_with(
+    tool: &Tool,
+    args: &[String],
+    destinations: impl FnOnce() -> Result<Option<Destinations>>,
     runner: impl FnOnce() -> Result<Option<Caller>>,
 ) -> Result<String> {
     let cwd = std::env::current_dir().context(|| "reading the current directory".to_string())?;
@@ -66,8 +87,31 @@ pub fn run_as(
     match command.as_str() {
         "places" => places(tool, rest),
         "only" => only(tool, rest),
-        "record" => record(tool, rest, &cwd, session()?.as_ref(), runner),
-        "amend" => amend(tool, rest, &cwd, session()?.as_ref(), runner),
+        "record" | "amend" => {
+            let destinations = destinations()?;
+            let recorder = destinations.as_ref().map(|to| to.at(Recipient::ThisThread));
+            let coordinator = destinations
+                .as_ref()
+                .map(|to| to.at(Recipient::Coordinator));
+            match command.as_str() {
+                "record" => record(
+                    tool,
+                    rest,
+                    &cwd,
+                    recorder.as_ref(),
+                    coordinator.as_ref(),
+                    runner,
+                ),
+                _ => amend(
+                    tool,
+                    rest,
+                    &cwd,
+                    recorder.as_ref(),
+                    coordinator.as_ref(),
+                    runner,
+                ),
+            }
+        }
         "approve" => approve(tool, rest, &cwd),
         "check" => check(tool, rest),
         "landed" => landed(tool, rest),
@@ -80,7 +124,10 @@ pub fn run_as(
         "publish-find" => publish_find(rest),
         "publish-files" => publish_files(tool, rest),
         "publish-last" => publish_last(tool, rest),
-        "listen" => super::publish_command::listen(tool, rest, &cwd, session()?.as_ref()),
+        "listen" => {
+            let inbox = destinations()?.map(|to| to.at(Recipient::ThisThread));
+            super::publish_command::listen(tool, rest, &cwd, inbox.as_ref())
+        }
         "publish" => super::publish_command::publish(tool, rest, &cwd),
         other => fail!("unknown design command {other}\n{USAGE}"),
     }
@@ -425,6 +472,7 @@ fn record(
     args: &[String],
     cwd: &Path,
     session: Option<&Messaging>,
+    coordinator: Option<&Messaging>,
     runner: impl FnOnce() -> Result<Option<Caller>>,
 ) -> Result<String> {
     let args = Args::parse(args, &["request"], &[])?;
@@ -477,7 +525,7 @@ fn record(
         recorded.design,
         &stamp,
         runner,
-        session,
+        coordinator,
         words,
     )
 }
@@ -510,6 +558,7 @@ fn amend(
     args: &[String],
     cwd: &Path,
     session: Option<&Messaging>,
+    coordinator: Option<&Messaging>,
     runner: impl FnOnce() -> Result<Option<Caller>>,
 ) -> Result<String> {
     let args = Args::parse(args, &["request"], &[])?;
@@ -569,7 +618,7 @@ fn amend(
     if !awaits {
         return Ok(words);
     }
-    review_first(tool, &scope.store, id, &stamp, runner, session, words)
+    review_first(tool, &scope.store, id, &stamp, runner, coordinator, words)
 }
 
 /// The last commit of open change <id> of the scope's repo, when the range's

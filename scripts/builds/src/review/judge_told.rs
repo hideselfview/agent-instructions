@@ -21,8 +21,6 @@
 //! - from `builds health`, which also forgets the judge whose session ended
 //!   (`forget_ended`), so that the coordinator settles.
 
-use std::path::Path;
-
 use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::db::Sql;
@@ -155,6 +153,9 @@ fn waiting_in(db: &Connection) -> Result<Vec<Waiting>> {
 fn untold(db: &Connection, judge: &Judge) -> Result<Vec<Waiting>> {
     let mut candidates = Vec::new();
     for waiting in waiting_in(db)? {
+        if judge::owner_matches(db, &waiting.finding, |owner| judge.is(owner))? {
+            continue;
+        }
         let (told, writer) = tell_of(db, waiting.finding.id, waiting.matter)?;
         if told.as_deref() != Some(judge.session.as_str()) {
             candidates.push((waiting, writer));
@@ -178,7 +179,11 @@ fn untold(db: &Connection, judge: &Judge) -> Result<Vec<Waiting>> {
 /// Marks each matter a message reached told. Returns a line for each message
 /// sent, and one when the judge's inbox is gone, which leaves its matters
 /// untold.
-pub fn tell_waiting(store: &Store, stamp: &Stamp, sessions: &Path) -> Result<Vec<String>> {
+pub fn tell_waiting(
+    store: &Store,
+    stamp: &Stamp,
+    sessions: &crate::inbox::Sessions,
+) -> Result<Vec<String>> {
     let conn = store.open_existing()?;
     let Some(judge) = judge::listening(&conn, sessions)? else {
         return Ok(Vec::new());
@@ -225,10 +230,14 @@ pub fn tell_waiting(store: &Store, stamp: &Stamp, sessions: &Path) -> Result<Vec
     }
     let mut lines = Vec::new();
     for (notice, line) in notices {
-        match judge::tell_judge(&judge, &notice)? {
-            Sent::Delivered => {
+        match judge::tell_judge(sessions, &judge, &notice)? {
+            accepted @ (Sent::Delivered | Sent::Queued) => {
                 record(store, stamp, &notice.matters, &judge.session)?;
-                lines.push(line);
+                lines.push(
+                    format!("{line}. {}", accepted.resume_notice())
+                        .trim_end()
+                        .to_string(),
+                );
             }
             Sent::Gone => {
                 lines.push(format!(
@@ -245,7 +254,11 @@ pub fn tell_waiting(store: &Store, stamp: &Stamp, sessions: &Path) -> Result<Vec
 /// Forgets the project's judge when its session no longer runs, so that the
 /// coordinator settles the findings that wait; returns the line that says
 /// so, naming the findings that wait, and None when no judge ended.
-pub fn forget_ended(store: &Store, stamp: &Stamp, sessions: &Path) -> Result<Option<String>> {
+pub fn forget_ended(
+    store: &Store,
+    stamp: &Stamp,
+    sessions: &crate::inbox::Sessions,
+) -> Result<Option<String>> {
     let conn = store.open_existing()?;
     let Some(judge) = judge::ended(&conn, sessions)? else {
         return Ok(None);
@@ -256,7 +269,7 @@ pub fn forget_ended(store: &Store, stamp: &Stamp, sessions: &Path) -> Result<Opt
         .collect();
     store.write(stamp, "judge forgotten", judge::forget)?;
     Ok(Some(format!(
-        "the session of project {}'s judge {} ended, so builds forgot it and the coordinator settles findings now{}",
+        "the session of project {}'s judge {} ended, so builds forgot it{}",
         store.project,
         judge.by,
         if waiting.is_empty() {

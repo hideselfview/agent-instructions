@@ -40,7 +40,7 @@ pub fn listen(
     };
     let Some(session) = session else {
         fail!(
-            "this command runs outside a Claude Code session with an inbox (CLAUDE_CODE_MESSAGING_SOCKET is not set), so the dashboard could not wake it; run it from the design session"
+            "Run this command from the Codex or Claude Code design session so the dashboard can notify it."
         );
     };
     let store = Store::named(&tool.places, project)?;

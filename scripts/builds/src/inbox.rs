@@ -1,4 +1,6 @@
-//! A Claude Code session's inbox, and sending it a message. A session with
+//! Notifications to a saved Codex thread or to a Claude Code inbox.
+//!
+//! A Claude Code session with
 //! cross-session messaging binds an inbox socket and gives its commands the
 //! socket's path and a per-session token in its environment
 //! (CLAUDE_CODE_MESSAGING_SOCKET and CLAUDE_CODE_MESSAGING_TOKEN). builds keeps
@@ -23,25 +25,36 @@ use std::io::{ErrorKind, Write};
 use std::os::unix::net::UnixStream;
 use std::time::Duration;
 
+use crate::ack::agent::ThreadId;
+use crate::db::Sql;
 use crate::fail;
 use crate::fail::Result;
+
+mod codex;
 
 /// How long a write to the socket may wait. A session that is busy still
 /// reads its inbox between its tool calls, so a send that stalls is a fault.
 const SEND_WAIT: Duration = Duration::from_secs(10);
 
-/// A session's inbox: its socket and, when it has one, its token.
+/// The destination a session registered for messages.
 #[derive(Clone, PartialEq, Eq)]
-pub struct Messaging {
+pub enum Messaging {
+    Claude(ClaudeInbox),
+    Codex(ThreadId),
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct ClaudeInbox {
     socket: String,
     token: Option<String>,
 }
 
 impl std::fmt::Debug for Messaging {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let (runtime, address, _) = self.stored();
         f.debug_struct("Messaging")
-            .field("socket", &self.socket)
-            .field("token", &self.token.as_ref().map(|_| "(kept)"))
+            .field("runtime", &runtime)
+            .field("address", &address)
             .finish()
     }
 }
@@ -51,48 +64,178 @@ impl Messaging {
         if !socket.starts_with('/') {
             fail!("CLAUDE_CODE_MESSAGING_SOCKET is not an absolute path");
         }
-        Ok(Messaging {
+        Ok(Messaging::Claude(ClaudeInbox {
             socket: socket.to_string(),
             token: token.filter(|t| !t.trim().is_empty()).map(str::to_string),
-        })
+        }))
     }
 
-    /// The inbox's socket, which the store keeps.
-    pub fn socket(&self) -> &str {
-        &self.socket
+    /// The runtime and address stored by the caller's table, with a token
+    /// only for a Claude inbox that uses one.
+    pub fn stored(&self) -> (&str, &str, Option<&str>) {
+        match self {
+            Self::Claude(inbox) => ("claude", &inbox.socket, inbox.token.as_deref()),
+            Self::Codex(thread) => ("codex", thread.id(), None),
+        }
     }
 
-    /// The inbox's token, which only the store keeps.
-    pub fn token(&self) -> Option<&str> {
-        self.token.as_deref()
+    pub fn restore(runtime: &str, address: &str, token: Option<&str>) -> Result<Self> {
+        match (runtime, token) {
+            ("claude", token) => Self::new(address, token),
+            ("codex", None) => Ok(Self::Codex(ThreadId::parse(address)?)),
+            _ => {
+                fail!("builds could not read a stored session destination for runtime {runtime:?}")
+            }
+        }
     }
 
-    /// The inbox of the session running this command: None outside a
-    /// session, or in one without messaging.
-    pub fn from_env() -> Result<Option<Messaging>> {
-        let Some(socket) = std::env::var("CLAUDE_CODE_MESSAGING_SOCKET")
-            .ok()
-            .filter(|s| !s.trim().is_empty())
+    /// The address of the caller's own thread or its coordinator.
+    pub fn for_session(
+        session: &crate::ack::agent::Session,
+        to: Recipient,
+    ) -> Result<Option<Self>> {
+        Ok(Destinations::for_session(session)?.map(|destinations| destinations.at(to)))
+    }
+
+    fn claude_from_env() -> Result<Option<Self>> {
+        let Some(socket) =
+            read_env("CLAUDE_CODE_MESSAGING_SOCKET")?.filter(|s| !s.trim().is_empty())
         else {
             return Ok(None);
         };
-        let token = std::env::var("CLAUDE_CODE_MESSAGING_TOKEN").ok();
-        Messaging::new(&socket, token.as_deref()).map(Some)
+        let token = read_env("CLAUDE_CODE_MESSAGING_TOKEN")?;
+        Self::new(&socket, token.as_deref()).map(Some)
     }
+}
+
+fn read_env(name: &str) -> Result<Option<String>> {
+    match std::env::var(name) {
+        Ok(value) => Ok(Some(value)),
+        Err(std::env::VarError::NotPresent) => Ok(None),
+        Err(error) => fail!("Could not read {name}: {error}"),
+    }
+}
+
+/// The two destinations of a recording agent. Claude uses one inbox for
+/// both, while a Codex worker and its coordinator have separate threads.
+pub enum Destinations {
+    Shared(Messaging),
+    Codex {
+        thread: ThreadId,
+        coordinator: ThreadId,
+    },
+}
+
+impl Destinations {
+    /// The destinations of the session that runs this command: its Codex
+    /// threads, or the inbox its Claude Code shell names, if any.
+    pub fn for_session(session: &crate::ack::agent::Session) -> Result<Option<Self>> {
+        use crate::ack::agent::{Identity, Session};
+        match session {
+            Session::Codex { .. } => match session.identity()? {
+                Some(Identity::Codex { session, thread }) => Ok(Some(Self::Codex {
+                    thread,
+                    coordinator: session,
+                })),
+                _ => Ok(None),
+            },
+            _ => Ok(Messaging::claude_from_env()?.map(Self::Shared)),
+        }
+    }
+
+    pub fn at(&self, recipient: Recipient) -> Messaging {
+        match self {
+            Self::Shared(inbox) => inbox.clone(),
+            Self::Codex {
+                thread,
+                coordinator,
+            } => Messaging::Codex(match recipient {
+                Recipient::ThisThread => thread.clone(),
+                Recipient::Coordinator => coordinator.clone(),
+            }),
+        }
+    }
+}
+
+/// The three endpoint columns held by a domain's registration table.
+pub struct StoredEndpoint(String, String, Option<String>);
+
+impl StoredEndpoint {
+    pub fn read(row: &rusqlite::Row<'_>) -> rusqlite::Result<Self> {
+        Ok(Self(row.get(0)?, row.get(1)?, row.get(2)?))
+    }
+
+    pub fn restore(self) -> Result<Messaging> {
+        Messaging::restore(&self.0, &self.1, self.2.as_deref())
+    }
+}
+
+/// Carries the original Claude destination into the registering domain's
+/// new table. The domain names its key and the rest of the fields it owns.
+pub fn move_legacy_destination(
+    db: &rusqlite::Connection,
+    table: &str,
+    create: &str,
+    key: &str,
+    tail: &str,
+) -> Result<()> {
+    crate::db::remake_table(
+        db,
+        table,
+        create,
+        |db| {
+            db.execute_batch(&format!("INSERT INTO {table} ({key}, runtime, address, token{tail}) SELECT {key}, 'claude', socket, token{tail} FROM {table}_old;")).sql()
+        },
+        &[],
+    )
+}
+
+#[derive(Clone, Copy)]
+pub enum Recipient {
+    ThisThread,
+    Coordinator,
 }
 
 /// Whether a message reached the inbox.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Sent {
     Delivered,
+    /// Codex accepted the message but could not wake the thread.
+    Queued,
     /// Nothing listens on the socket: the session ended.
     Gone,
 }
 
-/// Sends <text> to <to>: the auth line when it has a token, then the message
-/// line. A socket with no file or no listener is `Gone`; any other failure is
-/// the error. The message is sent once and never again.
-pub fn send(to: &Messaging, text: &str) -> Result<Sent> {
+impl Sent {
+    pub fn resume_notice(self) -> &'static str {
+        match self {
+            Self::Queued => "Codex queued the message but could not resume the receiving thread. ",
+            Self::Delivered | Self::Gone => "",
+        }
+    }
+}
+
+/// Programs and state that reach registered sessions.
+#[derive(Clone, Debug)]
+pub struct Sessions {
+    pub claude: std::path::PathBuf,
+    pub codex: std::path::PathBuf,
+}
+
+impl Sessions {
+    pub fn send(&self, to: &Messaging, text: &str) -> Result<Sent> {
+        match to {
+            Messaging::Claude(inbox) => send_claude(inbox, text),
+            Messaging::Codex(thread) => codex::queue(thread, &self.codex, text),
+        }
+    }
+
+    pub fn codex_can_resume(&self, thread: &ThreadId) -> Result<bool> {
+        codex::exists(thread, &self.codex)
+    }
+}
+
+fn send_claude(to: &ClaudeInbox, text: &str) -> Result<Sent> {
     // A test never reaches a live session: it sends only to a socket in a
     // test's scratch folder.
     #[cfg(test)]

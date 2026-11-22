@@ -486,7 +486,11 @@ function shown() {
 function status(r) {
   if (!r.ended) return h("div", {class: "bstatus"}, "Publishing ", short(r.commit), r.taken
     ? " · the design session took it at " + minute(r.taken.at)
-    : " · asked at " + minute(r.asked.at) + ", waiting for the design session to take it");
+    : r.delivery === "queued"
+      ? " · Codex queued the request. Resume the design thread to deliver it."
+      : r.delivery === "unconfirmed"
+      ? " · Builds has yet to confirm delivery. Give the design session request #" + r.id + "."
+      : " · asked at " + minute(r.asked.at) + ", waiting for the design session to take it");
   if (r.ended.outcome === "failed") return h("div", {class: "bstatus failed"}, "Failed to publish ", short(r.commit),
     " · ended " + minute(r.ended.at) + ": " + r.ended.error);
   return h("div", {class: "bstatus"}, "Published ", short(r.commit), " · ended " + minute(r.ended.at));
