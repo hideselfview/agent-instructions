@@ -262,6 +262,42 @@ fn drain(mut stream: impl std::io::Read + Send + 'static) -> std::thread::JoinHa
     })
 }
 
+/// What `pipe_within` hears from the threads that watch the copy.
+enum Event {
+    /// The carrier ended: the copy is complete, or one end failed.
+    Carried,
+    Sender(std::process::ExitStatus),
+    Receiver(std::process::ExitStatus),
+}
+
+/// Waits on a thread for <child> to end and sends it as <event>.
+fn watch(
+    mut child: std::process::Child,
+    events: std::sync::mpsc::Sender<Event>,
+    event: fn(std::process::ExitStatus) -> Event,
+    what: String,
+) -> std::thread::JoinHandle<Result<()>> {
+    std::thread::spawn(move || {
+        let status = child
+            .wait()
+            .context(|| format!("waiting for a program that copies {what}"))?;
+        let _ = events.send(event(status));
+        Ok(())
+    })
+}
+
+/// Kills the process group <pid> leads. A group with no process left is
+/// already stopped.
+fn stop(pid: u32) -> Result<()> {
+    // SAFETY: kill(2) with the id of a process group a child leads.
+    let killed = unsafe { libc::kill(-(pid as i32), libc::SIGKILL) };
+    let error = std::io::Error::last_os_error();
+    if killed != 0 && error.raw_os_error() != Some(libc::ESRCH) {
+        fail!("stopping the copy (process group {pid}): {error}");
+    }
+    Ok(())
+}
+
 /// `pipe` with a stall limit of <stall>. This process carries the bytes
 /// itself, so that it sees when none move and holds no copy of the pipe that
 /// would keep the sender writing after the receiver is gone.
@@ -272,6 +308,7 @@ fn pipe_within(
     stall: Duration,
 ) -> Result<()> {
     use std::os::unix::process::CommandExt;
+    use std::sync::atomic::{AtomicU64, Ordering};
     // Each program leads its own process group, so stopping it stops what it
     // started too.
     let mut send = sender
@@ -281,6 +318,7 @@ fn pipe_within(
         .process_group(0)
         .spawn()
         .context(|| format!("starting the copy of {what}"))?;
+    let send_pid = send.id();
     let mut receive = match receiver
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
@@ -290,99 +328,104 @@ fn pipe_within(
     {
         Ok(receive) => receive,
         Err(error) => {
-            stop(&mut send);
+            stop(send_pid)?;
             let _ = send.wait();
-            return Err(Fail::Message(format!(
-                "starting to receive {what}: {error}"
-            )));
+            fail!("starting to receive {what}: {error}");
         }
     };
+    let receive_pid = receive.id();
     let send_errors = drain(send.stderr.take().expect("stderr was piped"));
     let receive_errors = drain(receive.stderr.take().expect("stderr was piped"));
     let mut from = send.stdout.take().expect("stdout was piped");
     let mut into = receive.stdin.take().expect("stdin was piped");
     let started = std::time::Instant::now();
-    let moved_at = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
-    let (done_tx, done_rx) = std::sync::mpsc::channel();
+    let moved_at = std::sync::Arc::new(AtomicU64::new(0));
+    let (events, heard) = std::sync::mpsc::channel();
+    let sender_watch = watch(send, events.clone(), Event::Sender, what.to_string());
+    let receiver_watch = watch(receive, events.clone(), Event::Receiver, what.to_string());
     let carrier = {
         let moved_at = moved_at.clone();
         std::thread::spawn(move || {
             let mut buffer = vec![0u8; 256 * 1024];
+            // A receiver that ended successfully (tar stops at the archive's
+            // end marker) takes no more bytes; the sender still ends by
+            // itself once its output is read to the end.
+            let mut receiver_done = false;
             let outcome = loop {
                 let read = match std::io::Read::read(&mut from, &mut buffer) {
                     Ok(0) => break Ok(()),
                     Ok(read) => read,
-                    Err(error) => break Err((false, error)),
+                    Err(error) => break Err(error),
                 };
-                if let Err(error) = std::io::Write::write_all(&mut into, &buffer[..read]) {
-                    break Err((true, error));
+                if !receiver_done
+                    && let Err(error) = std::io::Write::write_all(&mut into, &buffer[..read])
+                {
+                    if error.kind() != std::io::ErrorKind::BrokenPipe {
+                        break Err(error);
+                    }
+                    receiver_done = true;
                 }
-                moved_at.store(
-                    started.elapsed().as_millis() as u64,
-                    std::sync::atomic::Ordering::Relaxed,
-                );
+                moved_at.store(started.elapsed().as_millis() as u64, Ordering::Relaxed);
             };
-            // Closing the receiver's stdin tells it the archive ended.
+            // Told before the receiver's stdin closes, since the close is what
+            // lets the receiver end.
+            let _ = events.send(Event::Carried);
             drop(into);
-            let _ = done_tx.send(());
             outcome
         })
     };
-    let mut stalled = false;
-    let mut receiver_ended_early = false;
-    loop {
-        match done_rx.recv_timeout(Duration::from_millis(200)) {
-            Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
-        }
-        let idle = started.elapsed().as_millis() as u64
-            - moved_at.load(std::sync::atomic::Ordering::Relaxed);
-        if idle >= stall.as_millis() as u64 {
-            stalled = true;
-        } else if matches!(receive.try_wait(), Ok(Some(_))) {
-            receiver_ended_early = true;
-        }
-        if stalled || receiver_ended_early {
-            // Either end failing the other's reads and writes ends the
-            // carrier, so kill both.
-            stop(&mut send);
-            stop(&mut receive);
-            break;
+    let (mut carried_done, mut sent, mut received) = (false, None, None);
+    let (mut stalled, mut receiver_ended_early) = (false, false);
+    while !(carried_done && sent.is_some() && received.is_some()) {
+        let idle = started.elapsed().as_millis() as u64 - moved_at.load(Ordering::Relaxed);
+        let wait = stall.saturating_sub(Duration::from_millis(idle));
+        match heard.recv_timeout(wait) {
+            Ok(Event::Carried) => carried_done = true,
+            Ok(Event::Sender(status)) => sent = Some(status),
+            Ok(Event::Receiver(status)) => {
+                received = Some(status);
+                if !carried_done && !status.success() {
+                    receiver_ended_early = true;
+                    stop(send_pid)?;
+                }
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                // Programs that end count as movement, so the limit runs from
+                // the last byte or the last program to end.
+                moved_at.store(started.elapsed().as_millis() as u64, Ordering::Relaxed);
+                stalled = true;
+                stop(send_pid)?;
+                stop(receive_pid)?;
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                unreachable!("the carrier thread holds a sender until it ends")
+            }
         }
     }
     let carried = carrier.join().expect("the carrier thread does not panic");
-    // The programs end soon after the carrier does; one that does not is
-    // stalled too.
-    let ended = std::time::Instant::now();
-    let mut waited = |child: &mut std::process::Child, which: &str| -> Result<_> {
-        loop {
-            if let Some(status) = child
-                .try_wait()
-                .context(|| format!("waiting for the {which} of {what}"))?
-            {
-                return Ok(status);
-            }
-            if ended.elapsed() >= stall {
-                stalled = true;
-                stop(child);
-            }
-            std::thread::sleep(Duration::from_millis(50));
-        }
-    };
-    let sent = waited(&mut send, "sender")?;
-    let received = waited(&mut receive, "receiver")?;
-    let send_errors = send_errors.join().unwrap_or_default();
-    let receive_errors = receive_errors.join().unwrap_or_default();
+    sender_watch
+        .join()
+        .expect("a watch thread does not panic")?;
+    receiver_watch
+        .join()
+        .expect("a watch thread does not panic")?;
+    let send_errors = send_errors.join().expect("a drain thread does not panic");
+    let receive_errors = receive_errors
+        .join()
+        .expect("a drain thread does not panic");
+    let (sent, received) = (
+        sent.expect("sender ended"),
+        received.expect("receiver ended"),
+    );
     if stalled {
         fail!(
-            "copying {what} stopped moving for {}s, so builds stopped both ends",
-            stall.as_secs()
+            "copying {what} stopped moving for {}s, so builds stopped both ends (sender {sent}: {}; receiver {received}: {})",
+            stall.as_secs(),
+            send_errors.trim(),
+            receive_errors.trim()
         );
     }
-    // The receiver is gone when the carrier could not write to it, and then
-    // the sender's own failure (a broken pipe) only follows from that.
-    let receiver_gone = matches!(carried, Err((true, _)));
-    if receiver_ended_early || receiver_gone || (!received.success() && sent.success()) {
+    if receiver_ended_early || (!received.success() && sent.success()) {
         fail!(
             "receiving {what} failed ({received}): {}",
             receive_errors.trim()
@@ -391,22 +434,7 @@ fn pipe_within(
     if !sent.success() {
         fail!("copying {what} failed ({sent}): {}", send_errors.trim());
     }
-    if !received.success() {
-        fail!(
-            "receiving {what} failed ({received}): {}",
-            receive_errors.trim()
-        );
-    }
-    carried.map_err(|(_, error)| Fail::Message(format!("copying {what}: {error}")))
-}
-
-/// Stops <child> and the processes of its group.
-fn stop(child: &mut std::process::Child) {
-    // SAFETY: kill(2) with a process group the child leads.
-    unsafe {
-        libc::kill(-(child.id() as i32), libc::SIGKILL);
-    }
-    let _ = child.kill();
+    carried.map_err(|error| Fail::Message(format!("copying {what}: {error}")))
 }
 
 /// Unpacks the tar archive <sender> writes on its stdout into <into> on this

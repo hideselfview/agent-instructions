@@ -1073,7 +1073,7 @@ fn a_copy_whose_receiving_end_dies_fails_and_stops_the_sending_end() {
 #[test]
 fn a_copy_that_stops_moving_fails_naming_what_it_copied() {
     let error = piped(
-        sh("echo start; sleep 60"),
+        sh("echo start; echo ssh-said-why >&2; sleep 60"),
         sh("cat > /dev/null"),
         Duration::from_secs(1),
     )
@@ -1083,6 +1083,7 @@ fn a_copy_that_stops_moving_fails_naming_what_it_copied() {
         error.contains("copying the test files stopped moving for 1s"),
         "{error}"
     );
+    assert!(error.contains("ssh-said-why"), "{error}");
 }
 
 #[test]
@@ -1102,4 +1103,16 @@ fn a_copy_that_moves_and_ends_succeeds_and_a_failing_sender_fails() {
     .text();
     assert!(error.contains("copying the test files failed"), "{error}");
     assert!(error.contains("no"), "{error}");
+}
+
+/// `tar -x` ends once it reads the archive's end marker, before it sees the
+/// sender's end of file, and the sender may still have padding to write.
+#[test]
+fn a_receiver_that_ends_successfully_before_the_sender_does_not_fail_the_copy() {
+    piped(
+        sh("head -c 3000000 /dev/zero"),
+        sh("head -c 10 > /dev/null"),
+        Duration::from_secs(60),
+    )
+    .unwrap();
 }
