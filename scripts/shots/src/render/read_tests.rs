@@ -247,6 +247,52 @@ fn find<'a>(elements: &'a [Element], role: Role, label: &str) -> &'a Element {
 }
 
 #[tokio::test]
+async fn a_board_reads_elements_with_area_inside_its_frame_and_overflow_clips() {
+    let root = fixture::tree(&[(
+        "fixture.clips",
+        r#"<x-dc><helmet><style>body{margin:0;font:16px/20px sans-serif}</style></helmet>
+<div style="height:30px;overflow:auto">
+  <div style="height:60px;overflow:hidden">
+    <div>Inside</div><div>Partly inside</div><div>Below the scroll area</div>
+  </div>
+</div>
+<div style="width:100px;overflow-x:clip;white-space:nowrap">
+  <div style="margin-left:90px">Partly across</div>
+  <div style="margin-left:100px">Past the right edge</div>
+</div>
+<div style="height:0;overflow:hidden">
+  <div>Inside a hidden box</div>
+  <button style="position:absolute;top:80px">Outside the clip</button>
+</div>
+<div style="position:absolute;top:110px">Partly in the window</div>
+<div style="position:absolute;top:130px">Below the window</div>
+</x-dc>"#,
+    )]);
+    let elements = fixture::with_browser(root.path(), async |server, chrome| {
+        let page = chrome.new_page().await.unwrap();
+        let url = server.board_url("fixture.clips");
+        render(&page, "fixture.clips", &url, Frame { w: 300, h: 120 }, 1.0)
+            .await
+            .unwrap();
+        elements(&page, Platform::Mac).await.unwrap()
+    })
+    .await;
+    let labels: Vec<_> = elements.iter().filter_map(|e| e.label.as_deref()).collect();
+    assert_eq!(
+        labels,
+        [
+            "Inside",
+            "Partly inside",
+            "Partly across",
+            "Outside the clip",
+            "Partly in the window",
+        ]
+    );
+    let partial = find(&elements, Role::Text, "Partly across");
+    assert!(partial.bounds.x + partial.bounds.width > 100.0);
+}
+
+#[tokio::test]
 async fn a_boards_on_screen_keyboard_is_found_and_not_an_element() {
     let root = fixture::tree(&[("fixture.roles", BOARD)]);
     let found = fixture::with_browser(root.path(), async |server, chrome| {

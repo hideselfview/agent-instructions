@@ -7,8 +7,8 @@
 //! needs no browser: roles, words, folding a control's text into its name,
 //! skipping ignored nodes. [`elements`] gathers the raw nodes from a page:
 //! the accessibility tree, and for each node its box, from its DOM node (a text
-//! node's box is the range of its words, not its parent's), and for text its
-//! computed font.
+//! node's box is the range of its words, not its parent's), whether any part
+//! of the box is visible, and for text its computed font.
 
 use crate::names::Platform;
 use crate::shots::{Bounds, Element, Role, TextStyle, words};
@@ -17,7 +17,7 @@ use chromiumoxide::cdp::browser_protocol::accessibility::{
     AxNode, AxNodeId, AxPropertyName, EnableParams, GetFullAxTreeParams,
 };
 use chromiumoxide::cdp::browser_protocol::dom::ResolveNodeParams;
-use chromiumoxide::cdp::js_protocol::runtime::CallFunctionOnParams;
+use chromiumoxide::cdp::js_protocol::runtime::{CallArgument, CallFunctionOnParams};
 use serde::Deserialize;
 use std::collections::{HashMap, VecDeque};
 
@@ -118,7 +118,7 @@ fn nonempty(text: Option<&str>) -> Option<String> {
 }
 
 /// The elements of `raw`, in reading order (the tree's order from its first
-/// node). Ignored nodes (hidden, `aria-hidden`, presentational) are left out,
+/// node). Ignored nodes (hidden, clipped, `aria-hidden`, presentational) are left out,
 /// their visible children kept; a text inside a named control is the
 /// control's name, not an element of its own. An open menu (`role=menu`) is a
 /// window of its own on mac and android, which the shots read after the
@@ -240,10 +240,8 @@ fn masked(typed: &str, platform: Platform) -> String {
 /// What a DOM node reports about its box and its font.
 #[derive(Debug, Deserialize)]
 struct Geometry {
-    x: f64,
-    y: f64,
-    width: f64,
-    height: f64,
+    bounds: Bounds,
+    visible: bool,
     size: Option<f64>,
     weight: Option<u32>,
     color: Option<String>,
@@ -262,7 +260,7 @@ struct Geometry {
     secret: bool,
 }
 
-const GEOMETRY: &str = r#"function() {
+const GEOMETRY: &str = r#"function(frame) {
   // The nearest component above a DOM node in React's tree: the first fiber
   // up from the node's own (or its nearest ancestor's) whose type is one.
   const componentOf = (node) => {
@@ -285,6 +283,46 @@ const GEOMETRY: &str = r#"function() {
     copy.querySelectorAll('[aria-hidden="true"]').forEach((n) => n.remove());
     return copy.textContent;
   };
+  const clippingParent = (element, style) => {
+    // Overflow between a positioned box and its containing block does not clip it.
+    if (element instanceof HTMLElement && (style.position === 'absolute' || style.position === 'fixed')) {
+      return element.offsetParent;
+    }
+    return element.parentElement;
+  };
+  const visible = (rect, ancestor, frameLeft, frameTop) => {
+    let left = Math.max(rect.left, frameLeft);
+    let top = Math.max(rect.top, frameTop);
+    let right = Math.min(rect.right, frameLeft + frame.width);
+    let bottom = Math.min(rect.bottom, frameTop + frame.height);
+    const root = document.documentElement;
+    const rootStyle = getComputedStyle(root);
+    // The root's overflow applies to the viewport, as does the body's when
+    // the root lets overflow through.
+    const viewportBody = rootStyle.overflowX === 'visible' && rootStyle.overflowY === 'visible'
+      ? document.body : null;
+    while (ancestor && ancestor !== root && left < right && top < bottom) {
+      const style = getComputedStyle(ancestor);
+      const clips = ancestor !== viewportBody && style.display !== 'inline' && style.display !== 'contents';
+      const clipsX = clips && style.overflowX !== 'visible';
+      const clipsY = clips && style.overflowY !== 'visible';
+      if (clipsX || clipsY) {
+        const box = ancestor.getBoundingClientRect();
+        const clientLeft = box.left + ancestor.clientLeft;
+        const clientTop = box.top + ancestor.clientTop;
+        if (clipsX) {
+          left = Math.max(left, clientLeft);
+          right = Math.min(right, clientLeft + ancestor.clientWidth);
+        }
+        if (clipsY) {
+          top = Math.max(top, clientTop);
+          bottom = Math.min(bottom, clientTop + ancestor.clientHeight);
+        }
+      }
+      ancestor = clippingParent(ancestor, style);
+    }
+    return left < right && top < bottom;
+  };
   const isText = this.nodeType === 3;
   let rect;
   if (isText) {
@@ -298,8 +336,11 @@ const GEOMETRY: &str = r#"function() {
   }
   const element = isText ? this.parentElement : this;
   const style = element ? getComputedStyle(element) : null;
+  const frameLeft = frame.x - window.scrollX;
+  const frameTop = frame.y - window.scrollY;
   return {
-    x: rect.x, y: rect.y, width: rect.width, height: rect.height,
+    bounds: {x: rect.x - frameLeft, y: rect.y - frameTop, width: rect.width, height: rect.height},
+    visible: visible(rect, isText ? element : clippingParent(element, style), frameLeft, frameTop),
     size: style ? parseFloat(style.fontSize) : null,
     weight: style ? parseInt(style.fontWeight, 10) : null,
     color: style ? style.color : null,
@@ -390,7 +431,13 @@ fn raw(node: &AxNode) -> Raw {
 
 /// The page's elements in reading order.
 pub(crate) async fn elements(page: &Page, platform: Platform) -> Result<Vec<Element>, ReadError> {
-    build(&gather(page).await?, platform)
+    let frame = page
+        .evaluate("({x: scrollX, y: scrollY, width: innerWidth, height: innerHeight})")
+        .await
+        .map_err(protocol)?
+        .into_value()
+        .map_err(protocol)?;
+    build(&gather(page, frame).await?, platform)
 }
 
 /// The boxes of the elements <selector> matches, measured from `origin`.
@@ -430,22 +477,15 @@ pub(crate) async fn slots(page: &Page, origin: (f64, f64)) -> Result<Vec<Bounds>
 }
 
 /// The elements under the DOM node `backend`, in reading order, with boxes
-/// measured from `origin`, the node's top-left corner.
+/// measured from the top-left corner of its screenshot `frame`.
 pub(crate) async fn elements_in(
     page: &Page,
     backend: i64,
-    origin: (f64, f64),
+    frame: Bounds,
     platform: Platform,
 ) -> Result<Vec<Element>, ReadError> {
-    let raw = gather(page).await?;
-    let mut inside = subtree(&raw, backend)?;
-    for node in &mut inside {
-        if let Some(bounds) = &mut node.bounds {
-            bounds.x -= origin.0;
-            bounds.y -= origin.1;
-        }
-    }
-    build(&inside, platform)
+    let raw = gather(page, frame).await?;
+    build(&subtree(&raw, backend)?, platform)
 }
 
 /// The node describing DOM node `backend` and everything under it, the node
@@ -471,7 +511,10 @@ fn subtree(raw: &[Raw], backend: i64) -> Result<Vec<Raw>, ReadError> {
     Ok(found)
 }
 
-async fn gather(page: &Page) -> Result<Vec<Raw>, ReadError> {
+async fn gather(page: &Page, frame: Bounds) -> Result<Vec<Raw>, ReadError> {
+    let frame = CallArgument::builder()
+        .value(serde_json::to_value(frame).map_err(protocol)?)
+        .build();
     page.execute(EnableParams::default())
         .await
         .map_err(protocol)?;
@@ -483,14 +526,10 @@ async fn gather(page: &Page) -> Result<Vec<Raw>, ReadError> {
     for node in &tree.result.nodes {
         let mut raw = raw(node);
         if !raw.ignored && !STRUCTURE.contains(&raw.chrome_role.as_str()) {
-            match measure(page, node).await? {
+            match measure(page, node, &frame).await? {
                 Ok(geometry) => {
-                    raw.bounds = Some(Bounds {
-                        x: geometry.x,
-                        y: geometry.y,
-                        width: geometry.width,
-                        height: geometry.height,
-                    });
+                    raw.ignored = !geometry.visible;
+                    raw.bounds = Some(geometry.bounds);
                     raw.text = match (geometry.size, geometry.weight, geometry.color) {
                         (Some(size), Some(weight), Some(color)) => {
                             srgb(&color).map(|color| TextStyle {
@@ -525,7 +564,11 @@ async fn gather(page: &Page) -> Result<Vec<Raw>, ReadError> {
 
 /// The box and style of the DOM node <node> describes, or why Chrome gave
 /// none.
-async fn measure(page: &Page, node: &AxNode) -> Result<Result<Geometry, &'static str>, ReadError> {
+async fn measure(
+    page: &Page,
+    node: &AxNode,
+    frame: &CallArgument,
+) -> Result<Result<Geometry, &'static str>, ReadError> {
     let Some(backend) = node.backend_dom_node_id else {
         return Ok(Err("the accessibility node describes no DOM node"));
     };
@@ -542,6 +585,7 @@ async fn measure(page: &Page, node: &AxNode) -> Result<Result<Geometry, &'static
     };
     let mut call = CallFunctionOnParams::new(GEOMETRY);
     call.object_id = Some(object_id);
+    call.arguments = Some(vec![frame.clone()]);
     call.return_by_value = Some(true);
     let called = page.execute(call).await.map_err(protocol)?;
     if let Some(thrown) = &called.result.exception_details {

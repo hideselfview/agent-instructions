@@ -22,7 +22,6 @@ use chromiumoxide::cdp::browser_protocol::dom::DescribeNodeParams;
 use chromiumoxide::cdp::browser_protocol::page::{CaptureScreenshotFormat, Viewport};
 use chromiumoxide::cdp::js_protocol::runtime::EvaluateParams;
 use chromiumoxide::page::ScreenshotParams;
-use serde::Deserialize;
 
 /// React 18.3.1, which a preview page draws its rows with.
 pub(crate) const REACT: &str = include_str!("../../canvas/react.production.min.js");
@@ -74,14 +73,6 @@ pub(crate) fn assemble(
     );
     boards::preview::with_loads(html, &loads)
         .ok_or_else(|| PreviewError::NoHead(component.to_string()))
-}
-
-#[derive(Deserialize)]
-struct Cell {
-    x: f64,
-    y: f64,
-    width: f64,
-    height: f64,
 }
 
 /// The names of the page's rows.
@@ -158,7 +149,7 @@ pub(crate) async fn render_row(
             js(&marks.cell)
         )
     };
-    let rect: Cell = page
+    let rect: Bounds = page
         .evaluate(format!(
             "(() => {{ const r = {cell}.getBoundingClientRect(); \
              return {{x: r.x + scrollX, y: r.y + scrollY, width: r.width, height: r.height}}; }})()"
@@ -205,7 +196,7 @@ pub(crate) async fn render_row(
     let elements = read::elements_in(
         page,
         *described.result.node.backend_node_id.inner(),
-        (rect.x, rect.y),
+        rect,
         platform,
     )
     .await?;

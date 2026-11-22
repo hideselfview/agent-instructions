@@ -21,7 +21,8 @@ fn marks() -> Preview {
 
 /// A preview page that draws two rows with React, marked as `marks` says.
 const PREVIEW: &str = r#"<!doctype html><html><head><meta charset="utf-8">
-<style>body{margin:0;font:13px sans-serif}.row{display:flex}.row-cell{width:900px}</style></head>
+<style>body{margin:0;font:13px sans-serif}.row{display:flex}
+.row:nth-child(2){margin-top:850px}.row-cell{width:900px;position:relative}</style></head>
 <body><div id="root"></div><script>
 const h = React.createElement;
 const W = (name, child) => h('div', {className: 'row'},
@@ -30,7 +31,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(h('div', null,
   W('Label', h('div', null, 'Pause between sides and discs')),
   W('Nested, off', h(React.Fragment, null,
     h('div', null, 'Resume automatically'),
-    h('button', {'aria-label': 'Never', 'aria-haspopup': 'menu'}, 'Never')))));
+    h('button', {'aria-label': 'Never', 'aria-haspopup': 'menu'}, 'Never'),
+    h('div', {style: {position: 'absolute', top: '80px'}}, 'Outside the cell')))));
 </script></body></html>"#;
 
 #[test]
