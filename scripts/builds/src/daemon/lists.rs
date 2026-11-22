@@ -295,13 +295,9 @@ fn scan_databases(
         .filter(|path| path.is_file())
         .collect();
     let mut moved: Vec<PathBuf> = watches
-        .keys()
-        .filter(|path| !present.contains(path.as_path()))
-        .cloned()
+        .extract_if(|path, _| !present.contains(path.as_path()))
+        .map(|(path, _)| path)
         .collect();
-    for path in &moved {
-        watches.remove(path);
-    }
     for path in present {
         let changed = match watches.get_mut(path) {
             Some(watch) => watch.moved(),
