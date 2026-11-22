@@ -69,7 +69,9 @@ struct File {
     commit: String,
     scenes: Vec<String>,
     /// The elements each scene's board and shot held, which a finding on an
-    /// element in neither is a first observation of.
+    /// element in neither is a first observation of. A file with none says
+    /// the run compared nothing there, so it excuses no finding.
+    #[serde(default)]
     seen: BTreeMap<String, Seen>,
     /// The pairs' sizes and the components' preview rows, which the
     /// comparison leaves unread.

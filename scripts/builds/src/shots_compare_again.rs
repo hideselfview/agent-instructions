@@ -143,7 +143,7 @@ fn short(version: &str) -> &str {
 }
 
 /// The findings.json of the run made from <source>: its own file, with the
-/// comparison version and the findings that <again>, what `builds shots
+/// comparison version, the findings and the elements read that <again>, what `builds shots
 /// recheck` printed, holds, and whether the checker's verdict on the run is
 /// that nothing fails. Fails when <again> is not of <key>'s versions: the
 /// program that compared is not the one that keys <key>.
@@ -168,8 +168,11 @@ fn findings_from(source: &Cached, again: &str, key: &Key) -> Result<(String, boo
             key.versions.capture
         );
     }
+    // What the comparison makes: the findings, and the elements it read for
+    // them. The rest of the file records the pictures and stays.
     file["version"] = again["version"].clone();
     file["findings"] = again["findings"].clone();
+    file["seen"] = again["seen"].clone();
     let Some(passed) = again["passed"].as_bool() else {
         fail!("`builds shots recheck` printed no verdict (`passed`) on the run");
     };

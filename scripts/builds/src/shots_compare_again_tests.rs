@@ -61,7 +61,7 @@ fn recheck_program(scratch: &Scratch, capture: &str, comparison: &str, passed: b
     std::fs::write(
         &program,
         format!(
-            "#!/bin/sh\necho \"$@\" >> \"{}\"\necho '{{\"version\": \"{comparison}\", \"capture_version\": \"{capture}\", \"commit\": \"c\", \"passed\": {passed}, \"scenes\": [\"mac.a\"], \"findings\": [{{\"scene\": \"mac.a\", \"level\": \"warning\", \"kind\": \"moved\", \"element\": {{\"role\": \"text\", \"words\": \"Beta\"}}, \"dx\": 1.0, \"dy\": 0.0, \"sentence\": \"new sentence\"}}]}}'\n",
+            "#!/bin/sh\necho \"$@\" >> \"{}\"\necho '{{\"version\": \"{comparison}\", \"capture_version\": \"{capture}\", \"commit\": \"c\", \"passed\": {passed}, \"scenes\": [\"mac.a\"], \"seen\": {{\"mac.a\": {{\"board\": [{{\"role\": \"text\", \"words\": \"Beta\"}}], \"shot\": []}}}}, \"findings\": [{{\"scene\": \"mac.a\", \"level\": \"warning\", \"kind\": \"moved\", \"element\": {{\"role\": \"text\", \"words\": \"Beta\"}}, \"dx\": 1.0, \"dy\": 0.0, \"sentence\": \"new sentence\"}}]}}'\n",
             scratch.dir.join("calls").display()
         ),
     )
@@ -119,6 +119,11 @@ fn a_change_to_the_comparison_alone_compares_the_cached_pictures_again_and_takes
     assert_eq!(file["findings"][0]["sentence"], "new sentence");
     assert_eq!(file["findings"].as_array().unwrap().len(), 1);
     assert!(file["sizes"]["mac.a"].is_object(), "{file}");
+    assert_eq!(
+        file["seen"]["mac.a"]["board"][0]["words"], "Beta",
+        "the elements the comparison read come from the new comparison, not the old file, \
+         which may hold none: {file}"
+    );
     assert!(
         again.findings.contains("compared again"),
         "{}",
