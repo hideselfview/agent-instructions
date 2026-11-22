@@ -15,13 +15,13 @@ pub(crate) enum NameError {
 pub(crate) use boards::app_build::Platform;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum Name {
+pub enum Name {
     Screen(ScreenName),
     Component(ComponentName),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) struct ScreenName {
+pub struct ScreenName {
     platform: Platform,
     area: String,
     screen: String,
@@ -29,7 +29,7 @@ pub(crate) struct ScreenName {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) struct ComponentName {
+pub struct ComponentName {
     platform: Platform,
     thing: String,
     state: String,

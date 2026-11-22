@@ -26,8 +26,9 @@ mod shots;
 mod states;
 mod verify;
 
-use crate::declared::Declared;
-use crate::names::{Name, Platform, Prefix};
+pub use crate::declared::Declared;
+pub use crate::names::{ComponentName, Name, ScreenName};
+use crate::names::{Platform, Prefix};
 use crate::settings::Settings;
 use clap::{Args, Parser, Subcommand};
 use std::path::{Path, PathBuf};
@@ -45,27 +46,12 @@ pub struct Versions {
     pub comparison: String,
 }
 
-/// A shot a harness declares: its name, and whether the scene is shown in its
-/// window, which takes the focus, so only a run given `--windows` takes it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Scene {
-    pub name: String,
-    pub needs_window: bool,
-}
-
 /// Each shot the harnesses declare under <root>, a repo's files as they are
 /// at one commit, in name order. <config> is the text of the repo's
 /// `.app-build` at that commit, which names the declare folders.
-pub fn declared_scenes(root: &Path, config: &str) -> Result<Vec<Scene>, String> {
+pub fn declared_scenes(root: &Path, config: &str) -> Result<Vec<Declared>, String> {
     let settings = Settings::parse(config).map_err(|e| e.to_string())?;
-    let declared = declared::read(root, &settings.declared).map_err(|e| e.to_string())?;
-    Ok(declared
-        .iter()
-        .map(|d| Scene {
-            name: d.name.to_string(),
-            needs_window: d.needs_window,
-        })
-        .collect())
+    declared::read(root, &settings.declared).map_err(|e| e.to_string())
 }
 
 /// What builds runs the checker with.

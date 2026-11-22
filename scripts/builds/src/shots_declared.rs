@@ -29,7 +29,7 @@ pub fn refuse_undeclared(top: &Path, commit: &str, picks: &[Pick]) -> Result<()>
     }
     let declared: Vec<String> = declared_at(top, commit)?
         .into_iter()
-        .map(|scene| scene.name)
+        .map(|scene| scene.name.to_string())
         .collect();
     for (_, _, prefix) in wanted {
         if declared
@@ -71,9 +71,9 @@ pub fn windowed_prefixes(top: &Path, commit: &str, picks: &[Pick]) -> Result<Vec
     Ok(wanted
         .into_iter()
         .filter(|prefix| {
-            declared
-                .iter()
-                .any(|scene| scene.needs_window && scene.name.starts_with(prefix.as_str()))
+            declared.iter().any(|scene| {
+                scene.needs_window && scene.name.to_string().starts_with(prefix.as_str())
+            })
         })
         .cloned()
         .collect())
@@ -81,7 +81,7 @@ pub fn windowed_prefixes(top: &Path, commit: &str, picks: &[Pick]) -> Result<Vec
 
 /// The shots the harnesses declare at <commit>, read from the declare
 /// folders that the commit's `.app-build` names.
-fn declared_at(top: &Path, commit: &str) -> Result<Vec<shots::Scene>> {
+fn declared_at(top: &Path, commit: &str) -> Result<Vec<shots::Declared>> {
     let config = run_git(top, &["show", &format!("{commit}:{CONFIG}")])?;
     let folders = boards::app_build::declared(&config).map_err(|e| Fail::Message(e.text()))?;
     let paths: Vec<String> = folders.into_iter().map(|(_, folder)| folder).collect();

@@ -37,12 +37,12 @@ pub(crate) enum DeclaredError {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Declared {
-    pub(crate) name: Name,
-    pub(crate) file: PathBuf,
+pub struct Declared {
+    pub name: Name,
+    pub file: PathBuf,
     /// The scene is shown in its window, which takes the focus, so only a run
     /// given `--windows` takes it. Declared in Swift by `frame: .window(…)`.
-    pub(crate) needs_window: bool,
+    pub needs_window: bool,
 }
 
 /// A reader of a harness's source: each shot name it declares, and whether
