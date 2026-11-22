@@ -22,8 +22,7 @@ use crate::floor::{Keeper, keep_floor};
 use crate::host::Ssh;
 use crate::manifest::{MANIFEST, build_dirs, has_manifest};
 use crate::prune::{
-    Run, prune_caches, prune_cargo_git, prune_derived_data, prune_installed, prune_root,
-    prune_scratchpads, prune_temp_builds, prune_test_temps,
+    Run, prune_cargo_git, prune_derived_data, prune_installed, prune_root, prune_shared,
 };
 use crate::text::note;
 use crate::tool::Tool;
@@ -198,12 +197,7 @@ pub fn setup_with(tool: &Tool, ssh: &Ssh, checkout: &Checkout, prepare: Prepare)
     }
     prune_root(tool, &root, checkout, Run::Real, 0, 0)?;
     prune_derived_data(tool, Run::Real, 0)?;
-    prune_caches(tool, Run::Real)?;
-    build_cleanup(crate::shots_cache::prune(tool, Run::Real))?;
-    build_cleanup(crate::review::texts::prune(tool, Run::Real))?;
-    prune_test_temps(tool, Run::Real)?;
-    prune_temp_builds(tool, Run::Real)?;
-    prune_scratchpads(tool, Run::Real)?;
+    prune_shared(tool, Run::Real, Keeper::Setup)?;
     let roots = tool.roots()?;
     prune_cargo_git(tool, &roots, Run::Real)?;
     prune_installed(tool, &roots, Run::Real)?;
@@ -217,18 +211,6 @@ pub fn setup_with(tool: &Tool, ssh: &Ssh, checkout: &Checkout, prepare: Prepare)
     crate::lean::ensure(&tool.places, &checkout.top)?;
     crate::built_tools::ensure_all(&tool.places, ssh, &checkout.top)?;
     crate::built_tools::send_to_hosts(&tool.places, ssh, &checkout.top)
-}
-
-/// Setup can continue after a cache entry refuses a rename. Other errors
-/// still stop setup, as do failures preparing the checkout's own folders.
-fn build_cleanup(pruned: Result<()>) -> Result<()> {
-    match pruned {
-        Err(error @ crate::fail::Fail::Move { .. }) => {
-            note(format!("warning: {}; builds kept the entry", error.text()));
-            Ok(())
-        }
-        other => other,
-    }
 }
 
 /// Runs each program the `prepare` lines of <top>'s manifest name, in its

@@ -159,12 +159,12 @@ fn the_before_run_is_the_newest_run_of_the_version_whose_prefix_starts_the_runs_
         comparison: "v1".to_string(),
     };
     let find = |prefix: &str| {
-        before_run(
+        covering_run_used(
             &places,
             "demo",
             &base,
             Lane::Mac,
-            ENVIRONMENT,
+            Made::In(ENVIRONMENT),
             prefix,
             &versions,
         )
@@ -195,12 +195,12 @@ fn the_before_run_is_the_newest_run_of_the_version_whose_prefix_starts_the_runs_
     );
     let all = cache_run(&places, &key("mac.", "v1"), 1, "x\n", true);
     assert_eq!(find("mac.welcome."), Some("mac.".to_string()));
-    let before = before_run(
+    let before = covering_run_used(
         &places,
         "demo",
         &base,
         Lane::Mac,
-        ENVIRONMENT,
+        Made::In(ENVIRONMENT),
         "mac.welcome.",
         &versions,
     )
@@ -215,12 +215,12 @@ fn the_before_run_is_the_newest_run_of_the_version_whose_prefix_starts_the_runs_
     cache_run(&places, &key("mac.welcome.", "v1"), 1, "x\n", true);
     assert_eq!(find("mac.welcome."), Some("mac.welcome.".to_string()));
     assert_eq!(
-        before_run(
+        covering_run_used(
             &places,
             "demo",
             &base,
             Lane::Android,
-            ENVIRONMENT,
+            Made::In(ENVIRONMENT),
             "android.",
             &versions
         )
@@ -241,12 +241,12 @@ fn the_before_run_is_a_run_made_in_the_same_environment_and_no_other() {
     };
     cache_run(&places, &other, 1, "x\n", true);
     let find = |environment: &str| {
-        before_run(
+        covering_run_used(
             &places,
             "demo",
             &commit,
             Lane::Mac,
-            environment,
+            Made::In(environment),
             "mac.a.",
             &versions,
         )

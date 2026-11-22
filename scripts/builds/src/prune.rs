@@ -352,6 +352,22 @@ pub fn prune_caches(tool: &Tool, run: Run) -> Result<()> {
     Ok(())
 }
 
+/// Prunes caches and temporary output both setup and explicit prune own.
+pub fn prune_shared(tool: &Tool, run: Run, keeper: crate::floor::Keeper) -> Result<()> {
+    prune_caches(tool, run)?;
+    for prune in [crate::shots_cache::prune, crate::review::texts::prune] {
+        match (keeper, prune(tool, run)) {
+            (crate::floor::Keeper::Setup, Err(error @ fail::Fail::Move { .. })) => {
+                note(format!("warning: {}; builds kept the entry", error.text()));
+            }
+            (_, result) => result?,
+        }
+    }
+    prune_test_temps(tool, run)?;
+    prune_temp_builds(tool, run)?;
+    prune_scratchpads(tool, run)
+}
+
 /// The entries one listing rule picks, deleted together, or counted on a
 /// dry run. These prunes free space and change nothing a build reads, so a
 /// failure, such as another session's scratch folder vanishing while it is
@@ -819,12 +835,7 @@ pub fn cmd_prune(tool: &Tool, args: &[String]) -> Result<()> {
         DERIVED_DATA_IDLE_MINUTES
     };
     prune_derived_data(tool, run, derived_idle)?;
-    prune_caches(tool, run)?;
-    crate::shots_cache::prune(tool, run)?;
-    crate::review::texts::prune(tool, run)?;
-    prune_test_temps(tool, run)?;
-    prune_temp_builds(tool, run)?;
-    prune_scratchpads(tool, run)?;
+    prune_shared(tool, run, crate::floor::Keeper::Prune)?;
     prune_agents(tool, run)?;
     prune_cargo_git(tool, &roots, run)?;
     prune_installed(tool, &roots, run)?;

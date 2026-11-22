@@ -181,23 +181,11 @@ pub fn shots(
     capture: &dyn Fn(Lane, &str) -> Option<RunPage>,
 ) -> Result<Shots> {
     let lanes = lanes(component)?;
-    let reading = (!lanes.is_empty())
-        .then(|| shots_cache::writing(places))
-        .transpose()?;
     let mut platforms = Vec::new();
     for (lane, prefix) in lanes {
-        let run = match shots_cache::covering_run(
-            places,
-            repo,
-            commit,
-            lane,
-            Made::Anywhere,
-            &prefix,
-            &VERSIONS,
-        )? {
-            Some(cached) => Some(read_run(&cached, component, lane, &prefix)?),
-            None => None,
-        };
+        let run = read_cached(places, repo, commit, lane, &prefix, |cached| {
+            read_run(cached, component, lane, &prefix)
+        })?;
         let capture = capture(lane, &prefix).filter(|run| {
             run.reference.as_deref() == Some(commit)
                 || matches!(run.phase, Phase::Queued | Phase::Running | Phase::Detached)
@@ -209,12 +197,35 @@ pub fn shots(
             capture,
         });
     }
-    drop(reading);
     Ok(Shots {
         component: component.to_string(),
         commit: commit.to_string(),
         platforms,
     })
+}
+
+/// Keeps the cache lease while selecting a run and reading a file from it.
+fn read_cached<T>(
+    places: &Places,
+    repo: &str,
+    commit: &str,
+    lane: Lane,
+    prefix: &str,
+    read: impl FnOnce(&Cached) -> Result<T>,
+) -> Result<Option<T>> {
+    let _reading = shots_cache::writing(places)?;
+    shots_cache::covering_run(
+        places,
+        repo,
+        commit,
+        lane,
+        Made::Anywhere,
+        prefix,
+        &VERSIONS,
+    )?
+    .as_ref()
+    .map(read)
+    .transpose()
 }
 
 /// <component>'s rows on <lane> in the cached run <cached>: the rows its
@@ -320,21 +331,18 @@ pub fn picture(
     if !scene.starts_with(&format!("{}.", lane.word())) {
         return Ok(None);
     }
-    let _reading = shots_cache::writing(places)?;
-    let Some(cached) =
-        shots_cache::covering_run(places, repo, commit, lane, Made::Anywhere, scene, &VERSIONS)?
-    else {
-        return Ok(None);
-    };
-    let file = cached
-        .report()
-        .join("img")
-        .join(format!("{scene}.{}.png", side.word()));
-    match std::fs::read(&file) {
-        Ok(bytes) => Ok(Some(bytes)),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(error) => fail!("reading {}: {error}", file.display()),
-    }
+    read_cached(places, repo, commit, lane, scene, |cached| {
+        let file = cached
+            .report()
+            .join("img")
+            .join(format!("{scene}.{}.png", side.word()));
+        match std::fs::read(&file) {
+            Ok(bytes) => Ok(Some(bytes)),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => fail!("reading {}: {error}", file.display()),
+        }
+    })
+    .map(Option::flatten)
 }
 
 /// The page of <component>'s shots in project <project>, whose design files
@@ -360,7 +368,7 @@ pub fn page(
     if !lanes.is_empty() {
         let _reading = shots_cache::writing(places)?;
         for (lane, prefix) in &lanes {
-            if let Some(cached) = shots_cache::covering_run(
+            shots_cache::covering_run_used(
                 places,
                 repo_name,
                 &commit,
@@ -368,9 +376,7 @@ pub fn page(
                 Made::Anywhere,
                 prefix,
                 &VERSIONS,
-            )? {
-                shots_cache::mark_used(&cached)?;
-            }
+            )?;
         }
     }
     let data = json!({

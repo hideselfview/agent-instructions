@@ -7,7 +7,13 @@ const COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
 /// Keeps a run of the demo repo's COMMIT on <lane> under <prefix>, by this
 /// builds' shots version, whose report holds <findings> as its
 /// findings.json and a board picture and shot of each of <pictures>.
-fn cache_run(places: &Places, lane: Lane, prefix: &str, findings: Value, pictures: &[&str]) {
+fn cache_run(
+    places: &Places,
+    lane: Lane,
+    prefix: &str,
+    findings: Value,
+    pictures: &[&str],
+) -> Cached {
     let staging = stage(
         places,
         &Key {
@@ -36,7 +42,7 @@ fn cache_run(places: &Places, lane: Lane, prefix: &str, findings: Value, picture
             .unwrap();
         }
     }
-    staging.finish(1, "pairs fail the run\n").unwrap();
+    staging.finish(1, "pairs fail the run\n").unwrap()
 }
 
 /// The findings.json of a run of every mac component that checked the
@@ -182,6 +188,30 @@ fn a_shots_run_shows_while_it_runs_and_once_it_ended_for_the_page_s_commit_only(
         "a run of another commit still holds the prefix"
     );
     assert!(!shown(&other, Phase::Failed));
+}
+
+#[test]
+fn pruning_keeps_an_old_run_until_the_dashboard_finishes_reading_it() {
+    let scratch = Scratch::new("component-shots-lease");
+    let tool = scratch.tool(0);
+    let places = &tool.places;
+    let prefix = "mac.component.checkbox.";
+    let cached = cache_run(places, Lane::Mac, prefix, checkbox_findings(), &[]);
+    let report = cached.report();
+    let run = report.parent().unwrap();
+    crate::testing::age(&run.join("run.json"), 30);
+
+    let prune = || shots_cache::prune_runs(&tool, crate::prune::Run::Real, 0);
+    let read = read_cached(places, "demo", COMMIT, Lane::Mac, prefix, |cached| {
+        prune()?;
+        read_run(cached, "MacCheckbox", Lane::Mac, prefix)
+    })
+    .unwrap()
+    .unwrap();
+    assert_eq!(read.rows.len(), 2);
+
+    prune().unwrap();
+    assert!(!run.exists());
 }
 
 #[test]

@@ -72,7 +72,7 @@ pub fn lookup_newest(
 }
 
 /// The run a branch's run of <prefix> on <lane> compares with
-/// (`shots_cache::before_run`): a run made in <environment>, the branch run's
+/// (`shots_cache::covering_run_used`): a run made in <environment>, the branch run's
 /// own, made by comparing again with the builds program <program> the cached
 /// run of another comparison version when this version has none. A run made
 /// in another environment is neither a before run nor a source to compare
@@ -86,16 +86,16 @@ pub fn before_run(
     prefix: &str,
     program: &Path,
 ) -> Result<Option<Cached>> {
+    let made = shots_cache::Made::In(environment);
     let found =
-        shots_cache::before_run(places, repo, commit, lane, environment, prefix, &VERSIONS)?;
+        shots_cache::covering_run_used(places, repo, commit, lane, made, prefix, &VERSIONS)?;
     if found.is_some() {
         return Ok(found);
     }
-    let made = shots_cache::Made::In(environment);
     for key in shots_cache::covering_keys(places, repo, commit, lane, made, prefix, &VERSIONS)? {
         compare_again(places, &key, program)?;
     }
-    shots_cache::before_run(places, repo, commit, lane, environment, prefix, &VERSIONS)
+    shots_cache::covering_run_used(places, repo, commit, lane, made, prefix, &VERSIONS)
 }
 
 /// Compares again the newest cached run that has <key>'s commit, lane, prefix

@@ -490,7 +490,7 @@ fn read(folder: &Path, key: &Key) -> Result<Option<Cached>> {
 }
 
 /// Marks <cached> used now, so the cap deletes it later.
-pub fn mark_used(cached: &Cached) -> Result<()> {
+fn mark_used(cached: &Cached) -> Result<()> {
     capped_store::mark_used(&cached.folder.join(RUN_FILE))
 }
 
@@ -504,19 +504,16 @@ pub fn lookup(places: &Places, key: &Key) -> Result<Option<Cached>> {
     Ok(found)
 }
 
-/// The run a branch's run of <prefix> on <lane> compares with: the run made
-/// in <environment> that covers <prefix> (`covering_run`). Reading it marks
-/// it used.
-pub fn before_run(
+/// The run covering <prefix> that matches <made>. Reading it marks it used.
+pub fn covering_run_used(
     places: &Places,
     repo: &str,
     commit: &str,
     lane: Lane,
-    environment: &str,
+    made: Made<'_>,
     prefix: &str,
     versions: &Versions,
 ) -> Result<Option<Cached>> {
-    let made = Made::In(environment);
     let found = covering_run(places, repo, commit, lane, made, prefix, versions)?;
     if let Some(cached) = &found {
         mark_used(cached)?;
