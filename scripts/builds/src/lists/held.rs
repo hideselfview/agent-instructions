@@ -13,7 +13,7 @@ use crate::fail;
 use crate::fail::Result;
 use crate::health::Advice;
 use crate::lists::design::{DesignChange, DesignCommit};
-use crate::lists::design_reads::DesignReads;
+use crate::lists::design_reads::Coverage;
 use crate::lists::running::{SpanKind, end_span, open_span, running_in, running_in_any};
 use crate::lists::store::{Loaded, Store, lists_of};
 use crate::lists::{Id, Item, Lists, Located, Stamp, Standing, Wait};
@@ -320,7 +320,7 @@ impl Worktree {
 pub fn awaiting_approval(
     loaded: &std::result::Result<Vec<Loaded>, String>,
     worktrees: &[Worktree],
-    reads: &DesignReads,
+    reads: Coverage<'_>,
 ) -> Vec<String> {
     worktrees
         .iter()
@@ -334,7 +334,7 @@ pub fn awaiting_approval(
             let Ok(Read { side: git, .. }) = &worktree.git else {
                 return false;
             };
-            let Ok(commits) = reads.of(lists, &worktree.repo, &worktree.top, git) else {
+            let Some(Ok(commits)) = reads.of(lists, &worktree.repo, &worktree.top, git) else {
                 return false;
             };
             commits.iter().any(|commit| {
@@ -362,7 +362,7 @@ pub fn awaiting_approval(
 pub fn findings(
     loaded: &std::result::Result<Vec<Loaded>, String>,
     worktrees: &[Worktree],
-    reads: &DesignReads,
+    reads: Coverage<'_>,
 ) -> Vec<Advice> {
     let Ok(every) = loaded else {
         return Vec::new();
@@ -427,15 +427,21 @@ pub fn findings(
             }
         };
         let commits = match reads.of(lists, &worktree.repo, &worktree.top, git) {
-            Err(error) => {
+            Some(Err(error)) => {
                 found.push(Advice::said(format!(
-                    "lists: could not read the design files {} changes: {}",
-                    worktree.label,
-                    error.text()
+                    "lists: could not read the design files {} changes: {error}",
+                    worktree.label
                 )));
                 continue;
             }
-            Ok(commits) => commits,
+            Some(Ok(commits)) => commits,
+            None => {
+                found.push(Advice::said(format!(
+                    "lists: Builds is checking design coverage for {}.",
+                    worktree.label
+                )));
+                continue;
+            }
         };
         let uncovered: Vec<&DesignCommit> = commits
             .iter()

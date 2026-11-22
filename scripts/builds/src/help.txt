@@ -2413,7 +2413,10 @@ STATUS, HEALTH AND THE DASHBOARD
                               what is stuck or needs acting on, from the
                               daemon when one runs, except the busy processes
                               and each host's load and CPU idle share, which
-                              it reads now (over ssh on other hosts). Before it lists
+                              it reads now (over ssh on other hosts). If the
+                              daemon is checking a checkout's design
+                              coverage, health names that check and reports
+                              the rest of its findings. Before it lists
                               anything, it fixes each dispatch blocker that a
                               command fixes with no judgment call, and says
                               in one line what each fix did: a host under

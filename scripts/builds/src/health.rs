@@ -1239,7 +1239,7 @@ pub fn lists_findings(
 /// design commits and the verdict on each one's landing.
 #[derive(Clone, Copy)]
 pub struct WorktreeReads<'a> {
-    pub designs: &'a crate::lists::design_reads::DesignReads,
+    pub designs: crate::lists::design_reads::Coverage<'a>,
     pub reviews: &'a crate::review::verdicts::Reads,
 }
 
@@ -1332,9 +1332,11 @@ pub fn health(tool: &Tool) -> Result<Health> {
         &mut judged,
         &held_worktrees,
         WorktreeReads {
-            designs: &crate::lists::design_reads::DesignReads::with_program(
-                &tool.places,
-                tool.program.clone(),
+            designs: crate::lists::design_reads::Coverage::Read(
+                &crate::lists::design_reads::DesignReads::with_program(
+                    &tool.places,
+                    tool.program.clone(),
+                ),
             ),
             reviews: &crate::review::verdicts::Reads::with_root(Ok(
                 crate::review::installed_rules_root(&tool.places.home),

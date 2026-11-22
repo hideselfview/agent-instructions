@@ -715,6 +715,9 @@ impl Model {
                 return;
             }
             let (_, snapshot) = self.lists.current();
+            let Ok(stores) = snapshot.as_ref() else {
+                continue;
+            };
             let (roots, facts) = {
                 let state = self.state.lock().expect("no panic holding it");
                 (state.roots.clone(), state.facts.clone())
@@ -726,12 +729,13 @@ impl Model {
                 else {
                     continue;
                 };
-                if git.ahead.is_empty() {
-                    continue;
-                }
                 let repo = live.repo();
-                if let Ok(Some(lists)) = checkout_lists(&snapshot, &live, &repo) {
-                    self.design_reads.fill(lists, &repo, &live.top, git);
+                for loaded in stores {
+                    if let Ok(lists) = &loaded.lists
+                        && lists.repos.contains(&repo)
+                    {
+                        self.design_reads.fill(lists, &repo, &live.top, git);
+                    }
                 }
             }
         }
@@ -963,7 +967,7 @@ impl Model {
             &mut claimed,
             &held,
             crate::health::WorktreeReads {
-                designs: &self.design_reads,
+                designs: crate::lists::design_reads::Coverage::Completed(&self.design_reads),
                 reviews: &self.review_reads,
             },
         )?;
@@ -1482,10 +1486,11 @@ impl Model {
             Some(Err(error)) => return RulesReview::Unread(error),
             None => return RulesReview::CheckingDesign,
         };
-        match super::design_cards::of_commits(lists, &commits) {
-            Some(super::design_cards::Standing::Approval(covering)) if covering.id == design.id => {
-            }
-            _ => return RulesReview::InReview,
+        if !commits
+            .iter()
+            .any(|commit| commit.covered_by == Some(design.id))
+        {
+            return RulesReview::InReview;
         }
         let worktree = crate::review::verdicts::Worktree {
             repo: &repo,

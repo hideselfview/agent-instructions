@@ -27,7 +27,6 @@ struct Tip {
     /// The version of the store whose lists name the design globs and the
     /// open design changes.
     store: u64,
-    project: String,
 }
 
 impl Tip {
@@ -36,7 +35,6 @@ impl Tip {
             ahead: git.ahead_oldest_first(),
             main: git.main.clone(),
             store: lists.version,
-            project: lists.project.clone(),
         }
     }
 }
@@ -51,9 +49,26 @@ struct Read {
 
 type Outcome = std::result::Result<Arc<Vec<DesignCommit>>, String>;
 
+/// A stand-alone command can read designs now. The dashboard's health reply
+/// uses the outcome from its design worker, when that worker has an answer.
+#[derive(Clone, Copy)]
+pub enum Coverage<'a> {
+    Read(&'a DesignReads),
+    Completed(&'a DesignReads),
+}
+
+impl Coverage<'_> {
+    pub fn of(self, lists: &Lists, repo: &str, top: &Path, git: &SideRead) -> Option<Outcome> {
+        match self {
+            Self::Read(reads) => Some(reads.of(lists, repo, top, git).map_err(Fail::text)),
+            Self::Completed(reads) => reads.completed(lists, repo, top, git),
+        }
+    }
+}
+
 /// Each worktree's design commits, by the worktree's folder.
 pub struct DesignReads {
-    read: Mutex<HashMap<PathBuf, Arc<Read>>>,
+    read: Mutex<HashMap<PathBuf, HashMap<String, Arc<Read>>>>,
     changed: OnceLock<Box<dyn Fn() + Send + Sync>>,
     /// Draws the boards of a change when a commit's files differ from the
     /// change's (`Sameness`).
@@ -108,6 +123,7 @@ impl DesignReads {
             .lock()
             .expect("no panic holding it")
             .get(top)?
+            .get(&lists.project)?
             .clone();
         if read.tip != tip {
             return None;
@@ -159,7 +175,11 @@ impl DesignReads {
         let tip = Tip::of(lists, git);
         let read = {
             let mut by_worktree = self.read.lock().expect("no panic holding it");
-            match by_worktree.get(top).filter(|kept| kept.tip == tip) {
+            let by_project = by_worktree.entry(top.to_path_buf()).or_default();
+            match by_project
+                .get(&lists.project)
+                .filter(|kept| kept.tip == tip)
+            {
                 Some(kept) => kept.clone(),
                 None => {
                     let read = Arc::new(Read {
@@ -167,7 +187,7 @@ impl DesignReads {
                         reading: Mutex::new(()),
                         outcome: RwLock::new(None),
                     });
-                    by_worktree.insert(top.to_path_buf(), read.clone());
+                    by_project.insert(lists.project.clone(), read.clone());
                     read
                 }
             }

@@ -3,6 +3,9 @@ use crate::daemon::runs::{Phase, RunPage, Runs};
 use crate::testing::Scratch;
 use std::net::TcpListener;
 
+#[path = "http_coverage_tests.rs"]
+mod coverage;
+
 /// A daemon's page server on a port of its own, over a scratch volume whose
 /// `demo` repo has a mac app checkout. Its build-app is a shell script that
 /// waits for the `gate` file, then ends with status 3.

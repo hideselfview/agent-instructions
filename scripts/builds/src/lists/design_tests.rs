@@ -874,10 +874,14 @@ fn health_of(w: &World, range: &str) -> Vec<String> {
         project: "demo".into(),
         lists: Ok(w.state()),
     }]);
-    crate::lists::held::findings(&loaded, &[tree], &Default::default())
-        .into_iter()
-        .map(|advice| advice.text)
-        .collect()
+    crate::lists::held::findings(
+        &loaded,
+        &[tree],
+        crate::lists::design_reads::Coverage::Read(&Default::default()),
+    )
+    .into_iter()
+    .map(|advice| advice.text)
+    .collect()
 }
 
 /// The dashboard's design card for the worktree of <w> whose commits past
@@ -1108,10 +1112,14 @@ fn health_and_check_cover_commits_whose_boards_differ_in_bytes_and_draw_alike() 
             &w.tool.places,
             w.tool.program.clone(),
         );
-        crate::lists::held::findings(&loaded, &[tree], &reads)
-            .into_iter()
-            .map(|advice| advice.text)
-            .collect::<Vec<_>>()
+        crate::lists::held::findings(
+            &loaded,
+            &[tree],
+            crate::lists::design_reads::Coverage::Read(&reads),
+        )
+        .into_iter()
+        .map(|advice| advice.text)
+        .collect::<Vec<_>>()
     };
     assert_eq!(health(&w), Vec::<String>::new());
     let out = w.run(&check).unwrap();

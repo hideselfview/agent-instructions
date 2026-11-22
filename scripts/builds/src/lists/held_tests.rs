@@ -1,5 +1,6 @@
 use super::*;
 use crate::claim::{Note, cmd_note};
+use crate::lists::design_reads::DesignReads;
 use crate::lists::fixtures::{NOON, db, design_drawn, design_tipped, item, question, read, stamp};
 use crate::lists::item_fixtures::{Demo, demo, refusal};
 use crate::lists::{How, Running};
@@ -234,7 +235,7 @@ fn health_names_a_hold_whose_wait_closed() {
         findings(
             &loaded(read(&db)),
             std::slice::from_ref(&tree),
-            &DesignReads::default()
+            Coverage::Read(&DesignReads::default())
         )
         .is_empty()
     );
@@ -242,7 +243,7 @@ fn health_names_a_hold_whose_wait_closed() {
     let found = findings(
         &loaded(read(&db)),
         std::slice::from_ref(&tree),
-        &DesignReads::default(),
+        Coverage::Read(&DesignReads::default()),
     );
     assert_eq!(found.len(), 1, "{found:?}");
     assert!(
@@ -250,7 +251,14 @@ fn health_names_a_hold_whose_wait_closed() {
         "{found:?}"
     );
     tree.claim.note = Some(Note::Plain("kept".into()));
-    assert!(findings(&loaded(read(&db)), &[tree], &DesignReads::default()).is_empty());
+    assert!(
+        findings(
+            &loaded(read(&db)),
+            &[tree],
+            Coverage::Read(&DesignReads::default())
+        )
+        .is_empty()
+    );
 }
 
 #[test]
@@ -259,7 +267,7 @@ fn health_names_a_hold_with_no_item() {
     let found = findings(
         &loaded(read(&db)),
         &[bae_worktree(Some("held"))],
-        &DesignReads::default(),
+        Coverage::Read(&DesignReads::default()),
     );
     assert!(found[0].text.contains("runs no item"), "{found:?}");
     assert_eq!(
@@ -338,9 +346,20 @@ fn health_counts_a_commit_covered_by_any_change_whose_range_holds_it() {
         .design_places
         .insert("demo".into(), vec!["design/mocks/*.dc.html".into()]);
     let covered = worktree(&top, "agent", None, vec![a.clone(), b.clone()]);
-    assert!(findings(&loaded(lists.clone()), &[covered], &DesignReads::default()).is_empty());
+    assert!(
+        findings(
+            &loaded(lists.clone()),
+            &[covered],
+            Coverage::Read(&DesignReads::default())
+        )
+        .is_empty()
+    );
     let after = worktree(&top, "agent", None, vec![a.clone(), b, c.clone()]);
-    let found = findings(&loaded(lists), &[after], &DesignReads::default());
+    let found = findings(
+        &loaded(lists),
+        &[after],
+        Coverage::Read(&DesignReads::default()),
+    );
     assert_eq!(found.len(), 1, "{found:?}");
     assert!(
         found[0].text.contains(&c[..10])
@@ -353,7 +372,11 @@ fn health_counts_a_commit_covered_by_any_change_whose_range_holds_it() {
 #[test]
 fn health_names_design_commits_no_design_change_covers() {
     let (_demo, tree, lists) = design_branch("held-design-no", false);
-    let found = findings(&loaded(lists), &[tree], &DesignReads::default());
+    let found = findings(
+        &loaded(lists),
+        &[tree],
+        Coverage::Read(&DesignReads::default()),
+    );
     assert_eq!(found.len(), 1, "{found:?}");
     assert!(
         found[0].text.contains("design/mocks/a.dc.html")
@@ -369,7 +392,7 @@ fn health_names_a_worktree_whose_commits_git_cannot_read_and_never_calls_it_cove
     let found = findings(
         &loaded(lists.clone()),
         std::slice::from_ref(&tree),
-        &DesignReads::default(),
+        Coverage::Read(&DesignReads::default()),
     );
     assert_eq!(found.len(), 1, "{found:?}");
     assert!(
@@ -383,13 +406,27 @@ fn health_names_a_worktree_whose_commits_git_cannot_read_and_never_calls_it_cove
         !tree.claim_is_idle(true),
         "commits git could not read may wait to land"
     );
-    assert!(awaiting_approval(&loaded(lists), &[tree], &DesignReads::default()).is_empty());
+    assert!(
+        awaiting_approval(
+            &loaded(lists),
+            &[tree],
+            Coverage::Read(&DesignReads::default())
+        )
+        .is_empty()
+    );
 }
 
 #[test]
 fn health_accepts_design_commits_an_open_design_change_covers() {
     let (_demo, tree, lists) = design_branch("held-design-yes", true);
-    assert!(findings(&loaded(lists), &[tree], &DesignReads::default()).is_empty());
+    assert!(
+        findings(
+            &loaded(lists),
+            &[tree],
+            Coverage::Read(&DesignReads::default())
+        )
+        .is_empty()
+    );
 }
 
 #[test]
@@ -398,7 +435,14 @@ fn health_skips_branches_with_no_design_files() {
     let top = demo.add_side(2, "agent", "other");
     let sha = demo.commit(&top, "src.rs");
     let plain = worktree(&top, "agent", None, vec![sha]);
-    assert!(findings(&loaded(lists), &[plain], &DesignReads::default()).is_empty());
+    assert!(
+        findings(
+            &loaded(lists),
+            &[plain],
+            Coverage::Read(&DesignReads::default())
+        )
+        .is_empty()
+    );
 }
 
 #[test]
@@ -416,7 +460,14 @@ fn an_app_checkout_is_held_with_no_item_and_health_leaves_it() {
     held(&demo, &top).unwrap();
     let mut tree = bae_worktree(Some("held"));
     tree.app_checkout = true;
-    assert!(findings(&loaded(read(&db())), &[tree], &DesignReads::default()).is_empty());
+    assert!(
+        findings(
+            &loaded(read(&db())),
+            &[tree],
+            Coverage::Read(&DesignReads::default())
+        )
+        .is_empty()
+    );
 }
 
 fn take_held(demo: &Demo, id: &str, top: &std::path::Path, extra: &[&str]) -> Result<()> {
@@ -478,7 +529,14 @@ fn an_item_waiting_on_the_persons_question_is_taken_held_and_health_leaves_it() 
     );
     let mut tree = worktree(&top, "agent", Some("held"), Vec::new());
     tree.repo = "demo".into();
-    assert!(findings(&loaded(lists), &[tree], &DesignReads::default()).is_empty());
+    assert!(
+        findings(
+            &loaded(lists),
+            &[tree],
+            Coverage::Read(&DesignReads::default())
+        )
+        .is_empty()
+    );
 }
 
 #[test]
@@ -501,19 +559,37 @@ fn a_worktree_whose_design_change_waits_on_approval_awaits_it_until_approved() {
     let (_demo, tree, mut lists) = design_branch("held-review", true);
     let trees = [tree];
     assert_eq!(
-        awaiting_approval(&loaded(lists.clone()), &trees, &DesignReads::default()),
+        awaiting_approval(
+            &loaded(lists.clone()),
+            &trees,
+            Coverage::Read(&DesignReads::default())
+        ),
         vec!["demo/side-1".to_string()]
     );
     for design in &mut lists.designs {
         design.approved = Some(stamp(NOON));
     }
-    assert!(awaiting_approval(&loaded(lists), &trees, &DesignReads::default()).is_empty());
+    assert!(
+        awaiting_approval(
+            &loaded(lists),
+            &trees,
+            Coverage::Read(&DesignReads::default())
+        )
+        .is_empty()
+    );
 }
 
 #[test]
 fn a_worktree_with_no_design_change_does_not_await_approval() {
     let (_demo, tree, lists) = design_branch("held-review-none", false);
-    assert!(awaiting_approval(&loaded(lists), &[tree], &DesignReads::default()).is_empty());
+    assert!(
+        awaiting_approval(
+            &loaded(lists),
+            &[tree],
+            Coverage::Read(&DesignReads::default())
+        )
+        .is_empty()
+    );
 }
 
 #[test]
@@ -526,7 +602,7 @@ fn health_names_a_claimed_worktree_whose_items_closed_and_has_nothing_to_land() 
         findings(
             &loaded(read(&db)),
             std::slice::from_ref(&tree),
-            &DesignReads::default()
+            Coverage::Read(&DesignReads::default())
         )
         .is_empty()
     );
@@ -534,7 +610,7 @@ fn health_names_a_claimed_worktree_whose_items_closed_and_has_nothing_to_land() 
     let found = findings(
         &loaded(read(&db)),
         std::slice::from_ref(&tree),
-        &DesignReads::default(),
+        Coverage::Read(&DesignReads::default()),
     );
     assert_eq!(found.len(), 1, "{found:?}");
     assert!(
@@ -558,7 +634,7 @@ fn health_names_a_claimed_worktree_whose_items_closed_and_has_nothing_to_land() 
             findings(
                 &loaded(read(&db)),
                 std::slice::from_ref(&busy),
-                &DesignReads::default()
+                Coverage::Read(&DesignReads::default())
             )
             .iter()
             .all(|line| !line.text.contains("no item runs there")),
@@ -588,7 +664,7 @@ fn health_sees_an_item_of_either_project_in_a_repo_two_projects_hold() {
         findings(
             &loaded,
             std::slice::from_ref(&tree),
-            &DesignReads::default()
+            Coverage::Read(&DesignReads::default())
         )
         .is_empty()
     );
@@ -599,7 +675,7 @@ fn health_sees_an_item_of_either_project_in_a_repo_two_projects_hold() {
         findings(
             &loaded,
             std::slice::from_ref(&tree),
-            &DesignReads::default()
+            Coverage::Read(&DesignReads::default())
         )
         .is_empty()
     );
@@ -613,7 +689,7 @@ fn health_sees_an_item_of_either_project_in_a_repo_two_projects_hold() {
         let found = findings(
             &loaded,
             std::slice::from_ref(&tree),
-            &DesignReads::default(),
+            Coverage::Read(&DesignReads::default()),
         );
         assert!(
             found.len() == 1
@@ -662,7 +738,7 @@ fn health_advises_no_release_of_a_claim_waiting_for_its_item() {
     let idle = findings(
         &loaded,
         &[worktree(top, "a", None, Vec::new())],
-        &DesignReads::default(),
+        Coverage::Read(&DesignReads::default()),
     );
     assert!(
         idle.iter().any(|f| f.line().contains("release it with")),
@@ -671,7 +747,7 @@ fn health_advises_no_release_of_a_claim_waiting_for_its_item() {
     let starting = findings(
         &loaded,
         &[worktree(top, "a", Some("starting"), Vec::new())],
-        &DesignReads::default(),
+        Coverage::Read(&DesignReads::default()),
     );
     assert!(
         starting
