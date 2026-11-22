@@ -498,18 +498,19 @@ pub fn covering_keys(
     Ok(found)
 }
 
-/// The folders of the runs that can cover <prefix> (`covering_keys`), of
-/// <versions>' capture version and every comparison version: the runs
-/// another comparison version made are what `compare_again` compares again.
+/// The folders of the runs, made in any environment, that can cover <prefix>
+/// (`covering_keys`), of <versions>' capture version and every comparison
+/// version: the runs another comparison version made are what
+/// `compare_again` compares again.
 pub fn covering_folders(
     places: &Places,
     repo: &str,
     commit: &str,
     lane: Lane,
-    made: Made,
     prefix: &str,
     versions: &Versions,
 ) -> Result<Vec<PathBuf>> {
+    let made = Made::Anywhere;
     let mut folders = Vec::new();
     for key in covering_keys(places, repo, commit, lane, made, prefix, versions)? {
         for (_, folder) in folders_in(&captures_folder(places, &key))? {
@@ -579,18 +580,29 @@ fn group(places: &Places, repo: &str, named: &Named) -> Result<Group> {
     let mut kept = Vec::new();
     for (_, commit) in folders_in(&root(places).join(repo).join("runs"))? {
         for (_, lane) in folders_in(&commit)? {
-            for folder in run_folders(&lane)? {
-                kept.push(match named.get(&folder) {
-                    Some(branches) => Kept::InUse {
-                        by: branches.iter().cloned().collect(),
-                        folder,
-                    },
-                    None => Kept::Folder {
-                        last_use: Use::At(written_at(&folder.join(RUN_FILE))?),
-                        folder,
-                        what: "a shots run",
-                    },
-                });
+            for (_, environment) in folders_in(&lane)? {
+                for (_, prefix) in folders_in(&environment)? {
+                    for (_, capture) in folders_in(&prefix)? {
+                        for (_, folder) in folders_in(&capture)? {
+                            // A run is placed whole, with its run.json: a
+                            // folder at this depth without one is no run.
+                            if !folder.join(RUN_FILE).is_file() {
+                                continue;
+                            }
+                            kept.push(match named.get(&folder) {
+                                Some(branches) => Kept::InUse {
+                                    by: branches.iter().cloned().collect(),
+                                    folder,
+                                },
+                                None => Kept::Folder {
+                                    last_use: Use::At(written_at(&folder.join(RUN_FILE))?),
+                                    folder,
+                                    what: "a shots run",
+                                },
+                            });
+                        }
+                    }
+                }
             }
         }
     }
@@ -629,21 +641,6 @@ fn group(places: &Places, repo: &str, named: &Named) -> Result<Group> {
         folder: root(places).join(repo),
         kept,
     })
-}
-
-/// The folders under <folder> that hold a run (a run.json), at any depth: a
-/// run cached before the key held an environment is one level higher than one
-/// cached after, and the cap deletes both.
-fn run_folders(folder: &Path) -> Result<Vec<PathBuf>> {
-    let mut found = Vec::new();
-    for (_, child) in folders_in(folder)? {
-        if child.join(RUN_FILE).is_file() {
-            found.push(child);
-        } else {
-            found.extend(run_folders(&child)?);
-        }
-    }
-    Ok(found)
 }
 
 /// When <path> was last written, seconds since 1970.

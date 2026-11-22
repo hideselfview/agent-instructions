@@ -969,9 +969,53 @@ const NEEDS_ONLY: &str = "--needs-only";
 /// runs take every shot again and replace the pictures in the picture folder.
 const FRESH: &str = "--fresh";
 
+/// The prefixes of <lane>'s shots among <picks> that select a scene shown in
+/// its window at <commit> of the repo at <source>, whose `.app-build` there is
+/// <config>; none when the lane's shots line opens no windows
+/// (`shots_declared::windowed_prefixes`).
+fn windowed_at(
+    source: &Path,
+    config: &Config,
+    commit: &str,
+    lane: Lane,
+    picks: &[Pick],
+) -> Result<Vec<String>> {
+    if !config
+        .picker(lane, PickKind::Shots)
+        .is_some_and(|picker| picker.opens_windows)
+    {
+        return Ok(Vec::new());
+    }
+    let own: Vec<Pick> = picks
+        .iter()
+        .filter(|(pick_lane, _, _)| *pick_lane == lane)
+        .cloned()
+        .collect();
+    crate::shots_declared::windowed_prefixes(source, commit, &own)
+}
+
+/// The id that keys <lane>'s shots in the picture folder at <commit> of the
+/// repo at <source>, whose `.app-build` there is <config>, when they are drawn
+/// in <environment>: the lane's app source tree combined with the environment
+/// (app_tree.rs `in_environment`).
+fn picture_tree(
+    source: &Path,
+    commit: &str,
+    config: &Config,
+    lane: Lane,
+    environment: &str,
+) -> Result<String> {
+    Ok(crate::app_tree::in_environment(
+        &crate::app_tree::of(source, commit, config, lane)?,
+        environment,
+    ))
+}
+
 /// Whether the picture folder of <repo> caches every shot that runs of the
-/// shots <prefixes> take for <lane>'s app source tree <tree> (shots_cache.rs
-/// `shots_cached`), so that a lane needs no build of the app to run them.
+/// shots <prefixes> take for the picture folder's id <tree> of <lane>
+/// (`picture_tree`, shots_cache.rs `shots_cached`), so that a lane needs no
+/// build of the app to run them. <prefixes> holds the lane's shots picks, so
+/// it is never empty.
 fn picture_folder_caches(
     places: &Places,
     repo: &str,
@@ -981,11 +1025,10 @@ fn picture_folder_caches(
     prefixes: &[&str],
 ) -> Result<bool> {
     let Some(picker) = config.picker(lane, PickKind::Shots) else {
-        return Err(missing_line(
-            lane,
-            PickKind::Shots,
-            prefixes.first().copied().unwrap_or(""),
-        ));
+        let first = prefixes
+            .first()
+            .expect("a lane has shots picks when it asks whether the folder caches them");
+        return Err(missing_line(lane, PickKind::Shots, first));
     };
     let windows = picker.command.iter().any(|word| word == "--windows");
     for prefix in prefixes {
@@ -1052,7 +1095,8 @@ impl ShotsCache {
     /// The store for <repo>'s <lane> run of the full commit <commit>, whose
     /// commits <source> holds, with the before run of each shots pick of
     /// <picks> in the lane: the run of <commit>'s merge base with origin/main
-    /// (shots_cache.rs). A commit on origin/main is its own merge base and has
+    /// made in <environment> (shots_cache.rs). <app_tree> is the picture
+    /// folder's id for the lane's shots at <commit> (`picture_tree`). A commit on origin/main is its own merge base and has
     /// none, and neither has a pick that starts no shot declared at the merge
     /// base. Fails when the store holds no before run for another pick,
     /// naming the command that makes one: a lane's build makes the run of
@@ -1066,7 +1110,7 @@ impl ShotsCache {
         lane: Lane,
         environment: &str,
         commit: &str,
-        config: &Config,
+        app_tree: String,
         picks: &[Pick],
         no_capture: bool,
         retake: bool,
@@ -1124,10 +1168,7 @@ impl ShotsCache {
             versions: crate::shots_program::Versions::clone(versions),
             befores,
             environment: environment.to_string(),
-            app_tree: crate::app_tree::in_environment(
-                &crate::app_tree::of(source, commit, config, lane)?,
-                environment,
-            ),
+            app_tree,
             no_capture,
             retake,
             base_run,
@@ -1529,15 +1570,8 @@ impl MergeBase {
             .into_iter()
             .find(|(own_lane, _)| *own_lane == lane)
             .map(|(_, names)| names)
-            .unwrap_or_default();
-        let windowed = if config
-            .picker(lane, PickKind::Shots)
-            .is_some_and(|picker| picker.opens_windows)
-        {
-            crate::shots_declared::windowed_prefixes(source, &base, &own)?
-        } else {
-            Vec::new()
-        };
+            .expect("derive::plan lists each lane that has picks");
+        let windowed = windowed_at(source, &config, &base, lane, &own)?;
         Ok(Some(MergeBase {
             commit: base,
             config,
@@ -1563,16 +1597,19 @@ impl MergeBase {
 /// Takes the exclusive lock on the run of <lane>'s shots at the merge base
 /// <base> of <repo> in <environment> (a file in the repo's folder on the
 /// volume), so that one lane's process at a time runs a base commit's shots in
-/// an environment while the others wait
-/// for it and then find the runs cached. A wait says so, and ends when a stop
-/// signal reaches the process. The lock lasts as long as the file returned.
+/// an environment while the others wait for it and then find the runs cached.
+/// A wait says so, and ends when the lock frees, or at once when a takeover
+/// stops this build (None) or a stop signal reaches it (an error), as every
+/// wait for a lock does (lock_wake.rs `wait_for_lock`). The lock lasts as long
+/// as the file returned.
 fn lock_base_run(
     places: &Places,
     repo: &str,
     lane: Lane,
     base: &str,
     environment: &str,
-) -> Result<std::fs::File> {
+) -> Result<Option<std::fs::File>> {
+    use std::os::fd::FromRawFd;
     let folder = places.root.join(repo);
     std::fs::create_dir_all(&folder).context(|| format!("creating {}", folder.display()))?;
     let path = folder.join(format!(
@@ -1580,19 +1617,16 @@ fn lock_base_run(
         lane.word()
     ));
     if let Some(file) = crate::evict::try_lock_creating(&path)? {
-        return Ok(file);
+        return Ok(Some(file));
     }
     note(format!(
         "the run of the shots at the merge base {} is being made by another build: waiting for it",
         short(base)
     ));
-    loop {
-        lock::refuse_when_stopped("was waiting for another build's run of the merge base")?;
-        if let Some(file) = crate::evict::try_lock_creating(&path)? {
-            return Ok(file);
-        }
-        std::thread::sleep(Duration::from_millis(250));
-    }
+    let waiting_for = format!("another build's run of the merge base {}", short(base));
+    let taken = crate::lock_wake::wait_for_lock(&path, &waiting_for, &lock::takeover_stopped)?;
+    // The descriptor is this process's, and closes when the file does.
+    Ok(taken.map(|fd| unsafe { std::fs::File::from_raw_fd(fd) }))
 }
 
 /// What a lane's build holds while it works: the request, the repo's commits
@@ -1638,19 +1672,7 @@ fn build_lane(
     let config = config_at(places, repo, commit)?;
     let source = local_source(places, repo)?;
     // Only a shots prefix that selects a scene shown in its window draws one.
-    let windowed = if config
-        .picker(lane, PickKind::Shots)
-        .is_some_and(|picker| picker.opens_windows)
-    {
-        let own: Vec<Pick> = picks
-            .iter()
-            .filter(|(pick_lane, _, _)| *pick_lane == lane)
-            .cloned()
-            .collect();
-        crate::shots_declared::windowed_prefixes(&source, commit, &own)?
-    } else {
-        Vec::new()
-    };
+    let windowed = windowed_at(&source, &config, commit, lane, picks)?;
     let runs_checkout_as_it_is =
         request.names.is_empty() && !picks.is_empty() && !request.needs_only;
     let base = if runs_checkout_as_it_is {
@@ -1725,6 +1747,31 @@ fn build_lane(
     }
 }
 
+/// What the lane runs at one commit it has checked out: a branch's commit, or
+/// the merge base whose runs the branch's shots compare with.
+struct CommitRun<'a> {
+    /// The commit (full id) and its `.app-build`.
+    sha: &'a str,
+    config: &'a Config,
+    /// The picture folder's id for the lane's shots at the commit
+    /// (`picture_tree`).
+    tree: String,
+    /// The lane's steps to run, then the runs of <picks>.
+    names: &'a [String],
+    picks: &'a [Pick],
+    /// The prefixes of <picks> that select a scene shown in its window.
+    windowed: &'a [String],
+    environment: &'a str,
+    /// The picture folder caches every shot of <picks> for <tree>: the lane
+    /// builds nothing, and its shots runs capture none.
+    cached_shots: bool,
+    /// The runs take every shot again (`FRESH`).
+    retake: bool,
+    /// The runs are of the merge base, to be compared with: they pass
+    /// `--base`.
+    base_run: bool,
+}
+
 impl LaneBuild<'_> {
     /// The lane's steps at the commit, as `lane_steps` makes them from the
     /// commit's own `.app-build`.
@@ -1759,11 +1806,7 @@ impl LaneBuild<'_> {
         timing: &mut Timing,
     ) -> Result<Ended> {
         let LaneBuild {
-            places,
-            repo,
-            lane,
-            programs,
-            ..
+            places, repo, lane, ..
         } = *self;
         let LaneRequest {
             commit,
@@ -1781,18 +1824,9 @@ impl LaneBuild<'_> {
         ));
         // A lane whose steps are only what its shots need, and whose shots
         // the picture folder caches, builds nothing.
-        let cached_shots = needs_only && !fresh && {
-            let tree = crate::app_tree::in_environment(
-                &crate::app_tree::of(&self.source, commit, &self.config, lane)?,
-                &environment,
-            );
-            let prefixes: Vec<&str> = picks
-                .iter()
-                .filter(|(own, _, _)| *own == lane)
-                .map(|(_, _, prefix)| prefix.as_str())
-                .collect();
-            picture_folder_caches(places, repo, &self.config, lane, &tree, &prefixes)?
-        };
+        let tree = picture_tree(&self.source, commit, &self.config, lane, &environment)?;
+        let cached_shots =
+            needs_only && !fresh && self.folder_caches(&self.config, &tree, picks)?;
         let names: &[String] = if cached_shots { &[] } else { names };
         if let Some(base) = &self.base {
             let ended = self.ensure_base(base, &environment, site, held, built_file, timing)?;
@@ -1820,8 +1854,66 @@ impl LaneBuild<'_> {
         }
         let CheckedOut { sha, config } = site.check_out(places, repo, commit)?;
         timing.commit = Some(sha.clone());
+        let run = CommitRun {
+            sha: &sha,
+            config: &config,
+            tree,
+            names,
+            picks,
+            windowed: &self.windowed,
+            environment: &environment,
+            cached_shots,
+            retake: fresh,
+            base_run: false,
+        };
+        self.run_commit(site, held, built_file, timing, run)
+    }
+
+    /// Whether the picture folder caches every shot that runs of the lane's
+    /// shots among <picks> take for the picture folder's id <tree> of the
+    /// commit whose `.app-build` is <config> (`picture_folder_caches`).
+    fn folder_caches(&self, config: &Config, tree: &str, picks: &[Pick]) -> Result<bool> {
+        let prefixes: Vec<&str> = picks
+            .iter()
+            .filter(|(own, kind, _)| *own == self.lane && *kind == PickKind::Shots)
+            .map(|(_, _, prefix)| prefix.as_str())
+            .collect();
+        picture_folder_caches(self.places, self.repo, config, self.lane, tree, &prefixes)
+    }
+
+    /// Runs what <run> says in <site>, which is on the commit <run> names:
+    /// the lane's steps for it, then its test and shots runs, with the shots
+    /// cache of the commit's environment (`ShotsCache::of`).
+    fn run_commit(
+        &self,
+        site: &mut Site,
+        held: &lock::Held,
+        built_file: &Path,
+        timing: &mut Timing,
+        run: CommitRun,
+    ) -> Result<Ended> {
+        let LaneBuild {
+            places,
+            repo,
+            lane,
+            programs,
+            ..
+        } = *self;
+        let CommitRun {
+            sha,
+            config,
+            tree,
+            names,
+            picks,
+            windowed,
+            environment,
+            cached_shots,
+            retake,
+            base_run,
+        } = run;
+        let names: &[String] = if cached_shots { &[] } else { names };
         let program_of = |class: &str| {
-            let program = crate::derive::program_of(&self.source, &config, commit, lane, class)?;
+            let program = crate::derive::program_of(&self.source, config, sha, lane, class)?;
             if let Some(program) = &program {
                 note(format!(
                     "{class} is declared in the {program} sources, so the {} test line for {program} runs it",
@@ -1830,7 +1922,7 @@ impl LaneBuild<'_> {
             }
             Ok(program)
         };
-        let steps = lane_steps(&config, lane, names, picks, &self.windowed, &program_of)?;
+        let steps = lane_steps(config, lane, names, picks, windowed, &program_of)?;
         if steps.is_empty() {
             fail!("{CONFIG} names no step in the {} lane", lane.word());
         }
@@ -1839,16 +1931,16 @@ impl LaneBuild<'_> {
             &self.source,
             repo,
             lane,
-            &environment,
-            &sha,
-            &config,
+            environment,
+            sha,
+            tree,
             picks,
             cached_shots,
-            fresh,
-            false,
+            retake,
+            base_run,
             &programs.builds(),
         )?;
-        self.run_steps_in(site, held, built_file, timing, steps, &shots, &config)
+        self.run_steps_in(site, held, built_file, timing, steps, &shots, config)
     }
 
     /// Runs <steps>, the lane's steps that build and then its test and shots
@@ -1962,7 +2054,9 @@ impl LaneBuild<'_> {
         if asked.is_empty() {
             return Ok(Ended::Finished);
         }
-        let _lock = lock_base_run(places, repo, lane, &base.commit, environment)?;
+        let Some(_lock) = lock_base_run(places, repo, lane, &base.commit, environment)? else {
+            return Ok(Ended::Stopped);
+        };
         let wanted = missing(&asked)?;
         if wanted.is_empty() {
             note(format!(
@@ -1983,32 +2077,21 @@ impl LaneBuild<'_> {
         ));
         Built::clear(built_file)?;
         let CheckedOut { sha, config } = site.check_out(places, repo, &base.commit)?;
-        let tree = crate::app_tree::in_environment(
-            &crate::app_tree::of(&self.source, &sha, &config, lane)?,
+        let tree = picture_tree(&self.source, &sha, &config, lane, environment)?;
+        let cached_shots = self.folder_caches(&config, &tree, &wanted)?;
+        let run = CommitRun {
+            sha: &sha,
+            config: &config,
+            tree,
+            names: &base.names,
+            picks: &wanted,
+            windowed: &base.windowed,
             environment,
-        );
-        let prefixes: Vec<&str> = wanted
-            .iter()
-            .map(|(_, _, prefix)| prefix.as_str())
-            .collect();
-        let cached_shots = picture_folder_caches(places, repo, &config, lane, &tree, &prefixes)?;
-        let names: &[String] = if cached_shots { &[] } else { &base.names };
-        let steps = lane_steps(&config, lane, names, &wanted, &base.windowed, &|_| Ok(None))?;
-        let shots = ShotsCache::of(
-            places,
-            &self.source,
-            repo,
-            lane,
-            environment,
-            &sha,
-            &config,
-            &wanted,
             cached_shots,
-            false,
-            true,
-            &program,
-        )?;
-        let ran = self.run_steps_in(site, held, built_file, timing, steps, &shots, &config);
+            retake: false,
+            base_run: true,
+        };
+        let ran = self.run_commit(site, held, built_file, timing, run);
         let failed = match ran {
             Ok(Ended::Finished) => None,
             Ok(other) => return Ok(other),

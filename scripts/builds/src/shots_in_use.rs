@@ -70,7 +70,6 @@ pub fn named_in(
                 repo,
                 commit,
                 build.lane,
-                crate::shots_cache::Made::Anywhere,
                 &build.prefix,
                 versions,
             )? {

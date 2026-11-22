@@ -303,23 +303,15 @@ fn a_read_in_any_environment_finds_the_newest_run_and_names_its_environment() {
         ["25G241-27B52", ENVIRONMENT]
     );
     assert_eq!(
-        covering_folders(
-            &places,
-            "demo",
-            &commit,
-            Lane::Mac,
-            Made::Anywhere,
-            "mac.a.",
-            &versions
-        )
-        .unwrap()
-        .len(),
+        covering_folders(&places, "demo", &commit, Lane::Mac, "mac.a.", &versions)
+            .unwrap()
+            .len(),
         2
     );
 }
 
 #[test]
-fn the_cap_deletes_a_run_cached_before_the_key_held_an_environment() {
+fn the_cap_leaves_a_folder_of_the_layout_without_an_environment_alone() {
     let scratch = Scratch::new("shot-store-old-layout");
     let places = scratch.places();
     let tool = scratch.tool(0);
@@ -329,15 +321,17 @@ fn the_cap_deletes_a_run_cached_before_the_key_held_an_environment() {
         .join("mac/mac.a./c0c0c0c0c0c0c0c0/0123456789abcdef");
     std::fs::create_dir_all(old.join("report/img")).unwrap();
     std::fs::write(old.join(RUN_FILE), r#"{"recorded_at": 1, "exit_code": 0}"#).unwrap();
-    std::fs::write(old.join(OUTPUT_FILE), "ok\n").unwrap();
     fill(&old.join("report/img/a.png"), 400);
     crate::testing::age_all(&root(&places), 48);
     let current = cache_run(&places, &key("mac.b."), 0, "ok\n", true);
     fill(&current.report().join("img/a.png"), 400);
-    age(&current.folder.join(RUN_FILE), 1);
+    age(&current.folder.join(RUN_FILE), 48);
     prune_runs(&tool, Run::Real, 500).unwrap();
-    assert!(!old.exists(), "the run without an environment went first");
-    assert!(current.folder.exists());
+    assert!(
+        !current.folder.exists(),
+        "the run of the current layout is the one the cap deletes"
+    );
+    assert!(old.exists(), "no code reads the layout the key replaced");
 }
 
 #[test]

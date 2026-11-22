@@ -1219,9 +1219,11 @@ cached shot only in the environment that took it. The lane prints the
 environment it draws in. A read of a commit's own run (`builds app-build
 --shots` printing a cached run, `builds shots findings`, `builds shots
 check-program`) takes the newest run of the commit and prefix made in any
-environment and says which environment made it. Runs and pictures that builds
-cached before the key held an environment stay where they are, and the cap
-deletes them like any other run.
+environment and says which environment made it. No code reads the runs that
+builds cached before the key held an environment, which sit one folder level
+higher: the cap neither reads nor deletes them, so deleting the folder runs in
+the repo's folder in shots once removes them. The cap does delete the old
+pictures, which no build asks for again.
 
 The shots checker that builds is built with has two versions, which `builds
 shots version` prints. The capture version is a hash of the files that take a

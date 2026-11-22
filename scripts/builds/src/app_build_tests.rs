@@ -1594,7 +1594,7 @@ fn a_lanes_shots_runs_compare_with_the_cached_run_of_the_merge_base_and_a_run_of
             Lane::Mac,
             ENVIRONMENT,
             commit,
-            &config,
+            picture_tree(&top, commit, &config, Lane::Mac, ENVIRONMENT).unwrap(),
             &a_screens(),
             false,
             false,
@@ -1644,7 +1644,7 @@ fn a_prefix_that_starts_no_shot_declared_at_the_merge_base_compares_with_no_run(
         Lane::Mac,
         ENVIRONMENT,
         &work,
-        &config,
+        picture_tree(&top, &work, &config, Lane::Mac, ENVIRONMENT).unwrap(),
         &new,
         false,
         false,
@@ -1785,7 +1785,11 @@ fn the_picture_folder_caches_the_shots_of_the_prefixes_its_marks_cover_for_the_a
     let commit = resolve(&top, "HEAD").unwrap();
     let config = parse_config(&std::fs::read_to_string(top.join(CONFIG)).unwrap()).unwrap();
     let source_tree = crate::app_tree::of(&top, &commit, &config, Lane::Mac).unwrap();
-    let tree = crate::app_tree::in_environment(&source_tree, ENVIRONMENT);
+    let tree = picture_tree(&top, &commit, &config, Lane::Mac, ENVIRONMENT).unwrap();
+    assert_eq!(
+        tree,
+        crate::app_tree::in_environment(&source_tree, ENVIRONMENT)
+    );
     let caches = |prefixes: &[&str]| {
         picture_folder_caches(&places, "demo", &config, Lane::Mac, &tree, prefixes).unwrap()
     };
