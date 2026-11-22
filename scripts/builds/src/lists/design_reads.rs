@@ -29,12 +29,16 @@ struct Tip {
     store: u64,
 }
 
-/// A worktree's design commits and the tip they were read at.
-type Read = (Tip, Arc<Vec<DesignCommit>>);
+/// A worktree's design commits at one tip. Only readers of this tip wait on
+/// its Git and renderer processes.
+struct Read {
+    tip: Tip,
+    commits: Mutex<Option<Arc<Vec<DesignCommit>>>>,
+}
 
 /// Each worktree's design commits, by the worktree's folder.
 pub struct DesignReads {
-    read: Mutex<HashMap<PathBuf, Read>>,
+    read: Mutex<HashMap<PathBuf, Arc<Read>>>,
     /// Draws the boards of a change when a commit's files differ from the
     /// change's (`Sameness`).
     renders: Box<dyn Renders>,
@@ -82,21 +86,32 @@ impl DesignReads {
             main: git.main.clone(),
             store: lists.version,
         };
-        // Held while reading, so askers at once read once.
-        let mut read = self.read.lock().expect("no panic holding it");
-        if let Some((kept, commits)) = read.get(top)
-            && *kept == tip
-        {
+        let read = {
+            let mut by_worktree = self.read.lock().expect("no panic holding it");
+            match by_worktree.get(top).filter(|kept| kept.tip == tip) {
+                Some(kept) => kept.clone(),
+                None => {
+                    let read = Arc::new(Read {
+                        tip,
+                        commits: Mutex::new(None),
+                    });
+                    by_worktree.insert(top.to_path_buf(), read.clone());
+                    read
+                }
+            }
+        };
+        let mut kept = read.commits.lock().expect("no panic holding it");
+        if let Some(commits) = &*kept {
             return Ok(commits.clone());
         }
         let commits = Arc::new(design_commits(
             lists,
             repo,
             top,
-            &tip.ahead,
+            &read.tip.ahead,
             self.renders.as_ref(),
         )?);
-        read.insert(top.to_path_buf(), (tip, commits.clone()));
+        *kept = Some(commits.clone());
         Ok(commits)
     }
 }
