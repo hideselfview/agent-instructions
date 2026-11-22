@@ -1126,3 +1126,11 @@ fn a_copy_that_keeps_moving_bytes_past_the_stall_limit_succeeds() {
     )
     .unwrap();
 }
+
+#[test]
+fn a_stalled_copy_whose_receiver_already_ended_still_fails_as_stalled() {
+    let error = piped(sh("sleep 60"), sh("exit 0"), Duration::from_secs(1))
+        .unwrap_err()
+        .text();
+    assert!(error.contains("stopped moving"), "{error}");
+}

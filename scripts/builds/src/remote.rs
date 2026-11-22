@@ -287,12 +287,13 @@ fn watch(
 }
 
 /// Kills the process group <pid> leads. A group with no process left is
-/// already stopped.
+/// already stopped, and macOS answers EPERM, not ESRCH, for a group whose
+/// processes have all ended and wait to be reaped.
 fn stop(pid: u32) -> Result<()> {
     // SAFETY: kill(2) with the id of a process group a child leads.
     let killed = unsafe { libc::kill(-(pid as i32), libc::SIGKILL) };
     let error = std::io::Error::last_os_error();
-    if killed != 0 && error.raw_os_error() != Some(libc::ESRCH) {
+    if killed != 0 && !matches!(error.raw_os_error(), Some(libc::ESRCH | libc::EPERM)) {
         fail!("stopping the copy (process group {pid}): {error}");
     }
     Ok(())
