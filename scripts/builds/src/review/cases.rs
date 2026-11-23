@@ -11,7 +11,7 @@ use crate::fail;
 use crate::fail::{Context, Result};
 use crate::lists::design_paths::Globs;
 use crate::review::call::{TokenTotal, Tokens, cost_text, sum_tokens, sum_usage, tokens_text};
-use crate::review::check::{parse_diff, squash};
+use crate::review::check::squash;
 use crate::review::files::{self, Source};
 use crate::review::record::{Kind, NewCall, NewRun};
 use crate::review::run::{Diff, Material, ReviewKind, Scope, ask_groups};
@@ -107,7 +107,7 @@ pub fn load(root: &Path) -> Result<Vec<Case>> {
             );
         }
         for expect in &file.finding {
-            if !changes(&patch, &expect.file) {
+            if !changes(&patch, &expect.file)? {
                 fail!(
                     "{} expects a finding in {}, which the patch does not change",
                     expected_path.display(),
@@ -130,11 +130,11 @@ pub fn load(root: &Path) -> Result<Vec<Case>> {
 
 /// Whether <patch> changes <file>: a file of its diff, or its commit
 /// messages, which a reviewer reads as the file `COMMIT_MESSAGE`.
-pub(super) fn changes(patch: &str, file: &str) -> bool {
+pub(super) fn changes(patch: &str, file: &str) -> Result<bool> {
     if file == files::COMMIT_MESSAGE {
-        return !messages_of_patch(patch).trim().is_empty();
+        return Ok(!messages_of_patch(patch).trim().is_empty());
     }
-    parse_diff(patch).iter().any(|f| f.path == file)
+    Ok(files::split(patch)?.iter().any(|f| f.path == file))
 }
 
 /// What a case gains.
@@ -163,7 +163,7 @@ pub fn add(
     }
     for addition in additions {
         if let Addition::Finding { file, .. } = addition
-            && !changes(patch, file)
+            && !changes(patch, file)?
         {
             fail!("the patch does not change {file}");
         }
@@ -248,10 +248,7 @@ pub fn keep_files(patch: &str, keep: &[String]) -> Result<String> {
         match part {
             files::PatchPart::Text(text) => out.push_str(text),
             files::PatchPart::File(text) => {
-                let Some((path, _)) = files::file_paths(text) else {
-                    let header = text.lines().next().unwrap_or_default();
-                    fail!("Builds could not read a file path from the Git header {header:?}.");
-                };
+                let (path, _) = files::file_paths(text)?;
                 if keep.contains(&path) {
                     out.push_str(text);
                 }
@@ -391,7 +388,7 @@ pub fn replay_case(
     reviewer: &crate::review::Program,
     case: &Case,
     source_repo: Option<&Path>,
-) -> CaseResult {
+) -> Result<CaseResult> {
     let diff = Diff {
         messages: messages_of_patch(&case.patch),
         source: source_repo.and_then(|repo| {
@@ -402,7 +399,7 @@ pub fn replay_case(
             })
         }),
         text: case.patch.clone(),
-        changed: files::paths(&case.patch),
+        changed: files::paths(&case.patch)?,
     };
     let picked = scope.pick(&diff.changed);
     let asked = ask_groups(
@@ -413,7 +410,7 @@ pub fn replay_case(
         &diff,
         None,
         &[],
-    );
+    )?;
     let (calls, repeat) = (asked.calls, asked.repeat);
     let accepted: Vec<&crate::review::record::NewFinding> = calls
         .iter()
@@ -433,7 +430,7 @@ pub fn replay_case(
         .iter()
         .filter(|f| f.blocking && case.clean_for.contains(&f.rule))
         .count();
-    CaseResult {
+    Ok(CaseResult {
         name: case.name.clone(),
         expected: case.expected.len(),
         found: case.expected.len() - missed.len(),
@@ -442,7 +439,7 @@ pub fn replay_case(
         sites: score_sites(scope.material, &case.labels, &accepted),
         calls,
         repeat,
-    }
+    })
 }
 
 /// The commit messages of a `git format-patch` file: for each mail, the
@@ -528,7 +525,7 @@ pub fn replay_all(
             material,
             files: design,
         };
-        results.push(replay_case(scope, reviewer, case, source_repo));
+        results.push(replay_case(scope, reviewer, case, source_repo)?);
     }
     Ok(results)
 }

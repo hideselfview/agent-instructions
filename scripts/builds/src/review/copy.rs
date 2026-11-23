@@ -82,7 +82,7 @@ pub fn check(inputs: &Inputs) -> Result<Checked> {
         &change.diff,
         None,
         &[],
-    );
+    )?;
     let stamp = inputs.stamp;
     let (run, calls, findings) =
         inputs

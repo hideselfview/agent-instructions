@@ -146,7 +146,7 @@ pub fn replay(inputs: &Inputs) -> Result<Replayed> {
                 diff,
                 None,
                 &[],
-            )
+            )?
             .calls;
             let stamp = inputs.stamp;
             let (run_id, now_calls, now_findings, now_verdicts) =

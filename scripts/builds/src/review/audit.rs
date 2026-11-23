@@ -343,10 +343,10 @@ pub fn audit(inputs: &Inputs) -> Result<String> {
             None,
             &[],
         )
-        .calls
+        .map(|asked| asked.calls)
     };
-    let calls_rules = ask(&per_rule);
-    let calls_shuffled = ask(&shuffled);
+    let calls_rules = ask(&per_rule)?;
+    let calls_shuffled = ask(&shuffled)?;
     let stamp = inputs.stamp;
     let (runs, findings) =
         inputs
@@ -494,7 +494,7 @@ pub(super) fn diff_read(
     Ok(Diff {
         messages: String::new(),
         source: None,
-        changed: files::paths(&text),
+        changed: files::paths(&text).map_err(crate::fail::Fail::text)?,
         text,
     })
 }

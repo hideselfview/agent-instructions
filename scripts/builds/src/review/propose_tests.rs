@@ -128,7 +128,7 @@ fn a_landing_becomes_a_case_of_its_specific_findings_the_check_confirms_and_its_
         .collect();
     assert_eq!(verdicts, [("bad();", "finding"), (CLEAN, "none")]);
     assert_eq!(
-        crate::review::files::paths(&case.patch),
+        crate::review::files::paths(&case.patch).unwrap(),
         ["a.rs"],
         "the case holds only the files of its confirmed findings"
     );
@@ -212,7 +212,10 @@ fn a_confirmed_miss_becomes_a_case_that_expects_it() {
         .into_iter()
         .find(|c| c.expected.iter().any(|e| e.file == "b.swift"))
         .unwrap();
-    assert_eq!(crate::review::files::paths(&miss_case.patch), ["b.swift"]);
+    assert_eq!(
+        crate::review::files::paths(&miss_case.patch).unwrap(),
+        ["b.swift"]
+    );
 }
 
 #[test]

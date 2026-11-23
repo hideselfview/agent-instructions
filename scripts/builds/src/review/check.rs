@@ -122,15 +122,15 @@ impl DiffFile {
     }
 }
 
-pub fn parse_diff(diff: &str) -> Vec<DiffFile> {
-    super::files::split(diff)
+pub fn parse_diff(diff: &str) -> crate::fail::Result<Vec<DiffFile>> {
+    Ok(super::files::split(diff)?
         .into_iter()
         .map(|file| DiffFile {
             path: file.path,
             renamed_from: file.renamed_from,
             lines: parse_lines(&file.text),
         })
-        .collect()
+        .collect())
 }
 
 fn parse_lines(diff: &str) -> Vec<DiffLine> {

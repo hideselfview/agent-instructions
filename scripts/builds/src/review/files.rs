@@ -169,7 +169,16 @@ fn prefixed_path(path: &str, prefix: &str) -> Option<String> {
 
 /// A file's destination path, and the source path if the diff renames it.
 /// Git's file and rename headers give whole paths even when they contain spaces.
-pub(super) fn file_paths(text: &str) -> Option<(String, Option<String>)> {
+pub(super) fn file_paths(text: &str) -> Result<(String, Option<String>)> {
+    decode_file_paths(text).ok_or_else(|| {
+        let header = text.lines().next().unwrap_or_default();
+        crate::fail::Fail::Message(format!(
+            "Builds could not read a file path from the Git header {header:?}."
+        ))
+    })
+}
+
+fn decode_file_paths(text: &str) -> Option<(String, Option<String>)> {
     let mut lines = text.lines();
     let header = lines.next()?;
     let mut old = None;
@@ -253,33 +262,31 @@ impl FileDiff {
 
 /// <diff> cut at each `diff --git` line, in order. Text before the first
 /// such line (a patch's mail header) is dropped.
-pub fn split(diff: &str) -> Vec<FileDiff> {
-    patch_parts(diff)
-        .into_iter()
-        .filter_map(|part| match part {
-            PatchPart::Text(_) => None,
-            PatchPart::File(text) => {
-                let (path, renamed_from) = file_paths(text)?;
-                Some(FileDiff {
-                    path,
-                    renamed_from,
-                    text: text.to_string(),
-                })
-            }
-        })
-        .collect()
+pub fn split(diff: &str) -> Result<Vec<FileDiff>> {
+    let mut files = Vec::new();
+    for part in patch_parts(diff) {
+        if let PatchPart::File(text) = part {
+            let (path, renamed_from) = file_paths(text)?;
+            files.push(FileDiff {
+                path,
+                renamed_from,
+                text: text.to_string(),
+            });
+        }
+    }
+    Ok(files)
 }
 
 /// Every path the files of <diff> change, each once, in order: both paths of
 /// a rename.
-pub fn paths(diff: &str) -> Vec<String> {
+pub fn paths(diff: &str) -> Result<Vec<String>> {
     let mut all: Vec<String> = Vec::new();
-    for path in split(diff).iter().flat_map(FileDiff::paths) {
+    for path in split(diff)?.iter().flat_map(FileDiff::paths) {
         if !all.contains(&path) {
             all.push(path);
         }
     }
-    all
+    Ok(all)
 }
 
 /// The path the commit messages go by in a review: the reviewer reads them as
@@ -303,6 +310,7 @@ pub fn commit_message_file(messages: &str) -> Option<(FileDiff, crate::review::c
         text.push('\n');
     }
     let quotes = crate::review::check::parse_diff(&text)
+        .expect("builds writes the commit messages as a valid patch")
         .pop()
         .expect("the commit messages' diff holds one file");
     Some((

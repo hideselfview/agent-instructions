@@ -453,7 +453,7 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
             &ask.change.diff,
             inputs.brief.as_ref(),
             &ask.open,
-        ));
+        )?);
     }
     let still_found = account_for_repeated_findings(
         inputs.worktree,
@@ -682,7 +682,7 @@ fn same_finding_site(
         FindingLine::Reported(_) => return Ok(false),
         FindingLine::Legacy(line) => {
             let previous = previous()?;
-            let quotes = previous.diff.quotes();
+            let quotes = previous.diff.quotes()?;
             let site = check::code_site(&quotes, &held.file, *line, &held.code).map_err(|reason| {
                 Fail::Message(format!(
                     "Builds could not verify the quote of open finding {} from run {} because {reason}.",

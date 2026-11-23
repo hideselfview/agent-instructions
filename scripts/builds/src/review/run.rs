@@ -205,12 +205,12 @@ impl Diff {
 
     /// The lines builds looks for a finding's quoted code in: each changed
     /// file's, and the commit messages' as one more file.
-    pub fn quotes(&self) -> Vec<DiffFile> {
-        let mut files = parse_diff(&self.text);
+    pub fn quotes(&self) -> Result<Vec<DiffFile>> {
+        let mut files = parse_diff(&self.text)?;
         if let Some((_, quotes)) = files::commit_message_file(&self.messages) {
             files.push(quotes);
         }
-        files
+        Ok(files)
     }
 
     /// The diff's text as <group> reads it in one call: with the commit
@@ -229,18 +229,18 @@ impl Diff {
 
     /// The diff without the files whose paths are in <dropped>, and without
     /// the commit messages when <dropped> holds `files::COMMIT_MESSAGE`.
-    pub fn without(&self, dropped: &[String]) -> Diff {
+    fn without(&self, dropped: &[String]) -> Result<Diff> {
         // `files::split` drops the text before a patch's first file (its mail
         // header), so a diff that drops nothing keeps its own text.
         if dropped.is_empty() {
-            return self.clone();
+            return Ok(self.clone());
         }
-        let kept: Vec<FileDiff> = files::split(&self.text)
+        let kept: Vec<FileDiff> = files::split(&self.text)?
             .into_iter()
             .filter(|file| !dropped.contains(&file.path))
             .collect();
         let kept_paths: Vec<String> = kept.iter().flat_map(FileDiff::paths).collect();
-        Diff {
+        Ok(Diff {
             messages: if dropped.iter().any(|path| path == files::COMMIT_MESSAGE) {
                 String::new()
             } else {
@@ -254,7 +254,7 @@ impl Diff {
                 .filter(|path| kept_paths.contains(path))
                 .cloned()
                 .collect(),
-        }
+        })
     }
 }
 
@@ -542,7 +542,7 @@ fn units_of<'a>(
     diff: &Diff,
     files: &Globs,
     open: &[Finding],
-) -> Vec<Unit<'a>> {
+) -> Result<Vec<Unit<'a>>> {
     let unit = |file| Unit {
         group,
         members,
@@ -550,10 +550,10 @@ fn units_of<'a>(
         file,
     };
     if !group.enumerate {
-        return vec![unit(None)];
+        return Ok(vec![unit(None)]);
     }
     let holds = !held_by(group, members, open).is_empty();
-    let mut units: Vec<Unit> = files::split(&diff.text)
+    let mut units: Vec<Unit> = files::split(&diff.text)?
         .into_iter()
         .filter(|file| holds || group_covers(members, &file.paths(), files))
         .map(|file| unit(Some(file)))
@@ -564,22 +564,21 @@ fn units_of<'a>(
     ) {
         units.push(unit(Some(file)));
     }
-    units
+    Ok(units)
 }
 
 /// The design and capture files of <diff> that no rule of <members> covers,
 /// by <files>: a group reads such a file only when one of its rules judges
 /// files of its kind and covers it, whether or not the group holds open
 /// findings.
-fn unjudged(members: &[&Rule], diff: &Diff, files: &Globs) -> Vec<String> {
-    files::split(&diff.text)
-        .into_iter()
+fn unjudged(members: &[&Rule], diff: &[FileDiff], files: &Globs) -> Vec<String> {
+    diff.iter()
         .filter(|file| {
             let paths = file.paths();
             paths.iter().any(|path| files.kind_of(path).is_some())
                 && !group_covers(members, &paths, files)
         })
-        .map(|file| file.path)
+        .map(|file| file.path.clone())
         .collect()
 }
 
@@ -621,16 +620,16 @@ fn judges_code(
     diff: &Diff,
     files: &Globs,
     open: &[Finding],
-) -> bool {
+) -> Result<bool> {
     let held = held_by(group, members, open);
     if held.iter().any(|finding| {
         finding.file != files::COMMIT_MESSAGE
             && files.includes_code(std::slice::from_ref(&finding.file))
     }) {
-        return true;
+        return Ok(true);
     }
     if group.enumerate {
-        return units
+        return Ok(units
             .iter()
             .filter_map(|unit| unit.file.as_ref())
             .any(|file| {
@@ -640,12 +639,12 @@ fn judges_code(
                     (held.is_empty() || group_covers(members, &paths, files))
                         && files.includes_code(&paths)
                 }
-            });
+            }));
     }
-    files::split(&diff.text).into_iter().any(|file| {
+    Ok(files::split(&diff.text)?.into_iter().any(|file| {
         let paths = file.paths();
         group_covers(members, &paths, files) && files.includes_code(&paths)
-    })
+    }))
 }
 
 /// Asks the reviewers of <picked> and checks what comes back: one per group,
@@ -668,15 +667,19 @@ pub fn ask_groups(
     diff: &Diff,
     brief: Option<&crate::lists::spec_check::Brief>,
     open: &[Finding],
-) -> Asked {
+) -> Result<Asked> {
     let (material, files) = (scope.material, scope.files);
+    let parsed = files::split(&diff.text)?;
     // Each group's view of the change: the diff without the design and capture files the
     // group does not judge.
     let unjudged: Vec<Vec<String>> = picked
         .iter()
-        .map(|(_, members)| unjudged(members, diff, files))
+        .map(|(_, members)| unjudged(members, &parsed, files))
         .collect();
-    let views: Vec<Diff> = unjudged.iter().map(|paths| diff.without(paths)).collect();
+    let views: Vec<Diff> = unjudged
+        .iter()
+        .map(|paths| diff.without(paths))
+        .collect::<Result<_>>()?;
     // The units a first review asks, and the files of each group's units that
     // it does not read now. A unit of the whole view reads every file of it,
     // and the commit messages when its group reads them.
@@ -684,27 +687,27 @@ pub fn ask_groups(
         .iter()
         .enumerate()
         .map(|(at, (group, members))| units_of(group, members, at, &views[at], files, open))
-        .collect();
+        .collect::<Result<_>>()?;
     let not_read: Vec<Vec<String>> = first
         .iter()
         .enumerate()
         .map(|(at, units)| {
-            let read: Vec<FileDiff> = units
-                .iter()
-                .flat_map(|unit| match &unit.file {
-                    Some(file) => vec![file.clone()],
-                    None => files::split(&views[at].text_for(unit.group)),
-                })
-                .collect();
-            not_read(picked, at, &read, open)
+            let mut read = Vec::new();
+            for unit in units {
+                match &unit.file {
+                    Some(file) => read.push(file.clone()),
+                    None => read.extend(files::split(&views[at].text_for(unit.group))?),
+                }
+            }
+            Ok(not_read(picked, at, &read, open))
         })
-        .collect();
+        .collect::<Result<_>>()?;
     // Each group's diff: its view without the files the group does not read.
     let diffs: Vec<Diff> = not_read
         .iter()
         .zip(&views)
         .map(|(paths, view)| view.without(paths))
-        .collect();
+        .collect::<Result<_>>()?;
     // Builds asks only the units that can read their files.
     let units: Vec<Vec<Unit>> = first
         .into_iter()
@@ -726,21 +729,20 @@ pub fn ask_groups(
         .enumerate()
         .map(|(at, (group, members))| {
             if kind == ReviewKind::Branch {
-                reviewer.for_branch_review(|| {
-                    judges_code(group, members, &units[at], &diffs[at], files, open)
-                })
+                let reads_code = judges_code(group, members, &units[at], &diffs[at], files, open)?;
+                Ok(reviewer.for_branch_review(|| reads_code))
             } else {
-                reviewer.clone()
+                Ok(reviewer.clone())
             }
         })
-        .collect();
-    let quotes: Vec<Vec<DiffFile>> = diffs.iter().map(Diff::quotes).collect();
+        .collect::<Result<_>>()?;
+    let quotes: Vec<Vec<DiffFile>> = diffs.iter().map(Diff::quotes).collect::<Result<_>>()?;
     // The reviewers read the repository at the commit under review.
     let checkout = match diff.source.as_ref().map(files::Source::checkout) {
         Some(Ok(checkout)) => Some(checkout),
         Some(Err(why)) => {
             let why = why.text();
-            return Asked {
+            return Ok(Asked {
                 calls: picked
                     .iter()
                     .enumerate()
@@ -751,7 +753,7 @@ pub fn ask_groups(
                 repeat: Ok(call::Tokens::ZERO),
                 nothing_to_read: Vec::new(),
                 not_read: Vec::new(),
-            };
+            });
         }
         None => None,
     };
@@ -893,7 +895,7 @@ pub fn ask_groups(
             nothing_to_read.push(group.name.clone());
         }
     }
-    Asked {
+    Ok(Asked {
         calls,
         repeat,
         nothing_to_read,
@@ -903,7 +905,7 @@ pub fn ask_groups(
             .filter(|(_, paths)| !paths.is_empty())
             .map(|((group, _), paths)| (group.name.clone(), paths))
             .collect(),
-    }
+    })
 }
 
 /// What a review asked: one call per group, the tokens of the passes after
