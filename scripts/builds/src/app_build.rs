@@ -2602,8 +2602,15 @@ pub fn serve_cached(
             pending.push(pick);
             continue;
         };
+        let Some(status) = cached.app_exit_code() else {
+            note(format!(
+                "The cache has no source verdict for {prefix}, so the build runs the comparison again."
+            ));
+            pending.push(pick);
+            continue;
+        };
         match recorded {
-            Some(_) if cached.app_exit_code() != Some(0) => {
+            Some(_) if status != 0 => {
                 note(format!(
                     "The cache has no passing comparison for {prefix}, so the build runs it again."
                 ));
@@ -2631,7 +2638,7 @@ pub fn serve_cached(
         shot_findings::print(&cached);
         shot_findings::note_report(&cached);
         if recorded.is_none()
-            && let Some(code) = std::num::NonZeroU8::new(cached.exit_code)
+            && let Some(code) = std::num::NonZeroU8::new(status)
         {
             failed.get_or_insert(code);
         }

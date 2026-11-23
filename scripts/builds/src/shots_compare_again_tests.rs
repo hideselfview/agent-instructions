@@ -178,23 +178,28 @@ fn an_app_build_reuses_only_a_recheck_whose_source_and_build_record_passed() {
     for exit_code in [0, 1] {
         let scratch = Scratch::new("reuse-recheck");
         let places = scratch.places();
-        let program = recheck_program(&scratch, &VERSIONS.capture, &VERSIONS.comparison, false);
+        let program = recheck_program(
+            &scratch,
+            &VERSIONS.capture,
+            &VERSIONS.comparison,
+            exit_code != 0,
+        );
         cache_run_at(&places, &old, app_timing::now(), exit_code);
         let store = crate::lists::fixtures::make_store_named(&places, "demo-project", &["demo"]);
         let records = BuildRecords::open(&places, "demo").unwrap().unwrap();
-        let serve = || {
+        let serve = |recorded| {
             crate::app_build::serve_cached(
                 &places,
                 "demo",
                 COMMIT,
                 vec![crate::app_build::all_shots(Lane::Mac)],
                 &program,
-                Some(&records),
+                recorded,
                 &mut crate::shots_declared::ShotDeclarations::new(&scratch.dir),
             )
             .unwrap()
         };
-        assert_eq!(serve().pending.len(), 1);
+        assert_eq!(serve(Some(&records)).pending.len(), 1);
         app_timing::record(
             &store.database(),
             &RunRecord {
@@ -217,7 +222,8 @@ fn an_app_build_reuses_only_a_recheck_whose_source_and_build_record_passed() {
             },
         )
         .unwrap();
-        assert_eq!(serve().pending.is_empty(), exit_code == 0);
+        assert_eq!(serve(Some(&records)).pending.is_empty(), exit_code == 0);
+        assert_eq!(serve(None).cached_result().is_ok(), exit_code == 0);
     }
 }
 
