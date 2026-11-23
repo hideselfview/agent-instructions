@@ -52,6 +52,9 @@ pub struct Proc {
     pub start: i64,
     /// CPU seconds it had used.
     pub cpu: f64,
+    /// When the CPU counter last advanced, or the first observation of it.
+    #[serde(default)]
+    pub active_at: Option<i64>,
 }
 
 impl Proc {
@@ -60,6 +63,7 @@ impl Proc {
             pid: row.pid,
             start: start_of(at, row),
             cpu: row.cpu_seconds,
+            active_at: None,
         }
     }
 }
@@ -79,6 +83,32 @@ impl Reading {
             at,
             procs: rows.iter().map(|row| Proc::of(at, row)).collect(),
         }
+    }
+
+    /// Carries over the last CPU movement of a process whose counter is
+    /// unchanged. A reused PID starts a new reading.
+    pub fn following(at: i64, rows: &[Row], readings: &[Reading]) -> Reading {
+        let mut next = Self::of(at, rows);
+        let before: HashMap<_, _> = readings
+            .iter()
+            .filter(|reading| reading.at <= at)
+            .max_by_key(|reading| reading.at)
+            .into_iter()
+            .flat_map(|reading| &reading.procs)
+            .map(|proc| (proc.pid, proc))
+            .collect();
+        for proc in &mut next.procs {
+            proc.active_at = Some(if proc.cpu == 0.0 {
+                proc.start
+            } else {
+                before
+                    .get(&proc.pid)
+                    .filter(|old| same_start(old.start, proc.start) && old.cpu == proc.cpu)
+                    .and_then(|old| old.active_at)
+                    .unwrap_or(at)
+            });
+        }
+        next
     }
 }
 

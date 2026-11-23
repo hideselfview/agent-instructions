@@ -6,29 +6,7 @@
 //! again the findings that waited for a settle and reached it in no message,
 //! and forgets a judge whose session ended.
 //!
-//! It exits 1 when something needs acting on: clients waiting on an sccache
-//! server that finished nothing since the last readings, agent shells that are
-//! junk (shells.rs), a claimed worktree with no change and no build for an hour
-//! (its own, a `builds cargo` run of its own on another host, a `builds
-//! app-build` of its branch, or one it holds the app lock for), the volume
-//! under its
-//! free-space floor, a lists store that fails its check, a running item
-//! whose worktree is gone or has no claim (lists/running.rs), a kept item
-//! whose worktree is gone or whose waits are all met (lists/kept_work.rs), a held worktree
-//! whose item waits on nothing open, commits that change design files no
-//! recorded design change covers (lists/held.rs), a repo with a design folder
-//! and no design globs (lists/project.rs), or a build host that refuses
-//! jobs, whose Xcode cannot start, whose installed `builds` differs from this
-//! Mac's or whose sccache server launchd does not run (host_installed.rs), or
-//! that lacks a setting that UI tests need or whose UI tests timed out turning on
-//! automation mode (ui_test_settings.rs), a host whose cores sit idle while
-//! items are ready or whose load is well over its cores, or a ready item of project builds
-//! that no agent runs (host_load.rs), a
-//! project's main checkout whose main lacks commits that origin/main has
-//! (main_checkout.rs), work that has run long on this Mac or a host, such as
-//! an install waiting at its gates or a cargo job on a host (long_waits.rs),
-//! or no `builds prune` that finished in twice the interval the dashboard
-//! runs it at (prune_schedule.rs).
+//! Health exits 1 when work has stopped moving or another finding needs action.
 
 use std::path::{Path, PathBuf};
 
@@ -41,6 +19,7 @@ use crate::fail::{Context, Fail, Result};
 use crate::holder_run::{HolderRun, RunTimes};
 use crate::host::Host;
 use crate::lane::Lane;
+use crate::lists::held::DesignApproval;
 use crate::places::DiskSpace;
 use crate::procs::{
     BUILD_NAMES, BuildProcess, Place, Process, Processes, args, build_processes, cores, live_args,
@@ -53,8 +32,6 @@ use crate::tool::Tool;
 
 /// An sccache client waiting this long is worth a look.
 const CLIENT_MINUTES: i64 = 10;
-/// A claimed worktree with no change and no build this long has stalled.
-const QUIET_MINUTES: i64 = 60;
 
 /// What git said of a side worktree, or what it said when the read failed.
 pub type GitRead = std::result::Result<SideRead, String>;
@@ -72,8 +49,8 @@ pub enum FindingKind {
     /// A local branch with commits waiting to land that no worktree checks
     /// out and no open item names.
     Branch,
-    /// A claimed worktree with no change and no build for a while.
-    Quiet,
+    /// Work that has made no progress for the configured interval.
+    Still,
     Lists,
     /// A worktree whose claim file cannot be read.
     Claim,
@@ -96,9 +73,6 @@ pub enum FindingKind {
     ProcessLimit,
     /// No `builds prune` finished lately (prune_schedule.rs).
     Prune,
-    /// Work that has run long: an install waiting at its gates, a hook run,
-    /// a landing, a cargo run or a job on a host (long_waits.rs).
-    Waits,
     /// A process whose caller is gone (orphans.rs).
     Orphan,
     /// The build volume keeps a history of its file events (fsevents_log.rs).
@@ -172,10 +146,8 @@ pub struct Health {
     pub queues: Vec<LaneQueue>,
     /// What needs acting on, one line each; empty when nothing does.
     pub findings: Vec<Finding>,
-    /// Does the coordinator's health-check schedule still have work to
-    /// watch: an agent runs (a claimed worktree that is not held), or commits
-    /// wait to land in a worktree or branch that is not held? False when
-    /// every worktree with waiting commits is held and no agent runs.
+    /// Whether the coordinator's schedule has open work or worktree state
+    /// to watch.
     pub schedule_needed: bool,
 }
 
@@ -220,14 +192,12 @@ pub struct WorktreeHealth {
     /// Minutes since the newer of HEAD's commit and the newest uncommitted
     /// write.
     pub quiet_minutes: Option<i64>,
-    /// Minutes since the newest of HEAD's commit, the newest uncommitted
-    /// write and the start of the claim: the time `stalled` and the release
-    /// of an idle claim (health_fix.rs) judge.
-    pub idle_minutes: i64,
-    /// No change and no build for QUIET_MINUTES, and not held or waiting on
-    /// the person's review: health lists it under needs action, and the
-    /// dashboard's card says it stalled.
-    pub stalled: bool,
+    /// The last commit, uncommitted write or claim update.
+    pub moved_at: i64,
+    /// Whether automatic release may consider this claim after its idle limit.
+    pub idle_for_release: bool,
+    pub design_approval: Option<DesignApproval>,
+    pub landing: Option<Advice>,
     pub building: Vec<BuildProcess>,
     /// Its `builds cargo` runs whose cargo runs on another host.
     pub remote_runs: Vec<RemoteRun>,
@@ -320,6 +290,7 @@ pub struct Holder {
     /// the lock still run? False when only processes it started still have
     /// the lock file open: the build is over and what is left keeps the lock.
     pub driver_running: bool,
+    pub moved_at: Option<i64>,
     /// How long the build waited for the lock, how long it has built, and
     /// the step it runs, from the record it keeps beside the lock
     /// (holder_run.rs); None when the process that took the lock has kept no
@@ -359,7 +330,7 @@ pub enum LandingWait {
     /// No other landing holds a turn it takes.
     Nothing,
     /// The landing that holds the turn it takes.
-    For(String),
+    For(crate::land_turns::TurnWait),
     /// Builds could not read the turn files, and `Machine::unread` says why.
     Unread,
 }
@@ -513,7 +484,7 @@ pub fn sample(
             if let Some(place) = crate::procs::place_of(places, &worktree) {
                 let waits = match crate::land_turns::waits_for(&worktree, process.pid) {
                     Ok(None) => LandingWait::Nothing,
-                    Ok(Some(whose)) => LandingWait::For(whose.to_string()),
+                    Ok(Some(whose)) => LandingWait::For(whose),
                     Err(error) => {
                         unread.push(format!(
                             "{}, so health cannot tell whether the landing of process {} waits for another",
@@ -596,9 +567,7 @@ pub fn sample(
         let run = match holding.filter(|_| driver_running) {
             None => None,
             Some(process) => match HolderRun::read(run_file) {
-                Ok(record) => record
-                    .filter(|record| record.pid == process.pid)
-                    .map(|record| record.times(now)),
+                Ok(record) => record.filter(|record| record.pid == process.pid),
                 Err(error) => {
                     unread.push(error.text());
                     None
@@ -616,7 +585,8 @@ pub fn sample(
             started_from: started_from(places, process.pid),
             app_head: app_top.as_deref().and_then(head_of),
             driver_running,
-            run,
+            moved_at: run.as_ref().map(HolderRun::moved_at),
+            run: run.as_ref().map(|record| record.times(now)),
         });
         held.push(LockHealth {
             repo: repo.clone(),
@@ -781,7 +751,9 @@ pub struct Claimed {
     pub git: GitRead,
     /// Design coverage is unknown, or the worktree awaits approval after
     /// its rules review clears (decision #362).
-    pub design_prevents_stalled: bool,
+    pub design_prevents_release: bool,
+    pub design_approval: Option<DesignApproval>,
+    pub noted_at: i64,
     /// What blocks its branch from landing, from the review records; None
     /// when health did not read them (nothing waits to land there).
     pub landing: Option<Advice>,
@@ -869,22 +841,6 @@ pub fn assess(
             Advice::said(format!("processes: {line}")),
         )
     }));
-    if !machine.shells.junk.is_empty() {
-        findings.push(Finding::new(
-            FindingKind::Shells,
-            Advice::run(
-                format!(
-                    "shells: {}, listed under shells; stop them with",
-                    crate::text::counted(
-                        machine.shells.junk.len(),
-                        "junk shell runs",
-                        "junk shells run"
-                    )
-                ),
-                "builds health --stop-junk".to_string(),
-            ),
-        ));
-    }
     let mut schedule_needed = !left.branches.is_empty();
     for Unclaimed {
         place,
@@ -923,7 +879,9 @@ pub fn assess(
         claim,
         branch,
         git,
-        design_prevents_stalled,
+        design_prevents_release,
+        design_approval,
+        noted_at,
         landing,
     } in claimed
     {
@@ -954,12 +912,11 @@ pub fn assess(
             .collect();
         let activity = git.as_ref().ok().and_then(SideRead::activity);
         let quiet_minutes = activity.map(|when| minutes_since(now, when));
-        // A worktree claimed a few minutes ago is not idle, even when its
-        // files have not changed for hours.
-        let idle_minutes = minutes_since(
-            now,
-            activity.map_or(claim.since, |when| when.max(claim.since)),
-        );
+        let moved_at = activity
+            .into_iter()
+            .chain([claim.since, noted_at])
+            .max()
+            .expect("the claim has a start");
         let app_build = machine
             .locks
             .iter()
@@ -988,31 +945,15 @@ pub fn assess(
         // whose design coverage is unknown or awaits approval is also out of scope.
         let held = claim.is_held();
         schedule_needed |= !held || git.is_err();
-        let stalled = !held
-            && !design_prevents_stalled
+        let idle_for_release = !held
+            && git.is_ok()
+            && !design_prevents_release
             && building.is_empty()
             && remote_runs.is_empty()
             && app_builds.is_empty()
             && landings.is_empty()
             && app_build.is_none()
-            && in_line.is_empty()
-            && idle_minutes >= QUIET_MINUTES;
-        if stalled {
-            let quiet = format!(
-                "worktree: {label} ({}) has had no change for {idle_minutes}m and no build runs there",
-                claim.who
-            );
-            findings.push(Finding::new(
-                FindingKind::Quiet,
-                match landing {
-                    Some(Advice { text, command }) => Advice {
-                        text: format!("{quiet}; {text}"),
-                        command,
-                    },
-                    None => Advice::said(quiet),
-                },
-            ));
-        }
+            && in_line.is_empty();
         worktrees.push(WorktreeHealth {
             checkout: label,
             path: places[place].top.display().to_string(),
@@ -1020,8 +961,10 @@ pub fn assess(
             branch,
             git,
             quiet_minutes,
-            idle_minutes,
-            stalled,
+            moved_at,
+            idle_for_release,
+            design_approval,
+            landing,
             building,
             remote_runs,
             app_builds,
@@ -1210,14 +1153,20 @@ pub fn lists_findings(
             .iter()
             .find(|worktree| worktree.label == places[one.place].label)
             .and_then(|worktree| worktree.landing(places_in, loaded, reviews));
-        one.design_prevents_stalled = match held.design_waits.get(&places[one.place].label) {
-            Some(DesignWait::Checking | DesignWait::Unread) => true,
-            Some(DesignWait::Approval) => matches!(
-                landing,
-                Some(Ok(crate::review::idle::Landing::ReviewClear(_)))
-            ),
-            None => false,
-        };
+        let review_clear = matches!(
+            landing,
+            Some(Ok(crate::review::idle::Landing::ReviewClear(_)))
+        );
+        match held.design_waits.get(&places[one.place].label) {
+            Some(DesignWait::Checking | DesignWait::Unread) => {
+                one.design_prevents_release = true;
+            }
+            Some(DesignWait::Approval(design)) if review_clear => {
+                one.design_prevents_release = true;
+                one.design_approval = Some(design.clone());
+            }
+            _ => {}
+        }
         one.landing = landing.map(|landing| match landing {
             Ok(landing) => landing.advice(),
             Err(fault) => Advice::said(format!(
@@ -1273,8 +1222,8 @@ pub fn health(tool: &Tool) -> Result<Health> {
         if !checkout.is_side() {
             continue;
         }
-        match Claim::read(&checkout.claim_file()) {
-            Ok(Some(claim)) => claimed.push((at, checkout, claim)),
+        match Claim::read_with_time(&checkout.claim_file()) {
+            Ok(Some((claim, noted_at))) => claimed.push((at, checkout, claim, noted_at)),
             Ok(None) if root.is_app_checkout(&tool.places)? => {}
             Ok(None)
                 if kept
@@ -1299,12 +1248,12 @@ pub fn health(tool: &Tool) -> Result<Health> {
             kept_unknown: kept.as_ref().err().cloned(),
         })
         .collect();
-    let gits = parallel_map(&claimed, |(_, checkout, _)| {
+    let gits = parallel_map(&claimed, |(_, checkout, _, _)| {
         crate::side_git::read(&checkout.top)
     });
     let mut judged = Vec::new();
     let mut held_worktrees = Vec::new();
-    for ((place, checkout, claim), git) in claimed.into_iter().zip(gits) {
+    for ((place, checkout, claim, noted_at), git) in claimed.into_iter().zip(gits) {
         let branch = checkout.branch()?;
         held_worktrees.push(crate::lists::held::Worktree::read(
             &tool.places,
@@ -1323,7 +1272,9 @@ pub fn health(tool: &Tool) -> Result<Health> {
             claim,
             branch,
             git,
-            design_prevents_stalled: false,
+            design_prevents_release: false,
+            design_approval: None,
+            noted_at,
             landing: None,
         });
     }
@@ -1607,14 +1558,16 @@ pub struct Scanned {
     pub scans: Vec<(Host, std::result::Result<crate::host_scan::Scan, String>)>,
     /// What a running install waits for (install_gate.rs).
     pub install: std::result::Result<Option<crate::install_gate::Waiting>, String>,
+    pub holders: crate::job_claim::Holders,
+    pub completed: std::result::Result<crate::health_stillness::Completed, String>,
     /// The processes whose caller is gone (orphans.rs) that health has not
     /// stopped.
     pub orphans: Vec<crate::orphans::Orphan>,
     /// Each host's sccache server (sccache_queue.rs), or why health could
     /// not judge them.
     pub caches: std::result::Result<Vec<crate::sccache_queue::Cache>, String>,
-    /// Seconds since 1970.
-    pub now: i64,
+    /// The coordinator's clock when it asked the hosts.
+    pub at: i64,
 }
 
 impl Scanned {
@@ -1630,17 +1583,18 @@ impl Scanned {
     ) -> Scanned {
         Scanned {
             install: crate::install_gate::waiting(places).map_err(|fault| fault.text()),
+            holders: holders.clone(),
+            completed: crate::health_stillness::Completed::read(places).map_err(Fail::text),
             orphans: crate::orphans::find(&scans, holders),
             caches: crate::sccache_queue::judge(&places.home, &scans, now)
                 .map_err(|fault| fault.text()),
             scans,
-            now,
+            at: now,
         }
     }
 }
 
-/// The findings that come from the hosts: from <scanned>, the work that has
-/// run long on this Mac or a host (long_waits.rs), each process whose caller
+/// The findings that come from the hosts: from <scanned>, each process whose caller
 /// is gone that health left running (orphans.rs), and each host with more
 /// compile work than its sccache server runs (sccache_queue.rs); and each
 /// process that looks stuck on
@@ -1661,64 +1615,40 @@ pub fn host_findings(
     refusals: &[crate::host::Refusal],
     installed: &[crate::host_installed::HostInstalled],
 ) -> Vec<Finding> {
-    let checkout = |pid: i32| {
-        crate::procs::cwd(pid)
-            .and_then(|dir| crate::stuck::checkout_label(&dir.display().to_string()))
-    };
     let caches = match &scanned.caches {
         Ok(caches) => crate::sccache_queue::findings(caches),
         Err(error) => vec![Advice::said(format!(
             "sccache: health could not judge the hosts' compile caches: {error}"
         ))],
     };
-    let landing_wait = |pid: i32| {
-        let Some(argv) = crate::procs::live_args(pid)? else {
-            return Ok(None);
-        };
-        match crate::land_turns::landing_worktree(pid, &argv) {
-            Some(worktree) => crate::land_turns::waits_for(&worktree?, pid).map_err(|e| e.text()),
-            None => Ok(None),
-        }
-    };
-    crate::long_waits::findings(
-        &scanned.scans,
-        &scanned.install,
-        &checkout,
-        &landing_wait,
-        scanned.now,
-    )
-    .into_iter()
-    .map(|advice| Finding::new(FindingKind::Waits, advice))
-    .chain(
-        scanned
-            .orphans
-            .iter()
-            .map(|orphan| Finding::new(FindingKind::Orphan, orphan.finding())),
-    )
-    .chain(
-        caches
-            .into_iter()
-            .map(|advice| Finding::new(FindingKind::Sccache, advice)),
-    )
-    .chain(
-        crate::stuck::findings(busy)
-            .into_iter()
-            .map(|advice| Finding::new(FindingKind::Busy, advice)),
-    )
-    .chain(
-        refusals
-            .iter()
-            // ui_test_settings::findings writes these with the host's
-            // settings.
-            .filter(|refusal| refusal.refused != crate::host::Refused::UiAutomation)
-            .map(crate::host::refusal_finding)
-            .chain(crate::host_installed::installed_findings(installed))
-            .chain(crate::ui_test_settings::findings(refusals, installed))
-            .chain(crate::host_front_app::findings(&scanned.scans))
-            .chain(crate::host_screen_lock::findings(&scanned.scans))
-            .map(|advice| Finding::new(FindingKind::Host, advice)),
-    )
-    .collect()
+    scanned
+        .orphans
+        .iter()
+        .map(|orphan| Finding::new(FindingKind::Orphan, orphan.finding()))
+        .chain(
+            caches
+                .into_iter()
+                .map(|advice| Finding::new(FindingKind::Sccache, advice)),
+        )
+        .chain(
+            crate::stuck::findings(busy)
+                .into_iter()
+                .map(|advice| Finding::new(FindingKind::Busy, advice)),
+        )
+        .chain(
+            refusals
+                .iter()
+                // ui_test_settings::findings writes these with the host's
+                // settings.
+                .filter(|refusal| refusal.refused != crate::host::Refused::UiAutomation)
+                .map(crate::host::refusal_finding)
+                .chain(crate::host_installed::installed_findings(installed))
+                .chain(crate::ui_test_settings::findings(refusals, installed))
+                .chain(crate::host_front_app::findings(&scanned.scans))
+                .chain(crate::host_screen_lock::findings(&scanned.scans))
+                .map(|advice| Finding::new(FindingKind::Host, advice)),
+        )
+        .collect()
 }
 
 /// The finding when no dashboard runs (<dashboard> is its pid): the person
@@ -1951,10 +1881,6 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
             .map(|advice| Finding::new(FindingKind::Load, advice)),
     );
     health.findings.extend(process_limits);
-    health.findings.extend(
-        crate::host_load::builds_items_ready(&loaded)
-            .map(|advice| Finding::new(FindingKind::Load, advice)),
-    );
     // Read now: a probe in another command, or this one, may have just
     // written or removed one.
     let refusals = crate::host::refusals(&tool.places)?;
@@ -1971,6 +1897,13 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
     health
         .findings
         .extend(host_findings(&scanned, &busy, &refusals, &installed));
+    crate::health_stillness::append(
+        &mut health,
+        &loaded,
+        Some(&scanned),
+        tool.now,
+        tool.rules.still_minutes,
+    );
     if json {
         let mut value = serde_json::to_value(&health).expect("health serializes");
         value["busy"] = serde_json::json!(
@@ -2088,182 +2021,6 @@ mod tests {
         );
     }
 
-    /// A claim with no change for hours and no build is stalled, unless its
-    /// note says its agent holds the worktree or its design change waits on
-    /// the person's review (the third claim).
-    #[test]
-    fn a_held_claim_is_not_idle() {
-        let now = 1_800_000_000;
-        let machine = Machine {
-            at: now,
-            load: [1.0; 3],
-            cores: 8,
-            builds: Vec::new(),
-            remote_runs: Vec::new(),
-            app_builds: Vec::new(),
-            landings: Vec::new(),
-            unread: Vec::new(),
-            commits: Default::default(),
-            sccache: SccacheHealth {
-                server: SccacheServer::Read {
-                    executed: 1,
-                    compared: None,
-                },
-                waiting: Vec::new(),
-            },
-            shells: Shells::default(),
-            locks: Vec::new(),
-            queues: Vec::new(),
-        };
-        let place = |n: usize| Place {
-            label: format!("demo/side-{n}"),
-            repo: "demo".to_string(),
-            top: PathBuf::from(format!("/demo-worktrees/side-{n}")),
-            root: PathBuf::from(format!("/volume/demo/side-{n}")),
-        };
-        let claimed = |n: usize, state: Option<&str>| Claimed {
-            place: n - 1,
-            claim: Claim {
-                who: format!("agent {n}"),
-                since: now - 70 * 24 * 3600,
-                note: Some(
-                    crate::claim::Note::with_state(state, "kept for later".to_string()).unwrap(),
-                ),
-            },
-            branch: Some("work".to_string()),
-            git: Ok(SideRead {
-                head: None,
-                ahead: Vec::new(),
-                main: "0".repeat(40),
-                uncommitted: 3,
-                last_write: Some(now - 3 * 3600),
-            }),
-            design_prevents_stalled: n == 3,
-            landing: None,
-        };
-        let health = assess(
-            now,
-            DiskSpace {
-                free_kib: 100 << 20,
-                floor_kib: 30 << 20,
-                hard_floor_kib: 10 << 20,
-            },
-            machine,
-            &[place(1), place(2), place(3)],
-            vec![claimed(1, None), claimed(2, Some("held")), claimed(3, None)],
-            LeftBehind::default(),
-            Vec::new(),
-        );
-        assert_eq!(health.findings.len(), 1, "{:?}", health.findings);
-        assert!(
-            health.findings[0]
-                .advice
-                .text
-                .starts_with("worktree: demo/side-1 "),
-            "{:?}",
-            health.findings
-        );
-        assert_eq!(
-            health
-                .worktrees
-                .iter()
-                .map(|w| w.stalled)
-                .collect::<Vec<_>>(),
-            [true, false, false],
-            "the dashboard shows the finding's worktree, and only it, as stalled"
-        );
-    }
-
-    /// An idle claim's finding names its review blockers or the command
-    /// that checks app coverage and lands the commits.
-    #[test]
-    fn an_idle_claims_finding_says_what_blocks_its_landing() {
-        let now = 1_800_000_000;
-        let machine = Machine {
-            at: now,
-            load: [1.0; 3],
-            cores: 8,
-            builds: Vec::new(),
-            remote_runs: Vec::new(),
-            app_builds: Vec::new(),
-            landings: Vec::new(),
-            unread: Vec::new(),
-            commits: Default::default(),
-            sccache: SccacheHealth {
-                server: SccacheServer::Read {
-                    executed: 1,
-                    compared: None,
-                },
-                waiting: Vec::new(),
-            },
-            shells: Shells::default(),
-            locks: Vec::new(),
-            queues: Vec::new(),
-        };
-        let place = |n: usize| Place {
-            label: format!("demo/side-{n}"),
-            repo: "demo".to_string(),
-            top: PathBuf::from(format!("/demo-worktrees/side-{n}")),
-            root: PathBuf::from(format!("/volume/demo/side-{n}")),
-        };
-        let claimed = |n: usize, landing: Advice| Claimed {
-            place: n - 1,
-            claim: Claim {
-                who: format!("agent {n}"),
-                since: now - 70 * 24 * 3600,
-                note: None,
-            },
-            branch: Some("work".to_string()),
-            git: Ok(SideRead {
-                head: None,
-                ahead: Vec::new(),
-                main: "0".repeat(40),
-                uncommitted: 3,
-                last_write: Some(now - 3 * 3600),
-            }),
-            design_prevents_stalled: false,
-            landing: Some(landing),
-        };
-        let health = assess(
-            now,
-            DiskSpace {
-                free_kib: 100 << 20,
-                floor_kib: 30 << 20,
-                hard_floor_kib: 10 << 20,
-            },
-            machine,
-            &[place(1), place(2)],
-            vec![
-                claimed(
-                    1,
-                    crate::review::idle::Landing::ReviewClear(
-                        "builds land /demo-worktrees/side-1 --done 7 abc".to_string(),
-                    )
-                    .advice(),
-                ),
-                claimed(
-                    2,
-                    Advice::said("its branch cannot land yet: finding 5 is open".to_string()),
-                ),
-            ],
-            LeftBehind::default(),
-            Vec::new(),
-        );
-        let lines: Vec<String> = health.findings.iter().map(|f| f.advice.line()).collect();
-        assert_eq!(lines.len(), 2, "{lines:?}");
-        assert!(
-            lines[0].ends_with(
-                "no build runs there; the review check allows these commits. To check app coverage and land, run `builds land /demo-worktrees/side-1 --done 7 abc`"
-            ),
-            "{lines:?}"
-        );
-        assert!(
-            lines[1]
-                .ends_with("no build runs there; its branch cannot land yet: finding 5 is open"),
-            "{lines:?}"
-        );
-    }
-
     /// The coordinator's schedule can stop when every worktree with waiting
     /// commits is held and no agent runs; it is needed while an agent runs or
     /// commits wait to land with no hold.
@@ -2336,7 +2093,9 @@ mod tests {
                     },
                     branch: Some("work".to_string()),
                     git: git(ahead, claimed_unread),
-                    design_prevents_stalled: false,
+                    design_prevents_release: false,
+                    design_approval: None,
+                    noted_at: 0,
                     landing: None,
                 })
                 .collect();
@@ -2388,87 +2147,6 @@ mod tests {
             needed_with_error(&[], false, true),
             "git could not read an unclaimed worktree"
         );
-    }
-
-    /// The findings for one claimed worktree whose files last changed
-    /// <changed_ago> seconds before now and whose claim began <claimed_ago>
-    /// seconds before now.
-    fn findings_for(claimed_ago: i64, changed_ago: i64) -> Vec<Finding> {
-        let now = 1_800_000_000;
-        let machine = Machine {
-            at: now,
-            load: [1.0; 3],
-            cores: 8,
-            builds: Vec::new(),
-            remote_runs: Vec::new(),
-            app_builds: Vec::new(),
-            landings: Vec::new(),
-            unread: Vec::new(),
-            commits: Default::default(),
-            sccache: SccacheHealth {
-                server: SccacheServer::Read {
-                    executed: 1,
-                    compared: None,
-                },
-                waiting: Vec::new(),
-            },
-            shells: Shells::default(),
-            locks: Vec::new(),
-            queues: Vec::new(),
-        };
-        let place = Place {
-            label: "demo/side-1".to_string(),
-            repo: "demo".to_string(),
-            top: PathBuf::from("/demo-worktrees/side-1"),
-            root: PathBuf::from("/volume/demo/side-1"),
-        };
-        let claimed = Claimed {
-            place: 0,
-            claim: Claim {
-                who: "agent 1".to_string(),
-                since: now - claimed_ago,
-                note: None,
-            },
-            branch: Some("work".to_string()),
-            git: Ok(SideRead {
-                head: None,
-                ahead: Vec::new(),
-                main: "0".repeat(40),
-                uncommitted: 3,
-                last_write: Some(now - changed_ago),
-            }),
-            design_prevents_stalled: false,
-            landing: None,
-        };
-        assess(
-            now,
-            DiskSpace {
-                free_kib: 100 << 20,
-                floor_kib: 30 << 20,
-                hard_floor_kib: 10 << 20,
-            },
-            machine,
-            &[place],
-            vec![claimed],
-            LeftBehind::default(),
-            Vec::new(),
-        )
-        .findings
-    }
-
-    /// Old files do not make a claim of the last few minutes quiet.
-    #[test]
-    fn a_worktree_claimed_less_than_an_hour_ago_is_not_quiet() {
-        let findings = findings_for(10 * 60, 4 * 3600);
-        assert!(findings.is_empty(), "{findings:?}");
-    }
-
-    /// When a claim is older than the quiet limit, health lists the worktree
-    /// as quiet if its files have not changed for that long.
-    #[test]
-    fn a_worktree_claimed_long_ago_with_no_change_for_an_hour_is_quiet() {
-        let findings = findings_for(5 * 3600, 2 * 3600);
-        assert_eq!(findings.len(), 1, "{findings:?}");
     }
 
     /// A claimed worktree with no change for hours whose `builds cargo` runs
@@ -2524,7 +2202,9 @@ mod tests {
                 uncommitted: 3,
                 last_write: Some(now - 2 * 3600),
             }),
-            design_prevents_stalled: false,
+            design_prevents_release: false,
+            design_approval: None,
+            noted_at: 0,
             landing: None,
         };
         let health = assess(
@@ -2606,7 +2286,9 @@ mod tests {
                     uncommitted: 0,
                     last_write: Some(now - 2 * 3600),
                 }),
-                design_prevents_stalled: false,
+                design_prevents_release: false,
+                design_approval: None,
+                noted_at: 0,
                 landing: None,
             };
             assess(
@@ -2632,13 +2314,13 @@ mod tests {
                 .any(|line| line.ends_with("; builds app-build of work (pid 5151)")),
             "{shown:?}"
         );
-        assert_eq!(judge(vec![run("other")]).findings.len(), 1);
+        assert!(judge(vec![run("other")]).worktrees[0].idle_for_release);
     }
 
     /// A claimed worktree with no change for hours has work running while a
     /// `builds land` runs there, including one that waits for the landing of
     /// another worktree: health prints no land command for it and says what
-    /// the landing waits for, and the dashboard's stalled mark follows.
+    /// the landing waits for.
     #[test]
     fn a_quiet_worktree_whose_landing_waits_for_another_landing_is_not_idle() {
         let now = 1_800_000_000;
@@ -2685,7 +2367,9 @@ mod tests {
                     uncommitted: 0,
                     last_write: Some(now - 2 * 3600),
                 }),
-                design_prevents_stalled: false,
+                design_prevents_release: false,
+                design_approval: None,
+                noted_at: 0,
                 landing: Some(
                     crate::review::idle::Landing::ReviewClear(
                         "builds land /demo-worktrees/side-1 --done 7 abc".to_string(),
@@ -2710,13 +2394,13 @@ mod tests {
         let waiting = judge(vec![LandingRun {
             pid: 5151,
             place: 0,
-            waits: LandingWait::For(
-                "the landing that changes the apps, process 36208 landing --done 1276 abc"
-                    .to_string(),
-            ),
+            waits: LandingWait::For(crate::land_turns::TurnWait {
+                turn: "the landing that changes the apps".into(),
+                holder: "process 36208 landing --done 1276 abc".into(),
+            }),
         }]);
         assert!(waiting.findings.is_empty(), "{:?}", waiting.findings);
-        assert!(!waiting.worktrees[0].stalled);
+        assert!(!waiting.worktrees[0].idle_for_release);
         let shown = lines(&waiting);
         assert!(
             shown.iter().any(|line| line.contains(
@@ -2740,8 +2424,7 @@ mod tests {
                 .any(|line| line.contains("builds land runs (pid 5151)"))
         );
         let none = judge(Vec::new());
-        assert_eq!(none.findings.len(), 1);
-        assert!(none.worktrees[0].stalled);
+        assert!(none.worktrees[0].idle_for_release);
     }
 
     /// A claimed worktree with no change for hours is building while an app
@@ -2813,7 +2496,9 @@ mod tests {
                     uncommitted: 0,
                     last_write: None,
                 }),
-                design_prevents_stalled: false,
+                design_prevents_release: false,
+                design_approval: None,
+                noted_at: 0,
                 landing: None,
             };
             assess(
@@ -2840,7 +2525,7 @@ mod tests {
             )),
             "{shown:?}"
         );
-        assert_eq!(judge(vec![queued(61, other)]).findings.len(), 1);
+        assert!(judge(vec![queued(61, other)]).worktrees[0].idle_for_release);
     }
 
     /// A process whose arguments builds could not read is a finding that
@@ -3051,9 +2736,11 @@ mod tests {
         Scanned {
             scans: Vec::new(),
             install: Ok(None),
+            holders: crate::job_claim::Holders::read().unwrap(),
+            completed: Ok(Default::default()),
             orphans: Vec::new(),
             caches: Ok(Vec::new()),
-            now: 0,
+            at: 0,
         }
     }
 
@@ -3103,6 +2790,7 @@ mod tests {
             host,
             Ok(crate::host_scan::Scan {
                 uid: 501,
+                active: Default::default(),
                 at: 1_000,
                 rows: Vec::new(),
                 cpu_idle: Ok(10.0),
@@ -3135,7 +2823,7 @@ mod tests {
                     r#"case "${10}" in
   *"cpu_idle="*) printf '%s\n' uid=501 now=5000 cpu_idle=10 ps_follows=1 \
     '41 0 501 0.0 0:01 40:00 S /usr/bin/builds cargo test' \
-    '43 41 501 0.0 0:01 40:00 S /tmp/target/debug/deps/demo-0123456789abcdef' \
+    '43 41 501 0.0 11:01 40:00 S /tmp/target/debug/deps/demo-0123456789abcdef' \
     '46 43 501 0.0 0:01 39:00 Z (zombie)' ;;
   *"lsof -a -d cwd -Fpn -p 43,41'") exit 1 ;;
   *"ps -axww -o "*) echo "ps: Permission denied" >&2; exit 1 ;;
@@ -3152,7 +2840,22 @@ esac"#,
             speed: None,
             band: None,
         };
-        let processes = HostProcesses::read(&ssh, &host, &scratch.places().home, None);
+        let home = scratch.places().home;
+        crate::process_readings::write(
+            &home,
+            &host.name,
+            &[crate::process_readings::Reading {
+                at: 4_940,
+                procs: vec![crate::process_readings::Proc {
+                    pid: 43,
+                    start: 2_600,
+                    cpu: 610.0,
+                    active_at: Some(4_940),
+                }],
+            }],
+        )
+        .unwrap();
+        let processes = HostProcesses::read(&ssh, &host, &home, None);
         assert!(
             processes
                 .busy

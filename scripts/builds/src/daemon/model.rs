@@ -206,6 +206,7 @@ struct PageRead {
     compile_cache_error: Option<String>,
     /// Findings from reading other hosts, independently of local health.
     host_findings: Vec<crate::health::Finding>,
+    host_scan: Option<Arc<crate::health::Scanned>>,
 }
 
 pub struct Model {
@@ -903,18 +904,21 @@ impl Model {
             // When a reading fails, a finding that says so replaces the last
             // reading's findings, so the page never shows old findings as
             // current.
-            let found = match self.read_host_findings(&ssh) {
-                Ok(found) => found,
+            let (found, scan) = match self.read_host_findings(&ssh) {
+                Ok((found, scan)) => (found, Some(Arc::new(scan))),
                 Err(error) => {
                     let text = format!(
                         "hosts: the daemon could not read the hosts' busy processes or which hosts refuse jobs: {}",
                         error.text()
                     );
                     crate::text::note(&text);
-                    vec![crate::health::Finding::new(
-                        crate::health::FindingKind::Host,
-                        crate::health::Advice::said(text),
-                    )]
+                    (
+                        vec![crate::health::Finding::new(
+                            crate::health::FindingKind::Host,
+                            crate::health::Advice::said(text),
+                        )],
+                        None,
+                    )
                 }
             };
             // The findings' reading added this round's samples.
@@ -930,6 +934,7 @@ impl Model {
                 }
             };
             let mut state = self.state.lock().expect("no panic holding it");
+            state.page.host_scan = scan;
             if state.page.host_findings != found {
                 state.page.host_findings = found;
                 self.changes.advance();
@@ -956,7 +961,7 @@ impl Model {
     fn read_host_findings(
         &self,
         ssh: &crate::host::Ssh,
-    ) -> crate::fail::Result<Vec<crate::health::Finding>> {
+    ) -> crate::fail::Result<(Vec<crate::health::Finding>, crate::health::Scanned)> {
         let hosts = crate::host::all(&self.places)?;
         // This daemon is the dashboard.
         let dashboard = std::process::id() as i32;
@@ -981,12 +986,9 @@ impl Model {
         }
         let refusals = crate::host::refusals(&self.places)?;
         let installed = crate::host_installed::read_all_installed(&self.places, ssh, &hosts);
-        Ok(crate::health::host_findings(
-            &crate::health::Scanned::judge(&self.places, scans, &holders, now_seconds()),
-            &busy,
-            &refusals,
-            &installed,
-        ))
+        let scanned = crate::health::Scanned::judge(&self.places, scans, &holders, now_seconds());
+        let findings = crate::health::host_findings(&scanned, &busy, &refusals, &installed);
+        Ok((findings, scanned))
     }
 
     /// Judges health now from the last reading of the processes, with each
@@ -1739,7 +1741,6 @@ impl Model {
                             processes,
                         },
                         words: Default::default(),
-                        stalled: false,
                         landings: None,
                         errors: Vec::new(),
                     }
@@ -1760,7 +1761,6 @@ impl Model {
                     total_kib: facts.gone_kib,
                     activity: Activity::default(),
                     words: Default::default(),
-                    stalled: false,
                     landings: None,
                     errors: Vec::new(),
                 },
@@ -1789,11 +1789,6 @@ impl Model {
                         &repo.queues,
                         machine.map(|machine| &machine.shells),
                     );
-                    checkout.stalled = last_health.is_some_and(|h| {
-                        h.worktrees
-                            .iter()
-                            .any(|w| w.stalled && w.path == checkout.path)
-                    });
                     checkout.landings = last_health
                         .and_then(|h| h.worktrees.iter().find(|w| w.path == checkout.path))
                         .map(|w| w.landings.clone());
@@ -1823,6 +1818,13 @@ impl Model {
         let mut host_findings = state.host_findings;
         if let Some(health) = &mut health {
             health.findings.append(&mut host_findings);
+            crate::health_stillness::append(
+                health,
+                &snapshot,
+                state.host_scan.as_deref(),
+                now_seconds(),
+                self.rules.still_minutes,
+            );
         }
         Ok(Page {
             version,
@@ -2225,8 +2227,8 @@ fn claimed_of(
         // The claim is read now, not taken from the facts: a command that
         // just wrote one (`note --state held`) asks for health next, before
         // the change has come through FSEvents.
-        let claim = Claim::read(&checkout.claim_file())?;
-        let Some(claim) = &claim else {
+        let claim = Claim::read_with_time(&checkout.claim_file())?;
+        let Some((claim, noted_at)) = &claim else {
             continue;
         };
         let Some(place) = places.iter().position(|p| p.root == root.path) else {
@@ -2246,7 +2248,9 @@ fn claimed_of(
             claim: claim.clone(),
             branch: branch.clone(),
             git: git.clone(),
-            design_prevents_stalled: false,
+            design_prevents_release: false,
+            design_approval: None,
+            noted_at: *noted_at,
             landing: None,
         });
     }
@@ -2412,10 +2416,6 @@ pub struct CheckoutPage {
     /// The words of the worktree's card (cards.rs); empty for a gone root
     /// and an app checkout, which have no card.
     pub words: super::cards::Words,
-    /// Has health judged this claimed worktree stalled: no change and no
-    /// build for an hour, and not held or waiting on the person's review
-    /// (health.rs)? The card shows it.
-    pub stalled: bool,
     /// The `builds land` processes that land in it, running or waiting for
     /// another landing (health.rs); the card shows them. None until health
     /// has read the worktree.

@@ -16,6 +16,7 @@ fn host(name: &str) -> Host {
 fn scan(screen_locked: std::result::Result<Option<bool>, String>) -> Scan {
     Scan {
         uid: 501,
+        active: Default::default(),
         at: 0,
         rows: Vec::new(),
         cpu_idle: Ok(50.0),

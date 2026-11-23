@@ -158,7 +158,7 @@ fn thresholds_pick_busy_processes() {
 }
 
 #[test]
-fn a_build_past_its_step_limit_is_flagged_with_its_checkout() {
+fn a_busy_build_names_its_checkout() {
     let rows = vec![
         row(
             100,
@@ -195,17 +195,7 @@ fn a_build_past_its_step_limit_is_flagged_with_its_checkout() {
             minutes: 60,
         }
     );
-    let action = busy[0].action.as_ref().unwrap();
-    assert!(
-        action.text.contains("past the 45m step limit") && !action.text.contains('`'),
-        "{action:?}"
-    );
-    assert_eq!(action.command.as_deref(), Some("kill 102"));
-    assert!(
-        action.line().ends_with("; stop it with `kill 102`"),
-        "{}",
-        action.line()
-    );
+    assert_eq!(busy[0].action, None);
 }
 
 #[test]
@@ -258,11 +248,11 @@ fn an_agent_process_names_the_shells_worktree() {
             checkout: Some("bae/side-7".into())
         }
     );
-    assert!(busy[0].action.is_some());
+    assert_eq!(busy[0].action, None);
 }
 
 #[test]
-fn a_test_binary_is_flagged_after_the_time_a_test_run_takes() {
+fn a_busy_test_names_its_checkout() {
     let binary =
         "/Volumes/Builds/bae/side-2/target/debug/deps/bae_app-0123456789abcdef --test-threads 4";
     let rows = vec![
@@ -278,7 +268,7 @@ fn a_test_binary_is_flagged_after_the_time_a_test_run_takes() {
             checkout: Some("bae/side-2".into())
         }
     );
-    assert!(long.action.as_ref().unwrap().text.contains("40m"));
+    assert_eq!(long.action, None);
     assert_eq!(short.action, None);
 }
 
@@ -343,7 +333,6 @@ fn a_host_that_was_not_read_gives_the_reason_and_no_process_findings() {
                 ),
                 placement_diagnostic: None,
                 wedged: None,
-                hung: Vec::new(),
             }),
         },
     ];
@@ -441,7 +430,6 @@ fn a_wedged_fseventsd_replaces_its_busy_finding() {
             busy: judge("local", &rows, &HashMap::new(), &sampling(), None),
             placement_diagnostic: None,
             wedged: wedged("local", &rows, 0, &sampling()),
-            hung: Vec::new(),
         }),
     }];
     let found = findings(&hosts);
@@ -452,81 +440,7 @@ fn a_wedged_fseventsd_replaces_its_busy_finding() {
     );
 }
 
-/// A test binary that `builds cargo` runs on a host, and that has used next
-/// to no CPU for 20 minutes or more, is hung. Its finding names the worktree,
-/// the command and the idle time, with the ssh command that stops it. A test
-/// that uses CPU is not hung, nor is a test younger than 20 minutes, nor a
-/// test that no `builds cargo` runs.
-#[test]
-fn an_idle_test_that_builds_cargo_runs_on_a_host_is_hung() {
-    const TEST: &str = "/Volumes/Builds/bae/remote-1/target/debug/deps/bae_store-0123456789abcdef --test-threads 4";
-    let rows = vec![
-        row(1, 0, 0, 0.0, 10.0, 9_000_000, "/sbin/launchd"),
-        row(
-            10,
-            1,
-            501,
-            0.0,
-            0.1,
-            2_300,
-            "sh -c builds cargo test -p bae-store",
-        ),
-        row(
-            11,
-            10,
-            501,
-            0.0,
-            0.5,
-            2_300,
-            "/Users/d/.local/bin/builds cargo test -p bae-store",
-        ),
-        row(12, 11, 501, 0.0, 30.0, 2_290, "cargo test -p bae-store"),
-        row(13, 12, 501, 0.0, 2.0, 37 * 60, TEST),
-        // This test uses CPU, so it still works.
-        row(14, 12, 501, 40.0, 900.0, 37 * 60, TEST),
-        // This test has run for less than 20 minutes, so the check cannot
-        // call it hung.
-        row(15, 12, 501, 0.0, 1.0, 10 * 60, TEST),
-        // This test runs under an agent's own cargo, so the agent shell's
-        // rules cover it and this check skips it.
-        row(20, 1, 501, 0.0, 1.0, 2_300, "cargo test"),
-        row(21, 20, 501, 0.0, 1.0, 37 * 60, TEST),
-    ];
-    assert!(pids_to_place(&rows).contains(&13));
-    let cwds = HashMap::from([(13, "/Users/d/dev/bae-worktrees/remote-1".to_string())]);
-    let on_m1 = Sampling {
-        home: "$HOME".into(),
-        target: Some("d@m1".into()),
-        at: 1_763_100_000,
-    };
-    let hung = hung_tests("m1", &rows, &cwds, &on_m1);
-    assert_eq!(hung.len(), 1, "{hung:?}");
-    let finding = hung[0].finding();
-    assert_eq!(finding.command.as_deref(), Some("ssh d@m1 'kill 13'"));
-    assert!(
-        finding
-            .text
-            .starts_with("hung test: m1 pid 13 in bae/remote-1 has sat idle for 37m")
-            && finding
-                .text
-                .contains("bae_store-0123456789abcdef --test-threads 4"),
-        "{}",
-        finding.text
-    );
-    let host = HostBusy {
-        host: "m1".into(),
-        read: HostRead::Activity(ProcessActivity {
-            busy: Vec::new(),
-            placement_diagnostic: None,
-            wedged: None,
-            hung,
-        }),
-    };
-    assert_eq!(findings(&[host]).len(), 1);
-}
-
-/// builds never flags its own dashboard as busy, even after hours of high
-/// CPU. Any other builds process with the same CPU use gets a finding.
+/// Builds leaves its dashboard out of the list of busy processes.
 #[test]
 fn the_dashboard_is_never_a_busy_build() {
     let rows = vec![
@@ -543,7 +457,8 @@ fn the_dashboard_is_never_a_busy_build() {
     ];
     assert!(judge("local", &rows, &HashMap::new(), &sampling(), Some(70525)).is_empty());
     let busy = judge("local", &rows, &HashMap::new(), &sampling(), None);
-    assert!(busy[0].finding().is_some(), "{busy:?}");
+    assert_eq!(busy.len(), 1, "{busy:?}");
+    assert!(busy[0].finding().is_none(), "{busy:?}");
 }
 
 #[test]
@@ -606,6 +521,7 @@ esac"#,
     zombie.zombie = true;
     let scan = Ok(crate::host_scan::Scan {
         uid: 501,
+        active: Default::default(),
         at: 5_000,
         rows: vec![
             row(42, 0, 501, 90.0, 1_000.0, 2_400, "/usr/bin/exited"),

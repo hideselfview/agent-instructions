@@ -10,7 +10,6 @@ use std::collections::BTreeMap;
 use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 
-use crate::checkout::Checkout;
 use crate::db::Sql;
 use crate::fail;
 use crate::fail::Result;
@@ -175,10 +174,7 @@ pub fn is_stale_claim(kept: &KeptWork, claim: &crate::claim::Claim) -> bool {
 
 /// What `builds health` says about kept work: one line for each item that
 /// keeps a worktree that is not a live worktree, one for each kept
-/// worktree that still has a claim older than the keep, since its work is no longer
-/// where the item says it waits, and one for each item whose waits are all
-/// met, which waits in the queue behind other ready items until the
-/// coordinator resumes its agent or lands its commits.
+/// worktree that still has a claim older than the keep.
 pub fn findings(loaded: &std::result::Result<Vec<Loaded>, String>) -> Result<Vec<Advice>> {
     let Ok(loaded) = loaded else {
         return Ok(Vec::new());
@@ -187,12 +183,8 @@ pub fn findings(loaded: &std::result::Result<Vec<Loaded>, String>) -> Result<Vec
     for project in loaded {
         let Ok(lists) = &project.lists else { continue };
         for item in &lists.items {
-            let mut lives = Vec::new();
             for kept in &item.kept {
-                lives.push((kept, crate::lists::running::live_worktree(&kept.worktree)?));
-            }
-            for (kept, live) in &lives {
-                if let Some(checkout) = live {
+                if let Some(checkout) = crate::lists::running::live_worktree(&kept.worktree)? {
                     if let Some(claim) = crate::claim::Claim::read(&checkout.claim_file())?
                         .filter(|claim| is_stale_claim(kept, claim))
                     {
@@ -217,69 +209,12 @@ pub fn findings(loaded: &std::result::Result<Vec<Loaded>, String>) -> Result<Vec
                     format!("builds item show {}", item.id.0),
                 ));
             }
-            let live: Option<Vec<(&KeptWork, &Checkout)>> = lives
-                .iter()
-                .map(|(kept, live)| live.as_ref().map(|checkout| (*kept, checkout)))
-                .collect();
-            if !item.kept.is_empty()
-                && let Some(live) = live
-                && let KeptWaits::Met(met) = kept_waits(lists, item)?
-            {
-                findings.push(met_advice(item, &met, &live));
-            }
         }
     }
     Ok(findings)
 }
 
-/// The line that says <item>, whose waits <met> says are all met, keeps
-/// commits that wait for the coordinator: the worktrees, the commits
-/// origin/main lacks in each, what met the waits and what to do. <live> is
-/// each worktree the item keeps with its checkout.
-fn met_advice(item: &Item, met: &[String], live: &[(&KeptWork, &Checkout)]) -> Advice {
-    let mut places = Vec::new();
-    let mut take = format!("builds item take {}", item.id.0);
-    for (kept, checkout) in live {
-        let commits = match crate::side_git::read(&checkout.top) {
-            Err(error) => format!("commits git could not read ({error})"),
-            Ok(git) if git.ahead.is_empty() => "no commits that origin/main lacks".to_string(),
-            Ok(git) => format!(
-                "{} that origin/main lacks ({})",
-                crate::text::counted(git.ahead.len(), "commit", "commits"),
-                git.ahead
-                    .iter()
-                    .map(|commit| format!("{} {}", commit.sha, commit.subject))
-                    .collect::<Vec<_>>()
-                    .join("; ")
-            ),
-        };
-        places.push(format!(
-            "{} on {} with {commits}",
-            kept.worktree, kept.branch
-        ));
-        take.push_str(&format!(
-            " --worktree {} --branch {}",
-            kept.worktree, kept.branch
-        ));
-    }
-    take.push_str(&format!(
-        " --brief {}",
-        item.brief.as_deref().unwrap_or("BRIEF")
-    ));
-    Advice::run(
-        format!(
-            "lists: item {} \"{}\" keeps {}, and every wait is met ({}), so it waits for the coordinator; land its commits, or resume its agent with",
-            item.id.0,
-            item.title,
-            places.join(" and "),
-            met.join("; ")
-        ),
-        take,
-    )
-}
-
-/// The worktrees and branches <places> name, as a message lists them:
-/// `W on B and W2 on B2`.
+/// The worktrees and branches <places> name, as a message lists them.
 pub fn places_words<'a>(places: impl IntoIterator<Item = (&'a String, &'a String)>) -> String {
     places
         .into_iter()

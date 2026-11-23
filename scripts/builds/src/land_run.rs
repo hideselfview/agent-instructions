@@ -128,6 +128,20 @@ pub fn write(conn: &mut Connection, run: &LandRun) -> Result<()> {
     tx.commit().sql()
 }
 
+/// The most recent landing attempt for each branch, when the run ended.
+pub fn branch_ends(db: &Connection) -> Result<Vec<(String, String, i64)>> {
+    let mut statement = db
+        .prepare(
+            "SELECT repo, branch, MAX(started_at + ms / 1000) FROM land_run
+         WHERE branch IS NOT NULL GROUP BY repo, branch",
+        )
+        .sql()?;
+    let rows = statement
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+        .sql()?;
+    rows.map(|row| row.sql()).collect()
+}
+
 /// Makes `land_step` again as land_run.sql writes it, with the kinds of the
 /// wait for the turn of a landing that changes the apps and of the app build
 /// of the result, which a store from before allowed neither; each step keeps

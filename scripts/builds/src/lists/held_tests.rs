@@ -74,7 +74,7 @@ fn awaiting_approval(
     inspect(loaded, worktrees, reads)
         .design_waits
         .into_iter()
-        .filter(|(_, wait)| *wait == DesignWait::Approval)
+        .filter(|(_, wait)| matches!(wait, DesignWait::Approval(_)))
         .map(|(label, _)| label)
         .collect()
 }
@@ -233,6 +233,7 @@ fn side_read(ahead: &[String]) -> SideRead {
 fn loaded(lists: Lists) -> std::result::Result<Vec<Loaded>, String> {
     Ok(vec![Loaded {
         project: "demo".into(),
+        progress: Default::default(),
         lists: Ok(lists),
     }])
 }
@@ -243,58 +244,6 @@ fn bae_worktree(state: Option<&str>) -> Worktree {
     let mut tree = worktree(top, "agent", state, Vec::new());
     tree.repo = "bae".into();
     tree
-}
-
-#[test]
-fn health_names_a_hold_whose_wait_closed() {
-    let db = db();
-    let q = question(&db);
-    let id = item(&db, vec![Wait::Question(q)]);
-    running_in_db(&db, id, "/w/bae-worktrees/side-1");
-    let mut tree = bae_worktree(Some("held"));
-    assert!(
-        findings(
-            &loaded(read(&db)),
-            std::slice::from_ref(&tree),
-            Coverage::Read(&DesignReads::default())
-        )
-        .is_empty()
-    );
-    crate::lists::record::close(&db, q, How::Done("shown".into()), &stamp(NOON)).unwrap();
-    let found = findings(
-        &loaded(read(&db)),
-        std::slice::from_ref(&tree),
-        Coverage::Read(&DesignReads::default()),
-    );
-    assert_eq!(found.len(), 1, "{found:?}");
-    assert!(
-        found[0].text.contains("is held") && found[0].text.contains("waits on nothing open"),
-        "{found:?}"
-    );
-    tree.claim.note = Some(Note::Plain("kept".into()));
-    assert!(
-        findings(
-            &loaded(read(&db)),
-            &[tree],
-            Coverage::Read(&DesignReads::default())
-        )
-        .is_empty()
-    );
-}
-
-#[test]
-fn health_names_a_hold_with_no_item() {
-    let db = db();
-    let found = findings(
-        &loaded(read(&db)),
-        &[bae_worktree(Some("held"))],
-        Coverage::Read(&DesignReads::default()),
-    );
-    assert!(found[0].text.contains("runs no item"), "{found:?}");
-    assert_eq!(
-        found[0].command.as_deref(),
-        Some("builds note /w/bae-worktrees/side-1 TEXT")
-    );
 }
 
 /// A board change committed in a worktree, and the design change that
@@ -672,6 +621,7 @@ fn health_sees_an_item_of_either_project_in_a_repo_two_projects_hold() {
         lists.project = project.into();
         Loaded {
             project: project.into(),
+            progress: Default::default(),
             lists: Ok(lists),
         }
     };

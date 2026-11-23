@@ -92,17 +92,23 @@ pub fn unmet_waits<'a>(lists: &Lists, item: &'a Item) -> Vec<&'a Wait> {
 /// An item `last` in priority waits while any other open item for the same
 /// audience that is not itself `last` exists.
 pub fn waits_for_others(lists: &Lists, item: &Item) -> bool {
-    item.priority
+    items_ahead_of_last(lists, item).next().is_some()
+}
+
+/// The open items whose priority keeps a last-place item from starting.
+pub fn items_ahead_of_last<'a>(lists: &'a Lists, item: &'a Item) -> impl Iterator<Item = &'a Item> {
+    let last = item
+        .priority
         .as_ref()
-        .is_some_and(|p| p.level == Level::Last)
-        && lists.items.iter().any(|other| {
-            other.id != item.id
-                && other.r#for == item.r#for
-                && !other
-                    .priority
-                    .as_ref()
-                    .is_some_and(|p| p.level == Level::Last)
-        })
+        .is_some_and(|p| p.level == Level::Last);
+    lists.items.iter().filter(move |other| {
+        last && other.id != item.id
+            && other.r#for == item.r#for
+            && !other
+                .priority
+                .as_ref()
+                .is_some_and(|p| p.level == Level::Last)
+    })
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]

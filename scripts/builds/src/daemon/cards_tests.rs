@@ -32,7 +32,6 @@ fn card(
         total_kib: None,
         activity: Activity::default(),
         words: Words::default(),
-        stalled: false,
         landings: None,
         errors: Vec::new(),
     }

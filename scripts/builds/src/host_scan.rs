@@ -3,9 +3,10 @@
 //! jobs run there, and its sccache server. One script prints them, over the
 //! ssh builds already uses for hosts or with sh on this Mac, so a health
 //! check asks each host once. stuck.rs judges the processes, host_load.rs the
-//! idle share, long_waits.rs the jobs, orphans.rs the processes whose caller
+//! idle share, health_stillness.rs the jobs, orphans.rs the processes whose caller
 //! is gone and sccache_queue.rs the server.
 
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use serde::Serialize;
@@ -29,6 +30,8 @@ pub struct Scan {
     /// Seconds since 1970 by the host's clock when it listed the processes.
     pub at: i64,
     pub rows: Vec<Row>,
+    /// When each process last used CPU, by this host's clock.
+    pub active: BTreeMap<i32, i64>,
     /// The share of the host's CPU that sat idle over one second, as a
     /// percentage, or why the script could not read it.
     pub cpu_idle: std::result::Result<f64, String>,
@@ -73,28 +76,10 @@ impl JobRun {
         self.run.split_once('-')?.0.parse().ok()
     }
 
-    /// When the command started, in seconds since 1970 on this Mac's clock.
-    pub fn started(&self) -> Option<i64> {
-        let nanos: u128 = self.run.split_once('-')?.1.parse().ok()?;
-        i64::try_from(nanos / 1_000_000_000).ok()
-    }
-
-    /// The worktree's folder name: `remote-side-3`, `mac-1`.
-    pub fn name(&self) -> &str {
-        self.worktree.rsplit('/').next().unwrap_or(&self.worktree)
-    }
-
     /// `bae/remote-side-3` (`stuck::checkout_label`), or the worktree's path
     /// when it is in no checkout's place.
     pub fn label(&self) -> String {
         crate::stuck::checkout_label(&self.worktree).unwrap_or_else(|| self.worktree.clone())
-    }
-
-    /// Whether the worktree is one that `builds cargo` and `builds remote
-    /// run` send jobs to (`remote::JOB_WORKTREE_PREFIX`), not an app
-    /// checkout.
-    pub fn is_cargo_job(&self) -> bool {
-        self.name().starts_with(crate::remote::JOB_WORKTREE_PREFIX)
     }
 }
 
@@ -326,9 +311,15 @@ pub fn parse(text: &str, readings: &[Reading]) -> std::result::Result<Scan, Stri
         }))
     })()
     .map_err(|fault| fault.text());
+    let cpu = Reading::following(at, &rows, readings);
     Ok(Scan {
         uid,
         at,
+        active: cpu
+            .procs
+            .into_iter()
+            .filter_map(|p| Some((p.pid, p.active_at?)))
+            .collect(),
         rows: measure(rows, at, readings),
         cpu_idle: match value("cpu_idle") {
             Some(idle) => idle
@@ -353,7 +344,11 @@ pub fn read(ssh: &Ssh, host: &Host, home: &Path) -> std::result::Result<Scan, St
         &format!("reading {}", place(&host.name)),
     )?;
     let scan = parse(&text, &readings)?;
-    if process_readings::record(&mut readings, Reading::of(scan.at, &scan.rows)) {
+    let mut current = Reading::of(scan.at, &scan.rows);
+    for proc in &mut current.procs {
+        proc.active_at = scan.active.get(&proc.pid).copied();
+    }
+    if process_readings::record(&mut readings, current) {
         process_readings::write(home, &host.name, &readings).map_err(|fault| fault.text())?;
     }
     Ok(scan)

@@ -13,6 +13,7 @@ fn m1() -> Host {
 fn scan(ps: &str, jobs: Vec<JobRun>) -> std::result::Result<Scan, String> {
     Ok(Scan {
         uid: 501,
+        active: Default::default(),
         at: 0,
         rows: crate::host_scan::parse_ps(ps).unwrap(),
         cpu_idle: Ok(50.0),

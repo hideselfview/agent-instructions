@@ -800,14 +800,18 @@ and what stopped it.
 
 HEALTH CHECK
 
-While the coordinator's agents run or commits wait to land, a schedule in its
-session runs `builds health` every 5 minutes, and the coordinator
-acts on every line of its "needs action" list first. The last line of the
-output says whether the schedule is still needed. It says "health schedule:
-can stop" when no agent runs and every worktree with commits waiting to land is
-held (it waits on an open record). The coordinator deletes the schedule
-when the line says so, and creates it again when an agent starts
-or a hold clears. A quiet check needs no message to the person.
+The coordinator runs `builds health` every 5 minutes while the check has work
+to watch. Health lists each open item, claimed worktree, agent process, app
+build, review, landing and install that last moved at least 30 minutes ago.
+Set BUILDS_STILL_MINUTES to change the threshold. Each line gives the time
+since the last change and follows each recorded wait to the work at the end,
+with the time since that work last moved. Find out why each has stopped
+moving, then start it, unblock it or ask whoever can act on it.
+
+The last line says "health schedule: can stop" when health has no open work
+or unheld commits waiting to land to watch. The coordinator deletes the
+schedule then and creates it again when new work opens or a hold clears.
+A quiet check needs no message to the person.
 
 Health first fixes what blocks dispatch and a command fixes with no judgment
 call, and prints one line for each fix: it prunes a host under the free-disk
@@ -836,17 +840,6 @@ whose caller is gone. The lines below are what remains to act on.
     hold (BUILDS says what changes sccache's key).
   - Junk shells: run `builds health --stop-junk`. When one agent keeps
     leaving polling shells, tell it to wait for notifications instead.
-  - A claimed worktree with no change and no build for an hour, which health
-    releases itself once it has had none for 2 hours and holds nothing
-    origin/main lacks: ask its agent what it waits on, or land and release it. A claim kept on purpose gets
-    `builds note <worktree> --state held "<why, and until when>"`. A `builds
-    land` that runs or waits for another landing there counts as a build:
-    health prints no land command for that worktree.
-  - A held worktree whose wait closed: restart its work and clear the hold.
-  - An item that keeps a worktree and has every wait met (the line names the
-    worktree, its commits that origin/main lacks and what met the waits): land
-    the commits, or resume its agent with `builds item take`. The item waits
-    in the queue behind the ready items until then.
   - Commits that change design files with no design change: whoever made the
     commits records one (`builds design record`), the design session or, for
     a board edit of a change the person decided, the implementing agent.
@@ -868,21 +861,10 @@ whose caller is gone. The lines below are what remains to act on.
     host whose load is inside its band but that is under memory pressure
     shows up as over it, and a host whose load is under its band but whose
     CPU sits under 5% idle shows up as having no room.
-  - Builds items ready and not running: start them whatever the hosts' load
-    (builds work goes first).
   - A process whose caller is gone that health leaves to run, such as a
     landing whose shell ended: it does its work to its end, so check what it
     did once it ends. One whose stop failed: stop it with the command the
     line gives.
-  - An install, hook run, landing, cargo run or job on a host that has run
-    long: the line follows what it waits on down to the work at the end.
-    Work at the end that waits on a host with no room needs nothing but
-    fewer new agents on that host; work at the end that sits idle (a hung
-    test, a command stuck on a lock) is what to stop. While an install
-    waits, the commands it names wait behind it.
-  - An app lock held long, or with agents waiting: check that the holder is
-    building, not stuck. A step past its time limit is killed and passes the
-    lock on.
   - A Mac that shows a system alert in front of every app
     (UserNotificationCenter, SecurityAgent or CoreServicesUIAgent): the alert
     keeps the focus from every Mac window shot there, so each one fails. The

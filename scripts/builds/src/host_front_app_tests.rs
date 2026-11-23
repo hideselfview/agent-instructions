@@ -20,6 +20,7 @@ fn m1() -> Host {
 fn scan(front_app: std::result::Result<Option<FrontApp>, String>) -> Scan {
     Scan {
         uid: 501,
+        active: Default::default(),
         at: 0,
         rows: Vec::new(),
         cpu_idle: Ok(50.0),

@@ -19,7 +19,7 @@ pub fn requested(argv: &[String]) -> Option<&str> {
 
 /// The turn a landing waits for and the landing that holds it, as that
 /// landing wrote itself into the turn file.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TurnWait {
     pub turn: String,
     pub holder: String,

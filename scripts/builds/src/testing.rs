@@ -99,6 +99,7 @@ impl Scratch {
                 unused_days: 3,
                 incremental_hours: 6,
                 idle_claim_hours: 2,
+                still_minutes: 30,
             },
             // A builds whose `shots states` finds no component state a change
             // adds, and whose `shots draws` finds every board it is asked

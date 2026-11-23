@@ -182,10 +182,28 @@ mod minute_text {
 impl Claim {
     /// The claim in <file>, or None when there is none.
     pub fn read(file: &Path) -> Result<Option<Claim>> {
-        let text = match std::fs::read_to_string(file) {
-            Ok(text) => text,
+        Ok(Self::read_with_time(file)?.map(|(claim, _)| claim))
+    }
+
+    /// The claim and the last write of that same file.
+    pub fn read_with_time(file: &Path) -> Result<Option<(Claim, i64)>> {
+        use std::io::Read;
+        use std::os::unix::fs::MetadataExt;
+        let mut opened = match std::fs::File::open(file) {
+            Ok(opened) => opened,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             Err(error) => fail!("reading {}: {error}", file.display()),
+        };
+        let mut text = String::new();
+        if let Err(error) = opened.read_to_string(&mut text) {
+            fail!("reading {}: {error}", file.display());
+        }
+        let modified = match opened.metadata() {
+            Ok(metadata) => metadata.mtime(),
+            Err(error) => fail!(
+                "reading the modification time of {}: {error}",
+                file.display()
+            ),
         };
         let line = text.lines().next().unwrap_or("");
         let mut fields = line.split('\t').filter(|field| !field.is_empty());
@@ -202,7 +220,7 @@ impl Claim {
             Note::from_fields(field(fields.next()), field(fields.next())).map_err(|fault| {
                 fail::Fail::Message(format!("reading {}: {}", file.display(), fault.text()))
             })?;
-        Ok(Some(Claim { who, since, note }))
+        Ok(Some((Claim { who, since, note }, modified)))
     }
 
     pub fn write(&self, file: &Path) -> Result<()> {

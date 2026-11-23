@@ -153,7 +153,6 @@ h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
 .foot .times { display: inline-flex; gap: 4px 14px; align-items: baseline; }
 .foot .ic { align-items: baseline; gap: 3px; }
 .foot .ic svg { align-self: center; width: 13px; height: 13px; color: var(--muted-2); opacity: 0.75; }
-.stalled { color: var(--warn); background: var(--warn-bg); font-weight: 700; font-size: 14px; font-variant: all-small-caps; letter-spacing: 0.04em; border-radius: 999px; padding: 0 8px; }
 .ic { display: inline-flex; align-items: center; gap: 5px; font-variant-numeric: tabular-nums; }
 .ic svg { flex: none; }
 .bar { margin: -13px -17px 8px; border-radius: 12px 12px 0 0; padding: 10px 17px; background: var(--line-soft); color: var(--muted); font-size: 13px; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 2px 12px; }
@@ -686,12 +685,11 @@ function cardFoot(c) {
   const files = c.words.uncommitted;
   return h("div", {class: "foot"},
     h("div", {class: "r"}, h("span", {class: "wt", title: c.name}, h("b", {}, c.name)),
-      h("span", {class: "right"}, h("span", {class: "times"}, times),
-        c.stalled ? h("span", {class: "stalled", title: "Stalled: an agent claims this worktree, but no file in it has changed and no build has run there for an hour."}, "stalled") : null)),
+      h("span", {class: "right"}, h("span", {class: "times"}, times))),
     h("div", {class: "r"}, h("span", {class: "wt", title: detachedAt(c)}, h("span", {class: "br"}, detachedAt(c))),
       h("span", {class: "right"},
         (c.landings || []).map(l => {
-          const waits = l.waits.For ? "waits for another landing: " + l.waits.For : l.waits === "Unread" ? "runs here, and builds could not tell whether it waits" : "runs here";
+          const waits = l.waits.For ? "waits for " + l.waits.For.turn + " (" + l.waits.For.holder + ")" : l.waits === "Unread" ? "runs here, and builds could not tell whether it waits" : "runs here";
           return h("span", {title: "builds land (pid " + l.pid + ") " + waits}, l.waits.For ? "landing waits" : "landing runs");
         }),
         b && b.over.length ? h("span", {class: "bad", title: b.over.join("; ")}, "build over cap") : null,
@@ -1303,9 +1301,7 @@ function waitsDetails() {
 
 // What `builds health` lists under "needs action", each finding's text
 // followed by the command it suggests. The disk figure already shows the free
-// space in red under its floor, so the box leaves out the disk finding. The
-// box keeps the finding for a worktree with no change, which that worktree's
-// card also marks stalled.
+// space in red under its floor, so the box leaves out the disk finding.
 const SHOWN_ELSEWHERE = new Set(["disk"]);
 function findingsView(health, hostFindings) {
   const box = document.getElementById("findings");

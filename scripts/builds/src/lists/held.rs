@@ -1,7 +1,7 @@
 //! Held work: a worktree kept on purpose with no agent running must wait on
 //! something that can end, or no list would ever restart it. `builds note
 //! --state held` asks `require_hold_allowed`; `builds health` asks
-//! `inspect` for the holds whose wait closed and for design changes in a
+//! `inspect` for design changes in a
 //! branch that no recorded design change covers.
 
 use std::collections::{BTreeSet, HashMap};
@@ -12,7 +12,7 @@ use crate::claim::Claim;
 use crate::fail;
 use crate::fail::Result;
 use crate::health::Advice;
-use crate::lists::design::{DesignChange, DesignCommit};
+use crate::lists::design::DesignCommit;
 use crate::lists::design_reads::Coverage;
 use crate::lists::running::{SpanKind, end_span, open_span, running_in, running_in_any};
 use crate::lists::store::{Loaded, Store, lists_of};
@@ -312,11 +312,18 @@ impl Worktree {
 }
 
 /// Design coverage that prevents health from declaring a checkout idle.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DesignWait {
     Checking,
     Unread,
-    Approval,
+    Approval(DesignApproval),
+}
+
+/// The open design records covering a worktree's commits.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct DesignApproval {
+    pub project: String,
+    pub designs: BTreeSet<Id>,
 }
 
 #[derive(Default)]
@@ -325,11 +332,7 @@ pub struct Inspection {
     pub design_waits: HashMap<String, DesignWait>,
 }
 
-/// What `builds health` says about held work, one line each: a claimed
-/// worktree whose items all closed and that has nothing past origin/main, a
-/// held worktree
-/// whose item waits on nothing open (the record it waited on closed, or
-/// nothing runs there), and a branch whose commits change design files that
+/// Claims that health can release and branches whose commits change design files that
 /// no open design change covers. It also names a worktree whose lists it
 /// can't choose: its claim names a project that does not hold its repo,
 /// names none of the two that do, or names a project whose store fails its
@@ -356,21 +359,6 @@ pub fn inspect(
     for worktree in worktrees {
         let top = worktree.top.display().to_string();
         let running = running_in_any(&every, &top);
-        // An app checkout runs no item, so health reports neither a hold nor
-        // a claim on it for that.
-        let standing = worktree.app_checkout;
-        if !standing
-            && worktree.claim.is_held()
-            && let Some(fault) = hold_fault(&running, &top)
-        {
-            inspection.findings.push(Advice::run(
-                format!(
-                    "lists: {} is held, but {fault}; start its work again (builds item take or builds item handoff), then clear the hold with",
-                    worktree.label
-                ),
-                format!("builds note {top} TEXT"),
-            ));
-        }
         // Release refuses a worktree with commits, files or a running git
         // commit that nothing else holds, so health says to release only one
         // with none of them.
@@ -423,14 +411,20 @@ pub fn inspect(
                 continue;
             }
         };
-        if commits.iter().any(|commit| {
-            commit
-                .covering(lists)
-                .is_some_and(DesignChange::awaits_approval)
-        }) {
-            inspection
-                .design_waits
-                .insert(worktree.label.clone(), DesignWait::Approval);
+        let designs: BTreeSet<Id> = commits
+            .iter()
+            .filter_map(|commit| commit.covering(lists))
+            .filter(|design| design.awaits_approval())
+            .map(|design| design.id)
+            .collect();
+        if !designs.is_empty() {
+            inspection.design_waits.insert(
+                worktree.label.clone(),
+                DesignWait::Approval(DesignApproval {
+                    project: lists.project.clone(),
+                    designs,
+                }),
+            );
         }
         let uncovered: Vec<&DesignCommit> = commits
             .iter()

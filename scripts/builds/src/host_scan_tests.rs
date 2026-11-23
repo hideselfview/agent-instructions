@@ -33,14 +33,7 @@ fn reads_what_a_host_printed() {
     );
     let job = &scan.jobs[0];
     assert_eq!(job.caller(), Some(17546));
-    assert_eq!(job.started(), Some(1_795_067_690));
     assert_eq!(job.label(), "bae/remote-side-5");
-    assert!(job.is_cargo_job());
-    let app = JobRun {
-        worktree: "/Users/x/dev/bae-worktrees/mac-1".to_string(),
-        ..job.clone()
-    };
-    assert!(!app.is_cargo_job());
     assert_eq!(
         scan.sccache,
         Ok(Some(CacheServer {

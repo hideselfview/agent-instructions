@@ -51,36 +51,9 @@ fn loaded(top: &std::path::Path, answered: bool) -> Vec<Loaded> {
     }
     vec![Loaded {
         project: "demo".into(),
+        progress: Default::default(),
         lists: Ok(read(&db)),
     }]
-}
-
-#[test]
-fn an_item_whose_last_wait_is_met_is_listed_with_its_commits_and_what_to_do() {
-    let scratch = Scratch::new("kept-met");
-    let top = worktree_with_a_commit(&scratch);
-    let found = findings(&Ok(loaded(&top, true))).unwrap();
-    assert_eq!(found.len(), 1, "{found:?}");
-    let text = &found[0].text;
-    assert!(
-        text.contains("item 2 \"Do the work numbered 2\" keeps")
-            && text.contains(&format!("{} on work", top.display()))
-            && text.contains("1 commit that origin/main lacks")
-            && text.contains("Finish the work")
-            && text.contains("question #1 done: shown: Which way for number 1")
-            && text.contains("land its commits, or resume its agent with"),
-        "{text}"
-    );
-    assert_eq!(
-        found[0].command.as_deref(),
-        Some(
-            format!(
-                "builds item take 2 --worktree {} --branch work --brief BRIEF",
-                top.display()
-            )
-            .as_str()
-        )
-    );
 }
 
 #[test]

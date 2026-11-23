@@ -853,6 +853,69 @@ pub struct LandingRow {
     pub landed_run: Option<i64>,
 }
 
+/// The last activity on an open review and the findings that still block it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReviewProgress {
+    pub landing: LandingRow,
+    pub at: i64,
+    pub unsettled: Vec<i64>,
+    pub confirmed: Vec<i64>,
+}
+
+/// Reviews of changes that have yet to land. The run's timestamp covers
+/// older records whose exchanges have no recorded end.
+pub fn open_progress(db: &Connection) -> Result<Vec<ReviewProgress>> {
+    let mut activity = db
+        .prepare(
+            "SELECT MAX(at) FROM (
+             SELECT opened_at AS at FROM review_landing WHERE id = ?1
+             UNION ALL SELECT at FROM review_run WHERE landing_id = ?1 AND kind = 'review'
+             UNION ALL SELECT t.started_at + t.ms / 1000
+                 FROM review_run r JOIN review_call c ON c.run_id = r.id
+                 JOIN review_exchange e ON e.call_id = c.id
+                 JOIN review_exchange_time t ON t.exchange_id = e.id
+                 WHERE r.landing_id = ?1 AND r.kind = 'review'
+             UNION ALL SELECT f.settled_at
+                 FROM review_run r JOIN review_call c ON c.run_id = r.id
+                 JOIN review_finding f ON f.call_id = c.id
+                 WHERE r.landing_id = ?1 AND r.kind = 'review'
+             UNION ALL SELECT changed.at
+                 FROM review_run r JOIN review_call c ON c.run_id = r.id
+                 JOIN review_finding f ON f.call_id = c.id
+                 JOIN (
+                     SELECT finding_id, at FROM review_settle_again
+                     UNION ALL SELECT finding_id, at FROM review_allowed
+                     UNION ALL SELECT finding_id, at FROM review_dispute
+                     UNION ALL SELECT finding_id, at FROM review_kept
+                 ) changed ON changed.finding_id = f.id
+                 WHERE r.landing_id = ?1 AND r.kind = 'review'
+         )",
+        )
+        .sql()?;
+    all_landings(db)?
+        .into_iter()
+        .filter(|landing| landing.landed_run.is_none())
+        .map(|landing| {
+            let at = activity.query_row([landing.id], |row| row.get(0)).sql()?;
+            let unsettled = super::judge::waiting_matters(db, landing.id)?
+                .into_iter()
+                .map(|waiting| waiting.finding.id)
+                .collect();
+            let confirmed = findings_of_landing(db, landing.id)?
+                .into_iter()
+                .filter(Finding::is_open)
+                .map(|finding| finding.id)
+                .collect();
+            Ok(ReviewProgress {
+                landing,
+                at,
+                unsettled,
+                confirmed,
+            })
+        })
+        .collect()
+}
+
 /// <landing> as the store holds it.
 pub fn landing(db: &Connection, landing: i64) -> Result<LandingRow> {
     db.query_row(

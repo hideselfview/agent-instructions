@@ -327,6 +327,29 @@ struct VnodeFdInfoWithPath {
 
 const PROC_PIDFDVNODEPATHINFO: libc::c_int = 2;
 
+fn vnode_path(pid: i32, fd: libc::c_int) -> Option<PathBuf> {
+    let mut info: VnodeFdInfoWithPath = unsafe { std::mem::zeroed() };
+    let size = std::mem::size_of::<VnodeFdInfoWithPath>() as libc::c_int;
+    let read = unsafe {
+        libc::proc_pidfdinfo(
+            pid,
+            fd,
+            PROC_PIDFDVNODEPATHINFO,
+            (&mut info as *mut VnodeFdInfoWithPath).cast(),
+            size,
+        )
+    };
+    if read != size {
+        return None;
+    }
+    let path = unsafe { CStr::from_ptr(info.pvip.vip_path.as_ptr().cast()) };
+    Some(PathBuf::from(path.to_string_lossy().as_ref()))
+}
+
+pub fn output_paths(pid: i32) -> impl Iterator<Item = PathBuf> {
+    [1, 2].into_iter().filter_map(move |fd| vnode_path(pid, fd))
+}
+
 /// The paths of the files <pid> has open.
 pub fn open_files(pid: i32) -> Vec<PathBuf> {
     let needed =
@@ -355,29 +378,10 @@ pub fn open_files(pid: i32) -> Vec<PathBuf> {
         return Vec::new();
     }
     fds.truncate(filled as usize / std::mem::size_of::<libc::proc_fdinfo>());
-    let mut paths = Vec::new();
-    for fd in fds {
-        if fd.proc_fdtype as libc::c_int != libc::PROX_FDTYPE_VNODE {
-            continue;
-        }
-        let mut info: VnodeFdInfoWithPath = unsafe { std::mem::zeroed() };
-        let size = std::mem::size_of::<VnodeFdInfoWithPath>() as libc::c_int;
-        let read = unsafe {
-            libc::proc_pidfdinfo(
-                pid,
-                fd.proc_fd,
-                PROC_PIDFDVNODEPATHINFO,
-                (&mut info as *mut VnodeFdInfoWithPath).cast(),
-                size,
-            )
-        };
-        if read != size {
-            continue;
-        }
-        let path = unsafe { CStr::from_ptr(info.pvip.vip_path.as_ptr().cast()) };
-        paths.push(PathBuf::from(path.to_string_lossy().as_ref()));
-    }
-    paths
+    fds.into_iter()
+        .filter(|fd| fd.proc_fdtype as libc::c_int == libc::PROX_FDTYPE_VNODE)
+        .filter_map(|fd| vnode_path(pid, fd.proc_fd))
+        .collect()
 }
 
 #[cfg(test)]

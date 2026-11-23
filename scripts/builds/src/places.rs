@@ -521,6 +521,8 @@ pub struct Rules {
     /// origin/main lacks, runs no item and had no change and no build for
     /// this many hours, and stops an item marked running there.
     pub idle_claim_hours: u64,
+    /// How many minutes without progress before health lists work.
+    pub still_minutes: u64,
 }
 
 impl Rules {
@@ -547,6 +549,7 @@ impl Rules {
             unused_days: whole_from_env("BUILDS_UNUSED_DAYS", 3, "days")?,
             incremental_hours: whole_from_env("BUILDS_INCREMENTAL_HOURS", 6, "hours")?,
             idle_claim_hours: whole_from_env("BUILDS_IDLE_CLAIM_HOURS", 2, "hours")?,
+            still_minutes: whole_from_env("BUILDS_STILL_MINUTES", 30, "minutes")?,
         })
     }
 }

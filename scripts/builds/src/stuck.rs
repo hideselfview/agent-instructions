@@ -1,12 +1,5 @@
-//! Processes that have used a lot of CPU for a long time, on this Mac and on
-//! every reachable host: what `builds health` lists so a process stuck at
-//! full speed (a build past its time limit, a test binary that never ends, a
-//! system daemon such as fseventsd pegged for days) does not run unseen.
-//!
-//! Also the test binaries `builds cargo` runs that sit idle (`Hung`): a test
-//! that hangs uses no CPU, and the `builds cargo` waiting on it, here or over
-//! ssh from this Mac, uses none either, so neither the busy rule nor the
-//! agent shells' idle rule (which spares a shell running a build) sees it.
+//! Health reports processes that have used a lot of CPU on each host.
+//! System daemons whose CPU stays busy also get a finding.
 //!
 //! Both Macs are read the same way: the `ps` listing of a host's scan
 //! (host_scan.rs, run here or over the ssh builds already uses for hosts),
@@ -20,11 +13,10 @@ use std::collections::{HashMap, HashSet};
 
 use serde::Serialize;
 
-use crate::app_config::DEFAULT_STEP_LIMIT;
 use crate::health::Advice;
 use crate::host::{Host, Ssh, command_at, command_output, output_of};
 use crate::host_scan::{Row, Sustained};
-use crate::shells::{IDLE_MINUTES, IDLE_SHARE, basename, command_of, is_agent_argv, shown};
+use crate::shells::{basename, command_of, is_agent_argv, shown};
 use crate::text::duration;
 
 /// Busy now: over this share of a core, over the host scan's window, and over
@@ -34,8 +26,6 @@ const BUSY_CPU_SECONDS: f64 = 10.0 * 60.0;
 /// Or at this share or more, for this long.
 const PEGGED_PERCENT: f64 = 90.0;
 const PEGGED_SECONDS: i64 = 30 * 60;
-/// A test binary running this long has run longer than a test run takes.
-const TEST_SECONDS: i64 = 30 * 60;
 /// fseventsd is flagged as soon as it has kept busy for a span, like every
 /// system daemon: every program that watches files depends on it, and a cause
 /// is only found by sampling it while it runs.
@@ -146,15 +136,11 @@ fn is_busy(row: &Row) -> bool {
     busy_share(row).is_some()
 }
 
-/// The pids whose working folders `judge` and `hung_tests` read: every busy
-/// process and every hung test, with their ancestors.
+/// The pids whose working folders `judge` reads: every busy process and its ancestors.
 pub fn pids_to_place(rows: &[Row]) -> Vec<i32> {
     let by_pid: HashMap<i32, &Row> = rows.iter().map(|r| (r.pid, r)).collect();
     let mut pids = Vec::new();
-    for row in rows
-        .iter()
-        .filter(|r| is_busy(r) || is_hung_test(&by_pid, r))
-    {
+    for row in rows.iter().filter(|r| is_busy(r)) {
         for at in chain(&by_pid, row) {
             if !at.zombie && !pids.contains(&at.pid) {
                 pids.push(at.pid);
@@ -212,79 +198,6 @@ fn is_system(row: &Row) -> bool {
         || ["/System/", "/usr/libexec/", "/usr/sbin/", "/sbin/"]
             .iter()
             .any(|prefix| program.starts_with(prefix))
-}
-
-/// Is <row> a test binary that a `builds cargo` above it runs, that has run
-/// IDLE_MINUTES or more and used less than IDLE_SHARE of a core since it
-/// started? This is the rule `builds health` uses to call an agent shell idle
-/// (shells.rs), because a test that works uses CPU.
-fn is_hung_test(by_pid: &HashMap<i32, &Row>, row: &Row) -> bool {
-    let age = row.age_seconds as f64;
-    row.is_test_binary()
-        && row.age_seconds >= IDLE_MINUTES * 60
-        && row.cpu_seconds < IDLE_SHARE * age
-        && chain(by_pid, row).iter().any(|ancestor| {
-            let mut words = ancestor.command.split_whitespace();
-            words.next().is_some_and(|w| basename(w) == "builds") && words.next() == Some("cargo")
-        })
-}
-
-/// A test binary that `builds cargo` runs and that sits idle.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Hung {
-    /// The host's name; `local` for this Mac.
-    pub host: String,
-    pub pid: i32,
-    pub cpu_seconds: f64,
-    pub age_seconds: i64,
-    pub command: String,
-    /// The worktree (`repo/side-N`, or `repo/remote-N` on a host) it runs
-    /// in, when `checkout_of` finds one.
-    pub checkout: Option<String>,
-    /// The command that stops it.
-    pub stop: String,
-}
-
-impl Hung {
-    /// The line under "needs action".
-    pub fn finding(&self) -> Advice {
-        Advice::run(
-            format!(
-                "hung test: {} pid {} in {} has sat idle for {}: it used {:.1}% of a core since it started, under the {:.0}% that marks an agent shell idle after {IDLE_MINUTES}m, and the builds cargo that runs it waits on it. The test's command is {}. Stop it with",
-                self.host,
-                self.pid,
-                self.checkout.as_deref().unwrap_or("an unknown worktree"),
-                duration(self.age_seconds),
-                self.cpu_seconds / self.age_seconds.max(1) as f64 * 100.0,
-                IDLE_SHARE * 100.0,
-                shown(&self.command),
-            ),
-            self.stop.clone(),
-        )
-    }
-}
-
-/// The hung tests among <rows> on <host>. <cwds> are the working folders of
-/// `pids_to_place(rows)`.
-pub fn hung_tests(
-    host: &str,
-    rows: &[Row],
-    cwds: &HashMap<i32, String>,
-    sampling: &Sampling,
-) -> Vec<Hung> {
-    let by_pid: HashMap<i32, &Row> = rows.iter().map(|r| (r.pid, r)).collect();
-    rows.iter()
-        .filter(|row| is_hung_test(&by_pid, row))
-        .map(|row| Hung {
-            host: host.to_string(),
-            pid: row.pid,
-            cpu_seconds: row.cpu_seconds,
-            age_seconds: row.age_seconds,
-            command: row.command.clone(),
-            checkout: checkout_of(&chain(&by_pid, row), cwds),
-            stop: sampling.on_host(&format!("kill {}", row.pid)),
-        })
-        .collect()
 }
 
 /// What <row> belongs to, or None when it is a system daemon that has not
@@ -369,12 +282,6 @@ impl Sampling {
             None => script,
         }
     }
-
-    /// <script> as the person runs it on the host: over ssh, or as it is
-    /// on this Mac.
-    pub fn on_host(&self, script: &str) -> String {
-        crate::host::person_command(self.target.as_deref(), script)
-    }
 }
 
 fn is_fseventsd(row: &Row) -> bool {
@@ -383,33 +290,8 @@ fn is_fseventsd(row: &Row) -> bool {
 
 /// What the person does about <busy>, when it looks stuck.
 fn action_for(host: &str, owner: &Owner, row: &Row, sampling: &Sampling) -> Option<Advice> {
-    let limit = DEFAULT_STEP_LIMIT.as_secs() as i64;
-    let kill = format!("kill {}", row.pid);
     let sample = sampling.command(host, row.pid);
     match owner {
-        Owner::Builds { minutes: m, .. } if m * 60 >= limit => Some(Advice::run(
-            format!(
-                "its build has run {m}m, past the {}m step limit; stop it with",
-                minutes(limit)
-            ),
-            kill,
-        )),
-        Owner::Agent { .. } if row.age_seconds >= limit => Some(Advice::run(
-            format!(
-                "it has run {}m under an agent, past the {}m step limit; stop it with",
-                minutes(row.age_seconds),
-                minutes(limit)
-            ),
-            kill,
-        )),
-        Owner::Test { .. } if row.age_seconds >= TEST_SECONDS => Some(Advice::run(
-            format!(
-                "this test binary has run {}m, longer than a test run takes ({}m); stop it with",
-                minutes(row.age_seconds),
-                minutes(TEST_SECONDS)
-            ),
-            kill,
-        )),
         Owner::System { name, span } if name == FSEVENTSD => Some(Advice::run(
             format!(
                 "fseventsd used {} of CPU and stayed over {BUSY_PERCENT:.0}% of a core in every interval of the last {}m; read a sample of it before anyone kills fseventsd, and take the sample with",
@@ -545,14 +427,13 @@ pub enum HostRead {
     Activity(ProcessActivity),
 }
 
-/// The busy and hung processes and their placement in checkouts.
+/// The busy processes and their placement in checkouts.
 pub struct ProcessActivity {
     pub busy: Vec<Busy>,
     /// A lookup diagnostic beside usable activity.
     pub placement_diagnostic: Option<String>,
     /// Set on this Mac only, the one host whose fseventsd health can ask.
     pub wedged: Option<Wedged>,
-    pub hung: Vec<Hung>,
 }
 
 impl HostBusy {
@@ -781,7 +662,6 @@ fn read_activity(
         busy: judge(&host.name, &rows, &cwds, sampling, dashboard),
         placement_diagnostic,
         wedged,
-        hung: hung_tests(&host.name, &rows, &cwds, sampling),
     })
 }
 
@@ -830,7 +710,6 @@ pub fn findings(hosts: &[HostBusy]) -> Vec<Advice> {
                 .filter(|busy| Some(busy.pid) != skip)
                 .filter_map(Busy::finding),
         );
-        out.extend(read.hung.iter().map(Hung::finding));
     }
     out
 }

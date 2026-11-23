@@ -350,25 +350,3 @@ fn a_host_whose_probe_fails_is_named_with_the_error() {
         ]
     );
 }
-
-/// Ready items of project builds are listed whatever the hosts' load, and
-/// other projects' items and running items are not.
-#[test]
-fn ready_builds_items_are_listed_and_other_projects_are_not() {
-    let db = crate::lists::fixtures::db();
-    let id = crate::lists::fixtures::item(&db, Vec::new());
-    let store = |project: &str| Loaded {
-        project: project.to_string(),
-        lists: Ok(crate::lists::fixtures::read(&db)),
-    };
-    assert!(builds_items_ready(&Ok(vec![store("bae")])).is_none());
-    assert_eq!(
-        builds_items_ready(&Ok(vec![store("builds")]))
-            .unwrap()
-            .line(),
-        format!(
-            "builds items ready and not running: {id} Do the work numbered {}; start them (builds work goes first)",
-            id.0
-        )
-    );
-}

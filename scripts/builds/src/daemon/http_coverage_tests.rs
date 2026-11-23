@@ -137,7 +137,7 @@ print("alike board Held")
         .filter(|finding| finding["kind"] == "lists")
         .collect();
     assert!(from_lists.is_empty(), "{from_lists:?}");
-    assert_eq!(data["worktrees"][0]["stalled"], false);
+    assert_eq!(data["worktrees"][0]["idle_for_release"], false);
 
     gate.write_all(b"x").unwrap();
 }

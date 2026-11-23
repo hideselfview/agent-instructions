@@ -14,6 +14,7 @@ const HANG_GUARD: Duration = Duration::from_secs(300);
 fn loaded(project: &str, lists: Result<crate::lists::Lists, String>) -> Loaded {
     Loaded {
         project: project.to_string(),
+        progress: Default::default(),
         lists,
     }
 }

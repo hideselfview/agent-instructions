@@ -144,8 +144,16 @@ fn is_agent_shell(entry: &Entry) -> bool {
 }
 
 pub fn is_agent_argv(argv: &[String]) -> bool {
-    let name = argv.first().map(|a| basename(a)).unwrap_or_default();
-    matches!(name, "zsh" | "bash" | "sh") && argv.iter().any(|arg| arg.contains("shell-snapshots"))
+    agent_shell(argv.iter().map(String::as_str))
+}
+
+pub fn is_agent_command(command: &str) -> bool {
+    agent_shell(command.split_whitespace())
+}
+
+fn agent_shell<'a>(mut words: impl Iterator<Item = &'a str>) -> bool {
+    matches!(words.next().map(basename), Some("zsh" | "bash" | "sh"))
+        && words.any(|arg| arg.contains("shell-snapshots"))
 }
 
 pub fn basename(path: &str) -> &str {

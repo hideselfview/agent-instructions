@@ -19,7 +19,7 @@ pub(crate) mod os;
 
 #[cfg(target_os = "macos")]
 pub use os::terminate_and_wait;
-pub use os::{args, cwd, ended, environment, open_files, tree_cpu, usage};
+pub use os::{args, cwd, ended, environment, open_files, output_paths, tree_cpu, usage};
 
 /// The bytes of one value in the process's NUL-separated environment.
 pub fn environment_value<'a>(

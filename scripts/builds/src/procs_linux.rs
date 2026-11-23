@@ -236,3 +236,9 @@ pub fn open_files(pid: i32) -> Vec<PathBuf> {
         .filter(|path| path.is_absolute() && Path::new(path).exists())
         .collect()
 }
+
+pub fn output_paths(pid: i32) -> impl Iterator<Item = PathBuf> {
+    [1, 2]
+        .into_iter()
+        .map(move |fd| PathBuf::from(format!("/proc/{pid}/fd/{fd}")))
+}

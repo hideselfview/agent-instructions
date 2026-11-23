@@ -112,6 +112,21 @@ fn read_open(db: &Connection) -> Result<BTreeMap<Id, Vec<Event>>> {
     Ok(events)
 }
 
+/// The last recorded movement of each open item.
+pub fn last_open(db: &Connection) -> Result<BTreeMap<Id, i64>> {
+    let mut statement = db
+        .prepare(
+            "SELECT item_id, MAX(at) FROM item_event \
+         WHERE NOT EXISTS (SELECT 1 FROM closing WHERE record_id = item_id) \
+         GROUP BY item_id",
+        )
+        .sql()?;
+    let rows = statement
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .sql()?;
+    rows.map(|row| row.sql()).collect()
+}
+
 /// The events of item <id>, open or closed, in the order recorded.
 pub fn read_item(db: &Connection, id: Id) -> Result<Vec<Event>> {
     let mut statement = db

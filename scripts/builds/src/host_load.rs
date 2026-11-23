@@ -172,31 +172,6 @@ fn passed_over(place: &str, items: &str, why: &PassedOver) -> Advice {
     }
 }
 
-/// The project whose items go first: work on the builds tool slows every agent
-/// until it lands, so load never holds its items back.
-const BUILDS_PROJECT: &str = "builds";
-
-/// The line for the ready items of project builds that no agent runs, whatever
-/// the hosts' load; none when there are none.
-pub fn builds_items_ready(loaded: &std::result::Result<Vec<Loaded>, String>) -> Option<Advice> {
-    let titles: Vec<String> = loaded
-        .iter()
-        .flatten()
-        .filter(|store| store.project == BUILDS_PROJECT)
-        .filter_map(|store| store.lists.as_ref().ok())
-        .flat_map(|lists| {
-            crate::lists::derive::dispatch_order(lists, crate::lists::Audience::Coordinator)
-        })
-        .map(|item| format!("{} {}", item.id, item.title))
-        .collect();
-    (!titles.is_empty()).then(|| {
-        Advice::said(format!(
-            "builds items ready and not running: {}; start them (builds work goes first)",
-            titles.join(", ")
-        ))
-    })
-}
-
 /// The items ready to dispatch (`builds next`) in every project whose store
 /// loads. `lists::running::findings` names each store that fails to load.
 pub fn ready_items(loaded: &std::result::Result<Vec<Loaded>, String>) -> usize {

@@ -22,6 +22,7 @@ use rusqlite::{Connection, params};
 
 use crate::app_config::PickKind;
 use crate::clock::Moment;
+use crate::db::Sql;
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::hook_stats::median_of;
@@ -799,12 +800,9 @@ pub fn last_ends(path: &Path, lane: Lane) -> Result<Vec<(String, i64)>> {
     };
     let what = || format!("reading {}", path.display());
     let mut statement = conn
-        .prepare(
-            "SELECT r.checkout, MAX(COALESCE(
-                 (SELECT MAX(s.started_at + s.wall_ms / 1000) FROM app_build_steps s WHERE s.run_id = r.id),
-                 r.started_at + r.wait_ms / 1000))
-             FROM app_build_runs r WHERE r.lane = ?1 GROUP BY r.checkout",
-        )
+        .prepare(&format!(
+            "SELECT r.checkout, MAX({RUN_END}) FROM app_build_runs r WHERE r.lane = ?1 GROUP BY r.checkout"
+        ))
         .context(what)?;
     let rows = statement
         .query_map([lane.word()], |row| {
@@ -812,6 +810,34 @@ pub fn last_ends(path: &Path, lane: Lane) -> Result<Vec<(String, i64)>> {
         })
         .context(what)?;
     rows.map(|row| row.context(what)).collect()
+}
+
+const RUN_END: &str = "COALESCE(
+    (SELECT MAX(s.started_at + s.wall_ms / 1000) FROM app_build_steps s WHERE s.run_id = r.id),
+    r.started_at + r.wait_ms / 1000)";
+
+/// The latest recorded build of a ref, as health matches it to work in progress.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BranchEnd {
+    pub repo: String,
+    pub reference: String,
+    pub at: i64,
+}
+
+pub fn branch_ends(db: &Connection) -> Result<Vec<BranchEnd>> {
+    let mut statement = db.prepare(&format!(
+        "SELECT r.repo, r.built_ref, MAX({RUN_END}) FROM app_build_runs r GROUP BY r.repo, r.built_ref"
+    )).sql()?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok(BranchEnd {
+                repo: row.get(0)?,
+                reference: row.get(1)?,
+                at: row.get(2)?,
+            })
+        })
+        .sql()?;
+    rows.map(|row| row.sql()).collect()
 }
 
 /// The figures of every repo with a run since <since> (seconds since 1970) in

@@ -31,6 +31,63 @@ fn open(demo: &Demo) -> Lists {
 }
 
 #[test]
+fn health_lists_an_old_wait_through_to_the_item_at_its_end() {
+    let mut demo = demo("health-item-wait");
+    add(&demo, FIVE, &[]).unwrap();
+    demo.tool.now += 10 * 60;
+    add(&demo, "Do the second thing now", &["--wait", "item:1"]).unwrap();
+    add(&demo, "Do the third thing now", &["--wait", "item:2"]).unwrap();
+    demo.tool.now += 30 * 60;
+    let mut health = crate::health::health(&demo.tool).unwrap();
+    crate::health_stillness::append(
+        &mut health,
+        &crate::lists::store::load_all(&demo.tool.places),
+        None,
+        demo.tool.now,
+        demo.tool.rules.still_minutes,
+    );
+    let lines = crate::health::lines(&health);
+    assert!(
+        lines.iter().any(|line| {
+            line.contains("item #3")
+                && line.contains("30m")
+                && line.contains("item #2")
+                && line.contains("item #1")
+                && line.contains("40m")
+        }),
+        "{lines:?}"
+    );
+    assert!(health.schedule_needed);
+}
+
+#[test]
+fn health_uses_the_configured_threshold_and_the_last_item_note() {
+    let mut demo = demo("health-item-note");
+    demo.tool.rules.still_minutes = 10;
+    add(&demo, FIVE, &[]).unwrap();
+    demo.tool.now += 20 * 60;
+    item(&demo, &["note", "1", "The build finished"]).unwrap();
+    let still = |demo: &Demo| {
+        let mut health = crate::health::health(&demo.tool).unwrap();
+        crate::health_stillness::append(
+            &mut health,
+            &crate::lists::store::load_all(&demo.tool.places),
+            None,
+            demo.tool.now,
+            demo.tool.rules.still_minutes,
+        );
+        health.findings.iter().any(|finding| {
+            finding.kind == crate::health::FindingKind::Still
+                && finding.advice.text.contains("item #1")
+        })
+    };
+    demo.tool.now += 10 * 60 - 1;
+    assert!(!still(&demo));
+    demo.tool.now += 1;
+    assert!(still(&demo));
+}
+
+#[test]
 fn add_makes_a_ready_item_and_refuses_what_it_lacks() {
     let demo = demo("item-add");
     add(&demo, FIVE, &[]).unwrap();

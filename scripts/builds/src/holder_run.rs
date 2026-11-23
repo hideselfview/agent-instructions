@@ -55,6 +55,14 @@ pub struct StepTime {
 }
 
 impl HolderRun {
+    pub fn moved_at(&self) -> i64 {
+        self.step
+            .as_ref()
+            .map_or(self.joined_at + (self.waited_ms / 1000) as i64, |step| {
+                step.started_at
+            })
+    }
+
     /// Its times at <now>, seconds since 1970.
     pub fn times(&self, now: i64) -> RunTimes {
         let waited = (self.waited_ms / 1000) as i64;

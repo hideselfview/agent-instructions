@@ -25,6 +25,7 @@ fn reading(seconds_ago: i64, procs: &[(i32, f64, i64)]) -> Reading {
                 pid,
                 start: at - age,
                 cpu,
+                active_at: None,
             })
             .collect(),
     }
@@ -59,6 +60,22 @@ fn a_new_process_on_a_reused_pid_has_no_share() {
     // Pid 617 then ran 400000 seconds; the one now started 30 seconds ago.
     let before = reading(60, &[(617, 21_000.0, 400_000)]);
     assert_eq!(share(vec![row(617, 25.0, 30)], &[before]), [None]);
+}
+
+#[test]
+fn a_process_keeps_its_last_cpu_time_across_readings_until_it_uses_cpu_again() {
+    let first = Reading::following(NOW, &[row(617, 25.0, 60)], &[]);
+    let still = Reading::following(NOW + 35 * 60, &[row(617, 25.0, 36 * 60)], &[first]);
+    assert_eq!(still.procs[0].active_at, Some(NOW));
+    let next = NOW + 36 * 60;
+    let moving = Reading::following(
+        next,
+        &[row(617, 26.0, 37 * 60)],
+        std::slice::from_ref(&still),
+    );
+    assert_eq!(moving.procs[0].active_at, Some(next));
+    let reused = Reading::following(next, &[row(617, 25.0, 30)], &[still]);
+    assert_eq!(reused.procs[0].active_at, Some(next));
 }
 
 #[test]

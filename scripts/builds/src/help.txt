@@ -2423,14 +2423,12 @@ STATUS, HEALTH AND THE DASHBOARD
                               agents build)
   builds health [--json | --stop-junk]
                               what is stuck or needs acting on, from the
-                              daemon when one runs, except the busy processes
-                              and each host's load and CPU idle share, which
-                              it reads now (over ssh on other hosts). If the
-                              daemon is checking a checkout's design
-                              coverage, health leaves that checkout's design
-                              findings and idle decision open and reports the
-                              rest of its findings. Before it lists
-                              anything, it fixes each dispatch blocker that a
+                              daemon when one runs. Health reads the lists,
+                              each host's processes, load and CPU idle share
+                              now. Health leaves a checkout's design findings
+                              open while the daemon checks its coverage.
+                              Before listing findings, health fixes each
+                              dispatch blocker that a
                               command fixes with no judgment call, and says
                               in one line what each fix did: a host under
                               the free-disk floor gets the prune `builds
@@ -2477,14 +2475,10 @@ STATUS, HEALTH AND THE DASHBOARD
                                 `read -t`, `timeout` around a `sleep`), a
                                 search of the whole disk, a copy
                                 of an older shell's command in the same
-                                worktree, or a shell idle for 20+ minutes
-                                (a build waiting in an app queue is not
-                                idle, and neither is a shell that a running
-                                Claude Code session started: the session
-                                waits on it, as on `gh run watch`).
-                                --stop-junk stops each junk shell and
-                                everything under it, printing each pid it
-                                stopped and why
+                                worktree. --stop-junk also checks for idle
+                                shells. The flag stops each junk shell and
+                                everything under it, and prints each pid and
+                                why it stopped it.
                               - each claimed worktree: claim, branch,
                                 uncommitted files, commits waiting to land,
                                 minutes since a change, and builds there,
@@ -2554,13 +2548,23 @@ STATUS, HEALTH AND THE DASHBOARD
                               - when a `builds prune` last finished
                               - each project whose last check for a new
                                 stable Rust release ended with a fault
+                              - under "needs action", each open item,
+                                claimed worktree, agent process, app build,
+                                review, landing and install that last moved
+                                at least 30 minutes ago. Set
+                                BUILDS_STILL_MINUTES to change the threshold.
+                                Health uses the last recorded change, such as
+                                an item event, a commit, a file write, a note,
+                                a build step, a review run or settle, process
+                                CPU use or a write to a local output file.
+                                Each line gives the time since the last
+                                change and follows its waits to the work at
+                                the end, with the age of that work.
                               - last, whether the coordinator's health
-                                schedule is still needed: "health schedule:
-                                needed" while an agent runs (a claimed
-                                worktree that is not held) or commits wait
-                                to land in a worktree or branch that is not
-                                held, else "health schedule: can stop"
-                                (`builds help workflow`, HEALTH CHECK)
+                                schedule has work to watch. Health keeps
+                                the schedule needed while it sees open work
+                                or commits waiting to land without a hold
+                                (`builds help workflow`, HEALTH CHECK).
                               These are findings. A working-folder or
                               process-lifetime lookup error states what
                               the host reported. Other findings say what
@@ -2580,16 +2584,9 @@ STATUS, HEALTH AND THE DASHBOARD
                               that no worktree checks out and no open item of
                               any project runs in or keeps (`builds
                               new <repo> --resume <branch>`);
-                              a claimed worktree with no change and no build
-                              for an hour (counted from its claim, if later;
-                              the line names review blockers or gives the
-                              `builds land` command, which checks app coverage
-                              and the other landing requirements);
                               a lists store that fails its check;
                               a running item whose worktree is gone or has no
-                              claim; a held worktree whose wait closed; an
-                              item that keeps a worktree with every wait met
-                              (land its commits or resume its agent); a
+                              claim; a
                               claimed worktree that no item of any project
                               runs in, with no commits waiting to land, no
                               files not committed and no `git commit` running
@@ -2605,22 +2602,9 @@ STATUS, HEALTH AND THE DASHBOARD
                               each changed board, component and source, so a
                               rebase keeps it covered; a worktree whose
                               open design change waits on the person's review
-                              is not idle. Health leaves the idle decision
-                              open while Builds checks coverage or cannot read
-                              it); a builds install that has
-                              waited 2+ minutes at the gates it closed, with
-                              each use it waits for and what that command
-                              waits on, and which commands wait behind it; a
-                              hook run (`builds checks run`) that has run 10+
-                              minutes, or a landing or `builds cargo` that has
-                              run 30+ minutes, with what it waits on (its job
-                              on a host, else the builds command under it,
-                              else its other processes); a cargo job on a
-                              host (HOSTS) that has run 30+ minutes, with the
-                              builds command here that runs it and what runs
-                              under it there (compiles through sccache,
-                              compilers, test binaries); a line names each
-                              command's tree once; a process whose caller is
+                              keeps its claim while it waits. Health leaves
+                              the release decision open while builds checks
+                              coverage or cannot read it); a process whose caller is
                               gone, on this Mac or a host, that the fix pass
                               left running or could not stop: a tool that has
                               run a minute or more and whose parent is
@@ -2641,16 +2625,7 @@ STATUS, HEALTH AND THE DASHBOARD
                               for each of the host's cores, with the compiles
                               it runs, its cache's share of Rust compiles and
                               whether its cache is full (start nothing new
-                              for the host); a build past its step's 45-minute
-                              default limit, or a test binary past 30 minutes
-                              (`kill <pid>`); a test binary that `builds
-                              cargo` runs, here or on a host, that has run 20+
-                              minutes and used under 2% of a core since it
-                              started, the rule that marks an agent shell
-                              idle, since a hung test and the builds cargo
-                              waiting on it use no CPU (with its worktree,
-                              command and idle time, and `kill <pid>`, over
-                              ssh on a host); a system daemon that
+                              for the host); a system daemon that
                               stayed over 50% of a core in every interval of
                               the last 10 minutes, whatever CPU it has used
                               since boot, with the span named (`sudo

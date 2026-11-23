@@ -216,21 +216,21 @@ pub fn release_idle_claims(tool: &Tool) -> Result<Vec<String>> {
     Ok(lines)
 }
 
-/// Releases the claim of each worktree health lists as stalled (`stalled` in
-/// <health>) that has had no change and no build for `idle_claim_hours` and
+/// Releases the claim of each worktree that has had no change and no
+/// build for `idle_claim_hours` and
 /// holds no work origin/main lacks, and stops each item marked running there
 /// so it goes back to the queue. The work check is the one `builds release`
 /// makes (`kept::read`), read again here. A worktree with such work keeps its
 /// claim and its finding. Returns one line for each item it stopped and each
 /// claim it released.
 pub fn release_stalled_claims(tool: &Tool, health: &crate::health::Health) -> Result<Vec<String>> {
-    let idle_minutes = (tool.rules.idle_claim_hours * 60) as i64;
+    let release_minutes = tool.rules.idle_claim_hours.saturating_mul(60);
     let every = crate::lists::store::every_lists(&tool.places)?;
     let commits = crate::procs::git_commits(&crate::procs::Processes::read()?);
     let mut lines = Vec::new();
-    for worktree in health.worktrees.iter().filter(|w| w.stalled) {
-        let idle = worktree.idle_minutes;
-        if idle < idle_minutes {
+    for worktree in health.worktrees.iter().filter(|w| w.idle_for_release) {
+        let idle = crate::text::minutes_since(tool.now, worktree.moved_at);
+        if (idle as u64) < release_minutes {
             continue;
         }
         let checkout = crate::checkout::Checkout::find(&worktree.path)?;

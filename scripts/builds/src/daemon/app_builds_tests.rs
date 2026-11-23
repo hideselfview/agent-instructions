@@ -35,7 +35,6 @@ fn checkout(name: &str, lane: Option<&'static str>, branch: Option<&str>) -> Che
         total_kib: Some(18_000_000),
         activity: Activity::default(),
         words: Default::default(),
-        stalled: false,
         landings: None,
         errors: Vec::new(),
     }
@@ -63,6 +62,7 @@ fn lock(checkout: &str, minutes: i64, from: &str, running: &[&str]) -> LockHealt
             started_from: Some(from.into()),
             app_head: None,
             driver_running: true,
+            moved_at: None,
             run: None,
         }),
     }
