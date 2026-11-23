@@ -271,12 +271,13 @@ pub fn diff_between(worktree: &Path, base: &str, head: &str) -> Result<NetChange
     let merge_base = text_of(&["merge-base", base, head])?.trim().to_string();
     let range = format!("{merge_base}...{head}");
     let without = commits::without_test_cases();
+    let [old_prefix, new_prefix] = files::git_prefix_args();
     let text = text_of(&[
         "diff",
         "--no-color",
         "--no-ext-diff",
-        "--src-prefix=a/",
-        "--dst-prefix=b/",
+        &old_prefix,
+        &new_prefix,
         "-M",
         &range,
         "--",
@@ -349,13 +350,14 @@ pub fn diff_since(
     rest.extend(whole.iter().map(|path| format!(":(exclude,literal){path}")));
     let mut only = vec!["--".to_string(), commits::without_test_cases()];
     only.extend(whole.iter().map(|path| format!(":(literal){path}")));
+    let [old_prefix, new_prefix] = files::git_prefix_args();
     let diff = |from: &str, options: &[&str], paths: &[String]| -> Result<String> {
         let mut args = vec![
             "diff",
             "--no-color",
             "--no-ext-diff",
-            "--src-prefix=a/",
-            "--dst-prefix=b/",
+            &old_prefix,
+            &new_prefix,
         ];
         args.extend(options);
         args.extend([from, head.as_str()]);

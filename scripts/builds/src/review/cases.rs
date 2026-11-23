@@ -264,13 +264,9 @@ pub fn keep_files(patch: &str, keep: &[String]) -> Result<String> {
 /// The `git format-patch` output of <base>..<head> in <repo_dir>.
 pub fn patch_of(repo_dir: &Path, base: &str, head: &str) -> Result<String> {
     let output = boards::git(repo_dir)
-        .args([
-            "format-patch",
-            "--stdout",
-            "--src-prefix=a/",
-            "--dst-prefix=b/",
-            &format!("{base}..{head}"),
-        ])
+        .args(["format-patch", "--stdout"])
+        .args(files::git_prefix_args())
+        .arg(format!("{base}..{head}"))
         .output()
         .context(|| "running git format-patch".to_string())?;
     if !output.status.success() {

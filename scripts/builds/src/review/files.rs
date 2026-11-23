@@ -97,25 +97,36 @@ pub struct FileDiff {
 }
 
 const DIFF_HEADER: &str = "diff --git ";
+const OLD_PATH_PREFIX: &str = "a/";
+const NEW_PATH_PREFIX: &str = "b/";
+
+/// Ask Git for the path prefixes that the patch parser reads.
+pub(super) fn git_prefix_args() -> [String; 2] {
+    [
+        format!("--src-prefix={OLD_PATH_PREFIX}"),
+        format!("--dst-prefix={NEW_PATH_PREFIX}"),
+    ]
+}
 
 /// The destination in the `diff --git` line when no file header names it.
 fn new_path(line: &str) -> Option<String> {
     let paths = line.strip_prefix(DIFF_HEADER)?;
     let paths = paths.strip_suffix('\n').unwrap_or(paths);
     if paths.ends_with('"') {
-        let at = paths.rfind(" \"b/")?;
-        return prefixed_path(&paths[at + 1..], "b/");
+        let at = paths.rfind(&format!(" \"{NEW_PATH_PREFIX}"))?;
+        return prefixed_path(&paths[at + 1..], NEW_PATH_PREFIX);
     }
-    let mut candidates = paths
-        .match_indices(" b/")
-        .map(|(at, _)| (&paths[..at], &paths[at + 3..]));
+    let mut candidates = paths.match_indices(' ').filter_map(|(at, _)| {
+        let new = paths[at + 1..].strip_prefix(NEW_PATH_PREFIX)?;
+        Some((&paths[..at], new))
+    });
     let first = candidates.next()?;
     if candidates.clone().next().is_none() {
         return Some(first.1.to_string());
     }
     std::iter::once(first)
         .chain(candidates)
-        .find(|(old, new)| old.strip_prefix("a/") == Some(*new))
+        .find(|(old, new)| old.strip_prefix(OLD_PATH_PREFIX) == Some(*new))
         .map(|(_, new)| new.to_string())
 }
 
@@ -174,12 +185,12 @@ pub(super) fn file_paths(text: &str) -> Option<(String, Option<String>)> {
                 .strip_prefix("--- ")
                 .filter(|path| *path != "/dev/null")
             {
-                old = Some(prefixed_path(path, "a/")?);
+                old = Some(prefixed_path(path, OLD_PATH_PREFIX)?);
             } else if let Some(path) = line.strip_prefix("+++ ") {
                 destination = if path == "/dev/null" {
                     old.take()
                 } else {
-                    Some(prefixed_path(path, "b/")?)
+                    Some(prefixed_path(path, NEW_PATH_PREFIX)?)
                 };
             }
         }
