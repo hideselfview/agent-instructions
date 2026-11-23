@@ -572,3 +572,13 @@ fn gib_from_env(name: &str, default: u64) -> Result<u64> {
         _ => fail!("{name} must be a whole number of GiB, got '{text}'"),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_empty_build_root_is_rejected() {
+        assert!(build_root(Some(OsStr::new(""))).is_err());
+    }
+}

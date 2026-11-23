@@ -15,9 +15,22 @@ pub struct Claim {
     _file: File,
 }
 
+/// The lock that serializes acquiring a daemon claim and publishing its PID
+/// with readers of that PID. The daemon's claim itself lasts until exit.
+fn publication_lock(lock: &Path) -> io::Result<File> {
+    OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(lock.with_extension("publication"))
+}
+
 /// Claims <lock> for this process and writes its pid there. None when a live
 /// daemon already holds it.
 pub fn claim(lock: &Path) -> io::Result<Option<Claim>> {
+    let publication = publication_lock(lock)?;
+    publication.lock()?;
     let mut file = OpenOptions::new()
         .create(true)
         .truncate(false)
@@ -34,16 +47,19 @@ pub fn claim(lock: &Path) -> io::Result<Option<Claim>> {
     }
 }
 
-/// The pid a daemon holding <lock> has published. None when the lock is
-/// free or when the daemon holds it and has yet to write its pid.
+/// Waits for a claimant to publish its pid, then reads it. None when no
+/// daemon holds <lock> when the reader acquires the publication lock.
 pub fn daemon_pid(lock: &Path) -> io::Result<Option<i32>> {
+    let publication = match publication_lock(lock) {
+        Ok(file) => file,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    publication.lock_shared()?;
     if !daemon_lives(lock)? {
         return Ok(None);
     }
     let text = std::fs::read_to_string(lock)?;
-    if text.is_empty() {
-        return Ok(None);
-    }
     match text.trim().parse() {
         Ok(pid) => Ok(Some(pid)),
         Err(error) => Err(io::Error::new(
@@ -83,10 +99,6 @@ mod tests {
         let scratch = crate::testing::Scratch::new("live-pid");
         let lock = scratch.dir.join("lock");
         assert_eq!(daemon_pid(&lock).unwrap(), None);
-        let unpublished = File::create(&lock).unwrap();
-        unpublished.try_lock().unwrap();
-        assert_eq!(daemon_pid(&lock).unwrap(), None);
-        drop(unpublished);
         let claim = claim(&lock).unwrap().unwrap();
         assert_eq!(daemon_pid(&lock).unwrap(), Some(std::process::id() as i32));
         drop(claim);

@@ -170,9 +170,10 @@ pub fn run(places: &Places) -> Result<()> {
     let mut stop_pids = Vec::new();
     for (root, mut candidates) in by_root {
         let lock = places_at(&root).daemon_lock();
+        // The claim reader waits for a dashboard that is publishing its PID.
         let owner = super::live::daemon_pid(&lock).context(|| {
             format!(
-                "Builds could not read the dashboard claim at {}",
+                "Builds could not read the published dashboard claim at {}",
                 lock.display()
             )
         })?;
