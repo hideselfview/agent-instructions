@@ -144,7 +144,7 @@ pub(crate) fn build(raw: &[Raw], platform: Platform) -> Result<Vec<Element>, Rea
             continue;
         }
         let role = Role::for_node(node, platform);
-        let label = nonempty(node.name.as_deref()).filter(|_| role != Role::Other);
+        let label = nonempty(node.name.as_deref());
         let kept = !node.ignored && !STRUCTURE.contains(&node.chrome_role.as_str());
         let inside_control = folded;
         let mut next_parent = parent;

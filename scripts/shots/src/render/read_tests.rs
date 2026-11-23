@@ -170,15 +170,16 @@ fn an_android_board_keeps_a_button_that_opens_a_menu_a_button() {
 }
 
 #[test]
-fn an_unnamed_container_is_structure_without_a_label() {
+fn a_node_of_any_role_keeps_its_label() {
     let raw = [
-        named(node("1", "group", &["2"]), "ignored name"),
-        named(node("2", "StaticText", &[]), "Words"),
+        node("1", "list", &["2", "3"]),
+        named(node("2", "menuitem", &[]), "5 of 5 stars"),
+        node("3", "group", &[]),
     ];
-    let elements = build(&raw, Platform::Mac).unwrap();
-    assert_eq!(elements[0].role, Role::Other);
-    assert_eq!(elements[0].label, None);
-    assert_eq!(elements[1].parent, Some(0));
+    let elements = build(&raw, Platform::Android).unwrap();
+    assert_eq!(elements[1].role, Role::Other);
+    assert_eq!(elements[1].label.as_deref(), Some("5 of 5 stars"));
+    assert_eq!(elements[2].label, None, "a node with no name has no label");
 }
 
 #[test]
