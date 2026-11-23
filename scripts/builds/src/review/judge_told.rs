@@ -21,6 +21,8 @@
 //! - from `builds health`, which also forgets the judge whose session ended
 //!   (`forget_ended`), so that the coordinator settles.
 
+use std::collections::BTreeSet;
+
 use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::db::Sql;
@@ -149,6 +151,29 @@ fn waiting_in(db: &Connection) -> Result<Vec<Waiting>> {
         found.extend(judge::waiting_matters(db, landing.id)?);
     }
     Ok(found)
+}
+
+/// When the oldest unsettled finding started waiting, if no judge listens.
+pub fn oldest_unsettled_without_judge(
+    store: &Store,
+    sessions: &crate::inbox::Sessions,
+) -> Result<Option<i64>> {
+    let conn = store.open_existing()?;
+    let read = conn.unchecked_transaction().sql()?;
+    if judge::listening(&read, sessions)?.is_some() {
+        return Ok(None);
+    }
+    let runs: BTreeSet<_> = waiting_in(&read)?
+        .into_iter()
+        .filter(|waiting| waiting.matter == Matter::Settle)
+        .map(|waiting| waiting.finding.run_id)
+        .collect();
+    let mut oldest = None;
+    for run in runs {
+        let at = super::exchange_time::run_finished_at(&read, run)?;
+        oldest = Some(oldest.map_or(at, |previous: i64| previous.min(at)));
+    }
+    Ok(oldest)
 }
 
 /// The matters that wait for <judge> and that no builds process is still

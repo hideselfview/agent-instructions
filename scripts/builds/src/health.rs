@@ -51,6 +51,8 @@ pub enum FindingKind {
     Branch,
     /// Work that has made no progress for the configured interval.
     Still,
+    /// A project's findings wait for a settle and no judge listens.
+    Judge,
     Lists,
     /// A worktree whose claim file cannot be read.
     Claim,
@@ -1712,6 +1714,36 @@ impl HostProcesses {
     }
 }
 
+/// What health says of each project whose findings wait for a missing judge.
+fn judge_findings(tool: &Tool, projects: &[crate::lists::store::Loaded]) -> Vec<Finding> {
+    let sessions = tool.places.sessions();
+    let mut findings = Vec::new();
+    for loaded in projects {
+        let project = &loaded.project;
+        let oldest = crate::lists::store::Store::named(&tool.places, project).and_then(|store| {
+            crate::review::judge_told::oldest_unsettled_without_judge(&store, &sessions)
+        });
+        let advice = match oldest {
+            Ok(Some(at)) => {
+                let age = crate::text::duration(tool.now.saturating_sub(at).max(0));
+                Advice::run(
+                    format!(
+                        "No judge listens for project {project}. The oldest finding has waited {age} for a settle. Start a judge session and run"
+                    ),
+                    format!("builds judge listen --project {project} --by judge"),
+                )
+            }
+            Ok(None) => continue,
+            Err(error) => Advice::said(format!(
+                "Builds could not check whether project {project} needs a judge. {}",
+                error.text()
+            )),
+        };
+        findings.push(Finding::new(FindingKind::Judge, advice));
+    }
+    findings
+}
+
 /// Reads recorded progress before deciding which idle claims to release.
 pub(crate) fn finish_health(
     tool: &Tool,
@@ -1729,6 +1761,11 @@ pub(crate) fn finish_health(
             tool.now,
             tool.rules.still_minutes,
         );
+        if let Ok(projects) = loaded {
+            let findings = judge_findings(tool, projects);
+            health.schedule_needed |= !findings.is_empty();
+            health.findings.extend(findings);
+        }
     };
     assess(&mut health, loaded);
     let lines = match crate::health_fix::release_stalled_claims(tool, &health) {

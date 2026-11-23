@@ -20,6 +20,25 @@ pub fn record(db: &Connection, exchange: i64, started_at: i64, ms: i64) -> Resul
     Ok(())
 }
 
+/// When the last reviewer process of the run finished. Runs that recorded
+/// no exchange times have only their start time.
+pub fn run_finished_at(db: &Connection, run: i64) -> Result<i64> {
+    db.query_row(
+        &format!(
+            "SELECT COALESCE((
+                SELECT MAX({END_AT})
+                FROM review_call c
+                JOIN review_exchange e ON e.call_id = c.id
+                JOIN review_exchange_time t ON t.exchange_id = e.id
+                WHERE c.run_id = r.id
+            ), r.at) FROM review_run r WHERE r.id = ?1"
+        ),
+        [run],
+        |row| row.get(0),
+    )
+    .sql()
+}
+
 #[cfg(test)]
 #[path = "exchange_time_tests.rs"]
 mod tests;

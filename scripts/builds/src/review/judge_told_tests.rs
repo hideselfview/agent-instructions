@@ -341,3 +341,78 @@ fn health_forgets_a_judge_whose_session_ended_so_the_coordinator_settles() {
     assert_eq!(kept, 0);
     assert!(health(&r).is_empty());
 }
+
+fn health_report(r: &Reviewed) -> crate::health::Health {
+    let tool = &r.demo.tool;
+    let health = crate::health::health(tool).unwrap();
+    let scanned = crate::health::Scanned::judge(
+        &tool.places,
+        Vec::new(),
+        &crate::job_claim::Holders::read().unwrap(),
+        tool.now,
+    );
+    crate::health::finish_health(
+        tool,
+        health,
+        &mut crate::lists::store::load_all(&tool.places),
+        &scanned,
+    )
+    .unwrap()
+    .0
+}
+
+#[test]
+fn health_lists_a_project_whose_findings_wait_for_a_missing_judge() {
+    let mut r = reviewed("health-missing-judge", Some(&caller("s1", "a1")));
+    let oldest = another_review(&r, 2, "other");
+    let recorded_at = crate::lists::fixtures::NOON + 60;
+    r.demo
+        .store
+        .write(&stamp("tester"), "set reviewer timing", |db| {
+            for (finding, at) in [(r.finding, recorded_at + 60), (oldest, recorded_at)] {
+                db.execute(
+                    "UPDATE review_exchange_time SET started_at = ?1, ms = 1000
+                     WHERE exchange_id IN (
+                         SELECT e.id FROM review_exchange e
+                         JOIN review_finding f ON f.call_id = e.call_id WHERE f.id = ?2
+                     )",
+                    params![at - 1, finding],
+                )
+                .sql()?;
+            }
+            Ok(())
+        })
+        .unwrap();
+    r.demo.tool.now = recorded_at + 12 * 60;
+    let lines = crate::health::lines(&health_report(&r));
+    let expected = "    No judge listens for project demo. The oldest finding has waited 12m for a settle. Start a judge session and run `builds judge listen --project demo --by judge`";
+    assert_eq!(
+        lines
+            .iter()
+            .skip_while(|line| *line != "needs action:")
+            .filter(|line| line.contains("No judge listens for project demo"))
+            .collect::<Vec<_>>(),
+        [expected],
+        "{lines:#?}"
+    );
+}
+
+#[test]
+fn health_flags_a_missing_judge_only_while_a_finding_needs_a_settle() {
+    let r = reviewed("health-judge-availability", Some(&caller("s1", "a1")));
+    let needs_judge = || {
+        health_report(&r)
+            .findings
+            .iter()
+            .any(|finding| finding.kind == crate::health::FindingKind::Judge)
+    };
+    r.listen_as_judge(&r.inbox("j.sock"));
+    assert!(needs_judge(), "the judge's session has ended");
+
+    running_session(&r.demo.tool.places, "s-judge");
+    assert!(!needs_judge(), "the judge listens");
+
+    settle_as_judge(&r, r.finding);
+    running_session(&r.demo.tool.places, "other-session");
+    assert!(!needs_judge(), "the finding has a settle");
+}

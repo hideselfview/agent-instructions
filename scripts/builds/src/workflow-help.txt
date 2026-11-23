@@ -857,6 +857,9 @@ whose caller is gone. The lines below are what remains to act on.
     a board edit of a change the person decided, the implementing agent.
   - A running item whose worktree is gone or unclaimed: land it, stop it
     (`builds item stop`) or hand it on.
+  - A project whose findings wait for a settle while no judge listens. Health
+    lists how long the oldest finding has waited. Start a judge session and
+    run `builds judge listen --project P --by judge` from that session.
   - A branch with commits origin/main lacks that no worktree checks out and
     no item names: check it out in a worktree (`builds new <repo> --resume
     <branch>`) and land it or take an item there, or ask the person whether to drop it.
