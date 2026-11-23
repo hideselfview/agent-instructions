@@ -3191,6 +3191,8 @@ comment (skips_comments), and records it as dropped with that reason.
 When several changed lines hold the same quote, the line number must
 identify one occurrence. Builds drops the finding if both versions hold
 the quote at that number or if the number identifies neither occurrence.
+Builds drops a finding when the reported line identifies an unchanged
+occurrence in either file version and no changed occurrence at that line.
 A comment line
 is a line whose first characters past its indent are a comment's mark in the
 file's language: `//`, `/*` or `*/` in Rust, Swift, Kotlin and C# (and `*` in

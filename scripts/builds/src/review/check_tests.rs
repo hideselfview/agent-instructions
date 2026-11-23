@@ -128,6 +128,15 @@ fn a_line_that_identifies_neither_side_cannot_select_an_addition() {
 }
 
 #[test]
+fn a_reported_old_context_line_cannot_name_a_different_removal() {
+    let files = parse_diff(
+        "diff --git a/a.rs b/a.rs\n@@ -1,4 +1,2 @@\n-prelude\n repeat\n-repeat\n other\n",
+    );
+    let error = code_site(&files, "a.rs", 2, "repeat").unwrap_err();
+    assert!(error.contains("around the diff's changes"), "{error}");
+}
+
+#[test]
 fn a_report_for_an_exact_path_never_borrows_a_quote_from_another_file() {
     let files = parse_diff(concat!(
         "diff --git a/a.rs b/a.rs\n@@ -0,0 +1 @@\n+other\n",

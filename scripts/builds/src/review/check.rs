@@ -318,8 +318,13 @@ pub fn code_site<'a>(
             }
         }
         for (number, changed) in quote_sites(patch, Side::Before, code) {
-            if changed && !removed.contains(&number) {
-                removed.push(number);
+            if changed {
+                if !removed.contains(&number) {
+                    removed.push(number);
+                }
+            } else {
+                context = true;
+                exact_context |= number == line;
             }
         }
     }
