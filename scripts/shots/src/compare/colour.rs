@@ -121,7 +121,7 @@ pub(crate) fn pixel(picture: &Picture, x: i64, y: i64) -> Option<Rgb> {
     ])
 }
 
-/// The colour that fills most of a ring of pixels around a box, counting
+/// The colour that fills most of a box, counting
 /// colours within [`DELTA_E_TOLERANCE`] of each other as one: a background
 /// drawn as a glow of many near shades counts as a whole, and a text's one
 /// fill never wins over it for being the most frequent single shade. Returns
@@ -184,6 +184,8 @@ const DRAWN_PART_SHARE: f64 = 0.1;
 struct Palette {
     background: Rgb,
     foreground: Vec<(Rgb, usize)>,
+    /// Every colour of the box, background included, with its pixels.
+    colours: Vec<(Rgb, usize)>,
     /// The pixels of the box.
     pixels: usize,
 }
@@ -201,16 +203,25 @@ impl Palette {
     /// of each other that covers at least [`DRAWN_PART_SHARE`] of the box.
     fn parts(&self) -> Vec<Group> {
         let least = (self.pixels as f64 * DRAWN_PART_SHARE).ceil() as usize;
-        let mut groups = self.colours();
+        let mut groups = groups_of(self.foreground.iter().copied());
         groups.retain(|group| group.total >= least);
         groups
     }
 
-    /// Every foreground colour of the element, in groups of colours within
-    /// [`DELTA_E_TOLERANCE`] of each other, whatever share of the box each
-    /// covers.
-    fn colours(&self) -> Vec<Group> {
-        groups_of(self.foreground.iter().copied())
+    /// Every colour the box draws, background included, in groups of colours
+    /// within [`DELTA_E_TOLERANCE`] of each other, whatever share of the box
+    /// each covers.
+    fn drawn(&self) -> Vec<Group> {
+        groups_of(self.colours.iter().copied())
+    }
+
+    /// Whether the box draws <colour>, or one within [`DELTA_E_TOLERANCE`] of
+    /// it, at any share.
+    fn draws(&self, colour: Rgb) -> bool {
+        let lab = Lab::of(colour);
+        self.colours
+            .iter()
+            .any(|(drawn, _)| delta_e(Lab::of(*drawn), lab) <= DELTA_E_TOLERANCE)
     }
 
     /// Follow the dominant foreground colour away from the background to find
@@ -257,29 +268,24 @@ fn palette(picture: &Picture, scale: f64, bounds: Bounds) -> Option<Palette> {
     let right = ((bounds.x + bounds.width) * scale).round() as i64;
     let bottom = ((bounds.y + bounds.height) * scale).round() as i64;
     let mut counts: HashMap<Rgb, usize> = HashMap::new();
-    let mut edge: HashMap<Rgb, usize> = HashMap::new();
     for y in top..bottom {
         for x in left..right {
             if let Some(colour) = pixel(picture, x, y) {
                 *counts.entry(colour).or_default() += 1;
-                if x == left || x == right - 1 || y == top || y == bottom - 1 {
-                    *edge.entry(colour).or_default() += 1;
-                }
             }
         }
     }
-    // The surface surrounds the glyph, so the box's edge names it, whatever
-    // share of the box the glyph covers: a box that fits a glyph tightly is
-    // mostly glyph, and a looser box is mostly surface.
-    let (background, lab) = background_of(&edge)?;
+    let (background, lab) = background_of(&counts)?;
     let pixels = counts.values().sum();
     let foreground = counts
-        .into_iter()
+        .iter()
+        .map(|(colour, count)| (*colour, *count))
         .filter(|(colour, _)| delta_e(lab, Lab::of(*colour)) > FAR_FROM_BACKGROUND)
         .collect();
     Some(Palette {
         background,
         foreground,
+        colours: counts.into_iter().collect(),
         pixels,
     })
 }
@@ -322,7 +328,13 @@ pub(crate) fn pairs(board: &Side, shot: &Side, pairs: &[(Entry, Entry)]) -> Vec<
         let from = palette(board.picture, board.scale, b.bounds(board.elements));
         let to = palette(shot.picture, shot.scale, shot.elements[s.index].bounds);
         if let (Some(from), Some(to)) = (&from, &to) {
-            warnings.extend(differ(b, Part::Background, from.background, to.background));
+            // A box that fits its glyph tightly is mostly glyph, and a looser
+            // box is mostly surface, so one side's majority colour can be the
+            // other's glyph. The backgrounds differ when each side's lacks in
+            // the other's box.
+            if !from.draws(to.background) && !to.draws(from.background) {
+                warnings.extend(differ(b, Part::Background, from.background, to.background));
+            }
         }
         match b.kind {
             Role::Text => warnings.extend(
@@ -384,8 +396,9 @@ fn covering(list: &[Element], entry: &Entry) -> Option<usize> {
 
 /// The foreground colours that one of <board> and <shot> draws as a part of
 /// the element and the other draws no colour within [`DELTA_E_TOLERANCE`] of,
-/// at any share of its box: a part that covers just under the share on one
-/// side still matches.
+/// its background included and at any share of its box: a part that covers
+/// just under the share on one side still matches, and so does a glyph that
+/// the other side's tighter box makes its background.
 fn unmatched(entry: &Entry, board: &Palette, shot: &Palette) -> Vec<Warning> {
     let lacking = |drawn: &[Group], other: &[Group], side: PictureSide| {
         drawn
@@ -402,8 +415,8 @@ fn unmatched(entry: &Entry, board: &Palette, shot: &Palette) -> Vec<Warning> {
             })
             .collect::<Vec<_>>()
     };
-    let mut found = lacking(&board.parts(), &shot.colours(), PictureSide::Board);
-    found.extend(lacking(&shot.parts(), &board.colours(), PictureSide::Shot));
+    let mut found = lacking(&board.parts(), &shot.drawn(), PictureSide::Board);
+    found.extend(lacking(&shot.parts(), &board.drawn(), PictureSide::Shot));
     found
 }
 

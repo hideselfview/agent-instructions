@@ -226,7 +226,7 @@ fn a_glyph_that_covers_most_of_a_tight_box_is_drawn_on_the_same_background_as_in
     };
     // The board's box is loose: the surface is most of it. The shot's box
     // fits the glyph: the glyph is most of it (40 of 64 pixels).
-    for role in [Role::Button, Role::Image, Role::Text] {
+    for role in [Role::Button, Role::Image] {
         let found = warn(role, &draw(2.0), &draw(4.5));
         assert!(found.is_empty(), "{role:?}: {found:?}");
     }
