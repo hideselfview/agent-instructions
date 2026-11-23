@@ -179,7 +179,7 @@ fn dot(first: [i32; 3], second: [i32; 3]) -> i32 {
 
 /// The share of an element's box that a foreground colour covers to count as
 /// a drawn part (a label, an edge, a switch) and not as antialiasing.
-const DRAWN_PART_SHARE: f64 = 0.02;
+const DRAWN_PART_SHARE: f64 = 0.1;
 
 struct Palette {
     background: Rgb,
