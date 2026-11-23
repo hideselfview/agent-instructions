@@ -97,8 +97,38 @@ pub struct FileDiff {
 }
 
 /// The old path named in a rename header. Hunk lines start with a diff mark.
-fn rename_source(line: &str) -> Option<&str> {
-    line.strip_prefix("rename from ").map(str::trim_end)
+fn rename_source(line: &str) -> Option<String> {
+    let path = line.strip_prefix("rename from ")?;
+    let path = path.strip_suffix('\n').unwrap_or(path);
+    if !path.starts_with('"') {
+        return Some(path.to_string());
+    }
+    let mut bytes = path.strip_prefix('"')?.strip_suffix('"')?.bytes();
+    let mut decoded = Vec::new();
+    while let Some(byte) = bytes.next() {
+        let byte = if byte == b'\\' {
+            match bytes.next()? {
+                escaped @ (b'"' | b'\\') => escaped,
+                b'a' => 7,
+                b'b' => 8,
+                b't' => b'\t',
+                b'n' => b'\n',
+                b'v' => 11,
+                b'f' => 12,
+                b'r' => b'\r',
+                first @ b'0'..=b'3' => {
+                    let second = bytes.next().filter(|digit| (b'0'..=b'7').contains(digit))?;
+                    let third = bytes.next().filter(|digit| (b'0'..=b'7').contains(digit))?;
+                    (first - b'0') * 64 + (second - b'0') * 8 + (third - b'0')
+                }
+                _ => return None,
+            }
+        } else {
+            byte
+        };
+        decoded.push(byte);
+    }
+    String::from_utf8(decoded).ok()
 }
 
 impl FileDiff {
@@ -125,7 +155,7 @@ pub fn split(diff: &str) -> Vec<FileDiff> {
         }
         if let Some(file) = files.last_mut() {
             if let Some(old) = rename_source(line) {
-                file.renamed_from = Some(old.to_string());
+                file.renamed_from = Some(old);
             }
             file.text.push_str(line);
         }

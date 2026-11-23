@@ -100,3 +100,13 @@ fn a_renamed_file_changes_its_old_and_its_new_path() {
     );
     assert_eq!(paths(diff), ["tool/a.rs", "src/a.rs", "b.rs"]);
 }
+
+#[test]
+fn a_rename_source_uses_the_filename_git_escaped_in_the_patch() {
+    let diff = concat!(
+        "diff --git \"a/a\\t\\303\\251.rs\" b/b.rs\n",
+        "rename from \"a\\t\\303\\251.rs\"\n",
+        "rename to b.rs\n",
+    );
+    assert_eq!(split(diff)[0].renamed_from.as_deref(), Some("a\té.rs"));
+}
