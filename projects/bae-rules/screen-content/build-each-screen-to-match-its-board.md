@@ -33,6 +33,12 @@ changes until the two agree:
   - When the app is right and the person decided nothing about the difference,
     the design session redraws the board to draw what the app draws, and records
     the redraw as a fix (`builds help workflow`, DESIGN CHANGES).
+  - When neither draws the screen as it should be, and the person's decisions,
+    the spec or the platform's conventions settle what it should be, the design
+    session draws it on the board, records it as a fix and lands it, with no
+    review by the person (decision #1422 in project bae). For example, an alert
+    whose button label does not fit side by side stacks its buttons, as macOS
+    does. Only a change that nothing settles goes to the person.
 - A redrawn board follows the design system's guidelines like any other board
   (`design/system/README.md` lists them).
 
