@@ -47,6 +47,16 @@ fn an_unreadable_file_header_cannot_disappear_from_a_review() {
 }
 
 #[test]
+fn an_unreadable_file_header_is_rejected_after_a_valid_one() {
+    let patch = concat!(
+        "diff --git a/kept.rs b/kept.rs\n@@ -0,0 +1 @@\n+right file\n",
+        "diff --git \"a/r\\377.rs\" \"b/r\\377.rs\"\n@@ -0,0 +1 @@\n+wrong file\n",
+    );
+    let error = Patch::parse(patch.to_string()).unwrap_err().text();
+    assert!(error.contains("could not read a file path"), "{error}");
+}
+
+#[test]
 fn hunks_read_old_and_new_ranges_with_and_without_a_count() {
     let ranges = |diff: &str| {
         diff.lines()

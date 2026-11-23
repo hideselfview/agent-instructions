@@ -13,16 +13,6 @@ fn add(
 }
 
 #[test]
-fn a_case_filter_cannot_keep_an_undecodable_header_with_the_previous_file() {
-    let patch = concat!(
-        "diff --git a/kept.rs b/kept.rs\n@@ -0,0 +1 @@\n+right file\n",
-        "diff --git \"a/r\\377.rs\" \"b/r\\377.rs\"\n@@ -0,0 +1 @@\n+wrong file\n",
-    );
-    let error = files::Patch::parse(patch.to_string()).unwrap_err().text();
-    assert!(error.contains("could not read a file path"), "{error}");
-}
-
-#[test]
 fn a_clean_case_with_an_unreadable_file_header_is_refused_before_writing() {
     let scratch = crate::testing::Scratch::new("review-invalid-clean-case");
     let name = "unreadable";
