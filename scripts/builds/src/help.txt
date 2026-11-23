@@ -1240,6 +1240,14 @@ versions, and so does a change to a test file. builds keys the shots, the
 element lists and the board pictures by the capture version, and the findings
 by the comparison version.
 
+The checker compares the colours of an element only where the element's own
+pixels show. When a later element of the same list, such as a sheet, popover
+or scrim, holds the whole box of an element and is not part of it, the pixels
+in that box are the covering view's, so the checker reports no colour finding
+for the element: no background, glyph colour or foreground colour difference,
+and no finding that it found no measurable glyph colour. It checks the
+element's presence, words, box and font as for any other element.
+
 A change to the comparison alone (a tolerance, the sentence of a finding, the
 report page) changes only the comparison version, so the next shots check
 takes no shot and builds no app for it. When builds has the run of a commit

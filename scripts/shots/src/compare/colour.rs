@@ -2,7 +2,7 @@
 //! them.
 
 use super::normalize::Entry;
-use super::{DELTA_E_TOLERANCE, Part, PictureSide, Side, Warning};
+use super::{DELTA_E_TOLERANCE, EDGE_TOLERANCE, Part, PictureSide, Side, Warning};
 use crate::shots::{Bounds, Element, Picture, Role};
 use std::collections::HashMap;
 
@@ -296,6 +296,12 @@ pub(crate) fn pairs(board: &Side, shot: &Side, pairs: &[(Entry, Entry)]) -> Vec<
         })
     };
     for (b, s) in pairs {
+        // A covered element's box holds the covering view's pixels, on the
+        // side that has the covering element and on the other, which draws
+        // the same view there.
+        if covered(board.elements, b) || covered(shot.elements, s) {
+            continue;
+        }
         let from = palette(board.picture, board.scale, b.bounds(board.elements));
         let to = palette(shot.picture, shot.scale, shot.elements[s.index].bounds);
         if let (Some(from), Some(to)) = (&from, &to) {
@@ -325,6 +331,35 @@ pub(crate) fn pairs(board: &Side, shot: &Side, pairs: &[(Entry, Entry)]) -> Vec<
         }
     }
     warnings
+}
+
+/// Whether an element drawn after <entry>, and no part of it, holds the whole
+/// of its box: a sheet, popover or scrim over it. A list holds an element
+/// after the elements under it, so the box shows the later element's pixels.
+fn covered(list: &[Element], entry: &Entry) -> bool {
+    let at = entry.bounds(list);
+    let own: Vec<usize> = std::iter::once(entry.index)
+        .chain(entry.folded.iter().copied())
+        .collect();
+    let last = own.iter().copied().max().unwrap_or(entry.index);
+    let part_of_entry = |mut index: usize| loop {
+        if own.contains(&index) {
+            return true;
+        }
+        match list[index].parent.filter(|parent| *parent < index) {
+            Some(parent) => index = parent,
+            None => return false,
+        }
+    };
+    let tolerance = EDGE_TOLERANCE;
+    ((last + 1)..list.len()).any(|index| {
+        let over = list[index].bounds;
+        !part_of_entry(index)
+            && over.x <= at.x + tolerance
+            && over.y <= at.y + tolerance
+            && over.x + over.width >= at.x + at.width - tolerance
+            && over.y + over.height >= at.y + at.height - tolerance
+    })
 }
 
 /// The foreground colours that one of <board> and <shot> draws as a part of

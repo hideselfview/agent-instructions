@@ -391,3 +391,74 @@ fn text_warns_when_only_one_picture_has_measurable_glyph_colour() {
     );
     assert!(warn(Role::Text, &flat, &flat).is_empty());
 }
+
+/// A picture of an 8 x 8 element box that a covering element hides: the
+/// pictures differ, as they do when the covering view draws different pixels.
+fn warn_with_cover(
+    cover: impl Fn(&mut Vec<crate::shots::Element>),
+    board: &Picture,
+    shot: &Picture,
+) -> Vec<String> {
+    let mut b = vec![labelled(Role::Text, "Word", None)];
+    let s = [labelled(Role::Text, "Word", None)];
+    cover(&mut b);
+    let found = crate::compare::compare(&b, &s, crate::compare::Slots::NONE);
+    pairs(&side(&b, board), &side(&s, shot), &found.pairs)
+        .iter()
+        .map(Warning::sentence)
+        .collect()
+}
+
+fn sheet(parent: Option<usize>, bounds: Bounds) -> crate::shots::Element {
+    let mut sheet = crate::compare::normalize::tests::element(Role::Other, None, parent);
+    sheet.bounds = bounds;
+    sheet
+}
+
+#[test]
+fn an_element_that_a_later_element_covers_is_compared_for_no_colour() {
+    let draw = |ink: Rgb| picture(8, 8, move |x, _| if x < 3 { ink } else { [40, 40, 48] });
+    let (board, shot) = (draw([255, 255, 255]), draw([224, 224, 224]));
+    let covering = Bounds {
+        x: -2.0,
+        y: -2.0,
+        width: 20.0,
+        height: 20.0,
+    };
+    // A sheet drawn after the text, beyond its box, hides it.
+    assert!(warn_with_cover(|list| list.push(sheet(None, covering)), &board, &shot).is_empty());
+    // The same box drawn before the text hides nothing.
+    assert_eq!(
+        warn_with_cover(|list| list.insert(0, sheet(None, covering)), &board, &shot).len(),
+        1
+    );
+    // A box that holds the text, as its parent, hides nothing.
+    let mut text = labelled(Role::Text, "Word", None);
+    text.parent = Some(0);
+    let held = vec![sheet(None, covering), text];
+    let found = crate::compare::compare(&held, &held, crate::compare::Slots::NONE);
+    assert_eq!(
+        pairs(&side(&held, &board), &side(&held, &shot), &found.pairs).len(),
+        1
+    );
+}
+
+#[test]
+fn a_later_element_that_covers_only_part_of_the_box_hides_nothing() {
+    let draw = |ink: Rgb| picture(8, 8, move |x, _| if x < 3 { ink } else { [40, 40, 48] });
+    let beside = Bounds {
+        x: 4.0,
+        y: 0.0,
+        width: 8.0,
+        height: 8.0,
+    };
+    assert_eq!(
+        warn_with_cover(
+            |list| list.push(sheet(None, beside)),
+            &draw([255, 255, 255]),
+            &draw([224, 224, 224])
+        )
+        .len(),
+        1
+    );
+}
