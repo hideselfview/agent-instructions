@@ -101,12 +101,9 @@ impl<'a> Site<'a> {
                         ],
                     )
                     .map_err(|e| e.text())?;
-                let script = command
-                    .iter()
-                    .map(|word| crate::host::sh_quote(word))
-                    .collect::<Vec<_>>()
-                    .join(" ");
-                remote.on_host(&script, WHAT).map_err(|e| e.text())?
+                remote
+                    .on_host(&crate::app_remote::shell_line(&command), WHAT)
+                    .map_err(|e| e.text())?
             }
         };
         crate::host_chrome::parse(&said)
