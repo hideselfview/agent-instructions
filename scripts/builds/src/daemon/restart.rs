@@ -3,6 +3,7 @@
 //! record, which lets an install retry a restart whose process is gone.
 
 use std::collections::BTreeMap;
+use std::ffi::OsString;
 use std::fs::{self, File};
 use std::io::{self, Read};
 use std::os::fd::{AsFd, AsRawFd, OwnedFd};
@@ -16,7 +17,7 @@ use crate::fail;
 use crate::fail::{Context, Fail, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::places::{LISTS_VARIABLE, Places, ROOT_VARIABLE, build_root};
+use crate::places::{LISTS_VARIABLE, Places, ROOT_VARIABLE, build_root, lists_setting};
 use crate::procs::{self, Process, Processes};
 use crate::text::note;
 
@@ -72,21 +73,21 @@ impl Launch {
     }
 }
 
-fn read_launch(pid: i32, args: Vec<String>) -> Result<Option<(PathBuf, Launch)>> {
-    let Some(environment) = procs::environment(pid) else {
+fn read_launch(
+    pid: i32,
+    args: Vec<String>,
+    read_environment: impl FnOnce(i32) -> Option<Vec<OsString>>,
+    read_directory: impl FnOnce(i32) -> Option<PathBuf>,
+) -> Result<Option<(PathBuf, Launch)>> {
+    let Some(environment) = read_environment(pid) else {
         return unread_launch(pid);
     };
     let variable = |name| procs::environment_value(&environment, name);
-    let root = build_root(variable(ROOT_VARIABLE));
-    if root.as_os_str().is_empty() {
-        fail!("Dashboard process {pid} has an empty build root.");
-    }
-    let lists = variable(LISTS_VARIABLE)
-        .filter(|value| !value.is_empty())
-        .map(PathBuf::from);
+    let root = build_root(variable(ROOT_VARIABLE))?;
+    let lists = lists_setting(variable(LISTS_VARIABLE));
     let (root, lists) =
         if root.is_relative() || lists.as_ref().is_some_and(|path| path.is_relative()) {
-            let Some(cwd) = procs::cwd(pid) else {
+            let Some(cwd) = read_directory(pid) else {
                 return unread_launch(pid);
             };
             let lists = lists.map(|lists| cwd.join(lists));
@@ -119,6 +120,17 @@ fn unread_launch(pid: i32) -> Result<Option<(PathBuf, Launch)>> {
     fail!("Builds could not read the launch settings of dashboard process {pid}.");
 }
 
+fn read_options(
+    pid: i32,
+    read_args: impl FnOnce(i32) -> std::result::Result<Option<Vec<String>>, String>,
+) -> Result<Option<Vec<String>>> {
+    let Some(argv) = read_args(pid).map_err(Fail::Message)? else {
+        return Ok(None);
+    };
+    Ok(super::dashboard_args(argv.iter().map(String::as_str))
+        .map(|args| args.into_iter().map(str::to_owned).collect()))
+}
+
 /// Pids and dashboard options for this user's dashboards, including one
 /// that has begun startup and has yet to claim its socket.
 fn running_dashboards(
@@ -131,11 +143,8 @@ fn running_dashboards(
         .iter()
         .filter(|p| p.uid == uid && p.name == "builds")
     {
-        let Some(argv) = read_args(process.pid).map_err(Fail::Message)? else {
-            continue;
-        };
-        if let Some(args) = super::dashboard_args(argv.iter().map(String::as_str)) {
-            dashboards.push((process.pid, args.into_iter().map(str::to_owned).collect()));
+        if let Some(args) = read_options(process.pid, &read_args)? {
+            dashboards.push((process.pid, args));
         }
     }
     Ok(dashboards)
@@ -152,7 +161,7 @@ pub fn run(places: &Places) -> Result<()> {
         at
     };
     for (pid, args) in running_dashboards(&processes.list, places.uid, procs::live_args)? {
-        let Some((root, launch)) = read_launch(pid, args)? else {
+        let Some((root, launch)) = read_launch(pid, args, procs::environment, procs::cwd)? else {
             continue;
         };
         by_root.entry(root).or_default().insert(pid, launch);
@@ -167,18 +176,8 @@ pub fn run(places: &Places) -> Result<()> {
                 lock.display()
             )
         })?;
-        let (pid, launch) = match owner {
-            Some(pid) => {
-                let launch = match candidates.remove(&pid) {
-                    Some(launch) => launch,
-                    None => read_owner_launch(pid, &root)?,
-                };
-                (pid, launch)
-            }
-            None => candidates
-                .pop_first()
-                .expect("the root has a starting dashboard"),
-        };
+        let (pid, launch) =
+            select_launch(&mut candidates, owner, |pid| read_owner_launch(pid, &root))?;
         stop_pids.push(pid);
         stop_pids.extend(candidates.into_keys());
         running.insert(root, launch);
@@ -198,13 +197,28 @@ pub fn run(places: &Places) -> Result<()> {
     )
 }
 
+/// Uses the claim holder's launch even when the process scan missed it.
+fn select_launch(
+    candidates: &mut BTreeMap<i32, Launch>,
+    owner: Option<i32>,
+    read_owner: impl FnOnce(i32) -> Result<Launch>,
+) -> Result<(i32, Launch)> {
+    let Some(pid) = owner else {
+        return Ok(candidates
+            .pop_first()
+            .expect("the root has a starting dashboard"));
+    };
+    let launch = match candidates.remove(&pid) {
+        Some(launch) => launch,
+        None => read_owner(pid)?,
+    };
+    Ok((pid, launch))
+}
+
 /// The claim may belong to a dashboard that started after the process scan.
 fn read_owner_launch(pid: i32, root: &Path) -> Result<Launch> {
-    let argv = procs::live_args(pid).map_err(Fail::Message)?;
-    if let Some(argv) = argv
-        && let Some(args) = super::dashboard_args(argv.iter().map(String::as_str))
-        && let Some((resolved, launch)) =
-            read_launch(pid, args.into_iter().map(str::to_owned).collect())?
+    if let Some(args) = read_options(pid, procs::live_args)?
+        && let Some((resolved, launch)) = read_launch(pid, args, procs::environment, procs::cwd)?
         && resolved == root
     {
         return Ok(launch);
@@ -425,7 +439,7 @@ mod tests {
     }
 
     #[test]
-    fn an_install_retries_a_dashboard_that_failed_before_readiness() {
+    fn an_install_keeps_the_dashboard_launch_when_startup_fails() {
         let scratch = crate::testing::Scratch::new("dashboard-restart");
         let record = scratch.dir.join("restart.json");
         let log = scratch.dir.join("log");
@@ -443,14 +457,23 @@ mod tests {
         fs::set_permissions(&program, fs::Permissions::from_mode(0o700)).unwrap();
         let mut previous = Command::new("/bin/sleep").arg("60").spawn().unwrap();
         let args = vec!["--port".to_string(), "7788".to_string()];
-        let launch = Launch {
-            root: LaunchRoot::Absolute(alias.clone()),
-            lists: Some(lists.clone()),
-            args: args.clone(),
-        };
+        let (resolved, launch) = read_launch(
+            previous.id() as i32,
+            args.clone(),
+            |_| {
+                Some(vec![
+                    format!("{ROOT_VARIABLE}={}", alias.display()).into(),
+                    format!("{LISTS_VARIABLE}={}", lists.display()).into(),
+                ])
+            },
+            |_| panic!("absolute paths do not need the dashboard's working directory"),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(resolved, root);
         let error = restart(
             &record,
-            BTreeMap::from([(root.clone(), launch)]),
+            BTreeMap::from([(resolved, launch)]),
             &[previous.id() as i32],
             |pid| {
                 procs::terminate_and_wait(pid)
@@ -526,5 +549,23 @@ mod tests {
         )
         .unwrap();
         assert!(!record.exists());
+    }
+
+    #[test]
+    fn a_claim_holder_supplies_the_launch_when_the_scan_missed_it() {
+        let launch = |port: &str| Launch {
+            root: LaunchRoot::Absolute(PathBuf::from("/test/volume")),
+            lists: None,
+            args: vec!["--port".to_string(), port.to_string()],
+        };
+        let mut candidates = BTreeMap::from([(11, launch("7787"))]);
+        let (pid, actual) = select_launch(&mut candidates, Some(12), |pid| {
+            assert_eq!(pid, 12);
+            Ok(launch("7788"))
+        })
+        .unwrap();
+        assert_eq!(pid, 12);
+        assert_eq!(actual.args, ["--port", "7788"]);
+        assert_eq!(candidates.into_keys().collect::<Vec<_>>(), [11]);
     }
 }

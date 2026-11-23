@@ -33,8 +33,19 @@ pub const LISTS_VARIABLE: &str = "BUILDS_LISTS";
 const DEFAULT_ROOT: &str = "/Volumes/Builds";
 
 /// The build root named by BUILDS_ROOT, including a relative path as given.
-pub fn build_root(setting: Option<&OsStr>) -> PathBuf {
-    PathBuf::from(setting.unwrap_or_else(|| OsStr::new(DEFAULT_ROOT)))
+pub fn build_root(setting: Option<&OsStr>) -> Result<PathBuf> {
+    match setting {
+        Some(path) if path.is_empty() => {
+            fail!("Set {ROOT_VARIABLE} to a build root path or leave it unset.")
+        }
+        Some(path) => Ok(PathBuf::from(path)),
+        None => Ok(PathBuf::from(DEFAULT_ROOT)),
+    }
+}
+
+/// An empty BUILDS_LISTS setting leaves the lists in their usual folder.
+pub fn lists_setting(setting: Option<&OsStr>) -> Option<PathBuf> {
+    setting.filter(|path| !path.is_empty()).map(PathBuf::from)
 }
 
 /// macOS's own entries at the root of a volume. Nothing builds there, and
@@ -91,7 +102,7 @@ impl Places {
             Some(home) => PathBuf::from(home),
             None => fail!("HOME is not set"),
         };
-        let root = build_root(std::env::var_os(ROOT_VARIABLE).as_deref());
+        let root = build_root(std::env::var_os(ROOT_VARIABLE).as_deref())?;
         let cargo_home = std::env::var_os("CARGO_HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| home.join(".cargo"));
@@ -102,9 +113,7 @@ impl Places {
         let tmpdir = std::env::var_os("TMPDIR")
             .filter(|value| !value.is_empty())
             .map(PathBuf::from);
-        let lists = std::env::var_os(LISTS_VARIABLE)
-            .filter(|value| !value.is_empty())
-            .map(PathBuf::from)
+        let lists = lists_setting(std::env::var_os(LISTS_VARIABLE).as_deref())
             .unwrap_or_else(|| default_lists(&home));
         Ok(Places {
             root,
