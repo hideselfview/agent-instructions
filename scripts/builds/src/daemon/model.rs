@@ -584,6 +584,16 @@ impl Model {
     }
 
     fn refresh(self: &Arc<Self>, mut dirty: Dirty) -> crate::fail::Result<()> {
+        // A command that removes a worktree marks no layout change here, and
+        // git cannot read a folder that is gone: list the roots again.
+        dirty.layout |= self
+            .state
+            .lock()
+            .expect("no panic holding it")
+            .page
+            .roots
+            .iter()
+            .any(|root| root.live.as_ref().is_some_and(|live| !live.top.exists()));
         if dirty.layout {
             let roots = all_roots(&self.places)?;
             self.follow_checkouts(&roots);

@@ -132,6 +132,61 @@ fn a_health_answer_holds_a_claim_written_after_the_last_reading() {
     );
 }
 
+/// A worktree that git no longer lists leaves the page, whatever the daemon
+/// saw change: a card stands for a worktree that exists. A retire that
+/// removes a worktree and its build root while the daemon runs marks no
+/// layout change, so the daemon asked git about the missing folder and the
+/// card showed the failure.
+#[test]
+fn a_worktree_that_git_no_longer_lists_leaves_the_page() {
+    let scratch = Scratch::new("retired-card");
+    let tool = scratch.tool(0);
+    let main = scratch.dir.join("demo");
+    crate::testing::repo(&main, "target 1G\n");
+    let side = scratch.dir.join("demo-worktrees/side-2");
+    crate::testing::git(
+        &main,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "--detach",
+            &side.display().to_string(),
+        ],
+    );
+    let checkout = crate::checkout::Checkout::find(&side.display().to_string()).unwrap();
+    crate::setup::setup(&tool, &crate::testing::no_ssh(), &checkout).unwrap();
+    let build_root = checkout.build_root(&tool.places);
+    let model = model_in(&scratch);
+    let lists_side_2 = |model: &Model| {
+        model.page().unwrap().repos.iter().any(|repo| {
+            repo.checkouts
+                .iter()
+                .any(|c| c.name == "side-2" && c.git.is_some())
+        })
+    };
+    let mut seen = 0;
+    while !lists_side_2(&model) {
+        seen = model.wait_change(seen);
+    }
+    crate::testing::git(
+        &main,
+        &["worktree", "remove", "--force", &side.display().to_string()],
+    );
+    std::fs::remove_dir_all(&build_root).unwrap();
+    // Some other write makes the daemon read again.
+    model.wrote(&[tool.places.root.join("demo/side-3")]);
+    let mut seen = model.wait_change(seen);
+    let started = std::time::Instant::now();
+    while lists_side_2(&model) && started.elapsed().as_secs() < 20 {
+        seen = model.wait_change(seen);
+    }
+    assert!(
+        !lists_side_2(&model),
+        "the page still shows a worktree that git no longer lists"
+    );
+}
+
 /// A tool whose volume is a short path: a socket's path must fit in
 /// SUN_LEN, which the scratch folder's does not.
 struct ShortVolume(PathBuf);
