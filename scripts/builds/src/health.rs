@@ -1776,14 +1776,19 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
     // A later error replaces the report, which would hold the failures, so
     // the failures go to the person here. An exit code 1 follows a printed
     // report.
-    if let Err(error) = &result
-        && !matches!(error, Fail::Exit(_))
-    {
-        release_failures
-            .iter()
-            .for_each(|advice| crate::text::note(advice.line()));
-    }
+    failures_to_print(&result, &release_failures)
+        .iter()
+        .for_each(|advice| crate::text::note(advice.line()));
     result
+}
+
+/// The release failures that go to the person directly: all of them when
+/// <result> is an error that is no exit code, and none otherwise.
+fn failures_to_print<'a>(result: &Result<()>, failures: &'a [Advice]) -> &'a [Advice] {
+    match result {
+        Err(error) if !matches!(error, Fail::Exit(_)) => failures,
+        _ => &[],
+    }
 }
 
 /// What `builds health --json` prints: <health> and each host's busy
@@ -2050,6 +2055,17 @@ mod tests {
     use super::*;
     use crate::side_git::Commit;
     use crate::side_git::SideRead;
+
+    /// A later error replaces the report, so the release failures print
+    /// beside it; a printed report and an exit code 1 already hold them.
+    #[test]
+    fn release_failures_print_only_when_a_later_error_replaces_the_report() {
+        let failures = [Advice::said("could not release".to_string())];
+        let error: Result<()> = Err(Fail::Message("later read failed".into()));
+        assert_eq!(failures_to_print(&error, &failures).len(), 1);
+        assert!(failures_to_print(&Err(Fail::Exit(1)), &failures).is_empty());
+        assert!(failures_to_print(&Ok(()), &failures).is_empty());
+    }
 
     /// A claim that health cannot read is not released, and `builds health
     /// --json` lists the failure as a claim finding with the command that

@@ -184,7 +184,7 @@ pub fn in_worktree(
             None => Vec::new(),
         },
         None => {
-            let tip = crate::checkout::resolve_commit(top, "HEAD")?;
+            let tip = crate::app_config::resolve(top, "HEAD")?;
             let waiting = crate::side_git::waiting_to_land(top, &tip).map_err(unread)?;
             split(&tip, waiting)?
         }
@@ -338,7 +338,7 @@ pub fn unmerged_branches(main: &Path) -> Result<Vec<(String, String)>> {
 /// order. <judged> keeps what earlier readings found.
 pub fn loose_branches(main: &Path, judged: &mut Judged) -> Result<Vec<LooseBranch>> {
     let repo = crate::checkout::file_name(main);
-    let tip = crate::checkout::resolve_commit(main, "origin/main")?;
+    let tip = crate::app_config::resolve(main, "origin/main")?;
     let checked_out: BTreeSet<String> = crate::checkout::worktree_list(main)?
         .into_iter()
         .filter_map(|listed| listed.branch)

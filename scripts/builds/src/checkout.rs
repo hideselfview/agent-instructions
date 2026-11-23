@@ -500,16 +500,6 @@ pub fn branch_tip(dir: &Path, branch: &str) -> Result<Option<String>> {
     }
 }
 
-/// The immutable commit a revision names.
-pub fn resolve_commit(top: &Path, rev: &str) -> Result<String> {
-    Ok(git_text(
-        git(top).args(["rev-parse", "--verify", &format!("{rev}^{{commit}}")]),
-        "resolve the commit",
-    )?
-    .trim()
-    .to_string())
-}
-
 /// One worktree of a repo and the branch it checks out.
 pub struct Listed {
     pub top: PathBuf,
