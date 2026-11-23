@@ -121,11 +121,11 @@ pub(crate) fn pixel(picture: &Picture, x: i64, y: i64) -> Option<Rgb> {
     ])
 }
 
-/// The colour that fills most of a box, counting colours within
-/// [`DELTA_E_TOLERANCE`] of each other as one: a background drawn as a glow
-/// of many near shades counts as a whole, and a text's one fill never wins
-/// over it for being the most frequent single shade. Returns the most
-/// frequent colour of the biggest group, and that group's centre.
+/// The colour that fills most of a ring of pixels around a box, counting
+/// colours within [`DELTA_E_TOLERANCE`] of each other as one: a background
+/// drawn as a glow of many near shades counts as a whole, and a text's one
+/// fill never wins over it for being the most frequent single shade. Returns
+/// the most frequent colour of the biggest group, and that group's centre.
 fn background_of(counts: &HashMap<Rgb, usize>) -> Option<(Rgb, Lab)> {
     groups_of(counts.iter().map(|(colour, count)| (*colour, *count)))
         .into_iter()
@@ -257,14 +257,21 @@ fn palette(picture: &Picture, scale: f64, bounds: Bounds) -> Option<Palette> {
     let right = ((bounds.x + bounds.width) * scale).round() as i64;
     let bottom = ((bounds.y + bounds.height) * scale).round() as i64;
     let mut counts: HashMap<Rgb, usize> = HashMap::new();
+    let mut edge: HashMap<Rgb, usize> = HashMap::new();
     for y in top..bottom {
         for x in left..right {
             if let Some(colour) = pixel(picture, x, y) {
                 *counts.entry(colour).or_default() += 1;
+                if x == left || x == right - 1 || y == top || y == bottom - 1 {
+                    *edge.entry(colour).or_default() += 1;
+                }
             }
         }
     }
-    let (background, lab) = background_of(&counts)?;
+    // The surface surrounds the glyph, so the box's edge names it, whatever
+    // share of the box the glyph covers: a box that fits a glyph tightly is
+    // mostly glyph, and a looser box is mostly surface.
+    let (background, lab) = background_of(&edge)?;
     let pixels = counts.values().sum();
     let foreground = counts
         .into_iter()

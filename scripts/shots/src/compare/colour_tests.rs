@@ -215,6 +215,24 @@ fn a_background_past_three_warns_and_one_within_it_does_not() {
 }
 
 #[test]
+fn a_glyph_that_covers_most_of_a_tight_box_is_drawn_on_the_same_background_as_in_a_loose_one() {
+    let (glyph, surface) = ([238, 152, 193], [34, 34, 48]);
+    // A diamond glyph of the given reach around the middle of an 8 x 8 box.
+    let draw = |reach: f64| {
+        picture(8, 8, move |x, y| {
+            let (dx, dy) = ((f64::from(x) - 3.5).abs(), (f64::from(y) - 3.5).abs());
+            if dx + dy <= reach { glyph } else { surface }
+        })
+    };
+    // The board's box is loose: the surface is most of it. The shot's box
+    // fits the glyph: the glyph is most of it (40 of 64 pixels).
+    for role in [Role::Button, Role::Image, Role::Text] {
+        let found = warn(role, &draw(2.0), &draw(4.5));
+        assert!(found.is_empty(), "{role:?}: {found:?}");
+    }
+}
+
+#[test]
 fn a_foreground_is_compared_where_both_pictures_have_one() {
     let draw = |ink: Rgb| picture(8, 8, move |x, _| if x < 3 { ink } else { [40, 40, 48] });
     let found = warn(Role::Button, &draw([240, 240, 240]), &draw([200, 240, 240]));
@@ -237,17 +255,17 @@ fn a_foreground_is_compared_where_both_pictures_have_one() {
     assert!(warn(Role::Button, &flat, &flat).is_empty());
 }
 
-/// An 8 x 8 picture of a button: a label of one colour and an edge of another
-/// beside a background, each covering the columns it is given.
+const SURFACE: Rgb = [40, 40, 48];
+
+/// An 8 x 8 picture of a button on its surface, which leaves the outer ring of
+/// pixels bare: a label of one colour in the first `label_columns` columns
+/// inside the ring and an edge of another in the last two.
 fn button(label: Rgb, label_columns: u32, edge: Rgb) -> Picture {
-    picture(8, 8, move |x, _| {
-        if x < label_columns {
-            label
-        } else if x < 6 {
-            [40, 40, 48]
-        } else {
-            edge
-        }
+    picture(8, 8, move |x, y| match x {
+        _ if y == 0 || y == 7 => SURFACE,
+        1..=6 if x <= label_columns => label,
+        5..=6 => edge,
+        _ => SURFACE,
     })
 }
 
@@ -257,10 +275,10 @@ fn an_element_that_draws_the_same_two_colours_with_another_one_most_common_does_
     // The label and the edge cover the same area on the board, and the edge
     // covers more than the label in the shot.
     let board = button(label, 2, edge);
-    let shot = picture(8, 8, |x, _| match x {
-        0 => label,
-        1..=2 => edge,
-        _ => [40, 40, 48],
+    let shot = picture(8, 8, |x, y| match (x, y) {
+        (1, 1..=6) | (2, 1) => label,
+        (3..=5, 1..=6) => edge,
+        _ => SURFACE,
     });
     assert!(warn(Role::Button, &board, &shot).is_empty());
     assert!(warn(Role::Toggle, &board, &shot).is_empty());
@@ -283,13 +301,13 @@ fn a_label_drawn_in_the_wrong_colour_warns_on_each_side() {
 #[test]
 fn a_part_matches_the_same_colour_on_the_other_side_at_any_share() {
     let (label, edge) = ([240, 240, 242], [168, 168, 179]);
-    // The edge is a part on the board (2 columns of 8) and covers 1 of 64
+    // The edge is a part on the board (12 of 64 pixels) and covers 1 of 64
     // pixels in the shot, which is under the share of a part.
     let board = button(label, 2, edge);
     let shot = picture(8, 8, |x, y| match (x, y) {
-        (0..=1, _) => label,
-        (7, 0) => edge,
-        _ => [40, 40, 48],
+        (1..=2, 1..=6) => label,
+        (6, 1) => edge,
+        _ => SURFACE,
     });
     assert!(warn(Role::Button, &board, &shot).is_empty());
 }
