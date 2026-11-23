@@ -137,6 +137,11 @@ fn displace(places: &Places, dir: &Path, change: Change<'_>) -> Result<bool> {
     match change {
         Change::Move(recreate, removal) => {
             let moved = move_in(&folder, slot.path(), name, recreate)?;
+            // `stale` told the daemon before the move, when a root's marker
+            // was still there: tell it again once the folder is gone.
+            if moved {
+                crate::sizes::changed(places, &folder);
+            }
             drop(locks);
             slot.remove(removal)?;
             Ok(moved)

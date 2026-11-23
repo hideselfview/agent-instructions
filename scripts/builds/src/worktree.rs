@@ -365,10 +365,7 @@ pub fn retire_checkout(tool: &Tool, checkout: &Checkout) -> Result<()> {
             .arg(&checkout.top),
         "git worktree remove",
     )?;
-    let evicted = !root.is_dir() || evict(&tool.places, &root, Recreate::No, Removal::Background)?;
-    // The daemon lists the worktree until it learns the root is gone.
-    crate::daemon::client::wrote(&tool.places, std::slice::from_ref(&root));
-    if !evicted {
+    if root.is_dir() && !evict(&tool.places, &root, Recreate::No, Removal::Background)? {
         fail!(
             "worktree removed, but a process holds files in {}; run builds prune once it exits",
             root.display()

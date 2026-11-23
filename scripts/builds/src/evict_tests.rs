@@ -230,3 +230,47 @@ fn a_removal_that_never_completes_leaves_the_slot_to_the_next_emptier() {
         0
     );
 }
+
+/// The daemon is told after a build root moved away, when its marker is gone:
+/// told before, it would find the marker and keep listing the checkout.
+#[test]
+fn the_daemon_hears_of_an_evicted_root_once_its_marker_is_gone() {
+    // A socket's path must fit in SUN_LEN, which the scratch folder's does not.
+    let short = PathBuf::from(format!("/tmp/bt-evict-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&short);
+    std::fs::create_dir_all(&short).unwrap();
+    // The folder is canonical, as eviction resolves it, and /tmp is a link.
+    let short = std::fs::canonicalize(&short).unwrap();
+    let mut places = Scratch::new("evict-tells-daemon").places();
+    places.root = short.clone();
+    let root = short.join("demo/side-1");
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join(".checkout"), "/somewhere").unwrap();
+    fill(&root.join("target/debug/blob"), 4);
+    std::fs::create_dir_all(places.daemon_dir()).unwrap();
+    let listener = std::os::unix::net::UnixListener::bind(places.daemon_socket()).unwrap();
+    let (heard, marker_there) = std::sync::mpsc::channel();
+    let marker = root.join(".checkout");
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let mut stream = stream.unwrap();
+            let mut line = String::new();
+            std::io::BufRead::read_line(
+                &mut std::io::BufReader::new(stream.try_clone().unwrap()),
+                &mut line,
+            )
+            .unwrap();
+            heard.send(marker.exists()).unwrap();
+            let done = serde_json::to_string(&crate::daemon::Reply::Done).unwrap();
+            std::io::Write::write_all(&mut stream, format!("{done}\n").as_bytes()).unwrap();
+        }
+    });
+    assert!(evict(&places, &root, Recreate::No, Removal::Now).unwrap());
+    let told: Vec<bool> = marker_there.try_iter().collect();
+    assert_eq!(
+        told.last(),
+        Some(&false),
+        "the daemon heard nothing after the root went: {told:?}"
+    );
+    let _ = std::fs::remove_dir_all(&short);
+}

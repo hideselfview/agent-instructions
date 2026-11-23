@@ -90,6 +90,13 @@ pub fn retire_free(tool: &Tool, roots: &[Root], run: Run) -> Result<()> {
         if builds.iter().any(|b| b.place == place) {
             continue;
         }
+        if !is_free(checkout, &every, &commits)? {
+            continue;
+        }
+        // Free a moment ago: check again under the lock, which `builds new`
+        // holds from picking a worktree to claiming it. Taking the lock
+        // first would create its file in the repo's git dir for every
+        // claimed worktree health looks at.
         let _picking = crate::worktree::lock_picking(&checkout.main)?;
         if !is_free(checkout, &every, &commits)? {
             continue;

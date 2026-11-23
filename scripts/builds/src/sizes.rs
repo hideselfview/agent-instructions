@@ -38,6 +38,15 @@ pub fn root_of(places: &Places, path: &Path) -> Option<PathBuf> {
     Some(places.root.join(repo).join(checkout))
 }
 
+/// A deletion changed a folder of <path>'s root: the daemon is told, so it
+/// reads the root again and drops it when its marker is gone. A path outside
+/// the roots tells nothing.
+pub fn changed(places: &Places, path: &Path) {
+    if let Some(root) = root_of(places, path) {
+        crate::daemon::client::wrote(places, &[root]);
+    }
+}
+
 /// A deletion is about to change a folder of <path>'s root: the root's record
 /// is removed, which makes the dashboard measure it once, and the daemon is
 /// told. A path outside the roots has no record.

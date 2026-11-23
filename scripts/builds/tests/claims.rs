@@ -709,9 +709,10 @@ fn the_daemon_serves_the_state_and_the_events_and_derives_each_worktrees_state()
     demo.run(&["note", &side]);
 
     // The state the dashboard derives for each side worktree: <side-1>
-    // <side-2>, with main None and side-3 free.
+    // <side-2>, with main None and side-3 free until health retires it.
+    let free_side_3 = std::cell::Cell::new(" free");
     let states = |side_1: &str, side_2: &str| {
-        let wanted = format!("None {side_1} {side_2} free");
+        let wanted = format!("None {side_1} {side_2}{}", free_side_3.get());
         let deadline = Instant::now() + PATIENCE;
         loop {
             let (_, body) = get(port, "/api/state", None);
@@ -782,6 +783,9 @@ fn the_daemon_serves_the_state_and_the_events_and_derives_each_worktrees_state()
         .map(|w| &w["claim"]["note_state"])
         .collect();
     assert_eq!(held, [&Value::from("held")], "health missed the hold");
+    // Health retires the free side-3, so the daemon lists it no more.
+    assert!(!demo.side(3).exists(), "health left the free side-3");
+    free_side_3.set("");
     // An app checkout has no card, so the daemon derives no state for it.
     states("None", "working");
     // Release refuses side-1's work, so the test deletes the claim file, as
