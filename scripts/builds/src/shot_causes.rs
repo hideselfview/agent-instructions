@@ -20,6 +20,7 @@ use std::path::Path;
 
 use serde::Deserialize;
 
+use crate::daemon::component_shots::Side;
 use crate::fail;
 use crate::fail::Result;
 use crate::text::plural;
@@ -89,14 +90,6 @@ pub enum What {
     Region {},
 }
 
-/// The side of a pair that draws a colour.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Side {
-    Board,
-    Shot,
-}
-
 /// Which state of an element differs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -106,13 +99,11 @@ pub enum Aspect {
     Selected,
 }
 
-/// Which colour of an element differs. `Foreground` is the part that runs
-/// of older comparison versions recorded; the cached runs still hold it.
+/// Which colour of an element differs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Part {
     Background,
-    Foreground,
     Text,
 }
 
@@ -120,7 +111,6 @@ impl Part {
     fn word(self) -> &'static str {
         match self {
             Part::Background => "background",
-            Part::Foreground => "foreground",
             Part::Text => "text",
         }
     }
@@ -146,7 +136,6 @@ impl What {
             What::FontWeight { .. } => "a text has another font weight in the shot",
             What::Colour { part, .. } => match part {
                 Part::Background => "an element has another background colour in the shot",
-                Part::Foreground => "an element has another foreground colour in the shot",
                 Part::Text => "a text has another colour in the shot",
             },
             What::ForegroundColour { .. } => {

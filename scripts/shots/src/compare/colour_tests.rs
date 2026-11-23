@@ -228,7 +228,13 @@ fn a_foreground_is_compared_where_both_pictures_have_one() {
         "The foreground of the button “Word” has #C8F0F0 in the shot and no colour near it on the board"
     );
     let flat = picture(8, 8, |_, _| [40, 40, 48]);
-    assert!(warn(Role::Button, &draw([240, 240, 240]), &flat).is_empty());
+    assert_eq!(
+        warn(Role::Button, &draw([240, 240, 240]), &flat),
+        [
+            "The foreground of the button “Word” has #F0F0F0 on the board and no colour near it in the shot"
+        ]
+    );
+    assert!(warn(Role::Button, &flat, &flat).is_empty());
 }
 
 /// An 8 x 8 picture of a button: a label of one colour and an edge of another
@@ -272,6 +278,20 @@ fn a_label_drawn_in_the_wrong_colour_warns_on_each_side() {
             "The foreground of the button “Word” has #EE98C1 in the shot and no colour near it on the board",
         ]
     );
+}
+
+#[test]
+fn a_part_matches_the_same_colour_on_the_other_side_at_any_share() {
+    let (label, edge) = ([240, 240, 242], [168, 168, 179]);
+    // The edge is a part on the board (2 columns of 8) and covers 1 of 64
+    // pixels in the shot, which is under the share of a part.
+    let board = button(label, 2, edge);
+    let shot = picture(8, 8, |x, y| match (x, y) {
+        (0..=1, _) => label,
+        (7, 0) => edge,
+        _ => [40, 40, 48],
+    });
+    assert!(warn(Role::Button, &board, &shot).is_empty());
 }
 
 #[test]

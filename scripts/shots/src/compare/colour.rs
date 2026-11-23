@@ -201,10 +201,16 @@ impl Palette {
     /// of each other that covers at least [`DRAWN_PART_SHARE`] of the box.
     fn parts(&self) -> Vec<Group> {
         let least = (self.pixels as f64 * DRAWN_PART_SHARE).ceil() as usize;
+        let mut groups = self.colours();
+        groups.retain(|group| group.total >= least);
+        groups
+    }
+
+    /// Every foreground colour of the element, in groups of colours within
+    /// [`DELTA_E_TOLERANCE`] of each other, whatever share of the box each
+    /// covers.
+    fn colours(&self) -> Vec<Group> {
         groups_of(self.foreground.iter().copied())
-            .into_iter()
-            .filter(|group| group.total >= least)
-            .collect()
     }
 
     /// Follow the dominant foreground colour away from the background to find
@@ -322,13 +328,10 @@ pub(crate) fn pairs(board: &Side, shot: &Side, pairs: &[(Entry, Entry)]) -> Vec<
 }
 
 /// The foreground colours that one of <board> and <shot> draws as a part of
-/// the element and the other draws none within [`DELTA_E_TOLERANCE`] of. An
-/// element that draws no part on either side has none to compare.
+/// the element and the other draws no colour within [`DELTA_E_TOLERANCE`] of,
+/// at any share of its box: a part that covers just under the share on one
+/// side still matches.
 fn unmatched(entry: &Entry, board: &Palette, shot: &Palette) -> Vec<Warning> {
-    let (drawn_on_board, drawn_in_shot) = (board.parts(), shot.parts());
-    if drawn_on_board.is_empty() || drawn_in_shot.is_empty() {
-        return Vec::new();
-    }
     let lacking = |drawn: &[Group], other: &[Group], side: PictureSide| {
         drawn
             .iter()
@@ -344,8 +347,8 @@ fn unmatched(entry: &Entry, board: &Palette, shot: &Palette) -> Vec<Warning> {
             })
             .collect::<Vec<_>>()
     };
-    let mut found = lacking(&drawn_on_board, &drawn_in_shot, PictureSide::Board);
-    found.extend(lacking(&drawn_in_shot, &drawn_on_board, PictureSide::Shot));
+    let mut found = lacking(&board.parts(), &shot.colours(), PictureSide::Board);
+    found.extend(lacking(&shot.parts(), &board.colours(), PictureSide::Shot));
     found
 }
 

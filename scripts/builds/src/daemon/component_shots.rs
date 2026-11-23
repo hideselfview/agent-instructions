@@ -129,7 +129,8 @@ struct Record {
 }
 
 /// Which picture of a pair.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Side {
     Board,
     Shot,
