@@ -1289,9 +1289,9 @@ fn read_health(
                     tool.program.clone(),
                 ),
             ),
-            reviews: &crate::review::verdicts::Reads::with_root(Ok(
+            reviews: &crate::review::verdicts::Reads::with_root(
                 crate::review::rules::installed_root(&tool.places.home),
-            )),
+            ),
         },
     )?;
     let mut loose = Vec::new();

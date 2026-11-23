@@ -573,6 +573,14 @@ fn a_worktree_whose_waits_the_daemon_cannot_read_says_so_and_never_working_or_re
             "{state:?}"
         );
     }
+    let question = ItemWait::Answer {
+        id: 1,
+        title: "Choose a name".into(),
+    };
+    assert_eq!(
+        card_state(CardState::WaitsUnread, false, Some(&[question]), None),
+        CardState::WaitsUnread,
+    );
     let card = words(
         &card(Some("waits-unread"), claim(Some("note")), Some(0)),
         st("waits-unread"),

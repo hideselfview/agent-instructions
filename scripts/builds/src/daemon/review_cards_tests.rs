@@ -108,7 +108,7 @@ fn review(demo: &Demo, root: &Path, program: &crate::review::Program, side: &Pat
 fn a_card_follows_the_review_from_none_to_findings_to_fixes_and_says_nothing_once_land_takes_it() {
     let demo = demo("review-cards");
     let fake = fake(&demo.scratch.dir);
-    let reads = Reads::with_root(Ok(fake.root.clone()));
+    let reads = Reads::with_root(fake.root.clone());
     let side = demo.add_side(1, "agent", "work");
     demo.commit(&side, "notes.txt");
     assert_eq!(
@@ -185,7 +185,7 @@ fn a_card_follows_the_review_from_none_to_findings_to_fixes_and_says_nothing_onc
 fn a_card_whose_project_has_no_store_says_so_and_never_that_land_takes_its_commits() {
     let demo = demo("review-cards-no-store");
     let fake = fake(&demo.scratch.dir);
-    let reads = Reads::with_root(Ok(fake.root.clone()));
+    let reads = Reads::with_root(fake.root.clone());
     let side = demo.add_side(1, "agent", "work");
     demo.commit(&side, "a.rs");
     let ghost = Store::named(&demo.tool.places, "ghost").unwrap();
@@ -206,7 +206,7 @@ fn a_card_whose_project_has_no_store_says_so_and_never_that_land_takes_its_commi
 fn a_card_whose_commits_git_cannot_read_says_why_and_asks_git_again_next_time() {
     let demo = demo("review-cards-unread");
     let fake = fake(&demo.scratch.dir);
-    let reads = Reads::with_root(Ok(fake.root.clone()));
+    let reads = Reads::with_root(fake.root.clone());
     let side = demo.add_side(1, "agent", "work");
     demo.commit(&side, "a.rs");
     let mut missing = ahead(&side);
@@ -223,7 +223,7 @@ fn a_card_whose_commits_git_cannot_read_says_why_and_asks_git_again_next_time() 
 fn findings_to_settle_wait_on_the_judge_while_one_listens() {
     let demo = demo("review-cards-judge");
     let fake = fake(&demo.scratch.dir);
-    let reads = Reads::with_root(Ok(fake.root.clone()));
+    let reads = Reads::with_root(fake.root.clone());
     let side = demo.add_side(1, "agent", "work");
     demo.commit(&side, "a.rs");
     fake.answer(
@@ -264,7 +264,7 @@ fn findings_to_settle_wait_on_the_judge_while_one_listens() {
 fn a_worktree_is_judged_once_per_tip_and_again_when_its_branch_main_or_store_moves() {
     let demo = demo("review-cards-per-tip");
     let fake = fake(&demo.scratch.dir);
-    let reads = Reads::with_root(Ok(fake.root.clone()));
+    let reads = Reads::with_root(fake.root.clone());
     let side = demo.add_side(1, "agent", "work");
     demo.commit(&side, "a.rs");
     let git = read_git(&side, ahead(&side));
@@ -301,7 +301,7 @@ fn a_worktree_is_judged_once_per_tip_and_again_when_its_branch_main_or_store_mov
 #[test]
 fn a_card_whose_rules_cannot_be_read_says_why_and_never_that_land_takes_its_commits() {
     let demo = demo("review-cards-no-rules");
-    let reads = Reads::with_root(Ok(demo.scratch.dir.join("no-rules")));
+    let reads = Reads::with_root(demo.scratch.dir.join("no-rules"));
     let side = demo.add_side(1, "agent", "work");
     demo.commit(&side, "a.rs");
     let said = standing_at(
@@ -323,7 +323,7 @@ fn a_card_whose_rules_cannot_be_read_says_why_and_never_that_land_takes_its_comm
 fn the_rules_are_read_once_and_again_only_after_their_files_change() {
     let demo = demo("review-cards-rules-change");
     let fake = fake(&demo.scratch.dir);
-    let reads = Reads::with_root(Ok(fake.root.clone()));
+    let reads = Reads::with_root(fake.root.clone());
     let side = demo.add_side(1, "agent", "work");
     demo.commit(&side, "a.rs");
     let not_run = Some(ItemWait::RulesReview(ReviewWait::NotRun));
@@ -331,7 +331,9 @@ fn the_rules_are_read_once_and_again_only_after_their_files_change() {
     // With the rules gone, only the rules read before answer.
     std::fs::rename(fake.root.join("rules"), demo.scratch.dir.join("rules-away")).unwrap();
     assert_eq!(standing(&reads, &demo, &side), not_run);
-    reads.rules_changed();
+    reads.rules_changed(Some("other"));
+    assert_eq!(standing(&reads, &demo, &side), not_run);
+    reads.rules_changed(None);
     let said = standing_at(
         &reads,
         &demo,
@@ -351,7 +353,7 @@ fn the_rules_are_read_once_and_again_only_after_their_files_change() {
 fn health_and_the_card_share_the_verdict_kept_for_a_tip() {
     let demo = demo("review-cards-shared-verdict");
     let fake = fake(&demo.scratch.dir);
-    let reads = Reads::with_root(Ok(fake.root.clone()));
+    let reads = Reads::with_root(fake.root.clone());
     let side = demo.add_side(1, "agent", "work");
     demo.commit(&side, "a.rs");
     let git = read_git(&side, ahead(&side));

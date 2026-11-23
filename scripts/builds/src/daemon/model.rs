@@ -313,9 +313,9 @@ impl Model {
         runs: Arc<Runs>,
         program: std::path::PathBuf,
     ) -> crate::fail::Result<Arc<Model>> {
-        let review_reads = crate::review::verdicts::Reads::with_root(Ok(
+        let review_reads = crate::review::verdicts::Reads::with_root(
             crate::review::rules::installed_root(&places.home),
-        ));
+        );
         let model = Arc::new(Model {
             places: places.clone(),
             rules,
@@ -360,9 +360,15 @@ impl Model {
         std::thread::Builder::new()
             .name("builds-reviews".into())
             .spawn(move || {
-                reviews
-                    .review_queries
-                    .run(&reviews.review_reads, || reviews.publish())
+                let finished = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    reviews
+                        .review_queries
+                        .run(&reviews.review_reads, || reviews.publish());
+                }));
+                if let Err(panic) = finished {
+                    reviews.review_queries.worker_failed(panic);
+                    reviews.publish();
+                }
             })
             .context(|| "starting the rules review worker".to_string())?;
         model.follow_rules();
@@ -478,10 +484,9 @@ impl Model {
     /// before any page asks for a card, so no change goes unseen.
     fn follow_rules(self: &Arc<Self>) {
         // FSEvents follows the folder a link names, not the link.
-        let folders: Vec<PathBuf> = self
+        let [rules, projects] = self
             .review_reads
             .rules_folders()
-            .into_iter()
             .map(|folder| match std::fs::canonicalize(&folder) {
                 Ok(real) => real,
                 Err(error) => {
@@ -491,20 +496,38 @@ impl Model {
                     ));
                     folder
                 }
-            })
-            .collect();
-        if folders.is_empty() {
-            return;
-        }
+            });
         let weak = Arc::downgrade(self);
-        let refs: Vec<&Path> = folders.iter().map(PathBuf::as_path).collect();
+        let project_events = projects.clone();
         let started = Stream::start(
-            &refs,
+            &[&rules, &projects],
             &[],
             0.2,
-            Box::new(move |_| {
+            Box::new(move |events| {
                 if let Some(model) = weak.upgrade() {
-                    model.review_reads.rules_changed();
+                    for event in events {
+                        let lost = event.flags
+                            & (flags::USER_DROPPED
+                                | flags::KERNEL_DROPPED
+                                | flags::MUST_SCAN_SUBDIRS
+                                | flags::EVENT_IDS_WRAPPED)
+                            != 0;
+                        let project = if lost {
+                            None
+                        } else {
+                            event
+                                .path
+                                .strip_prefix(&project_events)
+                                .ok()
+                                .and_then(|path| path.iter().next())
+                                .and_then(|folder| folder.to_str())
+                                .and_then(|name| {
+                                    name.strip_suffix("-rules")
+                                        .or_else(|| name.strip_suffix(".md"))
+                                })
+                        };
+                        model.review_reads.rules_changed(project);
+                    }
                     model.publish();
                 }
             }),
@@ -792,12 +815,8 @@ impl Model {
                     .iter()
                     .filter_map(|root| {
                         let live = root.live.as_ref()?;
-                        let Some(SideGit::Side(Ok(git))) =
-                            state.page.facts.get(&root.path)?.git.as_ref()
-                        else {
-                            return None;
-                        };
-                        Some((live.clone(), git.clone()))
+                        let git = state.page.facts.get(&root.path)?.git.as_ref()?.side()?;
+                        (!git.ahead.is_empty()).then(|| (live.clone(), git.clone()))
                     })
                     .collect::<Vec<_>>()
             };

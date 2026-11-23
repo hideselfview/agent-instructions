@@ -52,8 +52,8 @@ impl Material {
     /// The folders of the checkout at <root> whose files `load` reads: the
     /// groups and rules of `rules/`, and the projects' files and rules of
     /// `projects/`.
-    pub fn folders(root: &Path) -> Vec<PathBuf> {
-        vec![root.join("rules"), root.join("projects")]
+    pub fn folders(root: &Path) -> [PathBuf; 2] {
+        [root.join("rules"), root.join("projects")]
     }
 
     /// Each group that holds findings of <open>, with those findings, in

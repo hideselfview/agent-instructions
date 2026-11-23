@@ -341,8 +341,8 @@ impl CardState {
 }
 
 /// The state of a live side worktree's card. <worktree> is what its claim
-/// and commits say (model.rs worktree_state, or Needs review when the
-/// daemon could not read the rules review of its commits), <shell> says
+/// and commits say (model.rs worktree_state, or WaitsUnread when the
+/// daemon could not read its design coverage or rules review), <shell> says
 /// whether an agent shell is active in it, <waits> is what it waits on as
 /// `ranked` orders it, or None when the daemon could not read what its
 /// running items wait on, and <kept> is what the waits of the item that keeps
@@ -364,6 +364,9 @@ pub fn card_state(
     let Some(waits) = waits else {
         return CardState::WaitsUnread;
     };
+    if worktree == CardState::WaitsUnread {
+        return worktree;
+    }
     let wait = waits.first();
     if wait.is_some_and(ItemWait::needs_person) {
         return CardState::WaitingOnYou;

@@ -9,7 +9,6 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
@@ -35,6 +34,30 @@ type Read = Vec<Vec<String>>;
 /// that finds the same rules keeps the earlier `Arc`, so a worktree judged
 /// against them need not be judged again.
 type Rules = (u64, Result<Arc<Material>, String>);
+
+#[derive(Default)]
+struct RulesVersions {
+    latest: u64,
+    shared: u64,
+    projects: HashMap<String, u64>,
+}
+
+impl RulesVersions {
+    fn of(&self, project: &str) -> u64 {
+        self.shared
+            .max(self.projects.get(project).copied().unwrap_or(0))
+    }
+
+    fn change(&mut self, project: Option<&str>) {
+        self.latest += 1;
+        match project {
+            Some(project) => {
+                self.projects.insert(project.to_string(), self.latest);
+            }
+            None => self.shared = self.latest,
+        }
+    }
+}
 
 /// A side worktree whose card shows where its rules review stands, as the
 /// daemon last read it.
@@ -81,24 +104,21 @@ struct Judged {
 /// rules of each project as last read, and each worktree's judgment, kept
 /// until its tip or the rules differ.
 pub struct Reads {
-    /// The rules checkout, or why there is none (HOME is not set).
-    root: Result<PathBuf, String>,
+    root: PathBuf,
     commits: Mutex<HashMap<ReadKey, Read>>,
     rules: Mutex<HashMap<String, Rules>>,
-    /// How many times the rules files changed (`rules_changed`).
-    rules_changes: AtomicU64,
+    rules_versions: Mutex<RulesVersions>,
     judged: Mutex<HashMap<PathBuf, Judged>>,
 }
 
 impl Reads {
-    /// Reads that take the rules from the checkout at <root>, or that say
-    /// why there is none.
-    pub fn with_root(root: Result<PathBuf, String>) -> Reads {
+    /// Reads that take the rules from the checkout at <root>.
+    pub fn with_root(root: PathBuf) -> Reads {
         Reads {
             root,
             commits: Mutex::new(HashMap::new()),
             rules: Mutex::new(HashMap::new()),
-            rules_changes: AtomicU64::new(0),
+            rules_versions: Mutex::default(),
             judged: Mutex::new(HashMap::new()),
         }
     }
@@ -126,30 +146,35 @@ impl Reads {
         Ok(read)
     }
 
-    /// The folders of the rules checkout whose files `Material::load`
-    /// reads; none when there is no rules checkout. Whoever follows them
-    /// calls `rules_changed` after each change under them.
-    pub fn rules_folders(&self) -> Vec<PathBuf> {
-        match &self.root {
-            Ok(root) => Material::folders(root),
-            Err(_) => Vec::new(),
-        }
+    /// The shared rules and project folders that `Material::load` reads.
+    pub fn rules_folders(&self) -> [PathBuf; 2] {
+        Material::folders(&self.root)
     }
 
-    /// Files under `rules_folders` changed: the next ask reads the rules
-    /// again.
-    pub fn rules_changed(&self) {
-        self.rules_changes.fetch_add(1, Ordering::SeqCst);
+    /// Files under `rules_folders` changed, in <project> or among the shared
+    /// rules. The next affected read reloads its rules.
+    pub fn rules_changed(&self, project: Option<&str>) {
+        self.rules_versions
+            .lock()
+            .expect("no panic holding it")
+            .change(project);
+    }
+
+    fn rules_version(&self, project: &str) -> u64 {
+        self.rules_versions
+            .lock()
+            .expect("no panic holding it")
+            .of(project)
     }
 
     /// <project>'s rules, read from the rules checkout once and again after
     /// each change to its files, or why they can't be read.
     fn rules(&self, project: &str) -> Result<Arc<Material>, String> {
-        let root = self.root.as_ref().map_err(Clone::clone)?;
+        let root = &self.root;
         let mut rules = self.rules.lock().expect("no panic holding it");
         // Taken before the read: a change during the read moves it, and the
         // next ask reads again.
-        let changes = self.rules_changes.load(Ordering::SeqCst);
+        let changes = self.rules_version(project);
         let held = rules.get(project).cloned();
         if let Some((read_after, Ok(material))) = &held
             && *read_after == changes
@@ -160,7 +185,7 @@ impl Reads {
             held.and_then(|(_, material)| material.ok()),
             Material::load(root, project),
         ) {
-            (Some(before), Ok(read)) if *before == read => Ok(before),
+            (Some(before), Ok(read)) if same_review_rules(&before, &read) => Ok(before),
             (_, read) => read.map(Arc::new).map_err(|why| {
                 format!(
                     "reading the rules of {project} from {}: {}",
@@ -175,8 +200,8 @@ impl Reads {
 
     /// The verdict on <worktree>'s commits at <tip> against <rules>: the
     /// one kept for the worktree when it was judged at the same tip against
-    /// the same rules, else judged now. Reads keeps only a verdict that
-    /// succeeded, so the next page build judges again after a failure.
+    /// the same rules, else judged now. A failed read leaves no verdict for
+    /// later callers.
     fn verdict(
         &self,
         store: &Store,
@@ -274,6 +299,21 @@ impl Reads {
     }
 }
 
+/// Only groups and rules that affect the verdict count here. Reviewer
+/// prompts and rules that belong to other projects do not affect it.
+fn same_review_rules(before: &Material, after: &Material) -> bool {
+    fn groups(
+        material: &Material,
+    ) -> impl Iterator<Item = (&str, bool, Vec<&crate::review::rules::Rule>)> {
+        material
+            .groups
+            .reviewing(&material.rules)
+            .filter(|(_, members)| !members.is_empty())
+            .map(|(group, members)| (group.name.as_str(), group.commit_text, members))
+    }
+    groups(before).eq(groups(after))
+}
+
 type Outcome = Result<Arc<Verdict>, String>;
 type Place = (PathBuf, String);
 
@@ -305,7 +345,8 @@ impl Query {
 
 enum QueryState {
     Pending { previous_error: Option<String> },
-    Read { outcome: Outcome, at: Instant },
+    Ready(Arc<Verdict>),
+    Failed { error: String, at: Instant },
 }
 
 struct Entry {
@@ -317,6 +358,7 @@ struct Entry {
 struct Work {
     entries: HashMap<Place, Entry>,
     queue: VecDeque<Query>,
+    #[cfg(test)]
     stopped: bool,
     failure: Option<String>,
 }
@@ -347,7 +389,7 @@ impl Queries {
         let place = (worktree.top.to_path_buf(), store.project.clone());
         let tip = QueryTip {
             git_and_store: Tip::of(worktree, version),
-            rules: reads.rules_changes.load(Ordering::SeqCst),
+            rules: reads.rules_version(&store.project),
         };
         let mut work = self.work.lock().expect("no panic holding it");
         if let Some(failure) = &work.failure {
@@ -359,12 +401,11 @@ impl Queries {
                 QueryState::Pending { previous_error } => {
                     return previous_error.clone().map(Err);
                 }
-                QueryState::Read { outcome, at } => match outcome {
-                    Err(error) if at.elapsed() >= REVIEW_RETRY => {
-                        previous_error = Some(error.clone());
-                    }
-                    _ => return Some(outcome.clone()),
-                },
+                QueryState::Ready(verdict) => return Some(Ok(verdict.clone())),
+                QueryState::Failed { error, at } if at.elapsed() < REVIEW_RETRY => {
+                    return Some(Err(error.clone()));
+                }
+                QueryState::Failed { error, .. } => previous_error = Some(error.clone()),
             }
         }
         work.entries.insert(
@@ -392,8 +433,15 @@ impl Queries {
         let work = self.work.lock().expect("no panic holding it");
         let mut work = self
             .ready
-            .wait_while(work, |work| work.queue.is_empty() && !work.stopped)
+            .wait_while(work, |work| {
+                #[cfg(test)]
+                if work.stopped {
+                    return false;
+                }
+                work.queue.is_empty()
+            })
             .expect("no panic holding it");
+        #[cfg(test)]
         if work.stopped {
             return None;
         }
@@ -414,9 +462,12 @@ impl Queries {
         };
         let changed = outcome.is_ok() || outcome.as_ref().err() != previous_error.as_ref();
         let error = outcome.as_ref().err().cloned();
-        entry.state = QueryState::Read {
-            outcome,
-            at: Instant::now(),
+        entry.state = match outcome {
+            Ok(verdict) => QueryState::Ready(verdict),
+            Err(error) => QueryState::Failed {
+                error,
+                at: Instant::now(),
+            },
         };
         drop(work);
         if changed && let Some(error) = error {
@@ -430,21 +481,27 @@ impl Queries {
     }
 
     /// Reads queued verdicts and tells the page when it has a new answer.
-    /// A panic ends the worker and makes the failure visible to its readers.
     pub fn run(&self, reads: &Reads, publish: impl Fn()) {
-        let worker = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            while let Some(query) = self.next() {
-                if self.answer(&query, query.read(reads)) {
-                    publish();
-                }
+        while let Some(query) = self.next() {
+            if self.answer(&query, query.read(reads)) {
+                publish();
             }
-        }));
-        if worker.is_err() {
-            let failure = "The dashboard's rules review worker stopped after a panic.";
-            crate::text::note(failure);
-            self.work.lock().expect("no panic holding it").failure = Some(failure.to_string());
-            publish();
         }
+    }
+
+    /// Reports a panic at the worker's thread boundary and answers present
+    /// and future requests with the failure.
+    pub fn worker_failed(&self, panic: Box<dyn std::any::Any + Send>) {
+        let detail = panic
+            .downcast_ref::<String>()
+            .map(String::as_str)
+            .or_else(|| panic.downcast_ref::<&str>().copied())
+            .unwrap_or("Rust supplied a non-string panic payload");
+        crate::text::note(format!(
+            "The dashboard's rules review worker stopped. Rust reported {detail}."
+        ));
+        self.work.lock().expect("no panic holding it").failure =
+            Some("The dashboard's rules review worker stopped after a panic.".to_string());
     }
 
     #[cfg(test)]
