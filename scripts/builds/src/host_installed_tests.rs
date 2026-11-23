@@ -175,7 +175,10 @@ fn a_host_whose_builds_is_not_this_macs_is_a_finding() {
     let findings = || -> Vec<crate::health::Advice> {
         installed_findings(&read_all_installed(&places, &ssh, &hosts))
             .into_iter()
-            .filter(|advice| advice.text.starts_with("host m1") && !advice.text.contains("sccache"))
+            .filter(|advice| {
+                advice.text.starts_with("host m1 has no builds")
+                    || advice.text.starts_with("host m1 runs a different version")
+            })
             .collect()
     };
 
