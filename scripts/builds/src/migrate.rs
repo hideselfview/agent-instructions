@@ -64,7 +64,7 @@ fn migrate_lane(places: &Places, repo: &str, lane: Lane) -> Result<()> {
         // The old lock must exist before it is linked: a build from before
         // may be waiting to create it, and would make a second file.
         if !old_lock.exists() {
-            crate::queue::open_with(&old_lock, libc::O_CREAT | libc::O_CLOEXEC)
+            crate::queue::open_with(&old_lock, libc::O_CREAT)
                 .map(|fd| unsafe { libc::close(fd) })
                 .context(|| format!("creating {}", old_lock.display()))?;
         }

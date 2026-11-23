@@ -909,6 +909,41 @@ fn a_step_past_its_limit_fails_the_build_and_the_lock_goes_to_the_next_in_line()
 
 const LANES: &str = "step mac one ./one.sh\nstep mac two ./two.sh\nstep android droid ./droid.sh\n";
 
+#[test]
+fn a_killed_android_lane_keeps_its_checkout_until_the_running_step_ends() {
+    let mut volume = Volume::new("lane-killed");
+    volume.app_repo_with(LANES);
+    volume.spawn(&[
+        "app-build",
+        "demo",
+        "--lane",
+        "android",
+        "main",
+        "--built-ref",
+        "main",
+        "droid",
+    ]);
+    volume.until_logged("start droid");
+    let lane = volume.started.last_mut().unwrap();
+    lane.kill().unwrap();
+    assert!(!lane.wait().unwrap().success());
+
+    let during = volume.run(&["queue", "demo", "--lane", "android"]);
+    volume.open_gate("droid");
+    volume.until_logged("end droid");
+    let said = String::from_utf8(during.stdout).unwrap();
+    assert!(
+        during.status.success() && said.contains("android side-2: held"),
+        "{said}"
+    );
+    let next = volume.run(&["lock", "demo", "--lane", "android", "true"]);
+    assert!(
+        next.status.success(),
+        "{}",
+        String::from_utf8_lossy(&next.stderr)
+    );
+}
+
 /// Starts `builds app-build demo main <steps>`, its output piped.
 fn start_app_build(volume: &Volume, steps: &[&str]) -> Child {
     volume

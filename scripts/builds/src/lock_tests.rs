@@ -97,11 +97,7 @@ fn an_android_step_can_leave_a_daemon_without_holding_the_checkout() {
     std::fs::write(places.app_checkouts_file("demo", lane), "side-1\n").unwrap();
     let held = take(&places, "demo", lane).unwrap();
     let lock = places.app_lock_file("demo", lane, &held.checkout);
-    let ticket = places
-        .root
-        .join("demo")
-        .join(lane.queue_dir_name())
-        .join(&held.ticket.name);
+    let ticket = held.queue.ticket_path(&held.ticket.name);
 
     // The step exits after forking. The daemon starts a new session and stays
     // alive until the test closes its socket, including if an assertion fails.
@@ -125,7 +121,13 @@ if os.fork() == 0:
     .stderr(Stdio::null());
     held.runs("android-step").unwrap();
     assert_eq!(
-        run_in_group_within(step, "android-step", Some(Duration::from_secs(10))).unwrap(),
+        held.checkout_lock()
+            .run(step, |step| run_in_group_within(
+                step,
+                "android-step",
+                Some(Duration::from_secs(10))
+            ))
+            .unwrap(),
         Within::Ran(Ran::Finished)
     );
     let mut ready = [0];

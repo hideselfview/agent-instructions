@@ -9,6 +9,7 @@ mod app_build_step_shots;
 mod app_clone;
 mod app_config;
 mod app_landing;
+mod app_lock_guard;
 mod app_remote;
 mod app_reset;
 mod app_shots_drop;
@@ -190,6 +191,13 @@ fn main() -> ExitCode {
     let mut argv = std::env::args_os();
     let program = argv.next().unwrap_or_default();
     let args: Vec<std::ffi::OsString> = argv.collect();
+    #[cfg(target_os = "macos")]
+    if args.len() == 1 && args[0] == app_lock_guard::COMMAND {
+        return match app_lock_guard::watch() {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => exit_code(error),
+        };
+    }
     if let Some(fail) = links::run_as(&program, &args) {
         text::note(fail.text());
         return ExitCode::from(1);

@@ -942,9 +942,10 @@ one that waits for a checkout on this Mac), and one that dies in line never
 lets anyone past the holders. A ticket's name ends in the words here or anywhere,
 which say where its build may run.
 
-The builds process that takes the checkout holds its lock and queue ticket
-until it releases them or exits. A daemon that a build step starts can keep
-running after the checkout becomes free.
+An app build holds its checkout until the build finishes. If its lane process
+exits during a foreground step, Builds holds the checkout until that command
+exits. A daemon that the step starts can keep running after the checkout
+becomes free.
 
 An app checkout's working tree belongs to whoever holds its lock, and only for
 the command they run holding it: nobody edits there or leaves changes behind.
@@ -1769,12 +1770,12 @@ built again.
                               wait for one of the lane's locks (the mac lane's
                               unless named), then run the command holding it,
                               with the checkout in BUILDS_APP_CHECKOUT; run it
-                              as a background task. `builds lock` releases the
-                              checkout when it finishes. SIGTERM, SIGINT and
-                              SIGHUP go to the command's whole process group
-                              and stop builds lock too, even while it waits in
-                              the queue. Use this for commands outside the
-                              repo's app build
+                              as a background task. The lock lasts until the
+                              command's last process exits. SIGTERM, SIGINT
+                              and SIGHUP go to the command's whole process
+                              group and stop builds lock too, even while it
+                              waits in the queue. Use this for commands outside
+                              the repo's app build
   builds queue <repo> [--lane mac|android]
                               show each lane's app checkouts, free or with
                               their holder, when and why builds added each one

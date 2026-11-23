@@ -1,5 +1,10 @@
 use super::*;
 use crate::testing::{Scratch, git, repo};
+use std::os::fd::AsFd;
+
+fn checkout_lock(scratch: &Scratch) -> std::os::fd::OwnedFd {
+    lock::take_checkout(&scratch.places(), "demo", Lane::Mac, "side-1").unwrap()
+}
 
 const CONFIG_TEXT: &str =
     "mac build mkdir out.app\nmac app out.app\nmac bundle demo.test\nandroid build ./a.sh --x\n";
@@ -68,13 +73,15 @@ fn the_commit_named_is_checked_out_and_built_in_the_checkout() {
     let scratch = Scratch::new("app-config-build");
     let top = checkout(&scratch, "demo");
     let commit = run_git(&top, &["rev-parse", "HEAD"]).unwrap();
-    let config = check_out(&top, commit.trim()).unwrap().config;
+    let lock = checkout_lock(&scratch);
+    let checkout = CheckoutLock::new(lock.as_fd(), None);
+    let config = check_out(&top, commit.trim(), checkout).unwrap().config;
     assert_eq!(run_git(&top, &["rev-parse", "HEAD"]).unwrap(), commit);
     assert!(
         run_git(&top, &["symbolic-ref", "-q", "HEAD"]).is_err(),
         "the checkout is detached"
     );
-    run_command(&top, &config.mac.unwrap().build, None).unwrap();
+    run_command(&top, &config.mac.unwrap().build, checkout).unwrap();
     assert!(top.join("out.app").is_dir());
 }
 
@@ -83,7 +90,8 @@ fn a_checkout_with_changes_builds_nothing() {
     let scratch = Scratch::new("app-config-dirty");
     let top = checkout(&scratch, "demo");
     std::fs::write(top.join("unsaved"), "").unwrap();
-    assert!(check_out(&top, "origin/main").is_err());
+    let lock = checkout_lock(&scratch);
+    assert!(check_out(&top, "origin/main", CheckoutLock::new(lock.as_fd(), None)).is_err());
 }
 
 #[test]
@@ -277,7 +285,8 @@ fn a_switch_stopped_by_a_signal_to_its_group_still_ends_on_the_new_commit() {
     let (top, new, group_file) = checkout_mid_switch(&scratch);
     let switching = std::thread::spawn({
         let (top, new) = (top.clone(), new.clone());
-        move || switch_to(&top, &new, false)
+        let lock = checkout_lock(&scratch);
+        move || switch_to(&top, &new, false, CheckoutLock::new(lock.as_fd(), None))
     });
     let group = loop {
         if let Ok(text) = std::fs::read_to_string(&group_file)

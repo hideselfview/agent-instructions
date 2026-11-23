@@ -115,8 +115,7 @@ impl Wake {
             fail!("starting a wait: {}", std::io::Error::last_os_error());
         }
         std::thread::spawn(move || {
-            // Close-on-exec: this descriptor only waits, it is never held.
-            let result = open_with(&path, libc::O_CLOEXEC);
+            let result = open_with(&path, 0);
             let code = match &result {
                 Ok(fd) => *fd,
                 Err(error) => -error.raw_os_error().unwrap_or(libc::EIO),

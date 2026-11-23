@@ -21,9 +21,11 @@
 //! the host's clone as a job's ref, which it deletes when it ends.
 
 use std::collections::BTreeSet;
+use std::os::fd::AsFd;
 use std::path::Path;
 
 use crate::app_config::resolve;
+use crate::app_lock_guard::CheckoutLock;
 use crate::app_site::Site;
 use crate::fail;
 use crate::fail::{Context, Result};
@@ -179,9 +181,16 @@ pub fn cmd_reset(
     let mut site = Site::of(places, ssh, repo, lane, checkout)?;
     let lock = lock::take_checkout(places, repo, lane, checkout)?;
     let mut sent = Vec::new();
-    let reset = reset_under_lock(&mut site, places, repo, matching, &mut sent);
+    let reset = reset_under_lock(
+        &mut site,
+        places,
+        repo,
+        matching,
+        &mut sent,
+        CheckoutLock::new(lock.as_fd(), None),
+    );
     let forgot = forget(&site, &sent);
-    unsafe { libc::close(lock) };
+    drop(lock);
     crate::fail::with_cleanup(reset, forgot)?;
     note(format!("{} is on {TARGET}", site.shown()?));
     Ok(())
@@ -194,6 +203,7 @@ fn reset_under_lock(
     repo: &str,
     matching: Option<&str>,
     sent: &mut Vec<String>,
+    lock: CheckoutLock<'_>,
 ) -> Result<()> {
     let mut revs = vec![TARGET];
     revs.extend(matching);
@@ -212,7 +222,7 @@ fn reset_under_lock(
             foreign.join("\n  ")
         );
     }
-    site.force_to(target)?;
+    site.force_to(target, lock)?;
     let left = site.git(None, &["status", "--porcelain"])?;
     if !left.trim().is_empty() {
         fail!("{} is still dirty after the reset:\n{left}", site.shown()?);

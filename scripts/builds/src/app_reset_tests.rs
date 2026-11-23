@@ -139,7 +139,7 @@ fn the_reset_waits_for_the_checkouts_lock() {
         "the reset waits while the lock is held"
     );
     assert_ne!(run_git(&top, &["rev-parse", "HEAD"]).unwrap().trim(), new);
-    unsafe { libc::close(held) };
+    drop(held);
     resetting.join().unwrap().unwrap();
     assert_eq!(run_git(&top, &["rev-parse", "HEAD"]).unwrap().trim(), new);
 }

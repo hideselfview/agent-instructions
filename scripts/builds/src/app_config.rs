@@ -94,6 +94,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
+use crate::app_lock_guard::CheckoutLock;
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::lane::Lane;
@@ -818,11 +819,11 @@ pub fn resolve(top: &Path, rev: &str) -> Result<String> {
 /// the old HEAD, a tree every later build refuses as dirty. So git runs in a
 /// process group of its own, with the stopping signals blocked (a Ctrl-C or a
 /// SIGTERM to the build's group, a takeover's SIGUSR2) and SIGPIPE ignored (the
-/// build may be gone when git writes). It holds the checkout's lock too: the
-/// lock's descriptor is inherited, so the next build waits for git, not for the
-/// build that started it. Only SIGKILL stops it, and `builds app-checkout reset`
+/// build may be gone when git writes). The checkout lock guard waits for git
+/// and holds the checkout even if the build driver dies. Only SIGKILL stops
+/// git, and `builds app-checkout reset`
 /// puts a checkout that was killed that way right.
-pub fn switch_to(top: &Path, commit: &str, force: bool) -> Result<()> {
+pub fn switch_to(top: &Path, commit: &str, force: bool, lock: CheckoutLock<'_>) -> Result<()> {
     let mut args = vec!["checkout", "-q", "--detach"];
     if force {
         args.push("--force");
@@ -849,7 +850,10 @@ pub fn switch_to(top: &Path, commit: &str, force: bool) -> Result<()> {
             Ok(())
         });
     }
-    git_text(&mut command, &format!("git {}", args.join(" ")))?;
+    lock.run(command, |mut command| {
+        git_text(&mut command, &format!("git {}", args.join(" ")))?;
+        Ok(())
+    })?;
     Ok(())
 }
 
@@ -861,7 +865,7 @@ pub struct CheckedOut {
 
 /// Switches the app checkout <top>, which must be clean, to the commit that
 /// <commit> names after a fetch, and reads that commit's `.app-build`.
-pub fn check_out(top: &Path, commit: &str) -> Result<CheckedOut> {
+pub fn check_out(top: &Path, commit: &str, lock: CheckoutLock<'_>) -> Result<CheckedOut> {
     let changes = run_git(top, &["status", "--porcelain"])?;
     if !changes.trim().is_empty() {
         fail!(
@@ -870,7 +874,7 @@ pub fn check_out(top: &Path, commit: &str) -> Result<CheckedOut> {
     }
     run_git(top, &["fetch", "-q", "origin"])?;
     let sha = resolve(top, commit)?;
-    switch_to(top, &sha, false)?;
+    switch_to(top, &sha, false, lock)?;
     let file = top.join(CONFIG);
     let config = parse_config(
         &std::fs::read_to_string(&file).context(|| format!("reading {}", file.display()))?,
@@ -893,10 +897,11 @@ fn start_of(top: &Path, command: &[String]) -> Result<Command> {
     Ok(start)
 }
 
-/// Runs <command> in the checkout <top>, in a process group of its own, killed
-/// once <limit> has passed.
-pub fn run_command(top: &Path, command: &[String], limit: Option<Duration>) -> Result<Within> {
-    lock::run_in_group_within(start_of(top, command)?, &command[0], limit)
+/// Runs <command> in the checkout <top>, in a process group of its own.
+pub fn run_command(top: &Path, command: &[String], checkout: CheckoutLock<'_>) -> Result<Within> {
+    checkout.run(start_of(top, command)?, |start| {
+        lock::run_in_group_within(start, &command[0], None)
+    })
 }
 
 /// `run_command`, passing the command's output on as it arrives and keeping
@@ -908,10 +913,13 @@ pub fn run_command_keeping(
     limit: Option<Duration>,
     keep: lock::Keep,
     xcode_settings: &Path,
+    checkout: CheckoutLock<'_>,
 ) -> Result<Within> {
     let mut start = start_of(top, command)?;
     start.env(crate::xcode_cache::ENV, xcode_settings);
-    lock::run_in_group_keeping(start, &command[0], limit, keep)
+    checkout.run(start, |start| {
+        lock::run_in_group_keeping(start, &command[0], limit, keep)
+    })
 }
 
 /// The folder of <repo>'s app checkout <name>.

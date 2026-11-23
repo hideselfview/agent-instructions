@@ -70,13 +70,19 @@ pub fn route_repoint_signal() {
     }
 }
 
-/// Opens <path> with <flags> and takes an exclusive flock on it, waiting for
-/// the lock unless <flags> holds O_NONBLOCK. With O_NONBLOCK, returns
+/// Opens <path> with close-on-exec and <flags>, and takes an exclusive flock,
+/// waiting for the lock unless <flags> holds O_NONBLOCK. With O_NONBLOCK, returns
 /// `WouldBlock` when another process holds the lock.
 pub fn open_with(path: &Path, flags: libc::c_int) -> std::io::Result<libc::c_int> {
     let c_path = CString::new(path.as_os_str().as_bytes()).expect("a path holds no NUL");
     let fd = loop {
-        let fd = unsafe { libc::open(c_path.as_ptr(), libc::O_RDONLY | flags, 0o644) };
+        let fd = unsafe {
+            libc::open(
+                c_path.as_ptr(),
+                libc::O_RDONLY | libc::O_CLOEXEC | flags,
+                0o644,
+            )
+        };
         if fd >= 0 {
             break fd;
         }
@@ -103,14 +109,13 @@ pub fn open_with(path: &Path, flags: libc::c_int) -> std::io::Result<libc::c_int
 }
 
 pub fn open_locked(path: &Path) -> Result<libc::c_int> {
-    open_with(path, libc::O_CREAT | libc::O_CLOEXEC)
-        .context(|| format!("locking {}", path.display()))
+    open_with(path, libc::O_CREAT).context(|| format!("locking {}", path.display()))
 }
 
 /// The lock on the file at <path> (made if missing), or None when a process
 /// holds it. The descriptor closes on exec.
 pub fn try_lock(path: &Path) -> Result<Option<libc::c_int>> {
-    match open_with(path, libc::O_CREAT | libc::O_NONBLOCK | libc::O_CLOEXEC) {
+    match open_with(path, libc::O_CREAT | libc::O_NONBLOCK) {
         Ok(fd) => Ok(Some(fd)),
         Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => Ok(None),
         Err(error) => fail!("locking {}: {error}", path.display()),
@@ -174,9 +179,7 @@ pub fn guard_at(path: &Path) -> Result<Guard> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).context(|| format!("creating {}", dir.display()))?;
     }
-    open_with(path, libc::O_CREAT | libc::O_CLOEXEC)
-        .map(Guard)
-        .context(|| format!("locking {}", path.display()))
+    open_locked(path).map(Guard)
 }
 
 impl Queue {
@@ -250,7 +253,7 @@ impl Queue {
         text.lines().filter(|line| !line.is_empty()).count().max(1)
     }
 
-    fn ticket_path(&self, name: &str) -> PathBuf {
+    pub(crate) fn ticket_path(&self, name: &str) -> PathBuf {
         self.dir.join(name)
     }
 

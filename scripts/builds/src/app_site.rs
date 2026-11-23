@@ -6,6 +6,7 @@
 use std::path::PathBuf;
 
 use crate::app_config::{app_checkout_top, resolve, run_git, switch_to};
+use crate::app_lock_guard::CheckoutLock;
 use crate::app_remote::{RemoteApp, fetched_local_source};
 use crate::fail::{Fail, Result};
 use crate::host::{Ssh, output_of};
@@ -111,9 +112,9 @@ impl Site {
 
     /// Detaches the checkout at <commit> over its local changes. On this Mac
     /// the switch holds out against every signal but SIGKILL (`switch_to`).
-    pub fn force_to(&mut self, commit: &str) -> Result<()> {
+    pub fn force_to(&mut self, commit: &str, lock: CheckoutLock<'_>) -> Result<()> {
         match self {
-            Site::Local(top, _) => switch_to(top, commit, true),
+            Site::Local(top, _) => switch_to(top, commit, true, lock),
             Site::Remote(remote) => remote
                 .git(None, &["checkout", "-q", "--detach", "--force", commit])
                 .map(|_| ()),
@@ -122,8 +123,19 @@ impl Site {
 
     /// Puts the checkout back on its commit: the commit's files over every
     /// change, and no file that git neither tracks nor ignores.
-    pub fn put_back(&mut self) -> Result<()> {
-        self.force_to("HEAD")?;
-        self.git(None, &["clean", "-q", "-f", "-d"]).map(|_| ())
+    pub fn put_back(&mut self, lock: CheckoutLock<'_>) -> Result<()> {
+        self.force_to("HEAD", lock)?;
+        let args = ["clean", "-q", "-f", "-d"];
+        match self {
+            Site::Local(top, _) => {
+                let mut command = git(top);
+                command.args(args);
+                lock.run(command, |mut command| {
+                    Ok(git_text(&mut command, "git clean")?)
+                })
+            }
+            Site::Remote(remote) => remote.git(None, &args),
+        }
+        .map(|_| ())
     }
 }

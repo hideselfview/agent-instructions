@@ -131,12 +131,7 @@ pub fn ended(pid: i32) -> bool {
 pub fn terminate_and_wait(pid: i32) -> io::Result<()> {
     use crate::kqueue::{Queue, event};
     let queue = Queue::new()?;
-    if let Err(error) = queue.change(&[event(
-        pid as libc::uintptr_t,
-        libc::EVFILT_PROC,
-        libc::EV_ADD | libc::EV_ONESHOT,
-        libc::NOTE_EXIT,
-    )]) {
+    if let Err(error) = queue.watch_exit(pid) {
         return super::accept_gone(error);
     }
     super::terminate(pid)?;

@@ -61,7 +61,7 @@ fn builds_from_before_keep_their_lock_and_queue_and_the_old_names_go_when_they_e
     let places = old_volume(&scratch);
     let dir = places.root.join("demo");
     // An old build holds the old lock.
-    let held = crate::queue::open_with(&dir.join("app-android.lock"), libc::O_CLOEXEC).unwrap();
+    let held = crate::queue::open_with(&dir.join("app-android.lock"), 0).unwrap();
     migrate_app_files(&places).unwrap();
     let new_lock = places.app_lock_file("demo", Lane::Android, "side-3");
     assert_eq!(
@@ -80,11 +80,8 @@ fn builds_from_before_keep_their_lock_and_queue_and_the_old_names_go_when_they_e
     until_free(&dir.join("app-android.lock"));
 
     // A ticket of an old waiter keeps them too.
-    let ticket = crate::queue::open_with(
-        &dir.join("app-android.queue/123-1"),
-        libc::O_CREAT | libc::O_CLOEXEC,
-    )
-    .unwrap();
+    let ticket =
+        crate::queue::open_with(&dir.join("app-android.queue/123-1"), libc::O_CREAT).unwrap();
     migrate_app_files(&places).unwrap();
     assert!(dir.join("app-android.lock").is_file());
     unsafe { libc::close(ticket) };
@@ -111,9 +108,7 @@ fn a_lane_never_locked_gets_its_old_lock_made_before_it_is_linked() {
     std::fs::write(dir.join("app-checkout"), "side-1\n").unwrap();
     // A waiter of an older `builds` holds a ticket, so the old name stays and
     // must be the file the new path is.
-    let ticket =
-        crate::queue::open_with(&dir.join("app.queue/9-1"), libc::O_CREAT | libc::O_CLOEXEC)
-            .unwrap();
+    let ticket = crate::queue::open_with(&dir.join("app.queue/9-1"), libc::O_CREAT).unwrap();
     migrate_app_files(&places).unwrap();
     assert_eq!(
         std::fs::metadata(dir.join("app.lock")).unwrap().ino(),

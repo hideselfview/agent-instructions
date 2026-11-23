@@ -214,13 +214,10 @@ impl Running {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir).context(|| format!("creating {}", dir.display()))?;
         }
-        match crate::queue::open_with(&path, libc::O_CREAT | libc::O_NONBLOCK | libc::O_CLOEXEC) {
-            Ok(fd) => Ok(Running { path, fd }),
-            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                fail!("a review of these commits runs already")
-            }
-            Err(error) => fail!("locking {}: {error}", path.display()),
-        }
+        let Some(fd) = crate::queue::try_lock(&path)? else {
+            fail!("a review of these commits runs already");
+        };
+        Ok(Running { path, fd })
     }
 }
 

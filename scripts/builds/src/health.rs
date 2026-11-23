@@ -586,8 +586,9 @@ pub fn sample(
                 };
                 args(process.pid).is_some_and(locking) && opened(process.pid)
             });
-        // A command such as app-checkout reset can hold the lock too. Only
-        // scan other processes when a lock is taken.
+        // The foreground guard, an external `builds lock` command or an
+        // app-checkout reset can still hold the lock. Only scan other
+        // processes when a lock is taken.
         let driver_running = holding.is_some();
         if holding.is_none() && taken(path) {
             holding = topmost(&processes, machine.uid, opened);
@@ -733,7 +734,7 @@ fn started_from(places: &[Place], pid: i32) -> Option<String> {
 /// Is the lock at <path> taken? Asked by taking it without waiting and
 /// letting it go at once.
 fn taken(path: &Path) -> bool {
-    match crate::queue::open_with(path, libc::O_NONBLOCK | libc::O_CLOEXEC) {
+    match crate::queue::open_with(path, libc::O_NONBLOCK) {
         Ok(fd) => {
             unsafe { libc::close(fd) };
             false

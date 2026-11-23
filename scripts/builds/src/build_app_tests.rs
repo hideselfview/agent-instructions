@@ -1,6 +1,8 @@
 use super::*;
 use crate::app_config::{check_out, parse_config, run_git};
+use crate::app_lock_guard::CheckoutLock;
 use crate::testing::{Scratch, git, repo};
+use std::os::fd::AsFd;
 
 #[test]
 fn the_copy_replaces_the_test_app() {
@@ -91,13 +93,15 @@ fn no_ref_builds_the_origin_main_the_fetch_brought_not_a_stale_local_main() {
     git(&other, &["push", "-q", "origin", "main"]);
     let newer = run_git(&other, &["rev-parse", "HEAD"]).unwrap();
 
-    let config = check_out(&top, default).unwrap().config;
+    let lock = lock::take_checkout(&scratch.places(), "demo", Lane::Mac, "side-1").unwrap();
+    let checkout = CheckoutLock::new(lock.as_fd(), None);
+    let config = check_out(&top, default, checkout).unwrap().config;
     assert_eq!(
         run_git(&top, &["rev-parse", "HEAD"]).unwrap(),
         newer,
         "built the stale local main"
     );
-    run_command(&top, &config.mac.unwrap().build, None).unwrap();
+    run_command(&top, &config.mac.unwrap().build, checkout).unwrap();
     assert!(top.join("out.app").is_dir() && top.join("newer").exists());
 }
 

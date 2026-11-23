@@ -5,9 +5,11 @@
 //! next in line; the command gets the checkout whose lock it holds in
 //! BUILDS_APP_CHECKOUT.
 //!
-//! The build driver holds the checkout lock and queue ticket. Both descriptors
-//! close on exec, so a daemon started by a step cannot hold either after the
-//! driver releases the checkout or exits.
+//! The build driver holds the checkout lock and queue ticket. An app build's
+//! foreground commands get a guard that holds both until the command exits.
+//! The command itself receives neither descriptor, even when it starts a
+//! daemon that outlives it. `builds lock` passes the descriptors to the
+//! external command to reserve the checkout for that command's process tree.
 //!
 //! The command runs in a process group of its own, and SIGTERM, SIGINT and
 //! SIGHUP sent to this process are passed on to that whole group, so killing
@@ -61,6 +63,7 @@
 //! (`Held::requeue`), straight behind the taker, and runs again.
 
 use std::collections::HashMap;
+use std::os::fd::{BorrowedFd, FromRawFd, OwnedFd};
 use std::os::unix::process::CommandExt;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
@@ -68,6 +71,7 @@ use std::sync::mpsc::{RecvTimeoutError, channel};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use crate::app_lock_guard::CheckoutLock;
 use crate::app_remote::host_of;
 use crate::clock::Moment;
 use crate::fail;
@@ -181,6 +185,7 @@ pub fn cmd_lock(places: &Places, args: &[String]) -> Result<()> {
     loop {
         let mut start = Command::new(command);
         start.args(rest).env("BUILDS_APP_CHECKOUT", &held.checkout);
+        held.checkout_lock().pass_to(&mut start);
         let ran = run_in_group(start, command);
         refuse_when_stopped(&format!("ran {command}"))?;
         match ran? {
@@ -254,8 +259,7 @@ struct Takes {
     screen: bool,
 }
 
-/// One of <repo>'s app locks for a lane, held until its owner drops this value
-/// or exits.
+/// A build's reservation of an app checkout and its place in the lane's queue.
 pub struct Held {
     lock: libc::c_int,
     ticket: Ticket,
@@ -275,6 +279,16 @@ pub struct Held {
 }
 
 impl Held {
+    pub fn checkout_lock(&self) -> CheckoutLock<'_> {
+        // Held keeps both descriptors open until it drops.
+        unsafe {
+            CheckoutLock::new(
+                BorrowedFd::borrow_raw(self.lock),
+                Some(BorrowedFd::borrow_raw(self.ticket.fd)),
+            )
+        }
+    }
+
     /// Takes the window lock of this checkout's host for <step>, waiting
     /// while another run that opens windows holds it (window_lock.rs), and
     /// then, in the mac lane, while the host's screen is locked
@@ -590,19 +604,15 @@ fn take_free_lock(
 /// no build holds it; never another checkout's. It skips the queue: a build
 /// the queue let in for a lock takes another free one, or waits for one. The
 /// descriptor holds the lock until closed and closes on exec.
-pub fn take_checkout(
-    places: &Places,
-    repo: &str,
-    lane: Lane,
-    checkout: &str,
-) -> Result<libc::c_int> {
+pub fn take_checkout(places: &Places, repo: &str, lane: Lane, checkout: &str) -> Result<OwnedFd> {
     let dir = places.app_locks_dir(repo, lane);
     std::fs::create_dir_all(&dir).context(|| format!("creating {}", dir.display()))?;
     let file = places.app_lock_file(repo, lane, checkout);
     let mut waiting = false;
     loop {
         if let Some(lock) = queue::try_lock(&file)? {
-            return Ok(lock);
+            // try_lock returns a newly opened descriptor.
+            return Ok(unsafe { OwnedFd::from_raw_fd(lock) });
         }
         if !waiting {
             note(format!(

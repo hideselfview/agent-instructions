@@ -33,6 +33,16 @@ impl Queue {
         Ok(Self(fd))
     }
 
+    /// Registers for the kernel's notification that <pid> exits.
+    pub fn watch_exit(&self, pid: libc::pid_t) -> io::Result<()> {
+        self.change(&[event(
+            pid as libc::uintptr_t,
+            libc::EVFILT_PROC,
+            libc::EV_ADD | libc::EV_ONESHOT,
+            libc::NOTE_EXIT,
+        )])
+    }
+
     pub fn change(&self, changes: &[libc::kevent]) -> io::Result<()> {
         // SAFETY: kevent reads the provided changes and writes no results.
         let result = unsafe {
