@@ -215,7 +215,8 @@ pub struct Settle {
 }
 
 impl Finding {
-    /// The path and line that held the quote when the reviewer saw it.
+    /// The verified quote location, or the path and line the reviewer reported
+    /// when Builds could not verify it.
     pub fn location(&self) -> (&str, i64) {
         (
             self.line.site_path().unwrap_or(&self.file),
