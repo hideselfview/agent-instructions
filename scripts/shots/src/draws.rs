@@ -137,16 +137,8 @@ fn draw(work: &Path, cache: &Path, selection: Selection<'_>) -> Result<Drawings,
             Selection::All => (
                 frames
                     .iter()
-                    .map(|(name, frame)| {
-                        let path = work.join(boards::board_path(name));
-                        let file = std::fs::metadata(&path)
-                            .map_err(|error| format!("reading {}: {error}", path.display()))?;
-                        if !file.is_file() {
-                            return Err(format!("{} is not a board file", path.display()));
-                        }
-                        Ok((name, Some(frame)))
-                    })
-                    .collect::<Result<_, String>>()?,
+                    .map(|(name, frame)| (name, Some(frame)))
+                    .collect(),
                 previews
                     .components
                     .iter()
@@ -157,15 +149,7 @@ fn draw(work: &Path, cache: &Path, selection: Selection<'_>) -> Result<Drawings,
                 let known_components: BTreeSet<_> =
                     previews.components.iter().map(|(name, _)| name).collect();
                 (
-                    boards
-                        .iter()
-                        .map(|name| {
-                            let frame = frames
-                                .get(name)
-                                .filter(|_| work.join(boards::board_path(name)).is_file());
-                            (name, frame)
-                        })
-                        .collect(),
+                    boards.iter().map(|name| (name, frames.get(name))).collect(),
                     components
                         .iter()
                         .map(|name| (name, known_components.contains(name)))

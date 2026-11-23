@@ -29,6 +29,8 @@ pub(crate) enum DesignError {
     NoFrame(String),
     #[error("canvas.json has a board {0}, which names no board file (<name>.dc.html)")]
     NoBoardFile(String),
+    #[error("{0} does not name a regular board file")]
+    NotARegularBoardFile(PathBuf),
     #[error("board {board} imports {part}, but {file} does not exist")]
     MissingPart {
         board: String,
@@ -133,8 +135,26 @@ pub(crate) fn ready_boards(root: &Path) -> Result<Vec<String>, DesignError> {
         .collect())
 }
 
-/// Every board's frame from `canvas.json`, by board name.
+/// Every board's frame from `canvas.json`, by board name. Every entry must
+/// refer to a file in the design tree.
 pub(crate) fn frames(root: &Path) -> Result<BTreeMap<String, Frame>, DesignError> {
+    let frames = canvas_frames(root)?;
+    for name in frames.keys() {
+        match board_is_file(root, name) {
+            Ok(true) => {}
+            Ok(false) => return Err(DesignError::NotARegularBoardFile(board_file(root, name))),
+            Err(error) => {
+                return Err(DesignError::Unreadable {
+                    path: board_file(root, name),
+                    reason: error.to_string(),
+                });
+            }
+        }
+    }
+    Ok(frames)
+}
+
+fn canvas_frames(root: &Path) -> Result<BTreeMap<String, Frame>, DesignError> {
     let path = root.join(boards::CANVAS);
     let canvas: Canvas = serde_json::from_slice(&read(&path)?)
         .map_err(|e| DesignError::BadCanvas(path, e.to_string()))?;
@@ -152,9 +172,14 @@ pub(crate) fn frames(root: &Path) -> Result<BTreeMap<String, Frame>, DesignError
 
 /// The board's frame from `canvas.json`.
 pub(crate) fn frame(root: &Path, name: &str) -> Result<Frame, DesignError> {
-    frames(root)?
+    canvas_frames(root)?
         .remove(name)
         .ok_or_else(|| DesignError::NoFrame(name.to_string()))
+}
+
+/// Whether the screen board's path is a regular file.
+pub(crate) fn board_is_file(root: &Path, name: &str) -> std::io::Result<bool> {
+    std::fs::metadata(board_file(root, name)).map(|file| file.is_file())
 }
 
 /// The file of the board `name`.

@@ -6,11 +6,10 @@
 //! functions the app's `shots-preview-calls` line names.
 
 use crate::declared::Declared;
+use crate::design::board_is_file;
 use crate::names::{Name, Previews, state_id};
 use regex::Regex;
 use std::path::Path;
-
-const BOARDS: &str = boards::MOCKS;
 
 /// The ids of the named rows of a preview page: the first argument of each
 /// call of one of <calls>, such as `N('…', …)`.
@@ -71,11 +70,11 @@ pub(crate) fn problems(
 fn no_board(root: &Path, calls: &[String], previews: &Previews, name: &Name) -> Option<String> {
     match name {
         Name::Screen(_) => {
-            let board = Path::new(BOARDS).join(format!("{name}.dc.html"));
-            match std::fs::metadata(root.join(&board)) {
-                Ok(found) if found.is_file() => None,
-                Ok(_) => Some(format!("{} is not a file", board.display())),
-                Err(error) => Some(unreadable(&board, &error)),
+            let name = name.to_string();
+            match board_is_file(root, &name) {
+                Ok(true) => None,
+                Ok(false) => Some(format!("{} is not a file", boards::board_path(&name))),
+                Err(error) => Some(unreadable(Path::new(&boards::board_path(&name)), &error)),
             }
         }
         Name::Component(c) => {
