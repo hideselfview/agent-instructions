@@ -1,6 +1,8 @@
 use super::*;
+use crate::app_timing::{RunRecord, StepKind, StepRecord, StepResult};
 use crate::lists::fixtures::{NOON, make_store_named, stamp};
-use crate::testing::Scratch;
+use crate::run_end::RunEnd;
+use crate::testing::{Scratch, git, git_out};
 
 const SINCE: i64 = NOON - 100;
 
@@ -44,4 +46,66 @@ fn a_drop_with_no_reason_is_refused() {
         record(db, ("bae", "work"), Lane::Mac, "mac.seek.", " ", &stamp)
     });
     assert!(refused.is_err());
+}
+
+#[test]
+fn the_drop_command_accepts_a_prefix_from_a_build_named_by_commit() {
+    let scratch = Scratch::new("shots-drop-commit");
+    let dir = scratch.dir.join("bae");
+    crate::testing::repo(&dir, "target 1\n");
+    git(&dir, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    git(&dir, &["checkout", "-q", "-b", "work"]);
+    git(&dir, &["commit", "-q", "--allow-empty", "-m", "change"]);
+    let head = git_out(&dir, &["rev-parse", "HEAD"]);
+    let tool = scratch.tool(0);
+    let store = make_store_named(&tool.places, "demo", &["bae"]);
+    let prefix = "mac.seek.";
+    let run = RunRecord {
+        started_at: tool.now,
+        repo: "bae".into(),
+        lane: Lane::Mac,
+        checkout: "side-1".into(),
+        built_ref: head.clone(),
+        built_commit: Some(head),
+        who: None,
+        wait_ms: 0,
+        outcome: RunEnd::Failed,
+        load: None,
+        steps: vec![StepRecord {
+            name: format!("shots {prefix}"),
+            kind: StepKind::Shots,
+            started_at: tool.now,
+            wall_ms: 1,
+            cpu_ms: 1,
+            at_merge_base: Some(false),
+            result: StepResult::Failed(Default::default()),
+            shots: None,
+        }],
+    };
+    crate::app_timing::record(&store.database(), &run).unwrap();
+    let args = [
+        "bae",
+        "work",
+        "mac",
+        prefix,
+        "--why",
+        "the board moved",
+        "--by",
+        "agent",
+    ]
+    .map(str::to_string);
+    let original = current_dir().unwrap();
+    std::env::set_current_dir(&dir).unwrap();
+    let result = cmd_drop_shots(&tool, &args);
+    std::env::set_current_dir(original).unwrap();
+    result.unwrap();
+    let db = store.open_existing().unwrap();
+    assert_eq!(
+        dropped(&db, "bae", "work", Lane::Mac, tool.now).unwrap(),
+        [Drop {
+            prefix: prefix.into(),
+            by: "agent".into(),
+            why: "the board moved".into(),
+        }]
+    );
 }
