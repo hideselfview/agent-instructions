@@ -133,28 +133,49 @@ fn read(
 fn draw(work: &Path, cache: &Path, selection: Selection<'_>) -> Result<Drawings, String> {
     let previews = Previews::of(work)?;
     render::with_design(work, cache, async |server, chrome, frames| {
-        let known_components: BTreeSet<&str> = previews
-            .components
-            .iter()
-            .map(|(name, _)| name.as_str())
-            .collect();
-        let (boards, components): (Vec<&str>, Vec<&str>) = match selection {
+        let (boards, components): (Vec<_>, Vec<_>) = match selection {
             Selection::All => (
-                frames.keys().map(String::as_str).collect(),
-                known_components.iter().copied().collect(),
+                frames
+                    .iter()
+                    .map(|(name, frame)| {
+                        let path = work.join(boards::board_path(name));
+                        let file = std::fs::metadata(&path)
+                            .map_err(|error| format!("reading {}: {error}", path.display()))?;
+                        if !file.is_file() {
+                            return Err(format!("{} is not a board file", path.display()));
+                        }
+                        Ok((name, Some(frame)))
+                    })
+                    .collect::<Result<_, String>>()?,
+                previews
+                    .components
+                    .iter()
+                    .map(|(name, _)| (name, true))
+                    .collect(),
             ),
-            Selection::Named { boards, components } => (
-                boards.iter().map(String::as_str).collect(),
-                components.iter().map(String::as_str).collect(),
-            ),
+            Selection::Named { boards, components } => {
+                let known_components: BTreeSet<_> =
+                    previews.components.iter().map(|(name, _)| name).collect();
+                (
+                    boards
+                        .iter()
+                        .map(|name| {
+                            let frame = frames
+                                .get(name)
+                                .filter(|_| work.join(boards::board_path(name)).is_file());
+                            (name, frame)
+                        })
+                        .collect(),
+                    components
+                        .iter()
+                        .map(|name| (name, known_components.contains(name)))
+                        .collect(),
+                )
+            }
         };
         let mut drawn = Drawings::new();
-        for name in boards {
-            let frame = frames
-                .get(name)
-                .filter(|_| work.join(boards::board_path(name)).is_file());
+        for (name, frame) in boards {
             let picture = match frame {
-                None if matches!(selection, Selection::All) => continue,
                 None => None,
                 Some(frame) => Some(
                     chrome
@@ -174,8 +195,8 @@ fn draw(work: &Path, cache: &Path, selection: Selection<'_>) -> Result<Drawings,
             };
             drawn.insert(format!("board {name}"), picture);
         }
-        for name in components {
-            let picture = if known_components.contains(name) {
+        for (name, exists) in components {
+            let picture = if exists {
                 Some(
                     chrome
                         .with_page(&format!("the preview of {name}"), async |page| {

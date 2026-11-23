@@ -33,7 +33,7 @@ fn cache() -> std::path::PathBuf {
 const BOARD: &str = "dashboard.designs-publish";
 
 /// The repo's own design files as commit `a`, then `b`, which changes bytes
-/// only (an extra entry in canvas.json and a comment in a board's file), and
+/// only (a board position in canvas.json and a comment in a board's file), and
 /// `c`, which changes the board's padding.
 fn history() -> tempfile::TempDir {
     let here = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../design");
@@ -53,13 +53,10 @@ fn history() -> tempfile::TempDir {
     git(repo.path(), &["add", "-A"]);
     git(repo.path(), &["commit", "-q", "-m", "a"]);
     git(repo.path(), &["tag", "a"]);
-    let text = std::fs::read_to_string(&canvas).unwrap();
-    let text = text.replacen(
-        "\"boards\": {",
-        "\"boards\": {\n  \"unrelated.dc.html\": {\"page\": \"dashboard\", \"title\": \"U\", \"x\": 0, \"y\": 9000, \"w\": 10, \"h\": 10},",
-        1,
-    );
-    std::fs::write(&canvas, text).unwrap();
+    let mut index: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&canvas).unwrap()).unwrap();
+    index["boards"][format!("{BOARD}.dc.html")]["x"] = 9000.into();
+    std::fs::write(&canvas, serde_json::to_vec(&index).unwrap()).unwrap();
     let board = repo.path().join(boards::board_path(BOARD));
     let html = std::fs::read_to_string(&board).unwrap();
     std::fs::write(&board, format!("{html}\n<!-- merged from main -->\n")).unwrap();
@@ -187,18 +184,31 @@ fn history_with_deletions() -> (tempfile::TempDir, String) {
     git(repo.path(), &["commit", "-q", "-m", "p"]);
     git(repo.path(), &["tag", "p"]);
     std::fs::remove_file(&preview).unwrap();
-    std::fs::remove_file(repo.path().join(boards::board_path(BOARD))).unwrap();
+    delete_board(repo.path());
     git(repo.path(), &["commit", "-q", "-am", "d"]);
     git(repo.path(), &["tag", "d"]);
     // `e` also deletes both, on a branch of its own from `p`.
     git(repo.path(), &["checkout", "-q", "-b", "other", "p"]);
     std::fs::remove_file(&preview).unwrap();
-    std::fs::remove_file(repo.path().join(boards::board_path(BOARD))).unwrap();
+    delete_board(repo.path());
     std::fs::write(repo.path().join("marker"), "e").unwrap();
     git(repo.path(), &["add", "-A"]);
     git(repo.path(), &["commit", "-q", "-m", "e"]);
     git(repo.path(), &["tag", "e"]);
     (repo, component)
+}
+
+fn delete_board(repo: &Path) {
+    std::fs::remove_file(repo.join(boards::board_path(BOARD))).unwrap();
+    let canvas = repo.join(boards::CANVAS);
+    let mut index: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&canvas).unwrap()).unwrap();
+    index["boards"]
+        .as_object_mut()
+        .unwrap()
+        .remove(&format!("{BOARD}.dc.html"))
+        .unwrap();
+    std::fs::write(canvas, serde_json::to_vec(&index).unwrap()).unwrap();
 }
 
 #[test]
@@ -268,9 +278,17 @@ fn without_selectors_draws_compares_the_boards_and_previews_of_both_revisions() 
             drawings.iter().any(|line| line.starts_with("alike board ")),
             "{drawings:?}"
         );
-        assert!(
-            !drawings.iter().any(|line| line.ends_with(" unrelated")),
-            "{drawings:?}"
-        );
     }
+}
+
+#[test]
+fn without_selectors_draws_reports_a_canvas_entry_whose_file_is_missing() {
+    let repo = history();
+    std::fs::remove_file(repo.path().join(boards::board_path(BOARD))).unwrap();
+    git(repo.path(), &["commit", "-q", "-am", "missing board"]);
+    let error = lines(repo.path(), "HEAD", "c", &[], &[], &cache()).unwrap_err();
+    assert!(
+        error.starts_with("HEAD:") && error.contains(&boards::board_path(BOARD)),
+        "{error}"
+    );
 }
