@@ -225,13 +225,17 @@ pub fn database_of(
     places: &crate::places::Places,
     repo: &str,
 ) -> Result<Option<std::path::PathBuf>> {
-    let mut found = crate::lists::store::projects_holding(places, repo)?;
+    let mut found = databases_holding(places, repo)?;
     match found.len() {
         0 => Ok(None),
-        1 => Ok(Some(places.lists.join(found.remove(0)).join(DATABASE))),
+        1 => Ok(Some(found.remove(0))),
         _ => fail!(
-            "repo {repo} is in two projects ({}); app-build runs have no one place to record",
-            found.join(", ")
+            "repo {repo} is in two projects; app-build runs have no one place to record ({})",
+            found
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
         ),
     }
 }
