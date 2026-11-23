@@ -1260,10 +1260,7 @@ fn read_health(
             &claim,
             branch.clone(),
             &git,
-            &crate::lists::held::Readings {
-                commits: &machine.commits,
-                loaded,
-            },
+            &machine.commits,
         )?);
         judged.push(Claimed {
             place,
@@ -1758,16 +1755,69 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
         _ => crate::fail!("usage: builds health [--json | --stop-junk]"),
     };
     tool.places.require_volume()?;
+    let mut release_failures = Vec::new();
     if !stop_junk {
         // Before health reads the claims, so the reading shows what is left.
         match crate::health_fix::release_idle_claims(tool) {
-            Ok(lines) => lines.iter().for_each(crate::text::note),
-            Err(error) => crate::text::note(format!(
-                "could not check which claims nothing holds: {}",
-                error.text()
+            Ok((released, failed)) => {
+                released.iter().for_each(crate::text::note);
+                release_failures = failed;
+            }
+            Err(error) => release_failures.push(Advice::run(
+                format!(
+                    "Builds could not check which claims it can release. {} Check again with",
+                    error.text()
+                ),
+                "builds health".to_string(),
             )),
         }
     }
+    let result = report(tool, json, stop_junk, release_failures.clone());
+    // A later error replaces the report, which would hold the failures, so
+    // the failures go to the person here. An exit code 1 follows a printed
+    // report.
+    if let Err(error) = &result
+        && !matches!(error, Fail::Exit(_))
+    {
+        release_failures
+            .iter()
+            .for_each(|advice| crate::text::note(advice.line()));
+    }
+    result
+}
+
+/// What `builds health --json` prints: <health> and each host's busy
+/// processes.
+fn health_json(health: &Health, busy: &[crate::stuck::HostBusy]) -> serde_json::Value {
+    let mut value = serde_json::to_value(health).expect("health serializes");
+    value["busy"] = serde_json::json!(
+        busy.iter()
+            .map(|host| {
+                let (busy, error) = host.report();
+                serde_json::json!({
+                    "host": host.host,
+                    "busy": busy,
+                    "error": error,
+                })
+            })
+            .collect::<Vec<_>>()
+    );
+    value
+}
+
+/// The findings for the claims health could not check or release, which the
+/// text report and `--json` both print.
+fn claim_findings(failures: Vec<Advice>) -> Vec<Finding> {
+    failures
+        .into_iter()
+        .map(|advice| Finding::new(FindingKind::Claim, advice))
+        .collect()
+}
+
+/// What `builds health` prints once the claims it may release are released:
+/// <release_failures> are the claims it could not check, which the report
+/// lists as findings.
+fn report(tool: &Tool, json: bool, stop_junk: bool, release_failures: Vec<Advice>) -> Result<()> {
     if !stop_junk {
         // Before health reads the reviews, so the reading lists only the
         // ones that still hold work.
@@ -1919,6 +1969,7 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
     scanned.forget_stopped(&stops.stopped);
     let (mut health, releases) = finish_health(tool, health, &mut loaded, &scanned)?;
     releases.iter().for_each(crate::text::note);
+    health.findings.extend(claim_findings(release_failures));
     health.findings.extend(dashboard_finding(dashboard));
     let (prune_line, prune_late) = crate::prune_schedule::health(&tool.places, tool.now);
     health.findings.extend(
@@ -1959,20 +2010,7 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
         .findings
         .extend(host_findings(&scanned, &busy, &refusals, &installed));
     if json {
-        let mut value = serde_json::to_value(&health).expect("health serializes");
-        value["busy"] = serde_json::json!(
-            busy.iter()
-                .map(|host| {
-                    let (busy, error) = host.report();
-                    serde_json::json!({
-                        "host": host.host,
-                        "busy": busy,
-                        "error": error,
-                    })
-                })
-                .collect::<Vec<_>>()
-        );
-        println!("{value}");
+        println!("{}", health_json(&health, &busy));
     } else {
         // The dashboard, prune and the busy processes come before "needs
         // action", which is last.
@@ -2012,6 +2050,86 @@ mod tests {
     use super::*;
     use crate::side_git::Commit;
     use crate::side_git::SideRead;
+
+    /// A claim that health cannot read is not released, and `builds health
+    /// --json` lists the failure as a claim finding with the command that
+    /// checks it again.
+    #[test]
+    fn a_claim_health_cannot_release_is_a_claim_finding_in_the_json_report() {
+        let scratch = crate::testing::Scratch::new("health-unreadable-claim");
+        let tool = scratch.tool(0);
+        let main = scratch.dir.join("demo");
+        crate::testing::repo(&main, "target 1G\n");
+        let origin = scratch.dir.join("origin.git");
+        let origin_path = origin.display().to_string();
+        crate::testing::git(&scratch.dir, &["init", "-q", "--bare", &origin_path]);
+        crate::testing::git(&main, &["remote", "add", "origin", &origin_path]);
+        crate::testing::git(&main, &["push", "-q", "origin", "main"]);
+        crate::worktree::cmd_new(
+            &tool,
+            &crate::testing::no_ssh(),
+            &[
+                main.display().to_string(),
+                "--for".to_string(),
+                "agent".to_string(),
+            ],
+        )
+        .unwrap();
+        let top = scratch.dir.join("demo-worktrees/side-1");
+        let checkout = crate::checkout::Checkout::find(&top.display().to_string()).unwrap();
+        std::fs::write(checkout.claim_file(), "agent\tnot-a-date\n").unwrap();
+
+        let (released, failed) = crate::health_fix::release_idle_claims(&tool).unwrap();
+        assert!(released.is_empty(), "{released:?}");
+        let now = 1_800_000_000;
+        let mut health = assess(
+            now,
+            DiskSpace {
+                free_kib: 100 << 20,
+                floor_kib: 30 << 20,
+                hard_floor_kib: 10 << 20,
+            },
+            Machine {
+                at: now,
+                load: [1.0; 3],
+                cores: 8,
+                builds: Vec::new(),
+                remote_runs: Vec::new(),
+                app_builds: Vec::new(),
+                landings: Vec::new(),
+                unread: Vec::new(),
+                commits: Default::default(),
+                sccache: SccacheHealth {
+                    server: SccacheServer::Read {
+                        executed: 1,
+                        compared: None,
+                    },
+                    waiting: Vec::new(),
+                },
+                shells: Shells::default(),
+                locks: Vec::new(),
+                queues: Vec::new(),
+            },
+            &[],
+            Vec::new(),
+            LeftBehind::default(),
+            Vec::new(),
+        );
+        health.findings.extend(claim_findings(failed));
+
+        let json = health_json(&health, &[]);
+        let claims: Vec<&serde_json::Value> = json["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|finding| finding["kind"] == "claim")
+            .collect();
+        assert_eq!(claims.len(), 1, "{json}");
+        assert_eq!(
+            claims[0]["command"],
+            format!("builds release {}", top.display())
+        );
+    }
 
     /// A build volume whose events macOS keeps a history of is a line under
     /// "needs action", and one it keeps none of adds none.

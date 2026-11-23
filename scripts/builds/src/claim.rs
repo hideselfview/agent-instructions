@@ -475,6 +475,16 @@ pub fn forget(checkout: &Checkout) -> Result<Option<Claim>> {
     unclaim(checkout)
 }
 
+/// `forget`, but only while the claim on <checkout> is still <expected>, the
+/// claim the caller checked: another command may have held, replaced or
+/// released it since. Returns None when it is no longer <expected>.
+pub fn forget_claimed(checkout: &Checkout, expected: &Claim) -> Result<Option<Claim>> {
+    if Claim::read(&checkout.claim_file())?.as_ref() != Some(expected) {
+        return Ok(None);
+    }
+    forget(checkout)
+}
+
 /// Removes <checkout>'s claim and keeps its project file, and returns the
 /// claim, or None when there was none: an item kept there (lists/kept_work.rs)
 /// keeps the worktree in its project for the agent that takes it next.

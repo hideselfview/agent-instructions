@@ -185,8 +185,11 @@ fn noting_a_worktree_held_and_then_not_held_keeps_a_held_span_on_its_items() {
 fn worktree(top: &std::path::Path, who: &str, state: Option<&str>, ahead: Vec<String>) -> Worktree {
     Worktree {
         label: "demo/side-1".into(),
-        top: top.to_path_buf(),
-        repo: "demo".into(),
+        checkout: Checkout {
+            top: top.to_path_buf(),
+            main: top.parent().unwrap().join("demo"),
+            git_dir: top.join(".git"),
+        },
         branch: None,
         claim: Claim {
             who: who.into(),
@@ -195,16 +198,8 @@ fn worktree(top: &std::path::Path, who: &str, state: Option<&str>, ahead: Vec<St
         },
         project: None,
         app_checkout: false,
-        git: Ok(read_of(side_read(&ahead))),
+        git: Ok(side_read(&ahead)),
         committing: Ok(Vec::new()),
-    }
-}
-
-/// <side> with no commit copied on another branch.
-fn read_of(side: SideRead) -> crate::lists::held::Read {
-    crate::lists::held::Read {
-        side,
-        copied: Default::default(),
     }
 }
 
@@ -241,7 +236,7 @@ fn loaded(lists: Lists) -> std::result::Result<Vec<Loaded>, String> {
 fn bae_worktree(state: Option<&str>) -> Worktree {
     let top = std::path::Path::new("/w/bae-worktrees/side-1");
     let mut tree = worktree(top, "agent", state, Vec::new());
-    tree.repo = "bae".into();
+    tree.checkout.main = top.parent().unwrap().join("bae");
     tree
 }
 
@@ -372,7 +367,7 @@ fn health_names_a_worktree_whose_commits_git_cannot_read_and_never_calls_it_cove
         "{found:?}"
     );
     assert!(
-        !tree.claim_is_idle(true),
+        tree.idle_claim(true, &[]).unwrap().is_none(),
         "commits git could not read may wait to land"
     );
     assert!(
@@ -497,7 +492,7 @@ fn an_item_waiting_on_the_persons_question_is_taken_held_and_health_leaves_it() 
         ]
     );
     let mut tree = worktree(&top, "agent", Some("held"), Vec::new());
-    tree.repo = "demo".into();
+    tree.checkout.main = top.parent().unwrap().join("demo");
     assert!(
         findings(
             &loaded(lists),
@@ -563,21 +558,29 @@ fn a_worktree_with_no_design_change_does_not_await_approval() {
 
 #[test]
 fn health_names_a_claimed_worktree_whose_items_closed_and_has_nothing_to_land() {
-    let db = db();
-    let id = item(&db, vec![]);
-    running_in_db(&db, id, "/w/bae-worktrees/side-1");
-    let tree = bae_worktree(None);
+    let demo = demo("claim-release-advice");
+    let top = demo.add_side(1, "agent", "work");
+    start(&demo, &top, |_| Vec::new());
+    let id = demo.store.load().unwrap().items[0].id;
+    let mut tree = worktree(&top, "agent", None, Vec::new());
+    tree.checkout = Checkout::at(&top).unwrap().unwrap();
     assert!(
         findings(
-            &loaded(read(&db)),
+            &loaded(demo.store.load().unwrap()),
             std::slice::from_ref(&tree),
             Coverage::Read(&DesignReads::default())
         )
         .is_empty()
     );
-    crate::lists::running::end(&db, id, crate::lists::Ended::Closed, &stamp(NOON)).unwrap();
+    demo.store
+        .write(&stamp(NOON), "end", |db| {
+            let stamp = stamp(NOON);
+            crate::lists::record::close(db, id, How::Finished("finished".into()), &stamp)?;
+            crate::lists::running::end(db, id, crate::lists::Ended::Closed, &stamp)
+        })
+        .unwrap();
     let found = findings(
-        &loaded(read(&db)),
+        &loaded(demo.store.load().unwrap()),
         std::slice::from_ref(&tree),
         Coverage::Read(&DesignReads::default()),
     );
@@ -588,20 +591,20 @@ fn health_names_a_claimed_worktree_whose_items_closed_and_has_nothing_to_land() 
     );
     assert_eq!(
         found[0].command.as_deref(),
-        Some("builds release /w/bae-worktrees/side-1")
+        Some(format!("builds release {}", top.display()).as_str())
     );
-    let mut waiting = bae_worktree(None);
-    waiting.git = Ok(read_of(side_read(&["abc".into()])));
-    let mut editing = bae_worktree(None);
-    editing.git.as_mut().unwrap().side.uncommitted = 1;
+    let sha = demo.commit(&top, "only-here");
+    let mut waiting = worktree(&top, "agent", None, vec![sha]);
+    waiting.checkout = Checkout::at(&top).unwrap().unwrap();
+
     let mut committing = bae_worktree(None);
     committing.committing = Ok(vec![4242]);
     let mut unknown = bae_worktree(None);
     unknown.committing = Err("builds cannot read process 4242".into());
-    for busy in [waiting, editing, committing, unknown] {
+    for busy in [waiting, committing, unknown] {
         assert!(
             findings(
-                &loaded(read(&db)),
+                &loaded(demo.store.load().unwrap()),
                 std::slice::from_ref(&busy),
                 Coverage::Read(&DesignReads::default())
             )
@@ -671,30 +674,110 @@ fn health_sees_an_item_of_either_project_in_a_repo_two_projects_hold() {
     }
 }
 
+#[test]
+fn an_active_worktree_does_not_need_a_release_copy_check() {
+    let demo = demo("held-active-copies");
+    let top = demo.add_side(1, "agent", "work");
+    let original = demo.commit(&top, "preserved");
+    let copy = demo.add_side(2, "other", "copy");
+    demo.commit(&copy, "other-file");
+    crate::testing::git(&copy, &["cherry-pick", &original]);
+
+    let checkout = Checkout::at(&top).unwrap().unwrap();
+    let mut worktree = Worktree::read(
+        &demo.tool.places,
+        "demo/side-1".into(),
+        &checkout,
+        &claim_of(&top),
+        checkout.branch().unwrap(),
+        &crate::side_git::read(&top),
+        &crate::procs::GitCommits::default(),
+    )
+    .unwrap();
+    let lists = [demo.store.load().unwrap()];
+    assert_eq!(
+        worktree.idle_claim(true, &lists).unwrap(),
+        Some(BTreeSet::from(["copy".into()]))
+    );
+
+    // The retained git read has commits, but a copy probe on the missing
+    // checkout would fail. An active item keeps the claim without that probe.
+    worktree.checkout.top = top.join("missing");
+    assert!(worktree.idle_claim(true, &lists).is_err());
+    assert_eq!(worktree.idle_claim(false, &lists).unwrap(), None);
+}
+
+#[test]
+fn an_idle_worktree_keeps_a_branch_it_left_with_uncopied_work() {
+    let demo = demo("held-release-left-branch");
+    let top = demo.add_side(1, "agent", "work");
+    demo.commit(&top, "uncopied");
+    crate::testing::git(&top, &["switch", "--detach", "origin/main"]);
+    let checkout = Checkout::at(&top).unwrap().unwrap();
+    let git = crate::side_git::read(&top).unwrap();
+    assert!(git.ahead.is_empty());
+    let tree = Worktree::read(
+        &demo.tool.places,
+        "demo/side-1".into(),
+        &checkout,
+        &claim_of(&top),
+        None,
+        &Ok(git),
+        &crate::procs::GitCommits::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        tree.idle_claim(true, &[demo.store.load().unwrap()])
+            .unwrap(),
+        None
+    );
+}
+
 /// A claim is idle, and `builds health` says to release it and releases it,
 /// only while nothing holds the worktree: no item runs there, no commit waits
 /// to land, no file is uncommitted, no `git commit` runs, and the claim is
 /// neither held nor waiting for its item, nor an app checkout's.
 #[test]
 fn a_claim_is_idle_only_when_nothing_holds_the_worktree() {
-    let top = std::path::Path::new("/w");
-    assert!(worktree(top, "a", None, Vec::new()).claim_is_idle(true));
-    assert!(!worktree(top, "a", None, Vec::new()).claim_is_idle(false));
-    assert!(!worktree(top, "a", Some("held"), Vec::new()).claim_is_idle(true));
-    assert!(!worktree(top, "a", Some("starting"), Vec::new()).claim_is_idle(true));
-    assert!(!worktree(top, "a", None, vec!["abc".into()]).claim_is_idle(true));
-    let mut dirty = worktree(top, "a", None, Vec::new());
-    dirty.git.as_mut().unwrap().side.uncommitted = 2;
-    assert!(!dirty.claim_is_idle(true));
-    let mut committing = worktree(top, "a", None, Vec::new());
+    let demo = demo("claim-release-gates");
+    let top = demo.add_side(1, "agent", "work");
+    assert!(
+        worktree(&top, "a", None, Vec::new())
+            .idle_claim(true, &[])
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        worktree(&top, "a", None, Vec::new())
+            .idle_claim(false, &[])
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        worktree(&top, "a", Some("held"), Vec::new())
+            .idle_claim(true, &[])
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        worktree(&top, "a", Some("starting"), Vec::new())
+            .idle_claim(true, &[])
+            .unwrap()
+            .is_none()
+    );
+    let mut dirty = worktree(&top, "a", None, Vec::new());
+    std::fs::write(top.join("dirty"), "").unwrap();
+    dirty.git = crate::side_git::read(&top);
+    assert!(dirty.idle_claim(true, &[]).unwrap().is_none());
+    let mut committing = worktree(&top, "a", None, Vec::new());
     committing.committing = Ok(vec![7]);
-    assert!(!committing.claim_is_idle(true));
-    let mut unknown = worktree(top, "a", None, Vec::new());
+    assert!(committing.idle_claim(true, &[]).unwrap().is_none());
+    let mut unknown = worktree(&top, "a", None, Vec::new());
     unknown.committing = Err("ps failed".into());
-    assert!(!unknown.claim_is_idle(true));
-    let mut app = worktree(top, "a", None, Vec::new());
+    assert!(unknown.idle_claim(true, &[]).is_err());
+    let mut app = worktree(&top, "a", None, Vec::new());
     app.app_checkout = true;
-    assert!(!app.claim_is_idle(true));
+    assert!(app.idle_claim(true, &[]).unwrap().is_none());
 }
 
 /// Health's advice to release a claim and its own release use one test, so
@@ -702,11 +785,12 @@ fn a_claim_is_idle_only_when_nothing_holds_the_worktree() {
 #[test]
 fn health_advises_no_release_of_a_claim_waiting_for_its_item() {
     let db = db();
-    let top = std::path::Path::new("/w");
+    let demo = demo("claim-release-starting");
+    let top = demo.add_side(1, "agent", "work");
     let loaded = loaded(read(&db));
     let idle = findings(
         &loaded,
-        &[worktree(top, "a", None, Vec::new())],
+        &[worktree(&top, "a", None, Vec::new())],
         Coverage::Read(&DesignReads::default()),
     );
     assert!(
@@ -715,7 +799,7 @@ fn health_advises_no_release_of_a_claim_waiting_for_its_item() {
     );
     let starting = findings(
         &loaded,
-        &[worktree(top, "a", Some("starting"), Vec::new())],
+        &[worktree(&top, "a", Some("starting"), Vec::new())],
         Coverage::Read(&DesignReads::default()),
     );
     assert!(

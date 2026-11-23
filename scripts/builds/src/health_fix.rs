@@ -164,55 +164,61 @@ pub fn stop_orphans(
 }
 
 /// Releases each claim that health would tell the coordinator to release
-/// (`Worktree::claim_is_idle`, the test health's own finding uses): on a side
+/// (`kept::idle_claim`, the check health uses for its finding): on a side
 /// worktree that is not an app checkout's, not held and not waiting for its
 /// item, where no item runs, no commit origin/main lacks waits, no file is
 /// uncommitted and no `git commit` runs. Returns one line for each worktree it
 /// released.
-pub fn release_idle_claims(tool: &Tool) -> Result<Vec<String>> {
+pub fn release_idle_claims(tool: &Tool) -> Result<(Vec<String>, Vec<crate::health::Advice>)> {
     let every = crate::lists::store::every_lists(&tool.places)?;
-    let loaded = crate::lists::store::load_all(&tool.places);
     let commits = crate::procs::git_commits(&crate::procs::Processes::read()?);
-    let mut lines = Vec::new();
+    let mut released = Vec::new();
+    let mut failed = Vec::new();
     for root in tool.roots()? {
-        let Some(checkout) = &root.live else {
+        let Some(checkout) = root.live.filter(|checkout| checkout.is_side()) else {
             continue;
         };
-        if !checkout.is_side() {
-            continue;
-        }
-        let Some(claim) = Claim::read(&checkout.claim_file())? else {
-            continue;
-        };
-        let top = checkout.top.display().to_string();
-        let worktree = crate::lists::held::Worktree::read(
-            &tool.places,
-            top.clone(),
-            checkout,
-            &claim,
-            checkout.branch()?,
-            &crate::side_git::read(&checkout.top),
-            &crate::lists::held::Readings {
-                commits: &commits,
-                loaded: &loaded,
-            },
-        )?;
-        let nothing_runs = crate::lists::running::running_in_any(&every, &top).is_empty();
-        if worktree.claim_is_idle(nothing_runs)
-            && let Some(claim) = crate::claim::forget(checkout)?
-        {
-            let holders: std::collections::BTreeSet<String> = worktree.git.as_ref().map_or_else(
-                |_| Default::default(),
-                |read| read.copied.values().cloned().collect(),
-            );
-            lines.push(format!(
-                "released {top}, which nothing held (was {}){}",
-                claim.text(),
-                crate::unlanded::copies_words(&holders)
-            ));
+        let top = checkout.top.to_string_lossy();
+        let attempt = (|| -> Result<Option<String>> {
+            let Some(claim) = Claim::read(&checkout.claim_file())? else {
+                return Ok(None);
+            };
+            let nothing_runs = !crate::lists::running::runs_in_any(&every, &top);
+            let Some(holders) = crate::kept::idle_claim(
+                &checkout,
+                &claim,
+                &every,
+                nothing_runs,
+                || Ok(checkout.app_lane(&tool.places)?.is_some()),
+                || crate::procs::commits_in(&commits, &checkout.top),
+                None,
+            )?
+            else {
+                return Ok(None);
+            };
+            Ok(
+                crate::claim::forget_claimed(&checkout, &claim)?.map(|claim| {
+                    format!(
+                        "released {top}, which nothing held (was {}){}",
+                        claim.text(),
+                        crate::unlanded::copies_words(&holders)
+                    )
+                }),
+            )
+        })();
+        match attempt {
+            Ok(Some(line)) => released.push(line),
+            Ok(None) => {}
+            Err(error) => failed.push(crate::health::Advice::run(
+                format!(
+                    "Builds could not release the claim on {top}. {} Check it again with",
+                    error.text()
+                ),
+                format!("builds release {top}"),
+            )),
         }
     }
-    Ok(lines)
+    Ok((released, failed))
 }
 
 /// Releases the claim of each worktree that has had no change and no
@@ -289,7 +295,7 @@ pub fn release_stalled_claims(tool: &Tool, health: &crate::health::Health) -> Re
         {
             continue;
         }
-        if let Some(claim) = crate::claim::forget(&checkout)? {
+        if let Some(claim) = crate::claim::forget_claimed(&checkout, &worktree.claim)? {
             lines.push(format!(
                 "released {top}, which holds nothing origin/main lacks and had no change for {} (was {})",
                 crate::text::duration(idle * 60),

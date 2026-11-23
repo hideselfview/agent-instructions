@@ -246,20 +246,32 @@ pub fn waiting_to_land_beside(
     if unmatched.is_empty() {
         return Ok(unmatched);
     }
-    let marks = run(top, &["cherry", "origin/main", rev])?;
-    let no_patch_copy: HashSet<&str> = marks
+    without_patch_copy_on(top, "origin/main", rev, unmatched)
+}
+
+/// The commits of <commits>, which are on <rev>, that <upstream> has no
+/// commit with the same patch for (`git cherry <upstream> <rev>` marks them
+/// "+").
+fn without_patch_copy_on(
+    top: &Path,
+    upstream: &str,
+    rev: &str,
+    commits: Vec<Commit>,
+) -> Result<Vec<Commit>, String> {
+    let marks = run(top, &["cherry", upstream, rev])?;
+    let no_copy: HashSet<&str> = marks
         .lines()
         .filter_map(|line| line.strip_prefix("+ "))
         .collect();
-    Ok(unmatched
+    Ok(commits
         .into_iter()
-        .filter(|c| no_patch_copy.contains(c.full.as_str()))
+        .filter(|commit| no_copy.contains(commit.full.as_str()))
         .collect())
 }
 
 /// <commits>, the commits on <rev> that origin/main lacks, split into those
-/// that no branch of <holders> has a copy of and the commits that some holder
-/// has, by hash or by patch id (`git cherry <holder> <rev>` lists exactly the
+/// that no branch of <holders> has a copy of and the branches that hold
+/// those copies, by hash or by patch id (`git cherry <holder> <rev>` lists exactly the
 /// commits of <rev> that the holder has no commit with the same patch for).
 /// Each held commit goes with the first holder that has it. Releasing a
 /// worktree whose commits a holder has loses nothing.
@@ -270,31 +282,26 @@ pub fn split_held(
     holders: &[String],
 ) -> Result<Split, String> {
     let mut lacking = commits;
-    let mut held = Vec::new();
+    let mut copied_on = std::collections::BTreeSet::new();
     for holder in holders {
         if lacking.is_empty() {
             break;
         }
-        let marks = run(top, &["cherry", &format!("refs/heads/{holder}"), rev])?;
-        let no_copy: HashSet<&str> = marks
-            .lines()
-            .filter_map(|line| line.strip_prefix("+ "))
-            .collect();
-        let (keeps, has): (Vec<Commit>, Vec<Commit>) = lacking
-            .into_iter()
-            .partition(|c| no_copy.contains(c.full.as_str()));
-        held.extend(has.into_iter().map(|c| (c, holder.clone())));
-        lacking = keeps;
+        let previous = lacking.len();
+        lacking = without_patch_copy_on(top, &format!("refs/heads/{holder}"), rev, lacking)?;
+        if lacking.len() < previous {
+            copied_on.insert(holder.clone());
+        }
     }
-    Ok(Split { lacking, held })
+    Ok(Split { lacking, copied_on })
 }
 
 /// What `split_held` found.
 pub struct Split {
     /// The commits no holder has a copy of.
     pub lacking: Vec<Commit>,
-    /// The commits a holder has a copy of, each with the first such holder.
-    pub held: Vec<(Commit, String)>,
+    /// The branches that hold copies of the commits left out of lacking.
+    pub copied_on: std::collections::BTreeSet<String>,
 }
 
 /// The count of changed and untracked files in <top>, and the newest

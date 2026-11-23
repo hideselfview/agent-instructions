@@ -40,10 +40,13 @@ pub struct Held {
 
 impl Held {
     pub fn is_empty(&self) -> bool {
+        self.committing.is_empty() && self.git_is_empty()
+    }
+
+    pub fn git_is_empty(&self) -> bool {
         self.head.1.is_empty()
             && self.left.iter().all(|(_, commits)| commits.is_empty())
             && self.uncommitted.is_empty()
-            && self.committing.is_empty()
     }
 }
 
@@ -92,24 +95,30 @@ fn branches_left(top: &Path, since: i64) -> Result<Vec<String>> {
 /// The local branches that can hold the commits of <checkout>: the branch
 /// of each other worktree of its repo, and each name of <items> (the
 /// branches open items run or are kept on), except the branch <checkout>
-/// has checked out. A commit that one of them holds a copy of is held by it.
-pub fn holders(checkout: &Checkout, items: &[String]) -> Result<Vec<String>> {
+/// has checked out, <own>. <listed> is the worktree list the caller read, so
+/// the caller and this function judge one answer. A commit that one of them
+/// holds a copy of is held by it.
+fn holders(
+    checkout: &Checkout,
+    own: Option<&String>,
+    listed: &[crate::checkout::Listed],
+    items: &[String],
+) -> Result<Vec<String>> {
     let top = &checkout.top;
-    let own = checkout.branch()?;
     let canonical = |path: &Path| {
         std::fs::canonicalize(path)
             .map_err(|error| fail::Fail::Message(format!("resolving {}: {error}", path.display())))
     };
     let here = canonical(top)?;
     let mut elsewhere = Vec::new();
-    for listed in crate::checkout::worktree_list(top)? {
-        if canonical(&listed.top)? != here {
-            elsewhere.extend(listed.branch);
+    for other in listed {
+        if canonical(&other.top)? != here {
+            elsewhere.extend(other.branch.clone());
         }
     }
     let mut holders: Vec<String> = Vec::new();
     for name in elsewhere.into_iter().chain(items.iter().cloned()) {
-        if Some(&name) != own.as_ref()
+        if Some(&name) != own
             && !holders.contains(&name)
             && crate::checkout::branch_exists(top, &name)?
         {
@@ -140,12 +149,15 @@ pub fn item_branches<'a>(
 /// files not committed, and the `git commit`s of <commits> (every one that
 /// runs) that run there. A commit that a branch another worktree checks out,
 /// or a name of <held>, has a copy of (the same patch) is no work: that
-/// branch holds it (`Held::copied_on` names the branches).
+/// branch holds it (`Held::copied_on` names the branches). <known> is a read
+/// of the worktree's git state the caller already has: its commits waiting
+/// to land and its count of uncommitted files then replace those two reads.
 pub fn in_worktree(
     checkout: &Checkout,
     since: i64,
-    held: &[String],
-    commits: &crate::procs::GitCommits,
+    every: &[crate::lists::Lists],
+    committing: Vec<i32>,
+    known: Option<&crate::side_git::SideRead>,
 ) -> Result<Held> {
     let top = &checkout.top;
     let unread = |error: String| {
@@ -153,31 +165,44 @@ pub fn in_worktree(
     };
     let branch = checkout.branch()?;
     let mut copied_on = BTreeSet::new();
-    let holders = holders(checkout, held)?;
-    let mut unheld = |rev: &str| -> Result<Vec<Commit>> {
-        let waiting = crate::side_git::waiting_to_land(top, rev).map_err(unread)?;
+    let held = item_branches(every.iter(), checkout);
+    let listed = crate::checkout::worktree_list(top)?;
+    let holders = holders(checkout, branch.as_ref(), &listed, &held)?;
+    let mut split = |tip: &str, waiting: Vec<Commit>| -> Result<Vec<Commit>> {
         if waiting.is_empty() {
             return Ok(waiting);
         }
-        let split = crate::side_git::split_held(top, rev, waiting, &holders).map_err(unread)?;
-        copied_on.extend(split.held.into_iter().map(|(_, holder)| holder));
+        let split = crate::side_git::split_held(top, tip, waiting, &holders).map_err(unread)?;
+        copied_on.extend(split.copied_on);
         Ok(split.lacking)
     };
-    let head = unheld("HEAD")?;
-    let checked_out: Vec<String> = crate::checkout::worktree_list(top)?
-        .into_iter()
-        .filter_map(|listed| listed.branch)
+    let head = match known {
+        // The newest commit waiting to land has every other one among its
+        // ancestors, so `git cherry` from it sees them all.
+        Some(read) => match read.ahead.first() {
+            Some(newest) => split(&newest.full, read.ahead.clone())?,
+            None => Vec::new(),
+        },
+        None => {
+            let tip = crate::checkout::resolve_commit(top, "HEAD")?;
+            let waiting = crate::side_git::waiting_to_land(top, &tip).map_err(unread)?;
+            split(&tip, waiting)?
+        }
+    };
+    let checked_out: Vec<&String> = listed
+        .iter()
+        .filter_map(|listed| listed.branch.as_ref())
         .collect();
     let mut left = Vec::new();
     for name in branches_left(top, since)? {
-        if Some(&name) == branch.as_ref()
-            || checked_out.contains(&name)
-            || held.contains(&name)
-            || !crate::checkout::branch_exists(top, &name)?
-        {
+        if Some(&name) == branch.as_ref() || checked_out.contains(&&name) || held.contains(&name) {
             continue;
         }
-        let commits = unheld(&format!("refs/heads/{name}"))?;
+        let Some(tip) = crate::checkout::branch_tip(top, &name)? else {
+            continue;
+        };
+        let waiting = crate::side_git::waiting_to_land(top, &tip).map_err(unread)?;
+        let commits = split(&tip, waiting)?;
         if !commits.is_empty() {
             left.push((name, commits));
         }
@@ -185,11 +210,15 @@ pub fn in_worktree(
     Ok(Held {
         head: (branch, head),
         left,
-        uncommitted: crate::side_git::uncommitted_paths(top)
-            .map_err(unread)?
-            .into_iter()
-            .collect(),
-        committing: crate::procs::commits_in(commits, top).map_err(fail::Fail::Message)?,
+        uncommitted: if known.is_some_and(|read| read.uncommitted == 0) {
+            Vec::new()
+        } else {
+            crate::side_git::uncommitted_paths(top)
+                .map_err(unread)?
+                .into_iter()
+                .collect()
+        },
+        committing,
         copied_on,
     })
 }
@@ -276,7 +305,7 @@ pub struct LooseBranch {
 /// What `loose_branches` found of each branch tip against origin/main's tip.
 /// The caller keeps it between readings, so `loose_branches` judges a branch
 /// again only when its tip or origin/main's tip moves.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct Judged(HashMap<(String, String), Vec<Commit>>);
 
 /// Every local branch of the repo at <main> whose tip origin/main does not
@@ -309,12 +338,7 @@ pub fn unmerged_branches(main: &Path) -> Result<Vec<(String, String)>> {
 /// order. <judged> keeps what earlier readings found.
 pub fn loose_branches(main: &Path, judged: &mut Judged) -> Result<Vec<LooseBranch>> {
     let repo = crate::checkout::file_name(main);
-    let tip = git_text(
-        git(main).args(["rev-parse", "--verify", "origin/main^{commit}"]),
-        "read origin/main",
-    )?
-    .trim()
-    .to_string();
+    let tip = crate::checkout::resolve_commit(main, "origin/main")?;
     let checked_out: BTreeSet<String> = crate::checkout::worktree_list(main)?
         .into_iter()
         .filter_map(|listed| listed.branch)

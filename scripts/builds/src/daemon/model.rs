@@ -1036,7 +1036,6 @@ impl Model {
             &inputs.facts,
             &places,
             &machine.commits,
-            &loaded,
         )?;
         let unclaimed = unclaimed_of(
             &self.places,
@@ -2224,7 +2223,6 @@ fn claimed_of(
     facts: &HashMap<PathBuf, Facts>,
     places: &[Place],
     commits: &crate::procs::GitCommits,
-    loaded: &std::result::Result<Vec<crate::lists::store::Loaded>, String>,
 ) -> crate::fail::Result<(Vec<Claimed>, Vec<crate::lists::held::Worktree>)> {
     let mut claimed = Vec::new();
     let mut held = Vec::new();
@@ -2256,7 +2254,7 @@ fn claimed_of(
             claim,
             branch.clone(),
             git,
-            &crate::lists::held::Readings { commits, loaded },
+            commits,
         )?);
         claimed.push(Claimed {
             place,

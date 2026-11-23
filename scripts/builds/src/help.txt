@@ -2457,7 +2457,12 @@ STATUS, HEALTH AND THE DASHBOARD
                               keeps its daemons; a claim that "builds release"
                               would accept on a worktree that nothing holds
                               (the case listed below) and that is not in the
-                              starting state (below) is released; a review
+                              starting state (below) is released, and only
+                              while it is still the claim health checked;
+                              a claim that health cannot check or release
+                              is a finding with `builds release` to check
+                              it again, and health prints that failure even
+                              when a later read fails; a review
                               landing with nothing left to land is ended
                               (REVIEW RECORDS' ENDS in LANDING AND REVIEW), so
                               health lists only reviews that still hold work; a process

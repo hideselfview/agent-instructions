@@ -512,3 +512,52 @@ mod stalled_claims {
         assert_eq!(demo.store.load().unwrap().items[0].running.len(), 1);
     }
 }
+
+/// Health releases a claim only while it is the claim it checked.
+#[test]
+fn a_claim_another_command_replaced_is_not_released() {
+    let scratch = crate::testing::Scratch::new("health-replaced-claim");
+    let top = scratch.dir.join("demo-worktrees/side-1");
+    let main = scratch.dir.join("demo");
+    crate::testing::repo(&main, "target 1G\n");
+    std::fs::create_dir_all(top.parent().unwrap()).unwrap();
+    crate::testing::git(
+        &main,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "-b",
+            "work",
+            &top.display().to_string(),
+            "main",
+        ],
+    );
+    let checkout = crate::checkout::Checkout::find(&top.display().to_string()).unwrap();
+    let checked = Claim {
+        who: "agent".into(),
+        since: 1_790_000_040,
+        note: None,
+    };
+    let replaced = Claim {
+        who: "another agent".into(),
+        since: 1_790_000_100,
+        note: None,
+    };
+    replaced.write(&checkout.claim_file()).unwrap();
+
+    assert!(
+        crate::claim::forget_claimed(&checkout, &checked)
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(Claim::read(&checkout.claim_file()).unwrap(), Some(replaced));
+    assert!(
+        crate::claim::forget_claimed(
+            &checkout,
+            &Claim::read(&checkout.claim_file()).unwrap().unwrap()
+        )
+        .unwrap()
+        .is_some()
+    );
+}

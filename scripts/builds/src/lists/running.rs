@@ -553,6 +553,13 @@ pub fn running_in_any<'a>(lists: &'a [Lists], worktree: &str) -> Vec<(&'a Lists,
         .collect()
 }
 
+/// Does an item of any list in <lists> run in <worktree>?
+pub fn runs_in_any(lists: &[Lists], worktree: &str) -> bool {
+    lists
+        .iter()
+        .any(|lists| !running_in(lists, worktree).is_empty())
+}
+
 /// What `builds health` says about the lists: each fault <integrity> holds,
 /// which SQLite's integrity checks found in a store's database
 /// (`store::integrity`), a store that fails its check,

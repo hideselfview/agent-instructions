@@ -14,6 +14,7 @@ use crate::claim::Claim;
 use crate::fail;
 use crate::fail::Result;
 use crate::lists::{Id, Lists};
+use crate::side_git::SideRead;
 use crate::unlanded::Held;
 
 #[derive(Debug)]
@@ -84,15 +85,13 @@ pub fn read(
         .into_iter()
         .map(|(lists, item)| (item.id, words(lists, item)))
         .collect();
-    let keeping: Vec<String> = every
-        .iter()
-        .filter_map(|lists| {
-            crate::lists::kept_work::kept_in(lists, &top).map(|item| words(lists, item))
-        })
+    let keeping: Vec<String> = keeping_items(every, &top)
+        .map(|(lists, item)| words(lists, item))
         .collect();
     let unheld = if keeping.is_empty() {
-        let held = crate::unlanded::item_branches(every.iter(), checkout);
-        crate::unlanded::in_worktree(checkout, window_start(checkout)?, &held, commits)?
+        let committing =
+            crate::procs::commits_in(commits, &checkout.top).map_err(fail::Fail::Message)?;
+        crate::unlanded::in_worktree(checkout, window_start(checkout)?, every, committing, None)?
     } else {
         Held::default()
     };
@@ -101,6 +100,47 @@ pub fn read(
         keeping,
         unheld,
     })
+}
+
+/// The open item of each list in <every> that keeps the worktree <top>.
+fn keeping_items<'a>(
+    every: &'a [Lists],
+    top: &'a str,
+) -> impl Iterator<Item = (&'a Lists, &'a crate::lists::item::Item)> {
+    every.iter().filter_map(move |lists| {
+        crate::lists::kept_work::kept_in(lists, top).map(|item| (lists, item))
+    })
+}
+
+/// Whether an eligible idle claim can go, with the other branches that
+/// hold copies of its work. Each fact is read only once the facts before it
+/// leave the claim eligible: no Git read is needed when an item keeps it,
+/// and <known>, a read of the worktree's git state the caller already has,
+/// stands in for the reads it holds. <app_checkout> says whether the
+/// worktree is an app checkout, and <committing> which `git commit`s run
+/// there, or why builds cannot tell.
+pub fn idle_claim(
+    checkout: &Checkout,
+    claim: &Claim,
+    every: &[Lists],
+    nothing_runs: bool,
+    app_checkout: impl FnOnce() -> Result<bool>,
+    committing: impl FnOnce() -> std::result::Result<Vec<i32>, String>,
+    known: Option<&SideRead>,
+) -> Result<Option<std::collections::BTreeSet<String>>> {
+    if !nothing_runs || claim.is_held() || claim.is_starting() || app_checkout()? {
+        return Ok(None);
+    }
+    let top = checkout.top.to_string_lossy();
+    if keeping_items(every, &top).next().is_some() {
+        return Ok(None);
+    }
+    let committing = committing().map_err(fail::Fail::Message)?;
+    if !committing.is_empty() {
+        return Ok(None);
+    }
+    let work = crate::unlanded::in_worktree(checkout, claim.since, every, Vec::new(), known)?;
+    Ok(work.git_is_empty().then_some(work.copied_on))
 }
 
 /// When the branches <checkout> left start to count, in seconds since 1970:

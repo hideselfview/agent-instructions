@@ -5,7 +5,6 @@
 //! branch that no recorded design change covers.
 
 use std::collections::{BTreeSet, HashMap};
-use std::path::PathBuf;
 
 use crate::checkout::Checkout;
 use crate::claim::Claim;
@@ -143,50 +142,11 @@ pub fn record_hold(
     staged.put()
 }
 
-/// The commits of <read>'s `ahead` that a branch another worktree checks
-/// out, or an open item of <loaded> holds, has a copy of: each full hash with
-/// that branch. A store that fails its check names no branch, so the commits
-/// it would have covered count as work (`builds health` names such a store).
-fn copies_of(
-    loaded: &std::result::Result<Vec<Loaded>, String>,
-    checkout: &Checkout,
-    read: &SideRead,
-) -> Result<std::collections::BTreeMap<String, String>> {
-    let items = crate::unlanded::item_branches(
-        loaded
-            .as_deref()
-            .unwrap_or_default()
-            .iter()
-            .filter_map(|project| project.lists.as_ref().ok()),
-        checkout,
-    );
-    let holders = crate::unlanded::holders(checkout, &items)?;
-    let split = crate::side_git::split_held(&checkout.top, "HEAD", read.ahead.clone(), &holders)
-        .map_err(fail::Fail::Message)?;
-    Ok(split
-        .held
-        .into_iter()
-        .map(|(commit, holder)| (commit.full, holder))
-        .collect())
-}
-
-/// What git said of a worktree that it read: the read itself, and the
-/// commits among its `ahead` that another branch holds a copy of
-/// (`unlanded::in_worktree` judges release by the same copies).
-#[derive(Debug, Clone)]
-pub struct Read {
-    pub side: SideRead,
-    /// Each such commit's full hash, with the branch that holds it. Such a
-    /// commit is no work the worktree keeps.
-    pub copied: std::collections::BTreeMap<String, String>,
-}
-
 /// A claimed worktree as `builds health` read it.
 #[derive(Debug)]
 pub struct Worktree {
     pub label: String,
-    pub top: PathBuf,
-    pub repo: String,
+    pub checkout: Checkout,
     /// The branch HEAD is on; None when HEAD is detached.
     pub branch: Option<String>,
     pub claim: Claim,
@@ -196,26 +156,15 @@ pub struct Worktree {
     /// Is it one of the repo's recorded app checkouts?
     pub app_checkout: bool,
     /// What git said of it, or what git said when it could not read it.
-    pub git: std::result::Result<Read, String>,
+    pub git: std::result::Result<SideRead, String>,
     /// The pids of the `git commit`s that run in it, or why builds cannot
     /// tell.
     pub committing: std::result::Result<Vec<i32>, String>,
 }
 
-/// What health read of the machine and the lists before it reads the
-/// claimed worktrees.
-pub struct Readings<'a> {
-    /// The `git commit`s that run.
-    pub commits: &'a crate::procs::GitCommits,
-    /// Every project's lists, or why builds cannot read them.
-    pub loaded: &'a std::result::Result<Vec<Loaded>, String>,
-}
-
 impl Worktree {
-    /// The claimed worktree <checkout>, labelled <label>, with its <claim>,
-    /// what git says of it (<git>) and the `git commit`s that run
-    /// (<read>'s commits). <read>'s lists hold the open items whose branches
-    /// hold copies of its commits.
+    /// The claimed worktree and the latest reads of its git state and
+    /// processes. The release check reads copies only when no item runs.
     pub fn read(
         places: &Places,
         label: String,
@@ -223,54 +172,36 @@ impl Worktree {
         claim: &Claim,
         branch: Option<String>,
         git: &std::result::Result<SideRead, String>,
-        read: &Readings,
+        commits: &crate::procs::GitCommits,
     ) -> Result<Worktree> {
-        let git = match git {
-            Ok(side) => Ok(Read {
-                copied: if side.ahead.is_empty() {
-                    Default::default()
-                } else {
-                    copies_of(read.loaded, checkout, side)?
-                },
-                side: side.clone(),
-            }),
-            Err(error) => Err(error.clone()),
-        };
         Ok(Worktree {
             label,
-            top: checkout.top.clone(),
-            repo: checkout.repo(),
+            checkout: checkout.clone(),
             branch,
             claim: claim.clone(),
             project: checkout.claimed_project()?,
-            app_checkout: places
-                .app_lane_of(&checkout.repo(), &checkout.name())?
-                .is_some(),
-            git,
-            committing: crate::procs::commits_in(read.commits, &checkout.top),
+            app_checkout: checkout.app_lane(places)?.is_some(),
+            git: git.clone(),
+            committing: crate::procs::commits_in(commits, &checkout.top),
         })
     }
 
-    /// Is its claim one health releases, and says to release: not an app
-    /// checkout's, not held (`builds note --state held`), not waiting for its
-    /// item (`Note::Starting`), no item runs there (<nothing_runs>), and the
-    /// worktree has no commits that origin/main lacks, no files not committed
-    /// and no `git commit` running? `builds health` releases such a claim
-    /// itself (health_fix.rs), and lists the ones it could not.
-    pub fn claim_is_idle(&self, nothing_runs: bool) -> bool {
-        !self.app_checkout
-            && !self.claim.is_held()
-            && !self.claim.is_starting()
-            && self.git.as_ref().is_ok_and(|git| {
-                git.side.uncommitted == 0
-                    && git
-                        .side
-                        .ahead
-                        .iter()
-                        .all(|c| git.copied.contains_key(&c.full))
-            })
-            && self.committing.as_ref().is_ok_and(|pids| pids.is_empty())
-            && nothing_runs
+    /// The branches that hold its commits when health may release this claim.
+    /// An empty set means nothing waits to land. None means the claim stays.
+    pub fn idle_claim(
+        &self,
+        nothing_runs: bool,
+        lists: &[Lists],
+    ) -> Result<Option<BTreeSet<String>>> {
+        crate::kept::idle_claim(
+            &self.checkout,
+            &self.claim,
+            lists,
+            nothing_runs,
+            || Ok(self.app_checkout),
+            || self.committing.clone(),
+            self.git.as_ref().ok(),
+        )
     }
 
     /// What blocks its branch from landing, read from the review records
@@ -286,19 +217,24 @@ impl Worktree {
         if self.app_checkout || self.claim.is_held() {
             return None;
         }
-        let git = &self.git.as_ref().ok()?.side;
+        let git = self.git.as_ref().ok()?;
         if git.ahead.is_empty() {
             return None;
         }
         let lists = self.lists(loaded).ok()??;
         let reviewed = Reviewed {
-            repo: &self.repo,
-            top: &self.top,
+            repo: &self.checkout.repo(),
+            top: &self.checkout.top,
             branch: self.branch.as_deref(),
             git,
         };
         Some(reviews.verdict_of(places, lists, &reviewed).map(|verdict| {
-            crate::review::idle::landing(&verdict, lists, &self.top, &git.ahead_oldest_first())
+            crate::review::idle::landing(
+                &verdict,
+                lists,
+                &self.checkout.top,
+                &git.ahead_oldest_first(),
+            )
         }))
     }
 
@@ -307,7 +243,12 @@ impl Worktree {
         &self,
         loaded: &'a std::result::Result<Vec<Loaded>, String>,
     ) -> std::result::Result<Option<&'a Lists>, String> {
-        lists_of(loaded, &self.top, &self.repo, self.project.as_deref())
+        lists_of(
+            loaded,
+            &self.checkout.top,
+            &self.checkout.repo(),
+            self.project.as_deref(),
+        )
     }
 }
 
@@ -351,25 +292,35 @@ pub fn inspect(
     // Health reads the items of every project, whatever project the claim
     // names: in a repo two projects hold, either project's items run in its
     // worktrees. `running::findings` names a store that fails its check.
+    let project_count = every.len();
     let every: Vec<Lists> = every
         .iter()
         .filter_map(|project| project.lists.clone().ok())
         .collect();
+    let complete = every.len() == project_count;
     let mut inspection = Inspection::default();
     for worktree in worktrees {
-        let top = worktree.top.display().to_string();
+        let top = worktree.checkout.top.display().to_string();
         let running = running_in_any(&every, &top);
         // Release refuses a worktree with commits, files or a running git
         // commit that nothing else holds, so health says to release only one
         // with none of them.
-        if worktree.claim_is_idle(running.is_empty()) {
-            inspection.findings.push(Advice::run(
-                format!(
-                    "lists: {} claims {}, but no item runs there and the worktree has no commits that origin/main lacks, no files not committed and no git commit running; release it with",
-                    worktree.claim.who, worktree.label
-                ),
-                format!("builds release {top}"),
-            ));
+        if complete {
+            match worktree.idle_claim(running.is_empty(), &every) {
+                Ok(Some(_)) => inspection.findings.push(Advice::run(
+                    format!(
+                        "lists: {} claims {}, but no item runs there and the worktree has no commits that origin/main lacks, no files not committed and no git commit running; release it with",
+                        worktree.claim.who, worktree.label
+                    ),
+                    format!("builds release {top}"),
+                )),
+                Ok(None) => {}
+                Err(error) => inspection.findings.push(Advice::said(format!(
+                    "lists: health cannot check whether it can release {}: {}",
+                    worktree.label,
+                    error.text()
+                ))),
+            }
         }
         let lists = match worktree.lists(loaded) {
             Ok(Some(lists)) => lists,
@@ -383,7 +334,7 @@ pub fn inspect(
             }
         };
         let git = match &worktree.git {
-            Ok(read) => &read.side,
+            Ok(read) => read,
             Err(error) => {
                 inspection.findings.push(Advice::said(format!(
                     "lists: could not read the commits of {}, so health can't tell whether a design change covers them: {error}",
@@ -392,7 +343,12 @@ pub fn inspect(
                 continue;
             }
         };
-        let commits = match reads.of(lists, &worktree.repo, &worktree.top, git) {
+        let commits = match reads.of(
+            lists,
+            &worktree.checkout.repo(),
+            &worktree.checkout.top,
+            git,
+        ) {
             Some(Err(error)) => {
                 inspection
                     .design_waits

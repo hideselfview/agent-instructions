@@ -854,8 +854,7 @@ fn side_read_of(w: &World, range: &str) -> crate::side_git::SideRead {
 fn health_of(w: &World, range: &str) -> Vec<String> {
     let tree = crate::lists::held::Worktree {
         label: "bae/side-1".into(),
-        top: w.dir.clone(),
-        repo: "bae".into(),
+        checkout: crate::checkout::Checkout::at(&w.dir).unwrap().unwrap(),
         branch: None,
         claim: crate::claim::Claim {
             who: "agent".into(),
@@ -864,10 +863,7 @@ fn health_of(w: &World, range: &str) -> Vec<String> {
         },
         project: Some("demo".into()),
         app_checkout: false,
-        git: Ok(crate::lists::held::Read {
-            side: side_read_of(w, range),
-            copied: Default::default(),
-        }),
+        git: Ok(side_read_of(w, range)),
         committing: Ok(Vec::new()),
     };
     let loaded = Ok(vec![crate::lists::store::Loaded {
@@ -1089,8 +1085,7 @@ fn health_and_check_cover_commits_whose_boards_differ_in_bytes_and_draw_alike() 
     let health = |w: &World| {
         let tree = crate::lists::held::Worktree {
             label: "bae/side-1".into(),
-            top: w.dir.clone(),
-            repo: "bae".into(),
+            checkout: crate::checkout::Checkout::at(&w.dir).unwrap().unwrap(),
             branch: None,
             claim: crate::claim::Claim {
                 who: "agent".into(),
@@ -1099,10 +1094,7 @@ fn health_and_check_cover_commits_whose_boards_differ_in_bytes_and_draw_alike() 
             },
             project: Some("demo".into()),
             app_checkout: false,
-            git: Ok(crate::lists::held::Read {
-                side: side_read_of(w, "base..HEAD"),
-                copied: Default::default(),
-            }),
+            git: Ok(side_read_of(w, "base..HEAD")),
             committing: Ok(Vec::new()),
         };
         let loaded = Ok(vec![crate::lists::store::Loaded {

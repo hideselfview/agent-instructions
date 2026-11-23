@@ -468,9 +468,14 @@ pub fn worktrees_of(top: &Path) -> Result<Vec<PathBuf>> {
 }
 
 /// Does branch <branch> exist in the repo of <dir>?
-/// `git rev-parse --verify --quiet` exits 1 for a ref that does not exist
-/// and with another code when git itself fails.
+/// `git rev-parse --verify --quiet` exits 1 without diagnostics for a ref
+/// it does not find. A broken ref can also exit 1, with a warning.
 pub fn branch_exists(dir: &Path, branch: &str) -> Result<bool> {
+    Ok(branch_tip(dir, branch)?.is_some())
+}
+
+/// The immutable tip of a named local branch, or None when it is absent.
+pub fn branch_tip(dir: &Path, branch: &str) -> Result<Option<String>> {
     let output = git(dir)
         .args([
             "rev-parse",
@@ -482,8 +487,10 @@ pub fn branch_exists(dir: &Path, branch: &str) -> Result<bool> {
         .output()
         .context(|| format!("running git in {}", dir.display()))?;
     match output.status.code() {
-        Some(0) => Ok(true),
-        Some(1) => Ok(false),
+        Some(0) => Ok(Some(
+            String::from_utf8_lossy(&output.stdout).trim().to_string(),
+        )),
+        Some(1) if output.stderr.is_empty() => Ok(None),
         _ => fail!(
             "git could not tell whether {} has a branch {branch} ({}): {}",
             dir.display(),
@@ -491,6 +498,16 @@ pub fn branch_exists(dir: &Path, branch: &str) -> Result<bool> {
             String::from_utf8_lossy(&output.stderr).trim()
         ),
     }
+}
+
+/// The immutable commit a revision names.
+pub fn resolve_commit(top: &Path, rev: &str) -> Result<String> {
+    Ok(git_text(
+        git(top).args(["rev-parse", "--verify", &format!("{rev}^{{commit}}")]),
+        "resolve the commit",
+    )?
+    .trim()
+    .to_string())
 }
 
 /// One worktree of a repo and the branch it checks out.
@@ -539,5 +556,19 @@ mod tests {
         let plain = scratch.dir.join("plain");
         std::fs::create_dir_all(&plain).unwrap();
         assert!(branch_exists(&plain, "main").is_err());
+    }
+
+    #[test]
+    fn a_broken_branch_ref_is_a_git_failure() {
+        let scratch = crate::testing::Scratch::new("broken-branch");
+        let repo = scratch.dir.join("repo");
+        crate::testing::repo(&repo, "target 1G\n");
+        std::fs::write(repo.join(".git/refs/heads/broken"), "not a git object\n").unwrap();
+
+        let note = branch_tip(&repo, "broken").unwrap_err().text();
+        assert!(
+            note.contains("ignoring broken ref refs/heads/broken"),
+            "{note}"
+        );
     }
 }
