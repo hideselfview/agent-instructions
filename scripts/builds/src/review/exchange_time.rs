@@ -48,5 +48,25 @@ pub fn run_finished_at(db: &Connection, run: i64) -> Result<i64> {
 }
 
 #[cfg(test)]
+pub(super) fn set_call_finish_for_finding(db: &Connection, finding: i64, at: i64) -> Result<()> {
+    db.execute(
+        "UPDATE review_exchange_time SET started_at = ?1, ms = 1000
+         WHERE exchange_id IN (
+             SELECT e.id FROM review_exchange e
+             JOIN review_finding f ON f.call_id = e.call_id WHERE f.id = ?2
+         )",
+        params![at - 1, finding],
+    )
+    .sql()?;
+    Ok(())
+}
+
+#[cfg(test)]
+pub(super) fn clear(db: &Connection) -> Result<()> {
+    db.execute("DELETE FROM review_exchange_time", []).sql()?;
+    Ok(())
+}
+
+#[cfg(test)]
 #[path = "exchange_time_tests.rs"]
 mod tests;

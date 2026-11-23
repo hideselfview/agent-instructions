@@ -2,6 +2,7 @@ use std::path::Path;
 
 use super::*;
 use crate::inbox::Messaging;
+use crate::review::exchange_time;
 use crate::review::fakes::fake;
 use crate::review::judge::tests::{Reviewed, TOKEN, caller, confirmed, message, reviewed, stamp};
 use crate::testing::{FakeInbox, running_session};
@@ -373,18 +374,8 @@ fn health_lists_a_project_whose_findings_wait_for_a_missing_judge() {
     r.demo
         .store
         .write(&stamp("tester"), "set reviewer timing", |db| {
-            for (finding, at) in [(r.finding, recorded_at + 60), (oldest, recorded_at)] {
-                db.execute(
-                    "UPDATE review_exchange_time SET started_at = ?1, ms = 1000
-                     WHERE exchange_id IN (
-                         SELECT e.id FROM review_exchange e
-                         JOIN review_finding f ON f.call_id = e.call_id WHERE f.id = ?2
-                     )",
-                    params![at - 1, finding],
-                )
-                .sql()?;
-            }
-            Ok(())
+            exchange_time::set_call_finish_for_finding(db, r.finding, recorded_at + 60)?;
+            exchange_time::set_call_finish_for_finding(db, oldest, recorded_at)
         })
         .unwrap();
     r.demo.tool.now = recorded_at + 12 * 60;
@@ -426,10 +417,11 @@ fn health_reports_when_a_findings_wait_time_is_missing() {
     let r = reviewed("health-judge-wait-time", Some(&caller("s1", "a1")));
     r.demo
         .store
-        .write(&stamp("tester"), "remove reviewer timing", |db| {
-            db.execute("DELETE FROM review_exchange_time", []).sql()?;
-            Ok(())
-        })
+        .write(
+            &stamp("tester"),
+            "remove reviewer timing",
+            exchange_time::clear,
+        )
         .unwrap();
     let health = health_report(&r);
     let judge = health
