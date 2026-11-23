@@ -55,6 +55,8 @@ fn a_review_whose_branch_holds_commits_to_land_stays_open() {
 fn a_review_whose_branch_and_commits_are_gone_ends_abandoned_and_keeps_its_findings() {
     let r = reviewed("ended-gone", None);
     delete_branch(&r);
+    git(&r.demo.main, &["reflog", "expire", "--expire=now", "--all"]);
+    git(&r.demo.main, &["gc", "-q", "--prune=now"]);
     let said = closed(&r, &[]);
     assert_eq!(said.len(), 1, "{said:?}");
     assert!(
