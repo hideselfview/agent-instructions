@@ -10,37 +10,59 @@ use std::os::unix::net::UnixStream;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::places::{DEFAULT_ROOT, LISTS_VARIABLE, Places, ROOT_VARIABLE};
+use crate::places::{LISTS_VARIABLE, Places, ROOT_VARIABLE, build_root};
 use crate::procs::{self, Process, Processes};
 use crate::text::note;
 
-const STOP_LIMIT: Duration = Duration::from_secs(10);
 const START_LIMIT: Duration = Duration::from_secs(30);
 const STARTING: &str = "BUILDS_DASHBOARD_RESTART";
 pub(super) const READY: u8 = 1;
 
+/// A relative root keeps the directory it was relative to, so its socket
+/// path retains the same length and spelling as before the restart.
+#[derive(Deserialize, Serialize)]
+enum LaunchRoot {
+    Absolute(PathBuf),
+    Relative { directory: PathBuf, path: PathBuf },
+}
+
+impl LaunchRoot {
+    fn absolute_path(&self) -> PathBuf {
+        match self {
+            Self::Absolute(path) => path.clone(),
+            Self::Relative { directory, path } => directory.join(path),
+        }
+    }
+
+    fn apply(&self, command: &mut Command) {
+        match self {
+            Self::Absolute(path) => command.env(ROOT_VARIABLE, path),
+            Self::Relative { directory, path } => {
+                command.current_dir(directory).env(ROOT_VARIABLE, path)
+            }
+        };
+    }
+}
+
 /// How to start a dashboard at the root that identifies it in the restart record.
 #[derive(Deserialize, Serialize)]
 struct Launch {
-    cwd: PathBuf,
-    lists: Option<String>,
+    root: LaunchRoot,
+    lists: Option<PathBuf>,
     args: Vec<String>,
 }
 
 impl Launch {
-    fn command(&self, program: &Path, root: &Path) -> Command {
+    fn command(&self, program: &Path) -> Command {
         let mut command = Command::new(program);
-        command
-            .current_dir(&self.cwd)
-            .env(ROOT_VARIABLE, root)
-            .arg("dashboard")
-            .args(&self.args);
+        self.root.apply(&mut command);
+        command.arg("dashboard").args(&self.args);
         if let Some(lists) = &self.lists {
             command.env(LISTS_VARIABLE, lists);
         } else {
@@ -51,31 +73,50 @@ impl Launch {
 }
 
 fn read_launch(pid: i32, args: Vec<String>) -> Result<Option<(PathBuf, Launch)>> {
-    let (Some(environment), Some(cwd)) = (procs::environment(pid), procs::cwd(pid)) else {
-        if procs::ended(pid) {
-            return Ok(None);
-        }
-        fail!("Builds could not read the launch settings of dashboard process {pid}.");
+    let Some(environment) = procs::environment(pid) else {
+        return unread_launch(pid);
     };
-    let variable = |name| {
-        environment.iter().find_map(|entry| {
-            let (key, value) = entry.split_once('=')?;
-            (key == name).then_some(value)
-        })
-    };
-    let root = cwd.join(variable(ROOT_VARIABLE).unwrap_or(DEFAULT_ROOT));
-    let root = fs::canonicalize(&root).context(|| {
+    let variable = |name| procs::environment_value(&environment, name);
+    let root = build_root(variable(ROOT_VARIABLE));
+    if root.as_os_str().is_empty() {
+        fail!("Dashboard process {pid} has an empty build root.");
+    }
+    let lists = variable(LISTS_VARIABLE)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from);
+    let (root, lists) =
+        if root.is_relative() || lists.as_ref().is_some_and(|path| path.is_relative()) {
+            let Some(cwd) = procs::cwd(pid) else {
+                return unread_launch(pid);
+            };
+            let lists = lists.map(|lists| cwd.join(lists));
+            let root = if root.is_relative() {
+                LaunchRoot::Relative {
+                    directory: cwd,
+                    path: root,
+                }
+            } else {
+                LaunchRoot::Absolute(root)
+            };
+            (root, lists)
+        } else {
+            (LaunchRoot::Absolute(root), lists)
+        };
+    let path = root.absolute_path();
+    let resolved = fs::canonicalize(&path).context(|| {
         format!(
             "Builds could not resolve the dashboard root at {}",
-            root.display()
+            path.display()
         )
     })?;
-    let launch = Launch {
-        cwd,
-        lists: variable(LISTS_VARIABLE).map(str::to_owned),
-        args,
-    };
-    Ok(Some((root, launch)))
+    Ok(Some((resolved, Launch { root, lists, args })))
+}
+
+fn unread_launch(pid: i32) -> Result<Option<(PathBuf, Launch)>> {
+    if procs::ended(pid) {
+        return Ok(None);
+    }
+    fail!("Builds could not read the launch settings of dashboard process {pid}.");
 }
 
 /// Pids and dashboard options for this user's dashboards, including one
@@ -104,8 +145,7 @@ fn running_dashboards(
 /// install just put on PATH. Called while install holds its lock.
 pub fn run(places: &Places) -> Result<()> {
     let processes = Processes::read()?;
-    let mut running = BTreeMap::new();
-    let mut stop_pids = Vec::new();
+    let mut by_root = BTreeMap::<PathBuf, BTreeMap<i32, Launch>>::new();
     let places_at = |root: &Path| {
         let mut at = places.clone();
         at.root = root.to_path_buf();
@@ -115,21 +155,32 @@ pub fn run(places: &Places) -> Result<()> {
         let Some((root, launch)) = read_launch(pid, args)? else {
             continue;
         };
-        stop_pids.push(pid);
-        if running.contains_key(&root) {
-            // A competing startup does not replace the options of the dashboard
-            // that already claimed this root.
-            let lock = places_at(&root).daemon_lock();
-            let owner = super::live::daemon_pid(&lock).context(|| {
-                format!(
-                    "Builds could not read the dashboard claim at {}",
-                    lock.display()
-                )
-            })?;
-            if owner != Some(pid) {
-                continue;
+        by_root.entry(root).or_default().insert(pid, launch);
+    }
+    let mut running = BTreeMap::new();
+    let mut stop_pids = Vec::new();
+    for (root, mut candidates) in by_root {
+        let lock = places_at(&root).daemon_lock();
+        let owner = super::live::daemon_pid(&lock).context(|| {
+            format!(
+                "Builds could not read the dashboard claim at {}",
+                lock.display()
+            )
+        })?;
+        let (pid, launch) = match owner {
+            Some(pid) => {
+                let launch = match candidates.remove(&pid) {
+                    Some(launch) => launch,
+                    None => read_owner_launch(pid, &root)?,
+                };
+                (pid, launch)
             }
-        }
+            None => candidates
+                .pop_first()
+                .expect("the root has a starting dashboard"),
+        };
+        stop_pids.push(pid);
+        stop_pids.extend(candidates.into_keys());
         running.insert(root, launch);
     }
     let program = crate::links::path(&places.home, "builds");
@@ -138,17 +189,30 @@ pub fn run(places: &Places) -> Result<()> {
         running,
         &stop_pids,
         |pid| {
-            procs::terminate_and_wait(pid, Instant::now() + STOP_LIMIT)
+            procs::terminate_and_wait(pid)
                 .context(|| format!("Builds could not stop dashboard process {pid}"))
         },
         |root, launch| {
-            start(
-                launch.command(&program, root),
-                &places_at(root).daemon_log(),
-            )
-            .map(|child| child.id())
+            start(launch.command(&program), &places_at(root).daemon_log()).map(|child| child.id())
         },
     )
+}
+
+/// The claim may belong to a dashboard that started after the process scan.
+fn read_owner_launch(pid: i32, root: &Path) -> Result<Launch> {
+    let argv = procs::live_args(pid).map_err(Fail::Message)?;
+    if let Some(argv) = argv
+        && let Some(args) = super::dashboard_args(argv.iter().map(String::as_str))
+        && let Some((resolved, launch)) =
+            read_launch(pid, args.into_iter().map(str::to_owned).collect())?
+        && resolved == root
+    {
+        return Ok(launch);
+    }
+    fail!(
+        "Builds could not read the launch of dashboard process {pid}, which claimed {}.",
+        root.display()
+    );
 }
 
 /// Saves the options before stopping any dashboard. An install that fails
@@ -180,11 +244,15 @@ fn restart(
             }
         };
         pending.remove(&root);
-        if pending.is_empty() {
+        let recorded = if pending.is_empty() {
             fs::remove_file(record)
-                .context(|| format!("Builds could not remove {}", record.display()))?;
+                .context(|| format!("Builds could not remove {}", record.display()))
         } else {
-            save(record, &pending)?;
+            save(record, &pending)
+        };
+        if let Err(error) = recorded {
+            failed.push(error.text());
+            break;
         }
         note(format!("Builds restarted the dashboard as process {pid}."));
     }
@@ -305,6 +373,7 @@ pub(super) fn report_to_installer() -> Result<Option<File>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::OsStr;
     use std::os::unix::fs::PermissionsExt;
     use std::os::unix::process::ExitStatusExt;
 
@@ -362,6 +431,10 @@ mod tests {
         let log = scratch.dir.join("log");
         let program = scratch.dir.join("builds");
         let root = scratch.dir.join("dashboard volume");
+        let alias = scratch.dir.join("volume-link");
+        let lists = scratch.dir.join("dashboard lists");
+        fs::create_dir(&root).unwrap();
+        std::os::unix::fs::symlink(&root, &alias).unwrap();
         fs::write(
             &program,
             "#!/bin/sh\necho 'Port already in use' >&2\nexit 1\n",
@@ -371,8 +444,8 @@ mod tests {
         let mut previous = Command::new("/bin/sleep").arg("60").spawn().unwrap();
         let args = vec!["--port".to_string(), "7788".to_string()];
         let launch = Launch {
-            cwd: scratch.dir.clone(),
-            lists: Some("dashboard lists".to_string()),
+            root: LaunchRoot::Absolute(alias.clone()),
+            lists: Some(lists.clone()),
             args: args.clone(),
         };
         let error = restart(
@@ -380,10 +453,10 @@ mod tests {
             BTreeMap::from([(root.clone(), launch)]),
             &[previous.id() as i32],
             |pid| {
-                procs::terminate_and_wait(pid, Instant::now() + STOP_LIMIT)
+                procs::terminate_and_wait(pid)
                     .context(|| "stopping the old test process".to_string())
             },
-            |root, launch| start(launch.command(&program, root), &log).map(|child| child.id()),
+            |_, launch| start(launch.command(&program), &log).map(|child| child.id()),
         )
         .unwrap_err()
         .text();
@@ -400,14 +473,6 @@ mod tests {
                 .contains("Port already in use")
         );
 
-        fs::write(
-            &program,
-            "#!/bin/sh\ntest \"$*\" = 'dashboard --port 7788' || exit 1\n\
-             test \"$BUILDS_ROOT\" = \"$PWD/dashboard volume\" || exit 1\n\
-             test \"$BUILDS_LISTS\" = 'dashboard lists' || exit 1\n\
-             printf '\\001' >&0\n",
-        )
-        .unwrap();
         restart(
             &record,
             BTreeMap::new(),
@@ -416,9 +481,18 @@ mod tests {
             |location, launch| {
                 assert_eq!(location, root);
                 assert_eq!(launch.args, args);
-                let mut child = start(launch.command(&program, location), &log)?;
-                assert!(child.wait().unwrap().success());
-                Ok(child.id())
+                let command = launch.command(&program);
+                assert_eq!(command.get_current_dir(), None);
+                let environment: BTreeMap<_, _> = command.get_envs().collect();
+                assert_eq!(
+                    environment[OsStr::new(ROOT_VARIABLE)],
+                    Some(alias.as_os_str())
+                );
+                assert_eq!(
+                    environment[OsStr::new(LISTS_VARIABLE)],
+                    Some(lists.as_os_str())
+                );
+                Ok(12)
             },
         )
         .unwrap();
@@ -431,7 +505,7 @@ mod tests {
         let record = scratch.dir.join("restart.json");
         let root = scratch.dir.join("volume");
         let launch = |port: &str| Launch {
-            cwd: scratch.dir.clone(),
+            root: LaunchRoot::Absolute(root.clone()),
             lists: None,
             args: vec!["--port".to_string(), port.to_string()],
         };

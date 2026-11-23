@@ -10,7 +10,11 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use crate::fail;
+#[cfg(target_os = "macos")]
+use crate::fail::Context;
 use crate::fail::Result;
+#[cfg(target_os = "macos")]
+use crate::kqueue::{Queue, event};
 use crate::queue::open_with;
 
 /// What the threads blocked in `flock` and the wait agree on.
@@ -25,7 +29,8 @@ pub struct Shared {
 /// A wait's kqueue: it holds a signal (counted from `new` on) and the read end
 /// of the pipe its threads report through.
 pub struct Wake {
-    kqueue: libc::c_int,
+    #[cfg(target_os = "macos")]
+    kqueue: Queue,
     read: libc::c_int,
     write: libc::c_int,
 }
@@ -37,18 +42,6 @@ pub struct Woke {
 }
 
 const MESSAGE: usize = 16;
-
-#[cfg(target_os = "macos")]
-fn change(ident: usize, filter: i16, flags: u16) -> libc::kevent {
-    libc::kevent {
-        ident,
-        filter,
-        flags,
-        fflags: 0,
-        data: 0,
-        udata: std::ptr::null_mut(),
-    }
-}
 
 impl Wake {
     /// Off macOS no queue waits: app builds, whose lanes the queue orders,
@@ -67,15 +60,15 @@ impl Wake {
     #[cfg(target_os = "macos")]
     pub fn new(signal: libc::c_int) -> Result<Wake> {
         let mut ends = [0; 2];
-        let kqueue = unsafe { libc::kqueue() };
-        if kqueue < 0 || unsafe { libc::pipe(ends.as_mut_ptr()) } < 0 {
+        let kqueue =
+            Queue::new().context(|| "Builds could not open the lock's event queue".to_string())?;
+        if unsafe { libc::pipe(ends.as_mut_ptr()) } < 0 {
             fail!(
                 "making a queue to wait in: {}",
                 std::io::Error::last_os_error()
             );
         }
         unsafe {
-            libc::fcntl(kqueue, libc::F_SETFD, libc::FD_CLOEXEC);
             for end in ends {
                 libc::fcntl(end, libc::F_SETFD, libc::FD_CLOEXEC);
             }
@@ -89,30 +82,23 @@ impl Wake {
         let mut changes: Vec<libc::kevent> = std::iter::once(signal)
             .chain(crate::lock::STOP_SIGNALS)
             .map(|signal| {
-                change(
+                event(
                     signal as usize,
                     libc::EVFILT_SIGNAL,
                     libc::EV_ADD | libc::EV_CLEAR,
+                    0,
                 )
             })
             .collect();
-        changes.push(change(wake.read as usize, libc::EVFILT_READ, libc::EV_ADD));
-        let set = unsafe {
-            libc::kevent(
-                kqueue,
-                changes.as_ptr(),
-                changes.len() as libc::c_int,
-                std::ptr::null_mut(),
-                0,
-                std::ptr::null(),
-            )
-        };
-        if set < 0 {
-            fail!(
-                "registering what to wait for: {}",
-                std::io::Error::last_os_error()
-            );
-        }
+        changes.push(event(
+            wake.read as usize,
+            libc::EVFILT_READ,
+            libc::EV_ADD,
+            0,
+        ));
+        wake.kqueue
+            .change(&changes)
+            .context(|| "Builds could not register the events for the lock wait".to_string())?;
         Ok(wake)
     }
 
@@ -171,29 +157,14 @@ impl Wake {
     #[cfg(target_os = "macos")]
     pub fn wait(&self) -> Result<Woke> {
         // Room for every signal the kqueue counts and the pipe.
-        let mut events = [change(0, 0, 0); 8];
-        loop {
-            let count = unsafe {
-                libc::kevent(
-                    self.kqueue,
-                    std::ptr::null(),
-                    0,
-                    events.as_mut_ptr(),
-                    events.len() as libc::c_int,
-                    std::ptr::null(),
-                )
-            };
-            if count >= 0 {
-                let ready = events[..count as usize]
-                    .iter()
-                    .any(|event| event.filter == libc::EVFILT_READ);
-                return Ok(Woke { ready });
-            }
-            let error = std::io::Error::last_os_error();
-            if error.kind() != std::io::ErrorKind::Interrupted {
-                fail!("waiting: {error}");
-            }
-        }
+        let mut events = [event(0, 0, 0, 0); 8];
+        let ready = self
+            .kqueue
+            .wait(&mut events, None)
+            .context(|| "Builds could not wait for a lock event".to_string())?
+            .iter()
+            .any(|event| event.filter == libc::EVFILT_READ);
+        Ok(Woke { ready })
     }
 
     /// The next report: the wait it is for and what its thread got, a
@@ -260,7 +231,6 @@ pub fn wait_for_lock(
 impl Drop for Wake {
     fn drop(&mut self) {
         unsafe {
-            libc::close(self.kqueue);
             libc::close(self.read);
             libc::close(self.write);
         }

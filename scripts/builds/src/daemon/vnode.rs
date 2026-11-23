@@ -64,20 +64,18 @@ impl Watch {
             .spawn(move || {
                 // The folder stays open for as long as the watch runs.
                 let _dir = dir;
+                let mut event = [event(0, 0, 0, 0)];
                 loop {
-                    let happened = match reading.wait(None) {
-                        Ok(happened) => happened,
+                    match reading.wait(&mut event, None) {
+                        Ok(events) if events[0].filter == libc::EVFILT_USER => return,
+                        Ok(_) => changed(),
                         Err(error) => {
                             crate::text::note(format!(
                                 "Builds stopped watching {watched}. {error}."
                             ));
                             return;
                         }
-                    };
-                    if happened.filter == libc::EVFILT_USER {
-                        return;
                     }
-                    changed();
                 }
             })?;
         Ok(Watch { queue })

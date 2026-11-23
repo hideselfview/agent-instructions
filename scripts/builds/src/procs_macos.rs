@@ -5,7 +5,7 @@ use std::ffi::{CStr, OsString};
 use std::io;
 use std::os::unix::ffi::OsStringExt;
 use std::path::PathBuf;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use super::Process;
 use crate::fail;
@@ -127,7 +127,8 @@ pub fn ended(pid: i32) -> bool {
 
 /// Registers before sending SIGTERM so an exit during the signal is recorded.
 /// The kernel reports exits even for processes this caller did not start.
-pub fn terminate_and_wait(pid: i32, deadline: Instant) -> io::Result<()> {
+/// Fails if the kernel does not report the exit within ten seconds.
+pub fn terminate_and_wait(pid: i32) -> io::Result<()> {
     use crate::kqueue::{Queue, event};
     let queue = Queue::new()?;
     if let Err(error) = queue.change(&[event(
@@ -139,7 +140,11 @@ pub fn terminate_and_wait(pid: i32, deadline: Instant) -> io::Result<()> {
         return super::accept_gone(error);
     }
     super::terminate(pid)?;
-    queue.wait(Some(deadline))?;
+    let mut notification = [event(0, 0, 0, 0)];
+    queue.wait(
+        &mut notification,
+        Some(Instant::now() + Duration::from_secs(10)),
+    )?;
     Ok(())
 }
 

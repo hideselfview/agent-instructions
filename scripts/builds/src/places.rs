@@ -1,6 +1,7 @@
 //! Where everything the tool owns or tidies is, and the rules it keeps there,
 //! read once from the environment. Tests build their own, in temp folders.
 
+use std::ffi::OsStr;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
@@ -29,7 +30,12 @@ pub const FREE_WORKTREE_IDLE_MINUTES: u64 = 1440;
 pub const DASHBOARD_PORT: u16 = 7787;
 pub const ROOT_VARIABLE: &str = "BUILDS_ROOT";
 pub const LISTS_VARIABLE: &str = "BUILDS_LISTS";
-pub const DEFAULT_ROOT: &str = "/Volumes/Builds";
+const DEFAULT_ROOT: &str = "/Volumes/Builds";
+
+/// The build root named by BUILDS_ROOT, including a relative path as given.
+pub fn build_root(setting: Option<&OsStr>) -> PathBuf {
+    PathBuf::from(setting.unwrap_or_else(|| OsStr::new(DEFAULT_ROOT)))
+}
 
 /// macOS's own entries at the root of a volume. Nothing builds there, and
 /// most are closed to the user.
@@ -85,9 +91,7 @@ impl Places {
             Some(home) => PathBuf::from(home),
             None => fail!("HOME is not set"),
         };
-        let root = std::env::var_os(ROOT_VARIABLE)
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from(DEFAULT_ROOT));
+        let root = build_root(std::env::var_os(ROOT_VARIABLE).as_deref());
         let cargo_home = std::env::var_os("CARGO_HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| home.join(".cargo"));

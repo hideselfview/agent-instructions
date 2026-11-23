@@ -25,7 +25,12 @@ impl Queue {
         if fd < 0 {
             return Err(io::Error::last_os_error());
         }
-        Ok(Self(unsafe { OwnedFd::from_raw_fd(fd) }))
+        let fd = unsafe { OwnedFd::from_raw_fd(fd) };
+        // SAFETY: fd is the live queue descriptor.
+        if unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_SETFD, libc::FD_CLOEXEC) } < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(Self(fd))
     }
 
     pub fn change(&self, changes: &[libc::kevent]) -> io::Result<()> {
@@ -46,8 +51,11 @@ impl Queue {
         Ok(())
     }
 
-    pub fn wait(&self, deadline: Option<Instant>) -> io::Result<libc::kevent> {
-        let mut happened = event(0, 0, 0, 0);
+    pub fn wait<'a>(
+        &self,
+        events: &'a mut [libc::kevent],
+        deadline: Option<Instant>,
+    ) -> io::Result<&'a [libc::kevent]> {
         loop {
             let time = deadline.map(|deadline| {
                 let remaining = deadline.saturating_duration_since(Instant::now());
@@ -57,14 +65,14 @@ impl Queue {
                 }
             });
             let timeout = time.as_ref().map_or(std::ptr::null(), std::ptr::from_ref);
-            // SAFETY: kevent reads no changes and writes at most one event.
+            // SAFETY: kevent reads no changes and writes into the event buffer.
             let count = unsafe {
                 libc::kevent(
                     self.0.as_raw_fd(),
                     std::ptr::null(),
                     0,
-                    &mut happened,
-                    1,
+                    events.as_mut_ptr(),
+                    events.len() as libc::c_int,
                     timeout,
                 )
             };
@@ -76,7 +84,7 @@ impl Queue {
                     }
                 }
                 0 => return Err(io::ErrorKind::TimedOut.into()),
-                _ => return Ok(happened),
+                _ => return Ok(&events[..count as usize]),
             }
         }
     }
