@@ -156,10 +156,11 @@ pub struct Diff {
     /// The text of the change's commit messages, empty when not known.
     pub messages: String,
     /// The branch's commits with the files each changes
-    /// (`commits::summary`), empty when not known. A reviewer that holds open
+    /// (`commits::summary`), None when the diff did not come from a branch.
+    /// A reviewer that holds open
     /// findings reads it, to judge a finding about how the change divides into
     /// commits.
-    pub commits: String,
+    pub commits: Option<String>,
     /// Where the new text of a changed file is read, when it can be.
     pub source: Option<Source>,
     pub patch: files::Patch,
@@ -205,7 +206,7 @@ impl Diff {
         Self {
             patch,
             messages,
-            commits: String::new(),
+            commits: None,
             source,
             changed,
         }
@@ -308,7 +309,7 @@ pub fn diff_between(worktree: &Path, base: &str, head: &str) -> Result<NetChange
     Ok(NetChange {
         diff: Diff {
             messages,
-            commits: commit_summary,
+            commits: Some(commit_summary),
             source: Some(Source {
                 repo: worktree.to_path_buf(),
                 rev: head.clone(),
@@ -412,7 +413,7 @@ pub fn diff_since(
     Ok(NetChange {
         diff: Diff {
             messages: messages.join("\n"),
-            commits: commit_summary,
+            commits: Some(commit_summary),
             source: Some(Source {
                 repo: worktree.to_path_buf(),
                 rev: head.clone(),
@@ -797,7 +798,7 @@ pub fn ask_groups(
             diff: &text_diff,
             context: &context,
             open: &given,
-            commits: &read.commits,
+            commits: read.commits.as_deref(),
         });
         let selected = reviewer.select(&group.model);
         let setup = prompt::setup(group, unit.members, &selected);

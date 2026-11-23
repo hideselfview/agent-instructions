@@ -30,8 +30,9 @@ pub struct Input<'a> {
     /// checks against the code as it is now.
     pub open: &'a [&'a Finding],
     /// The branch's commits with the files each changes, which the reviewer
-    /// reads only when it holds open findings.
-    pub commits: &'a str,
+    /// reads only when it holds open findings; None when the diff did not
+    /// come from a branch.
+    pub commits: Option<&'a str>,
 }
 
 /// The verdict names a group answers for: its rules, then project-facts.
@@ -154,11 +155,14 @@ fn change_part(input: &Input) -> String {
         ));
     }
     if !input.open.is_empty() {
-        if !input.commits.trim().is_empty() {
-            out.push_str(&format!(
+        match input.commits {
+            Some(commits) => out.push_str(&format!(
                 "\n{COMMITS_START}\n\nThe branch's commits, oldest first, each with its message and the files it changes (lines added, lines removed, file). A finding that asks for a change to go in a commit of its own is fixed when a commit of the branch holds that change alone, even when the branch's net change did not change.\n\n```\n{}\n```\n",
-                input.commits.trim_end()
-            ));
+                commits.trim_end()
+            )),
+            None => out.push_str(&format!(
+                "\n{COMMITS_START}\n\nThis change did not come from a branch, so its commits are not available. Judge no finding that depends on how the change divides into commits.\n"
+            )),
         }
         out.push_str("\n# Open findings\n\nEarlier reviews raised these findings and the coordinator confirmed them. Check each problem against the current branch and include its verdict in `follow_up`.\n");
         for finding in input.open {
@@ -294,7 +298,7 @@ pub(super) fn setup(
         diff: "",
         context: "",
         open: &[],
-        commits: "",
+        commits: None,
     });
     let schema = schema();
     let prompt = setup_text(
