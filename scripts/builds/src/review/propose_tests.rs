@@ -243,6 +243,26 @@ fn a_case_proposal_requires_the_verified_occurrence() {
 }
 
 #[test]
+fn a_case_proposal_requires_a_path_the_case_loader_accepts() {
+    let demo = demo("review-propose-patch-path");
+    let fake = fake(&demo.scratch.dir);
+    let side = demo.add_side(1, "agent", "work");
+    let landing = landed(&demo, &fake, &side, GENERIC[0]);
+    let conn = demo.store.open_existing().unwrap();
+    let finding = record::findings_of_landing(&conn, landing)
+        .unwrap()
+        .into_iter()
+        .find(|finding| finding.file == "a.rs")
+        .unwrap();
+    let diff = run::diff_of(&side, "main").unwrap().diff;
+    let patch = concat!(
+        "diff --git a/a.rs b/new.rs\n",
+        "rename from a.rs\nrename to new.rs\n",
+    );
+    assert!(path_in(&diff, patch, &finding).is_err());
+}
+
+#[test]
 fn a_landing_whose_commits_the_repo_lost_gives_no_case_and_says_why() {
     let demo = demo("review-propose-lost");
     let fake = fake(&demo.scratch.dir);

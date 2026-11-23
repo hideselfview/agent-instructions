@@ -130,7 +130,7 @@ pub fn load(root: &Path) -> Result<Vec<Case>> {
 
 /// Whether <patch> changes <file>: a file of its diff, or its commit
 /// messages, which a reviewer reads as the file `COMMIT_MESSAGE`.
-fn changes(patch: &str, file: &str) -> bool {
+pub(super) fn changes(patch: &str, file: &str) -> bool {
     if file == files::COMMIT_MESSAGE {
         return !messages_of_patch(patch).trim().is_empty();
     }

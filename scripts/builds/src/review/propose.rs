@@ -244,7 +244,7 @@ fn path_in(diff: &Diff, patch: &str, finding: &Finding) -> std::result::Result<S
         record::FindingLine::Reported(_) | record::FindingLine::Legacy(_) => None,
     };
     let file = quote_file(&quotes, &finding.file, &finding.code, expected)?;
-    if file == files::COMMIT_MESSAGE || files::paths(patch).iter().any(|path| path == file) {
+    if cases::changes(patch, file) {
         Ok(file.to_string())
     } else {
         Err(format!("the patch has no file {file}"))
