@@ -15,61 +15,94 @@ pub struct Claim {
     _file: File,
 }
 
-/// The lock that serializes acquiring a daemon claim and publishing its PID
-/// with readers of that PID. The daemon's claim itself lasts until exit.
-fn publication_lock(lock: &Path) -> io::Result<File> {
-    OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .read(true)
-        .write(true)
-        .open(lock.with_extension("publication"))
-}
-
-/// Claims <lock> for this process and writes its pid there. None when a live
-/// daemon already holds it.
-pub fn claim(lock: &Path) -> io::Result<Option<Claim>> {
-    let publication = publication_lock(lock)?;
-    publication.lock()?;
-    let mut file = OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .write(true)
-        .open(lock)?;
-    match file.try_lock() {
-        Ok(()) => {
-            #[cfg(test)]
-            tests::before_publishing();
-            file.set_len(0)?;
-            writeln!(file, "{}", std::process::id())?;
-            Ok(Some(Claim { _file: file }))
-        }
-        Err(TryLockError::WouldBlock) => Ok(None),
-        Err(TryLockError::Error(error)) => Err(error),
-    }
-}
-
-/// Waits for a claimant to publish its pid, then reads it. None when no
-/// daemon holds <lock> when the reader acquires the publication lock.
-pub fn daemon_pid(lock: &Path) -> io::Result<Option<i32>> {
-    let publication = match publication_lock(lock) {
-        Ok(file) => file,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(error),
-    };
+/// A dashboard's lifetime lock and the lock that protects publication of its PID.
+pub struct DashboardLock<'a> {
+    path: &'a Path,
     #[cfg(test)]
-    tests::before_reading(&publication);
-    publication.lock_shared()?;
-    if !daemon_lives(lock)? {
-        return Ok(None);
+    observe: Option<&'a dyn Fn(Publication<'_>)>,
+}
+
+#[cfg(test)]
+enum Publication<'a> {
+    Claimed,
+    Reading(&'a File),
+    ReadLocked,
+}
+
+impl<'a> DashboardLock<'a> {
+    pub fn new(path: &'a Path) -> Self {
+        Self {
+            path,
+            #[cfg(test)]
+            observe: None,
+        }
     }
-    let text = std::fs::read_to_string(lock)?;
-    match text.trim().parse() {
-        Ok(pid) => Ok(Some(pid)),
-        Err(error) => Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("{} holds {text:?}, not a pid: {error}", lock.display()),
-        )),
+
+    /// Serializes acquiring the claim and publishing its PID with readers.
+    /// The daemon's claim itself lasts until exit.
+    fn publication_lock(&self) -> io::Result<File> {
+        OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
+            .open(self.path.with_extension("publication"))
+    }
+
+    #[cfg(test)]
+    fn observe(&self, event: Publication<'_>) {
+        if let Some(observe) = self.observe {
+            observe(event);
+        }
+    }
+
+    /// Claims this lock for this process and writes its PID there. None
+    /// when a live daemon already holds the lock.
+    pub fn claim(&self) -> io::Result<Option<Claim>> {
+        let publication = self.publication_lock()?;
+        publication.lock()?;
+        let mut file = OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(self.path)?;
+        match file.try_lock() {
+            Ok(()) => {
+                #[cfg(test)]
+                self.observe(Publication::Claimed);
+                file.set_len(0)?;
+                writeln!(file, "{}", std::process::id())?;
+                Ok(Some(Claim { _file: file }))
+            }
+            Err(TryLockError::WouldBlock) => Ok(None),
+            Err(TryLockError::Error(error)) => Err(error),
+        }
+    }
+
+    /// Waits for a claimant to publish its PID, then reads it. None when
+    /// no daemon holds the claim when the reader acquires the publication lock.
+    pub fn pid(&self) -> io::Result<Option<i32>> {
+        let publication = match self.publication_lock() {
+            Ok(file) => file,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        #[cfg(test)]
+        self.observe(Publication::Reading(&publication));
+        publication.lock_shared()?;
+        #[cfg(test)]
+        self.observe(Publication::ReadLocked);
+        if !daemon_lives(self.path)? {
+            return Ok(None);
+        }
+        let text = std::fs::read_to_string(self.path)?;
+        match text.trim().parse() {
+            Ok(pid) => Ok(Some(pid)),
+            Err(error) => Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("{} holds {text:?}, not a pid: {error}", self.path.display()),
+            )),
+        }
     }
 }
 
@@ -90,26 +123,6 @@ pub fn daemon_lives(lock: &Path) -> io::Result<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::cell::RefCell;
-
-    type BeforeRead = Box<dyn FnOnce(&File)>;
-
-    thread_local! {
-        static BEFORE_PUBLISH: RefCell<Option<Box<dyn FnOnce()>>> = const { RefCell::new(None) };
-        static BEFORE_READ: RefCell<Option<BeforeRead>> = const { RefCell::new(None) };
-    }
-
-    pub(super) fn before_publishing() {
-        if let Some(action) = BEFORE_PUBLISH.take() {
-            action();
-        }
-    }
-
-    pub(super) fn before_reading(publication: &File) {
-        if let Some(action) = BEFORE_READ.take() {
-            action(publication);
-        }
-    }
 
     #[test]
     fn a_reader_waits_until_the_claimant_has_replaced_the_previous_pid() {
@@ -117,36 +130,58 @@ mod tests {
         use std::time::Duration;
 
         let scratch = crate::testing::Scratch::new("claim-publication");
-        let lock = scratch.dir.join("lock");
+        let path = scratch.dir.join("lock");
         let pid = std::process::id() as i32;
         let previous = if pid == 1 { 2 } else { 1 };
-        std::fs::write(&lock, format!("{previous}\n")).unwrap();
-        let (claimed, waiting_for_pid) = mpsc::channel();
+        std::fs::write(&path, format!("{previous}\n")).unwrap();
+
+        let (claimed, claim_is_held) = mpsc::channel();
         let (publish, can_publish) = mpsc::channel();
-        let writer_lock = lock.clone();
+        let (published, publication_finished) = mpsc::channel();
+        let patience = Duration::from_secs(30);
+        let writer_path = path.clone();
         let writer = std::thread::spawn(move || {
-            BEFORE_PUBLISH.set(Some(Box::new(move || {
+            let before_publish = |_: Publication<'_>| {
                 claimed.send(()).unwrap();
-                can_publish.recv_timeout(Duration::from_secs(30)).unwrap();
-            })));
-            claim(&writer_lock)
+                can_publish.recv_timeout(patience).unwrap();
+            };
+            let lock = DashboardLock {
+                path: &writer_path,
+                observe: Some(&before_publish),
+            };
+            let claim = lock.claim().unwrap().unwrap();
+            published.send(()).unwrap();
+            claim
         });
-        waiting_for_pid
-            .recv_timeout(Duration::from_secs(30))
-            .unwrap();
-        BEFORE_READ.set(Some(Box::new(move |reader| {
-            assert!(matches!(
-                reader.try_lock_shared(),
-                Err(TryLockError::WouldBlock)
-            ));
-            publish.send(()).unwrap();
-        })));
-        let owner = daemon_pid(&lock).unwrap();
-        let _claim = writer.join().unwrap().unwrap().unwrap();
+        claim_is_held.recv_timeout(patience).unwrap();
+
+        let observe_read = |event: Publication<'_>| match event {
+            Publication::Reading(reader) => {
+                assert!(matches!(
+                    reader.try_lock_shared(),
+                    Err(TryLockError::WouldBlock)
+                ));
+                publish.send(()).unwrap();
+            }
+            Publication::ReadLocked => {
+                // The writer has released its lock. A separate file
+                // can now only be refused by the reader's shared lock.
+                publication_finished.recv_timeout(patience).unwrap();
+                let probe = DashboardLock::new(&path).publication_lock().unwrap();
+                assert!(matches!(probe.try_lock(), Err(TryLockError::WouldBlock)));
+            }
+            Publication::Claimed => unreachable!("the reader does not claim the dashboard"),
+        };
+        let lock = DashboardLock {
+            path: &path,
+            observe: Some(&observe_read),
+        };
+        let owner = lock.pid().unwrap();
+        let _claim = writer.join().unwrap();
         assert_eq!(owner, Some(pid));
     }
 
-    /// `daemon_pid` returns the pid of the daemon that holds the lock, and
+    /// The PID reader returns the pid of the daemon that holds the lock, and
     /// None before any daemon claims the lock and after the one holding it
     /// exits. The daemon that exits is another process, as in use: when a
     /// test drops a claim it holds, every child that another test forked
@@ -156,23 +191,24 @@ mod tests {
         use std::io::BufRead;
         use std::process::{Command, Stdio};
         let scratch = crate::testing::Scratch::new("live-pid");
-        let lock = scratch.dir.join("lock");
-        assert_eq!(daemon_pid(&lock).unwrap(), None);
-        let claim = claim(&lock).unwrap().unwrap();
-        assert_eq!(daemon_pid(&lock).unwrap(), Some(std::process::id() as i32));
+        let path = scratch.dir.join("lock");
+        let lock = DashboardLock::new(&path);
+        assert_eq!(lock.pid().unwrap(), None);
+        let claim = lock.claim().unwrap().unwrap();
+        assert_eq!(lock.pid().unwrap(), Some(std::process::id() as i32));
         drop(claim);
 
         // lockf holds the lock while its shell writes its pid there, says
         // it, and waits for its input to end.
         let mut daemon = Command::new("lockf")
             .arg("-k")
-            .arg(&lock)
+            .arg(&path)
             .args([
                 "/bin/bash",
                 "-c",
                 "echo $$ > \"$0\"; echo $$; cat > /dev/null",
             ])
-            .arg(&lock)
+            .arg(&path)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .spawn()
@@ -182,9 +218,9 @@ mod tests {
             .read_line(&mut said)
             .unwrap();
         let pid: i32 = said.trim().parse().unwrap();
-        assert_eq!(daemon_pid(&lock).unwrap(), Some(pid));
+        assert_eq!(lock.pid().unwrap(), Some(pid));
         drop(daemon.stdin.take());
         assert!(daemon.wait().unwrap().success());
-        assert_eq!(daemon_pid(&lock).unwrap(), None);
+        assert_eq!(lock.pid().unwrap(), None);
     }
 }

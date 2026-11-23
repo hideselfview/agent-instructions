@@ -172,7 +172,10 @@ fn bind_leaves_the_socket_of_a_live_daemon() {
     std::fs::create_dir_all(tool.places.daemon_dir()).unwrap();
     let socket = tool.places.daemon_socket();
     refused_socket(&socket);
-    let _live = live::claim(&tool.places.daemon_lock()).unwrap().unwrap();
+    let _live = live::DashboardLock::new(&tool.places.daemon_lock())
+        .claim()
+        .unwrap()
+        .unwrap();
     assert!(bind(&tool).is_err());
     assert!(socket.exists(), "the live daemon's socket was removed");
 }

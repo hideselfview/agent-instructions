@@ -99,7 +99,10 @@ fn bind(tool: &Tool) -> Result<(UnixListener, live::Claim)> {
     let dir = tool.places.daemon_dir();
     let lock = tool.places.daemon_lock();
     std::fs::create_dir_all(&dir).context(|| format!("creating {}", dir.display()))?;
-    let Some(claim) = live::claim(&lock).context(|| format!("locking {}", lock.display()))? else {
+    let Some(claim) = live::DashboardLock::new(&lock)
+        .claim()
+        .context(|| format!("locking {}", lock.display()))?
+    else {
         fail!(
             "a daemon already runs for {}: it holds {}",
             dir.display(),

@@ -1833,7 +1833,8 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
     let ssh = crate::host::Ssh::from_env();
     let mut hosts = crate::host::all(&tool.places)?;
     let lock = tool.places.daemon_lock();
-    let dashboard = crate::daemon::live::daemon_pid(&lock)
+    let dashboard = crate::daemon::live::DashboardLock::new(&lock)
+        .pid()
         .context(|| format!("reading the dashboard's pid from {}", lock.display()))?;
     // Each host's probe for its load, read with its scan and busy processes:
     // each waits on an ssh round trip.

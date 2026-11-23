@@ -171,7 +171,7 @@ pub fn run(places: &Places) -> Result<()> {
     for (root, mut candidates) in by_root {
         let lock = places_at(&root).daemon_lock();
         // The claim reader waits for a dashboard that is publishing its PID.
-        let owner = super::live::daemon_pid(&lock).context(|| {
+        let owner = super::live::DashboardLock::new(&lock).pid().context(|| {
             format!(
                 "Builds could not read the published dashboard claim at {}",
                 lock.display()

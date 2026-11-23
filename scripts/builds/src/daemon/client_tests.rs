@@ -82,7 +82,7 @@ fn a_refusal_from_a_live_daemon_is_not_a_stale_socket() {
     let socket = scratch.dir.join("socket");
     let lock = scratch.dir.join("lock");
     crate::testing::stale_socket(&socket);
-    let _live = super::super::live::claim(&lock).unwrap().unwrap();
+    let _live = live::DashboardLock::new(&lock).claim().unwrap().unwrap();
     let message = match ask_within(&socket, &lock, &Question::Health, Duration::from_secs(1)) {
         Err(message) => message,
         Ok(_) => panic!("a live daemon's refusal was taken for a stale socket"),
