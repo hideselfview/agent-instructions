@@ -3,9 +3,9 @@
 //!
 //! An install never stops an app build: each lane builds to its end on the
 //! programs it started with (programs.rs) and writes its run when it ends
-//! (app_timing.rs). An install that changed a store's schema meanwhile moved
-//! the stores to the installed program's schema, which this program cannot
-//! read or write. The lane writes its run to a new store of its own schema
+//! (app_timing.rs). An install that closed the store gates meanwhile may
+//! have moved the stores to a schema this program cannot read or write.
+//! The lane then writes its run to a new store of its own schema
 //! under the install folder and runs the installed builds
 //! (`builds app-build --record-handed <repo> <store>`), which moves that
 //! store to its schema with the moves it makes for every store (migrate.rs),
@@ -39,8 +39,8 @@ pub fn record(places: &Places, run: &RunRecord) -> Result<()> {
     })
 }
 
-/// Writes <run> through the installed program when an install moved the
-/// stores since the lane started. Project lookup also needs the store's
+/// Writes <run> through the installed program when an install closed the
+/// store gates since the lane started. Project lookup also needs the store's
 /// schema, so only the program that will write the run looks up its project.
 fn write(
     places: &Places,
@@ -49,7 +49,7 @@ fn write(
     hand_off: impl FnOnce(&Path) -> Result<()>,
 ) -> Result<()> {
     if !install_ran()? {
-        return record_in_project(places, &run.repo, run);
+        return record_in_project(places, run);
     }
     let own = folder(places).join(crate::text::staged_suffix());
     std::fs::create_dir_all(&own).context(|| format!("creating {}", own.display()))?;
@@ -98,11 +98,17 @@ fn receive(places: &Places, repo: &str, store: &Path, now: i64) -> Result<()> {
     let _using_stores = install_gate::for_connection()?;
     crate::migrate::move_store(places, store, now)?;
     let run = app_timing::read_run(store)?;
-    record_in_project(places, repo, &run)
+    if run.repo != repo {
+        fail!(
+            "The handed run names repo {}, and the caller names {repo}.",
+            run.repo
+        );
+    }
+    record_in_project(places, &run)
 }
 
-fn record_in_project(places: &Places, repo: &str, run: &RunRecord) -> Result<()> {
-    if let Some(database) = app_timing::database_of(places, repo)? {
+fn record_in_project(places: &Places, run: &RunRecord) -> Result<()> {
+    if let Some(database) = app_timing::database_of(places, &run.repo)? {
         app_timing::record(&database, run)?;
     }
     Ok(())

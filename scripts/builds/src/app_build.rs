@@ -1702,12 +1702,11 @@ impl Timing {
             load: held.load,
             steps: self.steps,
         };
-        crate::handed_runs::record(places, &run).map_err(|error| {
-            Fail::Message(format!(
-                "The {} app build of {repo} {built_ref} could not save its record. {}",
-                lane.word(),
-                error.text()
-            ))
+        crate::handed_runs::record(places, &run).context(|| {
+            format!(
+                "recording the {} app build of {repo} {built_ref}",
+                lane.word()
+            )
         })
     }
 }

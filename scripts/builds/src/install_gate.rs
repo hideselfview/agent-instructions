@@ -181,6 +181,7 @@ fn open(path: &Path) -> Result<File> {
 pub struct Use {
     _file: File,
     path: PathBuf,
+    pid: u32,
 }
 
 impl Drop for Use {
@@ -241,7 +242,11 @@ fn take(places: &Places, kind: Kind, gate: File, pid: u32, what: &str, since: &s
         .context(|| format!("writing {}", path.display()))?;
     // Closing the gate's file releases the shared lock; the use is in place.
     drop(gate);
-    Ok(Use { _file: file, path })
+    Ok(Use {
+        _file: file,
+        path,
+        pid,
+    })
 }
 
 const RUNS_AGAIN: &str =
@@ -382,7 +387,7 @@ impl PerConnection {
 
     /// Whether an install that closed the gates ran since this process
     /// started.
-    pub(crate) fn install_ran(&self) -> Result<bool> {
+    fn install_ran(&self) -> Result<bool> {
         Ok(generation(&self.places)? != self.generation)
     }
 }
@@ -420,12 +425,7 @@ impl ConnectionUse {
     /// Covers a child for which the holder waits. Taking a separate use in
     /// the child could deadlock if install already waits for this use.
     pub fn cover(&self, child: &mut std::process::Command) {
-        let holder = self
-            .held
-            .path
-            .file_name()
-            .expect("a use file names its pid");
-        child.env(VARIABLE, holder);
+        child.env(VARIABLE, self.held.pid.to_string());
     }
 }
 

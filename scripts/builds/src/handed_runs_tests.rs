@@ -36,7 +36,9 @@ fn a_passing_run_reaches_the_installed_builds_after_its_project_schema_moves() {
     let places = scratch.places();
     let project = crate::lists::fixtures::make_store(&places, &["bae"]);
     let database = project.dir.join(DATABASE);
-    let lane = PerConnection::new(places.clone(), 23, "app-build bae branch", "10:00:00").unwrap();
+    install_gate::use_per_connection(
+        PerConnection::new(places.clone(), 23, "app-build bae branch", "10:00:00").unwrap(),
+    );
 
     let quiet = &mut |line| panic!("install waited for the app build: {line}");
     let closed = install_gate::begin(&places, quiet)
@@ -57,15 +59,10 @@ fn a_passing_run_reaches_the_installed_builds_after_its_project_schema_moves() {
 
     let completed = run();
     let mut handed = None;
-    write(
-        &places,
-        &completed,
-        || lane.install_ran(),
-        |store| {
-            handed = Some((store.to_path_buf(), read_run(store)?));
-            Ok(())
-        },
-    )
+    write(&places, &completed, install_gate::install_ran, |store| {
+        handed = Some((store.to_path_buf(), read_run(store)?));
+        Ok(())
+    })
     .unwrap();
     let (store, saved) = handed.expect("the lane hands its run to the installed builds");
     assert_eq!(saved, completed);
@@ -147,4 +144,27 @@ fn the_installed_builds_records_the_run_of_a_handed_store() {
     crate::app_timing::record(&handed, &run()).unwrap();
     receive(&places, "bae", &handed, 1_000_100).unwrap();
     assert_eq!(read_run(&project.dir.join(DATABASE)).unwrap(), run());
+}
+
+#[test]
+fn the_installed_builds_refuses_a_handoff_that_names_another_repo() {
+    let scratch = Scratch::new("handed-runs-wrong-repo");
+    let places = scratch.places();
+    let project = crate::lists::fixtures::make_store(&places, &["other"]);
+    let handed = scratch.dir.join(DATABASE);
+    drop(crate::db::open(&handed, crate::db::Make::Allowed).unwrap());
+    crate::app_timing::record(&handed, &run()).unwrap();
+
+    let said = receive(&places, "other", &handed, 1_000_100)
+        .unwrap_err()
+        .text();
+    assert!(
+        said.contains("repo bae") && said.contains("other"),
+        "{said}"
+    );
+    assert!(
+        app_timing::stats(&project.dir.join(DATABASE), 0)
+            .unwrap()
+            .is_empty()
+    );
 }
