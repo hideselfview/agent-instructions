@@ -24,14 +24,21 @@ fn a_path_containing_the_diff_separator_keeps_its_full_name() {
         "+++ b/x b/f.rs\t\n",
         "@@ -1 +1 @@\n-old\n+new\n",
     );
-    assert_eq!(paths(patch).unwrap(), ["x b/f.rs"]);
+    assert_eq!(
+        Patch::parse(patch.to_string()).unwrap().paths(),
+        ["x b/f.rs"]
+    );
     let mode_change = "diff --git a/x b/f.rs b/x b/f.rs\nold mode 100644\nnew mode 100755\n";
-    assert_eq!(paths(mode_change).unwrap(), ["x b/f.rs"]);
+    assert_eq!(
+        Patch::parse(mode_change.to_string()).unwrap().paths(),
+        ["x b/f.rs"]
+    );
 }
 
 #[test]
-fn split_cuts_at_each_file_and_drops_the_mail_header() {
-    let files = split(DIFF).unwrap();
+fn a_patch_lists_files_without_the_mail_header() {
+    let patch = Patch::parse(DIFF.to_string()).unwrap();
+    let files: Vec<_> = patch.files().collect();
     assert_eq!(files.len(), 2);
     assert_eq!(files[0].path, "a.rs");
     assert_eq!(files[1].path, "dir/b.rs");
@@ -42,7 +49,7 @@ fn split_cuts_at_each_file_and_drops_the_mail_header() {
 #[test]
 fn an_unreadable_file_header_cannot_disappear_from_a_review() {
     let patch = "diff --git \"a/r\\377.rs\" \"b/r\\377.rs\"\n@@ -0,0 +1 @@\n+code\n";
-    let error = split(patch).unwrap_err().text();
+    let error = Patch::parse(patch.to_string()).unwrap_err().text();
     assert!(error.contains("could not read a file path"), "{error}");
 }
 
@@ -135,14 +142,15 @@ fn commit_messages_become_one_added_file_with_quotes_to_check_against() {
 #[test]
 fn a_renamed_file_changes_its_old_and_its_new_path() {
     let diff = "diff --git a/src/a.rs b/tool/a.rs\nsimilarity index 90%\nrename from src/a.rs\nrename to tool/a.rs\n--- a/src/a.rs\n+++ b/tool/a.rs\n@@ -1 +1 @@\n-rename from x\n+y\ndiff --git a/b.rs b/b.rs\n--- a/b.rs\n+++ b/b.rs\n@@ -1 +1 @@\n+rename from z\n";
-    let files = split(diff).unwrap();
+    let patch = Patch::parse(diff.to_string()).unwrap();
+    let files: Vec<_> = patch.files().collect();
     assert_eq!(files[0].paths(), ["tool/a.rs", "src/a.rs"]);
     assert_eq!(
         files[1].paths(),
         ["b.rs"],
         "a `rename from` line inside a hunk adds no path"
     );
-    assert_eq!(paths(diff).unwrap(), ["tool/a.rs", "src/a.rs", "b.rs"]);
+    assert_eq!(patch.paths(), ["tool/a.rs", "src/a.rs", "b.rs"]);
 }
 
 #[test]
@@ -152,10 +160,9 @@ fn a_rename_source_uses_the_filename_git_escaped_in_the_patch() {
         "rename from \"a\\t\\303\\251.rs\"\n",
         "rename to b.rs\n",
     );
-    assert_eq!(
-        split(diff).unwrap()[0].renamed_from.as_deref(),
-        Some("a\té.rs")
-    );
+    let patch = Patch::parse(diff.to_string()).unwrap();
+    let file = patch.files().next().unwrap();
+    assert_eq!(file.renamed_from.as_deref(), Some("a\té.rs"));
 }
 
 #[test]
@@ -165,12 +172,8 @@ fn a_rename_destination_uses_the_filename_git_escaped_in_the_patch() {
         "rename from \"old\\t.rs\"\n",
         "rename to \"new\\303\\251.rs\"\n",
     );
-    assert_eq!(split(diff).unwrap()[0].paths(), ["newé.rs", "old\t.rs"]);
-    assert_eq!(
-        Patch::parse(diff.to_string())
-            .unwrap()
-            .only_files(&["newé.rs".into()])
-            .text(),
-        diff
-    );
+    let patch = Patch::parse(diff.to_string()).unwrap();
+    let file = patch.files().next().unwrap();
+    assert_eq!(file.paths(), ["newé.rs", "old\t.rs"]);
+    assert_eq!(patch.only_files(&["newé.rs".into()]).text(), diff);
 }

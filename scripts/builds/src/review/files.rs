@@ -349,16 +349,6 @@ impl Patch {
     }
 }
 
-#[cfg(test)]
-fn split(diff: &str) -> Result<Vec<FileDiff>> {
-    Ok(Patch::parse(diff.to_string())?.files().cloned().collect())
-}
-
-#[cfg(test)]
-pub(super) fn paths(diff: &str) -> Result<Vec<String>> {
-    Ok(Patch::parse(diff.to_string())?.paths())
-}
-
 /// The path the commit messages go by in a review: the reviewer reads them as
 /// a file the change adds.
 pub const COMMIT_MESSAGE: &str = "COMMIT_MESSAGE";
