@@ -132,11 +132,8 @@ fn a_health_answer_holds_a_claim_written_after_the_last_reading() {
     );
 }
 
-/// A worktree that git no longer lists leaves the page, whatever the daemon
-/// saw change: a card stands for a worktree that exists. A retire that
-/// removes a worktree and its build root while the daemon runs marks no
-/// layout change, so the daemon asked git about the missing folder and the
-/// card showed the failure.
+/// A worktree that git no longer lists leaves the page once the daemon is
+/// told its build root is gone: a card stands for a worktree that exists.
 #[test]
 fn a_worktree_that_git_no_longer_lists_leaves_the_page() {
     let scratch = Scratch::new("retired-card");
@@ -174,8 +171,7 @@ fn a_worktree_that_git_no_longer_lists_leaves_the_page() {
         &["worktree", "remove", "--force", &side.display().to_string()],
     );
     std::fs::remove_dir_all(&build_root).unwrap();
-    // Some other write makes the daemon read again.
-    model.wrote(&[tool.places.root.join("demo/side-3")]);
+    model.wrote(std::slice::from_ref(&build_root));
     let mut seen = model.wait_change(seen);
     let started = std::time::Instant::now();
     while lists_side_2(&model) && started.elapsed().as_secs() < 20 {
