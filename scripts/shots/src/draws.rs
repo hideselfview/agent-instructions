@@ -3,8 +3,8 @@
 //! The checker draws the selected boards and component previews at both
 //! revisions in the pinned Chrome. With no selectors, it compares every
 //! drawing from either revision. It compares what each
-//! draws: its picture and the element list the shots read from it (the
-//! boxes, roles and words). A board's frame on the canvas is part of its
+//! draws: its picture, to within `NOISE_LEVELS` a channel, and the element
+//! list the shots read from it (the boxes, roles and words), exactly. A board's frame on the canvas is part of its
 //! picture, so a board resized in `canvas.json` draws differently. A board or
 //! preview that exists at one revision only draws differently, and one that
 //! exists at neither draws nothing at both, so it draws alike when their merge
@@ -13,28 +13,56 @@
 //! file, `canvas.json` or a component's source changes bytes and no drawing.
 
 use crate::design;
-use crate::hex::hex;
 use crate::names::{Platform, Previews};
 use crate::render::{self, board, preview};
-use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
-/// What a board or a preview draws: the hash of its picture and its element
-/// list.
+/// The most a channel of a pixel may differ between two drawings of the same
+/// page. Chrome's rasterizer still puts a few pixels of a gradient or an edge
+/// one level off from one run to the next while the machine is busy, though
+/// `chrome::ARGS` leaves it nothing else to vary; two levels of 255 is far
+/// below what anyone sees as a change.
+const NOISE_LEVELS: u8 = 2;
+
+/// What a board or a preview draws: its picture, as the PNG Chrome made, and
+/// its element list.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Picture {
-    png: String,
+    png: Vec<u8>,
     elements: String,
 }
 
 impl Picture {
     fn of(png: &[u8], elements: &[crate::shots::Element]) -> Result<Self, String> {
         Ok(Self {
-            png: hex(&Sha256::digest(png)),
+            png: png.to_vec(),
             elements: serde_json::to_string(elements).map_err(|e| e.to_string())?,
         })
     }
+
+    /// Whether this drawing and <other> are the same drawing: the same
+    /// element list, and pictures of one size whose pixels no channel
+    /// separates by more than `NOISE_LEVELS`.
+    fn draws_like(&self, other: &Self) -> Result<bool, String> {
+        if self.elements != other.elements {
+            return Ok(false);
+        }
+        if self.png == other.png {
+            return Ok(true);
+        }
+        let (a, b) = (decode(&self.png)?, decode(&other.png)?);
+        Ok(a.width == b.width
+            && a.height == b.height
+            && a.pixels
+                .iter()
+                .zip(&b.pixels)
+                .all(|(a, b)| a.abs_diff(*b) <= NOISE_LEVELS))
+    }
+}
+
+fn decode(png: &[u8]) -> Result<crate::shots::Picture, String> {
+    crate::shots::Picture::decode(png).map_err(|e| format!("a drawing's picture: {e}"))
 }
 
 /// What the drawing of each board (`board <name>`) and component preview
@@ -90,7 +118,11 @@ pub(crate) fn lines(
                     ));
                 }
             }
-            let alike = before == after;
+            let alike = match (before, after) {
+                (None, None) => true,
+                (Some(before), Some(after)) => before.draws_like(after)?,
+                _ => false,
+            };
             Ok(format!(
                 "{} {what}",
                 if alike { "alike" } else { "differs" }

@@ -1577,11 +1577,14 @@ built again.
                               either revision. The checker stops CSS animations
                               and transitions before it captures the pictures
                               and element boxes, and starts Chrome with software
-                              rasterization on one thread, so the same board
-                              draws the same picture whatever else the machine
-                              runs. The command prints `alike` or `differs` for
-                              each name, and a second run of the same
-                              comparison prints the same.
+                              rasterization on one thread. Two pictures are
+                              alike when they have one size and no colour
+                              channel of any pixel differs by more than 2 of
+                              255, the noise that remains while the machine is
+                              busy; the element lists must match exactly. The
+                              command prints `alike` or `differs` for each
+                              name, and a second run of the same comparison
+                              prints the same.
   builds shots run|scenes|capture|check|lint|runtime|components|states|version [<argument>...]
                               run the shots checker, which checks the shots
                               of the repo it runs in against the repo's
