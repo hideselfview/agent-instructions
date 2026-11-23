@@ -100,7 +100,8 @@ kinds, each with an example:
 - A component every screen uses: every sheet and popover shares one sheet face,
   so a wrong face makes findings on every screen that opens a sheet.
 - A fault in the checker: the checker compared a non-text element by its
-  majority colour.
+  majority colour, and it took a text's colour from the text's whole box, not
+  from its glyphs.
 - A fault in what the shot tests report to the checker: the app's shot test code
   clipped each element's box to the screen before it wrote the element list. The
   fix goes in the app's test code, not in the checker.
