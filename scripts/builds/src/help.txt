@@ -1452,7 +1452,7 @@ built again.
                               <branch>'s .app-build that names a step of the
                               lane. A passing run of the lane covers <branch>
                               when it passed every step the change needs in the
-                              lane, ran every shots prefix that the branch's
+                              lane, covered every shots prefix that the branch's
                               own app builds ran since its merge base with
                               origin/main, and the commit it built has
                               <branch>'s files at every path the lane's `on`
@@ -1463,16 +1463,21 @@ built again.
                               count each shots prefix they ran to a verdict,
                               passed or failed, so a run that shows a pair
                               worse than its base cannot be skipped by a later
-                              run of other shots. A run of a prefix that the
-                              required one starts with covers it (`mac.` covers
-                              `mac.seek.`). The command prints each dropped
+                              run of other shots. A shots step covers its own
+                              prefix and every prefix that starts with it
+                              (`mac.` covers `mac.seek.`). A passing build can
+                              also cover a required prefix with narrower steps.
+                              Builds reads the shot names the harnesses declare
+                              at each commit and checks whether those steps
+                              together ran every shot the prefix selects at
+                              <branch>. The command prints each dropped
                               prefix that it honors, and the pairs that the
                               covering runs' shots rendered and the base never
                               did. When every lane the landing changes has a
                               covering run, it exits 0. When a lane has none,
                               it prints the newest passing run it found, the
                               paths where that run differs from <branch> and
-                              the shots prefixes it did not run that the
+                              the shots prefixes it did not cover that the
                               branch's builds ran, and exits 1: run `builds
                               app-build` on the branch, with the missing
                               prefixes in --shots, and land again, or drop a
@@ -3373,7 +3378,9 @@ run `review replay --rules-root` on it.
                               build: in a repo of a project, a landing whose
                               commits change what a lane's apps compile needs a
                               passing app build of the branch's own files in
-                              that lane, which land checks before it fetches
+                              that lane. The build must cover the branch's
+                              earlier shots prefixes by running the shots they
+                              select. Land checks both before it fetches
                               anything (`builds app-build --landing-coverage`),
                               and a lane with no such build ends the landing at
                               once. CI checks main as a whole, which covers

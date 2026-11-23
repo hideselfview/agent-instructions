@@ -493,14 +493,18 @@ pub struct PassedRun {
 }
 
 impl PassedRun {
-    /// Whether a shots step of the run covers <prefix>: a run of the prefix,
-    /// or of a prefix it starts with (`mac.` runs every shot of the lane).
-    pub fn ran_shots(&self, prefix: &str) -> bool {
+    /// The prefixes of the shots steps that passed in the run.
+    pub fn shots_prefixes(&self) -> impl Iterator<Item = &str> {
         let shots = PickKind::Shots.step_prefix();
         self.steps
             .iter()
-            .filter_map(|step| step.strip_prefix(shots))
-            .any(|ran| prefix.starts_with(ran))
+            .filter_map(move |step| step.strip_prefix(shots))
+    }
+
+    /// Whether a shots step of the run covers <prefix>: a run of the prefix,
+    /// or of a prefix it starts with (`mac.` runs every shot of the lane).
+    pub fn ran_shots(&self, prefix: &str) -> bool {
+        self.shots_prefixes().any(|ran| prefix.starts_with(ran))
     }
 }
 

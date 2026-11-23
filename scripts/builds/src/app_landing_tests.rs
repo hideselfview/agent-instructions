@@ -1,5 +1,6 @@
 use super::*;
-use crate::app_timing::PassedRun;
+use crate::app_timing::{PassedRun, StepKind, StepRecord, StepResult};
+use crate::run_end::RunEnd;
 
 /// A repo whose mac app builds from bae-macos/, whose mac shots build from
 /// bae-shots/ too, and whose android app builds from bae-android/.
@@ -65,9 +66,10 @@ fn check_shots(
                 .find(|(known, _)| *known == commit)
                 .map(|(_, list)| paths(list)))
         },
-        &mut |_, _| {},
+        &mut |commit| panic!("these prefixes need no declarations at {commit}"),
     )
     .unwrap()
+    .unbuilt
 }
 
 const BOTH: &[&str] = &["macos", "macos-shots"];
@@ -336,7 +338,7 @@ fn the_refusal_names_the_missing_shots_prefixes_and_how_to_drop_one() {
     };
     let said = refusal("bae", "/w/side-3", "fedcba9876543210", &[&mac]);
     assert!(
-        said.contains("mac: the newest passing mac app build, of 0123456789ab, did not run the shots prefixes mac.nowplaying., mac.seek. that the app builds of the branch ran since its merge base"),
+        said.contains("mac: the newest passing mac app build, of 0123456789ab, did not cover the shots prefixes mac.nowplaying., mac.seek. that the app builds of the branch ran since its merge base"),
         "{said}"
     );
     assert!(
@@ -346,90 +348,116 @@ fn the_refusal_names_the_missing_shots_prefixes_and_how_to_drop_one() {
     assert!(!said.contains("did not pass every step"), "{said}");
 }
 
-/// The whole command, on a real repo and store: the branch's first build ran
-/// the shots of two screens and one failed; its second build passed only the
-/// other screen's shots. Land is refused until a passing build runs the first
-/// prefix or an agent records why the branch drops it.
-#[test]
-fn a_landing_whose_covering_build_skipped_a_failed_prefix_is_refused_until_it_is_dropped() {
-    use crate::app_timing::{StepKind, StepRecord, StepResult};
-    use crate::run_end::RunEnd;
-    let scratch = crate::testing::Scratch::new("app-landing-shots-gate");
-    let places = scratch.places();
-    let dir = scratch.dir.join("bae");
-    crate::testing::repo(&dir, "target 1\n");
-    let write = |path: &str, text: &str| {
-        std::fs::create_dir_all(dir.join(path).parent().unwrap()).unwrap();
-        std::fs::write(dir.join(path), text).unwrap();
-    };
-    write(
-        ".app-build",
-        "step mac macos ./macos.sh\non bae-macos/ macos\n",
-    );
-    write("bae-macos/a.swift", "one\n");
-    crate::testing::git(&dir, &["add", ".app-build", "bae-macos/a.swift"]);
-    crate::testing::git(&dir, &["commit", "-q", "-m", "base"]);
-    crate::testing::git(&dir, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
-    crate::testing::git(&dir, &["checkout", "-q", "-b", "work"]);
-    write("bae-macos/a.swift", "two\n");
-    crate::testing::git(&dir, &["commit", "-q", "-a", "-m", "change"]);
-    let head = crate::testing::git_out(&dir, &["rev-parse", "HEAD"]);
-    let since: i64 = crate::testing::git_out(&dir, &["log", "-1", "--format=%at"])
-        .parse()
+struct ShotsLanding {
+    scratch: crate::testing::Scratch,
+    store: crate::lists::store::Store,
+    dir: std::path::PathBuf,
+    head: String,
+    since: i64,
+}
+
+impl ShotsLanding {
+    fn new() -> Self {
+        let scratch = crate::testing::Scratch::new("app-landing-shots-gate");
+        let dir = scratch.dir.join("bae");
+        crate::testing::repo(&dir, "target 1\n");
+        std::fs::create_dir(dir.join("bae-macos")).unwrap();
+        std::fs::write(
+            dir.join(".app-build"),
+            "step mac macos ./macos.sh\non bae-macos/ macos\nshots mac ./shots.sh {select}\nshots-declared mac bae-macos\n",
+        )
         .unwrap();
-    let store = crate::lists::fixtures::make_store_named(&places, "demo", &["bae"]);
-    let record_run = |at: i64, outcome: RunEnd, steps: &[(&str, StepKind, StepResult)]| {
+        std::fs::write(
+            dir.join("bae-macos/Shots.swift"),
+            "let scenes = [\"mac.nowplaying.empty\", \"mac.nowplaying.full\", \"mac.seek.knob\"]\n",
+        )
+        .unwrap();
+        crate::testing::git(&dir, &["add", ".app-build", "bae-macos/Shots.swift"]);
+        crate::testing::git(&dir, &["commit", "-q", "-m", "base"]);
+        crate::testing::git(&dir, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
+        crate::testing::git(&dir, &["checkout", "-q", "-b", "work"]);
+        std::fs::write(dir.join("bae-macos/App.swift"), "let app = 1\n").unwrap();
+        crate::testing::git(&dir, &["add", "bae-macos/App.swift"]);
+        crate::testing::git(&dir, &["commit", "-q", "-m", "change"]);
+        let head = crate::testing::git_out(&dir, &["rev-parse", "HEAD"]);
+        let since = crate::testing::git_out(&dir, &["log", "-1", "--format=%at"])
+            .parse()
+            .unwrap();
+        let store = crate::lists::fixtures::make_store_named(&scratch.places(), "demo", &["bae"]);
+        Self {
+            scratch,
+            store,
+            dir,
+            head,
+            since,
+        }
+    }
+
+    fn record_run(&self, at: i64, outcome: RunEnd, shots: &[(&str, StepResult)]) {
+        let steps = std::iter::once(("macos", StepKind::Step, StepResult::Passed)).chain(
+            shots
+                .iter()
+                .map(|(name, result)| (*name, StepKind::Shots, result.clone())),
+        );
         let run = crate::app_timing::RunRecord {
             started_at: at,
             repo: "bae".to_string(),
             lane: Lane::Mac,
             checkout: "side-1".to_string(),
             built_ref: "work".to_string(),
-            built_commit: Some(head.clone()),
+            built_commit: Some(self.head.clone()),
             who: None,
             wait_ms: 0,
             outcome,
             load: None,
             steps: steps
-                .iter()
                 .map(|(name, kind, result)| StepRecord {
                     at_merge_base: None,
                     name: name.to_string(),
-                    kind: *kind,
+                    kind,
                     started_at: at,
                     wall_ms: 1,
                     cpu_ms: 1,
-                    result: result.clone(),
+                    result,
                     shots: None,
                 })
                 .collect(),
         };
-        crate::app_timing::record(&store.database(), &run).unwrap();
-    };
-    record_run(
-        since + 1,
+        crate::app_timing::record(&self.store.database(), &run).unwrap();
+    }
+
+    fn check(&self) -> Result<()> {
+        let args = [
+            self.dir.display().to_string(),
+            self.head.clone(),
+            "work".into(),
+        ];
+        cmd_landing_coverage(&self.scratch.places(), &args)
+    }
+}
+
+/// The branch ran two prefixes. Land refuses when the passing build skipped
+/// one, and accepts it once an agent records why the branch drops that prefix.
+#[test]
+fn a_landing_whose_covering_build_skipped_a_failed_prefix_is_refused_until_it_is_dropped() {
+    let landing = ShotsLanding::new();
+    landing.record_run(
+        landing.since + 1,
         RunEnd::Failed,
-        &[
-            ("macos", StepKind::Step, StepResult::Passed),
-            (
-                "shots mac.nowplaying.",
-                StepKind::Shots,
-                StepResult::Failed(Default::default()),
-            ),
-        ],
+        &[(
+            "shots mac.nowplaying.",
+            StepResult::Failed(Default::default()),
+        )],
     );
-    record_run(
-        since + 2,
+    landing.record_run(
+        landing.since + 2,
         RunEnd::Passed,
-        &[
-            ("macos", StepKind::Step, StepResult::Passed),
-            ("shots mac.seek.", StepKind::Shots, StepResult::Passed),
-        ],
+        &[("shots mac.seek.", StepResult::Passed)],
     );
-    let args = [dir.display().to_string(), head, "work".to_string()];
-    assert!(cmd_landing_coverage(&places, &args).is_err());
-    let stamp = crate::lists::fixtures::stamp(since + 3);
-    store
+    assert!(landing.check().is_err());
+    let stamp = crate::lists::fixtures::stamp(landing.since + 3);
+    landing
+        .store
         .write(&stamp, "drop shots", |db| {
             crate::app_shots_drop::record(
                 db,
@@ -441,7 +469,59 @@ fn a_landing_whose_covering_build_skipped_a_failed_prefix_is_refused_until_it_is
             )
         })
         .unwrap();
-    cmd_landing_coverage(&places, &args).unwrap();
+    landing.check().unwrap();
+}
+
+#[test]
+fn a_passing_build_covers_a_prefix_by_running_the_same_shots() {
+    let landing = ShotsLanding::new();
+    landing.record_run(
+        landing.since + 1,
+        RunEnd::Failed,
+        &[(
+            "shots mac.nowplaying",
+            StepResult::Failed(Default::default()),
+        )],
+    );
+    landing.record_run(
+        landing.since + 2,
+        RunEnd::Passed,
+        &[("shots mac.nowplaying.", StepResult::Passed)],
+    );
+    landing.check().unwrap();
+}
+
+#[test]
+fn one_passing_build_must_cover_every_shot_of_the_prefix() {
+    let landing = ShotsLanding::new();
+    landing.record_run(
+        landing.since + 1,
+        RunEnd::Failed,
+        &[(
+            "shots mac.nowplaying",
+            StepResult::Failed(Default::default()),
+        )],
+    );
+    landing.record_run(
+        landing.since + 2,
+        RunEnd::Passed,
+        &[("shots mac.nowplaying.empty", StepResult::Passed)],
+    );
+    landing.record_run(
+        landing.since + 3,
+        RunEnd::Passed,
+        &[("shots mac.nowplaying.full", StepResult::Passed)],
+    );
+    assert!(matches!(landing.check(), Err(crate::fail::Fail::Exit(1))));
+    landing.record_run(
+        landing.since + 4,
+        RunEnd::Passed,
+        &[
+            ("shots mac.nowplaying.empty", StepResult::Passed),
+            ("shots mac.nowplaying.full", StepResult::Passed),
+        ],
+    );
+    landing.check().unwrap();
 }
 
 /// A landing of the first of two commits on a branch is judged over its own
@@ -450,8 +530,6 @@ fn a_landing_whose_covering_build_skipped_a_failed_prefix_is_refused_until_it_is
 /// branch never made.
 #[test]
 fn a_landing_is_judged_over_its_own_commits() {
-    use crate::app_timing::{StepKind, StepRecord, StepResult};
-    use crate::run_end::RunEnd;
     let scratch = crate::testing::Scratch::new("app-landing-own");
     let places = scratch.places();
     let dir = scratch.dir.join("bae");

@@ -11,10 +11,12 @@
 //! the paths whose change the lane's apps compile. The landing changes a
 //! lane's apps when a path that one of its own commits changes matches one of
 //! the lane's `on` lines. A passing run of the lane covers the branch when it
-//! passed every step the landing's change needs in the lane, ran every shots
+//! passed every step the landing's change needs in the lane, covered every shots
 //! prefix the branch's own app builds ran since its merge base, and the commit
 //! it built has the branch commit's files at every path the lane's `on` lines
-//! match. An agent drops a prefix from that set only by recording why
+//! match. A run can cover a prefix by passing narrower shots steps that
+//! together ran every shot the prefix selects at the branch commit. An agent
+//! drops a prefix from that set only by recording why
 //! (app_shots_drop.rs), and land prints each drop it honors. Without that
 //! rule, an agent could run the shots of the screens a change touches, see
 //! one fail as worse than its base, run other shots only, and land on the
@@ -34,9 +36,11 @@
 //! repo in no project and a branch whose commits are all on origin/main need
 //! no build, and the command says so.
 
+use std::collections::{HashMap, HashSet, hash_map::Entry};
 use std::path::Path;
+use std::rc::Rc;
 
-use crate::app_config::{CONFIG, Config, PickKind, parse_config, run_git};
+use crate::app_config::{CONFIG, Config, parse_config, run_git};
 use crate::app_shots_drop::Drop;
 use crate::app_timing::PassedRun;
 use crate::derive::paths_between;
@@ -130,18 +134,42 @@ enum Search {
     Newest(Option<Newest>),
 }
 
-/// The prefixes of <required> that no shots step of <run> covers
-/// (`PassedRun::ran_shots`).
-fn missing_shots(run: &PassedRun, required: &[String]) -> Vec<String> {
-    required
-        .iter()
-        .filter(|prefix| !run.ran_shots(prefix))
-        .cloned()
-        .collect()
+/// Gives the names declared at a commit, shared across a landing's checks.
+type DeclaredNames<'a> = dyn FnMut(&str) -> Result<Rc<HashSet<String>>> + 'a;
+
+/// The required prefixes that <run> does not cover at <target>. A narrower
+/// prefix can contribute only to shots whose names start with both prefixes.
+fn missing_shots(
+    run: &PassedRun,
+    required: &[String],
+    target: &str,
+    declared: &mut DeclaredNames<'_>,
+) -> Result<Vec<String>> {
+    let mut missing = Vec::new();
+    for prefix in required {
+        if run.ran_shots(prefix) {
+            continue;
+        }
+        if run.shots_prefixes().any(|ran| ran.starts_with(prefix)) {
+            let names = declared(target)?;
+            let mut selected = names
+                .iter()
+                .filter(|name| name.starts_with(prefix))
+                .peekable();
+            if selected.peek().is_some() {
+                let built = declared(&run.commit)?;
+                if selected.all(|name| built.contains(name) && run.ran_shots(name)) {
+                    continue;
+                }
+            }
+        }
+        missing.push(prefix.clone());
+    }
+    Ok(missing)
 }
 
 /// The newest of <runs> that covers <target> in <lane>: it passed every step
-/// of <needed>, ran every shots prefix of <required>, and its commit has
+/// of <needed>, covered every shots prefix of <required>, and its commit has
 /// <target>'s files at every path the lane's `on` lines match. <differ> gives
 /// the paths where a commit differs from <target>, or None when git does not
 /// have the commit.
@@ -152,6 +180,7 @@ fn search(
     runs: &[PassedRun],
     target: &str,
     differ: &mut Differ,
+    declared: &mut DeclaredNames<'_>,
 ) -> Result<Search> {
     let mut newest = None;
     for run in runs {
@@ -162,31 +191,36 @@ fn search(
             .into_iter()
             .map(str::to_string)
             .collect();
-        let missing = missing_shots(run, required);
         if paths.is_empty()
-            && missing.is_empty()
             && needed.iter().all(|step| run.steps.contains(step))
+            && missing_shots(run, required, target, declared)?.is_empty()
         {
             return Ok(Search::Covers(run.clone()));
         }
         if newest.is_none() {
-            newest = Some(Newest {
-                commit: run.commit.clone(),
-                paths,
-                missing_shots: missing,
-            });
+            newest = Some((run, paths));
         }
     }
+    let newest = match newest {
+        Some((run, paths)) => Some(Newest {
+            commit: run.commit.clone(),
+            paths,
+            missing_shots: missing_shots(run, required, target, declared)?,
+        }),
+        None => None,
+    };
     Ok(Search::Newest(newest))
 }
 
-/// The lanes that <changed>, the paths the landing's own commits change,
-/// changes in <config> and that no passing run covers at <branch>, each with
-/// the newest run git has. <passed> gives a lane's passing runs that are the
-/// branch's, newest first, and <required> the shots prefixes that a lane's
-/// covering run must have run: those the branch's app builds ran, less the
-/// ones dropped. <covering> hears of each passing run that covers a lane, so
-/// land can say what its shots found.
+pub struct Coverage {
+    covering: Vec<(Lane, PassedRun)>,
+    pub unbuilt: Vec<Unbuilt>,
+}
+
+/// Finds the covering build or newest unbuilt candidate for each lane the
+/// landing's own commits change. <passed> gives the branch's passing runs in
+/// a lane, newest first, and <shots_required> gives the prefixes they must
+/// cover: those the branch's app builds ran, less the dropped ones.
 pub fn needs(
     config: &Config,
     changed: &[String],
@@ -194,9 +228,10 @@ pub fn needs(
     passed: &mut dyn FnMut(Lane) -> Result<Vec<PassedRun>>,
     shots_required: &mut dyn FnMut(Lane) -> Result<Vec<String>>,
     differ: &mut Differ,
-    covering: &mut dyn FnMut(Lane, &PassedRun),
-) -> Result<Vec<Unbuilt>> {
-    let mut found = Vec::new();
+    declared: &mut DeclaredNames<'_>,
+) -> Result<Coverage> {
+    let mut covering = Vec::new();
+    let mut unbuilt = Vec::new();
     for lane in Lane::ALL {
         if lane_paths(config, lane, changed).is_empty() {
             continue;
@@ -209,12 +244,12 @@ pub fn needs(
         let runs = passed(lane)?;
         let required = shots_required(lane)?;
         let asked = (needed.as_slice(), required.as_slice());
-        match search(config, lane, asked, &runs, branch, differ)? {
-            Search::Covers(run) => covering(lane, &run),
-            Search::Newest(newest) => found.push(Unbuilt { lane, newest }),
+        match search(config, lane, asked, &runs, branch, differ, declared)? {
+            Search::Covers(run) => covering.push((lane, run)),
+            Search::Newest(newest) => unbuilt.push(Unbuilt { lane, newest }),
         }
     }
-    Ok(found)
+    Ok(Coverage { covering, unbuilt })
 }
 
 /// What land prints when some lanes of the landing of <repo> from <worktree>
@@ -259,7 +294,7 @@ fn refusal(repo: &str, worktree: &str, branch: &str, lanes: &[&Unbuilt]) -> Stri
         }
         if !missing_shots.is_empty() {
             said.push_str(&format!(
-                "\n  {lane}: the newest passing {lane} app build, of {}, did not run the shots prefixes {} that the app builds of the branch ran since its merge base",
+                "\n  {lane}: the newest passing {lane} app build, of {}, did not cover the shots prefixes {} that the app builds of the branch ran since its merge base",
                 short(commit),
                 missing_shots.join(", ")
             ));
@@ -272,7 +307,7 @@ fn refusal(repo: &str, worktree: &str, branch: &str, lanes: &[&Unbuilt]) -> Stri
             .is_some_and(|n| !n.missing_shots.is_empty())
     }) {
         said.push_str(&format!(
-            "\nA shots prefix that the branch's builds ran needs a passing run before the landing. To drop one the branch needs no run of, record why: `builds app-build {FLAG_DROP} {repo} <branch> <lane> <prefix> --why TEXT`; land prints the reason.",
+            "\nA passing app build must cover every shots prefix the branch's builds ran. To drop a prefix, record why with `builds app-build {FLAG_DROP} {repo} <branch> <lane> <prefix> --why TEXT`. Land prints the reason.",
             FLAG_DROP = crate::app_shots_drop::FLAG
         ));
     }
@@ -340,9 +375,8 @@ fn unrendered_lines(
     lane: Lane,
     run: &PassedRun,
 ) -> Result<Vec<String>> {
-    let shots = PickKind::Shots.step_prefix();
     let mut lines = Vec::new();
-    for prefix in run.steps.iter().filter_map(|step| step.strip_prefix(shots)) {
+    for prefix in run.shots_prefixes() {
         let found = crate::shots_cache::covering_run(
             places,
             repo,
@@ -416,7 +450,7 @@ pub fn cmd_landing_coverage(places: &Places, args: &[String]) -> Result<()> {
     let changed = paths_of_commits(top, own)?;
     let since = branch_since(top, "origin/main", branch)?;
     let conn = crate::db::open(&database, crate::db::Make::Never)?;
-    let mut drops_of = std::collections::HashMap::new();
+    let mut drops_of = HashMap::new();
     for lane in Lane::ALL {
         let drops = crate::app_shots_drop::dropped(&conn, &repo, named, lane, since)?;
         for line in dropped_lines(lane, &drops) {
@@ -424,8 +458,8 @@ pub fn cmd_landing_coverage(places: &Places, args: &[String]) -> Result<()> {
         }
         drops_of.insert(lane, drops);
     }
-    let mut covering: Vec<(Lane, PassedRun)> = Vec::new();
-    let unbuilt = needs(
+    let mut names_by_commit = HashMap::new();
+    let Coverage { covering, unbuilt } = needs(
         &config,
         &changed,
         branch,
@@ -456,7 +490,17 @@ pub fn cmd_landing_coverage(places: &Places, args: &[String]) -> Result<()> {
             }
             paths_between(top, commit, target).map(Some)
         },
-        &mut |lane, run| covering.push((lane, run.clone())),
+        &mut |commit| {
+            let names = match names_by_commit.entry(commit.to_string()) {
+                Entry::Occupied(entry) => entry.into_mut(),
+                Entry::Vacant(entry) => entry.insert(Rc::new(
+                    crate::shots_declared::declared_names_at(top, commit)?
+                        .into_iter()
+                        .collect(),
+                )),
+            };
+            Ok(Rc::clone(names))
+        },
     )?;
     for (lane, run) in &covering {
         for line in unrendered_lines(places, &repo, *lane, run)? {

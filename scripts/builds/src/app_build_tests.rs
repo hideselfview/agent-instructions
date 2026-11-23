@@ -1606,7 +1606,7 @@ fn a_build_that_reuses_a_cached_run_leaves_the_passing_build_that_land_counts() 
     assert!(run.ran_shots("mac.a.") && !run.ran_shots("android.a."));
     let config = parse_config("step mac macos ./macos.sh\non bae-macos/ macos\n").unwrap();
     let conn = crate::db::open(&store.database(), crate::db::Make::Never).unwrap();
-    let needs = crate::app_landing::needs(
+    let coverage = crate::app_landing::needs(
         &config,
         &["bae-macos/a.swift".to_string()],
         &commit,
@@ -1622,10 +1622,10 @@ fn a_build_that_reuses_a_cached_run_leaves_the_passing_build_that_land_counts() 
         },
         &mut |_| Ok(vec!["mac.a.".to_string()]),
         &mut |_, _| Ok(Some(Vec::new())),
-        &mut |_, _| {},
+        &mut |commit| panic!("this prefix needs no declarations at {commit}"),
     )
     .unwrap();
-    assert!(needs.is_empty(), "{needs:?}");
+    assert!(coverage.unbuilt.is_empty(), "{:?}", coverage.unbuilt);
 }
 
 /// A shots run that writes a report, with a findings.json that names
