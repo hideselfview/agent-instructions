@@ -311,6 +311,48 @@ impl FilePosition<&str> {
     }
 }
 
+/// The places where one file's diff contains the quote.
+struct QuoteMatches<'a> {
+    file: &'a str,
+    changed: Vec<FilePosition<&'a str>>,
+    context: Vec<i64>,
+}
+
+fn quote_matches<'a>(
+    files: &'a [DiffFile],
+    file: &str,
+    code: &str,
+) -> Result<QuoteMatches<'a>, String> {
+    if squash(code).is_empty() {
+        return Err("it quotes no code".to_string());
+    }
+    let named = named_patches(files, file)?;
+    let mut found = QuoteMatches {
+        file: named[0].path.as_str(),
+        changed: Vec::new(),
+        context: Vec::new(),
+    };
+    for patch in named {
+        let old_path = patch.renamed_from.as_deref().unwrap_or(found.file);
+        for (side, path) in [(Side::After, found.file), (Side::Before, old_path)] {
+            for (line, changed) in quote_sites(patch, side, code) {
+                if changed {
+                    let site = FilePosition {
+                        path,
+                        position: Position { side, line },
+                    };
+                    if !found.changed.contains(&site) {
+                        found.changed.push(site);
+                    }
+                } else {
+                    found.context.push(line);
+                }
+            }
+        }
+    }
+    Ok(found)
+}
+
 /// The start of the quote on the side where the diff changes it. The
 /// reported line disambiguates occurrences within the named file.
 pub fn code_site<'a>(
@@ -319,76 +361,44 @@ pub fn code_site<'a>(
     line: i64,
     code: &str,
 ) -> Result<QuoteSite<'a>, String> {
-    if squash(code).is_empty() {
-        return Err("it quotes no code".to_string());
-    }
-    let named = named_patches(files, file)?;
-    let file_path = named[0].path.as_str();
-    let site = |side, path, line| QuoteSite {
-        file: file_path,
-        source: FilePosition {
-            path,
-            position: Position { side, line },
-        },
+    let found = quote_matches(files, file, code)?;
+    let exact: Vec<_> = found
+        .changed
+        .iter()
+        .filter(|site| site.position.line == line)
+        .collect();
+    let site = |source| QuoteSite {
+        file: found.file,
+        source,
     };
-    let mut current = Vec::new();
-    let mut removed = Vec::new();
-    let mut exact_context = false;
-    let mut context = false;
-    for patch in &named {
-        let old_path = patch.renamed_from.as_deref().unwrap_or(file_path);
-        for (number, changed) in quote_sites(patch, Side::After, code) {
-            if changed {
-                if !current.contains(&number) {
-                    current.push(number);
-                }
-            } else {
-                context = true;
-                exact_context |= number == line;
-            }
-        }
-        for (number, changed) in quote_sites(patch, Side::Before, code) {
-            if changed {
-                let occurrence = (old_path, number);
-                if !removed.contains(&occurrence) {
-                    removed.push(occurrence);
-                }
-            } else {
-                context = true;
-                exact_context |= number == line;
-            }
-        }
-    }
-    let exact_current = current.contains(&line);
     let ambiguous = || {
         format!(
             "its quote occurs more than once in {file} and its line does not identify one occurrence"
         )
     };
-    let mut exact_removals = removed.iter().filter(|(_, number)| *number == line);
-    let exact_removal = exact_removals.next();
-    if exact_removals.next().is_some() {
-        return Err(ambiguous());
+    match exact.as_slice() {
+        [exact] => return Ok(site(**exact)),
+        [first, further @ ..] => {
+            return Err(
+                if further
+                    .iter()
+                    .any(|other| other.position.side != first.position.side)
+                {
+                    format!("its quote starts at line {line} on both sides of the diff of {file}")
+                } else {
+                    ambiguous()
+                },
+            );
+        }
+        [] => {}
     }
-    if exact_removal.is_some() && exact_current {
-        return Err(format!(
-            "its quote starts at line {line} on both sides of the diff of {file}"
-        ));
-    }
-    if exact_current {
-        return Ok(site(Side::After, file_path, line));
-    }
-    if let Some((path, _)) = exact_removal {
-        return Ok(site(Side::Before, *path, line));
-    }
-    if exact_context {
+    if found.context.contains(&line) {
         return Err(unchanged_quote(file));
     }
-    match (current.as_slice(), removed.as_slice()) {
-        ([], []) if context => Err(unchanged_quote(file)),
-        ([], []) => Err(format!("its code is not in the diff of {file}")),
-        ([], [(path, number)]) => Ok(site(Side::Before, *path, *number)),
-        ([number], []) => Ok(site(Side::After, file_path, *number)),
+    match found.changed.as_slice() {
+        [] if !found.context.is_empty() => Err(unchanged_quote(file)),
+        [] => Err(format!("its code is not in the diff of {file}")),
+        [only] => Ok(site(*only)),
         _ => Err(ambiguous()),
     }
 }
