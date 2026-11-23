@@ -562,6 +562,28 @@ fn a_step_on_a_host_runs_under_this_builds_programs_there() {
     );
 }
 
+/// `builds shots chrome` starts Chrome on the host from the host's folder of
+/// this version, in no checkout: `builds programs hold` refuses a directory
+/// that is in none, and the shell a host command starts in is in the home
+/// directory.
+#[test]
+fn chrome_starts_on_a_host_without_a_checkout_or_programs_hold() {
+    use std::os::unix::fs::PermissionsExt;
+    let s = setup("remote-app-chrome", Lane::Mac);
+    let bin = s.places.home.join("bin");
+    let pinned = crate::testing::pinned_programs(&bin, &s.places.home);
+    let builds = pinned.dir().join("builds");
+    std::fs::write(
+        &builds,
+        "#!/bin/sh\ncase \"$1 $2\" in\n\"programs hold\") echo \"builds: $PWD is in no git checkout\" >&2; exit 1;;\n\"shots chrome\") echo \"chrome=started Chrome/1\";;\nesac\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&builds, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let mut app = remote_app(&s);
+    let said = app.start_chrome(&pinned).unwrap();
+    assert_eq!(said.trim(), "chrome=started Chrome/1");
+}
+
 /// The mac lane's window steps run under `caffeinate -d -u`, which holds a
 /// display assertion on the host while the step runs; the android lane's run
 /// as they are.

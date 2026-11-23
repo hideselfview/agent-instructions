@@ -90,21 +90,7 @@ impl<'a> Site<'a> {
                 command.args(["shots", "chrome"]);
                 output_of(command, WHAT)?
             }
-            Site::Remote(remote) => {
-                let command = remote
-                    .with_programs(
-                        programs,
-                        &[
-                            "builds".to_string(),
-                            "shots".to_string(),
-                            "chrome".to_string(),
-                        ],
-                    )
-                    .map_err(|e| e.text())?;
-                remote
-                    .on_host(&crate::app_remote::shell_line(&command), WHAT)
-                    .map_err(|e| e.text())?
-            }
+            Site::Remote(remote) => remote.start_chrome(programs).map_err(|e| e.text())?,
         };
         crate::host_chrome::parse(&said)
     }

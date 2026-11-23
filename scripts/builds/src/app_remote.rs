@@ -515,6 +515,37 @@ impl<'a> RemoteApp<'a> {
         pinned: &crate::programs::Pinned,
         command: &[String],
     ) -> Result<Vec<String>> {
+        let there = self.programs_on_host(pinned)?;
+        let mut held = vec![
+            format!("{there}/builds"),
+            "programs".to_string(),
+            "hold".to_string(),
+            "--".to_string(),
+        ];
+        held.extend(command.iter().cloned());
+        Ok(held)
+    }
+
+    /// Starts Chrome on the host, as `builds shots chrome` from the host's
+    /// folder of the build's builds <pinned> (`programs_on_host`), and returns
+    /// what it printed. It needs no checkout, so it runs outside one and
+    /// outside `builds programs hold`, which refuses a directory that is in
+    /// none.
+    pub fn start_chrome(&mut self, pinned: &crate::programs::Pinned) -> Result<String> {
+        let there = self.programs_on_host(pinned)?;
+        self.on_host(
+            &shell_line(&[
+                format!("{there}/builds"),
+                "shots".to_string(),
+                "chrome".to_string(),
+            ]),
+            "starting Chrome",
+        )
+    }
+
+    /// The host's folder of the build's builds <pinned>, where the function
+    /// copies this Mac's folder of the version when the host lacks it.
+    fn programs_on_host(&mut self, pinned: &crate::programs::Pinned) -> Result<String> {
         let (version, local) = (pinned.version(), pinned.dir());
         let said = self.capture(
             &format!(
@@ -555,14 +586,7 @@ if [ -x "$dir/builds" ]; then echo "present=$dir"; else echo "absent=$dir"; fi"#
                 ),
             )?;
         }
-        let mut held = vec![
-            format!("{there}/builds"),
-            "programs".to_string(),
-            "hold".to_string(),
-            "--".to_string(),
-        ];
-        held.extend(command.iter().cloned());
-        Ok(held)
+        Ok(there)
     }
 
     /// Copies the file <local> here to a new temporary file on the host and
