@@ -29,6 +29,13 @@ fn publication_lock(lock: &Path) -> io::Result<File> {
 /// Claims <lock> for this process and writes its pid there. None when a live
 /// daemon already holds it.
 pub fn claim(lock: &Path) -> io::Result<Option<Claim>> {
+    claim_and_publish(lock, write_pid)
+}
+
+fn claim_and_publish(
+    lock: &Path,
+    publish: impl FnOnce(&mut File) -> io::Result<()>,
+) -> io::Result<Option<Claim>> {
     let publication = publication_lock(lock)?;
     publication.lock()?;
     let mut file = OpenOptions::new()
@@ -38,13 +45,17 @@ pub fn claim(lock: &Path) -> io::Result<Option<Claim>> {
         .open(lock)?;
     match file.try_lock() {
         Ok(()) => {
-            file.set_len(0)?;
-            writeln!(file, "{}", std::process::id())?;
+            publish(&mut file)?;
             Ok(Some(Claim { _file: file }))
         }
         Err(TryLockError::WouldBlock) => Ok(None),
         Err(TryLockError::Error(error)) => Err(error),
     }
+}
+
+fn write_pid(file: &mut File) -> io::Result<()> {
+    file.set_len(0)?;
+    writeln!(file, "{}", std::process::id())
 }
 
 /// Waits for a claimant to publish its pid, then reads it. None when no
@@ -96,27 +107,37 @@ mod tests {
 
     #[test]
     fn a_reader_waits_until_the_claimant_has_replaced_the_previous_pid() {
+        use std::sync::mpsc;
+        use std::time::Duration;
+
         let scratch = crate::testing::Scratch::new("claim-publication");
         let lock = scratch.dir.join("lock");
         let pid = std::process::id() as i32;
         let previous = if pid == 1 { 2 } else { 1 };
         std::fs::write(&lock, format!("{previous}\n")).unwrap();
-        let publisher = publication_lock(&lock).unwrap();
-        publisher.lock().unwrap();
-        let mut claim = OpenOptions::new().write(true).open(&lock).unwrap();
-        claim.try_lock().unwrap();
-
-        let owner = read_published_pid(&lock, |reader| {
+        let (claimed, waiting_for_pid) = mpsc::channel();
+        let (publish, can_publish) = mpsc::channel();
+        let writer_lock = lock.clone();
+        let writer = std::thread::spawn(move || {
+            claim_and_publish(&writer_lock, |file| {
+                claimed.send(()).unwrap();
+                can_publish.recv_timeout(Duration::from_secs(30)).unwrap();
+                write_pid(file)
+            })
+        });
+        waiting_for_pid
+            .recv_timeout(Duration::from_secs(30))
+            .unwrap();
+        let owner = read_published_pid(&lock, move |reader| {
             assert!(matches!(
                 reader.try_lock_shared(),
                 Err(TryLockError::WouldBlock)
             ));
-            claim.set_len(0)?;
-            writeln!(claim, "{pid}")?;
-            drop(publisher);
+            publish.send(()).unwrap();
             reader.lock_shared()
         })
         .unwrap();
+        let _claim = writer.join().unwrap().unwrap().unwrap();
         assert_eq!(owner, Some(pid));
     }
 
