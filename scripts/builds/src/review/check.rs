@@ -334,18 +334,14 @@ pub fn code_site<'a>(
             }
         }
     }
-    let mut exact_current = current.iter().filter(|(_, number)| *number == line);
+    let exact_current = current.iter().find(|(_, number)| *number == line);
     let ambiguous = || {
         format!(
             "its quote occurs more than once in {file} and its line does not identify one occurrence"
         )
     };
-    if let Some(site) = exact_current.next() {
-        return if exact_current.next().is_none() {
-            Ok(Some(*site))
-        } else {
-            Err(ambiguous())
-        };
+    if let Some(site) = exact_current {
+        return Ok(Some(*site));
     }
     if named
         .iter()
