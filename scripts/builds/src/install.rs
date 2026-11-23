@@ -705,7 +705,7 @@ mod tests {
         )
         .unwrap()
         {
-            crate::install_gate::Entered::Holds(held) => held,
+            crate::install_gate::Entered::Start(held) => held,
             crate::install_gate::Entered::RunAgain => panic!("the gate is open"),
         }
     }

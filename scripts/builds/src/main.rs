@@ -327,22 +327,21 @@ fn enter_stores(command: &str, args: &[String]) -> Result<Option<install_gate::U
     let (what, since) = (args.join(" "), text::clock());
     if !holds_for_life(command, &args[1..]) {
         let parent_generation = install_gate::take_lane_generation()?;
-        let Some(uses) = install_gate::PerConnection::enter(
+        match install_gate::PerConnection::enter(
             places,
             pid,
             &what,
             &since,
             parent_generation,
             &mut |line| text::note(line),
-        )?
-        else {
-            return Err(install_gate::run_again());
-        };
-        install_gate::use_per_connection(uses);
+        )? {
+            install_gate::Entered::Start(uses) => install_gate::use_per_connection(uses),
+            install_gate::Entered::RunAgain => return Err(install_gate::run_again()),
+        }
         return Ok(None);
     }
     match install_gate::enter_for_life(&places, pid, &what, &since, &mut |line| text::note(line))? {
-        install_gate::Entered::Holds(held) => {
+        install_gate::Entered::Start(held) => {
             // SAFETY: no other thread runs yet, so none reads the environment
             // while set_var writes it. Every builds command this one starts runs
             // under its use.

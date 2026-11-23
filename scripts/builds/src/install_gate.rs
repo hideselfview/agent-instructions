@@ -260,10 +260,10 @@ const RUNS_AGAIN: &str =
 const WAITS_FOR_MOVE: &str =
     "builds install moves the stores: this command waits until it finishes";
 
-/// How a command that holds a use for its life enters.
-pub enum Entered {
-    /// The command holds this use for its life.
-    Holds(Use),
+/// How a command enters the stores.
+pub enum Entered<T> {
+    /// The command starts with its use or the state for its connection uses.
+    Start(T),
     /// The command waited while an install ran, and must run the installed
     /// program in its place.
     RunAgain,
@@ -278,9 +278,9 @@ pub fn enter_for_life(
     what: &str,
     since: &str,
     say: &mut dyn FnMut(&str),
-) -> Result<Entered> {
+) -> Result<Entered<Use>> {
     match pass(places, Kind::Command, RUNS_AGAIN, say)? {
-        (gate, true) => Ok(Entered::Holds(take(
+        (gate, true) => Ok(Entered::Start(take(
             places,
             Kind::Command,
             gate,
@@ -316,8 +316,8 @@ pub struct PerConnection {
 impl PerConnection {
     /// Captures the starting generation while holding the connections gate.
     /// A lane compares it with its parent's generation to check that it can
-    /// start on the program its parent selected. Other commands return None
-    /// if they had to wait, and run the installed program in their place.
+    /// start on the program its parent selected. Other commands get RunAgain
+    /// if they had to wait.
     pub fn enter(
         places: Places,
         pid: u32,
@@ -325,7 +325,7 @@ impl PerConnection {
         since: &str,
         parent_generation: Option<u64>,
         say: &mut dyn FnMut(&str),
-    ) -> Result<Option<Self>> {
+    ) -> Result<Entered<Self>> {
         let waiting = if parent_generation.is_some() {
             WAITS_FOR_MOVE
         } else {
@@ -333,7 +333,7 @@ impl PerConnection {
         };
         let (_gate, was_open) = pass(&places, Kind::Connection, waiting, say)?;
         if !was_open && parent_generation.is_none() {
-            return Ok(None);
+            return Ok(Entered::RunAgain);
         }
         let uses = Self::new(places, pid, what, since)?;
         if parent_generation.is_some_and(|parent| parent != uses.generation) {
@@ -341,7 +341,7 @@ impl PerConnection {
                 "builds install ran before the app build lane started. Run builds app-build again."
             );
         }
-        Ok(Some(uses))
+        Ok(Entered::Start(uses))
     }
 
     pub fn new(places: Places, pid: u32, what: &str, since: &str) -> Result<PerConnection> {
