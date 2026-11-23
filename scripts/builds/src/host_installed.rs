@@ -177,7 +177,9 @@ pub fn read_installed(
         )
         .map_err(|fail| fail.text())??;
     let mut installed = parse_installed(&printed).map_err(|fail| fail.text())?;
-    if let Some(server) = &mut installed.sccache {
+    if (host.target.is_none() || installed.builds.is_some())
+        && let Some(server) = &mut installed.sccache
+    {
         server.tmp_issue = match crate::sccache::tmpdir_issue(&transport, server.pid) {
             Ok(issue) => issue,
             Err(error) => Some(format!(
@@ -229,22 +231,25 @@ pub fn installed_findings(reads: &[HostInstalled]) -> Vec<crate::health::Advice>
             format!("builds host setup {name}")
         };
         out.extend(sccache_running_findings(name, installed));
-        if name != LOCAL
-            && let Some(HostInstalled {
-                read: Ok(local), ..
-            }) = local
-            && installed.builds != local.builds
-        {
-            let text = match &installed.builds {
-                None => format!(
-                    "host {name} has no builds at ~/.local/bin/builds, so the repos' scripts fail in its jobs. Install this Mac's builds there with"
-                ),
-                Some(said) => format!(
+        if name != LOCAL {
+            let text = match (&installed.builds, local) {
+                (None, _) => Some(format!(
+                    "host {name} has no builds at ~/.local/bin/builds. Builds needs that program to run jobs and inspect sccache there. Install this Mac's builds there with"
+                )),
+                (
+                    Some(said),
+                    Some(HostInstalled {
+                        read: Ok(local), ..
+                    }),
+                ) if installed.builds != local.builds => Some(format!(
                     "host {name} runs a different version of builds than this Mac (its ~/.local/bin/builds says {said:?}, and this Mac's says {:?}), so its jobs can behave differently from this Mac's. Install this Mac's builds there with",
                     local.builds.as_deref().unwrap_or("nothing")
-                ),
+                )),
+                _ => None,
             };
-            out.push(crate::health::Advice::run(text, setup.clone()));
+            if let Some(text) = text {
+                out.push(crate::health::Advice::run(text, setup.clone()));
+            }
         }
         if !installed.sccache_served() {
             out.push(crate::health::Advice::run(

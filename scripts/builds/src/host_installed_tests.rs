@@ -251,6 +251,7 @@ fn health_names_the_server_and_its_bad_temp_folder() {
     let scratch = Scratch::new("host-sccache-tmpdir");
     let places = scratch.places();
     let answer = answer("ab12", "present", "2914", Some(RUNNING));
+    let missing_builds = answer.replace("builds=ab12", "builds=missing");
     let run_tmp = places.root.join(".tmp/1-2");
     let missing = places.root.join("gone folder");
     let run_issue = serde_json::json!(format!("uses a run folder ({run_tmp:?})"));
@@ -266,6 +267,9 @@ fn health_names_the_server_and_its_bad_temp_folder() {
     *u@m3*) echo null ;;
     *) exit 2 ;;
   esac
+  ;;
+*u@m4*) cat <<'EOF'
+{missing_builds}EOF
   ;;
 *) cat <<'EOF'
 {answer}EOF
@@ -285,10 +289,10 @@ esac"#,
     installed.extend(read_all_installed(
         &places,
         &ssh,
-        &[host("m1"), host("m2"), host("m3")],
+        &[host("m1"), host("m2"), host("m3"), host("m4")],
     ));
     let findings = installed_findings(&installed);
-    assert_eq!(findings.len(), 2, "{findings:?}");
+    assert_eq!(findings.len(), 3, "{findings:?}");
     assert!(
         findings[0].text.contains("host m1 (pid 2914)")
             && findings[0].text.contains(&*run_tmp.to_string_lossy()),
@@ -299,6 +303,7 @@ esac"#,
             && findings[1].text.contains(&*missing.to_string_lossy()),
         "{findings:?}"
     );
+    assert!(findings[2].text.starts_with("host m4 has no builds at"));
     installed[0].read = Err("the local probe failed".into());
     let without_local = installed_findings(&installed);
     assert_eq!(&without_local[1..], &findings);
