@@ -942,6 +942,10 @@ one that waits for a checkout on this Mac), and one that dies in line never
 lets anyone past the holders. A ticket's name ends in the words here or anywhere,
 which say where its build may run.
 
+The builds process that takes the checkout holds its lock and queue ticket
+until it releases them or exits. A daemon that a build step starts can keep
+running after the checkout becomes free.
+
 An app checkout's working tree belongs to whoever holds its lock, and only for
 the command they run holding it: nobody edits there or leaves changes behind.
 Commit on your branch in your own worktree, then run `builds app-build`, which
@@ -1765,12 +1769,12 @@ built again.
                               wait for one of the lane's locks (the mac lane's
                               unless named), then run the command holding it,
                               with the checkout in BUILDS_APP_CHECKOUT; run it
-                              as a background task. The lock lasts until the
-                              command's last process exits, and SIGTERM,
-                              SIGINT and SIGHUP go to the command's whole
-                              process group and stop builds lock too, even
-                              while it waits in the queue. It is for a
-                              command that is no repo's build
+                              as a background task. `builds lock` releases the
+                              checkout when it finishes. SIGTERM, SIGINT and
+                              SIGHUP go to the command's whole process group
+                              and stop builds lock too, even while it waits in
+                              the queue. Use this for commands outside the
+                              repo's app build
   builds queue <repo> [--lane mac|android]
                               show each lane's app checkouts, free or with
                               their holder, when and why builds added each one
@@ -2490,8 +2494,8 @@ STATUS, HEALTH AND THE DASHBOARD
                                 waiting in a lane's queue (run from it, or of
                                 one of its commits), each with its place in
                                 line
-                              - each lane's lock holder (the build's top
-                                process when its `builds lock` is gone)
+                              - each lane's checkout locks and the processes
+                                that hold them
                               - each host's compile cache, this Mac's
                                 included: its sccache server's pid, the
                                 compiles it runs, the clients that wait for

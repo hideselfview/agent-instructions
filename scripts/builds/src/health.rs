@@ -586,9 +586,8 @@ pub fn sample(
                 };
                 args(process.pid).is_some_and(locking) && opened(process.pid)
             });
-        // A build whose `builds lock` was killed outright still holds the
-        // lock: its processes have the file open. Found only when the lock is
-        // taken, since reading every process's open files costs.
+        // A command such as app-checkout reset can hold the lock too. Only
+        // scan other processes when a lock is taken.
         let driver_running = holding.is_some();
         if holding.is_none() && taken(path) {
             holding = topmost(&processes, machine.uid, opened);

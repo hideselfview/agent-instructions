@@ -84,6 +84,66 @@ fn a_build_in_a_group_finishes_or_fails_with_its_exit_status() {
     held.release();
 }
 
+#[test]
+fn an_android_step_can_leave_a_daemon_without_holding_the_checkout() {
+    use std::io::Read;
+    use std::os::fd::OwnedFd;
+    use std::os::unix::net::UnixStream;
+    use std::process::Stdio;
+
+    let scratch = Scratch::new("lock-daemon");
+    let places = places(&scratch);
+    let lane = Lane::Android;
+    std::fs::write(places.app_checkouts_file("demo", lane), "side-1\n").unwrap();
+    let held = take(&places, "demo", lane).unwrap();
+    let lock = places.app_lock_file("demo", lane, &held.checkout);
+    let ticket = places
+        .root
+        .join("demo")
+        .join(lane.queue_dir_name())
+        .join(&held.ticket.name);
+
+    // The step exits after forking. The daemon starts a new session and stays
+    // alive until the test closes its socket, including if an assertion fails.
+    let (mut test, daemon) = UnixStream::pair().unwrap();
+    test.set_read_timeout(Some(Duration::from_secs(10)))
+        .unwrap();
+    let mut step = Command::new("python3");
+    step.args([
+        "-c",
+        r#"
+import os
+
+if os.fork() == 0:
+    os.setsid()
+    os.write(0, b"R")
+    os.read(0, 1)
+"#,
+    ])
+    .stdin(Stdio::from(OwnedFd::from(daemon)))
+    .stdout(Stdio::null())
+    .stderr(Stdio::null());
+    held.runs("android-step").unwrap();
+    assert_eq!(
+        run_in_group_within(step, "android-step", Some(Duration::from_secs(10))).unwrap(),
+        Within::Ran(Ran::Finished)
+    );
+    let mut ready = [0];
+    test.read_exact(&mut ready).unwrap();
+    assert_eq!(ready, *b"R");
+    assert!(crate::flock::is_held(&lock).unwrap());
+    held.release();
+
+    assert!(
+        !crate::flock::is_held(&lock).unwrap(),
+        "the daemon kept the checkout lock"
+    );
+    assert!(
+        !crate::flock::is_held(&ticket).unwrap(),
+        "the daemon kept the queue ticket locked"
+    );
+}
+
 /// Records <count> app checkouts in the mac lane.
 fn set_of(places: &Places, count: usize) {
     let text: String = (1..=count).map(|n| format!("side-{n}\n")).collect();

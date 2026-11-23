@@ -5,13 +5,9 @@
 //! next in line; the command gets the checkout whose lock it holds in
 //! BUILDS_APP_CHECKOUT.
 //!
-//! The lock lives as long as any process of the build does, so no other
-//! command can start in the app checkout while one of them still runs. `lockf`
-//! held it in its own process alone: killing `lockf` freed the lock while the
-//! command it had started kept building, and the next waiter started a second
-//! build in the same checkout. Here the lock's file descriptor is open without
-//! close-on-exec, so the command and every process it starts hold it too, and
-//! the kernel frees the lock only when the last of them exits.
+//! The build driver holds the checkout lock and queue ticket. Both descriptors
+//! close on exec, so a daemon started by a step cannot hold either after the
+//! driver releases the checkout or exits.
 //!
 //! The command runs in a process group of its own, and SIGTERM, SIGINT and
 //! SIGHUP sent to this process are passed on to that whole group, so killing
@@ -259,7 +255,7 @@ struct Takes {
 }
 
 /// One of <repo>'s app locks for a lane, held until its owner drops this value
-/// and every process this one started meanwhile has exited.
+/// or exits.
 pub struct Held {
     lock: libc::c_int,
     ticket: Ticket,
@@ -333,8 +329,7 @@ impl Held {
         }))
     }
 
-    /// Frees the lock and lets the next in the queue go. No process this one
-    /// started may still run.
+    /// Frees the lock and lets the next in the queue go.
     pub fn release(self) {
         // Past its build, a stop has nothing to stop.
         QUEUED.store(false, Ordering::SeqCst);
@@ -594,8 +589,7 @@ fn take_free_lock(
 /// <checkout>'s own lock among <repo>'s app locks for <lane>, waiting until
 /// no build holds it; never another checkout's. It skips the queue: a build
 /// the queue let in for a lock takes another free one, or waits for one. The
-/// descriptor holds the lock until closed, and every process started meanwhile
-/// holds it too.
+/// descriptor holds the lock until closed and closes on exec.
 pub fn take_checkout(
     places: &Places,
     repo: &str,

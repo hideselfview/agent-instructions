@@ -11,9 +11,8 @@
 //! an earlier waiter cannot use goes ahead of that waiter; two that may use
 //! the same checkouts go in the order they came.
 //! Every change to it happens under a short guard lock, `.next`. A ticket is a
-//! file named `<pid>-<n>-<where>` (n counts that process's tickets), held locked for
-//! the life of its process and of every process that process starts, and
-//! holding nothing else: the name carries the pid.
+//! file named `<pid>-<n>-<where>` (n counts that process's tickets), held
+//! locked by its owner and holding nothing else: the name carries the pid.
 //!
 //! A waiter first takes out every ticket whose process is gone, before it
 //! reads any name (`drop_gone`), and counts a live ticket whose name it cannot
@@ -72,10 +71,8 @@ pub fn route_repoint_signal() {
 }
 
 /// Opens <path> with <flags> and takes an exclusive flock on it, waiting for
-/// the lock unless <flags> holds O_NONBLOCK. The descriptor is left open
-/// without close-on-exec unless <flags> says so: a ticket or lock passes to
-/// every process this one starts. A lock some process holds fails with
-/// `WouldBlock` under O_NONBLOCK.
+/// the lock unless <flags> holds O_NONBLOCK. With O_NONBLOCK, returns
+/// `WouldBlock` when another process holds the lock.
 pub fn open_with(path: &Path, flags: libc::c_int) -> std::io::Result<libc::c_int> {
     let c_path = CString::new(path.as_os_str().as_bytes()).expect("a path holds no NUL");
     let fd = loop {
@@ -106,13 +103,14 @@ pub fn open_with(path: &Path, flags: libc::c_int) -> std::io::Result<libc::c_int
 }
 
 pub fn open_locked(path: &Path) -> Result<libc::c_int> {
-    open_with(path, libc::O_CREAT).context(|| format!("locking {}", path.display()))
+    open_with(path, libc::O_CREAT | libc::O_CLOEXEC)
+        .context(|| format!("locking {}", path.display()))
 }
 
 /// The lock on the file at <path> (made if missing), or None when a process
-/// holds it. Left open without close-on-exec, as `open_locked`.
+/// holds it. The descriptor closes on exec.
 pub fn try_lock(path: &Path) -> Result<Option<libc::c_int>> {
-    match open_with(path, libc::O_CREAT | libc::O_NONBLOCK) {
+    match open_with(path, libc::O_CREAT | libc::O_NONBLOCK | libc::O_CLOEXEC) {
         Ok(fd) => Ok(Some(fd)),
         Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => Ok(None),
         Err(error) => fail!("locking {}: {error}", path.display()),

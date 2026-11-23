@@ -8,7 +8,7 @@
 //! same lock (remote.rs `run_job_on`), since builds cannot tell whether its
 //! command opens windows.
 //!
-//! The lock is the file `<root>/.app-windows/<host>`, held like an app lock:
+//! The lock is the file `<root>/.app-windows/<host>`:
 //! its descriptor stays open in every process the step starts, so the lock
 //! lasts as long as the step's processes do. The holder writes what it runs to
 //! `<host>.run` while it holds the lock, for a waiter to name.
@@ -77,28 +77,6 @@ fn holder_of(places: &Places, host: &str) -> Result<Option<String>> {
     Ok(crate::procs::runs(holder.pid).then_some(holder.what))
 }
 
-/// Waits for the lock on <file>, which exists and locks <display>, and takes
-/// it, or returns None as soon as <stopped> says a takeover stopped this
-/// build (lock_wake.rs `wait_for_lock`), and keeps the lock open across exec.
-fn wait_for(
-    file: &std::path::Path,
-    display: &str,
-    stopped: &dyn Fn() -> bool,
-) -> Result<Option<libc::c_int>> {
-    let Some(lock) = crate::lock_wake::wait_for_lock(file, display, stopped)? else {
-        return Ok(None);
-    };
-    // The wait's descriptor closes on exec, since a queue wait never holds
-    // the lock. This one holds it for the step, so every process the step
-    // starts holds it too.
-    if unsafe { libc::fcntl(lock, libc::F_SETFD, 0) } < 0 {
-        let error = std::io::Error::last_os_error();
-        unsafe { libc::close(lock) };
-        fail!("keeping {} for the step: {error}", file.display());
-    }
-    Ok(Some(lock))
-}
-
 /// Takes <host>'s window lock for the step <what> describes. While another
 /// run holds it, `take` gives <announce> the words that name that run, then
 /// waits for the lock to free. Returns None when <stopped> says a takeover
@@ -120,12 +98,21 @@ pub fn take(
             announce(&format!(
                 "waiting for {other} to end, since only one run that opens windows takes {host}'s display at a time"
             ));
-            match wait_for(&file, &format!("{host}'s display"), stopped)? {
+            match crate::lock_wake::wait_for_lock(&file, &format!("{host}'s display"), stopped)? {
                 Some(lock) => lock,
                 None => return Ok(None),
             }
         }
     };
+    // Keep the display locked while the step's processes still use it.
+    if unsafe { libc::fcntl(lock, libc::F_SETFD, 0) } < 0 {
+        let error = std::io::Error::last_os_error();
+        unsafe { libc::close(lock) };
+        fail!(
+            "Builds could not pass the lock at {} to the step: {error}",
+            file.display()
+        );
+    }
     let window = Window {
         lock,
         run_file: Window::holder_file(places, host),
