@@ -598,27 +598,33 @@ pub fn reload(
     (Ok(next), changed)
 }
 
-/// The projects whose repos include <repo>, in name order.
-pub fn projects_holding(places: &Places, repo: &str) -> Result<Vec<String>> {
+/// The stores of the projects whose repos include <repo>, in project name
+/// order.
+fn stores_holding(places: &Places, repo: &str) -> Result<Vec<Store>> {
     let mut found = Vec::new();
     for store in stores(places)? {
         if store.repos()?.iter().any(|held| held == repo) {
-            found.push(store.project);
+            found.push(store);
         }
     }
     Ok(found)
 }
 
+/// The projects whose repos include <repo>, in name order.
+pub fn projects_holding(places: &Places, repo: &str) -> Result<Vec<String>> {
+    Ok(stores_holding(places, repo)?
+        .into_iter()
+        .map(|store| store.project)
+        .collect())
+}
+
 /// The database of each project whose repos include <repo>, in project name
 /// order.
 pub fn databases_holding(places: &Places, repo: &str) -> Result<Vec<std::path::PathBuf>> {
-    let mut found = Vec::new();
-    for store in stores(places)? {
-        if store.repos()?.iter().any(|held| held == repo) {
-            found.push(store.database());
-        }
-    }
-    Ok(found)
+    Ok(stores_holding(places, repo)?
+        .iter()
+        .map(Store::database)
+        .collect())
 }
 
 /// The database of the project <checkout>'s work is in (`project_of`), where
