@@ -208,13 +208,6 @@ impl Palette {
         groups
     }
 
-    /// Every colour the box draws, background included, in groups of colours
-    /// within [`DELTA_E_TOLERANCE`] of each other, whatever share of the box
-    /// each covers.
-    fn drawn(&self) -> Vec<Group> {
-        groups_of(self.colours.iter().copied())
-    }
-
     /// Whether the box draws <colour>, or one within [`DELTA_E_TOLERANCE`] of
     /// it, at any share.
     fn draws(&self, colour: Rgb) -> bool {
@@ -400,14 +393,11 @@ fn covering(list: &[Element], entry: &Entry) -> Option<usize> {
 /// just under the share on one side still matches, and so does a glyph that
 /// the other side's tighter box makes its background.
 fn unmatched(entry: &Entry, board: &Palette, shot: &Palette) -> Vec<Warning> {
-    let lacking = |drawn: &[Group], other: &[Group], side: PictureSide| {
+    let lacking = |drawn: &Palette, other: &Palette, side: PictureSide| {
         drawn
-            .iter()
-            .filter(|part| {
-                other
-                    .iter()
-                    .all(|group| delta_e(part.centre, group.centre) > DELTA_E_TOLERANCE)
-            })
+            .parts()
+            .into_iter()
+            .filter(|part| !other.draws(part.colour))
             .map(|part| Warning::ForegroundColour {
                 entry: entry.clone(),
                 side,
@@ -415,8 +405,8 @@ fn unmatched(entry: &Entry, board: &Palette, shot: &Palette) -> Vec<Warning> {
             })
             .collect::<Vec<_>>()
     };
-    let mut found = lacking(&board.parts(), &shot.drawn(), PictureSide::Board);
-    found.extend(lacking(&shot.parts(), &board.drawn(), PictureSide::Shot));
+    let mut found = lacking(board, shot, PictureSide::Board);
+    found.extend(lacking(shot, board, PictureSide::Shot));
     found
 }
 
