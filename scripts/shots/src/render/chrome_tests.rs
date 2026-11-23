@@ -101,14 +101,13 @@ async fn a_page_that_never_finishes_fails_its_draw_at_the_deadline_naming_the_pa
 #[test]
 fn chrome_rasterizes_in_software_on_one_thread_so_a_picture_does_not_depend_on_the_machines_load() {
     use chromiumoxide::cdp::browser_protocol::system_info::GetInfoParams;
-    let cache = std::path::PathBuf::from(std::env::var_os("HOME").expect("HOME is set"))
-        .join(".cache/builds-shots");
+    let root = tempfile::tempdir().unwrap();
     let info = tokio::runtime::Runtime::new()
         .unwrap()
-        .block_on(with_chrome(&cache, async |chrome| {
-            chrome.browser.execute(GetInfoParams::default()).await
-        }))
-        .unwrap()
+        .block_on(crate::render::fixture::with_browser(
+            root.path(),
+            async |_server, chrome| chrome.browser.execute(GetInfoParams::default()).await,
+        ))
         .unwrap();
     let status = info.result.gpu.feature_status.unwrap();
     assert_eq!(status["gpu_compositing"], "disabled_software", "{status}");
