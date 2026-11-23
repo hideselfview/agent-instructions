@@ -263,6 +263,12 @@ async fn last_said(page: &Page) -> String {
     }
 }
 
+/// How long Chrome has to print the address of its debugging socket. On macOS
+/// its main thread waits in its registration with the window server, which
+/// took 17 to 43 seconds on a busy build host with or without `ARGS`;
+/// chromiumoxide gives up after 20.
+const LAUNCH_DEADLINE: Duration = Duration::from_secs(120);
+
 /// How Chrome starts: sRGB colour, no scrollbars, and software rasterization on
 /// one thread with no partial raster, checker imaging or LCD text. GPU and
 /// multi-threaded rasterization put single pixels of a gradient or an edge a
@@ -288,13 +294,21 @@ pub(crate) async fn with_chrome<T>(
     cache: &Path,
     work: impl AsyncFnOnce(&Chrome) -> T,
 ) -> Result<T, ChromeError> {
-    let executable = installed(cache)?;
+    with_executable(installed(cache)?, work).await
+}
+
+/// `with_chrome` for the browser at <executable>.
+async fn with_executable<T>(
+    executable: PathBuf,
+    work: impl AsyncFnOnce(&Chrome) -> T,
+) -> Result<T, ChromeError> {
     let profile = tempfile::tempdir().map_err(|e| ChromeError::Launch(e.to_string()))?;
     let config = BrowserConfig::builder()
         .user_data_dir(profile.path())
         .chrome_executable(executable)
         .viewport(None)
         .args(ARGS)
+        .launch_timeout(LAUNCH_DEADLINE)
         .build()
         .map_err(ChromeError::Launch)?;
     let (browser, mut events) = Browser::launch(config)

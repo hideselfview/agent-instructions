@@ -117,3 +117,28 @@ fn chrome_rasterizes_in_software_on_one_thread_so_a_picture_does_not_depend_on_t
         "{status}"
     );
 }
+
+#[test]
+fn a_browser_that_takes_longer_than_chromiumoxides_default_to_start_is_waited_for() {
+    use std::os::unix::fs::PermissionsExt;
+    // macOS holds Chrome's main thread in its registration with the window
+    // server for 20 to 45 seconds on a busy host before Chrome prints the
+    // address of its debugging socket. This stand-in prints one after 25.
+    let dir = tempfile::tempdir().unwrap();
+    let browser = dir.path().join("browser");
+    std::fs::write(
+        &browser,
+        "#!/bin/sh\nsleep 25\necho 'DevTools listening on ws://127.0.0.1:9/devtools/browser/x'\nsleep 5\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&browser, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let error = tokio::runtime::Runtime::new()
+        .unwrap()
+        .block_on(with_executable(browser, async |_chrome| ()))
+        .unwrap_err()
+        .to_string();
+    assert!(
+        !error.contains("Timeout while resolving websocket URL"),
+        "{error}"
+    );
+}
