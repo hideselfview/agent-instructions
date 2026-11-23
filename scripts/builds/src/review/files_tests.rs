@@ -17,6 +17,19 @@ fn a_diff_header_without_distinct_paths_cannot_name_a_file() {
 }
 
 #[test]
+fn a_path_containing_the_diff_separator_keeps_its_full_name() {
+    let patch = concat!(
+        "diff --git a/x b/f.rs b/x b/f.rs\n",
+        "--- a/x b/f.rs\t\n",
+        "+++ b/x b/f.rs\t\n",
+        "@@ -1 +1 @@\n-old\n+new\n",
+    );
+    assert_eq!(paths(patch), ["x b/f.rs"]);
+    let mode_change = "diff --git a/x b/f.rs b/x b/f.rs\nold mode 100644\nnew mode 100755\n";
+    assert_eq!(paths(mode_change), ["x b/f.rs"]);
+}
+
+#[test]
 fn split_cuts_at_each_file_and_drops_the_mail_header() {
     let files = split(DIFF);
     assert_eq!(files.len(), 2);

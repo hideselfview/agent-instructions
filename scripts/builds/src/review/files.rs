@@ -96,20 +96,27 @@ pub struct FileDiff {
     pub text: String,
 }
 
-/// The destination path in a Git diff header, with Git's escapes decoded.
-pub(super) fn new_path(line: &str) -> Option<String> {
-    let paths = line.strip_prefix("diff --git ")?;
-    let paths = paths.strip_suffix('\n').unwrap_or(paths);
-    let separator = if paths.ends_with('"') { " \"b/" } else { " b/" };
-    let at = paths.rfind(separator)?;
-    let destination = decode_path(&paths[at + 1..])?;
-    destination.strip_prefix("b/").map(str::to_string)
-}
+const DIFF_HEADER: &str = "diff --git ";
 
-/// The old path named in a rename header. Hunk lines start with a diff mark.
-fn rename_source(line: &str) -> Option<String> {
-    let path = line.strip_prefix("rename from ")?;
-    decode_path(path.strip_suffix('\n').unwrap_or(path))
+/// The destination in the `diff --git` line when no file header names it.
+fn new_path(line: &str) -> Option<String> {
+    let paths = line.strip_prefix(DIFF_HEADER)?;
+    let paths = paths.strip_suffix('\n').unwrap_or(paths);
+    if paths.ends_with('"') {
+        let at = paths.rfind(" \"b/")?;
+        return prefixed_path(&paths[at + 1..], "b/");
+    }
+    let mut candidates = paths
+        .match_indices(" b/")
+        .map(|(at, _)| (&paths[..at], &paths[at + 3..]));
+    let first = candidates.next()?;
+    if candidates.clone().next().is_none() {
+        return Some(first.1.to_string());
+    }
+    std::iter::once(first)
+        .chain(candidates)
+        .find(|(old, new)| old.strip_prefix("a/") == Some(*new))
+        .map(|(_, new)| new.to_string())
 }
 
 fn decode_path(path: &str) -> Option<String> {
@@ -144,6 +151,85 @@ fn decode_path(path: &str) -> Option<String> {
     String::from_utf8(decoded).ok()
 }
 
+fn prefixed_path(path: &str, prefix: &str) -> Option<String> {
+    let decoded = decode_path(path.strip_suffix('\t').unwrap_or(path))?;
+    decoded.strip_prefix(prefix).map(str::to_string)
+}
+
+/// A file's destination path, and the source path if the diff renames it.
+/// Git's file and rename headers give whole paths even when they contain spaces.
+pub(super) fn file_paths(text: &str) -> Option<(String, Option<String>)> {
+    let mut lines = text.lines();
+    let header = lines.next()?;
+    let mut old = None;
+    let mut renamed_from = None;
+    let mut destination = None;
+    for line in lines.take_while(|line| !line.starts_with("@@") && *line != "GIT binary patch") {
+        if let Some(path) = line.strip_prefix("rename from ") {
+            renamed_from = Some(decode_path(path)?);
+        } else if let Some(path) = line.strip_prefix("rename to ") {
+            destination = Some(decode_path(path)?);
+        } else if destination.is_none() {
+            if let Some(path) = line
+                .strip_prefix("--- ")
+                .filter(|path| *path != "/dev/null")
+            {
+                old = Some(prefixed_path(path, "a/")?);
+            } else if let Some(path) = line.strip_prefix("+++ ") {
+                destination = if path == "/dev/null" {
+                    old.take()
+                } else {
+                    Some(prefixed_path(path, "b/")?)
+                };
+            }
+        }
+    }
+    Some((destination.or_else(|| new_path(header))?, renamed_from))
+}
+
+pub(super) enum PatchPart<'a> {
+    Text(&'a str),
+    File(&'a str),
+}
+
+/// Whether a line starts one mail of `git format-patch` output.
+pub(super) fn starts_mail(line: &str) -> bool {
+    line.starts_with("From ")
+        && line
+            .split_whitespace()
+            .nth(1)
+            .is_some_and(|sha| sha.len() == 40 && sha.chars().all(|c| c.is_ascii_hexdigit()))
+}
+
+/// The file diffs and the surrounding text, each in its original order.
+pub(super) fn patch_parts(patch: &str) -> Vec<PatchPart<'_>> {
+    let part = |text, file| {
+        if file {
+            PatchPart::File(text)
+        } else {
+            PatchPart::Text(text)
+        }
+    };
+    let mut parts = Vec::new();
+    let (mut start, mut at) = (0, 0);
+    let mut file = false;
+    for line in patch.split_inclusive('\n') {
+        let starts_file = line.starts_with(DIFF_HEADER);
+        if starts_file || starts_mail(line) {
+            if start < at {
+                parts.push(part(&patch[start..at], file));
+            }
+            start = at;
+            file = starts_file;
+        }
+        at += line.len();
+    }
+    if start < at {
+        parts.push(part(&patch[start..at], file));
+    }
+    parts
+}
+
 impl FileDiff {
     /// The paths this part changes: both paths of a rename, as
     /// `commits::paths` names them.
@@ -157,23 +243,20 @@ impl FileDiff {
 /// <diff> cut at each `diff --git` line, in order. Text before the first
 /// such line (a patch's mail header) is dropped.
 pub fn split(diff: &str) -> Vec<FileDiff> {
-    let mut files: Vec<FileDiff> = Vec::new();
-    for line in diff.split_inclusive('\n') {
-        if let Some(path) = new_path(line) {
-            files.push(FileDiff {
-                path,
-                renamed_from: None,
-                text: String::new(),
-            });
-        }
-        if let Some(file) = files.last_mut() {
-            if let Some(old) = rename_source(line) {
-                file.renamed_from = Some(old);
+    patch_parts(diff)
+        .into_iter()
+        .filter_map(|part| match part {
+            PatchPart::Text(_) => None,
+            PatchPart::File(text) => {
+                let (path, renamed_from) = file_paths(text)?;
+                Some(FileDiff {
+                    path,
+                    renamed_from,
+                    text: text.to_string(),
+                })
             }
-            file.text.push_str(line);
-        }
-    }
-    files
+        })
+        .collect()
 }
 
 /// Every path the files of <diff> change, each once, in order: both paths of

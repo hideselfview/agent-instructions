@@ -244,31 +244,21 @@ pub fn add(
 /// runs from its `diff --git` line to the next one or the next mail.
 pub fn keep_files(patch: &str, keep: &[String]) -> Result<String> {
     let mut out = String::new();
-    let mut kept = true;
-    for line in patch.split_inclusive('\n') {
-        if let Some(path) = files::new_path(line) {
-            kept = keep.contains(&path);
-        } else if line.starts_with("diff --git ") {
-            let header = line.trim_end();
-            fail!("Builds could not read a file path from the Git header {header:?}.");
-        } else if starts_mail(line) {
-            kept = true;
-        }
-        if kept {
-            out.push_str(line);
+    for part in files::patch_parts(patch) {
+        match part {
+            files::PatchPart::Text(text) => out.push_str(text),
+            files::PatchPart::File(text) => {
+                let Some((path, _)) = files::file_paths(text) else {
+                    let header = text.lines().next().unwrap_or_default();
+                    fail!("Builds could not read a file path from the Git header {header:?}.");
+                };
+                if keep.contains(&path) {
+                    out.push_str(text);
+                }
+            }
         }
     }
     Ok(out)
-}
-
-/// Whether <line> starts a mail of `git format-patch` output: `From`, then a
-/// full commit SHA.
-fn starts_mail(line: &str) -> bool {
-    line.starts_with("From ")
-        && line
-            .split_whitespace()
-            .nth(1)
-            .is_some_and(|sha| sha.len() == 40 && sha.chars().all(|c| c.is_ascii_hexdigit()))
 }
 
 /// The `git format-patch` output of <base>..<head> in <repo_dir>.
@@ -466,7 +456,7 @@ pub fn messages_of_patch(patch: &str) -> String {
     let mut in_message = false;
     let mut in_header = false;
     for line in patch.lines() {
-        if starts_mail(line) {
+        if files::starts_mail(line) {
             in_header = true;
             in_message = false;
             continue;
