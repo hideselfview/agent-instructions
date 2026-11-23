@@ -170,5 +170,7 @@ choosing. The coordinator sends each one on:
 
 - A board that should draw what the app already draws goes to the design session
   as a fix (`builds help workflow`, DESIGN CHANGES).
-- A real choice between the two goes on the decision stack for the person
-  (`builds question ask`).
+- A real choice between the two goes to the design session when the project's
+  board rule lets the design session make it, as bae's does
+  (`projects/bae-rules/screen-content/build-each-screen-to-match-its-board.md`),
+  and otherwise on the decision stack for the person (`builds question ask`).
