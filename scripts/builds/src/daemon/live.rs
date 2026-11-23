@@ -50,12 +50,19 @@ pub fn claim(lock: &Path) -> io::Result<Option<Claim>> {
 /// Waits for a claimant to publish its pid, then reads it. None when no
 /// daemon holds <lock> when the reader acquires the publication lock.
 pub fn daemon_pid(lock: &Path) -> io::Result<Option<i32>> {
+    read_published_pid(lock, File::lock_shared)
+}
+
+fn read_published_pid(
+    lock: &Path,
+    wait: impl FnOnce(&File) -> io::Result<()>,
+) -> io::Result<Option<i32>> {
     let publication = match publication_lock(lock) {
         Ok(file) => file,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(error),
     };
-    publication.lock_shared()?;
+    wait(&publication)?;
     if !daemon_lives(lock)? {
         return Ok(None);
     }
@@ -86,6 +93,32 @@ pub fn daemon_lives(lock: &Path) -> io::Result<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_reader_waits_until_the_claimant_has_replaced_the_previous_pid() {
+        let scratch = crate::testing::Scratch::new("claim-publication");
+        let lock = scratch.dir.join("lock");
+        let pid = std::process::id() as i32;
+        let previous = if pid == 1 { 2 } else { 1 };
+        std::fs::write(&lock, format!("{previous}\n")).unwrap();
+        let publisher = publication_lock(&lock).unwrap();
+        publisher.lock().unwrap();
+        let mut claim = OpenOptions::new().write(true).open(&lock).unwrap();
+        claim.try_lock().unwrap();
+
+        let owner = read_published_pid(&lock, |reader| {
+            assert!(matches!(
+                reader.try_lock_shared(),
+                Err(TryLockError::WouldBlock)
+            ));
+            claim.set_len(0)?;
+            writeln!(claim, "{pid}")?;
+            drop(publisher);
+            reader.lock_shared()
+        })
+        .unwrap();
+        assert_eq!(owner, Some(pid));
+    }
 
     /// `daemon_pid` returns the pid of the daemon that holds the lock, and
     /// None before any daemon claims the lock and after the one holding it
