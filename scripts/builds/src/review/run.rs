@@ -221,14 +221,18 @@ impl Diff {
         quotes
     }
 
+    fn commit_message_for(&self, group: &Group) -> Option<FileDiff> {
+        if !group.commit_text {
+            return None;
+        }
+        files::commit_message_file(&self.messages).map(|(file, _)| file)
+    }
+
     /// The diff's text as <group> reads it in one call, with the commit
     /// messages as another file when the group reads them.
     pub fn text_for(&self, group: &Group) -> String {
         let mut text = self.patch.text().to_string();
-        if let (true, Some((file, _))) = (
-            group.commit_text,
-            files::commit_message_file(&self.messages),
-        ) {
+        if let Some(file) = self.commit_message_for(group) {
             text.push_str(&file.text);
         }
         text
@@ -562,10 +566,7 @@ fn units_of<'a>(
         .cloned()
         .map(|file| unit(Some(file)))
         .collect();
-    if let (true, Some((file, _))) = (
-        group.commit_text,
-        files::commit_message_file(&diff.messages),
-    ) {
+    if let Some(file) = diff.commit_message_for(group) {
         units.push(unit(Some(file)));
     }
     units
@@ -699,10 +700,7 @@ pub fn ask_groups(
                     Some(file) => read.push(file.clone()),
                     None => {
                         read.extend(views[at].patch.files().cloned());
-                        if let (true, Some((file, _))) = (
-                            unit.group.commit_text,
-                            files::commit_message_file(&views[at].messages),
-                        ) {
+                        if let Some(file) = views[at].commit_message_for(unit.group) {
                             read.push(file);
                         }
                     }
