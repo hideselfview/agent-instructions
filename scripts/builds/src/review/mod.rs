@@ -683,8 +683,14 @@ fn same_finding_site(
                 Ok((run.base.clone(), run.head.clone()))
             })?;
             let quotes = previous.diff.quotes();
-            match check::code_site(&quotes, &held.file, line, &held.code) {
-                Ok(Some((path, verified))) if path == raised.file => verified,
+            let site = check::code_site(&quotes, &held.file, line, &held.code).map_err(|reason| {
+                Fail::Message(format!(
+                    "Builds could not verify the quote of open finding {} from run {} because {reason}.",
+                    held.id, held.run_id
+                ))
+            })?;
+            match site {
+                Some((path, verified)) if path == raised.file => verified,
                 _ => return Ok(false),
             }
         }

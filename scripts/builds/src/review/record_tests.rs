@@ -13,10 +13,10 @@ pub fn plant_finding_before_head_sites(db: &Connection) {
     .unwrap();
 }
 
-pub fn mark_finding_as_legacy(db: &Connection, finding: i64) -> Result<()> {
+pub fn mark_finding_as_legacy(db: &Connection, finding: i64, line: i64) -> Result<()> {
     db.execute(
-        "UPDATE review_finding SET head_site = NULL WHERE id = ?1",
-        [finding],
+        "UPDATE review_finding SET head_site = NULL, line = ?2 WHERE id = ?1",
+        [finding, line],
     )
     .sql()?;
     Ok(())

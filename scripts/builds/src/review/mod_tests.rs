@@ -1382,7 +1382,7 @@ fn a_repeat_after_lines_above_it_shift_still_disagrees_with_a_fixed_verdict() {
         .write(
             &stamp(),
             "simulate a finding without position evidence",
-            |db| record::tests::mark_finding_as_legacy(db, finding),
+            |db| record::tests::mark_finding_as_legacy(db, finding, 1),
         )
         .unwrap();
     settle_as(&demo, finding, "confirmed", "real");
@@ -1417,6 +1417,38 @@ fn a_repeat_after_lines_above_it_shift_still_disagrees_with_a_fixed_verdict() {
     let findings = findings_of(&demo, landing);
     assert_eq!(findings.len(), 1, "{}", reported.text);
     assert!(findings[0].is_open(), "{}", reported.text);
+}
+
+#[test]
+fn an_ambiguous_legacy_quote_cannot_look_like_a_different_site() {
+    let demo = demo("review-ambiguous-legacy-site");
+    let fake = fake(&demo.scratch.dir);
+    let side = demo.add_side(1, "agent", "work");
+    std::fs::write(side.join("a.rs"), "a.rs\na.rs\n").unwrap();
+    crate::testing::git(&side, &["add", "a.rs"]);
+    crate::testing::git(&side, &["commit", "-qm", "Add two occurrences"]);
+    fake.answer("alpha", &[("rule-a", Some(BAD))]);
+    let landing = run_review(&demo, &fake, &side, "k").landing.unwrap();
+    let finding = findings_of(&demo, landing)[0].id;
+    demo.store
+        .write(&stamp(), "simulate an unverified line", |db| {
+            record::tests::mark_finding_as_legacy(db, finding, 99)
+        })
+        .unwrap();
+    settle_as(&demo, finding, "confirmed", "real");
+
+    fake.answer_task(
+        "alpha",
+        serde_json::json!({
+            "rules": [{"rule": "rule-a", "verdict": "finding", "findings": [
+                {"clause": BAD.0, "file": BAD.1, "line": BAD.2, "code": BAD.3, "problem": BAD.4},
+            ]}],
+            "follow_up": [{"id": finding, "verdict": "fixed"}],
+        }),
+    );
+    let error = try_review(&demo, &fake, &side, "k").unwrap_err().text();
+    assert!(error.contains("more than once"), "{error}");
+    assert!(findings_of(&demo, landing)[0].is_open());
 }
 
 #[test]
