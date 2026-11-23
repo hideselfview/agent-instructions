@@ -1158,6 +1158,20 @@ so the display neither sleeps nor locks during the step.
 `builds health` lists each Mac whose screen is locked (HEALTH CHECK in `builds
 help workflow`).
 
+A shots run draws the boards it compares with Chrome, and on a Mac Chrome's
+main thread waits for the window server to answer before it prints the address
+of its debugging socket, so a host whose window server does not answer never
+starts Chrome. A build with --shots or --all-shots starts Chrome on its
+checkout's host (`builds shots chrome`) after it takes the checkout and before
+it builds anything. While Chrome prints no address within its 120 seconds, the
+lane prints "waiting for Chrome to start on host <name>" once, with why, keeps
+its checkout, records the step "waiting for Chrome to start on <name>" beside
+its lock, and starts Chrome there again every minute, then goes on when Chrome
+starts and prints "Chrome starts on host <name> again". A takeover ends the
+wait. A Chrome that fails to start for another reason fails the build at once.
+`builds health` lists each host that holds a build this way (HEALTH CHECK in
+`builds help workflow`).
+
 When a host's Xcode cannot start, every xcodebuild run there fails, whatever
 code it builds: xcodebuild prints "A required plugin failed to load" and names
 the fix (as after someone updates Xcode and nobody runs its first launch, which
@@ -1585,7 +1599,7 @@ built again.
                               command prints `alike` or `differs` for each
                               name, and a second run of the same comparison
                               prints the same.
-  builds shots run|scenes|capture|check|lint|runtime|components|states|version [<argument>...]
+  builds shots run|scenes|capture|check|lint|runtime|chrome|components|states|version [<argument>...]
                               run the shots checker, which checks the shots
                               of the repo it runs in against the repo's
                               boards, with these arguments; builds gives it
@@ -1633,7 +1647,13 @@ built again.
                               findings, and writes the report; `lint` names
                               each declared shot with no board; `runtime`
                               names the canvas runtime copy that draws the
-                              boards; `components [<Component>...]` lists the
+                              boards; `chrome` starts the pinned Chrome and
+                              prints `chrome=started <version>`,
+                              `chrome=no-address <why>` (it printed no
+                              debugging address in 120 seconds) or
+                              `chrome=failed <why>`, which an app build with
+                              shots reads before it builds (APP BUILDS);
+                              `components [<Component>...]` lists the
                               gaps in the components' capture files (below)
                               and fails nothing; `states` lists the component
                               states that boards draw and no preview row shows

@@ -69,7 +69,7 @@ use std::process::Command;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::mpsc::{RecvTimeoutError, channel};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::app_lock_guard::CheckoutLock;
 use crate::app_remote::host_of;
@@ -139,6 +139,27 @@ pub fn signal_name(signal: libc::c_int) -> &'static str {
         libc::SIGHUP => "SIGHUP",
         other => unreachable!("signal {other} is not one of the stop signals"),
     }
+}
+
+/// How long a hold waits between its tries (`pause_unless_stopped`).
+const TRY_AGAIN_AFTER: Duration = Duration::from_secs(60);
+
+/// Waits <TRY_AGAIN_AFTER> between two tries of a held build, and returns
+/// `Ran::Stopped` as soon as a takeover or an install stops the build. A stop
+/// signal ends the wait too, with `Ran::Finished`: the next try's
+/// `refuse_when_stopped` fails the build naming the signal.
+pub fn pause_unless_stopped() -> Ran {
+    let end = Instant::now() + TRY_AGAIN_AFTER;
+    while Instant::now() < end {
+        if STOPPED.load(Ordering::SeqCst) {
+            return Ran::Stopped;
+        }
+        if stop_signal().is_some() {
+            break;
+        }
+        std::thread::sleep(Duration::from_secs(1));
+    }
+    Ran::Finished
 }
 
 /// Fails, naming the stop signal and <waiting> (what the build was doing),

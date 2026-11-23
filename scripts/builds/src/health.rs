@@ -842,6 +842,11 @@ pub fn assess(
             Advice::said(format!("processes: {line}")),
         )
     }));
+    findings.extend(
+        crate::host_chrome::findings(&machine.locks)
+            .into_iter()
+            .map(|advice| Finding::new(FindingKind::Host, advice)),
+    );
     let mut schedule_needed = !left.branches.is_empty();
     for Unclaimed {
         place,

@@ -53,7 +53,7 @@ pub(crate) fn tree(boards: &[(&str, &str)]) -> tempfile::TempDir {
 /// The cache folder the tests keep pinned Chrome in, `~/.cache/builds-shots`:
 /// builds gives the checker one on its build volume, which a test does not
 /// have.
-fn cache() -> PathBuf {
+pub(crate) fn cache() -> PathBuf {
     PathBuf::from(std::env::var_os("HOME").expect("HOME is set")).join(".cache/builds-shots")
 }
 

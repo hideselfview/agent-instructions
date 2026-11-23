@@ -166,3 +166,34 @@ fn a_browser_that_prints_no_address_fails_naming_the_window_server() {
     assert!(error.contains("in 2 seconds"), "{error}");
     assert!(error.contains("window server"), "{error}");
 }
+
+#[test]
+fn starting_chrome_names_how_it_came_out() {
+    let said = |started| Start::of(started).line();
+    assert_eq!(
+        said(Ok("HeadlessChrome/157.0.8103.78".to_string())),
+        "chrome=started HeadlessChrome/157.0.8103.78"
+    );
+    let hung =
+        ChromeError::NoAddress("Chrome printed no debugging address\nin 120 seconds".to_string());
+    assert_eq!(
+        said(Err(hung)),
+        "chrome=no-address cannot start Chrome: Chrome printed no debugging address in 120 seconds"
+    );
+    let broken = ChromeError::Launch("no such file".to_string());
+    assert_eq!(
+        said(Err(broken)),
+        "chrome=failed cannot start Chrome: no such file"
+    );
+}
+
+#[test]
+fn the_pinned_chrome_starts_from_the_cache() {
+    let started = tokio::runtime::Runtime::new()
+        .unwrap()
+        .block_on(start(&crate::render::fixture::cache()));
+    assert!(
+        matches!(started, Start::Started(ref version) if version.contains(PINNED)),
+        "{started:?}"
+    );
+}

@@ -76,6 +76,42 @@ impl<'a> Site<'a> {
         crate::shots_environment::read(lane, &mut |script, what| self.print_of(script, what))
     }
 
+    /// Starts Chrome on the checkout's host with the build's programs
+    /// (`builds shots chrome`, host_chrome.rs) and says how it came out.
+    pub fn chrome_start(
+        &mut self,
+        programs: &crate::programs::Pinned,
+    ) -> std::result::Result<crate::host_chrome::Start, String> {
+        const WHAT: &str = "starting Chrome";
+        let said = match self {
+            Site::Local(..) => {
+                let mut command =
+                    std::process::Command::new(crate::this_program().map_err(|e| e.text())?);
+                command.args(["shots", "chrome"]);
+                output_of(command, WHAT)?
+            }
+            Site::Remote(remote) => {
+                let command = remote
+                    .with_programs(
+                        programs,
+                        &[
+                            "builds".to_string(),
+                            "shots".to_string(),
+                            "chrome".to_string(),
+                        ],
+                    )
+                    .map_err(|e| e.text())?;
+                let script = command
+                    .iter()
+                    .map(|word| crate::host::sh_quote(word))
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                remote.on_host(&script, WHAT).map_err(|e| e.text())?
+            }
+        };
+        crate::host_chrome::parse(&said)
+    }
+
     /// The commit the checkout is on.
     pub fn head(&mut self) -> Result<String> {
         match self {

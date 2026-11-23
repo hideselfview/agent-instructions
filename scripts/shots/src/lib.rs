@@ -82,6 +82,11 @@ struct Cli {
 enum Action {
     /// Name the canvas runtime copy that draws the boards.
     Runtime,
+    /// Start the pinned Chrome and print one line, `chrome=started <version>`,
+    /// `chrome=no-address <why>` (it ran and printed no debugging address in
+    /// its deadline) or `chrome=failed <why>`, so that builds can tell before
+    /// a build whether its shots can draw boards on this host.
+    Chrome,
     /// Print the checker's capture version and comparison version, which each
     /// run's findings.json names.
     Version,
@@ -655,7 +660,7 @@ fn run(checker: &Checker, action: Action) -> Result<bool, String> {
             }
             Ok(true)
         }
-        Action::Version | Action::Recheck { .. } => {
+        Action::Version | Action::Recheck { .. } | Action::Chrome => {
             unreachable!("`main` runs these before it reads a repo")
         }
         Action::Runtime => {
@@ -681,6 +686,15 @@ pub fn main(checker: &Checker, args: &[String]) -> bool {
             println!("capture {}", checker.versions.capture);
             println!("comparison {}", checker.versions.comparison);
             Ok(true)
+        }
+        Action::Chrome => {
+            let started = tokio::runtime::Runtime::new()
+                .map_err(|e| e.to_string())
+                .map(|runtime| runtime.block_on(render::chrome::start(checker.cache)));
+            started.map(|started| {
+                println!("{}", started.line());
+                true
+            })
         }
         Action::Recheck { report } => {
             recheck::text(&report, &checker.versions.comparison).map(|text| {

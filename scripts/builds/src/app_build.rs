@@ -2135,6 +2135,22 @@ impl<'a> LaneBuild<'a> {
         // the picture folder caches, builds nothing.
         let tree = picture_tree(&self.source, commit, &self.config, lane, &environment)?;
         let prefixes: Vec<_> = LanePick::prefixes(&self.picks).cloned().collect();
+        // A shots run draws the boards it compares with Chrome, so a build
+        // with shots builds nothing on a host where Chrome does not start.
+        if !prefixes.is_empty() {
+            let host = site.host_name().to_string();
+            let asking = std::cell::RefCell::new(&mut *site);
+            let starts = crate::host_chrome::wait_until_starts(
+                &host,
+                &|| asking.borrow_mut().chrome_start(self.programs),
+                &|words| note(words),
+                &|step| held.runs(step),
+                &|| Ok(lock::pause_unless_stopped()),
+            )?;
+            if !starts {
+                return Ok(Ended::Stopped);
+            }
+        }
         let pictures =
             (!prefixes.is_empty()).then(|| shots_cache::AppPictures::of(places, repo, lane, &tree));
         let run = |cached_shots| {

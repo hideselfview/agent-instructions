@@ -888,3 +888,9 @@ whose caller is gone. The lines below are what remains to act on.
     unlocks, and says so in the build's output, and a step that runs holds a
     display assertion on the host so the screen does not lock during it
     (`builds help`, APP BUILDS).
+  - A host that holds an app build while Chrome cannot start there: a Mac
+    whose window server does not answer keeps Chrome from printing its
+    debugging address, so no shots run there can draw its boards. The line
+    names the host, the held build's checkout and how long it has built
+    nothing. Chrome starts again once the window server answers, and the held
+    build goes on (`builds help`, APP BUILDS).

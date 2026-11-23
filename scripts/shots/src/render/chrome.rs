@@ -163,6 +163,9 @@ pub(crate) enum ChromeError {
     Version { expected: String, actual: String },
     #[error("cannot start Chrome: {0}")]
     Launch(String),
+    /// Chrome ran and printed no debugging address in its deadline.
+    #[error("cannot start Chrome: {0}")]
+    NoAddress(String),
     #[error("Chrome failed: {0}")]
     Protocol(String),
 }
@@ -285,6 +288,49 @@ const ARGS: [&str; 7] = [
     "disable-lcd-text",
 ];
 
+/// What starting the pinned Chrome came to (`start`).
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum Start {
+    /// Chrome started; its version.
+    Started(String),
+    /// Chrome ran and printed no debugging address in its deadline: on macOS,
+    /// a window server that does not answer.
+    NoAddress(String),
+    /// Chrome did not start for another reason.
+    Failed(String),
+}
+
+impl Start {
+    fn of(started: Result<String, ChromeError>) -> Start {
+        match started {
+            Ok(version) => Start::Started(version),
+            Err(error @ ChromeError::NoAddress(_)) => Start::NoAddress(error.to_string()),
+            Err(error) => Start::Failed(error.to_string()),
+        }
+    }
+
+    /// The line `builds shots chrome` prints, which builds reads
+    /// (`host_chrome::parse`): `chrome=started <version>`,
+    /// `chrome=no-address <why>` or `chrome=failed <why>`.
+    pub(crate) fn line(&self) -> String {
+        match self {
+            Start::Started(version) => format!("chrome=started {version}"),
+            Start::NoAddress(why) => format!("chrome=no-address {}", one_line(why)),
+            Start::Failed(why) => format!("chrome=failed {}", one_line(why)),
+        }
+    }
+}
+
+fn one_line(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Starts the pinned Chrome from the cache folder <cache>, as a run does, and
+/// closes it.
+pub(crate) async fn start(cache: &Path) -> Start {
+    Start::of(with_chrome(cache, async |chrome| chrome.version.clone()).await)
+}
+
 /// Fetches the pinned build into the program's cache folder <cache> when it
 /// does not hold it, starts it
 /// headless with `ARGS`, runs `work` with it and closes
@@ -316,7 +362,7 @@ async fn with_executable<T>(
     let (browser, mut events) = Browser::launch(config).await.map_err(|e| {
         let text = e.to_string();
         if matches!(e, chromiumoxide::error::CdpError::LaunchTimeout(_)) {
-            ChromeError::Launch(format!(
+            ChromeError::NoAddress(format!(
                 "Chrome printed no debugging address in {} seconds. On macOS its main thread waits for the window server to answer; when the window server does not, every AppKit program on the host hangs the same way, Chrome and chrome-headless-shell alike ({text})",
                 launch_deadline.as_secs()
             ))
