@@ -6,13 +6,16 @@
 //! already caches for the commit needs no check: app-build prints that run
 //! first (app_build.rs `serve_cached`).
 
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
+use std::rc::Rc;
 
 use crate::app_build::{self, Pick};
 use crate::app_config::{CONFIG, PickKind, run_git};
 use crate::fail;
 use crate::fail::{Fail, Result};
 use crate::lane::Lane;
+use crate::text::note;
 
 /// How many nearest prefixes a refusal names.
 const NEAREST: usize = 6;
@@ -111,6 +114,40 @@ pub fn declared_names_at(top: &Path, commit: &str) -> Result<Vec<String>> {
 /// names no harness for that lane.
 pub fn declared_names_in_lane(top: &Path, commit: &str, lane: Lane) -> Result<Vec<String>> {
     declared_names(top, commit, Some(lane))
+}
+
+pub type ShotNames = Rc<HashSet<String>>;
+
+/// Reads each lane's declarations once for the commits a coverage check needs.
+pub struct ShotDeclarations<'a> {
+    top: &'a Path,
+    names: HashMap<(Lane, String), Option<ShotNames>>,
+}
+
+impl<'a> ShotDeclarations<'a> {
+    pub fn new(top: &'a Path) -> Self {
+        Self {
+            top,
+            names: HashMap::new(),
+        }
+    }
+
+    pub fn names(&mut self, lane: Lane, commit: &str) -> Option<ShotNames> {
+        self.names
+            .entry((lane, commit.to_string()))
+            .or_insert_with(|| match declared_names_in_lane(self.top, commit, lane) {
+                Ok(names) => Some(Rc::new(names.into_iter().collect())),
+                Err(error) => {
+                    note(format!(
+                        "Builds could not read the {} shots declared at {commit}: {}",
+                        lane.word(),
+                        error.text()
+                    ));
+                    None
+                }
+            })
+            .clone()
+    }
 }
 
 fn declared_names(top: &Path, commit: &str, lane: Option<Lane>) -> Result<Vec<String>> {

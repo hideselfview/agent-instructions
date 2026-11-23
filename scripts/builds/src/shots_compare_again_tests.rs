@@ -190,7 +190,7 @@ fn an_app_build_reuses_only_a_recheck_whose_source_and_build_record_passed() {
                 vec![crate::app_build::all_shots(Lane::Mac)],
                 &program,
                 Some(&records),
-                &mut crate::app_landing::ShotDeclarations::new(&scratch.dir),
+                &mut crate::shots_declared::ShotDeclarations::new(&scratch.dir),
             )
             .unwrap()
         };

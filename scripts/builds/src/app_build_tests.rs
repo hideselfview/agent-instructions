@@ -1643,6 +1643,7 @@ fn a_build_that_reuses_a_cached_run_leaves_the_passing_build_that_land_counts() 
     assert!(run.ran_shots("mac.a.") && !run.ran_shots("android.a."));
     let config = parse_config("step mac macos ./macos.sh\non bae-macos/ macos\n").unwrap();
     let conn = crate::db::open(&store.database(), crate::db::Make::Never).unwrap();
+    let mut declarations = ShotDeclarations::new(&top);
     let coverage = crate::app_landing::needs(
         &config,
         &["bae-macos/a.swift".to_string()],
@@ -1659,10 +1660,7 @@ fn a_build_that_reuses_a_cached_run_leaves_the_passing_build_that_land_counts() 
         },
         &mut |_| Ok(vec!["mac.a.".to_string()]),
         &mut |_, _| Ok(Some(Vec::new())),
-        &mut |lane, commit| {
-            let names = crate::shots_declared::declared_names_in_lane(&top, commit, lane).unwrap();
-            Some(std::rc::Rc::new(names.into_iter().collect()))
-        },
+        &mut |lane, commit| declarations.names(lane, commit),
     )
     .unwrap();
     assert!(coverage.unbuilt.is_empty(), "{:?}", coverage.unbuilt);

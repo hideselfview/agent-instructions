@@ -116,7 +116,7 @@ use crate::app_config::{
     parse_config, parse_scene_count, resolve, resolve_checkout, run_command_keeping, run_git,
     show_duration,
 };
-use crate::app_landing::{ShotDeclarations, covers_prefix};
+use crate::app_landing::covers_prefix;
 use crate::app_lock_guard::CheckoutLock;
 use crate::app_remote::{RemoteApp, fetched_local_source, local_source};
 use crate::app_site::Site;
@@ -136,6 +136,7 @@ use crate::programs::Pinned;
 use crate::run_end::RunEnd;
 use crate::shot_findings;
 use crate::shots_cache;
+use crate::shots_declared::ShotDeclarations;
 use crate::text::note;
 use crate::tool::Tool;
 use crate::window_lock::Access;

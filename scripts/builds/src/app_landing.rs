@@ -36,9 +36,8 @@
 //! repo in no project and a branch whose commits are all on origin/main need
 //! no build, and the command says so.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::path::Path;
-use std::rc::Rc;
 
 use crate::app_config::{CONFIG, Config, parse_config, run_git};
 use crate::app_shots_drop::Drop;
@@ -49,6 +48,7 @@ use crate::fail::Result;
 use crate::lane::Lane;
 use crate::places::Places;
 use crate::review::commits;
+use crate::shots_declared::{ShotDeclarations, ShotNames};
 
 /// The flag of `builds app-build` that names this command.
 pub const FLAG: &str = "--landing-coverage";
@@ -136,41 +136,7 @@ enum Search {
 }
 
 /// Gives the names declared in a lane at a commit, when they can be read.
-type ShotNames = Rc<HashSet<String>>;
 type DeclaredNames<'a> = dyn FnMut(Lane, &str) -> Option<ShotNames> + 'a;
-
-pub struct ShotDeclarations<'a> {
-    top: &'a Path,
-    names: HashMap<(Lane, String), Option<ShotNames>>,
-}
-
-impl<'a> ShotDeclarations<'a> {
-    pub fn new(top: &'a Path) -> Self {
-        Self {
-            top,
-            names: HashMap::new(),
-        }
-    }
-
-    pub fn names(&mut self, lane: Lane, commit: &str) -> Option<ShotNames> {
-        self.names
-            .entry((lane, commit.to_string()))
-            .or_insert_with(|| {
-                match crate::shots_declared::declared_names_in_lane(self.top, commit, lane) {
-                    Ok(names) => Some(Rc::new(names.into_iter().collect())),
-                    Err(error) => {
-                        crate::text::note(format!(
-                            "Builds could not read the {} shots declared at {commit}: {}",
-                            lane.word(),
-                            error.text()
-                        ));
-                        None
-                    }
-                }
-            })
-            .clone()
-    }
-}
 
 /// A passing run covers a selection directly or through narrower prefixes
 /// that together cover every shot the selection names.

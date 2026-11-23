@@ -34,12 +34,13 @@ use std::path::Path;
 
 use crate::app_build::{self, Pick};
 use crate::app_config::{CONFIG, Config, PickKind, run_git};
-use crate::app_landing::{BranchBuilds, ShotDeclarations, ShotsToCover};
+use crate::app_landing::{BranchBuilds, ShotsToCover};
 use crate::app_timing::BuildRecords;
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::lane::Lane;
 use crate::places::Places;
+use crate::shots_declared::ShotDeclarations;
 use crate::text::note;
 use boards::git;
 
