@@ -42,6 +42,7 @@ fn health_lists_an_old_wait_through_to_the_item_at_its_end() {
     crate::health_stillness::append(
         &mut health,
         &crate::lists::store::load_all(&demo.tool.places),
+        &crate::health_stillness::Progress::read(&demo.tool.places),
         None,
         &demo.tool.places,
         demo.tool.now,
@@ -73,6 +74,7 @@ fn health_uses_the_configured_threshold_and_the_last_item_note() {
         crate::health_stillness::append(
             &mut health,
             &crate::lists::store::load_all(&demo.tool.places),
+            &crate::health_stillness::Progress::read(&demo.tool.places),
             None,
             &demo.tool.places,
             demo.tool.now,

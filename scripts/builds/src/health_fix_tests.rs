@@ -266,7 +266,8 @@ fn stops_the_orphans_health_stops_and_lists_the_rest() {
             .expect("the script signals one of the rows");
         ran.borrow_mut().push(pid);
         match pid {
-            303 => Ok("refused=303\n".to_string()),
+            303 => Ok("303 still runs because SIGTERM failed\n".to_string()),
+            302 => Ok("302 still runs after SIGTERM\n".to_string()),
             304 => Err("ssh to the host failed".to_string()),
             _ => Ok(String::new()),
         }
@@ -290,16 +291,21 @@ fn stops_the_orphans_health_stops_and_lists_the_rest() {
         lines,
         [
             "stopped this Mac pid 300 (cargo test), 40m old: its caller was gone",
-            "stopped this Mac pid 302 (rustc x), 40m old: its caller was gone",
-            "stopping this Mac pid 303 (git status), 40m old failed: 303 still runs and refused the signal",
+            "stopping this Mac pid 302 (rustc x), 40m old: 302 still runs after SIGTERM",
+            "stopping this Mac pid 303 (git status), 40m old: 303 still runs because SIGTERM failed",
             "stopping this Mac pid 304 (cargo check), 40m old failed: ssh to the host failed",
         ]
     );
     assert_eq!(
         remaining,
-        [orphan(1, false), orphan(3, true), orphan(4, true)]
+        [
+            orphan(1, false),
+            orphan(2, true),
+            orphan(3, true),
+            orphan(4, true)
+        ]
     );
-    assert_eq!(stopped, [orphan(0, true), orphan(2, true)]);
+    assert_eq!(stopped, [orphan(0, true)]);
 }
 
 mod stalled_claims {
@@ -366,17 +372,47 @@ mod stalled_claims {
         (side, checkout)
     }
 
-    fn fix(demo: &Demo) -> Vec<String> {
-        let mut health = crate::health::health(&demo.tool).unwrap();
-        crate::health_stillness::append(
-            &mut health,
-            &crate::lists::store::load_all(&demo.tool.places),
-            None,
-            &demo.tool.places,
-            demo.tool.now,
-            demo.tool.rules.still_minutes,
+    fn fix_with_scan(
+        demo: &Demo,
+        scan: std::result::Result<crate::host_scan::Scan, String>,
+    ) -> Vec<String> {
+        let tool = &demo.tool;
+        let health = crate::health::health(tool).unwrap();
+        let scanned = crate::health::Scanned::judge(
+            &tool.places,
+            vec![(crate::host::Host::local(), scan)],
+            &crate::job_claim::Holders::read().unwrap(),
+            tool.now,
         );
-        release_stalled_claims(&demo.tool, &health).unwrap()
+        crate::health::finish_health(
+            tool,
+            health,
+            &mut crate::lists::store::load_all(&tool.places),
+            &scanned,
+        )
+        .unwrap()
+        .1
+    }
+
+    fn fix(demo: &Demo) -> Vec<String> {
+        let scan = crate::host_scan::parse(
+            &format!(
+                "uid={}\nnow={}\ncpu_idle=90\nps_follows=1\n",
+                demo.tool.places.uid, demo.tool.now
+            ),
+            &[],
+        )
+        .unwrap();
+        fix_with_scan(demo, Ok(scan))
+    }
+
+    #[test]
+    fn a_failed_local_scan_keeps_the_claim_of_an_idle_worktree() {
+        let mut demo = demo("stalled-scan-failed");
+        let (_, checkout) = side(&demo);
+        hours_later(&mut demo, 3);
+        assert!(fix_with_scan(&demo, Err("process scan failed".into())).is_empty());
+        assert!(has_claim(&checkout));
     }
 
     fn has_claim(checkout: &Checkout) -> bool {

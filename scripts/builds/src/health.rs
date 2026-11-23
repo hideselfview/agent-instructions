@@ -189,10 +189,7 @@ pub struct WorktreeHealth {
     pub claim: Claim,
     pub branch: Option<String>,
     pub git: GitRead,
-    /// Minutes since the newer of HEAD's commit and the newest uncommitted
-    /// write.
-    pub quiet_minutes: Option<i64>,
-    /// The last commit, uncommitted write or claim update.
+    /// When the worktree last moved.
     pub moved_at: i64,
     /// Whether automatic release may consider this claim after its idle limit.
     pub idle_for_release: bool,
@@ -907,7 +904,6 @@ pub fn assess(
             .cloned()
             .collect();
         let activity = git.as_ref().ok().and_then(SideRead::activity);
-        let quiet_minutes = activity.map(|when| minutes_since(now, when));
         let moved_at = activity
             .into_iter()
             .chain([claim.since, noted_at])
@@ -956,7 +952,6 @@ pub fn assess(
             claim,
             branch,
             git,
-            quiet_minutes,
             moved_at,
             idle_for_release,
             design_approval: match design_wait {
@@ -1495,10 +1490,8 @@ pub fn lines(health: &Health) -> Vec<String> {
             }
         ));
         out.push(format!(
-            "        {git}; last change {}; {}",
-            w.quiet_minutes
-                .map(|m| format!("{m}m ago"))
-                .unwrap_or_else(|| "unknown".to_string()),
+            "        {git}; last change {}m ago; {}",
+            minutes_since(health.generated_at, w.moved_at),
             builds_line(w)
         ));
     }
@@ -1557,7 +1550,6 @@ pub struct Scanned {
     /// What a running install waits for (install_gate.rs).
     pub install: std::result::Result<Option<crate::install_gate::Waiting>, String>,
     pub holders: crate::job_claim::Holders,
-    pub progress: std::result::Result<crate::health_stillness::Progress, String>,
     /// The processes whose caller is gone (orphans.rs) that health has not
     /// stopped.
     pub orphans: Vec<crate::orphans::Orphan>,
@@ -1582,7 +1574,6 @@ impl Scanned {
         Scanned {
             install: crate::install_gate::waiting(places).map_err(|fault| fault.text()),
             holders: holders.clone(),
-            progress: crate::health_stillness::Progress::read(places),
             orphans: crate::orphans::find(&scans, holders),
             caches: crate::sccache_queue::judge(&places.home, &scans, now)
                 .map_err(|fault| fault.text()),
@@ -1715,6 +1706,45 @@ impl HostProcesses {
     }
 }
 
+/// Reads recorded progress before deciding which idle claims to release.
+pub(crate) fn finish_health(
+    tool: &Tool,
+    mut health: Health,
+    loaded: &mut std::result::Result<Vec<crate::lists::store::Loaded>, String>,
+    scanned: &Scanned,
+) -> Result<(Health, Vec<String>)> {
+    let assess = |health: &mut Health, loaded: &_| {
+        crate::health_stillness::append(
+            health,
+            loaded,
+            &crate::health_stillness::Progress::read(&tool.places),
+            Some(scanned),
+            &tool.places,
+            tool.now,
+            tool.rules.still_minutes,
+        );
+    };
+    assess(&mut health, loaded);
+    let lines = match crate::health_fix::release_stalled_claims(tool, &health) {
+        Ok(lines) => lines,
+        Err(error) => {
+            return Ok((
+                health,
+                vec![format!(
+                    "could not check which idle claims hold nothing: {}",
+                    error.text()
+                )],
+            ));
+        }
+    };
+    if !lines.is_empty() {
+        *loaded = crate::lists::store::load_all(&tool.places);
+        health = read_health(tool, loaded)?;
+        assess(&mut health, loaded);
+    }
+    Ok((health, lines))
+}
+
 /// `builds health [--json]`: exits 1 when something needs acting on.
 pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
     let (json, stop_junk) = match args {
@@ -1762,7 +1792,12 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
         };
     }
     let mut loaded = crate::lists::store::load_all(&tool.places);
-    let mut health = match crate::daemon::client::health(&tool.places) {
+    let cached = loaded
+        .as_ref()
+        .is_ok_and(|stores| stores.iter().all(|store| store.lists.is_ok()))
+        .then(|| crate::daemon::client::health(&tool.places))
+        .flatten();
+    let health = match cached {
         Some(health) => health,
         None => read_health(tool, &loaded)?,
     };
@@ -1867,34 +1902,8 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
     stops.lines.iter().for_each(crate::text::note);
     scanned.orphans = stops.remaining;
     scanned.forget_stopped(&stops.stopped);
-    crate::health_stillness::append(
-        &mut health,
-        &loaded,
-        Some(&scanned),
-        &tool.places,
-        tool.now,
-        tool.rules.still_minutes,
-    );
-    match crate::health_fix::release_stalled_claims(tool, &health) {
-        Ok(lines) if lines.is_empty() => {}
-        Ok(lines) => {
-            lines.iter().for_each(crate::text::note);
-            loaded = crate::lists::store::load_all(&tool.places);
-            health = read_health(tool, &loaded)?;
-            crate::health_stillness::append(
-                &mut health,
-                &loaded,
-                Some(&scanned),
-                &tool.places,
-                tool.now,
-                tool.rules.still_minutes,
-            );
-        }
-        Err(error) => crate::text::note(format!(
-            "could not check which idle claims hold nothing: {}",
-            error.text()
-        )),
-    }
+    let (mut health, releases) = finish_health(tool, health, &mut loaded, &scanned)?;
+    releases.iter().for_each(crate::text::note);
     health.findings.extend(dashboard_finding(dashboard));
     let (prune_line, prune_late) = crate::prune_schedule::health(&tool.places, tool.now);
     health.findings.extend(
@@ -2762,7 +2771,6 @@ mod tests {
             scans: Vec::new(),
             install: Ok(None),
             holders: crate::job_claim::Holders::read().unwrap(),
-            progress: Ok(Default::default()),
             orphans: Vec::new(),
             caches: Ok(Vec::new()),
             at: 0,

@@ -752,13 +752,13 @@ fn read_reviews(
             leaf: false,
         });
         let mut groups = db
-            .prepare(
-                "SELECT c.group_name, MIN(t.started_at), MAX(t.started_at + (t.ms + 999) / 1000), \
+            .prepare(&format!(
+                "SELECT c.group_name, MIN(t.started_at), MAX({end_at}), \
                         (SELECT COUNT(*) FROM review_finding f WHERE f.call_id = c.id AND f.check_failed IS NULL) \
                  FROM review_call c JOIN review_exchange e ON e.call_id = c.id \
                    JOIN review_exchange_time t ON t.exchange_id = e.id \
                  WHERE c.run_id = ?1 GROUP BY c.id",
-            )
+            ))
             .sql()?;
         let found_groups = groups
             .query_map([id], |row| {

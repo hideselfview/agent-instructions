@@ -253,7 +253,7 @@ fn records(graph: &mut WorkGraph, loaded: &[Loaded], progress: Option<&Progress>
     for project in loaded {
         let Ok(lists) = &project.lists else { continue };
         let name = &lists.project;
-        let progress = progress.and_then(|progress| progress.projects.get(name));
+        let progress = progress.and_then(|progress| progress.project(name));
         for item in &lists.items {
             let state = item_state(lists, item);
             let otherwise = match state {
@@ -264,9 +264,10 @@ fn records(graph: &mut WorkGraph, loaded: &[Loaded], progress: Option<&Progress>
                     );
                     format!("The coordinator can resume the item or land its work in {places}.")
                 }
-                ItemState::Ready => "The item waits for an agent to start it.".to_string(),
+                ItemState::Ready | ItemState::Waiting => {
+                    "The item waits for an agent to start it.".to_string()
+                }
                 ItemState::DesignSession => "The item waits for the design session.".to_string(),
-                ItemState::Waiting => "The item waits to start.".to_string(),
             };
             let mut work = Work::new(
                 format!("item {}", item.named(Some(name))),
@@ -278,14 +279,11 @@ fn records(graph: &mut WorkGraph, loaded: &[Loaded], progress: Option<&Progress>
                 otherwise,
             );
             work.waits = blockers(lists, item);
-            let follows_worktrees = work.waits.is_empty();
-            for running in &item.running {
-                let tree = Key::Worktree(running.worktree.clone());
-                work.doing.insert(tree.clone());
-                if follows_worktrees {
-                    work.waits.push(Blocker::Work(tree));
-                }
-            }
+            work.doing.extend(
+                item.running
+                    .iter()
+                    .map(|run| Key::Worktree(run.worktree.clone())),
+            );
             graph.0.insert(record(name, item.id), work);
         }
         for question in &lists.questions {
@@ -316,7 +314,6 @@ fn records(graph: &mut WorkGraph, loaded: &[Loaded], progress: Option<&Progress>
             graph.0.insert(record(name, design.id), work);
         }
         for closed in &lists.closed {
-            let id = record(name, closed.record.id());
             let mut work = Work::new(
                 format!(
                     "{} {} “{}” of {name}",
@@ -328,7 +325,7 @@ fn records(graph: &mut WorkGraph, loaded: &[Loaded], progress: Option<&Progress>
                 format!("The record closed as {}.", closed.how.words()),
             );
             work.report = false;
-            graph.0.insert(id, work);
+            graph.0.insert(record(name, closed.record.id()), work);
         }
         for review in progress.into_iter().flat_map(|progress| &progress.reviews) {
             let landing = &review.landing;
@@ -411,7 +408,7 @@ fn worktrees(
             }
             if let Some(branch) = &tree.branch {
                 for review in progress
-                    .and_then(|progress| progress.projects.get(&lists.project))
+                    .and_then(|progress| progress.project(&lists.project))
                     .into_iter()
                     .flat_map(|progress| &progress.reviews)
                 {
@@ -447,11 +444,7 @@ fn worktrees(
         );
         work.doing
             .extend(owned.get(&tree.path).into_iter().flatten().cloned());
-        if work.waits.is_empty() {
-            work.waits
-                .extend(work.doing.iter().cloned().map(Blocker::Work));
-        }
-        if tree.claim.is_held() && running_item && work.waits.is_empty() {
+        if tree.claim.is_held() && running_item && work.waits.is_empty() && work.doing.is_empty() {
             work.otherwise = Advice::said(
                 "The item's waits have ended. The coordinator can resume the work.".to_string(),
             );
@@ -542,7 +535,11 @@ fn process_work(
                     .ok()
                     .and_then(Option::as_ref)
                     .into_iter()
-                    .flat_map(|wait| wait.held.iter().chain(&wait.blocked).copied()),
+                    .flat_map(|wait| {
+                        [wait.installer]
+                            .into_iter()
+                            .chain(wait.held.iter().chain(&wait.blocked).copied())
+                    }),
             );
             for row in scan
                 .rows
@@ -645,37 +642,16 @@ fn review_wait(places: &Places, pid: i32) -> std::result::Result<Option<Key>, St
 
 fn process_waits(graph: &mut WorkGraph, health: &Health, scanned: &Scanned, places: &Places) {
     if let Some((_, Ok(local))) = scanned.scans.iter().find(|(host, _)| host.target.is_none()) {
-        let mut installs: Vec<_> = local
-            .rows
-            .iter()
-            .filter(|row| command_kind(row) == Some("install"))
-            .collect();
-        installs.sort_by_key(|row| std::cmp::Reverse(row.age_seconds));
-        if let Some((installer, waiting)) = installs.split_first() {
-            let key = Key::local(installer.pid);
-            if let Some(work) = graph.get_mut(&key) {
-                match &scanned.install {
-                    Ok(Some(gates)) => work
-                        .waits
-                        .extend(gates.held.iter().map(|pid| Blocker::Work(Key::local(*pid)))),
-                    Ok(None) => {}
-                    Err(error) => {
-                        work.otherwise = Advice::said(format!(
-                            "Health could not read the install's waits: {error}"
-                        ))
-                    }
-                }
+        if let Ok(Some(gates)) = &scanned.install {
+            let installer = Key::local(gates.installer);
+            if let Some(work) = graph.get_mut(&installer) {
+                work.name.push_str(" holding the install lock");
+                work.waits
+                    .extend(gates.held.iter().map(|pid| Blocker::Work(Key::local(*pid))));
             }
-            let blocked = scanned
-                .install
-                .as_ref()
-                .ok()
-                .and_then(Option::as_ref)
-                .into_iter()
-                .flat_map(|gates| gates.blocked.iter().copied());
-            for pid in waiting.iter().map(|row| row.pid).chain(blocked) {
+            for &pid in &gates.blocked {
                 if let Some(work) = graph.get_mut(&Key::local(pid)) {
-                    work.waits.push(Blocker::Work(key.clone()));
+                    work.waits.push(Blocker::Work(installer.clone()));
                 }
             }
         }
@@ -718,19 +694,12 @@ fn process_waits(graph: &mut WorkGraph, health: &Health, scanned: &Scanned, plac
         }
     }
     for queue in &health.queues {
-        let mut ahead: Vec<_> = health
+        let mut ahead = health
             .locks
             .iter()
-            .filter_map(|lock| {
-                if lock.repo == queue.repo && lock.lane == queue.lane {
-                    lock.holder
-                        .as_ref()
-                        .map(|holder| Blocker::Work(Key::local(holder.pid)))
-                } else {
-                    None
-                }
-            })
-            .collect();
+            .find(|lock| lock.repo == queue.repo && lock.lane == queue.lane)
+            .and_then(|lock| lock.holder.as_ref())
+            .map(|holder| Blocker::Work(Key::local(holder.pid)));
         for entry in &queue.queue {
             let key = Key::local(entry.pid);
             if let Some(work) = graph.get_mut(&key) {
@@ -739,70 +708,69 @@ fn process_waits(graph: &mut WorkGraph, health: &Health, scanned: &Scanned, plac
                     queue.repo,
                     queue.lane.word()
                 ));
-                work.waits.extend(ahead.iter().cloned());
+                work.waits.extend(ahead.take());
             }
-            ahead.push(Blocker::Work(key));
-        }
-    }
-    for work in graph.0.values_mut() {
-        if work.waits.is_empty() {
-            work.waits
-                .extend(work.doing.iter().cloned().map(Blocker::Work));
+            ahead = Some(Blocker::Work(key));
         }
     }
 }
 
 /// Progress that health reads from the stores, apart from the work queue.
-#[derive(Default)]
-pub struct Progress {
-    projects: BTreeMap<String, ProjectProgress>,
-    ends: BTreeMap<String, BTreeMap<String, i64>>,
-}
+#[derive(Default, PartialEq, Eq)]
+pub struct Progress(BTreeMap<String, std::result::Result<ProjectProgress, String>>);
 
+#[derive(PartialEq, Eq)]
 struct ProjectProgress {
     items: BTreeMap<Id, i64>,
     reviews: Vec<crate::review::record::ReviewProgress>,
+    ends: Vec<crate::branch_end::BranchEnd>,
+}
+
+impl ProjectProgress {
+    fn read(store: &crate::lists::store::Store) -> Result<Self> {
+        let db = store.open_existing()?;
+        db.execute_batch("BEGIN").sql()?;
+        let items = crate::lists::item_event::last_open(&db)?;
+        let reviews = crate::review::record::open_progress(&db)?;
+        let ends = crate::branch_end::BranchEnd::read(&db)?;
+        db.execute_batch("END").sql()?;
+        Ok(Self {
+            items,
+            reviews,
+            ends,
+        })
+    }
 }
 
 impl Progress {
     pub fn read(places: &Places) -> std::result::Result<Self, String> {
-        let read = || -> Result<Self> {
-            let mut progress = Self::default();
-            for store in crate::lists::store::stores(places)? {
-                let db = store.open_existing()?;
-                db.execute_batch("BEGIN").sql()?;
-                let items = crate::lists::item_event::last_open(&db)?;
-                let reviews = crate::review::record::open_progress(&db)?;
-                let builds = crate::app_timing::branch_ends(&db)?;
-                let landings = crate::land_run::branch_ends(&db)?;
-                db.execute_batch("END").sql()?;
-                for done in builds.into_iter().chain(landings) {
-                    let end = progress
-                        .ends
-                        .entry(done.repo)
-                        .or_default()
-                        .entry(done.reference)
-                        .or_insert(done.at);
-                    *end = (*end).max(done.at);
-                }
-                progress
-                    .projects
-                    .insert(store.project, ProjectProgress { items, reviews });
-            }
-            Ok(progress)
-        };
-        read().map_err(Fail::text)
+        let stores = crate::lists::store::stores(places).map_err(Fail::text)?;
+        Ok(Self(
+            stores
+                .into_iter()
+                .map(|store| {
+                    let project = ProjectProgress::read(&store).map_err(Fail::text);
+                    (store.project, project)
+                })
+                .collect(),
+        ))
+    }
+
+    fn project(&self, name: &str) -> Option<&ProjectProgress> {
+        self.0.get(name)?.as_ref().ok()
     }
 
     fn for_branch(&self, repo: &str, tree: &WorktreeHealth) -> Option<i64> {
-        self.ends
-            .get(repo)?
-            .iter()
-            .filter(|(reference, _)| {
-                tree.branch.as_ref() == Some(*reference)
-                    || tree.git.as_ref().is_ok_and(|git| git.owns(reference))
+        self.0
+            .values()
+            .filter_map(|project| project.as_ref().ok())
+            .flat_map(|project| &project.ends)
+            .filter(|end| {
+                end.repo == repo
+                    && (tree.branch.as_ref() == Some(&end.reference)
+                        || tree.git.as_ref().is_ok_and(|git| git.owns(&end.reference)))
             })
-            .map(|(_, at)| *at)
+            .map(|end| end.at)
             .max()
     }
 }
@@ -810,41 +778,49 @@ impl Progress {
 pub fn append(
     health: &mut Health,
     loaded: &std::result::Result<Vec<Loaded>, String>,
+    progress: &std::result::Result<Progress, String>,
     scanned: Option<&Scanned>,
     places: &Places,
     now: i64,
     limit: u64,
 ) {
-    let projects = match loaded {
-        Ok(projects) => projects.as_slice(),
-        Err(error) => {
-            health.schedule_needed = true;
-            health.findings.push(Finding::new(
-                FindingKind::Lists,
-                Advice::said(format!("Health could not read the lists: {error}")),
-            ));
-            &[]
-        }
-    };
-    let initial;
-    let progress = match scanned {
-        Some(scanned) => &scanned.progress,
-        None => {
-            initial = Progress::read(places);
-            &initial
-        }
-    };
+    health.generated_at = now;
+    let projects = loaded.as_deref().unwrap_or_default();
     let mut graph = WorkGraph::default();
-    let loaded_progress = progress
-        .as_ref()
-        .map_err(|error| {
-            health.findings.push(Finding::new(
-                FindingKind::Lists,
-                Advice::said(format!("Health could not read recorded progress: {error}")),
-            ));
-            health.schedule_needed = true;
-        })
-        .ok();
+    let mut progress_fault = |project: Option<&str>, error: &str| {
+        let place = project.map_or_else(String::new, |name| format!(" for {name}"));
+        health.findings.push(Finding::new(
+            FindingKind::Lists,
+            Advice::said(format!(
+                "Health could not read recorded progress{place}: {error}"
+            )),
+        ));
+        health.schedule_needed = true;
+    };
+    let has_progress = match progress {
+        Ok(progress) => {
+            let mut complete = true;
+            for (name, read) in &progress.0 {
+                if let Err(error) = read {
+                    complete = false;
+                    if !projects
+                        .iter()
+                        .any(|project| &project.project == name && project.lists.is_err())
+                    {
+                        progress_fault(Some(name), error);
+                    }
+                }
+            }
+            complete
+        }
+        Err(error) => {
+            if loaded.is_ok() {
+                progress_fault(None, error);
+            }
+            false
+        }
+    };
+    let loaded_progress = progress.as_ref().ok();
     if let Err(error) = records(&mut graph, projects, loaded_progress) {
         health.findings.push(Finding::new(
             FindingKind::Lists,
@@ -862,11 +838,23 @@ pub fn append(
         })
         .unwrap_or_default();
     worktrees(&mut graph, health, projects, &owned, loaded_progress);
+    for work in graph.0.values_mut() {
+        if work.waits.is_empty() {
+            work.waits
+                .extend(work.doing.iter().cloned().map(Blocker::Work));
+        }
+    }
     let times = graph.times();
+    let local_scan = scanned.is_some_and(|scanned| {
+        scanned
+            .scans
+            .iter()
+            .any(|(host, scan)| host.target.is_none() && scan.is_ok())
+    });
     for tree in &mut health.worktrees {
         let key = Key::Worktree(tree.path.clone());
         tree.moved_at = times[&key].expect("the worktree has a claim time");
-        tree.idle_for_release &= progress.is_ok() && graph.0[&key].doing.is_empty();
+        tree.idle_for_release &= has_progress && local_scan;
     }
     health.schedule_needed |= projects.iter().any(|project| {
         project
@@ -933,6 +921,7 @@ mod tests {
         let mut health = crate::health::health(&tool).unwrap();
         let scan = crate::host_scan::parse(
             "uid=501\nnow=10000\ncpu_idle=90\nps_follows=1\n\
+             999905 0 501 0 0:00 50:00 S builds install\n\
              999901 0 501 0 0:00 35:00 S builds install\n\
              999902 0 501 0 0:00 45:00 S builds checks run\n\
              999903 999902 501 0 0:00 40:00 S cargo clippy\n\
@@ -943,11 +932,11 @@ mod tests {
         let scanned = Scanned {
             scans: vec![(Host::local(), Ok(scan))],
             install: Ok(Some(Waiting {
+                installer: 999901,
                 held: vec![999902],
                 blocked: vec![999904],
             })),
             holders: crate::job_claim::Holders::read().unwrap(),
-            progress: Ok(Progress::default()),
             orphans: Vec::new(),
             caches: Ok(Vec::new()),
             at: tool.now,
@@ -955,6 +944,7 @@ mod tests {
         append(
             &mut health,
             &Ok(Vec::new()),
+            &Ok(Progress::default()),
             Some(&scanned),
             &tool.places,
             tool.now,
@@ -985,6 +975,6 @@ mod tests {
             blocked.contains("install 999901") && blocked.contains("cargo clippy"),
             "{blocked}"
         );
-        assert_eq!(found.len(), 4, "{found:?}");
+        assert_eq!(found.len(), 5, "{found:?}");
     }
 }

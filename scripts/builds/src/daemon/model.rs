@@ -1650,7 +1650,7 @@ impl Model {
     /// The whole state, as the page reads it.
     pub fn page(&self) -> crate::fail::Result<Page> {
         let space = volume_space(&self.places.root)?;
-        let (_, snapshot) = self.lists.current();
+        let (snapshot, progress) = self.lists.health_data();
         let version = self.changes.current();
         let state = self.state.lock().expect("no panic holding it").page.clone();
         let machine = state.sample.as_ref().map(|sample| &sample.machine);
@@ -1819,6 +1819,7 @@ impl Model {
             crate::health_stillness::append(
                 health,
                 &snapshot,
+                &progress,
                 state.host_scan.as_deref(),
                 &self.places,
                 now_seconds(),

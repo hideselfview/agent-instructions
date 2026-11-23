@@ -21,9 +21,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use rusqlite::{Connection, params};
 
 use crate::app_config::PickKind;
-use crate::branch_end::BranchEnd;
 use crate::clock::Moment;
-use crate::db::Sql;
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::hook_stats::median_of;
@@ -813,25 +811,9 @@ pub fn last_ends(path: &Path, lane: Lane) -> Result<Vec<(String, i64)>> {
     rows.map(|row| row.context(what)).collect()
 }
 
-const RUN_END: &str = "COALESCE(
+pub const RUN_END: &str = "COALESCE(
     (SELECT MAX(s.started_at + s.wall_ms / 1000) FROM app_build_steps s WHERE s.run_id = r.id),
     r.started_at + r.wait_ms / 1000)";
-
-pub fn branch_ends(db: &Connection) -> Result<Vec<BranchEnd>> {
-    let mut statement = db.prepare(&format!(
-        "SELECT r.repo, r.built_ref, MAX({RUN_END}) FROM app_build_runs r GROUP BY r.repo, r.built_ref"
-    )).sql()?;
-    let rows = statement
-        .query_map([], |row| {
-            Ok(BranchEnd {
-                repo: row.get(0)?,
-                reference: row.get(1)?,
-                at: row.get(2)?,
-            })
-        })
-        .sql()?;
-    rows.map(|row| row.sql()).collect()
-}
 
 /// The figures of every repo with a run since <since> (seconds since 1970) in
 /// the database at <path>, by repo name; empty when nothing was recorded.

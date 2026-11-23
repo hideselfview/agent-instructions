@@ -385,12 +385,13 @@ fn a_recorded_hook_run_reaches_the_feeds_hooks_json_and_moves_no_version() {
 }
 
 #[test]
-fn a_recorded_app_build_run_reaches_the_feeds_hooks_json() {
+fn a_recorded_app_build_run_reaches_the_feeds_hooks_and_health() {
     use crate::app_timing::{DATABASE, RunRecord, StepKind, StepRecord, StepResult, record};
     let scratch = Scratch::new("daemon-app-timing");
     let places = scratch.places();
     let store = make_store(&places, &["bae", "coven"]);
     let feed = Feed::start_with_clock(places, Box::new(|| NOON));
+    let before_progress = feed.health_data().1;
     let before = feed.hooks();
     assert!(!before.contains("\"median_wait_ms\""), "{before}");
     let (sent, moved) = mpsc::channel();
@@ -424,6 +425,7 @@ fn a_recorded_app_build_run_reaches_the_feeds_hooks_json() {
     moved
         .recv_timeout(HANG_GUARD)
         .expect("the run reached the feed");
+    assert!(feed.health_data().1.as_ref() != before_progress.as_ref());
     let after = feed.hooks();
     assert!(
         after.contains("\"app_builds\"")

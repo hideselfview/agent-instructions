@@ -356,6 +356,7 @@ fn waiting_names_each_use_a_running_install_waits_for() {
     assert_eq!(
         waiting(&places).unwrap(),
         Some(Waiting {
+            installer: std::process::id() as i32,
             held: vec![11],
             blocked: Vec::new(),
         })
@@ -368,6 +369,7 @@ fn waiting_names_each_use_a_running_install_waits_for() {
     assert_eq!(
         waiting(&places).unwrap(),
         Some(Waiting {
+            installer: std::process::id() as i32,
             held: vec![12],
             blocked: Vec::new(),
         })
@@ -392,4 +394,17 @@ fn waiting_names_each_use_a_running_install_waits_for() {
         enter_for_life(&places, 15, "checks run", "10:00:04", quiet).unwrap(),
     ));
     assert_eq!(waiting(&places).unwrap(), None, "install ended");
+}
+
+#[test]
+fn health_can_read_the_lock_holder_while_an_install_prepares_its_gates() {
+    let scratch = Scratch::new("install-lock-holder");
+    let places = scratch.places();
+    let installing = begin(&places, &mut |_| {}).unwrap();
+    assert_eq!(
+        waiting(&places).unwrap().unwrap().installer,
+        std::process::id() as i32
+    );
+    drop(installing);
+    assert_eq!(waiting(&places).unwrap(), None);
 }

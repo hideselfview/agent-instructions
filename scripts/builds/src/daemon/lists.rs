@@ -23,6 +23,7 @@ use std::time::Duration;
 
 use super::fsevents::Stream;
 use super::model::SETTLE;
+use crate::health_stillness::Progress;
 use crate::lists::design_paths::Globs;
 use crate::lists::store::{Loaded, database_paths, load_paths, reload, stores};
 use crate::lists::view::{ClaimFacts, DesignView, RulesReview, View, design_view};
@@ -30,12 +31,19 @@ use crate::lists::{DesignChange, Id};
 use crate::places::Places;
 
 type Snapshot = Result<Vec<Loaded>, String>;
+type ProgressRead = Result<Progress, String>;
+
+struct Readings {
+    version: u64,
+    snapshot: Arc<Snapshot>,
+    progress: Arc<ProgressRead>,
+}
 
 pub struct Feed {
     places: Places,
     /// The version counts reads that changed what is served; the snapshot is
     /// what the last of them read.
-    current: Mutex<(u64, Arc<Snapshot>)>,
+    current: Mutex<Readings>,
     /// The hook runs' JSON (hook_stats.rs) as the last read built it.
     hooks: Mutex<Arc<String>>,
     /// The minute (seconds since 1970 over 60) the hook runs' JSON was built
@@ -84,7 +92,11 @@ impl Feed {
         report_snapshot_fault(&snapshot);
         let now = clock();
         let feed = Arc::new(Feed {
-            current: Mutex::new((1, Arc::new(snapshot))),
+            current: Mutex::new(Readings {
+                version: 1,
+                snapshot: Arc::new(snapshot),
+                progress: Arc::new(Progress::read(&places)),
+            }),
             hooks: Mutex::new(Arc::new(crate::hook_stats::dashboard_json_at(&places, now))),
             hooks_minute: AtomicI64::new(now.div_euclid(60)),
             clock,
@@ -129,7 +141,13 @@ impl Feed {
     /// The version and what the last read found.
     pub fn current(&self) -> (u64, Arc<Snapshot>) {
         let current = self.current.lock().expect("no panic holding it");
-        (current.0, current.1.clone())
+        (current.version, current.snapshot.clone())
+    }
+
+    /// The lists and recorded health progress from the same read cycle.
+    pub fn health_data(&self) -> (Arc<Snapshot>, Arc<ProgressRead>) {
+        let current = self.current.lock().expect("no panic holding it");
+        (current.snapshot.clone(), current.progress.clone())
     }
 
     /// The hook runs' JSON as the last read built it. The same `Arc` comes
@@ -208,8 +226,8 @@ impl Feed {
     }
 
     /// When a database changed, reads the stores whose version moved and the
-    /// hook runs again; in a new minute, reads the hook runs again. When
-    /// either differs from the last read, it calls the listener, and it moves
+    /// recorded progress and hook runs again; in a new minute, reads the hook
+    /// runs again. When any reading differs, it calls the listener, and it moves
     /// the version when the stores differ.
     fn read(&self) {
         let now = (self.clock)();
@@ -219,7 +237,7 @@ impl Feed {
         );
         let new_minute =
             self.hooks_minute.swap(now.div_euclid(60), Ordering::SeqCst) != now.div_euclid(60);
-        let previous = self.current.lock().expect("no panic holding it").1.clone();
+        let (previous, previous_progress) = self.health_data();
         let moved = matches!(&scan, Ok(scan) if !scan.moved.is_empty());
         let update = match &scan {
             Ok(scan) if moved || previous.is_err() => {
@@ -232,12 +250,21 @@ impl Feed {
                 (*previous != read).then_some(read)
             }
         };
+        let progress = (moved || scan.is_err() || previous_progress.is_err())
+            .then(|| Progress::read(&self.places))
+            .filter(|read| read != &*previous_progress);
         let stores_changed = update.is_some();
-        let mut changed = stores_changed;
-        if let Some(read) = update {
-            report_snapshot_fault(&read);
+        let mut changed = stores_changed || progress.is_some();
+        if changed {
             let mut current = self.current.lock().expect("no panic holding it");
-            *current = (current.0 + 1, Arc::new(read));
+            if let Some(read) = update {
+                report_snapshot_fault(&read);
+                current.version += 1;
+                current.snapshot = Arc::new(read);
+            }
+            if let Some(read) = progress {
+                current.progress = Arc::new(read);
+            }
         }
         if changed || moved || new_minute {
             let hooks = crate::hook_stats::dashboard_json_at(&self.places, now);

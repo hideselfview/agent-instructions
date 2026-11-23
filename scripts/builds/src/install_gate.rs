@@ -604,6 +604,8 @@ pub fn install_ran() -> Result<bool> {
 /// schemas until its program is on PATH.
 pub struct Installing {
     places: Places,
+    // Drop the owner record before the lock admits another installer.
+    owner: Use,
     lock: File,
 }
 
@@ -611,13 +613,20 @@ pub struct Installing {
 /// <say> the line that says it waits.
 pub fn begin(places: &Places, say: &mut dyn FnMut(String)) -> Result<Installing> {
     let path = places.install_dir().join("install.lock");
+    let pid = std::process::id();
     let file = open(&path)?;
     if !try_lock(&file, libc::LOCK_EX, &path)? {
+        let waiting = locked_use(places.install_dir().join("install-waiting"), pid)?;
         say("another builds install runs: waiting for it".to_string());
         lock(&file, libc::LOCK_EX, &path)?;
+        drop(waiting);
     }
+    let owner = locked_use(places.install_dir().join("installer"), pid)?;
+    remove_ended_uses(&places.install_dir().join("installer"))?;
+    remove_ended_uses(&places.install_dir().join("install-waiting"))?;
     Ok(Installing {
         places: places.clone(),
+        owner,
         lock: file,
     })
 }
@@ -643,8 +652,9 @@ impl Installing {
         wait_for_uses(&self.places, Kind::Connection, say)?;
         advance_generation(&self.places)?;
         Ok(Closed {
-            _install: self.lock,
             _gates: [commands, connections],
+            _owner: self.owner,
+            _install: self.lock,
         })
     }
 }
@@ -652,8 +662,9 @@ impl Installing {
 /// The closed gates and the install lock: no use starts and no other install
 /// begins until install drops this value, which releases their locks.
 pub struct Closed {
-    _install: File,
     _gates: [File; 2],
+    _owner: Use,
+    _install: File,
 }
 
 /// Closes <kind>'s gate. The install lock keeps every other install out, so
@@ -741,25 +752,26 @@ fn remove_ended_uses(dir: &Path) -> Result<()> {
 /// Processes on either side of an install's closed gates.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Waiting {
+    pub installer: i32,
     pub held: Vec<i32>,
     pub blocked: Vec<i32>,
 }
 
-/// What a running install waits for: None when no install runs, or when it
-/// runs with both gates open (it reads the stores' schemas, or it closes no
-/// gate). Reads each lock by asking for a shared lock without waiting and
-/// letting it go at once, so it takes no use and holds up no install.
+/// Reads the install that holds the lock and the processes that wait on
+/// either side of it, without waiting on a lock.
 pub fn waiting(places: &Places) -> Result<Option<Waiting>> {
-    if !gate_closed(&places.install_dir().join("install.lock"))? {
+    let path = places.install_dir().join("install.lock");
+    if !gate_closed(&path)? {
         return Ok(None);
     }
+    let installers = held_pids(&places.install_dir().join("installer"))?;
+    let [installer] = installers[..] else {
+        fail!("the install lock is held, but health could not identify its installer");
+    };
     let commands_closed = gate_closed(&Kind::Command.gate(places))?;
     let connections_closed = gate_closed(&Kind::Connection.gate(places))?;
-    if !commands_closed && !connections_closed {
-        return Ok(None);
-    }
     let mut held = Vec::new();
-    let mut blocked = Vec::new();
+    let mut blocked = held_pids(&places.install_dir().join("install-waiting"))?;
     for (kind, closed) in [
         (Kind::Command, commands_closed),
         (Kind::Connection, connections_closed),
@@ -769,7 +781,11 @@ pub fn waiting(places: &Places) -> Result<Option<Waiting>> {
             blocked.extend(held_pids(&kind.waiters(places))?);
         }
     }
-    Ok(Some(Waiting { held, blocked }))
+    Ok(Some(Waiting {
+        installer,
+        held,
+        blocked,
+    }))
 }
 
 #[cfg(test)]

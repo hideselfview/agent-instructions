@@ -141,31 +141,43 @@ fn a_finding_names_the_orphan_and_how_to_stop_it() {
     );
 }
 
-/// The stop script signals each target on its own and names only a target
-/// that refused the signal and still runs: a pid that ended first counts as
-/// stopped (no pid reaches 999999 on macOS). launchd (pid 1) refuses a
-/// signal from any user but root.
 #[test]
-fn the_stop_script_names_only_a_target_that_refused() {
-    // As root, the signal to launchd would go through.
-    if unsafe { libc::getuid() } == 0 {
-        return;
-    }
-    let rows = crate::host_scan::parse_ps("1 0 0 0.0 0:01.00 40:00 S cargo test\n").unwrap();
+fn a_process_that_ignores_sigterm_remains_in_health() {
+    use std::io::{BufRead, BufReader};
+    use std::process::{Command, Stdio};
+    let mut child = Command::new("sh")
+        .args(["-c", "trap '' TERM; echo ready; read line"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut ready = String::new();
+    BufReader::new(child.stdout.take().unwrap())
+        .read_line(&mut ready)
+        .unwrap();
+    assert_eq!(ready.trim(), "ready");
+    let pid = child.id();
+    let rows =
+        crate::host_scan::parse_ps(&format!("{pid} 1 501 0.0 0:00 40:00 S cargo test")).unwrap();
     let orphan = Orphan {
         host: Host::local(),
         kind: Kind::Process {
             row: rows[0].clone(),
-            tree: vec![999_999, 1],
+            tree: vec![pid as i32],
             stops: true,
         },
     };
-    let output = std::process::Command::new("sh")
+    let output = Command::new("sh")
         .args(["-c", &orphan.stop_script().unwrap()])
         .output()
         .unwrap();
+    child.kill().unwrap();
+    child.wait().unwrap();
     assert!(output.status.success());
-    assert_eq!(String::from_utf8_lossy(&output.stdout), "refused=1\n");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        format!("{pid} still runs after SIGTERM\n")
+    );
 }
 
 /// The dashboard starts each `builds build-app` as its child, and a restart

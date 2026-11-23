@@ -126,11 +126,7 @@ pub struct OrphanStops {
 }
 
 /// Stops each of <orphans> that health stops, with <stop>, which runs an
-/// orphan's `stop_script` on its host and returns what it printed or why it
-/// could not run it. An orphan is stopped when the script names no target
-/// that refused its signal. Returns one line for each orphan it stopped and
-/// each stop that failed, and the orphans left to list: those health leaves
-/// to run and those whose stop failed.
+/// orphan's `stop_script` on its host. The script says which targets still run.
 pub fn stop_orphans(
     orphans: Vec<crate::orphans::Orphan>,
     stop: &dyn Fn(&Host, &str) -> std::result::Result<String, String>,
@@ -143,25 +139,14 @@ pub fn stop_orphans(
             left.push(orphan);
             continue;
         };
-        let refused = stop(&orphan.host, &script).map(|printed| {
-            printed
-                .lines()
-                .filter_map(|line| line.strip_prefix("refused="))
-                .map(str::to_string)
-                .collect::<Vec<_>>()
-        });
-        match refused {
-            Ok(refused) if refused.is_empty() => {
+        match stop(&orphan.host, &script) {
+            Ok(printed) if printed.trim().is_empty() => {
                 lines.push(format!("stopped {}: its caller was gone", orphan.what()));
                 stopped.push(orphan);
             }
-            Ok(refused) => {
-                lines.push(format!(
-                    "stopping {} failed: {} still {} and refused the signal",
-                    orphan.what(),
-                    refused.join(", "),
-                    if refused.len() == 1 { "runs" } else { "run" }
-                ));
+            Ok(printed) => {
+                let said = printed.lines().collect::<Vec<_>>().join(". ");
+                lines.push(format!("stopping {}: {said}", orphan.what()));
                 left.push(orphan);
             }
             Err(said) => {

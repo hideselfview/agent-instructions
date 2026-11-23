@@ -84,25 +84,19 @@ impl Orphan {
         }
     }
 
-    /// The script that health's fix pass runs on the host to stop it, or
-    /// None when health leaves it to run. It signals each target on its own
-    /// and prints `refused=<target>` for each signal that failed while the
-    /// target still runs, so a target that ended first counts as stopped and
-    /// one that refused the signal does not.
+    /// Signals each target and reports any live process that remains.
     pub fn stop_script(&self) -> Option<String> {
-        let lines: Vec<String> = self
-            .targets()?
-            .iter()
-            .map(|target| match target.strip_prefix('-') {
-                Some(group) => format!(
-                    "kill -TERM {target} 2>/dev/null || {{ ps -axo pgid= | awk -v g={group} '$1 == g {{ found = 1 }} END {{ exit !found }}' && echo refused={target}; }}"
-                ),
-                None => format!(
-                    "kill -TERM {target} 2>/dev/null || {{ ps -p {target} >/dev/null 2>&1 && echo refused={target}; }}"
-                ),
-            })
-            .collect();
-        Some(format!("{}\nexit 0", lines.join("\n")))
+        let targets = self.targets()?;
+        let statements = targets.iter().map(|target| {
+            let column = if target.starts_with('-') { "$3" } else { "$1" };
+            let id = target.trim_start_matches('-');
+            format!(
+                "if kill -TERM {target} 2>/dev/null; then said='still runs after SIGTERM'; else said='still runs because SIGTERM failed'; fi\n\
+                 procs=$(ps -axo pid=,stat=,pgid=) || exit 1\n\
+                 if printf '%s\\n' \"$procs\" | awk '{column} == {id} && $2 !~ /^Z/ {{ live = 1 }} END {{ exit !live }}'; then echo \"{target} $said\"; fi"
+            )
+        }).collect::<Vec<_>>();
+        Some(statements.join("\n"))
     }
 
     /// The command that stops it, as the person runs it: over ssh on a host.
