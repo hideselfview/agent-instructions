@@ -130,26 +130,25 @@ pub fn new_path(line: &str) -> Option<&str> {
 }
 
 pub fn parse_diff(diff: &str) -> Vec<DiffFile> {
-    let mut files: Vec<DiffFile> = Vec::new();
+    super::files::split(diff)
+        .into_iter()
+        .map(|file| DiffFile {
+            path: file.path,
+            renamed_from: file.renamed_from,
+            lines: parse_lines(&file.text),
+        })
+        .collect()
+}
+
+fn parse_lines(diff: &str) -> Vec<DiffLine> {
+    let mut lines = Vec::new();
     let mut numbers = None;
     for line in diff.lines() {
-        if let Some(path) = new_path(line) {
-            files.push(DiffFile {
-                path: path.to_string(),
-                renamed_from: None,
-                lines: Vec::new(),
-            });
-            numbers = None;
-            continue;
-        }
         if let Some((old, new)) = super::files::hunk_ranges(line) {
             numbers = Some((old.start, new.start));
             continue;
         }
         let Some((before, after)) = &mut numbers else {
-            if let (Some(file), Some(old)) = (files.last_mut(), super::files::rename_source(line)) {
-                file.renamed_from = Some(old.to_string());
-            }
             continue;
         };
         let kind = match line.chars().next() {
@@ -167,14 +166,12 @@ pub fn parse_diff(diff: &str) -> Vec<DiffFile> {
         if !matches!(kind, LineKind::Removed(_)) {
             *after += 1;
         }
-        if let Some(file) = files.last_mut() {
-            file.lines.push(DiffLine {
-                text: line[1..].to_string(),
-                kind,
-            });
-        }
+        lines.push(DiffLine {
+            text: line[1..].to_string(),
+            kind,
+        });
     }
-    files
+    lines
 }
 
 /// The most reviewer processes a run starts at once.

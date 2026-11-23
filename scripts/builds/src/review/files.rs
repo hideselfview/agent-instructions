@@ -97,7 +97,7 @@ pub struct FileDiff {
 }
 
 /// The old path named in a rename header. Hunk lines start with a diff mark.
-pub(super) fn rename_source(line: &str) -> Option<&str> {
+fn rename_source(line: &str) -> Option<&str> {
     line.strip_prefix("rename from ").map(str::trim_end)
 }
 
