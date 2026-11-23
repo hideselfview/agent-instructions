@@ -221,18 +221,22 @@ impl Diff {
         quotes
     }
 
-    fn commit_message_for(&self, group: &Group) -> Option<FileDiff> {
+    fn commit_messages_for(&self, group: &Group) -> Option<&str> {
         if !group.commit_text {
             return None;
         }
-        files::commit_message_file(&self.messages).map(|(file, _)| file)
+        let text = self.messages.trim();
+        (!text.is_empty()).then_some(text)
     }
 
     /// The diff's text as <group> reads it in one call, with the commit
     /// messages as another file when the group reads them.
     pub fn text_for(&self, group: &Group) -> String {
         let mut text = self.patch.text().to_string();
-        if let Some(file) = self.commit_message_for(group) {
+        if let Some((file, _)) = self
+            .commit_messages_for(group)
+            .and_then(files::commit_message_file)
+        {
             text.push_str(&file.text);
         }
         text
@@ -523,14 +527,6 @@ fn held_by<'a>(group: &Group, members: &[&Rule], open: &'a [Finding]) -> Vec<&'a
         .collect()
 }
 
-/// Whether <group>, with <members>, holds a finding of <open> in a file one
-/// of <paths> names.
-fn holds_open(group: &Group, members: &[&Rule], paths: &[String], open: &[Finding]) -> bool {
-    held_by(group, members, open)
-        .iter()
-        .any(|finding| paths.iter().any(|path| names_file(path, &finding.file)))
-}
-
 fn group_covers(members: &[&Rule], paths: &[String], files: &Globs) -> bool {
     members.iter().any(|rule| rule.matches(paths, files))
 }
@@ -566,7 +562,10 @@ fn units_of<'a>(
         .cloned()
         .map(|file| unit(Some(file)))
         .collect();
-    if let Some(file) = diff.commit_message_for(group) {
+    if let Some((file, _)) = diff
+        .commit_messages_for(group)
+        .and_then(files::commit_message_file)
+    {
         units.push(unit(Some(file)));
     }
     units
@@ -588,28 +587,31 @@ fn unjudged(members: &[&Rule], diff: &Diff, files: &Globs) -> Vec<String> {
         .collect()
 }
 
-/// The files of its units, <first>, that group <at> of <picked> does not
+/// The files of its units, <paths>, that group <at> of <picked> does not
 /// read: none when it holds a finding of <open>, and otherwise each file
 /// where other groups of <picked> hold findings of <open>.
-fn not_read(
+fn not_read<'a>(
     picked: &[(&Group, Vec<&Rule>)],
     at: usize,
-    first: &[&FileDiff],
+    paths: impl Iterator<Item = (&'a str, Option<&'a str>)>,
     open: &[Finding],
 ) -> Vec<String> {
     let (group, members) = &picked[at];
     if !held_by(group, members, open).is_empty() {
         return Vec::new();
     }
-    first
+    let held: Vec<_> = picked
         .iter()
-        .filter(|file| {
-            let paths = file.paths();
-            picked
-                .iter()
-                .any(|(group, members)| holds_open(group, members, &paths, open))
+        .flat_map(|(group, members)| held_by(group, members, open))
+        .collect();
+    paths
+        .filter(|(path, renamed_from)| {
+            held.iter().any(|finding| {
+                names_file(path, &finding.file)
+                    || renamed_from.is_some_and(|source| names_file(source, &finding.file))
+            })
         })
-        .map(|file| file.path.clone())
+        .map(|(path, _)| path.to_string())
         .collect()
 }
 
@@ -698,18 +700,21 @@ pub fn ask_groups(
                 return Vec::new();
             }
             let mut read = Vec::new();
-            let mut commit_message = None;
+            let mut reads_commit_messages = false;
             for unit in units {
                 match &unit.file {
                     Some(file) => read.push(file),
                     None => {
                         read.extend(views[at].patch.files());
-                        commit_message = views[at].commit_message_for(unit.group);
+                        reads_commit_messages = views[at].commit_messages_for(unit.group).is_some();
                     }
                 }
             }
-            read.extend(commit_message.as_ref());
-            not_read(picked, at, &read, open)
+            let paths = read
+                .into_iter()
+                .map(|file| (file.path.as_str(), file.renamed_from.as_deref()));
+            let commit_path = reads_commit_messages.then_some((files::COMMIT_MESSAGE, None));
+            not_read(picked, at, paths.chain(commit_path), open)
         })
         .collect();
     // Each group's diff: its view without the files the group does not read.
