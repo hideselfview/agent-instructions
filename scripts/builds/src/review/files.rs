@@ -301,7 +301,7 @@ pub fn commit_message_file(messages: &str) -> Option<(FileDiff, crate::review::c
         return None;
     }
     let mut text = format!(
-        "diff --git a/{COMMIT_MESSAGE} b/{COMMIT_MESSAGE}\n--- /dev/null\n+++ b/{COMMIT_MESSAGE}\n@@ -0,0 +1,{} @@\n",
+        "diff --git {OLD_PATH_PREFIX}{COMMIT_MESSAGE} {NEW_PATH_PREFIX}{COMMIT_MESSAGE}\n--- /dev/null\n+++ {NEW_PATH_PREFIX}{COMMIT_MESSAGE}\n@@ -0,0 +1,{} @@\n",
         lines.len()
     );
     for line in &lines {
