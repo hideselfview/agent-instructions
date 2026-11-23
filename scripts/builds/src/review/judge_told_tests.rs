@@ -416,3 +416,26 @@ fn health_flags_a_missing_judge_only_while_a_finding_needs_a_settle() {
     running_session(&r.demo.tool.places, "other-session");
     assert!(!needs_judge(), "the finding has a settle");
 }
+
+#[test]
+fn health_reports_when_a_findings_wait_time_is_missing() {
+    let r = reviewed("health-judge-wait-time", Some(&caller("s1", "a1")));
+    r.demo
+        .store
+        .write(&stamp("tester"), "remove reviewer timing", |db| {
+            db.execute("DELETE FROM review_exchange_time", []).sql()?;
+            Ok(())
+        })
+        .unwrap();
+    let health = health_report(&r);
+    let judge = health
+        .findings
+        .iter()
+        .find(|finding| finding.kind == crate::health::FindingKind::Judge)
+        .unwrap();
+    assert!(
+        judge.advice.text.contains("no recorded finish time"),
+        "{}",
+        judge.advice.text
+    );
+}

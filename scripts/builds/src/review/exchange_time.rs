@@ -4,7 +4,7 @@
 use rusqlite::{Connection, params};
 
 use crate::db::Sql;
-use crate::fail::Result;
+use crate::fail::{Fail, Result};
 
 /// The end of an exchange, rounded up to a whole second. The row has alias `t`.
 pub const END_AT: &str = "t.started_at + (t.ms + 999) / 1000";
@@ -20,23 +20,31 @@ pub fn record(db: &Connection, exchange: i64, started_at: i64, ms: i64) -> Resul
     Ok(())
 }
 
-/// When the last reviewer process of the run finished. Runs that recorded
-/// no exchange times have only their start time.
-pub fn run_finished_at(db: &Connection, run: i64) -> Result<i64> {
-    db.query_row(
-        &format!(
-            "SELECT COALESCE((
-                SELECT MAX({END_AT})
-                FROM review_call c
-                JOIN review_exchange e ON e.call_id = c.id
-                JOIN review_exchange_time t ON t.exchange_id = e.id
-                WHERE c.run_id = r.id
-            ), r.at) FROM review_run r WHERE r.id = ?1"
-        ),
-        [run],
-        |row| row.get(0),
+/// The last exchange's end, at or after the run's start, for a
+/// `review_run` row with alias `run`. SQL returns NULL when no time exists.
+pub fn run_end_at() -> String {
+    format!(
+        "MAX(run.at, (SELECT MAX({END_AT}) FROM review_exchange_time t
+         JOIN review_exchange e ON e.id = t.exchange_id
+         JOIN review_call c ON c.id = e.call_id WHERE c.run_id = run.id))"
     )
-    .sql()
+}
+
+/// The recorded finish of <run>, which must have timed exchanges.
+pub fn run_finished_at(db: &Connection, run: i64) -> Result<i64> {
+    let end = run_end_at();
+    let at: Option<i64> = db
+        .query_row(
+            &format!("SELECT {end} FROM review_run run WHERE run.id = ?1"),
+            [run],
+            |row| row.get(0),
+        )
+        .sql()?;
+    at.ok_or_else(|| {
+        Fail::Message(format!(
+            "Builds has no recorded finish time for review run {run}."
+        ))
+    })
 }
 
 #[cfg(test)]

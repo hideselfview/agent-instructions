@@ -719,12 +719,10 @@ fn read_reviews(
     card: &mut Card,
 ) -> Result<()> {
     let end_at = crate::review::exchange_time::END_AT;
+    let run_end = crate::review::exchange_time::run_end_at();
     let mut runs = db
         .prepare(&format!(
-            "SELECT run.id, run.at, \
-                    (SELECT MAX({end_at}) FROM review_exchange_time t \
-                       JOIN review_exchange e ON e.id = t.exchange_id \
-                       JOIN review_call c ON c.id = e.call_id WHERE c.run_id = run.id), \
+            "SELECT run.id, run.at, {run_end}, \
                     (SELECT COUNT(*) FROM review_finding f JOIN review_call c ON c.id = f.call_id \
                        WHERE c.run_id = run.id AND f.check_failed IS NULL) \
              FROM review_run run JOIN review_landing l ON l.id = run.landing_id \
@@ -740,7 +738,7 @@ fn read_reviews(
         .collect::<std::result::Result<_, _>>()
         .sql()?;
     for (id, at, end, findings) in rows {
-        let end = end.unwrap_or(at).max(at);
+        let end = end.unwrap_or(at);
         card.steps.push(Step {
             kind: Kind::Review,
             name: "review run".to_string(),
