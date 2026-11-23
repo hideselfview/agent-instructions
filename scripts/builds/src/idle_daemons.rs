@@ -237,7 +237,8 @@ pub fn lane_use(places: &Places, ssh: &Ssh, host: &Host, lane: Lane) -> Result<L
             };
             last = last.max(last_use(at, entry)?);
         }
-        if let Some(database) = app_timing::database_of(places, &repo)? {
+        // Every project that holds the repo records its own runs.
+        for database in app_timing::databases_holding(places, &repo)? {
             for (entry, end) in app_timing::last_ends(&database, lane)? {
                 if on_host(&entry) {
                     last = last.max(Some(end));

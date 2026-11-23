@@ -172,3 +172,59 @@ fn a_lane_is_in_use_on_the_host_whose_checkout_a_build_holds() {
     assert_eq!(android(&here), LaneUse::LastBuild(None));
     drop(held);
 }
+
+/// A repo that two projects hold (agent-instructions is in bae and builds)
+/// has app build runs in each project's store. The lane's use reads both:
+/// a held lock keeps the lane busy, a run in either project is the lane's
+/// last build, and the lane is idle when only old runs exist.
+#[test]
+fn a_repo_two_projects_hold_is_read_in_both_projects() {
+    use crate::app_timing::{DATABASE, RunRecord, record};
+    use crate::run_end::RunEnd;
+    let scratch = crate::testing::Scratch::new("idle-daemons-shared-repo");
+    let places = scratch.places();
+    let first = crate::lists::fixtures::make_store_named(&places, "first", &["shared"]);
+    let second = crate::lists::fixtures::make_store_named(&places, "second", &["shared"]);
+    let entry = "m1:builds-android-1";
+    std::fs::create_dir_all(places.app_locks_dir("shared", Lane::Android)).unwrap();
+    std::fs::write(
+        places.app_checkouts_file("shared", Lane::Android),
+        format!("{entry}\n"),
+    )
+    .unwrap();
+    let ssh = Ssh::from_env();
+    let m1 = Host {
+        band: None,
+        name: "m1".to_string(),
+        target: Some("u@m1".to_string()),
+        cores: 10,
+        speed: None,
+    };
+    let ran = |at: i64| RunRecord {
+        started_at: at,
+        repo: "shared".to_string(),
+        lane: Lane::Android,
+        checkout: entry.to_string(),
+        built_ref: "branch".to_string(),
+        built_commit: None,
+        who: None,
+        wait_ms: 1000,
+        outcome: RunEnd::Passed,
+        load: None,
+        steps: Vec::new(),
+    };
+    let android = || lane_use(&places, &ssh, &m1, Lane::Android).unwrap();
+
+    record(&first.dir.join(DATABASE), &ran(1000)).unwrap();
+    assert_eq!(android(), LaneUse::LastBuild(Some(1001)));
+    record(&second.dir.join(DATABASE), &ran(2000)).unwrap();
+    assert_eq!(android(), LaneUse::LastBuild(Some(2001)));
+    record(&first.dir.join(DATABASE), &ran(3000)).unwrap();
+    assert_eq!(android(), LaneUse::LastBuild(Some(3001)));
+
+    let held = crate::lane_size::lock_checkout(&places, "shared", Lane::Android, entry)
+        .unwrap()
+        .expect("nothing holds the lock");
+    assert_eq!(android(), LaneUse::Building);
+    drop(held);
+}
