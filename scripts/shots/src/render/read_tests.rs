@@ -170,16 +170,20 @@ fn an_android_board_keeps_a_button_that_opens_a_menu_a_button() {
 }
 
 #[test]
-fn a_node_of_any_role_keeps_its_label() {
+fn a_node_of_role_other_keeps_a_label_its_board_gives_and_not_one_chrome_computes() {
+    let mut given = named(node("2", "menuitem", &[]), "5 of 5 stars");
+    given.author_named = true;
     let raw = [
-        node("1", "list", &["2", "3"]),
-        named(node("2", "menuitem", &[]), "5 of 5 stars"),
-        node("3", "group", &[]),
+        node("1", "list", &["2", "3", "4"]),
+        given,
+        named(node("3", "heading", &[]), "Shuffle"),
+        node("4", "group", &[]),
     ];
     let elements = build(&raw, Platform::Android).unwrap();
     assert_eq!(elements[1].role, Role::Other);
     assert_eq!(elements[1].label.as_deref(), Some("5 of 5 stars"));
-    assert_eq!(elements[2].label, None, "a node with no name has no label");
+    assert_eq!(elements[2].label, None, "a name from content is no label");
+    assert_eq!(elements[3].label, None, "a node with no name has no label");
 }
 
 #[test]
@@ -588,4 +592,41 @@ fn mac_masking_uses_empty_and_filled_states_only_for_passwords() {
             .as_deref(),
         Some("\u{F79A}\u{F79A}")
     );
+}
+
+#[tokio::test]
+async fn chrome_says_whether_the_board_gave_a_name_or_computed_it_from_content() {
+    let root = fixture::tree(&[(
+        "fixture.names",
+        r#"<x-dc><helmet><style>body{margin:0;font:13px sans-serif}</style></helmet>
+<div role="menuitem" aria-label="5 of 5 stars" tabindex="0">x</div>
+<h2>Shuffle</h2>
+<div role="menuitem" tabindex="0">Play next</div>
+<div role="group" aria-labelledby="t"><span id="t">Devices</span></div>
+</x-dc>"#,
+    )]);
+    let elements = fixture::with_browser(root.path(), async |server, chrome| {
+        let page = chrome.new_page().await.unwrap();
+        let url = server.board_url("fixture.names");
+        let rendered = render(&page, "fixture.names", &url, Frame { w: 300, h: 200 }, 1.0)
+            .await
+            .unwrap();
+        elements(&page, rendered.frame, Platform::Android)
+            .await
+            .unwrap()
+    })
+    .await;
+    let other = |native: &str, nth: usize| {
+        elements
+            .iter()
+            .filter(|e| e.role == Role::Other && e.native == native)
+            .nth(nth)
+            .unwrap_or_else(|| panic!("no {native} {nth} in {elements:#?}"))
+            .label
+            .as_deref()
+    };
+    assert_eq!(other("menuitem", 0), Some("5 of 5 stars"));
+    assert_eq!(other("heading", 0), None);
+    assert_eq!(other("menuitem", 1), None);
+    assert_eq!(other("group", 0), Some("Devices"));
 }

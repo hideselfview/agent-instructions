@@ -14,7 +14,7 @@ use crate::names::Platform;
 use crate::shots::{Bounds, Element, Role, TextStyle, words};
 use chromiumoxide::Page;
 use chromiumoxide::cdp::browser_protocol::accessibility::{
-    AxNode, AxNodeId, AxPropertyName, EnableParams, GetFullAxTreeParams,
+    AxNode, AxNodeId, AxPropertyName, AxValue, AxValueSourceType, EnableParams, GetFullAxTreeParams,
 };
 use chromiumoxide::cdp::browser_protocol::dom::ResolveNodeParams;
 use chromiumoxide::cdp::js_protocol::runtime::{CallArgument, CallFunctionOnParams};
@@ -94,6 +94,9 @@ pub(crate) struct Raw {
     pub(crate) ignored: bool,
     pub(crate) chrome_role: String,
     pub(crate) name: Option<String>,
+    /// The board gave the name (an `aria-label` or `aria-labelledby`); Chrome
+    /// did not compute it from the node's content.
+    pub(crate) author_named: bool,
     pub(crate) value: Option<String>,
     /// `true`, `false` or `mixed`.
     pub(crate) checked: Option<String>,
@@ -144,7 +147,10 @@ pub(crate) fn build(raw: &[Raw], platform: Platform) -> Result<Vec<Element>, Rea
             continue;
         }
         let role = Role::for_node(node, platform);
-        let label = nonempty(node.name.as_deref());
+        // A node of no known role is named only by what the board gives it: the
+        // shot reports no label for a name Chrome computes from content.
+        let label =
+            nonempty(node.name.as_deref()).filter(|_| role != Role::Other || node.author_named);
         let kept = !node.ignored && !STRUCTURE.contains(&node.chrome_role.as_str());
         let inside_control = folded;
         let mut next_parent = parent;
@@ -390,15 +396,27 @@ fn srgb(css: &str) -> Option<String> {
     Some(format!("#{r:02X}{g:02X}{b:02X}{a:02X}"))
 }
 
-fn string(
-    value: &Option<chromiumoxide::cdp::browser_protocol::accessibility::AxValue>,
-) -> Option<String> {
+fn string(value: &Option<AxValue>) -> Option<String> {
     match value.as_ref()?.value.as_ref()? {
         serde_json::Value::String(s) => Some(s.clone()),
         serde_json::Value::Number(n) => Some(n.to_string()),
         serde_json::Value::Bool(b) => Some(b.to_string()),
         _ => None,
     }
+}
+
+/// Whether the board gave the name: the name comes from an attribute or a
+/// related element that Chrome used, not from the node's content.
+fn author_named(name: &Option<AxValue>) -> bool {
+    name.iter()
+        .flat_map(|n| n.sources.iter().flatten())
+        .any(|source| {
+            matches!(
+                source.r#type,
+                AxValueSourceType::Attribute | AxValueSourceType::RelatedElement
+            ) && source.superseded != Some(true)
+                && source.value.is_some()
+        })
 }
 
 fn raw(node: &AxNode) -> Raw {
@@ -421,6 +439,7 @@ fn raw(node: &AxNode) -> Raw {
         ignored: node.ignored,
         chrome_role: string(&node.role).unwrap_or_default(),
         name: string(&node.name),
+        author_named: author_named(&node.name),
         value: string(&node.value),
         checked: property(AxPropertyName::Checked).flatten(),
         selected: property(AxPropertyName::Selected)
