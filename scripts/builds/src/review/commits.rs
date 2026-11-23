@@ -74,17 +74,38 @@ pub fn summary(repo: &Path, base: &str, head: &str) -> Result<String> {
     )
 }
 
-/// Whether the repo at <repo> has the commit <sha>: false when git says it
-/// has no such commit or <repo> is no repo, and an error when git does not
-/// start.
+/// Whether the repo at <repo> has the commit <sha>.
 pub fn exists(repo: &Path, sha: &str) -> Result<bool> {
-    let status = git(repo)
-        .args(["cat-file", "-e", &format!("{sha}^{{commit}}")])
+    // `cat-file -e` exits 128 when it cannot resolve an absent commit with
+    // the `^{commit}` suffix. Quiet rev-parse returns 1 without output then.
+    let output = git(repo)
+        .args([
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            &format!("{sha}^{{commit}}"),
+        ])
         .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .context(|| format!("running git cat-file in {}", repo.display()))?;
-    Ok(status.success())
+        .output()
+        .context(|| {
+            format!(
+                "Git could not start in {} to check for commit {sha}",
+                repo.display()
+            )
+        })?;
+    match output.status.code() {
+        Some(0) => Ok(true),
+        Some(1) if output.stdout.is_empty() && output.stderr.is_empty() => Ok(false),
+        _ => {
+            let error = format!(
+                "Git could not check for commit {sha} in {} ({}).\n{}",
+                repo.display(),
+                output.status,
+                String::from_utf8_lossy(&output.stderr)
+            );
+            fail!("{}", error.trim_end());
+        }
+    }
 }
 
 /// The pathspec that leaves the review's test cases (`cases::DIR`) out of

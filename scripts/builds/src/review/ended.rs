@@ -27,6 +27,7 @@ use crate::checkout::{branch_exists, file_name, worktree_list};
 use crate::fail::{Fail, Result};
 use crate::lists::Stamp;
 use crate::lists::store::Store;
+use crate::review::commits;
 use crate::review::record::{self, LandingRow};
 use crate::side_git::{ask, waiting_to_land};
 use boards::{git, git_text};
@@ -140,12 +141,7 @@ fn end_of(main: &Path, branch: &str, head: &str, kept: bool) -> Result<Option<En
     if kept {
         return Ok(None);
     }
-    // `cat-file -e` exits 1 for a commit the repo lacks and fails otherwise,
-    // and a failure must not read as a missing commit.
-    let known = ask(main, &["cat-file", "-e", &format!("{head}^{{commit}}")])
-        .map_err(Fail::Message)?
-        .is_some();
-    if known {
+    if commits::exists(main, head)? {
         if !unlanded(head)? {
             return Ok(Some(End::Landed));
         }
