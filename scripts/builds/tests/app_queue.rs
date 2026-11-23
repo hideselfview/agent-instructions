@@ -728,6 +728,69 @@ fn an_install_leaves_a_waiting_or_running_app_build_to_build_once() {
 }
 
 #[test]
+fn a_lane_refuses_to_start_if_install_moved_the_store_after_program_selection() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let volume = Volume::new("lane-install");
+    volume.app_repo();
+    volume.open_gate("one");
+    let project = volume.run(&["lists", "init", "demo", "--repos", "demo", "--by", "test"]);
+    assert!(
+        project.status.success(),
+        "{}",
+        String::from_utf8_lossy(&project.stderr)
+    );
+
+    let support = volume.dir.join("home/Library/Application Support/builds");
+    let store = support.join("lists/demo/builds.sqlite");
+    let moved = volume.dir.join("moved.sqlite");
+    std::fs::copy(&store, &moved).unwrap();
+    let conn = rusqlite::Connection::open(&moved).unwrap();
+    let stamp: i64 = conn
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .unwrap();
+    conn.execute_batch("CREATE TABLE new_install (id INTEGER PRIMARY KEY);")
+        .unwrap();
+    conn.pragma_update(None, "user_version", stamp ^ 1).unwrap();
+    drop(conn);
+
+    // The parent selects this path. The wrapper finishes the store move
+    // before it starts the old lane executable.
+    let pinned = volume
+        .dir
+        .join("home/.local/lib/builds")
+        .join(env!("BUILDS_SOURCE"))
+        .join("builds");
+    std::fs::remove_file(&pinned).unwrap();
+    std::fs::write(
+        &pinned,
+        r#"#!/bin/sh
+set -e
+support="$HOME/Library/Application Support/builds"
+mv "$QUEUE_TEST_DIR/moved.sqlite" "$support/lists/demo/builds.sqlite"
+echo 1 > "$support/install/generation"
+exec "$OLD_BUILDS" "$@"
+"#,
+    )
+    .unwrap();
+    std::fs::set_permissions(&pinned, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    let ran = volume
+        .builds()
+        .env("OLD_BUILDS", BUILDS)
+        .args(["app-build", "demo", "main", "one"])
+        .output()
+        .unwrap();
+    let said = String::from_utf8_lossy(&ran.stderr);
+    assert!(!ran.status.success(), "{said}");
+    assert!(
+        said.contains("builds install ran before the app build lane started"),
+        "{said}"
+    );
+    assert!(volume.log().is_empty(), "{said}");
+}
+
+#[test]
 fn app_build_runs_the_steps_named_and_lists_them() {
     let volume = Volume::new("app-build-steps");
     volume.app_repo();

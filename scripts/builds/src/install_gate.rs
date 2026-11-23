@@ -26,10 +26,11 @@
 //! - Every other command takes a connection use while each store connection
 //!   it opens is open. Its writes are each one short transaction, so a
 //!   command such as `builds cargo test` holds no use while it builds. An
-//!   app build's lane is such a command: it writes its run once, when it
-//!   ends, so an install neither stops it nor waits for its steps. A lane
-//!   whose store an install moved meanwhile hands its run to the installed
-//!   builds (handed_runs.rs).
+//!   app build's lane is such a command: it refuses to start if an install
+//!   changed the generation since its parent started. After the lane starts,
+//!   an install waits for none of its steps. The lane hands its run to the
+//!   installed builds if the generation changes while it builds
+//!   (handed_runs.rs).
 //!
 //! Install first takes the install lock, which it holds until its program
 //! is on PATH, so a second install waits for it, and no install moves a
@@ -48,8 +49,9 @@
 //! gate; the others keep working.
 //!
 //! A command that finds a gate closed when it starts waits until the gate
-//! opens, then runs the program at its own path in its place, since install
-//! replaced that program. A connection that finds the gate closed waits too,
+//! opens. A lane started by an app build compares generations while holding
+//! the connections gate open. Other commands run the program at their own
+//! path in their place. A connection that finds the gate closed waits too,
 //! then opens the store; when install moved it to another schema, db.rs
 //! refuses it and says to run the command again.
 //!
@@ -72,6 +74,9 @@ use crate::places::Places;
 
 /// The variable that names the process whose use covers a builds command.
 pub const VARIABLE: &str = "BUILDS_USE";
+
+/// The install generation an app build passes to each lane it starts.
+const LANE_GENERATION: &str = "BUILDS_APP_BUILD_GENERATION";
 
 /// The commands that take no use of the stores: install, which closes the
 /// gates and moves the stores, the dashboard, which install restarts, the
@@ -252,6 +257,9 @@ fn take(places: &Places, kind: Kind, gate: File, pid: u32, what: &str, since: &s
 const RUNS_AGAIN: &str =
     "builds install runs: this command waits until it finishes, then runs the installed builds";
 
+const WAITS_FOR_MOVE: &str =
+    "builds install moves the stores: this command waits until it finishes";
+
 /// How a command that holds a use for its life enters.
 pub enum Entered {
     /// The command holds this use for its life.
@@ -284,13 +292,6 @@ pub fn enter_for_life(
     }
 }
 
-/// Whether a command that takes a use per connection may start: false when
-/// it waited at the closed gate while an install ran, and must run the
-/// installed program in its place. Gives <say> the line that says it waits.
-pub fn may_start(places: &Places, say: &mut dyn FnMut(&str)) -> Result<bool> {
-    Ok(pass(places, Kind::Connection, RUNS_AGAIN, say)?.1)
-}
-
 /// The connection uses of one process: the first open connection takes the
 /// process's use, and the last one to close ends it, except while the process
 /// holds a command use (`hold`).
@@ -313,6 +314,36 @@ pub struct PerConnection {
 }
 
 impl PerConnection {
+    /// Captures the starting generation while holding the connections gate.
+    /// A lane compares it with its parent's generation to check that it can
+    /// start on the program its parent selected. Other commands return None
+    /// if they had to wait, and run the installed program in their place.
+    pub fn enter(
+        places: Places,
+        pid: u32,
+        what: &str,
+        since: &str,
+        parent_generation: Option<u64>,
+        say: &mut dyn FnMut(&str),
+    ) -> Result<Option<Self>> {
+        let waiting = if parent_generation.is_some() {
+            WAITS_FOR_MOVE
+        } else {
+            RUNS_AGAIN
+        };
+        let (_gate, was_open) = pass(&places, Kind::Connection, waiting, say)?;
+        if !was_open && parent_generation.is_none() {
+            return Ok(None);
+        }
+        let uses = Self::new(places, pid, what, since)?;
+        if parent_generation.is_some_and(|parent| parent != uses.generation) {
+            fail!(
+                "builds install ran before the app build lane started. Run builds app-build again."
+            );
+        }
+        Ok(Some(uses))
+    }
+
     pub fn new(places: Places, pid: u32, what: &str, since: &str) -> Result<PerConnection> {
         Ok(PerConnection {
             generation: generation(&places)?,
@@ -367,12 +398,7 @@ impl PerConnection {
         if let Some(open) = shared.upgrade() {
             return Ok(Some(ConnectionUse { held: open }));
         }
-        let (gate, _) = pass(
-            &self.places,
-            Kind::Connection,
-            "builds install moves the stores: this command waits until it finishes",
-            say,
-        )?;
+        let (gate, _) = pass(&self.places, Kind::Connection, WAITS_FOR_MOVE, say)?;
         let taken = Arc::new(take(
             &self.places,
             Kind::Connection,
@@ -432,6 +458,30 @@ impl ConnectionUse {
 /// This process's connection uses, when it takes them. `use_per_connection`
 /// sets it once, when the process starts.
 static PER_CONNECTION: OnceLock<PerConnection> = OnceLock::new();
+
+/// Gives a lane the install generation of the app build that starts it.
+/// A parent covered by another command's use needs no generation to compare.
+pub fn set_lane_generation(child: &mut std::process::Command) {
+    if let Some(uses) = PER_CONNECTION.get() {
+        child.env(LANE_GENERATION, uses.generation.to_string());
+    }
+}
+
+/// Reads the parent app build's generation at process startup and removes it
+/// from the environment before the lane starts any children.
+pub fn take_lane_generation() -> Result<Option<u64>> {
+    let word = match std::env::var(LANE_GENERATION) {
+        Ok(word) => word,
+        Err(std::env::VarError::NotPresent) => return Ok(None),
+        Err(error) => fail!("Builds could not read {LANE_GENERATION}: {error}"),
+    };
+    // SAFETY: the command reads the variable before starting any thread.
+    unsafe { std::env::remove_var(LANE_GENERATION) };
+    let generation = word
+        .parse()
+        .context(|| format!("Builds could not read the install generation in {LANE_GENERATION}"))?;
+    Ok(Some(generation))
+}
 
 /// Has this process take a use for each store connection it opens.
 pub fn use_per_connection(per_connection: PerConnection) {

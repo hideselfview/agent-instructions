@@ -61,7 +61,6 @@ fn while_install_waits_for_a_command_use_connections_still_open_and_install_wait
     let places = scratch.places();
     let quiet = &mut |_: &str| {};
     let hook_run = holds(enter_for_life(&places, 11, "checks run", "10:00:00", quiet).unwrap());
-    let listing = PerConnection::new(places.clone(), 12, "item list", "10:00:01").unwrap();
     let (closer, install) = closing(&places);
     assert_eq!(
         next(&install),
@@ -85,12 +84,16 @@ fn while_install_waits_for_a_command_use_connections_still_open_and_install_wait
     assert_eq!(next(&hook_run_2), said(RUNS_AGAIN));
     // A command that takes a use per connection starts, and its two
     // connections share one use.
-    assert!(
-        may_start(&places, &mut |line| panic!(
-            "the connections gate is open: {line}"
-        ))
-        .unwrap()
-    );
+    let listing = PerConnection::enter(
+        places.clone(),
+        12,
+        "item list",
+        "10:00:01",
+        None,
+        &mut |line| panic!("the connections gate is open: {line}"),
+    )
+    .unwrap()
+    .expect("the connections gate is open");
     let first = listing.take().unwrap();
     let second = listing.take().unwrap();
     assert_eq!(count(&Kind::Connection.uses(&places)), 1);
@@ -384,7 +387,11 @@ fn waiting_names_each_use_a_running_install_waits_for() {
     // A child process that another test forks while the locks are held keeps
     // them until it calls exec, so wait for each lock to free before reading.
     drop(begin(&places, &mut |_| {}).unwrap());
-    assert!(may_start(&places, quiet).unwrap());
+    assert!(
+        PerConnection::enter(places.clone(), 16, "item list", "10:00:05", None, quiet)
+            .unwrap()
+            .is_some()
+    );
     drop(holds(
         enter_for_life(&places, 15, "checks run", "10:00:04", quiet).unwrap(),
     ));

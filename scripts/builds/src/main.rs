@@ -311,10 +311,10 @@ fn holds_for_life(command: &str, rest: &[String]) -> bool {
 /// starts with the command. Returns the use the command holds for its life,
 /// or None when the command takes a use per store connection, takes none (a
 /// command of `install_gate::STORELESS`, or the shots checker), or runs
-/// under a holder's use. A command
-/// that waited at a closed gate while an install ran runs the program at this
-/// program's path in its place, with the same arguments: install replaced the
-/// program it started from.
+/// under a holder's use. An app build lane refuses to start if its parent
+/// picked its program before an install moved the stores. Other commands
+/// that waited at a closed gate run the program at the same path in their
+/// place, with the same arguments.
 fn enter_stores(command: &str, args: &[String]) -> Result<Option<install_gate::Use>> {
     if install_gate::STORELESS.contains(&command)
         || (command == "shots" && shots_program::runs_checker(&args[1..]))
@@ -326,12 +326,19 @@ fn enter_stores(command: &str, args: &[String]) -> Result<Option<install_gate::U
     let pid = std::process::id();
     let (what, since) = (args.join(" "), text::clock());
     if !holds_for_life(command, &args[1..]) {
-        if !install_gate::may_start(&places, &mut |line| text::note(line))? {
+        let parent_generation = install_gate::take_lane_generation()?;
+        let Some(uses) = install_gate::PerConnection::enter(
+            places,
+            pid,
+            &what,
+            &since,
+            parent_generation,
+            &mut |line| text::note(line),
+        )?
+        else {
             return Err(install_gate::run_again());
-        }
-        install_gate::use_per_connection(install_gate::PerConnection::new(
-            places, pid, &what, &since,
-        )?);
+        };
+        install_gate::use_per_connection(uses);
         return Ok(None);
     }
     match install_gate::enter_for_life(&places, pid, &what, &since, &mut |line| text::note(line))? {

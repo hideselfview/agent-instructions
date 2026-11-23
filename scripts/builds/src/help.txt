@@ -1163,11 +1163,13 @@ beside the file `hosts` and runs the lane again on another host in the same
 way, until `builds host setup <name>` finds the settings on and removes the
 record.
 
-An app build runs the builds it started with from its start to its end,
-here and on each host, whatever an install puts on PATH meanwhile, so its
-merge base's shots runs and its own come from one version of the shots
-checker; the next build uses the installed builds. Each version keeps its
-builds in ~/.local/lib/builds/<version>/, named by `builds version`'s hash.
+Once an app build lane starts, it keeps its version of builds through its
+last step, here and on each host. Its merge base's shots runs and its own
+use the same version of the shots checker. If `builds install` starts
+moving the stores after the app build picks its program and before a lane
+starts, the lane stops and asks you to run `builds app-build` again
+(INSTALLING). Each version keeps its builds in ~/.local/lib/builds/<version>/,
+named by `builds version`'s hash.
 The first app build of a version copies the builds it started from into
 that folder, once the copy says that version (when an install replaced the
 program before the build copied it, the build copies nothing and runs the
@@ -3876,10 +3878,13 @@ INSTALLING
                               build lane finishes its steps on the programs
                               it started with. Install waits for any lane
                               that is recording its run. When install moves
-                              the stores first, the lane waits for the move
-                              and gives its run to the installed builds.
-                              The installed builds finds the repo's project
-                              and records the run in its store. While
+                              the stores first, a lane that already started
+                              waits for the move and gives its run to the
+                              installed builds, which finds the repo's
+                              project and records the run in its store.
+                              If install moves the stores before a lane starts
+                              and the app build picked the earlier program,
+                              the lane asks you to run app-build again. While
                               install waits, hook runs, reviews and landings
                               that start wait for it and then run the
                               installed builds; other commands keep working. A

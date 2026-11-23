@@ -2698,6 +2698,7 @@ pub fn run_lanes(
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        install_gate::set_lane_generation(&mut command);
         let mut child = command
             .spawn()
             .context(|| format!("starting the {} lane's build", lane.word()))?;
