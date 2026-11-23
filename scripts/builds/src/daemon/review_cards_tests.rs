@@ -347,6 +347,15 @@ fn the_rules_are_read_once_and_again_only_after_their_files_change() {
     );
 }
 
+/// Installs a copy of rule-a under another project and signals the change
+/// that the rules watcher would see.
+fn copy_other_project_rule(root: &Path, name: &str, reads: &Reads) {
+    let folder = root.join("projects/other-rules/alpha");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::copy(root.join("rules/alpha/rule-a.md"), folder.join(name)).unwrap();
+    reads.rules_changed();
+}
+
 #[test]
 fn a_duplicate_rule_in_another_project_invalidates_a_ready_card() {
     let demo = demo("review-cards-invalid-other-rules");
@@ -357,14 +366,7 @@ fn a_duplicate_rule_in_another_project_invalidates_a_ready_card() {
     review(&demo, &fake.root, &fake.program, &side, "branch:work");
     assert_eq!(standing(&reads, &demo, &side), None);
 
-    let other = fake.root.join("projects/other-rules/alpha");
-    std::fs::create_dir_all(&other).unwrap();
-    std::fs::copy(
-        fake.root.join("rules/alpha/rule-a.md"),
-        other.join("rule-a.md"),
-    )
-    .unwrap();
-    reads.rules_changed();
+    copy_other_project_rule(&fake.root, "rule-a.md", &reads);
 
     let git = read_git(&side, ahead(&side));
     let version = demo.store.revision().unwrap();
@@ -390,14 +392,7 @@ fn health_and_the_card_share_the_verdict_when_the_applicable_rules_stay_the_same
     let first = reads
         .verdict_of(&demo.tool.places, &lists, &worktree)
         .unwrap();
-    let other = fake.root.join("projects/other-rules/alpha");
-    std::fs::create_dir_all(&other).unwrap();
-    std::fs::copy(
-        fake.root.join("rules/alpha/rule-a.md"),
-        other.join("rule-c.md"),
-    )
-    .unwrap();
-    reads.rules_changed();
+    copy_other_project_rule(&fake.root, "rule-c.md", &reads);
     // With its git folder gone, only the verdict kept for the tip answers.
     let dot_git = side.join(".git");
     let away = demo.scratch.dir.join("dot-git");

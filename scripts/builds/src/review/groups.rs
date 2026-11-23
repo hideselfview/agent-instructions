@@ -30,7 +30,8 @@ fn one() -> usize {
     1
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize)]
+#[cfg_attr(test, derive(PartialEq))]
 #[serde(deny_unknown_fields)]
 pub struct Group {
     pub name: String,
@@ -89,7 +90,7 @@ impl Group {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub struct Groups {
     pub groups: Vec<Group>,
 }
