@@ -22,11 +22,12 @@
 //! that owns the run and the time it started, so `Holders::holder` judges
 //! every folder on every host from this Mac's process table.
 
+use std::collections::HashSet;
 use std::io;
 use std::path::{Path, PathBuf};
 
 use crate::fail;
-use crate::fail::{Context, Result};
+use crate::fail::{Context, Result, gone};
 use crate::host::{Host, Ssh};
 use crate::job_claim::{Holder, Holders};
 use crate::places::Places;
@@ -44,32 +45,60 @@ pub enum Folder {
     Missing,
 }
 
-/// Resolve the folder and the parent of the run folders before deciding who
-/// owns it. A symlink into a run's folder has the same lifetime as the run.
+/// Inspect a temporary folder that a process already uses. Its path can
+/// reach a run's folder or depend on an intermediate directory in one.
 pub fn classify(root: &Path, folder: &Path) -> io::Result<Folder> {
-    let missing = |error: &io::Error| {
-        matches!(
-            error.kind(),
-            io::ErrorKind::NotFound | io::ErrorKind::NotADirectory
-        )
-    };
-    let folder = match folder.canonicalize() {
+    let resolved = match folder.canonicalize() {
         Ok(folder) => folder,
-        Err(error) if missing(&error) => return Ok(Folder::Missing),
+        Err(error) if gone(&error) => return Ok(Folder::Missing),
         Err(error) => return Err(error),
     };
-    match folder.metadata() {
+    match resolved.metadata() {
         Ok(metadata) if !metadata.is_dir() => return Ok(Folder::NotDirectory),
         Ok(_) => {}
-        Err(error) if missing(&error) => return Ok(Folder::Missing),
+        Err(error) if gone(&error) => return Ok(Folder::Missing),
         Err(error) => return Err(error),
     }
-    match root.join(FOLDER).canonicalize() {
-        Ok(parent) if folder != parent && folder.starts_with(&parent) => Ok(Folder::Run),
-        Ok(_) => Ok(Folder::Directory),
-        Err(error) if missing(&error) => Ok(Folder::Directory),
-        Err(error) => Err(error),
+    let parent = match root.join(FOLDER).canonicalize() {
+        Ok(parent) => parent,
+        Err(error) if gone(&error) => return Ok(Folder::Directory),
+        Err(error) => return Err(error),
+    };
+    if under_runs(&parent, &resolved) {
+        return Ok(Folder::Run);
     }
+    if folder != resolved && passes_through_run(&parent, folder)? {
+        return Ok(Folder::Run);
+    }
+    Ok(Folder::Directory)
+}
+
+/// Canonical paths show the destination. The original path and the paths
+/// named by its links also show which directories it needs to get there.
+fn passes_through_run(parent: &Path, folder: &Path) -> io::Result<bool> {
+    let mut pending = vec![folder.to_path_buf()];
+    let mut inspected = HashSet::new();
+    while let Some(path) = pending.pop() {
+        let path: PathBuf = path.components().collect();
+        for step in path.ancestors() {
+            if !inspected.insert(step.to_path_buf()) {
+                break;
+            }
+            if step != folder && under_runs(parent, &step.canonicalize()?) {
+                return Ok(true);
+            }
+            match step.read_link() {
+                Ok(link) => pending.push(step.with_file_name(link)),
+                Err(error) if error.kind() == io::ErrorKind::InvalidInput => {}
+                Err(error) => return Err(error),
+            }
+        }
+    }
+    Ok(false)
+}
+
+fn under_runs(parent: &Path, folder: &Path) -> bool {
+    folder != parent && folder.starts_with(parent)
 }
 
 /// The commands that start build work, whose runs get a folder: the runs of
@@ -120,10 +149,14 @@ pub fn enter(places: &Places, command: &str, args: &[String]) -> Result<Option<R
         unsafe { std::env::set_var(name, value) };
     }
     let parent = places.root.join(FOLDER);
-    if let Some(tmp) = &places.tmpdir
-        && classify(&places.root, tmp).context(|| format!("checking TMPDIR {tmp:?}"))?
-            == Folder::Run
-    {
+    if places.tmpdir.as_ref().is_some_and(|tmp| {
+        tmp.is_absolute()
+            && under_runs(&parent, tmp)
+            && !tmp
+                .components()
+                .any(|part| part == std::path::Component::ParentDir)
+            && tmp.is_dir()
+    }) {
         return Ok(None);
     }
     let folder = parent.join(crate::remote::job_id());

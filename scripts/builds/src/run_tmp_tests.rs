@@ -79,8 +79,17 @@ fn a_run_folder_can_have_a_symlink_and_a_path_through_its_parent() {
     std::fs::create_dir(&persistent).unwrap();
     let alias = root.join("alias");
     symlink(&run, &alias).unwrap();
+    symlink(&persistent, run.join("outward")).unwrap();
+    let relay = root.join("relay");
+    symlink(run.join("outward"), &relay).unwrap();
 
     assert_eq!(classify(&root, &alias).unwrap(), Folder::Run);
+    assert_eq!(classify(&root, &relay).unwrap(), Folder::Run);
+    assert_eq!(classify(&root, &relay.join("")).unwrap(), Folder::Run);
+    assert_eq!(
+        classify(&root, &alias.join("outward")).unwrap(),
+        Folder::Run
+    );
     assert_eq!(
         classify(&root, &persistent.join("../.tmp/1-2")).unwrap(),
         Folder::Run
@@ -96,6 +105,31 @@ fn a_run_folder_can_have_a_symlink_and_a_path_through_its_parent() {
         Folder::NotDirectory
     );
     assert_eq!(classify(&root, &run.join("gone")).unwrap(), Folder::Missing);
+}
+
+#[test]
+fn a_run_replaces_relative_tmpdir_and_an_unreadable_tmpdir_outside_the_run_folders() {
+    use std::os::unix::fs::symlink;
+
+    let scratch = Scratch::new("run-tmp-replace");
+    let mut places = scratch.places();
+    std::fs::create_dir_all(places.root.join(".tmp/1-2")).unwrap();
+    let outside = scratch.dir.join("loop");
+    symlink(&outside, &outside).unwrap();
+    let dir = std::env::current_dir().unwrap();
+    std::env::set_current_dir(&places.root).unwrap();
+    places.tmpdir = Some(PathBuf::from(".tmp/1-2"));
+    let relative = enter(&places, "cargo", &[]);
+    std::env::set_current_dir(dir).unwrap();
+    let relative = relative.unwrap().expect("cargo gets its own folder");
+    assert!(relative.folder.is_absolute());
+    drop(relative);
+
+    places.tmpdir = Some(outside);
+    let unreadable = enter(&places, "cargo", &[])
+        .unwrap()
+        .expect("cargo gets its own folder");
+    assert!(unreadable.folder.starts_with(places.root.join(FOLDER)));
 }
 
 #[test]

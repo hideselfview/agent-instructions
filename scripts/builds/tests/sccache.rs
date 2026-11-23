@@ -16,8 +16,8 @@ fn the_tmpdir_probe_preserves_spaces_equals_and_newlines_in_a_process_path() {
     }
 
     let root = PathBuf::from(format!("/tmp/rt-probe-{}", std::process::id()));
-    std::fs::create_dir_all(root.join("exists")).unwrap();
-    let missing = root.join("exists FLAG=value\nrest");
+    std::fs::create_dir(&root).unwrap();
+    let missing = root.join("cache FLAG=value\nrest");
     let mut child = Command::new(std::env::current_exe().unwrap())
         .args([
             "--exact",
