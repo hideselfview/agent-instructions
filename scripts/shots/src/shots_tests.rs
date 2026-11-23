@@ -48,7 +48,13 @@ pub(crate) const LIST: &str = r##"{
 }"##;
 
 pub(crate) fn png(width: u32, height: u32) -> Vec<u8> {
-    let image = image::RgbaImage::from_pixel(width, height, image::Rgba([17, 17, 25, 255]));
+    png_of(width, height, |_, _| [17, 17, 25, 255])
+}
+
+/// The PNG of a picture <width> by <height> pixels whose pixel at (x, y) is
+/// <pixel>(x, y).
+pub(crate) fn png_of(width: u32, height: u32, pixel: impl Fn(u32, u32) -> [u8; 4]) -> Vec<u8> {
+    let image = image::RgbaImage::from_fn(width, height, |x, y| image::Rgba(pixel(x, y)));
     let mut bytes = Vec::new();
     image
         .write_to(

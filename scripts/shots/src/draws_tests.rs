@@ -1,4 +1,5 @@
 use super::*;
+use crate::shots::tests::png_of;
 use std::process::Command;
 
 fn git(dir: &Path, args: &[&str]) {
@@ -293,26 +294,14 @@ fn without_selectors_draws_reports_a_canvas_entry_whose_file_is_missing() {
     );
 }
 
-fn png(width: u32, height: u32, pixel: impl Fn(u32, u32) -> [u8; 4]) -> Vec<u8> {
-    let image = image::RgbaImage::from_fn(width, height, |x, y| image::Rgba(pixel(x, y)));
-    let mut bytes = Vec::new();
-    image
-        .write_to(
-            &mut std::io::Cursor::new(&mut bytes),
-            image::ImageFormat::Png,
-        )
-        .unwrap();
-    bytes
-}
-
 fn drawing(png: &[u8]) -> Picture {
     Picture::of(png, &[]).unwrap()
 }
 
 #[test]
 fn pictures_whose_pixels_differ_by_the_renderers_noise_draw_alike() {
-    let base = png(40, 30, |_, _| [90, 120, 200, 255]);
-    let noisy = png(40, 30, |x, y| {
+    let base = png_of(40, 30, |_, _| [90, 120, 200, 255]);
+    let noisy = png_of(40, 30, |x, y| {
         if (x + y) % 7 == 0 {
             [92, 118, 202, 255]
         } else {
@@ -325,8 +314,8 @@ fn pictures_whose_pixels_differ_by_the_renderers_noise_draw_alike() {
 
 #[test]
 fn pictures_with_a_pixel_further_apart_than_the_noise_or_another_size_differ() {
-    let base = png(40, 30, |_, _| [90, 120, 200, 255]);
-    let recoloured = png(40, 30, |x, y| {
+    let base = png_of(40, 30, |_, _| [90, 120, 200, 255]);
+    let recoloured = png_of(40, 30, |x, y| {
         if (x, y) == (3, 4) {
             [93, 120, 200, 255]
         } else {
@@ -334,13 +323,13 @@ fn pictures_with_a_pixel_further_apart_than_the_noise_or_another_size_differ() {
         }
     });
     assert!(!drawing(&base).draws_like(&drawing(&recoloured)).unwrap());
-    let taller = png(40, 31, |_, _| [90, 120, 200, 255]);
+    let taller = png_of(40, 31, |_, _| [90, 120, 200, 255]);
     assert!(!drawing(&base).draws_like(&drawing(&taller)).unwrap());
 }
 
 #[test]
 fn drawings_with_other_element_lists_differ_whatever_their_pictures() {
-    let base = png(4, 4, |_, _| [1, 2, 3, 255]);
+    let base = png_of(4, 4, |_, _| [1, 2, 3, 255]);
     let one = Picture {
         png: base.clone(),
         elements: "[{\"label\":\"Play\"}]".to_string(),
