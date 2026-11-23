@@ -198,10 +198,9 @@ enum Action {
         #[arg(long)]
         against: Option<String>,
     },
-    /// Print `alike <what>` or `differs <what>` for each board and component
-    /// preview named, by whether it draws the same at the two revisions
-    /// (picture and element boxes, not file bytes). It fails only when it
-    /// cannot draw one.
+    /// Print whether each named board or component preview draws alike at
+    /// the two revisions. Give no selectors to compare every board and
+    /// component preview from either revision.
     Draws {
         /// The first revision.
         #[arg(long)]

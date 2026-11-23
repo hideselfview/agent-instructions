@@ -250,3 +250,27 @@ fn a_board_or_component_that_exists_at_one_revision_only_differs() {
         );
     }
 }
+
+#[test]
+fn without_selectors_draws_compares_the_boards_and_previews_of_both_revisions() {
+    let (repo, component) = history_with_deletions();
+    for (at, against) in [("p", "d"), ("d", "p")] {
+        let drawings = lines(repo.path(), at, against, &[], &[], &cache()).unwrap();
+        assert!(
+            drawings.contains(&format!("differs board {BOARD}")),
+            "{drawings:?}"
+        );
+        assert!(
+            drawings.contains(&format!("differs component {component}")),
+            "{drawings:?}"
+        );
+        assert!(
+            drawings.iter().any(|line| line.starts_with("alike board ")),
+            "{drawings:?}"
+        );
+        assert!(
+            !drawings.iter().any(|line| line.ends_with(" unrelated")),
+            "{drawings:?}"
+        );
+    }
+}

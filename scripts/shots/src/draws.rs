@@ -1,7 +1,8 @@
 //! Whether boards and component previews draw the same at two revisions.
 //!
-//! The checker draws each named board and each named component's preview
-//! page at both revisions, in the pinned Chrome, and compares what each
+//! The checker draws the selected boards and component previews at both
+//! revisions in the pinned Chrome. With no selectors, it compares every
+//! drawing from either revision. It compares what each
 //! draws: its picture and the element list the shots read from it (the
 //! boxes, roles and words). A board's frame on the canvas is part of its
 //! picture, so a board resized in `canvas.json` draws differently. A board or
@@ -16,7 +17,7 @@ use crate::hex::hex;
 use crate::names::{Platform, Previews};
 use crate::render::{self, board, preview};
 use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 /// What a board or a preview draws: the hash of its picture and its element
@@ -41,9 +42,18 @@ impl Picture {
 /// draw.
 pub(crate) type Drawings = BTreeMap<String, Option<Picture>>;
 
+#[derive(Clone, Copy)]
+enum Selection<'a> {
+    All,
+    Named {
+        boards: &'a [String],
+        components: &'a [String],
+    },
+}
+
 /// The names of the boards and component previews of the repo at <root>
 /// that draw the same at <at> and at <against>: the lines `alike <what>` and
-/// `differs <what>`, one for each name asked.
+/// `differs <what>`, one for each selected drawing.
 pub(crate) fn lines(
     root: &Path,
     at: &str,
@@ -52,16 +62,24 @@ pub(crate) fn lines(
     components: &[String],
     cache: &Path,
 ) -> Result<Vec<String>, String> {
-    let before = read(root, at, cache, boards, components)?;
-    let after = read(root, against, cache, boards, components)?;
+    let selection = if boards.is_empty() && components.is_empty() {
+        Selection::All
+    } else {
+        Selection::Named { boards, components }
+    };
+    let before = read(root, at, cache, selection)?;
+    let after = read(root, against, cache, selection)?;
+    let names: BTreeSet<_> = before.keys().chain(after.keys()).collect();
     let mut base = None;
-    before
-        .iter()
-        .map(|(what, picture)| {
+    names
+        .into_iter()
+        .map(|what| {
+            let before = before.get(what).and_then(Option::as_ref);
+            let after = after.get(what).and_then(Option::as_ref);
             // A name that neither revision draws draws nothing at both, so it
             // draws the same, but only when the revisions' merge base holds
             // it: a name that no revision holds is a mistake.
-            if picture.is_none() && after[what].is_none() {
+            if before.is_none() && after.is_none() {
                 let base = match &base {
                     Some(base) => base,
                     None => base.insert(merge_base(root, at, against)?),
@@ -72,7 +90,7 @@ pub(crate) fn lines(
                     ));
                 }
             }
-            let alike = after.get(what) == Some(picture);
+            let alike = before == after;
             Ok(format!(
                 "{} {what}",
                 if alike { "alike" } else { "differs" }
@@ -102,33 +120,41 @@ fn holds(root: &Path, rev: &str, what: &str) -> Result<bool, String> {
     boards::exists_in(root, rev, &path).map_err(|e| e.to_string())
 }
 
-/// How the repo at <root> draws <boards> and <components> at revision <rev>.
+/// How the repo at <root> draws the selection at revision <rev>.
 fn read(
     root: &Path,
     rev: &str,
     cache: &Path,
-    boards: &[String],
-    components: &[String],
+    selection: Selection<'_>,
 ) -> Result<Drawings, String> {
-    design::at_revision(root, rev, cache, |work| {
-        draw(work, cache, boards, components)
-    })
+    design::at_revision(root, rev, cache, |work| draw(work, cache, selection))
 }
 
-fn draw(
-    work: &Path,
-    cache: &Path,
-    boards: &[String],
-    components: &[String],
-) -> Result<Drawings, String> {
+fn draw(work: &Path, cache: &Path, selection: Selection<'_>) -> Result<Drawings, String> {
     let previews = Previews::of(work)?;
     render::with_design(work, cache, async |server, chrome, frames| {
+        let known_components: BTreeSet<&str> = previews
+            .components
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect();
+        let (boards, components): (Vec<&str>, Vec<&str>) = match selection {
+            Selection::All => (
+                frames.keys().map(String::as_str).collect(),
+                known_components.iter().copied().collect(),
+            ),
+            Selection::Named { boards, components } => (
+                boards.iter().map(String::as_str).collect(),
+                components.iter().map(String::as_str).collect(),
+            ),
+        };
         let mut drawn = Drawings::new();
         for name in boards {
             let frame = frames
                 .get(name)
                 .filter(|_| work.join(boards::board_path(name)).is_file());
             let picture = match frame {
+                None if matches!(selection, Selection::All) => continue,
                 None => None,
                 Some(frame) => Some(
                     chrome
@@ -149,7 +175,7 @@ fn draw(
             drawn.insert(format!("board {name}"), picture);
         }
         for name in components {
-            let picture = if previews.components.iter().any(|(known, _)| known == name) {
+            let picture = if known_components.contains(name) {
                 Some(
                     chrome
                         .with_page(&format!("the preview of {name}"), async |page| {
