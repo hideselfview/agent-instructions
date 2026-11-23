@@ -22,14 +22,20 @@ fn the_diff_is_split_by_file_and_each_line_loses_its_mark() {
     };
     assert_eq!(
         files[0].lines[0],
-        line("fn keep() {}", LineKind::Context(1))
+        line(
+            "fn keep() {}",
+            LineKind::Context {
+                before: 1,
+                after: 1
+            }
+        )
     );
-    assert_eq!(files[0].lines[1], line("fn old() {}", LineKind::Removed));
+    assert_eq!(files[0].lines[1], line("fn old() {}", LineKind::Removed(2)));
     // A removed line that looks like a diff header stays a line.
     assert_eq!(
         files[1].lines,
         [
-            line("diff --git a/x b/x", LineKind::Removed),
+            line("diff --git a/x b/x", LineKind::Removed(1)),
             line("text", LineKind::Added(1))
         ]
     );
@@ -60,6 +66,23 @@ fn code_only_on_the_lines_around_the_changes_is_refused() {
     let refused = code_in(&files, "src/a.rs", "fn keep() {}").unwrap_err();
     assert!(refused.contains("around the diff's changes"), "{refused}");
     assert!(code_in(&files, "src/a.rs", "fn keep() {}\nfn old() {}").is_ok());
+}
+
+#[test]
+fn the_reported_removal_is_distinct_from_the_same_quote_added_elsewhere() {
+    let files = parse_diff("diff --git a/a.rs b/a.rs\n@@ -1,2 +1,2 @@\n-repeat\n keep\n+repeat\n");
+    assert_eq!(code_site(&files, "a.rs", 1, "repeat"), Ok(None));
+    assert_eq!(
+        code_site(&files, "a.rs", 2, "repeat"),
+        Ok(Some(("a.rs", 2)))
+    );
+}
+
+#[test]
+fn a_reported_context_line_cannot_name_a_different_added_line() {
+    let files = parse_diff("diff --git a/a.rs b/a.rs\n@@ -1 +1,2 @@\n repeat\n+repeat\n");
+    let error = code_site(&files, "a.rs", 1, "repeat").unwrap_err();
+    assert!(error.contains("around the diff's changes"), "{error}");
 }
 
 #[test]

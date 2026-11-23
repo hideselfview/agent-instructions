@@ -58,6 +58,9 @@ fn the_system_prompt_holds_the_shared_part_and_the_message_holds_the_change() {
     }
     assert!(!first.system.contains("+x") && !first.system.contains("let x = 1"));
     assert!(first.system.contains("open it before judging"));
+    for prompt in [&first.system, &second.system] {
+        assert!(prompt.contains("Use the old file's line number when you quote removed code."));
+    }
     assert!(first.message.contains("+x") && first.message.contains("7: let x = 1;"));
     assert!(!first.message.contains("Rule A body.") && !first.message.contains("Project facts."));
     // Two calls of one group differ only in the message.

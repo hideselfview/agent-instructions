@@ -39,21 +39,30 @@ pub enum LineKind {
     /// A `+` line.
     Added(i64),
     /// A `-` line.
-    Removed,
+    Removed(i64),
     /// A line around the changes, which the diff neither adds nor removes.
-    Context(i64),
+    Context { before: i64, after: i64 },
+}
+
+#[derive(Clone, Copy)]
+enum Side {
+    Before,
+    After,
 }
 
 impl DiffLine {
     /// Whether the diff adds or removes the line.
     pub fn changed(&self) -> bool {
-        !matches!(self.kind, LineKind::Context(_))
+        !matches!(self.kind, LineKind::Context { .. })
     }
 
-    fn head_line(&self) -> Option<i64> {
-        match self.kind {
-            LineKind::Added(line) | LineKind::Context(line) => Some(line),
-            LineKind::Removed => None,
+    fn number(&self, side: Side) -> Option<i64> {
+        match (side, self.kind) {
+            (Side::Before, LineKind::Removed(line) | LineKind::Context { before: line, .. })
+            | (Side::After, LineKind::Added(line) | LineKind::Context { after: line, .. }) => {
+                Some(line)
+            }
+            _ => None,
         }
     }
 }
@@ -121,31 +130,37 @@ pub fn new_path(line: &str) -> Option<&str> {
 
 pub fn parse_diff(diff: &str) -> Vec<DiffFile> {
     let mut files: Vec<DiffFile> = Vec::new();
-    let mut head_line = None;
+    let mut numbers = None;
     for line in diff.lines() {
         if let Some(path) = new_path(line) {
             files.push(DiffFile {
                 path: path.to_string(),
                 lines: Vec::new(),
             });
-            head_line = None;
+            numbers = None;
             continue;
         }
-        if let Some((_, new)) = super::files::hunk_ranges(line) {
-            head_line = Some(new.start);
+        if let Some((old, new)) = super::files::hunk_ranges(line) {
+            numbers = Some((old.start, new.start));
             continue;
         }
-        let Some(number) = &mut head_line else {
+        let Some((before, after)) = &mut numbers else {
             continue;
         };
         let kind = match line.chars().next() {
-            Some('+') => LineKind::Added(*number),
-            Some('-') => LineKind::Removed,
-            Some(' ') => LineKind::Context(*number),
+            Some('+') => LineKind::Added(*after),
+            Some('-') => LineKind::Removed(*before),
+            Some(' ') => LineKind::Context {
+                before: *before,
+                after: *after,
+            },
             _ => continue,
         };
-        if kind != LineKind::Removed {
-            *number += 1;
+        if !matches!(kind, LineKind::Added(_)) {
+            *before += 1;
+        }
+        if !matches!(kind, LineKind::Removed(_)) {
+            *after += 1;
         }
         if let Some(file) = files.last_mut() {
             file.lines.push(DiffLine {
@@ -233,12 +248,42 @@ pub fn code_in(files: &[DiffFile], file: &str, code: &str) -> Result<(), String>
         }
     }
     if found {
-        Err(format!(
-            "its code sits only on lines of {file} around the diff's changes, which the diff does not add or remove"
-        ))
+        Err(unchanged_quote(file))
     } else {
         Err(format!("its code is not in the diff of {file}"))
     }
+}
+
+fn unchanged_quote(file: &str) -> String {
+    format!(
+        "its code sits only on lines of {file} around the diff's changes, which the diff does not add or remove"
+    )
+}
+
+/// The starting lines of contiguous occurrences of the quote on one side
+/// of the diff, with whether each occurrence touches a changed line.
+fn quote_sites(patch: &DiffFile, side: Side, code: &str) -> Vec<(i64, bool)> {
+    let view = DiffFile {
+        path: patch.path.clone(),
+        lines: patch
+            .lines
+            .iter()
+            .filter(|line| line.number(side).is_some())
+            .cloned()
+            .collect(),
+    };
+    view.places(code)
+        .into_iter()
+        .filter_map(|place| {
+            let lines = view.lines_of(place);
+            let first = lines[0].number(side).expect("line on this side");
+            lines
+                .iter()
+                .zip(first..)
+                .all(|(part, number)| part.number(side) == Some(number))
+                .then(|| (first, lines.iter().any(DiffLine::changed)))
+        })
+        .collect()
 }
 
 /// The start of <code> where the diff adds it to the reviewed tree. The
@@ -250,42 +295,50 @@ pub fn code_site<'a>(
     line: i64,
     code: &str,
 ) -> Result<Option<(&'a str, i64)>, String> {
-    let mut sites = Vec::new();
-    for patch in files.iter().filter(|patch| names_file(&patch.path, file)) {
-        let current = DiffFile {
-            path: patch.path.clone(),
-            lines: patch
-                .lines
-                .iter()
-                .filter(|line| line.head_line().is_some())
-                .cloned()
-                .collect(),
-        };
-        for place in current.places(code) {
-            let lines = current.lines_of(place);
-            let first = lines[0].head_line().expect("current line");
-            let contiguous = lines
-                .iter()
-                .zip(first..)
-                .all(|(part, number)| part.head_line() == Some(number));
-            let site = (patch.path.as_str(), first);
-            if contiguous && lines.iter().any(DiffLine::changed) && !sites.contains(&site) {
-                sites.push(site);
+    let named: Vec<_> = files
+        .iter()
+        .filter(|patch| names_file(&patch.path, file))
+        .collect();
+    let mut current = Vec::new();
+    let mut exact_context = false;
+    for patch in &named {
+        for (number, changed) in quote_sites(patch, Side::After, code) {
+            if changed {
+                let site = (patch.path.as_str(), number);
+                if !current.contains(&site) {
+                    current.push(site);
+                }
+            } else if number == line {
+                exact_context = true;
             }
         }
     }
-    match sites.as_slice() {
+    let mut exact_current = current.iter().filter(|(_, number)| *number == line);
+    let ambiguous = || {
+        format!(
+            "its quote occurs more than once in {file} and its line does not identify one occurrence"
+        )
+    };
+    if let Some(site) = exact_current.next() {
+        return if exact_current.next().is_none() {
+            Ok(Some(*site))
+        } else {
+            Err(ambiguous())
+        };
+    }
+    if named
+        .iter()
+        .any(|patch| quote_sites(patch, Side::Before, code).contains(&(line, true)))
+    {
+        return Ok(None);
+    }
+    if exact_context {
+        return Err(unchanged_quote(file));
+    }
+    match current.as_slice() {
         [] => code_in(files, file, code).map(|()| None),
         [site] => Ok(Some(*site)),
-        _ => {
-            let mut at_line = sites.into_iter().filter(|(_, number)| *number == line);
-            match (at_line.next(), at_line.next()) {
-                (Some(site), None) => Ok(Some(site)),
-                _ => Err(format!(
-                    "its quote occurs more than once in {file} and its line does not identify one occurrence"
-                )),
-            }
-        }
+        _ => Err(ambiguous()),
     }
 }
 
