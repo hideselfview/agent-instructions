@@ -16,7 +16,6 @@ fn the_tmpdir_probe_preserves_spaces_equals_and_newlines_in_a_process_path() {
     }
 
     let root = PathBuf::from(format!("/tmp/rt-probe-{}", std::process::id()));
-    std::fs::create_dir(&root).unwrap();
     let missing = root.join("cache FLAG=value\nrest");
     let mut child = Command::new(std::env::current_exe().unwrap())
         .args([
@@ -41,7 +40,6 @@ fn the_tmpdir_probe_preserves_spaces_equals_and_newlines_in_a_process_path() {
         .output();
     drop(child.stdin.take());
     let status = child.wait().unwrap();
-    std::fs::remove_dir_all(&root).unwrap();
 
     assert_eq!(ready.trim(), "ready");
     assert!(status.success());
