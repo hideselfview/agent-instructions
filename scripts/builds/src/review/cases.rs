@@ -161,6 +161,7 @@ pub fn add(
     if name.is_empty() || name.contains('/') || name.starts_with('.') {
         fail!("'{name}' is not a case name: it is a folder name");
     }
+    files::split(patch)?;
     for addition in additions {
         if let Addition::Finding { file, .. } = addition
             && !changes(patch, file)?

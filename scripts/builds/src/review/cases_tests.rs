@@ -11,6 +11,25 @@ fn a_case_filter_cannot_keep_an_undecodable_header_with_the_previous_file() {
         .text();
     assert!(error.contains("could not read a file path"), "{error}");
 }
+
+#[test]
+fn a_clean_case_with_an_unreadable_file_header_is_refused_before_writing() {
+    let scratch = crate::testing::Scratch::new("review-invalid-clean-case");
+    let name = "unreadable";
+    let patch = "diff --git \"a/r\\377.rs\" \"b/r\\377.rs\"\n@@ -0,0 +1 @@\n+code\n";
+    let error = add(
+        &scratch.dir,
+        name,
+        "demo",
+        "repo",
+        patch,
+        &[Addition::Clean { rule: "rule-a" }],
+    )
+    .unwrap_err()
+    .text();
+    assert!(error.contains("could not read a file path"), "{error}");
+    assert!(!scratch.dir.join(DIR).join(name).exists());
+}
 use crate::review::fakes::{Raised, fake};
 use crate::testing::Scratch;
 
