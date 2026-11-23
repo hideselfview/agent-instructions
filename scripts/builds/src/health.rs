@@ -20,6 +20,7 @@ use crate::holder_run::{HolderRun, RunTimes};
 use crate::host::Host;
 use crate::lane::Lane;
 use crate::lists::held::{DesignApproval, DesignWait};
+use crate::lists::store::Store;
 use crate::places::DiskSpace;
 use crate::procs::{
     BUILD_NAMES, BuildProcess, Place, Process, Processes, args, build_processes, cores, live_args,
@@ -1715,17 +1716,15 @@ impl HostProcesses {
 }
 
 /// What health says of each project whose findings wait for a missing judge.
-fn judge_findings(tool: &Tool, projects: &[crate::lists::store::Loaded]) -> Vec<Finding> {
+fn judge_findings(tool: &Tool, stores: &[Store]) -> Vec<Finding> {
     let sessions = tool.places.sessions();
     let mut findings = Vec::new();
-    for loaded in projects {
-        let project = &loaded.project;
-        let oldest = crate::lists::store::Store::named(&tool.places, project).and_then(|store| {
-            crate::review::judge_told::oldest_unsettled_without_judge(&store, &sessions)
-        });
+    for store in stores {
+        let project = &store.project;
+        let oldest = crate::review::judge_told::oldest_unsettled_without_judge(store, &sessions);
         let advice = match oldest {
             Ok(Some(at)) => {
-                let age = crate::text::duration(tool.now.saturating_sub(at).max(0));
+                let age = crate::health_stillness::elapsed(tool.now, at);
                 Advice::run(
                     format!(
                         "No judge listens for project {project}. The oldest finding has waited {age} for a settle. Start a judge session and run"
@@ -1745,11 +1744,14 @@ fn judge_findings(tool: &Tool, projects: &[crate::lists::store::Loaded]) -> Vec<
 }
 
 /// Reads recorded progress before deciding which idle claims to release.
+/// <judge_stores> is the discovery shared with the judge notifications, or
+/// None when discovery failed and the caller reported why.
 pub(crate) fn finish_health(
     tool: &Tool,
     mut health: Health,
     loaded: &mut std::result::Result<Vec<crate::lists::store::Loaded>, String>,
     scanned: &Scanned,
+    judge_stores: Option<&[Store]>,
 ) -> Result<(Health, Vec<String>)> {
     let assess = |health: &mut Health, loaded: &_| {
         crate::health_stillness::append(
@@ -1761,29 +1763,26 @@ pub(crate) fn finish_health(
             tool.now,
             tool.rules.still_minutes,
         );
-        if let Ok(projects) = loaded {
-            let findings = judge_findings(tool, projects);
-            health.schedule_needed |= !findings.is_empty();
-            health.findings.extend(findings);
-        }
     };
     assess(&mut health, loaded);
     let lines = match crate::health_fix::release_stalled_claims(tool, &health) {
-        Ok(lines) => lines,
-        Err(error) => {
-            return Ok((
-                health,
-                vec![format!(
-                    "could not check which idle claims hold nothing: {}",
-                    error.text()
-                )],
-            ));
+        Ok(lines) => {
+            if !lines.is_empty() {
+                *loaded = crate::lists::store::load_all(&tool.places);
+                health = read_health(tool, loaded)?;
+                assess(&mut health, loaded);
+            }
+            lines
         }
+        Err(error) => vec![format!(
+            "could not check which idle claims hold nothing: {}",
+            error.text()
+        )],
     };
-    if !lines.is_empty() {
-        *loaded = crate::lists::store::load_all(&tool.places);
-        health = read_health(tool, loaded)?;
-        assess(&mut health, loaded);
+    if let Some(stores) = judge_stores {
+        let findings = judge_findings(tool, stores);
+        health.schedule_needed |= !findings.is_empty();
+        health.findings.extend(findings);
     }
     Ok((health, lines))
 }
@@ -1892,15 +1891,6 @@ fn report(tool: &Tool, json: bool, stop_junk: bool, release_failures: Vec<Advice
             )),
         }
     }
-    if !stop_junk {
-        match crate::health_fix::tell_judges(tool) {
-            Ok(lines) => lines.iter().for_each(crate::text::note),
-            Err(error) => crate::text::note(format!(
-                "could not check which findings wait for a judge: {}",
-                error.text()
-            )),
-        }
-    }
     if stop_junk {
         // Judge the shells now, never from the daemon's last reading.
         let (mut lines, mut failed) = crate::shells::stop(&health(tool)?.shells, tool.places.uid)?;
@@ -1919,6 +1909,21 @@ fn report(tool: &Tool, json: bool, stop_junk: bool, release_failures: Vec<Advice
             Err(Fail::Exit(1))
         };
     }
+    let judge_stores = match crate::lists::store::stores(&tool.places) {
+        Ok(stores) => {
+            crate::health_fix::tell_judges(tool, &stores)
+                .iter()
+                .for_each(crate::text::note);
+            Some(stores)
+        }
+        Err(error) => {
+            crate::text::note(format!(
+                "could not check which findings wait for a judge: {}",
+                error.text()
+            ));
+            None
+        }
+    };
     let mut loaded = crate::lists::store::load_all(&tool.places);
     let cached = loaded
         .as_ref()
@@ -2030,7 +2035,8 @@ fn report(tool: &Tool, json: bool, stop_junk: bool, release_failures: Vec<Advice
     stops.lines.iter().for_each(crate::text::note);
     scanned.orphans = stops.remaining;
     scanned.forget_stopped(&stops.stopped);
-    let (mut health, releases) = finish_health(tool, health, &mut loaded, &scanned)?;
+    let (mut health, releases) =
+        finish_health(tool, health, &mut loaded, &scanned, judge_stores.as_deref())?;
     releases.iter().for_each(crate::text::note);
     health.findings.extend(claim_findings(release_failures));
     health.findings.extend(dashboard_finding(dashboard));

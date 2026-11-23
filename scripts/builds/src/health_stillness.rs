@@ -201,7 +201,7 @@ impl WorkGraph {
     }
 }
 
-fn elapsed(now: i64, at: i64) -> String {
+pub(super) fn elapsed(now: i64, at: i64) -> String {
     duration(now.saturating_sub(at).max(0))
 }
 

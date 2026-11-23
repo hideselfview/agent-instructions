@@ -389,6 +389,7 @@ mod stalled_claims {
             health,
             &mut crate::lists::store::load_all(&tool.places),
             &scanned,
+            Some(std::slice::from_ref(&demo.store)),
         )
         .unwrap()
         .1

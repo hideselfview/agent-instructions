@@ -15,6 +15,7 @@
 use crate::claim::Claim;
 use crate::fail::Result;
 use crate::host::{Host, PassedOver, Probe};
+use crate::lists::store::Store;
 use crate::text::human;
 use crate::tool::Tool;
 
@@ -313,22 +314,22 @@ pub fn release_stalled_claims(tool: &Tool, health: &crate::health::Health) -> Re
 /// settles the findings that wait (review/judge_told.rs). Returns one line
 /// for each message it sent, each judge it forgot and each store it could not
 /// read or send for.
-pub fn tell_judges(tool: &Tool) -> Result<Vec<String>> {
+pub fn tell_judges(tool: &Tool, stores: &[Store]) -> Vec<String> {
     let sessions = tool.places.sessions();
     let stamp = crate::lists::Stamp {
         at: tool.now,
         by: "health".to_string(),
     };
     let mut lines = Vec::new();
-    for store in crate::lists::store::stores(&tool.places)? {
-        let project = store.project.clone();
-        let done = crate::review::judge_told::forget_ended(&store, &stamp, &sessions)
+    for store in stores {
+        let project = &store.project;
+        let done = crate::review::judge_told::forget_ended(store, &stamp, &sessions)
             .and_then(|forgot| {
                 lines.extend(forgot);
-                crate::review::judge_told::tell_waiting(&store, &stamp, &sessions)
+                crate::review::judge_told::tell_waiting(store, &stamp, &sessions)
             })
             .and_then(|mut told| {
-                told.extend(crate::review::judge_ack::tell_outdated(&store, &sessions)?);
+                told.extend(crate::review::judge_ack::tell_outdated(store, &sessions)?);
                 Ok(told)
             });
         match done {
@@ -339,7 +340,7 @@ pub fn tell_judges(tool: &Tool) -> Result<Vec<String>> {
             )),
         }
     }
-    Ok(lines)
+    lines
 }
 
 /// Ends each review landing that has nothing left to land (review/ended.rs):
