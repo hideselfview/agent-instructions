@@ -1576,8 +1576,12 @@ built again.
                               compare every board and component preview from
                               either revision. The checker stops CSS animations
                               and transitions before it captures the pictures
-                              and element boxes. The command prints `alike`
-                              or `differs` for each name.
+                              and element boxes, and starts Chrome with software
+                              rasterization on one thread, so the same board
+                              draws the same picture whatever else the machine
+                              runs. The command prints `alike` or `differs` for
+                              each name, and a second run of the same
+                              comparison prints the same.
   builds shots run|scenes|capture|check|lint|runtime|components|states|version [<argument>...]
                               run the shots checker, which checks the shots
                               of the repo it runs in against the repo's

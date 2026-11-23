@@ -263,9 +263,21 @@ async fn last_said(page: &Page) -> String {
     }
 }
 
+/// How Chrome starts: sRGB colour, no scrollbars, and software rasterization on
+/// one thread. GPU and multi-threaded rasterization put single pixels of a
+/// gradient or an edge a level or more off from one run to the next while the
+/// machine is busy, so the same page drew a different picture each time.
+/// chromiumoxide puts the `--` in front of each one itself.
+const ARGS: [&str; 4] = [
+    "force-color-profile=srgb",
+    "hide-scrollbars",
+    "disable-gpu",
+    "num-raster-threads=1",
+];
+
 /// Fetches the pinned build into the program's cache folder <cache> when it
 /// does not hold it, starts it
-/// headless with sRGB colour and no scrollbars, runs `work` with it and closes
+/// headless with `ARGS`, runs `work` with it and closes
 /// it. The browser's events are driven alongside `work` and end with it, so
 /// no task outlives the call.
 pub(crate) async fn with_chrome<T>(
@@ -278,7 +290,7 @@ pub(crate) async fn with_chrome<T>(
         .user_data_dir(profile.path())
         .chrome_executable(executable)
         .viewport(None)
-        .args(["--force-color-profile=srgb", "--hide-scrollbars"])
+        .args(ARGS)
         .build()
         .map_err(ChromeError::Launch)?;
     let (browser, mut events) = Browser::launch(config)
