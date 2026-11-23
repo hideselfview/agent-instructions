@@ -29,13 +29,6 @@ fn publication_lock(lock: &Path) -> io::Result<File> {
 /// Claims <lock> for this process and writes its pid there. None when a live
 /// daemon already holds it.
 pub fn claim(lock: &Path) -> io::Result<Option<Claim>> {
-    claim_and_publish(lock, write_pid)
-}
-
-fn claim_and_publish(
-    lock: &Path,
-    publish: impl FnOnce(&mut File) -> io::Result<()>,
-) -> io::Result<Option<Claim>> {
     let publication = publication_lock(lock)?;
     publication.lock()?;
     let mut file = OpenOptions::new()
@@ -45,7 +38,10 @@ fn claim_and_publish(
         .open(lock)?;
     match file.try_lock() {
         Ok(()) => {
-            publish(&mut file)?;
+            #[cfg(test)]
+            tests::before_publishing();
+            file.set_len(0)?;
+            writeln!(file, "{}", std::process::id())?;
             Ok(Some(Claim { _file: file }))
         }
         Err(TryLockError::WouldBlock) => Ok(None),
@@ -53,27 +49,17 @@ fn claim_and_publish(
     }
 }
 
-fn write_pid(file: &mut File) -> io::Result<()> {
-    file.set_len(0)?;
-    writeln!(file, "{}", std::process::id())
-}
-
 /// Waits for a claimant to publish its pid, then reads it. None when no
 /// daemon holds <lock> when the reader acquires the publication lock.
 pub fn daemon_pid(lock: &Path) -> io::Result<Option<i32>> {
-    read_published_pid(lock, File::lock_shared)
-}
-
-fn read_published_pid(
-    lock: &Path,
-    wait: impl FnOnce(&File) -> io::Result<()>,
-) -> io::Result<Option<i32>> {
     let publication = match publication_lock(lock) {
         Ok(file) => file,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(error),
     };
-    wait(&publication)?;
+    #[cfg(test)]
+    tests::before_reading(&publication);
+    publication.lock_shared()?;
     if !daemon_lives(lock)? {
         return Ok(None);
     }
@@ -104,6 +90,26 @@ pub fn daemon_lives(lock: &Path) -> io::Result<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::RefCell;
+
+    type BeforeRead = Box<dyn FnOnce(&File)>;
+
+    thread_local! {
+        static BEFORE_PUBLISH: RefCell<Option<Box<dyn FnOnce()>>> = const { RefCell::new(None) };
+        static BEFORE_READ: RefCell<Option<BeforeRead>> = const { RefCell::new(None) };
+    }
+
+    pub(super) fn before_publishing() {
+        if let Some(action) = BEFORE_PUBLISH.take() {
+            action();
+        }
+    }
+
+    pub(super) fn before_reading(publication: &File) {
+        if let Some(action) = BEFORE_READ.take() {
+            action(publication);
+        }
+    }
 
     #[test]
     fn a_reader_waits_until_the_claimant_has_replaced_the_previous_pid() {
@@ -119,24 +125,23 @@ mod tests {
         let (publish, can_publish) = mpsc::channel();
         let writer_lock = lock.clone();
         let writer = std::thread::spawn(move || {
-            claim_and_publish(&writer_lock, |file| {
+            BEFORE_PUBLISH.set(Some(Box::new(move || {
                 claimed.send(()).unwrap();
                 can_publish.recv_timeout(Duration::from_secs(30)).unwrap();
-                write_pid(file)
-            })
+            })));
+            claim(&writer_lock)
         });
         waiting_for_pid
             .recv_timeout(Duration::from_secs(30))
             .unwrap();
-        let owner = read_published_pid(&lock, move |reader| {
+        BEFORE_READ.set(Some(Box::new(move |reader| {
             assert!(matches!(
                 reader.try_lock_shared(),
                 Err(TryLockError::WouldBlock)
             ));
             publish.send(()).unwrap();
-            reader.lock_shared()
-        })
-        .unwrap();
+        })));
+        let owner = daemon_pid(&lock).unwrap();
         let _claim = writer.join().unwrap().unwrap().unwrap();
         assert_eq!(owner, Some(pid));
     }
