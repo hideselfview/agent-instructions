@@ -33,7 +33,7 @@ impl<'a> Site<'a> {
         checkout: CheckoutLock<'a>,
     ) -> Result<Self> {
         Ok(
-            match RemoteApp::find(places, ssh, repo, lane, entry, Some(checkout))? {
+            match RemoteApp::find(places, ssh, repo, lane, entry, checkout)? {
                 Some(remote) => Site::Remote(Box::new(remote)),
                 None => {
                     let top = app_checkout_top(places, repo, entry)?;

@@ -386,7 +386,7 @@ fn remove_if_idle(at: RepoLane, lock: &CheckoutLock, times: Idle, run: Run) -> R
         note(format!("would remove {shown} ({why})"));
         return Ok(());
     }
-    let removed_there = match RemoteApp::find(places, ssh, repo, lane, entry, None) {
+    let removed_there = match RemoteApp::find(places, ssh, repo, lane, entry, lock.reservation()) {
         Ok(Some(remote)) => remote.remove(),
         Ok(None) => Err(format!("{entry} is not on a host")),
         Err(error) => Err(error.text()),
@@ -412,6 +412,20 @@ fn remove_if_idle(at: RepoLane, lock: &CheckoutLock, times: Idle, run: Run) -> R
 pub struct CheckoutLock {
     fd: libc::c_int,
     entry: String,
+}
+
+impl std::os::fd::AsFd for CheckoutLock {
+    fn as_fd(&self) -> std::os::fd::BorrowedFd<'_> {
+        // The descriptor is open until this owner drops.
+        unsafe { std::os::fd::BorrowedFd::borrow_raw(self.fd) }
+    }
+}
+
+impl CheckoutLock {
+    pub fn reservation(&self) -> crate::app_lock_guard::CheckoutLock<'_> {
+        use std::os::fd::AsFd;
+        crate::app_lock_guard::CheckoutLock::new(self.as_fd(), None)
+    }
 }
 
 impl Drop for CheckoutLock {

@@ -28,6 +28,7 @@
 //! are copied back to `<root>/<repo>/<entry>/<path>` on this Mac (the folder
 //! of the checkout's build output, where a local checkout's `<path>` links to).
 
+use std::os::fd::AsFd;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -181,8 +182,47 @@ pub struct RemoteApp<'a> {
     /// The checkout's folder on the host, once `switch_to` or `locate` has
     /// asked.
     worktree: Option<String>,
-    checkout: Option<CheckoutLock<'a>>,
+    checkout: CheckoutLock<'a>,
     _awake: KeepAwake,
+}
+
+fn app_host<'a>(
+    places: &Places,
+    repo: &str,
+    entry: &'a str,
+) -> Result<Option<(Host, &'a str, KeepAwake)>> {
+    let Some((host_name, name)) = split(entry) else {
+        return Ok(None);
+    };
+    let host = host::remote_named(places, entry, host_name)?;
+    let awake = KeepAwake::for_host(&host, &format!("{repo}'s app checkout {name}"))?;
+    Ok(Some((host, name, awake)))
+}
+
+/// Writes the lane to the checkout's lane file on the host when someone adds
+/// it to the lane. The first build writes the file if it makes the checkout.
+pub fn mark(places: &Places, ssh: &Ssh, repo: &str, lane: Lane, entry: &str) -> Result<bool> {
+    let Some((host, name, _awake)) = app_host(places, repo, entry)? else {
+        fail!("{entry} names no host");
+    };
+    let transport = Transport {
+        places,
+        ssh,
+        host: &host,
+    };
+    marked_in(&transport.capture(
+        &lane_file_script(MARK, repo, name, lane),
+        "writing the app checkout's lane file",
+    )?)
+}
+
+fn lane_file_script(script: &str, repo: &str, name: &str, lane: Lane) -> String {
+    script
+        .replace("@MARK_LANE@", MARK_LANE)
+        .replace("@REPO@", repo)
+        .replace("@NAME@", name)
+        .replace("@LANE@", lane.word())
+        .replace("@LANE_FILE@", APP_LANE_FILE)
 }
 
 impl<'a> RemoteApp<'a> {
@@ -193,13 +233,11 @@ impl<'a> RemoteApp<'a> {
         repo: &str,
         lane: Lane,
         entry: &str,
-        checkout: Option<CheckoutLock<'a>>,
+        checkout: CheckoutLock<'a>,
     ) -> Result<Option<Self>> {
-        let Some((host_name, name)) = split(entry) else {
+        let Some((host, name, awake)) = app_host(places, repo, entry)? else {
             return Ok(None);
         };
-        let host = host::remote_named(places, entry, host_name)?;
-        let awake = KeepAwake::for_host(&host, &format!("{repo}'s app checkout {name}"))?;
         Ok(Some(RemoteApp {
             places: places.clone(),
             ssh: ssh.clone(),
@@ -223,22 +261,23 @@ impl<'a> RemoteApp<'a> {
 
     fn capture(&self, script: &str, what: &str) -> Result<String> {
         let transport = self.transport();
-        self.run(transport.command(script), |command| {
+        self.checkout.run(transport.command(script), |command| {
             transport.capture_command(command, what)
         })
     }
 
-    fn run<T>(&self, command: Command, run: impl FnOnce(Command) -> Result<T>) -> Result<T> {
-        match self.checkout {
-            Some(checkout) => checkout.run(command, run),
-            None => run(command),
-        }
-    }
-
     fn unpack(&self, script: &str, into: &Path, what: &str) -> Result<()> {
-        self.run(self.transport().command(script), |command| {
-            crate::remote::unpack(command, into, what)
-        })
+        crate::remote::unpack_with(
+            self.transport().command(script),
+            into,
+            what,
+            |sender, tar, what| {
+                self.checkout.run(sender, |sender| {
+                    self.checkout
+                        .run(tar, |tar| crate::remote::pipe(sender, tar, what))
+                })
+            },
+        )
     }
 
     /// The folder on this Mac where the checkout's lock, its record of what it
@@ -327,9 +366,15 @@ impl<'a> RemoteApp<'a> {
             .replace("@SOURCE@", source_name)
             .replace("@NAME@", &self.name)
             .replace("@LANE@", self.lane.word());
-        let cloned = self
-            .capture(&script, "cloning the warmest app checkout")
-            .map(|_| ());
+        let transport = self.transport();
+        let cloned = self.checkout.with_clone_source(taken.lock.as_fd()).run(
+            transport.command(&script),
+            |command| {
+                transport
+                    .capture_command(command, "cloning the warmest app checkout")
+                    .map(|_| ())
+            },
+        );
         let removed = match &cloned {
             Ok(()) => Ok(()),
             Err(_) => self.remove().map_err(|said| {
@@ -403,35 +448,16 @@ impl<'a> RemoteApp<'a> {
             .map_err(|error| error.text())
     }
 
-    /// Writes the lane to the checkout's lane file on the host
-    /// (`Checkout::app_lane_file`), so the host's builds keeps the checkout's
-    /// builds warm, as a person adds it to the lane. When the host has no such
-    /// worktree yet, `mark` does nothing: the first build makes the checkout
-    /// and writes the file before the host's setup runs. Returns whether it
-    /// wrote the file. A failure, such as a host that does not answer, names
-    /// the host and what the script printed there.
-    pub fn mark(&self) -> Result<bool> {
-        marked_in(&self.lane_file_script(MARK, "writing the app checkout's lane file")?)
-    }
-
     /// Deletes the checkout's lane file on the host, so the host's builds
     /// stops keeping the checkout's builds warm once it is no lane's. The
     /// worktree stays. When the host has no such worktree, `unmark` does
     /// nothing. A failure names the host, as `mark`'s does.
     pub fn unmark(&self) -> Result<()> {
-        self.lane_file_script(UNMARK, "deleting the app checkout's lane file")
-            .map(|_| ())
-    }
-
-    /// Runs <script> on the host and returns what it printed.
-    fn lane_file_script(&self, script: &str, what: &str) -> Result<String> {
-        let script = script
-            .replace("@MARK_LANE@", MARK_LANE)
-            .replace("@REPO@", &self.repo)
-            .replace("@NAME@", &self.name)
-            .replace("@LANE@", self.lane.word())
-            .replace("@LANE_FILE@", APP_LANE_FILE);
-        self.capture(&script, what)
+        self.capture(
+            &lane_file_script(UNMARK, &self.repo, &self.name, self.lane),
+            "deleting the app checkout's lane file",
+        )
+        .map(|_| ())
     }
 
     /// <command> for a step that opens windows, as `keeping_display_on`

@@ -212,8 +212,7 @@ fn parse_args(args: &[String]) -> Result<(&String, Platform, &str)> {
 
 /// Runs the build <command> in <site>, with no time limit: here, or on the
 /// host through `builds remote step`.
-fn run_build(site: &mut Site, command: &[String], held: &lock::Held) -> Result<Within> {
-    let checkout = held.checkout_lock();
+fn run_build(site: &mut Site, command: &[String], checkout: CheckoutLock<'_>) -> Result<Within> {
     match site {
         Site::Local(top, _, checkout) => run_command(top, command, *checkout),
         Site::Remote(remote) => checkout.run_in_group(
@@ -297,7 +296,7 @@ fn build_app(tool: &Tool, args: &[String]) -> Result<()> {
         )?;
         note(format!("building in {}", held.checkout));
         let config = site.check_out(places, repo, commit)?.config;
-        let ran = run_build(&mut site, platform.build(&config)?, &held);
+        let ran = run_build(&mut site, platform.build(&config)?, held.checkout_lock());
         lock::refuse_when_stopped(&format!("built {commit}'s {} app", platform.word()))?;
         match ran? {
             Within::Ran(lock::Ran::Finished) => {

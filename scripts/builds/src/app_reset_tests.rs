@@ -252,11 +252,20 @@ fn on_host(scratch: &Scratch) -> OnHost {
             &[crate::lane::AppCheckout::by_person("m1:mac-1")],
         )
         .unwrap();
-    crate::app_remote::RemoteApp::find(&places, &ssh, "demo", Lane::Mac, "m1:mac-1", None)
-        .unwrap()
-        .expect("m1:mac-1 is on a host")
-        .switch_to(&source, &first)
-        .unwrap();
+    let lock = lock::take_checkout(&places, "demo", Lane::Mac, "m1:mac-1").unwrap();
+    crate::app_remote::RemoteApp::find(
+        &places,
+        &ssh,
+        "demo",
+        Lane::Mac,
+        "m1:mac-1",
+        CheckoutLock::new(lock.as_fd(), None),
+    )
+    .unwrap()
+    .expect("m1:mac-1 is on a host")
+    .switch_to(&source, &first)
+    .unwrap();
+    drop(lock);
     std::fs::write(source.join("kept"), "new\n").unwrap();
     std::fs::write(source.join("added"), "new\n").unwrap();
     std::fs::remove_file(source.join("gone")).unwrap();

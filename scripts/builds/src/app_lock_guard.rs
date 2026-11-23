@@ -15,23 +15,33 @@ use crate::fail::Result;
 #[cfg(target_os = "macos")]
 pub const COMMAND: &str = "__app-lock-guard";
 #[cfg(target_os = "macos")]
-const CHECKOUT_FD: &str = "BUILDS_CHECKOUT_GUARD_FD";
+const CHECKOUT_FDS: &str = "BUILDS_CHECKOUT_GUARD_FDS";
 
 #[derive(Clone, Copy, Debug)]
 pub struct CheckoutLock<'a> {
     file: BorrowedFd<'a>,
+    source: Option<BorrowedFd<'a>>,
     ticket: Option<BorrowedFd<'a>>,
 }
 
 impl<'a> CheckoutLock<'a> {
     pub fn new(file: BorrowedFd<'a>, ticket: Option<BorrowedFd<'a>>) -> Self {
-        Self { file, ticket }
+        Self {
+            file,
+            source: None,
+            ticket,
+        }
+    }
+
+    pub fn with_clone_source(mut self, source: BorrowedFd<'a>) -> Self {
+        self.source = Some(source);
+        self
     }
 
     /// Passes the descriptors to an explicit recipient, either the guard or
     /// the command that `builds lock` runs. Changes only the child's flags.
     pub fn pass_to(self, command: &mut Command) {
-        let fds = [Some(self.file), self.ticket].map(|fd| fd.map(|fd| fd.as_raw_fd()));
+        let fds = [Some(self.file), self.source, self.ticket].map(|fd| fd.map(|fd| fd.as_raw_fd()));
         unsafe {
             command.pre_exec(move || {
                 for fd in fds.into_iter().flatten() {
@@ -60,9 +70,15 @@ impl<'a> CheckoutLock<'a> {
             "--ignored",
             "--quiet",
         ]);
+        let files = [Some(self.file), self.source]
+            .into_iter()
+            .flatten()
+            .map(|fd| fd.as_raw_fd().to_string())
+            .collect::<Vec<_>>()
+            .join(" ");
         watcher
             .process_group(0)
-            .env(CHECKOUT_FD, self.file.as_raw_fd().to_string())
+            .env(CHECKOUT_FDS, files)
             .stdin(Stdio::from(OwnedFd::from(guard)))
             .stdout(Stdio::null());
         self.pass_to(&mut watcher);
@@ -126,16 +142,26 @@ pub fn watch() -> Result<()> {
     use std::os::fd::{FromRawFd, OwnedFd, RawFd};
     use std::os::unix::net::UnixStream;
 
-    let checkout = std::env::var(CHECKOUT_FD)
-        .context(|| "The app checkout lock guard needs its descriptor".into())?
-        .parse::<RawFd>()
-        .context(|| "The app checkout lock guard needs a descriptor number".into())?;
-    if checkout <= libc::STDERR_FILENO || unsafe { libc::fcntl(checkout, libc::F_GETFD) } < 0 {
-        crate::fail!("The app checkout lock guard needs an open checkout descriptor");
-    }
     // Close the checkout before exiting, which closes the ticket and wakes
     // the queued builds. A waiter that gets the ticket must find the checkout free.
-    let _checkout = unsafe { OwnedFd::from_raw_fd(checkout) };
+    let mut checkouts: Vec<OwnedFd> = Vec::new();
+    let files = std::env::var(CHECKOUT_FDS)
+        .context(|| "The app checkout lock guard needs its descriptors".into())?;
+    for file in files.split_ascii_whitespace() {
+        let fd = file
+            .parse::<RawFd>()
+            .context(|| "The app checkout lock guard needs a descriptor number".into())?;
+        if fd <= libc::STDERR_FILENO
+            || checkouts.iter().any(|file| file.as_raw_fd() == fd)
+            || unsafe { libc::fcntl(fd, libc::F_GETFD) } < 0
+        {
+            crate::fail!("The app checkout lock guard needs distinct open checkout descriptors");
+        }
+        checkouts.push(unsafe { OwnedFd::from_raw_fd(fd) });
+    }
+    if checkouts.is_empty() {
+        crate::fail!("The app checkout lock guard needs an open checkout descriptor");
+    }
     let mut socket = unsafe { UnixStream::from_raw_fd(libc::STDIN_FILENO) };
     let mut pid = [0; size_of::<libc::pid_t>()];
     let peer = || "Builds lost the socket for the app checkout lock guard".into();

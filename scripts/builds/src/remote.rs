@@ -467,9 +467,18 @@ fn pipe_within(
 /// Unpacks the tar archive <sender> writes on its stdout into <into> on this
 /// Mac (`pipe`).
 pub fn unpack(sender: Command, into: &Path, what: &str) -> Result<()> {
+    unpack_with(sender, into, what, pipe)
+}
+
+pub fn unpack_with(
+    sender: Command,
+    into: &Path,
+    what: &str,
+    copy: impl FnOnce(Command, Command, &str) -> Result<()>,
+) -> Result<()> {
     let mut tar = Command::new("tar");
     tar.args(["-xf", "-", "-C"]).arg(into);
-    pipe(sender, tar, what)
+    copy(sender, tar, what)
 }
 
 /// Removes from <command>'s environment the variables a git hook exports for

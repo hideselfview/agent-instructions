@@ -38,7 +38,7 @@ pub fn rank_sources(used: &[(String, Option<i64>)]) -> Vec<String> {
 /// A source checkout, which this value keeps locked until it is dropped.
 pub struct Source {
     pub entry: String,
-    _lock: CheckoutLock,
+    pub lock: CheckoutLock,
 }
 
 /// The lane's checkouts on <host>, other than <new_entry> when there is one,
@@ -76,7 +76,7 @@ pub fn take_source(at: RepoLane, host: &str, new_entry: &str) -> Result<Option<S
                 if let Some(lock) = lock_checkout(at.places, at.repo, at.lane, entry)? {
                     return Ok(Some(Source {
                         entry: entry.clone(),
-                        _lock: lock,
+                        lock,
                     }));
                 }
             }
@@ -92,10 +92,7 @@ pub fn take_source(at: RepoLane, host: &str, new_entry: &str) -> Result<Option<S
         ));
         match wait_checkout(at.places, at.repo, at.lane, &best)? {
             Waited::Taken(lock) => {
-                return Ok(Some(Source {
-                    entry: best,
-                    _lock: lock,
-                }));
+                return Ok(Some(Source { entry: best, lock }));
             }
             Waited::Stopped => {
                 note(format!(

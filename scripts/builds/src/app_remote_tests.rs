@@ -44,6 +44,7 @@ struct Setup {
     home: PathBuf,
     places: Places,
     ssh: Ssh,
+    lock: std::os::fd::OwnedFd,
 }
 
 fn setup(name: &str) -> Setup {
@@ -93,12 +94,14 @@ fn setup(name: &str) -> Setup {
     let ssh = fake_ssh(&scratch.dir.join("bin"), &home);
     let places = scratch.places();
     host::add(&places, &ssh, "m1", "user@m1").unwrap();
+    let lock = crate::lock::take_checkout(&places, "demo", Lane::Android, "m1:app-1").unwrap();
     Setup {
         _scratch: scratch,
         source,
         home,
         places,
         ssh,
+        lock,
     }
 }
 
@@ -112,22 +115,37 @@ fn head_of(dir: &Path) -> String {
     String::from_utf8_lossy(&output.stdout).trim().to_string()
 }
 
-fn remote_app(s: &Setup, lane: Lane) -> RemoteApp<'static> {
-    RemoteApp::find(&s.places, &s.ssh, "demo", lane, "m1:app-1", None)
-        .unwrap()
-        .unwrap()
+fn remote_app(s: &Setup, lane: Lane) -> RemoteApp<'_> {
+    RemoteApp::find(
+        &s.places,
+        &s.ssh,
+        "demo",
+        lane,
+        "m1:app-1",
+        CheckoutLock::new(s.lock.as_fd(), None),
+    )
+    .unwrap()
+    .unwrap()
 }
 
 #[test]
 fn a_local_entry_is_no_remote_checkout() {
     let s = setup("remote-app-local");
+    let checkout = CheckoutLock::new(s.lock.as_fd(), None);
     assert!(
-        RemoteApp::find(&s.places, &s.ssh, "demo", Lane::Android, "side-1", None)
+        RemoteApp::find(&s.places, &s.ssh, "demo", Lane::Android, "side-1", checkout)
             .unwrap()
             .is_none()
     );
-    let error = RemoteApp::find(&s.places, &s.ssh, "demo", Lane::Android, "gone:app-1", None)
-        .expect_err("an unknown host fails");
+    let error = RemoteApp::find(
+        &s.places,
+        &s.ssh,
+        "demo",
+        Lane::Android,
+        "gone:app-1",
+        checkout,
+    )
+    .expect_err("an unknown host fails");
     let text = error.text();
     assert!(text.contains("host gone"), "{text}");
 }
@@ -329,7 +347,9 @@ fn marking_or_unmarking_a_checkout_git_cannot_read_fails() {
     let wt = s.home.join("dev/demo-worktrees/app-1");
     std::fs::create_dir_all(&wt).unwrap();
     std::fs::write(wt.join(".git"), "gitdir: /nowhere\n").unwrap();
-    let marked = app.mark().expect_err("a checkout git cannot read").text();
+    let marked = mark(&s.places, &s.ssh, "demo", Lane::Android, "m1:app-1")
+        .expect_err("a checkout git cannot read")
+        .text();
     assert!(marked.contains("m1"), "{marked}");
     let unmarked = app.unmark().expect_err("a checkout git cannot read").text();
     assert!(unmarked.contains("m1"), "{unmarked}");
@@ -338,8 +358,8 @@ fn marking_or_unmarking_a_checkout_git_cannot_read_fails() {
 #[test]
 fn marking_says_whether_the_host_had_the_worktree() {
     let s = setup("remote-app-marked");
-    let app = remote_app(&s, Lane::Mac);
-    assert!(!app.mark().unwrap(), "the host has no worktree yet");
+    let mark = || mark(&s.places, &s.ssh, "demo", Lane::Mac, "m1:app-1");
+    assert!(!mark().unwrap(), "the host has no worktree yet");
     let wt = s.home.join("dev/demo-worktrees/app-1");
     git(
         &s.home.join("dev/demo"),
@@ -351,8 +371,8 @@ fn marking_says_whether_the_host_had_the_worktree() {
             &wt.display().to_string(),
         ],
     );
-    assert!(app.mark().unwrap());
-    assert!(app.mark().unwrap(), "marking again marks again");
+    assert!(mark().unwrap());
+    assert!(mark().unwrap(), "marking again marks again");
     assert_eq!(lane_mark(&wt), "mac\n");
 }
 

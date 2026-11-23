@@ -400,14 +400,17 @@ fn app_checkout_on_host(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
     let (repo, name) = crate::app_remote::name_in(path)?;
     tool.places.require_volume()?;
     let entry = crate::app_remote::entry_of(host, &name);
-    let Some(remote) = RemoteApp::find(&tool.places, ssh, &repo, lane, &entry, None)? else {
-        fail!("{entry} names no host");
-    };
     if removing {
         // The lane file goes first: a host that does not answer fails the
         // removal and leaves the checkout in the lane, for the person to
         // remove again.
-        remove_from_lane(tool, &repo, lane, &entry, &entry, || remote.unmark())?;
+        remove_from_lane(tool, &repo, lane, &entry, &entry, |checkout| {
+            let Some(remote) = RemoteApp::find(&tool.places, ssh, &repo, lane, &entry, checkout)?
+            else {
+                fail!("{entry} names no host");
+            };
+            remote.unmark()
+        })?;
         note(format!(
             "removed {entry} from {repo}'s {} app checkouts, and its lane file on {host}, so {host} no longer keeps its builds warm; ~/dev/{repo}-worktrees/{name} on {host} stays until you remove it there",
             lane.word()
@@ -426,7 +429,7 @@ fn app_checkout_on_host(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
     }
     // The lane file comes first: a host that does not answer fails the
     // addition and leaves the lane as it was, for the person to add it again.
-    let marked = remote.mark()?;
+    let marked = crate::app_remote::mark(&tool.places, ssh, &repo, lane, &entry)?;
     let count = record_in_lane(tool, &repo, lane, &entry)?;
     let worktree = format!("~/dev/{repo}-worktrees/{name}");
     let there = if marked {
@@ -491,7 +494,7 @@ pub fn cmd_app_checkout(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
     let name = checkout.name();
     if removing {
         let shown = checkout.top.display().to_string();
-        remove_from_lane(tool, &repo, lane, &name, &shown, || Ok(()))?;
+        remove_from_lane(tool, &repo, lane, &name, &shown, |_| Ok(()))?;
         note(format!(
             "removed {} from {repo}'s {} app checkouts",
             checkout.top.display(),
@@ -681,12 +684,12 @@ fn remove_from_lane(
     lane: Lane,
     entry: &str,
     shown: &str,
-    before: impl FnOnce() -> Result<()>,
+    before: impl FnOnce(crate::app_lock_guard::CheckoutLock<'_>) -> Result<()>,
 ) -> Result<()> {
     let Some(lock) = crate::lane_size::lock_checkout(&tool.places, repo, lane, entry)? else {
         fail!("a build holds {shown}'s lock; remove it once that build ends");
     };
-    before()?;
+    before(lock.reservation())?;
     crate::lane_size::take_out(&tool.places, repo, lane, &lock, None)
 }
 

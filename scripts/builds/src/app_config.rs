@@ -797,10 +797,9 @@ pub fn parse_config(text: &str) -> Result<Config> {
 
 /// Runs git in <top>, failing with what it said.
 pub fn run_git(top: &Path, args: &[&str]) -> Result<String> {
-    Ok(git_text(
-        git(top).args(args),
-        &format!("git {}", args.join(" ")),
-    )?)
+    git_args(top, None, args, |mut command, what| {
+        Ok(git_text(&mut command, what)?)
+    })
 }
 
 /// Runs git in a reserved app checkout, with a separate index when requested.
@@ -810,14 +809,23 @@ pub fn checkout_git(
     args: &[&str],
     checkout: CheckoutLock<'_>,
 ) -> Result<String> {
+    git_args(top, index, args, |command, what| {
+        checkout.run(command, |mut command| Ok(git_text(&mut command, what)?))
+    })
+}
+
+fn git_args(
+    top: &Path,
+    index: Option<&str>,
+    args: &[&str],
+    run: impl FnOnce(Command, &str) -> Result<String>,
+) -> Result<String> {
     let mut command = git(top);
     command.args(args);
     if let Some(index) = index {
         command.env("GIT_INDEX_FILE", index);
     }
-    checkout.run(command, |mut command| {
-        Ok(git_text(&mut command, &format!("git {}", args.join(" ")))?)
-    })
+    run(command, &format!("git {}", args.join(" ")))
 }
 
 /// The full id of the commit <rev> names in the repository at <top>.
