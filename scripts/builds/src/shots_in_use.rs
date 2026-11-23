@@ -87,10 +87,7 @@ pub fn named_in(
 /// from <commit>; None for a commit on origin/main and for one that git no
 /// longer has, whose runs no landing compares.
 fn merge_base_of(source: &Path, commit: &str) -> Result<Option<String>> {
-    let known = format!("{commit}^{{commit}}");
-    let known_commit = crate::side_git::ask(source, &["rev-parse", "--verify", "--quiet", &known])
-        .map_err(fail::Fail::Message)?;
-    if known_commit.is_none() {
+    if !crate::review::commits::exists(source, commit)? {
         return Ok(None);
     }
     let base = crate::derive::merge_base(source, commit)?;

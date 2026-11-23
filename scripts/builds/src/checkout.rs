@@ -468,35 +468,38 @@ pub fn worktrees_of(top: &Path) -> Result<Vec<PathBuf>> {
 }
 
 /// Does branch <branch> exist in the repo of <dir>?
-/// `git rev-parse --verify --quiet` exits 1 without diagnostics for a ref
-/// it does not find. A broken ref can also exit 1, with a warning.
 pub fn branch_exists(dir: &Path, branch: &str) -> Result<bool> {
     Ok(branch_tip(dir, branch)?.is_some())
 }
 
 /// The immutable tip of a named local branch, or None when it is absent.
 pub fn branch_tip(dir: &Path, branch: &str) -> Result<Option<String>> {
+    resolve_revision(dir, &format!("refs/heads/{branch}"))
+}
+
+/// The full object ID of <rev>, or None when Git cannot find it. Quiet
+/// verification exits 1 both for a missing revision and for a broken ref,
+/// but emits a diagnostic for the broken ref.
+pub fn resolve_revision(dir: &Path, rev: &str) -> Result<Option<String>> {
     let output = git(dir)
-        .args([
-            "rev-parse",
-            "--verify",
-            "--quiet",
-            &format!("refs/heads/{branch}"),
-        ])
+        .args(["rev-parse", "--verify", "--quiet", "--end-of-options", rev])
         .stdin(Stdio::null())
         .output()
-        .context(|| format!("running git in {}", dir.display()))?;
+        .context(|| format!("Git could not start in {} to resolve {rev}", dir.display()))?;
     match output.status.code() {
         Some(0) => Ok(Some(
             String::from_utf8_lossy(&output.stdout).trim().to_string(),
         )),
         Some(1) if output.stderr.is_empty() => Ok(None),
-        _ => fail!(
-            "git could not tell whether {} has a branch {branch} ({}): {}",
-            dir.display(),
-            output.status,
-            String::from_utf8_lossy(&output.stderr).trim()
-        ),
+        _ => {
+            let error = format!(
+                "Git could not resolve {rev} in {} ({}).\n{}",
+                dir.display(),
+                output.status,
+                String::from_utf8_lossy(&output.stderr)
+            );
+            fail!("{}", error.trim_end());
+        }
     }
 }
 

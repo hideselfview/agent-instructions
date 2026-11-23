@@ -5,6 +5,7 @@
 use std::path::Path;
 use std::process::Stdio;
 
+use crate::checkout::resolve_revision;
 use crate::fail;
 use crate::fail::{Context, Result};
 use boards::git;
@@ -78,34 +79,7 @@ pub fn summary(repo: &Path, base: &str, head: &str) -> Result<String> {
 pub fn exists(repo: &Path, sha: &str) -> Result<bool> {
     // `cat-file -e` exits 128 when it cannot resolve an absent commit with
     // the `^{commit}` suffix. Quiet rev-parse returns 1 without output then.
-    let output = git(repo)
-        .args([
-            "rev-parse",
-            "--verify",
-            "--quiet",
-            &format!("{sha}^{{commit}}"),
-        ])
-        .stdin(Stdio::null())
-        .output()
-        .context(|| {
-            format!(
-                "Git could not start in {} to check for commit {sha}",
-                repo.display()
-            )
-        })?;
-    match output.status.code() {
-        Some(0) => Ok(true),
-        Some(1) if output.stderr.is_empty() => Ok(false),
-        _ => {
-            let error = format!(
-                "Git could not check for commit {sha} in {} ({}).\n{}",
-                repo.display(),
-                output.status,
-                String::from_utf8_lossy(&output.stderr)
-            );
-            fail!("{}", error.trim_end());
-        }
-    }
+    Ok(resolve_revision(repo, &format!("{sha}^{{commit}}"))?.is_some())
 }
 
 /// The pathspec that leaves the review's test cases (`cases::DIR`) out of
