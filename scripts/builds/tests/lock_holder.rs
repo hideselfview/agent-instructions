@@ -127,7 +127,9 @@ impl Demo {
     }
 
     /// Moves side-2's claim's start to <epoch>, as if `builds claim` had run
-    /// then: the claim file is `<who>\t<YYYY-MM-DD HH:MM>`, in local time.
+    /// then: the claim file is `<who>\t<YYYY-MM-DD HH:MM>`, in local time, and
+    /// its last write, which health counts as the claim's last change, is
+    /// <epoch> too.
     fn date_claim(&self, epoch: u64) {
         let file = PathBuf::from(git(&self.side, &["rev-parse", "--absolute-git-dir"], None))
             .join("builds-claim");
@@ -140,6 +142,12 @@ impl Demo {
         let claim = std::fs::read_to_string(&file).unwrap();
         let (who, _) = claim.split_once('\t').unwrap();
         std::fs::write(&file, format!("{who}\t{}\n", date.trim())).unwrap();
+        std::fs::File::options()
+            .write(true)
+            .open(&file)
+            .unwrap()
+            .set_modified(std::time::UNIX_EPOCH + Duration::from_secs(epoch))
+            .unwrap();
     }
 
     /// Returns a `builds` command that uses the demo's volume, lists and
@@ -270,7 +278,7 @@ cd '{home}' && HOME='{home}' sh -c "$*"
                 finding["text"]
                     .as_str()
                     .unwrap()
-                    .starts_with("worktree: demo/side-2 ")
+                    .starts_with("worktree demo/side-2 ")
             })
     }
 }
