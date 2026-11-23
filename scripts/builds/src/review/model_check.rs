@@ -66,12 +66,13 @@ The rule {rule}:
 
 /// The message: the task, the finding and its file's diff.
 fn message(finding: &Finding, file_diff: &str, context: &str) -> String {
+    let (file, line) = finding.location();
     let mut out = format!(
         "{TASK} {}\n\nThe finding:\nclause: {}\nfile: {}\nline: {}\ncode: {}\nproblem: {}\n\nThe diff of {}:\n{}",
         finding.rule,
         finding.clause,
-        finding.file,
-        finding.line,
+        file,
+        line,
         finding.code,
         finding.problem,
         finding.file,

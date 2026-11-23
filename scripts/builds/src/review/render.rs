@@ -50,14 +50,15 @@ fn call_line(group: &str, model: &str, failure: Option<&str>, findings: usize) -
 
 /// A finding, indented under its group.
 pub fn finding_text(finding: &Finding) -> String {
+    let (file, line) = finding.location();
     let mut out = format!(
         "  finding {} {}",
         finding.id,
         raised(
             finding.blocking,
             &finding.rule,
-            &finding.file,
-            finding.line.number(),
+            file,
+            line,
             &finding.clause,
             &finding.code,
             &finding.problem

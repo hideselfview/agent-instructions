@@ -339,12 +339,8 @@ pub fn dispute_notice(db: &Connection, project: &str, finding: &Finding) -> Resu
     let Some(dispute) = dispute_of(db, id)? else {
         fail!("nobody disputed finding {id}");
     };
-    let (project_owned, rule, file, line) = (
-        project.to_string(),
-        finding.rule.clone(),
-        finding.file.clone(),
-        finding.line.number(),
-    );
+    let (file, line) = finding.location();
+    let (project_owned, rule, file) = (project.to_string(), finding.rule.clone(), file.to_string());
     Ok(Notice {
         project: project.to_string(),
         landing,

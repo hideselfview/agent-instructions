@@ -153,12 +153,13 @@ fn change_part(input: &Input) -> String {
     if !input.open.is_empty() {
         out.push_str("\n# Open findings\n\nEarlier reviews raised these findings and the coordinator confirmed them. Check each problem against the current branch and include its verdict in `follow_up`.\n");
         for finding in input.open {
+            let (file, line) = finding.location();
             out.push_str(&format!(
                 "\n- Finding {} ({}), {}:{}\n  code: {}\n  problem: {}\n",
                 finding.id,
                 finding.rule,
-                finding.file,
-                finding.line,
+                file,
+                line,
                 one_line(&finding.code),
                 one_line(&finding.problem)
             ));

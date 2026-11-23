@@ -88,12 +88,6 @@ impl FindingLine {
     }
 }
 
-impl std::fmt::Display for FindingLine {
-    fn fmt(&self, out: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.number().fmt(out)
-    }
-}
-
 /// One `claude -p` process of a call, with everything it was sent and
 /// answered.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -221,6 +215,14 @@ pub struct Settle {
 }
 
 impl Finding {
+    /// The path and line that held the quote when the reviewer saw it.
+    pub fn location(&self) -> (&str, i64) {
+        (
+            self.line.site_path().unwrap_or(&self.file),
+            self.line.number(),
+        )
+    }
+
     /// Whether builds' own checks accepted it: a finding the coordinator sees.
     pub fn counts(&self) -> bool {
         self.check_failed.is_none()

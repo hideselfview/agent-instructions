@@ -695,6 +695,30 @@ fn a_dispute_tells_the_judge_and_the_wait_ends_when_the_judge_keeps_the_finding(
 }
 
 #[test]
+fn a_dispute_names_the_verified_path_of_a_removed_quote() {
+    let (r, _) = confirmed("judge-dispute-old-quote");
+    let mut finding = r
+        .demo
+        .store
+        .write(&stamp("agent"), "dispute finding", |db| {
+            dispute(db, r.finding, "the rule allows it here", &stamp("agent"))
+        })
+        .unwrap();
+    finding.line =
+        crate::review::record::FindingLine::Verified(crate::review::check::FilePosition {
+            path: "old.rs".into(),
+            position: crate::review::check::Position {
+                side: crate::review::check::Side::Before,
+                line: 7,
+            },
+        });
+    let db = r.demo.store.open_existing().unwrap();
+    let notice = dispute_notice(&db, "demo", &finding).unwrap();
+    let told = (notice.message)("judge");
+    assert!(told.contains("old.rs:7"), "{told}");
+}
+
+#[test]
 fn a_finding_has_one_dispute_and_a_second_disagreement_goes_to_the_coordinator() {
     let (r, agent) = confirmed("judge-dispute-once");
     let judge = caller("s-judge", "s-judge");
