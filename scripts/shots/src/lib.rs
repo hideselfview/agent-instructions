@@ -49,12 +49,17 @@ pub struct Versions {
     pub comparison: String,
 }
 
-/// Each shot the harnesses declare under <root>, a repo's files as they are
-/// at one commit, in name order. <config> is the text of the repo's
-/// `.app-build` at that commit, which names the declare folders.
-pub fn declared_scenes(root: &Path, config: &str) -> Result<Vec<Declared>, String> {
-    let settings = Settings::parse(config).map_err(|e| e.to_string())?;
-    declared::read(root, &settings.declared).map_err(|e| e.to_string())
+/// The platforms and declare folders in the shots checker's settings.
+pub fn declared_folders(config: &str) -> Result<Vec<(Platform, String)>, String> {
+    Ok(Settings::parse(config).map_err(|e| e.to_string())?.declared)
+}
+
+/// Each shot the harnesses in <folders> declare under <root>, in name order.
+pub fn declared_scenes(
+    root: &Path,
+    folders: &[(Platform, String)],
+) -> Result<Vec<Declared>, String> {
+    declared::read(root, folders).map_err(|e| e.to_string())
 }
 
 /// What builds runs the checker with.

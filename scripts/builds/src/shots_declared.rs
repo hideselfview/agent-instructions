@@ -104,32 +104,22 @@ fn declared_names(top: &Path, commit: &str, lane: Option<Lane>) -> Result<Vec<St
 /// The shots the commit's `.app-build` declares, limited to <lane> when given.
 fn declared_at(top: &Path, commit: &str, lane: Option<Lane>) -> Result<Vec<shots::Declared>> {
     let config = run_git(top, &["show", &format!("{commit}:{CONFIG}")])?;
-    // Keep the lane's original declaration lines and validate only those.
-    let config = if let Some(lane) = lane {
-        let platform = lane.shots_platform().word();
-        config
-            .lines()
-            .filter(|line| {
-                let mut words = line.split_whitespace();
-                words.next() == Some("shots-declared") && words.next() == Some(platform)
-            })
-            .collect::<Vec<_>>()
-            .join("\n")
-    } else {
-        config
+    let folders = match lane {
+        Some(lane) => boards::app_build::declared(&config, Some(lane.shots_platform()))
+            .map_err(|error| Fail::Message(error.text()))?,
+        None => shots::declared_folders(&config).map_err(Fail::Message)?,
     };
-    let folders = boards::app_build::declared(&config).map_err(|e| Fail::Message(e.text()))?;
     if folders.is_empty() {
         if lane.is_some() {
             return Ok(Vec::new());
         }
         fail!("{CONFIG} at {commit} has no shots-declared line, so no shot is declared");
     }
-    let paths: Vec<String> = folders.into_iter().map(|(_, folder)| folder).collect();
+    let paths: Vec<String> = folders.iter().map(|(_, folder)| folder.clone()).collect();
     let scratch = std::env::temp_dir();
     crate::evict::in_temp_dir(&scratch, ".builds-declared.", |root| {
         boards::export(top, commit, &paths, root, "the declared shots")?;
-        shots::declared_scenes(root, &config).map_err(Fail::Message)
+        shots::declared_scenes(root, &folders).map_err(Fail::Message)
     })
 }
 

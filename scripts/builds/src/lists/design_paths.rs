@@ -112,7 +112,7 @@ impl Globs {
     pub fn with_capture_folders(mut self, top: &Path) -> Result<Globs> {
         let file = top.join(".app-build");
         self.capture = match std::fs::read_to_string(&file) {
-            Ok(text) => boards::app_build::declared(&text)
+            Ok(text) => boards::app_build::declared(&text, None)
                 .map_err(|e| fail::Fail::Message(e.text()))?
                 .into_iter()
                 .map(|(_, folder)| folder)

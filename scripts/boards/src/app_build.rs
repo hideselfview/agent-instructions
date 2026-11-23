@@ -75,10 +75,11 @@ impl LineError {
 
 /// The platform and folder of each `shots-declared` line of <text>, an
 /// `.app-build` file, in the order written, each folder without a trailing
-/// `/`. A line is wrong when it names no platform, a platform other than
+/// `/`. With <only>, reads declarations for that platform. A line is wrong
+/// when it names no platform, a platform other than
 /// `Platform`, no folder or more than one, a folder outside the repo, or a
 /// platform that an earlier line declared.
-pub fn declared(text: &str) -> Result<Vec<(Platform, String)>, LineError> {
+pub fn declared(text: &str, only: Option<Platform>) -> Result<Vec<(Platform, String)>, LineError> {
     let mut declared: Vec<(Platform, String)> = Vec::new();
     for line in text.lines().map(str::trim) {
         let mut words = line.split_whitespace();
@@ -89,14 +90,19 @@ pub fn declared(text: &str) -> Result<Vec<(Platform, String)>, LineError> {
             line: line.to_string(),
             why,
         };
-        let rest: Vec<&str> = words.collect();
-        let [platform, value @ ..] = rest.as_slice() else {
+        let Some(word) = words.next() else {
             return Err(bad("names no platform"));
         };
-        let Some(platform) = Platform::parse(platform) else {
-            return Err(bad("names a platform other than mac, android or web"));
-        };
-        let folder = match value {
+        let platform = Platform::parse(word);
+        if let Some(only) = only
+            && platform != Some(only)
+        {
+            continue;
+        }
+        let platform =
+            platform.ok_or_else(|| bad("names a platform other than mac, android or web"))?;
+        let value: Vec<&str> = words.collect();
+        let folder = match value.as_slice() {
             [] => return Err(bad("names its platform and nothing else")),
             [folder] => *folder,
             _ => return Err(bad("gives more than one declare folder")),
