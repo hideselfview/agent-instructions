@@ -1,4 +1,16 @@
 use super::*;
+
+#[test]
+fn a_case_filter_cannot_keep_an_undecodable_header_with_the_previous_file() {
+    let patch = concat!(
+        "diff --git a/kept.rs b/kept.rs\n@@ -0,0 +1 @@\n+right file\n",
+        "diff --git \"a/r\\377.rs\" \"b/r\\377.rs\"\n@@ -0,0 +1 @@\n+wrong file\n",
+    );
+    let error = keep_files(patch, &["kept.rs".to_string()])
+        .unwrap_err()
+        .text();
+    assert!(error.contains("could not read a file path"), "{error}");
+}
 use crate::review::fakes::{Raised, fake};
 use crate::testing::Scratch;
 
@@ -524,7 +536,7 @@ fn a_patch_keeps_only_the_files_named_with_every_commit_message() {
     let patch = format!(
         "From {sha} Mon Sep 17 00:00:00 2001\nSubject: [PATCH] One\n\nWhy.\n---\n a.rs | 1 +\n b.rs | 1 +\n\ndiff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -0,0 +1 @@\n+a\ndiff --git a/b.rs b/b.rs\n--- a/b.rs\n+++ b/b.rs\n@@ -0,0 +1 @@\n+b\n-- \n2.50\n\nFrom {sha} Mon Sep 17 00:00:00 2001\nSubject: [PATCH] Two\n\n---\ndiff --git a/b.rs b/b.rs\n--- a/b.rs\n+++ b/b.rs\n@@ -1 +1 @@\n-b\n+c\n"
     );
-    let kept = keep_files(&patch, &["a.rs".to_string()]);
+    let kept = keep_files(&patch, &["a.rs".to_string()]).unwrap();
     assert_eq!(files::paths(&kept), ["a.rs"]);
     assert_eq!(messages_of_patch(&kept), messages_of_patch(&patch));
     assert!(kept.contains("+a\n") && !kept.contains("+b\n"));

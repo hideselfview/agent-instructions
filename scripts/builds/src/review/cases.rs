@@ -242,12 +242,15 @@ pub fn add(
 /// <patch> with only the diffs of the files in <keep>: every commit's mail
 /// header and message stay, and each other file's diff goes. A file's diff
 /// runs from its `diff --git` line to the next one or the next mail.
-pub fn keep_files(patch: &str, keep: &[String]) -> String {
+pub fn keep_files(patch: &str, keep: &[String]) -> Result<String> {
     let mut out = String::new();
     let mut kept = true;
     for line in patch.split_inclusive('\n') {
         if let Some(path) = files::new_path(line) {
             kept = keep.contains(&path);
+        } else if line.starts_with("diff --git ") {
+            let header = line.trim_end();
+            fail!("Builds could not read a file path from the Git header {header:?}.");
         } else if starts_mail(line) {
             kept = true;
         }
@@ -255,7 +258,7 @@ pub fn keep_files(patch: &str, keep: &[String]) -> String {
             out.push_str(line);
         }
     }
-    out
+    Ok(out)
 }
 
 /// Whether <line> starts a mail of `git format-patch` output: `From`, then a
