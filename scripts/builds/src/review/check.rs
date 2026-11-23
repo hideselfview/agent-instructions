@@ -37,17 +37,24 @@ pub struct DiffLine {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LineKind {
     /// A `+` line.
-    Added,
+    Added(i64),
     /// A `-` line.
     Removed,
     /// A line around the changes, which the diff neither adds nor removes.
-    Context,
+    Context(i64),
 }
 
 impl DiffLine {
     /// Whether the diff adds or removes the line.
     pub fn changed(&self) -> bool {
-        self.kind != LineKind::Context
+        !matches!(self.kind, LineKind::Context(_))
+    }
+
+    fn head_line(&self) -> Option<i64> {
+        match self.kind {
+            LineKind::Added(line) | LineKind::Context(line) => Some(line),
+            LineKind::Removed => None,
+        }
     }
 }
 
@@ -114,29 +121,32 @@ pub fn new_path(line: &str) -> Option<&str> {
 
 pub fn parse_diff(diff: &str) -> Vec<DiffFile> {
     let mut files: Vec<DiffFile> = Vec::new();
-    let mut in_hunk = false;
+    let mut head_line = None;
     for line in diff.lines() {
-        if !in_hunk || line.starts_with("diff --git ") {
-            if let Some(path) = new_path(line) {
-                files.push(DiffFile {
-                    path: path.to_string(),
-                    lines: Vec::new(),
-                });
-                in_hunk = false;
-            } else if line.starts_with("@@") {
-                in_hunk = true;
-            }
+        if let Some(path) = new_path(line) {
+            files.push(DiffFile {
+                path: path.to_string(),
+                lines: Vec::new(),
+            });
+            head_line = None;
             continue;
         }
-        if line.starts_with("@@") {
+        if let Some((_, new)) = super::files::hunk_ranges(line) {
+            head_line = Some(new.start);
             continue;
         }
+        let Some(number) = &mut head_line else {
+            continue;
+        };
         let kind = match line.chars().next() {
-            Some('+') => LineKind::Added,
+            Some('+') => LineKind::Added(*number),
             Some('-') => LineKind::Removed,
-            Some(' ') => LineKind::Context,
+            Some(' ') => LineKind::Context(*number),
             _ => continue,
         };
+        if kind != LineKind::Removed {
+            *number += 1;
+        }
         if let Some(file) = files.last_mut() {
             file.lines.push(DiffLine {
                 text: line[1..].to_string(),
@@ -228,6 +238,54 @@ pub fn code_in(files: &[DiffFile], file: &str, code: &str) -> Result<(), String>
         ))
     } else {
         Err(format!("its code is not in the diff of {file}"))
+    }
+}
+
+/// The start of <code> where the diff adds it to the reviewed tree. The
+/// reported line selects a verified occurrence when the quote appears more
+/// than once. A quote on removed lines alone has no location in the new tree.
+pub fn code_site<'a>(
+    files: &'a [DiffFile],
+    file: &str,
+    line: i64,
+    code: &str,
+) -> Result<Option<(&'a str, i64)>, String> {
+    let mut sites = Vec::new();
+    for patch in files.iter().filter(|patch| names_file(&patch.path, file)) {
+        let current = DiffFile {
+            path: patch.path.clone(),
+            lines: patch
+                .lines
+                .iter()
+                .filter(|line| line.head_line().is_some())
+                .cloned()
+                .collect(),
+        };
+        for place in current.places(code) {
+            let lines = current.lines_of(place);
+            let first = lines[0].head_line().expect("current line");
+            let contiguous = lines
+                .iter()
+                .zip(first..)
+                .all(|(part, number)| part.head_line() == Some(number));
+            let site = (patch.path.as_str(), first);
+            if contiguous && lines.iter().any(DiffLine::changed) && !sites.contains(&site) {
+                sites.push(site);
+            }
+        }
+    }
+    match sites.as_slice() {
+        [] => code_in(files, file, code).map(|()| None),
+        [site] => Ok(Some(*site)),
+        _ => {
+            let mut at_line = sites.into_iter().filter(|(_, number)| *number == line);
+            match (at_line.next(), at_line.next()) {
+                (Some(site), None) => Ok(Some(site)),
+                _ => Err(format!(
+                    "its quote occurs more than once in {file} and its line does not identify one occurrence"
+                )),
+            }
+        }
     }
 }
 

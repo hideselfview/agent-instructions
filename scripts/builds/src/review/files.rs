@@ -175,19 +175,71 @@ pub fn commit_message_file(messages: &str) -> Option<(FileDiff, crate::review::c
     ))
 }
 
-/// The new-file line ranges (first line, line count) of <diff>'s hunks.
-fn hunks(diff: &str) -> Vec<(i64, i64)> {
-    diff.lines()
-        .filter_map(|line| {
-            let rest = line.strip_prefix("@@ ")?;
-            let new = rest.split_whitespace().find(|part| part.starts_with('+'))?;
-            let (start, count) = match new[1..].split_once(',') {
-                Some((start, count)) => (start.parse().ok()?, count.parse().ok()?),
-                None => (new[1..].parse().ok()?, 1),
-            };
-            Some((start, count))
+#[derive(Clone, Copy)]
+pub struct LineRange {
+    pub start: i64,
+    pub count: i64,
+}
+
+impl LineRange {
+    fn end(self) -> i64 {
+        self.start + self.count.max(1)
+    }
+}
+
+/// The old and new line ranges named by a Git hunk header.
+pub fn hunk_ranges(line: &str) -> Option<(LineRange, LineRange)> {
+    fn range(text: &str) -> Option<LineRange> {
+        let (start, count) = text.split_once(',').unwrap_or((text, "1"));
+        Some(LineRange {
+            start: start.parse().ok()?,
+            count: count.parse().ok()?,
         })
-        .collect()
+    }
+    let mut parts = line.strip_prefix("@@ ")?.split_whitespace();
+    let old = range(parts.next()?.strip_prefix('-')?)?;
+    let new = range(parts.next()?.strip_prefix('+')?)?;
+    Some((old, new))
+}
+
+/// Where a line from <from> sits in <head>, accounting for edits above it.
+/// When Git replaces that line, returns the position in the replacement for
+/// the caller to check against the quote.
+pub fn line_at(repo: &Path, from: &str, head: &str, path: &str, line: i64) -> Result<Option<i64>> {
+    if from == head {
+        return Ok(Some(line));
+    }
+    if !super::commits::exists(repo, from)? {
+        return Ok(None);
+    }
+    let diff = super::commits::git_text(
+        repo,
+        &[
+            "diff",
+            "--no-color",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--no-renames",
+            "--unified=0",
+            "--inter-hunk-context=0",
+            from,
+            head,
+            "--",
+            &format!(":(top,literal){path}"),
+        ],
+    )?;
+    let mut offset = 0;
+    for (old, new) in diff.lines().filter_map(hunk_ranges) {
+        if line < old.start || (old.count == 0 && line == old.start) {
+            break;
+        }
+        if line < old.end() {
+            let within = line - old.start;
+            return Ok((within < new.count).then_some(new.start + within));
+        }
+        offset = new.end() - old.end();
+    }
+    Ok(Some(line + offset))
 }
 
 /// The new text of <path> around each hunk of <file_diff>, every line
@@ -202,9 +254,9 @@ pub fn context(source: Option<&Source>, path: &str, file_diff: &str) -> String {
     let lines: Vec<&str> = text.lines().collect();
     let total = lines.len() as i64;
     let mut ranges: Vec<(i64, i64)> = Vec::new();
-    for (start, count) in hunks(file_diff) {
-        let from = (start - AROUND).max(1);
-        let to = (start + count.max(1) - 1 + AROUND).min(total);
+    for (_, new) in file_diff.lines().filter_map(hunk_ranges) {
+        let from = (new.start - AROUND).max(1);
+        let to = (new.end() - 1 + AROUND).min(total);
         match ranges.last_mut() {
             Some(last) if from <= last.1 + 1 => last.1 = last.1.max(to),
             _ => ranges.push((from, to)),

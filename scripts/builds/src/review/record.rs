@@ -21,12 +21,28 @@ pub struct NewFinding {
     pub rule: String,
     pub clause: String,
     pub file: String,
-    pub line: i64,
+    pub line: FindingLine,
     pub code: String,
     pub problem: String,
     pub blocking: bool,
     /// Why builds dropped it before the coordinator saw it.
     pub check_failed: Option<String>,
+}
+
+/// The position the checked quote identifies in the reviewed tree, or the
+/// line the reviewer reported when the quote has no verified site there.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FindingLine {
+    AtHead(i64),
+    Reported(i64),
+}
+
+impl FindingLine {
+    pub fn number(self) -> i64 {
+        match self {
+            Self::AtHead(line) | Self::Reported(line) => line,
+        }
+    }
 }
 
 /// One `claude -p` process of a call, with everything it was sent and
@@ -174,13 +190,12 @@ impl Finding {
         self.kind == "review" && self.counts() && self.settled.is_none()
     }
 
-    /// Whether <raised> reports the same rule and clause at the same file
-    /// and line with the same quoted code (`cases::same_code`).
-    pub fn matches(&self, raised: &NewFinding) -> bool {
+    /// Whether <raised> quotes the same rule, clause and code in the same
+    /// file. The caller checks which occurrence it quotes.
+    pub fn matches_quote(&self, raised: &NewFinding) -> bool {
         self.rule == raised.rule
             && self.clause == raised.clause
-            && self.file == raised.file
-            && self.line == raised.line
+            && super::check::names_file(&raised.file, &self.file)
             && super::cases::same_code(&self.code, &raised.code)
     }
 
@@ -523,7 +538,7 @@ pub fn add_calls(
         for f in &call.findings {
             db.execute(
                 "INSERT INTO review_finding (call_id, rule, clause, file, line, code, problem, blocking, check_failed) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-                params![call_id, f.rule, f.clause, f.file, f.line, f.code, f.problem, f.blocking, f.check_failed],
+                params![call_id, f.rule, f.clause, f.file, f.line.number(), f.code, f.problem, f.blocking, f.check_failed],
             )
             .sql()?;
             finding_ids.push(db.last_insert_rowid());

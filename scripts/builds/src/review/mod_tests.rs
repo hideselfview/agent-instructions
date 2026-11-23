@@ -1316,7 +1316,7 @@ fn a_finding_on_another_occurrence_of_the_same_line_does_not_keep_the_original_o
         "alpha",
         serde_json::json!({
             "rules": [{"rule": "rule-a", "verdict": "finding", "findings": [
-                {"clause": BAD.0, "file": BAD.1, "line": 2, "code": BAD.3, "problem": BAD.4},
+                {"clause": BAD.0, "file": BAD.1, "line": 1, "code": BAD.3, "problem": BAD.4},
             ]}],
             "follow_up": [{"id": finding, "verdict": "fixed"}],
         }),
@@ -1327,6 +1327,51 @@ fn a_finding_on_another_occurrence_of_the_same_line_does_not_keep_the_original_o
     assert!(findings[0].closed_by.is_some(), "{}", reported.text);
     assert_eq!(findings[1].line, 2);
     assert!(findings[1].is_unsettled(), "{}", reported.text);
+}
+
+#[test]
+fn a_repeat_after_lines_above_it_shift_still_disagrees_with_a_fixed_verdict() {
+    let demo = demo("review-shifted-occurrence");
+    let fake = fake(&demo.scratch.dir);
+    let side = demo.add_side(1, "agent", "work");
+    std::fs::write(side.join("a.rs"), "a.rs\n").unwrap();
+    crate::testing::git(&side, &["add", "a.rs"]);
+    crate::testing::git(&side, &["commit", "-qm", "Add a.rs"]);
+    fake.answer("alpha", &[("rule-a", Some(BAD))]);
+    let landing = run_review(&demo, &fake, &side, "k").landing.unwrap();
+    let finding = findings_of(&demo, landing)[0].id;
+    settle_as(&demo, finding, "confirmed", "real");
+
+    std::fs::write(side.join("a.rs"), "prefix\na.rs\n").unwrap();
+    crate::testing::git(&side, &["commit", "-qam", "Add a line above the finding"]);
+    fake.answer_task(
+        "alpha",
+        serde_json::json!({
+            "rules": [{"rule": "rule-a", "verdict": "none", "findings": []}],
+            "follow_up": [{"id": finding, "verdict": {"still_open": "The bad line remains."}}],
+        }),
+    );
+    run_review(&demo, &fake, &side, "k");
+    fake.answer_task(
+        "alpha",
+        serde_json::json!({
+            "rules": [{"rule": "rule-a", "verdict": "finding", "findings": [
+                {"clause": BAD.0, "file": BAD.1, "line": 2, "code": BAD.3, "problem": BAD.4},
+            ]}],
+            "follow_up": [{"id": finding, "verdict": "fixed"}],
+        }),
+    );
+    let reported = run_review(&demo, &fake, &side, "k");
+    assert!(
+        reported
+            .text
+            .contains(&format!("disagreed on finding {finding}")),
+        "{}",
+        reported.text
+    );
+    let findings = findings_of(&demo, landing);
+    assert_eq!(findings.len(), 1, "{}", reported.text);
+    assert!(findings[0].is_open(), "{}", reported.text);
 }
 
 #[test]

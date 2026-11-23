@@ -13,9 +13,14 @@ fn split_cuts_at_each_file_and_drops_the_mail_header() {
 }
 
 #[test]
-fn hunks_read_new_ranges_with_and_without_a_count() {
-    assert_eq!(hunks(&split(DIFF)[0].text), vec![(1, 3)]);
-    assert_eq!(hunks(&split(DIFF)[1].text), vec![(5, 2)]);
+fn hunks_read_old_and_new_ranges_with_and_without_a_count() {
+    let ranges = |diff: &str| {
+        diff.lines()
+            .filter_map(hunk_ranges)
+            .map(|(old, new)| ((old.start, old.count), (new.start, new.count)))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(ranges(DIFF), [((1, 2), (1, 3)), ((5, 1), (5, 2))]);
 }
 
 #[test]

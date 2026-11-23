@@ -20,14 +20,17 @@ fn the_diff_is_split_by_file_and_each_line_loses_its_mark() {
         text: text.to_string(),
         kind,
     };
-    assert_eq!(files[0].lines[0], line("fn keep() {}", LineKind::Context));
+    assert_eq!(
+        files[0].lines[0],
+        line("fn keep() {}", LineKind::Context(1))
+    );
     assert_eq!(files[0].lines[1], line("fn old() {}", LineKind::Removed));
     // A removed line that looks like a diff header stays a line.
     assert_eq!(
         files[1].lines,
         [
             line("diff --git a/x b/x", LineKind::Removed),
-            line("text", LineKind::Added)
+            line("text", LineKind::Added(1))
         ]
     );
 }

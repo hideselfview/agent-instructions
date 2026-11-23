@@ -443,10 +443,10 @@ agent reports it, and the coordinator asks the person whether to allow the
 finding to land, or tells the agent to fix it.
 
 When a group raises an open confirmed finding again with the same rule,
-clause, file, line number and quoted code, builds matches the
-report to the open finding: the finding stays open, the run records no new
-finding, builds tells the judge nothing, and the run's report says the group
-still finds it.
+clause and quoted code at the same place in the file, builds matches the
+report to the open finding. Builds follows the line as edits above it move
+it. The finding stays open, the run records no new finding, builds tells
+the judge nothing, and the run's report says the group still finds it.
 
 In a later run, each group that holds open findings reads every file that
 changed since the last review, whether or not its rules cover the file,

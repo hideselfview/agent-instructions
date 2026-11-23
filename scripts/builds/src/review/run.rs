@@ -14,13 +14,13 @@ use crate::lists::design_paths::{FileKind, Globs};
 use crate::review::call;
 use crate::review::check::reviewers_map;
 use crate::review::check::{
-    DiffFile, clause_in, code_in, names_file, only_on_comment_lines, parse_diff,
+    DiffFile, clause_in, code_site, names_file, only_on_comment_lines, parse_diff,
 };
 use crate::review::commits;
 use crate::review::files::{self, FileDiff, Source};
 use crate::review::groups::{Group, Groups};
 use crate::review::prompt::{self, PROJECT_FACTS};
-use crate::review::record::{Finding, NewCall, NewExchange, NewFinding, RunRow};
+use crate::review::record::{Finding, FindingLine, NewCall, NewExchange, NewFinding, RunRow};
 use crate::review::rules::{self, Rule};
 use boards::git;
 
@@ -1043,6 +1043,7 @@ fn checked(
                 .expect("the answer's rules were checked against the group's");
             (rule.text.as_str(), rule.blocking, Some(*rule))
         };
+        let mut site = None;
         let check_failed = if !clause_in(&raw.clause, rule_text) {
             Some("its clause is not in the rule's text".to_string())
         } else if raw.file == files::COMMIT_MESSAGE && !group.commit_text {
@@ -1063,7 +1064,9 @@ fn checked(
                 "it is on {kind} file {}, and rule {} judges no {kind} file",
                 raw.file, raw.rule
             ))
-        } else if let Err(why) = code_in(quotes, &raw.file, &raw.code) {
+        } else if let Err(why) =
+            code_site(quotes, &raw.file, raw.line, &raw.code).map(|found| site = found)
+        {
             Some(why)
         } else if material.skips_comments(&raw.rule)
             && only_on_comment_lines(quotes, &raw.file, &raw.code)
@@ -1075,11 +1078,15 @@ fn checked(
         } else {
             None
         };
+        let (file, line) = match site {
+            Some((path, line)) => (path.to_string(), FindingLine::AtHead(line)),
+            None => (raw.file, FindingLine::Reported(raw.line)),
+        };
         call.findings.push(NewFinding {
             rule: raw.rule,
             clause: raw.clause,
-            file: raw.file,
-            line: raw.line,
+            file,
+            line,
             code: raw.code,
             problem: raw.problem,
             blocking,

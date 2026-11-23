@@ -138,7 +138,7 @@ fn landed_card(scratch: &Scratch) -> (crate::lists::store::Store, Id) {
                         rule: "r".into(),
                         clause: "c".into(),
                         file: "f".into(),
-                        line: n as i64,
+                        line: crate::review::record::FindingLine::AtHead(n as i64),
                         code: format!("x{n}"),
                         problem: "p".into(),
                         blocking: true,

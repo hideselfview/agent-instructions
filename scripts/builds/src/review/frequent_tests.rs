@@ -1,7 +1,7 @@
 use super::*;
 use crate::lists::fixtures::db;
 use crate::review::record::{
-    Change, Kind, NewCall, NewFinding, NewRun, add_landing, add_run, settle,
+    Change, FindingLine, Kind, NewCall, NewFinding, NewRun, add_landing, add_run, settle,
 };
 use crate::review::rules::Rule;
 
@@ -37,7 +37,7 @@ fn call(clauses: &[&str]) -> NewCall {
                 rule: "plain".to_string(),
                 clause: clause.to_string(),
                 file: "a.rs".to_string(),
-                line: 1,
+                line: FindingLine::AtHead(1),
                 code: "x".to_string(),
                 problem: "p".to_string(),
                 blocking: true,

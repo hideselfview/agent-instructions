@@ -402,17 +402,20 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
     // code is gone: the run closes it.
     let (open_findings, deleted) =
         run::split_deleted_findings(inputs.worktree, &change.head, open_findings)?;
-    let asks = match open {
-        None => vec![Ask {
-            groups: scope.group_names(&change.diff.changed),
-            change,
-            since: None,
-            last_review: true,
-            note: None,
-            open: Vec::new(),
-            at_head: true,
-            deleted,
-        }],
+    let (asks, previous_runs) = match open {
+        None => (
+            vec![Ask {
+                groups: scope.group_names(&change.diff.changed),
+                change,
+                since: None,
+                last_review: true,
+                note: None,
+                open: Vec::new(),
+                at_head: true,
+                deleted,
+            }],
+            Vec::new(),
+        ),
         Some(landing) => later_asks(
             &conn,
             inputs,
@@ -452,7 +455,13 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
             &ask.open,
         ));
     }
-    let still_found = account_for_repeated_findings(&asks, &mut answers, &open_findings);
+    let still_found = account_for_repeated_findings(
+        inputs.worktree,
+        &asks,
+        &mut answers,
+        &open_findings,
+        &previous_runs,
+    )?;
     let stamp = inputs.stamp;
     let (landing, runs) = inputs
         .store
@@ -580,34 +589,63 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
 /// another observation of the open finding. A repeat at the head contradicts
 /// any fixed verdict the group gives there, even in a separate ask.
 fn account_for_repeated_findings<'a>(
+    repo: &Path,
     asks: &[Ask],
     answers: &mut [run::Asked],
     open: &'a [record::Finding],
-) -> Vec<Vec<&'a record::Finding>> {
+    previous_runs: &[record::RunRow],
+) -> Result<Vec<Vec<&'a record::Finding>>> {
     let mut repeated_at_head = BTreeMap::new();
     let mut repeated = Vec::new();
     for (ask, answer) in asks.iter().zip(answers.iter_mut()) {
         let mut still: Vec<&record::Finding> = Vec::new();
         for call in &mut answer.calls {
-            call.findings.retain(|raised| {
-                let Some(finding) = open
+            for raised in std::mem::take(&mut call.findings) {
+                let candidates = open
                     .iter()
-                    .find(|held| held.group == call.group && held.matches(raised))
-                else {
-                    return true;
+                    .filter(|held| held.group == call.group && held.matches_quote(&raised));
+                let mut repeated = None;
+                for held in candidates {
+                    let same_site = match raised.line {
+                        record::FindingLine::AtHead(line)
+                            if raised.file != files::COMMIT_MESSAGE =>
+                        {
+                            let Some(run) = previous_runs.iter().find(|run| run.id == held.run_id)
+                            else {
+                                fail!(
+                                    "Builds found no review run {} for open finding {}.",
+                                    held.run_id,
+                                    held.id
+                                );
+                            };
+                            files::line_at(
+                                repo,
+                                &run.head,
+                                &ask.change.head,
+                                &raised.file,
+                                held.line,
+                            )? == Some(line)
+                        }
+                        line => held.line == line.number(),
+                    };
+                    if same_site {
+                        repeated = Some(held);
+                        break;
+                    }
+                }
+                let Some(finding) = repeated else {
+                    call.findings.push(raised);
+                    continue;
                 };
                 if raised.check_failed.is_none() {
                     if ask.at_head {
-                        repeated_at_head
-                            .entry(finding.id)
-                            .or_insert_with(|| raised.problem.clone());
+                        repeated_at_head.entry(finding.id).or_insert(raised.problem);
                     }
                     if !still.iter().any(|seen| seen.id == finding.id) {
                         still.push(finding);
                     }
                 }
-                false
-            });
+            }
         }
         repeated.push(still);
     }
@@ -631,7 +669,7 @@ fn account_for_repeated_findings<'a>(
             }
         }
     }
-    repeated
+    Ok(repeated)
 }
 
 /// One run of a review: the diff its reviewers read and the groups it asks.
@@ -679,7 +717,7 @@ fn later_asks(
     landing: i64,
     open: &[record::Finding],
     deleted: Vec<i64>,
-) -> Result<Vec<Ask>> {
+) -> Result<(Vec<Ask>, Vec<record::RunRow>)> {
     let coverage = landing::Coverage::of(conn, &record::landing(conn, landing)?)?;
     let calls = record::calls_of_landing(conn, landing)?;
     let read: Vec<&record::RunRow> = coverage.runs.iter().collect();
@@ -893,7 +931,7 @@ fn later_asks(
             short(&last.head)
         );
     }
-    Ok(asks)
+    Ok((asks, coverage.runs))
 }
 
 /// The first 10 characters of commit <rev>, as the review's reports and

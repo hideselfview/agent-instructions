@@ -47,7 +47,7 @@ fn call(group: &str, finding: Option<(&str, bool, Option<&str>)>) -> NewCall {
                 rule: rule.to_string(),
                 clause: "c".to_string(),
                 file: "f".to_string(),
-                line: 1,
+                line: FindingLine::AtHead(1),
                 code: "x".to_string(),
                 problem: "p".to_string(),
                 blocking,
