@@ -68,7 +68,10 @@ fn call(group: &str, finding: Option<(&str, bool, Option<&str>)>) -> NewCall {
                 rule: rule.to_string(),
                 clause: "c".to_string(),
                 file: "f".to_string(),
-                line: FindingLine::AtHead(1),
+                line: FindingLine::Verified(crate::review::check::Position {
+                    side: crate::review::check::Side::After,
+                    line: 1,
+                }),
                 code: "x".to_string(),
                 problem: "p".to_string(),
                 blocking,

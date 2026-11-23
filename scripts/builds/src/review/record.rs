@@ -13,6 +13,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use crate::db::Sql;
 use crate::fail;
 use crate::fail::Result;
+use crate::review::check::{Position, Side};
 use crate::review::texts::{self, Texts};
 
 /// A finding a reviewer raised, as it goes into the store.
@@ -33,8 +34,7 @@ pub struct NewFinding {
 /// line the reviewer reported when Builds has no verified site.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FindingLine {
-    AtHead(i64),
-    Removed(i64),
+    Verified(Position),
     Reported(i64),
     Legacy(i64),
 }
@@ -42,24 +42,19 @@ pub enum FindingLine {
 impl FindingLine {
     pub fn number(self) -> i64 {
         match self {
-            Self::AtHead(line)
-            | Self::Removed(line)
-            | Self::Reported(line)
-            | Self::Legacy(line) => line,
-        }
-    }
-
-    pub fn verified(site: super::check::QuoteSite<'_>) -> Self {
-        match site.side {
-            super::check::Side::After => Self::AtHead(site.line),
-            super::check::Side::Before => Self::Removed(site.line),
+            Self::Verified(position) => position.line,
+            Self::Reported(line) | Self::Legacy(line) => line,
         }
     }
 
     fn proof(self) -> Option<&'static str> {
         match self {
-            Self::AtHead(_) => Some("head"),
-            Self::Removed(_) => Some("removed"),
+            Self::Verified(Position {
+                side: Side::After, ..
+            }) => Some("head"),
+            Self::Verified(Position {
+                side: Side::Before, ..
+            }) => Some("removed"),
             Self::Reported(_) => Some("reported"),
             Self::Legacy(_) => None,
         }
@@ -67,8 +62,14 @@ impl FindingLine {
 
     fn read(line: i64, proof: Option<String>) -> rusqlite::Result<Self> {
         Ok(match proof.as_deref() {
-            Some("head") => Self::AtHead(line),
-            Some("removed") => Self::Removed(line),
+            Some("head") => Self::Verified(Position {
+                side: Side::After,
+                line,
+            }),
+            Some("removed") => Self::Verified(Position {
+                side: Side::Before,
+                line,
+            }),
             Some("reported") => Self::Reported(line),
             None => Self::Legacy(line),
             Some(kind) => {

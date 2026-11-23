@@ -677,7 +677,7 @@ fn same_finding_site(
     };
     let mut earlier = None;
     let original_line = match held.line {
-        FindingLine::AtHead(_) | FindingLine::Removed(_) => held.line,
+        FindingLine::Verified(_) => held.line,
         FindingLine::Reported(_) => return Ok(false),
         FindingLine::Legacy(line) => {
             let previous = previous()?;
@@ -692,29 +692,30 @@ fn same_finding_site(
                 return Ok(false);
             }
             earlier = Some(previous);
-            FindingLine::verified(site)
+            FindingLine::Verified(site.position)
         }
     };
     let path = &raised.file;
-    match (original_line, raised.line) {
-        (FindingLine::AtHead(original), FindingLine::AtHead(current)) => {
-            if path == files::COMMIT_MESSAGE {
-                return Ok(original == current);
-            }
-            Ok(files::line_at(repo, &run.head, &change.head, path, original)? == Some(current))
-        }
-        (FindingLine::Removed(original), FindingLine::Removed(current)) => {
-            let previous = earlier.map_or_else(previous, Ok)?;
-            Ok(files::line_at(
-                repo,
-                previous.before(path),
-                change.before(path),
-                path,
-                original,
-            )? == Some(current))
-        }
-        _ => Ok(false),
+    let (FindingLine::Verified(original), FindingLine::Verified(current)) =
+        (original_line, raised.line)
+    else {
+        return Ok(false);
+    };
+    if original.side != current.side {
+        return Ok(false);
     }
+    if path == files::COMMIT_MESSAGE {
+        return Ok(original.line == current.line);
+    }
+    let removal;
+    let (from, to) = match current.side {
+        check::Side::After => (run.head.as_str(), change.head.as_str()),
+        check::Side::Before => {
+            removal = earlier.map_or_else(previous, Ok)?;
+            (removal.before(path), change.before(path))
+        }
+    };
+    Ok(files::line_at(repo, from, to, path, original.line)? == Some(current.line))
 }
 
 /// One run of a review: the diff its reviewers read and the groups it asks.

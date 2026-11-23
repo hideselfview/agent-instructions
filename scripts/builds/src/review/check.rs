@@ -282,10 +282,15 @@ fn quote_sites(patch: &DiffFile, side: Side, code: &str) -> Vec<(i64, bool)> {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct QuoteSite<'a> {
-    pub path: &'a str,
+pub struct Position {
     pub side: Side,
     pub line: i64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct QuoteSite<'a> {
+    pub path: &'a str,
+    pub position: Position,
 }
 
 /// The start of the quote on the side where the diff changes it. The
@@ -301,7 +306,10 @@ pub fn code_site<'a>(
     }
     let named = named_patches(files, file)?;
     let path = named[0].path.as_str();
-    let site = |side, line| QuoteSite { path, side, line };
+    let site = |side, line| QuoteSite {
+        path,
+        position: Position { side, line },
+    };
     let mut current = Vec::new();
     let mut removed = Vec::new();
     let mut exact_context = false;

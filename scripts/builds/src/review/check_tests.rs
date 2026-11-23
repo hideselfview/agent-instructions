@@ -83,16 +83,20 @@ fn the_reported_removal_is_distinct_from_the_same_quote_added_elsewhere() {
         code_site(&files, "a.rs", 1, "repeat"),
         Ok(QuoteSite {
             path: "a.rs",
-            side: Side::Before,
-            line: 1,
+            position: Position {
+                side: Side::Before,
+                line: 1
+            },
         })
     );
     assert_eq!(
         code_site(&files, "a.rs", 2, "repeat"),
         Ok(QuoteSite {
             path: "a.rs",
-            side: Side::After,
-            line: 2,
+            position: Position {
+                side: Side::After,
+                line: 2
+            },
         })
     );
 }
@@ -148,8 +152,10 @@ fn a_report_for_an_exact_path_never_borrows_a_quote_from_another_file() {
         code_site(&files, "src/a.rs", 1, "repeat"),
         Ok(QuoteSite {
             path: "src/a.rs",
-            side: Side::After,
-            line: 1,
+            position: Position {
+                side: Side::After,
+                line: 1
+            },
         })
     );
 }
