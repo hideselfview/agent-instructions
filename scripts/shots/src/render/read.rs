@@ -585,6 +585,9 @@ fn subtree(raw: &[Raw], backend: i64) -> Result<Vec<Raw>, ReadError> {
     Ok(found)
 }
 
+/// The id of the style that turns transforms off while the reader measures.
+const UNTRANSFORMED: &str = "builds-shots-untransformed";
+
 async fn gather(page: &Page, frame: Bounds) -> Result<Vec<Raw>, ReadError> {
     // The root's overflow applies to the viewport, as does the body's when
     // the root lets overflow through.
@@ -611,44 +614,64 @@ async fn gather(page: &Page, frame: Bounds) -> Result<Vec<Raw>, ReadError> {
         .execute(GetFullAxTreeParams::default())
         .await
         .map_err(protocol)?;
-    let mut nodes = Vec::new();
-    for node in &tree.result.nodes {
-        let mut raw = raw(node);
-        if !raw.ignored && !STRUCTURE.contains(&raw.chrome_role.as_str()) {
-            match measure(page, node, &clipping_argument).await? {
-                Ok(Measurement::Clipped) => raw.ignored = true,
-                Ok(Measurement::Visible(geometry)) => {
-                    raw.bounds = Some(relative_to(geometry.bounds, (frame.x, frame.y)));
-                    raw.text = match (geometry.size, geometry.weight, geometry.color) {
-                        (Some(size), Some(weight), Some(color)) => {
-                            srgb(&color).map(|color| TextStyle {
-                                size: Some(size),
-                                weight: Some(weight),
-                                color: Some(color),
-                            })
+    // The apps report each element's layout box, whatever transform or
+    // graphics layer moves its drawing, so the boxes are read with the
+    // transforms off. The picture is already taken.
+    page.evaluate(format!(
+        "(() => {{ const off = document.createElement('style'); off.id = '{UNTRANSFORMED}'; \
+         off.textContent = '@layer {{ *, *::before, *::after {{ transform: none !important; \
+         translate: none !important; rotate: none !important; scale: none !important; }} }}'; \
+         document.head.append(off); }})()"
+    ))
+    .await
+    .map_err(protocol)?;
+    let measured: Result<Vec<Raw>, ReadError> = async {
+        let mut nodes = Vec::new();
+        for node in &tree.result.nodes {
+            let mut raw = raw(node);
+            if !raw.ignored && !STRUCTURE.contains(&raw.chrome_role.as_str()) {
+                match measure(page, node, &clipping_argument).await? {
+                    Ok(Measurement::Clipped) => raw.ignored = true,
+                    Ok(Measurement::Visible(geometry)) => {
+                        raw.bounds = Some(relative_to(geometry.bounds, (frame.x, frame.y)));
+                        raw.text = match (geometry.size, geometry.weight, geometry.color) {
+                            (Some(size), Some(weight), Some(color)) => {
+                                srgb(&color).map(|color| TextStyle {
+                                    size: Some(size),
+                                    weight: Some(weight),
+                                    color: Some(color),
+                                })
+                            }
+                            _ => None,
+                        };
+                        raw.placeholder = geometry.placeholder;
+                        raw.component = geometry.component;
+                        if geometry.current && raw.selected.is_none() {
+                            raw.selected = Some(true);
                         }
-                        _ => None,
-                    };
-                    raw.placeholder = geometry.placeholder;
-                    raw.component = geometry.component;
-                    if geometry.current && raw.selected.is_none() {
-                        raw.selected = Some(true);
-                    }
-                    // Chrome gives an empty field its placeholder as its
-                    // accessibility value; the DOM holds what is typed.
-                    if matches!(raw.chrome_role.as_str(), "textbox" | "searchbox") {
-                        if let Some(value) = geometry.field_value {
-                            raw.value = Some(value);
+                        // Chrome gives an empty field its placeholder as its
+                        // accessibility value; the DOM holds what is typed.
+                        if matches!(raw.chrome_role.as_str(), "textbox" | "searchbox") {
+                            if let Some(value) = geometry.field_value {
+                                raw.value = Some(value);
+                            }
+                            raw.secret = geometry.secret;
                         }
-                        raw.secret = geometry.secret;
                     }
+                    Err(why) => raw.no_box = Some(why),
                 }
-                Err(why) => raw.no_box = Some(why),
             }
+            nodes.push(raw);
         }
-        nodes.push(raw);
+        Ok(nodes)
     }
-    Ok(nodes)
+    .await;
+    page.evaluate(format!(
+        "document.getElementById('{UNTRANSFORMED}').remove()"
+    ))
+    .await
+    .map_err(protocol)?;
+    measured
 }
 
 /// Whether the DOM node <node> describes is clipped, its box and style if it

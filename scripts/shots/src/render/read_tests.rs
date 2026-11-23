@@ -439,6 +439,63 @@ async fn a_board_reads_as_the_shots_do() {
 }
 
 #[tokio::test]
+async fn a_board_element_is_read_where_layout_puts_it_before_any_transform() {
+    let root = fixture::tree(&[(
+        "fixture.transforms",
+        r#"<x-dc><helmet><style>body{margin:0;font:16px/20px sans-serif}
+.raised{position:absolute;left:20px;top:50px;transform:translateY(-10px)}
+.spun{position:absolute;left:100px;top:50px;width:40px;height:20px;rotate:45deg;scale:2}
+.moved{position:absolute;left:200px;top:50px;translate:30px 30px}</style></helmet>
+<button class="raised">Raised</button>
+<button class="spun">Spun</button>
+<div class="moved">Moved words</div>
+</x-dc>"#,
+    )]);
+    let elements = fixture::with_browser(root.path(), async |server, chrome| {
+        let page = chrome.new_page().await.unwrap();
+        let url = server.board_url("fixture.transforms");
+        let rendered = render(
+            &page,
+            "fixture.transforms",
+            &url,
+            Frame { w: 300, h: 150 },
+            1.0,
+        )
+        .await
+        .unwrap();
+        let read = elements(&page, rendered.frame, Platform::Mac)
+            .await
+            .unwrap();
+        // Reading leaves the page as it drew it.
+        let still: String = page
+            .evaluate("getComputedStyle(document.querySelector('.raised')).transform")
+            .await
+            .unwrap()
+            .into_value()
+            .unwrap();
+        assert_eq!(still, "matrix(1, 0, 0, 1, 0, -10)");
+        read
+    })
+    .await;
+    let raised = find(&elements, Role::Button, "Raised");
+    assert_eq!(raised.bounds.y, 50.0, "{:?}", raised.bounds);
+    let spun = find(&elements, Role::Button, "Spun");
+    assert_eq!(
+        (
+            spun.bounds.x,
+            spun.bounds.y,
+            spun.bounds.width,
+            spun.bounds.height
+        ),
+        (100.0, 50.0, 40.0, 20.0)
+    );
+    let moved = find(&elements, Role::Text, "Moved words");
+    // The words' box sits inside the 20 pt line the layout gives them.
+    assert_eq!(moved.bounds.x, 200.0);
+    assert!((50.0..52.0).contains(&moved.bounds.y), "{:?}", moved.bounds);
+}
+
+#[tokio::test]
 async fn a_texts_box_is_its_words_not_its_container() {
     let elements = read_fixture().await;
     let short = find(&elements, Role::Text, "Short");
