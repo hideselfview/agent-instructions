@@ -21,6 +21,7 @@ const LABELS: [&str; 5] = ["H", "A", "B", "C", "X"];
 /// builds write their log and gates in its folder too.
 struct Volume {
     dir: PathBuf,
+    pinned_builds: PathBuf,
     started: Vec<Child>,
 }
 
@@ -86,10 +87,11 @@ impl Volume {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("volume/demo")).unwrap();
         std::fs::write(dir.join("volume/demo/app-checkouts"), "side-1\n").unwrap();
-        programs_folder(&dir.join("home"));
+        let pinned_builds = programs_folder(&dir.join("home"));
         fake_apple_tools(&dir.join("bin"));
         Volume {
             dir,
+            pinned_builds,
             started: Vec::new(),
         }
     }
@@ -756,14 +758,10 @@ fn a_lane_refuses_to_start_if_install_moved_the_store_after_program_selection() 
 
     // The parent selects this path. The wrapper finishes the store move
     // before it starts the old lane executable.
-    let pinned = volume
-        .dir
-        .join("home/.local/lib/builds")
-        .join(env!("BUILDS_SOURCE"))
-        .join("builds");
-    std::fs::remove_file(&pinned).unwrap();
+    let pinned = &volume.pinned_builds;
+    std::fs::remove_file(pinned).unwrap();
     std::fs::write(
-        &pinned,
+        pinned,
         r#"#!/bin/sh
 set -e
 support="$HOME/Library/Application Support/builds"
@@ -773,7 +771,7 @@ exec "$OLD_BUILDS" "$@"
 "#,
     )
     .unwrap();
-    std::fs::set_permissions(&pinned, std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::fs::set_permissions(pinned, std::fs::Permissions::from_mode(0o755)).unwrap();
 
     let ran = volume
         .builds()
