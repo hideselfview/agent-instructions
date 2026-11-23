@@ -585,7 +585,21 @@ pub fn schema_before_landing_abandoned() -> String {
 
 #[cfg(test)]
 pub fn schema_before_app_build_requested_commit() -> String {
-    parts_before(APP_BUILD_REQUESTED_COMMIT_PART).join("\n")
+    without_reused_shots(&parts_before(APP_BUILD_REQUESTED_COMMIT_PART).join("\n"))
+}
+
+/// The schema before app builds recorded reused shots comparisons.
+#[cfg(test)]
+pub fn schema_before_reused_shots() -> String {
+    without_reused_shots(SCHEMA)
+}
+
+#[cfg(test)]
+fn without_reused_shots(schema: &str) -> String {
+    schema.replace(
+        "CHECK (\n        result IN ('passed', 'failed', 'timed out', 'taken over', 'stopped')\n        OR (kind = 'shots' AND at_merge_base IS 0 AND result = 'reused')\n    )",
+        "CHECK (result IN ('passed', 'failed', 'timed out', 'taken over', 'stopped'))",
+    )
 }
 
 #[cfg(test)]
@@ -750,7 +764,7 @@ fn schema_before(part: &str) -> String {
 /// abandoned.
 #[cfg(test)]
 fn text_before(part: &str) -> String {
-    with_landing_not_abandoned(parts_before(part).join("\n"))
+    with_landing_not_abandoned(without_reused_shots(&parts_before(part).join("\n")))
 }
 
 #[cfg(test)]

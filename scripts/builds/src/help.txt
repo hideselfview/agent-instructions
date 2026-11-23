@@ -1409,16 +1409,16 @@ built again.
                               lane with runs and no step builds its `needs`
                               steps; each lane takes the free app checkout on
                               the less loaded host. A --shots or
-                              --all-shots pick whose run builds has already cached
-                              and that a passing app build of <ref>'s commit
-                              ran (the build `builds land` counts) prints its
-                              findings and takes no lock; a cached run that
-                              no passing build ran is run again. --fresh
-                              runs it anyway: it builds the app, takes
-                              every selected shot again, and replaces each
-                              kept picture of the lane's app tree with the
-                              new one, so a picture taken before its window
-                              loaded does not stay in the picture folder
+                              --all-shots pick can reuse a passing comparison
+                              for <ref>'s commit that a passing app build
+                              covers. Builds prints the cached findings and
+                              records the reused comparisons with the lane's
+                              other steps. When every pick uses the cache,
+                              builds runs any changed lane that needs a
+                              record covering those picks and its required
+                              steps. --fresh builds the app, takes every
+                              selected shot again and replaces the cached
+                              pictures with the new ones.
   builds app-build <repo> <ref> <step>... [--test mac|android <Class>]... [--shots mac|android <prefix>]... [--all-shots mac|android]... [--fresh]
                               check out <ref> in a free app checkout of each
                               lane the steps are in, holding that checkout's
@@ -1495,8 +1495,8 @@ built again.
                               target is a commit the branch holds since its
                               merge base, however many other runs came
                               after them. They
-                              count each shots prefix they ran to a verdict,
-                              passed or failed, so a run that shows a pair
+                              count each shots prefix they ran to a verdict
+                              or reused from cache, so a run that shows a pair
                               worse than its base cannot be skipped by a later
                               run of other shots. A shots step covers its own
                               prefix and every prefix that starts with it

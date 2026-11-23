@@ -72,6 +72,8 @@ impl StepKind {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StepResult {
     Passed,
+    /// The lane reused a passing shots comparison.
+    Reused,
     Failed(StepFailure),
     TimedOut(StepFailure),
     TakenOver,
@@ -83,6 +85,7 @@ impl StepResult {
     pub fn word(&self) -> &'static str {
         match self {
             StepResult::Passed => "passed",
+            StepResult::Reused => "reused",
             StepResult::Failed(_) => "failed",
             StepResult::TimedOut(_) => "timed out",
             StepResult::TakenOver => "taken over",
@@ -100,6 +103,7 @@ impl StepResult {
         };
         Ok(match word {
             "passed" => StepResult::Passed,
+            "reused" => StepResult::Reused,
             "failed" => StepResult::Failed(said()?),
             "timed out" => StepResult::TimedOut(said()?),
             "taken over" => StepResult::TakenOver,
@@ -112,12 +116,15 @@ impl StepResult {
     pub fn failure(&self) -> Option<&StepFailure> {
         match self {
             StepResult::Failed(failure) | StepResult::TimedOut(failure) => Some(failure),
-            StepResult::Passed | StepResult::TakenOver | StepResult::Stopped => None,
+            StepResult::Passed
+            | StepResult::Reused
+            | StepResult::TakenOver
+            | StepResult::Stopped => None,
         }
     }
 }
 
-/// One step a run started.
+/// One step a run started or a shots comparison it reused.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StepRecord {
     pub name: String,
@@ -449,32 +456,22 @@ pub fn record_stopped_runs(db: &Connection) -> Result<()> {
             ";",
         )],
     )?;
-    remake_table(
-        db,
-        "app_build_steps",
-        statement(
-            schema,
-            "CREATE TABLE IF NOT EXISTS app_build_steps",
-            ") STRICT, WITHOUT ROWID;",
-        ),
-        |db| {
-            db.execute_batch(
-                "INSERT INTO app_build_steps (run_id, position, name, kind, started_at, wall_ms, cpu_ms, result) SELECT run_id, position, name, kind, started_at, wall_ms, cpu_ms, result FROM app_build_steps_old",
-            )
-            .sql()
-        },
-        &[statement(
-            schema,
-            "CREATE INDEX IF NOT EXISTS idx_app_build_steps_name",
-            ";",
-        )],
-    )
+    remake_steps(db, "NULL")
 }
 
 /// Makes `app_build_steps` again as app_timing.sql writes it, with whether
 /// each step ran at the merge base: a store from before kept no such column,
 /// and each step in it has NULL, since builds never recorded which it was.
 pub fn add_at_merge_base(db: &Connection) -> Result<()> {
+    remake_steps(db, "NULL")
+}
+
+/// Keeps the existing step rows when their table adds reused shots results.
+pub fn allow_reused_shots(db: &Connection) -> Result<()> {
+    remake_steps(db, "at_merge_base")
+}
+
+fn remake_steps(db: &Connection, merge_base_column: &str) -> Result<()> {
     use crate::db::{Sql, remake_table, statement};
     let schema = include_str!("app_timing.sql");
     remake_table(
@@ -486,9 +483,10 @@ pub fn add_at_merge_base(db: &Connection) -> Result<()> {
             ") STRICT, WITHOUT ROWID;",
         ),
         |db| {
-            db.execute_batch(
-                "INSERT INTO app_build_steps (run_id, position, name, kind, started_at, wall_ms, cpu_ms, result) SELECT run_id, position, name, kind, started_at, wall_ms, cpu_ms, result FROM app_build_steps_old",
-            )
+            db.execute_batch(&format!(
+                "INSERT INTO app_build_steps (run_id, position, name, kind, started_at, wall_ms, cpu_ms, at_merge_base, result)
+                 SELECT run_id, position, name, kind, started_at, wall_ms, cpu_ms, {merge_base_column}, result FROM app_build_steps_old"
+            ))
             .sql()
         },
         &[statement(
@@ -500,7 +498,7 @@ pub fn add_at_merge_base(db: &Connection) -> Result<()> {
 }
 
 /// A passing app build run: the commit it built (app_build_commit.rs) and
-/// the steps that passed in it.
+/// the steps that passed in it, including reused shots comparisons.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PassedRun {
     pub commit: String,
@@ -508,7 +506,7 @@ pub struct PassedRun {
 }
 
 impl PassedRun {
-    /// The prefixes of the shots steps that passed in the run.
+    /// The prefixes of the shots comparisons that passed or were reused.
     pub fn shots_prefixes(&self) -> impl Iterator<Item = &str> {
         self.steps
             .iter()
@@ -574,12 +572,14 @@ pub fn passed_runs(
         .collect()
 }
 
-/// The names of the steps that passed in the run <id>, in the order they
-/// ran.
+/// The names of the steps that passed in the run <id>, including reused shots
+/// comparisons.
 fn passed_steps(conn: &Connection, id: i64, path: &Path) -> Result<Vec<String>> {
     let what = || format!("reading {}", path.display());
     conn.prepare(
-        "SELECT name FROM app_build_steps WHERE run_id = ?1 AND result = 'passed' ORDER BY position",
+        "SELECT name FROM app_build_steps
+         WHERE run_id = ?1 AND at_merge_base IS NOT 1 AND result IN ('passed', 'reused')
+         ORDER BY position",
     )
     .context(what)?
     .query_map([id], |row| row.get(0))
@@ -658,7 +658,8 @@ pub fn shots_ran(
 
 /// What the SQL of a query over shots steps needs to keep: steps that ran to
 /// a verdict.
-const SHOTS_VERDICT: &str = "s.kind = 'shots' AND s.result IN ('passed', 'failed', 'timed out')";
+const SHOTS_VERDICT: &str =
+    "s.kind = 'shots' AND s.result IN ('passed', 'reused', 'failed', 'timed out')";
 
 /// The shots prefix a shots step <name> names, in the database at <path>.
 fn shots_prefix<'a>(name: &'a str, path: &Path) -> Result<&'a str> {
@@ -751,7 +752,7 @@ pub fn waits(conn: &Connection, since: i64, path: &Path) -> Result<Vec<crate::wa
             Kind::AppBuildStep,
             "SELECT s.started_at, s.wall_ms, r.cores, r.load
              FROM app_build_steps s JOIN app_build_runs r ON r.id = s.run_id
-             WHERE s.started_at >= ?1",
+             WHERE s.started_at >= ?1 AND s.result <> 'reused'",
         ),
     ] {
         let mut statement = conn.prepare(sql).context(what)?;

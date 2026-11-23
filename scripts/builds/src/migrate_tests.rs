@@ -2444,3 +2444,59 @@ fn a_store_from_before_abandoned_landings_keeps_its_landings_and_equals_a_fresh_
     };
     add_landing(&conn, change, 11).unwrap();
 }
+
+#[test]
+fn a_store_from_before_reused_shots_keeps_its_steps_and_their_shots_details() {
+    use crate::app_build_step_shots::{self, BaseRun, Pictures, ShotsUse};
+    use crate::app_timing::{StepKind, StepRecord, StepResult};
+
+    let scratch = Scratch::new("move-reused-shots");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    let schema = db::schema_before_reused_shots();
+    assert_eq!(db::stamp_of_text(&schema), BEFORE_REUSED_SHOTS_STAMP);
+    {
+        let mut conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&schema).unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_REUSED_SHOTS_STAMP)
+            .unwrap();
+        let tx = conn.transaction().unwrap();
+        tx.execute_batch(
+            "INSERT INTO app_build_runs (id, started_at, repo, lane, checkout, built_ref, wait_ms, outcome) VALUES (1, 5, 'bae', 'mac', 'side-1', 'work', 0, 'passed');
+             INSERT INTO app_build_steps (run_id, position, name, kind, started_at, wall_ms, cpu_ms, at_merge_base, result) VALUES (1, 0, 'shots mac.a.', 'shots', 5, 1, 1, 1, 'passed');",
+        )
+        .unwrap();
+        app_build_step_shots::record(
+            &tx,
+            1,
+            &[StepRecord {
+                name: "shots mac.a.".into(),
+                kind: StepKind::Shots,
+                started_at: 5,
+                wall_ms: 1,
+                cpu_ms: 1,
+                at_merge_base: Some(true),
+                result: StepResult::Passed,
+                shots: Some(ShotsUse {
+                    environment: "26B131-17C529".into(),
+                    base_run: BaseRun::NotNeeded,
+                    pictures: Some(Pictures {
+                        reused: 0,
+                        captured: 1,
+                    }),
+                }),
+            }],
+        )
+        .unwrap();
+        tx.commit().unwrap();
+    }
+    migrate_stores(&places, 0).unwrap();
+    let run = crate::app_timing::read_run(&path).unwrap();
+    assert_eq!(run.steps[0].at_merge_base, Some(true));
+    assert_eq!(
+        run.steps[0].shots.as_ref().unwrap().environment,
+        "26B131-17C529"
+    );
+}

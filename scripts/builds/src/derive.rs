@@ -17,9 +17,10 @@
 //! lane. A lane with such a run builds
 //! what its changed paths need, or, when they need nothing in that lane, what
 //! its `needs` line names, so the run has a build of <ref> to run against. A
-//! `--shots` or `--all-shots` run whose findings for <ref> are already cached
-//! prints them instead of running, unless `--fresh`, which also builds the
-//! app and takes the shots again, replacing their pictures in the folder.
+//! `--shots` or `--all-shots` run can reuse a cached comparison from a
+//! passing app build of <ref>. The lane records the reused comparisons
+//! with the steps it runs. `--fresh` builds the app and takes the shots
+//! again, replacing their pictures in the folder.
 //!
 //! A lane with shots picks and no step that a changed path needs runs the
 //! lane's `needs` steps for them, or none when its picture folder caches every
@@ -306,7 +307,7 @@ pub fn derive_and_run(places: &Places, args: &[String]) -> Result<()> {
     }
     let (top, commit, mut config) = app_build::commit_and_config(places, repo, git_ref)?;
     adopt_main_rules(&top, &mut config)?;
-    let (mut picks, fresh) = parse_picks(tail, |kind, arg| match kind {
+    let (picks, fresh) = parse_picks(tail, |kind, arg| match kind {
         PickKind::Shots => lane_of_prefix(arg),
         PickKind::Class => lane_of_class(&lanes_declaring(&top, &config, &commit, arg)?, arg),
     })?;
@@ -315,17 +316,25 @@ pub fn derive_and_run(places: &Places, args: &[String]) -> Result<()> {
             return Err(app_build::missing_line(*lane, *kind, arg));
         }
     }
-    if !picks.is_empty() && !fresh {
+    let asked_for_picks = !picks.is_empty();
+    let picks = if asked_for_picks && !fresh {
         let program = crate::this_program()?;
-        picks = app_build::serve_cached(places, repo, &commit, picks, &program)?;
-        if picks.is_empty() {
+        app_build::serve_cached(places, repo, &commit, picks, &program)?
+    } else {
+        app_build::BuildPicks::pending(picks)
+    };
+    crate::shots_declared::refuse_undeclared(&top, &commit, &picks.pending)?;
+    let changed = changed_paths(&top, &commit)?;
+    let required = plan(&config, &changed, &[]);
+    let lanes = if asked_for_picks && picks.pending.is_empty() {
+        let uncovered = picks.lanes_without_coverage(places, repo, &commit, &required)?;
+        if uncovered.is_empty() {
             return Ok(());
         }
-    }
-    crate::shots_declared::refuse_undeclared(&top, &commit, &picks)?;
-    let pinned = app_build::pin(places)?;
-    let changed = changed_paths(&top, &commit)?;
-    let lanes = plan(&config, &changed, &picks);
+        uncovered
+    } else {
+        plan(&config, &changed, &picks.pending)
+    };
     if lanes.is_empty() {
         note(format!(
             "nothing to build: no path {git_ref} changes needs a step ({CONFIG}'s `on` lines)"
@@ -336,10 +345,6 @@ pub fn derive_and_run(places: &Places, args: &[String]) -> Result<()> {
     // the picture folder caches the shots (the lane decides, once it knows
     // the environment its shots are taken in). --fresh takes the shots again,
     // so no lane skips its build for them.
-    let built_for_changes: Vec<Lane> = plan(&config, &changed, &[])
-        .into_iter()
-        .map(|(lane, _)| lane)
-        .collect();
     let needs_only: Vec<Lane> = if fresh {
         Vec::new()
     } else {
@@ -347,10 +352,14 @@ pub fn derive_and_run(places: &Places, args: &[String]) -> Result<()> {
             .iter()
             .map(|(lane, _)| *lane)
             .filter(|lane| {
-                let own: Vec<&Pick> = picks.iter().filter(|(own, _, _)| own == lane).collect();
+                let own: Vec<&Pick> = picks
+                    .pending
+                    .iter()
+                    .filter(|(own, _, _)| own == lane)
+                    .collect();
                 !own.is_empty()
                     && own.iter().all(|(_, kind, _)| *kind == PickKind::Shots)
-                    && !built_for_changes.contains(lane)
+                    && !required.iter().any(|(own, _)| own == lane)
             })
             .collect()
     };
@@ -365,6 +374,7 @@ pub fn derive_and_run(places: &Places, args: &[String]) -> Result<()> {
             }
         ));
     }
+    let pinned = app_build::pin(places)?;
     app_build::run_lanes(
         &pinned,
         repo,

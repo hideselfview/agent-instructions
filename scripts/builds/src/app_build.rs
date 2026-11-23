@@ -142,6 +142,8 @@ const USAGE: &str = "usage: builds app-build <repo> <ref> [--test <Class>]... [-
 /// Set by the parent in each lane's process: print the marker line below once
 /// the checkout is known.
 const PREFIXED: &str = "BUILDS_APP_BUILD_PREFIXED";
+/// Set by the parent to the lane's list of shots comparisons it reused.
+const REUSED_SHOTS: &str = "BUILDS_APP_BUILD_REUSED_SHOTS";
 /// A line of a lane's output that names the checkout it builds in; the parent
 /// changes the prefix and prints nothing.
 const CHECKOUT_MARKER: &str = "\u{1}builds-app-checkout ";
@@ -1707,11 +1709,26 @@ impl Timing {
         repo: &str,
         lane: Lane,
         built_ref: &str,
+        reused_shots: &[String],
         outcome: RunEnd,
     ) -> Result<()> {
         let Some(held) = self.held else {
             return Ok(());
         };
+        let mut steps = Vec::new();
+        if self.commit.is_some() {
+            steps.extend(reused_shots.iter().map(|prefix| StepRecord {
+                name: format!("{}{prefix}", PickKind::Shots.step_prefix()),
+                kind: StepKind::Shots,
+                started_at: held.joined_at,
+                wall_ms: 0,
+                cpu_ms: 0,
+                at_merge_base: Some(false),
+                result: StepResult::Reused,
+                shots: None,
+            }));
+        }
+        steps.extend(self.steps);
         let run = RunRecord {
             started_at: held.joined_at,
             repo: repo.to_string(),
@@ -1724,7 +1741,7 @@ impl Timing {
             wait_ms: held.wait.as_millis() as u64,
             outcome,
             load: held.load,
-            steps: self.steps,
+            steps,
         };
         crate::handed_runs::record(places, &run).context(|| {
             format!(
@@ -1801,7 +1818,14 @@ fn run_lane(
         Err(_) if lock::stop_signal().is_some() => RunEnd::Stopped,
         Err(_) => RunEnd::Failed,
     };
-    let recorded = timing.record(&tool.places, repo, lane, request.named, outcome);
+    let recorded = timing.record(
+        &tool.places,
+        repo,
+        lane,
+        request.named,
+        request.reused_shots,
+        outcome,
+    );
     crate::fail::with_cleanup(result.map_err(Fail::from), recorded)
 }
 
@@ -1816,6 +1840,7 @@ struct LaneRequest<'a> {
     named: &'a str,
     names: &'a [String],
     picks: &'a [Pick],
+    reused_shots: &'a [String],
     /// The steps <names> are only what the shots picks need (`NEEDS_ONLY`).
     needs_only: bool,
     /// The run has `--fresh` (`FRESH`).
@@ -2517,25 +2542,74 @@ fn left_unchanged(site: &mut Site, built_file: &Path, ran: Result<Ended>) -> Res
     }
 }
 
-/// Prints the cached findings of each `--shots` pick in <picks> that has a
-/// run cached for <git_ref>'s commit and a passing app build of that commit
-/// that ran the pick's prefix, and returns the picks left to run: the `--test`
-/// picks, and the `--shots` picks with no such run. The passing build is the
-/// record that `builds land` reads for the branch's builds
-/// (`app_timing::passed_runs`), so a pick that is printed and not run leaves
-/// a build that land counts; a cached run that no passing build ran is run
-/// again. A run of picks with no step builds nothing, so a cached run is
-/// printed in place of taking the lane. A repo in no project records no
-/// builds and prints every cached run.
+/// The requested picks left to run and the shots comparisons the parent reused.
+pub struct BuildPicks {
+    pub pending: Vec<Pick>,
+    reused: Vec<(Lane, String)>,
+}
+
+impl BuildPicks {
+    pub fn pending(picks: Vec<Pick>) -> Self {
+        Self {
+            pending: picks,
+            reused: Vec::new(),
+        }
+    }
+
+    fn reused_in(&self, lane: Lane) -> impl Iterator<Item = &str> {
+        self.reused
+            .iter()
+            .filter(move |(own, _)| *own == lane)
+            .map(|(_, prefix)| prefix.as_str())
+    }
+
+    /// When all picks came from cache, run only the lanes that need a new
+    /// record to cover those picks and the steps the changes require.
+    pub fn lanes_without_coverage(
+        &self,
+        places: &Places,
+        repo: &str,
+        commit: &str,
+        required: &[(Lane, Vec<String>)],
+    ) -> Result<Vec<(Lane, Vec<String>)>> {
+        if required.is_empty() || self.reused.is_empty() {
+            return Ok(Vec::new());
+        }
+        let Some(database) = app_timing::database_of(places, repo)? else {
+            return Ok(Vec::new());
+        };
+        let conn = crate::db::open(&database, crate::db::Make::Never)?;
+        let own = [commit.to_string()];
+        let mut uncovered = Vec::new();
+        for (lane, names) in required {
+            if self.reused_in(*lane).next().is_none() {
+                continue;
+            }
+            let runs = app_timing::passed_runs(&conn, repo, *lane, &database, None, &own)?;
+            if !runs.iter().any(|run| {
+                names.iter().all(|name| run.steps.contains(name))
+                    && self.reused_in(*lane).all(|prefix| run.ran_shots(prefix))
+            }) {
+                uncovered.push((*lane, names.clone()));
+            }
+        }
+        Ok(uncovered)
+    }
+}
+
+/// Prints the cached findings of each shot comparison that passed for
+/// <commit> and that a passing app build of <commit> covers. Keeps the
+/// other picks for the lane to run. A repo in no project records no builds
+/// and prints every cached run.
 pub fn serve_cached(
     places: &Places,
     repo: &str,
-    git_ref: &str,
+    commit: &str,
     picks: Vec<Pick>,
     program: &Path,
-) -> Result<Vec<Pick>> {
+) -> Result<BuildPicks> {
     if !picks.iter().any(|(_, kind, _)| *kind == PickKind::Shots) {
-        return Ok(picks);
+        return Ok(BuildPicks::pending(picks));
     }
     let recorded = match app_timing::database_of(places, repo)? {
         Some(database) => {
@@ -2544,40 +2618,46 @@ pub fn serve_cached(
         }
         None => None,
     };
-    let commit = shot_findings::commit_of(places, repo, git_ref)?;
-    let mut left = Vec::new();
+    let mut selected = BuildPicks::pending(Vec::new());
     for pick in picks {
         let (lane, kind, prefix) = &pick;
         if *kind != PickKind::Shots {
-            left.push(pick);
+            selected.pending.push(pick);
             continue;
         }
         let Some(cached) = crate::shots_compare_again::lookup_newest(
-            places, repo, &commit, *lane, prefix, program,
+            places, repo, commit, *lane, prefix, program,
         )?
         else {
-            left.push(pick);
+            selected.pending.push(pick);
             continue;
         };
-        let passed = match &recorded {
-            Some((conn, database)) => {
-                app_timing::passed_shots(conn, repo, *lane, &commit, prefix, database)?
+        match &recorded {
+            Some(_) if cached.exit_code != 0 => {
+                note(format!(
+                    "The cached comparison for {prefix} failed, so the build runs it again."
+                ));
+                selected.pending.push(pick);
+                continue;
             }
-            None => true,
-        };
-        if passed {
-            note("printing the cached findings instead of running (--fresh runs)");
-            shot_findings::print(&cached);
-            shot_findings::note_report(&cached);
-        } else {
-            note(format!(
-                "{prefix} has a cached run, but no passing app build of {} ran it, so the build runs it again",
-                short(&commit)
-            ));
-            left.push(pick);
+            Some((conn, database)) => {
+                if !app_timing::passed_shots(conn, repo, *lane, commit, prefix, database)? {
+                    note(format!(
+                        "{prefix} has a cached run, but no passing app build of {} ran it, so the build runs it again",
+                        short(commit)
+                    ));
+                    selected.pending.push(pick);
+                    continue;
+                }
+                selected.reused.push((*lane, prefix.clone()));
+            }
+            None => {}
         }
+        note("printing the cached findings instead of running (--fresh runs)");
+        shot_findings::print(&cached);
+        shot_findings::note_report(&cached);
     }
-    Ok(left)
+    Ok(selected)
 }
 
 /// The prefixes of <picks>, joined for a line of output.
@@ -2725,7 +2805,7 @@ pub fn run_lanes(
     repo: &str,
     (commit, named): (&str, &str),
     lanes: &[(Lane, Vec<String>)],
-    picks: &[Pick],
+    picks: &BuildPicks,
     needs_only: &[Lane],
     fresh: bool,
 ) -> Result<()> {
@@ -2743,9 +2823,14 @@ pub fn run_lanes(
                 *lane,
                 (commit, named),
                 (needs_only.contains(lane), fresh),
-                (names, picks),
+                (names, &picks.pending),
             ))
             .env(PREFIXED, "1")
+            .env(
+                REUSED_SHOTS,
+                serde_json::to_string(&picks.reused_in(*lane).collect::<Vec<_>>())
+                    .expect("shot name strings serialize"),
+            )
             .env("PATH", pinned.path(std::env::var_os("PATH").as_deref()))
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -2947,6 +3032,12 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
         let (fresh, names) = strip_leading(names, FRESH);
         let (names, picks) = split_picks(names)?;
         let lane = Lane::parse_or_fail(word)?;
+        let reused_shots: Vec<String> = match std::env::var(REUSED_SHOTS) {
+            Ok(value) => serde_json::from_str(&value)
+                .context(|| format!("reading the lane's reused shots from {REUSED_SHOTS}"))?,
+            Err(std::env::VarError::NotPresent) => Vec::new(),
+            Err(error) => fail!("reading {REUSED_SHOTS}: {error}"),
+        };
         // A lane that its build started runs from the build's folder, which
         // holds its programs already; a lane run by hand copies them there.
         // The lane copies the folder to each host it runs a step on.
@@ -2958,6 +3049,7 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
             named,
             names: &names,
             picks: &picks,
+            reused_shots: &reused_shots,
             needs_only,
             fresh,
         };
@@ -2988,7 +3080,7 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
         .filter(|arg| *arg != "--fresh")
         .cloned()
         .collect();
-    let (names, mut picks) = split_picks(&tail)?;
+    let (names, picks) = split_picks(&tail)?;
     let names = &names[..];
     let config = config_at(places, repo, commit)?;
     for name in names {
@@ -2997,13 +3089,6 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
     for (lane, kind, arg) in &picks {
         if config.picker(*lane, *kind).is_none() {
             return Err(missing_line(*lane, *kind, arg));
-        }
-    }
-    if names.is_empty() && !picks.is_empty() && !fresh {
-        let program = crate::this_program()?;
-        picks = serve_cached(places, repo, commit, picks, &program)?;
-        if picks.is_empty() {
-            return Ok(());
         }
     }
     let top = fetched_local_source(places, repo)?;
@@ -3026,7 +3111,15 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
     if lanes.is_empty() {
         fail!("{CONFIG} names no step");
     }
-    run_lanes(&pinned, repo, (commit, commit), &lanes, &picks, &[], fresh)
+    run_lanes(
+        &pinned,
+        repo,
+        (commit, commit),
+        &lanes,
+        &BuildPicks::pending(picks),
+        &[],
+        fresh,
+    )
 }
 
 /// Whether <names> start with the flag <flag>, and <names> without it.

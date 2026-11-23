@@ -1217,7 +1217,7 @@ fn a_finished_lane_run_writes_its_wait_steps_and_checkout_to_its_projects_store(
     )
     .unwrap();
     timing
-        .record(&places, "demo", Lane::Mac, "my-branch", RunEnd::Passed)
+        .record(&places, "demo", Lane::Mac, "my-branch", &[], RunEnd::Passed)
         .unwrap();
     let path = store.dir.join(app_timing::DATABASE);
     let conn = rusqlite::Connection::open(&path).unwrap();
@@ -1267,7 +1267,7 @@ fn a_run_that_never_took_a_checkout_writes_nothing() {
     let places = scratch.places();
     let store = crate::lists::fixtures::make_store(&places, &["demo"]);
     Timing::start()
-        .record(&places, "demo", Lane::Mac, "my-branch", RunEnd::Failed)
+        .record(&places, "demo", Lane::Mac, "my-branch", &[], RunEnd::Failed)
         .unwrap();
     assert!(
         app_timing::stats(&store.dir.join(app_timing::DATABASE), 0)
@@ -1604,20 +1604,33 @@ fn a_build_that_reuses_a_cached_run_leaves_the_passing_build_that_land_counts() 
         serve_cached(
             &places,
             "demo",
-            "HEAD",
+            &commit,
             vec![pick.clone()],
             Path::new("/nonexistent/builds"),
         )
         .unwrap()
     };
     // No build of the commit ran the prefix: the cached run is not enough.
-    assert_eq!(serve(), vec![pick.clone()]);
+    assert_eq!(serve().pending, vec![pick.clone()]);
     record(RunEnd::Failed, StepResult::Failed(Default::default()));
-    assert_eq!(serve(), vec![pick.clone()]);
+    assert_eq!(serve().pending, vec![pick.clone()]);
     // A passing build ran it, so printing the cached run leaves a build that
     // land counts as covering the branch.
     record(RunEnd::Passed, StepResult::Passed);
-    assert!(serve().is_empty());
+    assert_eq!(serve().pending, vec![pick.clone()]);
+    let report = report_run(&crate::shots_program::VERSIONS);
+    let step = fake("shots mac.a.", &["sh", "-c", &report], None);
+    run_steps(
+        &top,
+        &held,
+        &[step],
+        &mut Vec::new(),
+        &cached,
+        Path::new("no.xcconfig"),
+        false,
+    )
+    .unwrap();
+    assert!(serve().pending.is_empty());
     let run = crate::app_timing::PassedRun {
         commit: commit.clone(),
         steps: vec!["shots mac.".to_string()],
@@ -1905,15 +1918,15 @@ fn a_cached_run_made_in_another_environment_is_a_commits_own_run_and_is_printed(
     std::fs::write(marker.join(".checkout"), top.display().to_string()).unwrap();
     let commit = resolve(&top, "HEAD").unwrap();
     let program = Path::new("/nonexistent/builds");
-    let serve = || serve_cached(&places, "demo", "HEAD", a_screens(), program).unwrap();
-    assert_eq!(serve(), a_screens(), "no run is cached");
+    let serve = || serve_cached(&places, "demo", &commit, a_screens(), program).unwrap();
+    assert_eq!(serve().pending, a_screens(), "no run is cached");
     let key = shots_cache::Key {
         environment: "25G241-27B52".to_string(),
         ..shots_key(&commit, "mac.a.")
     };
     cache_with_records(&places, &key);
     assert!(
-        serve().is_empty(),
+        serve().pending.is_empty(),
         "a commit's own run is printed whatever environment made it"
     );
     let cached =

@@ -161,11 +161,14 @@ impl Volume {
     /// adds the file `made` and exits 0), for the steps of <config> to name. The android lane's app
     /// checkout is recorded too, a clone of the same origin.
     fn app_repo_with(&self, config: &str) {
-        let top = self.dir.join("checkout");
+        self.app_repo_at(&self.dir.join("checkout"), config);
+    }
+
+    fn app_repo_at(&self, top: &Path, config: &str) {
         let git = |args: &[&str]| {
             let status = Command::new("git")
                 .arg("-C")
-                .arg(&top)
+                .arg(top)
                 .args(args)
                 .output()
                 .unwrap();
@@ -175,7 +178,7 @@ impl Volume {
                 String::from_utf8_lossy(&status.stderr)
             );
         };
-        std::fs::create_dir_all(&top).unwrap();
+        std::fs::create_dir_all(top).unwrap();
         git(&["init", "-q", "-b", "main"]);
         git(&["config", "user.email", "test@example.com"]);
         git(&["config", "user.name", "test"]);
@@ -1732,6 +1735,94 @@ fn shots_runs(volume: &Volume, prefix: &str) -> Vec<String> {
         .into_iter()
         .filter(|line| line.starts_with(&format!("shots --select {prefix} ")))
         .collect()
+}
+
+fn cached_coverage_repo(name: &str) -> (Volume, PathBuf) {
+    let volume = Volume::new(name);
+    let top = volume.dir.join("demo");
+    volume.app_repo_at(&top, SHOTS_CONFIG);
+    let project = volume.run(&["lists", "init", "demo", "--repos", "demo", "--by", "test"]);
+    assert!(
+        project.status.success(),
+        "{}",
+        String::from_utf8_lossy(&project.stderr)
+    );
+    commit_shots(&top, "");
+    branch_from_main(&top, "work", "mac/Foo.txt");
+    git_in(&top, &["checkout", "-q", "work"]);
+    declare_scenes(
+        &top,
+        "declared-mac",
+        "Shots.swift",
+        "let scenes = [\"mac.a.one\", \"mac.b.one\"]\n",
+    );
+    git_in(&top, &["add", "declared-mac"]);
+    git_in(&top, &["commit", "-q", "-m", "Declare a new shot"]);
+    git_in(&top, &["push", "-q", "origin", "work"]);
+    volume.open_gate("one");
+    (volume, top)
+}
+
+fn run_with_shots(volume: &Volume, prefixes: &[&str]) {
+    let mut args = vec!["app-build", "demo", "work"];
+    for prefix in prefixes {
+        args.extend(["--shots", prefix]);
+    }
+    let built = volume.run(&args);
+    assert!(
+        built.status.success(),
+        "{}",
+        String::from_utf8_lossy(&built.stderr)
+    );
+}
+
+fn assert_landing_coverage(volume: &Volume, top: &Path) {
+    let head = git_in(top, &["rev-parse", "work"]);
+    let own = git_in(top, &["rev-list", "--reverse", "origin/main..work"]);
+    let mut args = vec![
+        "app-build",
+        "--landing-coverage",
+        top.to_str().unwrap(),
+        &head,
+        "work",
+    ];
+    args.extend(own.lines());
+    let coverage = volume.run(&args);
+    assert!(
+        coverage.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&coverage.stdout),
+        String::from_utf8_lossy(&coverage.stderr),
+    );
+}
+
+#[test]
+fn a_build_with_cached_and_new_shots_covers_the_landing() {
+    let (volume, top) = cached_coverage_repo("cached-coverage");
+    run_with_shots(&volume, &["mac.a."]);
+    let first_shots = shots_runs(&volume, "mac.a.");
+    run_with_shots(&volume, &["mac.a.", "mac.b."]);
+    assert_eq!(shots_runs(&volume, "mac.a."), first_shots);
+    assert_eq!(shots_runs(&volume, "mac.b.").len(), 1);
+    assert_landing_coverage(&volume, &top);
+
+    let log = volume.log();
+    run_with_shots(&volume, &["mac.a.", "mac.b."]);
+    assert_eq!(volume.log(), log, "the previous build already covers both");
+}
+
+#[test]
+fn a_build_can_cover_shots_cached_by_separate_passing_builds() {
+    let (volume, top) = cached_coverage_repo("split-shots");
+    run_with_shots(&volume, &["mac.a."]);
+    run_with_shots(&volume, &["mac.b."]);
+    let a = shots_runs(&volume, "mac.a.");
+    let b = shots_runs(&volume, "mac.b.");
+
+    run_with_shots(&volume, &["mac.a.", "mac.b."]);
+    assert_eq!(shots_runs(&volume, "mac.a."), a);
+    assert_eq!(shots_runs(&volume, "mac.b."), b);
+    assert_landing_coverage(&volume, &top);
 }
 
 /// A branch whose merge base has no cached run does not wait for another

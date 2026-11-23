@@ -35,10 +35,11 @@ CREATE TABLE IF NOT EXISTS app_build_runs (
 
 CREATE INDEX IF NOT EXISTS idx_app_build_runs_started ON app_build_runs (started_at);
 
--- One row per step the run started, in the order started: a step of
--- `.app-build`, or a `--test` class or `--shots` selection. A step that a
--- takeover stopped has a row too, and the run's next attempt another. A step
--- that a stop signal ended is `stopped`.
+-- One row per step the run started: a step of `.app-build`, a `--test` class
+-- or a `--shots` selection. A step that a takeover stopped has a row too, and
+-- the run's next attempt another. A step that a stop signal ended is `stopped`.
+-- A comparison the run read from cache is `reused` and records no elapsed or
+-- CPU time.
 CREATE TABLE IF NOT EXISTS app_build_steps (
     run_id INTEGER NOT NULL REFERENCES app_build_runs (id) ON DELETE CASCADE,
     position INTEGER NOT NULL CHECK (position >= 0),
@@ -53,7 +54,10 @@ CREATE TABLE IF NOT EXISTS app_build_steps (
     -- (`ensure_base` in app_build.rs), 0 when it ran at the commit itself.
     -- NULL for a step that builds recorded before it kept this.
     at_merge_base INTEGER CHECK (at_merge_base IN (0, 1)),
-    result TEXT NOT NULL CHECK (result IN ('passed', 'failed', 'timed out', 'taken over', 'stopped')),
+    result TEXT NOT NULL CHECK (
+        result IN ('passed', 'failed', 'timed out', 'taken over', 'stopped')
+        OR (kind = 'shots' AND at_merge_base IS 0 AND result = 'reused')
+    ),
     PRIMARY KEY (run_id, position)
 ) STRICT, WITHOUT ROWID;
 
