@@ -294,12 +294,14 @@ pub(crate) async fn with_chrome<T>(
     cache: &Path,
     work: impl AsyncFnOnce(&Chrome) -> T,
 ) -> Result<T, ChromeError> {
-    with_executable(installed(cache)?, work).await
+    with_executable(installed(cache)?, LAUNCH_DEADLINE, work).await
 }
 
-/// `with_chrome` for the browser at <executable>.
+/// `with_chrome` for the browser at <executable>, which has <launch_deadline>
+/// to print its debugging address.
 async fn with_executable<T>(
     executable: PathBuf,
+    launch_deadline: Duration,
     work: impl AsyncFnOnce(&Chrome) -> T,
 ) -> Result<T, ChromeError> {
     let profile = tempfile::tempdir().map_err(|e| ChromeError::Launch(e.to_string()))?;
@@ -308,12 +310,20 @@ async fn with_executable<T>(
         .chrome_executable(executable)
         .viewport(None)
         .args(ARGS)
-        .launch_timeout(LAUNCH_DEADLINE)
+        .launch_timeout(launch_deadline)
         .build()
         .map_err(ChromeError::Launch)?;
-    let (browser, mut events) = Browser::launch(config)
-        .await
-        .map_err(|e| ChromeError::Launch(e.to_string()))?;
+    let (browser, mut events) = Browser::launch(config).await.map_err(|e| {
+        let text = e.to_string();
+        if text.contains("Timeout while resolving websocket URL") {
+            ChromeError::Launch(format!(
+                "Chrome printed no debugging address in {} seconds. On macOS its main thread waits for the window server to answer; when the window server does not, every AppKit program on the host hangs the same way, Chrome and chrome-headless-shell alike ({text})",
+                launch_deadline.as_secs()
+            ))
+        } else {
+            ChromeError::Launch(text)
+        }
+    })?;
     let running = async move {
         let version = browser
             .version()
