@@ -231,9 +231,15 @@ fn a_commits_passing_shots_run_is_found_whatever_ran_since() {
     for at in 0..60 {
         record(&path, &build(NOW + 1 + at, "b", Vec::new())).unwrap();
     }
-    let conn = crate::db::open_reader(&path).unwrap().unwrap();
+    let records = BuildRecords {
+        repo: "bae",
+        conn: crate::db::open_reader(&path).unwrap().unwrap(),
+        path,
+    };
     let ran = |commit: &str, prefix: &str| {
-        passed_shots(&conn, "bae", Lane::Mac, &commit.repeat(40), prefix, &path).unwrap()
+        records
+            .has_passing_run(Lane::Mac, &commit.repeat(40), |run| run.ran_shots(prefix))
+            .unwrap()
     };
     assert!(ran("a", "mac.a.") && !ran("a", "mac.b.") && !ran("b", "mac.a."));
 }

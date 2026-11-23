@@ -1737,7 +1737,7 @@ fn shots_runs(volume: &Volume, prefix: &str) -> Vec<String> {
         .collect()
 }
 
-fn cached_coverage_repo(name: &str) -> (Volume, PathBuf) {
+fn cached_coverage_repo(name: &str, shot_hook: &str) -> (Volume, PathBuf) {
     let volume = Volume::new(name);
     let top = volume.dir.join("demo");
     volume.app_repo_at(
@@ -1750,7 +1750,7 @@ fn cached_coverage_repo(name: &str) -> (Volume, PathBuf) {
         "{}",
         String::from_utf8_lossy(&project.stderr)
     );
-    commit_shots(&top, "");
+    commit_shots(&top, shot_hook);
     branch_from_main(&top, "work", "mac/Foo.txt");
     git_in(&top, &["checkout", "-q", "work"]);
     declare_scenes(
@@ -1801,7 +1801,7 @@ fn assert_landing_coverage(volume: &Volume, top: &Path) {
 
 #[test]
 fn a_build_with_cached_and_new_shots_covers_the_landing() {
-    let (volume, top) = cached_coverage_repo("cached-coverage");
+    let (volume, top) = cached_coverage_repo("cached-coverage", "");
     run_with_shots(&volume, &["mac.a."]);
     let first_shots = shots_runs(&volume, "mac.a.");
     run_with_shots(&volume, &["mac.a.", "mac.b."]);
@@ -1816,7 +1816,7 @@ fn a_build_with_cached_and_new_shots_covers_the_landing() {
 
 #[test]
 fn a_build_can_cover_shots_cached_by_separate_passing_builds() {
-    let (volume, top) = cached_coverage_repo("split-shots");
+    let (volume, top) = cached_coverage_repo("split-shots", "");
     run_with_shots(&volume, &["mac.a."]);
     run_with_shots(&volume, &["mac.b."]);
     let a = shots_runs(&volume, "mac.a.");
@@ -1830,7 +1830,7 @@ fn a_build_can_cover_shots_cached_by_separate_passing_builds() {
 
 #[test]
 fn cached_shots_do_not_skip_a_changed_lane_without_coverage() {
-    let (volume, top) = cached_coverage_repo("cached-other-lane");
+    let (volume, top) = cached_coverage_repo("cached-other-lane", "");
     std::fs::create_dir(top.join("android")).unwrap();
     std::fs::write(top.join("android/Foo.txt"), "android change").unwrap();
     git_in(&top, &["add", "android/Foo.txt"]);
@@ -1857,6 +1857,20 @@ fn cached_shots_do_not_skip_a_changed_lane_without_coverage() {
     assert_eq!(shots_runs(&volume, "mac.a."), mac_shots);
     assert!(volume.log().contains(&"end droid".to_string()));
     assert_landing_coverage(&volume, &top);
+}
+
+#[test]
+fn a_cached_only_request_does_not_rebuild_for_an_unrequested_failed_prefix() {
+    let (volume, _) = cached_coverage_repo(
+        "cached-unrequested",
+        "if [ \"$2\" = mac.b. ]; then echo 'builds shots: 1 pair(s) fail the run: mac.b.one' >&2; exit 1; fi",
+    );
+    run_with_shots(&volume, &["mac.a."]);
+    let failed = volume.run(&["app-build", "demo", "work", "--shots", "mac.b."]);
+    assert!(!failed.status.success());
+    let log = volume.log();
+    run_with_shots(&volume, &["mac.a."]);
+    assert_eq!(volume.log(), log);
 }
 
 /// A branch whose merge base has no cached run does not wait for another

@@ -249,6 +249,20 @@ impl<'a> BuildRecords<'a> {
         let conn = crate::db::open(&path, crate::db::Make::Never)?;
         Ok(Some(Self { repo, conn, path }))
     }
+
+    pub fn has_passing_run(
+        &self,
+        lane: Lane,
+        commit: &str,
+        covered: impl FnMut(&PassedRun) -> bool,
+    ) -> Result<bool> {
+        let own = [commit.to_string()];
+        Ok(
+            passed_runs(&self.conn, self.repo, lane, &self.path, None, &own)?
+                .iter()
+                .any(covered),
+        )
+    }
 }
 
 /// Writes <run>, its steps and the commit it built (app_build_commit.rs) to
@@ -612,22 +626,6 @@ fn passed_steps(conn: &Connection, id: i64, path: &Path) -> Result<Vec<String>> 
     .context(what)?
     .collect::<std::result::Result<_, _>>()
     .context(what)
-}
-
-/// Whether a passing app build of <repo>'s <lane> built <commit> and covers
-/// the shots prefix <prefix>, in the database open as <conn> at <path>.
-pub fn passed_shots(
-    conn: &Connection,
-    repo: &str,
-    lane: Lane,
-    commit: &str,
-    prefix: &str,
-    path: &Path,
-) -> Result<bool> {
-    let own = [commit.to_string()];
-    Ok(passed_runs(conn, repo, lane, path, None, &own)?
-        .iter()
-        .any(|run| run.ran_shots(prefix)))
 }
 
 /// The shots prefixes that app builds of <repo>'s <lane> ran to a verdict or

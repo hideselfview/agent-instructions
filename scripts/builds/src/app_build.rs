@@ -116,10 +116,11 @@ use crate::app_config::{
     parse_config, parse_scene_count, resolve, resolve_checkout, run_command_keeping, run_git,
     show_duration,
 };
+use crate::app_landing::{ShotDeclarations, covers_prefix};
 use crate::app_lock_guard::CheckoutLock;
 use crate::app_remote::{RemoteApp, fetched_local_source, local_source};
 use crate::app_site::Site;
-use crate::app_timing::{self, BuildRecords, RunRecord, StepKind, StepRecord, StepResult, Timer};
+use crate::app_timing::{BuildRecords, RunRecord, StepKind, StepRecord, StepResult, Timer};
 use crate::checkout::Checkout;
 use crate::claim::Claim;
 use crate::fail;
@@ -2566,6 +2567,7 @@ pub fn serve_cached(
     picks: Vec<Pick>,
     program: &Path,
     recorded: Option<&BuildRecords<'_>>,
+    declarations: &mut ShotDeclarations<'_>,
 ) -> Result<BuildPicks> {
     let mut selected = BuildPicks::pending(Vec::new());
     for pick in picks {
@@ -2592,14 +2594,11 @@ pub fn serve_cached(
                 continue;
             }
             Some(records) => {
-                if !app_timing::passed_shots(
-                    &records.conn,
-                    repo,
-                    *lane,
-                    commit,
-                    prefix,
-                    &records.path,
-                )? {
+                if !records.has_passing_run(*lane, commit, |run| {
+                    covers_prefix(run, prefix, *lane, commit, &mut |lane, commit| {
+                        declarations.names(lane, commit)
+                    })
+                })? {
                     note(format!(
                         "{prefix} has a cached run, but no passing app build of {} ran it, so the build runs it again",
                         short(commit)

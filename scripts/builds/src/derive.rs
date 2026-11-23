@@ -34,7 +34,7 @@ use std::path::Path;
 
 use crate::app_build::{self, Pick};
 use crate::app_config::{CONFIG, Config, PickKind, run_git};
-use crate::app_landing::BranchBuilds;
+use crate::app_landing::{BranchBuilds, ShotDeclarations, ShotsToCover};
 use crate::app_timing::BuildRecords;
 use crate::fail;
 use crate::fail::{Context, Result};
@@ -308,6 +308,7 @@ pub fn derive_and_run(places: &Places, args: &[String]) -> Result<()> {
         fail!("{USAGE}");
     }
     let (top, commit, mut config) = app_build::commit_and_config(places, repo, git_ref)?;
+    let mut declarations = ShotDeclarations::new(&top);
     adopt_main_rules(&top, &mut config)?;
     let (picks, fresh) = parse_picks(tail, |kind, arg| match kind {
         PickKind::Shots => lane_of_prefix(arg),
@@ -327,7 +328,15 @@ pub fn derive_and_run(places: &Places, args: &[String]) -> Result<()> {
     };
     let picks = if use_cache {
         let program = crate::this_program()?;
-        app_build::serve_cached(places, repo, &commit, picks, &program, records.as_ref())?
+        app_build::serve_cached(
+            places,
+            repo,
+            &commit,
+            picks,
+            &program,
+            records.as_ref(),
+            &mut declarations,
+        )?
     } else {
         app_build::BuildPicks::pending(picks)
     };
@@ -341,9 +350,13 @@ pub fn derive_and_run(places: &Places, args: &[String]) -> Result<()> {
         let Some(branch) = BranchBuilds::off_main(&top, &commit, git_ref)? else {
             return Ok(());
         };
-        let (coverage, _) = branch.coverage(&config, &changed, records, |lane| {
-            picks.reused_in(lane).map(str::to_string).collect()
-        })?;
+        let (coverage, _) = branch.coverage(
+            &config,
+            &changed,
+            records,
+            ShotsToCover::Build(&picks),
+            &mut declarations,
+        )?;
         let uncovered: Vec<_> = required
             .iter()
             .filter(|(lane, _)| coverage.unbuilt.iter().any(|unbuilt| unbuilt.lane == *lane))

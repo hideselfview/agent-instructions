@@ -136,7 +136,68 @@ enum Search {
 }
 
 /// Gives the names declared in a lane at a commit, when they can be read.
-type DeclaredNames<'a> = dyn FnMut(Lane, &str) -> Option<Rc<HashSet<String>>> + 'a;
+type ShotNames = Rc<HashSet<String>>;
+type DeclaredNames<'a> = dyn FnMut(Lane, &str) -> Option<ShotNames> + 'a;
+
+pub struct ShotDeclarations<'a> {
+    top: &'a Path,
+    names: HashMap<(Lane, String), Option<ShotNames>>,
+}
+
+impl<'a> ShotDeclarations<'a> {
+    pub fn new(top: &'a Path) -> Self {
+        Self {
+            top,
+            names: HashMap::new(),
+        }
+    }
+
+    pub fn names(&mut self, lane: Lane, commit: &str) -> Option<ShotNames> {
+        self.names
+            .entry((lane, commit.to_string()))
+            .or_insert_with(|| {
+                match crate::shots_declared::declared_names_in_lane(self.top, commit, lane) {
+                    Ok(names) => Some(Rc::new(names.into_iter().collect())),
+                    Err(error) => {
+                        crate::text::note(format!(
+                            "Builds could not read the {} shots declared at {commit}: {}",
+                            lane.word(),
+                            error.text()
+                        ));
+                        None
+                    }
+                }
+            })
+            .clone()
+    }
+}
+
+/// A passing run covers a selection directly or through narrower prefixes
+/// that together cover every shot the selection names.
+pub fn covers_prefix(
+    run: &PassedRun,
+    prefix: &str,
+    lane: Lane,
+    target: &str,
+    declared: &mut DeclaredNames<'_>,
+) -> bool {
+    if run.ran_shots(prefix) {
+        return true;
+    }
+    if !run.shots_prefixes().any(|ran| ran.starts_with(prefix)) {
+        return false;
+    }
+    let Some(names) = declared(lane, target) else {
+        return false;
+    };
+    let mut selected = names
+        .iter()
+        .filter(|name| name.starts_with(prefix))
+        .peekable();
+    selected.peek().is_some()
+        && declared(lane, &run.commit)
+            .is_some_and(|built| selected.all(|name| built.contains(name) && run.ran_shots(name)))
+}
 
 /// The required prefixes that <run> does not cover at <target>. A narrower
 /// prefix can contribute only to shots whose names start with both prefixes.
@@ -147,28 +208,11 @@ fn missing_shots(
     target: &str,
     declared: &mut DeclaredNames<'_>,
 ) -> Vec<String> {
-    let mut missing = Vec::new();
-    for prefix in required {
-        if run.ran_shots(prefix) {
-            continue;
-        }
-        if run.shots_prefixes().any(|ran| ran.starts_with(prefix))
-            && let Some(names) = declared(lane, target)
-        {
-            let mut selected = names
-                .iter()
-                .filter(|name| name.starts_with(prefix))
-                .peekable();
-            if selected.peek().is_some()
-                && let Some(built) = declared(lane, &run.commit)
-                && selected.all(|name| built.contains(name) && run.ran_shots(name))
-            {
-                continue;
-            }
-        }
-        missing.push(prefix.clone());
-    }
-    missing
+    required
+        .iter()
+        .filter(|prefix| !covers_prefix(run, prefix, lane, target, declared))
+        .cloned()
+        .collect()
 }
 
 /// The newest of <runs> that covers <target> in <lane>: it passed every step
@@ -415,6 +459,11 @@ pub struct BranchBuilds<'a> {
 
 type DroppedShots = Vec<(Lane, Vec<Drop>)>;
 
+pub enum ShotsToCover<'a> {
+    Landing,
+    Build(&'a crate::app_build::BuildPicks),
+}
+
 impl<'a> BranchBuilds<'a> {
     pub fn off_main(top: &'a Path, target: &'a str, named: &'a str) -> Result<Option<Self>> {
         let commits = commits::in_range(top, "origin/main", target)?;
@@ -431,27 +480,30 @@ impl<'a> BranchBuilds<'a> {
         }))
     }
 
-    /// The covering builds and drops. A cached-only request also asks the
-    /// covering build to include the prefixes it just reused.
+    /// Finds covering builds for a landing's shot requirements or a build's
+    /// requested comparisons. Only a landing applies recorded drops.
     pub fn coverage(
         &self,
         config: &Config,
         changed: &[String],
         records: &BuildRecords<'_>,
-        mut requested: impl FnMut(Lane) -> Vec<String>,
+        shots: ShotsToCover<'_>,
+        declarations: &mut ShotDeclarations<'_>,
     ) -> Result<(Coverage, DroppedShots)> {
         let BuildRecords { repo, conn, path } = records;
         let top = self.top;
-        let drops: DroppedShots = Lane::ALL
-            .into_iter()
-            .map(|lane| {
-                Ok((
-                    lane,
-                    crate::app_shots_drop::dropped(conn, repo, self.named, lane, self.since)?,
-                ))
-            })
-            .collect::<Result<_>>()?;
-        let mut names_by_lane_and_commit = HashMap::new();
+        let drops: DroppedShots = match shots {
+            ShotsToCover::Landing => Lane::ALL
+                .into_iter()
+                .map(|lane| {
+                    Ok((
+                        lane,
+                        crate::app_shots_drop::dropped(conn, repo, self.named, lane, self.since)?,
+                    ))
+                })
+                .collect::<Result<_>>()?,
+            ShotsToCover::Build(_) => Vec::new(),
+        };
         let coverage = needs(
             config,
             changed,
@@ -460,6 +512,9 @@ impl<'a> BranchBuilds<'a> {
                 app_timing::passed_runs(conn, repo, lane, path, Some(self.named), &self.commits)
             },
             &mut |lane| {
+                if let ShotsToCover::Build(picks) = shots {
+                    return Ok(picks.reused_in(lane).map(str::to_string).collect());
+                }
                 let ran = app_timing::shots_ran(
                     conn,
                     repo,
@@ -473,14 +528,10 @@ impl<'a> BranchBuilds<'a> {
                     .iter()
                     .flat_map(|(own, drops)| drops.iter().filter(move |_| *own == lane));
                 let dropped: HashSet<&str> = drops.map(|drop| drop.prefix.as_str()).collect();
-                let mut required: Vec<String> = ran
+                Ok(ran
                     .into_iter()
                     .filter(|prefix| !dropped.contains(prefix.as_str()))
-                    .chain(requested(lane))
-                    .collect();
-                required.sort();
-                required.dedup();
-                Ok(required)
+                    .collect())
             },
             &mut |commit, target| {
                 if !commits::exists(top, commit)? {
@@ -492,24 +543,7 @@ impl<'a> BranchBuilds<'a> {
                 }
                 paths_between(top, commit, target).map(Some)
             },
-            &mut |lane, commit| {
-                names_by_lane_and_commit
-                    .entry((lane, commit.to_string()))
-                    .or_insert_with(|| {
-                        match crate::shots_declared::declared_names_in_lane(top, commit, lane) {
-                            Ok(names) => Some(Rc::new(names.into_iter().collect())),
-                            Err(error) => {
-                                crate::text::note(format!(
-                                    "Builds could not read the {} shots declared at {commit}: {}",
-                                    lane.word(),
-                                    error.text()
-                                ));
-                                None
-                            }
-                        }
-                    })
-                    .clone()
-            },
+            &mut |lane, commit| declarations.names(lane, commit),
         )?;
         Ok((coverage, drops))
     }
@@ -554,8 +588,13 @@ pub fn cmd_landing_coverage(places: &Places, args: &[String]) -> Result<()> {
         return Ok(());
     };
     let changed = paths_of_commits(top, own)?;
-    let (Coverage { covering, unbuilt }, drops) =
-        branch_builds.coverage(&config, &changed, &records, |_| Vec::new())?;
+    let (Coverage { covering, unbuilt }, drops) = branch_builds.coverage(
+        &config,
+        &changed,
+        &records,
+        ShotsToCover::Landing,
+        &mut ShotDeclarations::new(top),
+    )?;
     for (lane, drops) in drops {
         for line in dropped_lines(lane, &drops) {
             println!("{line}");

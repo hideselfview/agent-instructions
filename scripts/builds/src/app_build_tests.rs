@@ -1,6 +1,6 @@
 use super::*;
 use crate::app_config::{PickKind, parse_config};
-use crate::app_timing::{StepKind, StepResult};
+use crate::app_timing::{self, StepKind, StepResult};
 use crate::testing::Scratch;
 use std::time::Duration;
 
@@ -1599,7 +1599,7 @@ fn a_build_that_reuses_a_cached_run_leaves_the_passing_build_that_land_counts() 
             load: None,
             steps: vec![
                 step("macos", StepKind::Step, StepResult::Passed),
-                step("shots mac.a.", StepKind::Shots, shots),
+                step("shots mac.a.one", StepKind::Shots, shots),
             ],
         };
         crate::app_timing::record(&store.database(), &run).unwrap();
@@ -1612,6 +1612,7 @@ fn a_build_that_reuses_a_cached_run_leaves_the_passing_build_that_land_counts() 
             vec![pick.clone()],
             Path::new("/nonexistent/builds"),
             Some(&records),
+            &mut ShotDeclarations::new(&top),
         )
         .unwrap()
     };
@@ -1660,7 +1661,10 @@ fn a_build_that_reuses_a_cached_run_leaves_the_passing_build_that_land_counts() 
         },
         &mut |_| Ok(vec!["mac.a.".to_string()]),
         &mut |_, _| Ok(Some(Vec::new())),
-        &mut |_, commit| panic!("this prefix needs no declarations at {commit}"),
+        &mut |lane, commit| {
+            let names = crate::shots_declared::declared_names_in_lane(&top, commit, lane).unwrap();
+            Some(std::rc::Rc::new(names.into_iter().collect()))
+        },
     )
     .unwrap();
     assert!(coverage.unbuilt.is_empty(), "{:?}", coverage.unbuilt);
@@ -1924,7 +1928,17 @@ fn a_cached_run_made_in_another_environment_is_a_commits_own_run_and_is_printed(
     std::fs::write(marker.join(".checkout"), top.display().to_string()).unwrap();
     let commit = resolve(&top, "HEAD").unwrap();
     let program = Path::new("/nonexistent/builds");
-    let serve = || serve_cached(&places, "demo", &commit, a_screens(), program, None);
+    let serve = || {
+        serve_cached(
+            &places,
+            "demo",
+            &commit,
+            a_screens(),
+            program,
+            None,
+            &mut ShotDeclarations::new(&top),
+        )
+    };
     assert_eq!(serve().unwrap().pending, a_screens(), "no run is cached");
     let key = shots_cache::Key {
         environment: "25G241-27B52".to_string(),
