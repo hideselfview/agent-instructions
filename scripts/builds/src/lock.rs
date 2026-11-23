@@ -63,7 +63,7 @@
 //! (`Held::requeue`), straight behind the taker, and runs again.
 
 use std::collections::HashMap;
-use std::os::fd::{BorrowedFd, FromRawFd, OwnedFd};
+use std::os::fd::{AsFd, BorrowedFd, FromRawFd, OwnedFd};
 use std::os::unix::process::CommandExt;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
@@ -281,13 +281,8 @@ pub struct Held {
 
 impl Held {
     pub fn checkout_lock(&self) -> CheckoutLock<'_> {
-        // Held keeps both descriptors open until it drops.
-        unsafe {
-            CheckoutLock::new(
-                BorrowedFd::borrow_raw(self.lock),
-                Some(BorrowedFd::borrow_raw(self.ticket.fd)),
-            )
-        }
+        // Held keeps the checkout descriptor open until it drops.
+        unsafe { CheckoutLock::new(BorrowedFd::borrow_raw(self.lock), Some(self.ticket.as_fd())) }
     }
 
     /// Takes the window lock of this checkout's host for <step>, waiting

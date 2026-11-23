@@ -42,7 +42,7 @@
 
 use std::collections::BTreeMap;
 use std::ffi::CString;
-use std::os::fd::{FromRawFd, OwnedFd};
+use std::os::fd::{AsFd, BorrowedFd, FromRawFd, OwnedFd};
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -247,7 +247,7 @@ pub enum AppWait {
 /// One ticket of this process. Dropping it closes this process's descriptor.
 pub struct Ticket {
     pub name: String,
-    _fd: OwnedFd,
+    fd: OwnedFd,
 }
 
 impl Ticket {
@@ -255,7 +255,13 @@ impl Ticket {
         let fd = open_locked(path)?;
         // open_locked returned a new descriptor owned by this ticket.
         let owner = unsafe { OwnedFd::from_raw_fd(fd) };
-        Ok(Self { name, _fd: owner })
+        Ok(Self { name, fd: owner })
+    }
+}
+
+impl AsFd for Ticket {
+    fn as_fd(&self) -> BorrowedFd<'_> {
+        self.fd.as_fd()
     }
 }
 
