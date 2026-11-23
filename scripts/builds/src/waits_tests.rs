@@ -166,6 +166,7 @@ fn a_store_gives_each_kind_its_own_rows_and_leaves_out_other_cargo_runs() {
             lane: crate::lane::Lane::Mac,
             checkout: "side-1".into(),
             built_ref: "branch".into(),
+            requested_commit: None,
             built_commit: None,
             who: None,
             wait_ms: 7_000,

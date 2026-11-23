@@ -147,6 +147,8 @@ pub struct RunRecord {
     pub lane: Lane,
     pub checkout: String,
     pub built_ref: String,
+    /// The commit the requested ref resolved to. Older records lack a target.
+    pub requested_commit: Option<String>,
     /// The commit the run checked out for <built_ref>; None when the run
     /// ended before it checked one out.
     pub built_commit: Option<String>,
@@ -273,6 +275,9 @@ pub fn record(path: &Path, run: &RunRecord) -> Result<()> {
     }
     crate::app_build_step_failure::record(&tx, id, &run.steps)?;
     crate::app_build_step_shots::record(&tx, id, &run.steps)?;
+    if let Some(commit) = &run.requested_commit {
+        crate::app_build_commit::record_requested(&tx, id, commit).context(what)?;
+    }
     if let Some(commit) = &run.built_commit {
         crate::app_build_commit::record(&tx, id, commit).context(what)?;
     }
@@ -306,12 +311,14 @@ pub fn read_run(path: &Path) -> Result<RunRecord> {
             row.get::<_, String>(9)?,
             row.get::<_, Option<i64>>(10)?,
             row.get::<_, Option<f64>>(11)?,
+            row.get::<_, Option<String>>(12)?,
         ))
     };
     let mut found = conn
         .prepare(
-            "SELECT r.id, r.started_at, r.repo, r.lane, r.checkout, r.built_ref, c.built_commit, r.who, r.wait_ms, r.outcome, r.cores, r.load
+            "SELECT r.id, r.started_at, r.repo, r.lane, r.checkout, r.built_ref, c.built_commit, r.who, r.wait_ms, r.outcome, r.cores, r.load, q.requested_commit
              FROM app_build_runs r LEFT JOIN app_build_run_commit c ON c.run_id = r.id
+             LEFT JOIN app_build_requested_commit q ON q.run_id = r.id
              ORDER BY r.id",
         )
         .context(what)?
@@ -332,6 +339,7 @@ pub fn read_run(path: &Path) -> Result<RunRecord> {
         outcome,
         cores,
         load,
+        requested_commit,
     ) = match (found.pop(), found.is_empty()) {
         (Some(one), true) => one,
         _ => fail!("{} does not hold exactly one run", path.display()),
@@ -342,6 +350,7 @@ pub fn read_run(path: &Path) -> Result<RunRecord> {
         lane: Lane::parse_or_fail(&lane)?,
         checkout,
         built_ref,
+        requested_commit,
         built_commit,
         who,
         wait_ms: wait_ms as u64,
@@ -513,10 +522,11 @@ impl PassedRun {
     }
 }
 
-/// A run belongs to a branch by its requested ref or the commit it built.
-/// A run that never checked out the target can still name its full SHA.
-const BRANCH_RUN_MATCH: &str = "(r.built_ref IS ?3
-    OR COALESCE(c.built_commit, r.built_ref) IN (SELECT value FROM json_each(?4)))";
+/// A run belongs to a branch by its requested ref or its commit. The query
+/// supplies the commit column or expression it reads.
+fn branch_run_match(commit: &str) -> String {
+    format!("(r.built_ref IS ?3 OR {commit} IN (SELECT value FROM json_each(?4)))")
+}
 
 /// The passing runs of <repo>'s <lane> that recorded the commit they built
 /// and are a branch's: the ref the caller named (`built_ref`) is <named>, when
@@ -533,13 +543,14 @@ pub fn passed_runs(
 ) -> Result<Vec<PassedRun>> {
     let what = || format!("reading {}", path.display());
     let commits = serde_json::to_string(commits).context(what)?;
+    let matches_branch = branch_run_match("c.built_commit");
     let mut runs = conn
         .prepare(
             format!(
                 "SELECT r.id, c.built_commit FROM app_build_runs r
                  JOIN app_build_run_commit c ON c.run_id = r.id
                  WHERE r.repo = ?1 AND r.lane = ?2 AND r.outcome = 'passed'
-                   AND {BRANCH_RUN_MATCH}
+                   AND {matches_branch}
                  ORDER BY r.id DESC"
             )
             .as_str(),
@@ -594,8 +605,8 @@ pub fn passed_shots(
 }
 
 /// The shots prefixes that app builds of <repo>'s <lane> ran to a verdict
-/// when asked for <named> or when building one of <commits>. A run that
-/// never checked out its target matches a commit by its requested SHA.
+/// when asked for <named> or targeting one of <commits>. The target matches
+/// even if the run ended before reaching its checkout.
 /// Counts runs that started at or after <since> (seconds since 1970),
 /// whatever their outcome, in the database open as <conn> at <path>.
 /// Returns each prefix once, in name order.
@@ -610,14 +621,16 @@ pub fn shots_ran(
 ) -> Result<Vec<String>> {
     let what = || format!("reading {}", path.display());
     let commits = serde_json::to_string(commits).context(what)?;
+    let matches_branch = branch_run_match("COALESCE(c.built_commit, q.requested_commit)");
     let mut statement = conn
         .prepare(
             format!(
                 "SELECT DISTINCT s.name FROM app_build_steps s
                  JOIN app_build_runs r ON r.id = s.run_id
                  LEFT JOIN app_build_run_commit c ON c.run_id = r.id
+                 LEFT JOIN app_build_requested_commit q ON q.run_id = r.id
                  WHERE r.repo = ?1 AND r.lane = ?2 AND r.started_at >= ?5
-                   AND {BRANCH_RUN_MATCH} AND {SHOTS_VERDICT}
+                   AND {matches_branch} AND {SHOTS_VERDICT}
                  ORDER BY s.name"
             )
             .as_str(),

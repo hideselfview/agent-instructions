@@ -1447,13 +1447,12 @@ built again.
                               that does not answer, and the mac lane also
                               skips a host whose Xcode cannot start or whose
                               UI tests timed out turning on automation mode.
-                              Each
-                              lane's run goes to the project's store when it
-                              ends: the ref and the commit it checked out
-                              for it, the claim of the worktree it ran
-                              from, the checkout, the cores and one-minute
-                              load of the checkout's host when the run took
-                              the checkout, its wait in the queue, how the
+                              When a lane's run ends, the project's store
+                              records the requested ref, the commit that ref
+                              named, any target commit the lane checked out,
+                              the worktree's claim, the checkout, the host's
+                              core count and one-minute load when the lane
+                              took the checkout, its wait in the queue, how the
                               run ended (passed, failed, or stopped by a
                               signal), and each step's start, wall time, CPU
                               time and result,
@@ -1493,9 +1492,10 @@ built again.
                               origin/main, and the commit it built has
                               <branch>'s files at every path the lane's `on`
                               lines match. The branch's own app builds are the
-                              runs that were asked to build <ref> or built a
-                              commit the branch holds since its merge base,
-                              however many other runs came after them. They
+                              runs whose caller requested <ref> or whose
+                              target is a commit the branch holds since its
+                              merge base, however many other runs came
+                              after them. They
                               count each shots prefix they ran to a verdict,
                               passed or failed, so a run that shows a pair
                               worse than its base cannot be skipped by a later

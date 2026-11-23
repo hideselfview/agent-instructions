@@ -206,6 +206,7 @@ fn a_repo_two_projects_hold_is_read_in_both_projects() {
         lane: Lane::Android,
         checkout: entry.to_string(),
         built_ref: "branch".to_string(),
+        requested_commit: None,
         built_commit: None,
         who: None,
         wait_ms: 1000,

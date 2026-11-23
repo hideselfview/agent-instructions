@@ -486,6 +486,7 @@ mod stalled_claims {
                 lane: crate::lane::Lane::Mac,
                 checkout: "mac-1".into(),
                 built_ref: "work".into(),
+                requested_commit: None,
                 built_commit: None,
                 who: Some("agent A".into()),
                 wait_ms: 0,

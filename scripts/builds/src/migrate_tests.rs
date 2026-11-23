@@ -1565,6 +1565,7 @@ INSERT INTO app_build_steps (run_id, position, name, kind, started_at, wall_ms, 
             lane: crate::lane::Lane::Mac,
             checkout: "side-1".into(),
             built_ref: "three".into(),
+            requested_commit: None,
             built_commit: None,
             who: None,
             wait_ms: 0,
@@ -2356,6 +2357,40 @@ fn the_landing_abandoned_stamp_is_the_schema_before_it() {
         db::stamp_of_text(&db::schema_before_landing_abandoned()),
         BEFORE_LANDING_ABANDONED_STAMP
     );
+}
+
+#[test]
+fn an_app_build_run_keeps_its_checkout_when_the_store_adds_requested_commits() {
+    let scratch = Scratch::new("move-app-build-target");
+    let places = scratch.places();
+    let path = scratch.dir.join(DATABASE);
+    let schema = db::schema_before_app_build_requested_commit();
+    assert_eq!(
+        db::stamp_of_text(&schema),
+        BEFORE_APP_BUILD_REQUESTED_COMMIT_STAMP
+    );
+    let commit = "a".repeat(40);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&schema).unwrap();
+        conn.execute(
+            "INSERT INTO app_build_runs (id, started_at, repo, lane, checkout, built_ref, wait_ms, outcome)
+             VALUES (1, 1000, 'demo', 'mac', 'side-1', 'work', 0, 'passed')",
+            [],
+        )
+        .unwrap();
+        crate::app_build_commit::record(&conn, 1, &commit).unwrap();
+        conn.pragma_update(
+            None,
+            "user_version",
+            BEFORE_APP_BUILD_REQUESTED_COMMIT_STAMP,
+        )
+        .unwrap();
+    }
+    move_store(&places, &path, 0).unwrap();
+    let run = crate::app_timing::read_run(&path).unwrap();
+    assert_eq!(run.built_commit.as_deref(), Some(commit.as_str()));
+    assert_eq!(run.requested_commit, None);
 }
 
 /// A store from before a landing could end abandoned keeps each landing, open

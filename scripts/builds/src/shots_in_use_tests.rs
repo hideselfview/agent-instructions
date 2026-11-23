@@ -51,6 +51,7 @@ fn build(branch: &str, commit: &str, prefix: &str) -> RunRecord {
         lane: Lane::Mac,
         checkout: "side-1".to_string(),
         built_ref: branch.to_string(),
+        requested_commit: None,
         built_commit: Some(commit.to_string()),
         who: None,
         wait_ms: 0,

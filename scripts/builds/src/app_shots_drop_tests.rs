@@ -66,6 +66,7 @@ fn the_drop_command_accepts_a_prefix_from_a_build_named_by_commit() {
         lane: Lane::Mac,
         checkout: "side-1".into(),
         built_ref: head.clone(),
+        requested_commit: None,
         built_commit: Some(head),
         who: None,
         wait_ms: 0,

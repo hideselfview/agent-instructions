@@ -163,6 +163,9 @@ pub const REVIEW_KEPT_OPEN_PART: &str = include_str!("review/kept_open.sql");
 /// The side where builds verified the finding's quote.
 pub const REVIEW_FINDING_SITE_PART: &str = include_str!("review/finding_site.sql");
 
+/// The resolved target each app build run was asked to build.
+pub const APP_BUILD_REQUESTED_COMMIT_PART: &str = include_str!("app_build_requested_commit.sql");
+
 /// Each part of the schema, in the order the schema holds them: the lists'
 /// tables, then the hook stats', then the app-build timings', then the design
 /// changes' recording sessions', then the review's, then the hook checks'
@@ -179,7 +182,7 @@ pub const REVIEW_FINDING_SITE_PART: &str = include_str!("review/finding_site.sql
 /// cap. A table points at ones earlier or
 /// later (SQLite resolves foreign keys when rows are written), but the order is
 /// the one to read the schema in. A part that joins the schema goes at the end.
-const SCHEMA_PARTS: [&str; 44] = [
+const SCHEMA_PARTS: [&str; 45] = [
     include_str!("lists/project.sql"),
     include_str!("lists/area.sql"),
     include_str!("lists/record.sql"),
@@ -224,6 +227,7 @@ const SCHEMA_PARTS: [&str; 44] = [
     APP_BUILD_STEP_SHOTS_PART,
     REVIEW_KEPT_OPEN_PART,
     REVIEW_FINDING_SITE_PART,
+    APP_BUILD_REQUESTED_COMMIT_PART,
 ];
 
 /// The length of <parts> joined with a newline between each two.
@@ -576,7 +580,12 @@ pub fn with_landing_not_abandoned(schema: String) -> String {
 /// The schema as it was before a review landing could end abandoned.
 #[cfg(test)]
 pub fn schema_before_landing_abandoned() -> String {
-    with_landing_not_abandoned(SCHEMA.to_string())
+    with_landing_not_abandoned(schema_before_app_build_requested_commit())
+}
+
+#[cfg(test)]
+pub fn schema_before_app_build_requested_commit() -> String {
+    parts_before(APP_BUILD_REQUESTED_COMMIT_PART).join("\n")
 }
 
 #[cfg(test)]

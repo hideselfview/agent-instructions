@@ -1657,23 +1657,24 @@ struct Timing {
     commit: Option<String>,
 }
 
-/// When a run joined the lane's queue, how long it waited there in all, and
-/// the checkout whose lock it holds, as `lock::Held` keeps them, with the
-/// load of the checkout's host when the run took the checkout.
+/// The queue wait and checkout `lock::Held` records, with the checkout
+/// host's load when the run took it and the run's resolved target commit.
 struct HeldTimes {
     joined_at: i64,
     wait: Duration,
     checkout: String,
     load: Option<crate::host::Load>,
+    requested_commit: String,
 }
 
 impl HeldTimes {
-    fn of(held: &lock::Held, load: Option<crate::host::Load>) -> HeldTimes {
+    fn of(held: &lock::Held, commit: &str, load: Option<crate::host::Load>) -> HeldTimes {
         HeldTimes {
             joined_at: held.joined_at,
             wait: held.waited,
             checkout: held.checkout.clone(),
             load,
+            requested_commit: commit.to_string(),
         }
     }
 }
@@ -1709,6 +1710,7 @@ impl Timing {
             lane,
             checkout: held.checkout,
             built_ref: built_ref.to_string(),
+            requested_commit: Some(held.requested_commit),
             built_commit: self.commit,
             who: who_asked(),
             wait_ms: held.wait.as_millis() as u64,
@@ -1960,21 +1962,20 @@ fn build_lane(
 ) -> LaneResult<()> {
     let places = &tool.places;
     let floor_kib = tool.rules.floor_kib;
-    let LaneRequest { commit, picks, .. } = request;
+    let LaneRequest { picks, .. } = request;
     let selection = LanePick::of_lane(lane, picks)?;
     if request.names.is_empty() && !picks.is_empty() && selection.is_empty() {
         return Err(no_lane_steps(lane).into());
     }
     let commands = LanePick::commands(lane, &selection);
+    let (source, target, config) = commit_and_config(places, repo, request.commit)?;
+    let commit = target.as_str();
+    let request = LaneRequest { commit, ..request };
     note(format!(
         "waiting for {repo}'s {} app lock, then building {commit}",
         lane.word()
     ));
     let ssh = Ssh::from_env();
-    // A step the repo keeps on this Mac (`here` lines) keeps the build off
-    // the hosts' checkouts.
-    let config = config_at(places, repo, commit)?;
-    let source = local_source(places, repo)?;
     // Only a shots prefix that selects a scene shown in its window draws one.
     let windowed = windowed_at(&source, commit, lane, &commands)?;
     let runs_checkout_as_it_is =
@@ -2000,6 +2001,8 @@ fn build_lane(
     if let Some(base) = &build.base {
         steps.extend(base.steps(lane)?);
     }
+    // A step the repo keeps on this Mac (`here` lines) keeps the build off
+    // the hosts' checkouts.
     let allowed = place_of(&steps);
     if allowed == lock::Where::Here {
         crate::worktree::ensure_local_app_checkout(tool, &ssh, repo, lane)?;
@@ -2023,7 +2026,7 @@ fn build_lane(
             &held.checkout,
             held.checkout_lock(),
         )?;
-        timing.held = Some(HeldTimes::of(&held, site.load(places, &ssh)));
+        timing.held = Some(HeldTimes::of(&held, commit, site.load(places, &ssh)));
         note(format!("building in {}", held.checkout));
         if std::env::var_os(PREFIXED).is_some() {
             // On both streams: each is read by a thread of its own, and a line

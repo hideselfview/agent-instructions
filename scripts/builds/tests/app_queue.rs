@@ -1922,6 +1922,12 @@ fn a_lane_with_two_shots_prefixes_captures_once_and_runs_each_prefix_without_cap
 fn a_base_run_whose_capture_fails_fails_the_branch_build_with_its_output() {
     let volume = Volume::new("base-capture-fails");
     volume.app_repo_with(SHOTS_CONFIG);
+    let project = volume.run(&["lists", "init", "demo", "--repos", "demo", "--by", "test"]);
+    assert!(
+        project.status.success(),
+        "{}",
+        String::from_utf8_lossy(&project.stderr)
+    );
     let top = volume.dir.join("checkout");
     commit_shots(
         &top,
@@ -1929,7 +1935,8 @@ fn a_base_run_whose_capture_fails_fails_the_branch_build_with_its_output() {
     );
     branch_from_main(&top, "work", "mac/Foo.txt");
     volume.open_gate("one");
-    let built = volume.run(&["app-build", "demo", "work", "--shots", "mac.a."]);
+    let abbreviated = git_in(&top, &["rev-parse", "--short", "work"]);
+    let built = volume.run(&["app-build", "demo", &abbreviated, "--shots", "mac.a."]);
     let said = String::from_utf8_lossy(&built.stderr).into_owned();
     assert!(!built.status.success(), "{said}");
     assert!(said.contains("base-capture-crashed"), "{said}");
@@ -1939,6 +1946,29 @@ fn a_base_run_whose_capture_fails_fails_the_branch_build_with_its_output() {
         runs.len(),
         1,
         "the branch's own run never started: {runs:?}"
+    );
+    let passing = volume.run(&["app-build", "demo", "work", "one"]);
+    assert!(
+        passing.status.success(),
+        "{}",
+        String::from_utf8_lossy(&passing.stderr)
+    );
+
+    git_in(&volume.dir, &["clone", "-q", "origin.git", "demo"]);
+    let worktree = volume.dir.join("demo");
+    let target = git_in(&worktree, &["rev-parse", "origin/work"]);
+    let coverage = volume.run(&[
+        "app-build",
+        "--landing-coverage",
+        worktree.to_str().unwrap(),
+        &target,
+        "work",
+    ]);
+    let said = String::from_utf8_lossy(&coverage.stdout);
+    assert_eq!(coverage.status.code(), Some(1), "{said}");
+    assert!(
+        said.contains("did not cover the shots prefixes mac.a."),
+        "{said}"
     );
 }
 

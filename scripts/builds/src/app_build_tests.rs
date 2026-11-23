@@ -1180,6 +1180,7 @@ fn a_finished_lane_run_writes_its_wait_steps_and_checkout_to_its_projects_store(
         joined_at: 1_790_000_000,
         wait: Duration::from_millis(1500),
         checkout: "side-3".to_string(),
+        requested_commit: "a".repeat(40),
         load: Some(crate::host::Load {
             cores: 14,
             one_minute: 20.0,
@@ -1569,6 +1570,7 @@ fn a_build_that_reuses_a_cached_run_leaves_the_passing_build_that_land_counts() 
             lane: Lane::Mac,
             checkout: "side-1".to_string(),
             built_ref: "work".to_string(),
+            requested_commit: None,
             built_commit: Some(commit.clone()),
             who: None,
             wait_ms: 0,
