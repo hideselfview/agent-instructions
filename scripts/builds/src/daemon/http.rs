@@ -910,7 +910,7 @@ fn events(mut stream: TcpStream, model: &Model) -> std::io::Result<()> {
                     write!(
                         stream,
                         "event: failure\ndata: {}\n\n",
-                        serde_json::json!({ "error": error.text() })
+                        json_error_body(&error.text())
                     )?;
                 }
             }
@@ -920,7 +920,7 @@ fn events(mut stream: TcpStream, model: &Model) -> std::io::Result<()> {
                     write!(
                         stream,
                         "event: failure\ndata: {}\n\n",
-                        serde_json::json!({ "error": error.text() })
+                        json_error_body(&error.text())
                     )?;
                 }
             }

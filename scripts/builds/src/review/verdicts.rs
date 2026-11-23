@@ -7,10 +7,11 @@
 //! of its project's store, and the rules. It judges again only when one of
 //! those differs.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
+use std::time::{Duration, Instant};
 
 use crate::fail::Fail;
 use crate::lists::Lists;
@@ -31,7 +32,8 @@ type Read = Vec<Vec<String>>;
 
 /// A project's rules as `Material::load` last read them, or why it failed,
 /// and the count of changes to the rules files the read came after. A read
-/// uses that count to decide whether the rules need reading again.
+/// that finds the same rules keeps the earlier `Arc`, so a worktree judged
+/// against them need not be judged again.
 type Rules = (u64, Result<Arc<Material>, String>);
 
 /// A side worktree whose card shows where its rules review stands, as the
@@ -71,11 +73,9 @@ impl Tip {
 /// A worktree's verdict and what it was judged from.
 struct Judged {
     tip: Tip,
-    rules_version: u64,
-    verdict: Outcome,
+    rules: Arc<Material>,
+    verdict: Arc<Verdict>,
 }
-
-type Outcome = Result<Arc<Verdict>, String>;
 
 /// What git said of each worktree's commits, kept until they differ, the
 /// rules of each project as last read, and each worktree's judgment, kept
@@ -87,15 +87,7 @@ pub struct Reads {
     rules: Mutex<HashMap<String, Rules>>,
     /// How many times the rules files changed (`rules_changed`).
     rules_changes: AtomicU64,
-    judged: Mutex<HashMap<PathBuf, HashMap<String, Judged>>>,
-    /// Only one reader judges at a time. Completed reads never take this lock.
-    judging: Mutex<()>,
-}
-
-impl Default for Reads {
-    fn default() -> Reads {
-        Reads::with_root(crate::review::default_rules_root().map_err(Fail::text))
-    }
+    judged: Mutex<HashMap<PathBuf, Judged>>,
 }
 
 impl Reads {
@@ -108,7 +100,6 @@ impl Reads {
             rules: Mutex::new(HashMap::new()),
             rules_changes: AtomicU64::new(0),
             judged: Mutex::new(HashMap::new()),
-            judging: Mutex::new(()),
         }
     }
 
@@ -160,89 +151,57 @@ impl Reads {
         // next ask reads again.
         let changes = self.rules_changes.load(Ordering::SeqCst);
         let held = rules.get(project).cloned();
-        if let Some((read_after, material)) = &held
+        if let Some((read_after, Ok(material))) = &held
             && *read_after == changes
         {
-            return material.clone();
+            return Ok(material.clone());
         }
-        let material = Material::load(root, project).map(Arc::new).map_err(|why| {
-            format!(
-                "reading the rules of {project} from {}: {}",
-                root.display(),
-                why.text()
-            )
-        });
+        let material = match (
+            held.and_then(|(_, material)| material.ok()),
+            Material::load(root, project),
+        ) {
+            (Some(before), Ok(read)) if *before == read => Ok(before),
+            (_, read) => read.map(Arc::new).map_err(|why| {
+                format!(
+                    "reading the rules of {project} from {}: {}",
+                    root.display(),
+                    why.text()
+                )
+            }),
+        };
         rules.insert(project.to_string(), (changes, material.clone()));
         material
     }
 
-    fn kept(&self, project: &str, top: &Path, tip: &Tip, rules_version: u64) -> Option<Outcome> {
-        let judged = self.judged.lock().expect("no panic holding it");
-        let kept = judged.get(top)?.get(project)?;
-        if &kept.tip == tip && kept.rules_version == rules_version {
-            return Some(kept.verdict.clone());
-        }
-        None
-    }
-
-    /// The verdict for the current inputs if a read finished. Never waits
-    /// for Git or a store.
-    pub fn completed(&self, project: &str, version: u64, worktree: &Worktree) -> Option<Outcome> {
-        let rules_version = self.rules_changes.load(Ordering::SeqCst);
-        self.kept(
-            project,
-            worktree.top,
-            &Tip::of(worktree, version),
-            rules_version,
-        )
-    }
-
-    /// Judges a pending dashboard tip. Returns true if it published a verdict.
-    pub fn fill(&self, store: &Store, version: u64, worktree: &Worktree) -> bool {
-        let (outcome, changed) = self.read_at(store, version, worktree, false);
-        if changed && let Err(error) = outcome {
-            crate::text::note(format!(
-                "reading the rules review of {} in {}: {error}",
-                worktree.top.display(),
-                store.project
-            ));
-        }
-        changed
-    }
-
-    fn read_at(
+    /// The verdict on <worktree>'s commits at <tip> against <rules>: the
+    /// one kept for the worktree when it was judged at the same tip against
+    /// the same rules, else judged now. Reads keeps only a verdict that
+    /// succeeded, so the next page build judges again after a failure.
+    fn verdict(
         &self,
         store: &Store,
-        version: u64,
         worktree: &Worktree,
-        retry_failed: bool,
-    ) -> (Outcome, bool) {
-        let _judging = self.judging.lock().expect("no panic holding it");
-        let tip = Tip::of(worktree, version);
-        let rules_version = self.rules_changes.load(Ordering::SeqCst);
-        if let Some(kept) = self.kept(&store.project, worktree.top, &tip, rules_version)
-            && (!retry_failed || kept.is_ok())
+        tip: Tip,
+        rules: Arc<Material>,
+    ) -> Result<Arc<Verdict>, String> {
+        // Held while judging, so builds that ask at once judge once.
+        let mut judged = self.judged.lock().expect("no panic holding it");
+        if let Some(kept) = judged.get(worktree.top)
+            && kept.tip == tip
+            && Arc::ptr_eq(&kept.rules, &rules)
         {
-            return (kept, false);
+            return Ok(kept.verdict.clone());
         }
-        let verdict = self
-            .rules(&store.project)
-            .and_then(|rules| self.judge(store, worktree, &rules))
-            .map(Arc::new);
-        self.judged
-            .lock()
-            .expect("no panic holding it")
-            .entry(worktree.top.to_path_buf())
-            .or_default()
-            .insert(
-                store.project.clone(),
-                Judged {
-                    tip,
-                    rules_version,
-                    verdict: verdict.clone(),
-                },
-            );
-        (verdict, true)
+        let verdict = Arc::new(self.judge(store, worktree, &rules)?);
+        judged.insert(
+            worktree.top.to_path_buf(),
+            Judged {
+                tip,
+                rules,
+                verdict: verdict.clone(),
+            },
+        );
+        Ok(verdict)
     }
 
     /// The verdict on the commits of <worktree>, a worktree of <lists>'
@@ -265,7 +224,8 @@ impl Reads {
         version: u64,
         worktree: &Worktree,
     ) -> Result<Arc<Verdict>, String> {
-        self.read_at(store, version, worktree, true).0
+        let rules = self.rules(&store.project)?;
+        self.verdict(store, worktree, Tip::of(worktree, version), rules)
     }
 
     /// Judges <worktree>'s commits the way `builds land` does, against the
@@ -311,5 +271,185 @@ impl Reads {
             scope,
         )
         .map_err(Fail::text)
+    }
+}
+
+type Outcome = Result<Arc<Verdict>, String>;
+type Place = (PathBuf, String);
+
+#[derive(Clone, PartialEq, Eq)]
+struct QueryTip {
+    git_and_store: Tip,
+    rules: u64,
+}
+
+struct Query {
+    place: Place,
+    tip: QueryTip,
+    store: Store,
+    repo: String,
+    git: SideRead,
+}
+
+impl Query {
+    fn read(&self, reads: &Reads) -> Outcome {
+        let worktree = Worktree {
+            top: &self.place.0,
+            repo: &self.repo,
+            branch: self.tip.git_and_store.branch.as_deref(),
+            git: &self.git,
+        };
+        reads.verdict_at(&self.store, self.tip.git_and_store.store, &worktree)
+    }
+}
+
+enum QueryState {
+    Pending { previous_error: Option<String> },
+    Read { outcome: Outcome, at: Instant },
+}
+
+struct Entry {
+    tip: QueryTip,
+    state: QueryState,
+}
+
+#[derive(Default)]
+struct Work {
+    entries: HashMap<Place, Entry>,
+    queue: VecDeque<Query>,
+    stopped: bool,
+    failure: Option<String>,
+}
+
+/// Dashboard requests for review verdicts. Only the worker writes completed
+/// answers here. A synchronous health read can reuse the Git and review
+/// reads without changing the dashboard's answers.
+#[derive(Default)]
+pub struct Queries {
+    work: Mutex<Work>,
+    ready: Condvar,
+}
+
+/// A card keeps showing a failed read during backoff. Its next request after
+/// the backoff can ask for another read of the same inputs.
+const REVIEW_RETRY: Duration = Duration::from_secs(2);
+
+impl Queries {
+    /// Requests a verdict without waiting for Git. None means the worker
+    /// has the request and has yet to give an answer.
+    pub fn request(
+        &self,
+        reads: &Reads,
+        store: &Store,
+        version: u64,
+        worktree: &Worktree,
+    ) -> Option<Outcome> {
+        let place = (worktree.top.to_path_buf(), store.project.clone());
+        let tip = QueryTip {
+            git_and_store: Tip::of(worktree, version),
+            rules: reads.rules_changes.load(Ordering::SeqCst),
+        };
+        let mut work = self.work.lock().expect("no panic holding it");
+        if let Some(failure) = &work.failure {
+            return Some(Err(failure.clone()));
+        }
+        let mut previous_error = None;
+        if let Some(entry) = work.entries.get(&place).filter(|entry| entry.tip == tip) {
+            match &entry.state {
+                QueryState::Pending { previous_error } => {
+                    return previous_error.clone().map(Err);
+                }
+                QueryState::Read { outcome, at } => match outcome {
+                    Err(error) if at.elapsed() >= REVIEW_RETRY => {
+                        previous_error = Some(error.clone());
+                    }
+                    _ => return Some(outcome.clone()),
+                },
+            }
+        }
+        work.entries.insert(
+            place.clone(),
+            Entry {
+                tip: tip.clone(),
+                state: QueryState::Pending {
+                    previous_error: previous_error.clone(),
+                },
+            },
+        );
+        work.queue.retain(|query| query.place != place);
+        work.queue.push_back(Query {
+            place,
+            tip,
+            store: store.clone(),
+            repo: worktree.repo.to_string(),
+            git: worktree.git.clone(),
+        });
+        self.ready.notify_one();
+        previous_error.map(Err)
+    }
+
+    fn next(&self) -> Option<Query> {
+        let work = self.work.lock().expect("no panic holding it");
+        let mut work = self
+            .ready
+            .wait_while(work, |work| work.queue.is_empty() && !work.stopped)
+            .expect("no panic holding it");
+        if work.stopped {
+            return None;
+        }
+        work.queue.pop_front()
+    }
+
+    fn answer(&self, query: &Query, outcome: Outcome) -> bool {
+        let mut work = self.work.lock().expect("no panic holding it");
+        let Some(entry) = work
+            .entries
+            .get_mut(&query.place)
+            .filter(|entry| entry.tip == query.tip)
+        else {
+            return false;
+        };
+        let QueryState::Pending { previous_error } = &entry.state else {
+            return false;
+        };
+        let changed = outcome.is_ok() || outcome.as_ref().err() != previous_error.as_ref();
+        let error = outcome.as_ref().err().cloned();
+        entry.state = QueryState::Read {
+            outcome,
+            at: Instant::now(),
+        };
+        drop(work);
+        if changed && let Some(error) = error {
+            crate::text::note(format!(
+                "reading the rules review of {} in {}: {error}",
+                query.place.0.display(),
+                query.store.project,
+            ));
+        }
+        changed
+    }
+
+    /// Reads queued verdicts and tells the page when it has a new answer.
+    /// A panic ends the worker and makes the failure visible to its readers.
+    pub fn run(&self, reads: &Reads, publish: impl Fn()) {
+        let worker = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            while let Some(query) = self.next() {
+                if self.answer(&query, query.read(reads)) {
+                    publish();
+                }
+            }
+        }));
+        if worker.is_err() {
+            let failure = "The dashboard's rules review worker stopped after a panic.";
+            crate::text::note(failure);
+            self.work.lock().expect("no panic holding it").failure = Some(failure.to_string());
+            publish();
+        }
+    }
+
+    #[cfg(test)]
+    pub fn stop(&self) {
+        self.work.lock().expect("no panic holding it").stopped = true;
+        self.ready.notify_one();
     }
 }

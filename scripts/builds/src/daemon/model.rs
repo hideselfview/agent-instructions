@@ -230,9 +230,9 @@ pub struct Model {
     /// Each worktree's design commits, which its card and health's findings
     /// both read.
     design_reads: crate::lists::design_reads::DesignReads,
-    design_work: Arc<CommitWork>,
-    review_work: Arc<CommitWork>,
-    /// What the review worker found for each branch's commits.
+    design_work: Arc<DesignWork>,
+    review_queries: crate::review::verdicts::Queries,
+    /// Git and verdict reads shared by the review worker and health.
     review_reads: crate::review::verdicts::Reads,
     /// The build-app runs the page starts.
     pub runs: Arc<Runs>,
@@ -266,14 +266,14 @@ impl Revision {
     }
 }
 
-/// Wakes a commit-reading worker when its inputs change.
+/// Wakes the design worker when checkout or lists inputs change.
 #[derive(Default)]
-struct CommitWork {
+struct DesignWork {
     dirty: Mutex<bool>,
     ready: Condvar,
 }
 
-impl CommitWork {
+impl DesignWork {
     fn mark(&self) {
         *self.dirty.lock().expect("no panic holding it") = true;
         self.ready.notify_one();
@@ -313,6 +313,9 @@ impl Model {
         runs: Arc<Runs>,
         program: std::path::PathBuf,
     ) -> crate::fail::Result<Arc<Model>> {
+        let review_reads = crate::review::verdicts::Reads::with_root(Ok(
+            crate::review::rules::installed_root(&places.home),
+        ));
         let model = Arc::new(Model {
             places: places.clone(),
             rules,
@@ -332,19 +335,17 @@ impl Model {
             rules_stream: Mutex::new(None),
             design_reads: crate::lists::design_reads::DesignReads::with_program(&places, program),
             design_work: Arc::default(),
-            review_work: Arc::default(),
+            review_queries: Default::default(),
             lists: Feed::start(places),
-            review_reads: Default::default(),
+            review_reads,
             runs,
             served: Mutex::new(None),
         });
         let changes = model.changes.clone();
         let design_work = model.design_work.clone();
-        let review_work = model.review_work.clone();
         model.lists.listen(Box::new(move |stores_changed| {
             if stores_changed {
                 design_work.mark();
-                review_work.mark();
             }
             changes.advance();
         }));
@@ -358,7 +359,11 @@ impl Model {
         let reviews = model.clone();
         std::thread::Builder::new()
             .name("builds-reviews".into())
-            .spawn(move || reviews.review_loop())
+            .spawn(move || {
+                reviews
+                    .review_queries
+                    .run(&reviews.review_reads, || reviews.publish())
+            })
             .context(|| "starting the rules review worker".to_string())?;
         model.follow_rules();
         let refresher = model.clone();
@@ -500,7 +505,6 @@ impl Model {
             Box::new(move |_| {
                 if let Some(model) = weak.upgrade() {
                     model.review_reads.rules_changed();
-                    model.review_work.mark();
                     model.publish();
                 }
             }),
@@ -677,7 +681,6 @@ impl Model {
         }
         if read_designs {
             self.design_work.mark();
-            self.review_work.mark();
         }
         // The daemon reads each repo's branches again when any checkout of
         // the repo changed, since branches live in the repo's shared git
@@ -777,95 +780,51 @@ impl Model {
             if self.stopped.load(Ordering::SeqCst) {
                 return;
             }
-            self.read_worktree_commits(|lists, worktree| {
-                if self
-                    .design_reads
-                    .fill(lists, worktree.repo, worktree.top, worktree.git)
-                {
-                    self.publish();
-                }
-            });
-        }
-    }
-
-    /// Keeps Git and store reads for review verdicts off the page's request
-    /// threads. Each completed verdict makes the cards eligible to update.
-    fn review_loop(self: Arc<Self>) {
-        loop {
-            self.review_work.wait();
-            if self.stopped.load(Ordering::SeqCst) {
-                return;
-            }
-            self.read_worktree_commits(|lists, worktree| {
-                let store = match crate::lists::store::Store::named(&self.places, &lists.project) {
-                    Ok(store) => store,
+            let (_, snapshot) = self.lists.current();
+            let Ok(stores) = snapshot.as_ref() else {
+                continue;
+            };
+            let worktrees = {
+                let state = self.state.lock().expect("no panic holding it");
+                state
+                    .page
+                    .roots
+                    .iter()
+                    .filter_map(|root| {
+                        let live = root.live.as_ref()?;
+                        let Some(SideGit::Side(Ok(git))) =
+                            state.page.facts.get(&root.path)?.git.as_ref()
+                        else {
+                            return None;
+                        };
+                        Some((live.clone(), git.clone()))
+                    })
+                    .collect::<Vec<_>>()
+            };
+            for (live, git) in worktrees {
+                let repo = live.repo();
+                let selected = checkout_lists(&snapshot, &live, &repo);
+                let selected = match selected {
+                    Ok(lists) => lists,
                     Err(error) => {
-                        crate::text::note(error.text());
-                        return;
+                        crate::text::note(format!(
+                            "choosing design lists for {}: {error}",
+                            live.top.display()
+                        ));
+                        None
                     }
                 };
-                if self.review_reads.fill(&store, lists.version, worktree) {
-                    self.publish();
-                }
-            });
-        }
-    }
-
-    /// Each side worktree with commits to check, in the project of its
-    /// checkout and each project with a design change awaiting approval there.
-    fn read_worktree_commits(
-        &self,
-        mut read: impl FnMut(&crate::lists::Lists, &crate::review::verdicts::Worktree),
-    ) {
-        let (_, snapshot) = self.lists.current();
-        let Ok(stores) = snapshot.as_ref() else {
-            return;
-        };
-        let worktrees = {
-            let state = self.state.lock().expect("no panic holding it");
-            state
-                .page
-                .roots
-                .iter()
-                .filter_map(|root| {
-                    let live = root.live.as_ref()?;
-                    let facts = state.page.facts.get(&root.path)?;
-                    let Some(SideGit::Side(Ok(git))) = &facts.git else {
-                        return None;
-                    };
-                    (!git.ahead.is_empty())
-                        .then(|| (live.clone(), git.clone(), facts.branch.clone()))
-                })
-                .collect::<Vec<_>>()
-        };
-        for (live, git, branch) in worktrees {
-            let repo = live.repo();
-            let worktree = crate::review::verdicts::Worktree {
-                repo: &repo,
-                top: &live.top,
-                branch: branch.as_deref(),
-                git: &git,
-            };
-            let selected = match checkout_lists(&snapshot, &live, &repo) {
-                Ok(lists) => lists,
-                Err(error) => {
-                    crate::text::note(format!(
-                        "choosing lists for {}: {error}",
-                        live.top.display()
-                    ));
-                    None
-                }
-            };
-            for loaded in stores {
-                let Ok(lists) = &loaded.lists else { continue };
-                let wanted = selected.is_some_and(|selected| selected.project == lists.project)
-                    || lists.designs.iter().any(|design| {
-                        design.awaits_approval()
-                            && design.repo == repo
-                            && Path::new(&design.worktree) == live.top
-                    });
-                if wanted {
-                    read(lists, &worktree);
+                for loaded in stores {
+                    let Ok(lists) = &loaded.lists else { continue };
+                    let wanted = selected.is_some_and(|selected| selected.project == lists.project)
+                        || lists.designs.iter().any(|design| {
+                            design.awaits_approval()
+                                && design.repo == repo
+                                && Path::new(&design.worktree) == live.top
+                        });
+                    if wanted && self.design_reads.fill(lists, &repo, &live.top, &git) {
+                        self.publish();
+                    }
                 }
             }
         }
@@ -914,7 +873,7 @@ impl Model {
     pub fn stop_sampling(&self) {
         self.stopped.store(true, Ordering::SeqCst);
         self.design_work.mark();
-        self.review_work.mark();
+        self.review_queries.stop();
         let _guard = self.viewing_lock.lock().expect("no panic holding it");
         self.viewing.notify_all();
         drop(_guard);
@@ -1667,14 +1626,14 @@ impl Model {
         let Some(newest) = worktree.git.ahead.first() else {
             return Ok(None);
         };
-        let Some(verdict) = self
-            .review_reads
-            .completed(&lists.project, lists.version, worktree)
+        let store = crate::lists::store::Store::named(&self.places, &lists.project)
+            .map_err(crate::fail::Fail::text)?;
+        let Some(verdict) =
+            self.review_queries
+                .request(&self.review_reads, &store, lists.version, worktree)
         else {
             return Ok(Some(ItemWait::RulesReview(ReviewWait::Checking)));
         };
-        let store = crate::lists::store::Store::named(&self.places, &lists.project)
-            .map_err(crate::fail::Fail::text)?;
         super::review_cards::standing(
             &store,
             &self.places.sessions(),
@@ -2062,9 +2021,8 @@ impl Model {
                     "The daemon can't read the rules review of this worktree's commits: {error}"
                 ));
                 if ready {
-                    // The review the daemon could not read may not take the
-                    // commits, so the card says Needs review, never Ready to land.
-                    worktree = CardState::InReview(ReviewWait::NotRun);
+                    // The card shows the read failure instead of a review verdict.
+                    worktree = CardState::WaitsUnread;
                 }
                 None
             }

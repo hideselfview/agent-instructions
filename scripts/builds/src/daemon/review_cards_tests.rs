@@ -270,23 +270,6 @@ fn a_worktree_is_judged_once_per_tip_and_again_when_its_branch_main_or_store_mov
     let git = read_git(&side, ahead(&side));
     let version = demo.store.revision().unwrap();
     let not_run = Some(ItemWait::RulesReview(ReviewWait::NotRun));
-    let worktree = Worktree {
-        repo: "demo",
-        top: &side,
-        branch: Some("work"),
-        git: &git,
-    };
-    assert!(reads.completed("demo", version, &worktree).is_none());
-    assert!(reads.fill(&demo.store, version, &worktree));
-    assert_eq!(
-        reads
-            .completed("demo", version, &worktree)
-            .unwrap()
-            .unwrap()
-            .as_ref(),
-        &Verdict::NoRun,
-    );
-    assert!(!reads.fill(&demo.store, version, &worktree));
     assert_eq!(
         standing_at(&reads, &demo, &side, "work", &git, version),
         Ok(not_run.clone())
@@ -309,15 +292,6 @@ fn a_worktree_is_judged_once_per_tip_and_again_when_its_branch_main_or_store_mov
         ("a write to the store", "work", &git, version + 1),
     ];
     for (what, branch, git, version) in tips {
-        let changed = Worktree {
-            branch: Some(branch),
-            git,
-            ..worktree
-        };
-        assert!(
-            reads.completed("demo", version, &changed).is_none(),
-            "{what}"
-        );
         let said = standing_at(&reads, &demo, &side, branch, git, version);
         assert!(said.is_err(), "{what} is judged again, from git: {said:?}");
     }
