@@ -264,15 +264,20 @@ async fn last_said(page: &Page) -> String {
 }
 
 /// How Chrome starts: sRGB colour, no scrollbars, and software rasterization on
-/// one thread. GPU and multi-threaded rasterization put single pixels of a
-/// gradient or an edge a level or more off from one run to the next while the
-/// machine is busy, so the same page drew a different picture each time.
-/// chromiumoxide puts the `--` in front of each one itself.
-const ARGS: [&str; 4] = [
+/// one thread with no partial raster, checker imaging or LCD text. GPU and
+/// multi-threaded rasterization put single pixels of a gradient or an edge a
+/// level or more off from one run to the next while the machine was busy, so
+/// the same page drew a different picture each time. Starting the compositor
+/// on one thread or running all its stages before each draw makes screenshots
+/// time out. chromiumoxide puts the `--` in front of each argument itself.
+const ARGS: [&str; 7] = [
     "force-color-profile=srgb",
     "hide-scrollbars",
     "disable-gpu",
     "num-raster-threads=1",
+    "disable-partial-raster",
+    "disable-checker-imaging",
+    "disable-lcd-text",
 ];
 
 /// Fetches the pinned build into the program's cache folder <cache> when it
