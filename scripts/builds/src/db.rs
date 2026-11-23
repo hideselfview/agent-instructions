@@ -764,9 +764,7 @@ pub fn schema_before_app_build_step_shots() -> String {
 /// joined it, with the Claude inboxes and the acknowledgements keyed by repo.
 #[cfg(test)]
 pub fn schema_before_app_shots_drop() -> String {
-    with_ack_repo(with_claude_inboxes(
-        text_before(APP_SHOTS_DROP_PART),
-    ))
+    with_ack_repo(with_claude_inboxes(text_before(APP_SHOTS_DROP_PART)))
 }
 
 /// The schema as it was before the branches the coordinator marked as
@@ -774,9 +772,7 @@ pub fn schema_before_app_shots_drop() -> String {
 /// keyed by repo.
 #[cfg(test)]
 pub fn schema_before_marked_mechanical() -> String {
-    with_ack_repo(with_claude_inboxes(
-        text_before(MARKED_MECHANICAL_PART),
-    ))
+    with_ack_repo(with_claude_inboxes(text_before(MARKED_MECHANICAL_PART)))
 }
 
 /// The schema as it was before the branches over the review's cap joined it,
