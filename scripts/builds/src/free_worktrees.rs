@@ -1,6 +1,8 @@
 //! Free side worktrees: ones nobody holds and no work is left in. `builds new`
-//! hands one out before adding another, and `builds prune` retires the ones
-//! nothing has used for a day, so they don't pile up.
+//! hands one out before adding another, and `builds health` and `builds prune`
+//! retire them, so they don't pile up. A new worktree costs seconds, because
+//! `builds new` fills its host `target` with a clone of a warm checkout's
+//! (warm.rs), so a free worktree keeps nothing worth a wait.
 //!
 //! A side worktree is free when it has no claim and nothing keeps it
 //! (kept.rs): no item of any project runs or is kept in it, its tree is
@@ -11,7 +13,6 @@
 //! hash. main and the repo's app checkout are never free: the person's
 //! builds and the agents' app builds stay warm in them.
 
-use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 
 use crate::checkout::{Checkout, Root};
@@ -19,7 +20,6 @@ use crate::claim::Claim;
 use crate::fail::Result;
 use crate::health::places_of;
 use crate::lists::Lists;
-use crate::places::FREE_WORKTREE_IDLE_MINUTES;
 use crate::procs::{BUILD_NAMES, GitCommits, Processes, build_processes};
 use crate::prune::Run;
 use crate::text::note;
@@ -62,28 +62,14 @@ pub fn find_free(tool: &Tool, main: &Path) -> Result<Option<Checkout>> {
     Ok(None)
 }
 
-/// The newest write to the worktree's own git dir, in seconds since 1970: a
-/// checkout writes HEAD and the index, a released claim changes the folder.
-fn git_dir_written(checkout: &Checkout) -> i64 {
-    [
-        checkout.git_dir.clone(),
-        checkout.git_dir.join("HEAD"),
-        checkout.git_dir.join("index"),
-    ]
-    .iter()
-    .filter_map(|path| std::fs::symlink_metadata(path).ok())
-    .map(|meta| meta.mtime())
-    .max()
-    .unwrap_or(0)
-}
-
-/// Retires each free side worktree among <roots> that nothing has used for
-/// FREE_WORKTREE_IDLE_MINUTES: no claim, no write to its tree's git dir or
-/// build folders, no build process there. It never retires main, the app
-/// checkout, side-1 (the repo's long-lived side worktree) or a claimed
+/// Retires each free side worktree among <roots> that no build process
+/// uses: no claim, nothing that keeps it (kept.rs). It never retires main, the
+/// app checkout, side-1 (the repo's long-lived side worktree) or a claimed
 /// worktree, and it keeps the worktrees that hold commits missing from
-/// origin/main (health lists them).
-pub fn retire_idle(tool: &Tool, roots: &[Root], run: Run) -> Result<()> {
+/// origin/main (health lists them). It holds the picking lock of the repo
+/// while it checks and removes a worktree, so `builds new` never claims one
+/// that is going.
+pub fn retire_free(tool: &Tool, roots: &[Root], run: Run) -> Result<()> {
     let places = places_of(roots);
     let every = crate::lists::store::every_lists(&tool.places)?;
     let processes = Processes::read()?;
@@ -94,15 +80,8 @@ pub fn retire_idle(tool: &Tool, roots: &[Root], run: Run) -> Result<()> {
         if !checkout.is_side() || root.keeps_warm(&tool.places)? {
             continue;
         }
-        if !is_free(checkout, &every, &commits)? {
-            continue;
-        }
         // Each repo's long-lived side worktree stays, free or not.
         if checkout.name() == "side-1" {
-            continue;
-        }
-        let idle = FREE_WORKTREE_IDLE_MINUTES;
-        if tool.now - git_dir_written(checkout) < (idle * 60) as i64 {
             continue;
         }
         let Some(place) = places.iter().position(|p| p.root == root.path) else {
@@ -111,14 +90,12 @@ pub fn retire_idle(tool: &Tool, roots: &[Root], run: Run) -> Result<()> {
         if builds.iter().any(|b| b.place == place) {
             continue;
         }
-        if root.path.is_dir() && tool.written_within(&tool.measure(&root.path)?, idle) {
+        let _picking = crate::worktree::lock_picking(&checkout.main)?;
+        if !is_free(checkout, &every, &commits)? {
             continue;
         }
         if run.dry() {
-            note(format!(
-                "would retire {} (free, unused for {idle}m)",
-                checkout.top.display()
-            ));
+            note(format!("would retire {} (free)", checkout.top.display()));
         } else {
             retire_checkout(tool, checkout)?;
         }

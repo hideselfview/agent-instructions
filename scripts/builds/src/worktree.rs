@@ -230,7 +230,7 @@ fn require_resumable(main: &Path, branch: &str) -> Result<()> {
 
 /// An exclusive lock on <main>'s repo for picking a worktree (flock on a file
 /// in the common git dir), held until the returned file is dropped.
-fn lock_picking(main: &Path) -> Result<std::fs::File> {
+pub(crate) fn lock_picking(main: &Path) -> Result<std::fs::File> {
     let path = main.join(".git/builds-new.lock");
     let file = crate::flock::open_creating(&path)?;
     crate::flock::lock(&file, libc::LOCK_EX, &path)?;

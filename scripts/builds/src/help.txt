@@ -444,7 +444,10 @@ WORKTREES AND CLAIMS
 
 Each repo has a main checkout, the person's, and side worktrees for agents at
 <parent>/<repo>-worktrees/side-N. side-1 is long-lived; `builds new` hands out
-the others and `builds prune` retires them once they are idle.
+the others. `builds health` and `builds prune` retire each one that is free:
+no claim, a clean tree, every commit on origin/main by patch, no build running
+there. A new worktree costs a few seconds, since `builds new` clones a warm
+checkout's `target` into it, so a free one waits for nothing.
 
 A claim records who works in a side worktree, so that no other session takes
 it: whoever hands out the worktree (a coordinator dispatching an agent, or the
@@ -2371,10 +2374,10 @@ a toolchain upgrade is fine.
                               pins, and installed tool versions no checkout
                               names. First it retires each free side worktree
                               (no claim, a clean tree, every commit on
-                              origin/main by patch) that nothing has written
-                              to or built in for a day; never main, side-1, an
-                              app checkout, a claimed worktree or one with
-                              commits waiting to land, which `health` lists.
+                              origin/main by patch, no build running there);
+                              never main, side-1, an app checkout, a claimed
+                              worktree or one with commits waiting to land,
+                              which `health` lists.
                               Then it removes each worktree on a host that no
                               checkout's jobs use (`builds remote run`), with
                               its build root there: one whose name matches no

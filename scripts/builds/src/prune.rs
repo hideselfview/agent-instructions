@@ -11,7 +11,7 @@ use crate::checkout::{Checkout, Root};
 use crate::evict::{Recreate, Removal, evict};
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
-use crate::free_worktrees::retire_idle;
+use crate::free_worktrees::retire_free;
 use crate::manifest::{SHARED_CACHES, SharedCache, build_dirs, has_manifest};
 use crate::places::{DERIVED_DATA_CAP_KIB, DERIVED_DATA_IDLE_MINUTES, FLOOR_IDLE_MINUTES, Places};
 use crate::temp_builds::temp_build_folders;
@@ -789,7 +789,7 @@ fn naming_texts(tops: &[&Path], files: &[String]) -> std::result::Result<Vec<Str
 }
 
 /// `builds prune [--dry-run] [--idle <minutes> [--include-warm]]`. Also
-/// retires the free side worktrees nothing has used for a day, removes the
+/// retires the free side worktrees, removes the
 /// worktrees on the hosts that no checkout's jobs use, and runs each host's
 /// own prune with the same options (`prune_hosts`). A prune that
 /// deletes holds the prune lock while it runs and records when it finished
@@ -825,8 +825,8 @@ pub fn cmd_prune(tool: &Tool, args: &[String]) -> Result<()> {
         Some(crate::prune_schedule::hold(&tool.places)?)
     };
     // Before the roots are pruned: a worktree about to go has nothing to prune.
-    retire_idle(tool, &tool.roots()?, run)?;
-    // Remove the host worktrees after retire_idle runs, because the jobs of
+    retire_free(tool, &tool.roots()?, run)?;
+    // Remove the host worktrees after retire_free runs, because the jobs of
     // a worktree it retires no longer use that worktree's copies on the
     // hosts.
     let ssh = crate::host::Ssh::from_env();

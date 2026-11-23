@@ -77,10 +77,10 @@ branch, not the worktree, is the unit of work.
   - side-1 is for background work: each feature or fix is a new branch from
     origin/main there. It stays built, so never delete or recreate it.
   - Extra side worktrees (side-2 and on) are for agents that work at the same
-    time. `builds new` hands one out and claims it; `builds prune` retires
-    idle ones whose work has all landed. An agent works in the worktree its
-    brief names, or one it gets from `builds new --for`, never a side-N it
-    picked by hand.
+    time. `builds new` hands one out and claims it; `builds health` and
+    `builds prune` retire free ones whose work has all landed. An agent works
+    in the worktree its brief names, or one it gets from `builds new --for`,
+    never a side-N it picked by hand.
   - A claimed side worktree takes an agent's commands only on the branch of
     the item running in it. `builds app-build`, `review`, `land`, `cargo`,
     `checks` and `item` refuse when an agent (`--agent` or BUILDS_AGENT) runs
@@ -826,7 +826,8 @@ worktree that holds nothing origin/main lacks and has had no change and no build
 2 hours (BUILDS_IDLE_CLAIM_HOURS) and stops an item marked running there, ends each review
 whose branch has nothing left to land (as landed when every commit is on
 origin/main, as abandoned when the branch and its commits are gone and no item
-keeps them), sends the judge
+keeps them), retires each free side worktree (no claim, a clean tree, every
+commit on origin/main by patch), sends the judge
 again each finding that waits for a settle and that no running builds
 process is telling the judge's session of, forgets a judge whose session ended,
 and stops each

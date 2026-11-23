@@ -1772,6 +1772,22 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
             )),
         }
     }
+    if !stop_junk {
+        // After the releases, so a worktree whose claim health just released
+        // goes in the same check.
+        let retired = tool.roots().and_then(|roots| {
+            crate::free_worktrees::retire_free(tool, &roots, crate::prune::Run::Real)
+        });
+        if let Err(error) = retired {
+            release_failures.push(Advice::run(
+                format!(
+                    "Builds could not retire the free worktrees. {} Check again with",
+                    error.text()
+                ),
+                "builds prune".to_string(),
+            ));
+        }
+    }
     let result = report(tool, json, stop_junk, release_failures.clone());
     // A later error replaces the report, which would hold the failures, so
     // the failures go to the person here. An exit code 1 follows a printed

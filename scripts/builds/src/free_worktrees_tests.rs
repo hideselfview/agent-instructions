@@ -1,6 +1,6 @@
 use super::*;
 use crate::claim::cmd_release;
-use crate::testing::{Scratch, age, age_all, git, repo};
+use crate::testing::{Scratch, git, repo};
 use crate::worktree::cmd_new;
 
 /// A repo `demo` pushed to a bare origin, and a tool on a scratch volume.
@@ -133,14 +133,8 @@ fn a_worktree_with_an_unlanded_commit_is_kept() {
     release(&scratch, 2);
     let top = side(&scratch, 2);
     commit(&top, "unlanded");
-    let checkout = Checkout::find(&top.display().to_string()).unwrap();
-    // Nothing has touched it for days.
-    age_all(&checkout.build_root(&tool.places), 48);
-    for name in ["index", "HEAD", ""] {
-        age(&checkout.git_dir.join(name), 48);
-    }
 
-    retire_idle(&tool, &tool.roots().unwrap(), Run::Real).unwrap();
+    retire_free(&tool, &tool.roots().unwrap(), Run::Real).unwrap();
     assert!(
         top.exists(),
         "a worktree holding an unlanded commit was retired"
@@ -153,7 +147,7 @@ fn a_worktree_with_an_unlanded_commit_is_kept() {
 }
 
 #[test]
-fn an_idle_free_worktree_is_retired_and_the_rest_stay() {
+fn a_free_worktree_is_retired_at_once_and_the_rest_stay() {
     let scratch = Scratch::new("free-idle");
     let (tool, main) = demo(&scratch);
     // All claimed while they are made, so each `new` adds one.
@@ -173,27 +167,21 @@ fn an_idle_free_worktree_is_retired_and_the_rest_stay() {
         &["mac".to_string(), tops[4].display().to_string()],
     )
     .unwrap();
-    for top in &tops {
-        let checkout = Checkout::find(&top.display().to_string()).unwrap();
-        age_all(&checkout.build_root(&tool.places), 48);
-        for name in ["index", "HEAD", ""] {
-            age(&checkout.git_dir.join(name), 48);
-        }
-    }
-    // side-3 was used an hour ago.
-    let three = Checkout::find(&tops[2].display().to_string()).unwrap();
-    age(&three.git_dir.join("HEAD"), 1);
+    // Each was used a moment ago.
 
-    retire_idle(&tool, &tool.roots().unwrap(), Run::Dry).unwrap();
+    retire_free(&tool, &tool.roots().unwrap(), Run::Dry).unwrap();
     assert!(tops[1].exists(), "a dry run retired a worktree");
-    retire_idle(&tool, &tool.roots().unwrap(), Run::Real).unwrap();
-    assert!(!tops[1].exists(), "an idle free worktree was kept");
+    retire_free(&tool, &tool.roots().unwrap(), Run::Real).unwrap();
+    assert!(!tops[1].exists(), "a free worktree was kept");
+    assert!(
+        !tops[2].exists(),
+        "a free worktree used a moment ago was kept"
+    );
     assert!(!tool.places.root.join("demo/side-2").exists());
     assert!(
         tops[0].exists(),
         "side-1, the long-lived worktree, was retired"
     );
-    assert!(tops[2].exists(), "a worktree used an hour ago was retired");
     assert!(tops[3].exists(), "a claimed worktree was retired");
     assert!(tops[4].exists(), "the app checkout was retired");
     assert!(main.exists());
@@ -267,11 +255,6 @@ fn harness_worktree(tool: &Tool, main: &Path) -> std::path::PathBuf {
     );
     let checkout = Checkout::find(&top.display().to_string()).unwrap();
     crate::setup::setup(tool, &crate::testing::no_ssh(), &checkout).unwrap();
-    // Nothing has touched it for days.
-    age_all(&checkout.build_root(&tool.places), 48);
-    for name in ["index", "HEAD", ""] {
-        age(&checkout.git_dir.join(name), 48);
-    }
     top
 }
 
@@ -301,7 +284,7 @@ fn a_harness_worktree_is_never_retired() {
     let scratch = Scratch::new("free-harness-retire");
     let (tool, main) = demo(&scratch);
     let harness = harness_worktree(&tool, &main);
-    retire_idle(&tool, &tool.roots().unwrap(), Run::Real).unwrap();
+    retire_free(&tool, &tool.roots().unwrap(), Run::Real).unwrap();
     assert!(harness.exists(), "prune retired a harness worktree");
     let error = crate::worktree::cmd_retire(&tool, &[harness.display().to_string()]).unwrap_err();
     assert!(
