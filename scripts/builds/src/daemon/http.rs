@@ -83,10 +83,10 @@
 //!                   builds has none cached; only from this Mac
 //!     /designs/<project>/<commit>/shot/<lane>/<shot>/board.png and /shot.png
 //!                   a pair's pictures in the cached run of the commit
-//!     /events       `state` events: the whole state on connect and each time
-//!                   it changes, at most four a second; `lists` events: the
-//!                   lists JSON on connect and each time it changes, never
-//!                   with a `state` event that only repeats the processes
+//!     /events       `state` events give the whole state, at most four times
+//!                   a second. `lists` and `hooks` events give those readings
+//!                   on connect and when they change, including when the
+//!                   checkout reading fails.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -885,8 +885,8 @@ fn json_error_body(message: &str) -> String {
     serde_json::json!({ "error": message }).to_string()
 }
 
-/// Streams `state` events until the page goes. The page is watched, so the
-/// processes are read, while the stream lasts.
+/// Sends the dashboard's state, lists and hook figures until the page goes.
+/// The daemon samples processes more often while the page watches.
 fn events(mut stream: TcpStream, model: &Model) -> std::io::Result<()> {
     write!(
         stream,
@@ -900,33 +900,22 @@ fn events(mut stream: TcpStream, model: &Model) -> std::io::Result<()> {
         let mut sent_hooks: Option<Arc<String>> = None;
         loop {
             let started = Instant::now();
-            let page = match model.page() {
-                Ok(page) => page,
+            match model.page() {
+                Ok(page) => {
+                    seen = page.version;
+                    let data = serde_json::to_string(&page).expect("the state serializes");
+                    write!(stream, "event: state\ndata: {data}\n\n")?;
+                }
                 Err(error) => {
-                    let message = error.text();
                     write!(
                         stream,
                         "event: failure\ndata: {}\n\n",
-                        serde_json::json!({ "error": message })
+                        serde_json::json!({ "error": error.text() })
                     )?;
-                    stream.flush()?;
-                    seen = model.wait_change(seen);
-                    continue;
                 }
-            };
-            seen = page.version;
-            let data = serde_json::to_string(&page).expect("the state serializes");
-            write!(stream, "event: state\ndata: {data}\n\n")?;
+            }
             match model.lists_json() {
-                Ok(lists)
-                    if !sent_lists
-                        .as_ref()
-                        .is_some_and(|sent| Arc::ptr_eq(sent, &lists)) =>
-                {
-                    write!(stream, "event: lists\ndata: {lists}\n\n")?;
-                    sent_lists = Some(lists);
-                }
-                Ok(_) => {}
+                Ok(lists) => send_if_changed(&mut stream, "lists", lists, &mut sent_lists)?,
                 Err(error) => {
                     write!(
                         stream,

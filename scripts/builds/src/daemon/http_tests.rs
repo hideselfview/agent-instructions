@@ -871,6 +871,26 @@ fn next_event(reader: &mut BufReader<TcpStream>, name: &str) -> String {
 }
 
 #[test]
+fn the_dashboard_stream_sends_lists_and_hooks_when_the_volume_is_gone() {
+    let s = server_with("http-stream-without-volume", hook_store);
+    std::fs::rename(&s.model.places.root, s.scratch.dir.join("other-volume")).unwrap();
+
+    let host = format!("127.0.0.1:{}", s.port);
+    let mut stream = TcpStream::connect(&host).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .unwrap();
+    write!(stream, "GET /events HTTP/1.1\r\nHost: {host}\r\n\r\n").unwrap();
+    let mut events = BufReader::new(stream);
+    let error = next_event(&mut events, "failure");
+    assert!(error.contains("reading the free space"), "{error}");
+    let lists: serde_json::Value = serde_json::from_str(&next_event(&mut events, "lists")).unwrap();
+    assert_eq!(lists["projects"][0]["project"], "demo");
+    let hooks: serde_json::Value = serde_json::from_str(&next_event(&mut events, "hooks")).unwrap();
+    assert_eq!(hooks["projects"][0]["repos"][0]["runs"], 2);
+}
+
+#[test]
 fn the_publish_events_follow_the_store_and_a_project_with_no_design_files_has_no_publish() {
     use crate::lists::fixtures::{NOON, make_store, stamp};
     let mut inbox = None;
