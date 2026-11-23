@@ -602,6 +602,10 @@ fn account_for_repeated_findings<'a>(
         let mut still: Vec<&record::Finding> = Vec::new();
         for call in &mut answer.calls {
             for raised in std::mem::take(&mut call.findings) {
+                if raised.check_failed.is_some() {
+                    call.findings.push(raised);
+                    continue;
+                }
                 let candidates = open
                     .iter()
                     .filter(|held| held.group == call.group && held.could_match_quote(&raised));
@@ -616,13 +620,11 @@ fn account_for_repeated_findings<'a>(
                     call.findings.push(raised);
                     continue;
                 };
-                if raised.check_failed.is_none() {
-                    if ask.at_head {
-                        repeated_at_head.entry(finding.id).or_insert(raised.problem);
-                    }
-                    if !still.iter().any(|seen| seen.id == finding.id) {
-                        still.push(finding);
-                    }
+                if ask.at_head {
+                    repeated_at_head.entry(finding.id).or_insert(raised.problem);
+                }
+                if !still.iter().any(|seen| seen.id == finding.id) {
+                    still.push(finding);
                 }
             }
         }
@@ -651,8 +653,7 @@ fn account_for_repeated_findings<'a>(
     Ok(repeated)
 }
 
-/// Whether both findings identify the same site in the reviewed tree.
-/// A report that failed validation uses its file and reported line.
+/// Whether the checked report identifies the open finding's site.
 fn same_finding_site(
     repo: &Path,
     head: &str,
@@ -662,9 +663,6 @@ fn same_finding_site(
 ) -> Result<bool> {
     use record::FindingLine;
 
-    if raised.check_failed.is_some() {
-        return Ok(held.file == raised.file && held.line.number() == raised.line.number());
-    }
     let FindingLine::AtHead(current_line) = raised.line else {
         return Ok(false);
     };

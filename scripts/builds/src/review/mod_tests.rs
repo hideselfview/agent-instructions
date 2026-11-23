@@ -1452,6 +1452,50 @@ fn an_ambiguous_legacy_quote_cannot_look_like_a_different_site() {
 }
 
 #[test]
+fn a_dropped_report_at_the_same_line_keeps_its_validation_error() {
+    let demo = demo("review-dropped-repeat");
+    let fake = fake(&demo.scratch.dir);
+    let side = demo.add_side(1, "agent", "work");
+    std::fs::write(side.join("a.rs"), "a.rs\none\n").unwrap();
+    crate::testing::git(&side, &["add", "a.rs"]);
+    crate::testing::git(&side, &["commit", "-qm", "Add the quoted code"]);
+    fake.answer("alpha", &[("rule-a", Some(BAD))]);
+    let landing = run_review(&demo, &fake, &side, "k").landing.unwrap();
+    let finding = findings_of(&demo, landing)[0].id;
+    settle_as(&demo, finding, "confirmed", "real");
+
+    std::fs::write(side.join("a.rs"), "a.rs\ntwo\n").unwrap();
+    crate::testing::git(
+        &side,
+        &["commit", "-qam", "Change the line below the quote"],
+    );
+    fake.answer_task(
+        "alpha",
+        serde_json::json!({
+            "rules": [{"rule": "rule-a", "verdict": "finding", "findings": [
+                {"clause": BAD.0, "file": BAD.1, "line": BAD.2, "code": BAD.3, "problem": BAD.4},
+            ]}],
+            "follow_up": [{"id": finding, "verdict": {"still_open": "The code remains."}}],
+        }),
+    );
+    let reported = run_review(&demo, &fake, &side, "k");
+    assert!(
+        reported.text.contains("dropped by builds"),
+        "{}",
+        reported.text
+    );
+    let findings = findings_of(&demo, landing);
+    assert!(findings[0].is_open());
+    assert!(
+        findings[1]
+            .check_failed
+            .as_deref()
+            .unwrap()
+            .contains("around the diff's changes")
+    );
+}
+
+#[test]
 fn only_the_group_that_raised_a_project_facts_finding_reviews_its_fix() {
     let demo = demo("review-project-facts-fix");
     let fake = fake(&demo.scratch.dir);
