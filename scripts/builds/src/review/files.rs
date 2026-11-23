@@ -209,9 +209,6 @@ pub fn line_at(repo: &Path, from: &str, head: &str, path: &str, line: i64) -> Re
     if from == head {
         return Ok(Some(line));
     }
-    if !super::commits::exists(repo, from)? {
-        return Ok(None);
-    }
     let diff = super::commits::git_text(
         repo,
         &[

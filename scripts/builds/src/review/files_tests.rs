@@ -29,6 +29,18 @@ fn no_source_gives_no_context() {
 }
 
 #[test]
+fn mapping_a_line_reports_a_missing_review_commit() {
+    let demo = crate::lists::item_fixtures::demo("review-missing-site-commit");
+    let side = demo.add_side(1, "agent", "work");
+    let head = demo.commit(&side, "a.rs");
+    let missing = "missing-review-commit";
+    let error = line_at(&side, missing, &head, "a.rs", 1)
+        .unwrap_err()
+        .text();
+    assert!(error.contains(missing), "{error}");
+}
+
+#[test]
 fn a_checkout_of_a_revision_holds_its_files_and_is_removed_when_dropped() {
     let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let source = Source {
