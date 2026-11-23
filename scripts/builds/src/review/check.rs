@@ -226,17 +226,41 @@ pub fn names_file(path: &str, file: &str) -> bool {
     path == file || path.ends_with(&format!("/{file}"))
 }
 
+/// The patches of the exact path, or the patches of the one path with the
+/// given bare name when the diff contains no exact path.
+fn named_patches<'a>(files: &'a [DiffFile], file: &str) -> Result<Vec<&'a DiffFile>, String> {
+    let exact: Vec<_> = files.iter().filter(|patch| patch.path == file).collect();
+    if !exact.is_empty() {
+        return Ok(exact);
+    }
+    if file.contains('/') {
+        return Err(format!("the diff has no file {file}"));
+    }
+    let named: Vec<_> = files
+        .iter()
+        .filter(|patch| names_file(&patch.path, file))
+        .collect();
+    let Some(first) = named.first() else {
+        return Err(format!("the diff has no file {file}"));
+    };
+    if named.iter().any(|patch| patch.path != first.path) {
+        return Err(format!("the diff has more than one file named {file}"));
+    }
+    Ok(named)
+}
+
 /// Whether <code> is in the diff's lines of <file>, matched by `names_file`,
 /// on a line the diff adds or removes. A quote that sits only on the lines
 /// around the changes quotes code that the diff does not change: in a later
 /// run of a review, an earlier run read those lines.
 pub fn code_in(files: &[DiffFile], file: &str, code: &str) -> Result<(), String> {
+    let named = named_patches(files, file)?;
+    code_in_patches(&named, file, code)
+}
+
+fn code_in_patches(named: &[&DiffFile], file: &str, code: &str) -> Result<(), String> {
     if squash(code).is_empty() {
         return Err("it quotes no code".to_string());
-    }
-    let named: Vec<&DiffFile> = files.iter().filter(|f| names_file(&f.path, file)).collect();
-    if named.is_empty() {
-        return Err(format!("the diff has no file {file}"));
     }
     let mut found = false;
     for named in named {
@@ -295,10 +319,7 @@ pub fn code_site<'a>(
     line: i64,
     code: &str,
 ) -> Result<Option<(&'a str, i64)>, String> {
-    let named: Vec<_> = files
-        .iter()
-        .filter(|patch| names_file(&patch.path, file))
-        .collect();
+    let named = named_patches(files, file)?;
     let mut current = Vec::new();
     let mut exact_context = false;
     for patch in &named {
@@ -336,7 +357,7 @@ pub fn code_site<'a>(
         return Err(unchanged_quote(file));
     }
     match current.as_slice() {
-        [] => code_in(files, file, code).map(|()| None),
+        [] => code_in_patches(&named, file, code).map(|()| None),
         [site] => Ok(Some(*site)),
         _ => Err(ambiguous()),
     }
@@ -373,7 +394,10 @@ pub fn is_comment_line(path: &str, line: &str) -> bool {
 /// quote builds finds nowhere sits on no comment line.
 pub fn only_on_comment_lines(files: &[DiffFile], file: &str, code: &str) -> bool {
     let mut found = false;
-    for named in files.iter().filter(|f| names_file(&f.path, file)) {
+    let Ok(patches) = named_patches(files, file) else {
+        return false;
+    };
+    for named in patches {
         for place in named.places(code) {
             found = true;
             let comments = named.lines_of(place).iter().all(|line| {

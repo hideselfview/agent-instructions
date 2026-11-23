@@ -195,7 +195,7 @@ impl Finding {
     pub fn matches_quote(&self, raised: &NewFinding) -> bool {
         self.rule == raised.rule
             && self.clause == raised.clause
-            && super::check::names_file(&raised.file, &self.file)
+            && self.file == raised.file
             && super::cases::same_code(&self.code, &raised.code)
     }
 

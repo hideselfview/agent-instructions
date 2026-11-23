@@ -86,6 +86,20 @@ fn a_reported_context_line_cannot_name_a_different_added_line() {
 }
 
 #[test]
+fn a_report_for_an_exact_path_never_borrows_a_quote_from_another_file() {
+    let files = parse_diff(concat!(
+        "diff --git a/a.rs b/a.rs\n@@ -0,0 +1 @@\n+other\n",
+        "diff --git a/src/a.rs b/src/a.rs\n@@ -0,0 +1 @@\n+repeat\n",
+    ));
+    let error = code_site(&files, "a.rs", 1, "repeat").unwrap_err();
+    assert!(error.contains("not in the diff of a.rs"), "{error}");
+    assert_eq!(
+        code_site(&files, "src/a.rs", 1, "repeat"),
+        Ok(Some(("src/a.rs", 1)))
+    );
+}
+
+#[test]
 fn the_changed_lines_are_the_lines_the_hunks_add_and_remove() {
     assert_eq!(changed_lines(DIFF), 6);
     assert_eq!(changed_lines(""), 0);
