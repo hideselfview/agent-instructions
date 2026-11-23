@@ -1,7 +1,8 @@
 //! macOS's side of procs.rs: the machine's processes, read through libproc
 //! and sysctl.
 
-use std::ffi::CStr;
+use std::ffi::{CStr, OsString};
+use std::os::unix::ffi::OsStringExt;
 use std::path::PathBuf;
 
 use super::Process;
@@ -191,7 +192,7 @@ fn procargs(pid: i32) -> Option<Vec<u8>> {
 /// The arguments and the environment (`NAME=value` strings) in a
 /// KERN_PROCARGS2 <buffer>: the argument count, the executable's path, NULs,
 /// the arguments, then the environment, each string ended by a NUL.
-fn split_procargs(buffer: &[u8]) -> Option<(Vec<String>, Vec<String>)> {
+fn split_procargs(buffer: &[u8]) -> Option<(Vec<String>, Vec<OsString>)> {
     if buffer.len() < 4 {
         return None;
     }
@@ -205,7 +206,10 @@ fn split_procargs(buffer: &[u8]) -> Option<(Vec<String>, Vec<String>)> {
     let mut parts = rest.split(|b| *b == 0);
     let text = |part: &[u8]| String::from_utf8_lossy(part).into_owned();
     let args = parts.by_ref().take(argc).map(text).collect();
-    let env = parts.filter(|part| !part.is_empty()).map(text).collect();
+    let env = parts
+        .filter(|part| !part.is_empty())
+        .map(|part| OsString::from_vec(part.to_vec()))
+        .collect();
     Some((args, env))
 }
 
@@ -217,7 +221,7 @@ pub fn args(pid: i32) -> Option<Vec<String>> {
 
 /// The environment <pid> was started with, as `NAME=value` strings; None when
 /// it exited or can't be read.
-pub fn environment(pid: i32) -> Option<Vec<String>> {
+pub fn environment(pid: i32) -> Option<Vec<OsString>> {
     split_procargs(&procargs(pid)?).map(|(_, env)| env)
 }
 

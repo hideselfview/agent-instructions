@@ -19,6 +19,18 @@ pub(crate) mod os;
 
 pub use os::{args, cwd, ended, environment, open_files, tree_cpu, usage};
 
+/// The bytes of one value in the process's NUL-separated environment.
+pub fn environment_value<'a>(
+    environment: &'a [std::ffi::OsString],
+    key: &str,
+) -> Option<&'a std::ffi::OsStr> {
+    use std::os::unix::ffi::OsStrExt;
+    environment.iter().find_map(|entry| {
+        let value = entry.as_bytes().strip_prefix(key.as_bytes())?;
+        Some(std::ffi::OsStr::from_bytes(value.strip_prefix(b"=")?))
+    })
+}
+
 /// Names of the processes that build: compilers, linkers and build tools.
 pub const BUILD_NAMES: [&str; 17] = [
     "cargo",

@@ -250,7 +250,6 @@ fn installed(name: &str, ui_tests: UiTestSettings) -> HostInstalled {
         read: Ok(Installed {
             builds: Some("ab12".to_string()),
             mac: Some(crate::host_installed::MacInstalled { ui_tests }),
-            sccache_served: true,
             sccache_cap: true,
             sccache: None,
         }),

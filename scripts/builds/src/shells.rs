@@ -14,12 +14,15 @@
 //! written, so none are matched.
 
 use std::collections::{HashMap, HashSet};
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
 use crate::ack::agent::{VARIABLE, is_id_char};
-use crate::procs::{Place, Processes, args, cwd, environment, place_of, tree_cpu};
+use crate::procs::{
+    Place, Processes, args, cwd, environment, environment_value, place_of, tree_cpu,
+};
 use crate::text::tilde;
 
 /// A shell this old, whose whole tree has used less than IDLE_SHARE of a
@@ -105,12 +108,10 @@ pub struct Entry {
 }
 
 /// The value of BUILDS_AGENT in <environment>.
-fn agent_in_environment(environment: &[String]) -> Option<String> {
-    environment
-        .iter()
-        .find_map(|var| var.strip_prefix(VARIABLE)?.strip_prefix('='))
+fn agent_in_environment(environment: &[OsString]) -> Option<String> {
+    environment_value(environment, VARIABLE)
         .filter(|id| !id.is_empty())
-        .map(str::to_string)
+        .map(|id| id.to_string_lossy().into_owned())
 }
 
 /// The agent id a command's text sets: the first `BUILDS_AGENT=<id>`, as

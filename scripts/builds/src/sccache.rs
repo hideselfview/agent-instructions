@@ -298,6 +298,86 @@ pub fn listener() -> Result<Option<u32>> {
     )
 }
 
+/// Whether the listening process uses a run's temporary folder or a folder
+/// it cannot find. Inspect the original environment on the machine that
+/// owns the process, so spaces, newlines and non-UTF-8 bytes stay in the path.
+pub fn tmpdir_issue(transport: &crate::remote::Transport<'_>, pid: u32) -> Result<Option<String>> {
+    if transport.host.target.is_none() {
+        return tmpdir_here(&transport.places.root, pid);
+    }
+    let answer = transport.capture(
+        &format!(
+            "{}exec \"$HOME/.local/bin/builds\" sccache-tmpdir {pid}",
+            transport.root_script()
+        ),
+        &format!("reading TMPDIR for the sccache server (pid {pid})"),
+    )?;
+    serde_json::from_str(&answer)
+        .context(|| format!("reading the TMPDIR report for the sccache server (pid {pid})"))
+}
+
+fn tmpdir_here(root: &Path, pid: u32) -> Result<Option<String>> {
+    let pid = i32::try_from(pid).context(|| format!("reading the environment of pid {pid}"))?;
+    let Some(environment) = crate::procs::environment(pid) else {
+        fail!("Builds could not read the environment of pid {pid}.");
+    };
+    let Some(folder) = crate::procs::environment_value(&environment, "TMPDIR") else {
+        return Ok(None);
+    };
+    let folder = Path::new(folder);
+    if folder.is_absolute() {
+        tmpdir_problem(root, folder)
+    } else {
+        let Some(cwd) = crate::procs::cwd(pid) else {
+            fail!("Builds could not read the working folder of pid {pid}.");
+        };
+        tmpdir_problem(root, &cwd.join(folder))
+    }
+}
+
+fn tmpdir_problem(root: &Path, folder: &Path) -> Result<Option<String>> {
+    if folder.starts_with(root.join(crate::run_tmp::FOLDER)) {
+        return Ok(Some(format!(
+            "uses a temporary folder that builds deletes when the command ends ({folder:?})"
+        )));
+    }
+    match folder.metadata() {
+        Ok(info) if info.is_dir() => Ok(None),
+        Ok(_) => Ok(Some(format!(
+            "uses a TMPDIR that names a file ({folder:?})"
+        ))),
+        Err(error)
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
+            ) =>
+        {
+            Ok(Some(format!(
+                "uses a temporary folder that the host cannot find ({folder:?})"
+            )))
+        }
+        Err(error) => {
+            fail!("Builds could not read the sccache temporary folder {folder:?}. {error}")
+        }
+    }
+}
+
+/// The host side of `tmpdir_issue`. Print the issue as a JSON value so it
+/// passes over SSH without using a path as a field delimiter.
+pub fn cmd_tmpdir(root: &Path, args: &[String]) -> Result<()> {
+    let [pid] = args else {
+        fail!("Usage: builds sccache-tmpdir <pid>");
+    };
+    let pid = pid
+        .parse()
+        .context(|| format!("reading a process ID from {pid:?}"))?;
+    let issue = tmpdir_here(root, pid)?;
+    let json =
+        serde_json::to_string(&issue).context(|| "writing the sccache TMPDIR report".into())?;
+    println!("{json}");
+    Ok(())
+}
+
 /// Is a server listening on sccache's port? Fails when lsof fails.
 pub fn listening() -> Result<bool> {
     Ok(listener()?.is_some())

@@ -571,7 +571,7 @@ fn the_checkouts_of_shells_that_are_not_junk_are_active() {
 
 #[test]
 fn the_agent_comes_from_the_environment_or_the_command_text() {
-    let env = |vars: &[&str]| vars.iter().map(|v| v.to_string()).collect::<Vec<_>>();
+    let env = |vars: &[&str]| vars.iter().map(OsString::from).collect::<Vec<_>>();
     assert_eq!(
         agent_in_environment(&env(&["A=1", "BUILDS_AGENT=a7f"])),
         Some("a7f".to_string())

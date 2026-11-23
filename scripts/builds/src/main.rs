@@ -371,6 +371,7 @@ fn run(command: &str, args: &[String], session: ack::agent::Session) -> Result<(
             return Ok(());
         }
         "programs" => return programs::cmd_programs(&Places::from_env()?, args),
+        "sccache-tmpdir" => return sccache::cmd_tmpdir(&Places::from_env()?.root, args),
         "checks" => return checks_run::cmd_checks(args),
         "waits" => return waits::cmd_waits(args),
         "install-hook" => return install_hook::cmd_install_hook(args),

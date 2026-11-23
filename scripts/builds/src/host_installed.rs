@@ -10,7 +10,7 @@
 use crate::checkout::parallel_map;
 use crate::fail;
 use crate::fail::Result;
-use crate::host::{Host, LOCAL, Ssh, sh_quote};
+use crate::host::{Host, LOCAL, Ssh};
 use crate::host_platform::Os;
 use crate::places::Places;
 use crate::remote::Transport;
@@ -26,13 +26,6 @@ pub struct Installed {
     /// What a Mac has of what only a Mac runs; None for a Linux host, which
     /// takes no app builds.
     pub mac: Option<MacInstalled>,
-    /// Whether the host's service manager runs its sccache server from the
-    /// job file builds writes (`install::run_sccache_server`), so the server
-    /// keeps the cache under the size limit builds sets and does not exit
-    /// when idle: the job file is there, and the sccache server listening on
-    /// sccache's port is the manager's job (`sccache::job_serves`, the same
-    /// check that setup uses).
-    pub sccache_served: bool,
     /// Whether the host's sccache config holds builds' cap
     /// (`install::sccache_cap_kib`), which `install::run_sccache_server`
     /// writes and the server reads when it starts.
@@ -41,9 +34,17 @@ pub struct Installed {
     pub(crate) sccache: Option<ListeningSccache>,
 }
 
+impl Installed {
+    fn sccache_served(&self) -> bool {
+        self.sccache.as_ref().is_some_and(|server| server.served)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ListeningSccache {
     pid: u32,
+    /// The service manager runs this process from the job builds installs.
+    served: bool,
     /// The cache size limit in bytes that the server read when it started.
     cap: std::result::Result<u64, String>,
     tmp_issue: Option<String>,
@@ -130,11 +131,6 @@ fn parse_installed(text: &str) -> Result<Installed> {
         _ => fail!("the host's answer has no job_file line: {text:?}"),
     };
     let listener = crate::sccache::parse_listener_lines(text)?;
-    let sccache = listener.map(|pid| ListeningSccache {
-        pid,
-        cap: crate::sccache::parse_stats_line(text).map_err(|error| error.text()),
-        tmp_issue: None,
-    });
     let config: Vec<&str> = text
         .lines()
         .filter_map(|line| line.strip_prefix(CONFIG_PREFIX))
@@ -156,70 +152,14 @@ fn parse_installed(text: &str) -> Result<Installed> {
     Ok(Installed {
         builds,
         mac,
-        sccache_served: job_file && crate::sccache::job_serves(job.as_ref(), listener),
         sccache_cap,
-        sccache,
+        sccache: listener.map(|pid| ListeningSccache {
+            pid,
+            served: job_file && crate::sccache::job_serves(job.as_ref(), Some(pid)),
+            cap: crate::sccache::parse_stats_line(text).map_err(|error| error.text()),
+            tmp_issue: None,
+        }),
     })
-}
-
-/// Reads the listener's own TMPDIR and checks it on the host that owns it.
-/// Print only the path and its state, never the rest of the environment.
-fn sccache_tmp_script(transport: &Transport<'_>, os: Os, pid: u32) -> String {
-    let root = if transport.host.target.is_none() {
-        format!(
-            "BUILDS_ROOT={}\n",
-            sh_quote(&transport.places.root.to_string_lossy())
-        )
-    } else {
-        crate::remote::root_script(transport.host)
-    };
-    let read = match os {
-        Os::Mac => format!(
-            r#"environment=$(ps eww -p {pid} -o command=) || exit 1
-folder=$(printf '%s\n' "$environment" | awk '
-  match($0, / TMPDIR=/) {{
-    folder = substr($0, RSTART + RLENGTH)
-    sub(/ [[:alpha:]_][[:alnum:]_]*=.*/, "", folder)
-    print folder
-  }}') || exit 1"#
-        ),
-        Os::Linux => format!(
-            r#"environment=$(tr '\000' '\n' </proc/{pid}/environ) || exit 1
-folder=$(printf '%s\n' "$environment" | sed -n 's/^TMPDIR=//p') || exit 1"#
-        ),
-    };
-    format!(
-        r#"{root}{read}
-case "$folder" in
-  "") echo sccache_tmpdir=ok ;;
-  "$BUILDS_ROOT/{run_tmp}"|"$BUILDS_ROOT/{run_tmp}/"*) printf 'sccache_tmpdir_run=%s\n' "$folder" ;;
-  *) if [ -d "$folder" ]; then echo sccache_tmpdir=ok
-     else printf 'sccache_tmpdir_missing=%s\n' "$folder"; fi ;;
-esac"#,
-        run_tmp = crate::run_tmp::FOLDER
-    )
-}
-
-fn sccache_tmp_issue(transport: &Transport<'_>, os: Os, pid: u32) -> Result<Option<String>> {
-    let answer = transport.capture(
-        &sccache_tmp_script(transport, os, pid),
-        &format!("Reading TMPDIR for the sccache server (pid {pid})"),
-    )?;
-    let answer = answer.trim_end_matches('\n');
-    if answer == "sccache_tmpdir=ok" {
-        return Ok(None);
-    }
-    if let Some(folder) = answer.strip_prefix("sccache_tmpdir_run=") {
-        return Ok(Some(format!(
-            "uses a temporary folder that builds deletes when the command ends ({folder})"
-        )));
-    }
-    if let Some(folder) = answer.strip_prefix("sccache_tmpdir_missing=") {
-        return Ok(Some(format!(
-            "uses a temporary folder that the host cannot find ({folder})"
-        )));
-    }
-    fail!("The TMPDIR check for the sccache server (pid {pid}) returned {answer:?}.")
 }
 
 /// Asks <host> what it has installed; for this Mac, <places>' home holds
@@ -238,12 +178,7 @@ pub fn read_installed(
         .map_err(|fail| fail.text())??;
     let mut installed = parse_installed(&printed).map_err(|fail| fail.text())?;
     if let Some(server) = &mut installed.sccache {
-        let os = if installed.mac.is_some() {
-            Os::Mac
-        } else {
-            Os::Linux
-        };
-        server.tmp_issue = match sccache_tmp_issue(&transport, os, server.pid) {
+        server.tmp_issue = match crate::sccache::tmpdir_issue(&transport, server.pid) {
             Ok(issue) => issue,
             Err(error) => Some(format!(
                 "has a TMPDIR that builds could not read ({})",
@@ -274,54 +209,32 @@ pub fn read_all_installed(places: &Places, ssh: &Ssh, hosts: &[Host]) -> Vec<Hos
 /// run or whose sccache config does not hold builds' cap, and each host that
 /// builds could not ask, with what went wrong.
 pub fn installed_findings(reads: &[HostInstalled]) -> Vec<crate::health::Advice> {
-    let Some(local) = reads.iter().find(|read| read.host == LOCAL) else {
-        return Vec::new();
-    };
-    let local = match &local.read {
-        Ok(installed) => installed,
-        Err(error) => {
-            return vec![crate::health::Advice::said(format!(
-                "builds could not read what this Mac has installed to compare the hosts with it: {error}"
-            ))];
-        }
-    };
+    let local = reads.iter().find(|read| read.host == LOCAL);
     let mut out = Vec::new();
-    out.extend(sccache_running_findings(LOCAL, local));
-    if !local.sccache_served {
-        out.push(crate::health::Advice::run(
-            format!("this Mac's {SCCACHE_OUTSIDE_SERVICE} Run it under launchd with"),
-            "builds install".to_string(),
-        ));
-    }
-    if !local.sccache_cap {
-        out.push(crate::health::Advice::run(
-            format!(
-                "this Mac's {} Write builds' cap into the config with",
-                sccache_cap_differs()
-            ),
-            "builds install".to_string(),
-        ));
-    }
-    if let Some(stale) = stale_running_cap(local) {
-        out.push(crate::health::Advice::run(
-            format!("this Mac's {stale} Restart it with"),
-            "builds install".to_string(),
-        ));
-    }
-    for read in reads.iter().filter(|read| read.host != LOCAL) {
+    for read in reads {
         let name = &read.host;
+        let place = crate::host::place(name);
         let installed = match &read.read {
             Ok(installed) => installed,
             Err(error) => {
                 out.push(crate::health::Advice::said(format!(
-                    "builds could not read what host {name} has installed: {error}"
+                    "builds could not read what {place} has installed: {error}"
                 )));
                 continue;
             }
         };
-        let setup = format!("builds host setup {name}");
+        let setup = if name == LOCAL {
+            "builds install".to_string()
+        } else {
+            format!("builds host setup {name}")
+        };
         out.extend(sccache_running_findings(name, installed));
-        if installed.builds != local.builds {
+        if name != LOCAL
+            && let Some(HostInstalled {
+                read: Ok(local), ..
+            }) = local
+            && installed.builds != local.builds
+        {
             let text = match &installed.builds {
                 None => format!(
                     "host {name} has no builds at ~/.local/bin/builds, so the repos' scripts fail in its jobs. Install this Mac's builds there with"
@@ -333,10 +246,10 @@ pub fn installed_findings(reads: &[HostInstalled]) -> Vec<crate::health::Advice>
             };
             out.push(crate::health::Advice::run(text, setup.clone()));
         }
-        if !installed.sccache_served {
+        if !installed.sccache_served() {
             out.push(crate::health::Advice::run(
                 format!(
-                    "host {name}'s {SCCACHE_OUTSIDE_SERVICE} Run it under its service manager with"
+                    "{place}'s {SCCACHE_OUTSIDE_SERVICE} Run it under its service manager with"
                 ),
                 setup.clone(),
             ));
@@ -344,7 +257,7 @@ pub fn installed_findings(reads: &[HostInstalled]) -> Vec<crate::health::Advice>
         if !installed.sccache_cap {
             out.push(crate::health::Advice::run(
                 format!(
-                    "host {name}'s {} Write builds' cap into the config with",
+                    "{place}'s {} Write builds' cap into the config with",
                     sccache_cap_differs()
                 ),
                 setup.clone(),
@@ -352,7 +265,7 @@ pub fn installed_findings(reads: &[HostInstalled]) -> Vec<crate::health::Advice>
         }
         if let Some(stale) = stale_running_cap(installed) {
             out.push(crate::health::Advice::run(
-                format!("host {name}'s {stale} Restart it with"),
+                format!("{place}'s {stale} Restart it with"),
                 setup,
             ));
         }

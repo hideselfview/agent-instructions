@@ -582,6 +582,17 @@ pub struct Transport<'a> {
 }
 
 impl Transport<'_> {
+    /// Sets BUILDS_ROOT for a script using the root of the host that runs it.
+    pub fn root_script(&self) -> String {
+        match self.host.target {
+            Some(_) => root_script(self.host),
+            None => format!(
+                "export BUILDS_ROOT={}\n",
+                sh_quote(&self.places.root.to_string_lossy())
+            ),
+        }
+    }
+
     /// A command that runs <script> with `sh` on the host.
     pub fn command(&self, script: &str) -> Command {
         let mut command = host::command_at(self.ssh, self.host, script, host::Terminal::None);

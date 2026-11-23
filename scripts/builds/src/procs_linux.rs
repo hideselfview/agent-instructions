@@ -191,13 +191,14 @@ pub fn args(pid: i32) -> Option<Vec<String>> {
 
 /// The environment <pid> started with (/proc/<pid>/environ), as `NAME=value`
 /// strings; None when it exited or can't be read.
-pub fn environment(pid: i32) -> Option<Vec<String>> {
+pub fn environment(pid: i32) -> Option<Vec<std::ffi::OsString>> {
+    use std::os::unix::ffi::OsStringExt;
     let bytes = or_note(read_proc_file(&format!("/proc/{pid}/environ"))).flatten()?;
     Some(
         bytes
             .split(|b| *b == 0)
             .filter(|part| !part.is_empty())
-            .map(|part| String::from_utf8_lossy(part).into_owned())
+            .map(|part| std::ffi::OsString::from_vec(part.to_vec()))
             .collect(),
     )
 }

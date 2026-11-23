@@ -76,10 +76,11 @@ pub const VARIABLE: &str = "BUILDS_USE";
 
 /// The commands that take no use of the stores: install, which closes the
 /// gates and moves the stores, the dashboard, which install restarts, the
-/// help, `agent`, which registers an agent outside the stores
+/// help, `brief`, `agent`, which registers an agent outside the stores
 /// (ack/agent.rs), `version`, which prints only what the program was built
-/// from, and `programs`, which runs a lane's step on a host (programs.rs).
-pub const STORELESS: [&str; 9] = [
+/// from, `programs`, which runs a lane's step on a host (programs.rs), and
+/// `sccache-tmpdir`, which checks a host's sccache server.
+pub const STORELESS: [&str; 10] = [
     "install",
     "dashboard",
     "help",
@@ -89,6 +90,7 @@ pub const STORELESS: [&str; 9] = [
     "agent",
     "version",
     "programs",
+    "sccache-tmpdir",
 ];
 
 /// Runs the program at this program's path with this process's arguments in
