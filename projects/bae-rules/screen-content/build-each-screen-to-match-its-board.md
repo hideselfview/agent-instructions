@@ -13,16 +13,25 @@ capture: true
 ## Build each screen to match its board
 
 Each screen has a board, and each app builds the screen to match it. A board
-draws the app as it should be, never as the app is today, as the person decided:
+draws the app as it should be. When a board and the app differ, one of them
+changes until the two agree:
 
-- The board leads, and the app follows it. Where the board and the app differ,
-  the app changes: put the difference on the app's work queue.
-- Never copy a board's words, sizes, names (accessible names included),
-  punctuation or layout from the app, its strings, its shots or a test's sample
-  data, not even to make a shot check pass or two platforms agree.
-- Redrawing a board of a screen the app already has is design work like any
-  other: it follows the design system's guidelines (`design/system/README.md`
-  lists them), and the person reviews it.
+- An implementing agent builds the app to the board.
+  - The agent never copies a board's words, sizes, names (accessible names
+    included), punctuation or layout from the app, its strings, its shots or a
+    test's sample data, not even to make a shot check pass or two platforms
+    agree.
+  - A difference outside the agent's work goes on the app's work queue.
+- The design session judges which of the two draws the screen as it should be,
+  and brings the other into agreement with no question to the person and no wait
+  for their approval. The person reviews what lands.
+  - When the board is right, the design session puts the app's change on the
+    work queue.
+  - When the app is right, the design session redraws the board to draw what the
+    app draws, and records the redraw as a fix (`builds help workflow`, DESIGN
+    CHANGES).
+- A redrawn board follows the design system's guidelines like any other board
+  (`design/system/README.md` lists them).
 
 Where a board leaves something out (a placeholder, a control with no name), draw
 what the design calls for and say so.
@@ -30,6 +39,7 @@ what the design calls for and say so.
 A board changes only in these cases, and the commit says which:
 
 - The person decided a change.
+- The design session judged that the app draws the screen as it should be.
 - The board breaks a written rule (the words check, the design system's
   guidelines).
 
