@@ -275,6 +275,8 @@ pub fn diff_between(worktree: &Path, base: &str, head: &str) -> Result<NetChange
         "diff",
         "--no-color",
         "--no-ext-diff",
+        "--src-prefix=a/",
+        "--dst-prefix=b/",
         "-M",
         &range,
         "--",
@@ -348,7 +350,13 @@ pub fn diff_since(
     let mut only = vec!["--".to_string(), commits::without_test_cases()];
     only.extend(whole.iter().map(|path| format!(":(literal){path}")));
     let diff = |from: &str, options: &[&str], paths: &[String]| -> Result<String> {
-        let mut args = vec!["diff", "--no-color", "--no-ext-diff"];
+        let mut args = vec![
+            "diff",
+            "--no-color",
+            "--no-ext-diff",
+            "--src-prefix=a/",
+            "--dst-prefix=b/",
+        ];
         args.extend(options);
         args.extend([from, head.as_str()]);
         args.extend(paths.iter().map(String::as_str));

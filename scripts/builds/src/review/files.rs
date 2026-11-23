@@ -101,13 +101,9 @@ pub(super) fn new_path(line: &str) -> Option<String> {
     let paths = line.strip_prefix("diff --git ")?;
     let paths = paths.strip_suffix('\n').unwrap_or(paths);
     let separator = if paths.ends_with('"') { " \"b/" } else { " b/" };
-    match paths.rfind(separator) {
-        Some(at) => {
-            let destination = decode_path(&paths[at + 1..])?;
-            destination.strip_prefix("b/").map(str::to_string)
-        }
-        None => decode_path(paths),
-    }
+    let at = paths.rfind(separator)?;
+    let destination = decode_path(&paths[at + 1..])?;
+    destination.strip_prefix("b/").map(str::to_string)
 }
 
 /// The old path named in a rename header. Hunk lines start with a diff mark.

@@ -12,6 +12,11 @@ fn a_diff_header_names_the_new_path() {
 }
 
 #[test]
+fn a_diff_header_without_distinct_paths_cannot_name_a_file() {
+    assert!(new_path("diff --git old.rs new.rs\n").is_none());
+}
+
+#[test]
 fn split_cuts_at_each_file_and_drops_the_mail_header() {
     let files = split(DIFF);
     assert_eq!(files.len(), 2);
