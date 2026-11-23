@@ -793,7 +793,7 @@ impl Model {
                     .filter_map(|root| {
                         let live = root.live.as_ref()?;
                         let git = state.page.facts.get(&root.path)?.git.as_ref()?.side()?;
-                        (!git.ahead.is_empty()).then(|| (live.clone(), git.clone()))
+                        Some((live.clone(), git.clone()))
                     })
                     .collect::<Vec<_>>()
             };
