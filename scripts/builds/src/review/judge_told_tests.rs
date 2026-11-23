@@ -359,7 +359,7 @@ fn health_report(r: &Reviewed) -> crate::health::Health {
         health,
         &mut crate::lists::store::load_all(&tool.places),
         &scanned,
-        Some(std::slice::from_ref(&r.demo.store)),
+        &Ok(vec![r.demo.store.clone()]),
     )
     .unwrap()
     .0

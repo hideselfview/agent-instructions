@@ -475,10 +475,10 @@ pub struct Loaded {
 }
 
 impl Loaded {
-    fn read(store: Store) -> Self {
+    fn read(store: &Store) -> Self {
         let lists = store.load().map_err(Fail::text);
         Self {
-            project: store.project,
+            project: store.project.clone(),
             lists,
         }
     }
@@ -497,16 +497,12 @@ pub fn load_paths(
     databases: &[PathBuf],
 ) -> std::result::Result<Vec<Loaded>, String> {
     let stores = stores_at(places, databases).map_err(Fail::text)?;
-    Ok(stores.into_iter().map(Loaded::read).collect())
+    Ok(load_stores(&stores))
 }
 
-/// What SQLite's integrity checks find in each store's database, one line
-/// each (`Store::integrity`).
-pub fn integrity(places: &Places) -> Vec<String> {
-    let Ok(stores) = stores(places) else {
-        return Vec::new();
-    };
-    stores.iter().flat_map(Store::integrity).collect()
+/// Reads the lists of stores already discovered.
+pub fn load_stores(stores: &[Store]) -> Vec<Loaded> {
+    stores.iter().map(Loaded::read).collect()
 }
 
 impl Store {
@@ -589,7 +585,7 @@ pub fn reload(
         match kept {
             Some(kept) => next.push(kept.clone()),
             None => {
-                let loaded = Loaded::read(store);
+                let loaded = Loaded::read(&store);
                 changed |= before != Some(&loaded);
                 next.push(loaded);
             }

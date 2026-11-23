@@ -587,9 +587,8 @@ fn every_named_constraint_of_the_write_log_refuses_its_row() {
 #[test]
 fn the_integrity_checks_name_a_row_that_points_at_nothing_and_one_that_breaks_a_check() {
     let scratch = Scratch::new("lists-integrity");
-    let places = scratch.places();
     let store = fresh(&scratch);
-    assert_eq!(integrity(&places), Vec::<String>::new());
+    assert!(store.integrity().is_empty());
     // Written with the foreign keys and checks off, as the sqlite3 shell does.
     let db = db::open(&store.database(), Make::Never).unwrap();
     db.execute_batch("PRAGMA foreign_keys = OFF; PRAGMA ignore_check_constraints = ON")
@@ -609,7 +608,7 @@ fn the_integrity_checks_name_a_row_that_points_at_nothing_and_one_that_breaks_a_
     )
     .unwrap();
     drop(db);
-    let found = integrity(&places);
+    let found = store.integrity();
     assert!(
         found
             .iter()

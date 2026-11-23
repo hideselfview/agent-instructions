@@ -20,7 +20,7 @@ use crate::holder_run::{HolderRun, RunTimes};
 use crate::host::Host;
 use crate::lane::Lane;
 use crate::lists::held::{DesignApproval, DesignWait};
-use crate::lists::store::Store;
+use crate::lists::store::{Loaded, Store, load_stores, stores};
 use crate::places::DiskSpace;
 use crate::procs::{
     BUILD_NAMES, BuildProcess, Place, Process, Processes, args, build_processes, cores, live_args,
@@ -1197,12 +1197,21 @@ pub struct WorktreeReads<'a> {
 
 /// Gathers the machine's health now, reading everything itself.
 pub fn health(tool: &Tool) -> Result<Health> {
-    read_health(tool, &crate::lists::store::load_all(&tool.places))
+    let projects = stores(&tool.places);
+    read_health(tool, &project_lists(&projects), &projects)
+}
+
+fn project_lists(projects: &Result<Vec<Store>>) -> std::result::Result<Vec<Loaded>, String> {
+    projects
+        .as_deref()
+        .map(load_stores)
+        .map_err(ToString::to_string)
 }
 
 fn read_health(
     tool: &Tool,
-    loaded: &std::result::Result<Vec<crate::lists::store::Loaded>, String>,
+    loaded: &std::result::Result<Vec<Loaded>, String>,
+    projects: &Result<Vec<Store>>,
 ) -> Result<Health> {
     let now = tool.now;
     let roots = tool.roots()?;
@@ -1282,7 +1291,11 @@ fn read_health(
     }
     let lists = lists_findings(
         &tool.places,
-        crate::lists::store::integrity(&tool.places),
+        projects
+            .iter()
+            .flatten()
+            .flat_map(Store::integrity)
+            .collect(),
         loaded,
         &places,
         &mut judged,
@@ -1743,15 +1756,23 @@ fn judge_findings(tool: &Tool, stores: &[Store]) -> Vec<Finding> {
     findings
 }
 
-/// Reads recorded progress before deciding which idle claims to release.
-/// <judge_stores> is the discovery shared with the judge notifications, or
-/// None when discovery failed and the caller reported why.
+fn judge_discovery_failure(error: &Fail) -> Finding {
+    Finding::new(
+        FindingKind::Judge,
+        Advice::said(format!(
+            "Builds could not check which projects need a judge. {error}"
+        )),
+    )
+}
+
+/// Reads recorded progress before deciding which idle claims to release,
+/// then checks which projects need a judge.
 pub(crate) fn finish_health(
     tool: &Tool,
     mut health: Health,
-    loaded: &mut std::result::Result<Vec<crate::lists::store::Loaded>, String>,
+    loaded: &mut std::result::Result<Vec<Loaded>, String>,
     scanned: &Scanned,
-    judge_stores: Option<&[Store]>,
+    projects: &Result<Vec<Store>>,
 ) -> Result<(Health, Vec<String>)> {
     let assess = |health: &mut Health, loaded: &_| {
         crate::health_stillness::append(
@@ -1768,8 +1789,8 @@ pub(crate) fn finish_health(
     let lines = match crate::health_fix::release_stalled_claims(tool, &health) {
         Ok(lines) => {
             if !lines.is_empty() {
-                *loaded = crate::lists::store::load_all(&tool.places);
-                health = read_health(tool, loaded)?;
+                *loaded = project_lists(projects);
+                health = read_health(tool, loaded, projects)?;
                 assess(&mut health, loaded);
             }
             lines
@@ -1779,11 +1800,12 @@ pub(crate) fn finish_health(
             error.text()
         )],
     };
-    if let Some(stores) = judge_stores {
-        let findings = judge_findings(tool, stores);
-        health.schedule_needed |= !findings.is_empty();
-        health.findings.extend(findings);
-    }
+    let findings = match projects {
+        Ok(stores) => judge_findings(tool, stores),
+        Err(error) => vec![judge_discovery_failure(error)],
+    };
+    health.schedule_needed |= !findings.is_empty();
+    health.findings.extend(findings);
     Ok((health, lines))
 }
 
@@ -1909,22 +1931,16 @@ fn report(tool: &Tool, json: bool, stop_junk: bool, release_failures: Vec<Advice
             Err(Fail::Exit(1))
         };
     }
-    let judge_stores = match crate::lists::store::stores(&tool.places) {
+    let projects = stores(&tool.places);
+    match &projects {
         Ok(stores) => {
-            crate::health_fix::tell_judges(tool, &stores)
+            crate::health_fix::tell_judges(tool, stores)
                 .iter()
                 .for_each(crate::text::note);
-            Some(stores)
         }
-        Err(error) => {
-            crate::text::note(format!(
-                "could not check which findings wait for a judge: {}",
-                error.text()
-            ));
-            None
-        }
-    };
-    let mut loaded = crate::lists::store::load_all(&tool.places);
+        Err(error) => crate::text::note(judge_discovery_failure(error).advice.line()),
+    }
+    let mut loaded = project_lists(&projects);
     let cached = loaded
         .as_ref()
         .is_ok_and(|stores| stores.iter().all(|store| store.lists.is_ok()))
@@ -1932,7 +1948,7 @@ fn report(tool: &Tool, json: bool, stop_junk: bool, release_failures: Vec<Advice
         .flatten();
     let health = match cached {
         Some(health) => health,
-        None => read_health(tool, &loaded)?,
+        None => read_health(tool, &loaded, &projects)?,
     };
     // builds health reads the busy processes itself: the daemon's health
     // holds none, and builds health prints every busy process, not only the
@@ -2035,8 +2051,7 @@ fn report(tool: &Tool, json: bool, stop_junk: bool, release_failures: Vec<Advice
     stops.lines.iter().for_each(crate::text::note);
     scanned.orphans = stops.remaining;
     scanned.forget_stopped(&stops.stopped);
-    let (mut health, releases) =
-        finish_health(tool, health, &mut loaded, &scanned, judge_stores.as_deref())?;
+    let (mut health, releases) = finish_health(tool, health, &mut loaded, &scanned, &projects)?;
     releases.iter().for_each(crate::text::note);
     health.findings.extend(claim_findings(release_failures));
     health.findings.extend(dashboard_finding(dashboard));
@@ -2119,6 +2134,39 @@ mod tests {
     use super::*;
     use crate::side_git::Commit;
     use crate::side_git::SideRead;
+
+    #[test]
+    fn health_json_reports_when_judge_store_discovery_fails() {
+        let scratch = crate::testing::Scratch::new("health-judge-store-discovery");
+        let tool = scratch.tool(0);
+        let health = health(&tool).unwrap();
+        let scanned = Scanned::judge(
+            &tool.places,
+            Vec::new(),
+            &crate::job_claim::Holders::read().unwrap(),
+            tool.now,
+        );
+        let projects = Err(Fail::Message("The lists folder is unreadable.".into()));
+        let (health, _) = finish_health(
+            &tool,
+            health,
+            &mut project_lists(&projects),
+            &scanned,
+            &projects,
+        )
+        .unwrap();
+        let json = health_json(&health, &[]);
+        assert!(
+            json["findings"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|finding| finding["kind"] == "judge"
+                    && finding["text"]
+                        == "Builds could not check which projects need a judge. The lists folder is unreadable."),
+            "{json}"
+        );
+    }
 
     /// A later error replaces the report, so the release failures print
     /// beside it; a printed report and an exit code 1 already hold them.
