@@ -315,7 +315,7 @@ async fn with_executable<T>(
         .map_err(ChromeError::Launch)?;
     let (browser, mut events) = Browser::launch(config).await.map_err(|e| {
         let text = e.to_string();
-        if text.contains("Timeout while resolving websocket URL") {
+        if matches!(e, chromiumoxide::error::CdpError::LaunchTimeout(_)) {
             ChromeError::Launch(format!(
                 "Chrome printed no debugging address in {} seconds. On macOS its main thread waits for the window server to answer; when the window server does not, every AppKit program on the host hangs the same way, Chrome and chrome-headless-shell alike ({text})",
                 launch_deadline.as_secs()
