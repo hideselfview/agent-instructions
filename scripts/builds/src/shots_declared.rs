@@ -104,28 +104,28 @@ fn declared_names(top: &Path, commit: &str, lane: Option<Lane>) -> Result<Vec<St
 /// The shots the commit's `.app-build` declares, limited to <lane> when given.
 fn declared_at(top: &Path, commit: &str, lane: Option<Lane>) -> Result<Vec<shots::Declared>> {
     let config = run_git(top, &["show", &format!("{commit}:{CONFIG}")])?;
-    let folders = boards::app_build::declared(&config).map_err(|e| Fail::Message(e.text()))?;
-    let (config, paths) = if let Some(lane) = lane {
-        let Some((platform, folder)) = folders
-            .into_iter()
-            .find(|(platform, _)| platform.word() == lane.word())
-        else {
-            return Ok(Vec::new());
-        };
-        // Give the shots checker only the declaration of the folder we export.
-        (
-            format!("shots-declared {} {folder}", platform.word()),
-            vec![folder],
-        )
+    // Keep the lane's original declaration lines and validate only those.
+    let config = if let Some(lane) = lane {
+        let platform = lane.shots_platform().word();
+        config
+            .lines()
+            .filter(|line| {
+                let mut words = line.split_whitespace();
+                words.next() == Some("shots-declared") && words.next() == Some(platform)
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
     } else {
-        if folders.is_empty() {
-            fail!("{CONFIG} at {commit} has no shots-declared line, so no shot is declared");
-        }
-        (
-            config,
-            folders.into_iter().map(|(_, folder)| folder).collect(),
-        )
+        config
     };
+    let folders = boards::app_build::declared(&config).map_err(|e| Fail::Message(e.text()))?;
+    if folders.is_empty() {
+        if lane.is_some() {
+            return Ok(Vec::new());
+        }
+        fail!("{CONFIG} at {commit} has no shots-declared line, so no shot is declared");
+    }
+    let paths: Vec<String> = folders.into_iter().map(|(_, folder)| folder).collect();
     let scratch = std::env::temp_dir();
     crate::evict::in_temp_dir(&scratch, ".builds-declared.", |root| {
         boards::export(top, commit, &paths, root, "the declared shots")?;

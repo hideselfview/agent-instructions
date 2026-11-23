@@ -280,12 +280,7 @@ pub struct CaptureQuery {
 }
 
 pub(super) fn app_picture_tree(places: &Places, repo: &str, lane: Lane, tree: &str) -> PathBuf {
-    use boards::app_build::Platform;
-    let platform = match lane {
-        Lane::Mac => Platform::Mac,
-        Lane::Android => Platform::Android,
-    };
-    shots::app_picture_tree(&pictures(places, repo), platform, tree)
+    shots::app_picture_tree(&pictures(places, repo), lane.shots_platform(), tree)
 }
 
 /// A new folder in the picture folder <pictures> for the pictures a run on a

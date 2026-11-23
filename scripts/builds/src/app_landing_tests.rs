@@ -566,25 +566,30 @@ fn an_older_build_can_cover_the_landing_when_declarations_are_unavailable() {
 
 #[test]
 fn mac_shots_coverage_reads_only_the_mac_harness() {
-    let landing = ShotsLanding::new();
-    landing.record_run(
-        landing.since + 1,
-        RunEnd::Failed,
-        &[(
-            "shots mac.nowplaying",
-            StepResult::Failed(Default::default()),
-        )],
-    );
-    landing.record_run(
-        landing.since + 2,
-        RunEnd::Passed,
-        &[("shots mac.nowplaying.", StepResult::Passed)],
-    );
-    landing
-        .check_after_config_change(&format!(
-            "{MAC_APP}shots-declared mac bae-macos\nshots-declared android missing-android\n"
-        ))
-        .unwrap();
+    for android_config in [
+        "shots-declared android missing-android",
+        "shots-declared android first\nshots-declared android second",
+    ] {
+        let landing = ShotsLanding::new();
+        landing.record_run(
+            landing.since + 1,
+            RunEnd::Failed,
+            &[(
+                "shots mac.nowplaying",
+                StepResult::Failed(Default::default()),
+            )],
+        );
+        landing.record_run(
+            landing.since + 2,
+            RunEnd::Passed,
+            &[("shots mac.nowplaying.", StepResult::Passed)],
+        );
+        landing
+            .check_after_config_change(&format!(
+                "{MAC_APP}shots-declared mac bae-macos\n{android_config}\n"
+            ))
+            .unwrap();
+    }
 }
 
 /// A landing of the first of two commits on a branch is judged over its own

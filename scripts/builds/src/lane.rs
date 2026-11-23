@@ -77,6 +77,15 @@ impl Lane {
         format!("{}.", self.word())
     }
 
+    /// The platform whose shots this lane builds.
+    pub fn shots_platform(self) -> boards::app_build::Platform {
+        use boards::app_build::Platform;
+        match self {
+            Lane::Mac => Platform::Mac,
+            Lane::Android => Platform::Android,
+        }
+    }
+
     /// What the lane's file names carry between `app` and the extension: the
     /// mac lane's carry nothing.
     fn tag(self) -> &'static str {
