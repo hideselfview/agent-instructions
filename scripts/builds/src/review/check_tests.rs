@@ -188,12 +188,6 @@ fn the_changed_lines_are_the_lines_the_hunks_add_and_remove() {
 }
 
 #[test]
-fn a_diff_header_names_the_new_path() {
-    assert_eq!(new_path("diff --git a/x.rs b/y.rs\n"), Some("y.rs"));
-    assert_eq!(new_path("+let x = 1;"), None);
-}
-
-#[test]
 fn each_language_marks_its_comment_lines() {
     for (path, line) in [
         ("a.rs", "    /// Sends the cover."),

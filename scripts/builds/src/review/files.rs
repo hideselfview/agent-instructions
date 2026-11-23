@@ -96,6 +96,13 @@ pub struct FileDiff {
     pub text: String,
 }
 
+/// The new path a `diff --git a/<old> b/<new>` line names: the text after its
+/// last ` b/`; None for any other line.
+pub(super) fn new_path(line: &str) -> Option<&str> {
+    let rest = line.strip_prefix("diff --git ")?.trim_end();
+    Some(rest.rsplit_once(" b/").map(|(_, new)| new).unwrap_or(rest))
+}
+
 /// The old path named in a rename header. Hunk lines start with a diff mark.
 fn rename_source(line: &str) -> Option<String> {
     let path = line.strip_prefix("rename from ")?;
@@ -146,7 +153,7 @@ impl FileDiff {
 pub fn split(diff: &str) -> Vec<FileDiff> {
     let mut files: Vec<FileDiff> = Vec::new();
     for line in diff.split_inclusive('\n') {
-        if let Some(path) = crate::review::check::new_path(line) {
+        if let Some(path) = new_path(line) {
             files.push(FileDiff {
                 path: path.to_string(),
                 renamed_from: None,

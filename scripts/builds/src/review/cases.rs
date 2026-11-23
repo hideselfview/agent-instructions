@@ -246,7 +246,7 @@ pub fn keep_files(patch: &str, keep: &[String]) -> String {
     let mut out = String::new();
     let mut kept = true;
     for line in patch.split_inclusive('\n') {
-        if let Some(path) = crate::review::check::new_path(line) {
+        if let Some(path) = files::new_path(line) {
             kept = keep.iter().any(|k| k == path);
         } else if starts_mail(line) {
             kept = true;

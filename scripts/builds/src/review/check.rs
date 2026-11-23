@@ -122,13 +122,6 @@ impl DiffFile {
     }
 }
 
-/// The new path a `diff --git a/<old> b/<new>` line names: the text after its
-/// last ` b/`; None for any other line.
-pub fn new_path(line: &str) -> Option<&str> {
-    let rest = line.strip_prefix("diff --git ")?.trim_end();
-    Some(rest.rsplit_once(" b/").map(|(_, new)| new).unwrap_or(rest))
-}
-
 pub fn parse_diff(diff: &str) -> Vec<DiffFile> {
     super::files::split(diff)
         .into_iter()
