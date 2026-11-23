@@ -4,7 +4,10 @@ const DIFF: &str = "From abc Mon Sep 17 00:00:00 2001\nSubject: x\n\ndiff --git 
 
 #[test]
 fn a_diff_header_names_the_new_path() {
-    assert_eq!(new_path("diff --git a/x.rs b/y.rs\n"), Some("y.rs"));
+    assert_eq!(
+        new_path("diff --git a/x.rs b/y.rs\n").as_deref(),
+        Some("y.rs")
+    );
     assert_eq!(new_path("+let x = 1;"), None);
 }
 
@@ -115,4 +118,18 @@ fn a_rename_source_uses_the_filename_git_escaped_in_the_patch() {
         "rename to b.rs\n",
     );
     assert_eq!(split(diff)[0].renamed_from.as_deref(), Some("a\té.rs"));
+}
+
+#[test]
+fn a_rename_destination_uses_the_filename_git_escaped_in_the_patch() {
+    let diff = concat!(
+        "diff --git \"a/old\\t.rs\" \"b/new\\303\\251.rs\"\n",
+        "rename from \"old\\t.rs\"\n",
+        "rename to \"new\\303\\251.rs\"\n",
+    );
+    assert_eq!(split(diff)[0].paths(), ["newé.rs", "old\t.rs"]);
+    assert_eq!(
+        crate::review::cases::keep_files(diff, &["newé.rs".into()]),
+        diff
+    );
 }

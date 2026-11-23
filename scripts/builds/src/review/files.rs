@@ -96,17 +96,27 @@ pub struct FileDiff {
     pub text: String,
 }
 
-/// The new path a `diff --git a/<old> b/<new>` line names: the text after its
-/// last ` b/`; None for any other line.
-pub(super) fn new_path(line: &str) -> Option<&str> {
-    let rest = line.strip_prefix("diff --git ")?.trim_end();
-    Some(rest.rsplit_once(" b/").map(|(_, new)| new).unwrap_or(rest))
+/// The destination path in a Git diff header, with Git's escapes decoded.
+pub(super) fn new_path(line: &str) -> Option<String> {
+    let paths = line.strip_prefix("diff --git ")?;
+    let paths = paths.strip_suffix('\n').unwrap_or(paths);
+    let separator = if paths.ends_with('"') { " \"b/" } else { " b/" };
+    match paths.rfind(separator) {
+        Some(at) => {
+            let destination = decode_path(&paths[at + 1..])?;
+            destination.strip_prefix("b/").map(str::to_string)
+        }
+        None => decode_path(paths),
+    }
 }
 
 /// The old path named in a rename header. Hunk lines start with a diff mark.
 fn rename_source(line: &str) -> Option<String> {
     let path = line.strip_prefix("rename from ")?;
-    let path = path.strip_suffix('\n').unwrap_or(path);
+    decode_path(path.strip_suffix('\n').unwrap_or(path))
+}
+
+fn decode_path(path: &str) -> Option<String> {
     if !path.starts_with('"') {
         return Some(path.to_string());
     }
@@ -155,7 +165,7 @@ pub fn split(diff: &str) -> Vec<FileDiff> {
     for line in diff.split_inclusive('\n') {
         if let Some(path) = new_path(line) {
             files.push(FileDiff {
-                path: path.to_string(),
+                path,
                 renamed_from: None,
                 text: String::new(),
             });
