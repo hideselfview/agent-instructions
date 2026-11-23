@@ -495,10 +495,9 @@ pub struct PassedRun {
 impl PassedRun {
     /// The prefixes of the shots steps that passed in the run.
     pub fn shots_prefixes(&self) -> impl Iterator<Item = &str> {
-        let shots = PickKind::Shots.step_prefix();
         self.steps
             .iter()
-            .filter_map(move |step| step.strip_prefix(shots))
+            .filter_map(|step| PickKind::Shots.argument_of_step(step))
     }
 
     /// Whether a shots step of the run covers <prefix>: a run of the prefix,
@@ -628,12 +627,13 @@ const SHOTS_VERDICT: &str = "s.kind = 'shots' AND s.result IN ('passed', 'failed
 
 /// The shots prefix a shots step <name> names, in the database at <path>.
 fn shots_prefix<'a>(name: &'a str, path: &Path) -> Result<&'a str> {
-    let step = PickKind::Shots.step_prefix();
-    match name.strip_prefix(step) {
+    let kind = PickKind::Shots;
+    match kind.argument_of_step(name) {
         Some(prefix) => Ok(prefix),
         None => fail!(
-            "{} holds a shots step named {name:?}, which does not start with {step:?}",
-            path.display()
+            "{} holds a shots step named {name:?}, which does not start with {:?}",
+            path.display(),
+            kind.step_prefix()
         ),
     }
 }
@@ -776,12 +776,12 @@ pub struct RepoStats {
 
 /// How the dashboard words a step recorded under <name>.
 fn step_word(name: &str, kind: StepKind) -> String {
-    let (prefix, star) = match kind {
+    let (pick, star) = match kind {
         StepKind::Step => return name.to_string(),
-        StepKind::Test => (PickKind::Class.step_prefix(), ""),
-        StepKind::Shots => (PickKind::Shots.step_prefix(), "*"),
+        StepKind::Test => (PickKind::Class, ""),
+        StepKind::Shots => (PickKind::Shots, "*"),
     };
-    let bare = name.strip_prefix(prefix).unwrap_or(name);
+    let bare = pick.argument_of_step(name).unwrap_or(name);
     if star.is_empty() || !bare.ends_with('.') {
         bare.to_string()
     } else {

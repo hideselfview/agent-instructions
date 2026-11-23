@@ -1105,8 +1105,8 @@ fn short(commit: &str) -> &str {
 /// The prefix of the shots run <step>, which `lane_steps` names `shots
 /// <prefix>`.
 fn shots_prefix(step: &Step) -> &str {
-    step.name
-        .strip_prefix(PickKind::Shots.step_prefix())
+    PickKind::Shots
+        .argument_of_step(&step.name)
         .unwrap_or(&step.name)
 }
 

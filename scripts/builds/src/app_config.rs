@@ -281,6 +281,11 @@ impl PickKind {
             PickKind::Shots => "shots ",
         }
     }
+
+    /// The class or shots prefix in a step name of this kind.
+    pub fn argument_of_step(self, name: &str) -> Option<&str> {
+        name.strip_prefix(self.step_prefix())
+    }
 }
 
 /// A `test` or `shots` `<lane> <program> [<args>...]` line: the command, as for
