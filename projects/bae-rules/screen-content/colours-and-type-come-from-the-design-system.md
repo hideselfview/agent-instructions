@@ -43,12 +43,9 @@ the pink accent, the ones a new installation starts with, in Dark and Light;
   `accent-fill`, `on-accent-fill` and `accent-selection` are the chosen accent;
   the boards show pink.
 - Each status carries a word, never colour alone.
-- Secondary text on macOS is the system's own colour (`mac-text-secondary`,
-  measured from NSColor.secondaryLabelColor), which follows Increase Contrast
-  and translucent backgrounds there; the Mac code uses it directly.
-  `text-secondary` is Android's. Every Mac window draws the system colour, and a
-  Mac board or preview that draws a component outside a window is marked
-  `bae-mac`.
+- Secondary text draws in the design system's `text-secondary` on every
+  platform, macOS included. The Mac app and the Mac boards never use the
+  system's own secondary label colour (NSColor.secondaryLabelColor).
 - The text styles are macOS points. iOS follows Dynamic Type, and the Android
   components set Android's sizes. No font files ship: each platform uses its own
   face. `title`, `hero` and `display` are for pages and the welcome screen, not
