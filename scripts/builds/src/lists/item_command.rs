@@ -630,10 +630,7 @@ fn drop_item(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     }
     // In a repo two projects hold, an item of either project may run in any
     // of its worktrees, so drop reads the other projects' items too.
-    let other_projects: Vec<Lists> = store::every_lists(&tool.places)?
-        .into_iter()
-        .filter(|lists| lists.project != store.project)
-        .collect();
+    let other_projects = dropped::other_projects(&tool.places, &store.project)?;
     let works = store.write(&stamp, &format!("item drop {id}"), |db| {
         let lists = store::read(db)?;
         require_can_leave(&lists, id, "drop", true)?;

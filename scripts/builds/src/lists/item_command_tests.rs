@@ -1257,6 +1257,64 @@ fn an_answer_that_drops_an_item_keeping_a_worktree_throws_its_work_away() {
     assert!(branches.trim().is_empty(), "the branch stayed: {branches}");
 }
 
+/// When an answer drops two items and git fails to throw away the work of
+/// both, the refusal names each item and the drop that finishes it.
+#[test]
+fn an_answer_whose_drops_both_fail_in_git_names_each_item() {
+    let demo = demo("item-drop-by-answer-fails");
+    let brief = demo.brief("b.md");
+    add(&demo, FIVE, &[]).unwrap();
+    add(&demo, "Do the second thing now", &[]).unwrap();
+    for (n, branch, id) in [(1, "work", "1"), (2, "other", "2")] {
+        let side = demo.add_side(n, "agent A", branch);
+        let side_arg = side.display().to_string();
+        item(&demo, &take_args(&side_arg, &brief, &[id], branch)).unwrap();
+        demo.commit(&side, "unlanded");
+        item(&demo, &["stop", id, "--why", "the agent ran out of room"]).unwrap();
+        std::fs::write(
+            Checkout::find(&side_arg)
+                .unwrap()
+                .git_dir
+                .join("index.lock"),
+            "",
+        )
+        .unwrap();
+    }
+    let ask = words(&[
+        "ask",
+        "--title",
+        "Which_way",
+        "--kind",
+        "question",
+        "--effect",
+        "cleanup",
+        "--details-file",
+        &demo.brief("q.md"),
+        "--blocks",
+        "1,2",
+    ]);
+    let no_gh = |args: &[&str]| -> Result<String> { panic!("gh must not run: {args:?}") };
+    crate::lists::question_command::run(&demo.tool, &ask, &demo.scratch.dir, &no_gh).unwrap();
+    let request = demo.scratch.dir.join("answer.json");
+    std::fs::write(
+        &request,
+        r#"{"decision": {"title": "Use the plain way", "body": "Because it is plain.", "by": "person"}, "blocked": {"1": {"drop": "not wanted"}, "2": {"drop": "not wanted"}}, "no_work": "x"}"#,
+    )
+    .unwrap();
+    let answer = words(&["answer", "3", "--request", &request.display().to_string()]);
+    let said = refusal(crate::lists::question_command::run(
+        &demo.tool,
+        &answer,
+        &demo.scratch.dir,
+        &no_gh,
+    ));
+    assert!(
+        said.contains("builds item drop 1 --why WHY")
+            && said.contains("builds item drop 2 --why WHY"),
+        "{said}"
+    );
+}
+
 /// When git fails to throw the work away, the drop has already closed the
 /// item and recorded the work, keeps the worktree's claim, and says to run
 /// the drop again; the second drop throws away the rest.

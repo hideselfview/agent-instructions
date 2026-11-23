@@ -448,10 +448,7 @@ fn resolve(tool: &Tool, args: &[String], cwd: &Path, words: &str, verb: Verb) ->
     // In a repo two projects hold, an item of either project may run in a
     // worktree an answer's dropped item keeps, so the drop reads the other
     // projects' items too.
-    let other_projects: Vec<Lists> = store::every_lists(&tool.places)?
-        .into_iter()
-        .filter(|lists| lists.project != store.project)
-        .collect();
+    let other_projects = dropped::other_projects(&tool.places, &store.project)?;
     let resolved = store.write(&stamp, words, |db| {
         let lists = &store::read(db)?;
         let question = open_question(lists, id)?.clone();
@@ -503,9 +500,7 @@ fn resolve(tool: &Tool, args: &[String], cwd: &Path, words: &str, verb: Verb) ->
         Ok((made, ready, dropped))
     })?;
     let ((decision, items), ready, dropped) = resolved;
-    for (item, works) in &dropped {
-        dropped::discard_all(*item, works)?;
-    }
+    dropped::discard_each(&dropped)?;
     let lists = store.load()?;
     let mut out = match (verb, decision) {
         (Verb::Answer, Some(decision)) => {

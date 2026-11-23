@@ -188,6 +188,30 @@ pub fn drop_open_item(
     Ok(works)
 }
 
+/// The lists of every project but <project>, which a drop reads because an
+/// item of another project may run in a worktree the dropped item keeps.
+pub fn other_projects(places: &crate::places::Places, project: &str) -> Result<Vec<Lists>> {
+    Ok(crate::lists::store::every_lists(places)?
+        .into_iter()
+        .filter(|lists| lists.project != project)
+        .collect())
+}
+
+/// Throws away the work of each of <dropped> (item, recorded work), trying
+/// every item even when one fails; the failure names each item whose work
+/// stays and the drop that finishes it.
+pub fn discard_each(dropped: &[(Id, Vec<DroppedWork>)]) -> Result<()> {
+    let failures: Vec<String> = dropped
+        .iter()
+        .filter_map(|(id, works)| discard_all(*id, works).err())
+        .map(|error| error.text())
+        .collect();
+    if !failures.is_empty() {
+        fail!("{}", failures.join("\n"));
+    }
+    Ok(())
+}
+
 /// Throws away <works>, the recorded work of dropped item <id>; a failure
 /// names the drop to run again.
 pub fn discard_all(id: Id, works: &[DroppedWork]) -> Result<()> {
