@@ -652,6 +652,7 @@ fn account_for_repeated_findings<'a>(
 }
 
 /// Whether both findings identify the same site in the reviewed tree.
+/// A report that failed validation uses its file and reported line.
 fn same_finding_site(
     repo: &Path,
     head: &str,
