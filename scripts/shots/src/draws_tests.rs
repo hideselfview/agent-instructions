@@ -55,7 +55,7 @@ fn history() -> tempfile::TempDir {
     git(repo.path(), &["tag", "a"]);
     let mut index: serde_json::Value =
         serde_json::from_slice(&std::fs::read(&canvas).unwrap()).unwrap();
-    index["boards"][format!("{BOARD}.dc.html")]["x"] = 9000.into();
+    index["boards"][format!("{BOARD}{}", boards::BOARD_SUFFIX)]["x"] = 9000.into();
     std::fs::write(&canvas, serde_json::to_vec(&index).unwrap()).unwrap();
     let board = repo.path().join(boards::board_path(BOARD));
     let html = std::fs::read_to_string(&board).unwrap();
@@ -206,7 +206,7 @@ fn delete_board(repo: &Path) {
     index["boards"]
         .as_object_mut()
         .unwrap()
-        .remove(&format!("{BOARD}.dc.html"))
+        .remove(&format!("{BOARD}{}", boards::BOARD_SUFFIX))
         .unwrap();
     std::fs::write(canvas, serde_json::to_vec(&index).unwrap()).unwrap();
 }
