@@ -194,10 +194,14 @@ fn app_host(places: &Places, repo: &str, host_name: &str, name: &str) -> Result<
 
 /// Writes the lane to the checkout's lane file on the host when someone adds
 /// it to the lane. The first build writes the file if it makes the checkout.
-pub fn mark(places: &Places, ssh: &Ssh, repo: &str, lane: Lane, entry: &str) -> Result<bool> {
-    let Some((host_name, name)) = split(entry) else {
-        fail!("{entry} names no host");
-    };
+pub fn mark(
+    places: &Places,
+    ssh: &Ssh,
+    repo: &str,
+    lane: Lane,
+    host_name: &str,
+    name: &str,
+) -> Result<bool> {
     let (host, _awake) = app_host(places, repo, host_name, name)?;
     let transport = Transport {
         places,
@@ -267,10 +271,18 @@ impl<'a> RemoteApp<'a> {
     }
 
     fn capture(&self, script: &str, what: &str) -> Result<String> {
-        self.capture_with(self.checkout, script, what)
+        self.capture_with(None, script, what)
     }
 
-    fn capture_with(&self, checkout: CheckoutLock<'_>, script: &str, what: &str) -> Result<String> {
+    fn capture_with(
+        &self,
+        clone_source: Option<&crate::lane_size::CheckoutLock>,
+        script: &str,
+        what: &str,
+    ) -> Result<String> {
+        let checkout = clone_source.map_or(self.checkout, |source| {
+            self.checkout.with_clone_source(source.as_fd())
+        });
         let transport = self.transport();
         checkout.run(transport.command(script), |command| {
             transport.capture_command(command, what)
@@ -377,9 +389,12 @@ impl<'a> RemoteApp<'a> {
             .replace("@SOURCE@", source_name)
             .replace("@NAME@", &self.name)
             .replace("@LANE@", self.lane.word());
-        let checkout = self.checkout.with_clone_source(taken.lock.as_fd());
         let cloned = self
-            .capture_with(checkout, &script, "cloning the warmest app checkout")
+            .capture_with(
+                Some(&taken.lock),
+                &script,
+                "cloning the warmest app checkout",
+            )
             .map(|_| ());
         let removed = match &cloned {
             Ok(()) => Ok(()),

@@ -425,7 +425,7 @@ fn app_checkout_on_host(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
     }
     // The lane file comes first: a host that does not answer fails the
     // addition and leaves the lane as it was, for the person to add it again.
-    let marked = crate::app_remote::mark(&tool.places, ssh, &repo, lane, &entry)?;
+    let marked = crate::app_remote::mark(&tool.places, ssh, &repo, lane, host, &name)?;
     let count = record_in_lane(tool, &repo, lane, &entry)?;
     let worktree = format!("~/dev/{repo}-worktrees/{name}");
     let there = if marked {

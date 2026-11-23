@@ -349,7 +349,7 @@ fn marking_or_unmarking_a_checkout_git_cannot_read_fails() {
     let wt = s.home.join("dev/demo-worktrees/app-1");
     std::fs::create_dir_all(&wt).unwrap();
     std::fs::write(wt.join(".git"), "gitdir: /nowhere\n").unwrap();
-    let marked = mark(&s.places, &s.ssh, "demo", Lane::Android, "m1:app-1")
+    let marked = mark(&s.places, &s.ssh, "demo", Lane::Android, "m1", "app-1")
         .expect_err("a checkout git cannot read")
         .text();
     assert!(marked.contains("m1"), "{marked}");
@@ -360,7 +360,7 @@ fn marking_or_unmarking_a_checkout_git_cannot_read_fails() {
 #[test]
 fn marking_says_whether_the_host_had_the_worktree() {
     let s = setup("remote-app-marked", Lane::Mac);
-    let mark = || mark(&s.places, &s.ssh, "demo", Lane::Mac, "m1:app-1");
+    let mark = || mark(&s.places, &s.ssh, "demo", Lane::Mac, "m1", "app-1");
     assert!(!mark().unwrap(), "the host has no worktree yet");
     let wt = s.home.join("dev/demo-worktrees/app-1");
     git(
