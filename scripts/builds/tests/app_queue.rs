@@ -1277,9 +1277,8 @@ fn a_class_only_run_tests_the_commit_the_checkout_last_built() {
 #[test]
 fn a_shots_only_run_tests_the_commit_the_checkout_last_built() {
     let volume = Volume::new("shots-built");
-    volume.app_repo_with(
-        "step mac one ./one.sh\nstep mac two ./two.sh\nshots mac ./one.sh --select {select}\n",
-    );
+    volume.app_repo_with(SHOTS_CONFIG);
+    commit_shots(&volume.dir.join("checkout"), "");
     let said = |output: &std::process::Output| String::from_utf8_lossy(&output.stderr).into_owned();
     let none = volume.run(&[
         "app-build",
@@ -1291,7 +1290,7 @@ fn a_shots_only_run_tests_the_commit_the_checkout_last_built() {
         "main",
         "--shots",
         "mac",
-        "mac.welcome.",
+        "mac.a.",
     ]);
     assert!(
         !none.status.success() && said(&none).contains("no finished build"),
@@ -1299,10 +1298,9 @@ fn a_shots_only_run_tests_the_commit_the_checkout_last_built() {
         said(&none)
     );
     assert!(volume.log().is_empty(), "the shots ran: {:?}", volume.log());
-    std::fs::write(volume.dir.join("go-two"), "").unwrap();
-    let built = volume.run(&["app-build", "demo", "main", "two"]);
+    volume.open_gate("one");
+    let built = volume.run(&["app-build", "demo", "main", "one"]);
     assert!(built.status.success(), "{}", said(&built));
-    std::fs::write(volume.dir.join("go-one"), "").unwrap();
     let shot = volume.run(&[
         "app-build",
         "demo",
@@ -1313,18 +1311,18 @@ fn a_shots_only_run_tests_the_commit_the_checkout_last_built() {
         "main",
         "--shots",
         "mac",
-        "mac.welcome.",
+        "mac.a.",
     ]);
     assert!(shot.status.success(), "{}", said(&shot));
-    assert_eq!(
-        volume.log(),
-        lines(&["start two", "end two", "start one", "end one"])
-    );
+    let log = volume.log();
+    assert_eq!(log.len(), 3, "{log:?}");
+    assert_eq!(log[..2], lines(&["start one", "end one"]));
+    assert_eq!(shots_runs(&volume, "mac.a.").len(), 1, "{log:?}");
     let kept =
         std::fs::read_to_string(volume.dir.join("volume/demo/side-1/.last-app-build")).unwrap();
     assert_eq!(
         kept.lines().nth(1),
-        Some("two"),
+        Some("one"),
         "a shots run leaves what was built as it was: {kept:?}"
     );
     let missing = volume.run(&[
@@ -1337,7 +1335,7 @@ fn a_shots_only_run_tests_the_commit_the_checkout_last_built() {
         "main",
         "--shots",
         "android",
-        "a.",
+        "android.a.",
     ]);
     assert!(
         !missing.status.success() && said(&missing).contains("no `shots android ...` line"),
@@ -1495,36 +1493,8 @@ echo \"builds shots: report at $report/index.html\" >&2
 #[test]
 fn all_shots_runs_the_lanes_shots_line_for_every_shot_of_the_lane() {
     let volume = Volume::new("all-shots");
-    volume.app_repo_with(
-        "step mac one ./one.sh\nneeds mac one\nshots mac ./shot.sh --select {select}\n",
-    );
-    let top = volume.dir.join("checkout");
-    let shot = top.join("shot.sh");
-    std::fs::write(
-        &shot,
-        "#!/bin/sh\necho \"shots $*\" >> \"$QUEUE_TEST_DIR/log\"\n",
-    )
-    .unwrap();
-    let mut mode = std::fs::metadata(&shot).unwrap().permissions();
-    std::os::unix::fs::PermissionsExt::set_mode(&mut mode, 0o755);
-    std::fs::set_permissions(&shot, mode).unwrap();
-    for args in [
-        &["add", "shot.sh"][..],
-        &["commit", "-q", "-m", "Add the shots program"],
-        &["push", "-q", "origin", "main"],
-    ] {
-        let out = Command::new("git")
-            .arg("-C")
-            .arg(&top)
-            .args(args)
-            .output()
-            .unwrap();
-        assert!(
-            out.status.success(),
-            "git {args:?}: {}",
-            String::from_utf8_lossy(&out.stderr)
-        );
-    }
+    volume.app_repo_with(SHOTS_CONFIG);
+    commit_shots(&volume.dir.join("checkout"), "");
     let refused = volume.run(&["app-build", "demo", "main", "--shots", "mac."]);
     let said = String::from_utf8_lossy(&refused.stderr).into_owned();
     assert!(
@@ -1552,36 +1522,13 @@ fn all_shots_runs_the_lanes_shots_line_for_every_shot_of_the_lane() {
 #[test]
 fn a_shots_step_sees_a_tmpdir_on_the_build_volume() {
     let volume = Volume::new("shots-tmpdir");
-    volume.app_repo_with(
-        "step mac one ./one.sh\nneeds mac one\nshots mac ./shot.sh --select {select}\n",
+    volume.app_repo_with(SHOTS_CONFIG);
+    commit_shots(
+        &volume.dir.join("checkout"),
+        r#"set -e
+echo "$TMPDIR" > "$QUEUE_TEST_DIR/shots-tmpdir"
+echo written > "$TMPDIR/profile""#,
     );
-    let top = volume.dir.join("checkout");
-    let shot = top.join("shot.sh");
-    std::fs::write(
-        &shot,
-        "#!/bin/sh\necho \"$TMPDIR\" > \"$QUEUE_TEST_DIR/shots-tmpdir\"\necho written > \"$TMPDIR/profile\"\n",
-    )
-    .unwrap();
-    let mut mode = std::fs::metadata(&shot).unwrap().permissions();
-    std::os::unix::fs::PermissionsExt::set_mode(&mut mode, 0o755);
-    std::fs::set_permissions(&shot, mode).unwrap();
-    for args in [
-        &["add", "shot.sh"][..],
-        &["commit", "-q", "-m", "Add the shots program"],
-        &["push", "-q", "origin", "main"],
-    ] {
-        let out = Command::new("git")
-            .arg("-C")
-            .arg(&top)
-            .args(args)
-            .output()
-            .unwrap();
-        assert!(
-            out.status.success(),
-            "git {args:?}: {}",
-            String::from_utf8_lossy(&out.stderr)
-        );
-    }
     volume.open_gate("one");
     let built = volume.run(&["app-build", "demo", "main", "--all-shots", "mac"]);
     let said = String::from_utf8_lossy(&built.stderr).into_owned();
