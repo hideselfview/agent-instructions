@@ -4,7 +4,6 @@ use crate::lists::fixtures::{NOON, design_drawn, design_place, design_tipped, st
 use crate::lists::project::NewProject;
 use crate::lists::store::Store;
 use crate::testing::{git, repo};
-use std::os::fd::FromRawFd;
 use std::sync::mpsc;
 use std::time::Duration;
 
@@ -113,7 +112,6 @@ print("alike board Held")
     let places = &server.model.places;
     let line = crate::queue::Queue::of(places, "demo", crate::lane::Lane::Mac);
     let (ticket, _) = line.join(crate::lock::Where::Anywhere).unwrap();
-    let ticket_fd = unsafe { std::os::fd::OwnedFd::from_raw_fd(ticket.fd) };
     let pid = std::process::id();
     let (status, reply) = server.post_to(
         "/api/queue",
@@ -121,8 +119,9 @@ print("alike board Held")
         Some(&format!("http://{host}")),
         &format!(r#"{{"action":"top","repo":"demo","pid":{pid}}}"#),
     );
-    drop(ticket_fd);
-    line.drop_ticket(&ticket.name).unwrap();
+    let name = ticket.name.clone();
+    drop(ticket);
+    line.drop_ticket(&name).unwrap();
     assert_eq!(status, 200, "{reply}");
 
     let health = server.get("/api/health");

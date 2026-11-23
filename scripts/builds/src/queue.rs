@@ -42,6 +42,7 @@
 
 use std::collections::BTreeMap;
 use std::ffi::CString;
+use std::os::fd::{FromRawFd, OwnedFd};
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -181,6 +182,12 @@ struct Admission {
     free_hosts: usize,
     here: usize,
     anywhere: usize,
+    holders: Vec<i32>,
+}
+
+struct Waiter {
+    pid: Option<i32>,
+    allowed: Where,
 }
 
 impl Admission {
@@ -195,7 +202,19 @@ impl Admission {
             free_hosts: locks.free.len() - free_here,
             here: 0,
             anywhere: 0,
+            holders: locks.holders(),
         }
+    }
+
+    fn waiter(&self, ticket: &str) -> Option<Waiter> {
+        let pid = pid_of(ticket);
+        if pid.is_some_and(|pid| self.holders.contains(&pid)) {
+            return None;
+        }
+        Some(Waiter {
+            pid,
+            allowed: where_for_waiter(ticket),
+        })
     }
 
     fn admits(&self, locks: &Locks, allowed: Where) -> bool {
@@ -210,8 +229,8 @@ impl Admission {
         }
     }
 
-    fn count(&mut self, allowed: Where) {
-        match allowed {
+    fn count(&mut self, waiter: Waiter) {
+        match waiter.allowed {
             Where::Here => self.here += 1,
             Where::Anywhere => self.anywhere += 1,
         }
@@ -225,10 +244,19 @@ pub enum AppWait {
     HeldCheckout(String),
 }
 
-/// One ticket of this process: held locked until its descriptor closes.
+/// One ticket of this process. Dropping it closes this process's descriptor.
 pub struct Ticket {
     pub name: String,
-    pub fd: libc::c_int,
+    _fd: OwnedFd,
+}
+
+impl Ticket {
+    fn locked(name: String, path: &Path) -> Result<Self> {
+        let fd = open_locked(path)?;
+        // open_locked returned a new descriptor owned by this ticket.
+        let owner = unsafe { OwnedFd::from_raw_fd(fd) };
+        Ok(Self { name, _fd: owner })
+    }
 }
 
 /// <repo>'s queue folder for a lane, and the file naming the lane's app
@@ -342,10 +370,13 @@ impl Queue {
     /// The tickets in line, next first. A write replaces the file whole, so a
     /// read without the guard sees one order or the other.
     pub fn order(&self) -> Result<Vec<String>> {
-        let path = self.dir.join("order");
-        match std::fs::read_to_string(&path) {
-            Ok(text) => Ok(text.lines().map(str::to_string).collect()),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+        Ok(Self::line_file(&self.dir.join("order"))?.unwrap_or_default())
+    }
+
+    fn line_file(path: &Path) -> Result<Option<Vec<String>>> {
+        match std::fs::read_to_string(path) {
+            Ok(text) => Ok(Some(text.lines().map(str::to_string).collect())),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
             Err(error) => fail!("reading {}: {error}", path.display()),
         }
     }
@@ -378,12 +409,7 @@ impl Queue {
     }
 
     fn checkout_wait(&self, ticket: &str) -> Result<Option<Vec<String>>> {
-        let path = self.checkout_wait_file(ticket);
-        match std::fs::read_to_string(&path) {
-            Ok(text) => Ok(Some(text.lines().map(str::to_string).collect())),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-            Err(error) => fail!("reading {}: {error}", path.display()),
-        }
+        Self::line_file(&self.checkout_wait_file(ticket))
     }
 
     /// Each live waiter's blockers. The queue decides admission. After it
@@ -391,16 +417,14 @@ impl Queue {
     pub fn app_waits(&self) -> Result<Vec<(i32, Vec<AppWait>)>> {
         let order = self.order()?;
         let locks = self.locks()?;
-        let holders = locks.holders();
         let mut admission = Admission::read(&locks);
         let (mut last_here, mut last_host) = (None, None);
         let mut waiting = Vec::new();
         for ticket in order {
-            let pid = pid_of(&ticket);
-            if pid.is_some_and(|pid| holders.contains(&pid)) {
+            let Some(waiter) = admission.waiter(&ticket) else {
                 continue;
-            }
-            let allowed = where_for_waiter(&ticket);
+            };
+            let Waiter { pid, allowed } = waiter;
             let admitted = admission.admits(&locks, allowed);
             if let Some(pid) = pid
                 && crate::flock::is_held(&self.ticket_path(&ticket))?
@@ -433,7 +457,7 @@ impl Queue {
             if allowed == Where::Here || !admitted || admission.admits(&locks, Where::Here) {
                 last_here = pid;
             }
-            admission.count(allowed);
+            admission.count(waiter);
         }
         Ok(waiting)
     }
@@ -442,8 +466,8 @@ impl Queue {
     /// returns it with how many were in line before it.
     pub fn join(&self, allowed: Where) -> Result<(Ticket, usize)> {
         let _guard = self.guard()?;
-        let ticket = self.new_ticket(allowed)?;
         let mut order = self.order()?;
+        let ticket = self.new_ticket(allowed)?;
         let ahead = order.len();
         order.push(ticket.name.clone());
         self.write_order(&order)?;
@@ -454,8 +478,8 @@ impl Queue {
     fn new_ticket(&self, allowed: Where) -> Result<Ticket> {
         let number = TICKETS.fetch_add(1, Ordering::SeqCst) + 1;
         let name = format!("{}-{number}-{}", std::process::id(), allowed.word());
-        let fd = open_locked(&self.ticket_path(&name))?;
-        Ok(Ticket { name, fd })
+        let path = self.ticket_path(&name);
+        Ticket::locked(name, &path)
     }
 
     /// Gives <old> up for a new ticket that takes its place in line; <old>'s
@@ -506,11 +530,10 @@ impl Queue {
     fn may_go(&self, mine: &str, ahead: &[String]) -> Result<bool> {
         let allowed = allowed_of(mine)?;
         let locks = self.locks()?;
-        let holders = locks.holders();
         let mut admission = Admission::read(&locks);
         for name in ahead {
-            if !pid_of(name).is_some_and(|pid| holders.contains(&pid)) {
-                admission.count(where_for_waiter(name));
+            if let Some(waiter) = admission.waiter(name) {
+                admission.count(waiter);
             }
         }
         Ok(admission.admits(&locks, allowed))

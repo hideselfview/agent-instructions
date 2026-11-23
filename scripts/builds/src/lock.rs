@@ -367,7 +367,8 @@ impl Held {
         // the old ticket.
         drop(self);
         queue.wait_for_turn(&ticket.name)?;
-        let (lock, checkout) = take_free_lock(&places, &ssh, &repo, lane, takes, &ticket)?;
+        let (lock, checkout) =
+            take_free_lock(&places, &ssh, &repo, lane, takes, &queue, &ticket.name)?;
         let held = Held {
             lock,
             ticket,
@@ -402,10 +403,7 @@ impl Drop for Held {
                 error.text()
             ));
         }
-        unsafe {
-            libc::close(self.lock);
-            libc::close(self.ticket.fd);
-        }
+        unsafe { libc::close(self.lock) };
     }
 }
 
@@ -519,12 +517,12 @@ fn take_free_lock(
     repo: &str,
     lane: Lane,
     takes: Takes,
-    ticket: &Ticket,
+    queue: &Queue,
+    ticket: &str,
 ) -> Result<(libc::c_int, String)> {
     let Takes { allowed, screen } = takes;
     let dir = places.app_locks_dir(repo, lane);
     std::fs::create_dir_all(&dir).context(|| format!("creating {}", dir.display()))?;
-    let queue = Queue::of(places, repo, lane);
     let mut loads = Loads {
         places,
         ssh,
@@ -603,7 +601,7 @@ fn take_free_lock(
                 }
             }
             if eligible != waiting_for {
-                queue.record_checkout_wait(&ticket.name, &eligible)?;
+                queue.record_checkout_wait(ticket, &eligible)?;
                 waiting_for = eligible;
             }
         }
@@ -761,7 +759,7 @@ fn take_in(
         }
     }
     queue.wait_for_turn(&ticket.name)?;
-    let (lock, checkout) = take_free_lock(places, ssh, repo, lane, takes, &ticket)?;
+    let (lock, checkout) = take_free_lock(places, ssh, repo, lane, takes, &queue, &ticket.name)?;
     let held = Held {
         lock,
         ticket,

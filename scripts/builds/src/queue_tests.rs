@@ -24,10 +24,6 @@ fn plant_dead(queue: &Queue, name: &str) {
     queue.write_order(&order).unwrap();
 }
 
-fn close(ticket: &Ticket) {
-    unsafe { libc::close(ticket.fd) };
-}
-
 #[test]
 fn health_reads_waits_from_unused_and_held_app_checkouts() {
     let scratch = Scratch::new("queue-health-waits");
@@ -64,9 +60,7 @@ fn health_reads_waits_from_unused_and_held_app_checkouts() {
         .record_checkout_wait(&tickets[2].name, &["side-1".to_string()])
         .unwrap();
     assert_eq!(waits()[&50], [AppWait::Process(10)]);
-    for ticket in &tickets {
-        close(ticket);
-    }
+    drop(tickets);
     unsafe { libc::close(local) };
 }
 
@@ -81,13 +75,26 @@ fn a_waiter_that_can_only_pass_on_a_remote_checkout_does_not_take_a_local_waiter
         plant_live(&queue, 40, Where::Here),
     ];
     let found: BTreeMap<_, _> = queue.app_waits().unwrap().into_iter().collect();
-    for ticket in &tickets {
-        close(ticket);
-    }
+    drop(tickets);
     unsafe { libc::close(local) };
     assert!(found[&30].is_empty());
     assert!(found[&40].contains(&AppWait::Process(20)), "{found:?}");
     assert!(!found[&40].contains(&AppWait::Process(30)), "{found:?}");
+}
+
+#[test]
+fn an_unreadable_order_leaves_no_ticket() {
+    let scratch = Scratch::new("queue-order-unreadable");
+    let queue = queue(&scratch);
+    let guard = queue.guard().unwrap();
+    std::fs::create_dir(queue.dir.join("order")).unwrap();
+    drop(guard);
+    assert!(queue.join(Where::Here).is_err());
+    let files: std::collections::BTreeSet<_> = std::fs::read_dir(&queue.dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+    assert_eq!(files, [".next".into(), "order".into()].into());
 }
 
 #[test]
@@ -103,8 +110,8 @@ fn a_ticket_names_its_process_and_counts_its_own() {
         vec![first.name.clone(), second.name.clone()]
     );
     assert_eq!(pid_of(&first.name), Some(std::process::id() as i32));
-    close(&first);
-    close(&second);
+    drop(first);
+    drop(second);
 }
 
 #[test]
@@ -123,9 +130,7 @@ fn a_reissued_ticket_takes_the_old_ones_place() {
         !queue.ticket_path(&second.name).exists(),
         "the old ticket's file is gone"
     );
-    for ticket in [&first, &second, &third, &new] {
-        close(ticket);
-    }
+    drop((first, second, third, new));
 }
 
 #[test]
@@ -179,10 +184,10 @@ fn a_dead_ticket_in_line_lets_no_one_past_the_holder() {
         "the dead ticket is taken away"
     );
     assert!(!queue.ticket_path("1-1-anywhere").exists());
-    close(&holder);
+    drop(holder);
     finished.recv_timeout(Duration::from_secs(10)).unwrap();
     assert_eq!(queue.order().unwrap(), vec![last.name.clone()]);
-    close(&last);
+    drop(last);
 }
 
 #[test]
@@ -217,12 +222,12 @@ fn a_signal_between_reading_the_order_and_waiting_is_not_lost() {
         "the first ticket is still held"
     );
     // Waiting on the second ticket, still held, would never end.
-    close(&first);
+    drop(first);
     finished
         .recv_timeout(Duration::from_secs(10))
         .expect("the wait was re-pointed to the first ticket");
-    close(&second);
-    close(&last);
+    drop(second);
+    drop(last);
 }
 
 /// Records <count> app checkouts for the queue's lane, so it has that many
@@ -262,9 +267,7 @@ fn the_waiting_are_the_tickets_whose_builds_hold_no_lock_wherever_they_stand() {
     for fd in held {
         unsafe { libc::close(fd) };
     }
-    for ticket in &tickets {
-        close(ticket);
-    }
+    drop(tickets);
 }
 
 #[test]
@@ -289,7 +292,7 @@ fn as_many_waiters_as_slots_go_at_once_and_the_next_goes_when_any_of_them_leaves
         "both slots are taken"
     );
     // The first leaves, not the third's predecessor.
-    close(&first);
+    drop(first);
     finished
         .recv_timeout(Duration::from_secs(10))
         .expect("the third took the slot the first left");
@@ -297,8 +300,8 @@ fn as_many_waiters_as_slots_go_at_once_and_the_next_goes_when_any_of_them_leaves
         queue.order().unwrap(),
         vec![second.name.clone(), third.name.clone()]
     );
-    close(&second);
-    close(&third);
+    drop(second);
+    drop(third);
 }
 
 #[test]
@@ -377,11 +380,11 @@ fn plant_live(queue: &Queue, pid: i32, allowed: Where) -> Ticket {
 /// `plant_live` with the whole name given, as an earlier builds named it.
 fn plant_live_named(queue: &Queue, name: String) -> Ticket {
     let _guard = queue.guard().unwrap();
-    let fd = open_locked(&queue.ticket_path(&name)).unwrap();
+    let ticket = Ticket::locked(name.clone(), &queue.ticket_path(&name)).unwrap();
     let mut order = queue.order().unwrap();
     order.push(name.clone());
     queue.write_order(&order).unwrap();
-    Ticket { name, fd }
+    ticket
 }
 
 /// Takes the lock of <checkout> and writes the record of the run of the
@@ -419,9 +422,7 @@ fn a_waiter_that_may_take_any_checkout_waits_behind_an_earlier_one_that_may_too(
             .may_go(&second.name, &queue.order().unwrap()[..2])
             .unwrap()
     );
-    for ticket in [&a, &first, &second] {
-        close(ticket);
-    }
+    drop((a, first, second));
 }
 
 #[test]
@@ -450,10 +451,8 @@ fn each_free_checkout_is_left_for_one_waiter_that_may_use_it() {
             .may_go(&tickets[2].name, &queue.order().unwrap()[..3])
             .unwrap()
     );
-    close(&a);
-    for ticket in &tickets {
-        close(ticket);
-    }
+    drop(a);
+    drop(tickets);
 }
 
 #[test]
@@ -466,8 +465,8 @@ fn a_ticket_name_says_where_its_build_may_run_and_a_reissued_one_keeps_it() {
     assert_eq!(allowed_of(&again.name).unwrap(), Where::Here);
     assert_eq!(pid_of(&again.name), Some(std::process::id() as i32));
     assert!(allowed_of("12-1").is_err());
-    close(&ticket);
-    close(&again);
+    drop(ticket);
+    drop(again);
 }
 
 #[test]
@@ -479,7 +478,7 @@ fn a_dead_ticket_of_an_earlier_builds_is_dropped_and_lets_the_waiter_go() {
     queue.wait_for_turn(&mine.name).unwrap();
     assert_eq!(queue.order().unwrap(), vec![mine.name.clone()]);
     assert!(!queue.ticket_path("85902-1-hosts").exists());
-    close(&mine);
+    drop(mine);
 }
 
 #[test]
@@ -491,7 +490,7 @@ fn an_order_entry_with_no_ticket_file_is_dropped() {
     let (mine, _) = queue.join(Where::Anywhere).unwrap();
     queue.wait_for_turn(&mine.name).unwrap();
     assert_eq!(queue.order().unwrap(), vec![mine.name.clone()]);
-    close(&mine);
+    drop(mine);
 }
 
 #[test]
@@ -518,11 +517,11 @@ fn a_live_ticket_of_an_earlier_builds_is_a_build_to_wait_behind() {
         finished.try_recv().is_err(),
         "the waiter neither fails nor goes ahead of the live ticket"
     );
-    close(&old);
+    drop(old);
     finished
         .recv_timeout(Duration::from_secs(10))
         .unwrap()
         .unwrap();
     assert_eq!(queue.order().unwrap(), vec![mine.name.clone()]);
-    close(&mine);
+    drop(mine);
 }
