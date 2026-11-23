@@ -1,8 +1,8 @@
 //! Loading a board in Chrome and taking its picture.
 //!
-//! The loader suppresses stylesheet motion during loading and cancels any
-//! animations or transitions still present before the picture and element
-//! reader measure the page.
+//! The loader suppresses stylesheet motion during loading and removes any
+//! remaining animation effects before the picture and element reader measure
+//! the page.
 //!
 //! The page loads under virtual time with a fixed budget. Virtual time stands
 //! still while a request is pending. A script runs before the page's own
@@ -302,10 +302,10 @@ pub(crate) async fn load(
             state,
         });
     }
-    // Inline important rules and animations started by script can still
-    // apply effects. Virtual time has stopped, so cancel them before any
-    // caller takes the picture or reads the layout.
-    page.evaluate("document.getAnimations().forEach(animation => animation.cancel())")
+    // Inline important rules and animations started by script can still add
+    // effects. Clear their keyframes without cancelling the animations,
+    // which would reject any promises the page uses to track them.
+    page.evaluate("document.getAnimations().forEach(({ effect }) => effect.setKeyframes([]))")
         .await
         .map_err(protocol)?;
     Ok(())

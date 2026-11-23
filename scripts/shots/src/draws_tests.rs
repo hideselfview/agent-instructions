@@ -109,7 +109,14 @@ fn a_preview_draws_at_rest_even_when_a_rule_marks_an_animation_important() {
                 "<!doctype html><html><head><style>\
                  @keyframes bob {{ from {{ translate: 0 24px }} to {{ translate: 0 40px }} }}\
                  {stylesheet}</style></head>\
-                 <body><button class='logo' style='{inline}'>Welcome</button></body></html>"
+                 <body><button class='logo' style='{inline}'>Welcome</button>\
+                 <script>\
+                 for (const animation of document.getAnimations()) {{\
+                   animation.finished.catch(() => {{\
+                     document.querySelector('button').textContent = 'Animation interrupted';\
+                   }});\
+                 }}\
+                 </script></body></html>"
             ),
         )
         .unwrap();
