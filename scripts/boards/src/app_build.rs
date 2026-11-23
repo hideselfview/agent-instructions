@@ -75,11 +75,27 @@ impl LineError {
 
 /// The platform and folder of each `shots-declared` line of <text>, an
 /// `.app-build` file, in the order written, each folder without a trailing
-/// `/`. With <only>, reads declarations for that platform. A line is wrong
-/// when it names no platform, a platform other than
+/// `/`. A line is wrong when it names no platform, a platform other than
 /// `Platform`, no folder or more than one, a folder outside the repo, or a
 /// platform that an earlier line declared.
-pub fn declared(text: &str, only: Option<Platform>) -> Result<Vec<(Platform, String)>, LineError> {
+pub fn declared(text: &str) -> Result<Vec<(Platform, String)>, LineError> {
+    read_declarations(text, None)
+}
+
+/// The declare folder for <platform>, if the file names one. Every
+/// declaration must name a known platform. Only the selected platform's
+/// folders are read and checked.
+pub fn declared_folder(text: &str, platform: Platform) -> Result<Option<String>, LineError> {
+    Ok(read_declarations(text, Some(platform))?
+        .into_iter()
+        .next()
+        .map(|(_, folder)| folder))
+}
+
+fn read_declarations(
+    text: &str,
+    only: Option<Platform>,
+) -> Result<Vec<(Platform, String)>, LineError> {
     let mut declared: Vec<(Platform, String)> = Vec::new();
     for line in text.lines().map(str::trim) {
         let mut words = line.split_whitespace();
@@ -93,14 +109,13 @@ pub fn declared(text: &str, only: Option<Platform>) -> Result<Vec<(Platform, Str
         let Some(word) = words.next() else {
             return Err(bad("names no platform"));
         };
-        let platform = Platform::parse(word);
+        let platform = Platform::parse(word)
+            .ok_or_else(|| bad("names a platform other than mac, android or web"))?;
         if let Some(only) = only
-            && platform != Some(only)
+            && platform != only
         {
             continue;
         }
-        let platform =
-            platform.ok_or_else(|| bad("names a platform other than mac, android or web"))?;
         let value: Vec<&str> = words.collect();
         let folder = match value.as_slice() {
             [] => return Err(bad("names its platform and nothing else")),

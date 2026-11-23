@@ -105,14 +105,18 @@ fn declared_names(top: &Path, commit: &str, lane: Option<Lane>) -> Result<Vec<St
 fn declared_at(top: &Path, commit: &str, lane: Option<Lane>) -> Result<Vec<shots::Declared>> {
     let config = run_git(top, &["show", &format!("{commit}:{CONFIG}")])?;
     let folders = match lane {
-        Some(lane) => boards::app_build::declared(&config, Some(lane.shots_platform()))
-            .map_err(|error| Fail::Message(error.text()))?,
+        Some(lane) => {
+            let platform = lane.shots_platform();
+            let folder = boards::app_build::declared_folder(&config, platform)
+                .map_err(|error| Fail::Message(error.text()))?;
+            let Some(folder) = folder else {
+                return Ok(Vec::new());
+            };
+            vec![(platform, folder)]
+        }
         None => shots::declared_folders(&config).map_err(Fail::Message)?,
     };
     if folders.is_empty() {
-        if lane.is_some() {
-            return Ok(Vec::new());
-        }
         fail!("{CONFIG} at {commit} has no shots-declared line, so no shot is declared");
     }
     let paths: Vec<String> = folders.iter().map(|(_, folder)| folder.clone()).collect();

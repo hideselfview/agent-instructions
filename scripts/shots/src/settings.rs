@@ -103,8 +103,8 @@ impl Settings {
 
     pub(crate) fn parse(text: &str) -> Result<Self, SettingsError> {
         let mut settings = Self::default();
-        let declared = boards::app_build::declared(text, None)
-            .map_err(|e| SettingsError::Line(e.line, e.why))?;
+        let declared =
+            boards::app_build::declared(text).map_err(|e| SettingsError::Line(e.line, e.why))?;
         settings.declared = declared;
         for line in text.lines().map(str::trim) {
             let mut words = line.split_whitespace();
