@@ -86,6 +86,15 @@ fn a_reported_context_line_cannot_name_a_different_added_line() {
 }
 
 #[test]
+fn a_quote_at_the_same_number_on_both_changed_sides_is_ambiguous() {
+    let files = parse_diff(
+        "diff --git a/a.rs b/a.rs\n@@ -1,5 +1,5 @@\n one\n-older\n-repeat\n keep\n+repeat\n+new\n end\n",
+    );
+    let error = code_site(&files, "a.rs", 3, "repeat").unwrap_err();
+    assert!(error.contains("both sides"), "{error}");
+}
+
+#[test]
 fn a_report_for_an_exact_path_never_borrows_a_quote_from_another_file() {
     let files = parse_diff(concat!(
         "diff --git a/a.rs b/a.rs\n@@ -0,0 +1 @@\n+other\n",

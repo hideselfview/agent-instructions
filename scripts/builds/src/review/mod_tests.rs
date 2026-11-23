@@ -1268,10 +1268,15 @@ fn a_finding_raised_again_at_the_reviewed_head_disagrees_with_a_fixed_verdict() 
     let finding = findings_of(&demo, landing)[0].id;
 
     demo.commit(&side, "0.rs");
+    std::fs::write(side.join("a.rs"), "temporary").unwrap();
+    crate::testing::git(
+        &side,
+        &["commit", "-qam", "Temporarily replace the quoted line"],
+    );
     fake.answer("alpha", &[("rule-a", None)]);
     review_at(&demo, &fake, &side, "k", NOON + 10).unwrap();
-    std::fs::write(side.join("a.rs"), "a.rs\n").unwrap();
-    crate::testing::git(&side, &["commit", "-qam", "End the line with a newline"]);
+    std::fs::write(side.join("a.rs"), "a.rs").unwrap();
+    crate::testing::git(&side, &["commit", "-qam", "Restore the quoted line"]);
     fake.fail("alpha");
     review_at(&demo, &fake, &side, "k", NOON + 20).unwrap();
     demo.store

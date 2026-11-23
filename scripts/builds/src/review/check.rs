@@ -340,13 +340,18 @@ pub fn code_site<'a>(
             "its quote occurs more than once in {file} and its line does not identify one occurrence"
         )
     };
+    let exact_removal = named
+        .iter()
+        .any(|patch| quote_sites(patch, Side::Before, code).contains(&(line, true)));
+    if exact_removal && exact_current.is_some() {
+        return Err(format!(
+            "its quote starts at line {line} on both sides of the diff of {file}"
+        ));
+    }
     if let Some(site) = exact_current {
         return Ok(Some(*site));
     }
-    if named
-        .iter()
-        .any(|patch| quote_sites(patch, Side::Before, code).contains(&(line, true)))
-    {
+    if exact_removal {
         return Ok(None);
     }
     if exact_context {
