@@ -95,7 +95,7 @@ pub fn exists(repo: &Path, sha: &str) -> Result<bool> {
         })?;
     match output.status.code() {
         Some(0) => Ok(true),
-        Some(1) if output.stdout.is_empty() && output.stderr.is_empty() => Ok(false),
+        Some(1) if output.stderr.is_empty() => Ok(false),
         _ => {
             let error = format!(
                 "Git could not check for commit {sha} in {} ({}).\n{}",
