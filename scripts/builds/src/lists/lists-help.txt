@@ -122,7 +122,9 @@ auto` takes it out of the ranked order.
       "work": [item drafts] | "no_work": WHY}. In one write: the decision
       (linked to the question and its work), every new item (made by the
       decision), each blocked item's edit or drop, and the question's close.
-      `blocked` names every item waiting on N and no other; `work` or
+      A drop works as `item drop` does: it records the work in the item's
+      worktrees, deletes the branch and frees the worktree, or refuses the
+      whole answer. `blocked` names every item waiting on N and no other; `work` or
       `no_work`, never both or neither; the decision's body is not empty. Only
       for a question-kind entry. Prints the items now ready and the stack's
       new top.

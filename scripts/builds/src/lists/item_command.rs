@@ -622,7 +622,7 @@ fn drop_item(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     }) = store.load()?.closed_record(id)
         && !item.dropped.is_empty()
     {
-        discard_all(id, &item.dropped)?;
+        dropped::discard_all(id, &item.dropped)?;
         note(format!(
             "{id} is closed as dropped already; threw away the rest of the work it held"
         ));
@@ -637,64 +637,13 @@ fn drop_item(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let works = store.write(&stamp, &format!("item drop {id}"), |db| {
         let lists = store::read(db)?;
         require_can_leave(&lists, id, "drop", true)?;
-        let item = open_item(&lists, id)?;
-        let worktrees: Vec<&str> = item
-            .running
-            .iter()
-            .map(|r| r.worktree.as_str())
-            .chain(item.kept.iter().map(|p| p.worktree.as_str()))
-            .collect();
-        dropped::require_alone(
-            other_projects.iter().chain([&lists]),
-            &store.project,
-            id,
-            &worktrees,
-        )?;
-        let places = item
-            .running
-            .iter()
-            .map(|r| (&r.worktree, &r.branch))
-            .chain(item.kept.iter().map(|p| (&p.worktree, &p.branch)));
-        let works = places
-            .map(|(worktree, branch)| dropped::read(worktree, branch))
-            .collect::<Result<Vec<_>>>()?;
-        running::end(db, id, running::Ended::Closed, &stamp)?;
-        kept_work::end(db, id)?;
-        close(db, id, How::Dropped(why.clone()), &stamp)?;
-        dropped::record(db, id, &works)?;
-        Ok(works)
+        dropped::drop_open_item(db, &lists, &other_projects, id, &why, &stamp)
     })?;
-    discard_all(id, &works)?;
+    dropped::discard_all(id, &works)?;
     for work in &works {
-        note(format!(
-            "threw away the work in {} on {}: {} and {}",
-            work.worktree,
-            work.branch,
-            crate::text::counted(work.commits.len(), "commit", "commits"),
-            crate::text::counted(
-                work.files.len(),
-                "file not committed",
-                "files not committed"
-            )
-        ));
+        note(dropped::thrown_away_line(work));
     }
     note(format!("dropped {id}"));
-    Ok(())
-}
-
-/// Throws away <works>, the recorded work of dropped item <id>; a failure
-/// names the drop to run again.
-fn discard_all(id: Id, works: &[dropped::DroppedWork]) -> Result<()> {
-    for work in works {
-        if let Err(error) = dropped::discard(work) {
-            fail!(
-                "{id} is dropped and its work recorded, but throwing away the work in {} failed: {}; run `builds item drop {} --why WHY` again once that is fixed",
-                work.worktree,
-                error.text(),
-                id.0
-            );
-        }
-    }
     Ok(())
 }
 

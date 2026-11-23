@@ -16,6 +16,7 @@ use crate::lists::citation;
 use crate::lists::decision::{NewDecision, add_decision};
 use crate::lists::derive::{self, ItemState};
 use crate::lists::draft::{require_draft_briefs, work_or_why};
+use crate::lists::dropped;
 use crate::lists::issue::{GhRunner, real_gh, require_open_issue};
 use crate::lists::item::{ItemDraft, RecordWait, add_item, add_wait, move_waits_to_question};
 use crate::lists::question::{self, Blocked, BlockedMap, NewQuestion, Spot, apply_blocked};
@@ -444,6 +445,13 @@ fn resolve(tool: &Tool, args: &[String], cwd: &Path, words: &str, verb: Verb) ->
         Source::Lists,
         &texts,
     )?;
+    // In a repo two projects hold, an item of either project may run in a
+    // worktree an answer's dropped item keeps, so the drop reads the other
+    // projects' items too.
+    let other_projects: Vec<Lists> = store::every_lists(&tool.places)?
+        .into_iter()
+        .filter(|lists| lists.project != store.project)
+        .collect();
     let resolved = store.write(&stamp, words, |db| {
         let lists = &store::read(db)?;
         let question = open_question(lists, id)?.clone();
@@ -461,7 +469,7 @@ fn resolve(tool: &Tool, args: &[String], cwd: &Path, words: &str, verb: Verb) ->
         if drafts.iter().any(|draft| draft.waits.contains(&Wait::Question(id))) {
             fail!("a work item waits on {id}, which this closes; the work that follows has nothing to wait for");
         }
-        apply_blocked(db, id, &blocked, &stamp)?;
+        let dropped = apply_blocked(db, id, &blocked, &other_projects, &stamp)?;
         let (how, made) = match closing {
             Closing::Answer(decision) => {
                 let new = NewDecision {
@@ -492,9 +500,12 @@ fn resolve(tool: &Tool, args: &[String], cwd: &Path, words: &str, verb: Verb) ->
             .map(|(item, _)| *item)
             .filter(|item| lists.item(*item).is_some_and(|i| derive::item_state(lists, i) == ItemState::Ready))
             .collect();
-        Ok((made, ready))
+        Ok((made, ready, dropped))
     })?;
-    let ((decision, items), ready) = resolved;
+    let ((decision, items), ready, dropped) = resolved;
+    for (item, works) in &dropped {
+        dropped::discard_all(*item, works)?;
+    }
     let lists = store.load()?;
     let mut out = match (verb, decision) {
         (Verb::Answer, Some(decision)) => {
@@ -510,6 +521,11 @@ fn resolve(tool: &Tool, args: &[String], cwd: &Path, words: &str, verb: Verb) ->
     }
     for (item, fate) in &blocked {
         if let Blocked::Drop(why) = fate {
+            for (_, works) in dropped.iter().filter(|(dropped, _)| dropped == item) {
+                for work in works {
+                    out.push_str(&format!("{}\n", dropped::thrown_away_line(work)));
+                }
+            }
             out.push_str(&format!("dropped item {item}: {why}\n"));
         }
     }

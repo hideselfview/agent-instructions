@@ -18,8 +18,11 @@ use crate::checkout::Checkout;
 use crate::db::Sql;
 use crate::fail;
 use crate::fail::Result;
-use crate::lists::running::{require_side_worktree, running_in};
-use crate::lists::{Id, Lists};
+use crate::lists::item::open_item;
+use crate::lists::kept_work;
+use crate::lists::record::close;
+use crate::lists::running::{self, require_side_worktree, running_in};
+use crate::lists::{How, Id, Lists, Stamp};
 use crate::side_git::Commit;
 use boards::{git, git_text};
 
@@ -145,6 +148,75 @@ pub fn require_alone<'a>(
         others.join(", "),
         id.0
     );
+}
+
+/// Drops open item <id> of the project that <lists> holds, inside a store
+/// write: refuses while another open item of <others> (the other projects'
+/// lists) or of <lists> runs or is kept in one of its worktrees, reads the
+/// work in each of them, ends its runs and its keeping, closes it as dropped
+/// with <why> and records the work. Returns the work to throw away with
+/// `discard_all` once the write commits.
+pub fn drop_open_item(
+    db: &Connection,
+    lists: &Lists,
+    others: &[Lists],
+    id: Id,
+    why: &str,
+    stamp: &Stamp,
+) -> Result<Vec<DroppedWork>> {
+    let item = open_item(lists, id)?;
+    let places: Vec<(&str, &str)> = item
+        .running
+        .iter()
+        .map(|r| (r.worktree.as_str(), r.branch.as_str()))
+        .chain(
+            item.kept
+                .iter()
+                .map(|p| (p.worktree.as_str(), p.branch.as_str())),
+        )
+        .collect();
+    let worktrees: Vec<&str> = places.iter().map(|(worktree, _)| *worktree).collect();
+    require_alone(others.iter().chain([lists]), &lists.project, id, &worktrees)?;
+    let works = places
+        .iter()
+        .map(|(worktree, branch)| read(worktree, branch))
+        .collect::<Result<Vec<_>>>()?;
+    running::end(db, id, running::Ended::Closed, stamp)?;
+    kept_work::end(db, id)?;
+    close(db, id, How::Dropped(why.to_string()), stamp)?;
+    record(db, id, &works)?;
+    Ok(works)
+}
+
+/// Throws away <works>, the recorded work of dropped item <id>; a failure
+/// names the drop to run again.
+pub fn discard_all(id: Id, works: &[DroppedWork]) -> Result<()> {
+    for work in works {
+        if let Err(error) = discard(work) {
+            fail!(
+                "{id} is dropped and its work recorded, but throwing away the work in {} failed: {}; run `builds item drop {} --why WHY` again once that is fixed",
+                work.worktree,
+                error.text(),
+                id.0
+            );
+        }
+    }
+    Ok(())
+}
+
+/// The line that says what the drop threw away in <work>.
+pub fn thrown_away_line(work: &DroppedWork) -> String {
+    format!(
+        "threw away the work in {} on {}: {} and {}",
+        work.worktree,
+        work.branch,
+        crate::text::counted(work.commits.len(), "commit", "commits"),
+        crate::text::counted(
+            work.files.len(),
+            "file not committed",
+            "files not committed"
+        )
+    )
 }
 
 /// Records <works> as what closed item <id> held when the person dropped it.

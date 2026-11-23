@@ -1,9 +1,9 @@
 use super::*;
 use crate::fail::Fail;
-use crate::lists::Kind;
 use crate::lists::fixtures::{NOON, db, item, question, read, stamp};
 use crate::lists::item::{ItemDraft, ItemEdit};
 use crate::lists::record::close;
+use crate::lists::{How, Kind};
 use rusqlite::Connection;
 
 fn refusal<T: std::fmt::Debug>(result: Result<T>) -> String {
@@ -67,7 +67,7 @@ fn applying_blocked_edits_and_drops() {
         (a, Blocked::Edit(edit)),
         (b, Blocked::Drop("not needed".into())),
     ]);
-    apply_blocked(&db, q, &blocked, &stamp(NOON)).unwrap();
+    apply_blocked(&db, q, &blocked, &[], &stamp(NOON)).unwrap();
     let lists = read(&db);
     assert_eq!(lists.item(a).unwrap().details, "changed");
     assert_eq!(
@@ -100,7 +100,7 @@ fn a_dropped_item_others_wait_on_fails_the_final_check() {
     let (db, q, a, b) = waiting_lists();
     let c = item(&db, vec![Wait::Item(a)]);
     let blocked = BlockedMap::from([(a, Blocked::Drop("no".into())), (b, Blocked::Proceeds)]);
-    apply_blocked(&db, q, &blocked, &stamp(NOON)).unwrap();
+    apply_blocked(&db, q, &blocked, &[], &stamp(NOON)).unwrap();
     close(&db, q, How::Done("shown".into()), &stamp(NOON)).unwrap();
     let faults = crate::lists::check::faults(&db, "demo").unwrap();
     let message = faults.join("\n");

@@ -12,9 +12,10 @@ use crate::db::Sql;
 use crate::fail;
 use crate::fail::Result;
 use crate::lists::args::parse_named;
+use crate::lists::dropped::{DroppedWork, drop_open_item};
 use crate::lists::item::ItemEdit;
-use crate::lists::record::{self, close};
-use crate::lists::{How, Id, Kind, Lists, Stamp, Wait};
+use crate::lists::record;
+use crate::lists::{Id, Kind, Lists, Stamp, Wait};
 use crate::lists::{store, trail};
 
 impl Lists {
@@ -523,22 +524,31 @@ pub fn check_blocked(lists: &Lists, question: Id, blocked: &BlockedMap) -> Resul
 }
 
 /// Does what <blocked> says to each item that waits on <question>, after
-/// `check_blocked` accepts it.
+/// `check_blocked` accepts it. A dropped item goes as `builds item drop`
+/// drops it (`dropped::drop_open_item`, <others> being the other projects'
+/// lists); the result holds each dropped item with the work to throw away
+/// once the write commits.
 pub fn apply_blocked(
     db: &Connection,
     question: Id,
     blocked: &BlockedMap,
+    others: &[Lists],
     stamp: &Stamp,
-) -> Result<()> {
+) -> Result<Vec<(Id, Vec<DroppedWork>)>> {
     check_blocked(&store::read(db)?, question, blocked)?;
+    let mut dropped = Vec::new();
     for (id, fate) in blocked {
         match fate {
             Blocked::Proceeds => {}
             Blocked::Edit(edit) => edit.apply(db, *id)?,
-            Blocked::Drop(why) => close(db, *id, How::Dropped(why.clone()), stamp)?,
+            Blocked::Drop(why) => {
+                let lists = store::read(db)?;
+                let works = drop_open_item(db, &lists, others, *id, why, stamp)?;
+                dropped.push((*id, works));
+            }
         }
     }
-    Ok(())
+    Ok(dropped)
 }
 
 /// The tables question.rs owns.

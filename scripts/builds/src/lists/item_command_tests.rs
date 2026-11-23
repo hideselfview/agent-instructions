@@ -1193,6 +1193,70 @@ fn drop_throws_away_a_kept_worktrees_work() {
     );
 }
 
+/// An answer whose `blocked` drops an item that keeps a worktree drops it as
+/// `item drop` does: the closed item records the work, the branch is gone and
+/// the worktree is free.
+#[test]
+fn an_answer_that_drops_an_item_keeping_a_worktree_throws_its_work_away() {
+    let demo = demo("item-drop-by-answer");
+    let side = demo.add_side(1, "agent A", "work");
+    let side_arg = side.display().to_string();
+    let brief = demo.brief("b.md");
+    add(&demo, FIVE, &[]).unwrap();
+    item(&demo, &take_args(&side_arg, &brief, &["1"], "work")).unwrap();
+    let sha = demo.commit(&side, "unlanded");
+    item(&demo, &["stop", "1", "--why", "the agent ran out of room"]).unwrap();
+    let ask = words(&[
+        "ask",
+        "--title",
+        "Which_way",
+        "--kind",
+        "question",
+        "--effect",
+        "cleanup",
+        "--details-file",
+        &demo.brief("q.md"),
+        "--blocks",
+        "1",
+    ]);
+    let no_gh = |args: &[&str]| -> Result<String> { panic!("gh must not run: {args:?}") };
+    crate::lists::question_command::run(&demo.tool, &ask, &demo.scratch.dir, &no_gh).unwrap();
+    let request = demo.scratch.dir.join("answer.json");
+    std::fs::write(
+        &request,
+        r#"{"decision": {"title": "Use the plain way", "body": "Because it is plain.", "by": "person"}, "blocked": {"1": {"drop": "not wanted"}}, "no_work": "x"}"#,
+    )
+    .unwrap();
+    let answer = words(&["answer", "2", "--request", &request.display().to_string()]);
+    let out = crate::lists::question_command::run(&demo.tool, &answer, &demo.scratch.dir, &no_gh)
+        .unwrap();
+    assert!(out.contains("threw away the work in"), "{out}");
+    let lists = open(&demo);
+    let Closed {
+        record: Record::Item(dropped),
+        how: How::Dropped(_),
+        ..
+    } = lists.closed_record(Id(1)).unwrap()
+    else {
+        panic!("{:?}", lists.closed)
+    };
+    assert_eq!(dropped.dropped[0].commits[0].sha, sha);
+    let checkout = Checkout::find(&side_arg).unwrap();
+    assert_eq!(checkout.branch().unwrap(), None);
+    assert!(
+        crate::claim::Claim::read(&checkout.claim_file())
+            .unwrap()
+            .is_none(),
+        "the worktree kept its claim"
+    );
+    let branches = boards::git_text(
+        boards::git(&demo.main).args(["branch", "--list", "work"]),
+        "list branches",
+    )
+    .unwrap();
+    assert!(branches.trim().is_empty(), "the branch stayed: {branches}");
+}
+
 /// When git fails to throw the work away, the drop has already closed the
 /// item and recorded the work, keeps the worktree's claim, and says to run
 /// the drop again; the second drop throws away the rest.
