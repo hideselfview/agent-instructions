@@ -1214,10 +1214,11 @@ If an install is moving the stores, the lane waits to record its run
 
 builds caches each --shots and --all-shots run on the build volume, in
 /Volumes/Builds/shots/<repo>/runs/<commit>/<lane>/<environment>/<prefix>/<capture>/<comparison>/,
-so the next run in the checkout cannot overwrite it: run.json (when the run
-ended and its exit status), output.txt (all that the shots program printed)
-and report/ (the report's index.html, the pictures it shows and
-findings.json, the findings as records). The folder's path is the run's
+so the next run in the checkout cannot overwrite it. The run.json file holds
+the end time, exit status and kind of run. For a recheck, it also holds the
+source run's verdict when builds knows it. The output.txt file holds the
+shots program's output. The report folder holds the pictures, findings.json
+and the index.html page when the run writes one. The folder's path is the run's
 key: the repo, the full commit, the lane, the environment, the prefix, the
 capture version and the comparison version. A later run of the same key
 replaces the folder whole.
@@ -1269,10 +1270,11 @@ version, the lookup of that run (`builds app-build --shots`, `builds shots
 findings`, and the lookup of a merge base's run below) runs the installed
 builds' `builds shots recheck` over the cached report, caches the findings as
 the run of the current comparison version, and prints one line that says so.
-That run holds its source run's pictures as hard links and a findings.json with
-the new findings. It has no report page, and no verdict against the merge
-base's run: its text and findings.json hold every finding of its pairs. A
-change to the capture (a file that takes a shot or draws a board), to a file
+The recheck links to the source run's pictures and writes every finding to
+the cached text and findings.json. Rechecks publish their findings only in
+those files. Builds keeps the source run's verdict
+for app builds that reuse the comparison. A change to the capture (a file
+that takes a shot or draws a board), to a file
 both versions read, or to a package the checker builds from changes the
 capture version, and then the run takes its shots, draws its boards and
 builds the app again. Each run's findings.json names both versions, and

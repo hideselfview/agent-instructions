@@ -28,10 +28,10 @@ fn in_environment(environment: &str, capture: &str, comparison: &str) -> Key {
 /// Caches a run of <key> whose report holds a page, a board picture, a shot
 /// picture and a findings.json that names the key's versions and one finding.
 fn cache_run(places: &Places, key: &Key) -> Cached {
-    cache_run_at(places, key, crate::app_timing::now())
+    cache_run_at(places, key, crate::app_timing::now(), 1)
 }
 
-fn cache_run_at(places: &Places, key: &Key, recorded_at: i64) -> Cached {
+fn cache_run_at(places: &Places, key: &Key, recorded_at: i64, exit_code: i64) -> Cached {
     let staging = shots_cache::stage(places, key).unwrap();
     let report = staging.report();
     std::fs::create_dir_all(report.join("img")).unwrap();
@@ -54,7 +54,9 @@ fn cache_run_at(places: &Places, key: &Key, recorded_at: i64) -> Cached {
         .to_string(),
     )
     .unwrap();
-    staging.finish_at(1, "old text\n", recorded_at).unwrap()
+    staging
+        .finish_at(exit_code, "old text\n", recorded_at)
+        .unwrap()
 }
 
 /// A program that records each call in the file `calls` and prints the
@@ -101,8 +103,7 @@ fn a_change_to_the_comparison_alone_compares_the_cached_pictures_again_and_takes
     // The run is cached under the new comparison version, beside the old one.
     let found = shots_cache::lookup(&places, &new).unwrap().expect("cached");
     assert_eq!(found.folder, again.folder);
-    assert!(is_recheck(&found));
-    assert!(!is_recheck(&old));
+    assert_eq!(found.app_exit_code(), Some(old.exit_code));
     assert!(old.folder.exists());
     assert_ne!(old.folder, again.folder);
     // Its pictures are the cached run's, shared as links; its page is not.
@@ -168,6 +169,56 @@ fn the_run_a_branch_compares_with_is_made_by_comparing_the_base_s_cached_run_aga
         before.contains("\"sizes\""),
         "it keeps what a before file needs"
     );
+}
+
+#[test]
+fn an_app_build_reuses_only_a_recheck_whose_source_and_build_record_passed() {
+    use crate::app_timing::{self, BuildRecords, RunRecord, StepKind, StepResult, Timer};
+    let old = key(&VERSIONS.capture, "old-comparison");
+    for exit_code in [0, 1] {
+        let scratch = Scratch::new("reuse-recheck");
+        let places = scratch.places();
+        let program = recheck_program(&scratch, &VERSIONS.capture, &VERSIONS.comparison, false);
+        cache_run_at(&places, &old, app_timing::now(), exit_code);
+        let store = crate::lists::fixtures::make_store_named(&places, "demo-project", &["demo"]);
+        let records = BuildRecords::open(&places, "demo").unwrap().unwrap();
+        let serve = || {
+            crate::app_build::serve_cached(
+                &places,
+                "demo",
+                COMMIT,
+                vec![crate::app_build::all_shots(Lane::Mac)],
+                &program,
+                Some(&records),
+                &mut crate::app_landing::ShotDeclarations::new(&scratch.dir),
+            )
+            .unwrap()
+        };
+        assert_eq!(serve().pending.len(), 1);
+        app_timing::record(
+            &store.database(),
+            &RunRecord {
+                started_at: app_timing::now(),
+                repo: "demo".into(),
+                lane: Lane::Mac,
+                checkout: "side-1".into(),
+                built_ref: "work".into(),
+                built_commit: Some(COMMIT.into()),
+                who: None,
+                wait_ms: 0,
+                outcome: crate::run_end::RunEnd::Passed,
+                load: None,
+                steps: vec![Timer::start().finish(
+                    "shots mac.",
+                    StepKind::Shots,
+                    StepResult::Passed,
+                )],
+                reused_shots: Vec::new(),
+            },
+        )
+        .unwrap();
+        assert_eq!(serve().pending.is_empty(), exit_code == 0);
+    }
 }
 
 #[test]
@@ -320,7 +371,7 @@ fn before_run_considers_a_covering_run_published_during_recheck() {
             starts.read_exact(&mut [0]).unwrap();
             // Record the other writer's later completion time through the
             // cache's normal publication path.
-            cache_run_at(&places, &concurrent_key, i64::MAX);
+            cache_run_at(&places, &concurrent_key, i64::MAX, 1);
         }));
         resumes.write_all(b"published\n").unwrap();
         let result = checking.join().unwrap();

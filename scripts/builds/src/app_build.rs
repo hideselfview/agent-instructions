@@ -2558,8 +2558,8 @@ impl BuildPicks {
 }
 
 /// Prints cached findings when a passing app build of <commit> covers the
-/// prefix and the report carries no failed app-build verdict. Keeps picks
-/// that need a comparison. A repo in no project reports the cached status.
+/// prefix and the cached comparison has a passing app-build verdict. Keeps
+/// picks that need a comparison. A repo in no project reports the cached status.
 pub fn serve_cached(
     places: &Places,
     repo: &str,
@@ -2584,11 +2584,9 @@ pub fn serve_cached(
             continue;
         };
         match recorded {
-            Some(_)
-                if cached.exit_code != 0 && !crate::shots_compare_again::is_recheck(&cached) =>
-            {
+            Some(_) if cached.app_exit_code() != Some(0) => {
                 note(format!(
-                    "The cached comparison for {prefix} failed, so the build runs it again."
+                    "The cache has no passing comparison for {prefix}, so the build runs it again."
                 ));
                 selected.pending.push(pick);
                 continue;
@@ -2614,9 +2612,7 @@ pub fn serve_cached(
         shot_findings::print(&cached);
         shot_findings::note_report(&cached);
         if recorded.is_none() && cached.exit_code != 0 {
-            let code = i32::try_from(cached.exit_code)
-                .context(|| "reading the cached comparison's exit code".to_string())?;
-            return Err(Fail::Exit(code));
+            return Err(Fail::Exit(i32::from(cached.exit_code)));
         }
     }
     Ok(selected)

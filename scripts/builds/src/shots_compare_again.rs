@@ -26,7 +26,7 @@ use crate::fail::{Context, Result};
 use crate::lane::Lane;
 use crate::places::Places;
 use crate::shot_causes;
-use crate::shots_cache::{self, Cached, Key};
+use crate::shots_cache::{self, Cached, Key, RECHECK_NOTE};
 use crate::shots_check_program;
 use crate::shots_program::VERSIONS;
 use crate::text::note;
@@ -34,14 +34,6 @@ use crate::text::note;
 /// The files of a report that hold findings, which the comparison makes again
 /// and so a run made from another run does not take over.
 const FINDINGS_FILES: [&str; 2] = ["index.html", shot_causes::FILE];
-
-const RECHECK_NOTE: &str = "builds shots: compared again from the run of comparison version ";
-
-/// Whether the cached report came from recheck, whose exit status describes
-/// the findings alone, without the app build's comparison with the base.
-pub fn is_recheck(cached: &Cached) -> bool {
-    cached.findings.starts_with(RECHECK_NOTE)
-}
 
 /// The run cached under <key>, or the run that comparing again, with the
 /// builds program <program>, the cached run of another comparison version
@@ -135,7 +127,7 @@ fn compare_again(places: &Places, key: &Key, program: &Path) -> Result<Option<Ca
     // The status is the checker's own verdict on the run (`Outcome::passed`),
     // which `builds shots recheck` prints: with no base run, every finding
     // fails the run.
-    let cached = staging.finish(i64::from(!passed), &text)?;
+    let cached = staging.finish_recheck(&source, passed, &text)?;
     note(format!(
         "compared the pictures of the cached run of {} {} {} again with comparison version {}: no app build and no shot",
         &key.commit[..key.commit.len().min(12)],
