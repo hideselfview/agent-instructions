@@ -242,6 +242,7 @@ impl ThreadId {
 }
 
 /// A runtime's own identification of the caller and its coordinator.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Identity {
     Claude(Caller),
     Codex { session: ThreadId, thread: ThreadId },
@@ -307,12 +308,10 @@ pub enum Session {
         inbox: Option<std::result::Result<crate::inbox::Messaging, String>>,
     },
     InvalidClaude,
-    /// A Codex shell: its coordinator's session and its own thread, as
-    /// Codex gave them, and the agent id the command passed.
+    /// A Codex shell: its identity, or why its session and thread ids make
+    /// none.
     Codex {
-        session: Option<std::ffi::OsString>,
-        thread: Option<std::ffi::OsString>,
-        agent: Option<String>,
+        identity: std::result::Result<Identity, String>,
     },
     Terminal,
 }
@@ -384,11 +383,21 @@ impl Session {
             if codex_session.is_none() && codex_thread.is_none() {
                 return Self::Terminal;
             }
-            Self::Codex {
-                session: codex_session,
-                thread: codex_thread,
-                agent,
-            }
+            let text = |name: &str, value: Option<std::ffi::OsString>| {
+                value
+                    .map(|value| {
+                        value
+                            .into_string()
+                            .map_err(|_| format!("{name} is not UTF-8."))
+                    })
+                    .transpose()
+            };
+            let identity = text(CODEX_SESSION, codex_session).and_then(|session| {
+                let thread = text(CODEX_THREAD, codex_thread)?;
+                Identity::codex(session.as_deref(), thread.as_deref(), agent.as_deref())
+                    .map_err(|error| error.text())
+            });
+            Self::Codex { identity }
         }
     }
 
@@ -405,25 +414,10 @@ impl Session {
     /// and for a Codex shell whose identity is incomplete or malformed.
     pub fn identity(&self) -> Result<Option<Identity>> {
         match self {
-            Self::Codex {
-                session,
-                thread,
-                agent,
-            } => {
-                let text = |name, value: &Option<std::ffi::OsString>| match value {
-                    Some(value) => match value.to_str() {
-                        Some(value) => Ok(Some(value.to_string())),
-                        None => fail!("{name} is not UTF-8."),
-                    },
-                    None => Ok(None),
-                };
-                Identity::codex(
-                    text(CODEX_SESSION, session)?.as_deref(),
-                    text(CODEX_THREAD, thread)?.as_deref(),
-                    agent.as_deref(),
-                )
-                .map(Some)
-            }
+            Self::Codex { identity } => match identity {
+                Ok(identity) => Ok(Some(identity.clone())),
+                Err(why) => fail!("{why}"),
+            },
             _ => Ok(self.claude_caller()?.map(Identity::Claude)),
         }
     }
