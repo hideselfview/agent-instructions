@@ -3546,7 +3546,7 @@ run `review replay --rules-root` on it.
                               when nothing is open either.
                               A group that raises an open confirmed finding
                               again on code the branch has not changed (the
-                              same rule, file and quoted code line) gets no
+                              same rule, clause, file, line number and quoted code) gets no
                               new finding: builds keeps the open finding
                               open, tells the judge nothing, and the run's
                               report says the group still finds it.

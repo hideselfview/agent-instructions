@@ -442,8 +442,8 @@ second disagreement goes to the coordinator, which builds tells nothing: the
 agent reports it, and the coordinator asks the person whether to allow the
 finding to land, or tells the agent to fix it.
 
-When a group raises an open confirmed finding again on code the branch has
-not changed (the same rule, file and quoted code line), builds matches the
+When a group raises an open confirmed finding again with the same rule,
+clause, file, line number and quoted code, builds matches the
 report to the open finding: the finding stays open, the run records no new
 finding, builds tells the judge nothing, and the run's report says the group
 still finds it.

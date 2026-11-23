@@ -174,11 +174,13 @@ impl Finding {
         self.kind == "review" && self.counts() && self.settled.is_none()
     }
 
-    /// Whether <raised> is this finding again: the same rule, file and
-    /// quoted code line (`cases::same_code`).
+    /// Whether <raised> reports the same rule and clause at the same file
+    /// and line with the same quoted code (`cases::same_code`).
     pub fn matches(&self, raised: &NewFinding) -> bool {
         self.rule == raised.rule
+            && self.clause == raised.clause
             && self.file == raised.file
+            && self.line == raised.line
             && super::cases::same_code(&self.code, &raised.code)
     }
 

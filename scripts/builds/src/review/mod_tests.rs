@@ -1300,6 +1300,36 @@ fn a_finding_raised_again_at_the_reviewed_head_disagrees_with_a_fixed_verdict() 
 }
 
 #[test]
+fn a_finding_on_another_occurrence_of_the_same_line_does_not_keep_the_original_open() {
+    let demo = demo("review-distinct-occurrence");
+    let fake = fake(&demo.scratch.dir);
+    let side = demo.add_side(1, "agent", "work");
+    demo.commit(&side, "a.rs");
+    fake.answer("alpha", &[("rule-a", Some(BAD))]);
+    let landing = run_review(&demo, &fake, &side, "k").landing.unwrap();
+    let finding = findings_of(&demo, landing)[0].id;
+    settle_as(&demo, finding, "confirmed", "real");
+
+    std::fs::write(side.join("a.rs"), "fixed\na.rs\n").unwrap();
+    crate::testing::git(&side, &["commit", "-qam", "Change the two lines"]);
+    fake.answer_task(
+        "alpha",
+        serde_json::json!({
+            "rules": [{"rule": "rule-a", "verdict": "finding", "findings": [
+                {"clause": BAD.0, "file": BAD.1, "line": 2, "code": BAD.3, "problem": BAD.4},
+            ]}],
+            "follow_up": [{"id": finding, "verdict": "fixed"}],
+        }),
+    );
+    let reported = run_review(&demo, &fake, &side, "k");
+    let findings = findings_of(&demo, landing);
+    assert_eq!(findings.len(), 2, "{}", reported.text);
+    assert!(findings[0].closed_by.is_some(), "{}", reported.text);
+    assert_eq!(findings[1].line, 2);
+    assert!(findings[1].is_unsettled(), "{}", reported.text);
+}
+
+#[test]
 fn only_the_group_that_raised_a_project_facts_finding_reviews_its_fix() {
     let demo = demo("review-project-facts-fix");
     let fake = fake(&demo.scratch.dir);
