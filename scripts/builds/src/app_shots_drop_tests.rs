@@ -67,11 +67,10 @@ fn the_drop_command_accepts_a_prefix_from_a_build_named_by_commit() {
         checkout: "side-1".into(),
         built_ref: head.clone(),
         requested_commit: None,
-        built_commit: Some(head),
+        built_commit: Some(head.into()),
         who: None,
         wait_ms: 0,
         outcome: RunEnd::Failed,
-        reused_shots: Vec::new(),
         load: None,
         steps: vec![StepRecord {
             name: format!("shots {prefix}"),

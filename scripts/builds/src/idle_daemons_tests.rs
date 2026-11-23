@@ -201,7 +201,6 @@ fn a_repo_two_projects_hold_is_read_in_both_projects() {
         speed: None,
     };
     let ran = |at: i64| RunRecord {
-        reused_shots: Vec::new(),
         started_at: at,
         repo: "shared".to_string(),
         lane: Lane::Android,

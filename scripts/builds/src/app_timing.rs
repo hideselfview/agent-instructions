@@ -151,7 +151,7 @@ pub struct RunRecord {
     pub requested_commit: Option<String>,
     /// The commit the run checked out for <built_ref>; None when the run
     /// ended before it checked one out.
-    pub built_commit: Option<String>,
+    pub built_commit: Option<BuiltCommit>,
     pub who: Option<String>,
     pub wait_ms: u64,
     pub outcome: RunEnd,
@@ -159,8 +159,31 @@ pub struct RunRecord {
     /// checkout; None when the host did not answer.
     pub load: Option<crate::host::Load>,
     pub steps: Vec<StepRecord>,
-    /// Passing comparisons the build took from cache for its commit.
+}
+
+/// The checked-out commit and the comparisons the run reused for it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BuiltCommit {
+    pub sha: String,
     pub reused_shots: Vec<shots::Prefix>,
+}
+
+impl BuiltCommit {
+    fn read(conn: &Connection, run: i64, sha: String) -> Result<Self> {
+        Ok(Self {
+            sha,
+            reused_shots: crate::app_build_reused_shots::read(conn, run)?,
+        })
+    }
+}
+
+impl From<String> for BuiltCommit {
+    fn from(sha: String) -> Self {
+        Self {
+            sha,
+            reused_shots: Vec::new(),
+        }
+    }
 }
 
 pub fn now() -> i64 {
@@ -313,9 +336,9 @@ pub fn record(path: &Path, run: &RunRecord) -> Result<()> {
         crate::app_build_commit::record_requested(&tx, id, commit).context(what)?;
     }
     if let Some(commit) = &run.built_commit {
-        crate::app_build_commit::record(&tx, id, commit).context(what)?;
+        crate::app_build_commit::record(&tx, id, &commit.sha).context(what)?;
+        crate::app_build_reused_shots::record(&tx, id, &commit.reused_shots)?;
     }
-    crate::app_build_reused_shots::record(&tx, id, &run.reused_shots)?;
     tx.commit().context(what)
 }
 
@@ -386,7 +409,9 @@ pub fn read_run(path: &Path) -> Result<RunRecord> {
         checkout,
         built_ref,
         requested_commit,
-        built_commit,
+        built_commit: built_commit
+            .map(|sha| BuiltCommit::read(&conn, id, sha))
+            .transpose()?,
         who,
         wait_ms: wait_ms as u64,
         outcome: match RunEnd::from_word(&outcome) {
@@ -400,7 +425,6 @@ pub fn read_run(path: &Path) -> Result<RunRecord> {
                 one_minute,
             }),
         steps: Vec::new(),
-        reused_shots: crate::app_build_reused_shots::read(&conn, id)?,
     };
     let mut said = crate::app_build_step_failure::read(&conn, id)?;
     let mut used = crate::app_build_step_shots::read(&conn, id)?;
@@ -539,9 +563,8 @@ pub fn add_at_merge_base(db: &Connection) -> Result<()> {
 /// the steps that passed and the comparisons it reused.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PassedRun {
-    pub commit: String,
+    pub commit: BuiltCommit,
     pub steps: Vec<String>,
-    pub reused_shots: Vec<shots::Prefix>,
 }
 
 impl PassedRun {
@@ -550,7 +573,7 @@ impl PassedRun {
         self.steps
             .iter()
             .filter_map(|step| PickKind::Shots.argument_of_step(step))
-            .chain(self.reused_shots.iter().map(shots::Prefix::as_str))
+            .chain(self.commit.reused_shots.iter().map(shots::Prefix::as_str))
     }
 
     /// Whether a shots step of the run covers <prefix>: a run of the prefix,
@@ -562,8 +585,8 @@ impl PassedRun {
 
 /// A run belongs to a branch by its requested ref or its commit. The query
 /// supplies the commit column or expression it reads.
-fn branch_run_match(commit: &str) -> String {
-    format!("(r.built_ref IS ?3 OR {commit} IN (SELECT value FROM json_each(?4)))")
+fn branch_run_match(commit: &str, named: &str, commits: &str) -> String {
+    format!("(r.built_ref IS {named} OR {commit} IN (SELECT value FROM json_each({commits})))")
 }
 
 /// The passing runs of <repo>'s <lane> that recorded the commit they built
@@ -581,7 +604,7 @@ pub fn passed_runs(
 ) -> Result<Vec<PassedRun>> {
     let what = || format!("reading {}", path.display());
     let commits = serde_json::to_string(commits).context(what)?;
-    let matches_branch = branch_run_match("c.built_commit");
+    let matches_branch = branch_run_match("c.built_commit", "?3", "?4");
     let mut runs = conn
         .prepare(
             format!(
@@ -605,9 +628,8 @@ pub fn passed_runs(
         .into_iter()
         .map(|(id, commit)| {
             Ok(PassedRun {
-                commit,
+                commit: BuiltCommit::read(conn, id, commit)?,
                 steps: passed_steps(conn, id, path)?,
-                reused_shots: crate::app_build_reused_shots::read(conn, id)?,
             })
         })
         .collect()
@@ -650,8 +672,8 @@ pub fn shots_ran(
     // name when it recorded neither. A raw ref is matched by name, as refs can
     // move.
     let matches_branch = format!(
-        "({} OR r.built_ref IN (SELECT value FROM json_each(?4)))",
-        branch_run_match("COALESCE(q.requested_commit, c.built_commit)")
+        "({} OR r.built_ref IN (SELECT value FROM json_each(?5)))",
+        branch_run_match("COALESCE(q.requested_commit, c.built_commit)", "?4", "?5")
     );
     let mut statement = conn
         .prepare(
@@ -661,7 +683,7 @@ pub fn shots_ran(
                  JOIN app_build_runs r ON r.id = s.run_id
                  LEFT JOIN app_build_run_commit c ON c.run_id = r.id
                  LEFT JOIN app_build_requested_commit q ON q.run_id = r.id
-                 WHERE r.repo = ?1 AND r.lane = ?2 AND r.started_at >= ?5
+                 WHERE r.repo = ?2 AND r.lane = ?3 AND r.started_at >= ?6
                    AND {matches_branch}
                  ORDER BY s.name"
             )
@@ -669,9 +691,17 @@ pub fn shots_ran(
         )
         .context(what)?;
     let names: Vec<String> = statement
-        .query_map(params![repo, lane.word(), named, commits, since], |row| {
-            row.get(0)
-        })
+        .query_map(
+            params![
+                PickKind::Shots.step_prefix(),
+                repo,
+                lane.word(),
+                named,
+                commits,
+                since
+            ],
+            |row| row.get(0),
+        )
         .context(what)?
         .collect::<std::result::Result<_, _>>()
         .context(what)?;
@@ -687,7 +717,7 @@ const SHOTS_VERDICTS: &str = "WITH shots_verdicts AS (
     SELECT run_id, name FROM app_build_steps
     WHERE kind = 'shots' AND result IN ('passed', 'failed', 'timed out')
     UNION ALL
-    SELECT run_id, 'shots ' || prefix FROM app_build_reused_shots
+    SELECT run_id, ?1 || prefix FROM app_build_reused_shots
 )";
 
 /// The shots prefix a shots step <name> names, in the database at <path>.
@@ -733,14 +763,14 @@ pub fn shots_builds(
                  FROM shots_verdicts s
                  JOIN app_build_runs r ON r.id = s.run_id
                  JOIN app_build_run_commit c ON c.run_id = r.id
-                 WHERE r.repo = ?1 AND r.started_at >= ?2
+                 WHERE r.repo = ?2 AND r.started_at >= ?3
                  ORDER BY r.started_at, s.name"
             )
             .as_str(),
         )
         .context(what)?;
     let rows: Vec<(String, String, String, String, i64)> = statement
-        .query_map(params![repo, since], |row| {
+        .query_map(params![PickKind::Shots.step_prefix(), repo, since], |row| {
             Ok((
                 row.get(0)?,
                 row.get(1)?,

@@ -17,8 +17,7 @@ fn paths(list: &[&str]) -> Vec<String> {
 
 fn passed(commit: &str, steps: &[&str]) -> PassedRun {
     PassedRun {
-        reused_shots: Vec::new(),
-        commit: commit.to_string(),
+        commit: commit.to_string().into(),
         steps: paths(steps),
     }
 }
@@ -415,14 +414,13 @@ impl ShotsLanding {
                 .map(|(name, result)| (*name, StepKind::Shots, result.clone())),
         );
         let run = crate::app_timing::RunRecord {
-            reused_shots: Vec::new(),
             started_at: at,
             repo: "bae".to_string(),
             lane: Lane::Mac,
             checkout: "side-1".to_string(),
             built_ref: built_ref.to_string(),
             requested_commit: Some(self.head.clone()),
-            built_commit: built_commit.map(str::to_string),
+            built_commit: built_commit.map(|sha| sha.to_string().into()),
             who: None,
             wait_ms: 0,
             outcome,
@@ -667,14 +665,13 @@ fn a_landing_is_judged_over_its_own_commits() {
     let second = crate::testing::git_out(&dir, &["rev-parse", "HEAD"]);
     let store = crate::lists::fixtures::make_store_named(&places, "demo", &["bae"]);
     let run = crate::app_timing::RunRecord {
-        reused_shots: Vec::new(),
         started_at: since + 1,
         repo: "bae".to_string(),
         lane: Lane::Mac,
         checkout: "side-1".to_string(),
         built_ref: "work".to_string(),
         requested_commit: None,
-        built_commit: Some(first.clone()),
+        built_commit: Some(first.clone().into()),
         who: None,
         wait_ms: 0,
         outcome: RunEnd::Passed,

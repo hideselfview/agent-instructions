@@ -120,7 +120,9 @@ use crate::app_landing::{ShotDeclarations, covers_prefix};
 use crate::app_lock_guard::CheckoutLock;
 use crate::app_remote::{RemoteApp, fetched_local_source, local_source};
 use crate::app_site::Site;
-use crate::app_timing::{BuildRecords, RunRecord, StepKind, StepRecord, StepResult, Timer};
+use crate::app_timing::{
+    BuildRecords, BuiltCommit, RunRecord, StepKind, StepRecord, StepResult, Timer,
+};
 use crate::checkout::Checkout;
 use crate::claim::Claim;
 use crate::fail;
@@ -1716,11 +1718,6 @@ impl Timing {
         let Some(held) = self.held else {
             return Ok(());
         };
-        let reused_shots = if self.commit.is_some() {
-            reused_shots.to_vec()
-        } else {
-            Vec::new()
-        };
         let run = RunRecord {
             started_at: held.joined_at,
             repo: repo.to_string(),
@@ -1728,13 +1725,15 @@ impl Timing {
             checkout: held.checkout,
             built_ref: built_ref.to_string(),
             requested_commit: Some(held.requested_commit),
-            built_commit: self.commit,
+            built_commit: self.commit.map(|sha| BuiltCommit {
+                reused_shots: reused_shots.to_vec(),
+                ..sha.into()
+            }),
             who: who_asked(),
             wait_ms: held.wait.as_millis() as u64,
             outcome,
             load: held.load,
             steps: self.steps,
-            reused_shots,
         };
         crate::handed_runs::record(places, &run).context(|| {
             format!(

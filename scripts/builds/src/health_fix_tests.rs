@@ -481,7 +481,6 @@ mod stalled_claims {
         record(
             &demo.store.database(),
             &RunRecord {
-                reused_shots: Vec::new(),
                 started_at: demo.tool.now - 120,
                 repo: "demo".into(),
                 lane: crate::lane::Lane::Mac,

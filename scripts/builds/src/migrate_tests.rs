@@ -1560,7 +1560,6 @@ INSERT INTO app_build_steps (run_id, position, name, kind, started_at, wall_ms, 
     crate::app_timing::record(
         &path,
         &crate::app_timing::RunRecord {
-            reused_shots: Vec::new(),
             started_at: 7,
             repo: "bae".into(),
             lane: crate::lane::Lane::Mac,
@@ -2390,7 +2389,7 @@ fn an_app_build_run_keeps_its_checkout_when_the_store_adds_requested_commits() {
     }
     move_store(&places, &path, 0).unwrap();
     let run = crate::app_timing::read_run(&path).unwrap();
-    assert_eq!(run.built_commit.as_deref(), Some(commit.as_str()));
+    assert_eq!(run.built_commit.map(|built| built.sha).as_deref(), Some(commit.as_str()));
     assert_eq!(run.requested_commit, None);
 }
 
@@ -2469,6 +2468,8 @@ fn a_store_from_before_reused_shots_keeps_its_steps_and_their_shots_details() {
              INSERT INTO app_build_steps (run_id, position, name, kind, started_at, wall_ms, cpu_ms, at_merge_base, result) VALUES (1, 0, 'shots mac.a.', 'shots', 5, 1, 1, 1, 'passed');",
         )
         .unwrap();
+        crate::app_build_commit::record(&tx, 1, "0123456789abcdef0123456789abcdef01234567")
+            .unwrap();
         app_build_step_shots::record(
             &tx,
             1,
@@ -2496,7 +2497,7 @@ fn a_store_from_before_reused_shots_keeps_its_steps_and_their_shots_details() {
     migrate_stores(&places, 0).unwrap();
     let run = crate::app_timing::read_run(&path).unwrap();
     assert_eq!(run.steps[0].at_merge_base, Some(true));
-    assert!(run.reused_shots.is_empty());
+    assert!(run.built_commit.unwrap().reused_shots.is_empty());
     assert_eq!(
         run.steps[0].shots.as_ref().unwrap().environment,
         "26B131-17C529"

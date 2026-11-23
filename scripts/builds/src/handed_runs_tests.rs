@@ -1,5 +1,7 @@
 use super::*;
-use crate::app_timing::{DATABASE, RunRecord, StepKind, StepRecord, StepResult, read_run};
+use crate::app_timing::{
+    BuiltCommit, DATABASE, RunRecord, StepKind, StepRecord, StepResult, read_run,
+};
 use crate::install_gate::{self, PerConnection};
 use crate::lane::Lane;
 use crate::run_end::RunEnd;
@@ -7,14 +9,16 @@ use crate::testing::Scratch;
 
 fn run() -> RunRecord {
     RunRecord {
-        reused_shots: vec![shots::Prefix::parse("mac.a.").unwrap()],
         started_at: 1_000_000,
         repo: "bae".to_string(),
         lane: Lane::Mac,
         checkout: "side-1".to_string(),
         built_ref: "branch".to_string(),
         requested_commit: Some("0123456789abcdef0123456789abcdef01234567".to_string()),
-        built_commit: Some("0123456789abcdef0123456789abcdef01234567".to_string()),
+        built_commit: Some(BuiltCommit {
+            sha: "0123456789abcdef0123456789abcdef01234567".into(),
+            reused_shots: vec![shots::Prefix::parse("mac.a.").unwrap()],
+        }),
         who: Some("agent".to_string()),
         wait_ms: 2_000,
         outcome: RunEnd::Passed,

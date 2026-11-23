@@ -202,8 +202,9 @@ fn an_app_build_reuses_only_a_recheck_whose_source_and_build_record_passed() {
                 repo: "demo".into(),
                 lane: Lane::Mac,
                 checkout: "side-1".into(),
+                requested_commit: None,
                 built_ref: "work".into(),
-                built_commit: Some(COMMIT.into()),
+                built_commit: Some(COMMIT.to_string().into()),
                 who: None,
                 wait_ms: 0,
                 outcome: crate::run_end::RunEnd::Passed,
@@ -213,7 +214,6 @@ fn an_app_build_reuses_only_a_recheck_whose_source_and_build_record_passed() {
                     StepKind::Shots,
                     StepResult::Passed,
                 )],
-                reused_shots: Vec::new(),
             },
         )
         .unwrap();

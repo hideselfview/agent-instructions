@@ -400,7 +400,6 @@ fn a_recorded_app_build_run_reaches_the_feeds_hooks_and_health() {
     }));
     let at = NOON - 60;
     let run = RunRecord {
-        reused_shots: Vec::new(),
         started_at: at,
         repo: "bae".into(),
         lane: crate::lane::Lane::Mac,

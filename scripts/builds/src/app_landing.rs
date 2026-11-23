@@ -195,7 +195,7 @@ pub fn covers_prefix(
         .filter(|name| name.starts_with(prefix))
         .peekable();
     selected.peek().is_some()
-        && declared(lane, &run.commit)
+        && declared(lane, &run.commit.sha)
             .is_some_and(|built| selected.all(|name| built.contains(name) && run.ran_shots(name)))
 }
 
@@ -231,7 +231,7 @@ fn search(
 ) -> Result<Search> {
     let mut newest = None;
     for run in runs {
-        let Some(differs) = differ(&run.commit, target)? else {
+        let Some(differs) = differ(&run.commit.sha, target)? else {
             continue;
         };
         let paths: Vec<String> = lane_paths(config, lane, &differs)
@@ -249,7 +249,7 @@ fn search(
         }
     }
     let newest = newest.map(|(run, paths)| Newest {
-        commit: run.commit.clone(),
+        commit: run.commit.sha.clone(),
         paths,
         missing_shots: missing_shots(run, required, lane, target, declared),
     });
@@ -424,7 +424,7 @@ fn unrendered_lines(
         let found = crate::shots_cache::covering_run(
             places,
             repo,
-            &run.commit,
+            &run.commit.sha,
             lane,
             crate::shots_cache::Made::Anywhere,
             prefix,
@@ -433,7 +433,7 @@ fn unrendered_lines(
         match found {
             Some(cached) => lines.extend(unrendered_line(
                 lane,
-                &run.commit,
+                &run.commit.sha,
                 &cached.key.environment,
                 prefix,
                 &cached.findings,
@@ -441,7 +441,7 @@ fn unrendered_lines(
             None => lines.push(format!(
                 "{UNRENDERED} the {} shots run {prefix} of {} is no longer cached, so land cannot say whether the base rendered its pairs",
                 lane.word(),
-                &run.commit[..run.commit.len().min(12)]
+                &run.commit.sha[..run.commit.sha.len().min(12)]
             )),
         }
     }

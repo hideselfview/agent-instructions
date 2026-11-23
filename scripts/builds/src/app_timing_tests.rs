@@ -23,7 +23,6 @@ fn step(name: &str, kind: StepKind, at: i64, wall_ms: u64, result: StepResult) -
 
 fn run(at: i64, lane: Lane, wait_ms: u64, outcome: RunEnd, steps: Vec<StepRecord>) -> RunRecord {
     RunRecord {
-        reused_shots: Vec::new(),
         started_at: at,
         repo: "bae".to_string(),
         lane,
@@ -41,7 +40,7 @@ fn run(at: i64, lane: Lane, wait_ms: u64, outcome: RunEnd, steps: Vec<StepRecord
 
 fn record_checkout(run: &mut RunRecord, commit: String) {
     run.requested_commit = Some(commit.clone());
-    run.built_commit = Some(commit);
+    run.built_commit = Some(commit.into());
 }
 
 const NOW: i64 = 1_000_000;
@@ -51,8 +50,10 @@ fn cached_comparisons_do_not_change_when_a_build_without_steps_ended() {
     let scratch = Scratch::new("timing-reused-comparison");
     let path = store(&scratch);
     let mut built = run(NOW, Lane::Mac, 3_000, RunEnd::Failed, Vec::new());
-    built.built_commit = Some("0123456789abcdef0123456789abcdef01234567".to_string());
-    built.reused_shots = vec![shots::Prefix::parse("mac.a.").unwrap()];
+    built.built_commit = Some(BuiltCommit {
+        sha: "0123456789abcdef0123456789abcdef01234567".into(),
+        reused_shots: vec![shots::Prefix::parse("mac.a.").unwrap()],
+    });
     record(&path, &built).unwrap();
     assert_eq!(read_run(&path).unwrap(), built);
     assert_eq!(
@@ -169,13 +170,11 @@ fn passing_runs_of_a_lane_come_back_newest_first_with_their_passed_steps() {
         runs,
         vec![
             PassedRun {
-                reused_shots: Vec::new(),
-                commit: "d".repeat(40),
+                commit: "d".repeat(40).into(),
                 steps: vec!["macos".to_string(), "macos-shots".to_string()],
             },
             PassedRun {
-                reused_shots: Vec::new(),
-                commit: "a".repeat(40),
+                commit: "a".repeat(40).into(),
                 steps: vec!["macos".to_string()],
             },
         ]
@@ -205,7 +204,7 @@ fn a_branchs_passing_build_is_found_by_its_name_or_its_commit_whatever_ran_since
     let conn = crate::db::open_reader(&path).unwrap().unwrap();
     let commits = |runs: Vec<PassedRun>| -> Vec<String> {
         runs.into_iter()
-            .map(|run| run.commit[..1].to_string())
+            .map(|run| run.commit.sha[..1].to_string())
             .collect()
     };
     let found = passed_runs(&conn, "bae", Lane::Mac, &path, Some("branch"), &[]).unwrap();

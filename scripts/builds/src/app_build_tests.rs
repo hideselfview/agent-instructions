@@ -1585,14 +1585,13 @@ fn a_build_that_reuses_a_cached_run_leaves_the_passing_build_that_land_counts() 
             shots: None,
         };
         let run = RunRecord {
-            reused_shots: Vec::new(),
             started_at: 5,
             repo: "demo".to_string(),
             lane: Lane::Mac,
             checkout: "side-1".to_string(),
             built_ref: "work".to_string(),
             requested_commit: None,
-            built_commit: Some(commit.clone()),
+            built_commit: Some(commit.clone().into()),
             who: None,
             wait_ms: 0,
             outcome,
@@ -1638,8 +1637,7 @@ fn a_build_that_reuses_a_cached_run_leaves_the_passing_build_that_land_counts() 
     .unwrap();
     assert!(serve().pending.is_empty());
     let run = crate::app_timing::PassedRun {
-        reused_shots: Vec::new(),
-        commit: commit.clone(),
+        commit: commit.clone().into(),
         steps: vec!["shots mac.".to_string()],
     };
     assert!(run.ran_shots("mac.a.") && !run.ran_shots("android.a."));
