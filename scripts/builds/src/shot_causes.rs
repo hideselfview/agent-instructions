@@ -9,7 +9,7 @@
 //! about, when one does. This module reads the file and groups the records:
 //! first by component, each with the kinds of finding it makes; the findings
 //! of no component by their kind; then every record of a colour by its exact
-//! colour pair (the board's colour and the shot's), and every frame offset by
+//! colour pair (the board's colour and the shot's), or by the one colour that only one side draws, and every frame offset by
 //! its offset to the nearest point. Each grouping ranks its causes by the
 //! scenes they touch, then by their findings. The text names the ten scenes
 //! where a cause makes the most findings, and counts the causes that make one
@@ -81,8 +81,20 @@ pub enum What {
         board: String,
         shot: String,
     },
+    ForegroundColour {
+        side: Side,
+        colour: String,
+    },
     TextColourUnavailable {},
     Region {},
+}
+
+/// The side of a pair that draws a colour.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Side {
+    Board,
+    Shot,
 }
 
 /// Which state of an element differs.
@@ -94,7 +106,8 @@ pub enum Aspect {
     Selected,
 }
 
-/// Which colour of an element differs.
+/// Which colour of an element differs. `Foreground` is the part that runs
+/// of older comparison versions recorded; the cached runs still hold it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Part {
@@ -136,6 +149,9 @@ impl What {
                 Part::Foreground => "an element has another foreground colour in the shot",
                 Part::Text => "a text has another colour in the shot",
             },
+            What::ForegroundColour { .. } => {
+                "an element draws a foreground colour that the other side lacks"
+            }
             What::TextColourUnavailable { .. } => "the checker could not measure a glyph colour",
             What::Region { .. } => "the pictures differ in an area",
         }
@@ -245,7 +261,7 @@ fn points(length: f64) -> i64 {
 pub fn causes(run: &Run) -> Causes {
     let mut components: BTreeMap<&str, Tally> = BTreeMap::new();
     let mut remainder: BTreeMap<&str, Tally> = BTreeMap::new();
-    let mut colours: BTreeMap<(&str, &str), Tally> = BTreeMap::new();
+    let mut colours: BTreeMap<String, Tally> = BTreeMap::new();
     let mut frames: BTreeMap<(i64, i64), Tally> = BTreeMap::new();
     for record in &run.findings {
         let scene = record.scene.as_str();
@@ -259,9 +275,16 @@ pub fn causes(run: &Run) -> Causes {
         }
         match &record.what {
             What::Colour { part, board, shot } => colours
-                .entry((board, shot))
+                .entry(format!("{board} on the board is {shot} in the shot"))
                 .or_default()
                 .add_kind(scene, part.word()),
+            What::ForegroundColour { side, colour } => colours
+                .entry(match side {
+                    Side::Board => format!("{colour} drawn on the board only"),
+                    Side::Shot => format!("{colour} drawn in the shot only"),
+                })
+                .or_default()
+                .add_kind(scene, "foreground"),
             What::FrameOffset { dx, dy } => frames
                 .entry((points(*dx), points(*dy)))
                 .or_default()
@@ -280,9 +303,11 @@ pub fn causes(run: &Run) -> Causes {
                 .into_iter()
                 .map(|(kind, tally)| tally.group(kind.to_string())),
         ),
-        colours: ranked(colours.into_iter().map(|((board, shot), tally)| {
-            tally.group(format!("{board} on the board is {shot} in the shot"))
-        })),
+        colours: ranked(
+            colours
+                .into_iter()
+                .map(|(cause, tally)| tally.group(cause)),
+        ),
         frames: ranked(frames.into_iter().map(|((dx, dy), tally)| {
             tally.group(format!(
                 "the shot's frame sits {} pt {} and {} pt {} from the board's, to the nearest point",

@@ -159,6 +159,41 @@ fn components_rank_by_the_scenes_they_break_with_their_kinds_and_scenes() {
 }
 
 #[test]
+fn a_foreground_colour_that_one_side_lacks_is_a_cause_of_its_own() {
+    let drawn = |scene: &str, side: &str, colour: &str| {
+        record(
+            scene,
+            None,
+            "foreground-colour",
+            json!({"element": element(), "side": side, "colour": colour}),
+        )
+    };
+    let run = run(
+        &[
+            drawn("mac.a", "board", "#F2F2F4"),
+            drawn("mac.b", "board", "#F2F2F4"),
+            drawn("mac.b", "shot", "#EE98C1"),
+        ],
+        &[],
+    );
+    assert_eq!(
+        causes(&run).colours,
+        vec![
+            group(
+                "#F2F2F4 drawn on the board only",
+                &[("mac.a", 1), ("mac.b", 1)],
+                &[("foreground", 2)]
+            ),
+            group(
+                "#EE98C1 drawn in the shot only",
+                &[("mac.b", 1)],
+                &[("foreground", 1)]
+            ),
+        ]
+    );
+}
+
+#[test]
 fn the_text_names_each_cause_with_its_scenes_findings_and_kinds_under_its_grouping() {
     let run = run(
         &[

@@ -218,10 +218,74 @@ fn a_background_past_three_warns_and_one_within_it_does_not() {
 fn a_foreground_is_compared_where_both_pictures_have_one() {
     let draw = |ink: Rgb| picture(8, 8, move |x, _| if x < 3 { ink } else { [40, 40, 48] });
     let found = warn(Role::Button, &draw([240, 240, 240]), &draw([200, 240, 240]));
-    assert_eq!(found.len(), 1);
-    assert!(found[0].starts_with("The foreground of"), "{found:?}");
+    assert_eq!(found.len(), 2, "{found:?}");
+    assert_eq!(
+        found[0],
+        "The foreground of the button “Word” has #F0F0F0 on the board and no colour near it in the shot"
+    );
+    assert_eq!(
+        found[1],
+        "The foreground of the button “Word” has #C8F0F0 in the shot and no colour near it on the board"
+    );
     let flat = picture(8, 8, |_, _| [40, 40, 48]);
     assert!(warn(Role::Button, &draw([240, 240, 240]), &flat).is_empty());
+}
+
+/// An 8 x 8 picture of a button: a label of one colour and an edge of another
+/// beside a background, each covering the columns it is given.
+fn button(label: Rgb, label_columns: u32, edge: Rgb) -> Picture {
+    picture(8, 8, move |x, _| {
+        if x < label_columns {
+            label
+        } else if x < 6 {
+            [40, 40, 48]
+        } else {
+            edge
+        }
+    })
+}
+
+#[test]
+fn an_element_that_draws_the_same_two_colours_with_another_one_most_common_does_not_warn() {
+    let (label, edge) = ([240, 240, 242], [168, 168, 179]);
+    // The label and the edge cover the same area on the board, and the edge
+    // covers more than the label in the shot.
+    let board = button(label, 2, edge);
+    let shot = picture(8, 8, |x, _| match x {
+        0 => label,
+        1..=2 => edge,
+        _ => [40, 40, 48],
+    });
+    assert!(warn(Role::Button, &board, &shot).is_empty());
+    assert!(warn(Role::Toggle, &board, &shot).is_empty());
+}
+
+#[test]
+fn a_label_drawn_in_the_wrong_colour_warns_on_each_side() {
+    let edge = [168, 168, 179];
+    let board = button([240, 240, 242], 2, edge);
+    let shot = button([238, 152, 193], 2, edge);
+    assert_eq!(
+        warn(Role::Button, &board, &shot),
+        [
+            "The foreground of the button “Word” has #F0F0F2 on the board and no colour near it in the shot",
+            "The foreground of the button “Word” has #EE98C1 in the shot and no colour near it on the board",
+        ]
+    );
+}
+
+#[test]
+fn a_colour_that_covers_too_little_of_the_box_to_be_a_drawn_part_is_ignored() {
+    let label = [240, 240, 242];
+    let board = picture(8, 8, |x, _| if x < 3 { label } else { [40, 40, 48] });
+    // One antialiasing pixel of another colour: 1 of 64.
+    let shot = picture(8, 8, |x, y| match (x, y) {
+        (1, 1) => [238, 152, 193],
+        (0..=2, _) => label,
+        _ => [40, 40, 48],
+    });
+    assert!(warn(Role::Button, &board, &shot).is_empty());
+    assert!(warn(Role::Button, &shot, &board).is_empty());
 }
 
 #[test]

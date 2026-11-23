@@ -127,35 +127,65 @@ pub(crate) fn pixel(picture: &Picture, x: i64, y: i64) -> Option<Rgb> {
 /// over it for being the most frequent single shade. Returns the most
 /// frequent colour of the biggest group, and that group's centre.
 fn background_of(counts: &HashMap<Rgb, usize>) -> Option<(Rgb, Lab)> {
-    let mut by_count: Vec<(Rgb, usize)> = counts.iter().map(|(c, n)| (*c, *n)).collect();
+    groups_of(counts.iter().map(|(colour, count)| (*colour, *count)))
+        .into_iter()
+        .max_by_key(|group| (group.total, group.colour))
+        .map(|group| (group.colour, group.centre))
+}
+
+/// Colours within [`DELTA_E_TOLERANCE`] of each other, counted as one.
+struct Group {
+    /// The most frequent colour of the group, which is its centre.
+    colour: Rgb,
+    centre: Lab,
+    /// The pixels of every colour in the group.
+    total: usize,
+}
+
+/// The groups of <counts>, the one of the most frequent colour first.
+fn groups_of(counts: impl Iterator<Item = (Rgb, usize)>) -> Vec<Group> {
+    let mut by_count: Vec<(Rgb, usize)> = counts.collect();
     // The most frequent colour first, ties by colour, so a group's centre is
     // always its most frequent colour and the result never depends on the
     // hash map's order.
     by_count.sort_by_key(|(colour, count)| (std::cmp::Reverse(*count), std::cmp::Reverse(*colour)));
-    let mut groups: Vec<(Rgb, Lab, usize)> = Vec::new();
+    let mut groups: Vec<Group> = Vec::new();
     for (colour, count) in by_count {
         let lab = Lab::of(colour);
         match groups
             .iter_mut()
-            .find(|(_, centre, _)| delta_e(*centre, lab) <= DELTA_E_TOLERANCE)
+            .find(|group| delta_e(group.centre, lab) <= DELTA_E_TOLERANCE)
         {
-            Some(group) => group.2 += count,
-            None => groups.push((colour, lab, count)),
+            Some(group) => group.total += count,
+            None => groups.push(Group {
+                colour,
+                centre: lab,
+                total: count,
+            }),
         }
     }
+    groups.sort_by_key(|group| {
+        (
+            std::cmp::Reverse(group.total),
+            std::cmp::Reverse(group.colour),
+        )
+    });
     groups
-        .into_iter()
-        .max_by_key(|(colour, _, total)| (*total, *colour))
-        .map(|(colour, lab, _)| (colour, lab))
 }
 
 fn dot(first: [i32; 3], second: [i32; 3]) -> i32 {
     first.into_iter().zip(second).map(|(a, b)| a * b).sum()
 }
 
+/// The share of an element's box that a foreground colour covers to count as
+/// a drawn part (a label, an edge, a switch) and not as antialiasing.
+const DRAWN_PART_SHARE: f64 = 0.02;
+
 struct Palette {
     background: Rgb,
     foreground: Vec<(Rgb, usize)>,
+    /// The pixels of the box.
+    pixels: usize,
 }
 
 impl Palette {
@@ -164,6 +194,17 @@ impl Palette {
             .iter()
             .copied()
             .max_by_key(|(colour, count)| (*count, *colour))
+    }
+
+    /// The foreground colours the element draws as parts, the one with the
+    /// most pixels first: each group of colours within [`DELTA_E_TOLERANCE`]
+    /// of each other that covers at least [`DRAWN_PART_SHARE`] of the box.
+    fn parts(&self) -> Vec<Group> {
+        let least = (self.pixels as f64 * DRAWN_PART_SHARE).ceil() as usize;
+        groups_of(self.foreground.iter().copied())
+            .into_iter()
+            .filter(|group| group.total >= least)
+            .collect()
     }
 
     /// Follow the dominant foreground colour away from the background to find
@@ -218,6 +259,7 @@ fn palette(picture: &Picture, scale: f64, bounds: Bounds) -> Option<Palette> {
         }
     }
     let (background, lab) = background_of(&counts)?;
+    let pixels = counts.values().sum();
     let foreground = counts
         .into_iter()
         .filter(|(colour, _)| delta_e(lab, Lab::of(*colour)) > FAR_FROM_BACKGROUND)
@@ -225,6 +267,7 @@ fn palette(picture: &Picture, scale: f64, bounds: Bounds) -> Option<Palette> {
     Some(Palette {
         background,
         foreground,
+        pixels,
     })
 }
 
@@ -252,26 +295,58 @@ pub(crate) fn pairs(board: &Side, shot: &Side, pairs: &[(Entry, Entry)]) -> Vec<
         if let (Some(from), Some(to)) = (&from, &to) {
             warnings.extend(differ(b, Part::Background, from.background, to.background));
         }
-        let foreground = match b.kind {
-            Role::Text => match (
-                from.as_ref().and_then(Palette::glyph_colour),
-                to.as_ref().and_then(Palette::glyph_colour),
-            ) {
-                (Some(from), Some(to)) => differ(b, Part::Text, from, to),
-                (None, Some(_)) => {
-                    Some(unmeasured(b, PictureSide::Board, &board.elements[b.index]))
+        match b.kind {
+            Role::Text => warnings.extend(
+                match (
+                    from.as_ref().and_then(Palette::glyph_colour),
+                    to.as_ref().and_then(Palette::glyph_colour),
+                ) {
+                    (Some(from), Some(to)) => differ(b, Part::Text, from, to),
+                    (None, Some(_)) => {
+                        Some(unmeasured(b, PictureSide::Board, &board.elements[b.index]))
+                    }
+                    (Some(_), None) => {
+                        Some(unmeasured(b, PictureSide::Shot, &shot.elements[s.index]))
+                    }
+                    (None, None) => None,
+                },
+            ),
+            _ => {
+                if let (Some(from), Some(to)) = (&from, &to) {
+                    warnings.extend(unmatched(b, from, to));
                 }
-                (Some(_), None) => Some(unmeasured(b, PictureSide::Shot, &shot.elements[s.index])),
-                (None, None) => None,
-            },
-            _ => match (from.and_then(|p| p.mode()), to.and_then(|p| p.mode())) {
-                (Some((from, _)), Some((to, _))) => differ(b, Part::Foreground, from, to),
-                _ => None,
-            },
-        };
-        warnings.extend(foreground);
+            }
+        }
     }
     warnings
+}
+
+/// The foreground colours that one of <board> and <shot> draws as a part of
+/// the element and the other draws none within [`DELTA_E_TOLERANCE`] of. An
+/// element that draws no part on either side has none to compare.
+fn unmatched(entry: &Entry, board: &Palette, shot: &Palette) -> Vec<Warning> {
+    let (drawn_on_board, drawn_in_shot) = (board.parts(), shot.parts());
+    if drawn_on_board.is_empty() || drawn_in_shot.is_empty() {
+        return Vec::new();
+    }
+    let lacking = |drawn: &[Group], other: &[Group], side: PictureSide| {
+        drawn
+            .iter()
+            .filter(|part| {
+                other
+                    .iter()
+                    .all(|group| delta_e(part.centre, group.centre) > DELTA_E_TOLERANCE)
+            })
+            .map(|part| Warning::ForegroundColour {
+                entry: entry.clone(),
+                side,
+                colour: part.colour,
+            })
+            .collect::<Vec<_>>()
+    };
+    let mut found = lacking(&drawn_on_board, &drawn_in_shot, PictureSide::Board);
+    found.extend(lacking(&drawn_in_shot, &drawn_on_board, PictureSide::Shot));
+    found
 }
 
 fn unmeasured(entry: &Entry, side: PictureSide, element: &Element) -> Warning {

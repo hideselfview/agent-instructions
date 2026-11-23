@@ -390,11 +390,11 @@ pub(crate) struct Side<'a> {
 #[serde(rename_all = "lowercase")]
 pub(crate) enum Part {
     Background,
-    Foreground,
     Text,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub(crate) enum PictureSide {
     Board,
     Shot,
@@ -436,6 +436,14 @@ pub(crate) enum Warning {
         board: Rgb,
         shot: Rgb,
         delta: f64,
+    },
+    /// A foreground colour that the element draws on one side and no colour
+    /// within [`DELTA_E_TOLERANCE`] of it on the other.
+    ForegroundColour {
+        entry: Entry,
+        /// The side that draws the colour.
+        side: PictureSide,
+        colour: Rgb,
     },
     TextColourUnavailable {
         entry: Entry,
@@ -578,6 +586,7 @@ impl Warning {
             | Self::FontSize { entry, .. }
             | Self::FontWeight { entry, .. }
             | Self::Colour { entry, .. }
+            | Self::ForegroundColour { entry, .. }
             | Self::TextColourUnavailable { entry, .. } => Some(entry),
             Self::FrameOffset { .. } | Self::Region { .. } => None,
         }
@@ -656,7 +665,6 @@ impl Warning {
             } => {
                 let what = match part {
                     Part::Background => "background",
-                    Part::Foreground => "foreground",
                     Part::Text => "colour",
                 };
                 format!(
@@ -664,6 +672,21 @@ impl Warning {
                     the(entry),
                     hex(*board),
                     hex(*shot)
+                )
+            }
+            Self::ForegroundColour {
+                entry,
+                side,
+                colour,
+            } => {
+                let (has, lacks) = match side {
+                    PictureSide::Board => ("on the board", "in the shot"),
+                    PictureSide::Shot => ("in the shot", "on the board"),
+                };
+                format!(
+                    "The foreground of {} has {} {has} and no colour near it {lacks}",
+                    the(entry),
+                    hex(*colour)
                 )
             }
             Self::TextColourUnavailable {

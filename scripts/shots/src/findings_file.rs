@@ -30,7 +30,7 @@
 use crate::capture::Failed;
 use crate::compare::colour::hex;
 use crate::compare::normalize::Entry;
-use crate::compare::{Aspect, Finding, Part, Warning};
+use crate::compare::{Aspect, Finding, Part, PictureSide, Warning};
 use crate::component_files::Listing;
 use crate::shots::{Role, Size};
 use crate::verify::{Checked, Outcome};
@@ -173,6 +173,12 @@ pub(crate) enum What {
         shot: String,
         delta: f64,
     },
+    /// `side` is the side that draws `colour`.
+    ForegroundColour {
+        element: Element,
+        side: PictureSide,
+        colour: String,
+    },
     TextColourUnavailable {
         element: Element,
     },
@@ -260,6 +266,15 @@ impl From<&Warning> for What {
                 board: hex(*board),
                 shot: hex(*shot),
                 delta: *delta,
+            },
+            Warning::ForegroundColour {
+                entry,
+                side,
+                colour,
+            } => Self::ForegroundColour {
+                element: entry.into(),
+                side: *side,
+                colour: hex(*colour),
             },
             Warning::TextColourUnavailable { entry, .. } => Self::TextColourUnavailable {
                 element: entry.into(),

@@ -1527,8 +1527,11 @@ built again.
                               kinds of finding and the ten scenes where it
                               makes the most; the findings that no component
                               draws, by kind; every colour finding by its
-                              exact pair of board and shot colours; and every
-                              frame offset by its offset to the nearest point.
+                              exact pair of board and shot colours, and every
+                              foreground colour that an element draws on one
+                              side and not the other by that colour and the
+                              side; and every frame offset by its offset to
+                              the nearest point.
                               It counts the causes of one finding each instead
                               of listing them. A run whose report holds no
                               findings.json (one whose report builds could
