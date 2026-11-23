@@ -114,11 +114,14 @@ fn declared_at(top: &Path, commit: &str, lane: Option<Lane>) -> Result<Vec<shots
             };
             vec![(platform, folder)]
         }
-        None => shots::declared_folders(&config).map_err(Fail::Message)?,
+        None => {
+            let folders = shots::declared_folders(&config).map_err(Fail::Message)?;
+            if folders.is_empty() {
+                fail!("{CONFIG} at {commit} has no shots-declared line, so no shot is declared");
+            }
+            folders
+        }
     };
-    if folders.is_empty() {
-        fail!("{CONFIG} at {commit} has no shots-declared line, so no shot is declared");
-    }
     let paths: Vec<String> = folders.iter().map(|(_, folder)| folder.clone()).collect();
     let scratch = std::env::temp_dir();
     crate::evict::in_temp_dir(&scratch, ".builds-declared.", |root| {
