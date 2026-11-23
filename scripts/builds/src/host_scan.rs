@@ -6,7 +6,7 @@
 //! idle share, health_stillness.rs the jobs, orphans.rs the processes whose caller
 //! is gone and sccache_queue.rs the server.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use serde::Serialize;
@@ -280,7 +280,12 @@ pub fn timed_rows(text: &str) -> std::result::Result<(&str, i64, Vec<Row>), Stri
 /// Reads what `script` printed. Each row's CPU share is what the process
 /// used since the reading of <readings> that `process_readings::measure`
 /// compares with.
+#[cfg(test)]
 pub fn parse(text: &str, readings: &[Reading]) -> std::result::Result<Scan, String> {
+    read_scan(text, readings).map(|(scan, _)| scan)
+}
+
+fn read_scan(text: &str, readings: &[Reading]) -> std::result::Result<(Scan, Reading), String> {
     let (head, at, rows) = timed_rows(text)?;
     let value = |key: &str| crate::host::answer_value(head, key);
     let jobs = head
@@ -312,12 +317,12 @@ pub fn parse(text: &str, readings: &[Reading]) -> std::result::Result<Scan, Stri
     })()
     .map_err(|fault| fault.text());
     let cpu = Reading::following(at, &rows, readings);
-    Ok(Scan {
+    let scan = Scan {
         uid,
         at,
         active: cpu
             .procs
-            .into_iter()
+            .iter()
             .filter_map(|p| Some((p.pid, p.active_at?)))
             .collect(),
         rows: measure(rows, at, readings),
@@ -331,7 +336,8 @@ pub fn parse(text: &str, readings: &[Reading]) -> std::result::Result<Scan, Stri
         sccache,
         front_app: crate::host_front_app::parse(value("front_app")),
         screen_locked: crate::host_screen_lock::parse(value("screen_locked")),
-    })
+    };
+    Ok((scan, cpu))
 }
 
 /// Runs the script on <host>, reads what it printed against the readings
@@ -343,11 +349,7 @@ pub fn read(ssh: &Ssh, host: &Host, home: &Path) -> std::result::Result<Scan, St
         command_at(ssh, host, &script(host), Terminal::None),
         &format!("reading {}", place(&host.name)),
     )?;
-    let scan = parse(&text, &readings)?;
-    let mut current = Reading::of(scan.at, &scan.rows);
-    for proc in &mut current.procs {
-        proc.active_at = scan.active.get(&proc.pid).copied();
-    }
+    let (scan, current) = read_scan(&text, &readings)?;
     if process_readings::record(&mut readings, current) {
         process_readings::write(home, &host.name, &readings).map_err(|fault| fault.text())?;
     }
@@ -356,15 +358,28 @@ pub fn read(ssh: &Ssh, host: &Host, home: &Path) -> std::result::Result<Scan, St
 
 /// The rows of <rows> under <pid>, it included, nearest first.
 pub fn tree(rows: &[Row], pid: i32) -> Vec<&Row> {
-    let mut found: Vec<&Row> = rows.iter().filter(|row| row.pid == pid).collect();
+    trees(rows, &BTreeSet::from([pid]))
+}
+
+/// The roots and their descendants, each row once, nearest to the roots first.
+pub fn trees<'a>(rows: &'a [Row], roots: &BTreeSet<i32>) -> Vec<&'a Row> {
+    let mut children: BTreeMap<i32, Vec<&Row>> = BTreeMap::new();
+    for row in rows {
+        children.entry(row.ppid).or_default().push(row);
+    }
+    let mut found: Vec<&Row> = rows.iter().filter(|row| roots.contains(&row.pid)).collect();
+    let mut seen = roots.clone();
     let mut at = 0;
     while at < found.len() {
         let parent = found[at].pid;
-        for row in rows.iter().filter(|row| row.ppid == parent) {
-            if !found.iter().any(|seen| seen.pid == row.pid) {
-                found.push(row);
-            }
-        }
+        found.extend(
+            children
+                .get(&parent)
+                .into_iter()
+                .flatten()
+                .copied()
+                .filter(|row| seen.insert(row.pid)),
+        );
         at += 1;
     }
     found

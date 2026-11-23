@@ -120,10 +120,6 @@ impl Store {
     /// The state, checked: the code check runs on every read, so a store
     /// that fails it fails every command naming each fault. Takes no lock.
     pub fn load(&self) -> Result<Lists> {
-        self.load_with(|_, lists| Ok(lists))
-    }
-
-    fn load_with<T>(&self, read_more: impl FnOnce(&Connection, Lists) -> Result<T>) -> Result<T> {
         let Some(conn) = self.reader()? else {
             return Err(self.no_lists());
         };
@@ -131,10 +127,9 @@ impl Store {
         conn.execute_batch("BEGIN").sql()?;
         let lists = read(&conn)?;
         let found = faults(&conn, &self.project)?;
-        refuse_faults(&self.project, &found)?;
-        let reading = read_more(&conn, lists)?;
         conn.execute_batch("END").sql()?;
-        Ok(reading)
+        refuse_faults(&self.project, &found)?;
+        Ok(lists)
     }
 
     /// The repos of the project, without reading the rest.
@@ -477,33 +472,14 @@ pub fn every_lists(places: &Places) -> Result<Vec<Lists>> {
 pub struct Loaded {
     pub project: String,
     pub lists: std::result::Result<Lists, String>,
-    pub progress: Progress,
-}
-
-/// The records health reads alongside the lists in the same transaction.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct Progress {
-    pub items: std::collections::BTreeMap<crate::lists::Id, i64>,
-    pub reviews: Vec<crate::review::record::ReviewProgress>,
 }
 
 impl Loaded {
     fn read(store: Store) -> Self {
-        let read = store.load_with(|db, lists| {
-            let progress = Progress {
-                items: crate::lists::item_event::last_open(db)?,
-                reviews: crate::review::record::open_progress(db)?,
-            };
-            Ok((lists, progress))
-        });
-        let (lists, progress) = match read {
-            Ok((lists, progress)) => (Ok(lists), progress),
-            Err(error) => (Err(error.text()), Progress::default()),
-        };
+        let lists = store.load().map_err(Fail::text);
         Self {
             project: store.project,
             lists,
-            progress,
         }
     }
 }

@@ -271,7 +271,11 @@ fn stops_the_orphans_health_stops_and_lists_the_rest() {
             _ => Ok(String::new()),
         }
     };
-    let (lines, left) = stop_orphans(
+    let OrphanStops {
+        lines,
+        remaining,
+        stopped,
+    } = stop_orphans(
         vec![
             orphan(0, true),
             orphan(1, false),
@@ -291,7 +295,11 @@ fn stops_the_orphans_health_stops_and_lists_the_rest() {
             "stopping this Mac pid 304 (cargo check), 40m old failed: ssh to the host failed",
         ]
     );
-    assert_eq!(left, [orphan(1, false), orphan(3, true), orphan(4, true)]);
+    assert_eq!(
+        remaining,
+        [orphan(1, false), orphan(3, true), orphan(4, true)]
+    );
+    assert_eq!(stopped, [orphan(0, true), orphan(2, true)]);
 }
 
 mod stalled_claims {
@@ -359,7 +367,15 @@ mod stalled_claims {
     }
 
     fn fix(demo: &Demo) -> Vec<String> {
-        let health = crate::health::health(&demo.tool).unwrap();
+        let mut health = crate::health::health(&demo.tool).unwrap();
+        crate::health_stillness::append(
+            &mut health,
+            &crate::lists::store::load_all(&demo.tool.places),
+            None,
+            &demo.tool.places,
+            demo.tool.now,
+            demo.tool.rules.still_minutes,
+        );
         release_stalled_claims(&demo.tool, &health).unwrap()
     }
 
@@ -416,6 +432,34 @@ mod stalled_claims {
         assert!(fix(&demo).is_empty());
         assert!(has_claim(&checkout));
         assert_eq!(demo.store.load().unwrap().items[0].running.len(), 1);
+    }
+
+    #[test]
+    fn a_recent_build_keeps_the_claim_of_an_unchanged_worktree() {
+        use crate::app_timing::{RunRecord, record};
+        let mut demo = demo("stalled-built");
+        let (side, checkout) = side(&demo);
+        take_in(&demo, &side);
+        hours_later(&mut demo, 3);
+        record(
+            &demo.store.database(),
+            &RunRecord {
+                started_at: demo.tool.now - 120,
+                repo: "demo".into(),
+                lane: crate::lane::Lane::Mac,
+                checkout: "mac-1".into(),
+                built_ref: "work".into(),
+                built_commit: None,
+                who: Some("agent A".into()),
+                wait_ms: 0,
+                outcome: crate::run_end::RunEnd::Passed,
+                load: None,
+                steps: Vec::new(),
+            },
+        )
+        .unwrap();
+        assert!(fix(&demo).is_empty());
+        assert!(has_claim(&checkout));
     }
 
     /// A claim younger than the setting's hours stays, whatever its worktree

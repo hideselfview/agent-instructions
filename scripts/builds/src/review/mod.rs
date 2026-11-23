@@ -1066,6 +1066,17 @@ fn tell_judge_waiting(tool: &Tool, store: &Store, stamp: &Stamp) -> Result<()> {
 /// `builds review wait LANDING`: waits until every finding of the review
 /// landing is settled, then prints how each was settled (judge.rs).
 fn wait_command(tool: &Tool, args: &[String]) -> Result<()> {
+    let (store, landing) = wait_target(&tool.places, args, &current_dir()?)?;
+    drop(store.open_existing()?);
+    print!("{}", judge::wait(&store, landing, judge::WAIT_LIMIT)?);
+    Ok(())
+}
+
+pub fn wait_target(
+    places: &crate::places::Places,
+    args: &[String],
+    cwd: &Path,
+) -> Result<(Store, i64)> {
     let args = Args::parse(args, &[], &[])?;
     let [landing] = args.exactly(1, USAGE)? else {
         unreachable!("exactly one")
@@ -1073,9 +1084,8 @@ fn wait_command(tool: &Tool, args: &[String]) -> Result<()> {
     let landing: i64 = landing
         .parse()
         .map_err(|_| Fail::Message(format!("'{landing}' is not a landing number")))?;
-    let (store, _) = store_of(tool, &args)?;
-    print!("{}", judge::wait(&store, landing, judge::WAIT_LIMIT)?);
-    Ok(())
+    let store = Store::resolve(places, &args, cwd)?;
+    Ok((store, landing))
 }
 
 /// `builds review copy WORKTREE [BASE]`: the copy review, which asks the

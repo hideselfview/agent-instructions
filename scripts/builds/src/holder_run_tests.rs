@@ -21,6 +21,7 @@ fn a_run_that_waited_then_ran_two_steps_shows_its_wait_its_step_and_its_building
     assert_eq!(
         run.times(JOINED + 27 * MINUTE),
         RunTimes {
+            moved_at: JOINED + 25 * MINUTE,
             waited_minutes: 25,
             building_minutes: 2,
             step: Some(StepTime {
@@ -36,6 +37,7 @@ fn a_run_that_waited_then_ran_two_steps_shows_its_wait_its_step_and_its_building
     assert_eq!(
         run.times(JOINED + 32 * MINUTE + 30),
         RunTimes {
+            moved_at: JOINED + 28 * MINUTE,
             waited_minutes: 25,
             building_minutes: 7,
             step: Some(StepTime {
@@ -57,6 +59,7 @@ fn a_run_before_its_first_step_shows_its_wait_and_no_step() {
     assert_eq!(
         run.times(JOINED + 4 * MINUTE),
         RunTimes {
+            moved_at: JOINED + 90,
             waited_minutes: 1,
             building_minutes: 2,
             step: None,

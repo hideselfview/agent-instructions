@@ -21,6 +21,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use rusqlite::{Connection, params};
 
 use crate::app_config::PickKind;
+use crate::branch_end::BranchEnd;
 use crate::clock::Moment;
 use crate::db::Sql;
 use crate::fail;
@@ -815,14 +816,6 @@ pub fn last_ends(path: &Path, lane: Lane) -> Result<Vec<(String, i64)>> {
 const RUN_END: &str = "COALESCE(
     (SELECT MAX(s.started_at + s.wall_ms / 1000) FROM app_build_steps s WHERE s.run_id = r.id),
     r.started_at + r.wait_ms / 1000)";
-
-/// The latest recorded build of a ref, as health matches it to work in progress.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct BranchEnd {
-    pub repo: String,
-    pub reference: String,
-    pub at: i64,
-}
 
 pub fn branch_ends(db: &Connection) -> Result<Vec<BranchEnd>> {
     let mut statement = db.prepare(&format!(

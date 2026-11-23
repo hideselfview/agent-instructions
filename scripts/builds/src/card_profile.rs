@@ -718,10 +718,11 @@ fn read_reviews(
     to: i64,
     card: &mut Card,
 ) -> Result<()> {
+    let end_at = crate::review::exchange_time::END_AT;
     let mut runs = db
-        .prepare(
+        .prepare(&format!(
             "SELECT run.id, run.at, \
-                    (SELECT MAX(t.started_at + (t.ms + 999) / 1000) FROM review_exchange_time t \
+                    (SELECT MAX({end_at}) FROM review_exchange_time t \
                        JOIN review_exchange e ON e.id = t.exchange_id \
                        JOIN review_call c ON c.id = e.call_id WHERE c.run_id = run.id), \
                     (SELECT COUNT(*) FROM review_finding f JOIN review_call c ON c.id = f.call_id \
@@ -729,7 +730,7 @@ fn read_reviews(
              FROM review_run run JOIN review_landing l ON l.id = run.landing_id \
              WHERE l.key = ?1 AND l.repo = ?2 AND run.kind = 'review' \
                AND run.at >= ?3 AND run.at <= ?4 ORDER BY run.at, run.id",
-        )
+        ))
         .sql()?;
     let rows: Vec<(i64, i64, Option<i64>, i64)> = runs
         .query_map(params![format!("branch:{branch}"), repo, from, to], |row| {

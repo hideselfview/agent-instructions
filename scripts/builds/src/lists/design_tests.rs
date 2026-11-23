@@ -872,7 +872,6 @@ fn health_of(w: &World, range: &str) -> Vec<String> {
     };
     let loaded = Ok(vec![crate::lists::store::Loaded {
         project: "demo".into(),
-        progress: Default::default(),
         lists: Ok(w.state()),
     }]);
     crate::lists::held::inspect(
@@ -1108,7 +1107,6 @@ fn health_and_check_cover_commits_whose_boards_differ_in_bytes_and_draw_alike() 
         };
         let loaded = Ok(vec![crate::lists::store::Loaded {
             project: "demo".into(),
-            progress: Default::default(),
             lists: Ok(w.state()),
         }]);
         let reads = crate::lists::design_reads::DesignReads::with_program(

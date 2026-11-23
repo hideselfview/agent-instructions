@@ -108,7 +108,7 @@ pub struct Entry {
 }
 
 /// The value of BUILDS_AGENT in <environment>.
-fn agent_in_environment(environment: &[OsString]) -> Option<String> {
+pub fn agent_in_environment(environment: &[OsString]) -> Option<String> {
     environment_value(environment, VARIABLE)
         .filter(|id| !id.is_empty())
         .map(|id| id.to_string_lossy().into_owned())

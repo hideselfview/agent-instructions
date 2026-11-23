@@ -154,7 +154,7 @@ pub fn kept_waits(lists: &Lists, item: &Item) -> Result<KeptWaits> {
 
 /// The record that met <wait>, which is met, so it names a closed record. A
 /// condition is never met, so it never reaches here.
-fn met_by<'a>(lists: &'a Lists, wait: &Wait) -> Result<&'a Closed> {
+pub fn met_by<'a>(lists: &'a Lists, wait: &Wait) -> Result<&'a Closed> {
     let (Wait::Question(id) | Wait::Item(id) | Wait::Design(id)) = wait else {
         unreachable!("only a wait on a record is met, never a condition")
     };

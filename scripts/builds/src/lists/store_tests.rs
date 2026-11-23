@@ -638,7 +638,6 @@ fn the_lists_of_a_repo_two_projects_hold_are_those_of_the_project_a_claim_names(
         lists.repos = vec!["agent-instructions".into()];
         Loaded {
             project: name.to_string(),
-            progress: Default::default(),
             lists: Ok(lists),
         }
     };
@@ -669,7 +668,6 @@ fn the_lists_of_a_repo_two_projects_hold_are_those_of_the_project_a_claim_names(
     );
     let failing = Ok(vec![Loaded {
         project: "builds".to_string(),
-        progress: Default::default(),
         lists: Err("ids repeat".to_string()),
     }]);
     assert_eq!(

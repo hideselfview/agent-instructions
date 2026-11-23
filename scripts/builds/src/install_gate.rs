@@ -164,6 +164,13 @@ impl Kind {
             Kind::Connection => "connections",
         })
     }
+
+    fn waiters(self, places: &Places) -> PathBuf {
+        places.install_dir().join(match self {
+            Kind::Command => "commands-waiting",
+            Kind::Connection => "connections-waiting",
+        })
+    }
 }
 
 fn open(path: &Path) -> Result<File> {
@@ -217,6 +224,7 @@ fn remove_use_file(file: &File, path: &Path) -> Result<()> {
 fn pass(
     places: &Places,
     kind: Kind,
+    pid: u32,
     waiting: &str,
     say: &mut dyn FnMut(&str),
 ) -> Result<(File, bool)> {
@@ -225,33 +233,43 @@ fn pass(
     if try_lock(&gate, libc::LOCK_SH, &path)? {
         return Ok((gate, true));
     }
+    let waiter = locked_use(kind.waiters(places), pid)?;
     say(waiting);
     lock(&gate, libc::LOCK_SH, &path)?;
+    drop(waiter);
     Ok((gate, false))
 }
 
 /// Takes a use of <kind> for process <pid>, which runs `builds <what>` since
 /// the local time <since>, while the gate held open by <gate> stays open.
 fn take(places: &Places, kind: Kind, gate: File, pid: u32, what: &str, since: &str) -> Result<Use> {
-    let path = kind.uses(places).join(pid.to_string());
-    let mut file = loop {
+    let mut usage = locked_use(kind.uses(places), pid)?;
+    usage
+        ._file
+        .set_len(0)
+        .context(|| format!("writing {}", usage.path.display()))?;
+    usage
+        ._file
+        .write_all(format!("process {pid}, builds {what}, since {since}\n").as_bytes())
+        .context(|| format!("writing {}", usage.path.display()))?;
+    // Closing the gate's file releases the shared lock; the use is in place.
+    drop(gate);
+    Ok(usage)
+}
+
+fn locked_use(dir: PathBuf, pid: u32) -> Result<Use> {
+    let path = dir.join(pid.to_string());
+    loop {
         let file = open(&path)?;
         lock(&file, libc::LOCK_EX, &path)?;
         if names(&file, &path)? {
-            break file;
+            return Ok(Use {
+                _file: file,
+                path,
+                pid,
+            });
         }
-    };
-    file.set_len(0)
-        .context(|| format!("writing {}", path.display()))?;
-    file.write_all(format!("process {pid}, builds {what}, since {since}\n").as_bytes())
-        .context(|| format!("writing {}", path.display()))?;
-    // Closing the gate's file releases the shared lock; the use is in place.
-    drop(gate);
-    Ok(Use {
-        _file: file,
-        path,
-        pid,
-    })
+    }
 }
 
 const RUNS_AGAIN: &str =
@@ -279,7 +297,7 @@ pub fn enter_for_life(
     since: &str,
     say: &mut dyn FnMut(&str),
 ) -> Result<Entered<Use>> {
-    match pass(places, Kind::Command, RUNS_AGAIN, say)? {
+    match pass(places, Kind::Command, pid, RUNS_AGAIN, say)? {
         (gate, true) => Ok(Entered::Start(take(
             places,
             Kind::Command,
@@ -331,7 +349,7 @@ impl PerConnection {
         } else {
             RUNS_AGAIN
         };
-        let (_gate, was_open) = pass(&places, Kind::Connection, waiting, say)?;
+        let (_gate, was_open) = pass(&places, Kind::Connection, pid, waiting, say)?;
         if !was_open && parent_generation.is_none() {
             return Ok(Entered::RunAgain);
         }
@@ -364,6 +382,7 @@ impl PerConnection {
         let (gate, _) = pass(
             &self.places,
             Kind::Command,
+            self.pid,
             "builds install runs: this command waits until it finishes",
             &mut |line| crate::text::note(line),
         )?;
@@ -398,7 +417,13 @@ impl PerConnection {
         if let Some(open) = shared.upgrade() {
             return Ok(Some(ConnectionUse { held: open }));
         }
-        let (gate, _) = pass(&self.places, Kind::Connection, WAITS_FOR_MOVE, say)?;
+        let (gate, _) = pass(
+            &self.places,
+            Kind::Connection,
+            self.pid,
+            WAITS_FOR_MOVE,
+            say,
+        )?;
         let taken = Arc::new(take(
             &self.places,
             Kind::Connection,
@@ -602,7 +627,8 @@ impl Installing {
     /// with both gates open: for an install that waits for no use.
     pub fn remove_ended_uses(&self) -> Result<()> {
         for kind in [Kind::Command, Kind::Connection] {
-            remove_ended_uses(&self.places, kind)?;
+            remove_ended_uses(&kind.uses(&self.places))?;
+            remove_ended_uses(&kind.waiters(&self.places))?;
         }
         Ok(())
     }
@@ -644,9 +670,8 @@ fn close_gate(places: &Places, kind: Kind) -> Result<File> {
 
 /// The use files of <kind>, each open, in the order of their names. The list
 /// skips a file that its use removed after the listing.
-fn use_files(places: &Places, kind: Kind) -> Result<Vec<(File, PathBuf)>> {
-    let dir = kind.uses(places);
-    let entries = match std::fs::read_dir(&dir) {
+fn use_files(dir: &Path) -> Result<Vec<(File, PathBuf)>> {
+    let entries = match std::fs::read_dir(dir) {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(error) => fail!("listing {}: {error}", dir.display()),
@@ -672,7 +697,7 @@ fn use_files(places: &Places, kind: Kind) -> Result<Vec<(File, PathBuf)>> {
 /// on, and removes the file of each use whose process ended without
 /// removing it.
 fn wait_for_uses(places: &Places, kind: Kind, say: &mut dyn FnMut(String)) -> Result<()> {
-    for (mut file, path) in use_files(places, kind)? {
+    for (mut file, path) in use_files(&kind.uses(places))? {
         if !try_lock(&file, libc::LOCK_EX, &path)? {
             let mut text = String::new();
             file.read_to_string(&mut text)
@@ -687,22 +712,16 @@ fn wait_for_uses(places: &Places, kind: Kind, say: &mut dyn FnMut(String)) -> Re
 
 /// Each use of <kind> that holds its lock, read by asking for a shared lock
 /// without waiting and letting it go at once.
-fn held_uses(places: &Places, kind: Kind) -> Result<Vec<Held>> {
+fn held_pids(dir: &Path) -> Result<Vec<i32>> {
     let mut held = Vec::new();
-    for (mut file, path) in use_files(places, kind)? {
+    for (file, path) in use_files(dir)? {
         if try_lock(&file, libc::LOCK_SH, &path)? {
             continue;
         }
-        let mut text = String::new();
-        file.read_to_string(&mut text)
-            .context(|| format!("reading which process holds {}", path.display()))?;
-        let Some(pid) = crate::checkout::file_name(&path).parse().ok() else {
-            fail!("{} is not named for a process", path.display());
-        };
-        held.push(Held {
-            pid,
-            text: text.trim().to_string(),
-        });
+        let pid = crate::checkout::file_name(&path)
+            .parse()
+            .context(|| format!("reading the process ID from {}", path.display()))?;
+        held.push(pid);
     }
     Ok(held)
 }
@@ -710,8 +729,8 @@ fn held_uses(places: &Places, kind: Kind) -> Result<Vec<Held>> {
 /// Removes the file of each use of <kind> whose lock is free: its process
 /// ended without removing it, so nothing reads the file. Leaves the file of
 /// each use that holds its lock.
-fn remove_ended_uses(places: &Places, kind: Kind) -> Result<()> {
-    for (file, path) in use_files(places, kind)? {
+fn remove_ended_uses(dir: &Path) -> Result<()> {
+    for (file, path) in use_files(dir)? {
         if try_lock(&file, libc::LOCK_EX, &path)? {
             remove_use_file(&file, &path)?;
         }
@@ -719,24 +738,11 @@ fn remove_ended_uses(places: &Places, kind: Kind) -> Result<()> {
     Ok(())
 }
 
-/// A use that a running install waits for: its process and what its file
-/// says (`process <pid>, builds <what>, since <time>`).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Held {
-    pub pid: i32,
-    pub text: String,
-}
-
-/// What a running install waits for, as `waiting` reads it. Install closes
-/// the commands gate first, so a command that holds a use for its life waits
-/// whenever install waits.
+/// Processes on either side of an install's closed gates.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Waiting {
-    /// Whether install closed the connections gate, so every command that
-    /// opens a store waits when it starts.
-    pub connections_closed: bool,
-    /// The uses of the closed gates' kinds that still hold their locks.
-    pub held: Vec<Held>,
+    pub held: Vec<i32>,
+    pub blocked: Vec<i32>,
 }
 
 /// What a running install waits for: None when no install runs, or when it
@@ -753,18 +759,17 @@ pub fn waiting(places: &Places) -> Result<Option<Waiting>> {
         return Ok(None);
     }
     let mut held = Vec::new();
+    let mut blocked = Vec::new();
     for (kind, closed) in [
         (Kind::Command, commands_closed),
         (Kind::Connection, connections_closed),
     ] {
         if closed {
-            held.extend(held_uses(places, kind)?);
+            held.extend(held_pids(&kind.uses(places))?);
+            blocked.extend(held_pids(&kind.waiters(places))?);
         }
     }
-    Ok(Some(Waiting {
-        connections_closed,
-        held,
-    }))
+    Ok(Some(Waiting { held, blocked }))
 }
 
 #[cfg(test)]

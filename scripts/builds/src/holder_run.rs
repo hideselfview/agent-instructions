@@ -39,6 +39,8 @@ pub struct RunningStep {
 /// How long a holder has waited and built, at one moment, in whole minutes.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RunTimes {
+    /// When the build took its checkout or started its latest step.
+    pub moved_at: i64,
     /// How long it waited in the lane's queue in all.
     pub waited_minutes: i64,
     /// How long it has built since it joined the queue, leaving out its
@@ -55,20 +57,21 @@ pub struct StepTime {
 }
 
 impl HolderRun {
-    pub fn moved_at(&self) -> i64 {
-        self.step
-            .as_ref()
-            .map_or(self.joined_at + (self.waited_ms / 1000) as i64, |step| {
-                step.started_at
-            })
+    /// The time the build took its checkout, in seconds since 1970.
+    pub fn checkout_at(&self) -> i64 {
+        self.joined_at + (self.waited_ms / 1000) as i64
     }
 
     /// Its times at <now>, seconds since 1970.
     pub fn times(&self, now: i64) -> RunTimes {
         let waited = (self.waited_ms / 1000) as i64;
         RunTimes {
+            moved_at: self
+                .step
+                .as_ref()
+                .map_or_else(|| self.checkout_at(), |step| step.started_at),
             waited_minutes: waited / 60,
-            building_minutes: minutes_since(now, self.joined_at + waited),
+            building_minutes: minutes_since(now, self.checkout_at()),
             step: self.step.as_ref().map(|step| StepTime {
                 name: step.name.clone(),
                 minutes: minutes_since(now, step.started_at),

@@ -97,12 +97,18 @@ pub fn waits_for_others(lists: &Lists, item: &Item) -> bool {
 
 /// The open items whose priority keeps a last-place item from starting.
 pub fn items_ahead_of_last<'a>(lists: &'a Lists, item: &'a Item) -> impl Iterator<Item = &'a Item> {
-    let last = item
-        .priority
-        .as_ref()
-        .is_some_and(|p| p.level == Level::Last);
-    lists.items.iter().filter(move |other| {
-        last && other.id != item.id
+    let candidates = if item.running.is_empty()
+        && item
+            .priority
+            .as_ref()
+            .is_some_and(|p| p.level == Level::Last)
+    {
+        lists.items.as_slice()
+    } else {
+        &[]
+    };
+    candidates.iter().filter(move |other| {
+        other.id != item.id
             && other.r#for == item.r#for
             && !other
                 .priority

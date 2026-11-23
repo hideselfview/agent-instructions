@@ -82,6 +82,7 @@ fn while_install_waits_for_a_command_use_connections_still_open_and_install_wait
         })
     };
     assert_eq!(next(&hook_run_2), said(RUNS_AGAIN));
+    assert_eq!(waiting(&places).unwrap().unwrap().blocked, [13]);
     // A command that takes a use per connection starts, and its two
     // connections share one use.
     let Entered::Start(listing) = PerConnection::enter(
@@ -128,6 +129,7 @@ fn while_install_waits_for_a_command_use_connections_still_open_and_install_wait
         next(&opener_events),
         said("builds install moves the stores: this command waits until it finishes")
     );
+    assert_eq!(waiting(&places).unwrap().unwrap().blocked, [13, 14]);
     drop(closed);
     assert_eq!(
         next(&hook_run_2),
@@ -354,11 +356,8 @@ fn waiting_names_each_use_a_running_install_waits_for() {
     assert_eq!(
         waiting(&places).unwrap(),
         Some(Waiting {
-            connections_closed: false,
-            held: vec![Held {
-                pid: 11,
-                text: "process 11, builds checks run, since 10:00:00".to_string(),
-            }],
+            held: vec![11],
+            blocked: Vec::new(),
         })
     );
     drop(hook_run);
@@ -369,11 +368,8 @@ fn waiting_names_each_use_a_running_install_waits_for() {
     assert_eq!(
         waiting(&places).unwrap(),
         Some(Waiting {
-            connections_closed: true,
-            held: vec![Held {
-                pid: 12,
-                text: "process 12, builds item list, since 10:00:01".to_string(),
-            }],
+            held: vec![12],
+            blocked: Vec::new(),
         })
     );
     drop(connection);

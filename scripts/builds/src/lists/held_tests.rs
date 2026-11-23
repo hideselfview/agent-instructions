@@ -233,7 +233,6 @@ fn side_read(ahead: &[String]) -> SideRead {
 fn loaded(lists: Lists) -> std::result::Result<Vec<Loaded>, String> {
     Ok(vec![Loaded {
         project: "demo".into(),
-        progress: Default::default(),
         lists: Ok(lists),
     }])
 }
@@ -621,7 +620,6 @@ fn health_sees_an_item_of_either_project_in_a_repo_two_projects_hold() {
         lists.project = project.into();
         Loaded {
             project: project.into(),
-            progress: Default::default(),
             lists: Ok(lists),
         }
     };

@@ -257,9 +257,14 @@ pub struct Place {
 
 /// The place <dir> is in, the deepest when several hold it.
 pub fn place_of(places: &[Place], dir: &Path) -> Option<usize> {
-    (0..places.len())
-        .filter(|at| dir.starts_with(&places[*at].top))
-        .max_by_key(|at| places[*at].top.as_os_str().len())
+    deepest_containing(places.iter().map(|place| place.top.as_path()), dir)
+}
+
+pub fn deepest_containing<'a>(tops: impl Iterator<Item = &'a Path>, dir: &Path) -> Option<usize> {
+    tops.enumerate()
+        .filter(|(_, top)| dir.starts_with(top))
+        .max_by_key(|(_, top)| top.as_os_str().len())
+        .map(|(at, _)| at)
 }
 
 /// The place the working directory of process <pid> is in; None when it is
@@ -475,7 +480,8 @@ mod tests {
             .unwrap();
         let out_dir = format!("{}/target/debug", places[0].root.display());
         let mut by_argument = std::process::Command::new("/bin/bash")
-            .args(["-c", "sleep 30; :", "rustc", &out_dir])
+            .args(["-c", "read -r line", "rustc", &out_dir])
+            .stdin(std::process::Stdio::piped())
             .current_dir("/")
             .spawn()
             .unwrap();

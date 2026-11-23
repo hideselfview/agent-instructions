@@ -51,7 +51,6 @@ fn loaded(top: &std::path::Path, answered: bool) -> Vec<Loaded> {
     }
     vec![Loaded {
         project: "demo".into(),
-        progress: Default::default(),
         lists: Ok(read(&db)),
     }]
 }

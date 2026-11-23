@@ -62,7 +62,6 @@ fn lock(checkout: &str, minutes: i64, from: &str, running: &[&str]) -> LockHealt
             started_from: Some(from.into()),
             app_head: None,
             driver_running: true,
-            moved_at: None,
             run: None,
         }),
     }
@@ -72,6 +71,7 @@ fn lock(checkout: &str, minutes: i64, from: &str, running: &[&str]) -> LockHealt
 /// <building> minutes since, and runs <step> for its minutes.
 fn running(mut lock: LockHealth, waited: i64, building: i64, step: (&str, i64)) -> LockHealth {
     lock.holder.as_mut().unwrap().run = Some(RunTimes {
+        moved_at: 0,
         waited_minutes: waited,
         building_minutes: building,
         step: Some(StepTime {
@@ -186,6 +186,7 @@ fn a_lane_with_a_running_build_says_whose_it_is_and_what_runs() {
             who: "mac-alerts".into(),
             branch: None,
             run: Some(RunTimes {
+                moved_at: 0,
                 waited_minutes: 25,
                 building_minutes: 7,
                 step: Some(StepTime {

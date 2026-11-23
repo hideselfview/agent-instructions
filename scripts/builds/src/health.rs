@@ -19,7 +19,7 @@ use crate::fail::{Context, Fail, Result};
 use crate::holder_run::{HolderRun, RunTimes};
 use crate::host::Host;
 use crate::lane::Lane;
-use crate::lists::held::DesignApproval;
+use crate::lists::held::{DesignApproval, DesignWait};
 use crate::places::DiskSpace;
 use crate::procs::{
     BUILD_NAMES, BuildProcess, Place, Process, Processes, args, build_processes, cores, live_args,
@@ -290,7 +290,6 @@ pub struct Holder {
     /// the lock still run? False when only processes it started still have
     /// the lock file open: the build is over and what is left keeps the lock.
     pub driver_running: bool,
-    pub moved_at: Option<i64>,
     /// How long the build waited for the lock, how long it has built, and
     /// the step it runs, from the record it keeps beside the lock
     /// (holder_run.rs); None when the process that took the lock has kept no
@@ -585,7 +584,6 @@ pub fn sample(
             started_from: started_from(places, process.pid),
             app_head: app_top.as_deref().and_then(head_of),
             driver_running,
-            moved_at: run.as_ref().map(HolderRun::moved_at),
             run: run.as_ref().map(|record| record.times(now)),
         });
         held.push(LockHealth {
@@ -751,8 +749,7 @@ pub struct Claimed {
     pub git: GitRead,
     /// Design coverage is unknown, or the worktree awaits approval after
     /// its rules review clears (decision #362).
-    pub design_prevents_release: bool,
-    pub design_approval: Option<DesignApproval>,
+    pub design_wait: Option<DesignWait>,
     pub noted_at: i64,
     /// What blocks its branch from landing, from the review records; None
     /// when health did not read them (nothing waits to land there).
@@ -879,8 +876,7 @@ pub fn assess(
         claim,
         branch,
         git,
-        design_prevents_release,
-        design_approval,
+        design_wait,
         noted_at,
         landing,
     } in claimed
@@ -947,7 +943,7 @@ pub fn assess(
         schedule_needed |= !held || git.is_err();
         let idle_for_release = !held
             && git.is_ok()
-            && !design_prevents_release
+            && design_wait.is_none()
             && building.is_empty()
             && remote_runs.is_empty()
             && app_builds.is_empty()
@@ -963,7 +959,10 @@ pub fn assess(
             quiet_minutes,
             moved_at,
             idle_for_release,
-            design_approval,
+            design_approval: match design_wait {
+                Some(DesignWait::Approval(approval)) => Some(approval),
+                _ => None,
+            },
             landing,
             building,
             remote_runs,
@@ -1146,7 +1145,6 @@ pub fn lists_findings(
     reads: WorktreeReads,
 ) -> Result<Vec<Advice>> {
     let WorktreeReads { designs, reviews } = reads;
-    use crate::lists::held::DesignWait;
     let held = crate::lists::held::inspect(loaded, worktrees, designs);
     for one in claimed.iter_mut() {
         let landing = worktrees
@@ -1157,16 +1155,11 @@ pub fn lists_findings(
             landing,
             Some(Ok(crate::review::idle::Landing::ReviewClear(_)))
         );
-        match held.design_waits.get(&places[one.place].label) {
-            Some(DesignWait::Checking | DesignWait::Unread) => {
-                one.design_prevents_release = true;
-            }
-            Some(DesignWait::Approval(design)) if review_clear => {
-                one.design_prevents_release = true;
-                one.design_approval = Some(design.clone());
-            }
-            _ => {}
-        }
+        one.design_wait = match held.design_waits.get(&places[one.place].label) {
+            approval @ Some(DesignWait::Approval(_)) if review_clear => approval.cloned(),
+            unavailable @ Some(DesignWait::Checking | DesignWait::Unread) => unavailable.cloned(),
+            _ => None,
+        };
         one.landing = landing.map(|landing| match landing {
             Ok(landing) => landing.advice(),
             Err(fault) => Advice::said(format!(
@@ -1197,6 +1190,13 @@ pub struct WorktreeReads<'a> {
 
 /// Gathers the machine's health now, reading everything itself.
 pub fn health(tool: &Tool) -> Result<Health> {
+    read_health(tool, &crate::lists::store::load_all(&tool.places))
+}
+
+fn read_health(
+    tool: &Tool,
+    loaded: &std::result::Result<Vec<crate::lists::store::Loaded>, String>,
+) -> Result<Health> {
     let now = tool.now;
     let roots = tool.roots()?;
     let live: Vec<&Root> = roots.iter().filter(|root| root.live.is_some()).collect();
@@ -1213,10 +1213,9 @@ pub fn health(tool: &Tool) -> Result<Health> {
     let mut claimed = Vec::new();
     let mut unclaimed = Vec::new();
     let mut unreadable = Vec::new();
-    let loaded = crate::lists::store::load_all(&tool.places);
     // While a store does not load, health names each unclaimed worktree
     // with commits and says it cannot tell whether an item is kept there.
-    let kept = crate::lists::kept_work::kept_worktrees(&loaded);
+    let kept = crate::lists::kept_work::kept_worktrees(loaded);
     for (at, root) in live.iter().enumerate() {
         let checkout = root.live.as_ref().expect("live");
         if !checkout.is_side() {
@@ -1264,7 +1263,7 @@ pub fn health(tool: &Tool) -> Result<Health> {
             &git,
             &crate::lists::held::Readings {
                 commits: &machine.commits,
-                loaded: &loaded,
+                loaded,
             },
         )?);
         judged.push(Claimed {
@@ -1272,8 +1271,7 @@ pub fn health(tool: &Tool) -> Result<Health> {
             claim,
             branch,
             git,
-            design_prevents_release: false,
-            design_approval: None,
+            design_wait: None,
             noted_at,
             landing: None,
         });
@@ -1281,7 +1279,7 @@ pub fn health(tool: &Tool) -> Result<Health> {
     let lists = lists_findings(
         &tool.places,
         crate::lists::store::integrity(&tool.places),
-        &loaded,
+        loaded,
         &places,
         &mut judged,
         &held_worktrees,
@@ -1312,7 +1310,7 @@ pub fn health(tool: &Tool) -> Result<Health> {
         judged,
         LeftBehind {
             worktrees: unclaimed,
-            branches: crate::unlanded::unheld(loose, &loaded),
+            branches: crate::unlanded::unheld(loose, loaded),
         },
         lists,
     );
@@ -1322,7 +1320,7 @@ pub fn health(tool: &Tool) -> Result<Health> {
     health.findings.extend(unreadable);
     health
         .findings
-        .extend(crate::main_checkout::findings(&tool.places.home, &loaded));
+        .extend(crate::main_checkout::findings(&tool.places.home, loaded));
     Ok(health)
 }
 
@@ -1559,7 +1557,7 @@ pub struct Scanned {
     /// What a running install waits for (install_gate.rs).
     pub install: std::result::Result<Option<crate::install_gate::Waiting>, String>,
     pub holders: crate::job_claim::Holders,
-    pub completed: std::result::Result<crate::health_stillness::Completed, String>,
+    pub progress: std::result::Result<crate::health_stillness::Progress, String>,
     /// The processes whose caller is gone (orphans.rs) that health has not
     /// stopped.
     pub orphans: Vec<crate::orphans::Orphan>,
@@ -1584,12 +1582,35 @@ impl Scanned {
         Scanned {
             install: crate::install_gate::waiting(places).map_err(|fault| fault.text()),
             holders: holders.clone(),
-            completed: crate::health_stillness::Completed::read(places).map_err(Fail::text),
+            progress: crate::health_stillness::Progress::read(places),
             orphans: crate::orphans::find(&scans, holders),
             caches: crate::sccache_queue::judge(&places.home, &scans, now)
                 .map_err(|fault| fault.text()),
             scans,
             at: now,
+        }
+    }
+
+    fn forget_stopped(&mut self, stopped: &[crate::orphans::Orphan]) {
+        use crate::orphans::Kind;
+        for orphan in stopped {
+            let Some((_, Ok(scan))) = self
+                .scans
+                .iter_mut()
+                .find(|(host, _)| host.name == orphan.host.name)
+            else {
+                continue;
+            };
+            let gone: std::collections::BTreeSet<_> = match &orphan.kind {
+                Kind::Process { tree, .. } => tree.iter().copied().collect(),
+                Kind::Job { job, .. } => crate::host_scan::tree(&scan.rows, job.leader)
+                    .into_iter()
+                    .map(|row| row.pid)
+                    .chain([job.leader])
+                    .collect(),
+            };
+            scan.rows.retain(|row| !gone.contains(&row.pid));
+            scan.jobs.retain(|job| !gone.contains(&job.leader));
         }
     }
 }
@@ -1740,23 +1761,11 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
             Err(Fail::Exit(1))
         };
     }
+    let mut loaded = crate::lists::store::load_all(&tool.places);
     let mut health = match crate::daemon::client::health(&tool.places) {
         Some(health) => health,
-        None => health(tool)?,
+        None => read_health(tool, &loaded)?,
     };
-    // A stalled claim that holds no work is released, and its item stopped,
-    // from this reading; health reads again so the lists show what is left.
-    match crate::health_fix::release_stalled_claims(tool, &health) {
-        Ok(lines) if lines.is_empty() => {}
-        Ok(lines) => {
-            lines.iter().for_each(crate::text::note);
-            health = self::health(tool)?;
-        }
-        Err(error) => crate::text::note(format!(
-            "could not check which stalled claims hold nothing: {}",
-            error.text()
-        )),
-    }
     // builds health reads the busy processes itself: the daemon's health
     // holds none, and builds health prints every busy process, not only the
     // ones stuck.rs judges stuck.
@@ -1847,6 +1856,45 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
         scans.push((host.clone(), processes.scan));
         busy.push(processes.busy);
     }
+    let mut scanned = Scanned::judge(&tool.places, scans, &holders, tool.now);
+    let stops =
+        crate::health_fix::stop_orphans(std::mem::take(&mut scanned.orphans), &|host, script| {
+            crate::host::output_of(
+                crate::host::command_at(&ssh, host, script, crate::host::Terminal::None),
+                &format!("the stop script on {}", crate::host::place(&host.name)),
+            )
+        });
+    stops.lines.iter().for_each(crate::text::note);
+    scanned.orphans = stops.remaining;
+    scanned.forget_stopped(&stops.stopped);
+    crate::health_stillness::append(
+        &mut health,
+        &loaded,
+        Some(&scanned),
+        &tool.places,
+        tool.now,
+        tool.rules.still_minutes,
+    );
+    match crate::health_fix::release_stalled_claims(tool, &health) {
+        Ok(lines) if lines.is_empty() => {}
+        Ok(lines) => {
+            lines.iter().for_each(crate::text::note);
+            loaded = crate::lists::store::load_all(&tool.places);
+            health = read_health(tool, &loaded)?;
+            crate::health_stillness::append(
+                &mut health,
+                &loaded,
+                Some(&scanned),
+                &tool.places,
+                tool.now,
+                tool.rules.still_minutes,
+            );
+        }
+        Err(error) => crate::text::note(format!(
+            "could not check which idle claims hold nothing: {}",
+            error.text()
+        )),
+    }
     health.findings.extend(dashboard_finding(dashboard));
     let (prune_line, prune_late) = crate::prune_schedule::health(&tool.places, tool.now);
     health.findings.extend(
@@ -1872,9 +1920,7 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
     health
         .findings
         .extend(crate::fsevents_log::finding(&tool.places));
-    let loaded = crate::lists::store::load_all(&tool.places);
     let ready = crate::host_load::ready_items(&loaded);
-    let mut scanned = Scanned::judge(&tool.places, scans, &holders, tool.now);
     health.findings.extend(
         crate::host_load::findings(&measured, ready, tool.rules.floor_kib)
             .into_iter()
@@ -1885,25 +1931,9 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
     // written or removed one.
     let refusals = crate::host::refusals(&tool.places)?;
     let installed = crate::host_installed::read_all_installed(&tool.places, &ssh, &hosts);
-    let (stopped, orphans) =
-        crate::health_fix::stop_orphans(std::mem::take(&mut scanned.orphans), &|host, script| {
-            crate::host::output_of(
-                crate::host::command_at(&ssh, host, script, crate::host::Terminal::None),
-                &format!("the stop script on {}", crate::host::place(&host.name)),
-            )
-        });
-    stopped.iter().for_each(crate::text::note);
-    scanned.orphans = orphans;
     health
         .findings
         .extend(host_findings(&scanned, &busy, &refusals, &installed));
-    crate::health_stillness::append(
-        &mut health,
-        &loaded,
-        Some(&scanned),
-        tool.now,
-        tool.rules.still_minutes,
-    );
     if json {
         let mut value = serde_json::to_value(&health).expect("health serializes");
         value["busy"] = serde_json::json!(
@@ -2093,8 +2123,7 @@ mod tests {
                     },
                     branch: Some("work".to_string()),
                     git: git(ahead, claimed_unread),
-                    design_prevents_release: false,
-                    design_approval: None,
+                    design_wait: None,
                     noted_at: 0,
                     landing: None,
                 })
@@ -2202,8 +2231,7 @@ mod tests {
                 uncommitted: 3,
                 last_write: Some(now - 2 * 3600),
             }),
-            design_prevents_release: false,
-            design_approval: None,
+            design_wait: None,
             noted_at: 0,
             landing: None,
         };
@@ -2286,8 +2314,7 @@ mod tests {
                     uncommitted: 0,
                     last_write: Some(now - 2 * 3600),
                 }),
-                design_prevents_release: false,
-                design_approval: None,
+                design_wait: None,
                 noted_at: 0,
                 landing: None,
             };
@@ -2367,8 +2394,7 @@ mod tests {
                     uncommitted: 0,
                     last_write: Some(now - 2 * 3600),
                 }),
-                design_prevents_release: false,
-                design_approval: None,
+                design_wait: None,
                 noted_at: 0,
                 landing: Some(
                     crate::review::idle::Landing::ReviewClear(
@@ -2496,8 +2522,7 @@ mod tests {
                     uncommitted: 0,
                     last_write: None,
                 }),
-                design_prevents_release: false,
-                design_approval: None,
+                design_wait: None,
                 noted_at: 0,
                 landing: None,
             };
@@ -2737,7 +2762,7 @@ mod tests {
             scans: Vec::new(),
             install: Ok(None),
             holders: crate::job_claim::Holders::read().unwrap(),
-            completed: Ok(Default::default()),
+            progress: Ok(Default::default()),
             orphans: Vec::new(),
             caches: Ok(Vec::new()),
             at: 0,

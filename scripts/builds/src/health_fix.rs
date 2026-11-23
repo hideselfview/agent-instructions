@@ -118,6 +118,13 @@ pub fn fix_hosts(
     lines
 }
 
+/// What the stop pass reported, what it stopped and what still runs.
+pub struct OrphanStops {
+    pub lines: Vec<String>,
+    pub remaining: Vec<crate::orphans::Orphan>,
+    pub stopped: Vec<crate::orphans::Orphan>,
+}
+
 /// Stops each of <orphans> that health stops, with <stop>, which runs an
 /// orphan's `stop_script` on its host and returns what it printed or why it
 /// could not run it. An orphan is stopped when the script names no target
@@ -127,7 +134,8 @@ pub fn fix_hosts(
 pub fn stop_orphans(
     orphans: Vec<crate::orphans::Orphan>,
     stop: &dyn Fn(&Host, &str) -> std::result::Result<String, String>,
-) -> (Vec<String>, Vec<crate::orphans::Orphan>) {
+) -> OrphanStops {
+    let mut stopped = Vec::new();
     let mut lines = Vec::new();
     let mut left = Vec::new();
     for orphan in orphans {
@@ -144,7 +152,8 @@ pub fn stop_orphans(
         });
         match refused {
             Ok(refused) if refused.is_empty() => {
-                lines.push(format!("stopped {}: its caller was gone", orphan.what()))
+                lines.push(format!("stopped {}: its caller was gone", orphan.what()));
+                stopped.push(orphan);
             }
             Ok(refused) => {
                 lines.push(format!(
@@ -161,7 +170,11 @@ pub fn stop_orphans(
             }
         }
     }
-    (lines, left)
+    OrphanStops {
+        lines,
+        remaining: left,
+        stopped,
+    }
 }
 
 /// Releases each claim that health would tell the coordinator to release

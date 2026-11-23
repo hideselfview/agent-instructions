@@ -6,6 +6,9 @@ use rusqlite::{Connection, params};
 use crate::db::Sql;
 use crate::fail::Result;
 
+/// The end of an exchange, rounded up to a whole second. The row has alias `t`.
+pub const END_AT: &str = "t.started_at + (t.ms + 999) / 1000";
+
 /// Records that exchange <exchange> began at <started_at> (seconds since
 /// 1970) and ran <ms> milliseconds.
 pub fn record(db: &Connection, exchange: i64, started_at: i64, ms: i64) -> Result<()> {

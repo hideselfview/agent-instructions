@@ -17,7 +17,7 @@ use std::path::Path;
 
 use crate::checkout::Checkout;
 use crate::fail;
-use crate::fail::Result;
+use crate::fail::{Context, Result};
 use crate::places::Places;
 use crate::text::{local_minute, local_minute_epoch, note};
 use crate::whole_file::remove_if_present;
@@ -182,29 +182,33 @@ mod minute_text {
 impl Claim {
     /// The claim in <file>, or None when there is none.
     pub fn read(file: &Path) -> Result<Option<Claim>> {
-        Ok(Self::read_with_time(file)?.map(|(claim, _)| claim))
+        Ok(Self::read_open(file)?.map(|(_, claim)| claim))
     }
 
     /// The claim and the last write of that same file.
     pub fn read_with_time(file: &Path) -> Result<Option<(Claim, i64)>> {
-        use std::io::Read;
         use std::os::unix::fs::MetadataExt;
+        let Some((opened, claim)) = Self::read_open(file)? else {
+            return Ok(None);
+        };
+        let modified = opened
+            .metadata()
+            .context(|| format!("reading the modification time of {}", file.display()))?
+            .mtime();
+        Ok(Some((claim, modified)))
+    }
+
+    fn read_open(file: &Path) -> Result<Option<(std::fs::File, Claim)>> {
+        use std::io::Read;
         let mut opened = match std::fs::File::open(file) {
             Ok(opened) => opened,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             Err(error) => fail!("reading {}: {error}", file.display()),
         };
         let mut text = String::new();
-        if let Err(error) = opened.read_to_string(&mut text) {
-            fail!("reading {}: {error}", file.display());
-        }
-        let modified = match opened.metadata() {
-            Ok(metadata) => metadata.mtime(),
-            Err(error) => fail!(
-                "reading the modification time of {}: {error}",
-                file.display()
-            ),
-        };
+        opened
+            .read_to_string(&mut text)
+            .context(|| format!("reading {}", file.display()))?;
         let line = text.lines().next().unwrap_or("");
         let mut fields = line.split('\t').filter(|field| !field.is_empty());
         let field = |value: Option<&str>| value.map(str::to_string);
@@ -220,7 +224,7 @@ impl Claim {
             Note::from_fields(field(fields.next()), field(fields.next())).map_err(|fault| {
                 fail::Fail::Message(format!("reading {}: {}", file.display(), fault.text()))
             })?;
-        Ok(Some((Claim { who, since, note }, modified)))
+        Ok(Some((opened, Claim { who, since, note })))
     }
 
     pub fn write(&self, file: &Path) -> Result<()> {

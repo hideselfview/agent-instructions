@@ -935,10 +935,8 @@ impl Model {
             };
             let mut state = self.state.lock().expect("no panic holding it");
             state.page.host_scan = scan;
-            if state.page.host_findings != found {
-                state.page.host_findings = found;
-                self.changes.advance();
-            }
+            state.page.host_findings = found;
+            self.changes.advance();
             if state.page.compile_cache != rates || state.page.compile_cache_error != rates_error {
                 state.page.compile_cache = rates;
                 state.page.compile_cache_error = rates_error;
@@ -1822,6 +1820,7 @@ impl Model {
                 health,
                 &snapshot,
                 state.host_scan.as_deref(),
+                &self.places,
                 now_seconds(),
                 self.rules.still_minutes,
             );
@@ -2248,8 +2247,7 @@ fn claimed_of(
             claim: claim.clone(),
             branch: branch.clone(),
             git: git.clone(),
-            design_prevents_release: false,
-            design_approval: None,
+            design_wait: None,
             noted_at: *noted_at,
             landing: None,
         });

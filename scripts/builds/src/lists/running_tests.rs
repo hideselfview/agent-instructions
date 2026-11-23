@@ -51,7 +51,6 @@ fn loaded_running_in(worktree: &Path) -> Vec<Loaded> {
     .unwrap();
     vec![Loaded {
         project: "demo".into(),
-        progress: Default::default(),
         lists: Ok(read(&db)),
     }]
 }
@@ -135,7 +134,6 @@ fn a_folder_where_a_worktree_was_is_not_live() {
 fn a_store_failing_its_check_is_a_finding() {
     let bad = vec![Loaded {
         project: "demo".into(),
-        progress: Default::default(),
         lists: Err("ids repeat".into()),
     }];
     assert_eq!(

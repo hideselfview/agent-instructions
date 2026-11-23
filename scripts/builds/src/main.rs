@@ -17,6 +17,7 @@ mod app_site;
 mod app_timing;
 mod app_tree;
 mod awake;
+mod branch_end;
 mod brief;
 mod build_app;
 #[cfg(test)]

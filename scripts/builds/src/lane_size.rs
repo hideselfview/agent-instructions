@@ -323,7 +323,7 @@ pub fn last_use(at: RepoLane, entry: &str) -> Result<Option<i64>> {
         Err(error) => fail!("reading {}: {error}", ended.display()),
     }
     if let Some(run) = HolderRun::read(&places.app_lock_run_file(repo, lane, entry))? {
-        last = last.max(Some(run.joined_at + (run.waited_ms / 1000) as i64));
+        last = last.max(Some(run.checkout_at()));
         if let Some(step) = run.step {
             last = last.max(Some(step.started_at));
         }

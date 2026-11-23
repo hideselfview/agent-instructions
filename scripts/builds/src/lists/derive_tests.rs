@@ -161,6 +161,27 @@ fn a_last_item_waits_while_other_coordinator_work_is_open() {
     assert_eq!(state(last), ItemState::Ready);
 }
 
+#[test]
+fn a_running_last_item_has_no_priority_wait() {
+    let db = db();
+    let last = item(&db, vec![]);
+    priority(&db, last, Level::Last);
+    crate::lists::running::start(
+        &db,
+        &[last],
+        &[Running {
+            worktree: "/d/bae-worktrees/side-1".into(),
+            branch: "work".into(),
+            brief: "brief".into(),
+            since: stamp(NOON),
+        }],
+    )
+    .unwrap();
+    item(&db, vec![]);
+    let lists = read(&db);
+    assert!(!waits_for_others(&lists, lists.item(last).unwrap()));
+}
+
 fn order(db: &Connection) -> Vec<(u32, usize)> {
     stack_order(&read(db))
         .iter()

@@ -865,12 +865,13 @@ pub struct ReviewProgress {
 /// Reviews of changes that have yet to land. The run's timestamp covers
 /// older records whose exchanges have no recorded end.
 pub fn open_progress(db: &Connection) -> Result<Vec<ReviewProgress>> {
+    let end_at = super::exchange_time::END_AT;
     let mut activity = db
-        .prepare(
+        .prepare(&format!(
             "SELECT MAX(at) FROM (
              SELECT opened_at AS at FROM review_landing WHERE id = ?1
              UNION ALL SELECT at FROM review_run WHERE landing_id = ?1 AND kind = 'review'
-             UNION ALL SELECT t.started_at + t.ms / 1000
+             UNION ALL SELECT {end_at}
                  FROM review_run r JOIN review_call c ON c.run_id = r.id
                  JOIN review_exchange e ON e.call_id = c.id
                  JOIN review_exchange_time t ON t.exchange_id = e.id
@@ -890,7 +891,7 @@ pub fn open_progress(db: &Connection) -> Result<Vec<ReviewProgress>> {
                  ) changed ON changed.finding_id = f.id
                  WHERE r.landing_id = ?1 AND r.kind = 'review'
          )",
-        )
+        ))
         .sql()?;
     all_landings(db)?
         .into_iter()

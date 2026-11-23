@@ -1,9 +1,13 @@
 //! The work health watches and the waits that link it. A wait does not
-//! advance its caller's clock. Work done by a caller's own processes does.
+//! advance the waiting item's clock. A review advances the worktree it reads.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
+
+use crate::db::Sql;
+use crate::fail::{Fail, Result};
+use crate::places::Places;
 
 use crate::health::{Advice, Finding, FindingKind, Health, LandingWait, Scanned, WorktreeHealth};
 use crate::host_scan::{Row, arguments, program};
@@ -152,11 +156,15 @@ impl WorkGraph {
             .collect()
     }
 
-    fn findings(&self, now: i64, limit: u64) -> Vec<Finding> {
+    fn times(&self) -> BTreeMap<Key, Option<i64>> {
         let mut times = BTreeMap::new();
         for key in self.0.keys() {
             self.moved_at(key, &mut times, &mut BTreeSet::new());
         }
+        times
+    }
+
+    fn findings(&self, times: &BTreeMap<Key, Option<i64>>, now: i64, limit: u64) -> Vec<Finding> {
         self.0
             .iter()
             .filter_map(|(key, work)| {
@@ -174,7 +182,7 @@ impl WorkGraph {
                     let trace = self.waits(
                         work,
                         now,
-                        &times,
+                        times,
                         &mut BTreeSet::new(),
                         &mut BTreeSet::from([key.clone()]),
                     );
@@ -217,16 +225,14 @@ fn blockers(lists: &Lists, item: &Item) -> Vec<Blocker> {
     waits
 }
 
-fn item_moved(lists: &Lists, item: &Item, event_at: Option<i64>) -> i64 {
+fn item_moved(lists: &Lists, item: &Item, event_at: Option<i64>) -> Result<i64> {
     let met = item
         .waits
         .iter()
         .filter(|wait| wait_met(lists, wait))
-        .filter_map(|wait| match wait {
-            Wait::Item(id) | Wait::Question(id) | Wait::Design(id) => lists.closed_record(*id),
-            Wait::Condition { .. } => None,
-        });
-    std::iter::once(item.opened.at)
+        .map(|wait| crate::lists::kept_work::met_by(lists, wait).map(|closed| closed.closed.at))
+        .collect::<Result<Vec<_>>>()?;
+    Ok(std::iter::once(item.opened.at)
         .chain(event_at)
         .chain(item.notes.iter().map(|note| note.at))
         .chain(item.running.iter().map(|run| run.since.at))
@@ -238,15 +244,16 @@ fn item_moved(lists: &Lists, item: &Item, event_at: Option<i64>) -> i64 {
                 .flatten(),
         )
         .chain(item.landed.iter().map(|part| part.at))
-        .chain(met.map(|closed| closed.closed.at))
+        .chain(met)
         .max()
-        .expect("the item has an opening time")
+        .expect("the item has an opening time"))
 }
 
-fn records(graph: &mut WorkGraph, loaded: &[Loaded]) {
+fn records(graph: &mut WorkGraph, loaded: &[Loaded], progress: Option<&Progress>) -> Result<()> {
     for project in loaded {
         let Ok(lists) = &project.lists else { continue };
         let name = &lists.project;
+        let progress = progress.and_then(|progress| progress.projects.get(name));
         for item in &lists.items {
             let state = item_state(lists, item);
             let otherwise = match state {
@@ -266,8 +273,8 @@ fn records(graph: &mut WorkGraph, loaded: &[Loaded]) {
                 Some(item_moved(
                     lists,
                     item,
-                    project.progress.items.get(&item.id).copied(),
-                )),
+                    progress.and_then(|progress| progress.items.get(&item.id).copied()),
+                )?),
                 otherwise,
             );
             work.waits = blockers(lists, item);
@@ -323,7 +330,7 @@ fn records(graph: &mut WorkGraph, loaded: &[Loaded]) {
             work.report = false;
             graph.0.insert(id, work);
         }
-        for review in &project.progress.reviews {
+        for review in progress.into_iter().flat_map(|progress| &progress.reviews) {
             let landing = &review.landing;
             let numbers = |ids: &[i64]| {
                 ids.iter()
@@ -357,6 +364,7 @@ fn records(graph: &mut WorkGraph, loaded: &[Loaded]) {
             );
         }
     }
+    Ok(())
 }
 
 fn worktree_pids(tree: &WorktreeHealth) -> impl Iterator<Item = i32> + '_ {
@@ -375,7 +383,7 @@ fn worktrees(
     health: &Health,
     loaded: &[Loaded],
     owned: &BTreeMap<String, Vec<Key>>,
-    completed: Option<&Completed>,
+    progress: Option<&Progress>,
 ) {
     for tree in &health.worktrees {
         let mut work = Work::new(
@@ -402,7 +410,11 @@ fn worktrees(
                 work.waits.extend(blockers(lists, item));
             }
             if let Some(branch) = &tree.branch {
-                for review in &project.progress.reviews {
+                for review in progress
+                    .and_then(|progress| progress.projects.get(&lists.project))
+                    .into_iter()
+                    .flat_map(|progress| &progress.reviews)
+                {
                     if review.landing.repo == repo
                         && review.landing.key.strip_prefix("branch:") == Some(branch)
                     {
@@ -425,8 +437,8 @@ fn worktrees(
                     .map(|id| Blocker::Work(record(&approval.project, *id))),
             );
         }
-        if let Some(completed) = completed {
-            work.moved_at = work.moved_at.max(completed.for_branch(repo, tree));
+        if let Some(progress) = progress {
+            work.moved_at = work.moved_at.max(progress.for_branch(repo, tree));
         }
         work.doing.extend(
             worktree_pids(tree)
@@ -474,22 +486,23 @@ fn command_kind(row: &Row) -> Option<&'static str> {
     }
 }
 
-fn output_at(pid: i32) -> Option<i64> {
-    crate::procs::output_paths(pid)
-        .filter_map(|path| match std::fs::metadata(&path) {
-            Ok(meta) if meta.is_file() => Some(meta.mtime()),
-            Ok(_) => None,
+fn output_at(pid: i32) -> std::result::Result<Option<i64>, String> {
+    let mut newest = None;
+    for path in crate::procs::output_paths(pid) {
+        match std::fs::metadata(&path) {
+            Ok(meta) if meta.is_file() => newest = newest.max(Some(meta.mtime())),
+            Ok(_) => {}
             // The process may close or replace a descriptor after the scan.
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(error) => {
-                crate::text::note(format!(
-                    "reading process {pid}'s output at {}: {error}",
+                return Err(format!(
+                    "health could not read output at {}: {error}",
                     path.display()
                 ));
-                None
             }
-        })
-        .max()
+        }
+    }
+    Ok(newest)
 }
 
 fn process_work(
@@ -529,7 +542,7 @@ fn process_work(
                     .ok()
                     .and_then(Option::as_ref)
                     .into_iter()
-                    .flat_map(|wait| wait.held.iter().map(|held| held.pid)),
+                    .flat_map(|wait| wait.held.iter().chain(&wait.blocked).copied()),
             );
             for row in scan
                 .rows
@@ -547,10 +560,11 @@ fn process_work(
                 let explicit =
                     command_kind(row).is_some() || crate::shells::is_agent_command(&row.command);
                 let checkout = crate::procs::cwd(row.pid).and_then(|cwd| {
-                    health
-                        .worktrees
-                        .iter()
-                        .find(|worktree| cwd.starts_with(Path::new(&worktree.path)))
+                    crate::procs::deepest_containing(
+                        health.worktrees.iter().map(|tree| Path::new(&tree.path)),
+                        &cwd,
+                    )
+                    .map(|at| &health.worktrees[at])
                 });
                 if let Some(tree) = checkout {
                     owned
@@ -560,51 +574,43 @@ fn process_work(
                 }
                 if explicit
                     || checkout.is_some()
-                    || crate::procs::environment(row.pid).is_some_and(|environment| {
-                        crate::procs::environment_value(&environment, crate::ack::agent::VARIABLE)
-                            .is_some()
-                    })
+                    || crate::procs::environment(row.pid)
+                        .and_then(|environment| crate::shells::agent_in_environment(&environment))
+                        .is_some()
                 {
                     roots.insert(row.pid);
                 }
             }
         }
         roots.extend(scan.jobs.iter().map(|job| job.leader));
-        let rows: BTreeMap<_, _> = scan
-            .rows
-            .iter()
-            .filter(|row| !row.zombie)
-            .map(|row| (row.pid, row))
-            .collect();
+        let rows = crate::host_scan::trees(&scan.rows, &roots);
         let mut children: BTreeMap<i32, Vec<i32>> = BTreeMap::new();
-        for row in rows.values() {
+        for row in rows.iter().filter(|row| !row.zombie) {
             children.entry(row.ppid).or_default().push(row.pid);
         }
-        let mut included = BTreeSet::new();
-        let mut pending: Vec<_> = roots.into_iter().collect();
-        while let Some(pid) = pending.pop() {
-            if included.insert(pid) {
-                pending.extend(children.get(&pid).into_iter().flatten());
-            }
-        }
-        for pid in &included {
-            let Some(row) = rows.get(pid) else { continue };
+        for row in rows.into_iter().filter(|row| !row.zombie) {
+            let pid = row.pid;
             let kind = command_kind(row).unwrap_or("process");
             let command = crate::shells::shown(&row.command);
             let place = crate::host::place(&host.name);
             let activity = scan
                 .active
-                .get(pid)
+                .get(&pid)
                 .map(|at| scanned.at - (scan.at - at).max(0));
-            let at = activity.max(local.then(|| output_at(*pid)).flatten());
-            let mut work = Work::new(
-                format!("{kind} {pid} on {place} ({command})"),
-                at,
-                "Health found no recorded wait.",
+            let name = format!("{kind} {pid} on {place} ({command})");
+            let (name, at) = match if local { output_at(pid) } else { Ok(None) } {
+                Ok(output) => (name, activity.max(output)),
+                Err(error) => (format!("{name} ({error})"), activity),
+            };
+            let mut work = Work::new(name, at, "Health found no recorded wait.");
+            work.doing.extend(
+                children
+                    .get(&pid)
+                    .into_iter()
+                    .flatten()
+                    .map(|pid| key(*pid)),
             );
-            work.doing
-                .extend(children.get(pid).into_iter().flatten().map(|pid| key(*pid)));
-            graph.0.insert(key(*pid), work);
+            graph.0.insert(key(pid), work);
         }
     }
     for (host, scan) in &scanned.scans {
@@ -622,7 +628,22 @@ fn process_work(
     owned
 }
 
-fn process_waits(graph: &mut WorkGraph, health: &Health, scanned: &Scanned, loaded: &[Loaded]) {
+fn review_wait(places: &Places, pid: i32) -> std::result::Result<Option<Key>, String> {
+    let Some(argv) = crate::procs::live_args(pid)? else {
+        return Ok(None);
+    };
+    let words = crate::ack::agent::without_flag(&argv);
+    let [_, "review", "wait", args @ ..] = words.as_slice() else {
+        return Ok(None);
+    };
+    let cwd = crate::procs::cwd(pid)
+        .ok_or_else(|| format!("process {pid} has no readable working directory"))?;
+    let args: Vec<_> = args.iter().map(|word| (*word).to_string()).collect();
+    let (store, id) = crate::review::wait_target(places, &args, &cwd).map_err(Fail::text)?;
+    Ok(Some(Key::Review(store.project, id)))
+}
+
+fn process_waits(graph: &mut WorkGraph, health: &Health, scanned: &Scanned, places: &Places) {
     if let Some((_, Ok(local))) = scanned.scans.iter().find(|(host, _)| host.target.is_none()) {
         let mut installs: Vec<_> = local
             .rows
@@ -634,12 +655,9 @@ fn process_waits(graph: &mut WorkGraph, health: &Health, scanned: &Scanned, load
             let key = Key::local(installer.pid);
             if let Some(work) = graph.get_mut(&key) {
                 match &scanned.install {
-                    Ok(Some(gates)) => work.waits.extend(
-                        gates
-                            .held
-                            .iter()
-                            .map(|held| Blocker::Work(Key::local(held.pid))),
-                    ),
+                    Ok(Some(gates)) => work
+                        .waits
+                        .extend(gates.held.iter().map(|pid| Blocker::Work(Key::local(*pid)))),
                     Ok(None) => {}
                     Err(error) => {
                         work.otherwise = Advice::said(format!(
@@ -648,35 +666,30 @@ fn process_waits(graph: &mut WorkGraph, health: &Health, scanned: &Scanned, load
                     }
                 }
             }
-            for row in waiting {
-                if let Some(work) = graph.get_mut(&Key::local(row.pid)) {
+            let blocked = scanned
+                .install
+                .as_ref()
+                .ok()
+                .and_then(Option::as_ref)
+                .into_iter()
+                .flat_map(|gates| gates.blocked.iter().copied());
+            for pid in waiting.iter().map(|row| row.pid).chain(blocked) {
+                if let Some(work) = graph.get_mut(&Key::local(pid)) {
                     work.waits.push(Blocker::Work(key.clone()));
                 }
             }
         }
         for row in &local.rows {
-            if let ["review", "wait", id, tail @ ..] = arguments(row).as_slice()
-                && let Ok(id) = id.parse::<i64>()
+            if command_kind(row) == Some("review wait")
                 && let Some(work) = graph.get_mut(&Key::local(row.pid))
             {
-                let named = tail
-                    .windows(2)
-                    .find(|pair| pair[0] == "--project")
-                    .map(|pair| pair[1]);
-                let candidates: Vec<_> = loaded
-                    .iter()
-                    .filter(|project| {
-                        named.is_none_or(|name| name == project.project)
-                            && project
-                                .progress
-                                .reviews
-                                .iter()
-                                .any(|review| review.landing.id == id)
-                    })
-                    .collect();
-                if let [project] = candidates.as_slice() {
-                    work.waits
-                        .push(Blocker::Work(Key::Review(project.project.clone(), id)));
+                match review_wait(places, row.pid) {
+                    Ok(Some(key)) => work.waits.push(Blocker::Work(key)),
+                    Ok(None) => {}
+                    Err(error) => {
+                        work.otherwise =
+                            Advice::said(format!("Health could not read the review wait: {error}"))
+                    }
                 }
             }
         }
@@ -696,9 +709,10 @@ fn process_waits(graph: &mut WorkGraph, health: &Health, scanned: &Scanned, load
     for lock in &health.locks {
         if let Some(holder) = &lock.holder
             && let Some(work) = graph.get_mut(&Key::local(holder.pid))
+            && let Some(run) = &holder.run
         {
-            work.moved_at = work.moved_at.max(holder.moved_at);
-            if let Some(step) = holder.run.as_ref().and_then(|run| run.step.as_ref()) {
+            work.moved_at = work.moved_at.max(Some(run.moved_at));
+            if let Some(step) = &run.step {
                 work.name.push_str(&format!(" running {}", step.name));
             }
         }
@@ -738,37 +752,50 @@ fn process_waits(graph: &mut WorkGraph, health: &Health, scanned: &Scanned, load
     }
 }
 
-/// Completed work can move a branch without making a new commit.
+/// Progress that health reads from the stores, apart from the work queue.
 #[derive(Default)]
-pub struct Completed(BTreeMap<String, BTreeMap<String, i64>>);
+pub struct Progress {
+    projects: BTreeMap<String, ProjectProgress>,
+    ends: BTreeMap<String, BTreeMap<String, i64>>,
+}
 
-impl Completed {
-    pub fn read(places: &crate::places::Places) -> crate::fail::Result<Self> {
-        let mut completed = Self::default();
-        for store in crate::lists::store::stores(places)? {
-            let db = store.open_existing()?;
-            for build in crate::app_timing::branch_ends(&db)? {
-                completed.record(build.repo, build.reference, build.at);
-            }
-            for (repo, branch, at) in crate::land_run::branch_ends(&db)? {
-                completed.record(repo, branch, at);
-            }
-        }
-        Ok(completed)
-    }
+struct ProjectProgress {
+    items: BTreeMap<Id, i64>,
+    reviews: Vec<crate::review::record::ReviewProgress>,
+}
 
-    fn record(&mut self, repo: String, reference: String, at: i64) {
-        let end = self
-            .0
-            .entry(repo)
-            .or_default()
-            .entry(reference)
-            .or_insert(at);
-        *end = (*end).max(at);
+impl Progress {
+    pub fn read(places: &Places) -> std::result::Result<Self, String> {
+        let read = || -> Result<Self> {
+            let mut progress = Self::default();
+            for store in crate::lists::store::stores(places)? {
+                let db = store.open_existing()?;
+                db.execute_batch("BEGIN").sql()?;
+                let items = crate::lists::item_event::last_open(&db)?;
+                let reviews = crate::review::record::open_progress(&db)?;
+                let builds = crate::app_timing::branch_ends(&db)?;
+                let landings = crate::land_run::branch_ends(&db)?;
+                db.execute_batch("END").sql()?;
+                for done in builds.into_iter().chain(landings) {
+                    let end = progress
+                        .ends
+                        .entry(done.repo)
+                        .or_default()
+                        .entry(done.reference)
+                        .or_insert(done.at);
+                    *end = (*end).max(done.at);
+                }
+                progress
+                    .projects
+                    .insert(store.project, ProjectProgress { items, reviews });
+            }
+            Ok(progress)
+        };
+        read().map_err(Fail::text)
     }
 
     fn for_branch(&self, repo: &str, tree: &WorktreeHealth) -> Option<i64> {
-        self.0
+        self.ends
             .get(repo)?
             .iter()
             .filter(|(reference, _)| {
@@ -782,36 +809,65 @@ impl Completed {
 
 pub fn append(
     health: &mut Health,
-    loaded: &Result<Vec<Loaded>, String>,
+    loaded: &std::result::Result<Vec<Loaded>, String>,
     scanned: Option<&Scanned>,
+    places: &Places,
     now: i64,
     limit: u64,
 ) {
-    // The lists findings already name each project that could not be read.
-    let projects = loaded.as_deref().unwrap_or(&[]);
+    let projects = match loaded {
+        Ok(projects) => projects.as_slice(),
+        Err(error) => {
+            health.schedule_needed = true;
+            health.findings.push(Finding::new(
+                FindingKind::Lists,
+                Advice::said(format!("Health could not read the lists: {error}")),
+            ));
+            &[]
+        }
+    };
+    let initial;
+    let progress = match scanned {
+        Some(scanned) => &scanned.progress,
+        None => {
+            initial = Progress::read(places);
+            &initial
+        }
+    };
     let mut graph = WorkGraph::default();
-    records(&mut graph, projects);
+    let loaded_progress = progress
+        .as_ref()
+        .map_err(|error| {
+            health.findings.push(Finding::new(
+                FindingKind::Lists,
+                Advice::said(format!("Health could not read recorded progress: {error}")),
+            ));
+            health.schedule_needed = true;
+        })
+        .ok();
+    if let Err(error) = records(&mut graph, projects, loaded_progress) {
+        health.findings.push(Finding::new(
+            FindingKind::Lists,
+            Advice::said(format!(
+                "Health could not trace an item wait: {}",
+                error.text()
+            )),
+        ));
+    }
     let owned = scanned
         .map(|scanned| {
             let owned = process_work(&mut graph, health, scanned);
-            process_waits(&mut graph, health, scanned, projects);
+            process_waits(&mut graph, health, scanned, places);
             owned
         })
         .unwrap_or_default();
-    let completed = match scanned.map(|scanned| &scanned.completed) {
-        Some(Ok(completed)) => Some(completed),
-        Some(Err(error)) => {
-            health.findings.push(Finding::new(
-                FindingKind::Lists,
-                Advice::said(format!(
-                    "Health could not read when app builds and landings ended: {error}"
-                )),
-            ));
-            None
-        }
-        None => None,
-    };
-    worktrees(&mut graph, health, projects, &owned, completed);
+    worktrees(&mut graph, health, projects, &owned, loaded_progress);
+    let times = graph.times();
+    for tree in &mut health.worktrees {
+        let key = Key::Worktree(tree.path.clone());
+        tree.moved_at = times[&key].expect("the worktree has a claim time");
+        tree.idle_for_release &= progress.is_ok() && graph.0[&key].doing.is_empty();
+    }
     health.schedule_needed |= projects.iter().any(|project| {
         project
             .lists
@@ -819,9 +875,9 @@ pub fn append(
             .is_ok_and(|lists| !lists.items.is_empty())
     }) || graph
         .0
-        .iter()
-        .any(|(key, work)| work.report && matches!(key, Key::Process(..) | Key::Review(..)));
-    health.findings.extend(graph.findings(now, limit));
+        .keys()
+        .any(|key| matches!(key, Key::Process(..) | Key::Review(..)));
+    health.findings.extend(graph.findings(&times, now, limit));
     health
         .shells
         .junk
@@ -866,7 +922,7 @@ pub fn append(
 mod tests {
     use super::*;
     use crate::host::Host;
-    use crate::install_gate::{Held, Waiting};
+    use crate::install_gate::Waiting;
     use crate::testing::Scratch;
 
     #[test]
@@ -879,21 +935,19 @@ mod tests {
             "uid=501\nnow=10000\ncpu_idle=90\nps_follows=1\n\
              999901 0 501 0 0:00 35:00 S builds install\n\
              999902 0 501 0 0:00 45:00 S builds checks run\n\
-             999903 999902 501 0 0:00 40:00 S cargo clippy\n",
+             999903 999902 501 0 0:00 40:00 S cargo clippy\n\
+             999904 0 501 0 0:00 32:00 S builds review .\n",
             &[],
         )
         .unwrap();
         let scanned = Scanned {
             scans: vec![(Host::local(), Ok(scan))],
             install: Ok(Some(Waiting {
-                connections_closed: false,
-                held: vec![Held {
-                    pid: 999902,
-                    text: "builds checks run".into(),
-                }],
+                held: vec![999902],
+                blocked: vec![999904],
             })),
             holders: crate::job_claim::Holders::read().unwrap(),
-            completed: Ok(Completed::default()),
+            progress: Ok(Progress::default()),
             orphans: Vec::new(),
             caches: Ok(Vec::new()),
             at: tool.now,
@@ -902,6 +956,7 @@ mod tests {
             &mut health,
             &Ok(Vec::new()),
             Some(&scanned),
+            &tool.places,
             tool.now,
             tool.rules.still_minutes,
         );
@@ -922,6 +977,14 @@ mod tests {
                 && install.contains("40m"),
             "{install}"
         );
-        assert_eq!(found.len(), 3, "{found:?}");
+        let blocked = found
+            .iter()
+            .find(|line| line.starts_with("review 999904"))
+            .unwrap();
+        assert!(
+            blocked.contains("install 999901") && blocked.contains("cargo clippy"),
+            "{blocked}"
+        );
+        assert_eq!(found.len(), 4, "{found:?}");
     }
 }
