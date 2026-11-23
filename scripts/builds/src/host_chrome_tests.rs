@@ -46,7 +46,7 @@ fn the_build_holds_a_host_whose_chrome_prints_no_address_until_it_starts() {
         &|| answers.borrow_mut().next().unwrap(),
         &|words| said.borrow_mut().push(words.to_string()),
         &|step| {
-            held.borrow_mut().push(step.to_string());
+            held.borrow_mut().push(step.map(str::to_string));
             Ok(())
         },
         &|| {
@@ -57,7 +57,10 @@ fn the_build_holds_a_host_whose_chrome_prints_no_address_until_it_starts() {
     .unwrap();
     assert!(started);
     assert_eq!(pauses.get(), 2);
-    assert_eq!(held.into_inner(), ["waiting for Chrome to start on m1"]);
+    assert_eq!(
+        held.into_inner(),
+        [Some("waiting for Chrome to start on m1".to_string()), None]
+    );
     let said = said.into_inner();
     assert_eq!(said.len(), 2, "{said:?}");
     assert!(

@@ -52,14 +52,15 @@ pub fn parse(said: &str) -> std::result::Result<Start, String> {
 /// it does. <start> starts Chrome there; while it says Chrome printed no
 /// address, the first such answer gives <announce> the words that name the
 /// host and <hold> the step the build records, and <pause> waits before the
-/// next try. It returns false as soon as <pause> says a takeover stopped the
+/// next try; when Chrome starts, <hold> gets None, so that the build's record
+/// names no step until the next one starts. It returns false as soon as <pause> says a takeover stopped the
 /// build, and fails when Chrome fails to start for another reason or <start>
 /// cannot ask. The end of a hold gives <announce> one line more.
 pub fn wait_until_starts(
     name: &str,
     start: &dyn Fn() -> std::result::Result<Start, String>,
     announce: &dyn Fn(&str),
-    hold: &dyn Fn(&str) -> Result<()>,
+    hold: &dyn Fn(Option<&str>) -> Result<()>,
     pause: &dyn Fn() -> Result<Ran>,
 ) -> Result<bool> {
     let mut waited = false;
@@ -69,6 +70,7 @@ pub fn wait_until_starts(
             Ok(Start::Started) => {
                 if waited {
                     announce(&format!("Chrome starts on {} again", place(name)));
+                    hold(None)?;
                 }
                 return Ok(true);
             }
@@ -78,7 +80,7 @@ pub fn wait_until_starts(
                         "waiting for Chrome to start on {}, since a shots run draws its boards with Chrome and builds nothing there until it does; on a Mac this means the window server does not answer: {why}",
                         place(name)
                     ));
-                    hold(&format!("{HOLD_STEP} {name}"))?;
+                    hold(Some(&format!("{HOLD_STEP} {name}")))?;
                     waited = true;
                 }
                 if pause()? == Ran::Stopped {

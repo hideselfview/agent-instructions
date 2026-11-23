@@ -2144,7 +2144,10 @@ impl<'a> LaneBuild<'a> {
                 &host,
                 &|| asking.borrow_mut().chrome_start(self.programs),
                 &|words| note(words),
-                &|step| held.runs(step),
+                &|step| match step {
+                    Some(step) => held.runs(step),
+                    None => held.runs_no_step(),
+                },
                 &|| Ok(lock::pause_unless_stopped()),
             )?;
             if !starts {

@@ -352,6 +352,12 @@ impl Held {
         )
     }
 
+    /// Records that this build runs no step: the record names none until
+    /// `runs` names the next.
+    pub fn runs_no_step(&self) -> Result<()> {
+        self.record(None)
+    }
+
     /// Records <step> as the step this build runs from now on.
     pub fn runs(&self, step: &str) -> Result<()> {
         self.record(Some(RunningStep {
