@@ -110,3 +110,17 @@ fn health_lists_a_project_main_checkout_behind_origin_main() {
         "a fast-forwarded main checkout is no finding"
     );
 }
+
+/// A repo's main checkout is `<home>/dev/<repo>`, listed once however many
+/// projects hold the repo, and a repo with no such folder has none.
+#[test]
+fn main_checkouts_names_each_repo_folder_that_exists_once() {
+    let scratch = Scratch::new("main-checkouts");
+    std::fs::create_dir_all(scratch.dir.join("dev/a")).unwrap();
+    std::fs::create_dir_all(scratch.dir.join("dev/b")).unwrap();
+    let found = main_checkouts(&scratch.dir, ["b", "a", "b", "absent"].into_iter());
+    assert_eq!(
+        found,
+        [scratch.dir.join("dev/a"), scratch.dir.join("dev/b")]
+    );
+}

@@ -349,7 +349,12 @@ pub fn tell_judges(tool: &Tool) -> Result<Vec<String>> {
 pub fn close_dead_reviews(tool: &Tool) -> Result<Vec<String>> {
     let every = crate::lists::store::every_lists(&tool.places)?;
     let named = crate::unlanded::named_branches(every.iter());
-    let mains = crate::health::mains_of(&tool.roots()?);
+    let mains = crate::main_checkout::main_checkouts(
+        &tool.places.home,
+        every
+            .iter()
+            .flat_map(|lists| lists.repos.iter().map(String::as_str)),
+    );
     let stamp = crate::lists::Stamp {
         at: tool.now,
         by: "health".to_string(),

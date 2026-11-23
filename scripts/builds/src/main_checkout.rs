@@ -98,6 +98,20 @@ pub fn forward_command(main: &Path) -> String {
     )
 }
 
+/// The main checkout (`<home>/dev/<repo>`) of each repo of <repos> that has
+/// one on this Mac, each once, in repo order.
+pub fn main_checkouts<'a>(
+    home: &Path,
+    repos: impl Iterator<Item = &'a str>,
+) -> Vec<std::path::PathBuf> {
+    let repos: std::collections::BTreeSet<&str> = repos.collect();
+    repos
+        .into_iter()
+        .map(|repo| home.join(crate::host::clone_path(repo)))
+        .filter(|main| main.is_dir())
+        .collect()
+}
+
 /// The finding for each main checkout of a project's repo on this Mac
 /// (`<home>/dev/<repo>`) whose main lacks commits that origin/main has, or
 /// that git could not read. A repo two projects hold counts once, and a repo
@@ -109,15 +123,12 @@ pub fn findings(
     let Ok(loaded) = loaded else {
         return Vec::new();
     };
-    let repos: std::collections::BTreeSet<&str> = loaded
+    let repos = loaded
         .iter()
         .filter_map(|store| store.lists.as_ref().ok())
-        .flat_map(|lists| lists.repos.iter().map(String::as_str))
-        .collect();
-    repos
+        .flat_map(|lists| lists.repos.iter().map(String::as_str));
+    main_checkouts(home, repos)
         .into_iter()
-        .map(|repo| home.join(crate::host::clone_path(repo)))
-        .filter(|main| main.is_dir())
         .filter_map(|main| finding(&main))
         .map(|advice| Finding::new(FindingKind::MainCheckout, advice))
         .collect()
