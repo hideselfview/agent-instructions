@@ -23,6 +23,7 @@ pub fn clause_in(clause: &str, text: &str) -> bool {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DiffFile {
     pub path: String,
+    pub renamed_from: Option<String>,
     pub lines: Vec<DiffLine>,
 }
 
@@ -135,6 +136,7 @@ pub fn parse_diff(diff: &str) -> Vec<DiffFile> {
         if let Some(path) = new_path(line) {
             files.push(DiffFile {
                 path: path.to_string(),
+                renamed_from: None,
                 lines: Vec::new(),
             });
             numbers = None;
@@ -145,6 +147,9 @@ pub fn parse_diff(diff: &str) -> Vec<DiffFile> {
             continue;
         }
         let Some((before, after)) = &mut numbers else {
+            if let (Some(file), Some(old)) = (files.last_mut(), super::files::rename_source(line)) {
+                file.renamed_from = Some(old.to_string());
+            }
             continue;
         };
         let kind = match line.chars().next() {
@@ -260,6 +265,7 @@ fn unchanged_quote(file: &str) -> String {
 fn quote_sites(patch: &DiffFile, side: Side, code: &str) -> Vec<(i64, bool)> {
     let view = DiffFile {
         path: patch.path.clone(),
+        renamed_from: patch.renamed_from.clone(),
         lines: patch
             .lines
             .iter()
@@ -289,8 +295,23 @@ pub struct Position {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct QuoteSite<'a> {
-    pub path: &'a str,
+    pub file: &'a str,
+    pub source: FilePosition<&'a str>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FilePosition<Path> {
+    pub path: Path,
     pub position: Position,
+}
+
+impl FilePosition<&str> {
+    pub fn owned(self) -> FilePosition<String> {
+        FilePosition {
+            path: self.path.to_string(),
+            position: self.position,
+        }
+    }
 }
 
 /// The start of the quote on the side where the diff changes it. The
@@ -305,16 +326,20 @@ pub fn code_site<'a>(
         return Err("it quotes no code".to_string());
     }
     let named = named_patches(files, file)?;
-    let path = named[0].path.as_str();
-    let site = |side, line| QuoteSite {
-        path,
-        position: Position { side, line },
+    let file_path = named[0].path.as_str();
+    let site = |side, path, line| QuoteSite {
+        file: file_path,
+        source: FilePosition {
+            path,
+            position: Position { side, line },
+        },
     };
     let mut current = Vec::new();
     let mut removed = Vec::new();
     let mut exact_context = false;
     let mut context = false;
     for patch in &named {
+        let old_path = patch.renamed_from.as_deref().unwrap_or(file_path);
         for (number, changed) in quote_sites(patch, Side::After, code) {
             if changed {
                 if !current.contains(&number) {
@@ -327,8 +352,9 @@ pub fn code_site<'a>(
         }
         for (number, changed) in quote_sites(patch, Side::Before, code) {
             if changed {
-                if !removed.contains(&number) {
-                    removed.push(number);
+                let occurrence = (old_path, number);
+                if !removed.contains(&occurrence) {
+                    removed.push(occurrence);
                 }
             } else {
                 context = true;
@@ -342,17 +368,21 @@ pub fn code_site<'a>(
             "its quote occurs more than once in {file} and its line does not identify one occurrence"
         )
     };
-    let exact_removal = removed.contains(&line);
-    if exact_removal && exact_current {
+    let mut exact_removals = removed.iter().filter(|(_, number)| *number == line);
+    let exact_removal = exact_removals.next();
+    if exact_removals.next().is_some() {
+        return Err(ambiguous());
+    }
+    if exact_removal.is_some() && exact_current {
         return Err(format!(
             "its quote starts at line {line} on both sides of the diff of {file}"
         ));
     }
     if exact_current {
-        return Ok(site(Side::After, line));
+        return Ok(site(Side::After, file_path, line));
     }
-    if exact_removal {
-        return Ok(site(Side::Before, line));
+    if let Some((path, _)) = exact_removal {
+        return Ok(site(Side::Before, *path, line));
     }
     if exact_context {
         return Err(unchanged_quote(file));
@@ -360,8 +390,8 @@ pub fn code_site<'a>(
     match (current.as_slice(), removed.as_slice()) {
         ([], []) if context => Err(unchanged_quote(file)),
         ([], []) => Err(format!("its code is not in the diff of {file}")),
-        ([], [number]) => Ok(site(Side::Before, *number)),
-        ([number], []) => Ok(site(Side::After, *number)),
+        ([], [(path, number)]) => Ok(site(Side::Before, *path, *number)),
+        ([number], []) => Ok(site(Side::After, file_path, *number)),
         _ => Err(ambiguous()),
     }
 }

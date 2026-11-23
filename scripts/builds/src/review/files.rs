@@ -96,6 +96,11 @@ pub struct FileDiff {
     pub text: String,
 }
 
+/// The old path named in a rename header. Hunk lines start with a diff mark.
+pub(super) fn rename_source(line: &str) -> Option<&str> {
+    line.strip_prefix("rename from ").map(str::trim_end)
+}
+
 impl FileDiff {
     /// The paths this part changes: both paths of a rename, as
     /// `commits::paths` names them.
@@ -119,10 +124,8 @@ pub fn split(diff: &str) -> Vec<FileDiff> {
             });
         }
         if let Some(file) = files.last_mut() {
-            // Only a header line starts with `rename from `: each hunk line
-            // starts with its `+`, `-` or space mark.
-            if let Some(old) = line.strip_prefix("rename from ") {
-                file.renamed_from = Some(old.trim_end().to_string());
+            if let Some(old) = rename_source(line) {
+                file.renamed_from = Some(old.to_string());
             }
             file.text.push_str(line);
         }

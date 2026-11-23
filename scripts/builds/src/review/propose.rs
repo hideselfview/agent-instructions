@@ -240,12 +240,12 @@ fn clean_lines(diff: &Diff, findings: &[Finding]) -> Vec<SiteLabel> {
 fn path_in(diff: &Diff, patch: &str, finding: &Finding) -> std::result::Result<String, String> {
     let quotes = diff.quotes();
     let site = code_site(&quotes, &finding.file, finding.line.number(), &finding.code)?;
-    if site.path == files::COMMIT_MESSAGE
-        || files::paths(patch).iter().any(|path| path == site.path)
+    if site.file == files::COMMIT_MESSAGE
+        || files::paths(patch).iter().any(|path| path == site.file)
     {
-        Ok(site.path.to_string())
+        Ok(site.file.to_string())
     } else {
-        Err(format!("the patch has no file {}", site.path))
+        Err(format!("the patch has no file {}", site.file))
     }
 }
 

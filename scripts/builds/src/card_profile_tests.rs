@@ -139,9 +139,12 @@ fn landed_card(scratch: &Scratch) -> (crate::lists::store::Store, Id) {
                         clause: "c".into(),
                         file: "f".into(),
                         line: crate::review::record::FindingLine::Verified(
-                            crate::review::check::Position {
-                                side: crate::review::check::Side::After,
-                                line: n as i64,
+                            crate::review::check::FilePosition {
+                                path: "f".to_string(),
+                                position: crate::review::check::Position {
+                                    side: crate::review::check::Side::After,
+                                    line: n as i64,
+                                },
                             },
                         ),
                         code: format!("x{n}"),

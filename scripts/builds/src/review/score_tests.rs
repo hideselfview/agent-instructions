@@ -50,9 +50,12 @@ fn finding(
         rule: rule.to_string(),
         clause: "c".to_string(),
         file: file.to_string(),
-        line: record::FindingLine::Verified(crate::review::check::Position {
-            side: crate::review::check::Side::After,
-            line,
+        line: record::FindingLine::Verified(crate::review::check::FilePosition {
+            path: file.to_string(),
+            position: crate::review::check::Position {
+                side: crate::review::check::Side::After,
+                line,
+            },
         }),
         code: code.to_string(),
         problem: "p".to_string(),
@@ -415,9 +418,12 @@ fn a_finding_settled_again_counts_as_dropped_and_a_closed_or_allowed_one_as_conf
         rule: "r".to_string(),
         clause: "c".to_string(),
         file: "a.rs".to_string(),
-        line: record::FindingLine::Verified(crate::review::check::Position {
-            side: crate::review::check::Side::After,
-            line: 1,
+        line: record::FindingLine::Verified(crate::review::check::FilePosition {
+            path: "a.rs".to_string(),
+            position: crate::review::check::Position {
+                side: crate::review::check::Side::After,
+                line: 1,
+            },
         }),
         code: code.to_string(),
         problem: "p".to_string(),
@@ -549,9 +555,12 @@ fn a_first_review_records_its_changed_lines_and_its_groups_confirmed_findings() 
         rule: "r".to_string(),
         clause: "c".to_string(),
         file: "a.rs".to_string(),
-        line: record::FindingLine::Verified(crate::review::check::Position {
-            side: crate::review::check::Side::After,
-            line: 1,
+        line: record::FindingLine::Verified(crate::review::check::FilePosition {
+            path: "a.rs".to_string(),
+            position: crate::review::check::Position {
+                side: crate::review::check::Side::After,
+                line: 1,
+            },
         }),
         code: "x".to_string(),
         problem: "p".to_string(),

@@ -1332,9 +1332,12 @@ fn a_finding_on_another_occurrence_of_the_same_line_does_not_keep_the_original_o
     assert!(findings[0].closed_by.is_some(), "{}", reported.text);
     assert_eq!(
         findings[1].line,
-        record::FindingLine::Verified(crate::review::check::Position {
-            side: crate::review::check::Side::After,
-            line: 2
+        record::FindingLine::Verified(crate::review::check::FilePosition {
+            path: "a.rs".to_string(),
+            position: crate::review::check::Position {
+                side: crate::review::check::Side::After,
+                line: 2
+            }
         })
     );
     assert!(findings[1].is_unsettled(), "{}", reported.text);
@@ -1353,9 +1356,12 @@ fn a_stored_removal_cannot_act_as_a_verified_position_in_the_head() {
     let initial = &findings_of(&demo, landing)[0];
     assert_eq!(
         initial.line,
-        record::FindingLine::Verified(crate::review::check::Position {
-            side: crate::review::check::Side::Before,
-            line: 1
+        record::FindingLine::Verified(crate::review::check::FilePosition {
+            path: "a.rs".to_string(),
+            position: crate::review::check::Position {
+                side: crate::review::check::Side::Before,
+                line: 1
+            }
         })
     );
     let original = initial.id;
@@ -1537,6 +1543,71 @@ fn a_repeat_of_the_same_removed_code_contradicts_a_fixed_verdict() {
     let findings = findings_of(&demo, landing);
     assert_eq!(findings.len(), 1);
     assert!(findings[0].is_open());
+}
+
+#[test]
+fn a_removal_in_a_renamed_file_tracks_edits_above_it_in_the_old_file() {
+    let demo = demo("review-renamed-removal");
+    let fake = fake(&demo.scratch.dir);
+    let before = (0..12)
+        .map(|n| format!("existing line {n}\n"))
+        .collect::<String>();
+    let after = (12..24)
+        .map(|n| format!("existing line {n}\n"))
+        .collect::<String>();
+    let original = format!("{before}removed code\n{after}");
+    std::fs::write(demo.main.join("old.rs"), &original).unwrap();
+    crate::testing::git(&demo.main, &["add", "old.rs"]);
+    crate::testing::git(&demo.main, &["commit", "-qm", "Add the original file"]);
+    let side = demo.add_side(1, "agent", "work");
+    crate::testing::git(&side, &["mv", "old.rs", "new.rs"]);
+    std::fs::write(side.join("new.rs"), format!("{before}{after}")).unwrap();
+    crate::testing::git(&side, &["add", "new.rs"]);
+    crate::testing::git(
+        &side,
+        &["commit", "-qm", "Rename the file and remove the quote"],
+    );
+    let quote = (BAD.0, "new.rs", 13, "removed code", BAD.4);
+    fake.answer("alpha", &[("rule-a", Some(quote))]);
+    let landing = run_review(&demo, &fake, &side, "k").landing.unwrap();
+    let initial = &findings_of(&demo, landing)[0];
+    assert_eq!(initial.file, "new.rs");
+    assert_eq!(
+        initial.line,
+        record::FindingLine::Verified(check::FilePosition {
+            path: "old.rs".into(),
+            position: check::Position {
+                side: check::Side::Before,
+                line: 13,
+            },
+        }),
+    );
+    settle_as(&demo, initial.id, "confirmed", "real");
+
+    std::fs::write(demo.main.join("old.rs"), format!("prefix\n{original}")).unwrap();
+    crate::testing::git(
+        &demo.main,
+        &["commit", "-qam", "Add a line above the quote"],
+    );
+    crate::testing::git(&side, &["rebase", "main"]);
+    fake.answer_task(
+        "alpha",
+        serde_json::json!({
+            "rules": [{"rule": "rule-a", "verdict": "finding", "findings": [
+                {"clause": quote.0, "file": quote.1, "line": 14, "code": quote.3, "problem": quote.4},
+            ]}],
+            "follow_up": [{"id": initial.id, "verdict": "fixed"}],
+        }),
+    );
+    let reported = run_review(&demo, &fake, &side, "k");
+    assert!(
+        reported.text.contains("disagreed on finding"),
+        "{}",
+        reported.text
+    );
+    let findings = findings_of(&demo, landing);
+    assert_eq!(findings.len(), 1, "{}", reported.text);
+    assert!(findings[0].is_open(), "{}", reported.text);
 }
 
 #[test]

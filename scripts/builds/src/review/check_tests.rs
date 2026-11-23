@@ -82,21 +82,27 @@ fn the_reported_removal_is_distinct_from_the_same_quote_added_elsewhere() {
     assert_eq!(
         code_site(&files, "a.rs", 1, "repeat"),
         Ok(QuoteSite {
-            path: "a.rs",
-            position: Position {
-                side: Side::Before,
-                line: 1
-            },
+            file: "a.rs",
+            source: FilePosition {
+                path: "a.rs",
+                position: Position {
+                    side: Side::Before,
+                    line: 1
+                }
+            }
         })
     );
     assert_eq!(
         code_site(&files, "a.rs", 2, "repeat"),
         Ok(QuoteSite {
-            path: "a.rs",
-            position: Position {
-                side: Side::After,
-                line: 2
-            },
+            file: "a.rs",
+            source: FilePosition {
+                path: "a.rs",
+                position: Position {
+                    side: Side::After,
+                    line: 2
+                }
+            }
         })
     );
 }
@@ -141,6 +147,18 @@ fn a_reported_old_context_line_cannot_name_a_different_removal() {
 }
 
 #[test]
+fn a_quote_removed_during_a_rename_keeps_the_old_path() {
+    let files = parse_diff(concat!(
+        "diff --git a/old.rs b/new.rs\n",
+        "rename from old.rs\nrename to new.rs\n",
+        "@@ -1,2 +1 @@\n-removed\n keep\n",
+    ));
+    let site = code_site(&files, "new.rs", 1, "removed").unwrap();
+    assert_eq!(site.file, "new.rs");
+    assert_eq!(site.source.path, "old.rs");
+}
+
+#[test]
 fn a_report_for_an_exact_path_never_borrows_a_quote_from_another_file() {
     let files = parse_diff(concat!(
         "diff --git a/a.rs b/a.rs\n@@ -0,0 +1 @@\n+other\n",
@@ -151,11 +169,14 @@ fn a_report_for_an_exact_path_never_borrows_a_quote_from_another_file() {
     assert_eq!(
         code_site(&files, "src/a.rs", 1, "repeat"),
         Ok(QuoteSite {
-            path: "src/a.rs",
-            position: Position {
-                side: Side::After,
-                line: 1
-            },
+            file: "src/a.rs",
+            source: FilePosition {
+                path: "src/a.rs",
+                position: Position {
+                    side: Side::After,
+                    line: 1
+                }
+            }
         })
     );
 }

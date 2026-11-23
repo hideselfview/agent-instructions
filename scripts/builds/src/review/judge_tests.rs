@@ -757,9 +757,12 @@ fn a_finding_with_no_landing_is_broken_state_that_names_the_finding() {
         rule: "r".to_string(),
         clause: "c".to_string(),
         file: "f".to_string(),
-        line: crate::review::record::FindingLine::Verified(crate::review::check::Position {
-            side: crate::review::check::Side::After,
-            line: 1,
+        line: crate::review::record::FindingLine::Verified(crate::review::check::FilePosition {
+            path: "f".to_string(),
+            position: crate::review::check::Position {
+                side: crate::review::check::Side::After,
+                line: 1,
+            },
         }),
         code: "x".to_string(),
         problem: "p".to_string(),

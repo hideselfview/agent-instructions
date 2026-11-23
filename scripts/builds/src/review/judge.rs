@@ -343,7 +343,7 @@ pub fn dispute_notice(db: &Connection, project: &str, finding: &Finding) -> Resu
         project.to_string(),
         finding.rule.clone(),
         finding.file.clone(),
-        finding.line,
+        finding.line.number(),
     );
     Ok(Notice {
         project: project.to_string(),

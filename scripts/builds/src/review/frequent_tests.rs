@@ -37,9 +37,12 @@ fn call(clauses: &[&str]) -> NewCall {
                 rule: "plain".to_string(),
                 clause: clause.to_string(),
                 file: "a.rs".to_string(),
-                line: FindingLine::Verified(crate::review::check::Position {
-                    side: crate::review::check::Side::After,
-                    line: 1,
+                line: FindingLine::Verified(crate::review::check::FilePosition {
+                    path: "a.rs".to_string(),
+                    position: crate::review::check::Position {
+                        side: crate::review::check::Side::After,
+                        line: 1,
+                    },
                 }),
                 code: "x".to_string(),
                 problem: "p".to_string(),
@@ -154,9 +157,12 @@ fn review(findings: &[(&str, &str)]) -> FirstReview {
                 rule: rule.to_string(),
                 clause: clause.to_string(),
                 file: "a.rs".to_string(),
-                line: FindingLine::Verified(crate::review::check::Position {
-                    side: crate::review::check::Side::After,
-                    line: 1,
+                line: FindingLine::Verified(crate::review::check::FilePosition {
+                    path: "a.rs".to_string(),
+                    position: crate::review::check::Position {
+                        side: crate::review::check::Side::After,
+                        line: 1,
+                    },
                 }),
                 code: "x".to_string(),
                 problem: "p".to_string(),

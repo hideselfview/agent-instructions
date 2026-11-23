@@ -13,7 +13,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use crate::db::Sql;
 use crate::fail;
 use crate::fail::Result;
-use crate::review::check::{Position, Side};
+use crate::review::check::{FilePosition, Position, Side};
 use crate::review::texts::{self, Texts};
 
 /// A finding a reviewer raised, as it goes into the store.
@@ -32,51 +32,56 @@ pub struct NewFinding {
 
 /// The position the checked quote identifies on a side of the diff, or the
 /// line the reviewer reported when Builds has no verified site.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FindingLine {
-    Verified(Position),
+    Verified(FilePosition<String>),
     Reported(i64),
     Legacy(i64),
 }
 
 impl FindingLine {
-    pub fn number(self) -> i64 {
+    pub fn number(&self) -> i64 {
         match self {
-            Self::Verified(position) => position.line,
-            Self::Reported(line) | Self::Legacy(line) => line,
+            Self::Verified(site) => site.position.line,
+            Self::Reported(line) | Self::Legacy(line) => *line,
         }
     }
 
-    fn proof(self) -> Option<&'static str> {
+    fn proof(&self) -> Option<&'static str> {
         match self {
-            Self::Verified(Position {
-                side: Side::After, ..
-            }) => Some("head"),
-            Self::Verified(Position {
-                side: Side::Before, ..
-            }) => Some("removed"),
+            Self::Verified(site) => Some(match site.position.side {
+                Side::After => "head",
+                Side::Before => "removed",
+            }),
             Self::Reported(_) => Some("reported"),
             Self::Legacy(_) => None,
         }
     }
 
-    fn read(line: i64, proof: Option<String>) -> rusqlite::Result<Self> {
-        Ok(match proof.as_deref() {
-            Some("head") => Self::Verified(Position {
-                side: Side::After,
-                line,
-            }),
-            Some("removed") => Self::Verified(Position {
-                side: Side::Before,
-                line,
-            }),
-            Some("reported") => Self::Reported(line),
-            None => Self::Legacy(line),
-            Some(kind) => {
+    fn site_path(&self) -> Option<&str> {
+        match self {
+            Self::Verified(site) => Some(&site.path),
+            _ => None,
+        }
+    }
+
+    fn read(line: i64, proof: Option<String>, path: Option<String>) -> rusqlite::Result<Self> {
+        let verified = |side, path| {
+            Self::Verified(FilePosition {
+                path,
+                position: Position { side, line },
+            })
+        };
+        Ok(match (proof.as_deref(), path) {
+            (Some("head"), Some(path)) => verified(Side::After, path),
+            (Some("removed"), Some(path)) => verified(Side::Before, path),
+            (Some("reported"), None) => Self::Reported(line),
+            (None, None) => Self::Legacy(line),
+            (kind, path) => {
                 return Err(rusqlite::Error::FromSqlConversionFailure(
                     23,
                     rusqlite::types::Type::Text,
-                    format!("unknown kind of verified review site {kind:?}").into(),
+                    format!("invalid review site kind {kind:?} with path {path:?}").into(),
                 ));
             }
         })
@@ -584,8 +589,8 @@ pub fn add_calls(
         let mut finding_ids = Vec::new();
         for f in &call.findings {
             db.execute(
-                "INSERT INTO review_finding (call_id, rule, clause, file, line, code, problem, blocking, check_failed, site_kind) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-                params![call_id, f.rule, f.clause, f.file, f.line.number(), f.code, f.problem, f.blocking, f.check_failed, f.line.proof()],
+                "INSERT INTO review_finding (call_id, rule, clause, file, line, code, problem, blocking, check_failed, site_kind, site_path) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                params![call_id, f.rule, f.clause, f.file, f.line.number(), f.code, f.problem, f.blocking, f.check_failed, f.line.proof(), f.line.site_path()],
             )
             .sql()?;
             finding_ids.push(db.last_insert_rowid());
@@ -699,7 +704,7 @@ pub fn allow(db: &Connection, id: i64, why: &str, now: i64, by: &str) -> Result<
     Ok(())
 }
 
-const FINDING_COLUMNS: &str = "f.id, c.run_id, r.kind, r.landing_id, c.group_name, f.rule, f.clause, f.file, f.line, f.code, f.problem, f.blocking, f.check_failed, f.settled, f.settled_why, f.settled_by, a.why, a.by, z.run_id, w.why, w.by, f.settled_at, a.at, f.site_kind";
+const FINDING_COLUMNS: &str = "f.id, c.run_id, r.kind, r.landing_id, c.group_name, f.rule, f.clause, f.file, f.line, f.code, f.problem, f.blocking, f.check_failed, f.settled, f.settled_why, f.settled_by, a.why, a.by, z.run_id, w.why, w.by, f.settled_at, a.at, f.site_kind, f.site_path";
 
 fn finding_from(row: &rusqlite::Row) -> rusqlite::Result<Finding> {
     let settled: Option<String> = row.get(13)?;
@@ -749,7 +754,7 @@ fn finding_from(row: &rusqlite::Row) -> rusqlite::Result<Finding> {
         rule: row.get(5)?,
         clause: row.get(6)?,
         file: row.get(7)?,
-        line: FindingLine::read(row.get(8)?, row.get(23)?)?,
+        line: FindingLine::read(row.get(8)?, row.get(23)?, row.get(24)?)?,
         code: row.get(9)?,
         problem: row.get(10)?,
         blocking: row.get(11)?,

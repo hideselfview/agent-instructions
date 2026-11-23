@@ -12,9 +12,12 @@ fn finding(rule: &str, file: &str) -> Finding {
         rule: rule.to_string(),
         clause: "Never do the bad thing here.".to_string(),
         file: file.to_string(),
-        line: crate::review::record::FindingLine::Verified(crate::review::check::Position {
-            side: crate::review::check::Side::After,
-            line: 1,
+        line: crate::review::record::FindingLine::Verified(crate::review::check::FilePosition {
+            path: file.to_string(),
+            position: crate::review::check::Position {
+                side: crate::review::check::Side::After,
+                line: 1,
+            },
         }),
         code: "a.rs".to_string(),
         problem: "The file does the bad thing.".to_string(),

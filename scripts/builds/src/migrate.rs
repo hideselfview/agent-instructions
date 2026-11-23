@@ -286,7 +286,7 @@ const BEFORE_REVIEW_FINDING_SITE_STAMP: i64 = 124_925_398;
 /// adds the move, puts this stamp at the end of `STAMPS` under a name that
 /// says what the schema lacked, and sets this to the new schema's stamp, which
 /// the compiler's error names.
-const SCHEMA_STAMP: i64 = 1_859_622_646;
+const SCHEMA_STAMP: i64 = 1_419_870_996;
 
 // The compiler refuses a schema whose stamp is not SCHEMA_STAMP. A const
 // assert could not print the new stamp, so the check compares two array

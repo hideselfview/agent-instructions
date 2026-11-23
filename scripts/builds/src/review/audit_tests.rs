@@ -24,9 +24,12 @@ fn finding(kind: &str, rule: &str, file: &str, check_failed: Option<&str>) -> Fi
         rule: rule.to_string(),
         clause: "c".to_string(),
         file: file.to_string(),
-        line: record::FindingLine::Verified(crate::review::check::Position {
-            side: crate::review::check::Side::After,
-            line: 1,
+        line: record::FindingLine::Verified(crate::review::check::FilePosition {
+            path: file.to_string(),
+            position: crate::review::check::Position {
+                side: crate::review::check::Side::After,
+                line: 1,
+            },
         }),
         code: "x".to_string(),
         problem: "p".to_string(),

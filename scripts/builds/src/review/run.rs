@@ -1104,7 +1104,10 @@ fn checked(
             None
         };
         let (file, line) = match site {
-            Some(site) => (site.path.to_string(), FindingLine::Verified(site.position)),
+            Some(site) => (
+                site.file.to_string(),
+                FindingLine::Verified(site.source.owned()),
+            ),
             None => (raw.file, FindingLine::Reported(raw.line)),
         };
         call.findings.push(NewFinding {

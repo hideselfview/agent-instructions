@@ -676,46 +676,49 @@ fn same_finding_site(
         })
     };
     let mut earlier = None;
-    let original_line = match held.line {
-        FindingLine::Verified(_) => held.line,
+    let recovered;
+    let original = match &held.line {
+        FindingLine::Verified(site) => site,
         FindingLine::Reported(_) => return Ok(false),
         FindingLine::Legacy(line) => {
             let previous = previous()?;
             let quotes = previous.diff.quotes();
-            let site = check::code_site(&quotes, &held.file, line, &held.code).map_err(|reason| {
+            let site = check::code_site(&quotes, &held.file, *line, &held.code).map_err(|reason| {
                 Fail::Message(format!(
                     "Builds could not verify the quote of open finding {} from run {} because {reason}.",
                     held.id, held.run_id
                 ))
             })?;
-            if site.path != raised.file {
+            if site.file != raised.file {
                 return Ok(false);
             }
             earlier = Some(previous);
-            FindingLine::Verified(site.position)
+            recovered = site.source.owned();
+            &recovered
         }
     };
     let path = &raised.file;
-    let (FindingLine::Verified(original), FindingLine::Verified(current)) =
-        (original_line, raised.line)
-    else {
+    let FindingLine::Verified(current) = &raised.line else {
         return Ok(false);
     };
-    if original.side != current.side {
+    if original.position.side != current.position.side || original.path != current.path {
         return Ok(false);
     }
     if path == files::COMMIT_MESSAGE {
-        return Ok(original.line == current.line);
+        return Ok(original.position.line == current.position.line);
     }
     let removal;
-    let (from, to) = match current.side {
+    let (from, to) = match current.position.side {
         check::Side::After => (run.head.as_str(), change.head.as_str()),
         check::Side::Before => {
             removal = earlier.map_or_else(previous, Ok)?;
             (removal.before(path), change.before(path))
         }
     };
-    Ok(files::line_at(repo, from, to, path, original.line)? == Some(current.line))
+    Ok(
+        files::line_at(repo, from, to, &current.path, original.position.line)?
+            == Some(current.position.line),
+    )
 }
 
 /// One run of a review: the diff its reviewers read and the groups it asks.

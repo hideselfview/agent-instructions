@@ -15,7 +15,7 @@ pub fn plant_finding_before_head_sites(db: &Connection) {
 
 pub fn mark_finding_as_legacy(db: &Connection, finding: i64, line: i64) -> Result<()> {
     db.execute(
-        "UPDATE review_finding SET site_kind = NULL, line = ?2 WHERE id = ?1",
+        "UPDATE review_finding SET site_kind = NULL, site_path = NULL, line = ?2 WHERE id = ?1",
         [finding, line],
     )
     .sql()?;
@@ -68,9 +68,12 @@ fn call(group: &str, finding: Option<(&str, bool, Option<&str>)>) -> NewCall {
                 rule: rule.to_string(),
                 clause: "c".to_string(),
                 file: "f".to_string(),
-                line: FindingLine::Verified(crate::review::check::Position {
-                    side: crate::review::check::Side::After,
-                    line: 1,
+                line: FindingLine::Verified(crate::review::check::FilePosition {
+                    path: "f".to_string(),
+                    position: crate::review::check::Position {
+                        side: crate::review::check::Side::After,
+                        line: 1,
+                    },
                 }),
                 code: "x".to_string(),
                 problem: "p".to_string(),
