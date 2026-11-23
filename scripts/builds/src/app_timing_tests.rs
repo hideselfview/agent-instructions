@@ -614,9 +614,9 @@ fn a_failed_step_with_no_failure_row_fails_the_read() {
 }
 
 /// The shots prefixes a branch's app builds ran come back once each, whatever
-/// the run's outcome and whether the step passed or failed; a step a signal
-/// stopped, runs of another ref, lane or repo, and runs before the branch's
-/// first commit do not.
+/// the run's outcome and whether the step passed or failed. Runs match by
+/// requested ref or built commit. Stopped steps, other lanes and repos, and
+/// runs before the branch's first commit do not count.
 #[test]
 fn the_shots_prefixes_a_branch_ran_come_back_once_each_whatever_their_result() {
     let scratch = Scratch::new("timing-shots-ran");
@@ -644,10 +644,12 @@ fn the_shots_prefixes_a_branch_ran_come_back_once_each_whatever_their_result() {
         RunEnd::Passed,
         vec![
             shots("mac.seek.", StepResult::Passed),
+            shots("mac.volume.", StepResult::Passed),
             shots("mac.stopped.", StepResult::Stopped),
         ],
     );
     second.built_commit = Some("b".repeat(40));
+    second.built_ref = "tag".to_string();
     record(&path, &second).unwrap();
     let mut other_ref = run(
         NOW,
@@ -657,6 +659,7 @@ fn the_shots_prefixes_a_branch_ran_come_back_once_each_whatever_their_result() {
         vec![shots("mac.x.", StepResult::Passed)],
     );
     other_ref.built_ref = "other".to_string();
+    other_ref.built_commit = Some("c".repeat(40));
     record(&path, &other_ref).unwrap();
     record(
         &path,
@@ -690,13 +693,23 @@ fn the_shots_prefixes_a_branch_ran_come_back_once_each_whatever_their_result() {
     )
     .unwrap();
     let conn = crate::db::open_reader(&path).unwrap().unwrap();
+    let commits = ["b".repeat(40)];
     assert_eq!(
-        shots_ran(&conn, "bae", Lane::Mac, "branch", NOW, &path).unwrap(),
-        ["mac.nowplaying.", "mac.seek."]
+        shots_ran(&conn, "bae", Lane::Mac, "branch", &commits, NOW, &path).unwrap(),
+        ["mac.nowplaying.", "mac.seek.", "mac.volume."]
     );
     assert_eq!(
-        shots_ran(&conn, "bae", Lane::Mac, "branch", NOW - 200, &path).unwrap(),
-        ["mac.nowplaying.", "mac.old.", "mac.seek."]
+        shots_ran(
+            &conn,
+            "bae",
+            Lane::Mac,
+            "branch",
+            &commits,
+            NOW - 200,
+            &path
+        )
+        .unwrap(),
+        ["mac.nowplaying.", "mac.old.", "mac.seek.", "mac.volume."]
     );
 }
 

@@ -9,7 +9,7 @@
 
 use rusqlite::{Connection, params};
 
-use crate::app_landing::branch_since;
+use crate::app_landing::{branch_commits, branch_since};
 use crate::db::Sql;
 use crate::fail;
 use crate::fail::Result;
@@ -97,9 +97,10 @@ pub fn cmd_drop_shots(tool: &Tool, args: &[String]) -> Result<()> {
         fail!("{} is in no git checkout", cwd.display());
     };
     let since = branch_since(&checkout.top, "origin/main", branch)?;
+    let commits = branch_commits(&checkout.top, branch)?;
     let ran = {
         let db = store.open_existing()?;
-        crate::app_timing::shots_ran(&db, repo, lane, branch, since, &store.database())?
+        crate::app_timing::shots_ran(&db, repo, lane, branch, &commits, since, &store.database())?
     };
     if !ran.contains(prefix) {
         let word = lane.word();

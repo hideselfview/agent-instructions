@@ -513,6 +513,10 @@ impl PassedRun {
     }
 }
 
+/// A run belongs to a branch by its requested ref or the commit it built.
+const BRANCH_RUN_MATCH: &str =
+    "(r.built_ref IS ?3 OR c.built_commit IN (SELECT value FROM json_each(?4)))";
+
 /// The passing runs of <repo>'s <lane> that recorded the commit they built
 /// and are a branch's: the ref the caller named (`built_ref`) is <named>, when
 /// there is one, or the commit they built is one of <commits>, the branch's
@@ -527,24 +531,21 @@ pub fn passed_runs(
     commits: &[String],
 ) -> Result<Vec<PassedRun>> {
     let what = || format!("reading {}", path.display());
-    let marks = vec!["?"; commits.len()].join(", ");
+    let commits = serde_json::to_string(commits).context(what)?;
     let mut runs = conn
         .prepare(
             format!(
                 "SELECT r.id, c.built_commit FROM app_build_runs r
                  JOIN app_build_run_commit c ON c.run_id = r.id
                  WHERE r.repo = ?1 AND r.lane = ?2 AND r.outcome = 'passed'
-                   AND (r.built_ref IS ?3 OR c.built_commit IN ({marks}))
+                   AND {BRANCH_RUN_MATCH}
                  ORDER BY r.id DESC"
             )
             .as_str(),
         )
         .context(what)?;
-    let lane = lane.word();
-    let mut words: Vec<&dyn rusqlite::ToSql> = vec![&repo, &lane, &named];
-    words.extend(commits.iter().map(|commit| commit as &dyn rusqlite::ToSql));
     let found: Vec<(i64, String)> = runs
-        .query_map(rusqlite::params_from_iter(words), |row| {
+        .query_map(params![repo, lane.word(), named, commits], |row| {
             Ok((row.get(0)?, row.get(1)?))
         })
         .context(what)?
@@ -591,33 +592,39 @@ pub fn passed_shots(
         .any(|run| run.ran_shots(prefix)))
 }
 
-/// The shots prefixes that app builds of <repo>'s <lane> named <branch>
-/// (`built_ref`) ran to a verdict, passed or not, in runs that started at or
-/// after <since> (seconds since 1970), in the database open as <conn> at
-/// <path>, each once, in name order.
+/// The shots prefixes that app builds of <repo>'s <lane> ran to a verdict
+/// when asked for <named> or when building one of <commits>. Counts runs
+/// that started at or after <since> (seconds since 1970), whatever their
+/// outcome, in the database open as <conn> at <path>. Returns each prefix
+/// once, in name order.
 pub fn shots_ran(
     conn: &Connection,
     repo: &str,
     lane: Lane,
-    branch: &str,
+    named: &str,
+    commits: &[String],
     since: i64,
     path: &Path,
 ) -> Result<Vec<String>> {
     let what = || format!("reading {}", path.display());
+    let commits = serde_json::to_string(commits).context(what)?;
     let mut statement = conn
         .prepare(
             format!(
                 "SELECT DISTINCT s.name FROM app_build_steps s
                  JOIN app_build_runs r ON r.id = s.run_id
-                 WHERE r.repo = ?1 AND r.lane = ?2 AND r.built_ref = ?3 AND r.started_at >= ?4
-                   AND {SHOTS_VERDICT}
+                 LEFT JOIN app_build_run_commit c ON c.run_id = r.id
+                 WHERE r.repo = ?1 AND r.lane = ?2 AND r.started_at >= ?5
+                   AND {BRANCH_RUN_MATCH} AND {SHOTS_VERDICT}
                  ORDER BY s.name"
             )
             .as_str(),
         )
         .context(what)?;
     let names: Vec<String> = statement
-        .query_map(params![repo, lane.word(), branch, since], |row| row.get(0))
+        .query_map(params![repo, lane.word(), named, commits, since], |row| {
+            row.get(0)
+        })
         .context(what)?
         .collect::<std::result::Result<_, _>>()
         .context(what)?;

@@ -397,6 +397,16 @@ impl ShotsLanding {
     }
 
     fn record_run(&self, at: i64, outcome: RunEnd, shots: &[(&str, StepResult)]) {
+        self.record_run_as("work", at, outcome, shots);
+    }
+
+    fn record_run_as(
+        &self,
+        built_ref: &str,
+        at: i64,
+        outcome: RunEnd,
+        shots: &[(&str, StepResult)],
+    ) {
         let steps = std::iter::once(("macos", StepKind::Step, StepResult::Passed)).chain(
             shots
                 .iter()
@@ -407,7 +417,7 @@ impl ShotsLanding {
             repo: "bae".to_string(),
             lane: Lane::Mac,
             checkout: "side-1".to_string(),
-            built_ref: "work".to_string(),
+            built_ref: built_ref.to_string(),
             built_commit: Some(self.head.clone()),
             who: None,
             wait_ms: 0,
@@ -491,6 +501,26 @@ fn a_landing_whose_covering_build_skipped_a_failed_prefix_is_refused_until_it_is
         })
         .unwrap();
     landing.check().unwrap();
+}
+
+#[test]
+fn a_failed_shots_prefix_from_a_build_named_by_commit_is_required_at_landing() {
+    let landing = ShotsLanding::new();
+    landing.record_run_as(
+        &landing.head,
+        landing.since + 1,
+        RunEnd::Failed,
+        &[(
+            "shots mac.nowplaying.",
+            StepResult::Failed(Default::default()),
+        )],
+    );
+    landing.record_run(
+        landing.since + 2,
+        RunEnd::Passed,
+        &[("shots mac.seek.", StepResult::Passed)],
+    );
+    assert!(matches!(landing.check(), Err(crate::fail::Fail::Exit(1))));
 }
 
 #[test]

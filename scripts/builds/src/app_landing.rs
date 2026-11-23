@@ -316,6 +316,15 @@ fn refusal(repo: &str, worktree: &str, branch: &str, lanes: &[&Unbuilt]) -> Stri
     said
 }
 
+/// The commits that <branch> holds and origin/main lacks.
+pub fn branch_commits(top: &Path, branch: &str) -> Result<Vec<String>> {
+    let range = format!("origin/main..{branch}");
+    Ok(run_git(top, &["rev-list", &range])?
+        .lines()
+        .map(str::to_string)
+        .collect())
+}
+
 /// When the first commit of <branch> that <before> lacks was written, in
 /// seconds since 1970: the author date a rebase or an amend keeps. App builds
 /// of the branch started after it.
@@ -435,11 +444,7 @@ pub fn cmd_landing_coverage(places: &Places, args: &[String]) -> Result<()> {
         ));
         return Ok(());
     };
-    let since_main = format!("origin/main..{branch}");
-    let branch_commits: Vec<String> = run_git(top, &["rev-list", &since_main])?
-        .lines()
-        .map(str::to_string)
-        .collect();
+    let branch_commits = branch_commits(top, branch)?;
     if branch_commits.is_empty() {
         crate::text::note(format!(
             "every commit of {branch} is on origin/main, so it needs no app build"
@@ -473,7 +478,15 @@ pub fn cmd_landing_coverage(places: &Places, args: &[String]) -> Result<()> {
             )
         },
         &mut |lane| {
-            let ran = crate::app_timing::shots_ran(&conn, &repo, lane, named, since, &database)?;
+            let ran = crate::app_timing::shots_ran(
+                &conn,
+                &repo,
+                lane,
+                named,
+                &branch_commits,
+                since,
+                &database,
+            )?;
             let drops = &drops_of[&lane];
             Ok(ran
                 .into_iter()
