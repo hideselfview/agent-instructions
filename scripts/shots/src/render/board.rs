@@ -1,15 +1,14 @@
 //! Loading a board in Chrome and taking its picture.
 //!
-//! No animation or transition runs on the page, so the reader records every
-//! element in one fixed state.
+//! The page disables CSS animations and transitions so the picture and the
+//! element reader see the same resting state.
 //!
-//! The page loads under virtual time with a fixed budget, so animations stop
-//! at the same moment on every run; virtual time stands still while a request
-//! is pending. A script the page runs before its own watches for the element
-//! that says the page is drawn (the canvas runtime's `#dc-root`, or a preview's
-//! first row) and then for `document.fonts.ready`, and records how far the
-//! page got. When the budget runs out, a page that got short of drawn fails,
-//! and so does one that wrote a runtime error to the console before then.
+//! The page loads under virtual time with a fixed budget. Virtual time stands
+//! still while a request is pending. A script runs before the page's own
+//! scripts and watches for the element that says the page is drawn (the canvas
+//! runtime's `#dc-root`, or a preview's first row) and for
+//! `document.fonts.ready`. When the budget runs out, a page that did not finish
+//! drawing or wrote a runtime error to the console fails.
 
 use crate::design::Frame;
 use crate::shots::Bounds;
@@ -124,11 +123,11 @@ fn watch_script(mounted: &str, body_class: Option<&str>) -> String {
     return map;
   }};
   window.__buildsShots = watch;
-  // No animation or transition runs: every element keeps the style it has
-  // before any animation starts, so a spinner's box is the unrotated one.
+  // Important declarations in the first cascade layer take precedence over
+  // important declarations in the page's stylesheets.
   const freeze = document.createElement('style');
-  freeze.textContent = '*, *::before, *::after {{ animation: none !important; '
-    + 'transition: none !important; }}';
+  freeze.textContent = '@layer {{ *, *::before, *::after {{ '
+    + 'animation: none !important; transition: none !important; }} }}';
   // Runs <step> now, or as soon as the document changes enough for it to
   // return true.
   const whenPossible = (step) => {{
@@ -140,7 +139,7 @@ fn watch_script(mounted: &str, body_class: Option<&str>) -> String {
   }};
   whenPossible(() => {{
     if (!document.documentElement) return false;
-    document.documentElement.appendChild(freeze);
+    document.documentElement.prepend(freeze);
     return true;
   }});
   // A class the page's <body> carries from the moment it exists, so the

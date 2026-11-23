@@ -1533,6 +1533,12 @@ built again.
                               run whose report lacks the element lists (one
                               made before the report kept them) fails,
                               naming the app-build command that makes it again
+  builds shots draws --at <rev> --against <rev> [--board <name>]... [--component <name>]...
+                              compare the named boards and component previews
+                              at the two revisions. The checker stops CSS
+                              animations and transitions before it captures
+                              the pictures and element boxes. The command
+                              prints `alike` or `differs` for each name.
   builds shots run|scenes|capture|check|lint|runtime|components|states|version [<argument>...]
                               run the shots checker, which checks the shots
                               of the repo it runs in against the repo's

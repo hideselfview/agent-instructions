@@ -84,6 +84,43 @@ fn a_board_whose_bytes_change_and_drawing_does_not_draws_alike_and_a_redrawn_one
 }
 
 #[test]
+fn a_preview_draws_at_rest_even_when_its_stylesheet_marks_an_animation_important() {
+    let repo = history();
+    let component = "Welcome";
+    let path = boards::preview::preview_path(component);
+    let preview = repo.path().join(&path);
+    std::fs::create_dir_all(preview.parent().unwrap()).unwrap();
+    for (revision, animation) in [
+        ("at-rest", "none"),
+        ("with-bob", "bob 3s ease-in-out infinite"),
+    ] {
+        std::fs::write(
+            &preview,
+            format!(
+                "<!doctype html><html><head><style>\
+                 @keyframes bob {{ from {{ translate: 0 24px }} to {{ translate: 0 40px }} }}\
+                 .logo {{ animation: {animation} !important }}\
+                 </style></head><body><button class='logo'>Welcome</button></body></html>"
+            ),
+        )
+        .unwrap();
+        git(repo.path(), &["add", "--", &path]);
+        git(repo.path(), &["commit", "-q", "-m", revision]);
+        git(repo.path(), &["tag", revision]);
+    }
+    let drawings = lines(
+        repo.path(),
+        "with-bob",
+        "at-rest",
+        &[],
+        &[component.to_string()],
+        &cache(),
+    )
+    .unwrap();
+    assert_eq!(drawings, ["alike component Welcome"]);
+}
+
+#[test]
 fn a_label_below_the_viewport_changes_the_full_preview_drawing() {
     let repo = history();
     let component = "MacRow";

@@ -11,11 +11,12 @@ fn tree() -> tempfile::TempDir {
         (
             "fixture.spinning",
             "<x-dc><helmet><style>body{margin:0;background:#123}\
-@keyframes turn{to{transform:rotate(45deg)}}\
+@keyframes turn{from{transform:rotate(15deg)}to{transform:rotate(45deg)}}\
+@layer motion{\
 #spin{position:absolute;left:50px;top:50px;width:40px;height:40px;background:#fff;\
-animation:turn 3s linear infinite}\
+animation:turn 3s linear infinite !important}\
 #fade{position:absolute;left:150px;top:50px;width:40px;height:40px;background:#fff;\
-transition:opacity 1s}#fade.on{opacity:0}</style></helmet>\
+transition:opacity 1s !important}}#fade.on{opacity:0}</style></helmet>\
 <div id=\"spin\"></div><div id=\"fade\"></div></x-dc>",
         ),
         (
