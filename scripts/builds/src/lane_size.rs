@@ -386,7 +386,7 @@ fn remove_if_idle(at: RepoLane, lock: &CheckoutLock, times: Idle, run: Run) -> R
         note(format!("would remove {shown} ({why})"));
         return Ok(());
     }
-    let removed_there = match RemoteApp::find(places, ssh, repo, lane, entry) {
+    let removed_there = match RemoteApp::find(places, ssh, repo, lane, entry, None) {
         Ok(Some(remote)) => remote.remove(),
         Ok(None) => Err(format!("{entry} is not on a host")),
         Err(error) => Err(error.text()),

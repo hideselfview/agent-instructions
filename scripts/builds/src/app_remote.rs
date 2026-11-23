@@ -32,6 +32,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::app_config::{app_checkout_top, run_git};
+use crate::app_lock_guard::CheckoutLock;
 use crate::awake::KeepAwake;
 use crate::checkout::{APP_LANE_FILE, Checkout};
 use crate::fail;
@@ -170,7 +171,7 @@ pub fn keeping_display_on(lane: Lane, command: &[String]) -> Vec<String> {
 /// a host. While a `RemoteApp` exists, this Mac stays awake (awake.rs): its
 /// steps and copies run over ssh, and a sleep here ends their connections.
 #[derive(Debug)]
-pub struct RemoteApp {
+pub struct RemoteApp<'a> {
     places: Places,
     ssh: Ssh,
     pub host: Host,
@@ -180,10 +181,11 @@ pub struct RemoteApp {
     /// The checkout's folder on the host, once `switch_to` or `locate` has
     /// asked.
     worktree: Option<String>,
+    checkout: Option<CheckoutLock<'a>>,
     _awake: KeepAwake,
 }
 
-impl RemoteApp {
+impl<'a> RemoteApp<'a> {
     /// The checkout <entry> of <repo>'s <lane>, when it is on a host.
     pub fn find(
         places: &Places,
@@ -191,7 +193,8 @@ impl RemoteApp {
         repo: &str,
         lane: Lane,
         entry: &str,
-    ) -> Result<Option<RemoteApp>> {
+        checkout: Option<CheckoutLock<'a>>,
+    ) -> Result<Option<Self>> {
         let Some((host_name, name)) = split(entry) else {
             return Ok(None);
         };
@@ -205,6 +208,7 @@ impl RemoteApp {
             name: name.to_string(),
             lane,
             worktree: None,
+            checkout,
             _awake: awake,
         }))
     }
@@ -215,6 +219,26 @@ impl RemoteApp {
             ssh: &self.ssh,
             host: &self.host,
         }
+    }
+
+    fn capture(&self, script: &str, what: &str) -> Result<String> {
+        let transport = self.transport();
+        self.run(transport.command(script), |command| {
+            transport.capture_command(command, what)
+        })
+    }
+
+    fn run<T>(&self, command: Command, run: impl FnOnce(Command) -> Result<T>) -> Result<T> {
+        match self.checkout {
+            Some(checkout) => checkout.run(command, run),
+            None => run(command),
+        }
+    }
+
+    fn unpack(&self, script: &str, into: &Path, what: &str) -> Result<()> {
+        self.run(self.transport().command(script), |command| {
+            crate::remote::unpack(command, into, what)
+        })
     }
 
     /// The folder on this Mac where the checkout's lock, its record of what it
@@ -231,7 +255,7 @@ impl RemoteApp {
         if let Some(worktree) = &self.worktree {
             return Ok(worktree.clone());
         }
-        let said = self.transport().capture(
+        let said = self.capture(
             &format!(
                 "echo \"worktree=$HOME/dev/{}-worktrees/{}\"",
                 self.repo, self.name
@@ -246,7 +270,7 @@ impl RemoteApp {
     /// The commit the checkout is on, or "" when the host has none yet.
     pub fn head(&mut self) -> Result<String> {
         let worktree = self.locate()?;
-        let said = self.transport().capture(
+        let said = self.capture(
             &format!(
                 "git -C {} rev-parse HEAD 2>/dev/null || true",
                 sh_quote(&worktree)
@@ -261,7 +285,7 @@ impl RemoteApp {
     /// <sha>. Fails, naming the host, when the checkout has changes.
     pub fn switch_to(&mut self, source: &Path, sha: &str) -> Result<()> {
         let id = self.send(source, sha)?;
-        let made = self.transport().capture(
+        let made = self.capture(
             &ensure_script(&self.host, &self.repo, &self.name, sha, self.lane),
             "switching the app checkout",
         );
@@ -304,7 +328,6 @@ impl RemoteApp {
             .replace("@NAME@", &self.name)
             .replace("@LANE@", self.lane.word());
         let cloned = self
-            .transport()
             .capture(&script, "cloning the warmest app checkout")
             .map(|_| ());
         let removed = match &cloned {
@@ -337,14 +360,13 @@ impl RemoteApp {
     /// returns what it printed; a failure names the host and <what>.
     pub fn run_in(&mut self, script: &str, what: &str) -> Result<String> {
         let worktree = self.locate()?;
-        self.transport()
-            .capture(&format!("cd {} && {script}", sh_quote(&worktree)), what)
+        self.capture(&format!("cd {} && {script}", sh_quote(&worktree)), what)
     }
 
     /// Runs <script> with `sh` on the host, in no checkout, and returns what
     /// it printed; a failure names the host and <what>.
     pub fn on_host(&self, script: &str, what: &str) -> Result<String> {
-        self.transport().capture(script, what)
+        self.capture(script, what)
     }
 
     /// Sends <sha> from <source> to the host's clone as the ref of a new job,
@@ -358,12 +380,11 @@ impl RemoteApp {
 
     /// Deletes the ref that `send` made for job <id>.
     pub fn unsend(&self, id: &str) -> Result<()> {
-        self.transport()
-            .capture(
-                &release_script(&self.repo, None, id),
-                "removing the job's ref",
-            )
-            .map(|_| ())
+        self.capture(
+            &release_script(&self.repo, None, id),
+            "removing the job's ref",
+        )
+        .map(|_| ())
     }
 
     /// Removes the checkout from the host, with its build folders there, so
@@ -377,11 +398,9 @@ impl RemoteApp {
             .replace("@CLONE@", &clone_path(&self.repo))
             .replace("@REPO@", &self.repo)
             .replace("@NAME@", &self.name);
-        match self.transport().ask(&script, "removing the app checkout") {
-            Ok(Ok(_)) => Ok(()),
-            Ok(Err(said)) => Err(said),
-            Err(error) => Err(error.text()),
-        }
+        self.capture(&script, "removing the app checkout")
+            .map(|_| ())
+            .map_err(|error| error.text())
     }
 
     /// Writes the lane to the checkout's lane file on the host
@@ -412,7 +431,7 @@ impl RemoteApp {
             .replace("@NAME@", &self.name)
             .replace("@LANE@", self.lane.word())
             .replace("@LANE_FILE@", APP_LANE_FILE);
-        self.transport().capture(&script, what)
+        self.capture(&script, what)
     }
 
     /// <command> for a step that opens windows, as `keeping_display_on`
@@ -444,7 +463,7 @@ impl RemoteApp {
         command: &[String],
     ) -> Result<Vec<String>> {
         let (version, local) = (pinned.version(), pinned.dir());
-        let said = self.transport().capture(
+        let said = self.capture(
             &format!(
                 r#"dir="$HOME/{folder}/{version}"
 mkdir -p "$dir"
@@ -496,7 +515,7 @@ if [ -x "$dir/builds" ]; then echo "present=$dir"; else echo "absent=$dir"; fi"#
     /// Copies the file <local> here to a new temporary file on the host and
     /// returns its path there; `remove_temporary` deletes it.
     pub fn put_temporary(&mut self, local: &Path) -> Result<String> {
-        let made = self.transport().capture(
+        let made = self.capture(
             "mktemp \"${TMPDIR:-/tmp}/builds-before.XXXXXX\"",
             "making a temporary file",
         )?;
@@ -540,7 +559,7 @@ if [ -x "$dir/builds" ]; then echo "present=$dir"; else echo "absent=$dir"; fi"#
         let started = std::time::Instant::now();
         let boards = self.host_boards();
         let steps = self.host_steps();
-        let said = self.transport().capture(
+        let said = self.capture(
             &format!(
                 r#"mkdir -p "{steps}" || exit 1
 there=$(mktemp -d "{steps}/step.XXXXXX") || exit 1
@@ -707,17 +726,17 @@ fi"#
         let started = std::time::Instant::now();
         std::fs::create_dir_all(into).context(|| format!("creating {}", into.display()))?;
         let host = &self.host.name;
-        crate::remote::unpack(
-            self.transport().command(&format!(
+        self.unpack(
+            &format!(
                 "cd {} && tar -cf - --exclude=./boards --exclude=./.sent --exclude=./.new --exclude=./.sent.sorted --exclude=./.listed --exclude=./.have .",
                 sh_quote(there)
-            )),
+            ),
             into,
             &format!("{there} from host {host}"),
         )?;
         let boards = into.join(crate::shots_cache::BOARD_PICTURES);
         std::fs::create_dir_all(&boards).context(|| format!("creating {}", boards.display()))?;
-        let made = self.transport().capture(
+        let made = self.capture(
             &format!(
                 r#"there={there}
 cd "$there" || exit 1
@@ -732,12 +751,12 @@ cat .new"#,
         )?;
         // An empty list gives tar nothing to archive, which some tars refuse.
         if !made.trim().is_empty() {
-            crate::remote::unpack(
-                self.transport().command(&format!(
+            self.unpack(
+                &format!(
                     "cd {boards} && tar -cf - -T {new}",
                     boards = sh_quote(&format!("{there}/boards")),
                     new = sh_quote(&format!("{there}/.new"))
-                )),
+                ),
                 &boards,
                 &format!("the new board pictures from host {host}"),
             )?;
@@ -752,27 +771,25 @@ cat .new"#,
     /// Deletes the temporary file or folder <there> that `put_temporary` or
     /// `put_pictures` made on the host.
     pub fn remove_temporary(&mut self, there: &str) -> Result<()> {
-        self.transport()
-            .capture(
-                &format!("rm -rf {}", sh_quote(there)),
-                &format!("deleting {there}"),
-            )
-            .map(|_| ())
+        self.capture(
+            &format!("rm -rf {}", sh_quote(there)),
+            &format!("deleting {there}"),
+        )
+        .map(|_| ())
     }
 
     /// Copies the shots report in <dir> (a folder of the checkout on the
     /// host: its `index.html`, the files that page shows and its findings as
     /// records, when it has them) into the new folder <into> here.
     pub fn fetch_report(&mut self, dir: &str, into: &Path) -> Result<()> {
-        let html = self.transport().capture(
+        let html = self.capture(
             &format!("cat {}", sh_quote(&format!("{dir}/index.html"))),
             "reading the shots report",
         )?;
         std::fs::create_dir_all(into).context(|| format!("creating {}", into.display()))?;
         let files = crate::shot_findings::report_files(&html);
-        crate::remote::unpack(
-            self.transport()
-                .command(&crate::shot_findings::report_copy_script(dir, &files)),
+        self.unpack(
+            &crate::shot_findings::report_copy_script(dir, &files),
             into,
             &format!("the shots report from host {}", self.host.name),
         )
@@ -807,8 +824,8 @@ cat .new"#,
                 sh_quote(&worktree),
                 path = sh_quote(path)
             );
-            crate::remote::unpack(
-                self.transport().command(&script),
+            self.unpack(
+                &script,
                 &into,
                 &format!("{path} from host {}", self.host.name),
             )?;

@@ -469,9 +469,10 @@ pub fn parse_scene_count(said: &str) -> Result<usize> {
 }
 
 /// The number of scenes <count> prints when it runs in the checkout <top>.
-pub fn count_scenes(top: &Path, count: &[String]) -> Result<usize> {
-    let said = crate::host::output_of(start_of(top, count)?, &count.join(" "))
-        .map_err(crate::fail::Fail::Message)?;
+pub fn count_scenes(top: &Path, count: &[String], checkout: CheckoutLock<'_>) -> Result<usize> {
+    let said = checkout.run(start_of(top, count)?, |command| {
+        crate::host::output_of(command, &count.join(" ")).map_err(crate::fail::Fail::Message)
+    })?;
     parse_scene_count(&said)
 }
 
@@ -802,14 +803,38 @@ pub fn run_git(top: &Path, args: &[&str]) -> Result<String> {
     )?)
 }
 
+/// Runs git in a reserved app checkout, with a separate index when requested.
+pub fn checkout_git(
+    top: &Path,
+    index: Option<&str>,
+    args: &[&str],
+    checkout: CheckoutLock<'_>,
+) -> Result<String> {
+    let mut command = git(top);
+    command.args(args);
+    if let Some(index) = index {
+        command.env("GIT_INDEX_FILE", index);
+    }
+    checkout.run(command, |mut command| {
+        Ok(git_text(&mut command, &format!("git {}", args.join(" ")))?)
+    })
+}
+
 /// The full id of the commit <rev> names in the repository at <top>.
 pub fn resolve(top: &Path, rev: &str) -> Result<String> {
-    Ok(run_git(
-        top,
-        &["rev-parse", "--verify", &format!("{rev}^{{commit}}")],
-    )?
-    .trim()
-    .to_string())
+    resolve_with(rev, |args| run_git(top, args))
+}
+
+pub fn resolve_checkout(top: &Path, rev: &str, checkout: CheckoutLock<'_>) -> Result<String> {
+    resolve_with(rev, |args| checkout_git(top, None, args, checkout))
+}
+
+fn resolve_with(rev: &str, git: impl FnOnce(&[&str]) -> Result<String>) -> Result<String> {
+    Ok(
+        git(&["rev-parse", "--verify", &format!("{rev}^{{commit}}")])?
+            .trim()
+            .to_string(),
+    )
 }
 
 /// Detaches the app checkout <top> at <commit> (`force`: over local changes),
@@ -866,14 +891,14 @@ pub struct CheckedOut {
 /// Switches the app checkout <top>, which must be clean, to the commit that
 /// <commit> names after a fetch, and reads that commit's `.app-build`.
 pub fn check_out(top: &Path, commit: &str, lock: CheckoutLock<'_>) -> Result<CheckedOut> {
-    let changes = run_git(top, &["status", "--porcelain"])?;
+    let changes = checkout_git(top, None, &["status", "--porcelain"], lock)?;
     if !changes.trim().is_empty() {
         fail!(
             "the app checkout has changes, so nothing was built (if a switch was cut short, `builds app-checkout reset <repo> <checkout>` clears it when every change is a commit's):\n{changes}"
         );
     }
-    run_git(top, &["fetch", "-q", "origin"])?;
-    let sha = resolve(top, commit)?;
+    checkout_git(top, None, &["fetch", "-q", "origin"], lock)?;
+    let sha = resolve_checkout(top, commit, lock)?;
     switch_to(top, &sha, false, lock)?;
     let file = top.join(CONFIG);
     let config = parse_config(
@@ -899,9 +924,12 @@ fn start_of(top: &Path, command: &[String]) -> Result<Command> {
 
 /// Runs <command> in the checkout <top>, in a process group of its own.
 pub fn run_command(top: &Path, command: &[String], checkout: CheckoutLock<'_>) -> Result<Within> {
-    checkout.run(start_of(top, command)?, |start| {
-        lock::run_in_group_within(start, &command[0], None)
-    })
+    checkout.run_in_group(
+        start_of(top, command)?,
+        &command[0],
+        None,
+        lock::Keep::default(),
+    )
 }
 
 /// `run_command`, passing the command's output on as it arrives and keeping
@@ -917,9 +945,7 @@ pub fn run_command_keeping(
 ) -> Result<Within> {
     let mut start = start_of(top, command)?;
     start.env(crate::xcode_cache::ENV, xcode_settings);
-    checkout.run(start, |start| {
-        lock::run_in_group_keeping(start, &command[0], limit, keep)
-    })
+    checkout.run_in_group(start, &command[0], limit, keep)
 }
 
 /// The folder of <repo>'s app checkout <name>.

@@ -87,13 +87,10 @@ impl Pinned {
         use std::os::fd::AsRawFd;
         let joined = self.path(path);
         let fd = self.in_use.as_raw_fd();
-        // SAFETY: fcntl on a descriptor this value owns; no memory is touched.
-        let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
-        if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFD, flags & !libc::FD_CLOEXEC) } < 0 {
+        if let Err(error) = crate::flock::inherit(fd) {
             fail!(
-                "keeping {} open for the command: {}",
-                self.dir.join(IN_USE).display(),
-                std::io::Error::last_os_error()
+                "keeping {} open for the command: {error}",
+                self.dir.join(IN_USE).display()
             );
         }
         Ok((self.in_use, joined))

@@ -113,7 +113,8 @@ use crate::app_build_step_failure::StepRead;
 use crate::app_build_step_shots::{BaseRun, Pictures, ReusedRead, ShotsUse};
 use crate::app_config::{
     CONFIG, CheckedOut, Config, PickKind, Picker, Scenes, Step, check_out, count_scenes,
-    parse_config, parse_scene_count, resolve, run_command_keeping, run_git, show_duration,
+    parse_config, parse_scene_count, resolve, resolve_checkout, run_command_keeping, run_git,
+    show_duration,
 };
 use crate::app_lock_guard::CheckoutLock;
 use crate::app_remote::{RemoteApp, fetched_local_source, local_source};
@@ -651,7 +652,7 @@ fn run_steps(
         watch,
         &mut LocalSteps {
             top,
-            held,
+            checkout: held.checkout_lock(),
             shots,
             xcode_settings,
         },
@@ -684,7 +685,7 @@ trait StepRunner {
 /// that the checkout needs (xcode_cache.rs).
 struct LocalSteps<'a> {
     top: &'a Path,
-    held: &'a lock::Held,
+    checkout: CheckoutLock<'a>,
     shots: &'a ShotsCache,
     xcode_settings: &'a Path,
 }
@@ -695,7 +696,7 @@ impl StepRunner for LocalSteps<'_> {
     }
 
     fn scenes(&mut self, count: &[String]) -> Result<usize> {
-        count_scenes(self.top, count)
+        count_scenes(self.top, count, self.checkout)
     }
 
     /// A shots run compares with its before run, read where the cache holds
@@ -725,7 +726,7 @@ impl StepRunner for LocalSteps<'_> {
             Some(limit),
             keep,
             self.xcode_settings,
-            self.held.checkout_lock(),
+            self.checkout,
         );
         if kind == StepKind::Shots {
             shots.cache_of(&outcome, &kept, step, &mut LocalRun(top));
@@ -735,12 +736,12 @@ impl StepRunner for LocalSteps<'_> {
 }
 
 /// The steps that run in a checkout on a host, under the build's programs.
-struct RemoteSteps<'a> {
-    remote: &'a mut RemoteApp,
+struct RemoteSteps<'a, 'checkout> {
+    remote: &'a mut RemoteApp<'checkout>,
     with: &'a StepsWith<'a>,
 }
 
-impl StepRunner for RemoteSteps<'_> {
+impl StepRunner for RemoteSteps<'_, '_> {
     fn shots(&self) -> &ShotsCache {
         self.with.shots
     }
@@ -919,7 +920,7 @@ pub fn config_at(places: &Places, repo: &str, commit: &str) -> Result<Config> {
 }
 
 /// What a lane's build does in its app checkout (app_site.rs).
-impl Site {
+impl Site<'_> {
     /// The commit <commit> names, and the commit the checkout is on now.
     fn resolved_and_head(
         &mut self,
@@ -928,7 +929,11 @@ impl Site {
         commit: &str,
     ) -> Result<(String, String)> {
         let source = self.fetched_source(places, repo)?;
-        Ok((resolve(&source, commit)?, self.head()?))
+        let sha = match self {
+            Site::Local(_, _, checkout) => resolve_checkout(&source, commit, *checkout)?,
+            Site::Remote(_) => resolve(&source, commit)?,
+        };
+        Ok((sha, self.head()?))
     }
 
     /// The name of the host the checkout is on.
@@ -959,15 +964,9 @@ impl Site {
 
     /// Switches the checkout to <commit> (which must have no changes) and
     /// reads the repo's `.app-build` there.
-    pub fn check_out(
-        &mut self,
-        places: &Places,
-        repo: &str,
-        commit: &str,
-        held: &lock::Held,
-    ) -> Result<CheckedOut> {
+    pub fn check_out(&mut self, places: &Places, repo: &str, commit: &str) -> Result<CheckedOut> {
         match self {
-            Site::Local(top, _) => check_out(top, commit, held.checkout_lock()),
+            Site::Local(top, _, checkout) => check_out(top, commit, *checkout),
             Site::Remote(remote) => {
                 let source = fetched_local_source(places, repo)?;
                 let sha = resolve(&source, commit)?;
@@ -989,7 +988,7 @@ impl Site {
         log: &mut Vec<StepRecord>,
     ) -> Result<Ended> {
         match self {
-            Site::Local(top, settings) => {
+            Site::Local(top, settings, _) => {
                 run_steps(top, held, steps, log, with.shots, settings, with.watch)
             }
             Site::Remote(remote) => run_steps_with(
@@ -1066,9 +1065,9 @@ fn run_remote_step(
     let start = remote.step_command(&held)?;
     let kept = lock::Captured::default();
     let keep = keep_for(kind, &kept, fault, read);
-    let ran = with.checkout.run(start, |start| {
-        lock::run_in_group_keeping(start, &command[0], Some(limit), keep)
-    });
+    let ran = with
+        .checkout
+        .run_in_group(start, &command[0], Some(limit), keep);
     if let Some(there) = &placed
         && let Err(error) = remote.remove_temporary(there)
     {
@@ -1643,7 +1642,7 @@ impl RunSite for LocalRun<'_> {
     }
 }
 
-impl RunSite for RemoteApp {
+impl RunSite for RemoteApp<'_> {
     fn commit(&mut self) -> Result<String> {
         self.head()
     }
@@ -2020,7 +2019,14 @@ fn build_lane(
         lock::take_where(places, &ssh, repo, lane, allowed, floor_kib)?
     };
     loop {
-        let mut site = Site::of(places, &ssh, repo, lane, &held.checkout)?;
+        let mut site = Site::of(
+            places,
+            &ssh,
+            repo,
+            lane,
+            &held.checkout,
+            held.checkout_lock(),
+        )?;
         timing.held = Some(HeldTimes::of(&held, site.load(places, &ssh)));
         note(format!("building in {}", held.checkout));
         if std::env::var_os(PREFIXED).is_some() {
@@ -2053,6 +2059,7 @@ fn build_lane(
                 ));
             }
         }
+        drop(site);
         held = held.requeue()?;
     }
 }
@@ -2162,7 +2169,7 @@ impl<'a> LaneBuild<'a> {
                 // The switch and the steps change what the checkout holds.
                 Built::clear(built_file)?;
             }
-            let CheckedOut { sha, config } = site.check_out(places, repo, commit, held)?;
+            let CheckedOut { sha, config } = site.check_out(places, repo, commit)?;
             timing.commit = Some(sha.clone());
             let run = CommitRun {
                 sha: &sha,
@@ -2308,7 +2315,7 @@ impl<'a> LaneBuild<'a> {
             }
             Ok(ended)
         })();
-        left_unchanged(site, built_file, ran, held)
+        left_unchanged(site, built_file, ran)
     }
 
     /// Makes the cache hold the run of each shots pick of the lane at the
@@ -2401,7 +2408,7 @@ impl<'a> LaneBuild<'a> {
             versions.capture
         ));
         Built::clear(built_file)?;
-        let CheckedOut { sha, config } = site.check_out(places, repo, &base.commit, held)?;
+        let CheckedOut { sha, config } = site.check_out(places, repo, &base.commit)?;
         let tree = picture_tree(&self.source, &sha, &config, lane, environment)?;
         let pictures = shots_cache::AppPictures::of(places, repo, lane, &tree);
         let query = capture_query(&config, lane, &wanted)?;
@@ -2457,12 +2464,7 @@ impl<'a> LaneBuild<'a> {
 /// files, after it puts the checkout back on its commit and clears the record
 /// of what the checkout built. Steps that failed fail with their own error,
 /// and the files changed go to stderr.
-fn left_unchanged(
-    site: &mut Site,
-    built_file: &Path,
-    ran: Result<Ended>,
-    held: &lock::Held,
-) -> Result<Ended> {
+fn left_unchanged(site: &mut Site, built_file: &Path, ran: Result<Ended>) -> Result<Ended> {
     let changed = match (site.changes(), &ran) {
         (Ok(changed), _) => changed,
         (Err(error), Ok(_)) => return Err(error),
@@ -2475,7 +2477,7 @@ fn left_unchanged(
         return ran;
     }
     Built::clear(built_file)?;
-    site.put_back(held.checkout_lock())?;
+    site.put_back()?;
     let message = format!(
         "the steps changed these files in {}, so they did not build the commit as it is; builds put the checkout back on its commit:\n  {}",
         site.shown()?,

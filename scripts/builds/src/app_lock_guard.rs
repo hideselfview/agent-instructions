@@ -2,6 +2,7 @@
 //! the driver exits. The guard holds the locks and watches the command's exit
 //! in the kernel. The command and its descendants never receive the locks.
 
+#[cfg(target_os = "macos")]
 use std::io;
 use std::os::fd::{AsRawFd, BorrowedFd};
 use std::os::unix::process::CommandExt;
@@ -16,7 +17,7 @@ pub const COMMAND: &str = "__app-lock-guard";
 #[cfg(target_os = "macos")]
 const CHECKOUT_FD: &str = "BUILDS_CHECKOUT_GUARD_FD";
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct CheckoutLock<'a> {
     file: BorrowedFd<'a>,
     ticket: Option<BorrowedFd<'a>>,
@@ -34,9 +35,7 @@ impl<'a> CheckoutLock<'a> {
         unsafe {
             command.pre_exec(move || {
                 for fd in fds.into_iter().flatten() {
-                    if libc::fcntl(fd, libc::F_SETFD, 0) < 0 {
-                        return Err(io::Error::last_os_error());
-                    }
+                    crate::flock::inherit(fd)?;
                 }
                 Ok(())
             });
@@ -67,9 +66,10 @@ impl<'a> CheckoutLock<'a> {
             .stdin(Stdio::from(OwnedFd::from(guard)))
             .stdout(Stdio::null());
         self.pass_to(&mut watcher);
-        let mut watcher = watcher
+        let mut child = watcher
             .spawn()
             .context(|| "Builds could not start the app checkout lock guard".into())?;
+        drop(watcher);
 
         let socket = runner.as_raw_fd();
         // The command cannot exec until the guard registers its PID. If the
@@ -77,7 +77,7 @@ impl<'a> CheckoutLock<'a> {
         unsafe { command.pre_exec(move || register(socket)) };
         let result = run(command);
         drop(runner);
-        let guarded = watcher
+        let guarded = child
             .wait()
             .context(|| "Builds could not wait for the app checkout lock guard".into())
             .and_then(|status| {
@@ -87,6 +87,18 @@ impl<'a> CheckoutLock<'a> {
                 Ok(())
             });
         crate::fail::with_cleanup(result, guarded)
+    }
+
+    pub fn run_in_group(
+        self,
+        command: Command,
+        name: &str,
+        limit: Option<std::time::Duration>,
+        keep: crate::lock::Keep<'_>,
+    ) -> Result<crate::lock::Within> {
+        self.run(command, |command| {
+            crate::lock::run_in_group_keeping(command, name, limit, keep)
+        })
     }
 
     #[cfg(not(target_os = "macos"))]

@@ -400,7 +400,7 @@ fn app_checkout_on_host(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
     let (repo, name) = crate::app_remote::name_in(path)?;
     tool.places.require_volume()?;
     let entry = crate::app_remote::entry_of(host, &name);
-    let Some(remote) = RemoteApp::find(&tool.places, ssh, &repo, lane, &entry)? else {
+    let Some(remote) = RemoteApp::find(&tool.places, ssh, &repo, lane, &entry, None)? else {
         fail!("{entry} names no host");
     };
     if removing {

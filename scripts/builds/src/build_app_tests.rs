@@ -1,6 +1,5 @@
 use super::*;
 use crate::app_config::{check_out, parse_config, run_git};
-use crate::app_lock_guard::CheckoutLock;
 use crate::testing::{Scratch, git, repo};
 use std::os::fd::AsFd;
 
@@ -15,7 +14,8 @@ fn the_copy_replaces_the_test_app() {
 
     let built = scratch.dir.join("built/out.app");
     std::fs::create_dir_all(built.join("new")).unwrap();
-    copy_out(&built, &app).unwrap();
+    let lock = lock::take_checkout(&places, "demo", Lane::Mac, "side-1").unwrap();
+    copy_out(&built, &app, CheckoutLock::new(lock.as_fd(), None)).unwrap();
     assert!(
         app.join("old").exists(),
         "the test app stays until its replacement is ready"

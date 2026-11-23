@@ -105,8 +105,7 @@ pub fn take(
         }
     };
     // Keep the display locked while the step's processes still use it.
-    if unsafe { libc::fcntl(lock, libc::F_SETFD, 0) } < 0 {
-        let error = std::io::Error::last_os_error();
+    if let Err(error) = crate::flock::inherit(lock) {
         unsafe { libc::close(lock) };
         fail!(
             "Builds could not pass the lock at {} to the step: {error}",

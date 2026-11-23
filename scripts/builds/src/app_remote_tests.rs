@@ -112,8 +112,8 @@ fn head_of(dir: &Path) -> String {
     String::from_utf8_lossy(&output.stdout).trim().to_string()
 }
 
-fn remote_app(s: &Setup, lane: Lane) -> RemoteApp {
-    RemoteApp::find(&s.places, &s.ssh, "demo", lane, "m1:app-1")
+fn remote_app(s: &Setup, lane: Lane) -> RemoteApp<'static> {
+    RemoteApp::find(&s.places, &s.ssh, "demo", lane, "m1:app-1", None)
         .unwrap()
         .unwrap()
 }
@@ -122,11 +122,11 @@ fn remote_app(s: &Setup, lane: Lane) -> RemoteApp {
 fn a_local_entry_is_no_remote_checkout() {
     let s = setup("remote-app-local");
     assert!(
-        RemoteApp::find(&s.places, &s.ssh, "demo", Lane::Android, "side-1")
+        RemoteApp::find(&s.places, &s.ssh, "demo", Lane::Android, "side-1", None)
             .unwrap()
             .is_none()
     );
-    let error = RemoteApp::find(&s.places, &s.ssh, "demo", Lane::Android, "gone:app-1")
+    let error = RemoteApp::find(&s.places, &s.ssh, "demo", Lane::Android, "gone:app-1", None)
         .expect_err("an unknown host fails");
     let text = error.text();
     assert!(text.contains("host gone"), "{text}");

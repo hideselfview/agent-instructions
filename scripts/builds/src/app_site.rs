@@ -5,7 +5,7 @@
 
 use std::path::PathBuf;
 
-use crate::app_config::{app_checkout_top, resolve, run_git, switch_to};
+use crate::app_config::{app_checkout_top, checkout_git, resolve_checkout, switch_to};
 use crate::app_lock_guard::CheckoutLock;
 use crate::app_remote::{RemoteApp, fetched_local_source};
 use crate::fail::{Fail, Result};
@@ -13,27 +13,35 @@ use crate::host::{Ssh, output_of};
 use crate::lane::Lane;
 use crate::places::Places;
 use crate::side_git::{UNCOMMITTED_STATUS, paths_in_status};
-use boards::{git, git_text};
 
 /// One of a repo's app checkouts, on this Mac or on a host.
-pub enum Site {
+pub enum Site<'a> {
     /// The checkout's folder here, and the file Xcode reads its settings from
     /// for builds in it (xcode_cache.rs).
-    Local(PathBuf, PathBuf),
-    Remote(Box<RemoteApp>),
+    Local(PathBuf, PathBuf, CheckoutLock<'a>),
+    Remote(Box<RemoteApp<'a>>),
 }
 
-impl Site {
+impl<'a> Site<'a> {
     /// The checkout <entry> of <repo>'s <lane>.
-    pub fn of(places: &Places, ssh: &Ssh, repo: &str, lane: Lane, entry: &str) -> Result<Site> {
-        Ok(match RemoteApp::find(places, ssh, repo, lane, entry)? {
-            Some(remote) => Site::Remote(Box::new(remote)),
-            None => {
-                let top = app_checkout_top(places, repo, entry)?;
-                let settings = crate::xcode_cache::settings_for(places, &top)?;
-                Site::Local(top, settings)
-            }
-        })
+    pub fn of(
+        places: &Places,
+        ssh: &Ssh,
+        repo: &str,
+        lane: Lane,
+        entry: &str,
+        checkout: CheckoutLock<'a>,
+    ) -> Result<Self> {
+        Ok(
+            match RemoteApp::find(places, ssh, repo, lane, entry, Some(checkout))? {
+                Some(remote) => Site::Remote(Box::new(remote)),
+                None => {
+                    let top = app_checkout_top(places, repo, entry)?;
+                    let settings = crate::xcode_cache::settings_for(places, &top)?;
+                    Site::Local(top, settings, checkout)
+                }
+            },
+        )
     }
 
     /// The folder on this Mac that holds the checkout's commits, after a
@@ -41,8 +49,8 @@ impl Site {
     /// checkout on a host, whose clone gets commits only from this Mac.
     pub fn fetched_source(&self, places: &Places, repo: &str) -> Result<PathBuf> {
         match self {
-            Site::Local(top, _) => {
-                run_git(top, &["fetch", "-q", "origin"])?;
+            Site::Local(top, _, checkout) => {
+                checkout_git(top, None, &["fetch", "-q", "origin"], *checkout)?;
                 Ok(top.clone())
             }
             Site::Remote(_) => fetched_local_source(places, repo),
@@ -71,7 +79,7 @@ impl Site {
     /// The commit the checkout is on.
     pub fn head(&mut self) -> Result<String> {
         match self {
-            Site::Local(top, _) => resolve(top, "HEAD"),
+            Site::Local(top, _, checkout) => resolve_checkout(top, "HEAD", *checkout),
             Site::Remote(remote) => remote.head(),
         }
     }
@@ -79,7 +87,7 @@ impl Site {
     /// The checkout's folder, as a message shows it.
     pub fn shown(&mut self) -> Result<String> {
         Ok(match self {
-            Site::Local(top, _) => top.display().to_string(),
+            Site::Local(top, ..) => top.display().to_string(),
             Site::Remote(remote) => format!("{} on host {}", remote.locate()?, remote.host.name),
         })
     }
@@ -88,16 +96,7 @@ impl Site {
     /// <index> when given.
     pub fn git(&mut self, index: Option<&str>, args: &[&str]) -> Result<String> {
         match self {
-            Site::Local(top, _) => {
-                let mut command = git(top);
-                if let Some(index) = index {
-                    command.env("GIT_INDEX_FILE", index);
-                }
-                Ok(git_text(
-                    command.args(args),
-                    &format!("git {}", args.join(" ")),
-                )?)
-            }
+            Site::Local(top, _, checkout) => checkout_git(top, index, args, *checkout),
             Site::Remote(remote) => remote.git(index, args),
         }
     }
@@ -112,9 +111,9 @@ impl Site {
 
     /// Detaches the checkout at <commit> over its local changes. On this Mac
     /// the switch holds out against every signal but SIGKILL (`switch_to`).
-    pub fn force_to(&mut self, commit: &str, lock: CheckoutLock<'_>) -> Result<()> {
+    pub fn force_to(&mut self, commit: &str) -> Result<()> {
         match self {
-            Site::Local(top, _) => switch_to(top, commit, true, lock),
+            Site::Local(top, _, checkout) => switch_to(top, commit, true, *checkout),
             Site::Remote(remote) => remote
                 .git(None, &["checkout", "-q", "--detach", "--force", commit])
                 .map(|_| ()),
@@ -123,19 +122,8 @@ impl Site {
 
     /// Puts the checkout back on its commit: the commit's files over every
     /// change, and no file that git neither tracks nor ignores.
-    pub fn put_back(&mut self, lock: CheckoutLock<'_>) -> Result<()> {
-        self.force_to("HEAD", lock)?;
-        let args = ["clean", "-q", "-f", "-d"];
-        match self {
-            Site::Local(top, _) => {
-                let mut command = git(top);
-                command.args(args);
-                lock.run(command, |mut command| {
-                    Ok(git_text(&mut command, "git clean")?)
-                })
-            }
-            Site::Remote(remote) => remote.git(None, &args),
-        }
-        .map(|_| ())
+    pub fn put_back(&mut self) -> Result<()> {
+        self.force_to("HEAD")?;
+        self.git(None, &["clean", "-q", "-f", "-d"]).map(|_| ())
     }
 }

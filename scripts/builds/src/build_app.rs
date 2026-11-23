@@ -24,6 +24,7 @@ use std::time::Duration;
 
 use crate::app_build::{config_at, place_of};
 use crate::app_config::{CONFIG, Config, MacApp, Step, run_command};
+use crate::app_lock_guard::CheckoutLock;
 use crate::app_site::Site;
 use crate::fail;
 use crate::fail::{Context, Result};
@@ -119,18 +120,18 @@ fn with_new(app: &Path) -> PathBuf {
 }
 
 /// Copies the built app beside the test app, as `<app>.new`.
-fn copy_out(built: &Path, app: &Path) -> Result<()> {
+fn copy_out(built: &Path, app: &Path, checkout: CheckoutLock<'_>) -> Result<()> {
     let folder = app.parent().expect("the test app has a folder");
     std::fs::create_dir_all(folder).context(|| format!("creating {}", folder.display()))?;
     let copy = with_new(app);
     if copy.exists() {
         std::fs::remove_dir_all(&copy).context(|| format!("removing {}", copy.display()))?;
     }
-    let status = Command::new("ditto")
-        .arg(built)
-        .arg(&copy)
-        .status()
-        .context(|| "running ditto".to_string())?;
+    let mut command = Command::new("ditto");
+    command.arg(built).arg(&copy);
+    let status = checkout.run(command, |mut command| {
+        command.status().context(|| "running ditto".to_string())
+    })?;
     if !status.success() {
         fail!("copying {} to {} failed", built.display(), copy.display());
     }
@@ -214,10 +215,13 @@ fn parse_args(args: &[String]) -> Result<(&String, Platform, &str)> {
 fn run_build(site: &mut Site, command: &[String], held: &lock::Held) -> Result<Within> {
     let checkout = held.checkout_lock();
     match site {
-        Site::Local(top, _) => run_command(top, command, checkout),
-        Site::Remote(remote) => checkout.run(remote.step_command(command)?, |start| {
-            lock::run_in_group_within(start, &command[0], None)
-        }),
+        Site::Local(top, _, checkout) => run_command(top, command, *checkout),
+        Site::Remote(remote) => checkout.run_in_group(
+            remote.step_command(command)?,
+            &command[0],
+            None,
+            lock::Keep::default(),
+        ),
     }
 }
 
@@ -226,7 +230,7 @@ fn run_build(site: &mut Site, command: &[String], held: &lock::Held) -> Result<W
 /// copied to.
 fn built_app(site: &mut Site, mac: &MacApp) -> Result<PathBuf> {
     match site {
-        Site::Local(top, _) => Ok(top.join(&mac.app)),
+        Site::Local(top, ..) => Ok(top.join(&mac.app)),
         Site::Remote(remote) => {
             remote.pull_bundle(&mac.app)?;
             Ok(remote.local_folder().join(&mac.app))
@@ -282,31 +286,42 @@ fn build_app(tool: &Tool, args: &[String]) -> Result<()> {
     )?;
     // A takeover stops the build; it runs again from a checkout, behind the
     // build that took over.
-    let (config, mut site) = loop {
-        let mut site = Site::of(places, &ssh, repo, platform.lane(), &held.checkout)?;
+    let (mac, app) = loop {
+        let mut site = Site::of(
+            places,
+            &ssh,
+            repo,
+            platform.lane(),
+            &held.checkout,
+            held.checkout_lock(),
+        )?;
         note(format!("building in {}", held.checkout));
-        let config = site.check_out(places, repo, commit, &held)?.config;
+        let config = site.check_out(places, repo, commit)?.config;
         let ran = run_build(&mut site, platform.build(&config)?, &held);
         lock::refuse_when_stopped(&format!("built {commit}'s {} app", platform.word()))?;
         match ran? {
-            Within::Ran(lock::Ran::Finished) => break (config, site),
+            Within::Ran(lock::Ran::Finished) => {
+                let Some(mac) = config.mac.filter(|_| platform == Platform::Mac) else {
+                    drop(site);
+                    held.release();
+                    return Ok(());
+                };
+                let app = copy_path(places, repo, &mac)?;
+                copy_out(&built_app(&mut site, &mac)?, &app, held.checkout_lock())?;
+                break (mac, app);
+            }
             // Only a takeover stops it: it holds no use of the stores, so
             // install never stops it.
             Within::Ran(lock::Ran::Stopped) => {
                 note(format!(
                     "the build was stopped for a takeover; building {commit} again after it"
                 ));
+                drop(site);
                 held = held.requeue()?;
             }
             Within::TimedOut => unreachable!("build-app sets no time limit"),
         }
     };
-    let Some(mac) = config.mac.as_ref().filter(|_| platform == Platform::Mac) else {
-        held.release();
-        return Ok(());
-    };
-    let app = copy_path(places, repo, mac)?;
-    copy_out(&built_app(&mut site, mac)?, &app)?;
     lock::refuse_when_stopped(&format!(
         "copied the built app to {}",
         with_new(&app).display()

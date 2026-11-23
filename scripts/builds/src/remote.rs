@@ -598,15 +598,27 @@ impl Transport<'_> {
     /// Runs <script> to its end and returns its stdout; a failure names the
     /// host and what the script printed.
     pub fn capture(&self, script: &str, what: &str) -> Result<String> {
-        self.ask(script, what)?.map_err(Fail::Message)
+        self.capture_command(self.command(script), what)
+    }
+
+    /// Captures a prepared command, after the caller has configured its launch.
+    pub fn capture_command(&self, command: Command, what: &str) -> Result<String> {
+        self.ask_command(command, what)?.map_err(Fail::Message)
     }
 
     /// Runs <script> to its end. The outer error is this Mac's (the command
     /// would not start); the inner one is the host's: the script failed
     /// there, and the text names the host and what the script printed.
     pub fn ask(&self, script: &str, what: &str) -> Result<std::result::Result<String, String>> {
-        let output = self
-            .command(script)
+        self.ask_command(self.command(script), what)
+    }
+
+    fn ask_command(
+        &self,
+        mut command: Command,
+        what: &str,
+    ) -> Result<std::result::Result<String, String>> {
+        let output = command
             .stdin(Stdio::null())
             .output()
             .context(|| format!("running {what} on host {}", self.host.name))?;

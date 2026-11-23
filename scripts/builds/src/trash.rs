@@ -125,7 +125,7 @@ fn spawn_rm(paths: &[PathBuf], then_rmdir: Option<&Path>, holds: &[&File]) -> Re
         command.pre_exec(move || {
             libc::setsid();
             for fd in &fds {
-                libc::fcntl(*fd, libc::F_SETFD, 0);
+                crate::flock::inherit(*fd)?;
             }
             Ok(())
         });

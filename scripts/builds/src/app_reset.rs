@@ -105,13 +105,17 @@ fn differing(site: &mut Site, commit: &str) -> Result<BTreeSet<String>> {
 /// answer diff-files reads, not a failure. Every other exit fails.
 fn refresh(site: &mut Site, index: &str) -> Result<()> {
     match site {
-        Site::Local(top, _) => {
-            let output = git(top)
+        Site::Local(top, _, checkout) => {
+            let mut command = git(top);
+            command
                 .args(["update-index", "-q", "--refresh"])
                 .env("GIT_INDEX_FILE", index)
-                .stdin(std::process::Stdio::null())
-                .output()
-                .context(|| "running git update-index".to_string())?;
+                .stdin(std::process::Stdio::null());
+            let output = checkout.run(command, |mut command| {
+                command
+                    .output()
+                    .context(|| "running git update-index".to_string())
+            })?;
             match output.status.code() {
                 Some(0 | 1) => Ok(()),
                 _ => fail!(
@@ -178,21 +182,23 @@ pub fn cmd_reset(
     let Some(lane) = places.app_lane_of(repo, checkout)? else {
         fail!("{checkout} is not one of {repo}'s app checkouts (builds status lists them)");
     };
-    let mut site = Site::of(places, ssh, repo, lane, checkout)?;
     let lock = lock::take_checkout(places, repo, lane, checkout)?;
-    let mut sent = Vec::new();
-    let reset = reset_under_lock(
-        &mut site,
+    let mut site = Site::of(
         places,
+        ssh,
         repo,
-        matching,
-        &mut sent,
+        lane,
+        checkout,
         CheckoutLock::new(lock.as_fd(), None),
-    );
+    )?;
+    let mut sent = Vec::new();
+    let reset = reset_under_lock(&mut site, places, repo, matching, &mut sent);
     let forgot = forget(&site, &sent);
-    drop(lock);
     crate::fail::with_cleanup(reset, forgot)?;
-    note(format!("{} is on {TARGET}", site.shown()?));
+    let shown = site.shown()?;
+    drop(site);
+    drop(lock);
+    note(format!("{shown} is on {TARGET}"));
     Ok(())
 }
 
@@ -203,7 +209,6 @@ fn reset_under_lock(
     repo: &str,
     matching: Option<&str>,
     sent: &mut Vec<String>,
-    lock: CheckoutLock<'_>,
 ) -> Result<()> {
     let mut revs = vec![TARGET];
     revs.extend(matching);
@@ -222,7 +227,7 @@ fn reset_under_lock(
             foreign.join("\n  ")
         );
     }
-    site.force_to(target, lock)?;
+    site.force_to(target)?;
     let left = site.git(None, &["status", "--porcelain"])?;
     if !left.trim().is_empty() {
         fail!("{} is still dirty after the reset:\n{left}", site.shown()?);

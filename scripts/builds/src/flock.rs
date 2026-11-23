@@ -2,11 +2,21 @@
 //! lock. Every lock builds takes on a whole file goes through here.
 
 use std::fs::File;
-use std::os::fd::AsRawFd;
+use std::os::fd::{AsRawFd, RawFd};
 use std::path::Path;
 
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
+
+/// Allows a descriptor to stay open across exec. Uses only syscalls, so a
+/// caller can set the flag in the forked child before it execs.
+pub fn inherit(fd: RawFd) -> std::io::Result<()> {
+    let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
+    if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFD, flags & !libc::FD_CLOEXEC) } < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
 
 /// Calls flock(2) with <operation> on <file>, and calls it again when a
 /// signal interrupts the wait. Returns false when <operation> has `LOCK_NB`

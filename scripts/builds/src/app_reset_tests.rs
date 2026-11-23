@@ -252,7 +252,7 @@ fn on_host(scratch: &Scratch) -> OnHost {
             &[crate::lane::AppCheckout::by_person("m1:mac-1")],
         )
         .unwrap();
-    crate::app_remote::RemoteApp::find(&places, &ssh, "demo", Lane::Mac, "m1:mac-1")
+    crate::app_remote::RemoteApp::find(&places, &ssh, "demo", Lane::Mac, "m1:mac-1", None)
         .unwrap()
         .expect("m1:mac-1 is on a host")
         .switch_to(&source, &first)
@@ -345,7 +345,12 @@ fn a_hosts_checkout_resets_over_a_tree_matching_names() {
 fn a_refresh_passes_over_differing_files_and_fails_on_any_other_error() {
     let scratch = Scratch::new("app-reset-refresh");
     let (_, top, _, _) = halfway(&scratch);
-    let mut site = Site::Local(top.clone(), top.join("no.xcconfig"));
+    let lock = lock::take_checkout(&scratch.places(), "demo", Lane::Mac, "side-1").unwrap();
+    let mut site = Site::Local(
+        top.clone(),
+        top.join("no.xcconfig"),
+        CheckoutLock::new(lock.as_fd(), None),
+    );
     let index = scratch.dir.join("index").display().to_string();
     site.git(Some(&index), &["read-tree", "HEAD"]).unwrap();
     refresh(&mut site, &index).expect("files that differ are no failure");
