@@ -9,6 +9,7 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
@@ -29,35 +30,10 @@ type ReadKey = (PathBuf, Vec<String>);
 /// The paths each commit of a worktree changes.
 type Read = Vec<Vec<String>>;
 
-/// A project's rules as `Material::load` last read them, or why it failed,
-/// and the count of changes to the rules files the read came after. A read
-/// that finds the same rules keeps the earlier `Arc`, so a worktree judged
-/// against them need not be judged again.
-type Rules = (u64, Result<Arc<Material>, String>);
-
-#[derive(Default)]
-struct RulesVersions {
-    latest: u64,
-    shared: u64,
-    projects: HashMap<String, u64>,
-}
-
-impl RulesVersions {
-    fn of(&self, project: &str) -> u64 {
-        self.shared
-            .max(self.projects.get(project).copied().unwrap_or(0))
-    }
-
-    fn change(&mut self, project: Option<&str>) {
-        self.latest += 1;
-        match project {
-            Some(project) => {
-                self.projects.insert(project.to_string(), self.latest);
-            }
-            None => self.shared = self.latest,
-        }
-    }
-}
+/// A project's last valid rules and the version of the whole rules checkout
+/// they came from. A new read with the same review rules keeps the earlier
+/// `Arc`, so worktrees judged against them need not be judged again.
+type Rules = (u64, Arc<Material>);
 
 /// A side worktree whose card shows where its rules review stands, as the
 /// daemon last read it.
@@ -107,7 +83,7 @@ pub struct Reads {
     root: PathBuf,
     commits: Mutex<HashMap<ReadKey, Read>>,
     rules: Mutex<HashMap<String, Rules>>,
-    rules_versions: Mutex<RulesVersions>,
+    rules_version: AtomicU64,
     judged: Mutex<HashMap<PathBuf, Judged>>,
 }
 
@@ -118,7 +94,7 @@ impl Reads {
             root,
             commits: Mutex::new(HashMap::new()),
             rules: Mutex::new(HashMap::new()),
-            rules_versions: Mutex::default(),
+            rules_version: AtomicU64::new(0),
             judged: Mutex::new(HashMap::new()),
         }
     }
@@ -151,51 +127,43 @@ impl Reads {
         Material::folders(&self.root)
     }
 
-    /// Files under `rules_folders` changed, in <project> or among the shared
-    /// rules. The next affected read reloads its rules.
-    pub fn rules_changed(&self, project: Option<&str>) {
-        self.rules_versions
-            .lock()
-            .expect("no panic holding it")
-            .change(project);
+    /// A change under either rules folder can invalidate the entire
+    /// checkout, since `Material::load` validates every project's rules.
+    pub fn rules_changed(&self) {
+        self.rules_version.fetch_add(1, Ordering::Relaxed);
     }
 
-    fn rules_version(&self, project: &str) -> u64 {
-        self.rules_versions
-            .lock()
-            .expect("no panic holding it")
-            .of(project)
+    fn rules_version(&self) -> u64 {
+        self.rules_version.load(Ordering::Relaxed)
     }
 
     /// <project>'s rules, read from the rules checkout once and again after
-    /// each change to its files, or why they can't be read.
+    /// each change to that checkout, or why they can't be read.
     fn rules(&self, project: &str) -> Result<Arc<Material>, String> {
         let root = &self.root;
         let mut rules = self.rules.lock().expect("no panic holding it");
         // Taken before the read: a change during the read moves it, and the
         // next ask reads again.
-        let changes = self.rules_version(project);
-        let held = rules.get(project).cloned();
-        if let Some((read_after, Ok(material))) = &held
+        let changes = self.rules_version();
+        let held = rules.get(project);
+        if let Some((read_after, material)) = held
             && *read_after == changes
         {
             return Ok(material.clone());
         }
-        let material = match (
-            held.and_then(|(_, material)| material.ok()),
-            Material::load(root, project),
-        ) {
-            (Some(before), Ok(read)) if same_review_rules(&before, &read) => Ok(before),
-            (_, read) => read.map(Arc::new).map_err(|why| {
-                format!(
-                    "reading the rules of {project} from {}: {}",
-                    root.display(),
-                    why.text()
-                )
-            }),
+        let read = Material::load(root, project).map_err(|why| {
+            format!(
+                "reading the rules of {project} from {}: {}",
+                root.display(),
+                why.text()
+            )
+        })?;
+        let material = match held {
+            Some((_, before)) if same_review_rules(before, &read) => before.clone(),
+            _ => Arc::new(read),
         };
         rules.insert(project.to_string(), (changes, material.clone()));
-        material
+        Ok(material)
     }
 
     /// The verdict on <worktree>'s commits at <tip> against <rules>: the
@@ -389,7 +357,7 @@ impl Queries {
         let place = (worktree.top.to_path_buf(), store.project.clone());
         let tip = QueryTip {
             git_and_store: Tip::of(worktree, version),
-            rules: reads.rules_version(&store.project),
+            rules: reads.rules_version(),
         };
         let mut work = self.work.lock().expect("no panic holding it");
         if let Some(failure) = &work.failure {
@@ -497,11 +465,10 @@ impl Queries {
             .map(String::as_str)
             .or_else(|| panic.downcast_ref::<&str>().copied())
             .unwrap_or("Rust supplied a non-string panic payload");
-        crate::text::note(format!(
-            "The dashboard's rules review worker stopped. Rust reported {detail}."
-        ));
-        self.work.lock().expect("no panic holding it").failure =
-            Some("The dashboard's rules review worker stopped after a panic.".to_string());
+        let failure =
+            format!("The dashboard's rules review worker stopped. Rust reported {detail}.");
+        crate::text::note(&failure);
+        self.work.lock().expect("no panic holding it").failure = Some(failure);
     }
 
     #[cfg(test)]

@@ -498,36 +498,13 @@ impl Model {
                 }
             });
         let weak = Arc::downgrade(self);
-        let project_events = projects.clone();
         let started = Stream::start(
             &[&rules, &projects],
             &[],
             0.2,
-            Box::new(move |events| {
+            Box::new(move |_| {
                 if let Some(model) = weak.upgrade() {
-                    for event in events {
-                        let lost = event.flags
-                            & (flags::USER_DROPPED
-                                | flags::KERNEL_DROPPED
-                                | flags::MUST_SCAN_SUBDIRS
-                                | flags::EVENT_IDS_WRAPPED)
-                            != 0;
-                        let project = if lost {
-                            None
-                        } else {
-                            event
-                                .path
-                                .strip_prefix(&project_events)
-                                .ok()
-                                .and_then(|path| path.iter().next())
-                                .and_then(|folder| folder.to_str())
-                                .and_then(|name| {
-                                    name.strip_suffix("-rules")
-                                        .or_else(|| name.strip_suffix(".md"))
-                                })
-                        };
-                        model.review_reads.rules_changed(project);
-                    }
+                    model.review_reads.rules_changed();
                     model.publish();
                 }
             }),

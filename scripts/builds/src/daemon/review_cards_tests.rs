@@ -331,9 +331,7 @@ fn the_rules_are_read_once_and_again_only_after_their_files_change() {
     // With the rules gone, only the rules read before answer.
     std::fs::rename(fake.root.join("rules"), demo.scratch.dir.join("rules-away")).unwrap();
     assert_eq!(standing(&reads, &demo, &side), not_run);
-    reads.rules_changed(Some("other"));
-    assert_eq!(standing(&reads, &demo, &side), not_run);
-    reads.rules_changed(None);
+    reads.rules_changed();
     let said = standing_at(
         &reads,
         &demo,
@@ -350,7 +348,32 @@ fn the_rules_are_read_once_and_again_only_after_their_files_change() {
 }
 
 #[test]
-fn health_and_the_card_share_the_verdict_kept_for_a_tip() {
+fn a_duplicate_rule_in_another_project_invalidates_a_ready_card() {
+    let demo = demo("review-cards-invalid-other-rules");
+    let fake = fake(&demo.scratch.dir);
+    let reads = Reads::with_root(fake.root.clone());
+    let side = demo.add_side(1, "agent", "work");
+    demo.commit(&side, "a.rs");
+    review(&demo, &fake.root, &fake.program, &side, "branch:work");
+    assert_eq!(standing(&reads, &demo, &side), None);
+
+    let other = fake.root.join("projects/other-rules/alpha");
+    std::fs::create_dir_all(&other).unwrap();
+    std::fs::copy(
+        fake.root.join("rules/alpha/rule-a.md"),
+        other.join("rule-a.md"),
+    )
+    .unwrap();
+    reads.rules_changed();
+
+    let git = read_git(&side, ahead(&side));
+    let version = demo.store.revision().unwrap();
+    let said = standing_at(&reads, &demo, &side, "work", &git, version).unwrap_err();
+    assert!(said.contains("two rules are named rule-a"), "{said}");
+}
+
+#[test]
+fn health_and_the_card_share_the_verdict_when_the_applicable_rules_stay_the_same() {
     let demo = demo("review-cards-shared-verdict");
     let fake = fake(&demo.scratch.dir);
     let reads = Reads::with_root(fake.root.clone());
@@ -367,6 +390,14 @@ fn health_and_the_card_share_the_verdict_kept_for_a_tip() {
     let first = reads
         .verdict_of(&demo.tool.places, &lists, &worktree)
         .unwrap();
+    let other = fake.root.join("projects/other-rules/alpha");
+    std::fs::create_dir_all(&other).unwrap();
+    std::fs::copy(
+        fake.root.join("rules/alpha/rule-a.md"),
+        other.join("rule-c.md"),
+    )
+    .unwrap();
+    reads.rules_changed();
     // With its git folder gone, only the verdict kept for the tip answers.
     let dot_git = side.join(".git");
     let away = demo.scratch.dir.join("dot-git");

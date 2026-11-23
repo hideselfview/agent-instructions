@@ -23,7 +23,6 @@ use crate::review::rules::{self, Rule};
 use boards::git;
 
 /// What a review reads besides the diff.
-#[derive(PartialEq)]
 pub struct Material {
     pub groups: Groups,
     /// The rules of the project: `rules/` and its own.
