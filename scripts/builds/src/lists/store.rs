@@ -609,6 +609,18 @@ pub fn projects_holding(places: &Places, repo: &str) -> Result<Vec<String>> {
     Ok(found)
 }
 
+/// The database of each project whose repos include <repo>, in project name
+/// order.
+pub fn databases_holding(places: &Places, repo: &str) -> Result<Vec<std::path::PathBuf>> {
+    let mut found = Vec::new();
+    for store in stores(places)? {
+        if store.repos()?.iter().any(|held| held == repo) {
+            found.push(store.database());
+        }
+    }
+    Ok(found)
+}
+
 /// The database of the project <checkout>'s work is in (`project_of`), where
 /// builds records the checkout's hook runs and cargo runs; None when no
 /// project holds the repo, so builds records nothing.

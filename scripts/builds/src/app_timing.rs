@@ -208,24 +208,13 @@ impl Timer {
     }
 }
 
-/// The project database of each project that holds <repo>, in name order.
-pub fn databases_holding(
-    places: &crate::places::Places,
-    repo: &str,
-) -> Result<Vec<std::path::PathBuf>> {
-    Ok(crate::lists::store::projects_holding(places, repo)?
-        .into_iter()
-        .map(|project| places.lists.join(project).join(DATABASE))
-        .collect())
-}
-
 /// The database of the project <repo> is in; None for a repo in no project,
 /// which has nowhere to record.
 pub fn database_of(
     places: &crate::places::Places,
     repo: &str,
 ) -> Result<Option<std::path::PathBuf>> {
-    let mut found = databases_holding(places, repo)?;
+    let mut found = crate::lists::store::databases_holding(places, repo)?;
     match found.len() {
         0 => Ok(None),
         1 => Ok(Some(found.remove(0))),
