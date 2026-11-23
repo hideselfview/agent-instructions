@@ -2148,7 +2148,7 @@ impl<'a> LaneBuild<'a> {
                     Some(step) => held.runs(step),
                     None => held.runs_no_step(),
                 },
-                &|| Ok(lock::pause_unless_stopped()),
+                &lock::pause_before_trying_again,
             )?;
             if !starts {
                 return Ok(Ended::Stopped);

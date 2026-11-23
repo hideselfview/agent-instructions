@@ -69,7 +69,7 @@ use std::process::Command;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::mpsc::{RecvTimeoutError, channel};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::app_lock_guard::CheckoutLock;
 use crate::app_remote::host_of;
@@ -141,25 +141,16 @@ pub fn signal_name(signal: libc::c_int) -> &'static str {
     }
 }
 
-/// How long a hold waits between its tries (`pause_unless_stopped`).
-const TRY_AGAIN_AFTER: Duration = Duration::from_secs(60);
+/// How long a hold waits between its tries (`pause_before_trying_again`).
+const TRY_AGAIN_AFTER: &str = "60";
 
-/// Waits <TRY_AGAIN_AFTER> between two tries of a held build, and returns
-/// `Ran::Stopped` as soon as a takeover or an install stops the build. A stop
-/// signal ends the wait too, with `Ran::Finished`: the next try's
-/// `refuse_when_stopped` fails the build naming the signal.
-pub fn pause_unless_stopped() -> Ran {
-    let end = Instant::now() + TRY_AGAIN_AFTER;
-    while Instant::now() < end {
-        if STOPPED.load(Ordering::SeqCst) {
-            return Ran::Stopped;
-        }
-        if stop_signal().is_some() {
-            break;
-        }
-        std::thread::sleep(Duration::from_secs(1));
-    }
-    Ran::Finished
+/// Waits a minute between two tries of a held build, as a `sleep` in a group
+/// of its own, so that a takeover ends the wait (`Ran::Stopped`) and a stop
+/// signal fails the build, as for every command `run_in_group` runs.
+pub fn pause_before_trying_again() -> Result<Ran> {
+    let mut sleep = Command::new("sleep");
+    sleep.arg(TRY_AGAIN_AFTER);
+    run_in_group(sleep, "waiting to try again")
 }
 
 /// Fails, naming the stop signal and <waiting> (what the build was doing),

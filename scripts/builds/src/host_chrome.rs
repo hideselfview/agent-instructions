@@ -63,34 +63,32 @@ pub fn wait_until_starts(
     hold: &dyn Fn(Option<&str>) -> Result<()>,
     pause: &dyn Fn() -> Result<Ran>,
 ) -> Result<bool> {
-    let mut waited = false;
-    loop {
-        crate::lock::refuse_when_stopped(&format!("waited for Chrome to start on {name}"))?;
-        match start() {
-            Ok(Start::Started) => {
-                if waited {
-                    announce(&format!("Chrome starts on {} again", place(name)));
-                    hold(None)?;
-                }
-                return Ok(true);
-            }
-            Ok(Start::NoAddress(why)) => {
-                if !waited {
-                    announce(&format!(
-                        "waiting for Chrome to start on {}, since a shots run draws its boards with Chrome and builds nothing there until it does; on a Mac this means the window server does not answer: {why}",
-                        place(name)
-                    ));
-                    hold(Some(&format!("{HOLD_STEP} {name}")))?;
-                    waited = true;
-                }
-                if pause()? == Ran::Stopped {
-                    return Ok(false);
-                }
-            }
+    let recorded = std::cell::Cell::new(false);
+    let started = crate::host_hold::hold_until_ready(
+        &format!("Chrome to start on {name}"),
+        &|| match start() {
+            Ok(Start::Started) => Ok(None),
+            Ok(Start::NoAddress(why)) => Ok(Some(format!(
+                "waiting for Chrome to start on {}, since a shots run draws its boards with Chrome and builds nothing there until it does; on a Mac this means the window server does not answer: {why}",
+                place(name)
+            ))),
             Ok(Start::Failed(why)) => fail!("Chrome cannot start on {}: {why}", place(name)),
             Err(error) => fail!("{error}"),
-        }
+        },
+        announce,
+        &|| {
+            recorded.set(true);
+            hold(Some(&format!("{HOLD_STEP} {name}")))
+        },
+        &format!("Chrome starts on {} again", place(name)),
+        pause,
+    )?;
+    // The hold's end clears the step it recorded, so that the record names no
+    // step until the next one starts.
+    if started && recorded.get() {
+        hold(None)?;
     }
+    Ok(started)
 }
 
 /// The lines for <locks>: each host that holds a build while Chrome does not

@@ -83,6 +83,7 @@ mod host;
 mod host_band;
 mod host_chrome;
 mod host_front_app;
+mod host_hold;
 mod host_installed;
 mod host_linux;
 mod host_load;

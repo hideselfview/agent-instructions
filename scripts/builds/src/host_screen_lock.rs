@@ -117,31 +117,21 @@ pub fn wait_until_unlocked(
     announce: &dyn Fn(&str),
     wait: &dyn Fn() -> Result<Ran>,
 ) -> Result<bool> {
-    let mut waited = false;
-    loop {
-        crate::lock::refuse_when_stopped(&format!("waited for {name}'s screen to unlock"))?;
-        match read() {
-            Ok(false) => {
-                if waited {
-                    announce(&format!("{}'s screen is unlocked", place(name)));
-                }
-                return Ok(true);
-            }
-            Ok(true) => {
-                if !waited {
-                    announce(&format!(
-                        "waiting for {}'s screen to unlock, since a locked screen keeps every window shot there from rendering; unlock it on that Mac",
-                        place(name)
-                    ));
-                    waited = true;
-                }
-                if wait()? == Ran::Stopped {
-                    return Ok(false);
-                }
-            }
+    crate::host_hold::hold_until_ready(
+        &format!("{name}'s screen to unlock"),
+        &|| match read() {
+            Ok(false) => Ok(None),
+            Ok(true) => Ok(Some(format!(
+                "waiting for {}'s screen to unlock, since a locked screen keeps every window shot there from rendering; unlock it on that Mac",
+                place(name)
+            ))),
             Err(error) => fail!("{error}"),
-        }
-    }
+        },
+        announce,
+        &|| Ok(()),
+        &format!("{}'s screen is unlocked", place(name)),
+        wait,
+    )
 }
 
 #[cfg(test)]
