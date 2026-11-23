@@ -127,11 +127,14 @@ project bae). Each branch gets its own review and, for app changes, its own
 app build, and each landing runs its own compile check, so five fixes that
 land one by one take five reviews, five compile checks and five app builds. An
 agent with several fixes in hand, such as the items of its brief or a design
-session's fixes, makes them all on one branch, one commit for each fix. An
-agent that finds a series of cleanups one after another as it works, such as
-moving one kind of literal onto tokens and then the next kind, makes them on
-one branch the same way, with no review, record or landing between them. The
-branch gets one review, which the agent runs with `--item N` for each item,
+session's fixes, makes them all on one branch, one commit for each fix. When
+you find a difference in a component or board you are already changing, fix
+it in its own commit on the same branch and land it with the rest of the
+batch (decision #604 in project builds). An agent that finds a series of
+cleanups one after another as it works, such as moving one kind of literal
+onto tokens and then the next kind, makes them on one branch the same way,
+with no review, record or landing between them. The branch gets one review,
+which the agent runs with `--item N` for each item,
 and the agent lands it with one `builds land` that names each item with
 `--done N` and each design change with `--design N`. Each commit still holds
 one concern. The agent compares the full set of boards, or runs the full test
