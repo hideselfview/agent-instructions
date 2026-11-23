@@ -93,8 +93,6 @@ pub const CAP_KIB: u64 = 2 * 1024 * 1024;
 const RUN_FILE: &str = "run.json";
 /// The file of a run's folder that holds what the shots program printed.
 const OUTPUT_FILE: &str = "output.txt";
-/// Identifies rechecked reports written before run.json recorded their kind.
-pub const RECHECK_NOTE: &str = "builds shots: compared again from the run of comparison version ";
 /// The folder of a run's folder that holds its report.
 const REPORT: &str = "report";
 /// The folder of a picture folder that holds the board pictures.
@@ -158,14 +156,14 @@ struct Ending {
     recorded_at: i64,
     /// The shots command's exit status: 0 when no pair failed the run.
     exit_code: u8,
-    kind: Option<RunKind>,
+    kind: RunKind,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum RunKind {
     Comparison,
-    Recheck { source_exit_code: Option<u8> },
+    Recheck { source_exit_code: u8 },
 }
 
 /// A cached run.
@@ -183,9 +181,9 @@ pub struct Cached {
 impl Cached {
     /// The original comparison's verdict. A recheck compares without the
     /// base, so its own status cannot replace that verdict.
-    pub fn app_exit_code(&self) -> Option<u8> {
+    pub fn app_exit_code(&self) -> u8 {
         match self.kind {
-            RunKind::Comparison => Some(self.exit_code),
+            RunKind::Comparison => self.exit_code,
             RunKind::Recheck { source_exit_code } => source_exit_code,
         }
     }
@@ -481,7 +479,7 @@ impl Staging {
         let ending = Ending {
             recorded_at,
             exit_code,
-            kind: Some(kind),
+            kind,
         };
         let run_file = self.inner.dir().join(RUN_FILE);
         std::fs::write(
@@ -523,25 +521,24 @@ fn read(folder: &Path, key: &Key) -> Result<Option<Cached>> {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => fail!("reading {}: {error}", run_file.display()),
     };
-    let ending: Ending =
-        serde_json::from_str(&text).context(|| format!("reading {}", run_file.display()))?;
+    let what = || format!("reading {}", run_file.display());
+    let metadata: serde_json::Value = serde_json::from_str(&text).context(what)?;
+    // Legacy reports do not carry a typed verdict. Treat them as cache misses.
+    if metadata
+        .as_object()
+        .is_some_and(|fields| !fields.contains_key("kind"))
+    {
+        return Ok(None);
+    }
+    let ending: Ending = serde_json::from_value(metadata).context(what)?;
     let output = folder.join(OUTPUT_FILE);
     let findings =
         std::fs::read_to_string(&output).context(|| format!("reading {}", output.display()))?;
-    let kind = ending.kind.unwrap_or_else(|| {
-        if findings.starts_with(RECHECK_NOTE) {
-            RunKind::Recheck {
-                source_exit_code: None,
-            }
-        } else {
-            RunKind::Comparison
-        }
-    });
     Ok(Some(Cached {
         key: key.clone(),
         recorded_at: ending.recorded_at,
         exit_code: ending.exit_code,
-        kind,
+        kind: ending.kind,
         findings,
         folder: folder.to_path_buf(),
     }))

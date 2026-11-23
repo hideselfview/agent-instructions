@@ -103,7 +103,7 @@ fn a_change_to_the_comparison_alone_compares_the_cached_pictures_again_and_takes
     // The run is cached under the new comparison version, beside the old one.
     let found = shots_cache::lookup(&places, &new).unwrap().expect("cached");
     assert_eq!(found.folder, again.folder);
-    assert_eq!(found.app_exit_code(), Some(old.exit_code));
+    assert_eq!(found.app_exit_code(), old.exit_code);
     assert!(old.folder.exists());
     assert_ne!(old.folder, again.folder);
     // Its pictures are the cached run's, shared as links; its page is not.

@@ -26,7 +26,7 @@ use crate::fail::{Context, Result};
 use crate::lane::Lane;
 use crate::places::Places;
 use crate::shot_causes;
-use crate::shots_cache::{self, Cached, Key, RECHECK_NOTE};
+use crate::shots_cache::{self, Cached, Key};
 use crate::shots_check_program;
 use crate::shots_program::VERSIONS;
 use crate::text::note;
@@ -119,7 +119,7 @@ fn compare_again(places: &Places, key: &Key, program: &Path) -> Result<Option<Ca
     let file = report.join(shot_causes::FILE);
     std::fs::write(&file, &findings).context(|| format!("writing {}", file.display()))?;
     let text = format!(
-        "{RECHECK_NOTE}{} with the pictures of capture version {}; it has no report page and no verdict against the base run\n{}",
+        "builds shots: compared again from the run of comparison version {} with the pictures of capture version {}; it has no report page and no verdict against the base run\n{}",
         short(&source.key.versions.comparison),
         short(&key.versions.capture),
         shot_causes::text(&run)

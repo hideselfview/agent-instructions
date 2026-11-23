@@ -1,4 +1,18 @@
 use super::*;
+
+#[test]
+fn the_cache_ignores_legacy_verdicts() {
+    let scratch = crate::testing::Scratch::new("legacy-shot-verdict");
+    let places = scratch.places();
+    let key = key("mac.a.");
+    let cached = cache_run(&places, &key, 0, "passed\n", true);
+    std::fs::write(
+        cached.folder.join(RUN_FILE),
+        r#"{"recorded_at": 1, "exit_code": 0}"#,
+    )
+    .unwrap();
+    assert!(lookup(&places, &key).unwrap().is_none());
+}
 use crate::testing::{Scratch, age, fill};
 
 const ENVIRONMENT: &str = "26B131-17C529";

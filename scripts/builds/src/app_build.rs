@@ -2602,13 +2602,7 @@ pub fn serve_cached(
             pending.push(pick);
             continue;
         };
-        let Some(status) = cached.app_exit_code() else {
-            note(format!(
-                "The cache has no source verdict for {prefix}, so the build runs the comparison again."
-            ));
-            pending.push(pick);
-            continue;
-        };
+        let status = cached.app_exit_code();
         match recorded {
             Some(_) if status != 0 => {
                 note(format!(
