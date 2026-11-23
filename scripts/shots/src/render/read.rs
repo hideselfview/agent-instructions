@@ -27,6 +27,10 @@ pub(crate) enum ReadError {
     Protocol(String),
     #[error("the accessibility tree has no node {0}")]
     NoNode(String),
+    #[error(
+        "Chrome sent the accessibility node {id} of unknown role with the name {name:?} and no sources for it"
+    )]
+    NoNameSources { id: String, name: String },
     #[error("the board's {role} node {name:?} has no box: {why}")]
     NoBox {
         role: String,
@@ -84,6 +88,25 @@ const STRUCTURE: [&str; 7] = [
     "LineBreak",
 ];
 
+/// A node's accessible name and where it comes from.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Name {
+    pub(crate) text: String,
+    pub(crate) origin: Origin,
+}
+
+/// Where Chrome took a node's name from.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum Origin {
+    /// The board gave it (an `aria-label` or `aria-labelledby`).
+    Given,
+    /// Chrome computed it from the node's content or another default.
+    Computed,
+    /// Chrome sent the name without its sources, as it does for the text nodes
+    /// it makes up, which have no DOM node.
+    Unsent,
+}
+
 /// What the browser holds about one node of the accessibility tree.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct Raw {
@@ -93,10 +116,7 @@ pub(crate) struct Raw {
     pub(crate) children: Vec<String>,
     pub(crate) ignored: bool,
     pub(crate) chrome_role: String,
-    pub(crate) name: Option<String>,
-    /// The board gave the name (an `aria-label` or `aria-labelledby`); Chrome
-    /// did not compute it from the node's content.
-    pub(crate) author_named: bool,
+    pub(crate) name: Option<Name>,
     pub(crate) value: Option<String>,
     /// `true`, `false` or `mixed`.
     pub(crate) checked: Option<String>,
@@ -149,9 +169,18 @@ pub(crate) fn build(raw: &[Raw], platform: Platform) -> Result<Vec<Element>, Rea
         let role = Role::for_node(node, platform);
         // A node of no known role is named only by what the board gives it: the
         // shot reports no label for a name Chrome computes from content.
-        let label =
-            nonempty(node.name.as_deref()).filter(|_| role != Role::Other || node.author_named);
         let kept = !node.ignored && !STRUCTURE.contains(&node.chrome_role.as_str());
+        let label = match &node.name {
+            Some(name) if kept && role == Role::Other && name.origin == Origin::Unsent => {
+                return Err(ReadError::NoNameSources {
+                    id: node.id.clone(),
+                    name: name.text.clone(),
+                });
+            }
+            Some(name) if role == Role::Other && name.origin != Origin::Given => None,
+            Some(name) => nonempty(Some(&name.text)),
+            None => None,
+        };
         let inside_control = folded;
         let mut next_parent = parent;
         let mut next_folded = folded;
@@ -159,7 +188,11 @@ pub(crate) fn build(raw: &[Raw], platform: Platform) -> Result<Vec<Element>, Rea
             let Some(bounds) = node.bounds else {
                 return Err(ReadError::NoBox {
                     role: node.chrome_role.clone(),
-                    name: node.name.clone().unwrap_or_default(),
+                    name: node
+                        .name
+                        .as_ref()
+                        .map(|n| n.text.clone())
+                        .unwrap_or_default(),
                     why: node.no_box.unwrap_or("Chrome gave it none"),
                 });
             };
@@ -405,18 +438,26 @@ fn string(value: &Option<AxValue>) -> Option<String> {
     }
 }
 
-/// Whether the board gave the name: the name comes from an attribute or a
-/// related element that Chrome used, not from the node's content.
-fn author_named(name: &Option<AxValue>) -> bool {
-    name.iter()
-        .flat_map(|n| n.sources.iter().flatten())
-        .any(|source| {
-            matches!(
-                source.r#type,
-                AxValueSourceType::Attribute | AxValueSourceType::RelatedElement
-            ) && source.superseded != Some(true)
-                && source.value.is_some()
-        })
+/// The node's name and where Chrome took it from: an attribute or a related
+/// element it used is the board's, anything else is computed.
+fn name(node: &AxNode) -> Option<Name> {
+    let text = string(&node.name)?;
+    let origin = match node.name.as_ref().and_then(|n| n.sources.as_ref()) {
+        None => Origin::Unsent,
+        Some(sources)
+            if sources.iter().any(|source| {
+                matches!(
+                    source.r#type,
+                    AxValueSourceType::Attribute | AxValueSourceType::RelatedElement
+                ) && source.superseded != Some(true)
+                    && source.value.is_some()
+            }) =>
+        {
+            Origin::Given
+        }
+        Some(_) => Origin::Computed,
+    };
+    Some(Name { text, origin })
 }
 
 fn raw(node: &AxNode) -> Raw {
@@ -438,8 +479,7 @@ fn raw(node: &AxNode) -> Raw {
             .collect(),
         ignored: node.ignored,
         chrome_role: string(&node.role).unwrap_or_default(),
-        name: string(&node.name),
-        author_named: author_named(&node.name),
+        name: name(node),
         value: string(&node.value),
         checked: property(AxPropertyName::Checked).flatten(),
         selected: property(AxPropertyName::Selected)

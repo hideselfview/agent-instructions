@@ -21,7 +21,16 @@ fn node(id: &str, role: &str, children: &[&str]) -> Raw {
 }
 
 fn named(mut node: Raw, name: &str) -> Raw {
-    node.name = Some(name.to_string());
+    node.name = Some(Name {
+        text: name.to_string(),
+        origin: Origin::Computed,
+    });
+    node
+}
+
+fn given(node: Raw, name: &str) -> Raw {
+    let mut node = named(node, name);
+    node.name.as_mut().unwrap().origin = Origin::Given;
     node
 }
 
@@ -171,11 +180,9 @@ fn an_android_board_keeps_a_button_that_opens_a_menu_a_button() {
 
 #[test]
 fn a_node_of_role_other_keeps_a_label_its_board_gives_and_not_one_chrome_computes() {
-    let mut given = named(node("2", "menuitem", &[]), "5 of 5 stars");
-    given.author_named = true;
     let raw = [
         node("1", "list", &["2", "3", "4"]),
-        given,
+        given(node("2", "menuitem", &[]), "5 of 5 stars"),
         named(node("3", "heading", &[]), "Shuffle"),
         node("4", "group", &[]),
     ];
@@ -184,6 +191,17 @@ fn a_node_of_role_other_keeps_a_label_its_board_gives_and_not_one_chrome_compute
     assert_eq!(elements[1].label.as_deref(), Some("5 of 5 stars"));
     assert_eq!(elements[2].label, None, "a name from content is no label");
     assert_eq!(elements[3].label, None, "a node with no name has no label");
+}
+
+#[test]
+fn a_named_node_of_role_other_with_no_sources_is_an_error() {
+    let mut unsent = named(node("2", "menuitem", &[]), "Play next");
+    unsent.name.as_mut().unwrap().origin = Origin::Unsent;
+    let raw = [node("1", "list", &["2"]), unsent];
+    assert!(matches!(
+        build(&raw, Platform::Android),
+        Err(ReadError::NoNameSources { id, .. }) if id == "2"
+    ));
 }
 
 #[test]
