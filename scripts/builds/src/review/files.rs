@@ -251,12 +251,28 @@ fn patch_parts(patch: &str) -> Vec<PatchPart<'_>> {
 }
 
 impl FileDiff {
+    pub(super) fn path_names(&self) -> FilePaths<'_> {
+        FilePaths {
+            path: &self.path,
+            renamed_from: self.renamed_from.as_deref(),
+        }
+    }
+
     /// The paths this part changes: both paths of a rename, as
     /// `commits::paths` names them.
     pub fn paths(&self) -> Vec<String> {
-        let mut paths = vec![self.path.clone()];
-        paths.extend(self.renamed_from.clone());
-        paths
+        self.path_names().iter().map(str::to_string).collect()
+    }
+}
+
+pub(super) struct FilePaths<'a> {
+    pub(super) path: &'a str,
+    pub(super) renamed_from: Option<&'a str>,
+}
+
+impl<'a> FilePaths<'a> {
+    pub(super) fn iter(&self) -> impl Iterator<Item = &'a str> {
+        std::iter::once(self.path).chain(self.renamed_from)
     }
 }
 

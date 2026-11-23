@@ -15,7 +15,7 @@ use crate::review::call;
 use crate::review::check::reviewers_map;
 use crate::review::check::{DiffFile, clause_in, code_site, names_file, only_on_comment_lines};
 use crate::review::commits;
-use crate::review::files::{self, CommitMessages, FileDiff, Source};
+use crate::review::files::{self, CommitMessages, FileDiff, FilePaths, Source};
 use crate::review::groups::{Group, Groups};
 use crate::review::prompt::{self, PROJECT_FACTS};
 use crate::review::record::{Finding, FindingLine, NewCall, NewExchange, NewFinding, RunRow};
@@ -586,7 +586,7 @@ fn unjudged(members: &[&Rule], diff: &Diff, files: &Globs) -> Vec<String> {
 fn not_read<'a>(
     picked: &[(&Group, Vec<&Rule>)],
     at: usize,
-    paths: impl Iterator<Item = (&'a str, Option<&'a str>)>,
+    paths: impl Iterator<Item = FilePaths<'a>>,
     open: &[Finding],
 ) -> Vec<String> {
     let (group, members) = &picked[at];
@@ -598,13 +598,11 @@ fn not_read<'a>(
         .flat_map(|(group, members)| held_by(group, members, open))
         .collect();
     paths
-        .filter(|(path, renamed_from)| {
-            held.iter().any(|finding| {
-                names_file(path, &finding.file)
-                    || renamed_from.is_some_and(|source| names_file(source, &finding.file))
-            })
+        .filter(|file| {
+            file.iter()
+                .any(|path| held.iter().any(|finding| names_file(path, &finding.file)))
         })
-        .map(|(path, _)| path.to_string())
+        .map(|file| file.path.to_string())
         .collect()
 }
 
@@ -703,10 +701,11 @@ pub fn ask_groups(
                     }
                 }
             }
-            let paths = read
-                .into_iter()
-                .map(|file| (file.path.as_str(), file.renamed_from.as_deref()));
-            let commit_path = reads_commit_messages.then_some((files::COMMIT_MESSAGE, None));
+            let paths = read.into_iter().map(FileDiff::path_names);
+            let commit_path = reads_commit_messages.then_some(FilePaths {
+                path: files::COMMIT_MESSAGE,
+                renamed_from: None,
+            });
             not_read(picked, at, paths.chain(commit_path), open)
         })
         .collect();
