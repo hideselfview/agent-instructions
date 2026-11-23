@@ -57,8 +57,17 @@ pub fn schema() -> Value {
                     "required": ["id", "verdict"],
                     "properties": {
                         "id": {"type": "integer"},
-                        "verdict": {"type": "string", "enum": ["fixed", "open"]},
-                        "reason": {"type": "string"}
+                        "verdict": {
+                            "anyOf": [
+                                {"type": "string", "enum": ["fixed"]},
+                                {
+                                    "type": "object",
+                                    "additionalProperties": false,
+                                    "required": ["still_open"],
+                                    "properties": {"still_open": {"type": "string"}}
+                                }
+                            ]
+                        }
                     }
                 }
             },
@@ -198,7 +207,7 @@ pub fn group_part(input: &Input) -> String {
     out.push_str(
         "\nFor open findings, give one entry in `follow_up` for every finding the message lists, even when you find no new issues. Use the finding number as `id`.\n\
          - Check whether the current branch still has the problem. Read the diff for fixes in other files, including tests, and open the relevant files to see what the code does. The original file and line identify where the earlier review found the problem. A fix can leave that line unchanged.\n\
-         - Use verdict `fixed` if the problem is gone. Use verdict `open` if it remains and give the specific reason in `reason`. Omit `follow_up` when the message lists no open findings.\n",
+         - Use the string `fixed` as the verdict if the problem is gone. If the problem remains, give an object with `still_open` set to a sentence that explains why. Omit `follow_up` when the message lists no open findings.\n",
     );
     if let Some(sites) = group.sites.as_deref().filter(|_| group.enumerate) {
         out.push_str(&format!(

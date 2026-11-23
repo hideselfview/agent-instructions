@@ -213,7 +213,10 @@ while [ "$#" -gt 0 ]; do
     if [ "$1" = --model ]; then model="$2"; break; fi
     shift
 done
-sed "s/^{{/{{\"modelUsage\":{{\"$model\":{{}}}},/" "$D/answer-$group.json"
+file=$(sed -n 's|^diff --git a/[^ ]* b/||p' "$D/calls/$$.prompt" | head -1)
+answer="$D/answer-$group.json"
+if [ -f "$D/answer-$group-$file.json" ]; then answer="$D/answer-$group-$file.json"; fi
+sed "s/^{{/{{\"modelUsage\":{{\"$model\":{{}}}},/" "$answer"
 "#,
         d = dir.display()
     );
@@ -238,16 +241,16 @@ sed "s/^{{/{{\"modelUsage\":{{\"$model\":{{}}}},/" "$D/answer-$group.json"
 pub type Raised = (&'static str, &'static str, i64, &'static str, &'static str);
 
 impl Fake {
-    /// The alpha reviewer finds no new issues and closes these findings.
-    pub fn closes(&self, ids: &[i64]) {
+    /// The reviewer finds no new issues and closes these findings.
+    pub fn closes(&self, group: &str, rule: &str, ids: &[i64]) {
         let follow_up: Vec<_> = ids
             .iter()
             .map(|id| serde_json::json!({"id": id, "verdict": "fixed"}))
             .collect();
         self.answer_task(
-            "alpha",
+            group,
             serde_json::json!({
-                "rules": [{"rule": "rule-a", "verdict": "none", "findings": []}],
+                "rules": [{"rule": rule, "verdict": "none", "findings": []}],
                 "follow_up": follow_up,
             }),
         );

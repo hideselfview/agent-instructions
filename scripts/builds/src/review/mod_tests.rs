@@ -178,7 +178,7 @@ fn a_change_gets_one_review_and_a_second_run_is_refused() {
         "alpha",
         serde_json::json!({
             "rules": [{"rule": "rule-a", "verdict": "none", "findings": []}],
-            "follow_up": [{"id": finding, "verdict": "open", "reason": "The code still does the bad thing."}],
+            "follow_up": [{"id": finding, "verdict": {"still_open": "The code still does the bad thing."}}],
         }),
     );
     let again = run_review(&demo, &fake, &side, "k");
@@ -187,9 +187,7 @@ fn a_change_gets_one_review_and_a_second_run_is_refused() {
     assert_eq!(prompts[0].0, "alpha");
     assert!(prompts[0].1.contains("+a.rs"), "{}", prompts[0].1);
     assert!(
-        again
-            .text
-            .contains("again over the whole net change, since nothing is unread"),
+        again.text.contains("again over the whole net change"),
         "{}",
         again.text
     );
@@ -201,7 +199,7 @@ fn a_change_gets_one_review_and_a_second_run_is_refused() {
     // A fix commit is part of the changes since the last review: a new run
     // reads it, and only it, once, and closes the finding it fixes.
     demo.commit(&side, "fix.rs");
-    fake.closes(&[finding]);
+    fake.closes("alpha", "rule-a", &[finding]);
     let read = run_review(&demo, &fake, &side, "k");
     let prompts = fake.prompts();
     assert_eq!(prompts.len(), 1, "{}", read.text);
@@ -262,7 +260,7 @@ fn finding_in_a_deleted_file(name: &str, settle_first: bool) -> (Demo, Fake, Pat
 fn a_confirmed_finding_in_a_file_the_branch_deletes_is_closed_with_no_answer_from_the_reviewer() {
     let (demo, fake, side, landing, finding) = finding_in_a_deleted_file("review-deleted", true);
     // The reviewer answers that it closes nothing.
-    fake.closes(&[]);
+    fake.closes("alpha", "rule-a", &[]);
     let read = run_review(&demo, &fake, &side, "k");
     assert!(
         read.text.contains(&format!("closed finding {finding}")),
@@ -277,7 +275,7 @@ fn a_confirmed_finding_in_a_file_the_branch_deletes_is_closed_with_no_answer_fro
 fn a_finding_confirmed_after_the_run_that_read_the_deletion_is_closed_by_the_next_run() {
     let (demo, fake, side, landing, finding) =
         finding_in_a_deleted_file("review-deleted-late", false);
-    fake.closes(&[]);
+    fake.closes("alpha", "rule-a", &[]);
     let read = run_review(&demo, &fake, &side, "k");
     assert!(
         findings_of(&demo, landing)[0].closed_by.is_none(),
@@ -595,18 +593,12 @@ fn found_in(name: &str, writing: &[&str], alpha: &[&str]) -> (Demo, Fake, PathBu
     }
     fake.prompts();
     for (group, rule) in [("alpha", "rule-a"), ("writing", "rule-w")] {
-        let follow_up: Vec<_> = findings
+        let ids: Vec<_> = findings
             .iter()
             .filter(|finding| finding.group == group)
-            .map(|finding| serde_json::json!({"id": finding.id, "verdict": "fixed"}))
+            .map(|finding| finding.id)
             .collect();
-        fake.answer_task(
-            group,
-            serde_json::json!({
-                "rules": [{"rule": rule, "verdict": "none", "findings": []}],
-                "follow_up": follow_up,
-            }),
-        );
+        fake.closes(group, rule, &ids);
     }
     (demo, fake, side, landing)
 }
@@ -732,7 +724,7 @@ fn a_fix_of_a_file_no_rule_covers_asks_the_group_that_holds_its_finding() {
     settle_as(&demo, found[0].id, "confirmed", "real");
     fake.prompts();
     fix(&side, &["b.js"]);
-    fake.closes(&[found[0].id]);
+    fake.closes("alpha", "rule-a", &[found[0].id]);
     let read = run_review(&demo, &fake, &side, "k");
     let prompts = fake.prompts();
     assert_eq!(prompts.len(), 1, "{}", read.text);
@@ -767,7 +759,7 @@ fn a_fix_in_a_file_no_group_covers_asks_the_group_that_holds_the_finding() {
     settle_as(&demo, finding, "confirmed", "real");
     fake.prompts();
     demo.commit(&side, "fix.js");
-    fake.closes(&[finding]);
+    fake.closes("alpha", "rule-a", &[finding]);
     let read = run_review(&demo, &fake, &side, "k");
     let prompts = fake.prompts();
     assert_eq!(prompts.len(), 1, "{}", read.text);
@@ -808,7 +800,7 @@ fn a_group_never_asked_over_the_fix_is_asked_again_with_no_new_commit() {
     let asked: Vec<String> = fake.prompts().into_iter().map(|(group, _)| group).collect();
     assert_eq!(asked, ["beta"]);
     settle_as(&demo, finding, "confirmed", "real");
-    fake.closes(&[finding]);
+    fake.closes("alpha", "rule-a", &[finding]);
     let read = run_review(&demo, &fake, &side, "k");
     let prompts = fake.prompts();
     assert_eq!(prompts.len(), 1, "{}", read.text);
@@ -863,7 +855,7 @@ fn a_group_that_read_the_fix_before_its_finding_was_confirmed_reads_it_again_wit
             record::settle(db, finding, "confirmed", "real", stamp.at, "tester")
         })
         .unwrap();
-    fake.closes(&[finding]);
+    fake.closes("alpha", "rule-a", &[finding]);
     let read = review_at(&demo, &fake, &side, "k", NOON + 30).unwrap();
     let prompts = fake.prompts();
     assert_eq!(prompts.len(), 1, "{}", read.text);
@@ -1082,7 +1074,7 @@ fn a_commit_amended_with_its_own_message_and_files_is_no_change_to_review() {
         serde_json::json!({
             "summary": "The changes raise no new findings.",
             "sites": [],
-            "follow_up": [{"id": finding, "verdict": "open", "reason": "The commit message still has a vague line."}],
+            "follow_up": [{"id": finding, "verdict": {"still_open": "The commit message still has a vague line."}}],
         }),
     );
     let again = run_review(&demo, &fake, &side, "k");
@@ -1143,7 +1135,7 @@ fn a_review_requires_an_answer_for_a_confirmed_finding_whose_fix_changes_another
         "alpha",
         serde_json::json!({
             "rules": [{"rule": "rule-a", "verdict": "none", "findings": []}],
-            "follow_up": [{"id": finding, "verdict": "open", "reason": "The test does not call a.rs."}],
+            "follow_up": [{"id": finding, "verdict": {"still_open": "The test does not call a.rs."}}],
         }),
     );
     let kept = run_review(&demo, &fake, &side, "k");
@@ -1156,7 +1148,7 @@ fn a_review_requires_an_answer_for_a_confirmed_finding_whose_fix_changes_another
     assert!(findings_of(&demo, landing)[0].is_open());
     fake.prompts();
 
-    fake.closes(&[finding]);
+    fake.closes("alpha", "rule-a", &[finding]);
     let again = run_review(&demo, &fake, &side, "k");
     assert_eq!(fake.prompts().len(), 1, "{}", again.text);
     assert!(
@@ -1200,6 +1192,121 @@ fn a_reviewer_that_fails_keeps_the_commits_from_landing_and_only_it_is_asked_aga
     // Every group has answered now, so the change gets no further run.
     let refused = try_review(&demo, &fake, &side, "k").unwrap_err().text();
     assert!(refused.contains(landing::ONE_REVIEW), "{refused}");
+}
+
+#[test]
+fn a_retry_of_an_older_head_reviews_its_diff_without_judging_open_findings() {
+    let demo = demo("review-old-retry");
+    let fake = fake(&demo.scratch.dir);
+    let side = demo.add_side(1, "agent", "work");
+    demo.commit(&side, "a.rs");
+    fake.answer("alpha", &[("rule-a", Some(BAD))]);
+    let landing = review_at(&demo, &fake, &side, "k", NOON)
+        .unwrap()
+        .landing
+        .unwrap();
+    let finding = findings_of(&demo, landing)[0].id;
+
+    demo.commit(&side, "b.rs");
+    fake.fail("alpha");
+    review_at(&demo, &fake, &side, "k", NOON + 10).unwrap();
+    let head_commit = demo.commit(&side, "c.rs");
+    demo.store
+        .write(&stamp_at(NOON + 20), "settle", |db| {
+            record::settle(db, finding, "confirmed", "real", NOON + 20, "tester")
+        })
+        .unwrap();
+    fake.prompts();
+    std::fs::remove_file(fake.dir.join("fail-alpha")).unwrap();
+    fake.answer("alpha", &[("rule-a", None)]);
+    review_at(&demo, &fake, &side, "k", NOON + 30).unwrap();
+
+    let prompts = fake.prompts();
+    assert_eq!(prompts.len(), 2, "{prompts:?}");
+    let old = &prompts
+        .iter()
+        .find(|(_, prompt)| !prompt.contains("+c.rs"))
+        .unwrap()
+        .1;
+    let head = &prompts
+        .iter()
+        .find(|(_, prompt)| prompt.contains("+c.rs"))
+        .unwrap()
+        .1;
+    let open = format!("Finding {finding} (rule-a)");
+    assert!(old.contains("+b.rs") && !old.contains(&open), "{old}");
+    assert!(head.contains("+b.rs") && head.contains(&open), "{head}");
+    let db = demo.store.open_existing().unwrap();
+    let coverage = landing::Coverage::of(&db, &record::landing(&db, landing).unwrap()).unwrap();
+    assert_eq!(coverage.last_review.head, head_commit);
+}
+
+#[test]
+fn a_group_closes_a_finding_only_after_its_exchanges_answer_and_agree() {
+    let demo = demo("review-disagrees-on-fix");
+    let fake = fake(&demo.scratch.dir);
+    group_file(
+        &fake.root,
+        "alpha",
+        "alpha",
+        "medium",
+        "enumerate = true\nsites = \"does the bad thing\"\n",
+    );
+    let side = demo.add_side(1, "agent", "work");
+    demo.commit(&side, "a.rs");
+    fake.answer_task(
+        "alpha",
+        serde_json::json!({"summary": "s", "sites": [{
+            "file": BAD.1, "line": BAD.2, "kind": "call", "code": BAD.3,
+            "verdict": "finding", "rule": "rule-a", "clause": BAD.0, "problem": BAD.4
+        }]}),
+    );
+    let landing = run_review(&demo, &fake, &side, "k").landing.unwrap();
+    let finding = findings_of(&demo, landing)[0].id;
+    settle_as(&demo, finding, "confirmed", "real");
+    demo.commit(&side, "fix.rs");
+    demo.commit(&side, "test.rs");
+
+    let fixed = serde_json::json!({"summary": "s", "sites": [], "follow_up": [{"id": finding, "verdict": "fixed"}]});
+    fake.answer_task("alpha-fix.rs", fixed.clone());
+    fake.answer_task(
+        "alpha-test.rs",
+        serde_json::json!({"summary": "s", "sites": [], "follow_up": []}),
+    );
+    let missing = run_review(&demo, &fake, &side, "k");
+    assert!(
+        missing.text.contains("no verdict for open finding"),
+        "{}",
+        missing.text
+    );
+    assert!(findings_of(&demo, landing)[0].is_open(), "{}", missing.text);
+
+    fake.answer_task("alpha-test.rs", serde_json::json!({"summary": "s", "sites": [],
+        "follow_up": [{"id": finding, "verdict": {"still_open": "The test still misses the failing call."}}],
+    }));
+    let disagreed = run_review(&demo, &fake, &side, "k");
+    assert!(
+        disagreed.text.contains("disagreed")
+            && disagreed
+                .text
+                .contains("The test still misses the failing call."),
+        "{}",
+        disagreed.text
+    );
+    assert!(
+        findings_of(&demo, landing)[0].is_open(),
+        "{}",
+        disagreed.text
+    );
+
+    fake.answer_task("alpha-test.rs", fixed);
+    let agreed = run_review(&demo, &fake, &side, "k");
+    assert!(agreed.refusal.is_none(), "{agreed:?}");
+    assert!(
+        findings_of(&demo, landing)[0].closed_by.is_some(),
+        "{}",
+        agreed.text
+    );
 }
 
 #[test]
@@ -2036,7 +2143,7 @@ fn a_group_that_raises_an_open_finding_again_on_unchanged_code_records_nothing_n
                 "verdict": "finding",
                 "findings": [{"clause": BAD.0, "file": BAD.1, "line": BAD.2, "code": BAD.3, "problem": BAD.4}],
             }],
-            "follow_up": [{"id": finding, "verdict": "open", "reason": BAD.4}],
+            "follow_up": [{"id": finding, "verdict": {"still_open": BAD.4}}],
         }),
     );
     let again = run_review(&demo, &fake, &side, "k");

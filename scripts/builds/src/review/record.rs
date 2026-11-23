@@ -539,7 +539,7 @@ pub fn add_calls(
 /// Closes open confirmed finding <id> of <landing>: run <run> read changes
 /// that fix it. close refuses a finding of another landing and one that is
 /// not open.
-fn close(db: &Connection, id: i64, run: i64, landing: Option<i64>) -> Result<()> {
+pub(super) fn close(db: &Connection, id: i64, run: i64, landing: Option<i64>) -> Result<()> {
     let finding = finding_of(db, id)?;
     if finding.landing_id != landing || landing.is_none() {
         fail!("finding {id} is not a finding of the landing run {run} reviews");

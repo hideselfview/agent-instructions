@@ -31,10 +31,18 @@ pub struct Answer {
     pub follow_up: BTreeMap<i64, FollowUp>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum FollowUp {
     Fixed,
     StillOpen(String),
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FollowUpEntry {
+    id: i64,
+    verdict: FollowUp,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -299,32 +307,22 @@ fn follow_up_of(body: &Value, given: &[i64]) -> Result<BTreeMap<i64, FollowUp>, 
     };
     let mut verdicts = BTreeMap::new();
     for entry in listed {
-        let id = entry["id"]
-            .as_i64()
-            .ok_or("The reviewer gave an open finding verdict without a finding number.")?;
+        let FollowUpEntry { id, verdict } =
+            serde_json::from_value(entry.clone()).map_err(|error| {
+                format!("The reviewer gave an invalid verdict for an open finding. {error}")
+            })?;
         if !given.contains(&id) {
             return Err(format!(
                 "The reviewer gave a verdict for finding {id}, which the prompt did not list."
             ));
         }
-        let verdict = match entry["verdict"].as_str() {
-            Some("fixed") => FollowUp::Fixed,
-            Some("open") => {
-                let reason = entry["reason"]
-                    .as_str()
-                    .map(str::trim)
-                    .filter(|reason| !reason.is_empty())
-                    .ok_or_else(|| {
-                        format!("The reviewer gave no reason for keeping finding {id} open.")
-                    })?;
-                FollowUp::StillOpen(reason.to_string())
-            }
-            _ => {
-                return Err(format!(
-                    "The reviewer gave finding {id} a verdict other than fixed or open."
-                ));
-            }
-        };
+        if let FollowUp::StillOpen(reason) = &verdict
+            && reason.trim().is_empty()
+        {
+            return Err(format!(
+                "The reviewer gave no reason for keeping finding {id} open."
+            ));
+        }
         if verdicts.insert(id, verdict).is_some() {
             return Err(format!(
                 "The reviewer gave two verdicts for open finding {id}."

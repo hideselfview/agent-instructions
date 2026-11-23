@@ -2,6 +2,7 @@
 //! parallel, checks each finding's quotes, and says what came back. It writes
 //! nothing; `mod.rs` records the calls.
 
+use std::collections::btree_map::Entry;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
@@ -815,6 +816,11 @@ pub fn ask_groups(
             }
         }
     }
+    for call in &mut calls {
+        if call.failure.is_some() {
+            call.follow_up.clear();
+        }
+    }
     // A group that reads one file per call and covers a path some commit
     // changed has no file to read when a later commit changed that path back:
     // the range diff holds none of its files. Nor has a group whose view of a
@@ -876,37 +882,6 @@ pub fn split_deleted_findings(
     }))
 }
 
-impl Material {
-    /// Closes each finding of <gone> in the call of its group in <asked>,
-    /// adding a call that ran no reviewer for a group with none: no reviewer
-    /// decides whether a finding in a deleted file is fixed.
-    pub fn close_deleted(
-        &self,
-        reviewer: &crate::review::Program,
-        asked: &mut Asked,
-        gone: &[Finding],
-    ) {
-        for (name, held) in self.holding_groups(gone) {
-            let at = asked.calls.iter().position(|call| call.group == name);
-            let call = match at {
-                Some(at) => &mut asked.calls[at],
-                None => {
-                    let (group, members) = self
-                        .groups
-                        .reviewing(&self.rules)
-                        .find(|(group, _)| group.name == name)
-                        .expect("a group that holds a finding is a group of the rules");
-                    asked.calls.push(bare_call(reviewer, group, &members, None));
-                    asked.calls.last_mut().expect("a call was just added")
-                }
-            };
-            for finding in held {
-                call.follow_up.insert(finding.id, call::FollowUp::Fixed);
-            }
-        }
-    }
-}
-
 /// A call of <group> that ran no reviewer: failed with <failure>, or, with
 /// none, an answer of no findings.
 fn bare_call(
@@ -937,13 +912,10 @@ fn bare_call(
 fn merge(held: &mut NewCall, more: NewCall) {
     held.exchanges.extend(more.exchanges);
     let usage_error = held.usage.merge(more.usage).err();
-    let failures: Vec<_> = [held.failure.take(), more.failure, usage_error]
+    let mut failures: Vec<_> = [held.failure.take(), more.failure, usage_error]
         .into_iter()
         .flatten()
         .collect();
-    if !failures.is_empty() {
-        held.failure = Some(failures.join(". "));
-    }
     for (rule, verdict) in more.verdicts {
         match held.verdicts.iter_mut().find(|(r, _)| *r == rule) {
             Some((_, held_verdict)) => {
@@ -955,11 +927,24 @@ fn merge(held: &mut NewCall, more: NewCall) {
         }
     }
     for (id, verdict) in more.follow_up {
-        if verdict == call::FollowUp::Fixed {
-            held.follow_up.insert(id, verdict);
-        } else {
-            held.follow_up.entry(id).or_insert(verdict);
+        match held.follow_up.entry(id) {
+            Entry::Vacant(entry) => {
+                entry.insert(verdict);
+            }
+            Entry::Occupied(entry) => match (entry.get(), &verdict) {
+                (call::FollowUp::Fixed, call::FollowUp::StillOpen(reason))
+                | (call::FollowUp::StillOpen(reason), call::FollowUp::Fixed) => {
+                    let reason = crate::text::one_line(reason);
+                    failures.push(format!(
+                        "The reviewers disagreed on finding {id}. One kept the finding open. {reason}"
+                    ));
+                }
+                _ => {}
+            },
         }
+    }
+    if !failures.is_empty() {
+        held.failure = Some(failures.join(". "));
     }
     for finding in more.findings {
         let same = held.findings.iter().any(|f| {

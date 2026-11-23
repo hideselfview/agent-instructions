@@ -188,7 +188,7 @@ fn a_fix_commit_is_read_by_a_new_run_once_which_closes_the_finding_it_fixes() {
         "{asked:?}"
     );
     fake.prompts();
-    fake.closes(&[finding]);
+    fake.closes("alpha", "rule-a", &[finding]);
     let reported = review_of(&demo, &fake, &side);
     let prompts = fake.prompts();
     assert_eq!(prompts.len(), 1, "{}", reported.text);
@@ -518,7 +518,7 @@ fn a_branch_lands_in_two_parts_once_a_review_closed_its_findings() {
             "rules": [{"rule": "rule-a", "verdict": "none", "findings": []}],
             "follow_up": [
                 {"id": found[0].id, "verdict": "fixed"},
-                {"id": found[1].id, "verdict": "open", "reason": "The commit message still has a vague line."},
+                {"id": found[1].id, "verdict": {"still_open": "The commit message still has a vague line."}},
             ],
         }),
     );
@@ -750,7 +750,7 @@ fn a_review_of_a_dropped_commit_closes_its_finding_and_the_branch_lands() {
     };
     assert_eq!(unfinished.unreviewed, ["a.rs"]);
     assert_eq!(unfinished.open[0].id, finding);
-    fake.closes(&[finding]);
+    fake.closes("alpha", "rule-a", &[finding]);
     review_of(&demo, &fake, &side);
     assert!(check_landing(&demo, &fake, &side, shas));
     let shown = render::finding_text(&findings(&demo)[0]);

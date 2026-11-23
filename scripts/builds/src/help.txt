@@ -3141,8 +3141,10 @@ confirmed finding of its group's rules, with its file, line, quoted code
 and problem. The reviewer checks whether the branch still has each problem,
 including fixes in other files, and gives each finding a verdict. Builds
 records which run closed each fixed finding and prints the reviewer's reason
-for keeping each other finding open. Builds treats an omitted verdict as a
-failed answer.
+for keeping each other finding open. Builds checks open findings against the
+branch head under review. A retry over an older commit reads only that diff.
+Builds fails the group if an exchange omits a verdict or if its reviewers
+disagree on whether a finding is fixed. A failed group leaves its findings open.
 
 `builds land` refuses a branch until its review takes it: nothing on a path
 a group's rules cover changed since the last review (the net change of the

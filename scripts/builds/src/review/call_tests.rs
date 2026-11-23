@@ -52,7 +52,7 @@ fn an_answer_is_refused_when_it_skips_a_rule_or_contradicts_itself() {
 #[test]
 fn follow_up_requires_one_verdict_per_given_finding_and_a_reason_to_keep_it_open() {
     let fixed = json!({"id": 7, "verdict": "fixed"});
-    let kept = json!({"id": 8, "verdict": "open", "reason": "The test never calls the command."});
+    let kept = json!({"id": 8, "verdict": {"still_open": "The test never calls the command."}});
     let answer = json!({"follow_up": [fixed, kept]});
     let verdicts = follow_up_of(&answer, &[7, 8]).unwrap();
     assert_eq!(
@@ -70,7 +70,7 @@ fn follow_up_requires_one_verdict_per_given_finding_and_a_reason_to_keep_it_open
         (json!([fixed, fixed]), "two verdicts for open finding 7"),
         (json!([fixed]), "no verdict for open finding 8"),
         (
-            json!([fixed, {"id": 8, "verdict": "open", "reason": "  "}]),
+            json!([fixed, {"id": 8, "verdict": {"still_open": "  "}}]),
             "no reason for keeping finding 8 open",
         ),
         (

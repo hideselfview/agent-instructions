@@ -85,6 +85,10 @@ pub fn finding_text(finding: &Finding) -> String {
     out
 }
 
+pub(super) fn closed_text(run: i64, finding: i64) -> String {
+    format!("Run {run} closed finding {finding}.\n")
+}
+
 /// What a reviewer raised, after the finding's number: whether it blocks,
 /// its rule and place, then its clause, code and problem.
 fn raised(
