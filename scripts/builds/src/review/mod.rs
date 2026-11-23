@@ -723,7 +723,7 @@ fn later_asks(
     // the changes: the earliest net change it read every change up to with
     // each of its findings.
     let mut holders: Vec<(String, &record::RunRow)> = Vec::new();
-    let group_findings = scope.material.holding_groups(open);
+    let group_findings = scope.material.holding_groups(open)?;
     let kept = if group_findings.is_empty() {
         Vec::new()
     } else {

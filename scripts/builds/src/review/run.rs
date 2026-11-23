@@ -62,14 +62,32 @@ impl Material {
     /// <open>'s order: a later run asks each over every change since it last
     /// read the branch with them, whatever files the changes touch, so that
     /// it closes the findings they fix.
-    pub fn holding_groups<'a>(&self, open: &'a [Finding]) -> Vec<(String, Vec<&'a Finding>)> {
-        self.groups
+    pub fn holding_groups<'a>(
+        &self,
+        open: &'a [Finding],
+    ) -> Result<Vec<(String, Vec<&'a Finding>)>> {
+        let groups: Vec<_> = self
+            .groups
             .reviewing(&self.rules)
             .filter_map(|(group, members)| {
                 let held = held_by(group, &members, open);
                 (!held.is_empty()).then(|| (group.name.clone(), held))
             })
-            .collect()
+            .collect();
+        if let Some(unheld) = open.iter().find(|finding| {
+            !groups
+                .iter()
+                .flat_map(|(_, findings)| findings)
+                .any(|held| held.id == finding.id)
+        }) {
+            fail!(
+                "Builds found that no review group holds open finding {}. {} raised it under {}.",
+                unheld.id,
+                unheld.group,
+                unheld.rule
+            );
+        }
+        Ok(groups)
     }
 
     /// Whether the group that holds rule <slug> judges no code comment

@@ -1350,6 +1350,28 @@ fn only_the_group_that_raised_a_project_facts_finding_reviews_its_fix() {
     settle_as(&demo, finding, "confirmed", "real");
     fake.prompts();
 
+    group_file(
+        &fake.root,
+        "alpha",
+        "renamed",
+        "medium",
+        "project_facts = true\n",
+    );
+    let why = try_review(&demo, &fake, &side, "k").unwrap_err().text();
+    assert!(
+        why.contains(&format!("no review group holds open finding {finding}")),
+        "{why}"
+    );
+    assert!(why.contains("alpha"), "{why}");
+    assert!(fake.prompts().is_empty());
+    group_file(
+        &fake.root,
+        "alpha",
+        "alpha",
+        "medium",
+        "project_facts = true\n",
+    );
+
     demo.commit(&side, "fix.rs");
     for (group, rule) in [("alpha", "rule-a"), ("beta", "rule-b")] {
         fake.answer_task(
