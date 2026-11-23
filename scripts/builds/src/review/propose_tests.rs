@@ -216,6 +216,33 @@ fn a_confirmed_miss_becomes_a_case_that_expects_it() {
 }
 
 #[test]
+fn a_case_proposal_requires_the_verified_occurrence() {
+    let demo = demo("review-propose-exact-occurrence");
+    let fake = fake(&demo.scratch.dir);
+    let side = demo.add_side(1, "agent", "work");
+    let landing = landed(&demo, &fake, &side, GENERIC[0]);
+    let conn = demo.store.open_existing().unwrap();
+    let mut finding = record::findings_of_landing(&conn, landing)
+        .unwrap()
+        .into_iter()
+        .find(|finding| finding.file == "a.rs")
+        .unwrap();
+    let text = "diff --git a/a.rs b/a.rs\n@@ -1 +1 @@\n-bad();\n+other();\n".to_string();
+    let diff = Diff {
+        changed: vec!["a.rs".to_string()],
+        messages: String::new(),
+        source: None,
+        text,
+    };
+    assert!(path_in(&diff, &diff.text, &finding).is_err());
+
+    finding.line = record::FindingLine::Legacy(99);
+    let mut diff = diff;
+    diff.text = "diff --git a/a.rs b/a.rs\n@@ -0,0 +1,2 @@\n+bad();\n+bad();\n".to_string();
+    assert_eq!(path_in(&diff, &diff.text, &finding), Ok("a.rs".into()));
+}
+
+#[test]
 fn a_landing_whose_commits_the_repo_lost_gives_no_case_and_says_why() {
     let demo = demo("review-propose-lost");
     let fake = fake(&demo.scratch.dir);

@@ -318,6 +318,16 @@ struct QuoteMatches<'a> {
     context: Vec<i64>,
 }
 
+impl QuoteMatches<'_> {
+    fn no_changed_quote(&self, file: &str) -> String {
+        if self.context.is_empty() {
+            format!("its code is not in the diff of {file}")
+        } else {
+            unchanged_quote(file)
+        }
+    }
+}
+
 fn quote_matches<'a>(
     files: &'a [DiffFile],
     file: &str,
@@ -396,11 +406,37 @@ pub fn code_site<'a>(
         return Err(unchanged_quote(file));
     }
     match found.changed.as_slice() {
-        [] if !found.context.is_empty() => Err(unchanged_quote(file)),
-        [] => Err(format!("its code is not in the diff of {file}")),
+        [] => Err(found.no_changed_quote(file)),
         [only] => Ok(site(*only)),
         _ => Err(ambiguous()),
     }
+}
+
+/// The file whose diff holds the quote at its stored site, or anywhere on a
+/// changed line when the store has no verified position.
+pub fn quote_file<'a>(
+    files: &'a [DiffFile],
+    file: &str,
+    code: &str,
+    expected: Option<&FilePosition<String>>,
+) -> Result<&'a str, String> {
+    let found = quote_matches(files, file, code)?;
+    if found.changed.is_empty() {
+        return Err(found.no_changed_quote(file));
+    }
+    if let Some(expected) = expected {
+        let site = FilePosition {
+            path: expected.path.as_str(),
+            position: expected.position,
+        };
+        if !found.changed.contains(&site) {
+            return Err(format!(
+                "its code is not at the verified line {} in {}",
+                site.position.line, site.path
+            ));
+        }
+    }
+    Ok(found.file)
 }
 
 /// Whether <line>, a line of the file at <path>, is a comment line: its

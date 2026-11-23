@@ -18,7 +18,7 @@ use crate::lists::store::Store;
 use crate::review::audit::{candidate_misses, diff_read};
 use crate::review::cases::{self, Addition, SiteLabel, same_code, same_file};
 use crate::review::check::reviewers_map;
-use crate::review::check::{code_site, squash};
+use crate::review::check::{quote_file, squash};
 use crate::review::files;
 use crate::review::model_check;
 use crate::review::record::{self, Finding, RunRow};
@@ -239,13 +239,15 @@ fn clean_lines(diff: &Diff, findings: &[Finding]) -> Vec<SiteLabel> {
 /// no such file.
 fn path_in(diff: &Diff, patch: &str, finding: &Finding) -> std::result::Result<String, String> {
     let quotes = diff.quotes();
-    let site = code_site(&quotes, &finding.file, finding.line.number(), &finding.code)?;
-    if site.file == files::COMMIT_MESSAGE
-        || files::paths(patch).iter().any(|path| path == site.file)
-    {
-        Ok(site.file.to_string())
+    let expected = match &finding.line {
+        record::FindingLine::Verified(site) => Some(site),
+        record::FindingLine::Reported(_) | record::FindingLine::Legacy(_) => None,
+    };
+    let file = quote_file(&quotes, &finding.file, &finding.code, expected)?;
+    if file == files::COMMIT_MESSAGE || files::paths(patch).iter().any(|path| path == file) {
+        Ok(file.to_string())
     } else {
-        Err(format!("the patch has no file {}", site.file))
+        Err(format!("the patch has no file {file}"))
     }
 }
 
