@@ -9,7 +9,7 @@
 
 use rusqlite::{Connection, params};
 
-use crate::app_landing::{branch_commits, branch_since};
+use crate::app_landing::branch_since;
 use crate::db::Sql;
 use crate::fail;
 use crate::fail::Result;
@@ -17,6 +17,7 @@ use crate::lane::Lane;
 use crate::lists::Stamp;
 use crate::lists::args::{Args, current_dir};
 use crate::lists::store::Store;
+use crate::review::commits;
 use crate::text::note;
 use crate::tool::Tool;
 
@@ -97,7 +98,7 @@ pub fn cmd_drop_shots(tool: &Tool, args: &[String]) -> Result<()> {
         fail!("{} is in no git checkout", cwd.display());
     };
     let since = branch_since(&checkout.top, "origin/main", branch)?;
-    let commits = branch_commits(&checkout.top, branch)?;
+    let commits = commits::in_range(&checkout.top, "origin/main", branch)?;
     let ran = {
         let db = store.open_existing()?;
         crate::app_timing::shots_ran(&db, repo, lane, branch, &commits, since, &store.database())?

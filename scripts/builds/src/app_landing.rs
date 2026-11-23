@@ -48,6 +48,7 @@ use crate::fail;
 use crate::fail::Result;
 use crate::lane::Lane;
 use crate::places::Places;
+use crate::review::commits;
 
 /// The flag of `builds app-build` that names this command.
 pub const FLAG: &str = "--landing-coverage";
@@ -316,15 +317,6 @@ fn refusal(repo: &str, worktree: &str, branch: &str, lanes: &[&Unbuilt]) -> Stri
     said
 }
 
-/// The commits that <branch> holds and origin/main lacks.
-pub fn branch_commits(top: &Path, branch: &str) -> Result<Vec<String>> {
-    let range = format!("origin/main..{branch}");
-    Ok(run_git(top, &["rev-list", &range])?
-        .lines()
-        .map(str::to_string)
-        .collect())
-}
-
 /// When the first commit of <branch> that <before> lacks was written, in
 /// seconds since 1970: the author date a rebase or an amend keeps. App builds
 /// of the branch started after it.
@@ -444,7 +436,7 @@ pub fn cmd_landing_coverage(places: &Places, args: &[String]) -> Result<()> {
         ));
         return Ok(());
     };
-    let branch_commits = branch_commits(top, branch)?;
+    let branch_commits = commits::in_range(top, "origin/main", branch)?;
     if branch_commits.is_empty() {
         crate::text::note(format!(
             "every commit of {branch} is on origin/main, so it needs no app build"
@@ -494,7 +486,7 @@ pub fn cmd_landing_coverage(places: &Places, args: &[String]) -> Result<()> {
                 .collect())
         },
         &mut |commit, target| {
-            if !crate::review::commits::exists(top, commit)? {
+            if !commits::exists(top, commit)? {
                 crate::text::note(format!(
                     "a passing app build built {commit}, which git does not have in {worktree}, so that build covers nothing"
                 ));
