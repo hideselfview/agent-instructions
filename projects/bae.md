@@ -253,6 +253,12 @@ keychain only when they ask, for that task.
 The person decides what bae does. A coordinator session, its agents, a judge
 session and a design session do the work (`builds help workflow`, ROLES).
 
+### Board matching
+
+While item 1569 is open, the coordinator runs `plans/board-matching.md` in bae's
+main checkout, round by round, and starts no other work unless it blocks one of
+the round's landings.
+
 ### Decision stack and work queue
 
 bae and coven keep two lists in the `builds` store, never in a file or a commit
