@@ -729,8 +729,9 @@ pub fn ask_groups(
         .enumerate()
         .map(|(at, (group, members))| {
             if kind == ReviewKind::Branch {
-                let reads_code = judges_code(group, members, &units[at], &diffs[at], files, open)?;
-                Ok(reviewer.for_branch_review(|| reads_code))
+                reviewer.for_branch_review(|| {
+                    judges_code(group, members, &units[at], &diffs[at], files, open)
+                })
             } else {
                 Ok(reviewer.clone())
             }
