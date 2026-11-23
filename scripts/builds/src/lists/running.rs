@@ -562,7 +562,7 @@ pub fn runs_in_any(lists: &[Lists], worktree: &str) -> bool {
 
 /// What `builds health` says about the lists: each fault <integrity> holds,
 /// which SQLite's integrity checks found in a store's database
-/// (`store::integrity`), a store that fails its check,
+/// (`store::Store::integrity`), a store that fails its check,
 /// and a running item whose worktree is gone or has no claim. `builds
 /// release` and a landing's release (kept.rs), `builds
 /// item drop` each refuse to remove a claim while another item runs in the
