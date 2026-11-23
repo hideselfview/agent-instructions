@@ -810,42 +810,36 @@ fn later_asks(
             .iter()
             .any(|ask| ask.groups.contains(group))
     });
-    let unused_since = if !groups.is_empty() {
-        asks.push(Ask {
-            note: Some(format!(
-                "read only the changes since the last review, run {} over {}...{}\n",
-                last.id,
-                short(&last.base),
-                short(&last.head)
-            )),
-            change: since,
-            since: Some(last.id),
-            last_review: true,
-            groups,
-            open: Vec::new(),
-            at_head: true,
-            deleted: Vec::new(),
-        });
-        None
-    } else if needs_review {
+    if groups.is_empty() && needs_review {
         // The catch-up asks together cover every group that needed to read
         // the changes since the last review. They all read the same head.
         asks[catch_up_start..]
             .last_mut()
             .expect("the groups that needed review got catch-up asks")
             .last_review = true;
-        None
-    } else {
-        Some(since)
+    }
+    let mut latest = Ask {
+        note: Some(format!(
+            "read only the changes since the last review, run {} over {}...{}\n",
+            last.id,
+            short(&last.base),
+            short(&last.head)
+        )),
+        change: since,
+        since: Some(last.id),
+        last_review: true,
+        groups,
+        open: Vec::new(),
+        at_head: true,
+        deleted: Vec::new(),
     };
     // A group decides the status of its findings against the head, even
     // when another ask retries an older diff for that group.
     let mut recheck = Vec::new();
     let mut recheck_findings = Vec::new();
     for (group, findings) in group_findings {
-        if let Some(ask) = asks
-            .iter_mut()
-            .rev()
+        if let Some(ask) = std::iter::once(&mut latest)
+            .chain(asks.iter_mut().rev())
             .find(|ask| ask.at_head && ask.groups.contains(&group))
         {
             ask.open.extend(findings.into_iter().cloned());
@@ -873,26 +867,20 @@ fn later_asks(
             deleted: Vec::new(),
         });
     }
-    if !deleted.is_empty() {
+    if !latest.groups.is_empty() {
+        latest.deleted = deleted;
+        asks.push(latest);
+    } else if !deleted.is_empty() {
         if let Some(ask) = asks.iter_mut().rfind(|ask| ask.at_head) {
             ask.deleted = deleted;
         } else {
-            let Some(since) = unused_since else {
-                fail!("Builds could not plan a review run at the head with the deleted files.");
-            };
-            asks.push(Ask {
-                note: Some(format!(
-                    "closed the findings in files the branch deleted, with no reviewer, after run {}\n",
-                    last.id
-                )),
-                change: since,
-                since: Some(last.id),
-                last_review: false,
-                groups: Vec::new(),
-                open: Vec::new(),
-                at_head: true,
-                deleted,
-            });
+            latest.note = Some(format!(
+                "closed the findings in files the branch deleted, with no reviewer, after run {}\n",
+                last.id
+            ));
+            latest.last_review = false;
+            latest.deleted = deleted;
+            asks.push(latest);
         }
     }
     if asks.is_empty() {
