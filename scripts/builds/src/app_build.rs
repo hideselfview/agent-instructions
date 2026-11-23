@@ -102,6 +102,7 @@
 //! host, because the lane's lock skips checkouts on hosts recorded this way.
 
 use std::io::{BufRead, BufReader, Read, Write};
+use std::num::NonZeroU8;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicI32, Ordering};
@@ -2538,33 +2539,33 @@ fn left_unchanged(site: &mut Site, built_file: &Path, ran: Result<Ended>) -> Res
 /// The requested picks left to run and the shots comparisons the parent reused.
 pub struct BuildPicks {
     pub pending: Vec<Pick>,
-    cached: Option<CachedPicks>,
+    cached: CachedPicks,
 }
 
 enum CachedPicks {
-    Project(Vec<(Lane, String)>),
-    OutsideProject(Option<std::num::NonZeroU8>),
+    Reused(Vec<(Lane, shots::Prefix)>),
+    Failed(NonZeroU8),
 }
 
 impl BuildPicks {
     pub fn pending(picks: Vec<Pick>) -> Self {
         Self {
             pending: picks,
-            cached: None,
+            cached: CachedPicks::Reused(Vec::new()),
         }
     }
 
     pub fn cached_result(&self) -> Result<()> {
         match self.cached {
-            Some(CachedPicks::OutsideProject(Some(code))) => Err(Fail::Exit(i32::from(code.get()))),
-            _ => Ok(()),
+            CachedPicks::Failed(code) => Err(Fail::Exit(i32::from(code.get()))),
+            CachedPicks::Reused(_) => Ok(()),
         }
     }
 
     pub fn reused_in(&self, lane: Lane) -> impl Iterator<Item = &str> {
         let reused = match &self.cached {
-            Some(CachedPicks::Project(picks)) => picks.as_slice(),
-            _ => &[],
+            CachedPicks::Reused(picks) => picks.as_slice(),
+            CachedPicks::Failed(_) => &[],
         };
         reused
             .iter()
@@ -2602,16 +2603,15 @@ pub fn serve_cached(
             pending.push(pick);
             continue;
         };
-        let status = cached.app_exit_code();
-        match recorded {
-            Some(_) if status != 0 => {
+        match (recorded, NonZeroU8::new(cached.app_exit_code())) {
+            (Some(_), Some(_)) => {
                 note(format!(
                     "The cache has no passing comparison for {prefix}, so the build runs it again."
                 ));
                 pending.push(pick);
                 continue;
             }
-            Some(records) => {
+            (Some(records), None) => {
                 if !records.has_passing_run(*lane, commit, |run| {
                     covers_prefix(run, prefix, *lane, commit, &mut |lane, commit| {
                         declarations.names(lane, commit)
@@ -2624,26 +2624,27 @@ pub fn serve_cached(
                     pending.push(pick);
                     continue;
                 }
-                reused.push((*lane, prefix.clone()));
+                let prefix = shots::Prefix::parse(prefix)
+                    .context(|| "reading a reused shots prefix".to_string())?;
+                reused.push((*lane, prefix));
             }
-            None => {}
+            (None, Some(code)) => {
+                if cached.exit_code() != code.get() {
+                    note(format!(
+                        "The source comparison for {prefix} failed with exit status {code}."
+                    ));
+                }
+                failed.get_or_insert(code);
+            }
+            (None, None) => {}
         }
         note("printing the cached findings instead of running (--fresh runs)");
         shot_findings::print(&cached);
         shot_findings::note_report(&cached);
-        if recorded.is_none()
-            && let Some(code) = std::num::NonZeroU8::new(status)
-        {
-            failed.get_or_insert(code);
-        }
     }
-    let cached = match recorded {
-        Some(_) => CachedPicks::Project(reused),
-        None => CachedPicks::OutsideProject(failed),
-    };
     Ok(BuildPicks {
         pending,
-        cached: Some(cached),
+        cached: failed.map_or(CachedPicks::Reused(reused), CachedPicks::Failed),
     })
 }
 

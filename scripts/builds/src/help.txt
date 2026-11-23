@@ -1273,8 +1273,10 @@ builds' `builds shots recheck` over the cached report, caches the findings as
 the run of the current comparison version, and prints one line that says so.
 The recheck links to the source run's pictures and writes every finding to
 the cached text and findings.json. Rechecks publish their findings only in
-those files. Builds keeps the source run's verdict
-for app builds that reuse the comparison. A change to the capture (a file
+those files. Builds uses the source run's verdict when app-build reuses the
+comparison. When a cached recheck exits with a different status from its
+failed source comparison, app-build reports the source failure.
+A change to the capture (a file
 that takes a shot or draws a board), to a file
 both versions read, or to a package the checker builds from changes the
 capture version, and then the run takes its shots, draws its boards and

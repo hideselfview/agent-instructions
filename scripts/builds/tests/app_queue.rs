@@ -1689,7 +1689,7 @@ echo \"shots $*\" >> \"$QUEUE_TEST_DIR/log\"
 report=\"$QUEUE_TEST_DIR/report-$$\"
 mkdir -p \"$report\"
 echo '<html></html>' > \"$report/index.html\"
-echo '{{\"version\": \"{}\", \"capture_version\": \"{}\", \"commit\": \"c\", \"scenes\": [], \"findings\": []}}' > \"$report/findings.json\"
+echo '{{\"version\": \"{}\", \"capture_version\": \"{}\", \"commit\": \"c\", \"scenes\": [], \"findings\": [], \"failed\": [], \"problems\": 0}}' > \"$report/findings.json\"
 echo \"builds shots: report at $report/index.html\" >&2
 ",
             env!("COMPARISON_SOURCE"),
@@ -1874,7 +1874,7 @@ fn a_cached_only_request_does_not_rebuild_for_an_unrequested_failed_prefix() {
 }
 
 #[test]
-fn a_failed_cached_comparison_still_lets_the_requested_test_run() {
+fn a_passing_recheck_reports_the_failed_source_and_runs_the_requested_test() {
     let volume = Volume::new("cache-failure-with-test");
     volume.app_repo_with(&format!(
         "{SHOTS_CONFIG}test mac ./two.sh {{class}}\nsources mac declared-mac\n"
@@ -1882,7 +1882,7 @@ fn a_failed_cached_comparison_still_lets_the_requested_test_run() {
     let top = volume.dir.join("checkout");
     commit_shots(
         &top,
-        "echo 'builds shots: 1 pair(s) fail the run: mac.a.one' >&2; exit 1",
+        "trap 'echo \"builds shots: 1 pair(s) fail the run: mac.a.one\" >&2; exit 1' EXIT",
     );
     std::fs::write(top.join("declared-mac/Foo.swift"), "struct Foo {}\n").unwrap();
     git_in(&top, &["add", "declared-mac/Foo.swift"]);
@@ -1895,6 +1895,17 @@ fn a_failed_cached_comparison_still_lets_the_requested_test_run() {
     let comparisons = shots_runs(&volume, "mac.a.");
     assert_eq!(comparisons.len(), 1);
 
+    let commit = git_in(&top, &["rev-parse", "main"]);
+    let capture = volume.dir.join(format!(
+        "volume/shots/demo/runs/{commit}/mac/26B131-17C529/mac.a./{}",
+        env!("CAPTURE_SOURCE")
+    ));
+    std::fs::rename(
+        capture.join(env!("COMPARISON_SOURCE")),
+        capture.join("old-comparison"),
+    )
+    .unwrap();
+
     let mixed = volume.run(&[
         "app-build",
         "demo",
@@ -1905,6 +1916,12 @@ fn a_failed_cached_comparison_still_lets_the_requested_test_run() {
         "Foo",
     ]);
     assert_eq!(mixed.status.code(), Some(1));
+    let said = String::from_utf8_lossy(&mixed.stderr);
+    assert!(said.contains("which exited 0"), "{said}");
+    assert!(
+        said.contains("The source comparison for mac.a. failed with exit status 1."),
+        "{said}"
+    );
     assert_eq!(shots_runs(&volume, "mac.a."), comparisons);
     assert!(volume.log().iter().any(|line| line == "end two"));
 }
