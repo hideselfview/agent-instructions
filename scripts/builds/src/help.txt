@@ -1467,14 +1467,17 @@ built again.
                               prefix and every prefix that starts with it
                               (`mac.` covers `mac.seek.`). A passing build can
                               also cover a required prefix with narrower steps.
-                              Builds reads the shot names the harnesses declare
-                              at each commit and checks whether those steps
+                              Builds reads the lane's declared shot names at
+                              each commit and checks whether those steps
                               together ran every shot the prefix selects at
-                              <branch>. The command prints each dropped
-                              prefix that it honors, and the pairs that the
-                              covering runs' shots rendered and the base never
-                              did. When every lane the landing changes has a
-                              covering run, it exits 0. When a lane has none,
+                              <branch>. If builds cannot read the names, a
+                              passing build can still cover the requirement by
+                              running that prefix or a broader one. The command
+                              prints each dropped prefix it honors and the
+                              pairs the covering runs' shots rendered and the
+                              base never did. When every lane the landing
+                              changes has a covering run, it exits 0. When a
+                              lane has none,
                               it prints the newest passing run it found, the
                               paths where that run differs from <branch> and
                               the shots prefixes it did not cover that the

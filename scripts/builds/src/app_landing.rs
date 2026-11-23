@@ -36,7 +36,7 @@
 //! repo in no project and a branch whose commits are all on origin/main need
 //! no build, and the command says so.
 
-use std::collections::{HashMap, HashSet, hash_map::Entry};
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::rc::Rc;
 
@@ -134,38 +134,40 @@ enum Search {
     Newest(Option<Newest>),
 }
 
-/// Gives the names declared at a commit, shared across a landing's checks.
-type DeclaredNames<'a> = dyn FnMut(&str) -> Result<Rc<HashSet<String>>> + 'a;
+/// Gives the names declared in a lane at a commit, when they can be read.
+type DeclaredNames<'a> = dyn FnMut(Lane, &str) -> Option<Rc<HashSet<String>>> + 'a;
 
 /// The required prefixes that <run> does not cover at <target>. A narrower
 /// prefix can contribute only to shots whose names start with both prefixes.
 fn missing_shots(
     run: &PassedRun,
     required: &[String],
+    lane: Lane,
     target: &str,
     declared: &mut DeclaredNames<'_>,
-) -> Result<Vec<String>> {
+) -> Vec<String> {
     let mut missing = Vec::new();
     for prefix in required {
         if run.ran_shots(prefix) {
             continue;
         }
-        if run.shots_prefixes().any(|ran| ran.starts_with(prefix)) {
-            let names = declared(target)?;
+        if run.shots_prefixes().any(|ran| ran.starts_with(prefix))
+            && let Some(names) = declared(lane, target)
+        {
             let mut selected = names
                 .iter()
                 .filter(|name| name.starts_with(prefix))
                 .peekable();
-            if selected.peek().is_some() {
-                let built = declared(&run.commit)?;
-                if selected.all(|name| built.contains(name) && run.ran_shots(name)) {
-                    continue;
-                }
+            if selected.peek().is_some()
+                && let Some(built) = declared(lane, &run.commit)
+                && selected.all(|name| built.contains(name) && run.ran_shots(name))
+            {
+                continue;
             }
         }
         missing.push(prefix.clone());
     }
-    Ok(missing)
+    missing
 }
 
 /// The newest of <runs> that covers <target> in <lane>: it passed every step
@@ -193,7 +195,7 @@ fn search(
             .collect();
         if paths.is_empty()
             && needed.iter().all(|step| run.steps.contains(step))
-            && missing_shots(run, required, target, declared)?.is_empty()
+            && missing_shots(run, required, lane, target, declared).is_empty()
         {
             return Ok(Search::Covers(run.clone()));
         }
@@ -201,14 +203,11 @@ fn search(
             newest = Some((run, paths));
         }
     }
-    let newest = match newest {
-        Some((run, paths)) => Some(Newest {
-            commit: run.commit.clone(),
-            paths,
-            missing_shots: missing_shots(run, required, target, declared)?,
-        }),
-        None => None,
-    };
+    let newest = newest.map(|(run, paths)| Newest {
+        commit: run.commit.clone(),
+        paths,
+        missing_shots: missing_shots(run, required, lane, target, declared),
+    });
     Ok(Search::Newest(newest))
 }
 
@@ -458,7 +457,7 @@ pub fn cmd_landing_coverage(places: &Places, args: &[String]) -> Result<()> {
         }
         drops_of.insert(lane, drops);
     }
-    let mut names_by_commit = HashMap::new();
+    let mut names_by_lane_and_commit = HashMap::new();
     let Coverage { covering, unbuilt } = needs(
         &config,
         &changed,
@@ -490,16 +489,23 @@ pub fn cmd_landing_coverage(places: &Places, args: &[String]) -> Result<()> {
             }
             paths_between(top, commit, target).map(Some)
         },
-        &mut |commit| {
-            let names = match names_by_commit.entry(commit.to_string()) {
-                Entry::Occupied(entry) => entry.into_mut(),
-                Entry::Vacant(entry) => entry.insert(Rc::new(
-                    crate::shots_declared::declared_names_at(top, commit)?
-                        .into_iter()
-                        .collect(),
-                )),
-            };
-            Ok(Rc::clone(names))
+        &mut |lane, commit| {
+            names_by_lane_and_commit
+                .entry((lane, commit.to_string()))
+                .or_insert_with(|| {
+                    match crate::shots_declared::declared_names_in_lane(top, commit, lane) {
+                        Ok(names) => Some(Rc::new(names.into_iter().collect())),
+                        Err(error) => {
+                            crate::text::note(format!(
+                                "landing could not read the {} shots declared at {commit}: {}",
+                                lane.word(),
+                                error.text()
+                            ));
+                            None
+                        }
+                    }
+                })
+                .clone()
         },
     )?;
     for (lane, run) in &covering {

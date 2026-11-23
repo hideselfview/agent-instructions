@@ -1622,7 +1622,7 @@ fn a_build_that_reuses_a_cached_run_leaves_the_passing_build_that_land_counts() 
         },
         &mut |_| Ok(vec!["mac.a.".to_string()]),
         &mut |_, _| Ok(Some(Vec::new())),
-        &mut |commit| panic!("this prefix needs no declarations at {commit}"),
+        &mut |_, commit| panic!("this prefix needs no declarations at {commit}"),
     )
     .unwrap();
     assert!(coverage.unbuilt.is_empty(), "{:?}", coverage.unbuilt);

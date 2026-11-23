@@ -66,7 +66,7 @@ fn check_shots(
                 .find(|(known, _)| *known == commit)
                 .map(|(_, list)| paths(list)))
         },
-        &mut |commit| panic!("these prefixes need no declarations at {commit}"),
+        &mut |_, commit| panic!("these prefixes need no declarations at {commit}"),
     )
     .unwrap()
     .unbuilt
@@ -356,6 +356,9 @@ struct ShotsLanding {
     since: i64,
 }
 
+const MAC_APP: &str =
+    "step mac macos ./macos.sh\non bae-macos/ macos\nshots mac ./shots.sh {select}\n";
+
 impl ShotsLanding {
     fn new() -> Self {
         let scratch = crate::testing::Scratch::new("app-landing-shots-gate");
@@ -364,7 +367,7 @@ impl ShotsLanding {
         std::fs::create_dir(dir.join("bae-macos")).unwrap();
         std::fs::write(
             dir.join(".app-build"),
-            "step mac macos ./macos.sh\non bae-macos/ macos\nshots mac ./shots.sh {select}\nshots-declared mac bae-macos\n",
+            format!("{MAC_APP}shots-declared mac bae-macos\n"),
         )
         .unwrap();
         std::fs::write(
@@ -431,6 +434,24 @@ impl ShotsLanding {
             self.dir.display().to_string(),
             self.head.clone(),
             "work".into(),
+        ];
+        cmd_landing_coverage(&self.scratch.places(), &args)
+    }
+
+    fn check_after_config_change(&self, config: &str) -> Result<()> {
+        std::fs::write(self.dir.join(".app-build"), config).unwrap();
+        crate::testing::git(&self.dir, &["add", ".app-build"]);
+        crate::testing::git(
+            &self.dir,
+            &["commit", "-q", "-m", "Change app build config"],
+        );
+        let target = crate::testing::git_out(&self.dir, &["rev-parse", "HEAD"]);
+        let args = [
+            self.dir.display().to_string(),
+            target.clone(),
+            "work".into(),
+            self.head.clone(),
+            target,
         ];
         cmd_landing_coverage(&self.scratch.places(), &args)
     }
@@ -522,6 +543,48 @@ fn one_passing_build_must_cover_every_shot_of_the_prefix() {
         ],
     );
     landing.check().unwrap();
+}
+
+#[test]
+fn an_older_build_can_cover_the_landing_when_declarations_are_unavailable() {
+    let missing_folder = format!("{MAC_APP}shots-declared mac missing-mac\n");
+    for config in [MAC_APP, &missing_folder] {
+        let landing = ShotsLanding::new();
+        landing.record_run(
+            landing.since + 1,
+            RunEnd::Passed,
+            &[("shots mac.nowplaying", StepResult::Passed)],
+        );
+        landing.record_run(
+            landing.since + 2,
+            RunEnd::Passed,
+            &[("shots mac.nowplaying.", StepResult::Passed)],
+        );
+        landing.check_after_config_change(config).unwrap();
+    }
+}
+
+#[test]
+fn mac_shots_coverage_reads_only_the_mac_harness() {
+    let landing = ShotsLanding::new();
+    landing.record_run(
+        landing.since + 1,
+        RunEnd::Failed,
+        &[(
+            "shots mac.nowplaying",
+            StepResult::Failed(Default::default()),
+        )],
+    );
+    landing.record_run(
+        landing.since + 2,
+        RunEnd::Passed,
+        &[("shots mac.nowplaying.", StepResult::Passed)],
+    );
+    landing
+        .check_after_config_change(&format!(
+            "{MAC_APP}shots-declared mac bae-macos\nshots-declared android missing-android\n"
+        ))
+        .unwrap();
 }
 
 /// A landing of the first of two commits on a branch is judged over its own

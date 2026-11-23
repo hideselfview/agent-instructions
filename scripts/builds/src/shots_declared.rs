@@ -12,6 +12,7 @@ use crate::app_build::{self, Pick};
 use crate::app_config::{CONFIG, PickKind, run_git};
 use crate::fail;
 use crate::fail::{Fail, Result};
+use crate::lane::Lane;
 
 /// How many nearest prefixes a refusal names.
 const NEAREST: usize = 6;
@@ -64,7 +65,7 @@ pub fn windowed_prefixes(top: &Path, commit: &str, picks: &[Pick]) -> Result<Vec
     if wanted.is_empty() {
         return Ok(Vec::new());
     }
-    let declared = declared_at(top, commit)?;
+    let declared = declared_at(top, commit, None)?;
     Ok(wanted
         .into_iter()
         .filter(|prefix| {
@@ -84,21 +85,47 @@ pub fn starts_a_shot(declared: &[String], prefix: &str) -> bool {
 /// The names of the shots the harnesses declare at <commit> of the repo at
 /// <top>.
 pub fn declared_names_at(top: &Path, commit: &str) -> Result<Vec<String>> {
-    Ok(declared_at(top, commit)?
+    declared_names(top, commit, None)
+}
+
+/// The names declared by the harness for <lane>, empty when the commit
+/// names no harness for that lane.
+pub fn declared_names_in_lane(top: &Path, commit: &str, lane: Lane) -> Result<Vec<String>> {
+    declared_names(top, commit, Some(lane))
+}
+
+fn declared_names(top: &Path, commit: &str, lane: Option<Lane>) -> Result<Vec<String>> {
+    Ok(declared_at(top, commit, lane)?
         .into_iter()
         .map(|scene| scene.name.to_string())
         .collect())
 }
 
-/// The shots the harnesses declare at <commit>, read from the declare
-/// folders that the commit's `.app-build` names.
-fn declared_at(top: &Path, commit: &str) -> Result<Vec<shots::Declared>> {
+/// The shots the commit's `.app-build` declares, limited to <lane> when given.
+fn declared_at(top: &Path, commit: &str, lane: Option<Lane>) -> Result<Vec<shots::Declared>> {
     let config = run_git(top, &["show", &format!("{commit}:{CONFIG}")])?;
     let folders = boards::app_build::declared(&config).map_err(|e| Fail::Message(e.text()))?;
-    let paths: Vec<String> = folders.into_iter().map(|(_, folder)| folder).collect();
-    if paths.is_empty() {
-        fail!("{CONFIG} at {commit} has no shots-declared line, so no shot is declared");
-    }
+    let (config, paths) = if let Some(lane) = lane {
+        let Some((platform, folder)) = folders
+            .into_iter()
+            .find(|(platform, _)| platform.word() == lane.word())
+        else {
+            return Ok(Vec::new());
+        };
+        // Give the shots checker only the declaration of the folder we export.
+        (
+            format!("shots-declared {} {folder}", platform.word()),
+            vec![folder],
+        )
+    } else {
+        if folders.is_empty() {
+            fail!("{CONFIG} at {commit} has no shots-declared line, so no shot is declared");
+        }
+        (
+            config,
+            folders.into_iter().map(|(_, folder)| folder).collect(),
+        )
+    };
     let scratch = std::env::temp_dir();
     crate::evict::in_temp_dir(&scratch, ".builds-declared.", |root| {
         boards::export(top, commit, &paths, root, "the declared shots")?;
