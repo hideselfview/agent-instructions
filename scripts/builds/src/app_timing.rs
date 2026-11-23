@@ -514,8 +514,9 @@ impl PassedRun {
 }
 
 /// A run belongs to a branch by its requested ref or the commit it built.
-const BRANCH_RUN_MATCH: &str =
-    "(r.built_ref IS ?3 OR c.built_commit IN (SELECT value FROM json_each(?4)))";
+/// A run that never checked out the target can still name its full SHA.
+const BRANCH_RUN_MATCH: &str = "(r.built_ref IS ?3
+    OR COALESCE(c.built_commit, r.built_ref) IN (SELECT value FROM json_each(?4)))";
 
 /// The passing runs of <repo>'s <lane> that recorded the commit they built
 /// and are a branch's: the ref the caller named (`built_ref`) is <named>, when
@@ -593,10 +594,11 @@ pub fn passed_shots(
 }
 
 /// The shots prefixes that app builds of <repo>'s <lane> ran to a verdict
-/// when asked for <named> or when building one of <commits>. Counts runs
-/// that started at or after <since> (seconds since 1970), whatever their
-/// outcome, in the database open as <conn> at <path>. Returns each prefix
-/// once, in name order.
+/// when asked for <named> or when building one of <commits>. A run that
+/// never checked out its target matches a commit by its requested SHA.
+/// Counts runs that started at or after <since> (seconds since 1970),
+/// whatever their outcome, in the database open as <conn> at <path>.
+/// Returns each prefix once, in name order.
 pub fn shots_ran(
     conn: &Connection,
     repo: &str,

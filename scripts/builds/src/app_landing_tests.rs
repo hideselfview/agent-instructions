@@ -397,12 +397,13 @@ impl ShotsLanding {
     }
 
     fn record_run(&self, at: i64, outcome: RunEnd, shots: &[(&str, StepResult)]) {
-        self.record_run_as("work", at, outcome, shots);
+        self.record_run_as("work", Some(&self.head), at, outcome, shots);
     }
 
     fn record_run_as(
         &self,
         built_ref: &str,
+        built_commit: Option<&str>,
         at: i64,
         outcome: RunEnd,
         shots: &[(&str, StepResult)],
@@ -418,14 +419,14 @@ impl ShotsLanding {
             lane: Lane::Mac,
             checkout: "side-1".to_string(),
             built_ref: built_ref.to_string(),
-            built_commit: Some(self.head.clone()),
+            built_commit: built_commit.map(str::to_string),
             who: None,
             wait_ms: 0,
             outcome,
             load: None,
             steps: steps
                 .map(|(name, kind, result)| StepRecord {
-                    at_merge_base: None,
+                    at_merge_base: Some(built_commit.is_none()),
                     name: name.to_string(),
                     kind,
                     started_at: at,
@@ -505,22 +506,28 @@ fn a_landing_whose_covering_build_skipped_a_failed_prefix_is_refused_until_it_is
 
 #[test]
 fn a_failed_shots_prefix_from_a_build_named_by_commit_is_required_at_landing() {
-    let landing = ShotsLanding::new();
-    landing.record_run_as(
-        &landing.head,
-        landing.since + 1,
-        RunEnd::Failed,
-        &[(
-            "shots mac.nowplaying.",
-            StepResult::Failed(Default::default()),
-        )],
-    );
-    landing.record_run(
-        landing.since + 2,
-        RunEnd::Passed,
-        &[("shots mac.seek.", StepResult::Passed)],
-    );
-    assert!(matches!(landing.check(), Err(crate::fail::Fail::Exit(1))));
+    for checked_out in [true, false] {
+        let landing = ShotsLanding::new();
+        landing.record_run_as(
+            &landing.head,
+            checked_out.then_some(landing.head.as_str()),
+            landing.since + 1,
+            RunEnd::Failed,
+            &[(
+                "shots mac.nowplaying.",
+                StepResult::Failed(Default::default()),
+            )],
+        );
+        landing.record_run(
+            landing.since + 2,
+            RunEnd::Passed,
+            &[("shots mac.seek.", StepResult::Passed)],
+        );
+        assert!(
+            matches!(landing.check(), Err(crate::fail::Fail::Exit(1))),
+            "target commit checked out: {checked_out}"
+        );
+    }
 }
 
 #[test]
