@@ -101,7 +101,7 @@ fn schema() -> Value {
 /// such file.
 fn file_of(diff: &Diff, finding: &Finding) -> Option<(String, String)> {
     if finding.file == files::COMMIT_MESSAGE {
-        let (file, _) = files::commit_message_file(&diff.messages)?;
+        let file = files::CommitMessages::from_text(&diff.messages)?.file();
         return Some((file.text, String::new()));
     }
     let file = diff

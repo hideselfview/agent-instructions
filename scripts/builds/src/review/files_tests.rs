@@ -122,7 +122,10 @@ fn a_checkout_of_a_revision_holds_its_files_and_is_removed_when_dropped() {
 
 #[test]
 fn commit_messages_become_one_added_file_with_quotes_to_check_against() {
-    let (file, quotes) = commit_message_file("First line\n\nBody line\n").unwrap();
+    let file = CommitMessages::from_text("First line\n\nBody line\n")
+        .unwrap()
+        .file();
+    let quotes = crate::review::check::DiffFile::from_file(&file);
     assert_eq!(file.path, COMMIT_MESSAGE);
     assert!(
         file.text
@@ -136,7 +139,7 @@ fn commit_messages_become_one_added_file_with_quotes_to_check_against() {
             .iter()
             .all(crate::review::check::DiffLine::changed)
     );
-    assert!(commit_message_file("  \n").is_none());
+    assert!(CommitMessages::from_text("  \n").is_none());
 }
 
 #[test]

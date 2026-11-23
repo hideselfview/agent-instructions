@@ -133,7 +133,7 @@ pub fn load(root: &Path) -> Result<Vec<Case>> {
 /// messages, which a reviewer reads as the file `COMMIT_MESSAGE`.
 pub(super) fn changes(patch: &files::Patch, file: &str) -> bool {
     if file == files::COMMIT_MESSAGE {
-        return !messages_of_patch(patch.text()).trim().is_empty();
+        return files::CommitMessages::from_text(&messages_of_patch(patch.text())).is_some();
     }
     patch.files().any(|diff| diff.path == file)
 }

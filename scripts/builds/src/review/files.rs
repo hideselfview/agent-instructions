@@ -353,29 +353,32 @@ impl Patch {
 /// a file the change adds.
 pub const COMMIT_MESSAGE: &str = "COMMIT_MESSAGE";
 
-/// The commit messages as one added file, in diff form and as the quotes it
-/// is checked against; None when there is no message text.
-pub fn commit_message_file(messages: &str) -> Option<(FileDiff, crate::review::check::DiffFile)> {
-    let lines: Vec<&str> = messages.trim().lines().collect();
-    if lines.is_empty() {
-        return None;
+/// The nonblank commit messages a reviewer can read as one added file.
+pub(super) struct CommitMessages<'a>(&'a str);
+
+impl<'a> CommitMessages<'a> {
+    pub(super) fn from_text(text: &'a str) -> Option<Self> {
+        let text = text.trim();
+        (!text.is_empty()).then_some(Self(text))
     }
-    let mut text = format!(
-        "diff --git {OLD_PATH_PREFIX}{COMMIT_MESSAGE} {NEW_PATH_PREFIX}{COMMIT_MESSAGE}\n--- /dev/null\n+++ {NEW_PATH_PREFIX}{COMMIT_MESSAGE}\n@@ -0,0 +1,{} @@\n",
-        lines.len()
-    );
-    for line in &lines {
-        text.push('+');
-        text.push_str(line);
-        text.push('\n');
+
+    pub(super) fn file(self) -> FileDiff {
+        let lines = self.0.lines();
+        let mut text = format!(
+            "diff --git {OLD_PATH_PREFIX}{COMMIT_MESSAGE} {NEW_PATH_PREFIX}{COMMIT_MESSAGE}\n--- /dev/null\n+++ {NEW_PATH_PREFIX}{COMMIT_MESSAGE}\n@@ -0,0 +1,{} @@\n",
+            lines.clone().count()
+        );
+        for line in lines {
+            text.push('+');
+            text.push_str(line);
+            text.push('\n');
+        }
+        FileDiff {
+            path: COMMIT_MESSAGE.to_string(),
+            renamed_from: None,
+            text,
+        }
     }
-    let file = FileDiff {
-        path: COMMIT_MESSAGE.to_string(),
-        renamed_from: None,
-        text,
-    };
-    let quotes = crate::review::check::DiffFile::from_file(&file);
-    Some((file, quotes))
 }
 
 #[derive(Clone, Copy)]

@@ -15,7 +15,7 @@ use crate::review::call;
 use crate::review::check::reviewers_map;
 use crate::review::check::{DiffFile, clause_in, code_site, names_file, only_on_comment_lines};
 use crate::review::commits;
-use crate::review::files::{self, FileDiff, Source};
+use crate::review::files::{self, CommitMessages, FileDiff, Source};
 use crate::review::groups::{Group, Groups};
 use crate::review::prompt::{self, PROJECT_FACTS};
 use crate::review::record::{Finding, FindingLine, NewCall, NewExchange, NewFinding, RunRow};
@@ -140,7 +140,7 @@ impl Scope<'_> {
     /// <branch>: each group that reads commit messages and whose rules cover
     /// a path of <branch>. The list is empty when <since> holds no message.
     pub fn commit_text_groups(&self, since: &Diff, branch: &[String]) -> Vec<String> {
-        if files::commit_message_file(&since.messages).is_none() {
+        if CommitMessages::from_text(&since.messages).is_none() {
             return Vec::new();
         }
         self.pick(branch)
@@ -208,36 +208,32 @@ impl Diff {
 
     /// Whether the diff changes no file and holds no commit message.
     pub fn is_empty(&self) -> bool {
-        self.patch.text().trim().is_empty() && self.messages.trim().is_empty()
+        self.patch.text().trim().is_empty() && CommitMessages::from_text(&self.messages).is_none()
     }
 
     /// The lines builds looks for a finding's quoted code in: each changed
     /// file's, and the commit messages' as one more file.
     pub fn quotes(&self) -> Vec<DiffFile> {
         let mut quotes: Vec<_> = self.patch.files().map(DiffFile::from_file).collect();
-        if let Some((_, messages)) = files::commit_message_file(&self.messages) {
-            quotes.push(messages);
+        if let Some(messages) = CommitMessages::from_text(&self.messages) {
+            quotes.push(DiffFile::from_file(&messages.file()));
         }
         quotes
     }
 
-    fn commit_messages_for(&self, group: &Group) -> Option<&str> {
+    fn commit_messages_for(&self, group: &Group) -> Option<CommitMessages<'_>> {
         if !group.commit_text {
             return None;
         }
-        let text = self.messages.trim();
-        (!text.is_empty()).then_some(text)
+        CommitMessages::from_text(&self.messages)
     }
 
     /// The diff's text as <group> reads it in one call, with the commit
     /// messages as another file when the group reads them.
     pub fn text_for(&self, group: &Group) -> String {
         let mut text = self.patch.text().to_string();
-        if let Some((file, _)) = self
-            .commit_messages_for(group)
-            .and_then(files::commit_message_file)
-        {
-            text.push_str(&file.text);
+        if let Some(messages) = self.commit_messages_for(group) {
+            text.push_str(&messages.file().text);
         }
         text
     }
@@ -562,11 +558,8 @@ fn units_of<'a>(
         .cloned()
         .map(|file| unit(Some(file)))
         .collect();
-    if let Some((file, _)) = diff
-        .commit_messages_for(group)
-        .and_then(files::commit_message_file)
-    {
-        units.push(unit(Some(file)));
+    if let Some(messages) = diff.commit_messages_for(group) {
+        units.push(unit(Some(messages.file())));
     }
     units
 }
