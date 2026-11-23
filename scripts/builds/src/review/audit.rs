@@ -215,7 +215,7 @@ pub fn rates(db: &Connection, group_of_rule: &dyn Fn(&str) -> Option<String>) ->
 
 /// The run <landing> landed with; None while it has not landed.
 fn landed_run(db: &Connection, landing: i64) -> Result<Option<record::RunRow>> {
-    let Some(run) = record::landing(db, landing)?.landed_run else {
+    let Some(run) = record::landing(db, landing)?.landed_run() else {
         return Ok(None);
     };
     Ok(record::runs_of_landing(db, landing)?

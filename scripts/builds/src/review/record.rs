@@ -328,10 +328,10 @@ pub struct Change<'a> {
     pub key: &'a str,
 }
 
-/// The landing of <change> that has not landed, if any.
+/// The landing of <change> that has not ended, if any.
 pub fn open_landing(db: &Connection, change: Change) -> Result<Option<i64>> {
     db.query_row(
-        "SELECT id FROM review_landing WHERE repo = ?1 AND key = ?2 AND landed_at IS NULL",
+        "SELECT id FROM review_landing WHERE repo = ?1 AND key = ?2 AND landed_at IS NULL AND abandoned_at IS NULL",
         params![change.repo, change.key],
         |row| row.get(0),
     )
@@ -356,27 +356,44 @@ pub fn add_landing(db: &Connection, change: Change, now: i64) -> Result<i64> {
 pub fn record_reviewed(db: &Connection, landing: i64, run: i64) -> Result<()> {
     let changed = db
         .execute(
-            "UPDATE review_landing SET reviewed_run = ?2 WHERE id = ?1 AND landed_at IS NULL",
+            "UPDATE review_landing SET reviewed_run = ?2 WHERE id = ?1 AND landed_at IS NULL AND abandoned_at IS NULL",
             params![landing, run],
         )
         .sql()?;
     if changed == 0 {
-        fail!("review landing {landing} is not open: it landed already or does not exist");
+        fail!("review landing {landing} is not open: it ended already or does not exist");
     }
     Ok(())
 }
 
 /// Records that <landing>'s change landed, with <run> the run that covered
-/// the commits pushed. record_landed refuses a landing that landed already.
+/// the commits pushed. record_landed refuses a landing that ended already.
 pub fn record_landed(db: &Connection, landing: i64, run: i64, now: i64) -> Result<()> {
     let changed = db
         .execute(
-            "UPDATE review_landing SET landed_at = ?2, landed_run = ?3 WHERE id = ?1 AND landed_at IS NULL",
+            "UPDATE review_landing SET landed_at = ?2, landed_run = ?3 WHERE id = ?1 AND landed_at IS NULL AND abandoned_at IS NULL",
             params![landing, now, run],
         )
         .sql()?;
     if changed == 0 {
-        fail!("review landing {landing} is not open: it landed already or does not exist");
+        fail!("review landing {landing} is not open: it ended already or does not exist");
+    }
+    Ok(())
+}
+
+/// Records that <landing>'s change has nothing left to land and never
+/// landed: <why> says what builds found. The landing keeps its runs,
+/// findings and settles, and counts as landed nowhere. record_abandoned
+/// refuses a landing that ended already.
+pub fn record_abandoned(db: &Connection, landing: i64, why: &str, now: i64) -> Result<()> {
+    let changed = db
+        .execute(
+            "UPDATE review_landing SET abandoned_at = ?2, abandoned_why = ?3 WHERE id = ?1 AND landed_at IS NULL AND abandoned_at IS NULL",
+            params![landing, now, why],
+        )
+        .sql()?;
+    if changed == 0 {
+        fail!("review landing {landing} is not open: it ended already or does not exist");
     }
     Ok(())
 }
@@ -902,19 +919,9 @@ fn verdicts_where(db: &Connection, condition: &str, value: i64) -> Result<Vec<Ve
 /// Every landing under review, oldest first.
 pub fn all_landings(db: &Connection) -> Result<Vec<LandingRow>> {
     let mut statement = db
-        .prepare("SELECT id, key, repo, reviewed_run, landed_run FROM review_landing ORDER BY id")
+        .prepare("SELECT id, key, repo, reviewed_run, landed_run, abandoned_at FROM review_landing ORDER BY id")
         .sql()?;
-    let rows = statement
-        .query_map([], |row| {
-            Ok(LandingRow {
-                id: row.get(0)?,
-                key: row.get(1)?,
-                repo: row.get(2)?,
-                reviewed_run: row.get(3)?,
-                landed_run: row.get(4)?,
-            })
-        })
-        .sql()?;
+    let rows = statement.query_map([], LandingRow::read).sql()?;
     rows.map(|row| row.sql()).collect()
 }
 
@@ -926,8 +933,52 @@ pub struct LandingRow {
     pub repo: String,
     /// The run of the last review, whose net change the review has read.
     pub reviewed_run: Option<i64>,
+    /// How the change ended, if it did.
+    pub end: End,
+}
+
+/// How a change under review stands: still waiting to land, landed, or
+/// abandoned.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum End {
+    /// The change waits to land.
+    Open,
+    /// The change landed, and <run> covered the commits pushed.
+    Landed { run: i64 },
+    /// The change has nothing left to land and never landed: builds found its
+    /// branch and commits gone (`abandoned_why` says what it found).
+    Abandoned,
+}
+
+impl LandingRow {
+    fn read(row: &rusqlite::Row<'_>) -> rusqlite::Result<LandingRow> {
+        let landed_run: Option<i64> = row.get(4)?;
+        let abandoned_at: Option<i64> = row.get(5)?;
+        Ok(LandingRow {
+            id: row.get(0)?,
+            key: row.get(1)?,
+            repo: row.get(2)?,
+            reviewed_run: row.get(3)?,
+            end: match (landed_run, abandoned_at) {
+                (Some(run), _) => End::Landed { run },
+                (None, Some(_)) => End::Abandoned,
+                (None, None) => End::Open,
+            },
+        })
+    }
+
     /// The run that covered the commits pushed, once the change landed.
-    pub landed_run: Option<i64>,
+    pub fn landed_run(&self) -> Option<i64> {
+        match self.end {
+            End::Landed { run } => Some(run),
+            End::Open | End::Abandoned => None,
+        }
+    }
+
+    /// Whether the change still waits to land.
+    pub fn is_open(&self) -> bool {
+        self.end == End::Open
+    }
 }
 
 /// The last activity on an open review and the findings that still block it.
@@ -939,7 +990,7 @@ pub struct ReviewProgress {
     pub confirmed: Vec<i64>,
 }
 
-/// Reviews of changes that have yet to land. The run's timestamp covers
+/// Reviews of changes that have yet to land and were not abandoned. The run's timestamp covers
 /// older records whose exchanges have no recorded end.
 pub fn open_progress(db: &Connection) -> Result<Vec<ReviewProgress>> {
     let end_at = super::exchange_time::END_AT;
@@ -972,7 +1023,7 @@ pub fn open_progress(db: &Connection) -> Result<Vec<ReviewProgress>> {
         .sql()?;
     all_landings(db)?
         .into_iter()
-        .filter(|landing| landing.landed_run.is_none())
+        .filter(LandingRow::is_open)
         .map(|landing| {
             let at = activity.query_row([landing.id], |row| row.get(0)).sql()?;
             let unsettled = super::judge::waiting_matters(db, landing.id)?
@@ -997,17 +1048,9 @@ pub fn open_progress(db: &Connection) -> Result<Vec<ReviewProgress>> {
 /// <landing> as the store holds it.
 pub fn landing(db: &Connection, landing: i64) -> Result<LandingRow> {
     db.query_row(
-        "SELECT id, key, repo, reviewed_run, landed_run FROM review_landing WHERE id = ?1",
+        "SELECT id, key, repo, reviewed_run, landed_run, abandoned_at FROM review_landing WHERE id = ?1",
         params![landing],
-        |row| {
-            Ok(LandingRow {
-                id: row.get(0)?,
-                key: row.get(1)?,
-                repo: row.get(2)?,
-                reviewed_run: row.get(3)?,
-                landed_run: row.get(4)?,
-            })
-        },
+        LandingRow::read,
     )
     .optional()
     .sql()?
@@ -1157,6 +1200,45 @@ pub fn first_reviews(db: &Connection) -> Result<Vec<FirstReview>> {
         }
     }
     Ok(reviews.into_iter().map(|(_, review)| review).collect())
+}
+
+/// What builds found when it abandoned <landing>, if it did.
+pub fn abandoned_why(db: &Connection, landing: i64) -> Result<Option<String>> {
+    db.query_row(
+        "SELECT abandoned_why FROM review_landing WHERE id = ?1",
+        params![landing],
+        |row| row.get(0),
+    )
+    .optional()
+    .sql()
+    .map(Option::flatten)
+}
+
+/// Makes `review_landing` again as record.sql writes it, with the columns
+/// that say a landing was abandoned: a store from before kept no such
+/// column, and each landing keeps its row, open or landed.
+pub fn add_abandoned(db: &Connection) -> Result<()> {
+    use crate::db::{REVIEW_PART, remake_table, statement};
+    remake_table(
+        db,
+        "review_landing",
+        statement(REVIEW_PART, "CREATE TABLE review_landing (", ") STRICT;"),
+        |db| {
+            db.execute_batch(
+                "INSERT INTO review_landing (id, key, repo, opened_at, reviewed_run, landed_at, landed_run)
+                 SELECT id, key, repo, opened_at, reviewed_run, landed_at, landed_run FROM review_landing_old",
+            )
+            .sql()
+        },
+        &[
+            statement(REVIEW_PART, "CREATE INDEX review_landing_change", ";"),
+            statement(
+                REVIEW_PART,
+                "CREATE UNIQUE INDEX review_landing_open_once",
+                ";",
+            ),
+        ],
+    )
 }
 
 #[cfg(test)]

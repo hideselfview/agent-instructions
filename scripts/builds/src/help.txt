@@ -2457,7 +2457,10 @@ STATUS, HEALTH AND THE DASHBOARD
                               keeps its daemons; a claim that "builds release"
                               would accept on a worktree that nothing holds
                               (the case listed below) and that is not in the
-                              starting state (below) is released; a process
+                              starting state (below) is released; a review
+                              landing with nothing left to land is ended
+                              (REVIEW RECORDS' ENDS in LANDING AND REVIEW), so
+                              health lists only reviews that still hold work; a process
                               whose caller is gone and whose only work is
                               what it prints is stopped with what runs under
                               it (below). A host that does not
@@ -3282,6 +3285,23 @@ project P" and asks no reviewer.
 
 After the push, land records the commits it pushed, and, once the branch has
 nothing left to land, the change's landing as landed, with its review run.
+
+REVIEW RECORDS' ENDS: a landing stays open until its change ends, and an open
+landing is one that health and the dashboard list. A landing ends in one of two
+ways, and the record says which. It ends as landed with the run that covered the
+commits: `builds land` records that after the push, and `builds health` records
+it when every commit of the branch is on origin/main by patch (or the branch is
+gone and the commit its last review read is on origin/main), as when someone
+landed the branch another way. A landing ends as abandoned, with what builds
+found, when the branch is gone from the repo, no other branch, remote branch or
+detached worktree holds the commit its last review read, origin/main lacks that
+commit, and no open item names the branch. Each `builds health` run reads each
+open landing against the repo's clone on this Mac and ends the ones that have
+nothing left, and says each in one line. A landing whose branch still holds
+commits to land, or that an item keeps, stays open. An abandoned landing keeps
+its runs, findings and settles, which the review scores count as before, and
+counts nowhere as landed: it has no landed run, so no audit and no case
+reads it. A branch of the same name can be reviewed again at once, as after a landing.
 `review landed` then starts an audit of a sample of the landed reviews, never
 of a landing of design files only, which looks for findings they missed. A separate finding check reads each candidate
 miss the audit raises against the text of its rule, and the audit settles the

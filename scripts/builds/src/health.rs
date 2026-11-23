@@ -1769,6 +1769,17 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
         }
     }
     if !stop_junk {
+        // Before health reads the reviews, so the reading lists only the
+        // ones that still hold work.
+        match crate::health_fix::close_dead_reviews(tool) {
+            Ok(lines) => lines.iter().for_each(crate::text::note),
+            Err(error) => crate::text::note(format!(
+                "could not check which reviews have nothing left to land: {}",
+                error.text()
+            )),
+        }
+    }
+    if !stop_junk {
         match crate::health_fix::tell_judges(tool) {
             Ok(lines) => lines.iter().for_each(crate::text::note),
             Err(error) => crate::text::note(format!(

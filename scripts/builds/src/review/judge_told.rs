@@ -142,7 +142,10 @@ fn tell_of(db: &Connection, finding: i64, matter: Matter) -> Result<(Option<Stri
 /// first.
 fn waiting_in(db: &Connection) -> Result<Vec<Waiting>> {
     let mut found = Vec::new();
-    for landing in record::all_landings(db)? {
+    for landing in record::all_landings(db)?
+        .into_iter()
+        .filter(|landing| landing.end != record::End::Abandoned)
+    {
         found.extend(judge::waiting_matters(db, landing.id)?);
     }
     Ok(found)

@@ -125,7 +125,7 @@ fn candidates(
     let mut out = Vec::new();
     let mut lost = String::new();
     for landing in record::all_landings(db)?.into_iter().rev() {
-        if landing.repo != repo || landing.landed_run.is_none() {
+        if landing.repo != repo || landing.landed_run().is_none() {
             continue;
         }
         let runs = record::runs_of_landing(db, landing.id)?;

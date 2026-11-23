@@ -68,6 +68,7 @@ pub mod check;
 pub mod commits;
 pub mod copy;
 pub mod design_review;
+pub mod ended;
 pub mod exchange_time;
 #[cfg(test)]
 pub mod fakes;
@@ -1588,9 +1589,10 @@ fn show(tool: &Tool, args: &[String]) -> Result<()> {
             Some(run) => format!("run {run}"),
             None => "none".to_string(),
         },
-        match landing.landed_run {
-            Some(run) => format!("landed with run {run}"),
-            None => "not landed".to_string(),
+        match (landing.landed_run(), record::abandoned_why(&conn, id)?) {
+            (Some(run), _) => format!("landed with run {run}"),
+            (None, Some(why)) => format!("abandoned: {why}"),
+            (None, None) => "not landed".to_string(),
         }
     );
     for record::RunRow {

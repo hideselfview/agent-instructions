@@ -385,7 +385,7 @@ fn a_cherry_pick_onto_a_moved_main_keeps_the_review_and_landed_records_it_once()
     assert!(
         record::landing(&conn, landing.unwrap())
             .unwrap()
-            .landed_run
+            .landed_run()
             .is_some()
     );
     assert_eq!(record::open_landing(&conn, WORK).unwrap(), None);

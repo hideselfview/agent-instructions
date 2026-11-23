@@ -2349,3 +2349,63 @@ fn adding_codex_destinations_keeps_registered_claude_inboxes() {
         );
     }
 }
+
+#[test]
+fn the_landing_abandoned_stamp_is_the_schema_before_it() {
+    assert_eq!(
+        db::stamp_of_text(&db::schema_before_landing_abandoned()),
+        BEFORE_LANDING_ABANDONED_STAMP
+    );
+}
+
+/// A store from before a landing could end abandoned keeps each landing, open
+/// or landed, equals a fresh schema, and then takes an abandoned landing and
+/// a new open landing of the same change together.
+#[test]
+fn a_store_from_before_abandoned_landings_keeps_its_landings_and_equals_a_fresh_schema() {
+    let scratch = Scratch::new("move-landing-abandoned");
+    let places = scratch.places();
+    let dir = places.lists.join("demo");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&db::schema_before_landing_abandoned())
+            .unwrap();
+        crate::lists::project::init(
+            &conn,
+            &crate::lists::project::NewProject {
+                name: "demo".into(),
+                canvas: true,
+                repos: vec!["demo".into()],
+                places: Default::default(),
+                sources: Default::default(),
+                specs: Default::default(),
+            },
+        )
+        .unwrap();
+        crate::review::record::tests::plant_landings_before_abandoned(&conn);
+        conn.pragma_update(None, "user_version", BEFORE_LANDING_ABANDONED_STAMP)
+            .unwrap();
+    }
+    migrate_stores(&places, 0).unwrap();
+    let conn = db::open(&path, db::Make::Never).unwrap();
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    let landings: Vec<(i64, Option<i64>, Option<i64>)> = conn
+        .prepare("SELECT id, landed_run, abandoned_at FROM review_landing ORDER BY id")
+        .unwrap()
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+        .unwrap()
+        .collect::<std::result::Result<_, _>>()
+        .unwrap();
+    assert_eq!(landings, [(1, None, None), (2, Some(7), None)]);
+    crate::review::record::record_abandoned(&conn, 1, "gone", 10).unwrap();
+    let change = Change {
+        repo: "demo",
+        key: "branch:a",
+    };
+    add_landing(&conn, change, 11).unwrap();
+}

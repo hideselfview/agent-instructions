@@ -540,14 +540,53 @@ pub fn schema_before_codex_inboxes() -> String {
     with_claude_inboxes(schema_before_review_kept_open())
 }
 
+/// <schema> as it was before a review landing could end abandoned: with the
+/// landing's table and its unique index as they were.
+#[cfg(test)]
+pub fn with_landing_not_abandoned(schema: String) -> String {
+    const TABLE: &str = "CREATE TABLE review_landing (";
+    const OPEN_ONCE: &str = "CREATE UNIQUE INDEX review_landing_open_once";
+    if !schema.contains(TABLE) {
+        return schema;
+    }
+    let table = statement(&schema, TABLE, ") STRICT;").to_string();
+    let open_once = statement(&schema, OPEN_ONCE, ";").to_string();
+    schema
+        .replacen(
+            &table,
+            "CREATE TABLE review_landing (
+    id INTEGER PRIMARY KEY,
+    key TEXT NOT NULL CONSTRAINT review_landing_key_says_something CHECK (trim(key) <> ''),
+    repo TEXT NOT NULL REFERENCES repo (name),
+    opened_at INTEGER NOT NULL,
+    reviewed_run INTEGER REFERENCES review_run (id),
+    landed_at INTEGER,
+    landed_run INTEGER REFERENCES review_run (id),
+    CONSTRAINT review_landing_landed_whole CHECK ((landed_at IS NULL) = (landed_run IS NULL))
+) STRICT;",
+            1,
+        )
+        .replacen(
+            &open_once,
+            "CREATE UNIQUE INDEX review_landing_open_once ON review_landing (repo, key) WHERE landed_at IS NULL;",
+            1,
+        )
+}
+
+/// The schema as it was before a review landing could end abandoned.
+#[cfg(test)]
+pub fn schema_before_landing_abandoned() -> String {
+    with_landing_not_abandoned(SCHEMA.to_string())
+}
+
 #[cfg(test)]
 pub fn schema_before_review_kept_open() -> String {
-    parts_before(REVIEW_KEPT_OPEN_PART).join("\n")
+    text_before(REVIEW_KEPT_OPEN_PART)
 }
 
 #[cfg(test)]
 pub fn schema_before_finding_site() -> String {
-    parts_before(REVIEW_FINDING_SITE_PART).join("\n")
+    text_before(REVIEW_FINDING_SITE_PART)
 }
 
 /// The schema as it was before the app build steps' table kept whether a step
@@ -693,8 +732,16 @@ pub fn schema_before_ack_repo() -> String {
 #[cfg(test)]
 fn schema_before(part: &str) -> String {
     with_ack_repo(with_review_texts(with_shot_findings(with_claude_inboxes(
-        parts_before(part).join("\n"),
+        text_before(part),
     ))))
+}
+
+/// The parts of `SCHEMA_PARTS` before <part>, joined as `SCHEMA` joins them,
+/// with the review landings' table as it was before a landing could end
+/// abandoned.
+#[cfg(test)]
+fn text_before(part: &str) -> String {
+    with_landing_not_abandoned(parts_before(part).join("\n"))
 }
 
 #[cfg(test)]
@@ -718,7 +765,7 @@ pub fn schema_before_app_build_step_shots() -> String {
 #[cfg(test)]
 pub fn schema_before_app_shots_drop() -> String {
     with_ack_repo(with_claude_inboxes(
-        parts_before(APP_SHOTS_DROP_PART).join("\n"),
+        text_before(APP_SHOTS_DROP_PART),
     ))
 }
 
@@ -728,7 +775,7 @@ pub fn schema_before_app_shots_drop() -> String {
 #[cfg(test)]
 pub fn schema_before_marked_mechanical() -> String {
     with_ack_repo(with_claude_inboxes(
-        parts_before(MARKED_MECHANICAL_PART).join("\n"),
+        text_before(MARKED_MECHANICAL_PART),
     ))
 }
 

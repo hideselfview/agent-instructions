@@ -4,7 +4,8 @@
 //! no measured core speed gets its speed measured (`builds host setup`, without
 //! its sudo steps), a host under memory pressure gets the build daemons that
 //! no build uses stopped, and a claim on a worktree that nothing holds is
-//! released, and a process whose caller is gone and whose only work is what
+//! released, a review landing with nothing left to land is ended (landed or
+//! abandoned), and a process whose caller is gone and whose only work is what
 //! it prints is stopped (orphans.rs).
 //! Each fix says in one line what it did. Health never runs sudo, and stops
 //! no other process without `--stop-junk`. A host that does not answer, a
@@ -328,6 +329,32 @@ pub fn tell_judges(tool: &Tool) -> Result<Vec<String>> {
             Ok(told) => lines.extend(told),
             Err(error) => lines.push(format!(
                 "could not tell project {project}'s judge of the findings that wait: {}",
+                error.text()
+            )),
+        }
+    }
+    Ok(lines)
+}
+
+/// Ends each review landing that has nothing left to land (review/ended.rs):
+/// landed when the branch's commits are all on origin/main, abandoned when
+/// the branch and its commits are gone and no open item keeps them. Returns
+/// one line for each landing it ended and each store it could not read.
+pub fn close_dead_reviews(tool: &Tool) -> Result<Vec<String>> {
+    let every = crate::lists::store::every_lists(&tool.places)?;
+    let named = crate::unlanded::named_branches(every.iter());
+    let mains = crate::health::mains_of(&tool.roots()?);
+    let stamp = crate::lists::Stamp {
+        at: tool.now,
+        by: "health".to_string(),
+    };
+    let mut lines = Vec::new();
+    for store in crate::lists::store::stores(&tool.places)? {
+        match crate::review::ended::close(&store, &stamp, &mains, &named) {
+            Ok(closed) => lines.extend(closed),
+            Err(error) => lines.push(format!(
+                "could not close the review landings of project {} that have nothing left: {}",
+                store.project,
                 error.text()
             )),
         }

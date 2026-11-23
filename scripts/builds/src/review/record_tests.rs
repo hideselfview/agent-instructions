@@ -13,6 +13,17 @@ pub fn plant_finding_before_head_sites(db: &Connection) {
     .unwrap();
 }
 
+/// Writes two landings of repo `demo` into a store from before a landing
+/// could end abandoned: landing 1 open and landing 2 landed with run 7.
+pub(crate) fn plant_landings_before_abandoned(db: &Connection) {
+    db.execute_batch(
+        "INSERT INTO review_landing (id, key, repo, opened_at) VALUES (1, 'branch:a', 'demo', 5);
+         INSERT INTO review_run (id, landing_id, kind, at, base, head, rules_version) VALUES (7, 1, 'review', 6, 'b', 'h', '');
+         INSERT INTO review_landing (id, key, repo, opened_at, landed_at, landed_run) VALUES (2, 'branch:b', 'demo', 5, 9, 7);",
+    )
+    .unwrap();
+}
+
 pub fn mark_finding_as_legacy(db: &Connection, finding: i64, line: i64) -> Result<()> {
     db.execute(
         "UPDATE review_finding SET site_kind = NULL, site_path = NULL, line = ?2 WHERE id = ?1",
@@ -130,7 +141,7 @@ fn a_landing_stays_open_until_it_lands_and_names_its_last_review() {
     record_landed(&db, landing, run_id, 9).unwrap();
     assert_eq!(open_landing(&db, k).unwrap(), None);
     assert_eq!(
-        super::landing(&db, landing).unwrap().landed_run,
+        super::landing(&db, landing).unwrap().landed_run(),
         Some(run_id)
     );
     assert!(

@@ -823,7 +823,10 @@ stops the Gradle daemon, the Kotlin compile daemon and the booted simulators
 that no build has used for an hour on a host under memory pressure and probes
 it again, releases a claim on a worktree that nothing holds, releases a claim on a
 worktree that holds nothing origin/main lacks and has had no change and no build for
-2 hours (BUILDS_IDLE_CLAIM_HOURS) and stops an item marked running there, sends the judge
+2 hours (BUILDS_IDLE_CLAIM_HOURS) and stops an item marked running there, ends each review
+whose branch has nothing left to land (as landed when every commit is on
+origin/main, as abandoned when the branch and its commits are gone and no item
+keeps them), sends the judge
 again each finding that waits for a settle and that no running builds
 process is telling the judge's session of, forgets a judge whose session ended,
 and stops each
