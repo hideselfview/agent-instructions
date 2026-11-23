@@ -34,6 +34,8 @@ use std::path::Path;
 
 use crate::app_build::{self, Pick};
 use crate::app_config::{CONFIG, Config, PickKind, run_git};
+use crate::app_landing::BranchBuilds;
+use crate::app_timing::BuildRecords;
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::lane::Lane;
@@ -317,9 +319,15 @@ pub fn derive_and_run(places: &Places, args: &[String]) -> Result<()> {
         }
     }
     let asked_for_picks = !picks.is_empty();
-    let picks = if asked_for_picks && !fresh {
+    let use_cache = !fresh && picks.iter().any(|(_, kind, _)| *kind == PickKind::Shots);
+    let records = if use_cache {
+        BuildRecords::open(places, repo)?
+    } else {
+        None
+    };
+    let picks = if use_cache {
         let program = crate::this_program()?;
-        app_build::serve_cached(places, repo, &commit, picks, &program)?
+        app_build::serve_cached(places, repo, &commit, picks, &program, records.as_ref())?
     } else {
         app_build::BuildPicks::pending(picks)
     };
@@ -327,7 +335,20 @@ pub fn derive_and_run(places: &Places, args: &[String]) -> Result<()> {
     let changed = changed_paths(&top, &commit)?;
     let required = plan(&config, &changed, &[]);
     let lanes = if asked_for_picks && picks.pending.is_empty() {
-        let uncovered = picks.lanes_without_coverage(places, repo, &commit, &required)?;
+        let Some(records) = &records else {
+            return Ok(());
+        };
+        let Some(branch) = BranchBuilds::off_main(&top, &commit, git_ref)? else {
+            return Ok(());
+        };
+        let (coverage, _) = branch.coverage(&config, &changed, records, |lane| {
+            picks.reused_in(lane).map(str::to_string).collect()
+        })?;
+        let uncovered: Vec<_> = required
+            .iter()
+            .filter(|(lane, _)| coverage.unbuilt.iter().any(|unbuilt| unbuilt.lane == *lane))
+            .cloned()
+            .collect();
         if uncovered.is_empty() {
             return Ok(());
         }
@@ -335,6 +356,7 @@ pub fn derive_and_run(places: &Places, args: &[String]) -> Result<()> {
     } else {
         plan(&config, &changed, &picks.pending)
     };
+    drop(records);
     if lanes.is_empty() {
         note(format!(
             "nothing to build: no path {git_ref} changes needs a step ({CONFIG}'s `on` lines)"

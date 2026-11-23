@@ -238,6 +238,24 @@ pub fn database_of(
     }
 }
 
+/// The project records for one repository, as read while planning a build
+/// or checking a landing.
+pub struct BuildRecords<'a> {
+    pub repo: &'a str,
+    pub conn: crate::db::Held,
+    pub path: std::path::PathBuf,
+}
+
+impl<'a> BuildRecords<'a> {
+    pub fn open(places: &crate::places::Places, repo: &'a str) -> Result<Option<Self>> {
+        let Some(path) = database_of(places, repo)? else {
+            return Ok(None);
+        };
+        let conn = crate::db::open(&path, crate::db::Make::Never)?;
+        Ok(Some(Self { repo, conn, path }))
+    }
+}
+
 /// Writes <run>, its steps and the commit it built (app_build_commit.rs) to
 /// the existing database at <path>, in one transaction.
 pub fn record(path: &Path, run: &RunRecord) -> Result<()> {

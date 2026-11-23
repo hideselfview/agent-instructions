@@ -1740,7 +1740,10 @@ fn shots_runs(volume: &Volume, prefix: &str) -> Vec<String> {
 fn cached_coverage_repo(name: &str) -> (Volume, PathBuf) {
     let volume = Volume::new(name);
     let top = volume.dir.join("demo");
-    volume.app_repo_at(&top, SHOTS_CONFIG);
+    volume.app_repo_at(
+        &top,
+        &format!("{SHOTS_CONFIG}step android droid ./droid.sh\non android/ droid\n"),
+    );
     let project = volume.run(&["lists", "init", "demo", "--repos", "demo", "--by", "test"]);
     assert!(
         project.status.success(),
@@ -1822,6 +1825,37 @@ fn a_build_can_cover_shots_cached_by_separate_passing_builds() {
     run_with_shots(&volume, &["mac.a.", "mac.b."]);
     assert_eq!(shots_runs(&volume, "mac.a."), a);
     assert_eq!(shots_runs(&volume, "mac.b."), b);
+    assert_landing_coverage(&volume, &top);
+}
+
+#[test]
+fn cached_shots_do_not_skip_a_changed_lane_without_coverage() {
+    let (volume, top) = cached_coverage_repo("cached-other-lane");
+    std::fs::create_dir(top.join("android")).unwrap();
+    std::fs::write(top.join("android/Foo.txt"), "android change").unwrap();
+    git_in(&top, &["add", "android/Foo.txt"]);
+    git_in(&top, &["commit", "-q", "-m", "Change the Android app"]);
+    git_in(&top, &["push", "-q", "origin", "work"]);
+    volume.open_gate("droid");
+
+    let built = volume.run(&[
+        "app-build",
+        "demo",
+        "work",
+        "one",
+        "--shots",
+        "mac",
+        "mac.a.",
+    ]);
+    assert!(
+        built.status.success(),
+        "{}",
+        String::from_utf8_lossy(&built.stderr)
+    );
+    let mac_shots = shots_runs(&volume, "mac.a.");
+    run_with_shots(&volume, &["mac.a."]);
+    assert_eq!(shots_runs(&volume, "mac.a."), mac_shots);
+    assert!(volume.log().contains(&"end droid".to_string()));
     assert_landing_coverage(&volume, &top);
 }
 

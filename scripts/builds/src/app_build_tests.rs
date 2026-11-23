@@ -1571,6 +1571,7 @@ fn a_build_that_reuses_a_cached_run_leaves_the_passing_build_that_land_counts() 
     );
     let commit = resolve(&top, "HEAD").unwrap();
     let store = crate::lists::fixtures::make_store_named(&places, "demo-project", &["demo"]);
+    let records = BuildRecords::open(&places, "demo").unwrap().unwrap();
     let pick: Pick = (Lane::Mac, PickKind::Shots, "mac.a.".to_string());
     let record = |outcome: RunEnd, shots: StepResult| {
         let step = |name: &str, kind, result| StepRecord {
@@ -1609,6 +1610,7 @@ fn a_build_that_reuses_a_cached_run_leaves_the_passing_build_that_land_counts() 
             &commit,
             vec![pick.clone()],
             Path::new("/nonexistent/builds"),
+            Some(&records),
         )
         .unwrap()
     };
@@ -1920,7 +1922,7 @@ fn a_cached_run_made_in_another_environment_is_a_commits_own_run_and_is_printed(
     std::fs::write(marker.join(".checkout"), top.display().to_string()).unwrap();
     let commit = resolve(&top, "HEAD").unwrap();
     let program = Path::new("/nonexistent/builds");
-    let serve = || serve_cached(&places, "demo", &commit, a_screens(), program);
+    let serve = || serve_cached(&places, "demo", &commit, a_screens(), program, None);
     assert_eq!(serve().unwrap().pending, a_screens(), "no run is cached");
     let key = shots_cache::Key {
         environment: "25G241-27B52".to_string(),

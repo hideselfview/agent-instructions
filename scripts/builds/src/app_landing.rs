@@ -42,7 +42,7 @@ use std::rc::Rc;
 
 use crate::app_config::{CONFIG, Config, parse_config, run_git};
 use crate::app_shots_drop::Drop;
-use crate::app_timing::PassedRun;
+use crate::app_timing::{self, BuildRecords, PassedRun};
 use crate::derive::paths_between;
 use crate::fail;
 use crate::fail::Result;
@@ -404,6 +404,117 @@ fn unrendered_lines(
     Ok(lines)
 }
 
+/// The branch whose own app builds can cover its changed paths.
+pub struct BranchBuilds<'a> {
+    top: &'a Path,
+    target: &'a str,
+    named: &'a str,
+    commits: Vec<String>,
+    since: i64,
+}
+
+type DroppedShots = Vec<(Lane, Vec<Drop>)>;
+
+impl<'a> BranchBuilds<'a> {
+    pub fn off_main(top: &'a Path, target: &'a str, named: &'a str) -> Result<Option<Self>> {
+        let commits = commits::in_range(top, "origin/main", target)?;
+        if commits.is_empty() {
+            return Ok(None);
+        }
+        let since = branch_since(top, "origin/main", target)?;
+        Ok(Some(Self {
+            top,
+            target,
+            named,
+            commits,
+            since,
+        }))
+    }
+
+    /// The covering builds and drops. A cached-only request also asks the
+    /// covering build to include the prefixes it just reused.
+    pub fn coverage(
+        &self,
+        config: &Config,
+        changed: &[String],
+        records: &BuildRecords<'_>,
+        mut requested: impl FnMut(Lane) -> Vec<String>,
+    ) -> Result<(Coverage, DroppedShots)> {
+        let BuildRecords { repo, conn, path } = records;
+        let top = self.top;
+        let drops: DroppedShots = Lane::ALL
+            .into_iter()
+            .map(|lane| {
+                Ok((
+                    lane,
+                    crate::app_shots_drop::dropped(conn, repo, self.named, lane, self.since)?,
+                ))
+            })
+            .collect::<Result<_>>()?;
+        let mut names_by_lane_and_commit = HashMap::new();
+        let coverage = needs(
+            config,
+            changed,
+            self.target,
+            &mut |lane| {
+                app_timing::passed_runs(conn, repo, lane, path, Some(self.named), &self.commits)
+            },
+            &mut |lane| {
+                let ran = app_timing::shots_ran(
+                    conn,
+                    repo,
+                    lane,
+                    self.named,
+                    &self.commits,
+                    self.since,
+                    path,
+                )?;
+                let drops = drops
+                    .iter()
+                    .flat_map(|(own, drops)| drops.iter().filter(move |_| *own == lane));
+                let dropped: HashSet<&str> = drops.map(|drop| drop.prefix.as_str()).collect();
+                let mut required: Vec<String> = ran
+                    .into_iter()
+                    .filter(|prefix| !dropped.contains(prefix.as_str()))
+                    .chain(requested(lane))
+                    .collect();
+                required.sort();
+                required.dedup();
+                Ok(required)
+            },
+            &mut |commit, target| {
+                if !commits::exists(top, commit)? {
+                    crate::text::note(format!(
+                        "a passing app build built {commit}, which git does not have in {}, so that build covers nothing",
+                        top.display()
+                    ));
+                    return Ok(None);
+                }
+                paths_between(top, commit, target).map(Some)
+            },
+            &mut |lane, commit| {
+                names_by_lane_and_commit
+                    .entry((lane, commit.to_string()))
+                    .or_insert_with(|| {
+                        match crate::shots_declared::declared_names_in_lane(top, commit, lane) {
+                            Ok(names) => Some(Rc::new(names.into_iter().collect())),
+                            Err(error) => {
+                                crate::text::note(format!(
+                                    "Builds could not read the {} shots declared at {commit}: {}",
+                                    lane.word(),
+                                    error.text()
+                                ));
+                                None
+                            }
+                        }
+                    })
+                    .clone()
+            },
+        )?;
+        Ok((coverage, drops))
+    }
+}
+
 /// `builds app-build --landing-coverage <worktree> <branch> <ref>
 /// [<own commit>...]`: prints a line for each dropped shots prefix it honors
 /// and for each covering run with pairs the base never rendered, or the
@@ -430,89 +541,26 @@ pub fn cmd_landing_coverage(places: &Places, args: &[String]) -> Result<()> {
         return Ok(());
     };
     let repo = checkout.repo();
-    let Some(database) = crate::app_timing::database_of(places, &repo)? else {
+    let Some(records) = BuildRecords::open(places, &repo)? else {
         crate::text::note(format!(
             "repo {repo} is in no project, so no store records its app builds and its landings need none"
         ));
         return Ok(());
     };
-    let branch_commits = commits::in_range(top, "origin/main", branch)?;
-    if branch_commits.is_empty() {
+    let Some(branch_builds) = BranchBuilds::off_main(top, branch, named)? else {
         crate::text::note(format!(
             "every commit of {branch} is on origin/main, so it needs no app build"
         ));
         return Ok(());
-    }
+    };
     let changed = paths_of_commits(top, own)?;
-    let since = branch_since(top, "origin/main", branch)?;
-    let conn = crate::db::open(&database, crate::db::Make::Never)?;
-    let mut drops_of = HashMap::new();
-    for lane in Lane::ALL {
-        let drops = crate::app_shots_drop::dropped(&conn, &repo, named, lane, since)?;
+    let (Coverage { covering, unbuilt }, drops) =
+        branch_builds.coverage(&config, &changed, &records, |_| Vec::new())?;
+    for (lane, drops) in drops {
         for line in dropped_lines(lane, &drops) {
             println!("{line}");
         }
-        drops_of.insert(lane, drops);
     }
-    let mut names_by_lane_and_commit = HashMap::new();
-    let Coverage { covering, unbuilt } = needs(
-        &config,
-        &changed,
-        branch,
-        &mut |lane| {
-            crate::app_timing::passed_runs(
-                &conn,
-                &repo,
-                lane,
-                &database,
-                Some(named),
-                &branch_commits,
-            )
-        },
-        &mut |lane| {
-            let ran = crate::app_timing::shots_ran(
-                &conn,
-                &repo,
-                lane,
-                named,
-                &branch_commits,
-                since,
-                &database,
-            )?;
-            let drops = &drops_of[&lane];
-            Ok(ran
-                .into_iter()
-                .filter(|prefix| !drops.iter().any(|drop| drop.prefix == *prefix))
-                .collect())
-        },
-        &mut |commit, target| {
-            if !commits::exists(top, commit)? {
-                crate::text::note(format!(
-                    "a passing app build built {commit}, which git does not have in {worktree}, so that build covers nothing"
-                ));
-                return Ok(None);
-            }
-            paths_between(top, commit, target).map(Some)
-        },
-        &mut |lane, commit| {
-            names_by_lane_and_commit
-                .entry((lane, commit.to_string()))
-                .or_insert_with(|| {
-                    match crate::shots_declared::declared_names_in_lane(top, commit, lane) {
-                        Ok(names) => Some(Rc::new(names.into_iter().collect())),
-                        Err(error) => {
-                            crate::text::note(format!(
-                                "landing could not read the {} shots declared at {commit}: {}",
-                                lane.word(),
-                                error.text()
-                            ));
-                            None
-                        }
-                    }
-                })
-                .clone()
-        },
-    )?;
     for (lane, run) in &covering {
         for line in unrendered_lines(places, &repo, *lane, run)? {
             println!("{line}");

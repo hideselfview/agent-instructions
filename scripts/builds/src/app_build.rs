@@ -119,7 +119,7 @@ use crate::app_config::{
 use crate::app_lock_guard::CheckoutLock;
 use crate::app_remote::{RemoteApp, fetched_local_source, local_source};
 use crate::app_site::Site;
-use crate::app_timing::{self, RunRecord, StepKind, StepRecord, StepResult, Timer};
+use crate::app_timing::{self, BuildRecords, RunRecord, StepKind, StepRecord, StepResult, Timer};
 use crate::checkout::Checkout;
 use crate::claim::Claim;
 use crate::fail;
@@ -2556,44 +2556,11 @@ impl BuildPicks {
         }
     }
 
-    fn reused_in(&self, lane: Lane) -> impl Iterator<Item = &str> {
+    pub fn reused_in(&self, lane: Lane) -> impl Iterator<Item = &str> {
         self.reused
             .iter()
             .filter(move |(own, _)| *own == lane)
             .map(|(_, prefix)| prefix.as_str())
-    }
-
-    /// When all picks came from cache, run only the lanes that need a new
-    /// record to cover those picks and the steps the changes require.
-    pub fn lanes_without_coverage(
-        &self,
-        places: &Places,
-        repo: &str,
-        commit: &str,
-        required: &[(Lane, Vec<String>)],
-    ) -> Result<Vec<(Lane, Vec<String>)>> {
-        if required.is_empty() || self.reused.is_empty() {
-            return Ok(Vec::new());
-        }
-        let Some(database) = app_timing::database_of(places, repo)? else {
-            return Ok(Vec::new());
-        };
-        let conn = crate::db::open(&database, crate::db::Make::Never)?;
-        let own = [commit.to_string()];
-        let mut uncovered = Vec::new();
-        for (lane, names) in required {
-            if self.reused_in(*lane).next().is_none() {
-                continue;
-            }
-            let runs = app_timing::passed_runs(&conn, repo, *lane, &database, None, &own)?;
-            if !runs.iter().any(|run| {
-                names.iter().all(|name| run.steps.contains(name))
-                    && self.reused_in(*lane).all(|prefix| run.ran_shots(prefix))
-            }) {
-                uncovered.push((*lane, names.clone()));
-            }
-        }
-        Ok(uncovered)
     }
 }
 
@@ -2606,17 +2573,8 @@ pub fn serve_cached(
     commit: &str,
     picks: Vec<Pick>,
     program: &Path,
+    recorded: Option<&BuildRecords<'_>>,
 ) -> Result<BuildPicks> {
-    if !picks.iter().any(|(_, kind, _)| *kind == PickKind::Shots) {
-        return Ok(BuildPicks::pending(picks));
-    }
-    let recorded = match app_timing::database_of(places, repo)? {
-        Some(database) => {
-            let conn = crate::db::open(&database, crate::db::Make::Never)?;
-            Some((conn, database))
-        }
-        None => None,
-    };
     let mut selected = BuildPicks::pending(Vec::new());
     for pick in picks {
         let (lane, kind, prefix) = &pick;
@@ -2631,7 +2589,7 @@ pub fn serve_cached(
             selected.pending.push(pick);
             continue;
         };
-        match &recorded {
+        match recorded {
             Some(_)
                 if cached.exit_code != 0 && !crate::shots_compare_again::is_recheck(&cached) =>
             {
@@ -2641,8 +2599,15 @@ pub fn serve_cached(
                 selected.pending.push(pick);
                 continue;
             }
-            Some((conn, database)) => {
-                if !app_timing::passed_shots(conn, repo, *lane, commit, prefix, database)? {
+            Some(records) => {
+                if !app_timing::passed_shots(
+                    &records.conn,
+                    repo,
+                    *lane,
+                    commit,
+                    prefix,
+                    &records.path,
+                )? {
                     note(format!(
                         "{prefix} has a cached run, but no passing app build of {} ran it, so the build runs it again",
                         short(commit)
