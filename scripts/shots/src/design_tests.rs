@@ -135,6 +135,21 @@ fn a_part_that_is_missing_is_named() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn a_part_whose_metadata_cannot_be_read_reports_the_read_error() {
+    let root = tree();
+    let path = board_file(root.path(), "mac.parts.two");
+    std::fs::remove_file(&path).unwrap();
+    std::os::unix::fs::symlink(&path, &path).unwrap();
+
+    let error = reached(root.path(), "mac.a.b").unwrap_err();
+    assert!(
+        matches!(error, DesignError::Unreadable { path: ref found, .. } if found == &path),
+        "{error}"
+    );
+}
+
 #[test]
 fn the_board_hash_changes_with_a_mounted_part_and_not_with_an_unmounted_one() {
     let root = tree();

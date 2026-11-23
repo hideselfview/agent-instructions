@@ -199,7 +199,17 @@ fn reached(root: &Path, name: &str) -> Result<BTreeMap<String, PathBuf>, DesignE
             continue;
         }
         let file = board_file(root, &part);
-        if !file.is_file() {
+        let present = match board_is_file(root, &part) {
+            Ok(is_file) => is_file,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+            Err(error) => {
+                return Err(DesignError::Unreadable {
+                    path: file,
+                    reason: error.to_string(),
+                });
+            }
+        };
+        if !present {
             return Err(DesignError::MissingPart {
                 board: importer,
                 part,
