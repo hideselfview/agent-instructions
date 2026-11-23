@@ -303,7 +303,18 @@ fn only_busy_chains_are_placed() {
         row(2, 1, 501, 99.0, 900.0, 2_000, "x"),
         row(3, 1, 501, 0.0, 1.0, 100, "y"),
     ];
-    assert_eq!(pids_to_place(&rows), vec![2, 1]);
+    assert_eq!(pids_to_place(&rows, 501), vec![2]);
+}
+
+#[test]
+fn processes_of_other_users_are_not_placed() {
+    let rows = vec![
+        row(1, 0, 0, 0.0, 1.0, 100, "/sbin/launchd"),
+        row(411, 1, 0, 0.0, 1.0, 100, "/usr/libexec/logd"),
+        row(2, 411, 501, 99.0, 900.0, 2_000, "x"),
+        row(3, 1, 0, 99.0, 900.0, 2_000, "/usr/sbin/busyd"),
+    ];
+    assert_eq!(pids_to_place(&rows, 501), vec![2]);
 }
 
 #[test]
@@ -525,7 +536,7 @@ esac"#,
         at: 5_000,
         rows: vec![
             row(42, 0, 501, 90.0, 1_000.0, 2_400, "/usr/bin/exited"),
-            row(43, 0, 0, 90.0, 1_000.0, 2_400, "/usr/bin/live"),
+            row(43, 0, 501, 90.0, 1_000.0, 2_400, "/usr/bin/live"),
             row(44, 0, 501, 90.0, 1_000.0, 2_400, "/usr/bin/zombie"),
             row(45, 0, 501, 90.0, 1_000.0, 2_400, "/usr/bin/old"),
             zombie,

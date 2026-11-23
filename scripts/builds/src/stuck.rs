@@ -136,13 +136,16 @@ fn is_busy(row: &Row) -> bool {
     busy_share(row).is_some()
 }
 
-/// The pids whose working folders `judge` reads: every busy process and its ancestors.
-pub fn pids_to_place(rows: &[Row]) -> Vec<i32> {
+/// The pids whose working folders `judge` reads: every busy process and its
+/// ancestors that belong to <uid>, the user who ran the scan. lsof lists no
+/// working folder of another user's process, such as launchd or logd, and
+/// nobody can act on that.
+pub fn pids_to_place(rows: &[Row], uid: u32) -> Vec<i32> {
     let by_pid: HashMap<i32, &Row> = rows.iter().map(|r| (r.pid, r)).collect();
     let mut pids = Vec::new();
     for row in rows.iter().filter(|r| is_busy(r)) {
         for at in chain(&by_pid, row) {
-            if !at.zombie && !pids.contains(&at.pid) {
+            if !at.zombie && at.uid == uid && !pids.contains(&at.pid) {
                 pids.push(at.pid);
             }
         }
@@ -579,7 +582,7 @@ fn read_activity(
     dashboard: Option<i32>,
 ) -> Result<ProcessActivity, String> {
     let mut rows = Cow::Borrowed(scan.rows.as_slice());
-    let pids = pids_to_place(&rows);
+    let pids = pids_to_place(&rows, scan.uid);
     let mut placement_diagnostic = None;
     let cwds = if pids.is_empty() {
         HashMap::new()
