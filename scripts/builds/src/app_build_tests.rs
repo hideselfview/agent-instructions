@@ -1484,7 +1484,7 @@ fn a_shots_run_that_died_on_an_error_caches_nothing() {
 }
 
 #[test]
-fn app_build_with_only_a_shots_pick_prints_a_cached_run_and_takes_no_lane() {
+fn app_build_returns_a_cached_failure_and_takes_no_lane_without_a_project() {
     let scratch = crate::testing::Scratch::new("shots-serve");
     let held = held_in(&scratch);
     let places = scratch.places();
@@ -1513,11 +1513,13 @@ fn app_build_with_only_a_shots_pick_prints_a_cached_run_and_takes_no_lane() {
     let args = |words: &[&str]| words.iter().map(|w| w.to_string()).collect::<Vec<_>>();
     // Served from the store: no lane process starts (one would run this test
     // program as `builds`, and wait for a lock that does not exist).
-    cmd_app_build(
-        &scratch.tool(30),
-        &args(&["demo", "HEAD", "--shots", "mac.a."]),
-    )
-    .unwrap();
+    assert!(matches!(
+        cmd_app_build(
+            &scratch.tool(30),
+            &args(&["demo", "HEAD", "--shots", "mac.a."]),
+        ),
+        Err(Fail::Exit(1))
+    ));
     crate::shots_program::cmd_shots(
         &places,
         &args(&["findings", "demo", "HEAD", "mac", "mac.a."]),
@@ -1918,16 +1920,16 @@ fn a_cached_run_made_in_another_environment_is_a_commits_own_run_and_is_printed(
     std::fs::write(marker.join(".checkout"), top.display().to_string()).unwrap();
     let commit = resolve(&top, "HEAD").unwrap();
     let program = Path::new("/nonexistent/builds");
-    let serve = || serve_cached(&places, "demo", &commit, a_screens(), program).unwrap();
-    assert_eq!(serve().pending, a_screens(), "no run is cached");
+    let serve = || serve_cached(&places, "demo", &commit, a_screens(), program);
+    assert_eq!(serve().unwrap().pending, a_screens(), "no run is cached");
     let key = shots_cache::Key {
         environment: "25G241-27B52".to_string(),
         ..shots_key(&commit, "mac.a.")
     };
     cache_with_records(&places, &key);
     assert!(
-        serve().pending.is_empty(),
-        "a commit's own run is printed whatever environment made it"
+        matches!(serve(), Err(Fail::Exit(1))),
+        "the cached verdict applies whatever environment made it"
     );
     let cached =
         shot_findings::cached_run(&places, "demo", "HEAD", Lane::Mac, "mac.a.", program).unwrap();

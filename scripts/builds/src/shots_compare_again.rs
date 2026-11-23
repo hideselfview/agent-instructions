@@ -35,6 +35,14 @@ use crate::text::note;
 /// and so a run made from another run does not take over.
 const FINDINGS_FILES: [&str; 2] = ["index.html", shot_causes::FILE];
 
+const RECHECK_NOTE: &str = "builds shots: compared again from the run of comparison version ";
+
+/// Whether the cached report came from recheck, whose exit status describes
+/// the findings alone, without the app build's comparison with the base.
+pub fn is_recheck(cached: &Cached) -> bool {
+    cached.findings.starts_with(RECHECK_NOTE)
+}
+
 /// The run cached under <key>, or the run that comparing again, with the
 /// builds program <program>, the cached run of another comparison version
 /// makes, when <key>'s capture version has one. None when neither exists.
@@ -119,7 +127,7 @@ fn compare_again(places: &Places, key: &Key, program: &Path) -> Result<Option<Ca
     let file = report.join(shot_causes::FILE);
     std::fs::write(&file, &findings).context(|| format!("writing {}", file.display()))?;
     let text = format!(
-        "builds shots: compared again from the run of comparison version {} with the pictures of capture version {}; it has no report page and no verdict against the base run\n{}",
+        "{RECHECK_NOTE}{} with the pictures of capture version {}; it has no report page and no verdict against the base run\n{}",
         short(&source.key.versions.comparison),
         short(&key.versions.capture),
         shot_causes::text(&run)

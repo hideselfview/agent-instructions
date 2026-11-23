@@ -17,10 +17,10 @@
 //! lane. A lane with such a run builds
 //! what its changed paths need, or, when they need nothing in that lane, what
 //! its `needs` line names, so the run has a build of <ref> to run against. A
-//! `--shots` or `--all-shots` run can reuse a cached comparison from a
-//! passing app build of <ref>. The lane records the reused comparisons
-//! with the steps it runs. `--fresh` builds the app and takes the shots
-//! again, replacing their pictures in the folder.
+//! `--shots` or `--all-shots` run can reuse a cached report when a passing app
+//! build of <ref> covers its prefix. The lane records the reused comparisons
+//! with the steps it runs. `--fresh` builds the app and takes the shots again,
+//! replacing their pictures in the folder.
 //!
 //! A lane with shots picks and no step that a changed path needs runs the
 //! lane's `needs` steps for them, or none when its picture folder caches every
