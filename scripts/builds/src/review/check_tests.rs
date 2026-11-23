@@ -71,10 +71,21 @@ fn code_only_on_the_lines_around_the_changes_is_refused() {
 #[test]
 fn the_reported_removal_is_distinct_from_the_same_quote_added_elsewhere() {
     let files = parse_diff("diff --git a/a.rs b/a.rs\n@@ -1,2 +1,2 @@\n-repeat\n keep\n+repeat\n");
-    assert_eq!(code_site(&files, "a.rs", 1, "repeat"), Ok(None));
+    assert_eq!(
+        code_site(&files, "a.rs", 1, "repeat"),
+        Ok(Some(QuoteSite {
+            path: "a.rs",
+            side: Side::Before,
+            line: 1,
+        }))
+    );
     assert_eq!(
         code_site(&files, "a.rs", 2, "repeat"),
-        Ok(Some(("a.rs", 2)))
+        Ok(Some(QuoteSite {
+            path: "a.rs",
+            side: Side::After,
+            line: 2,
+        }))
     );
 }
 
@@ -104,7 +115,11 @@ fn a_report_for_an_exact_path_never_borrows_a_quote_from_another_file() {
     assert!(error.contains("not in the diff of a.rs"), "{error}");
     assert_eq!(
         code_site(&files, "src/a.rs", 1, "repeat"),
-        Ok(Some(("src/a.rs", 1)))
+        Ok(Some(QuoteSite {
+            path: "src/a.rs",
+            side: Side::After,
+            line: 1,
+        }))
     );
 }
 

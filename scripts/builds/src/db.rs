@@ -160,7 +160,7 @@ pub const APP_BUILD_STEP_SHOTS_PART: &str = include_str!("app_build_step_shots.s
 /// The review calls that found an earlier finding still open.
 pub const REVIEW_KEPT_OPEN_PART: &str = include_str!("review/kept_open.sql");
 
-/// Whether builds verified a finding's line at the reviewed head.
+/// The side where builds verified the finding's quote.
 pub const REVIEW_FINDING_SITE_PART: &str = include_str!("review/finding_site.sql");
 
 /// Each part of the schema, in the order the schema holds them: the lists'

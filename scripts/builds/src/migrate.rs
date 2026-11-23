@@ -277,7 +277,7 @@ const BEFORE_CODEX_INBOX_STAMP: i64 = 807_141_969;
 /// The stamp before review calls recorded which findings they kept open.
 const BEFORE_REVIEW_KEPT_OPEN_STAMP: i64 = 916_849_912;
 
-/// The stamp before review findings recorded whether builds verified the line.
+/// The stamp before review findings recorded how builds identified the line.
 const BEFORE_REVIEW_FINDING_SITE_STAMP: i64 = 124_925_398;
 
 /// The stamp of today's schema (`db::STAMP`). A change to the schema changes
@@ -286,7 +286,7 @@ const BEFORE_REVIEW_FINDING_SITE_STAMP: i64 = 124_925_398;
 /// adds the move, puts this stamp at the end of `STAMPS` under a name that
 /// says what the schema lacked, and sets this to the new schema's stamp, which
 /// the compiler's error names.
-const SCHEMA_STAMP: i64 = 1_883_012_206;
+const SCHEMA_STAMP: i64 = 1_859_622_646;
 
 // The compiler refuses a schema whose stamp is not SCHEMA_STAMP. A const
 // assert could not print the new stamp, so the check compares two array

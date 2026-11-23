@@ -171,10 +171,30 @@ pub struct Diff {
 /// change: the head, and the common ancestor of the head and the base. A diff
 /// read back from a reviewer's stored message, or from a test case's patch,
 /// has no such commits, and is a `Diff` alone.
+#[derive(Clone)]
 pub struct NetChange {
     pub base: String,
     pub head: String,
     pub diff: Diff,
+    before: BeforeDiff,
+}
+
+#[derive(Clone)]
+enum BeforeDiff {
+    Base,
+    Merged { tree: String, at_base: Vec<String> },
+}
+
+impl NetChange {
+    /// The source of removed lines for the named file.
+    pub fn before(&self, path: &str) -> &str {
+        match &self.before {
+            BeforeDiff::Merged { tree, at_base } if !at_base.iter().any(|name| name == path) => {
+                tree
+            }
+            _ => &self.base,
+        }
+    }
 }
 
 impl Diff {
@@ -282,6 +302,7 @@ pub fn diff_between(worktree: &Path, base: &str, head: &str) -> Result<NetChange
         },
         base: merge_base,
         head,
+        before: BeforeDiff::Base,
     })
 }
 
@@ -376,6 +397,10 @@ pub fn diff_since(
         },
         base: merge_base,
         head,
+        before: BeforeDiff::Merged {
+            tree,
+            at_base: whole,
+        },
     })
 }
 
@@ -1079,7 +1104,7 @@ fn checked(
             None
         };
         let (file, line) = match site {
-            Some((path, line)) => (path.to_string(), FindingLine::AtHead(line)),
+            Some(site) => (site.path.to_string(), FindingLine::verified(site)),
             None => (raw.file, FindingLine::Reported(raw.line)),
         };
         call.findings.push(NewFinding {

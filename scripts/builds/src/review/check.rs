@@ -44,8 +44,8 @@ pub enum LineKind {
     Context { before: i64, after: i64 },
 }
 
-#[derive(Clone, Copy)]
-enum Side {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Side {
     Before,
     After,
 }
@@ -310,56 +310,68 @@ fn quote_sites(patch: &DiffFile, side: Side, code: &str) -> Vec<(i64, bool)> {
         .collect()
 }
 
-/// The start of <code> where the diff adds it to the reviewed tree. The
-/// reported line selects a verified occurrence when the quote appears more
-/// than once. A quote on removed lines alone has no location in the new tree.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct QuoteSite<'a> {
+    pub path: &'a str,
+    pub side: Side,
+    pub line: i64,
+}
+
+/// The start of the quote on the side where the diff changes it. The
+/// reported line disambiguates occurrences within the named file.
 pub fn code_site<'a>(
     files: &'a [DiffFile],
     file: &str,
     line: i64,
     code: &str,
-) -> Result<Option<(&'a str, i64)>, String> {
+) -> Result<Option<QuoteSite<'a>>, String> {
     let named = named_patches(files, file)?;
+    let path = named[0].path.as_str();
+    let site = |side, line| Some(QuoteSite { path, side, line });
     let mut current = Vec::new();
+    let mut removed = Vec::new();
     let mut exact_context = false;
     for patch in &named {
         for (number, changed) in quote_sites(patch, Side::After, code) {
             if changed {
-                let site = (patch.path.as_str(), number);
-                if !current.contains(&site) {
-                    current.push(site);
+                if !current.contains(&number) {
+                    current.push(number);
                 }
             } else if number == line {
                 exact_context = true;
             }
         }
+        for (number, changed) in quote_sites(patch, Side::Before, code) {
+            if changed && !removed.contains(&number) {
+                removed.push(number);
+            }
+        }
     }
-    let exact_current = current.iter().find(|(_, number)| *number == line);
+    let exact_current = current.contains(&line);
     let ambiguous = || {
         format!(
             "its quote occurs more than once in {file} and its line does not identify one occurrence"
         )
     };
-    let exact_removal = named
-        .iter()
-        .any(|patch| quote_sites(patch, Side::Before, code).contains(&(line, true)));
-    if exact_removal && exact_current.is_some() {
+    let exact_removal = removed.contains(&line);
+    if exact_removal && exact_current {
         return Err(format!(
             "its quote starts at line {line} on both sides of the diff of {file}"
         ));
     }
-    if let Some(site) = exact_current {
-        return Ok(Some(*site));
+    if exact_current {
+        return Ok(site(Side::After, line));
     }
     if exact_removal {
-        return Ok(None);
+        return Ok(site(Side::Before, line));
     }
     if exact_context {
         return Err(unchanged_quote(file));
     }
-    match current.as_slice() {
-        [] => code_in_patches(&named, file, code).map(|()| None),
-        [site] => Ok(Some(*site)),
+    match (current.as_slice(), removed.as_slice()) {
+        ([], []) => code_in_patches(&named, file, code).map(|()| None),
+        ([], [number]) => Ok(site(Side::Before, *number)),
+        ([number], _) => Ok(site(Side::After, *number)),
         _ => Err(ambiguous()),
     }
 }

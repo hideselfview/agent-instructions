@@ -611,7 +611,7 @@ fn account_for_repeated_findings<'a>(
                     .filter(|held| held.group == call.group && held.could_match_quote(&raised));
                 let mut repeated = None;
                 for held in candidates {
-                    if same_finding_site(repo, &ask.change.head, &read, held, &raised)? {
+                    if same_finding_site(repo, &ask.change, &read, held, &raised)? {
                         repeated = Some(held);
                         break;
                     }
@@ -656,16 +656,13 @@ fn account_for_repeated_findings<'a>(
 /// Whether the checked report identifies the open finding's site.
 fn same_finding_site(
     repo: &Path,
-    head: &str,
+    change: &run::NetChange,
     read: &[&record::RunRow],
     held: &record::Finding,
     raised: &record::NewFinding,
 ) -> Result<bool> {
     use record::FindingLine;
 
-    let FindingLine::AtHead(current_line) = raised.line else {
-        return Ok(false);
-    };
     let Some(run) = read.iter().find(|run| run.id == held.run_id) else {
         fail!(
             "Builds found no review run {} for open finding {}.",
@@ -673,13 +670,17 @@ fn same_finding_site(
             held.id
         );
     };
+    let previous = || {
+        run::diff_of_run(repo, read, run, |run| {
+            Ok((run.base.clone(), run.head.clone()))
+        })
+    };
+    let mut earlier = None;
     let original_line = match held.line {
-        FindingLine::AtHead(line) => line,
+        FindingLine::AtHead(_) | FindingLine::Removed(_) => held.line,
         FindingLine::Reported(_) => return Ok(false),
         FindingLine::Legacy(line) => {
-            let previous = run::diff_of_run(repo, read, run, |run| {
-                Ok((run.base.clone(), run.head.clone()))
-            })?;
+            let previous = previous()?;
             let quotes = previous.diff.quotes();
             let site = check::code_site(&quotes, &held.file, line, &held.code).map_err(|reason| {
                 Fail::Message(format!(
@@ -688,15 +689,34 @@ fn same_finding_site(
                 ))
             })?;
             match site {
-                Some((path, verified)) if path == raised.file => verified,
+                Some(site) if site.path == raised.file => {
+                    earlier = Some(previous);
+                    FindingLine::verified(site)
+                }
                 _ => return Ok(false),
             }
         }
     };
-    if raised.file == files::COMMIT_MESSAGE {
-        return Ok(original_line == current_line);
+    let path = &raised.file;
+    match (original_line, raised.line) {
+        (FindingLine::AtHead(original), FindingLine::AtHead(current)) => {
+            if path == files::COMMIT_MESSAGE {
+                return Ok(original == current);
+            }
+            Ok(files::line_at(repo, &run.head, &change.head, path, original)? == Some(current))
+        }
+        (FindingLine::Removed(original), FindingLine::Removed(current)) => {
+            let previous = earlier.map_or_else(previous, Ok)?;
+            Ok(files::line_at(
+                repo,
+                previous.before(path),
+                change.before(path),
+                path,
+                original,
+            )? == Some(current))
+        }
+        _ => Ok(false),
     }
-    Ok(files::line_at(repo, &run.head, head, &raised.file, original_line)? == Some(current_line))
 }
 
 /// One run of a review: the diff its reviewers read and the groups it asks.
@@ -919,11 +939,7 @@ fn later_asks(
                 "asked {} again over the whole net change to check their open findings against the branch head\n",
                 recheck.join(", ")
             )),
-            change: run::NetChange {
-                base: change.base.clone(),
-                head: change.head.clone(),
-                diff: change.diff.clone(),
-            },
+            change: change.clone(),
             since: None,
             last_review: false,
             groups: recheck,

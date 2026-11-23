@@ -15,7 +15,7 @@ pub fn plant_finding_before_head_sites(db: &Connection) {
 
 pub fn mark_finding_as_legacy(db: &Connection, finding: i64, line: i64) -> Result<()> {
     db.execute(
-        "UPDATE review_finding SET head_site = NULL, line = ?2 WHERE id = ?1",
+        "UPDATE review_finding SET site_kind = NULL, line = ?2 WHERE id = ?1",
         [finding, line],
     )
     .sql()?;

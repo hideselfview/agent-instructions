@@ -1345,7 +1345,7 @@ fn a_stored_removal_cannot_act_as_a_verified_position_in_the_head() {
     fake.answer("alpha", &[("rule-a", Some(BAD))]);
     let landing = run_review(&demo, &fake, &side, "k").landing.unwrap();
     let initial = &findings_of(&demo, landing)[0];
-    assert_eq!(initial.line, record::FindingLine::Reported(1));
+    assert_eq!(initial.line, record::FindingLine::Removed(1));
     let original = initial.id;
     settle_as(&demo, original, "confirmed", "real");
 
@@ -1493,6 +1493,38 @@ fn a_dropped_report_at_the_same_line_keeps_its_validation_error() {
             .unwrap()
             .contains("around the diff's changes")
     );
+}
+
+#[test]
+fn a_repeat_of_the_same_removed_code_contradicts_a_fixed_verdict() {
+    let demo = demo("review-repeated-removal");
+    let fake = fake(&demo.scratch.dir);
+    demo.commit(&demo.main, "a.rs");
+    let side = demo.add_side(1, "agent", "work");
+    std::fs::write(side.join("a.rs"), "changed\n").unwrap();
+    crate::testing::git(&side, &["commit", "-qam", "Remove the quoted code"]);
+    fake.answer("alpha", &[("rule-a", Some(BAD))]);
+    let landing = run_review(&demo, &fake, &side, "k").landing.unwrap();
+    let finding = findings_of(&demo, landing)[0].id;
+    settle_as(&demo, finding, "confirmed", "real");
+    fake.answer_task(
+        "alpha",
+        serde_json::json!({
+            "rules": [{"rule": "rule-a", "verdict": "finding", "findings": [
+                {"clause": BAD.0, "file": BAD.1, "line": BAD.2, "code": BAD.3, "problem": BAD.4},
+            ]}],
+            "follow_up": [{"id": finding, "verdict": "fixed"}],
+        }),
+    );
+    let reported = run_review(&demo, &fake, &side, "k");
+    assert!(
+        reported.text.contains("disagreed on finding"),
+        "{}",
+        reported.text
+    );
+    let findings = findings_of(&demo, landing);
+    assert_eq!(findings.len(), 1);
+    assert!(findings[0].is_open());
 }
 
 #[test]
