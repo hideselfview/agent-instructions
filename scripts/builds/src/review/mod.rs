@@ -363,7 +363,7 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
         }
         None => run::diff_of(inputs.worktree, inputs.base)?,
     };
-    if change.diff.text.trim().is_empty() {
+    if change.diff.patch.text().trim().is_empty() {
         return Ok(Reported {
             landing: None,
             text: format!("nothing to review: no changes past {}\n", inputs.base),
@@ -426,14 +426,16 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
             deleted,
         )?,
     };
-    if let Some(added) = check::over_the_cap(asks.iter().map(|ask| ask.change.diff.text.as_str())) {
+    if let Some(added) = check::over_the_cap(asks.iter().map(|ask| ask.change.diff.patch.text())) {
         let net = run::diff_between(inputs.worktree, inputs.base, inputs.head.unwrap_or("HEAD"))?;
-        let patch_id = over_cap::patch_id(&net.diff.text)?;
+        let patch_id = over_cap::patch_id(net.diff.patch.text())?;
         let branch = over_cap::Branch {
             change: under_review,
             patch_id: &patch_id,
         };
-        if let Some(reported) = over_the_cap(inputs, &conn, branch, added, &net.diff.text, &shas)? {
+        if let Some(reported) =
+            over_the_cap(inputs, &conn, branch, added, net.diff.patch.text(), &shas)?
+        {
             return Ok(reported);
         }
     }
@@ -453,7 +455,7 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
             &ask.change.diff,
             inputs.brief.as_ref(),
             &ask.open,
-        )?);
+        ));
     }
     let still_found = account_for_repeated_findings(
         inputs.worktree,
@@ -478,7 +480,7 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
                     &record::NewRun {
                         landing: Some(landing),
                         kind: Kind::Review {
-                            changed_lines: check::changed_lines(&ask.change.diff.text),
+                            changed_lines: check::changed_lines(ask.change.diff.patch.text()),
                         },
                         label: None,
                         at: stamp.at,
@@ -682,7 +684,7 @@ fn same_finding_site(
         FindingLine::Reported(_) => return Ok(false),
         FindingLine::Legacy(line) => {
             let previous = previous()?;
-            let quotes = previous.diff.quotes()?;
+            let quotes = previous.diff.quotes();
             let site = check::code_site(&quotes, &held.file, *line, &held.code).map_err(|reason| {
                 Fail::Message(format!(
                     "Builds could not verify the quote of open finding {} from run {} because {reason}.",
@@ -1026,7 +1028,7 @@ fn kind_of(tool: &Tool, args: &Args) -> Result<Option<ReviewKind>> {
 /// knows: only renamed identifiers, design files only, or capture files only.
 fn known_answer(tool: &Tool, args: &Args, checkout: &Checkout, base: &str) -> Result<bool> {
     let net = run::diff_between(&checkout.top, base, "HEAD")?;
-    if mechanical::only_renames(&net.diff.text) {
+    if mechanical::only_renames(net.diff.patch.text()) {
         return Ok(true);
     }
     let Some(project) = project_given(tool, args, checkout)? else {

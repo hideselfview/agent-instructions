@@ -99,19 +99,17 @@ fn schema() -> Value {
 /// The diff of the file <finding> names in <diff>, the commit messages as one
 /// more file, and the new text around its hunks; None when the diff has no
 /// such file.
-fn file_of(diff: &Diff, finding: &Finding) -> crate::fail::Result<Option<(String, String)>> {
+fn file_of(diff: &Diff, finding: &Finding) -> Option<(String, String)> {
     if finding.file == files::COMMIT_MESSAGE {
-        return Ok(
-            files::commit_message_file(&diff.messages).map(|(file, _)| (file.text, String::new()))
-        );
+        let (file, _) = files::commit_message_file(&diff.messages)?;
+        return Some((file.text, String::new()));
     }
-    let file = files::split(&diff.text)?
-        .into_iter()
-        .find(|f| names_file(&f.path, &finding.file));
-    Ok(file.map(|file| {
-        let context = files::context(diff.source.as_ref(), &file.path, &file.text);
-        (file.text, context)
-    }))
+    let file = diff
+        .patch
+        .files()
+        .find(|f| names_file(&f.path, &finding.file))?;
+    let context = files::context(diff.source.as_ref(), &file.path, &file.text);
+    Some((file.text.clone(), context))
 }
 
 /// Asks <program> in <model> whether <finding>, over <diff>, breaks its rule
@@ -135,8 +133,7 @@ pub fn check(
     let Some(rule_text) = rule_text else {
         return Err(format!("the rules checkout has no rule {}", finding.rule));
     };
-    let Some((file_diff, context)) = file_of(diff, finding).map_err(crate::fail::Fail::text)?
-    else {
+    let Some((file_diff, context)) = file_of(diff, finding) else {
         return Err(format!("the diff has no file {}", finding.file));
     };
     let invoked = call::invoke(

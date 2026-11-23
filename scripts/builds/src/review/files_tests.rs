@@ -157,7 +157,10 @@ fn a_rename_destination_uses_the_filename_git_escaped_in_the_patch() {
     );
     assert_eq!(split(diff).unwrap()[0].paths(), ["newé.rs", "old\t.rs"]);
     assert_eq!(
-        crate::review::cases::keep_files(diff, &["newé.rs".into()]).unwrap(),
+        Patch::parse(diff.to_string())
+            .unwrap()
+            .only_files(&["newé.rs".into()])
+            .text(),
         diff
     );
 }

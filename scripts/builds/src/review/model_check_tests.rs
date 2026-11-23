@@ -30,12 +30,11 @@ fn finding(rule: &str, file: &str) -> Finding {
 
 fn diff() -> Diff {
     let text = "diff --git a/a.rs b/a.rs\n--- /dev/null\n+++ b/a.rs\n@@ -0,0 +1 @@\n+a.rs\n";
-    Diff {
-        messages: "Add a.rs\n".to_string(),
-        source: None,
-        text: text.to_string(),
-        changed: vec!["a.rs".to_string()],
-    }
+    Diff::from_patch(
+        files::Patch::parse(text.to_string()).unwrap(),
+        "Add a.rs\n".to_string(),
+        None,
+    )
 }
 
 #[test]

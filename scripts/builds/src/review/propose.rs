@@ -201,9 +201,9 @@ fn sample(candidates: &[Candidate], per_group: usize) -> Vec<usize> {
 
 /// The added lines of <diff> that no finding of <findings> names, as `none`
 /// sites: each line long enough to name one site and found once in its file.
-fn clean_lines(diff: &Diff, findings: &[Finding]) -> Result<Vec<SiteLabel>> {
+fn clean_lines(diff: &Diff, findings: &[Finding]) -> Vec<SiteLabel> {
     let mut labels = Vec::new();
-    for file in files::split(&diff.text)? {
+    for file in diff.patch.files() {
         let mut in_hunk = false;
         let mut added: Vec<&str> = Vec::new();
         for line in file.text.lines() {
@@ -231,20 +231,24 @@ fn clean_lines(diff: &Diff, findings: &[Finding]) -> Result<Vec<SiteLabel>> {
             });
         }
     }
-    Ok(labels)
+    labels
 }
 
 /// The path of the file <finding> names, as <patch> names it; or why the
 /// case cannot expect the finding: its code is not in <diff>, or <patch> has
 /// no such file.
-fn path_in(diff: &Diff, patch: &str, finding: &Finding) -> std::result::Result<String, String> {
-    let quotes = diff.quotes().map_err(crate::fail::Fail::text)?;
+fn path_in(
+    diff: &Diff,
+    patch: &files::Patch,
+    finding: &Finding,
+) -> std::result::Result<String, String> {
+    let quotes = diff.quotes();
     let expected = match &finding.line {
         record::FindingLine::Verified(site) => Some(site),
         record::FindingLine::Reported(_) | record::FindingLine::Legacy(_) => None,
     };
     let file = quote_file(&quotes, &finding.file, &finding.code, expected)?;
-    if cases::changes(patch, file).map_err(crate::fail::Fail::text)? {
+    if cases::changes(patch, file) {
         Ok(file.to_string())
     } else {
         Err(format!("the patch has no file {file}"))
@@ -252,10 +256,10 @@ fn path_in(diff: &Diff, patch: &str, finding: &Finding) -> std::result::Result<S
 }
 
 /// The parts of <diff> a case needs to check its expected findings.
-fn cut(mut diff: Diff, paths: &[String]) -> Result<Diff> {
-    diff.text = cases::keep_files(&diff.text, paths)?;
-    diff.changed = files::paths(&diff.text)?;
-    Ok(diff)
+fn cut(mut diff: Diff, paths: &[String]) -> Diff {
+    diff.patch = diff.patch.only_files(paths);
+    diff.changed = diff.patch.paths();
+    diff
 }
 
 /// The finding sites a case expects: the finding by rule and file, and its
@@ -362,9 +366,9 @@ pub fn propose(inputs: &Inputs) -> Result<Proposed> {
                 _ => None,
             })
             .collect();
-        let patch = cases::keep_files(&patch, &paths)?;
-        let diff = cut(diff, &paths)?;
-        let clean = clean_lines(&diff, &candidate.findings)?;
+        let patch = patch.only_files(&paths);
+        let diff = cut(diff, &paths);
+        let clean = clean_lines(&diff, &candidate.findings);
         let lines = clean.len();
         additions.extend(clean.into_iter().map(Addition::Site));
         cases::add(
@@ -427,7 +431,7 @@ fn misses(inputs: &Inputs, conn: &rusqlite::Connection) -> Result<String> {
             };
             let mut found: Vec<(&Finding, String)> = Vec::new();
             for miss in &of_run {
-                match path_in(&diff, &diff.text, miss) {
+                match path_in(&diff, &diff.patch, miss) {
                     Ok(path) => found.push((miss, path)),
                     Err(why) => text.push_str(&format!(
                         "landing {landing}: the case leaves out miss {}: {why}\n",
@@ -443,9 +447,9 @@ fn misses(inputs: &Inputs, conn: &rusqlite::Connection) -> Result<String> {
                 continue;
             }
             let paths: Vec<String> = found.iter().map(|(_, path)| path.clone()).collect();
-            let diff = cut(diff, &paths)?;
+            let diff = cut(diff, &paths);
             additions.extend(
-                clean_lines(&diff, &findings)?
+                clean_lines(&diff, &findings)
                     .into_iter()
                     .map(Addition::Site),
             );
@@ -455,7 +459,7 @@ fn misses(inputs: &Inputs, conn: &rusqlite::Connection) -> Result<String> {
                 &name,
                 inputs.project,
                 &repo,
-                &diff.text,
+                &diff.patch,
                 &additions,
             )?;
             text.push_str(&format!(

@@ -1923,7 +1923,7 @@ fn big_commit(side: &Path, file: &str, body: &str) -> String {
 
 fn over_cap_standing(demo: &Demo, side: &Path) -> Option<over_cap::Standing> {
     let net = run::diff_of(side, "main").unwrap();
-    let id = over_cap::patch_id(&net.diff.text).unwrap();
+    let id = over_cap::patch_id(net.diff.patch.text()).unwrap();
     let conn = demo.store.open_existing().unwrap();
     over_cap::standing(
         &conn,
@@ -2109,7 +2109,7 @@ fn a_confirmed_finding_becomes_a_case_and_an_unconfirmed_one_does_not() {
     assert_eq!(cases[0].project, "demo");
     assert_eq!(cases[0].expected[0].rule, "rule-a");
     assert_eq!(cases[0].expected[0].file, "a.rs");
-    assert!(cases[0].patch.contains("+a.rs"));
+    assert!(cases[0].patch.text().contains("+a.rs"));
 }
 
 #[test]

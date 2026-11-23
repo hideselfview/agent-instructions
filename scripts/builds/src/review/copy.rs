@@ -51,7 +51,7 @@ pub fn check(inputs: &Inputs) -> Result<Checked> {
     let design = Globs::read(&*inputs.store.open_existing()?, inputs.repo)?
         .with_capture_folders(inputs.worktree)?;
     let change = run::diff_of(inputs.worktree, inputs.base)?;
-    if change.diff.text.trim().is_empty() {
+    if change.diff.patch.text().trim().is_empty() {
         return Ok(Checked {
             text: format!(
                 "there are no changes past {}, so there is nothing to check\n",
@@ -82,7 +82,7 @@ pub fn check(inputs: &Inputs) -> Result<Checked> {
         &change.diff,
         None,
         &[],
-    )?;
+    );
     let stamp = inputs.stamp;
     let (run, calls, findings) =
         inputs

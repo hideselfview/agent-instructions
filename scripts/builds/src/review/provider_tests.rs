@@ -377,7 +377,7 @@ fn code_design_capture_and_replay_use_sol() {
         name: "example".into(),
         project: "demo".into(),
         repo: "demo".into(),
-        patch: run::diff_of(&code, "origin/main").unwrap().diff.text,
+        patch: run::diff_of(&code, "origin/main").unwrap().diff.patch,
         clean_for: vec!["rule-a".into()],
         expected: Vec::new(),
         labels: Vec::new(),
@@ -387,7 +387,7 @@ fn code_design_capture_and_replay_use_sol() {
         material: &material,
         files: &Globs::default(),
     };
-    let replayed = cases::replay_case(scope, &sol, &case, None).unwrap();
+    let replayed = cases::replay_case(scope, &sol, &case, None);
     assert_eq!(replayed.calls[0].model, "gpt-6.2-sol");
     assert!(replayed.calls[0].failure.is_none());
     assert!(cases::totals(&[replayed]).usage.cost_microdollars.is_none());

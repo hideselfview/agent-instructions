@@ -78,6 +78,14 @@ pub struct Place {
 }
 
 impl DiffFile {
+    pub(super) fn from_file(file: &super::files::FileDiff) -> Self {
+        Self {
+            path: file.path.clone(),
+            renamed_from: file.renamed_from.clone(),
+            lines: parse_lines(&file.text),
+        }
+    }
+
     /// Each place <code> sits in the file's lines, matched through
     /// whitespace and markdown marks (`squash`); none for an empty quote.
     pub fn places(&self, code: &str) -> Vec<Place> {
@@ -122,15 +130,10 @@ impl DiffFile {
     }
 }
 
-pub fn parse_diff(diff: &str) -> crate::fail::Result<Vec<DiffFile>> {
-    Ok(super::files::split(diff)?
-        .into_iter()
-        .map(|file| DiffFile {
-            path: file.path,
-            renamed_from: file.renamed_from,
-            lines: parse_lines(&file.text),
-        })
-        .collect())
+#[cfg(test)]
+fn parse_diff(diff: &str) -> crate::fail::Result<Vec<DiffFile>> {
+    let patch = super::files::Patch::parse(diff.to_string())?;
+    Ok(patch.files().map(DiffFile::from_file).collect())
 }
 
 fn parse_lines(diff: &str) -> Vec<DiffLine> {

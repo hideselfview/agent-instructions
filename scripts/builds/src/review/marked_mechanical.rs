@@ -29,8 +29,8 @@ pub fn call_mechanical(
 ) -> Result<String> {
     let (by, checked_by) = call;
     let net = crate::review::run::diff_between(worktree, base, "HEAD")?;
-    let added = crate::review::check::added_lines(&net.diff.text);
-    let patch_id = patch_id(&net.diff.text)?;
+    let added = crate::review::check::added_lines(net.diff.patch.text());
+    let patch_id = patch_id(net.diff.patch.text())?;
     let branch = Branch {
         change: Change { repo, key },
         patch_id: &patch_id,

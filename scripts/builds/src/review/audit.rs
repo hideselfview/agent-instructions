@@ -271,7 +271,7 @@ pub fn audit(inputs: &Inputs) -> Result<String> {
         );
     };
     let diff = run::diff_between(inputs.repo_dir, &last.base, &last.head)?.diff;
-    if let Some(added) = check::over_the_cap([diff.text.as_str()]) {
+    if let Some(added) = check::over_the_cap([diff.patch.text()]) {
         return Ok(format!(
             "not audited: landing {} ({key}) adds {added} lines, over the review cap of {}, so an audit starts no reviewer\n",
             inputs.landing,
@@ -343,10 +343,10 @@ pub fn audit(inputs: &Inputs) -> Result<String> {
             None,
             &[],
         )
-        .map(|asked| asked.calls)
+        .calls
     };
-    let calls_rules = ask(&per_rule)?;
-    let calls_shuffled = ask(&shuffled)?;
+    let calls_rules = ask(&per_rule);
+    let calls_shuffled = ask(&shuffled);
     let stamp = inputs.stamp;
     let (runs, findings) =
         inputs
@@ -491,12 +491,8 @@ pub(super) fn diff_read(
         .and_then(|message| prompt::diff_of_message(message))
         .ok_or("the store keeps no diff of the call that raised it")?
         .to_string();
-    Ok(Diff {
-        messages: String::new(),
-        source: None,
-        changed: files::paths(&text).map_err(crate::fail::Fail::text)?,
-        text,
-    })
+    let patch = files::Patch::parse(text).map_err(crate::fail::Fail::text)?;
+    Ok(Diff::from_patch(patch, String::new(), None))
 }
 
 /// Settles every candidate miss nobody has settled, as an audit settles the

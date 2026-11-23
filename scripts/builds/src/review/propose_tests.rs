@@ -128,7 +128,7 @@ fn a_landing_becomes_a_case_of_its_specific_findings_the_check_confirms_and_its_
         .collect();
     assert_eq!(verdicts, [("bad();", "finding"), (CLEAN, "none")]);
     assert_eq!(
-        crate::review::files::paths(&case.patch).unwrap(),
+        case.patch.paths(),
         ["a.rs"],
         "the case holds only the files of its confirmed findings"
     );
@@ -212,10 +212,7 @@ fn a_confirmed_miss_becomes_a_case_that_expects_it() {
         .into_iter()
         .find(|c| c.expected.iter().any(|e| e.file == "b.swift"))
         .unwrap();
-    assert_eq!(
-        crate::review::files::paths(&miss_case.patch).unwrap(),
-        ["b.swift"]
-    );
+    assert_eq!(miss_case.patch.paths(), ["b.swift"]);
 }
 
 #[test]
@@ -231,18 +228,16 @@ fn a_case_proposal_requires_the_verified_occurrence() {
         .find(|finding| finding.file == "a.rs")
         .unwrap();
     let text = "diff --git a/a.rs b/a.rs\n@@ -1 +1 @@\n-bad();\n+other();\n".to_string();
-    let diff = Diff {
-        changed: vec!["a.rs".to_string()],
-        messages: String::new(),
-        source: None,
-        text,
-    };
-    assert!(path_in(&diff, &diff.text, &finding).is_err());
+    let diff = Diff::from_patch(files::Patch::parse(text).unwrap(), String::new(), None);
+    assert!(path_in(&diff, &diff.patch, &finding).is_err());
 
     finding.line = record::FindingLine::Legacy(99);
     let mut diff = diff;
-    diff.text = "diff --git a/a.rs b/a.rs\n@@ -0,0 +1,2 @@\n+bad();\n+bad();\n".to_string();
-    assert_eq!(path_in(&diff, &diff.text, &finding), Ok("a.rs".into()));
+    diff.patch = files::Patch::parse(
+        "diff --git a/a.rs b/a.rs\n@@ -0,0 +1,2 @@\n+bad();\n+bad();\n".to_string(),
+    )
+    .unwrap();
+    assert_eq!(path_in(&diff, &diff.patch, &finding), Ok("a.rs".into()));
 }
 
 #[test]
@@ -262,7 +257,8 @@ fn a_case_proposal_requires_a_path_the_case_loader_accepts() {
         "diff --git a/a.rs b/new.rs\n",
         "rename from a.rs\nrename to new.rs\n",
     );
-    assert!(path_in(&diff, patch, &finding).is_err());
+    let patch = files::Patch::parse(patch.to_string()).unwrap();
+    assert!(path_in(&diff, &patch, &finding).is_err());
 }
 
 #[test]

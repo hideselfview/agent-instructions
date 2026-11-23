@@ -1,14 +1,24 @@
 use super::*;
 
+fn add(
+    root: &Path,
+    name: &str,
+    project: &str,
+    repo: &str,
+    text: &str,
+    additions: &[Addition<'_>],
+) -> Result<PathBuf> {
+    let patch = files::Patch::parse(text.to_string())?;
+    super::add(root, name, project, repo, &patch, additions)
+}
+
 #[test]
 fn a_case_filter_cannot_keep_an_undecodable_header_with_the_previous_file() {
     let patch = concat!(
         "diff --git a/kept.rs b/kept.rs\n@@ -0,0 +1 @@\n+right file\n",
         "diff --git \"a/r\\377.rs\" \"b/r\\377.rs\"\n@@ -0,0 +1 @@\n+wrong file\n",
     );
-    let error = keep_files(patch, &["kept.rs".to_string()])
-        .unwrap_err()
-        .text();
+    let error = files::Patch::parse(patch.to_string()).unwrap_err().text();
     assert!(error.contains("could not read a file path"), "{error}");
 }
 
@@ -207,8 +217,7 @@ fn a_replay_counts_the_expected_findings_found_and_the_false_blocking_ones() {
         &fake.program,
         &case,
         None,
-    )
-    .unwrap();
+    );
     assert_eq!(
         (found.expected, found.found, found.false_blocking),
         (1, 1, 0)
@@ -224,8 +233,7 @@ fn a_replay_counts_the_expected_findings_found_and_the_false_blocking_ones() {
         &fake.program,
         &case,
         None,
-    )
-    .unwrap();
+    );
     assert_eq!((missed.found, missed.missed.len()), (0, 1));
     // A finding whose code is not in the patch does not count as found.
     fake.answer(
@@ -245,7 +253,6 @@ fn a_replay_counts_the_expected_findings_found_and_the_false_blocking_ones() {
             &case,
             None
         )
-        .unwrap()
         .found,
         0
     );
@@ -254,7 +261,7 @@ fn a_replay_counts_the_expected_findings_found_and_the_false_blocking_ones() {
         name: "clean".to_string(),
         project: "demo".to_string(),
         repo: "demo".to_string(),
-        patch: PATCH.to_string(),
+        patch: files::Patch::parse(PATCH.to_string()).unwrap(),
         clean_for: vec!["rule-a".to_string()],
         expected: Vec::new(),
         labels: Vec::new(),
@@ -270,7 +277,6 @@ fn a_replay_counts_the_expected_findings_found_and_the_false_blocking_ones() {
             &clean,
             None
         )
-        .unwrap()
         .false_blocking,
         1
     );
@@ -283,8 +289,7 @@ fn a_replay_counts_the_expected_findings_found_and_the_false_blocking_ones() {
         &fake.program,
         &clean,
         None,
-    )
-    .unwrap();
+    );
     assert_eq!(quiet.false_blocking, 0);
     let text = report(&[found, missed, quiet]);
     assert!(
@@ -320,8 +325,7 @@ fn a_failed_call_in_a_replay_is_counted_and_named() {
         &fake.program,
         &case,
         None,
-    )
-    .unwrap();
+    );
     let t = totals(std::slice::from_ref(&result));
     assert_eq!((t.failed_calls, t.found), (1, 0));
     assert!(report(&[result]).contains("group alpha failed"));
@@ -353,7 +357,7 @@ fn a_group_that_lists_sites_is_asked_once_per_file_its_rule_covers() {
         name: "n".to_string(),
         project: "demo".to_string(),
         repo: "demo".to_string(),
-        patch,
+        patch: files::Patch::parse(patch).unwrap(),
         clean_for: Vec::new(),
         expected: Vec::new(),
         labels: Vec::new(),
@@ -366,8 +370,7 @@ fn a_group_that_lists_sites_is_asked_once_per_file_its_rule_covers() {
         &fake.program,
         &case,
         None,
-    )
-    .unwrap();
+    );
     let alpha: Vec<_> = result.calls.iter().filter(|c| c.group == "alpha").collect();
     assert_eq!(alpha.len(), 1, "one merged call per group");
     assert_eq!(
@@ -419,7 +422,7 @@ fn site_labels_score_recall_wrong_findings_and_unlabelled_ones_per_rule() {
         name: "n".to_string(),
         project: "demo".to_string(),
         repo: "demo".to_string(),
-        patch: PATCH.to_string(),
+        patch: files::Patch::parse(PATCH.to_string()).unwrap(),
         clean_for: Vec::new(),
         expected: Vec::new(),
         labels,
@@ -433,8 +436,7 @@ fn site_labels_score_recall_wrong_findings_and_unlabelled_ones_per_rule() {
             &fake.program,
             &case(labels),
             None,
-        )
-        .unwrap();
+        );
         result
             .sites
             .into_iter()
@@ -470,7 +472,6 @@ fn site_labels_score_recall_wrong_findings_and_unlabelled_ones_per_rule() {
                 &case(Vec::new()),
                 None
             )
-            .unwrap()
         }])
         .contains("recall 100%")
     );
@@ -511,7 +512,7 @@ fn a_comparison_prints_each_setups_caught_missed_and_wrong_flags_with_tokens_and
         name: "n".to_string(),
         project: "demo".to_string(),
         repo: "demo".to_string(),
-        patch: PATCH.to_string(),
+        patch: files::Patch::parse(PATCH.to_string()).unwrap(),
         clean_for: Vec::new(),
         expected: vec![Expect {
             rule: "rule-a".to_string(),
@@ -528,8 +529,7 @@ fn a_comparison_prints_each_setups_caught_missed_and_wrong_flags_with_tokens_and
         &fake.program,
         &case,
         None,
-    )
-    .unwrap();
+    );
     fake.answer("alpha", &[("rule-a", Some(BAD))]);
     let named = replay_case(
         Scope {
@@ -539,8 +539,7 @@ fn a_comparison_prints_each_setups_caught_missed_and_wrong_flags_with_tokens_and
         &fake.program,
         &case,
         None,
-    )
-    .unwrap();
+    );
     let text = comparison(&[current], &[named], "haiku");
     assert!(
         text.contains(
@@ -566,8 +565,12 @@ fn a_patch_keeps_only_the_files_named_with_every_commit_message() {
     let patch = format!(
         "From {sha} Mon Sep 17 00:00:00 2001\nSubject: [PATCH] One\n\nWhy.\n---\n a.rs | 1 +\n b.rs | 1 +\n\ndiff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -0,0 +1 @@\n+a\ndiff --git a/b.rs b/b.rs\n--- a/b.rs\n+++ b/b.rs\n@@ -0,0 +1 @@\n+b\n-- \n2.50\n\nFrom {sha} Mon Sep 17 00:00:00 2001\nSubject: [PATCH] Two\n\n---\ndiff --git a/b.rs b/b.rs\n--- a/b.rs\n+++ b/b.rs\n@@ -1 +1 @@\n-b\n+c\n"
     );
-    let kept = keep_files(&patch, &["a.rs".to_string()]).unwrap();
-    assert_eq!(files::paths(&kept).unwrap(), ["a.rs"]);
-    assert_eq!(messages_of_patch(&kept), messages_of_patch(&patch));
-    assert!(kept.contains("+a\n") && !kept.contains("+b\n"));
+    let patch = files::Patch::parse(patch).unwrap();
+    let kept = patch.only_files(&["a.rs".to_string()]);
+    assert_eq!(kept.paths(), ["a.rs"]);
+    assert_eq!(
+        messages_of_patch(kept.text()),
+        messages_of_patch(patch.text())
+    );
+    assert!(kept.text().contains("+a\n") && !kept.text().contains("+b\n"));
 }

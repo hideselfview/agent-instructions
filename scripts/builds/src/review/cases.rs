@@ -61,14 +61,14 @@ struct ExpectedFile {
     site: Vec<SiteLabel>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub struct Case {
     pub name: String,
     pub project: String,
     /// The repo of the project the change is in, whose design files only
     /// the rules that judge design files read.
     pub repo: String,
-    pub patch: String,
+    pub patch: files::Patch,
     pub clean_for: Vec<String>,
     pub expected: Vec<Expect>,
     pub labels: Vec<SiteLabel>,
@@ -92,8 +92,9 @@ pub fn load(root: &Path) -> Result<Vec<Case>> {
     for name in names {
         let case_dir = dir.join(&name);
         let patch_path = case_dir.join(PATCH);
-        let patch = std::fs::read_to_string(&patch_path)
+        let patch_text = std::fs::read_to_string(&patch_path)
             .context(|| format!("reading {}", patch_path.display()))?;
+        let patch = files::Patch::parse(patch_text)?;
         let expected_path = case_dir.join(EXPECTED);
         let text = std::fs::read_to_string(&expected_path)
             .context(|| format!("reading {}", expected_path.display()))?;
@@ -107,7 +108,7 @@ pub fn load(root: &Path) -> Result<Vec<Case>> {
             );
         }
         for expect in &file.finding {
-            if !changes(&patch, &expect.file)? {
+            if !changes(&patch, &expect.file) {
                 fail!(
                     "{} expects a finding in {}, which the patch does not change",
                     expected_path.display(),
@@ -130,11 +131,11 @@ pub fn load(root: &Path) -> Result<Vec<Case>> {
 
 /// Whether <patch> changes <file>: a file of its diff, or its commit
 /// messages, which a reviewer reads as the file `COMMIT_MESSAGE`.
-pub(super) fn changes(patch: &str, file: &str) -> Result<bool> {
+pub(super) fn changes(patch: &files::Patch, file: &str) -> bool {
     if file == files::COMMIT_MESSAGE {
-        return Ok(!messages_of_patch(patch).trim().is_empty());
+        return !messages_of_patch(patch.text()).trim().is_empty();
     }
-    Ok(files::split(patch)?.iter().any(|f| f.path == file))
+    patch.files().any(|diff| diff.path == file)
 }
 
 /// What a case gains.
@@ -155,16 +156,15 @@ pub fn add(
     name: &str,
     project: &str,
     repo: &str,
-    patch: &str,
+    patch: &files::Patch,
     additions: &[Addition],
 ) -> Result<PathBuf> {
     if name.is_empty() || name.contains('/') || name.starts_with('.') {
         fail!("'{name}' is not a case name: it is a folder name");
     }
-    files::split(patch)?;
     for addition in additions {
         if let Addition::Finding { file, .. } = addition
-            && !changes(patch, file)?
+            && !changes(patch, file)
         {
             fail!("the patch does not change {file}");
         }
@@ -175,7 +175,7 @@ pub fn add(
     let mut expected = if expected_path.exists() {
         let held = std::fs::read_to_string(&patch_path)
             .context(|| format!("reading {}", patch_path.display()))?;
-        if held != patch {
+        if held != patch.text() {
             fail!("case {name} holds another change; name this one differently with --name");
         }
         let text = std::fs::read_to_string(&expected_path)
@@ -192,7 +192,7 @@ pub fn add(
         held
     } else {
         std::fs::create_dir_all(&dir).context(|| format!("creating {}", dir.display()))?;
-        std::fs::write(&patch_path, patch)
+        std::fs::write(&patch_path, patch.text())
             .context(|| format!("writing {}", patch_path.display()))?;
         ExpectedFile {
             project: project.to_string(),
@@ -240,27 +240,8 @@ pub fn add(
     Ok(dir)
 }
 
-/// <patch> with only the diffs of the files in <keep>: every commit's mail
-/// header and message stay, and each other file's diff goes. A file's diff
-/// runs from its `diff --git` line to the next one or the next mail.
-pub fn keep_files(patch: &str, keep: &[String]) -> Result<String> {
-    let mut out = String::new();
-    for part in files::patch_parts(patch) {
-        match part {
-            files::PatchPart::Text(text) => out.push_str(text),
-            files::PatchPart::File(text) => {
-                let (path, _) = files::file_paths(text)?;
-                if keep.contains(&path) {
-                    out.push_str(text);
-                }
-            }
-        }
-    }
-    Ok(out)
-}
-
 /// The `git format-patch` output of <base>..<head> in <repo_dir>.
-pub fn patch_of(repo_dir: &Path, base: &str, head: &str) -> Result<String> {
+pub fn patch_of(repo_dir: &Path, base: &str, head: &str) -> Result<files::Patch> {
     let output = boards::git(repo_dir)
         .args(["format-patch", "--stdout"])
         .args(files::git_prefix_args())
@@ -274,7 +255,7 @@ pub fn patch_of(repo_dir: &Path, base: &str, head: &str) -> Result<String> {
             String::from_utf8_lossy(&output.stderr).trim()
         );
     }
-    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+    files::Patch::parse(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
 /// What a grouping did on one case.
@@ -389,19 +370,16 @@ pub fn replay_case(
     reviewer: &crate::review::Program,
     case: &Case,
     source_repo: Option<&Path>,
-) -> Result<CaseResult> {
-    let diff = Diff {
-        messages: messages_of_patch(&case.patch),
-        source: source_repo.and_then(|repo| {
-            Some(Source {
-                repo: repo.to_path_buf(),
-                rev: commit_of(&case.patch)?,
-                in_place: false,
-            })
-        }),
-        text: case.patch.clone(),
-        changed: files::paths(&case.patch)?,
-    };
+) -> CaseResult {
+    let messages = messages_of_patch(case.patch.text());
+    let source = source_repo.and_then(|repo| {
+        Some(Source {
+            repo: repo.to_path_buf(),
+            rev: commit_of(case.patch.text())?,
+            in_place: false,
+        })
+    });
+    let diff = Diff::from_patch(case.patch.clone(), messages, source);
     let picked = scope.pick(&diff.changed);
     let asked = ask_groups(
         scope,
@@ -411,7 +389,7 @@ pub fn replay_case(
         &diff,
         None,
         &[],
-    )?;
+    );
     let (calls, repeat) = (asked.calls, asked.repeat);
     let accepted: Vec<&crate::review::record::NewFinding> = calls
         .iter()
@@ -431,7 +409,7 @@ pub fn replay_case(
         .iter()
         .filter(|f| f.blocking && case.clean_for.contains(&f.rule))
         .count();
-    Ok(CaseResult {
+    CaseResult {
         name: case.name.clone(),
         expected: case.expected.len(),
         found: case.expected.len() - missed.len(),
@@ -440,7 +418,7 @@ pub fn replay_case(
         sites: score_sites(scope.material, &case.labels, &accepted),
         calls,
         repeat,
-    })
+    }
 }
 
 /// The commit messages of a `git format-patch` file: for each mail, the
@@ -526,7 +504,7 @@ pub fn replay_all(
             material,
             files: design,
         };
-        results.push(replay_case(scope, reviewer, case, source_repo)?);
+        results.push(replay_case(scope, reviewer, case, source_repo));
     }
     Ok(results)
 }

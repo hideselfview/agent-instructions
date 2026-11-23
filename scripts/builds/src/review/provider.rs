@@ -69,12 +69,9 @@ impl Program {
         }
     }
 
-    pub(super) fn for_branch_review(
-        &self,
-        reads_code: impl FnOnce() -> Result<bool>,
-    ) -> Result<Self> {
-        Ok(match &self.executable {
-            Executable::Codex { path, .. } if reads_code()? => Self {
+    pub(super) fn for_branch_review(&self, reads_code: impl FnOnce() -> bool) -> Self {
+        match &self.executable {
+            Executable::Codex { path, .. } if reads_code() => Self {
                 executable: Executable::Codex {
                     path: path.clone(),
                     purpose: Purpose::CodeReview,
@@ -82,7 +79,7 @@ impl Program {
                 temporary: self.temporary.clone(),
             },
             _ => self.clone(),
-        })
+        }
     }
 
     pub fn executable(&self) -> &Path {

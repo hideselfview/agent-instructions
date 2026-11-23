@@ -169,7 +169,7 @@ fn prefixed_path(path: &str, prefix: &str) -> Option<String> {
 
 /// A file's destination path, and the source path if the diff renames it.
 /// Git's file and rename headers give whole paths even when they contain spaces.
-pub(super) fn file_paths(text: &str) -> Result<(String, Option<String>)> {
+fn file_paths(text: &str) -> Result<(String, Option<String>)> {
     decode_file_paths(text).ok_or_else(|| {
         let header = text.lines().next().unwrap_or_default();
         crate::fail::Fail::Message(format!(
@@ -207,7 +207,7 @@ fn decode_file_paths(text: &str) -> Option<(String, Option<String>)> {
     Some((destination.or_else(|| new_path(header))?, renamed_from))
 }
 
-pub(super) enum PatchPart<'a> {
+enum PatchPart<'a> {
     Text(&'a str),
     File(&'a str),
 }
@@ -222,7 +222,7 @@ pub(super) fn starts_mail(line: &str) -> bool {
 }
 
 /// The file diffs and the surrounding text, each in its original order.
-pub(super) fn patch_parts(patch: &str) -> Vec<PatchPart<'_>> {
+fn patch_parts(patch: &str) -> Vec<PatchPart<'_>> {
     let part = |text, file| {
         if file {
             PatchPart::File(text)
@@ -260,33 +260,103 @@ impl FileDiff {
     }
 }
 
-/// <diff> cut at each `diff --git` line, in order. Text before the first
-/// such line (a patch's mail header) is dropped.
-pub fn split(diff: &str) -> Result<Vec<FileDiff>> {
-    let mut files = Vec::new();
-    for part in patch_parts(diff) {
-        if let PatchPart::File(text) = part {
-            let (path, renamed_from) = file_paths(text)?;
-            files.push(FileDiff {
-                path,
-                renamed_from,
-                text: text.to_string(),
-            });
-        }
-    }
-    Ok(files)
+/// Patch text and the file headers Builds verified when it read the text.
+#[derive(Clone, Debug)]
+pub struct Patch {
+    text: String,
+    parts: Vec<ParsedPart>,
 }
 
-/// Every path the files of <diff> change, each once, in order: both paths of
-/// a rename.
-pub fn paths(diff: &str) -> Result<Vec<String>> {
-    let mut all: Vec<String> = Vec::new();
-    for path in split(diff)?.iter().flat_map(FileDiff::paths) {
-        if !all.contains(&path) {
-            all.push(path);
+#[derive(Clone, Debug)]
+enum ParsedPart {
+    Text(String),
+    File(FileDiff),
+}
+
+impl Patch {
+    pub fn parse(text: String) -> Result<Self> {
+        let mut parts = Vec::new();
+        for part in patch_parts(&text) {
+            let part = match part {
+                PatchPart::Text(text) => ParsedPart::Text(text.to_string()),
+                PatchPart::File(text) => {
+                    let (path, renamed_from) = file_paths(text)?;
+                    ParsedPart::File(FileDiff {
+                        path,
+                        renamed_from,
+                        text: text.to_string(),
+                    })
+                }
+            };
+            parts.push(part);
         }
+        Ok(Self { text, parts })
     }
-    Ok(all)
+
+    pub fn text(&self) -> &str {
+        &self.text
+    }
+
+    pub fn files(&self) -> impl Iterator<Item = &FileDiff> {
+        self.parts.iter().filter_map(|part| match part {
+            ParsedPart::Text(_) => None,
+            ParsedPart::File(file) => Some(file),
+        })
+    }
+
+    /// Every path the files of the patch change, each once, in order.
+    pub fn paths(&self) -> Vec<String> {
+        let mut paths = Vec::new();
+        for path in self.files().flat_map(FileDiff::paths) {
+            if !paths.contains(&path) {
+                paths.push(path);
+            }
+        }
+        paths
+    }
+
+    fn filtered(&self, keep: impl Fn(&ParsedPart) -> bool) -> Self {
+        let parts: Vec<_> = self
+            .parts
+            .iter()
+            .filter(|part| keep(part))
+            .cloned()
+            .collect();
+        let text = parts
+            .iter()
+            .map(|part| match part {
+                ParsedPart::Text(text) => text.as_str(),
+                ParsedPart::File(file) => file.text.as_str(),
+            })
+            .collect();
+        Self { text, parts }
+    }
+
+    /// A case keeps its messages and only the file diffs its findings name.
+    pub(super) fn only_files(&self, keep: &[String]) -> Self {
+        self.filtered(|part| match part {
+            ParsedPart::Text(_) => true,
+            ParsedPart::File(file) => keep.contains(&file.path),
+        })
+    }
+
+    /// A group whose view omits files reads the remaining file diffs.
+    pub(super) fn without_files(&self, dropped: &[String]) -> Self {
+        self.filtered(|part| match part {
+            ParsedPart::Text(_) => false,
+            ParsedPart::File(file) => !dropped.contains(&file.path),
+        })
+    }
+}
+
+#[cfg(test)]
+fn split(diff: &str) -> Result<Vec<FileDiff>> {
+    Ok(Patch::parse(diff.to_string())?.files().cloned().collect())
+}
+
+#[cfg(test)]
+pub(super) fn paths(diff: &str) -> Result<Vec<String>> {
+    Ok(Patch::parse(diff.to_string())?.paths())
 }
 
 /// The path the commit messages go by in a review: the reviewer reads them as
@@ -309,18 +379,13 @@ pub fn commit_message_file(messages: &str) -> Option<(FileDiff, crate::review::c
         text.push_str(line);
         text.push('\n');
     }
-    let quotes = crate::review::check::parse_diff(&text)
-        .expect("builds writes the commit messages as a valid patch")
-        .pop()
-        .expect("the commit messages' diff holds one file");
-    Some((
-        FileDiff {
-            path: COMMIT_MESSAGE.to_string(),
-            renamed_from: None,
-            text,
-        },
-        quotes,
-    ))
+    let file = FileDiff {
+        path: COMMIT_MESSAGE.to_string(),
+        renamed_from: None,
+        text,
+    };
+    let quotes = crate::review::check::DiffFile::from_file(&file);
+    Some((file, quotes))
 }
 
 #[derive(Clone, Copy)]

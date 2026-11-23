@@ -394,8 +394,8 @@ struct OverTheCap {
 fn net_of(dir: &Path, head: &str) -> Result<(i64, String)> {
     let net = run::diff_between(dir, BRANCH_BASE, head)?;
     Ok((
-        check::added_lines(&net.diff.text),
-        over_cap::patch_id(&net.diff.text)?,
+        check::added_lines(net.diff.patch.text()),
+        over_cap::patch_id(net.diff.patch.text())?,
     ))
 }
 
