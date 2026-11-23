@@ -55,7 +55,7 @@ pub fn stale(places: &Places, path: &Path) -> Result<()> {
         return Ok(());
     };
     remove(places, &root)?;
-    crate::daemon::client::wrote(places, &[root]);
+    changed(places, path);
     Ok(())
 }
 
