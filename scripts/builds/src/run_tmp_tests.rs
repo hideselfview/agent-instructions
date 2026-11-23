@@ -67,6 +67,38 @@ fn a_command_that_starts_no_build_work_gets_no_folder() {
 }
 
 #[test]
+fn a_run_folder_can_have_a_symlink_and_a_path_through_its_parent() {
+    use std::os::unix::fs::symlink;
+
+    let scratch = Scratch::new("run-tmp-classify");
+    let root = scratch.places().root;
+    let parent = root.join(FOLDER);
+    let run = parent.join("1-2");
+    std::fs::create_dir_all(&run).unwrap();
+    let persistent = root.join(".sccache-tmp");
+    std::fs::create_dir(&persistent).unwrap();
+    let alias = root.join("alias");
+    symlink(&run, &alias).unwrap();
+
+    assert_eq!(classify(&root, &alias).unwrap(), Folder::Run);
+    assert_eq!(
+        classify(&root, &persistent.join("../.tmp/1-2")).unwrap(),
+        Folder::Run
+    );
+    assert_eq!(
+        classify(&root, &parent.join("../.sccache-tmp")).unwrap(),
+        Folder::Directory
+    );
+    assert_eq!(classify(&root, &parent).unwrap(), Folder::Directory);
+    std::fs::write(run.join("file"), "").unwrap();
+    assert_eq!(
+        classify(&root, &run.join("file")).unwrap(),
+        Folder::NotDirectory
+    );
+    assert_eq!(classify(&root, &run.join("gone")).unwrap(), Folder::Missing);
+}
+
+#[test]
 fn a_run_inside_a_run_makes_no_folder_of_its_own() {
     let scratch = Scratch::new("run-tmp-nested");
     let mut places = scratch.places();

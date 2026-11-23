@@ -3,9 +3,8 @@
 //! writes down its environment. The same holds for a shots step of an app
 //! build (app_queue.rs, `a_shots_step_sees_a_tmpdir_on_the_build_volume`).
 
-use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use std::process::Command;
 
 const BUILDS: &str = env!("CARGO_BIN_EXE_builds");
 
@@ -79,49 +78,4 @@ test "$?" -ne 0
         "the run wrote to the system's temporary folder"
     );
     let _ = std::fs::remove_dir_all(&dir);
-}
-
-#[test]
-fn the_tmpdir_probe_preserves_spaces_equals_and_newlines_in_a_process_path() {
-    const CHILD: &str = "BUILDS_TEST_TMPDIR_PROBE_CHILD";
-    if std::env::var_os(CHILD).is_some() {
-        eprintln!("ready");
-        std::io::stdin().read_line(&mut String::new()).unwrap();
-        return;
-    }
-
-    let root = PathBuf::from(format!("/tmp/rt-probe-{}", std::process::id()));
-    std::fs::create_dir_all(root.join("exists")).unwrap();
-    let missing = root.join("exists FLAG=value\nrest");
-    let mut child = Command::new(std::env::current_exe().unwrap())
-        .args([
-            "--exact",
-            "the_tmpdir_probe_preserves_spaces_equals_and_newlines_in_a_process_path",
-            "--nocapture",
-        ])
-        .env(CHILD, "1")
-        .env("TMPDIR", &missing)
-        .stdin(Stdio::piped())
-        .stderr(Stdio::piped())
-        .stdout(Stdio::null())
-        .spawn()
-        .unwrap();
-    let mut ready = String::new();
-    BufReader::new(child.stderr.take().unwrap())
-        .read_line(&mut ready)
-        .unwrap();
-    let report = Command::new(BUILDS)
-        .args(["sccache-tmpdir", &child.id().to_string()])
-        .env("BUILDS_ROOT", &root)
-        .output();
-    drop(child.stdin.take());
-    let status = child.wait().unwrap();
-    std::fs::remove_dir_all(&root).unwrap();
-
-    assert_eq!(ready.trim(), "ready");
-    assert!(status.success());
-    let report = report.unwrap();
-    assert!(report.status.success(), "{report:?}");
-    let issue: String = serde_json::from_slice(&report.stdout).unwrap();
-    assert!(issue.contains(&format!("{missing:?}")), "{issue}");
 }

@@ -84,9 +84,16 @@ pub fn parse(text: &str) -> Result<Root> {
 /// Asks <host> about its build root: the root `remote::root_script` picks
 /// there, or <places>' root on this Mac.
 pub fn read(places: &Places, ssh: &Ssh, host: &Host) -> Result<Root> {
+    let root = match host.target {
+        Some(_) => crate::remote::root_script(host),
+        None => format!(
+            "BUILDS_ROOT={}\n",
+            sh_quote(&places.root.display().to_string())
+        ),
+    };
     let transport = crate::remote::Transport { places, ssh, host };
     parse(&transport.capture(
-        &format!("{}{SCRIPT}", transport.root_script()),
+        &format!("{root}{SCRIPT}"),
         "checking whether Spotlight indexes the build root",
     )?)
 }

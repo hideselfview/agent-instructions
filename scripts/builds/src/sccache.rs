@@ -298,9 +298,9 @@ pub fn listener() -> Result<Option<u32>> {
     )
 }
 
-/// Whether the listening process uses a run's temporary folder or a folder
-/// it cannot find. Inspect the original environment on the machine that
-/// owns the process, so spaces, newlines and non-UTF-8 bytes stay in the path.
+/// Whether the listening process uses a run's folder, a file, or a folder
+/// it cannot find. Read the process's environment on its own host to
+/// preserve the original path bytes.
 pub fn tmpdir_issue(transport: &crate::remote::Transport<'_>, pid: u32) -> Result<Option<String>> {
     if transport.host.target.is_none() {
         return tmpdir_here(&transport.places.root, pid);
@@ -308,7 +308,7 @@ pub fn tmpdir_issue(transport: &crate::remote::Transport<'_>, pid: u32) -> Resul
     let answer = transport.capture(
         &format!(
             "{}exec \"$HOME/.local/bin/builds\" sccache-tmpdir {pid}",
-            transport.root_script()
+            crate::remote::root_script(transport.host)
         ),
         &format!("reading TMPDIR for the sccache server (pid {pid})"),
     )?;
@@ -336,30 +336,19 @@ fn tmpdir_here(root: &Path, pid: u32) -> Result<Option<String>> {
 }
 
 fn tmpdir_problem(root: &Path, folder: &Path) -> Result<Option<String>> {
-    if folder.starts_with(root.join(crate::run_tmp::FOLDER)) {
-        return Ok(Some(format!(
+    use crate::run_tmp::Folder;
+    let folder_kind = crate::run_tmp::classify(root, folder)
+        .context(|| format!("reading the sccache temporary folder {folder:?}"))?;
+    Ok(match folder_kind {
+        Folder::Run => Some(format!(
             "uses a temporary folder that builds deletes when the command ends ({folder:?})"
-        )));
-    }
-    match folder.metadata() {
-        Ok(info) if info.is_dir() => Ok(None),
-        Ok(_) => Ok(Some(format!(
-            "uses a TMPDIR that names a file ({folder:?})"
-        ))),
-        Err(error)
-            if matches!(
-                error.kind(),
-                std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
-            ) =>
-        {
-            Ok(Some(format!(
-                "uses a temporary folder that the host cannot find ({folder:?})"
-            )))
-        }
-        Err(error) => {
-            fail!("Builds could not read the sccache temporary folder {folder:?}. {error}")
-        }
-    }
+        )),
+        Folder::NotDirectory => Some(format!("uses a TMPDIR that names a file ({folder:?})")),
+        Folder::Missing => Some(format!(
+            "uses a temporary folder that the host cannot find ({folder:?})"
+        )),
+        Folder::Directory => None,
+    })
 }
 
 /// The host side of `tmpdir_issue`. Print the issue as a JSON value so it

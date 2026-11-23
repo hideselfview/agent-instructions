@@ -22,7 +22,8 @@
 //! that owns the run and the time it started, so `Holders::holder` judges
 //! every folder on every host from this Mac's process table.
 
-use std::path::PathBuf;
+use std::io;
+use std::path::{Path, PathBuf};
 
 use crate::fail;
 use crate::fail::{Context, Result};
@@ -34,6 +35,42 @@ use crate::places::Places;
 /// starts with a dot is one of the volume's own (`Places::is_reserved_name`),
 /// so no repo and no build root is read from it.
 pub const FOLDER: &str = ".tmp";
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum Folder {
+    Run,
+    Directory,
+    NotDirectory,
+    Missing,
+}
+
+/// Resolve the folder and the parent of the run folders before deciding who
+/// owns it. A symlink into a run's folder has the same lifetime as the run.
+pub fn classify(root: &Path, folder: &Path) -> io::Result<Folder> {
+    let missing = |error: &io::Error| {
+        matches!(
+            error.kind(),
+            io::ErrorKind::NotFound | io::ErrorKind::NotADirectory
+        )
+    };
+    let folder = match folder.canonicalize() {
+        Ok(folder) => folder,
+        Err(error) if missing(&error) => return Ok(Folder::Missing),
+        Err(error) => return Err(error),
+    };
+    match folder.metadata() {
+        Ok(metadata) if !metadata.is_dir() => return Ok(Folder::NotDirectory),
+        Ok(_) => {}
+        Err(error) if missing(&error) => return Ok(Folder::Missing),
+        Err(error) => return Err(error),
+    }
+    match root.join(FOLDER).canonicalize() {
+        Ok(parent) if folder != parent && folder.starts_with(&parent) => Ok(Folder::Run),
+        Ok(_) => Ok(Folder::Directory),
+        Err(error) if missing(&error) => Ok(Folder::Directory),
+        Err(error) => Err(error),
+    }
+}
 
 /// The commands that start build work, whose runs get a folder: the runs of
 /// cargo and Lean, the app builds and the lock they run under, the jobs on
@@ -83,10 +120,9 @@ pub fn enter(places: &Places, command: &str, args: &[String]) -> Result<Option<R
         unsafe { std::env::set_var(name, value) };
     }
     let parent = places.root.join(FOLDER);
-    if places
-        .tmpdir
-        .as_ref()
-        .is_some_and(|tmp| tmp.starts_with(&parent) && tmp.is_dir())
+    if let Some(tmp) = &places.tmpdir
+        && classify(&places.root, tmp).context(|| format!("checking TMPDIR {tmp:?}"))?
+            == Folder::Run
     {
         return Ok(None);
     }
