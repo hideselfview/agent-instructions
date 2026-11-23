@@ -1946,7 +1946,7 @@ fn a_cached_run_made_in_another_environment_is_a_commits_own_run_and_is_printed(
     };
     cache_with_records(&places, &key);
     assert!(
-        matches!(serve(), Err(Fail::Exit(1))),
+        matches!(serve().unwrap().cached_result(), Err(Fail::Exit(1))),
         "the cached verdict applies whatever environment made it"
     );
     let cached =

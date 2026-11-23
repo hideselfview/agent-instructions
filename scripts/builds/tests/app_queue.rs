@@ -1873,6 +1873,42 @@ fn a_cached_only_request_does_not_rebuild_for_an_unrequested_failed_prefix() {
     assert_eq!(volume.log(), log);
 }
 
+#[test]
+fn a_failed_cached_comparison_still_lets_the_requested_test_run() {
+    let volume = Volume::new("cache-failure-with-test");
+    volume.app_repo_with(&format!(
+        "{SHOTS_CONFIG}test mac ./two.sh {{class}}\nsources mac declared-mac\n"
+    ));
+    let top = volume.dir.join("checkout");
+    commit_shots(
+        &top,
+        "echo 'builds shots: 1 pair(s) fail the run: mac.a.one' >&2; exit 1",
+    );
+    std::fs::write(top.join("declared-mac/Foo.swift"), "struct Foo {}\n").unwrap();
+    git_in(&top, &["add", "declared-mac/Foo.swift"]);
+    git_in(&top, &["commit", "-q", "-m", "Declare the test class"]);
+    git_in(&top, &["push", "-q", "origin", "main"]);
+    volume.open_gate("one");
+    volume.open_gate("two");
+    let first = volume.run(&["app-build", "demo", "main", "--shots", "mac.a."]);
+    assert_eq!(first.status.code(), Some(1));
+    let comparisons = shots_runs(&volume, "mac.a.");
+    assert_eq!(comparisons.len(), 1);
+
+    let mixed = volume.run(&[
+        "app-build",
+        "demo",
+        "main",
+        "--shots",
+        "mac.a.",
+        "--test",
+        "Foo",
+    ]);
+    assert_eq!(mixed.status.code(), Some(1));
+    assert_eq!(shots_runs(&volume, "mac.a."), comparisons);
+    assert!(volume.log().iter().any(|line| line == "end two"));
+}
+
 /// A branch whose merge base has no cached run does not wait for another
 /// build to make it and is not told to rebase: its lane builds the merge
 /// base, runs the prefix there with `--base`, and then builds the branch,

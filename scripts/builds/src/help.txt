@@ -1418,7 +1418,9 @@ built again.
                               other steps. When every pick uses the cache,
                               builds runs any changed lane that needs a
                               record covering those picks and its required
-                              steps. --fresh builds the app, takes every
+                              steps. For a repo outside a project, builds
+                              runs the remaining picks before returning a
+                              cached failure. --fresh builds the app, takes every
                               selected shot again and replaces the cached
                               pictures with the new ones.
   builds app-build <repo> <ref> <step>... [--test mac|android <Class>]... [--shots mac|android <prefix>]... [--all-shots mac|android]... [--fresh]

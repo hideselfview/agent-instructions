@@ -2538,19 +2538,35 @@ fn left_unchanged(site: &mut Site, built_file: &Path, ran: Result<Ended>) -> Res
 /// The requested picks left to run and the shots comparisons the parent reused.
 pub struct BuildPicks {
     pub pending: Vec<Pick>,
-    reused: Vec<(Lane, String)>,
+    cached: Option<CachedPicks>,
+}
+
+enum CachedPicks {
+    Project(Vec<(Lane, String)>),
+    OutsideProject(Option<std::num::NonZeroU8>),
 }
 
 impl BuildPicks {
     pub fn pending(picks: Vec<Pick>) -> Self {
         Self {
             pending: picks,
-            reused: Vec::new(),
+            cached: None,
+        }
+    }
+
+    pub fn cached_result(&self) -> Result<()> {
+        match self.cached {
+            Some(CachedPicks::OutsideProject(Some(code))) => Err(Fail::Exit(i32::from(code.get()))),
+            _ => Ok(()),
         }
     }
 
     pub fn reused_in(&self, lane: Lane) -> impl Iterator<Item = &str> {
-        self.reused
+        let reused = match &self.cached {
+            Some(CachedPicks::Project(picks)) => picks.as_slice(),
+            _ => &[],
+        };
+        reused
             .iter()
             .filter(move |(own, _)| *own == lane)
             .map(|(_, prefix)| prefix.as_str())
@@ -2559,7 +2575,8 @@ impl BuildPicks {
 
 /// Prints cached findings when a passing app build of <commit> covers the
 /// prefix and the cached comparison has a passing app-build verdict. Keeps
-/// picks that need a comparison. A repo in no project reports the cached status.
+/// picks that need a comparison. A repo in no project reports each cached
+/// finding and keeps the first failed status.
 pub fn serve_cached(
     places: &Places,
     repo: &str,
@@ -2569,18 +2586,20 @@ pub fn serve_cached(
     recorded: Option<&BuildRecords<'_>>,
     declarations: &mut ShotDeclarations<'_>,
 ) -> Result<BuildPicks> {
-    let mut selected = BuildPicks::pending(Vec::new());
+    let mut pending = Vec::new();
+    let mut reused = Vec::new();
+    let mut failed = None;
     for pick in picks {
         let (lane, kind, prefix) = &pick;
         if *kind != PickKind::Shots {
-            selected.pending.push(pick);
+            pending.push(pick);
             continue;
         }
         let Some(cached) = crate::shots_compare_again::lookup_newest(
             places, repo, commit, *lane, prefix, program,
         )?
         else {
-            selected.pending.push(pick);
+            pending.push(pick);
             continue;
         };
         match recorded {
@@ -2588,7 +2607,7 @@ pub fn serve_cached(
                 note(format!(
                     "The cache has no passing comparison for {prefix}, so the build runs it again."
                 ));
-                selected.pending.push(pick);
+                pending.push(pick);
                 continue;
             }
             Some(records) => {
@@ -2601,21 +2620,30 @@ pub fn serve_cached(
                         "{prefix} has a cached run, but no passing app build of {} ran it, so the build runs it again",
                         short(commit)
                     ));
-                    selected.pending.push(pick);
+                    pending.push(pick);
                     continue;
                 }
-                selected.reused.push((*lane, prefix.clone()));
+                reused.push((*lane, prefix.clone()));
             }
             None => {}
         }
         note("printing the cached findings instead of running (--fresh runs)");
         shot_findings::print(&cached);
         shot_findings::note_report(&cached);
-        if recorded.is_none() && cached.exit_code != 0 {
-            return Err(Fail::Exit(i32::from(cached.exit_code)));
+        if recorded.is_none()
+            && let Some(code) = std::num::NonZeroU8::new(cached.exit_code)
+        {
+            failed.get_or_insert(code);
         }
     }
-    Ok(selected)
+    let cached = match recorded {
+        Some(_) => CachedPicks::Project(reused),
+        None => CachedPicks::OutsideProject(failed),
+    };
+    Ok(BuildPicks {
+        pending,
+        cached: Some(cached),
+    })
 }
 
 /// The prefixes of <picks>, joined for a line of output.

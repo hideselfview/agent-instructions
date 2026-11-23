@@ -345,7 +345,7 @@ pub fn derive_and_run(places: &Places, args: &[String]) -> Result<()> {
     let required = plan(&config, &changed, &[]);
     let lanes = if asked_for_picks && picks.pending.is_empty() {
         let Some(records) = &records else {
-            return Ok(());
+            return picks.cached_result();
         };
         let Some(branch) = BranchBuilds::off_main(&top, &commit, git_ref)? else {
             return Ok(());
@@ -410,7 +410,7 @@ pub fn derive_and_run(places: &Places, args: &[String]) -> Result<()> {
         ));
     }
     let pinned = app_build::pin(places)?;
-    app_build::run_lanes(
+    let ran = app_build::run_lanes(
         &pinned,
         repo,
         (&commit, git_ref),
@@ -418,7 +418,8 @@ pub fn derive_and_run(places: &Places, args: &[String]) -> Result<()> {
         &picks,
         &needs_only,
         fresh,
-    )
+    );
+    crate::fail::with_cleanup(ran, picks.cached_result())
 }
 
 #[cfg(test)]
