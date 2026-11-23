@@ -249,7 +249,7 @@ fn read_run(cached: &Cached, component: &str, lane: Lane, prefix: &str) -> Resul
     }
     Ok(Run {
         prefix: cached.key.prefix.clone(),
-        recorded_at: cached.recorded_at,
+        recorded_at: cached.recorded_at(),
         rows,
     })
 }

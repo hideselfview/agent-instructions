@@ -2,16 +2,33 @@ use super::*;
 
 #[test]
 fn the_cache_ignores_legacy_verdicts() {
-    let scratch = crate::testing::Scratch::new("legacy-shot-verdict");
+    let scratch = Scratch::new("legacy-shot-verdict");
     let places = scratch.places();
     let key = key("mac.a.");
     let cached = cache_run(&places, &key, 0, "passed\n", true);
+    std::fs::remove_file(cached.folder.join(RUN_FILE)).unwrap();
     std::fs::write(
-        cached.folder.join(RUN_FILE),
+        cached.folder.join("run.json"),
         r#"{"recorded_at": 1, "exit_code": 0}"#,
     )
     .unwrap();
     assert!(lookup(&places, &key).unwrap().is_none());
+    crate::testing::age_all(&cached.folder, 48);
+    prune_runs(&scratch.tool(0), Run::Real, 0).unwrap();
+    assert!(!cached.folder.exists());
+}
+
+#[test]
+fn a_run_with_missing_metadata_fields_fails_to_read() {
+    let scratch = Scratch::new("incomplete-shot-verdict");
+    let places = scratch.places();
+    let key = key("mac.a.");
+    let cached = cache_run(&places, &key, 0, "passed\n", true);
+    let metadata = cached.folder.join(RUN_FILE);
+    std::fs::write(&metadata, r#"{"recorded_at": 1, "exit_code": 0}"#).unwrap();
+
+    let error = lookup(&places, &key).unwrap_err().text();
+    assert!(error.contains("missing field `kind`"), "{error}");
 }
 use crate::testing::{Scratch, age, fill};
 
@@ -68,7 +85,10 @@ fn a_cached_run_is_found_by_its_whole_key_and_a_later_run_of_the_key_replaces_it
     cache_run(&places, &key, 1, "first\n", true);
     cache_run(&places, &key, 0, "second\n", false);
     let found = lookup(&places, &key).unwrap().expect("cached");
-    assert_eq!((found.exit_code, found.findings.as_str()), (0, "second\n"));
+    assert_eq!(
+        (found.exit_code(), found.findings.as_str()),
+        (0, "second\n")
+    );
     assert!(
         !found.findings_json().exists(),
         "the later run replaced the whole folder"

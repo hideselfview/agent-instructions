@@ -1214,10 +1214,10 @@ If an install is moving the stores, the lane waits to record its run
 
 builds caches each --shots and --all-shots run on the build volume, in
 /Volumes/Builds/shots/<repo>/runs/<commit>/<lane>/<environment>/<prefix>/<capture>/<comparison>/,
-so the next run in the checkout cannot overwrite it. The run.json file holds
-the end time, exit status and kind of run. For a recheck, it also holds the
-source run's verdict. Builds treats records from before it kept the run kind
-as cache misses. The output.txt file holds the shots program's output.
+so the next run in the checkout cannot overwrite it. The run-v2.json file
+holds the end time, exit status and kind of run. For a recheck, it also holds
+the source run's verdict. Builds treats records from before it kept the run
+kind as cache misses. The output.txt file holds the shots program's output.
 The report folder holds the pictures, findings.json and the index.html
 page when the run writes one. The folder's path is the run's
 key: the repo, the full commit, the lane, the environment, the prefix, the

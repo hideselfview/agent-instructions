@@ -254,9 +254,9 @@ fn note_run(cached: &Cached) {
         "{repo} {} {} {prefix}: findings of a run made in environment {environment} that ended {} ago (shots program version {}), which exited {}",
         &commit[..commit.len().min(12)],
         lane.word(),
-        age(now() - cached.recorded_at),
+        age(now() - cached.recorded_at()),
         &versions.comparison[..versions.comparison.len().min(12)],
-        cached.exit_code
+        cached.exit_code()
     ));
 }
 

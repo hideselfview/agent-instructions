@@ -103,7 +103,7 @@ fn a_change_to_the_comparison_alone_compares_the_cached_pictures_again_and_takes
     // The run is cached under the new comparison version, beside the old one.
     let found = shots_cache::lookup(&places, &new).unwrap().expect("cached");
     assert_eq!(found.folder, again.folder);
-    assert_eq!(found.app_exit_code(), old.exit_code);
+    assert_eq!(found.app_exit_code(), old.exit_code());
     assert!(old.folder.exists());
     assert_ne!(old.folder, again.folder);
     // Its pictures are the cached run's, shared as links; its page is not.
@@ -137,7 +137,8 @@ fn a_change_to_the_comparison_alone_compares_the_cached_pictures_again_and_takes
         again.findings
     );
     assert_eq!(
-        again.exit_code, 1,
+        again.exit_code(),
+        1,
         "the exit status is the checker's verdict on the new findings, not the old run's"
     );
 }
@@ -162,7 +163,7 @@ fn the_run_a_branch_compares_with_is_made_by_comparing_the_base_s_cached_run_aga
     .expect("the base's run of another comparison version is compared again");
     assert_eq!(made.key.versions, *VERSIONS);
     assert_eq!(made.key.prefix, old.key.prefix);
-    assert_eq!(made.exit_code, 0);
+    assert_eq!(made.exit_code(), 0);
     assert!(made.findings_json().is_file());
     let before = std::fs::read_to_string(made.findings_json()).unwrap();
     assert!(

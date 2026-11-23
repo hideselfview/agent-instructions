@@ -63,7 +63,7 @@ pub fn lookup_newest(
         if let Some(cached) = lookup(places, &key, program)?
             && newest
                 .as_ref()
-                .is_none_or(|known| cached.recorded_at > known.recorded_at)
+                .is_none_or(|known| cached.recorded_at() > known.recorded_at())
         {
             newest = Some(cached);
         }

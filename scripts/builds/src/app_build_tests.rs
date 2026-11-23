@@ -1428,7 +1428,7 @@ fn a_shots_run_that_printed_findings_is_cached_under_its_commit_platform_prefix_
     assert!(matches!(result, Err(Fail::Exit(1))));
     let key = shots_key(&resolve(&top, "HEAD").unwrap(), "mac.a.");
     let cached = shots_cache::lookup(&places, &key).unwrap().expect("cached");
-    assert_eq!(cached.exit_code, 1);
+    assert_eq!(cached.exit_code(), 1);
     assert_eq!(
         cached.findings, "FAIL mac.a: missing\nbae-shots: 1 pair(s) fail the run: mac.a\n",
         "the text after cargo's Running line"

@@ -6,7 +6,7 @@
 //! Each run has one folder, found by what made it:
 //!
 //!   <volume>/shots/<repo>/runs/<commit>/<lane>/<environment>/<prefix>/<capture>/<comparison>/
-//!     run.json     when the run ended and the shots command's exit status
+//!     run-v2.json  when the run ended, its kind and the shots command's exit status
 //!     output.txt   what the shots program printed, findings and verdict
 //!     report/      the program's report as it wrote it: index.html, the
 //!                  pictures that page shows and findings.json
@@ -43,7 +43,7 @@
 //! builds holds each repo's folder in `shots` under `CAP_KIB`: `setup` and
 //! `prune` delete the repo's whole runs, board pictures and app source
 //! trees' shots, least recently used first, while it is over (prune.rs calls
-//! `prune`). A run's last use is the time of its run.json, which the run
+//! `prune`). A run's last use is the time of its run-v2.json, which the run
 //! sets as it ends and each read sets again; a board picture's is the time of
 //! its picture, and an app source tree's shots' the newest time in their
 //! folder, which the shots program sets each time it takes them; so what
@@ -90,7 +90,7 @@ pub const FOLDER: &str = "shots";
 pub const CAP_KIB: u64 = 2 * 1024 * 1024;
 
 /// The file of a run's folder that says how it ended.
-const RUN_FILE: &str = "run.json";
+pub(crate) const RUN_FILE: &str = "run-v2.json";
 /// The file of a run's folder that holds what the shots program printed.
 const OUTPUT_FILE: &str = "output.txt";
 /// The folder of a run's folder that holds its report.
@@ -149,8 +149,8 @@ pub enum Made<'a> {
     Anywhere,
 }
 
-/// What run.json holds.
-#[derive(Serialize, Deserialize)]
+/// What run-v2.json holds.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct Ending {
     /// When the run ended, seconds since 1970.
     recorded_at: i64,
@@ -170,20 +170,26 @@ enum RunKind {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Cached {
     pub key: Key,
-    pub recorded_at: i64,
-    pub exit_code: u8,
-    kind: RunKind,
+    ending: Ending,
     pub findings: String,
     /// The run's folder.
     pub folder: PathBuf,
 }
 
 impl Cached {
+    pub fn recorded_at(&self) -> i64 {
+        self.ending.recorded_at
+    }
+
+    pub fn exit_code(&self) -> u8 {
+        self.ending.exit_code
+    }
+
     /// The original comparison's verdict. A recheck compares without the
     /// base, so its own status cannot replace that verdict.
     pub fn app_exit_code(&self) -> u8 {
-        match self.kind {
-            RunKind::Comparison => self.exit_code,
+        match self.ending.kind {
+            RunKind::Comparison => self.ending.exit_code,
             RunKind::Recheck { source_exit_code } => source_exit_code,
         }
     }
@@ -455,32 +461,30 @@ impl Staging {
     ) -> Result<Cached> {
         let exit_code = u8::try_from(exit_code)
             .context(|| "recording the shots comparison's exit status".to_string())?;
-        self.finish_run(exit_code, findings, recorded_at, RunKind::Comparison)
+        self.finish_run(
+            Ending {
+                recorded_at,
+                exit_code,
+                kind: RunKind::Comparison,
+            },
+            findings,
+        )
     }
 
     pub fn finish_recheck(self, source: &Cached, passed: bool, findings: &str) -> Result<Cached> {
         self.finish_run(
-            u8::from(!passed),
-            findings,
-            now(),
-            RunKind::Recheck {
-                source_exit_code: source.app_exit_code(),
+            Ending {
+                recorded_at: now(),
+                exit_code: u8::from(!passed),
+                kind: RunKind::Recheck {
+                    source_exit_code: source.app_exit_code(),
+                },
             },
+            findings,
         )
     }
 
-    fn finish_run(
-        self,
-        exit_code: u8,
-        findings: &str,
-        recorded_at: i64,
-        kind: RunKind,
-    ) -> Result<Cached> {
-        let ending = Ending {
-            recorded_at,
-            exit_code,
-            kind,
-        };
+    fn finish_run(self, ending: Ending, findings: &str) -> Result<Cached> {
         let run_file = self.inner.dir().join(RUN_FILE);
         std::fs::write(
             &run_file,
@@ -492,9 +496,7 @@ impl Staging {
         self.inner.place()?;
         Ok(Cached {
             key: self.key,
-            recorded_at,
-            exit_code,
-            kind,
+            ending,
             findings: findings.to_string(),
             folder: self.folder,
         })
@@ -521,24 +523,14 @@ fn read(folder: &Path, key: &Key) -> Result<Option<Cached>> {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => fail!("reading {}: {error}", run_file.display()),
     };
-    let what = || format!("reading {}", run_file.display());
-    let metadata: serde_json::Value = serde_json::from_str(&text).context(what)?;
-    // Legacy reports do not carry a typed verdict. Treat them as cache misses.
-    if metadata
-        .as_object()
-        .is_some_and(|fields| !fields.contains_key("kind"))
-    {
-        return Ok(None);
-    }
-    let ending: Ending = serde_json::from_value(metadata).context(what)?;
+    let ending =
+        serde_json::from_str(&text).context(|| format!("reading {}", run_file.display()))?;
     let output = folder.join(OUTPUT_FILE);
     let findings =
         std::fs::read_to_string(&output).context(|| format!("reading {}", output.display()))?;
     Ok(Some(Cached {
         key: key.clone(),
-        recorded_at: ending.recorded_at,
-        exit_code: ending.exit_code,
-        kind: ending.kind,
+        ending,
         findings,
         folder: folder.to_path_buf(),
     }))
@@ -674,7 +666,7 @@ pub fn other_comparisons(places: &Places, key: &Key) -> Result<Vec<Cached>> {
             found.push(cached);
         }
     }
-    found.sort_by_key(|cached| std::cmp::Reverse(cached.recorded_at));
+    found.sort_by_key(|cached| std::cmp::Reverse(cached.recorded_at()));
     Ok(found)
 }
 
@@ -700,7 +692,7 @@ pub fn covering_run(
             found.push(cached);
         }
     }
-    Ok(found.into_iter().max_by_key(|cached| cached.recorded_at))
+    Ok(found.into_iter().max_by_key(Cached::recorded_at))
 }
 
 /// What the folder of <repo> in `shots` holds, as the cap sees it: its
@@ -714,14 +706,13 @@ fn group(places: &Places, repo: &str, named: &Named) -> Result<Group> {
                 for (_, prefix) in folders_in(&environment)? {
                     for (_, capture) in folders_in(&prefix)? {
                         for (_, folder) in folders_in(&capture)? {
-                            // A run is placed whole, with its run.json: a
-                            // folder at this depth without one is no run.
-                            let marker = folder.join(RUN_FILE);
-                            let Some(last_use) = capped_store::written_at(&marker)? else {
-                                note(format!(
-                                    "The cap skips {} because it has no {RUN_FILE} file.",
-                                    folder.display()
-                                ));
+                            let Some(last_use) = capped_store::written_at(&folder.join(RUN_FILE))?
+                            else {
+                                kept.push(Kept::Folder {
+                                    folder: capped_store::Folder::unpinned(folder),
+                                    last_use: Use::NewestInside,
+                                    what: "shots output without a current verdict",
+                                });
                                 continue;
                             };
                             kept.push(match named.get(&folder) {
