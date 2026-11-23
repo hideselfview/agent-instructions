@@ -12,7 +12,7 @@ fn a_diff_header_names_the_new_path() {
 }
 
 #[test]
-fn a_diff_header_without_distinct_paths_cannot_name_a_file() {
+fn a_diff_header_without_git_path_prefixes_cannot_name_a_file() {
     assert!(new_path("diff --git old.rs new.rs\n").is_none());
 }
 
