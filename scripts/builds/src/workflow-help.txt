@@ -471,6 +471,11 @@ the judge confirmed it, for example, `builds review` asks that group alone
 over the changes since the last net change it read with the finding, even
 when nothing changed since the last review.
 
+Each reviewer that holds an open finding also reads the branch's commits,
+oldest first, each with its message and the files it changes. So a finding that
+asks for a change to go in a commit of its own closes once the branch holds
+that change in a commit of its own, although the net change did not change.
+
 The changes since the last review are the lines the branch adds or removes that
 it did not add or remove at the last review, the lines it no longer changes,
 and the commit messages it did not hold at the last review. A reviewer judges

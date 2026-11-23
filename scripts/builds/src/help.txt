@@ -3142,7 +3142,10 @@ holds an open confirmed finding reads every change since the run that raised
 it, with the finding: when a run read some of those changes without the
 finding (the judge confirmed it later, for example), a run of that group alone
 reads the changes since the last net change the group read with the finding,
-even when nothing changed since the last review. A reviewer reads the commit
+even when nothing changed since the last review. A reviewer that holds an open
+finding also reads the branch's commits, oldest first, each with its message
+and the files it changes, so that a finding that asks for a change to go in a
+commit of its own closes once a commit holds that change alone. A reviewer reads the commit
 messages as one more file, named COMMIT_MESSAGE. Only groups whose rules judge
 what a message says read the messages (in agent-instructions, the group
 Commits and repo contents, whose rules ask whether the text is accurate).

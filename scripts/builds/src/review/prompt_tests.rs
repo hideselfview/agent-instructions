@@ -31,6 +31,7 @@ fn parts_of(group: &Group, rule: &Rule, diff: &str) -> Parts {
         diff,
         context: "7: let x = 1;\n",
         open: &[],
+        commits: "",
     })
 }
 

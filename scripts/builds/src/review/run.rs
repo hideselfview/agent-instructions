@@ -155,6 +155,11 @@ impl Scope<'_> {
 pub struct Diff {
     /// The text of the change's commit messages, empty when not known.
     pub messages: String,
+    /// The branch's commits with the files each changes
+    /// (`commits::summary`), empty when not known. A reviewer that holds open
+    /// findings reads it, to judge a finding about how the change divides into
+    /// commits.
+    pub commits: String,
     /// Where the new text of a changed file is read, when it can be.
     pub source: Option<Source>,
     pub patch: files::Patch,
@@ -200,6 +205,7 @@ impl Diff {
         Self {
             patch,
             messages,
+            commits: String::new(),
             source,
             changed,
         }
@@ -251,6 +257,7 @@ impl Diff {
             } else {
                 self.messages.clone()
             },
+            commits: self.commits.clone(),
             source: self.source.clone(),
             patch,
             changed: self
@@ -297,9 +304,11 @@ pub fn diff_between(worktree: &Path, base: &str, head: &str) -> Result<NetChange
     ])?;
     let head = text_of(&["rev-parse", head])?.trim().to_string();
     let changed = commits::paths(worktree, &commits::in_range(worktree, &merge_base, &head)?)?;
+    let commit_summary = commits::summary(worktree, &merge_base, &head)?;
     Ok(NetChange {
         diff: Diff {
             messages,
+            commits: commit_summary,
             source: Some(Source {
                 repo: worktree.to_path_buf(),
                 rev: head.clone(),
@@ -399,9 +408,11 @@ pub fn diff_since(
         .into_iter()
         .filter(|message| !earlier.contains(message))
         .collect();
+    let commit_summary = commits::summary(worktree, &merge_base, &head)?;
     Ok(NetChange {
         diff: Diff {
             messages: messages.join("\n"),
+            commits: commit_summary,
             source: Some(Source {
                 repo: worktree.to_path_buf(),
                 rev: head.clone(),
@@ -786,6 +797,7 @@ pub fn ask_groups(
             diff: &text_diff,
             context: &context,
             open: &given,
+            commits: &read.commits,
         });
         let selected = reviewer.select(&group.model);
         let setup = prompt::setup(group, unit.members, &selected);

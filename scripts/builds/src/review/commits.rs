@@ -51,6 +51,29 @@ pub fn in_range(repo: &Path, base: &str, head: &str) -> Result<Vec<String>> {
     )
 }
 
+/// The commits past <base> up to <head>, oldest first, as a reviewer reads
+/// them: each one's short sha and message, then the files it changes with the
+/// lines it adds and removes. The test cases are left out
+/// (`without_test_cases`). A change that moves between commits changes no
+/// file of the branch's net change, and shows only here.
+pub fn summary(repo: &Path, base: &str, head: &str) -> Result<String> {
+    let without = without_test_cases();
+    git_text(
+        repo,
+        &[
+            "log",
+            "--reverse",
+            "--no-renames",
+            "--numstat",
+            "--format=commit %h%n%B",
+            &format!("{base}..{head}"),
+            "--",
+            ".",
+            &without,
+        ],
+    )
+}
+
 /// Whether the repo at <repo> has the commit <sha>: false when git says it
 /// has no such commit or <repo> is no repo, and an error when git does not
 /// start.

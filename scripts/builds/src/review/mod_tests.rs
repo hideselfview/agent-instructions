@@ -2593,3 +2593,49 @@ fn a_group_that_raises_an_open_finding_again_on_unchanged_code_records_nothing_n
     assert!(!again.text.contains("1 finding"), "{}", again.text);
     assert!(unsettled(&demo.store, landing).unwrap().is_empty());
 }
+
+/// A finding that asks for a change in a commit of its own stays open on a
+/// review of the net change alone, where a split of the commit changes nothing.
+/// The reviewer of the group that holds it gets the branch's commits with
+/// the files each changes, so it sees the split and closes the finding.
+#[test]
+fn a_commit_split_gives_the_group_that_holds_a_finding_the_branchs_commits() {
+    let demo = demo("review-commit-split");
+    let fake = fake(&demo.scratch.dir);
+    let side = demo.add_side(1, "agent", "work");
+    std::fs::write(side.join("a.rs"), "a.rs").unwrap();
+    std::fs::write(side.join("b.rs"), "b.rs").unwrap();
+    crate::testing::git(&side, &["add", "a.rs", "b.rs"]);
+    crate::testing::git(&side, &["commit", "-q", "-m", "Add a and b"]);
+    fake.answer("alpha", &[("rule-a", Some(BAD))]);
+    let landing = run_review(&demo, &fake, &side, "k").landing.unwrap();
+    let finding = findings_of(&demo, landing)[0].id;
+    settle_as(&demo, finding, "confirmed", "b.rs goes in its own commit");
+    fake.prompts();
+    crate::testing::git(&side, &["reset", "-q", "HEAD~1"]);
+    for file in ["a.rs", "b.rs"] {
+        crate::testing::git(&side, &["add", file]);
+        crate::testing::git(&side, &["commit", "-q", "-m", &format!("Add {file}")]);
+    }
+    fake.closes("alpha", "rule-a", &[finding]);
+    let read = run_review(&demo, &fake, &side, "k");
+    let prompts = fake.prompts();
+    let (group, prompt) = prompts
+        .iter()
+        .find(|(group, _)| group == "alpha")
+        .unwrap_or_else(|| panic!("alpha was not asked: {}", read.text));
+    assert_eq!(group, "alpha");
+    let commits = prompt
+        .split("# Commits of the branch")
+        .nth(1)
+        .unwrap_or_else(|| panic!("{prompt}"));
+    assert!(
+        commits.contains("Add a.rs") && commits.contains("Add b.rs"),
+        "{commits}"
+    );
+    assert!(
+        read.text.contains(&format!("closed finding {finding}")),
+        "{}",
+        read.text
+    );
+}
