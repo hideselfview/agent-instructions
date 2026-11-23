@@ -405,11 +405,7 @@ fn app_checkout_on_host(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
         // removal and leaves the checkout in the lane, for the person to
         // remove again.
         remove_from_lane(tool, &repo, lane, &entry, &entry, |checkout| {
-            let Some(remote) = RemoteApp::find(&tool.places, ssh, &repo, lane, &entry, checkout)?
-            else {
-                fail!("{entry} names no host");
-            };
-            remote.unmark()
+            RemoteApp::for_host(&tool.places, ssh, &repo, lane, host, &name, checkout)?.unmark()
         })?;
         note(format!(
             "removed {entry} from {repo}'s {} app checkouts, and its lane file on {host}, so {host} no longer keeps its builds warm; ~/dev/{repo}-worktrees/{name} on {host} stays until you remove it there",

@@ -186,25 +186,19 @@ pub struct RemoteApp<'a> {
     _awake: KeepAwake,
 }
 
-fn app_host<'a>(
-    places: &Places,
-    repo: &str,
-    entry: &'a str,
-) -> Result<Option<(Host, &'a str, KeepAwake)>> {
-    let Some((host_name, name)) = split(entry) else {
-        return Ok(None);
-    };
-    let host = host::remote_named(places, entry, host_name)?;
+fn app_host(places: &Places, repo: &str, host_name: &str, name: &str) -> Result<(Host, KeepAwake)> {
+    let host = host::remote_named(places, &entry_of(host_name, name), host_name)?;
     let awake = KeepAwake::for_host(&host, &format!("{repo}'s app checkout {name}"))?;
-    Ok(Some((host, name, awake)))
+    Ok((host, awake))
 }
 
 /// Writes the lane to the checkout's lane file on the host when someone adds
 /// it to the lane. The first build writes the file if it makes the checkout.
 pub fn mark(places: &Places, ssh: &Ssh, repo: &str, lane: Lane, entry: &str) -> Result<bool> {
-    let Some((host, name, _awake)) = app_host(places, repo, entry)? else {
+    let Some((host_name, name)) = split(entry) else {
         fail!("{entry} names no host");
     };
+    let (host, _awake) = app_host(places, repo, host_name, name)?;
     let transport = Transport {
         places,
         ssh,
@@ -235,10 +229,23 @@ impl<'a> RemoteApp<'a> {
         entry: &str,
         checkout: CheckoutLock<'a>,
     ) -> Result<Option<Self>> {
-        let Some((host, name, awake)) = app_host(places, repo, entry)? else {
+        let Some((host, name)) = split(entry) else {
             return Ok(None);
         };
-        Ok(Some(RemoteApp {
+        Self::for_host(places, ssh, repo, lane, host, name, checkout).map(Some)
+    }
+
+    pub fn for_host(
+        places: &Places,
+        ssh: &Ssh,
+        repo: &str,
+        lane: Lane,
+        host_name: &str,
+        name: &str,
+        checkout: CheckoutLock<'a>,
+    ) -> Result<Self> {
+        let (host, awake) = app_host(places, repo, host_name, name)?;
+        Ok(RemoteApp {
             places: places.clone(),
             ssh: ssh.clone(),
             host,
@@ -248,7 +255,7 @@ impl<'a> RemoteApp<'a> {
             worktree: None,
             checkout,
             _awake: awake,
-        }))
+        })
     }
 
     fn transport(&self) -> Transport<'_> {
@@ -260,8 +267,12 @@ impl<'a> RemoteApp<'a> {
     }
 
     fn capture(&self, script: &str, what: &str) -> Result<String> {
+        self.capture_with(self.checkout, script, what)
+    }
+
+    fn capture_with(&self, checkout: CheckoutLock<'_>, script: &str, what: &str) -> Result<String> {
         let transport = self.transport();
-        self.checkout.run(transport.command(script), |command| {
+        checkout.run(transport.command(script), |command| {
             transport.capture_command(command, what)
         })
     }
@@ -366,15 +377,10 @@ impl<'a> RemoteApp<'a> {
             .replace("@SOURCE@", source_name)
             .replace("@NAME@", &self.name)
             .replace("@LANE@", self.lane.word());
-        let transport = self.transport();
-        let cloned = self.checkout.with_clone_source(taken.lock.as_fd()).run(
-            transport.command(&script),
-            |command| {
-                transport
-                    .capture_command(command, "cloning the warmest app checkout")
-                    .map(|_| ())
-            },
-        );
+        let checkout = self.checkout.with_clone_source(taken.lock.as_fd());
+        let cloned = self
+            .capture_with(checkout, &script, "cloning the warmest app checkout")
+            .map(|_| ());
         let removed = match &cloned {
             Ok(()) => Ok(()),
             Err(_) => self.remove().map_err(|said| {
@@ -466,16 +472,22 @@ impl<'a> RemoteApp<'a> {
         keeping_display_on(self.lane, command)
     }
 
-    /// The command that runs <command> in the checkout on the host and is
-    /// stopped as a step here is: a `builds remote step` process.
-    pub fn step_command(&mut self, command: &[String]) -> Result<Command> {
+    /// Runs <command> on the host under the checkout's reservation, through
+    /// the local `builds remote step` process that relays stops to the host.
+    pub fn run_step(
+        &mut self,
+        command: &[String],
+        name: &str,
+        limit: Option<std::time::Duration>,
+        keep: crate::lock::Keep<'_>,
+    ) -> Result<crate::lock::Within> {
         let worktree = self.locate()?;
         let exe = crate::this_program()?;
         let mut start = Command::new(exe);
         start
             .args(["remote", "step", &self.host.name, &worktree, "--"])
             .args(command);
-        Ok(start)
+        self.checkout.run_in_group(start, name, limit, keep)
     }
 
     /// <command>, run under the build's builds <pinned> on the host:
@@ -916,7 +928,7 @@ impl Drop for ListFile {
 /// writes <lane> to the checkout's lane file (`Checkout::app_lane_file`),
 /// which the host's builds reads to keep the checkout's builds warm (a
 /// checkout the host already had got the file when a person added it to the
-/// lane, `RemoteApp::mark`), then runs the host's `builds setup`, which links
+/// lane, `mark`), then runs the host's `builds setup`, which links
 /// the build folders into the host's builds root, and then the repo's
 /// post-checkout, as a job's worktree gets
 /// (remote.rs `claim_script`): a repo with no post-checkout would otherwise

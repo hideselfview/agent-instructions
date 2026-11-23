@@ -45,9 +45,10 @@ struct Setup {
     places: Places,
     ssh: Ssh,
     lock: std::os::fd::OwnedFd,
+    lane: Lane,
 }
 
-fn setup(name: &str) -> Setup {
+fn setup(name: &str, lane: Lane) -> Setup {
     let scratch = Scratch::new(name);
     let source = scratch.dir.join("source/demo");
     crate::testing::repo(&source, "target 1G\n");
@@ -94,7 +95,7 @@ fn setup(name: &str) -> Setup {
     let ssh = fake_ssh(&scratch.dir.join("bin"), &home);
     let places = scratch.places();
     host::add(&places, &ssh, "m1", "user@m1").unwrap();
-    let lock = crate::lock::take_checkout(&places, "demo", Lane::Android, "m1:app-1").unwrap();
+    let lock = crate::lock::take_checkout(&places, "demo", lane, "m1:app-1").unwrap();
     Setup {
         _scratch: scratch,
         source,
@@ -102,6 +103,7 @@ fn setup(name: &str) -> Setup {
         places,
         ssh,
         lock,
+        lane,
     }
 }
 
@@ -115,12 +117,12 @@ fn head_of(dir: &Path) -> String {
     String::from_utf8_lossy(&output.stdout).trim().to_string()
 }
 
-fn remote_app(s: &Setup, lane: Lane) -> RemoteApp<'_> {
+fn remote_app(s: &Setup) -> RemoteApp<'_> {
     RemoteApp::find(
         &s.places,
         &s.ssh,
         "demo",
-        lane,
+        s.lane,
         "m1:app-1",
         CheckoutLock::new(s.lock.as_fd(), None),
     )
@@ -130,7 +132,7 @@ fn remote_app(s: &Setup, lane: Lane) -> RemoteApp<'_> {
 
 #[test]
 fn a_local_entry_is_no_remote_checkout() {
-    let s = setup("remote-app-local");
+    let s = setup("remote-app-local", Lane::Android);
     let checkout = CheckoutLock::new(s.lock.as_fd(), None);
     assert!(
         RemoteApp::find(&s.places, &s.ssh, "demo", Lane::Android, "side-1", checkout)
@@ -152,8 +154,8 @@ fn a_local_entry_is_no_remote_checkout() {
 
 #[test]
 fn the_first_switch_makes_the_checkout_as_a_side_worktree_is_made() {
-    let s = setup("remote-app-make");
-    let mut app = remote_app(&s, Lane::Android);
+    let s = setup("remote-app-make", Lane::Android);
+    let mut app = remote_app(&s);
     let sha = head_of(&s.source);
     app.switch_to(&s.source, &sha).unwrap();
     let wt = s.home.join("dev/demo-worktrees/app-1");
@@ -188,8 +190,8 @@ fn the_first_switch_makes_the_checkout_as_a_side_worktree_is_made() {
 
 #[test]
 fn the_mac_lane_gets_no_local_properties() {
-    let s = setup("remote-app-mac");
-    let mut app = remote_app(&s, Lane::Mac);
+    let s = setup("remote-app-mac", Lane::Mac);
+    let mut app = remote_app(&s);
     app.switch_to(&s.source, &head_of(&s.source)).unwrap();
     assert!(
         !s.home
@@ -200,8 +202,8 @@ fn the_mac_lane_gets_no_local_properties() {
 
 #[test]
 fn a_later_switch_moves_the_checkout_and_keeps_its_files() {
-    let s = setup("remote-app-switch");
-    let mut app = remote_app(&s, Lane::Android);
+    let s = setup("remote-app-switch", Lane::Android);
+    let mut app = remote_app(&s);
     app.switch_to(&s.source, &head_of(&s.source)).unwrap();
     let wt = s.home.join("dev/demo-worktrees/app-1");
     std::fs::write(wt.join("kept"), "").unwrap();
@@ -219,8 +221,8 @@ fn a_later_switch_moves_the_checkout_and_keeps_its_files() {
 
 #[test]
 fn a_checkout_with_changes_is_not_switched() {
-    let s = setup("remote-app-dirty");
-    let mut app = remote_app(&s, Lane::Android);
+    let s = setup("remote-app-dirty", Lane::Android);
+    let mut app = remote_app(&s);
     let one = head_of(&s.source);
     app.switch_to(&s.source, &one).unwrap();
     let wt = s.home.join("dev/demo-worktrees/app-1");
@@ -237,9 +239,9 @@ fn a_checkout_with_changes_is_not_switched() {
 
 #[test]
 fn a_checkout_whose_setup_fails_is_removed() {
-    let s = setup("remote-app-nosdk");
+    let s = setup("remote-app-nosdk", Lane::Android);
     std::fs::remove_dir_all(s.home.join("Library/Android/sdk")).unwrap();
-    let mut app = remote_app(&s, Lane::Android);
+    let mut app = remote_app(&s);
     let error = app
         .switch_to(&s.source, &head_of(&s.source))
         .expect_err("no SDK fails");
@@ -253,9 +255,9 @@ fn a_checkout_whose_setup_fails_is_removed() {
 
 #[test]
 fn a_host_without_a_clone_says_so() {
-    let s = setup("remote-app-noclone");
+    let s = setup("remote-app-noclone", Lane::Mac);
     std::fs::remove_dir_all(s.home.join("dev/demo")).unwrap();
-    let mut app = remote_app(&s, Lane::Mac);
+    let mut app = remote_app(&s);
     let error = app
         .switch_to(&s.source, &head_of(&s.source))
         .expect_err("no clone fails");
@@ -266,8 +268,8 @@ fn a_host_without_a_clone_says_so() {
 
 #[test]
 fn results_come_back_to_the_checkouts_folder_on_this_mac() {
-    let s = setup("remote-app-pull");
-    let mut app = remote_app(&s, Lane::Android);
+    let s = setup("remote-app-pull", Lane::Android);
+    let mut app = remote_app(&s);
     app.switch_to(&s.source, &head_of(&s.source)).unwrap();
     let wt = s.home.join("dev/demo-worktrees/app-1");
     // As in a real checkout, the results folder is a link into the builds
@@ -296,8 +298,8 @@ fn results_come_back_to_the_checkouts_folder_on_this_mac() {
 
 #[test]
 fn a_built_app_comes_back_with_its_links_as_links() {
-    let s = setup("remote-app-pull-bundle");
-    let mut app = remote_app(&s, Lane::Mac);
+    let s = setup("remote-app-pull-bundle", Lane::Mac);
+    let mut app = remote_app(&s);
     app.switch_to(&s.source, &head_of(&s.source)).unwrap();
     let wt = s.home.join("dev/demo-worktrees/app-1");
     let bundle = wt.join("out/Demo.app/Contents/Frameworks/F.framework/Versions");
@@ -323,14 +325,14 @@ fn lane_mark(wt: &Path) -> String {
 
 #[test]
 fn a_new_checkout_gets_its_lane_file_before_the_hosts_setup_runs() {
-    let s = setup("remote-app-lane");
+    let s = setup("remote-app-lane", Lane::Android);
     // The host's builds says which lane the checkout's git dir names when
     // its setup runs.
     host_builds(
         &s.home,
         r#"echo "builds $* $(cat "$(git -C "$2" rev-parse --absolute-git-dir)/builds-app-lane")" >> "$HOME/runs.txt""#,
     );
-    let mut app = remote_app(&s, Lane::Android);
+    let mut app = remote_app(&s);
     app.switch_to(&s.source, &head_of(&s.source)).unwrap();
     let wt = s.home.join("dev/demo-worktrees/app-1");
     assert_eq!(lane_mark(&wt), "android\n");
@@ -342,8 +344,8 @@ fn a_new_checkout_gets_its_lane_file_before_the_hosts_setup_runs() {
 
 #[test]
 fn marking_or_unmarking_a_checkout_git_cannot_read_fails() {
-    let s = setup("remote-app-badmark");
-    let app = remote_app(&s, Lane::Android);
+    let s = setup("remote-app-badmark", Lane::Android);
+    let app = remote_app(&s);
     let wt = s.home.join("dev/demo-worktrees/app-1");
     std::fs::create_dir_all(&wt).unwrap();
     std::fs::write(wt.join(".git"), "gitdir: /nowhere\n").unwrap();
@@ -357,7 +359,7 @@ fn marking_or_unmarking_a_checkout_git_cannot_read_fails() {
 
 #[test]
 fn marking_says_whether_the_host_had_the_worktree() {
-    let s = setup("remote-app-marked");
+    let s = setup("remote-app-marked", Lane::Mac);
     let mark = || mark(&s.places, &s.ssh, "demo", Lane::Mac, "m1:app-1");
     assert!(!mark().unwrap(), "the host has no worktree yet");
     let wt = s.home.join("dev/demo-worktrees/app-1");
@@ -397,8 +399,8 @@ fn host_boards(s: &Setup) -> PathBuf {
 
 #[test]
 fn board_pictures_go_to_a_host_once_and_a_step_brings_back_only_what_it_made() {
-    let s = setup("remote-app-pictures");
-    let mut app = remote_app(&s, Lane::Mac);
+    let s = setup("remote-app-pictures", Lane::Mac);
+    let mut app = remote_app(&s);
     let local = s.places.root.join("pictures");
     std::fs::create_dir_all(local.join("boards")).unwrap();
     std::fs::write(local.join("boards/h.png"), "png").unwrap();
@@ -487,9 +489,9 @@ fn board_pictures_go_to_a_host_once_and_a_step_brings_back_only_what_it_made() {
 /// step ends, a later step's cleanup deletes them.
 #[test]
 fn a_steps_cleanup_leaves_the_pictures_while_another_step_runs() {
-    let s = setup("remote-app-pictures-overlap");
-    let mut first = remote_app(&s, Lane::Mac);
-    let mut second = remote_app(&s, Lane::Mac);
+    let s = setup("remote-app-pictures-overlap", Lane::Mac);
+    let mut first = remote_app(&s);
+    let mut second = remote_app(&s);
     let local = s.places.root.join("pictures");
     std::fs::create_dir_all(local.join("boards")).unwrap();
     std::fs::write(local.join("boards/used.png"), "used").unwrap();
@@ -525,11 +527,11 @@ fn a_steps_cleanup_leaves_the_pictures_while_another_step_runs() {
 /// `builds programs hold` from that folder.
 #[test]
 fn a_step_on_a_host_runs_under_this_builds_programs_there() {
-    let s = setup("remote-app-programs");
+    let s = setup("remote-app-programs", Lane::Mac);
     let version = env!("BUILDS_SOURCE");
     let bin = s.places.home.join("bin");
     let pinned = crate::testing::pinned_programs(&bin, &s.places.home);
-    let mut app = remote_app(&s, Lane::Mac);
+    let mut app = remote_app(&s);
     let there = s.home.join(crate::programs::FOLDER).join(version);
     let words = |words: &[&str]| words.iter().map(|w| w.to_string()).collect::<Vec<_>>();
     let held = app
@@ -575,8 +577,8 @@ fn a_mac_lane_step_runs_under_a_display_assertion() {
 
 #[test]
 fn marking_the_pictures_a_step_uses_fails_when_one_is_missing_on_the_host() {
-    let s = setup("remote-app-pictures-missing");
-    let mut app = remote_app(&s, Lane::Mac);
+    let s = setup("remote-app-pictures-missing", Lane::Mac);
+    let mut app = remote_app(&s);
     let there = app
         .put_pictures(&s.places.root.join("none"), "mac/tree1")
         .unwrap();

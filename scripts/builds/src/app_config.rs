@@ -862,32 +862,30 @@ pub fn switch_to(top: &Path, commit: &str, force: bool, lock: CheckoutLock<'_>) 
         args.push("--force");
     }
     args.push(commit);
-    let mut command = git(top);
-    command.args(&args).process_group(0);
-    unsafe {
-        command.pre_exec(|| {
-            let mut stopping = std::mem::zeroed::<libc::sigset_t>();
-            libc::sigemptyset(&mut stopping);
-            for signal in [
-                libc::SIGTERM,
-                libc::SIGINT,
-                libc::SIGHUP,
-                libc::SIGQUIT,
-                libc::SIGUSR1,
-                libc::SIGUSR2,
-            ] {
-                libc::sigaddset(&mut stopping, signal);
-            }
-            libc::sigprocmask(libc::SIG_BLOCK, &stopping, std::ptr::null_mut());
-            libc::signal(libc::SIGPIPE, libc::SIG_IGN);
-            Ok(())
-        });
-    }
-    lock.run(command, |mut command| {
-        git_text(&mut command, &format!("git {}", args.join(" ")))?;
-        Ok(())
-    })?;
-    Ok(())
+    git_args(top, None, &args, |mut command, what| {
+        command.process_group(0);
+        unsafe {
+            command.pre_exec(|| {
+                let mut stopping = std::mem::zeroed::<libc::sigset_t>();
+                libc::sigemptyset(&mut stopping);
+                for signal in [
+                    libc::SIGTERM,
+                    libc::SIGINT,
+                    libc::SIGHUP,
+                    libc::SIGQUIT,
+                    libc::SIGUSR1,
+                    libc::SIGUSR2,
+                ] {
+                    libc::sigaddset(&mut stopping, signal);
+                }
+                libc::sigprocmask(libc::SIG_BLOCK, &stopping, std::ptr::null_mut());
+                libc::signal(libc::SIGPIPE, libc::SIG_IGN);
+                Ok(())
+            });
+        }
+        lock.run(command, |mut command| Ok(git_text(&mut command, what)?))
+    })
+    .map(|_| ())
 }
 
 /// A commit an app checkout was switched to, and the `.app-build` it holds.

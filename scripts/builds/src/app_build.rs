@@ -1004,7 +1004,6 @@ impl Site<'_> {
 
 /// What a lane's steps run with.
 struct StepsWith<'a> {
-    checkout: CheckoutLock<'a>,
     /// The folders a step on a host copies back here after it runs.
     results: &'a [String],
     /// Where a shots run caches its findings here.
@@ -1062,12 +1061,9 @@ fn run_remote_step(
     if step.opens_windows {
         held = remote.keeping_display_on(&held);
     }
-    let start = remote.step_command(&held)?;
     let kept = lock::Captured::default();
     let keep = keep_for(kind, &kept, fault, read);
-    let ran = with
-        .checkout
-        .run_in_group(start, &command[0], Some(limit), keep);
+    let ran = remote.run_step(&held, &command[0], Some(limit), keep);
     if let Some(there) = &placed
         && let Err(error) = remote.remove_temporary(there)
     {
@@ -2293,7 +2289,6 @@ impl<'a> LaneBuild<'a> {
             .into_iter()
             .partition(|step| pick_kind_of(&step.name).is_some() || is_capture(&step.name));
         let with = |results| StepsWith {
-            checkout: held.checkout_lock(),
             results,
             shots,
             programs: self.programs,

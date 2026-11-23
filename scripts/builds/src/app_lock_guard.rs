@@ -4,7 +4,7 @@
 
 #[cfg(target_os = "macos")]
 use std::io;
-use std::os::fd::{AsRawFd, BorrowedFd};
+use std::os::fd::{AsRawFd, BorrowedFd, RawFd};
 use std::os::unix::process::CommandExt;
 use std::process::Command;
 
@@ -38,13 +38,18 @@ impl<'a> CheckoutLock<'a> {
         self
     }
 
+    fn checkout_fds(self) -> [Option<RawFd>; 2] {
+        [Some(self.file), self.source].map(|fd| fd.map(|file| file.as_raw_fd()))
+    }
+
     /// Passes the descriptors to an explicit recipient, either the guard or
     /// the command that `builds lock` runs. Changes only the child's flags.
     pub fn pass_to(self, command: &mut Command) {
-        let fds = [Some(self.file), self.source, self.ticket].map(|fd| fd.map(|fd| fd.as_raw_fd()));
+        let fds = self.checkout_fds();
+        let ticket = self.ticket.map(|file| file.as_raw_fd());
         unsafe {
             command.pre_exec(move || {
-                for fd in fds.into_iter().flatten() {
+                for fd in fds.into_iter().chain([ticket]).flatten() {
                     crate::flock::inherit(fd)?;
                 }
                 Ok(())
@@ -70,10 +75,11 @@ impl<'a> CheckoutLock<'a> {
             "--ignored",
             "--quiet",
         ]);
-        let files = [Some(self.file), self.source]
+        let files = self
+            .checkout_fds()
             .into_iter()
             .flatten()
-            .map(|fd| fd.as_raw_fd().to_string())
+            .map(|fd| fd.to_string())
             .collect::<Vec<_>>()
             .join(" ");
         watcher
