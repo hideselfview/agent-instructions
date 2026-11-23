@@ -299,7 +299,17 @@ pub(crate) fn pairs(board: &Side, shot: &Side, pairs: &[(Entry, Entry)]) -> Vec<
         // A covered element's box holds the covering view's pixels, on the
         // side that has the covering element and on the other, which draws
         // the same view there.
-        if covered(board.elements, b) || covered(shot.elements, s) {
+        let hidden = [
+            (PictureSide::Board, board.elements, b),
+            (PictureSide::Shot, shot.elements, s),
+        ]
+        .into_iter()
+        .find_map(|(side, list, entry)| covering(list, entry).map(|over| (side, entry, over)));
+        if let Some((side, entry, over)) = hidden {
+            crate::log::note(format_args!(
+                "colours of {:?} “{}” skipped: element {over} of the {side:?} list covers it",
+                entry.kind, entry.words
+            ));
             continue;
         }
         let from = palette(board.picture, board.scale, b.bounds(board.elements));
@@ -333,26 +343,29 @@ pub(crate) fn pairs(board: &Side, shot: &Side, pairs: &[(Entry, Entry)]) -> Vec<
     warnings
 }
 
-/// Whether an element drawn after <entry>, and no part of it, holds the whole
-/// of its box: a sheet, popover or scrim over it. A list holds an element
-/// after the elements under it, so the box shows the later element's pixels.
-fn covered(list: &[Element], entry: &Entry) -> bool {
+/// The index of an element drawn after <entry>, and no part of it, that holds
+/// the whole of its box: a sheet, popover or scrim over it. A list holds an
+/// element after the elements under it, so the box shows the later element's
+/// pixels. A list holds each parent before its children (`Shot::problems`).
+fn covering(list: &[Element], entry: &Entry) -> Option<usize> {
     let at = entry.bounds(list);
-    let own: Vec<usize> = std::iter::once(entry.index)
-        .chain(entry.folded.iter().copied())
-        .collect();
-    let last = own.iter().copied().max().unwrap_or(entry.index);
-    let part_of_entry = |mut index: usize| loop {
-        if own.contains(&index) {
-            return true;
+    let own = |index: usize| index == entry.index || entry.folded.contains(&index);
+    let last = entry
+        .folded
+        .iter()
+        .fold(entry.index, |last, i| last.max(*i));
+    let part_of_entry = |index: usize| {
+        let mut at = Some(index);
+        while let Some(i) = at {
+            if own(i) {
+                return true;
+            }
+            at = list[i].parent;
         }
-        match list[index].parent.filter(|parent| *parent < index) {
-            Some(parent) => index = parent,
-            None => return false,
-        }
+        false
     };
     let tolerance = EDGE_TOLERANCE;
-    ((last + 1)..list.len()).any(|index| {
+    ((last + 1)..list.len()).find(|&index| {
         let over = list[index].bounds;
         !part_of_entry(index)
             && over.x <= at.x + tolerance
