@@ -688,13 +688,11 @@ fn same_finding_site(
                     held.id, held.run_id
                 ))
             })?;
-            match site {
-                Some(site) if site.path == raised.file => {
-                    earlier = Some(previous);
-                    FindingLine::verified(site)
-                }
-                _ => return Ok(false),
+            if site.path != raised.file {
+                return Ok(false);
             }
+            earlier = Some(previous);
+            FindingLine::verified(site)
         }
     };
     let path = &raised.file;

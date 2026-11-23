@@ -3184,7 +3184,8 @@ rule and, for each finding, the rule's clause, the
 code with its file and line, and what goes wrong. builds drops a finding whose
 clause is not in the rule, that is on COMMIT_MESSAGE when its group reads no
 commit message, that is on a design file when its rule judges no design file
-(below), whose code is on no line the diff adds or removes, or whose
+(below), whose whole quote appears on neither side of the diff with a line
+that the diff adds or removes, or whose
 code sits only on comment lines when the group of its rule judges no code
 comment (skips_comments), and records it as dropped with that reason.
 Builds also drops a finding when its quote starts at the reported line

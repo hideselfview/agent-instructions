@@ -18,7 +18,7 @@ use crate::lists::store::Store;
 use crate::review::audit::{candidate_misses, diff_read};
 use crate::review::cases::{self, Addition, SiteLabel, same_code, same_file};
 use crate::review::check::reviewers_map;
-use crate::review::check::{code_in, names_file, squash};
+use crate::review::check::{code_site, squash};
 use crate::review::files;
 use crate::review::model_check;
 use crate::review::record::{self, Finding, RunRow};
@@ -238,14 +238,15 @@ fn clean_lines(diff: &Diff, findings: &[Finding]) -> Vec<SiteLabel> {
 /// case cannot expect the finding: its code is not in <diff>, or <patch> has
 /// no such file.
 fn path_in(diff: &Diff, patch: &str, finding: &Finding) -> std::result::Result<String, String> {
-    code_in(&diff.quotes(), &finding.file, &finding.code)?;
-    if finding.file == files::COMMIT_MESSAGE {
-        return Ok(finding.file.clone());
+    let quotes = diff.quotes();
+    let site = code_site(&quotes, &finding.file, finding.line.number(), &finding.code)?;
+    if site.path == files::COMMIT_MESSAGE
+        || files::paths(patch).iter().any(|path| path == site.path)
+    {
+        Ok(site.path.to_string())
+    } else {
+        Err(format!("the patch has no file {}", site.path))
     }
-    files::paths(patch)
-        .into_iter()
-        .find(|path| names_file(path, &finding.file))
-        .ok_or_else(|| format!("the patch has no file {}", finding.file))
 }
 
 /// <patch> and <diff> cut to the files of <paths>, the files that hold a

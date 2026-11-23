@@ -1090,7 +1090,7 @@ fn checked(
                 raw.file, raw.rule
             ))
         } else if let Err(why) =
-            code_site(quotes, &raw.file, raw.line, &raw.code).map(|found| site = found)
+            code_site(quotes, &raw.file, raw.line, &raw.code).map(|found| site = Some(found))
         {
             Some(why)
         } else if material.skips_comments(&raw.rule)

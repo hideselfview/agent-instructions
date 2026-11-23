@@ -249,35 +249,6 @@ fn named_patches<'a>(files: &'a [DiffFile], file: &str) -> Result<Vec<&'a DiffFi
     Ok(named)
 }
 
-/// Whether <code> is in the diff's lines of <file>, matched by `names_file`,
-/// on a line the diff adds or removes. A quote that sits only on the lines
-/// around the changes quotes code that the diff does not change: in a later
-/// run of a review, an earlier run read those lines.
-pub fn code_in(files: &[DiffFile], file: &str, code: &str) -> Result<(), String> {
-    let named = named_patches(files, file)?;
-    code_in_patches(&named, file, code)
-}
-
-fn code_in_patches(named: &[&DiffFile], file: &str, code: &str) -> Result<(), String> {
-    if squash(code).is_empty() {
-        return Err("it quotes no code".to_string());
-    }
-    let mut found = false;
-    for named in named {
-        for place in named.places(code) {
-            if named.lines_of(place).iter().any(DiffLine::changed) {
-                return Ok(());
-            }
-            found = true;
-        }
-    }
-    if found {
-        Err(unchanged_quote(file))
-    } else {
-        Err(format!("its code is not in the diff of {file}"))
-    }
-}
-
 fn unchanged_quote(file: &str) -> String {
     format!(
         "its code sits only on lines of {file} around the diff's changes, which the diff does not add or remove"
@@ -324,21 +295,26 @@ pub fn code_site<'a>(
     file: &str,
     line: i64,
     code: &str,
-) -> Result<Option<QuoteSite<'a>>, String> {
+) -> Result<QuoteSite<'a>, String> {
+    if squash(code).is_empty() {
+        return Err("it quotes no code".to_string());
+    }
     let named = named_patches(files, file)?;
     let path = named[0].path.as_str();
-    let site = |side, line| Some(QuoteSite { path, side, line });
+    let site = |side, line| QuoteSite { path, side, line };
     let mut current = Vec::new();
     let mut removed = Vec::new();
     let mut exact_context = false;
+    let mut context = false;
     for patch in &named {
         for (number, changed) in quote_sites(patch, Side::After, code) {
             if changed {
                 if !current.contains(&number) {
                     current.push(number);
                 }
-            } else if number == line {
-                exact_context = true;
+            } else {
+                context = true;
+                exact_context |= number == line;
             }
         }
         for (number, changed) in quote_sites(patch, Side::Before, code) {
@@ -369,7 +345,8 @@ pub fn code_site<'a>(
         return Err(unchanged_quote(file));
     }
     match (current.as_slice(), removed.as_slice()) {
-        ([], []) => code_in_patches(&named, file, code).map(|()| None),
+        ([], []) if context => Err(unchanged_quote(file)),
+        ([], []) => Err(format!("its code is not in the diff of {file}")),
         ([], [number]) => Ok(site(Side::Before, *number)),
         ([number], _) => Ok(site(Side::After, *number)),
         _ => Err(ambiguous()),

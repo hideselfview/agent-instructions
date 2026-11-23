@@ -44,18 +44,26 @@ fn the_diff_is_split_by_file_and_each_line_loses_its_mark() {
 #[test]
 fn code_is_checked_against_the_named_file_across_lines() {
     let files = parse_diff(DIFF);
-    assert!(code_in(&files, "src/a.rs", "rows.iter().filter(|r| r.ok).count()").is_ok());
-    assert!(code_in(&files, "a.rs", "fn new() {\n    let x").is_ok());
-    assert!(code_in(&files, "src/a.rs", "text").is_err());
-    assert!(code_in(&files, "b.txt", "text").is_ok());
     assert!(
-        code_in(&files, "missing.rs", "text")
+        code_site(
+            &files,
+            "src/a.rs",
+            3,
+            "rows.iter().filter(|r| r.ok).count()"
+        )
+        .is_ok()
+    );
+    assert!(code_site(&files, "a.rs", 2, "fn new() {\n    let x").is_ok());
+    assert!(code_site(&files, "src/a.rs", 1, "text").is_err());
+    assert!(code_site(&files, "b.txt", 1, "text").is_ok());
+    assert!(
+        code_site(&files, "missing.rs", 1, "text")
             .unwrap_err()
             .contains("no file")
     );
-    assert!(code_in(&files, "src/a.rs", "").is_err());
+    assert!(code_site(&files, "src/a.rs", 1, "").is_err());
     assert!(
-        code_in(&files, "src/a.rs", "fn old() {}").is_ok(),
+        code_site(&files, "src/a.rs", 2, "fn old() {}").is_ok(),
         "a removed line"
     );
 }
@@ -63,9 +71,9 @@ fn code_is_checked_against_the_named_file_across_lines() {
 #[test]
 fn code_only_on_the_lines_around_the_changes_is_refused() {
     let files = parse_diff(DIFF);
-    let refused = code_in(&files, "src/a.rs", "fn keep() {}").unwrap_err();
+    let refused = code_site(&files, "src/a.rs", 1, "fn keep() {}").unwrap_err();
     assert!(refused.contains("around the diff's changes"), "{refused}");
-    assert!(code_in(&files, "src/a.rs", "fn keep() {}\nfn old() {}").is_ok());
+    assert!(code_site(&files, "src/a.rs", 1, "fn keep() {}\nfn old() {}").is_ok());
 }
 
 #[test]
@@ -73,19 +81,19 @@ fn the_reported_removal_is_distinct_from_the_same_quote_added_elsewhere() {
     let files = parse_diff("diff --git a/a.rs b/a.rs\n@@ -1,2 +1,2 @@\n-repeat\n keep\n+repeat\n");
     assert_eq!(
         code_site(&files, "a.rs", 1, "repeat"),
-        Ok(Some(QuoteSite {
+        Ok(QuoteSite {
             path: "a.rs",
             side: Side::Before,
             line: 1,
-        }))
+        })
     );
     assert_eq!(
         code_site(&files, "a.rs", 2, "repeat"),
-        Ok(Some(QuoteSite {
+        Ok(QuoteSite {
             path: "a.rs",
             side: Side::After,
             line: 2,
-        }))
+        })
     );
 }
 
@@ -106,6 +114,13 @@ fn a_quote_at_the_same_number_on_both_changed_sides_is_ambiguous() {
 }
 
 #[test]
+fn a_quote_cannot_join_a_removed_line_to_an_added_line() {
+    let files = parse_diff("diff --git a/a.rs b/a.rs\n@@ -1 +1 @@\n-before\n+after\n");
+    let error = code_site(&files, "a.rs", 1, "before after").unwrap_err();
+    assert!(error.contains("not in the diff"), "{error}");
+}
+
+#[test]
 fn a_report_for_an_exact_path_never_borrows_a_quote_from_another_file() {
     let files = parse_diff(concat!(
         "diff --git a/a.rs b/a.rs\n@@ -0,0 +1 @@\n+other\n",
@@ -115,11 +130,11 @@ fn a_report_for_an_exact_path_never_borrows_a_quote_from_another_file() {
     assert!(error.contains("not in the diff of a.rs"), "{error}");
     assert_eq!(
         code_site(&files, "src/a.rs", 1, "repeat"),
-        Ok(Some(QuoteSite {
+        Ok(QuoteSite {
             path: "src/a.rs",
             side: Side::After,
             line: 1,
-        }))
+        })
     );
 }
 
