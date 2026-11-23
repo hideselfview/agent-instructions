@@ -1676,12 +1676,18 @@ impl Timing {
     /// Writes the run, which ended with <outcome>, to the repo's project
     /// store when it took a checkout. When an install moved the store to
     /// another schema while the run built, the run goes to the store through
-    /// the installed builds (handed_runs.rs). A repo in no project, or a
-    /// write that fails, is said and changes nothing about the build's
-    /// result.
-    fn record(self, places: &Places, repo: &str, lane: Lane, built_ref: &str, outcome: RunEnd) {
+    /// the installed builds (handed_runs.rs). A repo in no project has no
+    /// store to write to.
+    fn record(
+        self,
+        places: &Places,
+        repo: &str,
+        lane: Lane,
+        built_ref: &str,
+        outcome: RunEnd,
+    ) -> Result<()> {
         let Some(held) = self.held else {
-            return;
+            return Ok(());
         };
         let run = RunRecord {
             started_at: held.joined_at,
@@ -1696,22 +1702,13 @@ impl Timing {
             load: held.load,
             steps: self.steps,
         };
-        let installed = crate::links::path(&places.home, "builds");
-        let written = app_timing::database_of(places, repo).and_then(|database| {
-            let Some(database) = database else {
-                return Ok(());
-            };
-            crate::handed_runs::write(
-                &database,
-                &run,
-                &crate::handed_runs::folder(places),
-                &install_gate::install_ran,
-                &mut |store| crate::handed_runs::hand_to(&installed, repo, store),
-            )
-        });
-        if let Err(error) = written {
-            note(format!("this run was not recorded: {}", error.text()));
-        }
+        crate::handed_runs::record(places, &run).map_err(|error| {
+            Fail::Message(format!(
+                "The {} app build of {repo} {built_ref} could not save its record. {}",
+                lane.word(),
+                error.text()
+            ))
+        })
     }
 }
 
@@ -1781,8 +1778,8 @@ fn run_lane(
         Err(_) if lock::stop_signal().is_some() => RunEnd::Stopped,
         Err(_) => RunEnd::Failed,
     };
-    timing.record(&tool.places, repo, lane, request.named, outcome);
-    result.map_err(Fail::from)
+    let recorded = timing.record(&tool.places, repo, lane, request.named, outcome);
+    crate::fail::with_cleanup(result.map_err(Fail::from), recorded)
 }
 
 /// What a caller asked one lane to build: <commit>, with the lane's steps

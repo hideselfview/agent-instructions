@@ -4,12 +4,12 @@
 //! An install never stops an app build: each lane builds to its end on the
 //! programs it started with (programs.rs) and writes its run when it ends
 //! (app_timing.rs). An install that changed a store's schema meanwhile moved
-//! the store to the installed program's schema, which this program cannot
-//! write. So the lane writes its run to a new store of its own schema, in a
-//! folder of its own under the install folder, and runs the installed builds
+//! the stores to the installed program's schema, which this program cannot
+//! read or write. The lane writes its run to a new store of its own schema
+//! under the install folder and runs the installed builds
 //! (`builds app-build --record-handed <repo> <store>`), which moves that
 //! store to its schema with the moves it makes for every store (migrate.rs),
-//! reads each run back and records it in the store of the repo's project.
+//! reads the run back, finds the repo's project and records the run there.
 //! Then the lane deletes the folder. The run reaches the store whole or the
 //! record fails, as any record does.
 
@@ -18,33 +18,40 @@ use std::path::{Path, PathBuf};
 use crate::app_timing::{self, DATABASE, RunRecord};
 use crate::fail;
 use crate::fail::{Context, Result};
+use crate::install_gate::{self, ConnectionUse};
 use crate::places::Places;
 
 /// The `builds app-build` flag of the form that records a handed store.
 pub const FLAG: &str = "--record-handed";
 
 /// The folder of the stores that lanes hand the installed builds.
-pub fn folder(places: &Places) -> PathBuf {
+fn folder(places: &Places) -> PathBuf {
     places.install_dir().join("handed-runs")
 }
 
-/// Writes <run> to the store at <database>. When the store has another
-/// schema than this program's and <install_ran> says an install that moved
-/// the stores ran since this process started, writes the run to a new store
-/// of this schema in a new folder in <folder> and hands that store to
-/// <hand_off>, then deletes the folder, whether or not the hand-off
-/// succeeded.
-pub fn write(
-    database: &Path,
+/// Records <run> once the lane's steps have ended. The use prevents a schema
+/// move between choosing the writer and committing the run.
+pub fn record(places: &Places, run: &RunRecord) -> Result<()> {
+    let using_stores = install_gate::for_connection()?;
+    let installed = crate::links::path(&places.home, "builds");
+    write(places, run, install_gate::install_ran, |store| {
+        hand_to(&installed, &run.repo, store, using_stores.as_ref())
+    })
+}
+
+/// Writes <run> through the installed program when an install moved the
+/// stores since the lane started. Project lookup also needs the store's
+/// schema, so only the program that will write the run looks up its project.
+fn write(
+    places: &Places,
     run: &RunRecord,
-    folder: &Path,
-    install_ran: &dyn Fn() -> Result<bool>,
-    hand_off: &mut dyn FnMut(&Path) -> Result<()>,
+    install_ran: impl FnOnce() -> Result<bool>,
+    hand_off: impl FnOnce(&Path) -> Result<()>,
 ) -> Result<()> {
-    if crate::db::stamp_at(database)? == crate::db::stamp() || !install_ran()? {
-        return app_timing::record(database, run);
+    if !install_ran()? {
+        return record_in_project(places, &run.repo, run);
     }
-    let own = folder.join(crate::text::staged_suffix());
+    let own = folder(places).join(crate::text::staged_suffix());
     std::fs::create_dir_all(&own).context(|| format!("creating {}", own.display()))?;
     let store = own.join(DATABASE);
     let handed = (|| {
@@ -58,11 +65,21 @@ pub fn write(
 
 /// Runs the builds that install put on PATH, <installed>, to record the
 /// runs of the handed store <store> for <repo>.
-pub fn hand_to(installed: &Path, repo: &str, store: &Path) -> Result<()> {
-    let status = std::process::Command::new(installed)
+fn hand_to(
+    installed: &Path,
+    repo: &str,
+    store: &Path,
+    using_stores: Option<&ConnectionUse>,
+) -> Result<()> {
+    let mut command = std::process::Command::new(installed);
+    command
         .args(["app-build", FLAG, repo])
         .arg(store)
-        .stdin(std::process::Stdio::null())
+        .stdin(std::process::Stdio::null());
+    if let Some(using_stores) = using_stores {
+        using_stores.cover(&mut command);
+    }
+    let status = command
         .status()
         .context(|| format!("running {}", installed.display()))?;
     if !status.success() {
@@ -77,13 +94,18 @@ pub fn hand_to(installed: &Path, repo: &str, store: &Path) -> Result<()> {
 /// `builds app-build --record-handed <repo> <store>`: moves the handed store
 /// <store> to this program's schema and records the run it holds in the
 /// store of <repo>'s project, at <now>.
-pub fn receive(places: &Places, repo: &str, store: &Path, now: i64) -> Result<()> {
+fn receive(places: &Places, repo: &str, store: &Path, now: i64) -> Result<()> {
+    let _using_stores = install_gate::for_connection()?;
     crate::migrate::move_store(places, store, now)?;
     let run = app_timing::read_run(store)?;
-    let Some(database) = app_timing::database_of(places, repo)? else {
-        fail!("repo {repo} is in no project, so its runs have no store to go to");
-    };
-    app_timing::record(&database, &run)
+    record_in_project(places, repo, &run)
+}
+
+fn record_in_project(places: &Places, repo: &str, run: &RunRecord) -> Result<()> {
+    if let Some(database) = app_timing::database_of(places, repo)? {
+        app_timing::record(&database, run)?;
+    }
+    Ok(())
 }
 
 /// `builds app-build --record-handed` with its arguments <args>.

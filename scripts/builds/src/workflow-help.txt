@@ -564,9 +564,9 @@ Land the fixes you have ready together, in one batch (WORKTREES).
     origin/main, so the person and the agents who read code there see what
     landed. In agent-instructions, the main checkout's post-merge hook then
     runs install.sh, which installs the landed builds and links the landed
-    rules and skills. An install never stops or waits for an app build: each
-    build ends on the programs it started with, and the next build uses the
-    installed ones.
+    rules and skills. Each app build finishes its steps on the programs it
+    started with, and the next build uses the installed ones. A lane waits for
+    any schema move before it records its run (`builds help`, INSTALLING).
     When the landed builds changes a store's schema, install waits for every
     running hook run, review and landing. Every hook run, review and landing
     that starts meanwhile waits for install, so commits in every project wait

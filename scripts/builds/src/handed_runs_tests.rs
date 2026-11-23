@@ -1,5 +1,6 @@
 use super::*;
 use crate::app_timing::{DATABASE, RunRecord, StepKind, StepRecord, StepResult, read_run};
+use crate::install_gate::{self, PerConnection};
 use crate::lane::Lane;
 use crate::run_end::RunEnd;
 use crate::testing::Scratch;
@@ -29,40 +30,46 @@ fn run() -> RunRecord {
     }
 }
 
-/// A store file whose schema is not this program's, as a store is once an
-/// install moved it to the installed program's schema.
-fn moved_store(scratch: &Scratch) -> std::path::PathBuf {
-    let path = scratch.dir.join("moved").join(DATABASE);
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    let conn = rusqlite::Connection::open(&path).unwrap();
-    conn.pragma_update(None, "user_version", 7).unwrap();
-    path
-}
-
-/// When an install moved the store while the lane built, the lane writes its
-/// run to a store of its own schema, hands that store to the installed
-/// builds, and deletes it once the installed builds has recorded it.
 #[test]
-fn a_run_whose_store_an_install_moved_goes_to_the_installed_builds() {
-    let scratch = Scratch::new("handed-runs-hand");
-    let moved = moved_store(&scratch);
-    let folder = scratch.dir.join("handed");
-    let mut handed = Vec::new();
+fn a_passing_run_reaches_the_installed_builds_after_its_project_schema_moves() {
+    let scratch = Scratch::new("handed-runs-project-move");
+    let places = scratch.places();
+    let project = crate::lists::fixtures::make_store(&places, &["bae"]);
+    let database = project.dir.join(DATABASE);
+    let lane = PerConnection::new(places.clone(), 23, "app-build bae branch", "10:00:00").unwrap();
+
+    let quiet = &mut |line| panic!("install waited for the app build: {line}");
+    let closed = install_gate::begin(&places, quiet)
+        .unwrap()
+        .close(quiet)
+        .unwrap();
+    let mut conn = rusqlite::Connection::open(&database).unwrap();
+    let migration = conn.transaction().unwrap();
+    migration
+        .execute_batch("CREATE TABLE new_builds_data (value TEXT NOT NULL);")
+        .unwrap();
+    migration
+        .pragma_update(None, "user_version", crate::db::stamp() + 1)
+        .unwrap();
+    migration.commit().unwrap();
+    drop(conn);
+    drop(closed);
+
+    let completed = run();
+    let mut handed = None;
     write(
-        &moved,
-        &run(),
-        &folder,
-        &|| Ok(true),
-        &mut |store: &Path| {
-            handed.push((store.to_path_buf(), read_run(store).unwrap()));
+        &places,
+        &completed,
+        || lane.install_ran(),
+        |store| {
+            handed = Some((store.to_path_buf(), read_run(store)?));
             Ok(())
         },
     )
     .unwrap();
-    assert_eq!(handed.len(), 1, "the lane hands one store");
-    let (store, runs) = &handed[0];
-    assert_eq!(runs, &run(), "the handed store holds the run");
-    assert!(store.starts_with(&folder), "{}", store.display());
+    let (store, saved) = handed.expect("the lane hands its run to the installed builds");
+    assert_eq!(saved, completed);
+    assert!(store.starts_with(folder(&places)), "{}", store.display());
     assert!(!store.exists(), "the lane deletes the store it handed");
 }
 
@@ -71,30 +78,37 @@ fn a_run_whose_store_an_install_moved_goes_to_the_installed_builds() {
 #[test]
 fn a_store_of_another_schema_with_no_install_fails_the_record() {
     let scratch = Scratch::new("handed-runs-no-install");
-    let moved = moved_store(&scratch);
-    let folder = scratch.dir.join("handed");
-    let Err(error) = write(&moved, &run(), &folder, &|| Ok(false), &mut |_: &Path| {
-        panic!("no install ran, so the lane hands nothing")
-    }) else {
+    let places = scratch.places();
+    let project = crate::lists::fixtures::make_store(&places, &["bae"]);
+    let conn = rusqlite::Connection::open(project.dir.join(DATABASE)).unwrap();
+    conn.pragma_update(None, "user_version", 7).unwrap();
+    drop(conn);
+    let Err(error) = write(
+        &places,
+        &run(),
+        || Ok(false),
+        |_| panic!("no install ran, so the lane hands nothing"),
+    ) else {
         panic!("expected the record to fail");
     };
     let said = error.text();
     assert!(said.contains("another builds schema"), "{said}");
 }
 
-/// A store of this program's schema takes the run, whether or not an install
-/// ran, and the lane hands nothing.
+/// The lane writes to the project's store directly when no install moved it.
 #[test]
-fn a_store_of_this_schema_takes_the_run_after_an_install() {
+fn the_lane_records_its_run_directly_if_no_install_moved_the_stores() {
     let scratch = Scratch::new("handed-runs-same");
-    let store = scratch.dir.join(DATABASE);
-    drop(crate::db::open(&store, crate::db::Make::Allowed).unwrap());
-    let folder = scratch.dir.join("handed");
-    write(&store, &run(), &folder, &|| Ok(true), &mut |_: &Path| {
-        panic!("the store has this schema, so the lane hands nothing")
-    })
+    let places = scratch.places();
+    let project = crate::lists::fixtures::make_store(&places, &["bae"]);
+    write(
+        &places,
+        &run(),
+        || Ok(false),
+        |_| panic!("no install moved the stores, so the lane hands nothing"),
+    )
     .unwrap();
-    assert_eq!(read_run(&store).unwrap(), run());
+    assert_eq!(read_run(&project.dir.join(DATABASE)).unwrap(), run());
 }
 
 /// When the installed builds cannot record the handed run, the record fails
@@ -102,15 +116,13 @@ fn a_store_of_this_schema_takes_the_run_after_an_install() {
 #[test]
 fn a_hand_off_that_fails_fails_the_record_and_leaves_no_store() {
     let scratch = Scratch::new("handed-runs-fail");
-    let moved = moved_store(&scratch);
-    let folder = scratch.dir.join("handed");
+    let places = scratch.places();
     let mut store = None;
     let Err(error) = write(
-        &moved,
+        &places,
         &run(),
-        &folder,
-        &|| Ok(true),
-        &mut |handed: &Path| {
+        || Ok(true),
+        |handed| {
             store = Some(handed.to_path_buf());
             crate::fail!("the installed builds refused it")
         },

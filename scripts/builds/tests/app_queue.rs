@@ -650,17 +650,21 @@ fn a_takeover_runs_an_app_build_again_from_its_first_step() {
     assert_one_at_a_time(&log);
 }
 
-/// An app build holds no use of the stores, whether it waits for the lane
-/// or builds, so an install neither waits for it nor stops it: an install
-/// that moves the stores while the build waits and while it builds leaves it
-/// to build each step once, to its end. The test stands for builds install:
-/// it closes the commands gate and counts one more install, as install does
-/// when it moves the stores.
+/// An app build holds no use of the stores while it waits for the lane or
+/// runs a step. It runs each step once and the installed builds saves the
+/// passing run. The fixture changes the install generation and puts builds
+/// on PATH under the scratch home.
 #[test]
 fn an_install_leaves_a_waiting_or_running_app_build_to_build_once() {
     use std::os::fd::AsRawFd;
     let mut volume = Volume::new("app-build-install");
     volume.app_repo();
+    let project = volume.run(&["lists", "init", "demo", "--repos", "demo", "--by", "test"]);
+    assert!(
+        project.status.success(),
+        "{}",
+        String::from_utf8_lossy(&project.stderr)
+    );
     volume.lock("H");
     volume.until_logged("start H");
     let build = start_app_build(&volume, &["one", "two"]);
@@ -686,12 +690,30 @@ fn an_install_leaves_a_waiting_or_running_app_build_to_build_once() {
         .unwrap();
     assert_eq!(unsafe { libc::flock(gate.as_raw_fd(), libc::LOCK_EX) }, 0);
     std::fs::write(install.join("generation"), "2\n").unwrap();
+    let bin = volume.dir.join("home/.local/bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    std::os::unix::fs::symlink(BUILDS, bin.join("builds")).unwrap();
     drop(gate);
     volume.open_gate("one");
     volume.open_gate("two");
     let (status, said) = finish(build);
     assert!(status.success(), "{said}");
     assert!(!said.contains("installed builds"), "{said}");
+    let store = install.with_file_name("lists").join("demo/builds.sqlite");
+    let conn = rusqlite::Connection::open(store).unwrap();
+    let count: u32 = conn
+        .query_row("SELECT COUNT(*) FROM app_build_runs", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(count, 1, "the passing build leaves one record");
+    let count: u32 = conn.query_row(
+        "SELECT COUNT(*) FROM app_build_runs r JOIN app_build_run_commit c ON c.run_id = r.id WHERE r.built_ref = 'main' AND r.outcome = 'passed'",
+        [],
+        |row| row.get(0),
+    ).unwrap();
+    assert_eq!(
+        count, 1,
+        "the record keeps the passing build's ref and commit"
+    );
     assert_eq!(
         volume.log(),
         lines(&[

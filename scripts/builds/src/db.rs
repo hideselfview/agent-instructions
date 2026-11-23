@@ -899,8 +899,7 @@ pub fn stamp_of(conn: &Connection, path: &Path) -> Result<i64> {
 
 /// The stamp the database at <path> holds, read without the stamp check and
 /// without a use of the stores: 0 for none. `builds install` reads it to
-/// learn whether it moves the store, and an app build's lane to learn
-/// whether an install moved it (handed_runs.rs).
+/// learn whether it moves the store.
 pub fn stamp_at(path: &Path) -> Result<i64> {
     stamp_of(&connect_read_only(path)?, path)
 }

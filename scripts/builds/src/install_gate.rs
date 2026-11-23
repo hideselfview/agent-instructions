@@ -53,12 +53,11 @@
 //! then opens the store; when install moved it to another schema, db.rs
 //! refuses it and says to run the command again.
 //!
-//! A builds command that a command use's holder starts runs under the
-//! holder's use (`BUILDS_USE` in its environment names the holder) and takes
-//! none of its own: waiting at a gate, it would wait for install, which waits
-//! for the holder, which waits for it. A holder that starts a builds command
-//! it does not wait for removes `BUILDS_USE` from that command's
-//! environment. For the same reason install refuses to run under a holder.
+//! A builds command that runs under a parent's use (`BUILDS_USE` in its
+//! environment names the holder) takes none of its own. Waiting at a gate
+//! would deadlock: install waits for the holder, which waits for its child.
+//! A holder removes `BUILDS_USE` from any child it does not wait for.
+//! For the same reason install refuses to run under a holder.
 
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
@@ -361,7 +360,7 @@ impl PerConnection {
         }
         let mut shared = self.shared.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(open) = shared.upgrade() {
-            return Ok(Some(ConnectionUse { _use: open }));
+            return Ok(Some(ConnectionUse { held: open }));
         }
         let (gate, _) = pass(
             &self.places,
@@ -378,12 +377,12 @@ impl PerConnection {
             &self.since,
         )?);
         *shared = Arc::downgrade(&taken);
-        Ok(Some(ConnectionUse { _use: taken }))
+        Ok(Some(ConnectionUse { held: taken }))
     }
 
     /// Whether an install that closed the gates ran since this process
     /// started.
-    fn install_ran(&self) -> Result<bool> {
+    pub(crate) fn install_ran(&self) -> Result<bool> {
         Ok(generation(&self.places)? != self.generation)
     }
 }
@@ -412,9 +411,22 @@ impl Drop for Holding<'_> {
     }
 }
 
-/// One connection's share of its process's use.
+/// A share of the process's use of the stores.
 pub struct ConnectionUse {
-    _use: Arc<Use>,
+    held: Arc<Use>,
+}
+
+impl ConnectionUse {
+    /// Covers a child for which the holder waits. Taking a separate use in
+    /// the child could deadlock if install already waits for this use.
+    pub fn cover(&self, child: &mut std::process::Command) {
+        let holder = self
+            .held
+            .path
+            .file_name()
+            .expect("a use file names its pid");
+        child.env(VARIABLE, holder);
+    }
 }
 
 /// This process's connection uses, when it takes them. `use_per_connection`
