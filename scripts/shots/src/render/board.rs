@@ -5,10 +5,11 @@
 //!
 //! The page loads under virtual time with a fixed budget. Virtual time stands
 //! still while a request is pending. A script runs before the page's own
-//! scripts and watches for the element that says the page is drawn (the canvas
-//! runtime's `#dc-root`, or a preview's first row) and for
-//! `document.fonts.ready`. When the budget runs out, a page that did not finish
-//! drawing or wrote a runtime error to the console fails.
+//! scripts and watches for the caller's readiness selector and for
+//! `document.fonts.ready`. The selector names the canvas runtime's `#dc-root`,
+//! the preview's body for a full page, or the preview's first row for a row
+//! capture. When the budget runs out, a page that did not finish drawing or
+//! wrote a runtime error to the console fails.
 
 use crate::design::Frame;
 use crate::shots::Bounds;
