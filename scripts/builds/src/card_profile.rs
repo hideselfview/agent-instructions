@@ -678,8 +678,9 @@ fn read_app_builds(
             .sql()?;
         for step in rows {
             let (position, name, start, wall_ms, result) = step.sql()?;
-            // Only a step that ran to a verdict adds an attempt.
-            if matches!(result.as_str(), "passed" | "failed" | "timed out") {
+            // A step another build took over, or a stop signal ended, says
+            // nothing of the change.
+            if result != "taken over" && result != "stopped" {
                 card.attempts.push(Attempt {
                     kind: StepKind::AppBuild,
                     name: format!("{lane} {name}"),

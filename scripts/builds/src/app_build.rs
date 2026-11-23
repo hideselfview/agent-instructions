@@ -1709,26 +1709,17 @@ impl Timing {
         repo: &str,
         lane: Lane,
         built_ref: &str,
-        reused_shots: &[String],
+        reused_shots: &[shots::Prefix],
         outcome: RunEnd,
     ) -> Result<()> {
         let Some(held) = self.held else {
             return Ok(());
         };
-        let mut steps = Vec::new();
-        if self.commit.is_some() {
-            steps.extend(reused_shots.iter().map(|prefix| StepRecord {
-                name: format!("{}{prefix}", PickKind::Shots.step_prefix()),
-                kind: StepKind::Shots,
-                started_at: held.joined_at,
-                wall_ms: 0,
-                cpu_ms: 0,
-                at_merge_base: Some(false),
-                result: StepResult::Reused,
-                shots: None,
-            }));
-        }
-        steps.extend(self.steps);
+        let reused_shots = if self.commit.is_some() {
+            reused_shots.to_vec()
+        } else {
+            Vec::new()
+        };
         let run = RunRecord {
             started_at: held.joined_at,
             repo: repo.to_string(),
@@ -1741,7 +1732,8 @@ impl Timing {
             wait_ms: held.wait.as_millis() as u64,
             outcome,
             load: held.load,
-            steps,
+            steps: self.steps,
+            reused_shots,
         };
         crate::handed_runs::record(places, &run).context(|| {
             format!(
@@ -1840,7 +1832,7 @@ struct LaneRequest<'a> {
     named: &'a str,
     names: &'a [String],
     picks: &'a [Pick],
-    reused_shots: &'a [String],
+    reused_shots: &'a [shots::Prefix],
     /// The steps <names> are only what the shots picks need (`NEEDS_ONLY`).
     needs_only: bool,
     /// The run has `--fresh` (`FRESH`).
@@ -3009,6 +3001,12 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
             Err(std::env::VarError::NotPresent) => Vec::new(),
             Err(error) => fail!("reading {REUSED_SHOTS}: {error}"),
         };
+        let reused_shots = reused_shots
+            .iter()
+            .map(|prefix| {
+                shots::Prefix::parse(prefix).context(|| "reading a reused shots prefix".to_string())
+            })
+            .collect::<Result<Vec<_>>>()?;
         // A lane that its build started runs from the build's folder, which
         // holds its programs already; a lane run by hand copies them there.
         // The lane copies the folder to each host it runs a step on.

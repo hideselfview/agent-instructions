@@ -1,6 +1,6 @@
 //! The record of every `builds app-build` run: each lane's run writes one row
 //! to `builds.sqlite` in its repo's project store, with every step it started
-//! (the schema is app_timing.sql). The dashboard reads the figures back; they
+//! and every shots comparison it reused. The dashboard reads the figures back; they
 //! are SQL rows and Rust medians over the last `WINDOW_SECONDS`, never stored.
 //!
 //! A run records when it joined the lane's queue, how long it waited there
@@ -72,8 +72,6 @@ impl StepKind {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StepResult {
     Passed,
-    /// The lane reused a passing shots comparison.
-    Reused,
     Failed(StepFailure),
     TimedOut(StepFailure),
     TakenOver,
@@ -85,7 +83,6 @@ impl StepResult {
     pub fn word(&self) -> &'static str {
         match self {
             StepResult::Passed => "passed",
-            StepResult::Reused => "reused",
             StepResult::Failed(_) => "failed",
             StepResult::TimedOut(_) => "timed out",
             StepResult::TakenOver => "taken over",
@@ -103,7 +100,6 @@ impl StepResult {
         };
         Ok(match word {
             "passed" => StepResult::Passed,
-            "reused" => StepResult::Reused,
             "failed" => StepResult::Failed(said()?),
             "timed out" => StepResult::TimedOut(said()?),
             "taken over" => StepResult::TakenOver,
@@ -116,15 +112,12 @@ impl StepResult {
     pub fn failure(&self) -> Option<&StepFailure> {
         match self {
             StepResult::Failed(failure) | StepResult::TimedOut(failure) => Some(failure),
-            StepResult::Passed
-            | StepResult::Reused
-            | StepResult::TakenOver
-            | StepResult::Stopped => None,
+            StepResult::Passed | StepResult::TakenOver | StepResult::Stopped => None,
         }
     }
 }
 
-/// One step a run started or a shots comparison it reused.
+/// One step a run started.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StepRecord {
     pub name: String,
@@ -166,6 +159,8 @@ pub struct RunRecord {
     /// checkout; None when the host did not answer.
     pub load: Option<crate::host::Load>,
     pub steps: Vec<StepRecord>,
+    /// Passing comparisons the build took from cache for its commit.
+    pub reused_shots: Vec<shots::Prefix>,
 }
 
 pub fn now() -> i64 {
@@ -306,6 +301,7 @@ pub fn record(path: &Path, run: &RunRecord) -> Result<()> {
     if let Some(commit) = &run.built_commit {
         crate::app_build_commit::record(&tx, id, commit).context(what)?;
     }
+    crate::app_build_reused_shots::record(&tx, id, &run.reused_shots)?;
     tx.commit().context(what)
 }
 
@@ -390,6 +386,7 @@ pub fn read_run(path: &Path) -> Result<RunRecord> {
                 one_minute,
             }),
         steps: Vec::new(),
+        reused_shots: crate::app_build_reused_shots::read(&conn, id)?,
     };
     let mut said = crate::app_build_step_failure::read(&conn, id)?;
     let mut used = crate::app_build_step_shots::read(&conn, id)?;
@@ -474,22 +471,32 @@ pub fn record_stopped_runs(db: &Connection) -> Result<()> {
             ";",
         )],
     )?;
-    remake_steps(db, "NULL")
+    remake_table(
+        db,
+        "app_build_steps",
+        statement(
+            schema,
+            "CREATE TABLE IF NOT EXISTS app_build_steps",
+            ") STRICT, WITHOUT ROWID;",
+        ),
+        |db| {
+            db.execute_batch(
+                "INSERT INTO app_build_steps (run_id, position, name, kind, started_at, wall_ms, cpu_ms, result) SELECT run_id, position, name, kind, started_at, wall_ms, cpu_ms, result FROM app_build_steps_old",
+            )
+            .sql()
+        },
+        &[statement(
+            schema,
+            "CREATE INDEX IF NOT EXISTS idx_app_build_steps_name",
+            ";",
+        )],
+    )
 }
 
 /// Makes `app_build_steps` again as app_timing.sql writes it, with whether
 /// each step ran at the merge base: a store from before kept no such column,
 /// and each step in it has NULL, since builds never recorded which it was.
 pub fn add_at_merge_base(db: &Connection) -> Result<()> {
-    remake_steps(db, "NULL")
-}
-
-/// Keeps the existing step rows when their table adds reused shots results.
-pub fn allow_reused_shots(db: &Connection) -> Result<()> {
-    remake_steps(db, "at_merge_base")
-}
-
-fn remake_steps(db: &Connection, merge_base_column: &str) -> Result<()> {
     use crate::db::{Sql, remake_table, statement};
     let schema = include_str!("app_timing.sql");
     remake_table(
@@ -501,10 +508,9 @@ fn remake_steps(db: &Connection, merge_base_column: &str) -> Result<()> {
             ") STRICT, WITHOUT ROWID;",
         ),
         |db| {
-            db.execute_batch(&format!(
-                "INSERT INTO app_build_steps (run_id, position, name, kind, started_at, wall_ms, cpu_ms, at_merge_base, result)
-                 SELECT run_id, position, name, kind, started_at, wall_ms, cpu_ms, {merge_base_column}, result FROM app_build_steps_old"
-            ))
+            db.execute_batch(
+                "INSERT INTO app_build_steps (run_id, position, name, kind, started_at, wall_ms, cpu_ms, result) SELECT run_id, position, name, kind, started_at, wall_ms, cpu_ms, result FROM app_build_steps_old",
+            )
             .sql()
         },
         &[statement(
@@ -516,11 +522,12 @@ fn remake_steps(db: &Connection, merge_base_column: &str) -> Result<()> {
 }
 
 /// A passing app build run: the commit it built (app_build_commit.rs) and
-/// the steps that passed in it, including reused shots comparisons.
+/// the steps that passed and the comparisons it reused.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PassedRun {
     pub commit: String,
     pub steps: Vec<String>,
+    pub reused_shots: Vec<shots::Prefix>,
 }
 
 impl PassedRun {
@@ -529,6 +536,7 @@ impl PassedRun {
         self.steps
             .iter()
             .filter_map(|step| PickKind::Shots.argument_of_step(step))
+            .chain(self.reused_shots.iter().map(shots::Prefix::as_str))
     }
 
     /// Whether a shots step of the run covers <prefix>: a run of the prefix,
@@ -585,18 +593,18 @@ pub fn passed_runs(
             Ok(PassedRun {
                 commit,
                 steps: passed_steps(conn, id, path)?,
+                reused_shots: crate::app_build_reused_shots::read(conn, id)?,
             })
         })
         .collect()
 }
 
-/// The names of the steps that passed in the run <id>, including reused shots
-/// comparisons.
+/// The names of the steps that passed at the commit the run <id> built.
 fn passed_steps(conn: &Connection, id: i64, path: &Path) -> Result<Vec<String>> {
     let what = || format!("reading {}", path.display());
     conn.prepare(
         "SELECT name FROM app_build_steps
-         WHERE run_id = ?1 AND at_merge_base IS NOT 1 AND result IN ('passed', 'reused')
+         WHERE run_id = ?1 AND at_merge_base IS NOT 1 AND result = 'passed'
          ORDER BY position",
     )
     .context(what)?
@@ -606,8 +614,8 @@ fn passed_steps(conn: &Connection, id: i64, path: &Path) -> Result<Vec<String>> 
     .context(what)
 }
 
-/// Whether a passing app build of <repo>'s <lane> built <commit> and passed
-/// the shots run of <prefix>, in the database open as <conn> at <path>.
+/// Whether a passing app build of <repo>'s <lane> built <commit> and covers
+/// the shots prefix <prefix>, in the database open as <conn> at <path>.
 pub fn passed_shots(
     conn: &Connection,
     repo: &str,
@@ -622,9 +630,9 @@ pub fn passed_shots(
         .any(|run| run.ran_shots(prefix)))
 }
 
-/// The shots prefixes that app builds of <repo>'s <lane> ran to a verdict
-/// when asked for <named> or targeting one of <commits>. The target matches
-/// even if the run ended before reaching its checkout.
+/// The shots prefixes that app builds of <repo>'s <lane> ran to a verdict or
+/// reused, when asked for <named> or targeting one of <commits>. The target
+/// matches even if the run ended before reaching its checkout.
 /// Counts runs that started at or after <since> (seconds since 1970),
 /// whatever their outcome, in the database open as <conn> at <path>.
 /// Returns each prefix once, in name order.
@@ -650,12 +658,13 @@ pub fn shots_ran(
     let mut statement = conn
         .prepare(
             format!(
-                "SELECT DISTINCT s.name FROM app_build_steps s
+                "{SHOTS_VERDICTS}
+                 SELECT DISTINCT s.name FROM shots_verdicts s
                  JOIN app_build_runs r ON r.id = s.run_id
                  LEFT JOIN app_build_run_commit c ON c.run_id = r.id
                  LEFT JOIN app_build_requested_commit q ON q.run_id = r.id
                  WHERE r.repo = ?1 AND r.lane = ?2 AND r.started_at >= ?5
-                   AND {matches_branch} AND {SHOTS_VERDICT}
+                   AND {matches_branch}
                  ORDER BY s.name"
             )
             .as_str(),
@@ -674,10 +683,14 @@ pub fn shots_ran(
         .collect()
 }
 
-/// What the SQL of a query over shots steps needs to keep: steps that ran to
-/// a verdict.
-const SHOTS_VERDICT: &str =
-    "s.kind = 'shots' AND s.result IN ('passed', 'reused', 'failed', 'timed out')";
+/// The shots comparisons that reached a verdict during a build or were
+/// reused from a passing build.
+const SHOTS_VERDICTS: &str = "WITH shots_verdicts AS (
+    SELECT run_id, name FROM app_build_steps
+    WHERE kind = 'shots' AND result IN ('passed', 'failed', 'timed out')
+    UNION ALL
+    SELECT run_id, 'shots ' || prefix FROM app_build_reused_shots
+)";
 
 /// The shots prefix a shots step <name> names, in the database at <path>.
 fn shots_prefix<'a>(name: &'a str, path: &Path) -> Result<&'a str> {
@@ -692,8 +705,8 @@ fn shots_prefix<'a>(name: &'a str, path: &Path) -> Result<&'a str> {
     }
 }
 
-/// One shots run that an app build made of a commit: the branch the build
-/// named, the commit it built, and the shots prefix it ran.
+/// One shots comparison that an app build ran or reused: the branch the build
+/// named, the commit it built, and the shots prefix it covered.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ShotsBuild {
     pub branch: String,
@@ -704,10 +717,9 @@ pub struct ShotsBuild {
     pub started_at: i64,
 }
 
-/// The shots runs that app builds of <repo> made at or after <since>
-/// (seconds since 1970) of the commit they built, to a verdict, passed or
-/// not, in the database open as <conn> at <path>. A build that recorded no
-/// commit has none.
+/// The shots comparisons that app builds of <repo> ran to a verdict or
+/// reused at or after <since> (seconds since 1970). A build that recorded no
+/// commit has none. Reads the database open as <conn> at <path>.
 pub fn shots_builds(
     conn: &Connection,
     repo: &str,
@@ -718,11 +730,12 @@ pub fn shots_builds(
     let mut statement = conn
         .prepare(
             format!(
-                "SELECT DISTINCT r.built_ref, c.built_commit, r.lane, s.name, r.started_at
-                 FROM app_build_steps s
+                "{SHOTS_VERDICTS}
+                 SELECT DISTINCT r.built_ref, c.built_commit, r.lane, s.name, r.started_at
+                 FROM shots_verdicts s
                  JOIN app_build_runs r ON r.id = s.run_id
                  JOIN app_build_run_commit c ON c.run_id = r.id
-                 WHERE r.repo = ?1 AND r.started_at >= ?2 AND {SHOTS_VERDICT}
+                 WHERE r.repo = ?1 AND r.started_at >= ?2
                  ORDER BY r.started_at, s.name"
             )
             .as_str(),
@@ -770,7 +783,7 @@ pub fn waits(conn: &Connection, since: i64, path: &Path) -> Result<Vec<crate::wa
             Kind::AppBuildStep,
             "SELECT s.started_at, s.wall_ms, r.cores, r.load
              FROM app_build_steps s JOIN app_build_runs r ON r.id = s.run_id
-             WHERE s.started_at >= ?1 AND s.result <> 'reused'",
+             WHERE s.started_at >= ?1",
         ),
     ] {
         let mut statement = conn.prepare(sql).context(what)?;

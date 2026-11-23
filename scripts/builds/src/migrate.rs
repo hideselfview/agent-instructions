@@ -295,7 +295,7 @@ const BEFORE_REUSED_SHOTS_STAMP: i64 = 1_189_101_032;
 /// adds the move, puts this stamp at the end of `STAMPS` under a name that
 /// says what the schema lacked, and sets this to the new schema's stamp, which
 /// the compiler's error names.
-const SCHEMA_STAMP: i64 = 1_872_854_454;
+const SCHEMA_STAMP: i64 = 1_186_140_394;
 
 // The compiler refuses a schema whose stamp is not SCHEMA_STAMP. A const
 // assert could not print the new stamp, so the check compares two array
@@ -669,11 +669,8 @@ pub fn move_store(places: &Places, path: &Path, now: i64) -> Result<()> {
         tx.execute_batch(db::APP_BUILD_REQUESTED_COMMIT_PART)
             .sql()?;
     }
-    // Older moves already rebuild the steps table with the current check.
-    if !before(found, BEFORE_APP_BUILD_AT_MERGE_BASE_STAMP)
-        && before(found, BEFORE_REUSED_SHOTS_STAMP)
-    {
-        crate::app_timing::allow_reused_shots(&tx)?;
+    if before(found, BEFORE_REUSED_SHOTS_STAMP) {
+        tx.execute_batch(db::APP_BUILD_REUSED_SHOTS_PART).sql()?;
     }
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     let broken: Option<String> = tx

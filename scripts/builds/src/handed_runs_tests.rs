@@ -7,6 +7,7 @@ use crate::testing::Scratch;
 
 fn run() -> RunRecord {
     RunRecord {
+        reused_shots: vec![shots::Prefix::parse("mac.a.").unwrap()],
         started_at: 1_000_000,
         repo: "bae".to_string(),
         lane: Lane::Mac,

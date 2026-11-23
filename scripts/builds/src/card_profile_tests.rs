@@ -250,6 +250,7 @@ fn landed_card(scratch: &Scratch) -> (crate::lists::store::Store, Id) {
     crate::app_timing::record(
         &path,
         &crate::app_timing::RunRecord {
+            reused_shots: Vec::new(),
             started_at: T0 + 480,
             repo: "bae".into(),
             lane: crate::lane::Lane::Mac,
@@ -580,6 +581,7 @@ fn a_failed_shots_step_names_its_shots_in_the_cards_failures_and_totals() {
     crate::app_timing::record(
         &store.database(),
         &crate::app_timing::RunRecord {
+            reused_shots: Vec::new(),
             started_at: T0 + 300,
             repo: "bae".into(),
             lane: crate::lane::Lane::Mac,

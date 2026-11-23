@@ -4,6 +4,7 @@
 mod ack;
 mod app_build;
 mod app_build_commit;
+mod app_build_reused_shots;
 mod app_build_step_failure;
 mod app_build_step_shots;
 mod app_clone;

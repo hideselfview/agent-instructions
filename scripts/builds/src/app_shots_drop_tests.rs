@@ -71,6 +71,7 @@ fn the_drop_command_accepts_a_prefix_from_a_build_named_by_commit() {
         who: None,
         wait_ms: 0,
         outcome: RunEnd::Failed,
+        reused_shots: Vec::new(),
         load: None,
         steps: vec![StepRecord {
             name: format!("shots {prefix}"),

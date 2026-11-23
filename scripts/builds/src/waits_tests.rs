@@ -161,6 +161,7 @@ fn a_store_gives_each_kind_its_own_rows_and_leaves_out_other_cargo_runs() {
     crate::app_timing::record(
         &path,
         &crate::app_timing::RunRecord {
+            reused_shots: Vec::new(),
             started_at: 1_050,
             repo: "bae".into(),
             lane: crate::lane::Lane::Mac,

@@ -23,6 +23,7 @@ fn step(name: &str, kind: StepKind, at: i64, wall_ms: u64, result: StepResult) -
 
 fn run(at: i64, lane: Lane, wait_ms: u64, outcome: RunEnd, steps: Vec<StepRecord>) -> RunRecord {
     RunRecord {
+        reused_shots: Vec::new(),
         started_at: at,
         repo: "bae".to_string(),
         lane,
@@ -44,6 +45,21 @@ fn record_checkout(run: &mut RunRecord, commit: String) {
 }
 
 const NOW: i64 = 1_000_000;
+
+#[test]
+fn cached_comparisons_do_not_change_when_a_build_without_steps_ended() {
+    let scratch = Scratch::new("timing-reused-comparison");
+    let path = store(&scratch);
+    let mut built = run(NOW, Lane::Mac, 3_000, RunEnd::Failed, Vec::new());
+    built.built_commit = Some("0123456789abcdef0123456789abcdef01234567".to_string());
+    built.reused_shots = vec![shots::Prefix::parse("mac.a.").unwrap()];
+    record(&path, &built).unwrap();
+    assert_eq!(read_run(&path).unwrap(), built);
+    assert_eq!(
+        last_ends(&path, Lane::Mac).unwrap(),
+        [("side-1".into(), NOW + 3)]
+    );
+}
 
 #[test]
 fn a_run_keeps_the_load_of_its_checkouts_host() {
@@ -153,10 +169,12 @@ fn passing_runs_of_a_lane_come_back_newest_first_with_their_passed_steps() {
         runs,
         vec![
             PassedRun {
+                reused_shots: Vec::new(),
                 commit: "d".repeat(40),
                 steps: vec!["macos".to_string(), "macos-shots".to_string()],
             },
             PassedRun {
+                reused_shots: Vec::new(),
                 commit: "a".repeat(40),
                 steps: vec!["macos".to_string()],
             },

@@ -1560,6 +1560,7 @@ INSERT INTO app_build_steps (run_id, position, name, kind, started_at, wall_ms, 
     crate::app_timing::record(
         &path,
         &crate::app_timing::RunRecord {
+            reused_shots: Vec::new(),
             started_at: 7,
             repo: "bae".into(),
             lane: crate::lane::Lane::Mac,
@@ -2495,6 +2496,7 @@ fn a_store_from_before_reused_shots_keeps_its_steps_and_their_shots_details() {
     migrate_stores(&places, 0).unwrap();
     let run = crate::app_timing::read_run(&path).unwrap();
     assert_eq!(run.steps[0].at_merge_base, Some(true));
+    assert!(run.reused_shots.is_empty());
     assert_eq!(
         run.steps[0].shots.as_ref().unwrap().environment,
         "26B131-17C529"

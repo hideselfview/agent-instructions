@@ -1585,6 +1585,7 @@ fn a_build_that_reuses_a_cached_run_leaves_the_passing_build_that_land_counts() 
             shots: None,
         };
         let run = RunRecord {
+            reused_shots: Vec::new(),
             started_at: 5,
             repo: "demo".to_string(),
             lane: Lane::Mac,
@@ -1636,6 +1637,7 @@ fn a_build_that_reuses_a_cached_run_leaves_the_passing_build_that_land_counts() 
     .unwrap();
     assert!(serve().pending.is_empty());
     let run = crate::app_timing::PassedRun {
+        reused_shots: Vec::new(),
         commit: commit.clone(),
         steps: vec!["shots mac.".to_string()],
     };

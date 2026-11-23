@@ -46,6 +46,7 @@ fn cache(places: &Places, commit: &str, prefix: &str, comparison: &str) -> PathB
 
 fn build(branch: &str, commit: &str, prefix: &str) -> RunRecord {
     RunRecord {
+        reused_shots: Vec::new(),
         started_at: 4_000_000_000,
         repo: BAE.to_string(),
         lane: Lane::Mac,

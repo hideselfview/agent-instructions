@@ -166,6 +166,9 @@ pub const REVIEW_FINDING_SITE_PART: &str = include_str!("review/finding_site.sql
 /// The resolved target each app build run was asked to build.
 pub const APP_BUILD_REQUESTED_COMMIT_PART: &str = include_str!("app_build_requested_commit.sql");
 
+/// The cached shots comparisons reused by app builds.
+pub const APP_BUILD_REUSED_SHOTS_PART: &str = include_str!("app_build_reused_shots.sql");
+
 /// Each part of the schema, in the order the schema holds them: the lists'
 /// tables, then the hook stats', then the app-build timings', then the design
 /// changes' recording sessions', then the review's, then the hook checks'
@@ -182,7 +185,7 @@ pub const APP_BUILD_REQUESTED_COMMIT_PART: &str = include_str!("app_build_reques
 /// cap. A table points at ones earlier or
 /// later (SQLite resolves foreign keys when rows are written), but the order is
 /// the one to read the schema in. A part that joins the schema goes at the end.
-const SCHEMA_PARTS: [&str; 45] = [
+const SCHEMA_PARTS: [&str; 46] = [
     include_str!("lists/project.sql"),
     include_str!("lists/area.sql"),
     include_str!("lists/record.sql"),
@@ -228,6 +231,7 @@ const SCHEMA_PARTS: [&str; 45] = [
     REVIEW_KEPT_OPEN_PART,
     REVIEW_FINDING_SITE_PART,
     APP_BUILD_REQUESTED_COMMIT_PART,
+    APP_BUILD_REUSED_SHOTS_PART,
 ];
 
 /// The length of <parts> joined with a newline between each two.
@@ -585,21 +589,13 @@ pub fn schema_before_landing_abandoned() -> String {
 
 #[cfg(test)]
 pub fn schema_before_app_build_requested_commit() -> String {
-    without_reused_shots(&parts_before(APP_BUILD_REQUESTED_COMMIT_PART).join("\n"))
+    parts_before(APP_BUILD_REQUESTED_COMMIT_PART).join("\n")
 }
 
 /// The schema before app builds recorded reused shots comparisons.
 #[cfg(test)]
 pub fn schema_before_reused_shots() -> String {
-    without_reused_shots(SCHEMA)
-}
-
-#[cfg(test)]
-fn without_reused_shots(schema: &str) -> String {
-    schema.replace(
-        "CHECK (\n        result IN ('passed', 'failed', 'timed out', 'taken over', 'stopped')\n        OR (kind = 'shots' AND at_merge_base IS 0 AND result = 'reused')\n    )",
-        "CHECK (result IN ('passed', 'failed', 'timed out', 'taken over', 'stopped'))",
-    )
+    parts_before(APP_BUILD_REUSED_SHOTS_PART).join("\n")
 }
 
 #[cfg(test)]
@@ -764,7 +760,7 @@ fn schema_before(part: &str) -> String {
 /// abandoned.
 #[cfg(test)]
 fn text_before(part: &str) -> String {
-    with_landing_not_abandoned(without_reused_shots(&parts_before(part).join("\n")))
+    with_landing_not_abandoned(parts_before(part).join("\n"))
 }
 
 #[cfg(test)]

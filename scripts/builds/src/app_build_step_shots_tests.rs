@@ -123,6 +123,7 @@ fn each_shots_step_keeps_its_base_run_and_its_screenshots_in_the_store() {
     let scratch = Scratch::new("step-shots-record");
     let store = crate::lists::fixtures::make_store_named(&scratch.places(), "bae", &["bae"]);
     let run = RunRecord {
+        reused_shots: Vec::new(),
         started_at: 1_000_000,
         repo: "bae".to_string(),
         lane: Lane::Mac,
@@ -162,6 +163,7 @@ fn a_run_read_back_holds_the_steps_with_what_they_used() {
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     drop(crate::db::open(&path, crate::db::Make::Allowed).unwrap());
     let run = RunRecord {
+        reused_shots: Vec::new(),
         started_at: 1_000_000,
         repo: "bae".to_string(),
         lane: Lane::Mac,
