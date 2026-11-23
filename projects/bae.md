@@ -255,9 +255,9 @@ session and a design session do the work (`builds help workflow`, ROLES).
 
 ### Board matching
 
-While item 1569 is open, the coordinator runs `plans/board-matching.md` in bae's
-main checkout, round by round, and starts no other work unless it blocks one of
-the round's landings.
+While bae's main checkout holds `plans/board-matching.md`, the coordinator runs
+that plan round by round and starts no other work unless it blocks one of the
+round's landings.
 
 ### Decision stack and work queue
 
