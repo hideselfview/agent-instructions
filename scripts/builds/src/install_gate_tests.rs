@@ -47,6 +47,13 @@ fn closing(places: &Places) -> (std::thread::JoinHandle<Closed>, Receiver<Event>
     (closer, received)
 }
 
+fn active(places: &Places) -> Waiting {
+    match waiting(places).unwrap() {
+        InstallRead::Active(waiting) => waiting,
+        read => panic!("expected an active install, got {read:?}"),
+    }
+}
+
 fn count(dir: &Path) -> usize {
     match std::fs::read_dir(dir) {
         Ok(entries) => entries.count(),
@@ -82,7 +89,7 @@ fn while_install_waits_for_a_command_use_connections_still_open_and_install_wait
         })
     };
     assert_eq!(next(&hook_run_2), said(RUNS_AGAIN));
-    assert_eq!(waiting(&places).unwrap().unwrap().blocked, [13]);
+    assert_eq!(active(&places).blocked, [13]);
     // A command that takes a use per connection starts, and its two
     // connections share one use.
     let Entered::Start(listing) = PerConnection::enter(
@@ -129,7 +136,7 @@ fn while_install_waits_for_a_command_use_connections_still_open_and_install_wait
         next(&opener_events),
         said("builds install moves the stores: this command waits until it finishes")
     );
-    assert_eq!(waiting(&places).unwrap().unwrap().blocked, [13, 14]);
+    assert_eq!(active(&places).blocked, [13, 14]);
     drop(closed);
     assert_eq!(
         next(&hook_run_2),
@@ -342,12 +349,20 @@ fn a_path_names_its_file_until_the_file_is_removed_or_replaced() {
 fn waiting_names_each_use_a_running_install_waits_for() {
     let scratch = Scratch::new("install-gate-waiting");
     let places = scratch.places();
-    assert_eq!(waiting(&places).unwrap(), None, "no install ever ran");
+    assert_eq!(
+        waiting(&places).unwrap(),
+        InstallRead::Idle,
+        "no install ever ran"
+    );
     let quiet = &mut |_: &str| {};
     let hook_run = holds(enter_for_life(&places, 11, "checks run", "10:00:00", quiet).unwrap());
     let listing = PerConnection::new(places.clone(), 12, "item list", "10:00:01").unwrap();
     let connection = listing.take().unwrap();
-    assert_eq!(waiting(&places).unwrap(), None, "no install runs");
+    assert_eq!(
+        waiting(&places).unwrap(),
+        InstallRead::Idle,
+        "no install runs"
+    );
     let (closer, install) = closing(&places);
     assert_eq!(
         next(&install),
@@ -355,7 +370,7 @@ fn waiting_names_each_use_a_running_install_waits_for() {
     );
     assert_eq!(
         waiting(&places).unwrap(),
-        Some(Waiting {
+        InstallRead::Active(Waiting {
             installer: std::process::id() as i32,
             held: vec![11],
             blocked: Vec::new(),
@@ -368,7 +383,7 @@ fn waiting_names_each_use_a_running_install_waits_for() {
     );
     assert_eq!(
         waiting(&places).unwrap(),
-        Some(Waiting {
+        InstallRead::Active(Waiting {
             installer: std::process::id() as i32,
             held: vec![12],
             blocked: Vec::new(),
@@ -378,8 +393,8 @@ fn waiting_names_each_use_a_running_install_waits_for() {
     assert_eq!(next(&install), Event::Done(true));
     let closed = closer.join().unwrap();
     assert_eq!(
-        waiting(&places).unwrap().map(|waiting| waiting.held),
-        Some(Vec::new()),
+        active(&places).held,
+        Vec::<i32>::new(),
         "install moves the stores with both gates closed and no use left"
     );
     drop(closed);
@@ -393,7 +408,11 @@ fn waiting_names_each_use_a_running_install_waits_for() {
     drop(holds(
         enter_for_life(&places, 15, "checks run", "10:00:04", quiet).unwrap(),
     ));
-    assert_eq!(waiting(&places).unwrap(), None, "install ended");
+    assert_eq!(
+        waiting(&places).unwrap(),
+        InstallRead::Idle,
+        "install ended"
+    );
 }
 
 #[test]
@@ -401,10 +420,17 @@ fn health_can_read_the_lock_holder_while_an_install_prepares_its_gates() {
     let scratch = Scratch::new("install-lock-holder");
     let places = scratch.places();
     let installing = begin(&places, &mut |_| {}).unwrap();
-    assert_eq!(
-        waiting(&places).unwrap().unwrap().installer,
-        std::process::id() as i32
-    );
+    assert_eq!(active(&places).installer, std::process::id() as i32);
     drop(installing);
-    assert_eq!(waiting(&places).unwrap(), None);
+    assert_eq!(waiting(&places).unwrap(), InstallRead::Idle);
+}
+
+#[test]
+fn health_distinguishes_an_install_handoff_from_an_idle_lock() {
+    let scratch = Scratch::new("install-lock-handoff");
+    let places = scratch.places();
+    let path = install_lock(&places);
+    let file = open(&path).unwrap();
+    lock(&file, libc::LOCK_EX, &path).unwrap();
+    assert_eq!(waiting(&places).unwrap(), InstallRead::Handoff);
 }

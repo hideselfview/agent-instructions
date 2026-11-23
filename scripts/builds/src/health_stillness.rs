@@ -12,6 +12,7 @@ use crate::places::Places;
 
 use crate::health::{Advice, Finding, FindingKind, Health, LandingWait, Scanned, WorktreeHealth};
 use crate::host_scan::{Row, arguments, program};
+use crate::install_gate::InstallRead;
 use crate::lists::derive::{ItemState, item_state, unmet_waits, wait_met};
 use crate::lists::store::Loaded;
 use crate::lists::{Id, Item, Lists, Wait};
@@ -531,19 +532,10 @@ fn process_work(
         let mut roots = BTreeSet::new();
         if local {
             roots.extend(&assigned);
-            roots.extend(
-                scanned
-                    .install
-                    .as_ref()
-                    .ok()
-                    .and_then(Option::as_ref)
-                    .into_iter()
-                    .flat_map(|wait| {
-                        [wait.installer]
-                            .into_iter()
-                            .chain(wait.held.iter().chain(&wait.blocked).copied())
-                    }),
-            );
+            if let Ok(InstallRead::Active(wait)) = &scanned.install {
+                roots.insert(wait.installer);
+                roots.extend(wait.held.iter().chain(&wait.blocked).copied());
+            }
             for row in scan
                 .rows
                 .iter()
@@ -643,9 +635,9 @@ fn review_wait(places: &Places, pid: i32) -> std::result::Result<Option<Key>, St
     Ok(Some(Key::Review(store.project, id)))
 }
 
-fn process_waits(graph: &mut WorkGraph, health: &Health, scanned: &Scanned, places: &Places) {
+fn process_waits(graph: &mut WorkGraph, health: &mut Health, scanned: &Scanned, places: &Places) {
     if let Some((_, Ok(local))) = scanned.scans.iter().find(|(host, _)| host.target.is_none()) {
-        if let Ok(Some(gates)) = &scanned.install {
+        if let Ok(InstallRead::Active(gates)) = &scanned.install {
             let installer = Key::local(gates.installer);
             if let Some(work) = graph.get_mut(&installer) {
                 work.name.push_str(" holding the install lock");
@@ -655,6 +647,19 @@ fn process_waits(graph: &mut WorkGraph, health: &Health, scanned: &Scanned, plac
             for &pid in &gates.blocked {
                 if let Some(work) = graph.get_mut(&Key::local(pid)) {
                     work.waits.push(Blocker::Work(installer.clone()));
+                }
+            }
+        }
+        if scanned.install == Ok(InstallRead::Handoff) {
+            for row in local
+                .rows
+                .iter()
+                .filter(|row| command_kind(row) == Some("install"))
+            {
+                if let Some(work) = graph.get_mut(&Key::local(row.pid)) {
+                    work.otherwise = Advice::said(
+                        "An installer held the lock when health read it. Health found no owner record.".to_string()
+                    );
                 }
             }
         }
@@ -696,70 +701,43 @@ fn process_waits(graph: &mut WorkGraph, health: &Health, scanned: &Scanned, plac
             }
         }
     }
-    for queue in &health.queues {
-        app_queue_waits(graph, queue, &health.locks);
-    }
-}
-
-fn app_queue_waits(
-    graph: &mut WorkGraph,
-    queue: &crate::health::LaneQueue,
-    locks: &[crate::health::LockHealth],
-) {
-    use crate::lock::Where;
-    let checkouts: Vec<_> = locks
-        .iter()
-        .filter(|lock| lock.repo == queue.repo && lock.lane == queue.lane)
-        .collect();
-    let (mut free_here, mut free_hosts) = (0, 0);
-    for lock in &checkouts {
-        if lock.holder.is_none() {
-            if Where::Here.allows(&lock.checkout) {
-                free_here += 1;
+    for lane in &health.queues {
+        let waits = || -> Result<_> {
+            let refusals = if lane.lane.uses_xcode() {
+                crate::host::refusing_mac_builds(places)?
             } else {
-                free_hosts += 1;
+                Vec::new()
+            };
+            crate::queue::Queue::of(places, &lane.repo, lane.lane).app_waits(&refusals)
+        };
+        let waiting = match waits() {
+            Ok(waiting) => waiting,
+            Err(error) => {
+                health.findings.push(Finding::new(
+                    FindingKind::Processes,
+                    Advice::said(format!(
+                        "Health could not read waits in {}'s {} app queue: {}",
+                        lane.repo,
+                        lane.lane.word(),
+                        error.text()
+                    )),
+                ));
+                continue;
             }
-        }
-    }
-    let (mut here, mut anywhere) = (0, 0);
-    let (mut last_here, mut last_host) = (None, None);
-    for entry in &queue.queue {
-        let key = Key::local(entry.pid);
-        if let Some(work) = graph.get_mut(&key) {
-            let eligible = checkouts
-                .iter()
-                .filter(|lock| entry.allowed.allows(&lock.checkout));
-            if eligible.clone().next().is_none() {
-                work.otherwise =
-                    Advice::said("The lane has no checkout this build can use.".to_string());
-            } else if crate::queue::can_pass(entry.allowed, free_here, free_hosts, here, anywhere) {
-                work.otherwise =
-                    Advice::said("The app build can take an eligible checkout.".to_string());
-            } else {
+        };
+        for (pid, blockers) in waiting {
+            if let Some(work) = graph.get_mut(&Key::local(pid)) {
                 work.wait_join = " or ";
-                let blockers: BTreeSet<_> = eligible
-                    .filter_map(|lock| {
-                        let predecessor = if Where::Here.allows(&lock.checkout) {
-                            last_here
-                        } else {
-                            last_host
-                        };
-                        predecessor.or_else(|| lock.holder.as_ref().map(|holder| holder.pid))
-                    })
-                    .collect();
-                work.waits.extend(
-                    blockers
-                        .into_iter()
-                        .map(|pid| Blocker::Work(Key::local(pid))),
-                );
-            }
-        }
-        last_here = Some(entry.pid);
-        match entry.allowed {
-            Where::Here => here += 1,
-            Where::Anywhere => {
-                anywhere += 1;
-                last_host = Some(entry.pid);
+                work.waits
+                    .extend(blockers.into_iter().map(|blocker| match blocker {
+                        crate::queue::AppWait::Process(pid) => Blocker::Work(Key::local(pid)),
+                        crate::queue::AppWait::HeldCheckout(entry) => Blocker::reason(format!(
+                            "the build holding {entry}'s lock. Health could not read its process"
+                        )),
+                        crate::queue::AppWait::NoEligibleCheckout => {
+                            Blocker::reason("an eligible checkout in the lane")
+                        }
+                    }));
             }
         }
     }
@@ -875,19 +853,16 @@ pub fn append(
     };
     let has_progress = match progress {
         Ok(progress) => {
-            let mut complete = true;
             for (name, read) in &progress.0 {
-                if let Err(error) = read {
-                    complete = false;
-                    if !projects
+                if let Err(error) = read
+                    && !projects
                         .iter()
                         .any(|project| &project.project == name && project.lists.is_err())
-                    {
-                        progress_fault(Some(name), error);
-                    }
+                {
+                    progress_fault(Some(name), error);
                 }
             }
-            complete
+            progress.complete()
         }
         Err(error) => {
             if loaded.is_ok() {
@@ -990,65 +965,6 @@ mod tests {
     use crate::testing::Scratch;
 
     #[test]
-    fn a_local_waiter_does_not_block_the_remote_path_through_the_app_queue() {
-        use crate::health::{Holder, LaneQueue, LockHealth, Queued};
-        use crate::lane::Lane;
-        use crate::lock::Where;
-
-        let mut graph = WorkGraph::default();
-        let queued = |pid, allowed| Queued {
-            pid,
-            allowed,
-            minutes: 30,
-            command: "builds app-build".into(),
-            started_from: None,
-            commit: None,
-        };
-        let lock = |pid, checkout: &str| LockHealth {
-            repo: "demo".into(),
-            lane: Lane::Mac,
-            checkout: checkout.into(),
-            path: String::new(),
-            holder: Some(Holder {
-                pid,
-                minutes: 30,
-                command: "builds app-build".into(),
-                running: Vec::new(),
-                started_from: None,
-                app_head: None,
-                driver_running: true,
-                run: None,
-            }),
-        };
-        for pid in [10, 20, 30, 40] {
-            graph.0.insert(
-                Key::local(pid),
-                Work::new(format!("build {pid}"), Some(0), "The build runs."),
-            );
-        }
-        let queue = LaneQueue {
-            repo: "demo".into(),
-            lane: Lane::Mac,
-            queue: vec![queued(30, Where::Here), queued(40, Where::Anywhere)],
-        };
-        let locks = [lock(20, "host:side-1"), lock(10, "side-1")];
-        app_queue_waits(&mut graph, &queue, &locks);
-        let blockers = |pid| {
-            graph.0[&Key::local(pid)]
-                .waits
-                .iter()
-                .filter_map(|wait| match wait {
-                    Blocker::Work(Key::Process(_, pid)) => Some(*pid),
-                    _ => None,
-                })
-                .collect::<Vec<_>>()
-        };
-        assert_eq!(blockers(30), [10]);
-        assert_eq!(blockers(40), [20, 30]);
-        assert_eq!(graph.0[&Key::local(40)].wait_join, " or ");
-    }
-
-    #[test]
     fn unread_lists_keep_the_health_schedule_needed() {
         let scratch = Scratch::new("health-unreadable-lists");
         let tool = scratch.tool(0);
@@ -1084,7 +1000,7 @@ mod tests {
         .unwrap();
         let scanned = Scanned {
             scans: vec![(Host::local(), Ok(scan))],
-            install: Ok(Some(Waiting {
+            install: Ok(InstallRead::Active(Waiting {
                 installer: 999901,
                 held: vec![999902],
                 blocked: vec![999904],

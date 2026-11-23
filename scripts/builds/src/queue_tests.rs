@@ -29,6 +29,52 @@ fn close(ticket: &Ticket) {
 }
 
 #[test]
+fn health_reads_waits_from_unused_and_held_app_checkouts() {
+    let scratch = Scratch::new("queue-health-waits");
+    let queue = queue_with(&scratch, &["side-1", "m1:side-1", "side-2"]);
+    let local = hold(&queue, "side-1", 10);
+    let remote = open_locked(&queue.lock_path("m1:side-1")).unwrap();
+    let tickets = [
+        plant_live(&queue, 30, Where::Here),
+        plant_live(&queue, 40, Where::Here),
+        plant_live(&queue, 50, Where::Anywhere),
+    ];
+    let waits = |refusals| {
+        queue
+            .app_waits(refusals)
+            .unwrap()
+            .into_iter()
+            .collect::<BTreeMap<_, _>>()
+    };
+    let first = waits(&[]);
+    assert!(
+        first[&30].is_empty(),
+        "one local checkout has never been used"
+    );
+    assert!(first[&40].contains(&AppWait::Process(30)));
+    assert!(first[&40].contains(&AppWait::Process(10)));
+    assert!(first[&50].contains(&AppWait::HeldCheckout("m1:side-1".into())));
+
+    unsafe { libc::close(remote) };
+    assert!(
+        waits(&[])[&50].is_empty(),
+        "the anywhere build can use the free remote checkout"
+    );
+    let refused = crate::host::Refusal {
+        host: "m1".into(),
+        refused: crate::host::Refused::Xcode,
+        at: 0,
+        said: "Xcode cannot start".into(),
+    };
+    let refused = waits(&[refused]);
+    assert!(refused[&50].contains(&AppWait::Process(10)));
+    for ticket in &tickets {
+        close(ticket);
+    }
+    unsafe { libc::close(local) };
+}
+
+#[test]
 fn a_ticket_names_its_process_and_counts_its_own() {
     let scratch = Scratch::new("queue-names");
     let queue = queue(&scratch);

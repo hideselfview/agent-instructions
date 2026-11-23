@@ -780,16 +780,23 @@ pub struct Waiting {
     pub blocked: Vec<i32>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum InstallRead {
+    Idle,
+    Handoff,
+    Active(Waiting),
+}
+
 /// Reads the install that holds the lock and the processes that wait on
 /// either side of it, without waiting on a lock.
-pub fn waiting(places: &Places) -> Result<Option<Waiting>> {
+pub fn waiting(places: &Places) -> Result<InstallRead> {
     if !gate_closed(&install_lock(places))? {
-        return Ok(None);
+        return Ok(InstallRead::Idle);
     }
     let installer = match held_pids(&installers(places))?.as_slice() {
         [pid] => *pid,
         // Install is taking or releasing the lock.
-        [] => return Ok(None),
+        [] => return Ok(InstallRead::Handoff),
         pids => fail!("health found these processes holding the install lock: {pids:?}"),
     };
     let commands_closed = gate_closed(&Kind::Command.gate(places))?;
@@ -805,7 +812,7 @@ pub fn waiting(places: &Places) -> Result<Option<Waiting>> {
             blocked.extend(held_pids(&kind.waiters(places))?);
         }
     }
-    Ok(Some(Waiting {
+    Ok(InstallRead::Active(Waiting {
         installer,
         held,
         blocked,

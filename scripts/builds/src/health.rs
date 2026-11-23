@@ -530,6 +530,9 @@ pub fn sample(
         app_top,
     } in locks
     {
+        if !path.is_file() {
+            continue;
+        }
         let shown = path.display().to_string();
         let real = std::fs::canonicalize(path).unwrap_or(path.clone());
         let opened = |pid: i32| {
@@ -1084,9 +1087,6 @@ pub fn locks_of(places: &crate::places::Places, roots: &[Root]) -> Result<Vec<Ap
         for lane in Lane::ALL {
             for app in places.app_checkouts_of(&repo, lane)? {
                 let path = places.app_lock_file(&repo, lane, &app);
-                if !path.is_file() {
-                    continue;
-                }
                 let app_top = roots
                     .iter()
                     .find(|root| {
@@ -1552,7 +1552,7 @@ pub struct Scanned {
     /// Each host's scan (host_scan.rs), this Mac's among them.
     pub scans: Vec<(Host, std::result::Result<crate::host_scan::Scan, String>)>,
     /// What a running install waits for (install_gate.rs).
-    pub install: std::result::Result<Option<crate::install_gate::Waiting>, String>,
+    pub install: std::result::Result<crate::install_gate::InstallRead, String>,
     pub holders: crate::job_claim::Holders,
     /// The processes whose caller is gone (orphans.rs) that health has not
     /// stopped.
@@ -2774,7 +2774,7 @@ mod tests {
     fn nothing_scanned() -> Scanned {
         Scanned {
             scans: Vec::new(),
-            install: Ok(None),
+            install: Ok(crate::install_gate::InstallRead::Idle),
             holders: crate::job_claim::Holders::read().unwrap(),
             orphans: Vec::new(),
             caches: Ok(Vec::new()),
