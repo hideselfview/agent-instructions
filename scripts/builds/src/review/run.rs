@@ -594,7 +594,7 @@ fn unjudged(members: &[&Rule], diff: &Diff, files: &Globs) -> Vec<String> {
 fn not_read(
     picked: &[(&Group, Vec<&Rule>)],
     at: usize,
-    first: &[FileDiff],
+    first: &[&FileDiff],
     open: &[Finding],
 ) -> Vec<String> {
     let (group, members) = &picked[at];
@@ -694,18 +694,21 @@ pub fn ask_groups(
         .iter()
         .enumerate()
         .map(|(at, units)| {
+            if open.is_empty() {
+                return Vec::new();
+            }
             let mut read = Vec::new();
+            let mut commit_message = None;
             for unit in units {
                 match &unit.file {
-                    Some(file) => read.push(file.clone()),
+                    Some(file) => read.push(file),
                     None => {
-                        read.extend(views[at].patch.files().cloned());
-                        if let Some(file) = views[at].commit_message_for(unit.group) {
-                            read.push(file);
-                        }
+                        read.extend(views[at].patch.files());
+                        commit_message = views[at].commit_message_for(unit.group);
                     }
                 }
             }
+            read.extend(commit_message.as_ref());
             not_read(picked, at, &read, open)
         })
         .collect();
