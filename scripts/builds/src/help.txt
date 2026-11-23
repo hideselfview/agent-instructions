@@ -2704,9 +2704,12 @@ STATUS, HEALTH AND THE DASHBOARD
                               Build, a design change's Approve and Publish
                               to claude.ai…, from any
                               address but 127.0.0.1 or localhost on this Mac).
-                              The page shows checkouts and lists while the
-                              daemon checks design coverage. It updates them
-                              when each comparison finishes.
+                              The page draws checkouts when it receives the
+                              first state. The browser loads the fonts
+                              separately. The daemon checks design coverage
+                              and rules reviews in the background. The page
+                              updates the cards and lists as those checks
+                              finish.
                               It runs `builds prune` 6 hours after the later
                               of the last prune's finish and its own last
                               start, at once when no prune has finished, and

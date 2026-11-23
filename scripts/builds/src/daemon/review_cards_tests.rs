@@ -61,12 +61,12 @@ fn standing_at(
         branch: Some(branch),
         git,
     };
+    let verdict = reads.verdict_at(&demo.store, version, &worktree)?;
     super::standing(
-        reads,
         &demo.store,
-        version,
         &demo.tool.places.sessions(),
-        &worktree,
+        &git.ahead.first().unwrap().full,
+        &verdict,
     )
 }
 
@@ -197,8 +197,8 @@ fn a_card_whose_project_has_no_store_says_so_and_never_that_land_takes_its_commi
         git: &git,
     };
     assert_eq!(
-        super::standing(&reads, &ghost, 1, &demo.tool.places.sessions(), &worktree),
-        Err("there is no store for project ghost".to_string())
+        reads.verdict_at(&ghost, 1, &worktree).unwrap_err(),
+        "there is no store for project ghost"
     );
 }
 
@@ -270,6 +270,23 @@ fn a_worktree_is_judged_once_per_tip_and_again_when_its_branch_main_or_store_mov
     let git = read_git(&side, ahead(&side));
     let version = demo.store.revision().unwrap();
     let not_run = Some(ItemWait::RulesReview(ReviewWait::NotRun));
+    let worktree = Worktree {
+        repo: "demo",
+        top: &side,
+        branch: Some("work"),
+        git: &git,
+    };
+    assert!(reads.completed("demo", version, &worktree).is_none());
+    assert!(reads.fill(&demo.store, version, &worktree));
+    assert_eq!(
+        reads
+            .completed("demo", version, &worktree)
+            .unwrap()
+            .unwrap()
+            .as_ref(),
+        &Verdict::NoRun,
+    );
+    assert!(!reads.fill(&demo.store, version, &worktree));
     assert_eq!(
         standing_at(&reads, &demo, &side, "work", &git, version),
         Ok(not_run.clone())
@@ -292,6 +309,15 @@ fn a_worktree_is_judged_once_per_tip_and_again_when_its_branch_main_or_store_mov
         ("a write to the store", "work", &git, version + 1),
     ];
     for (what, branch, git, version) in tips {
+        let changed = Worktree {
+            branch: Some(branch),
+            git,
+            ..worktree
+        };
+        assert!(
+            reads.completed("demo", version, &changed).is_none(),
+            "{what}"
+        );
         let said = standing_at(&reads, &demo, &side, branch, git, version);
         assert!(said.is_err(), "{what} is judged again, from git: {said:?}");
     }

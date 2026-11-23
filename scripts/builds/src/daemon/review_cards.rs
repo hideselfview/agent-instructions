@@ -5,8 +5,8 @@
 //! running.
 //!
 //! Every open page and the recorder of the cards' states ask for each card's
-//! standing each time they build it. The verdict on the commits is kept for
-//! each tip (`Reads`). Whether a review runs now, and whether the judge's
+//! standing each time they build it. The review worker reads the verdict on
+//! the commits for each tip. Whether a review runs now, and whether the judge's
 //! session runs, change with no write to the store, so `standing` reads them
 //! each time.
 
@@ -14,7 +14,6 @@ use super::cards::{ItemWait, ReviewWait, Settler};
 use crate::fail::Fail;
 use crate::lists::store::Store;
 use crate::review::landing::Verdict;
-use crate::review::verdicts::{Reads, Worktree};
 
 /// What the review's records and the branch's net change say of a
 /// worktree's commits.
@@ -56,27 +55,19 @@ impl<'a> Judgment<'a> {
     }
 }
 
-/// Where the review of <worktree>'s commits stands, for a worktree
-/// whose project's store is <store>, at version <version> as the daemon
-/// last read it; None when land would take them as far as the review
-/// goes, or when they need no review. Findings to settle wait on the
-/// judge while one listens, which Claude Code's running sessions in
-/// <sessions> say. Fails, saying why, when git cannot read the commits
-/// or builds cannot open or read the store or the sessions.
+/// Where the review of the commits through <newest> stands, given their
+/// <verdict>. None when land would take them as far as the review goes,
+/// or when the commits need no review. Findings to settle wait on the
+/// judge while one listens, which <store> and <sessions> say.
 pub fn standing(
-    reads: &Reads,
     store: &Store,
-    version: u64,
     sessions: &crate::inbox::Sessions,
-    worktree: &Worktree,
+    newest: &str,
+    verdict: &Verdict,
 ) -> Result<Option<ItemWait>, String> {
-    let Some(newest) = worktree.git.ahead.first() else {
-        return Ok(None);
-    };
-    let verdict = reads.verdict_at(store, version, worktree)?;
-    let wait = match Judgment::of(&verdict) {
+    let wait = match Judgment::of(verdict) {
         Judgment::NotNeeded => return Ok(None),
-        _ if crate::review::is_running(&store.dir, &newest.full) => ReviewWait::Running,
+        _ if crate::review::is_running(&store.dir, newest) => ReviewWait::Running,
         Judgment::Takes => return Ok(None),
         Judgment::NotRun => ReviewWait::NotRun,
         Judgment::ToSettle(findings) => {

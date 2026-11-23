@@ -31,8 +31,7 @@ type Read = Vec<Vec<String>>;
 
 /// A project's rules as `Material::load` last read them, or why it failed,
 /// and the count of changes to the rules files the read came after. A read
-/// that finds the same rules keeps the earlier `Arc`, so a worktree judged
-/// against them need not be judged again.
+/// uses that count to decide whether the rules need reading again.
 type Rules = (u64, Result<Arc<Material>, String>);
 
 /// A side worktree whose card shows where its rules review stands, as the
@@ -72,9 +71,11 @@ impl Tip {
 /// A worktree's verdict and what it was judged from.
 struct Judged {
     tip: Tip,
-    rules: Arc<Material>,
-    verdict: Arc<Verdict>,
+    rules_version: u64,
+    verdict: Outcome,
 }
+
+type Outcome = Result<Arc<Verdict>, String>;
 
 /// What git said of each worktree's commits, kept until they differ, the
 /// rules of each project as last read, and each worktree's judgment, kept
@@ -86,7 +87,9 @@ pub struct Reads {
     rules: Mutex<HashMap<String, Rules>>,
     /// How many times the rules files changed (`rules_changed`).
     rules_changes: AtomicU64,
-    judged: Mutex<HashMap<PathBuf, Judged>>,
+    judged: Mutex<HashMap<PathBuf, HashMap<String, Judged>>>,
+    /// Only one reader judges at a time. Completed reads never take this lock.
+    judging: Mutex<()>,
 }
 
 impl Default for Reads {
@@ -105,6 +108,7 @@ impl Reads {
             rules: Mutex::new(HashMap::new()),
             rules_changes: AtomicU64::new(0),
             judged: Mutex::new(HashMap::new()),
+            judging: Mutex::new(()),
         }
     }
 
@@ -161,52 +165,84 @@ impl Reads {
         {
             return material.clone();
         }
-        let material = match (
-            held.and_then(|(_, material)| material.ok()),
-            Material::load(root, project),
-        ) {
-            (Some(before), Ok(read)) if *before == read => Ok(before),
-            (_, read) => read.map(Arc::new).map_err(|why| {
-                format!(
-                    "reading the rules of {project} from {}: {}",
-                    root.display(),
-                    why.text()
-                )
-            }),
-        };
+        let material = Material::load(root, project).map(Arc::new).map_err(|why| {
+            format!(
+                "reading the rules of {project} from {}: {}",
+                root.display(),
+                why.text()
+            )
+        });
         rules.insert(project.to_string(), (changes, material.clone()));
         material
     }
 
-    /// The verdict on <worktree>'s commits at <tip> against <rules>: the
-    /// one kept for the worktree when it was judged at the same tip against
-    /// the same rules, else judged now. Reads keeps only a verdict that
-    /// succeeded, so the next page build judges again after a failure.
-    fn verdict(
+    fn kept(&self, project: &str, top: &Path, tip: &Tip, rules_version: u64) -> Option<Outcome> {
+        let judged = self.judged.lock().expect("no panic holding it");
+        let kept = judged.get(top)?.get(project)?;
+        if &kept.tip == tip && kept.rules_version == rules_version {
+            return Some(kept.verdict.clone());
+        }
+        None
+    }
+
+    /// The verdict for the current inputs if a read finished. Never waits
+    /// for Git or a store.
+    pub fn completed(&self, project: &str, version: u64, worktree: &Worktree) -> Option<Outcome> {
+        let rules_version = self.rules_changes.load(Ordering::SeqCst);
+        self.kept(
+            project,
+            worktree.top,
+            &Tip::of(worktree, version),
+            rules_version,
+        )
+    }
+
+    /// Judges a pending dashboard tip. Returns true if it published a verdict.
+    pub fn fill(&self, store: &Store, version: u64, worktree: &Worktree) -> bool {
+        let (outcome, changed) = self.read_at(store, version, worktree, false);
+        if changed && let Err(error) = outcome {
+            crate::text::note(format!(
+                "reading the rules review of {} in {}: {error}",
+                worktree.top.display(),
+                store.project
+            ));
+        }
+        changed
+    }
+
+    fn read_at(
         &self,
         store: &Store,
+        version: u64,
         worktree: &Worktree,
-        tip: Tip,
-        rules: Arc<Material>,
-    ) -> Result<Arc<Verdict>, String> {
-        // Held while judging, so builds that ask at once judge once.
-        let mut judged = self.judged.lock().expect("no panic holding it");
-        if let Some(kept) = judged.get(worktree.top)
-            && kept.tip == tip
-            && Arc::ptr_eq(&kept.rules, &rules)
+        retry_failed: bool,
+    ) -> (Outcome, bool) {
+        let _judging = self.judging.lock().expect("no panic holding it");
+        let tip = Tip::of(worktree, version);
+        let rules_version = self.rules_changes.load(Ordering::SeqCst);
+        if let Some(kept) = self.kept(&store.project, worktree.top, &tip, rules_version)
+            && (!retry_failed || kept.is_ok())
         {
-            return Ok(kept.verdict.clone());
+            return (kept, false);
         }
-        let verdict = Arc::new(self.judge(store, worktree, &rules)?);
-        judged.insert(
-            worktree.top.to_path_buf(),
-            Judged {
-                tip,
-                rules,
-                verdict: verdict.clone(),
-            },
-        );
-        Ok(verdict)
+        let verdict = self
+            .rules(&store.project)
+            .and_then(|rules| self.judge(store, worktree, &rules))
+            .map(Arc::new);
+        self.judged
+            .lock()
+            .expect("no panic holding it")
+            .entry(worktree.top.to_path_buf())
+            .or_default()
+            .insert(
+                store.project.clone(),
+                Judged {
+                    tip,
+                    rules_version,
+                    verdict: verdict.clone(),
+                },
+            );
+        (verdict, true)
     }
 
     /// The verdict on the commits of <worktree>, a worktree of <lists>'
@@ -229,8 +265,7 @@ impl Reads {
         version: u64,
         worktree: &Worktree,
     ) -> Result<Arc<Verdict>, String> {
-        let rules = self.rules(&store.project)?;
-        self.verdict(store, worktree, Tip::of(worktree, version), rules)
+        self.read_at(store, version, worktree, true).0
     }
 
     /// Judges <worktree>'s commits the way `builds land` does, against the

@@ -50,6 +50,8 @@ pub enum ReviewWait {
     NotRun,
     /// A review of the branch's newest commit runs now.
     Running,
+    /// Builds is reading the branch's rules review.
+    Checking,
     /// Builds is checking which design changes cover the branch's commits.
     DesignCoverage,
     /// This many findings wait for the settler to settle them.
@@ -76,7 +78,7 @@ impl ReviewWait {
     fn chip(self) -> &'static str {
         match self {
             ReviewWait::NotRun => "Needs review",
-            ReviewWait::Running | ReviewWait::DesignCoverage => "Reviewing",
+            ReviewWait::Running | ReviewWait::Checking | ReviewWait::DesignCoverage => "Reviewing",
             ReviewWait::ToSettle(..) => "Findings to settle",
             ReviewWait::Open(_) => "Open findings",
             ReviewWait::Unreviewed(_) => "Unreviewed changes",
@@ -87,6 +89,7 @@ impl ReviewWait {
     fn pill(self) -> Option<Pill> {
         let text = match self {
             ReviewWait::NotRun | ReviewWait::Running => return None,
+            ReviewWait::Checking => "Review status".to_string(),
             ReviewWait::DesignCoverage => "Design coverage".to_string(),
             ReviewWait::ToSettle(n, _) | ReviewWait::Open(n) => {
                 crate::text::counted(n, "finding", "findings")
@@ -108,6 +111,7 @@ impl ReviewWait {
         match self {
             // The chip says it.
             ReviewWait::NotRun => String::new(),
+            ReviewWait::Checking => "Builds checks where the rules review stands.".to_string(),
             ReviewWait::Running => "The rules review of its commits runs.".to_string(),
             ReviewWait::DesignCoverage => "Builds checks which design changes cover the commits.".to_string(),
             ReviewWait::ToSettle(n, settler) => format!(
@@ -307,7 +311,9 @@ impl CardState {
             CardState::Queued(Lane::Android) => "waiting-on-android",
             CardState::Paused => "paused",
             CardState::InReview(ReviewWait::NotRun) => "needs-review",
-            CardState::InReview(ReviewWait::Running | ReviewWait::DesignCoverage) => "reviewing",
+            CardState::InReview(
+                ReviewWait::Running | ReviewWait::Checking | ReviewWait::DesignCoverage,
+            ) => "reviewing",
             CardState::InReview(ReviewWait::ToSettle(..)) => "findings-to-settle",
             CardState::InReview(ReviewWait::Open(_)) => "open-findings",
             CardState::InReview(ReviewWait::Unreviewed(_)) => "unreviewed-changes",

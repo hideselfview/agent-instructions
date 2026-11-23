@@ -6,7 +6,8 @@
 <title>Builds</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<!-- A remote stylesheet must not block the script that opens the event stream. -->
+<link rel="stylesheet" media="print" onload="this.media = 'all'" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
 <style>
 @@PALETTE@@
 @@CONTROLS@@
@@ -1332,11 +1333,9 @@ function render() {
   waitsDetails();
   laneModalView();
   findingsView(state.health, state.host_findings);
-  if (lists && !lists.error) renderLists();
   const root = document.getElementById("view");
   if (root.firstElementChild && !root.firstElementChild.dataset.key) root.replaceChildren();
   reposView(root);
-  tick();
 }
 
 // The Lists panel hides and shows from its own button and the title's; the
@@ -1360,11 +1359,12 @@ events.addEventListener("state", e => {
   streamError = "";
   connectionDown = false;
   render();
+  if (tab === "running" && lists && !lists.error) renderListBody();
 });
 events.addEventListener("failure", e => { streamError = "state: " + JSON.parse(e.data).error; render(); });
 
-// ---- The lists sidebar. It only shows what the daemon sends (the `lists`
-// event, and /api/lists on load); every change to the lists goes through the
+// ---- The lists sidebar. It shows what the daemon sends in the `lists`
+// event; every change to the lists goes through the
 // `builds` commands, except a question's effect, which the person changes in
 // the question's row and the daemon writes as `builds question edit --effect`
 // does. ----
@@ -1376,7 +1376,6 @@ const TABS = ["stack", "running", "queue"];
 let allLists = [];             // the last lists JSON of each project
 let lists = null;              // the chosen project's lists JSON
 let project = "";              // the chosen project's name
-let listsNote = "Reading the lists";   // what the sidebar says while there are none
 let tab = "stack";
 let tagFilter = "";            // the tag whose entries alone are shown; "" for all
 let index = new Map();         // record id -> {tab, key, title}
@@ -1967,26 +1966,29 @@ function renderLists() {
     document.getElementById("l-controls").hidden = true;
     body.dataset.tab = "";
     body.replaceChildren(lists ? h("div", {class: "error"}, "The lists store of " + (lists.project || "the projects") + " failed its check: " + lists.error)
-      : h("div", {class: "l-empty"}, listsNote));
+      : h("div", {class: "l-empty"}, "Reading the lists"));
     return;
   }
   tabs.hidden = false;
   renderTags();
   renderControls();
+  const counts = tabCounts();
+  for (const b of tabs.querySelectorAll("button")) {
+    b.setAttribute("aria-selected", String(b.dataset.tab === tab));
+    b.querySelector(".l-count").textContent = counts[b.dataset.tab];
+  }
+  renderListBody();
+}
+function renderListBody() {
+  const body = document.getElementById("l-body");
   if (body.dataset.tab !== tab) { body.replaceChildren(); body.dataset.tab = tab; }
   try {
-    const counts = tabCounts();
-    for (const b of tabs.querySelectorAll("button")) {
-      b.setAttribute("aria-selected", String(b.dataset.tab === tab));
-      b.querySelector(".l-count").textContent = counts[b.dataset.tab];
-    }
     patch(body, {stack: stackItems, running: runningItems, queue: queueItems}[tab]());
   } catch (e) {
     // The tab says why it draws no cards, never an empty list under a count.
     body.replaceChildren(h("div", {class: "error"}, "The " + tab + " tab failed to draw: " + e.message));
     console.error(e);
   }
-  tick();
 }
 function showRecord(id) {
   const rec = index.get(id);
@@ -2048,23 +2050,10 @@ document.getElementById("l-body").addEventListener("click", e => {
   e.preventDefault();
   showRecord(Number(a.dataset.ref));
 });
-renderLists();
 events.addEventListener("lists", e => setLists(JSON.parse(e.data)));
-// The first read; the `lists` event takes over once it arrives. A daemon that
-// doesn't serve the lists answers 404.
-fetch("/api/lists").then(async reply => {
-  if (reply.status === 404) throw new Error("This daemon doesn’t serve them yet.");
-  if (!reply.ok) throw new Error("the daemon answered " + reply.status);
-  const body = await reply.json();
-  if (!lists) setLists(body);
-}).catch(e => {
-  if (lists) return;
-  listsNote = "The lists aren’t available. " + e.message;
-  renderLists();
-});
 
 // ---- The commit hook figures read what the hook ran for each project, from
-// the `hooks` event (hook_stats.rs) and /api/hooks on load. ----
+// the `hooks` event (hook_stats.rs). ----
 function setHooks(next) {
   hooks = next;
   const errors = hooks.error ? [hooks.error] : hooks.projects.filter(p => p.error).map(p => p.project + ": " + p.error);
@@ -2072,11 +2061,6 @@ function setHooks(next) {
   render();
 }
 events.addEventListener("hooks", e => setHooks(JSON.parse(e.data)));
-fetch("/api/hooks").then(async reply => {
-  if (!reply.ok) throw new Error("the daemon answered " + reply.status);
-  const body = await reply.json();
-  if (!hooks) setHooks(body);
-}).catch(() => { /* the `hooks` event shows them once the daemon sends it */ });
 // The top bar stays in view and gets a hairline once the page has scrolled.
 const topBar = document.querySelector(".hdr");
 addEventListener("scroll", () => topBar.classList.toggle("stuck", scrollY > 0), {passive: true});
