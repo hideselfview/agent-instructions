@@ -18,9 +18,6 @@ pub fn run_report(calls: &[Call], findings: &[Finding]) -> String {
             call.failure.as_deref(),
             accepted.len(),
         ));
-        if call.failure.is_some() {
-            continue;
-        }
         for finding in accepted {
             out.push_str(&finding_text(finding));
         }

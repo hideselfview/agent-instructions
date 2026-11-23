@@ -1195,6 +1195,47 @@ fn a_reviewer_that_fails_keeps_the_commits_from_landing_and_only_it_is_asked_aga
 }
 
 #[test]
+fn a_failed_review_call_lists_the_findings_it_recorded() {
+    let demo = demo("review-failed-with-findings");
+    let fake = fake(&demo.scratch.dir);
+    style_group(
+        &fake,
+        serde_json::json!([
+            style_site("a.rs", "a.rs"),
+            style_site("a.rs", "code outside the diff"),
+        ]),
+    );
+    fake.answer_task("style-b.rs", serde_json::json!({"summary": "s"}));
+    let side = demo.add_side(1, "agent", "work");
+    demo.commit(&side, "a.rs");
+    demo.commit(&side, "b.rs");
+
+    let reported = run_review(&demo, &fake, &side, "k");
+    let findings = findings_of(&demo, reported.landing.unwrap());
+    let [kept, dropped] = findings.as_slice() else {
+        panic!("expected two findings, got {findings:?}");
+    };
+    let (_, group) = reported.text.split_once("\nstyle (").unwrap();
+    assert!(group.contains("the review failed:"), "{}", reported.text);
+    assert!(
+        group.contains(&format!(
+            "\n  finding {} (blocking) rule-s, a.rs:1",
+            kept.id
+        )),
+        "{}",
+        reported.text
+    );
+    assert!(
+        group.contains(&format!(
+            "\n  dropped by builds, finding {} (rule-s)",
+            dropped.id
+        )),
+        "{}",
+        reported.text
+    );
+}
+
+#[test]
 fn a_retry_of_an_older_head_reviews_its_diff_without_judging_open_findings() {
     let demo = demo("review-old-retry");
     let fake = fake(&demo.scratch.dir);
