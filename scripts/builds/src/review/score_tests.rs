@@ -50,7 +50,7 @@ fn finding(
         rule: rule.to_string(),
         clause: "c".to_string(),
         file: file.to_string(),
-        line,
+        line: record::FindingLine::AtHead(line),
         code: code.to_string(),
         problem: "p".to_string(),
         blocking: true,

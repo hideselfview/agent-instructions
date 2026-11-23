@@ -35,13 +35,36 @@ pub struct NewFinding {
 pub enum FindingLine {
     AtHead(i64),
     Reported(i64),
+    Legacy(i64),
 }
 
 impl FindingLine {
     pub fn number(self) -> i64 {
         match self {
-            Self::AtHead(line) | Self::Reported(line) => line,
+            Self::AtHead(line) | Self::Reported(line) | Self::Legacy(line) => line,
         }
+    }
+
+    fn proof(self) -> Option<bool> {
+        match self {
+            Self::AtHead(_) => Some(true),
+            Self::Reported(_) => Some(false),
+            Self::Legacy(_) => None,
+        }
+    }
+
+    fn read(line: i64, proof: Option<bool>) -> Self {
+        match proof {
+            Some(true) => Self::AtHead(line),
+            Some(false) => Self::Reported(line),
+            None => Self::Legacy(line),
+        }
+    }
+}
+
+impl std::fmt::Display for FindingLine {
+    fn fmt(&self, out: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.number().fmt(out)
     }
 }
 
@@ -119,7 +142,7 @@ pub struct Finding {
     pub rule: String,
     pub clause: String,
     pub file: String,
-    pub line: i64,
+    pub line: FindingLine,
     pub code: String,
     pub problem: String,
     pub blocking: bool,
@@ -190,12 +213,15 @@ impl Finding {
         self.kind == "review" && self.counts() && self.settled.is_none()
     }
 
-    /// Whether <raised> quotes the same rule, clause and code in the same
-    /// file. The caller checks which occurrence it quotes.
-    pub fn matches_quote(&self, raised: &NewFinding) -> bool {
+    /// Whether <raised> may quote the same site. The caller resolves a
+    /// legacy bare name and checks which occurrence it quotes.
+    pub fn could_match_quote(&self, raised: &NewFinding) -> bool {
         self.rule == raised.rule
             && self.clause == raised.clause
-            && self.file == raised.file
+            && (self.file == raised.file
+                || (matches!(self.line, FindingLine::Legacy(_))
+                    && !self.file.contains('/')
+                    && super::check::names_file(&raised.file, &self.file)))
             && super::cases::same_code(&self.code, &raised.code)
     }
 
@@ -537,8 +563,8 @@ pub fn add_calls(
         let mut finding_ids = Vec::new();
         for f in &call.findings {
             db.execute(
-                "INSERT INTO review_finding (call_id, rule, clause, file, line, code, problem, blocking, check_failed) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-                params![call_id, f.rule, f.clause, f.file, f.line.number(), f.code, f.problem, f.blocking, f.check_failed],
+                "INSERT INTO review_finding (call_id, rule, clause, file, line, code, problem, blocking, check_failed, head_site) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                params![call_id, f.rule, f.clause, f.file, f.line.number(), f.code, f.problem, f.blocking, f.check_failed, f.line.proof()],
             )
             .sql()?;
             finding_ids.push(db.last_insert_rowid());
@@ -652,7 +678,7 @@ pub fn allow(db: &Connection, id: i64, why: &str, now: i64, by: &str) -> Result<
     Ok(())
 }
 
-const FINDING_COLUMNS: &str = "f.id, c.run_id, r.kind, r.landing_id, c.group_name, f.rule, f.clause, f.file, f.line, f.code, f.problem, f.blocking, f.check_failed, f.settled, f.settled_why, f.settled_by, a.why, a.by, z.run_id, w.why, w.by, f.settled_at, a.at";
+const FINDING_COLUMNS: &str = "f.id, c.run_id, r.kind, r.landing_id, c.group_name, f.rule, f.clause, f.file, f.line, f.code, f.problem, f.blocking, f.check_failed, f.settled, f.settled_why, f.settled_by, a.why, a.by, z.run_id, w.why, w.by, f.settled_at, a.at, f.head_site";
 
 fn finding_from(row: &rusqlite::Row) -> rusqlite::Result<Finding> {
     let settled: Option<String> = row.get(13)?;
@@ -702,7 +728,7 @@ fn finding_from(row: &rusqlite::Row) -> rusqlite::Result<Finding> {
         rule: row.get(5)?,
         clause: row.get(6)?,
         file: row.get(7)?,
-        line: row.get(8)?,
+        line: FindingLine::read(row.get(8)?, row.get(23)?),
         code: row.get(9)?,
         problem: row.get(10)?,
         blocking: row.get(11)?,

@@ -160,6 +160,9 @@ pub const APP_BUILD_STEP_SHOTS_PART: &str = include_str!("app_build_step_shots.s
 /// The review calls that found an earlier finding still open.
 pub const REVIEW_KEPT_OPEN_PART: &str = include_str!("review/kept_open.sql");
 
+/// Whether builds verified a finding's line at the reviewed head.
+pub const REVIEW_FINDING_SITE_PART: &str = include_str!("review/finding_site.sql");
+
 /// Each part of the schema, in the order the schema holds them: the lists'
 /// tables, then the hook stats', then the app-build timings', then the design
 /// changes' recording sessions', then the review's, then the hook checks'
@@ -176,7 +179,7 @@ pub const REVIEW_KEPT_OPEN_PART: &str = include_str!("review/kept_open.sql");
 /// cap. A table points at ones earlier or
 /// later (SQLite resolves foreign keys when rows are written), but the order is
 /// the one to read the schema in. A part that joins the schema goes at the end.
-const SCHEMA_PARTS: [&str; 43] = [
+const SCHEMA_PARTS: [&str; 44] = [
     include_str!("lists/project.sql"),
     include_str!("lists/area.sql"),
     include_str!("lists/record.sql"),
@@ -220,6 +223,7 @@ const SCHEMA_PARTS: [&str; 43] = [
     APP_SHOTS_DROP_PART,
     APP_BUILD_STEP_SHOTS_PART,
     REVIEW_KEPT_OPEN_PART,
+    REVIEW_FINDING_SITE_PART,
 ];
 
 /// The length of <parts> joined with a newline between each two.
@@ -539,6 +543,11 @@ pub fn schema_before_codex_inboxes() -> String {
 #[cfg(test)]
 pub fn schema_before_review_kept_open() -> String {
     parts_before(REVIEW_KEPT_OPEN_PART).join("\n")
+}
+
+#[cfg(test)]
+pub fn schema_before_finding_site() -> String {
+    parts_before(REVIEW_FINDING_SITE_PART).join("\n")
 }
 
 /// The schema as it was before the app build steps' table kept whether a step

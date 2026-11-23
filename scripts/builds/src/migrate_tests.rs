@@ -2278,6 +2278,28 @@ fn a_store_from_before_review_calls_recorded_open_verdicts_gains_the_empty_table
 }
 
 #[test]
+fn earlier_review_findings_keep_their_reported_lines_without_claiming_verification() {
+    use crate::review::record::{FindingLine, findings_of_run};
+
+    let scratch = Scratch::new("move-review-finding-site");
+    let places = scratch.places();
+    let path = scratch.dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        let prior = db::schema_before_finding_site();
+        assert_eq!(db::stamp_of_text(&prior), BEFORE_REVIEW_FINDING_SITE_STAMP);
+        conn.execute_batch(&prior).unwrap();
+        crate::review::record::tests::plant_finding_before_head_sites(&conn);
+        conn.pragma_update(None, "user_version", BEFORE_REVIEW_FINDING_SITE_STAMP)
+            .unwrap();
+    }
+    move_store(&places, &path, 0).unwrap();
+    let conn = db::open(&path, db::Make::Never).unwrap();
+    let findings = findings_of_run(&conn, 1).unwrap();
+    assert_eq!(findings[0].line, FindingLine::Legacy(7));
+}
+
+#[test]
 fn adding_codex_destinations_keeps_registered_claude_inboxes() {
     let old = db::schema_before_codex_inboxes();
     assert_eq!(db::stamp_of_text(&old), BEFORE_CODEX_INBOX_STAMP);

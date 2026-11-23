@@ -24,7 +24,7 @@ fn finding(kind: &str, rule: &str, file: &str, check_failed: Option<&str>) -> Fi
         rule: rule.to_string(),
         clause: "c".to_string(),
         file: file.to_string(),
-        line: 1,
+        line: record::FindingLine::AtHead(1),
         code: "x".to_string(),
         problem: "p".to_string(),
         blocking: true,

@@ -57,7 +57,7 @@ pub fn finding_text(finding: &Finding) -> String {
             finding.blocking,
             &finding.rule,
             &finding.file,
-            finding.line,
+            finding.line.number(),
             &finding.clause,
             &finding.code,
             &finding.problem

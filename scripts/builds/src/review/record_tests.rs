@@ -1,6 +1,27 @@
 use super::*;
 use crate::lists::fixtures::db;
 
+pub fn plant_finding_before_head_sites(db: &Connection) {
+    db.execute_batch(
+        "INSERT INTO review_run (id, kind, at, base, head, rules_version)
+            VALUES (1, 'replay', 1, 'base', 'head', 'rules');
+         INSERT INTO review_call (id, run_id, group_name, model, prompt, rules)
+            VALUES (1, 1, 'group', 'model', 'prompt', '[]');
+         INSERT INTO review_finding (call_id, rule, clause, file, line, code, problem, blocking)
+            VALUES (1, 'rule', 'clause', 'file.rs', 7, 'code', 'problem', 1);",
+    )
+    .unwrap();
+}
+
+pub fn mark_finding_as_legacy(db: &Connection, finding: i64) -> Result<()> {
+    db.execute(
+        "UPDATE review_finding SET head_site = NULL WHERE id = ?1",
+        [finding],
+    )
+    .sql()?;
+    Ok(())
+}
+
 fn call(group: &str, finding: Option<(&str, bool, Option<&str>)>) -> NewCall {
     NewCall {
         group: group.to_string(),

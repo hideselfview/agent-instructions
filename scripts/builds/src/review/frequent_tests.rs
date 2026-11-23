@@ -151,7 +151,7 @@ fn review(findings: &[(&str, &str)]) -> FirstReview {
                 rule: rule.to_string(),
                 clause: clause.to_string(),
                 file: "a.rs".to_string(),
-                line: 1,
+                line: FindingLine::AtHead(1),
                 code: "x".to_string(),
                 problem: "p".to_string(),
                 blocking: true,

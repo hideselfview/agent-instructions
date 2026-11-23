@@ -1325,7 +1325,40 @@ fn a_finding_on_another_occurrence_of_the_same_line_does_not_keep_the_original_o
     let findings = findings_of(&demo, landing);
     assert_eq!(findings.len(), 2, "{}", reported.text);
     assert!(findings[0].closed_by.is_some(), "{}", reported.text);
-    assert_eq!(findings[1].line, 2);
+    assert_eq!(findings[1].line, record::FindingLine::AtHead(2));
+    assert!(findings[1].is_unsettled(), "{}", reported.text);
+}
+
+#[test]
+fn a_stored_removal_cannot_act_as_a_verified_position_in_the_head() {
+    let demo = demo("review-stored-removed-site");
+    let fake = fake(&demo.scratch.dir);
+    demo.commit(&demo.main, "a.rs");
+    let side = demo.add_side(1, "agent", "work");
+    std::fs::write(side.join("a.rs"), "changed\n").unwrap();
+    crate::testing::git(&side, &["commit", "-qam", "Remove the quoted code"]);
+    fake.answer("alpha", &[("rule-a", Some(BAD))]);
+    let landing = run_review(&demo, &fake, &side, "k").landing.unwrap();
+    let initial = &findings_of(&demo, landing)[0];
+    assert_eq!(initial.line, record::FindingLine::Reported(1));
+    let original = initial.id;
+    settle_as(&demo, original, "confirmed", "real");
+
+    std::fs::write(side.join("a.rs"), "a.rs\n").unwrap();
+    crate::testing::git(&side, &["commit", "-qam", "Restore the code"]);
+    fake.answer_task(
+        "alpha",
+        serde_json::json!({
+            "rules": [{"rule": "rule-a", "verdict": "finding", "findings": [
+                {"clause": BAD.0, "file": BAD.1, "line": 1, "code": BAD.3, "problem": BAD.4},
+            ]}],
+            "follow_up": [{"id": original, "verdict": "fixed"}],
+        }),
+    );
+    let reported = run_review(&demo, &fake, &side, "k");
+    let findings = findings_of(&demo, landing);
+    assert_eq!(findings.len(), 2, "{}", reported.text);
+    assert!(findings[0].closed_by.is_some(), "{}", reported.text);
     assert!(findings[1].is_unsettled(), "{}", reported.text);
 }
 
@@ -1340,6 +1373,13 @@ fn a_repeat_after_lines_above_it_shift_still_disagrees_with_a_fixed_verdict() {
     fake.answer("alpha", &[("rule-a", Some(BAD))]);
     let landing = run_review(&demo, &fake, &side, "k").landing.unwrap();
     let finding = findings_of(&demo, landing)[0].id;
+    demo.store
+        .write(
+            &stamp(),
+            "simulate a finding without position evidence",
+            |db| record::tests::mark_finding_as_legacy(db, finding),
+        )
+        .unwrap();
     settle_as(&demo, finding, "confirmed", "real");
 
     std::fs::write(side.join("a.rs"), "prefix\na.rs\n").unwrap();

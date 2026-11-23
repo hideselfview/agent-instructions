@@ -277,13 +277,16 @@ const BEFORE_CODEX_INBOX_STAMP: i64 = 807_141_969;
 /// The stamp before review calls recorded which findings they kept open.
 const BEFORE_REVIEW_KEPT_OPEN_STAMP: i64 = 916_849_912;
 
+/// The stamp before review findings recorded whether builds verified the line.
+const BEFORE_REVIEW_FINDING_SITE_STAMP: i64 = 124_925_398;
+
 /// The stamp of today's schema (`db::STAMP`). A change to the schema changes
 /// its stamp, and builds then fails to compile until the change gives it a
 /// move from this schema, since every store carries this stamp: the change
 /// adds the move, puts this stamp at the end of `STAMPS` under a name that
 /// says what the schema lacked, and sets this to the new schema's stamp, which
 /// the compiler's error names.
-const SCHEMA_STAMP: i64 = 124_925_398;
+const SCHEMA_STAMP: i64 = 1_883_012_206;
 
 // The compiler refuses a schema whose stamp is not SCHEMA_STAMP. A const
 // assert could not print the new stamp, so the check compares two array
@@ -293,7 +296,7 @@ const _: [(); SCHEMA_STAMP as usize] = [(); db::STAMP as usize];
 
 /// Every stamp a store can carry that `move_store` moves, oldest schema first.
 /// A new move adds the stamp of the schema before it at the end.
-const STAMPS: [i64; 38] = [
+const STAMPS: [i64; 39] = [
     BEFORE_CONDITION_ENDERS_STAMP,
     BEFORE_ITEM_EVENT_STAMP,
     BEFORE_LAND_RUN_STAMP,
@@ -332,6 +335,7 @@ const STAMPS: [i64; 38] = [
     BEFORE_UNREPORTED_USAGE_STAMP,
     BEFORE_CODEX_INBOX_STAMP,
     BEFORE_REVIEW_KEPT_OPEN_STAMP,
+    BEFORE_REVIEW_FINDING_SITE_STAMP,
 ];
 
 /// Whether a store stamped <found> comes before the move that follows the
@@ -641,6 +645,9 @@ pub fn move_store(places: &Places, path: &Path, now: i64) -> Result<()> {
     }
     if before(found, BEFORE_REVIEW_KEPT_OPEN_STAMP) {
         tx.execute_batch(db::REVIEW_KEPT_OPEN_PART).sql()?;
+    }
+    if before(found, BEFORE_REVIEW_FINDING_SITE_STAMP) {
+        tx.execute_batch(db::REVIEW_FINDING_SITE_PART).sql()?;
     }
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     let broken: Option<String> = tx

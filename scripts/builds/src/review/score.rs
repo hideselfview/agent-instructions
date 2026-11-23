@@ -284,7 +284,8 @@ fn call_of<'a>(mut calls: impl Iterator<Item = &'a Call>, finding: &Finding) -> 
 fn same_site(a: &Finding, b: &Finding, near: bool) -> bool {
     a.rule == b.rule
         && same_file(&a.file, &b.file)
-        && (same_code(&a.code, &b.code) || (near && (a.line - b.line).abs() <= NEAR_LINES))
+        && (same_code(&a.code, &b.code)
+            || (near && (a.line.number() - b.line.number()).abs() <= NEAR_LINES))
 }
 
 /// Pairs each of <truths> with at most one of <raised>, and each of <raised>

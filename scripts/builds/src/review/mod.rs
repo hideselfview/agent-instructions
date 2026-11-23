@@ -595,6 +595,7 @@ fn account_for_repeated_findings<'a>(
     open: &'a [record::Finding],
     previous_runs: &[record::RunRow],
 ) -> Result<Vec<Vec<&'a record::Finding>>> {
+    let read: Vec<_> = previous_runs.iter().collect();
     let mut repeated_at_head = BTreeMap::new();
     let mut repeated = Vec::new();
     for (ask, answer) in asks.iter().zip(answers.iter_mut()) {
@@ -603,32 +604,10 @@ fn account_for_repeated_findings<'a>(
             for raised in std::mem::take(&mut call.findings) {
                 let candidates = open
                     .iter()
-                    .filter(|held| held.group == call.group && held.matches_quote(&raised));
+                    .filter(|held| held.group == call.group && held.could_match_quote(&raised));
                 let mut repeated = None;
                 for held in candidates {
-                    let same_site = match raised.line {
-                        record::FindingLine::AtHead(line)
-                            if raised.file != files::COMMIT_MESSAGE =>
-                        {
-                            let Some(run) = previous_runs.iter().find(|run| run.id == held.run_id)
-                            else {
-                                fail!(
-                                    "Builds found no review run {} for open finding {}.",
-                                    held.run_id,
-                                    held.id
-                                );
-                            };
-                            files::line_at(
-                                repo,
-                                &run.head,
-                                &ask.change.head,
-                                &raised.file,
-                                held.line,
-                            )? == Some(line)
-                        }
-                        line => held.line == line.number(),
-                    };
-                    if same_site {
+                    if same_finding_site(repo, &ask.change.head, &read, held, &raised)? {
                         repeated = Some(held);
                         break;
                     }
@@ -670,6 +649,49 @@ fn account_for_repeated_findings<'a>(
         }
     }
     Ok(repeated)
+}
+
+/// Whether both findings identify the same site in the reviewed tree.
+fn same_finding_site(
+    repo: &Path,
+    head: &str,
+    read: &[&record::RunRow],
+    held: &record::Finding,
+    raised: &record::NewFinding,
+) -> Result<bool> {
+    use record::FindingLine;
+
+    if raised.check_failed.is_some() {
+        return Ok(held.file == raised.file && held.line.number() == raised.line.number());
+    }
+    let FindingLine::AtHead(current_line) = raised.line else {
+        return Ok(false);
+    };
+    let Some(run) = read.iter().find(|run| run.id == held.run_id) else {
+        fail!(
+            "Builds found no review run {} for open finding {}.",
+            held.run_id,
+            held.id
+        );
+    };
+    let original_line = match held.line {
+        FindingLine::AtHead(line) => line,
+        FindingLine::Reported(_) => return Ok(false),
+        FindingLine::Legacy(line) => {
+            let previous = run::diff_of_run(repo, read, run, |run| {
+                Ok((run.base.clone(), run.head.clone()))
+            })?;
+            let quotes = previous.diff.quotes();
+            match check::code_site(&quotes, &held.file, line, &held.code) {
+                Ok(Some((path, verified))) if path == raised.file => verified,
+                _ => return Ok(false),
+            }
+        }
+    };
+    if raised.file == files::COMMIT_MESSAGE {
+        return Ok(original_line == current_line);
+    }
+    Ok(files::line_at(repo, &run.head, head, &raised.file, original_line)? == Some(current_line))
 }
 
 /// One run of a review: the diff its reviewers read and the groups it asks.
