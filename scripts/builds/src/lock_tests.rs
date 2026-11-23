@@ -34,7 +34,7 @@ fn take_on_thread(
 /// Waits until the queue holds <count> tickets.
 fn until_tickets(queue: &Queue, count: usize) {
     let deadline = Instant::now() + Duration::from_secs(10);
-    while queue.order().len() < count {
+    while queue.order().unwrap().len() < count {
         assert!(Instant::now() < deadline, "{count} tickets never appeared");
         std::thread::sleep(Duration::from_millis(5));
     }

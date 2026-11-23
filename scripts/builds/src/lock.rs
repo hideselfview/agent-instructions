@@ -367,7 +367,7 @@ impl Held {
         // the old ticket.
         drop(self);
         queue.wait_for_turn(&ticket.name)?;
-        let (lock, checkout) = take_free_lock(&places, &ssh, &repo, lane, takes)?;
+        let (lock, checkout) = take_free_lock(&places, &ssh, &repo, lane, takes, &ticket)?;
         let held = Held {
             lock,
             ticket,
@@ -519,6 +519,7 @@ fn take_free_lock(
     repo: &str,
     lane: Lane,
     takes: Takes,
+    ticket: &Ticket,
 ) -> Result<(libc::c_int, String)> {
     let Takes { allowed, screen } = takes;
     let dir = places.app_locks_dir(repo, lane);
@@ -535,6 +536,7 @@ fn take_free_lock(
         ssh,
         asked: HashMap::new(),
     };
+    let mut waiting_for = Vec::new();
     loop {
         refuse_when_stopped(&format!(
             "waited for a free app checkout of {repo}'s {} lane",
@@ -591,10 +593,18 @@ fn take_free_lock(
         {
             let _guard = queue.guard()?;
             let set = places.app_checkouts_of(repo, lane)?;
-            for checkout in ordered.into_iter().filter(|entry| set.contains(entry)) {
-                if let Some(lock) = queue::try_lock(&places.app_lock_file(repo, lane, &checkout))? {
-                    return Ok((lock, checkout));
+            let eligible: Vec<_> = ordered
+                .into_iter()
+                .filter(|entry| set.contains(entry))
+                .collect();
+            for checkout in &eligible {
+                if let Some(lock) = queue::try_lock(&places.app_lock_file(repo, lane, checkout))? {
+                    return Ok((lock, checkout.clone()));
                 }
+            }
+            if eligible != waiting_for {
+                queue.record_checkout_wait(&ticket.name, &eligible)?;
+                waiting_for = eligible;
             }
         }
         std::thread::sleep(Duration::from_millis(50));
@@ -751,7 +761,7 @@ fn take_in(
         }
     }
     queue.wait_for_turn(&ticket.name)?;
-    let (lock, checkout) = take_free_lock(places, ssh, repo, lane, takes)?;
+    let (lock, checkout) = take_free_lock(places, ssh, repo, lane, takes, &ticket)?;
     let held = Held {
         lock,
         ticket,

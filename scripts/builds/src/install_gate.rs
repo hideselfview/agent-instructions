@@ -644,8 +644,10 @@ pub fn begin(places: &Places, say: &mut dyn FnMut(String)) -> Result<Installing>
         say("another builds install runs: waiting for it".to_string());
         Ok(waiter)
     })?;
-    let owner = locked_use(installers(places), pid)?;
-    remove_ended_uses(&installers(places))?;
+    let owner_records = installers(places);
+    // Health reads Handoff between taking the lock and registering its owner.
+    let owner = locked_use(owner_records.clone(), pid)?;
+    remove_ended_uses(&owner_records)?;
     remove_ended_uses(&install_waiters(places))?;
     Ok(Installing {
         places: places.clone(),
@@ -793,7 +795,8 @@ pub fn waiting(places: &Places) -> Result<InstallRead> {
     if !gate_closed(&install_lock(places))? {
         return Ok(InstallRead::Idle);
     }
-    let installer = match held_pids(&installers(places))?.as_slice() {
+    let owner_records = installers(places);
+    let installer = match held_pids(&owner_records)?.as_slice() {
         [pid] => *pid,
         // Install is taking or releasing the lock.
         [] => return Ok(InstallRead::Handoff),
@@ -811,6 +814,9 @@ pub fn waiting(places: &Places) -> Result<InstallRead> {
             held.extend(held_pids(&kind.uses(places))?);
             blocked.extend(held_pids(&kind.waiters(places))?);
         }
+    }
+    if held_pids(&owner_records)? != [installer] {
+        return Ok(InstallRead::Handoff);
     }
     Ok(InstallRead::Active(Waiting {
         installer,

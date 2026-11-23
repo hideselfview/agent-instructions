@@ -148,21 +148,6 @@ fn where_for_waiter(name: &str) -> Where {
     })
 }
 
-/// Whether a waiter has an eligible free checkout left after the tickets ahead.
-fn can_pass(
-    allowed: Where,
-    free_here: usize,
-    free_hosts: usize,
-    here: usize,
-    anywhere: usize,
-) -> bool {
-    let left_here = free_here.saturating_sub(here);
-    match allowed {
-        Where::Here => left_here > anywhere,
-        Where::Anywhere => left_here + free_hosts > anywhere,
-    }
-}
-
 /// What the lane's locks say: its checkouts, those no build holds, and the
 /// processes of the builds that hold the others.
 struct Locks {
@@ -175,6 +160,62 @@ impl Locks {
     fn holders(&self) -> Vec<i32> {
         self.held.values().copied().flatten().collect()
     }
+
+    fn holder_wait(&self, entry: &str) -> AppWait {
+        self.held[entry].map_or_else(
+            || AppWait::HeldCheckout(entry.to_string()),
+            AppWait::Process,
+        )
+    }
+}
+
+fn push_wait(blockers: &mut Vec<AppWait>, wait: AppWait) {
+    if !blockers.contains(&wait) {
+        blockers.push(wait);
+    }
+}
+
+/// The room left for the next ticket after accounting for earlier waiters.
+struct Admission {
+    free_here: usize,
+    free_hosts: usize,
+    here: usize,
+    anywhere: usize,
+}
+
+impl Admission {
+    fn read(locks: &Locks) -> Self {
+        let free_here = locks
+            .free
+            .iter()
+            .filter(|entry| Where::Here.allows(entry))
+            .count();
+        Self {
+            free_here,
+            free_hosts: locks.free.len() - free_here,
+            here: 0,
+            anywhere: 0,
+        }
+    }
+
+    fn admits(&self, locks: &Locks, allowed: Where) -> bool {
+        // With no checkout the build can use, let checkout selection say so.
+        if !locks.entries.iter().any(|entry| allowed.allows(entry)) {
+            return true;
+        }
+        let left_here = self.free_here.saturating_sub(self.here);
+        match allowed {
+            Where::Here => left_here > self.anywhere,
+            Where::Anywhere => left_here + self.free_hosts > self.anywhere,
+        }
+    }
+
+    fn count(&mut self, allowed: Where) {
+        match allowed {
+            Where::Here => self.here += 1,
+            Where::Anywhere => self.anywhere += 1,
+        }
+    }
 }
 
 /// What has to change for an app build to move in its queue.
@@ -182,7 +223,6 @@ impl Locks {
 pub enum AppWait {
     Process(i32),
     HeldCheckout(String),
-    NoEligibleCheckout,
 }
 
 /// One ticket of this process: held locked until its descriptor closes.
@@ -301,12 +341,13 @@ impl Queue {
 
     /// The tickets in line, next first. A write replaces the file whole, so a
     /// read without the guard sees one order or the other.
-    pub fn order(&self) -> Vec<String> {
-        std::fs::read_to_string(self.dir.join("order"))
-            .unwrap_or_default()
-            .lines()
-            .map(str::to_string)
-            .collect()
+    pub fn order(&self) -> Result<Vec<String>> {
+        let path = self.dir.join("order");
+        match std::fs::read_to_string(&path) {
+            Ok(text) => Ok(text.lines().map(str::to_string).collect()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+            Err(error) => fail!("reading {}: {error}", path.display()),
+        }
     }
 
     fn write_order(&self, order: &[String]) -> Result<()> {
@@ -318,7 +359,7 @@ impl Queue {
     pub fn waiting(&self) -> Result<Vec<(i32, Where)>> {
         let holders = self.locks()?.holders();
         Ok(self
-            .order()
+            .order()?
             .iter()
             .filter_map(|name| {
                 let pid = pid_of(name)?;
@@ -327,81 +368,72 @@ impl Queue {
             .collect())
     }
 
-    /// Each live waiter and what it currently waits for, using the same
-    /// checkouts and lock records the queue reads before it lets a build in.
-    pub fn app_waits(&self, refusals: &[crate::host::Refusal]) -> Result<Vec<(i32, Vec<AppWait>)>> {
-        let order = match std::fs::read_to_string(self.dir.join("order")) {
-            Ok(order) => order,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-            Err(error) => fail!("reading the order in {}: {error}", self.dir.display()),
-        };
+    fn checkout_wait_file(&self, ticket: &str) -> PathBuf {
+        self.dir.join(format!(".{ticket}.checkouts"))
+    }
+
+    /// The checkouts the build tried after its ticket passed the queue.
+    pub fn record_checkout_wait(&self, ticket: &str, entries: &[String]) -> Result<()> {
+        crate::whole_file::write(&self.checkout_wait_file(ticket), entries.join("\n"))
+    }
+
+    fn checkout_wait(&self, ticket: &str) -> Result<Option<Vec<String>>> {
+        let path = self.checkout_wait_file(ticket);
+        match std::fs::read_to_string(&path) {
+            Ok(text) => Ok(Some(text.lines().map(str::to_string).collect())),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => fail!("reading {}: {error}", path.display()),
+        }
+    }
+
+    /// Each live waiter's blockers. The queue decides admission. After it
+    /// admits a build, checkout selection records which locks it tried.
+    pub fn app_waits(&self) -> Result<Vec<(i32, Vec<AppWait>)>> {
+        let order = self.order()?;
         let locks = self.locks()?;
         let holders = locks.holders();
-        let eligible = |entry: &str| {
-            let host = crate::app_remote::host_of(entry);
-            !refusals.iter().any(|refusal| refusal.host == host)
-        };
-        let mut free_here = 0;
-        let mut free_hosts = 0;
-        for entry in locks.free.iter().filter(|entry| eligible(entry)) {
-            if Where::Here.allows(entry) {
-                free_here += 1;
-            } else {
-                free_hosts += 1;
-            }
-        }
-        let (mut here, mut anywhere) = (0, 0);
+        let mut admission = Admission::read(&locks);
         let (mut last_here, mut last_host) = (None, None);
         let mut waiting = Vec::new();
-        for ticket in order.lines() {
-            if !crate::flock::is_held(&self.ticket_path(ticket))? {
+        for ticket in order {
+            let pid = pid_of(&ticket);
+            if pid.is_some_and(|pid| holders.contains(&pid)) {
                 continue;
             }
-            let Some(pid) = pid_of(ticket) else {
-                fail!("health cannot read the process ID of app queue ticket {ticket:?}");
-            };
-            if holders.contains(&pid) {
-                continue;
-            }
-            let allowed = allowed_of(ticket)?;
-            let usable = locks
-                .entries
-                .iter()
-                .filter(|entry| eligible(entry) && allowed.allows(entry));
-            let mut blockers = Vec::new();
-            if usable.clone().next().is_none() {
-                blockers.push(AppWait::NoEligibleCheckout);
-            } else if !can_pass(allowed, free_here, free_hosts, here, anywhere) {
-                for entry in usable {
-                    let prior = if Where::Here.allows(entry) {
-                        last_here
-                    } else {
-                        last_host
-                    };
-                    if let Some(pid) = prior {
-                        let wait = AppWait::Process(pid);
-                        if !blockers.contains(&wait) {
-                            blockers.push(wait);
-                        }
+            let allowed = where_for_waiter(&ticket);
+            let admitted = admission.admits(&locks, allowed);
+            if let Some(pid) = pid
+                && crate::flock::is_held(&self.ticket_path(&ticket))?
+            {
+                let mut blockers = Vec::new();
+                if let Some(entries) = self.checkout_wait(&ticket)? {
+                    if entries.iter().all(|entry| locks.held.contains_key(entry)) {
+                        blockers.extend(entries.iter().map(|entry| locks.holder_wait(entry)));
                     }
-                    if let Some(holder) = locks.held.get(entry) {
-                        let wait = holder
-                            .map_or_else(|| AppWait::HeldCheckout(entry.clone()), AppWait::Process);
-                        if !blockers.contains(&wait) {
-                            blockers.push(wait);
+                } else if !admitted {
+                    for entry in locks.entries.iter().filter(|entry| allowed.allows(entry)) {
+                        let prior = if Where::Here.allows(entry) {
+                            last_here
+                        } else {
+                            last_host
+                        };
+                        if let Some(pid) = prior {
+                            push_wait(&mut blockers, AppWait::Process(pid));
+                        }
+                        if locks.held.contains_key(entry) {
+                            push_wait(&mut blockers, locks.holder_wait(entry));
                         }
                     }
                 }
+                waiting.push((pid, blockers));
             }
-            waiting.push((pid, blockers));
-            last_here = Some(pid);
-            match allowed {
-                Where::Here => here += 1,
-                Where::Anywhere => {
-                    anywhere += 1;
-                    last_host = Some(pid);
-                }
+            if allowed == Where::Anywhere {
+                last_host = pid;
             }
+            if allowed == Where::Here || !admitted || admission.admits(&locks, Where::Here) {
+                last_here = pid;
+            }
+            admission.count(allowed);
         }
         Ok(waiting)
     }
@@ -411,7 +443,7 @@ impl Queue {
     pub fn join(&self, allowed: Where) -> Result<(Ticket, usize)> {
         let _guard = self.guard()?;
         let ticket = self.new_ticket(allowed)?;
-        let mut order = self.order();
+        let mut order = self.order()?;
         let ahead = order.len();
         order.push(ticket.name.clone());
         self.write_order(&order)?;
@@ -431,7 +463,7 @@ impl Queue {
     pub fn reissue(&self, old: &Ticket) -> Result<Ticket> {
         let _guard = self.guard()?;
         let new = self.new_ticket(allowed_of(&old.name)?)?;
-        let mut order = self.order();
+        let mut order = self.order()?;
         match order.iter_mut().find(|name| **name == old.name) {
             Some(entry) => *entry = new.name.clone(),
             None => fail!("{} is not in the queue", old.name),
@@ -442,6 +474,7 @@ impl Queue {
     }
 
     fn unlink(&self, name: &str) -> Result<()> {
+        crate::whole_file::remove_if_present(&self.checkout_wait_file(name))?;
         let path = self.ticket_path(name);
         match std::fs::remove_file(&path) {
             Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
@@ -455,7 +488,7 @@ impl Queue {
     /// or leaves the queue and will not join it again.
     pub fn drop_ticket(&self, name: &str) -> Result<()> {
         let _guard = self.guard()?;
-        let mut order = self.order();
+        let mut order = self.order()?;
         if order.iter().any(|entry| entry == name) {
             order.retain(|entry| entry != name);
             self.write_order(&order)?;
@@ -474,28 +507,13 @@ impl Queue {
         let allowed = allowed_of(mine)?;
         let locks = self.locks()?;
         let holders = locks.holders();
-        // With none <mine> may take, going on is what says so.
-        if !locks.entries.iter().any(|entry| allowed.allows(entry)) {
-            return Ok(true);
-        }
-        let free_here = locks
-            .free
-            .iter()
-            .filter(|entry| Where::Here.allows(entry))
-            .count();
-        let free_hosts = locks.free.len() - free_here;
-        let (mut here, mut anywhere) = (0usize, 0usize);
+        let mut admission = Admission::read(&locks);
         for name in ahead {
-            if pid_of(name).is_some_and(|pid| holders.contains(&pid)) {
-                continue;
-            }
-            let allowed = where_for_waiter(name);
-            match allowed {
-                Where::Here => here += 1,
-                Where::Anywhere => anywhere += 1,
+            if !pid_of(name).is_some_and(|pid| holders.contains(&pid)) {
+                admission.count(where_for_waiter(name));
             }
         }
-        Ok(can_pass(allowed, free_here, free_hosts, here, anywhere))
+        Ok(admission.admits(&locks, allowed))
     }
 
     /// Waits until a free checkout <mine> may use is left once the tickets
@@ -526,7 +544,7 @@ impl Queue {
                     "waited for its turn in {}",
                     self.dir.display()
                 ))?;
-                let order = self.order();
+                let order = self.order()?;
                 let Some(at) = order.iter().position(|name| name == mine) else {
                     fail!(
                         "{mine} is no longer in {}",
@@ -608,7 +626,7 @@ impl Queue {
     fn move_to_top(&self, pid: i32) -> Result<()> {
         let _guard = self.guard()?;
         let holders = self.locks()?.holders();
-        let mut order = self.order();
+        let mut order = self.order()?;
         let Some(at) = order.iter().position(|name| pid_of(name) == Some(pid)) else {
             fail!("{pid} is not in the queue");
         };
@@ -677,7 +695,7 @@ fn lanes_of(places: &Places, repo: &str) -> Result<Vec<Lane>> {
 /// The lane whose line holds a ticket of <pid>.
 fn lane_of_waiter(places: &Places, repo: &str, pid: i32) -> Result<Lane> {
     for lane in lanes_of(places, repo)? {
-        if pids_in(&Queue::of(places, repo, lane).order()).contains(&pid) {
+        if pids_in(&Queue::of(places, repo, lane).order()?).contains(&pid) {
             return Ok(lane);
         }
     }
@@ -690,7 +708,7 @@ pub fn top(places: &Places, repo: &str, pid: i32) -> Result<()> {
     let lane = lane_of_waiter(places, repo, pid)?;
     let queue = Queue::of(places, repo, lane);
     queue.move_to_top(pid)?;
-    signal_all(&pids_in(&queue.order()), libc::SIGUSR1)
+    signal_all(&pids_in(&queue.order()?), libc::SIGUSR1)
 }
 
 /// Puts the waiter <pid> (default the first of <lane>, or of the one lane
@@ -706,10 +724,12 @@ pub fn takeover(places: &Places, repo: &str, pid: Option<i32>, lane: Option<Lane
             lane
         }
         (None, None) => {
-            let waiting: Vec<Lane> = lanes_of(places, repo)?
-                .into_iter()
-                .filter(|lane| Queue::of(places, repo, *lane).order().len() > 1)
-                .collect();
+            let mut waiting = Vec::new();
+            for lane in lanes_of(places, repo)? {
+                if Queue::of(places, repo, lane).order()?.len() > 1 {
+                    waiting.push(lane);
+                }
+            }
             match waiting[..] {
                 [lane] => lane,
                 [] => fail!("nobody waits in {repo}'s queues"),
@@ -722,7 +742,7 @@ pub fn takeover(places: &Places, repo: &str, pid: Option<i32>, lane: Option<Lane
         let _guard = queue.guard()?;
         let locks = queue.locks()?;
         let holders = locks.holders();
-        let mut order = queue.order();
+        let mut order = queue.order()?;
         let holds = |name: &String| pid_of(name).is_some_and(|pid| holders.contains(&pid));
         let taker = match pid {
             Some(pid) => order.iter().position(|name| pid_of(name) == Some(pid)),
@@ -761,7 +781,7 @@ pub fn takeover(places: &Places, repo: &str, pid: Option<i32>, lane: Option<Lane
             Some(holder_pid)
         }
     };
-    let order = queue.order();
+    let order = queue.order()?;
     let waiters: Vec<i32> = pids_in(&order)
         .into_iter()
         .filter(|pid| Some(*pid) != holder)
@@ -806,7 +826,7 @@ pub fn stop_holder(pid: i32) -> Result<()> {
 /// set of app checkouts changed.
 pub fn repoint(places: &Places, repo: &str, lane: Lane) -> Result<()> {
     signal_all(
-        &pids_in(&Queue::of(places, repo, lane).order()),
+        &pids_in(&Queue::of(places, repo, lane).order()?),
         libc::SIGUSR1,
     )
 }
@@ -845,7 +865,7 @@ pub fn cmd_queue(places: &Places, args: &[String]) -> Result<()> {
             };
             for lane in lanes {
                 let queue = Queue::of(places, repo, lane);
-                let order = queue.order();
+                let order = queue.order()?;
                 let first: Vec<i32> = order.iter().filter_map(|name| pid_of(name)).collect();
                 for recorded in places.app_checkouts_recorded(repo, lane)? {
                     let checkout = &recorded.entry;

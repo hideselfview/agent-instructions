@@ -150,7 +150,7 @@ pub fn grow(at: RepoLane, floor_kib: u64, now: i64) -> Result<Option<String>> {
     let queue = Queue::of(places, repo, lane);
     let lane_guard = queue.guard()?;
     let mut set = places.app_checkouts_recorded(repo, lane)?;
-    let order = queue.order();
+    let order = queue.order()?;
     // This counts every waiting build, not only this one: of two that wait,
     // the first to add may add the checkout that the queue then gives to the
     // other.

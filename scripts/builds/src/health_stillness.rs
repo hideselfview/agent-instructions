@@ -702,15 +702,8 @@ fn process_waits(graph: &mut WorkGraph, health: &mut Health, scanned: &Scanned, 
         }
     }
     for lane in &health.queues {
-        let waits = || -> Result<_> {
-            let refusals = if lane.lane.uses_xcode() {
-                crate::host::refusing_mac_builds(places)?
-            } else {
-                Vec::new()
-            };
-            crate::queue::Queue::of(places, &lane.repo, lane.lane).app_waits(&refusals)
-        };
-        let waiting = match waits() {
+        let queue = crate::queue::Queue::of(places, &lane.repo, lane.lane);
+        let waiting = match queue.app_waits() {
             Ok(waiting) => waiting,
             Err(error) => {
                 health.findings.push(Finding::new(
@@ -734,9 +727,6 @@ fn process_waits(graph: &mut WorkGraph, health: &mut Health, scanned: &Scanned, 
                         crate::queue::AppWait::HeldCheckout(entry) => Blocker::reason(format!(
                             "the build holding {entry}'s lock. Health could not read its process"
                         )),
-                        crate::queue::AppWait::NoEligibleCheckout => {
-                            Blocker::reason("an eligible checkout in the lane")
-                        }
                     }));
             }
         }
