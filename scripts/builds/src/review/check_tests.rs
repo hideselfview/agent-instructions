@@ -121,6 +121,13 @@ fn a_quote_cannot_join_a_removed_line_to_an_added_line() {
 }
 
 #[test]
+fn a_line_that_identifies_neither_side_cannot_select_an_addition() {
+    let files = parse_diff("diff --git a/a.rs b/a.rs\n@@ -1,2 +1,2 @@\n-repeat\n keep\n+repeat\n");
+    let error = code_site(&files, "a.rs", 99, "repeat").unwrap_err();
+    assert!(error.contains("more than once"), "{error}");
+}
+
+#[test]
 fn a_report_for_an_exact_path_never_borrows_a_quote_from_another_file() {
     let files = parse_diff(concat!(
         "diff --git a/a.rs b/a.rs\n@@ -0,0 +1 @@\n+other\n",

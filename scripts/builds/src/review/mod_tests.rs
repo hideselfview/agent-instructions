@@ -1321,7 +1321,7 @@ fn a_finding_on_another_occurrence_of_the_same_line_does_not_keep_the_original_o
         "alpha",
         serde_json::json!({
             "rules": [{"rule": "rule-a", "verdict": "finding", "findings": [
-                {"clause": BAD.0, "file": BAD.1, "line": 3, "code": BAD.3, "problem": BAD.4},
+                {"clause": BAD.0, "file": BAD.1, "line": 2, "code": BAD.3, "problem": BAD.4},
             ]}],
             "follow_up": [{"id": finding, "verdict": "fixed"}],
         }),

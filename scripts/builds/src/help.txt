@@ -3188,8 +3188,10 @@ commit message, that is on a design file when its rule judges no design file
 that the diff adds or removes, or whose
 code sits only on comment lines when the group of its rule judges no code
 comment (skips_comments), and records it as dropped with that reason.
-Builds also drops a finding when its quote starts at the reported line
-number in both the old and the new file. A comment line
+When several changed lines hold the same quote, the line number must
+identify one occurrence. Builds drops the finding if both versions hold
+the quote at that number or if the number identifies neither occurrence.
+A comment line
 is a line whose first characters past its indent are a comment's mark in the
 file's language: `//`, `/*` or `*/` in Rust, Swift, Kotlin and C# (and `*` in
 a block comment of all but Rust), `#` in Python, shell and TOML, and `--` in

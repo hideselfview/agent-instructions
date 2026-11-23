@@ -348,7 +348,7 @@ pub fn code_site<'a>(
         ([], []) if context => Err(unchanged_quote(file)),
         ([], []) => Err(format!("its code is not in the diff of {file}")),
         ([], [number]) => Ok(site(Side::Before, *number)),
-        ([number], _) => Ok(site(Side::After, *number)),
+        ([number], []) => Ok(site(Side::After, *number)),
         _ => Err(ambiguous()),
     }
 }
