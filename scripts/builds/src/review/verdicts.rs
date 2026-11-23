@@ -340,6 +340,13 @@ pub struct Queries {
     ready: Condvar,
 }
 
+/// The dashboard's rules review worker. The active request stays here
+/// through unwinding so the thread boundary can report what failed.
+pub struct Worker<'a> {
+    queries: &'a Queries,
+    active: Option<Query>,
+}
+
 /// A card keeps showing a failed read during backoff. Its next request after
 /// the backoff can ask for another read of the same inputs.
 const REVIEW_RETRY: Duration = Duration::from_secs(2);
@@ -448,32 +455,56 @@ impl Queries {
         changed
     }
 
-    /// Reads queued verdicts and tells the page when it has a new answer.
-    pub fn run(&self, reads: &Reads, publish: impl Fn()) {
-        while let Some(query) = self.next() {
-            if self.answer(&query, query.read(reads)) {
-                publish();
-            }
+    pub fn worker(&self) -> Worker<'_> {
+        Worker {
+            queries: self,
+            active: None,
         }
-    }
-
-    /// Reports a panic at the worker's thread boundary and answers present
-    /// and future requests with the failure.
-    pub fn worker_failed(&self, panic: Box<dyn std::any::Any + Send>) {
-        let detail = panic
-            .downcast_ref::<String>()
-            .map(String::as_str)
-            .or_else(|| panic.downcast_ref::<&str>().copied())
-            .unwrap_or("Rust supplied a non-string panic payload");
-        let failure =
-            format!("The dashboard's rules review worker stopped. Rust reported {detail}.");
-        crate::text::note(&failure);
-        self.work.lock().expect("no panic holding it").failure = Some(failure);
     }
 
     #[cfg(test)]
     pub fn stop(&self) {
         self.work.lock().expect("no panic holding it").stopped = true;
         self.ready.notify_one();
+    }
+}
+
+impl Worker<'_> {
+    /// Reads queued verdicts and tells the page when it has a new answer.
+    pub fn run(&mut self, reads: &Reads, publish: impl Fn()) {
+        while let Some(query) = self.queries.next() {
+            let query = self.active.insert(query);
+            if self.queries.answer(query, query.read(reads)) {
+                publish();
+            }
+            self.active = None;
+        }
+    }
+
+    /// Reports the caught panic and its operation in the daemon log, and
+    /// answers present and future requests with that failure.
+    pub fn report_panic(self, panic: Box<dyn std::any::Any + Send>) {
+        let detail = panic
+            .downcast_ref::<String>()
+            .map(String::as_str)
+            .or_else(|| panic.downcast_ref::<&str>().copied())
+            .unwrap_or("Rust supplied a non-string panic payload");
+        let operation = match self.active {
+            Some(query) => format!(
+                "working on {} in project {}",
+                query.place.0.display(),
+                query.store.project
+            ),
+            None => "waiting for a request".to_string(),
+        };
+        let failure = format!(
+            "The dashboard's rules review worker stopped while {operation}. Rust reported {detail}."
+        );
+        crate::text::note(&failure);
+        self.queries
+            .work
+            .lock()
+            .expect("no panic holding it")
+            .failure = Some(failure);
     }
 }

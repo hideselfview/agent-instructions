@@ -360,13 +360,12 @@ impl Model {
         std::thread::Builder::new()
             .name("builds-reviews".into())
             .spawn(move || {
+                let mut worker = reviews.review_queries.worker();
                 let finished = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    reviews
-                        .review_queries
-                        .run(&reviews.review_reads, || reviews.publish());
+                    worker.run(&reviews.review_reads, || reviews.publish());
                 }));
                 if let Err(panic) = finished {
-                    reviews.review_queries.worker_failed(panic);
+                    worker.report_panic(panic);
                     reviews.publish();
                 }
             })
