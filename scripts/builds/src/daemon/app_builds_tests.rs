@@ -135,6 +135,7 @@ fn repo(checkouts: Vec<CheckoutPage>, locks: Vec<LockHealth>, queue: Vec<Queued>
 fn queued(from: &str, command: &str) -> Queued {
     Queued {
         pid: 2,
+        allowed: crate::lock::Where::Anywhere,
         minutes: 1,
         command: command.into(),
         started_from: Some(from.into()),
@@ -443,11 +444,15 @@ fn the_lanes_real_queue_and_command_lines_name_each_waiting_branch() {
     let waiting = Queue::in_repo_dir(&scratch.dir, Lane::Mac)
         .waiting()
         .unwrap();
-    assert_eq!(waiting, vec![26684, 29988, 10239]);
+    assert_eq!(
+        waiting.iter().map(|(pid, _)| *pid).collect::<Vec<_>>(),
+        [26684, 29988, 10239]
+    );
     let queue: Vec<Queued> = waiting
         .iter()
-        .map(|pid| Queued {
+        .map(|(pid, allowed)| Queued {
             pid: *pid,
+            allowed: *allowed,
             minutes: 20,
             command: commands.iter().find(|(p, _)| p == pid).unwrap().1.clone(),
             started_from: None,

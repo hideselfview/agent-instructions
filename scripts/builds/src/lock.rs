@@ -204,7 +204,8 @@ pub fn cmd_lock(places: &Places, args: &[String]) -> Result<()> {
 
 /// Which of a lane's app checkouts a build may take, and where one step of an
 /// app build may run.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Where {
     /// Only the side worktrees of this Mac: for a command that runs here
     /// (`builds lock`, the android `build-app`) and a step the repo keeps here (`here`

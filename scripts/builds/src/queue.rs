@@ -138,6 +138,30 @@ pub fn allowed_of(ticket: &str) -> Result<Where> {
     }
 }
 
+fn where_for_waiter(name: &str) -> Where {
+    allowed_of(name).unwrap_or_else(|_| {
+        crate::text::note(format!(
+            "{name} is no ticket of this builds, so builds waits behind it as behind any build"
+        ));
+        Where::Anywhere
+    })
+}
+
+/// Whether a waiter has an eligible free checkout left after the tickets ahead.
+pub fn can_pass(
+    allowed: Where,
+    free_here: usize,
+    free_hosts: usize,
+    here: usize,
+    anywhere: usize,
+) -> bool {
+    let left_here = free_here.saturating_sub(here);
+    match allowed {
+        Where::Here => left_here > anywhere,
+        Where::Anywhere => left_here + free_hosts > anywhere,
+    }
+}
+
 /// What the lane's locks say: its checkouts, those no build holds, and the
 /// processes of the builds that hold the others.
 struct Locks {
@@ -276,14 +300,16 @@ impl Queue {
         crate::whole_file::write(&self.dir.join("order"), text)
     }
 
-    /// The pid of each ticket in line whose build holds no lock, next first.
-    pub fn waiting(&self) -> Result<Vec<i32>> {
+    /// Each ticket whose build holds no lock, next first, with where it may build.
+    pub fn waiting(&self) -> Result<Vec<(i32, Where)>> {
         let holders = self.locks()?.holders;
         Ok(self
             .order()
             .iter()
-            .filter_map(|name| pid_of(name))
-            .filter(|pid| !holders.contains(pid))
+            .filter_map(|name| {
+                let pid = pid_of(name)?;
+                (!holders.contains(&pid)).then(|| (pid, where_for_waiter(name)))
+            })
             .collect())
     }
 
@@ -372,25 +398,13 @@ impl Queue {
             if pid_of(name).is_some_and(|pid| holders.contains(&pid)) {
                 continue;
             }
-            // A ticket this builds cannot read belongs to a build of another
-            // builds, still running: it may take any checkout, so wait behind
-            // it like behind any other holder.
-            let allowed = allowed_of(name).unwrap_or_else(|_| {
-                crate::text::note(format!(
-                    "{name} is no ticket of this builds, so builds waits behind it as behind any build"
-                ));
-                Where::Anywhere
-            });
+            let allowed = where_for_waiter(name);
             match allowed {
                 Where::Here => here += 1,
                 Where::Anywhere => anywhere += 1,
             }
         }
-        let left_here = free_here - here.min(free_here);
-        Ok(match allowed {
-            Where::Here => left_here > anywhere,
-            Where::Anywhere => left_here + free_hosts > anywhere,
-        })
+        Ok(can_pass(allowed, free_here, free_hosts, here, anywhere))
     }
 
     /// Waits until a free checkout <mine> may use is left once the tickets
@@ -783,7 +797,7 @@ pub fn cmd_queue(places: &Places, args: &[String]) -> Result<()> {
                 if waiting.is_empty() {
                     println!("{}: nobody waits", lane.word());
                 }
-                for (at, pid) in waiting.iter().enumerate() {
+                for (at, (pid, _)) in waiting.iter().enumerate() {
                     println!("{}: {}. {pid} {}", lane.word(), at + 1, command_of(*pid));
                 }
             }

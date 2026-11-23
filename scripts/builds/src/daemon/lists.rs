@@ -90,12 +90,13 @@ impl Feed {
         let snapshot =
             scan_databases(&places, &mut watches).and_then(|scan| load_paths(&places, &scan.paths));
         report_snapshot_fault(&snapshot);
+        let progress = Progress::read(&places, &snapshot);
         let now = clock();
         let feed = Arc::new(Feed {
             current: Mutex::new(Readings {
                 version: 1,
                 snapshot: Arc::new(snapshot),
-                progress: Arc::new(Progress::read(&places)),
+                progress: Arc::new(progress),
             }),
             hooks: Mutex::new(Arc::new(crate::hook_stats::dashboard_json_at(&places, now))),
             hooks_minute: AtomicI64::new(now.div_euclid(60)),
@@ -250,10 +251,22 @@ impl Feed {
                 (*previous != read).then_some(read)
             }
         };
-        let progress = (moved || scan.is_err() || previous_progress.is_err())
-            .then(|| Progress::read(&self.places))
-            .filter(|read| read != &*previous_progress);
         let stores_changed = update.is_some();
+        let progress = (moved
+            || stores_changed
+            || !previous_progress
+                .as_ref()
+                .as_ref()
+                .is_ok_and(Progress::complete))
+        .then(|| {
+            Progress::read_after(
+                &self.places,
+                update.as_ref().unwrap_or(&previous),
+                scan.as_ref().map_or(&[], |scan| scan.moved.as_slice()),
+                previous_progress.as_ref().as_ref().ok(),
+            )
+        })
+        .filter(|read| read != &*previous_progress);
         let mut changed = stores_changed || progress.is_some();
         if changed {
             let mut current = self.current.lock().expect("no panic holding it");

@@ -236,6 +236,7 @@ pub struct LaneQueue {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Queued {
     pub pid: i32,
+    pub allowed: crate::lock::Where,
     pub minutes: i64,
     pub command: String,
     /// The checkout its working directory is in.
@@ -622,12 +623,14 @@ pub fn sample(
             }
         };
         let mut queue = Vec::new();
-        for process in in_line.into_iter().filter_map(|pid| {
-            processes
+        for (pid, allowed) in in_line {
+            let Some(process) = processes
                 .list
                 .iter()
                 .find(|p| p.pid == pid && p.name == "builds")
-        }) {
+            else {
+                continue;
+            };
             let commit = match live_args(process.pid) {
                 Ok(argv) => argv
                     .and_then(|argv| crate::app_build::lane_requested(&argv).map(str::to_string)),
@@ -641,6 +644,7 @@ pub fn sample(
             };
             queue.push(Queued {
                 pid: process.pid,
+                allowed,
                 minutes: minutes_since(now, process.started),
                 command: command_line(process.pid),
                 started_from: started_from(places, process.pid),
@@ -1717,7 +1721,7 @@ pub(crate) fn finish_health(
         crate::health_stillness::append(
             health,
             loaded,
-            &crate::health_stillness::Progress::read(&tool.places),
+            &crate::health_stillness::Progress::read(&tool.places, loaded),
             Some(scanned),
             &tool.places,
             tool.now,
@@ -2479,6 +2483,7 @@ mod tests {
         let mine = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         let queued = |pid: i32, commit: &str| Queued {
             pid,
+            allowed: crate::lock::Where::Anywhere,
             minutes: 3,
             command: format!("builds app-build demo --lane android {commit}"),
             started_from: Some("demo/main".to_string()),

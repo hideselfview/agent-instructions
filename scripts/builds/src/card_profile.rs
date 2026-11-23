@@ -792,11 +792,12 @@ fn read_reviews(
 /// The landings that named item <id>: each landing's steps, and the commits
 /// it was asked to land.
 fn read_landings(db: &Connection, id: Id, card: &mut Card) -> Result<()> {
+    let end_at = crate::land_run::END_AT;
     let mut runs = db
-        .prepare(
-            "SELECT l.id, l.started_at, l.ms, l.landed FROM land_run l \
+        .prepare(&format!(
+            "SELECT l.id, l.started_at, {end_at}, l.landed FROM land_run l \
              JOIN land_run_item i ON i.land_id = l.id WHERE i.item_id = ?1 ORDER BY l.started_at",
-        )
+        ))
         .sql()?;
     let rows: Vec<(i64, i64, i64, bool)> = runs
         .query_map([id], |row| {
@@ -805,12 +806,12 @@ fn read_landings(db: &Connection, id: Id, card: &mut Card) -> Result<()> {
         .sql()?
         .collect::<std::result::Result<_, _>>()
         .sql()?;
-    for (land, started_at, ms, landed) in rows {
+    for (land, started_at, ended_at, landed) in rows {
         card.steps.push(Step {
             kind: Kind::Landing,
             name: "builds land".to_string(),
             start: started_at,
-            end: started_at + (ms + 999) / 1000,
+            end: ended_at,
             host: Some(LOCAL.to_string()),
             detail: if landed { "landed" } else { "refused" }.to_string(),
             attributed: true,

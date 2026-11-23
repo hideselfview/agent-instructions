@@ -230,14 +230,26 @@ fn pass(
 ) -> Result<(File, bool)> {
     let path = kind.gate(places);
     let gate = open(&path)?;
-    if try_lock(&gate, libc::LOCK_SH, &path)? {
-        return Ok((gate, true));
+    let was_open = pass_lock(&gate, &path, libc::LOCK_SH, || {
+        let waiter = locked_use(kind.waiters(places), pid)?;
+        say(waiting);
+        Ok(waiter)
+    })?;
+    Ok((gate, was_open))
+}
+
+fn pass_lock(
+    file: &File,
+    path: &Path,
+    how: libc::c_int,
+    register_waiter: impl FnOnce() -> Result<Use>,
+) -> Result<bool> {
+    if try_lock(file, how, path)? {
+        return Ok(true);
     }
-    let waiter = locked_use(kind.waiters(places), pid)?;
-    say(waiting);
-    lock(&gate, libc::LOCK_SH, &path)?;
-    drop(waiter);
-    Ok((gate, false))
+    let _waiter = register_waiter()?;
+    lock(file, how, path)?;
+    Ok(false)
 }
 
 /// Takes a use of <kind> for process <pid>, which runs `builds <what>` since
@@ -600,6 +612,18 @@ pub fn install_ran() -> Result<bool> {
     }
 }
 
+fn install_lock(places: &Places) -> PathBuf {
+    places.install_dir().join("install.lock")
+}
+
+fn installers(places: &Places) -> PathBuf {
+    places.install_dir().join("installer")
+}
+
+fn install_waiters(places: &Places) -> PathBuf {
+    places.install_dir().join("install-waiting")
+}
+
 /// The install lock, held by one install from before it reads the stores'
 /// schemas until its program is on PATH.
 pub struct Installing {
@@ -612,18 +636,17 @@ pub struct Installing {
 /// Takes the install lock, waiting while another install holds it, and gives
 /// <say> the line that says it waits.
 pub fn begin(places: &Places, say: &mut dyn FnMut(String)) -> Result<Installing> {
-    let path = places.install_dir().join("install.lock");
+    let path = install_lock(places);
     let pid = std::process::id();
     let file = open(&path)?;
-    if !try_lock(&file, libc::LOCK_EX, &path)? {
-        let waiting = locked_use(places.install_dir().join("install-waiting"), pid)?;
+    pass_lock(&file, &path, libc::LOCK_EX, || {
+        let waiter = locked_use(install_waiters(places), pid)?;
         say("another builds install runs: waiting for it".to_string());
-        lock(&file, libc::LOCK_EX, &path)?;
-        drop(waiting);
-    }
-    let owner = locked_use(places.install_dir().join("installer"), pid)?;
-    remove_ended_uses(&places.install_dir().join("installer"))?;
-    remove_ended_uses(&places.install_dir().join("install-waiting"))?;
+        Ok(waiter)
+    })?;
+    let owner = locked_use(installers(places), pid)?;
+    remove_ended_uses(&installers(places))?;
+    remove_ended_uses(&install_waiters(places))?;
     Ok(Installing {
         places: places.clone(),
         owner,
@@ -760,18 +783,19 @@ pub struct Waiting {
 /// Reads the install that holds the lock and the processes that wait on
 /// either side of it, without waiting on a lock.
 pub fn waiting(places: &Places) -> Result<Option<Waiting>> {
-    let path = places.install_dir().join("install.lock");
-    if !gate_closed(&path)? {
+    if !gate_closed(&install_lock(places))? {
         return Ok(None);
     }
-    let installers = held_pids(&places.install_dir().join("installer"))?;
-    let [installer] = installers[..] else {
-        fail!("the install lock is held, but health could not identify its installer");
+    let installer = match held_pids(&installers(places))?.as_slice() {
+        [pid] => *pid,
+        // Install is taking or releasing the lock.
+        [] => return Ok(None),
+        pids => fail!("health found these processes holding the install lock: {pids:?}"),
     };
     let commands_closed = gate_closed(&Kind::Command.gate(places))?;
     let connections_closed = gate_closed(&Kind::Connection.gate(places))?;
     let mut held = Vec::new();
-    let mut blocked = held_pids(&places.install_dir().join("install-waiting"))?;
+    let mut blocked = held_pids(&install_waiters(places))?;
     for (kind, closed) in [
         (Kind::Command, commands_closed),
         (Kind::Connection, connections_closed),

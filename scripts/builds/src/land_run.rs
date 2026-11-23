@@ -11,6 +11,7 @@ use std::path::Path;
 
 use rusqlite::{Connection, params};
 
+use crate::branch_end::BranchEnd;
 use crate::db::Sql;
 use crate::fail::Result;
 use crate::lists::Id;
@@ -126,6 +127,20 @@ pub fn write(conn: &mut Connection, run: &LandRun) -> Result<()> {
         .sql()?;
     }
     tx.commit().sql()
+}
+
+/// The end of a recorded landing, rounded up to a whole second.
+pub const END_AT: &str = "l.started_at + (l.ms + 999) / 1000";
+
+pub fn branch_ends(db: &Connection) -> Result<Vec<BranchEnd>> {
+    let mut statement = db
+        .prepare(&format!(
+            "SELECT l.repo, l.branch, MAX({END_AT}) FROM land_run l
+         WHERE l.branch IS NOT NULL GROUP BY l.repo, l.branch ORDER BY l.repo, l.branch"
+        ))
+        .sql()?;
+    let rows = statement.query_map([], BranchEnd::from_row).sql()?;
+    rows.map(|row| row.sql()).collect()
 }
 
 /// Makes `land_step` again as land_run.sql writes it, with the kinds of the

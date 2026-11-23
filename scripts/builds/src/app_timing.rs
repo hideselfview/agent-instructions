@@ -29,7 +29,9 @@ use crate::lane::Lane;
 use crate::run_end::RunEnd;
 use crate::step_failure::StepFailure;
 
+use crate::branch_end::BranchEnd;
 pub use crate::db::DATABASE;
+use crate::db::Sql;
 
 /// The trailing time the dashboard's figures cover.
 pub const WINDOW_SECONDS: i64 = crate::hook_stats::DASHBOARD_WINDOW_SECONDS;
@@ -811,9 +813,20 @@ pub fn last_ends(path: &Path, lane: Lane) -> Result<Vec<(String, i64)>> {
     rows.map(|row| row.context(what)).collect()
 }
 
-pub const RUN_END: &str = "COALESCE(
+const RUN_END: &str = "COALESCE(
     (SELECT MAX(s.started_at + s.wall_ms / 1000) FROM app_build_steps s WHERE s.run_id = r.id),
     r.started_at + r.wait_ms / 1000)";
+
+pub fn branch_ends(db: &Connection) -> Result<Vec<BranchEnd>> {
+    let mut statement = db
+        .prepare(&format!(
+            "SELECT r.repo, r.built_ref, MAX({RUN_END}) FROM app_build_runs r
+         GROUP BY r.repo, r.built_ref ORDER BY r.repo, r.built_ref"
+        ))
+        .sql()?;
+    let rows = statement.query_map([], BranchEnd::from_row).sql()?;
+    rows.map(|row| row.sql()).collect()
+}
 
 /// The figures of every repo with a run since <since> (seconds since 1970) in
 /// the database at <path>, by repo name; empty when nothing was recorded.

@@ -87,15 +87,21 @@ impl Orphan {
     /// Signals each target and reports any live process that remains.
     pub fn stop_script(&self) -> Option<String> {
         let targets = self.targets()?;
-        let statements = targets.iter().map(|target| {
+        let mut statements = Vec::new();
+        for (i, target) in targets.iter().enumerate() {
+            statements.push(format!(
+                "if kill -TERM {target} 2>/dev/null; then signal_{i}='still runs after SIGTERM'; else signal_{i}='still runs because SIGTERM failed'; fi"
+            ));
+        }
+        statements.push("procs=$(ps -axo pid=,stat=,pgid=) || exit 1".to_string());
+        for (i, target) in targets.iter().enumerate() {
             let column = if target.starts_with('-') { "$3" } else { "$1" };
             let id = target.trim_start_matches('-');
-            format!(
-                "if kill -TERM {target} 2>/dev/null; then said='still runs after SIGTERM'; else said='still runs because SIGTERM failed'; fi\n\
-                 procs=$(ps -axo pid=,stat=,pgid=) || exit 1\n\
-                 if printf '%s\\n' \"$procs\" | awk '{column} == {id} && $2 !~ /^Z/ {{ live = 1 }} END {{ exit !live }}'; then echo \"{target} $said\"; fi"
-            )
-        }).collect::<Vec<_>>();
+            statements.push(format!(
+                "live=$(printf '%s\\n' \"$procs\" | awk '{column} == {id} && $2 !~ /^Z/ {{ print 1; exit }}') || exit 1\n\
+                 if [ -n \"$live\" ]; then echo \"{target} $signal_{i}\"; fi"
+            ));
+        }
         Some(statements.join("\n"))
     }
 

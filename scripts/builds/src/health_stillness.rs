@@ -3,7 +3,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::os::unix::fs::MetadataExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use crate::db::Sql;
 use crate::fail::{Fail, Result};
@@ -48,6 +49,7 @@ struct Work {
     /// Processes or worktrees doing work on behalf of this record.
     doing: BTreeSet<Key>,
     waits: Vec<Blocker>,
+    wait_join: &'static str,
     otherwise: Advice,
     report: bool,
 }
@@ -59,6 +61,7 @@ impl Work {
             moved_at,
             doing: BTreeSet::new(),
             waits: Vec::new(),
+            wait_join: " and ",
             otherwise: Advice::said(otherwise.into()),
             report: true,
         }
@@ -147,7 +150,7 @@ impl WorkGraph {
                         Some(format!(
                             "{} ({age}), which waits on {}",
                             waited.name,
-                            next.join(" and ")
+                            next.join(waited.wait_join)
                         ))
                     }
                 }
@@ -187,7 +190,7 @@ impl WorkGraph {
                         &mut BTreeSet::from([key.clone()]),
                     );
                     (
-                        format!("{subject} and waits on {}.", trace.join(" and ")),
+                        format!("{subject} and waits on {}.", trace.join(work.wait_join)),
                         None,
                     )
                 };
@@ -694,30 +697,77 @@ fn process_waits(graph: &mut WorkGraph, health: &Health, scanned: &Scanned, plac
         }
     }
     for queue in &health.queues {
-        let mut ahead = health
-            .locks
-            .iter()
-            .find(|lock| lock.repo == queue.repo && lock.lane == queue.lane)
-            .and_then(|lock| lock.holder.as_ref())
-            .map(|holder| Blocker::Work(Key::local(holder.pid)));
-        for entry in &queue.queue {
-            let key = Key::local(entry.pid);
-            if let Some(work) = graph.get_mut(&key) {
-                work.otherwise = Advice::said(format!(
-                    "The app build waits for a checkout in {}'s {} lane.",
-                    queue.repo,
-                    queue.lane.word()
-                ));
-                work.waits.extend(ahead.take());
+        app_queue_waits(graph, queue, &health.locks);
+    }
+}
+
+fn app_queue_waits(
+    graph: &mut WorkGraph,
+    queue: &crate::health::LaneQueue,
+    locks: &[crate::health::LockHealth],
+) {
+    use crate::lock::Where;
+    let checkouts: Vec<_> = locks
+        .iter()
+        .filter(|lock| lock.repo == queue.repo && lock.lane == queue.lane)
+        .collect();
+    let (mut free_here, mut free_hosts) = (0, 0);
+    for lock in &checkouts {
+        if lock.holder.is_none() {
+            if Where::Here.allows(&lock.checkout) {
+                free_here += 1;
+            } else {
+                free_hosts += 1;
             }
-            ahead = Some(Blocker::Work(key));
+        }
+    }
+    let (mut here, mut anywhere) = (0, 0);
+    let (mut last_here, mut last_host) = (None, None);
+    for entry in &queue.queue {
+        let key = Key::local(entry.pid);
+        if let Some(work) = graph.get_mut(&key) {
+            let eligible = checkouts
+                .iter()
+                .filter(|lock| entry.allowed.allows(&lock.checkout));
+            if eligible.clone().next().is_none() {
+                work.otherwise =
+                    Advice::said("The lane has no checkout this build can use.".to_string());
+            } else if crate::queue::can_pass(entry.allowed, free_here, free_hosts, here, anywhere) {
+                work.otherwise =
+                    Advice::said("The app build can take an eligible checkout.".to_string());
+            } else {
+                work.wait_join = " or ";
+                let blockers: BTreeSet<_> = eligible
+                    .filter_map(|lock| {
+                        let predecessor = if Where::Here.allows(&lock.checkout) {
+                            last_here
+                        } else {
+                            last_host
+                        };
+                        predecessor.or_else(|| lock.holder.as_ref().map(|holder| holder.pid))
+                    })
+                    .collect();
+                work.waits.extend(
+                    blockers
+                        .into_iter()
+                        .map(|pid| Blocker::Work(Key::local(pid))),
+                );
+            }
+        }
+        last_here = Some(entry.pid);
+        match entry.allowed {
+            Where::Here => here += 1,
+            Where::Anywhere => {
+                anywhere += 1;
+                last_host = Some(entry.pid);
+            }
         }
     }
 }
 
 /// Progress that health reads from the stores, apart from the work queue.
 #[derive(Default, PartialEq, Eq)]
-pub struct Progress(BTreeMap<String, std::result::Result<ProjectProgress, String>>);
+pub struct Progress(BTreeMap<String, std::result::Result<Arc<ProjectProgress>, String>>);
 
 #[derive(PartialEq, Eq)]
 struct ProjectProgress {
@@ -732,7 +782,8 @@ impl ProjectProgress {
         db.execute_batch("BEGIN").sql()?;
         let items = crate::lists::item_event::last_open(&db)?;
         let reviews = crate::review::record::open_progress(&db)?;
-        let ends = crate::branch_end::BranchEnd::read(&db)?;
+        let mut ends = crate::app_timing::branch_ends(&db)?;
+        ends.extend(crate::land_run::branch_ends(&db)?);
         db.execute_batch("END").sql()?;
         Ok(Self {
             items,
@@ -743,21 +794,44 @@ impl ProjectProgress {
 }
 
 impl Progress {
-    pub fn read(places: &Places) -> std::result::Result<Self, String> {
-        let stores = crate::lists::store::stores(places).map_err(Fail::text)?;
-        Ok(Self(
-            stores
-                .into_iter()
-                .map(|store| {
-                    let project = ProjectProgress::read(&store).map_err(Fail::text);
-                    (store.project, project)
-                })
-                .collect(),
-        ))
+    pub fn read(
+        places: &Places,
+        loaded: &std::result::Result<Vec<Loaded>, String>,
+    ) -> std::result::Result<Self, String> {
+        Self::read_after(places, loaded, &[], None)
+    }
+
+    pub fn complete(&self) -> bool {
+        self.0.values().all(|project| project.is_ok())
+    }
+
+    pub fn read_after(
+        places: &Places,
+        loaded: &std::result::Result<Vec<Loaded>, String>,
+        moved: &[PathBuf],
+        previous: Option<&Self>,
+    ) -> std::result::Result<Self, String> {
+        let projects = loaded.as_ref().map_err(Clone::clone)?;
+        let mut progress = BTreeMap::new();
+        for project in projects {
+            let name = &project.project;
+            let store = crate::lists::store::Store::named(places, name).map_err(Fail::text)?;
+            let kept = previous
+                .and_then(|before| before.0.get(name))
+                .filter(|read| read.is_ok() && !moved.contains(&store.database()));
+            let read = match kept {
+                Some(read) => read.clone(),
+                None => ProjectProgress::read(&store)
+                    .map(Arc::new)
+                    .map_err(Fail::text),
+            };
+            progress.insert(name.clone(), read);
+        }
+        Ok(Self(progress))
     }
 
     fn project(&self, name: &str) -> Option<&ProjectProgress> {
-        self.0.get(name)?.as_ref().ok()
+        self.0.get(name)?.as_ref().ok().map(Arc::as_ref)
     }
 
     fn for_branch(&self, repo: &str, tree: &WorktreeHealth) -> Option<i64> {
@@ -786,6 +860,8 @@ pub fn append(
 ) {
     health.generated_at = now;
     let projects = loaded.as_deref().unwrap_or_default();
+    health.schedule_needed |=
+        loaded.is_err() || projects.iter().any(|project| project.lists.is_err());
     let mut graph = WorkGraph::default();
     let mut progress_fault = |project: Option<&str>, error: &str| {
         let place = project.map_or_else(String::new, |name| format!(" for {name}"));
@@ -912,6 +988,83 @@ mod tests {
     use crate::host::Host;
     use crate::install_gate::Waiting;
     use crate::testing::Scratch;
+
+    #[test]
+    fn a_local_waiter_does_not_block_the_remote_path_through_the_app_queue() {
+        use crate::health::{Holder, LaneQueue, LockHealth, Queued};
+        use crate::lane::Lane;
+        use crate::lock::Where;
+
+        let mut graph = WorkGraph::default();
+        let queued = |pid, allowed| Queued {
+            pid,
+            allowed,
+            minutes: 30,
+            command: "builds app-build".into(),
+            started_from: None,
+            commit: None,
+        };
+        let lock = |pid, checkout: &str| LockHealth {
+            repo: "demo".into(),
+            lane: Lane::Mac,
+            checkout: checkout.into(),
+            path: String::new(),
+            holder: Some(Holder {
+                pid,
+                minutes: 30,
+                command: "builds app-build".into(),
+                running: Vec::new(),
+                started_from: None,
+                app_head: None,
+                driver_running: true,
+                run: None,
+            }),
+        };
+        for pid in [10, 20, 30, 40] {
+            graph.0.insert(
+                Key::local(pid),
+                Work::new(format!("build {pid}"), Some(0), "The build runs."),
+            );
+        }
+        let queue = LaneQueue {
+            repo: "demo".into(),
+            lane: Lane::Mac,
+            queue: vec![queued(30, Where::Here), queued(40, Where::Anywhere)],
+        };
+        let locks = [lock(20, "host:side-1"), lock(10, "side-1")];
+        app_queue_waits(&mut graph, &queue, &locks);
+        let blockers = |pid| {
+            graph.0[&Key::local(pid)]
+                .waits
+                .iter()
+                .filter_map(|wait| match wait {
+                    Blocker::Work(Key::Process(_, pid)) => Some(*pid),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(blockers(30), [10]);
+        assert_eq!(blockers(40), [20, 30]);
+        assert_eq!(graph.0[&Key::local(40)].wait_join, " or ");
+    }
+
+    #[test]
+    fn unread_lists_keep_the_health_schedule_needed() {
+        let scratch = Scratch::new("health-unreadable-lists");
+        let tool = scratch.tool(0);
+        let mut health = crate::health::health(&tool).unwrap();
+        let error = Err("the lists folder could not be read".to_string());
+        append(
+            &mut health,
+            &error,
+            &Err(error.as_ref().unwrap_err().clone()),
+            None,
+            &tool.places,
+            tool.now,
+            tool.rules.still_minutes,
+        );
+        assert!(health.schedule_needed);
+    }
 
     #[test]
     fn an_install_wait_traces_the_command_to_the_idle_process() {

@@ -190,7 +190,10 @@ fn the_waiting_are_the_tickets_whose_builds_hold_no_lock_wherever_they_stand() {
         hold(&queue, "side-2", 30),
         hold(&queue, "side-3", 50),
     ];
-    assert_eq!(queue.waiting().unwrap(), vec![20, 40]);
+    assert_eq!(
+        queue.waiting().unwrap(),
+        vec![(20, Where::Anywhere), (40, Where::Anywhere)]
+    );
     for fd in held {
         unsafe { libc::close(fd) };
     }
