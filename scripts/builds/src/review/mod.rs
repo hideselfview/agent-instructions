@@ -78,6 +78,7 @@ pub mod idle;
 pub mod judge;
 pub mod judge_ack;
 pub mod judge_told;
+mod kept_open;
 pub mod landing;
 pub mod marked_mechanical;
 pub mod mechanical;
@@ -96,6 +97,7 @@ mod score;
 pub mod texts;
 pub mod verdicts;
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use crate::ack::agent::Caller;
@@ -398,9 +400,8 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
     };
     // A finding in a file the branch deleted needs no reviewer to say its
     // code is gone: the run closes it.
-    let (open_findings, gone) =
+    let (open_findings, deleted) =
         run::split_deleted_findings(inputs.worktree, &change.head, open_findings)?;
-    let head = change.head.clone();
     let asks = match open {
         None => vec![Ask {
             groups: scope.group_names(&change.diff.changed),
@@ -409,6 +410,8 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
             last_review: true,
             note: None,
             open: Vec::new(),
+            at_head: true,
+            deleted,
         }],
         Some(landing) => later_asks(
             &conn,
@@ -417,7 +420,7 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
             &change,
             landing,
             &open_findings,
-            !gone.is_empty(),
+            deleted,
         )?,
     };
     if let Some(added) = check::over_the_cap(asks.iter().map(|ask| ask.change.diff.text.as_str())) {
@@ -449,40 +452,7 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
             &ask.open,
         ));
     }
-    let deletes = if gone.is_empty() {
-        None
-    } else {
-        Some(
-            asks.iter()
-                .rposition(|ask| ask.change.head == head)
-                .expect("the review includes the head with the deleted files"),
-        )
-    };
-    // A group that raises an open finding again on the same code finds the
-    // same problem: the open finding stays, and the run records no new one.
-    let still_found: Vec<Vec<&record::Finding>> = answers
-        .iter_mut()
-        .map(|asked| {
-            let mut still: Vec<&record::Finding> = Vec::new();
-            for call in &mut asked.calls {
-                let follow_up = &call.follow_up;
-                call.findings.retain(|raised| {
-                    let Some(open) = open_findings.iter().find(|held| {
-                        held.group == call.group
-                            && held.matches(raised)
-                            && follow_up.get(&held.id) != Some(&call::FollowUp::Fixed)
-                    }) else {
-                        return true;
-                    };
-                    if !still.iter().any(|seen| seen.id == open.id) {
-                        still.push(open);
-                    }
-                    false
-                });
-            }
-            still
-        })
-        .collect();
+    let still_found = account_for_repeated_findings(&asks, &mut answers, &open_findings);
     let stamp = inputs.stamp;
     let (landing, runs) = inputs
         .store
@@ -492,7 +462,7 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
                 None => record::add_landing(db, under_review, stamp.at)?,
             };
             let mut runs = Vec::new();
-            for (at, (ask, asked)) in asks.iter().zip(&answers).enumerate() {
+            for (ask, asked) in asks.iter().zip(&answers) {
                 let (run_id, _) = record::add_run(
                     db,
                     &inputs.store.texts,
@@ -510,10 +480,8 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
                     },
                     &asked.calls,
                 )?;
-                if deletes == Some(at) {
-                    for finding in &gone {
-                        record::close(db, finding.id, run_id, Some(landing))?;
-                    }
+                for &finding in &ask.deleted {
+                    record::close(db, finding, run_id, Some(landing))?;
                 }
                 if ask.last_review {
                     record::record_reviewed(db, landing, run_id)?;
@@ -583,10 +551,8 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
                 }
             }
         }
-        if deletes == Some(at) {
-            for finding in &gone {
-                text.push_str(&render::closed_text(*run_id, finding.id));
-            }
+        for &finding in &ask.deleted {
+            text.push_str(&render::closed_text(*run_id, finding));
         }
     }
     // What builds land would say of the branch's commits now.
@@ -610,6 +576,64 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
     })
 }
 
+/// A group can raise the same problem again on unchanged code. Record it as
+/// another observation of the open finding. A repeat at the head contradicts
+/// any fixed verdict the group gives there, even in a separate ask.
+fn account_for_repeated_findings<'a>(
+    asks: &[Ask],
+    answers: &mut [run::Asked],
+    open: &'a [record::Finding],
+) -> Vec<Vec<&'a record::Finding>> {
+    let mut repeated_at_head = BTreeMap::new();
+    let mut repeated = Vec::new();
+    for (ask, answer) in asks.iter().zip(answers.iter_mut()) {
+        let mut still: Vec<&record::Finding> = Vec::new();
+        for call in &mut answer.calls {
+            call.findings.retain(|raised| {
+                let Some(finding) = open
+                    .iter()
+                    .find(|held| held.group == call.group && held.matches(raised))
+                else {
+                    return true;
+                };
+                if raised.check_failed.is_none() {
+                    if ask.at_head {
+                        repeated_at_head
+                            .entry(finding.id)
+                            .or_insert_with(|| raised.problem.clone());
+                    }
+                    if !still.iter().any(|seen| seen.id == finding.id) {
+                        still.push(finding);
+                    }
+                }
+                false
+            });
+        }
+        repeated.push(still);
+    }
+    for (ask, answer) in asks.iter().zip(answers) {
+        if ask.at_head {
+            for call in &mut answer.calls {
+                let disagreements: Vec<_> = call
+                    .follow_up
+                    .iter()
+                    .filter_map(|(id, verdict)| match verdict {
+                        call::FollowUp::Fixed => repeated_at_head
+                            .get(id)
+                            .map(|reason| call::disagreement(*id, reason)),
+                        call::FollowUp::StillOpen(_) => None,
+                    })
+                    .collect();
+                if !disagreements.is_empty() {
+                    call.failure = Some(disagreements.join(" "));
+                    call.follow_up.clear();
+                }
+            }
+        }
+    }
+    repeated
+}
+
 /// One run of a review: the diff its reviewers read and the groups it asks.
 struct Ask {
     change: run::NetChange,
@@ -626,6 +650,9 @@ struct Ask {
     /// Findings whose groups decide their status in this ask. Each group
     /// does so in one ask over the head under review.
     open: Vec<record::Finding>,
+    at_head: bool,
+    /// Findings that this run closes because their files are absent at the head.
+    deleted: Vec<i64>,
     /// What the run asked, for a run of a change that has a review already.
     note: Option<String>,
 }
@@ -651,7 +678,7 @@ fn later_asks(
     change: &run::NetChange,
     landing: i64,
     open: &[record::Finding],
-    has_deleted_findings: bool,
+    deleted: Vec<i64>,
 ) -> Result<Vec<Ask>> {
     let coverage = landing::Coverage::of(conn, &record::landing(conn, landing)?)?;
     let calls = record::calls_of_landing(conn, landing)?;
@@ -672,12 +699,10 @@ fn later_asks(
             )),
             groups: missing.clone(),
             open: Vec::new(),
+            at_head: run.head == change.head,
+            deleted: Vec::new(),
         });
     }
-    let current_retries: Vec<_> = unanswered
-        .into_iter()
-        .filter(|(run, _)| run.head == change.head)
-        .collect();
     let last = &coverage.last_review;
     // The changes since <from>'s net change, read in place when the
     // branch's net change is.
@@ -699,10 +724,15 @@ fn later_asks(
     // each of its findings.
     let mut holders: Vec<(String, &record::RunRow)> = Vec::new();
     let group_findings = scope.material.holding_groups(open);
+    let kept = if group_findings.is_empty() {
+        Vec::new()
+    } else {
+        kept_open::of_landing(conn, landing)?
+    };
     for (group, findings) in &group_findings {
         let mut from: Option<&record::RunRow> = None;
         for finding in findings {
-            let reached = coverage.read_with(&calls, &current_retries, finding, group)?;
+            let reached = coverage.read_with(&kept, finding, group)?;
             if from.is_none_or(|from| reached.id < from.id) {
                 from = Some(reached);
             }
@@ -731,7 +761,18 @@ fn later_asks(
             .iter()
             .filter(|(_, f)| f.id == from.id)
             .map(|(group, _)| group.clone())
+            .filter(|group| {
+                !asks.iter().any(|ask| {
+                    ask.at_head
+                        && ask.change.base == since.base
+                        && ask.since == Some(from.id)
+                        && ask.groups.contains(group)
+                })
+            })
             .collect();
+        if groups.is_empty() {
+            continue;
+        }
         asks.push(Ask {
             note: Some(format!(
                 "asked the groups that hold open findings over the changes since run {} over {}...{}, the last net change they read with those findings: {}\n",
@@ -745,6 +786,8 @@ fn later_asks(
             last_review: false,
             groups,
             open: Vec::new(),
+            at_head: true,
+            deleted: Vec::new(),
         });
     }
     let since = since_run(last)?;
@@ -767,7 +810,7 @@ fn later_asks(
             .iter()
             .any(|ask| ask.groups.contains(group))
     });
-    if !groups.is_empty() {
+    let unused_since = if !groups.is_empty() {
         asks.push(Ask {
             note: Some(format!(
                 "read only the changes since the last review, run {} over {}...{}\n",
@@ -780,7 +823,10 @@ fn later_asks(
             last_review: true,
             groups,
             open: Vec::new(),
+            at_head: true,
+            deleted: Vec::new(),
         });
+        None
     } else if needs_review {
         // The catch-up asks together cover every group that needed to read
         // the changes since the last review. They all read the same head.
@@ -788,22 +834,10 @@ fn later_asks(
             .last_mut()
             .expect("the groups that needed review got catch-up asks")
             .last_review = true;
-    } else if has_deleted_findings
-        && group_findings.is_empty()
-        && !asks.iter().any(|ask| ask.change.head == change.head)
-    {
-        asks.push(Ask {
-            note: Some(format!(
-                "closed the findings in files the branch deleted, with no reviewer, after run {}\n",
-                last.id
-            )),
-            change: since,
-            since: Some(last.id),
-            last_review: false,
-            groups: Vec::new(),
-            open: Vec::new(),
-        });
-    }
+        None
+    } else {
+        Some(since)
+    };
     // A group decides the status of its findings against the head, even
     // when another ask retries an older diff for that group.
     let mut recheck = Vec::new();
@@ -812,7 +846,7 @@ fn later_asks(
         if let Some(ask) = asks
             .iter_mut()
             .rev()
-            .find(|ask| ask.change.head == change.head && ask.groups.contains(&group))
+            .find(|ask| ask.at_head && ask.groups.contains(&group))
         {
             ask.open.extend(findings.into_iter().cloned());
         } else {
@@ -835,7 +869,31 @@ fn later_asks(
             last_review: false,
             groups: recheck,
             open: recheck_findings,
+            at_head: true,
+            deleted: Vec::new(),
         });
+    }
+    if !deleted.is_empty() {
+        if let Some(ask) = asks.iter_mut().rfind(|ask| ask.at_head) {
+            ask.deleted = deleted;
+        } else {
+            let Some(since) = unused_since else {
+                fail!("Builds could not plan a review run at the head with the deleted files.");
+            };
+            asks.push(Ask {
+                note: Some(format!(
+                    "closed the findings in files the branch deleted, with no reviewer, after run {}\n",
+                    last.id
+                )),
+                change: since,
+                since: Some(last.id),
+                last_review: false,
+                groups: Vec::new(),
+                open: Vec::new(),
+                at_head: true,
+                deleted,
+            });
+        }
     }
     if asks.is_empty() {
         fail!(

@@ -451,11 +451,16 @@ struct Unit<'a> {
 }
 
 /// The findings of <open> that <group>, with <members>, holds: those of its
-/// rules.
+/// rules, or project-facts findings that this group raised.
 fn held_by<'a>(group: &Group, members: &[&Rule], open: &'a [Finding]) -> Vec<&'a Finding> {
-    let names = prompt::answer_names(group, members);
     open.iter()
-        .filter(|finding| names.contains(&finding.rule))
+        .filter(|finding| {
+            if finding.rule == PROJECT_FACTS {
+                group.project_facts && finding.group == group.name
+            } else {
+                members.iter().any(|rule| rule.slug == finding.rule)
+            }
+        })
         .collect()
 }
 
@@ -710,7 +715,7 @@ pub fn ask_groups(
             None => (read.text_for(group), String::new()),
         };
         let names = prompt::answer_names(group, unit.members);
-        let given: Vec<&Finding> = open.iter().filter(|f| names.contains(&f.rule)).collect();
+        let given = held_by(group, unit.members, open);
         let parts = prompt::build(&prompt::Input {
             group,
             rules: unit.members,
@@ -871,15 +876,19 @@ pub fn split_deleted_findings(
     worktree: &Path,
     head: &str,
     open: Vec<Finding>,
-) -> Result<(Vec<Finding>, Vec<Finding>)> {
+) -> Result<(Vec<Finding>, Vec<i64>)> {
     if open.is_empty() {
         return Ok((open, Vec::new()));
     }
     let tree = commits::git_text(worktree, &["ls-tree", "-r", "--name-only", head])?;
-    Ok(open.into_iter().partition(|finding| {
+    let (present, deleted): (Vec<_>, Vec<_>) = open.into_iter().partition(|finding| {
         finding.file == files::COMMIT_MESSAGE
             || tree.lines().any(|path| names_file(path, &finding.file))
-    }))
+    });
+    Ok((
+        present,
+        deleted.into_iter().map(|finding| finding.id).collect(),
+    ))
 }
 
 /// A call of <group> that ran no reviewer: failed with <failure>, or, with
@@ -934,10 +943,7 @@ fn merge(held: &mut NewCall, more: NewCall) {
             Entry::Occupied(entry) => match (entry.get(), &verdict) {
                 (call::FollowUp::Fixed, call::FollowUp::StillOpen(reason))
                 | (call::FollowUp::StillOpen(reason), call::FollowUp::Fixed) => {
-                    let reason = crate::text::one_line(reason);
-                    failures.push(format!(
-                        "The reviewers disagreed on finding {id}. One kept the finding open. {reason}"
-                    ));
+                    failures.push(call::disagreement(id, reason));
                 }
                 _ => {}
             },

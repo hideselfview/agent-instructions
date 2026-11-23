@@ -254,18 +254,11 @@ impl Coverage {
 
     /// The run up to whose net change group <group> has read every change
     /// with <finding> among its open findings: the run that raised the
-    /// finding, then each run that read the changes since the net change
-    /// reached so far and over whose diff the group answered once the judge
-    /// had confirmed the finding. <calls> are the review's calls, and
-    /// <asking> the diffs this review asks again with the groups it asks
-    /// over each (`unanswered`), which count as answered: the finding is
-    /// confirmed now. A later run asks the group over the changes since that
-    /// run, so that the group can close the finding whatever file the fix
-    /// changed.
-    pub fn read_with(
+    /// finding, then each run that read the whole change or the changes since
+    /// the net change reached so far and recorded that the finding stayed open.
+    pub(super) fn read_with(
         &self,
-        calls: &[record::Call],
-        asking: &[(&record::RunRow, Vec<String>)],
+        kept: &[super::kept_open::Verdict],
         finding: &record::Finding,
         group: &str,
     ) -> Result<&record::RunRow> {
@@ -276,33 +269,18 @@ impl Coverage {
                 finding.run_id
             );
         };
-        let confirmed = finding.settled.as_ref().map(|settled| settled.last().at);
-        // Whether the group answered over <run>'s diff with the finding given.
-        let answered = |run: &record::RunRow| {
-            let given = |over: &record::RunRow| confirmed.is_some_and(|at| at <= over.at);
-            let ran = self.runs.iter().any(|over| {
-                over.same_diff(run)
-                    && given(over)
-                    && calls.iter().any(|call| {
-                        call.run_id == over.id && call.group == group && call.failure.is_none()
-                    })
-            });
-            let asks = asking.iter().any(|(over, groups)| {
-                over.same_diff(run) && groups.iter().any(|name| name == group)
-            });
-            ran || asks
-        };
         let mut reached = raised;
-        let mut passed = vec![raised];
         while let Some(next) = self.runs.iter().rev().find(|run| {
-            let from_reached = run.since.is_some_and(|since| {
-                self.runs
-                    .iter()
-                    .any(|earlier| earlier.id == since && earlier.reads_up_to(reached))
-            });
-            from_reached && !passed.iter().any(|p| p.reads_up_to(run)) && answered(run)
+            run.id > reached.id
+                && kept.iter().any(|verdict| {
+                    verdict.finding == finding.id && verdict.group == group && verdict.run == run.id
+                })
+                && run.since.is_none_or(|since| {
+                    self.runs
+                        .iter()
+                        .any(|earlier| earlier.id == since && earlier.reads_up_to(reached))
+                })
         }) {
-            passed.push(next);
             reached = next;
         }
         Ok(reached)

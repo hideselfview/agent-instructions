@@ -38,6 +38,13 @@ pub enum FollowUp {
     StillOpen(String),
 }
 
+pub(super) fn disagreement(id: i64, reason: &str) -> String {
+    let reason = crate::text::one_line(reason);
+    format!(
+        "The reviewers disagreed on finding {id}. One reported that the problem remains. {reason}"
+    )
+}
+
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 struct FollowUpEntry {

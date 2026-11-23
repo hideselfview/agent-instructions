@@ -3145,6 +3145,8 @@ for keeping each other finding open. Builds checks open findings against the
 branch head under review. A retry over an older commit reads only that diff.
 Builds fails the group if an exchange omits a verdict or if its reviewers
 disagree on whether a finding is fixed. A failed group leaves its findings open.
+Builds records which calls kept each finding open so that a later review starts
+from the last changes the group read with that finding.
 
 `builds land` refuses a branch until its review takes it: nothing on a path
 a group's rules cover changed since the last review (the net change of the

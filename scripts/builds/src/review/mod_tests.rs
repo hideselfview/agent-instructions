@@ -1239,6 +1239,105 @@ fn a_retry_of_an_older_head_reviews_its_diff_without_judging_open_findings() {
     let db = demo.store.open_existing().unwrap();
     let coverage = landing::Coverage::of(&db, &record::landing(&db, landing).unwrap()).unwrap();
     assert_eq!(coverage.last_review.head, head_commit);
+    drop(db);
+
+    demo.commit(&side, "d.rs");
+    review_at(&demo, &fake, &side, "k", NOON + 40).unwrap();
+    let prompts = fake.prompts();
+    let (_, latest) = prompts
+        .iter()
+        .find(|(_, prompt)| prompt.contains("+d.rs"))
+        .unwrap();
+    assert!(
+        latest.contains("+b.rs") && latest.contains(&open),
+        "{latest}"
+    );
+}
+
+#[test]
+fn a_finding_raised_again_at_the_reviewed_head_disagrees_with_a_fixed_verdict() {
+    let demo = demo("review-head-disagreement");
+    let fake = fake(&demo.scratch.dir);
+    let side = demo.add_side(1, "agent", "work");
+    demo.commit(&side, "a.rs");
+    fake.answer("alpha", &[("rule-a", Some(BAD))]);
+    let landing = review_at(&demo, &fake, &side, "k", NOON)
+        .unwrap()
+        .landing
+        .unwrap();
+    let finding = findings_of(&demo, landing)[0].id;
+
+    demo.commit(&side, "0.rs");
+    fake.answer("alpha", &[("rule-a", None)]);
+    review_at(&demo, &fake, &side, "k", NOON + 10).unwrap();
+    std::fs::write(side.join("a.rs"), "a.rs\n").unwrap();
+    crate::testing::git(&side, &["commit", "-qam", "End the line with a newline"]);
+    fake.fail("alpha");
+    review_at(&demo, &fake, &side, "k", NOON + 20).unwrap();
+    demo.store
+        .write(&stamp_at(NOON + 30), "settle", |db| {
+            record::settle(db, finding, "confirmed", "real", NOON + 30, "tester")
+        })
+        .unwrap();
+
+    std::fs::remove_file(fake.dir.join("fail-alpha")).unwrap();
+    fake.answer("alpha", &[("rule-a", Some(BAD))]);
+    fake.closes("alpha-0.rs", "rule-a", &[finding]);
+    let reported = review_at(&demo, &fake, &side, "k", NOON + 40).unwrap();
+    assert!(
+        reported
+            .text
+            .contains(&format!("disagreed on finding {finding}")),
+        "{}",
+        reported.text
+    );
+    assert!(reported.refusal.is_some(), "{reported:?}");
+    assert!(
+        findings_of(&demo, landing)[0].is_open(),
+        "{}",
+        reported.text
+    );
+}
+
+#[test]
+fn only_the_group_that_raised_a_project_facts_finding_reviews_its_fix() {
+    let demo = demo("review-project-facts-fix");
+    let fake = fake(&demo.scratch.dir);
+    for group in ["alpha", "beta"] {
+        group_file(&fake.root, group, group, "medium", "project_facts = true\n");
+    }
+    let side = demo.add_side(1, "agent", "work");
+    demo.commit(&side, "a.rs");
+    demo.commit(&side, "b.swift");
+    let problem = ("Demo project facts.", BAD.1, BAD.2, BAD.3, BAD.4);
+    fake.answer(
+        "alpha",
+        &[("rule-a", None), ("project-facts", Some(problem))],
+    );
+    fake.answer("beta", &[("rule-b", None), ("project-facts", None)]);
+    let landing = run_review(&demo, &fake, &side, "k").landing.unwrap();
+    let finding = findings_of(&demo, landing)[0].id;
+    settle_as(&demo, finding, "confirmed", "real");
+    fake.prompts();
+
+    demo.commit(&side, "fix.rs");
+    for (group, rule) in [("alpha", "rule-a"), ("beta", "rule-b")] {
+        fake.answer_task(
+            group,
+            serde_json::json!({
+                "rules": [
+                    {"rule": rule, "verdict": "none", "findings": []},
+                    {"rule": "project-facts", "verdict": "none", "findings": []},
+                ],
+                "follow_up": [{"id": finding, "verdict": "fixed"}],
+            }),
+        );
+    }
+    let reported = run_review(&demo, &fake, &side, "k");
+    let prompts = fake.prompts();
+    assert_eq!(prompts.len(), 1, "{prompts:?}");
+    assert_eq!(prompts[0].0, "alpha");
+    assert!(reported.refusal.is_none(), "{reported:?}");
 }
 
 #[test]

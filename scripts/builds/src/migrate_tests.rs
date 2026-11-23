@@ -2255,6 +2255,29 @@ fn a_move_allows_unknown_spec_cost_and_keeps_previous_checks_and_findings() {
 }
 
 #[test]
+fn a_store_from_before_review_calls_recorded_open_verdicts_gains_the_empty_table() {
+    let scratch = Scratch::new("move-review-kept-open");
+    let places = scratch.places();
+    let path = scratch.dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        let prior = db::schema_before_review_kept_open();
+        assert_eq!(db::stamp_of_text(&prior), BEFORE_REVIEW_KEPT_OPEN_STAMP);
+        conn.execute_batch(&prior).unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_REVIEW_KEPT_OPEN_STAMP)
+            .unwrap();
+    }
+    move_store(&places, &path, 0).unwrap();
+    let conn = db::open(&path, db::Make::Never).unwrap();
+    let rows: i64 = conn
+        .query_row("SELECT COUNT(*) FROM review_kept_open", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(rows, 0);
+}
+
+#[test]
 fn adding_codex_destinations_keeps_registered_claude_inboxes() {
     let old = db::schema_before_codex_inboxes();
     assert_eq!(db::stamp_of_text(&old), BEFORE_CODEX_INBOX_STAMP);

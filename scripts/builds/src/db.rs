@@ -157,6 +157,9 @@ pub const APP_SHOTS_DROP_PART: &str = include_str!("app_shots_drop.sql");
 /// schema holds it after the shots prefixes dropped from a landing.
 pub const APP_BUILD_STEP_SHOTS_PART: &str = include_str!("app_build_step_shots.sql");
 
+/// The review calls that found an earlier finding still open.
+pub const REVIEW_KEPT_OPEN_PART: &str = include_str!("review/kept_open.sql");
+
 /// Each part of the schema, in the order the schema holds them: the lists'
 /// tables, then the hook stats', then the app-build timings', then the design
 /// changes' recording sessions', then the review's, then the hook checks'
@@ -173,7 +176,7 @@ pub const APP_BUILD_STEP_SHOTS_PART: &str = include_str!("app_build_step_shots.s
 /// cap. A table points at ones earlier or
 /// later (SQLite resolves foreign keys when rows are written), but the order is
 /// the one to read the schema in. A part that joins the schema goes at the end.
-const SCHEMA_PARTS: [&str; 42] = [
+const SCHEMA_PARTS: [&str; 43] = [
     include_str!("lists/project.sql"),
     include_str!("lists/area.sql"),
     include_str!("lists/record.sql"),
@@ -216,6 +219,7 @@ const SCHEMA_PARTS: [&str; 42] = [
     MARKED_MECHANICAL_PART,
     APP_SHOTS_DROP_PART,
     APP_BUILD_STEP_SHOTS_PART,
+    REVIEW_KEPT_OPEN_PART,
 ];
 
 /// The length of <parts> joined with a newline between each two.
@@ -529,7 +533,12 @@ fn with_claude_inboxes(mut schema: String) -> String {
 
 #[cfg(test)]
 pub fn schema_before_codex_inboxes() -> String {
-    with_claude_inboxes(SCHEMA.to_string())
+    with_claude_inboxes(schema_before_review_kept_open())
+}
+
+#[cfg(test)]
+pub fn schema_before_review_kept_open() -> String {
+    parts_before(REVIEW_KEPT_OPEN_PART).join("\n")
 }
 
 /// The schema as it was before the app build steps' table kept whether a step
@@ -674,13 +683,18 @@ pub fn schema_before_ack_repo() -> String {
 /// every such schema held.
 #[cfg(test)]
 fn schema_before(part: &str) -> String {
+    with_ack_repo(with_review_texts(with_shot_findings(with_claude_inboxes(
+        parts_before(part).join("\n"),
+    ))))
+}
+
+#[cfg(test)]
+fn parts_before(part: &str) -> &'static [&'static str] {
     let at = SCHEMA_PARTS
         .iter()
         .position(|known| *known == part)
         .expect("the part is one of the schema's parts");
-    with_ack_repo(with_review_texts(with_shot_findings(with_claude_inboxes(
-        SCHEMA_PARTS[..at].join("\n"),
-    ))))
+    &SCHEMA_PARTS[..at]
 }
 
 /// The schema as it was before what the shots steps used joined it: every
@@ -691,22 +705,21 @@ pub fn schema_before_app_build_step_shots() -> String {
 }
 
 /// The schema as it was before the shots prefixes dropped from a landing
-/// joined it: every part but the last two, with none of the older schemas'
-/// differences put back.
+/// joined it, with the Claude inboxes and the acknowledgements keyed by repo.
 #[cfg(test)]
 pub fn schema_before_app_shots_drop() -> String {
     with_ack_repo(with_claude_inboxes(
-        SCHEMA_PARTS[..SCHEMA_PARTS.len() - 2].join("\n"),
+        parts_before(APP_SHOTS_DROP_PART).join("\n"),
     ))
 }
 
 /// The schema as it was before the branches the coordinator marked as
-/// mechanical joined it: every part but the last three, with none of the
-/// older schemas' differences put back.
+/// mechanical joined it, with the Claude inboxes and the acknowledgements
+/// keyed by repo.
 #[cfg(test)]
 pub fn schema_before_marked_mechanical() -> String {
     with_ack_repo(with_claude_inboxes(
-        SCHEMA_PARTS[..SCHEMA_PARTS.len() - 3].join("\n"),
+        parts_before(MARKED_MECHANICAL_PART).join("\n"),
     ))
 }
 

@@ -528,8 +528,11 @@ pub fn add_calls(
         }
         ids.push(finding_ids);
         for (finding, verdict) in &call.follow_up {
-            if *verdict == super::call::FollowUp::Fixed {
-                close(db, *finding, run_id, landing)?;
+            match verdict {
+                super::call::FollowUp::Fixed => close(db, *finding, run_id, landing)?,
+                super::call::FollowUp::StillOpen(_) => {
+                    super::kept_open::record(db, call_id, *finding)?;
+                }
             }
         }
     }
