@@ -491,11 +491,19 @@ pub(crate) fn warnings(
             dy: offset.1,
         });
     }
+    // Android's native text rounds each glyph advance to a whole pixel, so
+    // each glyph sets a width or a place off by up to half a pixel.
+    let glyph_slack = if platform == Platform::Android {
+        0.5 / shot.scale
+    } else {
+        0.0
+    };
     found.extend(geometry::boxes(
         board.elements,
         shot.elements,
         pairs,
         offset,
+        glyph_slack,
     ));
     found.extend(geometry::fonts(board.elements, shot.elements, pairs));
     found.extend(colour::pairs(platform, board, shot, pairs));

@@ -1298,6 +1298,17 @@ Android only the board's list says what covers a text. A Mac board's modal has
 no element of its own, so no list says it covers a text, and the checker
 reports the colours of a text under one.
 
+Android's native text rounds each glyph advance to a whole pixel, so a line the
+app draws is up to half a pixel off for each glyph against the board's
+fractional advances (167.66 px against 169.0 for "Your music, everywhere" at 16
+px), and the error adds up along a line and across the chips of a row. On the
+android lane the checker lets each glyph set a width and a place off by half a
+pixel: the width of a text, or of a control a label sizes, may differ by that
+for the glyphs of its label, and its left edge may sit off by that for the
+glyphs of the labels before it on its line and its own, besides the box-edge
+tolerance. A text whose width differs by that much compares its left edge as a
+text of the same width does. The mac lane keeps the box-edge tolerance alone.
+
 The checker measures a text's glyph colour from the brightest pixels it
 draws, and thin glyphs (the Mac's 11.5 pt years) have strokes under a pixel
 wide, so no pixel shows the colour in full: three years drawn in #6A6A7A

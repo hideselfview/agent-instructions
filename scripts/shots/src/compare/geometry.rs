@@ -90,6 +90,23 @@ impl Axis {
         Some(Self { shift, grow })
     }
 
+    /// This axis with a shift of at most <place> and a growth of at most
+    /// <width> left out.
+    fn within(self, width: f64, place: f64) -> Self {
+        Self {
+            shift: if self.shift.abs() <= EDGE_TOLERANCE + place {
+                0.0
+            } else {
+                self.shift
+            },
+            grow: if self.grow.abs() <= EDGE_TOLERANCE + width {
+                0.0
+            } else {
+                self.grow
+            },
+        }
+    }
+
     /// A text's start and its length.
     fn start_and_length(
         board_start: f64,
@@ -122,6 +139,24 @@ fn lies_inside(board: &Bounds, shot: &Bounds) -> bool {
         && shot.y + shot.height <= board.y + board.height + EDGE_TOLERANCE
 }
 
+/// The glyphs of <entry>'s label and of the labels of <pairs> before it on its
+/// line of <board>: those that start at or left of its left edge and share
+/// most of its height.
+fn glyphs_up_to(board: &[Element], pairs: &[(Entry, Entry)], entry: &Entry, at: &Bounds) -> usize {
+    pairs
+        .iter()
+        .map(|(other, _)| other)
+        .filter(|other| other.index != entry.index)
+        .filter(|other| {
+            let there = other.bounds(board);
+            let shared = (at.y + at.height).min(there.y + there.height) - at.y.max(there.y);
+            there.x <= at.x && shared > at.height.min(there.height) / 2.0
+        })
+        .chain(std::iter::once(entry))
+        .map(|labelled| labelled.words.chars().count())
+        .sum()
+}
+
 /// Whether `shot` is a container of the board's text box: wider, and holding
 /// it on every side, each edge within the tolerance, with its middle height
 /// the board's within the tolerance.
@@ -133,11 +168,17 @@ fn spans_container(board: &Bounds, shot: &Bounds) -> bool {
 }
 
 /// The geometry warnings of the pairs, the shot's boxes moved back by `offset`.
+/// A platform that rounds each glyph advance to a whole pixel (Android's
+/// native text) sets a text's width and place off by `glyph_slack` points for
+/// each glyph that sets them: a width by the glyphs of the label, a place by
+/// the glyphs of the labels before it on its line and its own. That holds for
+/// a text and for a control a label sizes, a chip.
 pub(crate) fn boxes(
     board: &[Element],
     shot: &[Element],
     pairs: &[(Entry, Entry)],
     offset: (f64, f64),
+    glyph_slack: f64,
 ) -> Vec<Warning> {
     let mut warnings = Vec::new();
     for (b, s) in pairs {
@@ -147,15 +188,18 @@ pub(crate) fn boxes(
             y: to.bounds.y - offset.1,
             ..to.bounds
         };
+        let width_slack = glyph_slack * b.words.chars().count() as f64;
+        let place_slack = glyph_slack * glyphs_up_to(board, pairs, b, &from) as f64;
         let (horizontal, vertical) = if b.kind == Role::Text {
             // A platform's text box may span its container, so its left edge
             // and width say something only where the two widths agree.
             (
-                widths_agree(&from, &to_bounds)
+                ((to_bounds.width - from.width).abs() <= EDGE_TOLERANCE + width_slack)
                     .then(|| {
                         Axis::start_and_length(from.x, from.width, to_bounds.x, to_bounds.width)
                     })
-                    .flatten(),
+                    .flatten()
+                    .map(|axis| axis.within(width_slack, place_slack)),
                 // A text box that spans its container, as the Mac's window
                 // title spans its bar, holds the board's box and shares its
                 // middle height: the text sits where the board draws it.
@@ -169,7 +213,8 @@ pub(crate) fn boxes(
             (None, None)
         } else {
             (
-                Axis::edges(from.x, from.width, to_bounds.x, to_bounds.width),
+                Axis::edges(from.x, from.width, to_bounds.x, to_bounds.width)
+                    .map(|axis| axis.within(width_slack, place_slack)),
                 Axis::edges(from.y, from.height, to_bounds.y, to_bounds.height),
             )
         };

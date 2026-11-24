@@ -27,7 +27,7 @@ fn board() -> Vec<Element> {
 fn warnings(board: &[Element], shot: &[Element]) -> Vec<Warning> {
     let pairs = compare(board, shot, Slots::NONE).pairs;
     let offset = frame_offset(board, shot, &pairs);
-    let mut all = boxes(board, shot, &pairs, offset);
+    let mut all = boxes(board, shot, &pairs, offset, 0.0);
     all.extend(fonts(board, shot, &pairs));
     all
 }
@@ -212,6 +212,97 @@ fn texts_of_another_width_give_the_horizontal_offset_when_nothing_else_does() {
     assert_eq!(frame_offset(&board, &shot, &pairs), (-4.0, -0.5));
 }
 
+/// The geometry warnings of two lists whose shot rounds each glyph advance to
+/// a whole pixel: `slack` points of error for each glyph.
+fn warnings_with_slack(board: &[Element], shot: &[Element], slack: f64) -> Vec<String> {
+    let pairs = compare(board, shot, Slots::NONE).pairs;
+    let offset = frame_offset(board, shot, &pairs);
+    boxes(board, shot, &pairs, offset, slack)
+        .iter()
+        .map(Warning::sentence)
+        .collect()
+}
+
+#[test]
+fn a_text_width_within_the_rounding_of_its_glyph_advances_is_the_same_layout() {
+    // 22 glyphs, each advance off by up to a quarter point: a width 4 pt
+    // wider is the same line, and its left edge is compared; a width 8 pt
+    // wider is another layout (a box that spans its container), as before.
+    let board = vec![
+        boxed(
+            Role::Text,
+            "Your music, everywhere",
+            20.0,
+            10.0,
+            160.0,
+            20.0,
+        ),
+        boxed(Role::Button, "Save", 10.0, 200.0, 80.0, 40.0),
+        boxed(Role::Button, "Cancel", 100.0, 200.0, 80.0, 40.0),
+    ];
+    let mut shot = board.clone();
+    shot[0].bounds.width += 4.0;
+    shot[0].bounds.x += 9.0;
+    assert!(warnings_with_slack(&board, &shot, 0.0).is_empty());
+    assert_eq!(warnings_with_slack(&board, &shot, 0.25).len(), 1);
+    shot[0].bounds.width += 4.0;
+    assert!(warnings_with_slack(&board, &shot, 0.25).is_empty());
+}
+
+#[test]
+fn a_text_after_others_on_its_line_may_sit_off_by_their_rounding_too() {
+    // Three texts in a row: each starts after the earlier ones, so the third
+    // is off by the sum of their glyph errors: 2.3 pt left, with 14 glyphs
+    // before it and 2 pt of box tolerance.
+    let row = |x3: f64| {
+        vec![
+            boxed(Role::Text, "Harbor Records", 20.0, 10.0, 70.0, 16.0),
+            boxed(Role::Text, "Pinned", 100.0, 10.0, 40.0, 16.0),
+            boxed(Role::Text, "Catalog link", x3, 10.0, 60.0, 16.0),
+        ]
+    };
+    let board = row(150.0);
+    let shot = row(147.7);
+    assert_eq!(warnings_with_slack(&board, &shot, 0.0).len(), 1);
+    assert!(warnings_with_slack(&board, &shot, 0.25).is_empty());
+    // A text alone on its line has only its own glyphs to round.
+    let alone = vec![
+        boxed(Role::Text, "Pinned", 150.0, 60.0, 40.0, 16.0),
+        boxed(Role::Button, "Save", 10.0, 200.0, 80.0, 40.0),
+        boxed(Role::Button, "Cancel", 100.0, 200.0, 80.0, 40.0),
+    ];
+    let mut moved = alone.clone();
+    moved[0].bounds.x -= 2.3;
+    assert!(warnings_with_slack(&alone, &moved, 0.25).is_empty());
+    moved[0].bounds.x -= 3.0;
+    assert_eq!(warnings_with_slack(&alone, &moved, 0.25).len(), 1);
+}
+
+#[test]
+fn a_chip_after_others_on_its_line_may_sit_off_by_their_glyph_rounding() {
+    // Chips a label sizes, in a row: the fourth ends 2.6 pt short and starts
+    // 1.4 pt short, though no chip is more than a pixel off by itself.
+    let row = |x: f64, width: f64| {
+        vec![
+            boxed(Role::Button, "MusicBrainz ↗", 0.0, 0.0, 84.0, 19.0),
+            boxed(Role::Button, "Discogs ↗", 92.0, 0.0, 62.0, 19.0),
+            boxed(Role::Button, "Bandcamp ↗", 162.0, 0.0, 75.0, 19.0),
+            boxed(
+                Role::Button,
+                "Harbor Records catalog ↗",
+                x,
+                0.0,
+                width,
+                19.0,
+            ),
+        ]
+    };
+    let board = row(246.4, 139.7);
+    let shot = row(245.0, 138.5);
+    assert_eq!(warnings_with_slack(&board, &shot, 0.0).len(), 1);
+    assert!(warnings_with_slack(&board, &shot, 0.25).is_empty());
+}
+
 /// Three images, the first two symbols in text lines as a board boxes them
 /// (the line's height), and two buttons that fix the frame.
 fn symbols() -> Vec<Element> {
@@ -322,10 +413,10 @@ fn a_folded_run_is_compared_by_the_union_of_its_boxes() {
     let shot = vec![boxed(Role::Text, "Title Artist", 10.0, 10.0, 60.0, 30.0)];
     let pairs = compare(&board, &shot, Slots::NONE).pairs;
     assert_eq!(pairs.len(), 1);
-    assert!(boxes(&board, &shot, &pairs, (0.0, 0.0)).is_empty());
+    assert!(boxes(&board, &shot, &pairs, (0.0, 0.0), 0.0).is_empty());
     assert_eq!(frame_offset(&board, &shot, &pairs), (0.0, 0.0));
     // A shot text that is taller than the run still warns.
     let tall = vec![boxed(Role::Text, "Title Artist", 10.0, 10.0, 60.0, 50.0)];
     let pairs = compare(&board, &tall, Slots::NONE).pairs;
-    assert_eq!(boxes(&board, &tall, &pairs, (0.0, 0.0)).len(), 1);
+    assert_eq!(boxes(&board, &tall, &pairs, (0.0, 0.0), 0.0).len(), 1);
 }
