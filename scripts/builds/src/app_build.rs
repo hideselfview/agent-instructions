@@ -210,7 +210,56 @@ fn chosen(config: &Config, lane: Lane, names: &[String]) -> Result<Vec<Step>> {
 }
 
 /// A `--test <lane> <Class>` or `--shots <lane> <prefix>` flag.
-pub type Pick = (Lane, PickKind, String);
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Pick {
+    Class(Lane, String),
+    Shots(Lane, shots::Prefix),
+}
+
+impl Pick {
+    pub fn from_flag(lane: Lane, kind: PickKind, arg: &str) -> Result<Self> {
+        match kind {
+            PickKind::Class => Ok(Self::Class(lane, arg.to_string())),
+            PickKind::Shots => {
+                refuse_whole_lane(lane, arg)?;
+                let prefix =
+                    shots::Prefix::parse(arg).map_err(|error| Fail::Message(error.to_string()))?;
+                Ok(Self::Shots(lane, prefix))
+            }
+        }
+    }
+
+    pub fn lane(&self) -> Lane {
+        match self {
+            Self::Class(lane, _) | Self::Shots(lane, _) => *lane,
+        }
+    }
+
+    pub fn kind(&self) -> PickKind {
+        match self {
+            Self::Class(..) => PickKind::Class,
+            Self::Shots(..) => PickKind::Shots,
+        }
+    }
+
+    pub fn argument(&self) -> &str {
+        match self {
+            Self::Class(_, class) => class,
+            Self::Shots(_, prefix) => prefix.as_str(),
+        }
+    }
+
+    pub fn is_all_shots(&self) -> bool {
+        matches!(self, Self::Shots(lane, prefix) if prefix.as_str() == lane.all_shots_prefix())
+    }
+
+    pub fn prefixes(picks: &[Self]) -> impl Iterator<Item = &shots::Prefix> {
+        picks.iter().filter_map(|pick| match pick {
+            Self::Class(..) => None,
+            Self::Shots(_, prefix) => Some(prefix),
+        })
+    }
+}
 
 /// The rule that app-build names when it refuses a `--test` argument that is
 /// no type name, a `--shots` prefix that selects every shot of its lane, or a
@@ -220,7 +269,7 @@ pub const ONLY_WHAT_A_CHANGE_TOUCHES: &str = "an app build runs only the test cl
 /// Refuses a shots <prefix> in <lane> that selects every shot of the lane:
 /// one that `<lane>.` starts with (`mac.`, `mac`), since every shot name of
 /// the lane starts with `<lane>.`. `--all-shots <lane>` asks for that run.
-pub fn refuse_whole_lane(lane: Lane, prefix: &str) -> Result<()> {
+fn refuse_whole_lane(lane: Lane, prefix: &str) -> Result<()> {
     let word = lane.word();
     if lane.all_shots_prefix().starts_with(prefix) {
         fail!(
@@ -236,7 +285,9 @@ pub const ALL_SHOTS: &str = "--all-shots";
 /// The pick of <lane>'s full set of shots: the run of the lane's `shots` line
 /// with the prefix every shot of the lane starts with.
 pub fn all_shots(lane: Lane) -> Pick {
-    (lane, PickKind::Shots, lane.all_shots_prefix())
+    let prefix = shots::Prefix::parse(&lane.all_shots_prefix())
+        .expect("each lane has a valid prefix for all its shots");
+    Pick::Shots(lane, prefix)
 }
 
 /// The pick of the `--all-shots <lane>` flag whose words after the flag are
@@ -253,11 +304,11 @@ pub fn all_shots_flag<'a>(after: &'a [String], usage: &str) -> Result<(Pick, &'a
 /// request that names steps: `--all-shots <lane>` for a lane's full set of
 /// shots, else the kind's flag, the lane and the argument.
 pub fn pick_words(pick: &Pick) -> Vec<&str> {
-    let (lane, kind, arg) = pick;
-    if *pick == all_shots(*lane) {
+    let lane = pick.lane();
+    if pick.is_all_shots() {
         vec![ALL_SHOTS, lane.word()]
     } else {
-        vec![kind.flag(), lane.word(), arg.as_str()]
+        vec![pick.kind().flag(), lane.word(), pick.argument()]
     }
 }
 
@@ -302,10 +353,7 @@ pub fn split_picks(args: &[String]) -> Result<(Vec<String>, Vec<Pick>)> {
             );
         }
         let lane = Lane::parse_or_fail(lane)?;
-        if kind == PickKind::Shots {
-            refuse_whole_lane(lane, arg)?;
-        }
-        picks.push((lane, kind, arg.clone()));
+        picks.push(Pick::from_flag(lane, kind, arg)?);
         flags = after;
     }
     Ok((names, picks))
@@ -367,13 +415,15 @@ fn lane_steps_with(
         chosen(config, lane, names)?
     };
     let mut runs: Vec<PickRun> = Vec::new();
-    for (_, kind, arg) in picks.iter().filter(|(own, _, _)| *own == lane) {
+    for pick in picks.iter().filter(|pick| pick.lane() == lane) {
+        let kind = pick.kind();
+        let arg = pick.argument();
         let program = match kind {
             PickKind::Class => program_of(arg)?,
             PickKind::Shots => None,
         };
-        let Some(picker) = config.picker_in(lane, *kind, program.as_deref()) else {
-            return Err(missing_line(lane, *kind, arg));
+        let Some(picker) = config.picker_in(lane, kind, program.as_deref()) else {
+            return Err(missing_line(lane, kind, arg));
         };
         let same = runs
             .iter_mut()
@@ -1150,24 +1200,6 @@ const NEEDS_ONLY: &str = "--needs-only";
 /// runs take every shot again and replace the pictures in the picture folder.
 const FRESH: &str = "--fresh";
 
-/// The prefixes of <lane>'s shots among <picks> that select a scene shown in
-/// a window at <commit> of the repo at <source>
-/// (`shots_declared::windowed_prefixes`).
-fn windowed_at(
-    source: &Path,
-    commit: &str,
-    lane: Lane,
-    config: &Config,
-    picks: &[Pick],
-) -> Result<Vec<(String, Access)>> {
-    let own: Vec<Pick> = picks
-        .iter()
-        .filter(|(pick_lane, _, _)| *pick_lane == lane)
-        .cloned()
-        .collect();
-    crate::shots_declared::windowed_prefixes(source, commit, config, &own)
-}
-
 /// The id that keys <lane>'s shots in the picture folder at <commit> of the
 /// repo at <source>, whose `.app-build` there is <config>, when they are drawn
 /// in <environment>: the lane's app source tree combined with the environment
@@ -1183,45 +1215,6 @@ fn picture_tree(
         &crate::app_tree::of(source, commit, config, lane)?,
         environment,
     ))
-}
-
-enum LanePick<'a> {
-    Class(&'a str),
-    Shots(shots::Prefix),
-}
-
-impl<'a> LanePick<'a> {
-    fn of_lane(lane: Lane, picks: &'a [Pick]) -> std::result::Result<Vec<Self>, shots::NameError> {
-        picks
-            .iter()
-            .filter(|(own, _, _)| *own == lane)
-            .map(|(_, kind, value)| match kind {
-                PickKind::Class => Ok(Self::Class(value)),
-                PickKind::Shots => Ok(Self::Shots(shots::Prefix::parse(value)?)),
-            })
-            .collect()
-    }
-
-    fn shot_command(lane: Lane, prefix: &shots::Prefix) -> Pick {
-        (lane, PickKind::Shots, prefix.as_str().to_string())
-    }
-
-    fn commands(lane: Lane, picks: &[Self]) -> Vec<Pick> {
-        picks
-            .iter()
-            .map(|pick| match pick {
-                Self::Class(name) => (lane, PickKind::Class, (*name).to_string()),
-                Self::Shots(prefix) => Self::shot_command(lane, prefix),
-            })
-            .collect()
-    }
-
-    fn prefixes(picks: &[Self]) -> impl Iterator<Item = &shots::Prefix> {
-        picks.iter().filter_map(|pick| match pick {
-            Self::Class(_) => None,
-            Self::Shots(prefix) => Some(prefix),
-        })
-    }
 }
 
 /// The marks a lane needs to run its shots without building the app.
@@ -1344,7 +1337,7 @@ impl ShotsCache {
         environment: &str,
         commit: &str,
         app_tree: String,
-        picks: &[LanePick<'_>],
+        picks: &[Pick],
         no_capture: bool,
         retake: bool,
         base_run: bool,
@@ -1355,7 +1348,7 @@ impl ShotsCache {
         let mut befores = Vec::new();
         let mut bases = Vec::new();
         let mut base_declared_names = None;
-        for selected in LanePick::prefixes(picks) {
+        for selected in Pick::prefixes(picks) {
             let prefix = selected.as_str();
             let base = crate::derive::merge_base(source, commit)?;
             if base == commit {
@@ -1757,7 +1750,6 @@ fn who_asked() -> Option<String> {
 enum LaneError {
     Build(Fail),
     Pictures(shots_cache::PictureLeaseError),
-    Prefix(shots::NameError),
 }
 
 type LaneResult<T> = std::result::Result<T, LaneError>;
@@ -1774,18 +1766,11 @@ impl From<shots_cache::PictureLeaseError> for LaneError {
     }
 }
 
-impl From<shots::NameError> for LaneError {
-    fn from(error: shots::NameError) -> Self {
-        Self::Prefix(error)
-    }
-}
-
 impl From<LaneError> for Fail {
     fn from(error: LaneError) -> Self {
         match error {
             LaneError::Build(error) => error,
             LaneError::Pictures(error) => error.into(),
-            LaneError::Prefix(error) => Fail::Message(error.to_string()),
         }
     }
 }
@@ -1867,9 +1852,9 @@ impl MergeBase {
         lane: Lane,
         source: &Path,
         commit: &str,
-        picks: &[LanePick<'_>],
+        picks: &[Pick],
     ) -> Result<Option<Self>> {
-        let prefixes: Vec<_> = LanePick::prefixes(picks).cloned().collect();
+        let prefixes: Vec<_> = Pick::prefixes(picks).cloned().collect();
         if prefixes.is_empty() {
             return Ok(None);
         }
@@ -1884,7 +1869,7 @@ impl MergeBase {
             .find(|(own_lane, _)| *own_lane == lane)
             .map(|(_, names)| names)
             .expect("derive::plan lists each lane that has picks");
-        let windowed = windowed_at(source, &base, lane, &config, &commands)?;
+        let windowed = crate::shots_declared::windowed_prefixes(source, &base, &config, &commands)?;
         Ok(Some(MergeBase {
             commit: base,
             config,
@@ -1897,7 +1882,7 @@ impl MergeBase {
     fn commands(lane: Lane, prefixes: &[shots::Prefix]) -> Vec<Pick> {
         prefixes
             .iter()
-            .map(|prefix| LanePick::shot_command(lane, prefix))
+            .map(|prefix| Pick::Shots(lane, prefix.clone()))
             .collect()
     }
 
@@ -1956,7 +1941,6 @@ struct LaneBuild<'a> {
     repo: &'a str,
     lane: Lane,
     request: LaneRequest<'a>,
-    picks: Vec<LanePick<'a>>,
     programs: &'a Pinned,
     /// The folder on this Mac that holds the repo's commits.
     source: std::path::PathBuf,
@@ -1989,35 +1973,29 @@ fn build_lane(
 ) -> LaneResult<()> {
     let places = &tool.places;
     let floor_kib = tool.rules.floor_kib;
-    let LaneRequest { picks, .. } = request;
-    let selection = LanePick::of_lane(lane, picks)?;
-    if request.names.is_empty() && !picks.is_empty() && selection.is_empty() {
-        return Err(no_lane_steps(lane).into());
-    }
-    let commands = LanePick::commands(lane, &selection);
     let (source, target, config) = commit_and_config(places, repo, request.commit)?;
     let commit = target.as_str();
     let request = LaneRequest { commit, ..request };
+    let LaneRequest { picks, .. } = request;
     note(format!(
         "waiting for {repo}'s {} app lock, then building {commit}",
         lane.word()
     ));
     let ssh = Ssh::from_env();
     // Only a shots prefix that selects a scene shown in its window draws one.
-    let windowed = windowed_at(&source, commit, lane, &config, &commands)?;
+    let windowed = crate::shots_declared::windowed_prefixes(&source, commit, &config, picks)?;
     let runs_checkout_as_it_is =
-        request.names.is_empty() && !selection.is_empty() && !request.needs_only;
+        request.names.is_empty() && !picks.is_empty() && !request.needs_only;
     let base = if runs_checkout_as_it_is {
         None
     } else {
-        MergeBase::of(places, repo, lane, &source, commit, &selection)?
+        MergeBase::of(places, repo, lane, &source, commit, picks)?
     };
     let build = LaneBuild {
         places,
         repo,
         lane,
         request,
-        picks: selection,
         programs,
         source,
         config,
@@ -2101,7 +2079,7 @@ struct CommitRun<'a> {
     tree: String,
     /// The lane's steps to run, then the runs of <picks>.
     names: &'a [String],
-    picks: &'a [LanePick<'a>],
+    picks: &'a [Pick],
     /// The prefixes of <picks> that select a scene shown in its window.
     windowed: &'a [(String, Access)],
     environment: &'a str,
@@ -2121,7 +2099,12 @@ impl<'a> LaneBuild<'a> {
     /// The lane's steps at the commit, as `lane_steps` makes them from the
     /// commit's own `.app-build`.
     fn steps(&self) -> Result<Vec<Step>> {
-        let LaneRequest { commit, names, .. } = self.request;
+        let LaneRequest {
+            commit,
+            names,
+            picks,
+            ..
+        } = self.request;
         let program_of = |class: &str| {
             crate::derive::program_of(&self.source, &self.config, commit, self.lane, class)
         };
@@ -2129,7 +2112,7 @@ impl<'a> LaneBuild<'a> {
             &self.config,
             self.lane,
             names,
-            &LanePick::commands(self.lane, &self.picks),
+            picks,
             &self.windowed,
             &program_of,
         )
@@ -2151,6 +2134,7 @@ impl<'a> LaneBuild<'a> {
         let LaneRequest {
             commit,
             names,
+            picks,
             needs_only,
             fresh,
             ..
@@ -2164,7 +2148,7 @@ impl<'a> LaneBuild<'a> {
         // A lane whose steps are only what its shots need, and whose shots
         // the picture folder caches, builds nothing.
         let tree = picture_tree(&self.source, commit, &self.config, lane, &environment)?;
-        let prefixes: Vec<_> = LanePick::prefixes(&self.picks).cloned().collect();
+        let prefixes: Vec<_> = Pick::prefixes(picks).cloned().collect();
         // A shots run draws the boards it compares with Chrome, so a build
         // with shots builds nothing on a host where Chrome does not start.
         if !prefixes.is_empty() {
@@ -2201,7 +2185,7 @@ impl<'a> LaneBuild<'a> {
                     "the picture folder caches every shot these runs take for the lane's app tree, so the lane builds nothing and takes the shots from it",
                 );
                 Built::clear(built_file)?;
-            } else if names.is_empty() && !self.picks.is_empty() {
+            } else if names.is_empty() && !picks.is_empty() {
                 let (wanted, head) = site.resolved_and_head(places, repo, commit)?;
                 Built::allows_class_run(
                     Built::read(built_file)?.as_ref(),
@@ -2221,7 +2205,7 @@ impl<'a> LaneBuild<'a> {
                 config: &config,
                 tree,
                 names,
-                picks: &self.picks,
+                picks,
                 windowed: &self.windowed,
                 environment: &environment,
                 cached_shots,
@@ -2288,7 +2272,7 @@ impl<'a> LaneBuild<'a> {
             config,
             lane,
             names,
-            &LanePick::commands(lane, picks),
+            picks,
             windowed,
             cached_shots,
             &program_of,
@@ -2456,7 +2440,7 @@ impl<'a> LaneBuild<'a> {
         let tree = picture_tree(&self.source, &sha, &config, lane, environment)?;
         let pictures = shots_cache::AppPictures::of(places, repo, lane, &tree);
         let query = capture_query(&config, lane, &wanted)?;
-        let selection: Vec<_> = wanted.iter().cloned().map(LanePick::Shots).collect();
+        let selection = MergeBase::commands(lane, &wanted);
         let ran = pictures.while_held(Some(&query), |cached_shots| {
             let run = CommitRun {
                 sha: &sha,
@@ -2591,14 +2575,13 @@ pub fn serve_cached(
     let mut reused = Vec::new();
     let mut failed = None;
     for pick in picks {
-        let (lane, kind, prefix) = &pick;
-        if *kind != PickKind::Shots {
+        let Pick::Shots(lane, ref prefix) = pick else {
             pending.push(pick);
             continue;
-        }
-        let Some(cached) = crate::shots_compare_again::lookup_newest(
-            places, repo, commit, *lane, prefix, program,
-        )?
+        };
+        let name = prefix.as_str();
+        let Some(cached) =
+            crate::shots_compare_again::lookup_newest(places, repo, commit, lane, name, program)?
         else {
             pending.push(pick);
             continue;
@@ -2606,32 +2589,30 @@ pub fn serve_cached(
         match (recorded, NonZeroU8::new(cached.app_exit_code())) {
             (Some(_), Some(_)) => {
                 note(format!(
-                    "The cache has no passing comparison for {prefix}, so the build runs it again."
+                    "The cache has no passing comparison for {name}, so the build runs it again."
                 ));
                 pending.push(pick);
                 continue;
             }
             (Some(records), None) => {
-                if !records.has_passing_run(*lane, commit, |run| {
-                    covers_prefix(run, prefix, *lane, commit, &mut |lane, commit| {
+                if !records.has_passing_run(lane, commit, |run| {
+                    covers_prefix(run, name, lane, commit, &mut |lane, commit| {
                         declarations.names(lane, commit)
                     })
                 })? {
                     note(format!(
-                        "{prefix} has a cached run, but no passing app build of {} ran it, so the build runs it again",
+                        "{name} has a cached run, but no passing app build of {} ran it, so the build runs it again",
                         short(commit)
                     ));
                     pending.push(pick);
                     continue;
                 }
-                let prefix = shots::Prefix::parse(prefix)
-                    .context(|| "reading a reused shots prefix".to_string())?;
-                reused.push((*lane, prefix));
+                reused.push((lane, prefix.clone()));
             }
             (None, Some(code)) => {
                 if cached.exit_code() != code.get() {
                     note(format!(
-                        "The source comparison for {prefix} failed with exit status {code}."
+                        "The source comparison for {name} failed with exit status {code}."
                     ));
                 }
                 failed.get_or_insert(code);
@@ -2776,7 +2757,7 @@ fn lane_words(
     words.extend(
         picks
             .iter()
-            .filter(|(own, _, _)| *own == lane)
+            .filter(|pick| pick.lane() == lane)
             .flat_map(pick_words)
             .map(str::to_string),
     );
@@ -3018,8 +2999,14 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
         }
         let (needs_only, names) = strip_leading(names, NEEDS_ONLY);
         let (fresh, names) = strip_leading(names, FRESH);
-        let (names, picks) = split_picks(names)?;
+        let (names, mut picks) = split_picks(names)?;
         let lane = Lane::parse_or_fail(word)?;
+        if !picks.is_empty() {
+            picks.retain(|pick| pick.lane() == lane);
+            if names.is_empty() && picks.is_empty() {
+                return Err(no_lane_steps(lane));
+            }
+        }
         let reused_shots: Vec<String> = match std::env::var(REUSED_SHOTS) {
             Ok(value) => serde_json::from_str(&value)
                 .context(|| format!("reading the lane's reused shots from {REUSED_SHOTS}"))?,
@@ -3080,9 +3067,10 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
     for name in names {
         step_named(&config, name)?;
     }
-    for (lane, kind, arg) in &picks {
-        if config.picker(*lane, *kind).is_none() {
-            return Err(missing_line(*lane, *kind, arg));
+    for pick in &picks {
+        let (lane, kind) = (pick.lane(), pick.kind());
+        if config.picker(lane, kind).is_none() {
+            return Err(missing_line(lane, kind, pick.argument()));
         }
     }
     let top = fetched_local_source(places, repo)?;
@@ -3094,7 +3082,7 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
         .into_iter()
         .map(|lane| (lane, names_in(&config, lane, names)))
         .filter(|(lane, own)| {
-            let picks_here = picks.iter().any(|(pick_lane, _, _)| pick_lane == lane);
+            let picks_here = picks.iter().any(|pick| pick.lane() == *lane);
             if names.is_empty() && picks.is_empty() {
                 config.steps.iter().any(|step| step.lane == *lane)
             } else {

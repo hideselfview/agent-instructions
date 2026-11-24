@@ -60,7 +60,7 @@ pub fn plan(config: &Config, changed: &[String], picks: &[Pick]) -> Vec<(Lane, V
     Lane::ALL
         .into_iter()
         .map(|lane| {
-            let picked = picks.iter().any(|(own, _, _)| *own == lane);
+            let picked = picks.iter().any(|pick| pick.lane() == lane);
             let mut names: Vec<String> = config
                 .steps
                 .iter()
@@ -268,10 +268,7 @@ fn parse_picks(
             );
         }
         let lane = lane_of(kind, arg)?;
-        if kind == PickKind::Shots {
-            app_build::refuse_whole_lane(lane, arg)?;
-        }
-        picks.push((lane, kind, arg.clone()));
+        picks.push(Pick::from_flag(lane, kind, arg)?);
         rest = after;
     }
     Ok((picks, fresh))
@@ -315,13 +312,14 @@ pub fn derive_and_run(places: &Places, args: &[String]) -> Result<()> {
         PickKind::Shots => lane_of_prefix(arg),
         PickKind::Class => lane_of_class(&lanes_declaring(&top, &config, &commit, arg)?, arg),
     })?;
-    for (lane, kind, arg) in &picks {
-        if config.picker(*lane, *kind).is_none() {
-            return Err(app_build::missing_line(*lane, *kind, arg));
+    for pick in &picks {
+        let (lane, kind) = (pick.lane(), pick.kind());
+        if config.picker(lane, kind).is_none() {
+            return Err(app_build::missing_line(lane, kind, pick.argument()));
         }
     }
     let asked_for_picks = !picks.is_empty();
-    let use_cache = !fresh && picks.iter().any(|(_, kind, _)| *kind == PickKind::Shots);
+    let use_cache = !fresh && Pick::prefixes(&picks).next().is_some();
     let records = if use_cache {
         BuildRecords::open(places, repo)?
     } else {
@@ -391,10 +389,10 @@ pub fn derive_and_run(places: &Places, args: &[String]) -> Result<()> {
                 let own: Vec<&Pick> = picks
                     .pending
                     .iter()
-                    .filter(|(own, _, _)| own == lane)
+                    .filter(|pick| pick.lane() == *lane)
                     .collect();
                 !own.is_empty()
-                    && own.iter().all(|(_, kind, _)| *kind == PickKind::Shots)
+                    && own.iter().all(|pick| matches!(pick, Pick::Shots(..)))
                     && !required.iter().any(|(own, _)| own == lane)
             })
             .collect()

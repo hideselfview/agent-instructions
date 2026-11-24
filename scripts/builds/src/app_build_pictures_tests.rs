@@ -69,7 +69,9 @@ esac"#,
         ),
     );
     let programs = crate::testing::pinned_programs(&scratch.dir, &places.home);
-    let picks = ["mac.a.", "mac.b."].map(|prefix| (Lane::Mac, PickKind::Shots, prefix.to_string()));
+    let picks = prefixes
+        .clone()
+        .map(|prefix| Pick::Shots(Lane::Mac, prefix));
     let needs = ["macos".to_string()];
     let build = LaneBuild {
         places: &places,
@@ -84,7 +86,6 @@ esac"#,
             needs_only: true,
             fresh: false,
         },
-        picks: LanePick::of_lane(Lane::Mac, &picks).unwrap(),
         programs: &programs,
         source: top.clone(),
         config: parse_config(&config_text).unwrap(),
@@ -121,32 +122,4 @@ esac"#,
             .all(|step| step.at_merge_base == Some(true))
     );
     assert!(!crate::flock::is_held(taken).unwrap());
-}
-
-#[test]
-fn a_lane_refuses_an_invalid_shot_prefix_before_starting_a_build() {
-    let scratch = Scratch::new("bad-shot-prefix");
-    let tool = scratch.tool(0);
-    let picks = [(Lane::Mac, PickKind::Shots, "mac.Upper".to_string())];
-    let programs = crate::testing::pinned_programs(&scratch.dir, &tool.places.home);
-    let request = LaneRequest {
-        commit: "branch",
-        named: "branch",
-        names: &[],
-        picks: &picks,
-        reused_shots: &[],
-        needs_only: true,
-        fresh: false,
-    };
-    let error = build_lane(
-        &tool,
-        "demo",
-        Lane::Mac,
-        request,
-        &programs,
-        &mut Timing::start(),
-    )
-    .unwrap_err();
-    assert!(matches!(error, LaneError::Prefix(_)));
-    assert!(!tool.places.root.join("demo").exists());
 }

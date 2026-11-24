@@ -10,8 +10,8 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::rc::Rc;
 
-use crate::app_build::{self, Pick};
-use crate::app_config::{CONFIG, PickKind, run_git};
+use crate::app_build::Pick;
+use crate::app_config::{CONFIG, run_git};
 use crate::fail;
 use crate::fail::{Fail, Result};
 use crate::lane::Lane;
@@ -24,15 +24,18 @@ const NEAREST: usize = 6;
 /// declare at <commit> of the repo at <top>, and names the nearest declared
 /// prefixes. A lane's full set (`--all-shots`) needs no declared name.
 pub fn refuse_undeclared(top: &Path, commit: &str, picks: &[Pick]) -> Result<()> {
-    let wanted: Vec<&Pick> = picks
+    let wanted: Vec<&str> = picks
         .iter()
-        .filter(|pick| pick.1 == PickKind::Shots && **pick != app_build::all_shots(pick.0))
+        .filter_map(|pick| match pick {
+            Pick::Shots(_, prefix) if !pick.is_all_shots() => Some(prefix.as_str()),
+            _ => None,
+        })
         .collect();
     if wanted.is_empty() {
         return Ok(());
     }
     let declared = declared_names_at(top, commit)?;
-    for (_, _, prefix) in wanted {
+    for prefix in wanted {
         if starts_a_shot(&declared, prefix) {
             continue;
         }
@@ -60,16 +63,12 @@ pub fn windowed_prefixes(
     picks: &[Pick],
 ) -> Result<Vec<(String, crate::window_lock::Access)>> {
     use crate::window_lock::Access;
-    let wanted: Vec<&String> = picks
-        .iter()
-        .filter(|pick| pick.1 == PickKind::Shots)
-        .map(|pick| &pick.2)
-        .collect();
+    let wanted: Vec<&str> = Pick::prefixes(picks).map(shots::Prefix::as_str).collect();
     if wanted.is_empty() {
         return Ok(Vec::new());
     }
     let adds_display = config
-        .picker_in(Lane::Mac, PickKind::Shots, None)
+        .picker_in(Lane::Mac, crate::app_config::PickKind::Shots, None)
         .is_some_and(|picker| picker.opens_windows)
         && !config.mac_shares_shot_display;
     let declared = declared_at(top, commit, None)?;
@@ -77,11 +76,11 @@ pub fn windowed_prefixes(
         .into_iter()
         .filter_map(|prefix| {
             if adds_display && prefix.starts_with("mac.") {
-                return Some((prefix.clone(), Access::Exclusive));
+                return Some((prefix.to_string(), Access::Exclusive));
             }
             declared
                 .iter()
-                .filter(|scene| scene.name.to_string().starts_with(prefix.as_str()))
+                .filter(|scene| scene.name.to_string().starts_with(prefix))
                 .filter_map(|scene| {
                     if scene.marks.takes_focus
                         || (scene.marks.in_window && !config.mac_shares_shot_display)
@@ -94,7 +93,7 @@ pub fn windowed_prefixes(
                     }
                 })
                 .max()
-                .map(|access| (prefix.clone(), access))
+                .map(|access| (prefix.to_string(), access))
         })
         .collect())
 }

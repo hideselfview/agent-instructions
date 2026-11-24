@@ -416,13 +416,12 @@ fn test_and_shots_flags_follow_the_steps_each_naming_a_lane_and_an_argument() {
     assert_eq!(
         picks,
         vec![
-            (Lane::Mac, PickKind::Class, "FooTests".to_string()),
-            (
+            Pick::Class(Lane::Mac, "FooTests".to_string()),
+            Pick::Shots(
                 Lane::Android,
-                PickKind::Shots,
-                "android.welcome.".to_string()
+                shots::Prefix::parse("android.welcome.").unwrap()
             ),
-            (Lane::Android, PickKind::Class, "BarTest".to_string()),
+            Pick::Class(Lane::Android, "BarTest".to_string()),
         ]
     );
     assert_eq!(
@@ -446,6 +445,7 @@ fn a_flag_needs_a_lane_and_an_argument_that_is_one_plain_word() {
         &["--shots", "ios", "mac.x."],
         &["--shots", "mac", "--windows"],
         &["--shots", "mac", "a b"],
+        &["--shots", "mac", "mac.Upper"],
         &["--shots", "mac", "mac.x.", "stray"],
     ] {
         assert!(split_picks(&args(bad)).is_err(), "{bad:?}");
@@ -474,7 +474,10 @@ fn a_shots_prefix_that_selects_every_shot_of_its_lane_is_refused_naming_the_rule
         split_picks(&args(&["one", "--shots", "mac", "mac.import"]))
             .unwrap()
             .1,
-        vec![(Lane::Mac, PickKind::Shots, "mac.import".to_string())]
+        vec![Pick::Shots(
+            Lane::Mac,
+            shots::Prefix::parse("mac.import").unwrap()
+        )]
     );
 }
 
@@ -493,8 +496,8 @@ fn all_shots_asks_a_lanes_process_for_every_shot_of_the_lane_and_reads_back_the_
     assert_eq!(
         picks,
         vec![
-            (Lane::Android, PickKind::Shots, "android.".to_string()),
-            (Lane::Mac, PickKind::Shots, "mac.import.".to_string()),
+            all_shots(Lane::Android),
+            Pick::Shots(Lane::Mac, shots::Prefix::parse("mac.import.").unwrap()),
         ]
     );
     let words: Vec<String> = picks
@@ -576,10 +579,10 @@ fn a_lane_runs_its_steps_then_each_test_line_once_and_only_the_picks_when_no_ste
     )
     .unwrap();
     let picks = [
-        (Lane::Mac, PickKind::Class, "A".to_string()),
-        (Lane::Android, PickKind::Class, "B".to_string()),
-        (Lane::Mac, PickKind::Shots, "mac.welcome.".to_string()),
-        (Lane::Mac, PickKind::Class, "C".to_string()),
+        Pick::Class(Lane::Mac, "A".to_string()),
+        Pick::Class(Lane::Android, "B".to_string()),
+        Pick::Shots(Lane::Mac, shots::Prefix::parse("mac.welcome.").unwrap()),
+        Pick::Class(Lane::Mac, "C".to_string()),
     ];
     let steps = lane_steps(&config, Lane::Mac, &args(&["one"]), &picks, &[], &|_| {
         Ok(None)
@@ -607,7 +610,10 @@ fn a_lane_without_the_line_refuses_a_pick() {
         &config,
         Lane::Mac,
         &[],
-        &[(Lane::Mac, PickKind::Shots, "mac.x.".to_string())],
+        &[Pick::Shots(
+            Lane::Mac,
+            shots::Prefix::parse("mac.x.").unwrap(),
+        )],
         &[],
         &|_| Ok(None),
     ) else {
@@ -618,7 +624,7 @@ fn a_lane_without_the_line_refuses_a_pick() {
         &config,
         Lane::Android,
         &[],
-        &[(Lane::Android, PickKind::Class, "A".to_string())],
+        &[Pick::Class(Lane::Android, "A".to_string())],
         &[],
         &|_| Ok(None),
     ) else {
@@ -634,10 +640,10 @@ fn a_class_runs_through_the_program_its_folder_names() {
     )
     .unwrap();
     let picks = [
-        (Lane::Mac, PickKind::Class, "AppTests".to_string()),
-        (Lane::Mac, PickKind::Class, "ShotTests".to_string()),
-        (Lane::Mac, PickKind::Class, "ModelTests".to_string()),
-        (Lane::Mac, PickKind::Class, "SceneTests".to_string()),
+        Pick::Class(Lane::Mac, "AppTests".to_string()),
+        Pick::Class(Lane::Mac, "ShotTests".to_string()),
+        Pick::Class(Lane::Mac, "ModelTests".to_string()),
+        Pick::Class(Lane::Mac, "SceneTests".to_string()),
     ];
     let steps = lane_steps(&config, Lane::Mac, &[], &picks, &[], &|class| {
         Ok(matches!(class, "ShotTests" | "SceneTests").then(|| "shots".to_string()))
@@ -657,7 +663,10 @@ fn a_class_runs_through_the_program_its_folder_names() {
 #[test]
 fn a_lane_with_one_shots_prefix_runs_it_in_one_step_that_captures() {
     let config = parse_config("shots mac ./s --select {select}\n").unwrap();
-    let picks = [(Lane::Mac, PickKind::Shots, "mac.welcome.".to_string())];
+    let picks = [Pick::Shots(
+        Lane::Mac,
+        shots::Prefix::parse("mac.welcome.").unwrap(),
+    )];
     let steps = lane_steps(&config, Lane::Mac, &[], &picks, &[], &|_| Ok(None)).unwrap();
     assert_eq!(names(&steps), vec!["shots mac.welcome."]);
     assert_eq!(steps[0].command, args(&["./s", "--select", "mac.welcome."]));
@@ -670,10 +679,13 @@ fn a_lane_with_several_shots_prefixes_captures_them_once_and_then_runs_each_with
     )
     .unwrap();
     let picks = [
-        (Lane::Mac, PickKind::Class, "A".to_string()),
-        (Lane::Mac, PickKind::Shots, "mac.welcome.".to_string()),
-        (Lane::Mac, PickKind::Shots, "mac.settings.".to_string()),
-        (Lane::Mac, PickKind::Shots, "mac.component.row.".to_string()),
+        Pick::Class(Lane::Mac, "A".to_string()),
+        Pick::Shots(Lane::Mac, shots::Prefix::parse("mac.welcome.").unwrap()),
+        Pick::Shots(Lane::Mac, shots::Prefix::parse("mac.settings.").unwrap()),
+        Pick::Shots(
+            Lane::Mac,
+            shots::Prefix::parse("mac.component.row.").unwrap(),
+        ),
     ];
     let windowed = [("mac.welcome.".to_string(), Access::Exclusive)];
     let steps = lane_steps(&config, Lane::Mac, &[], &picks, &windowed, &|_| Ok(None)).unwrap();
@@ -780,8 +792,8 @@ fn a_lane_with_several_shots_prefixes_captures_them_once_and_then_runs_each_with
 fn a_lane_whose_picture_folder_caches_every_shot_has_no_capture_step() {
     let config = parse_config("shots mac ./s --select {select}\n").unwrap();
     let picks = [
-        (Lane::Mac, PickKind::Shots, "mac.a.".to_string()),
-        (Lane::Mac, PickKind::Shots, "mac.b.".to_string()),
+        Pick::Shots(Lane::Mac, shots::Prefix::parse("mac.a.").unwrap()),
+        Pick::Shots(Lane::Mac, shots::Prefix::parse("mac.b.").unwrap()),
     ];
     let steps = lane_steps_with(&config, Lane::Mac, &[], &picks, &[], true, &|_| Ok(None)).unwrap();
     assert_eq!(names(&steps), vec!["shots mac.a.", "shots mac.b."]);
@@ -795,7 +807,7 @@ fn a_lane_whose_picture_folder_caches_every_shot_has_no_capture_step() {
 #[test]
 fn a_single_prefix_read_from_a_caching_picture_folder_captures_nothing_and_takes_no_window() {
     let config = parse_config("shots mac ./s --windows --select {select}\n").unwrap();
-    let picks = [(Lane::Mac, PickKind::Shots, "mac.a.".to_string())];
+    let picks = [Pick::Shots(Lane::Mac, shots::Prefix::parse("mac.a.").unwrap())];
     let windowed = [("mac.a.".to_string(), Access::Exclusive)];
     let steps = lane_steps_with(&config, Lane::Mac, &[], &picks, &windowed, true, &|_| {
         Ok(None)
@@ -810,8 +822,8 @@ fn a_single_prefix_read_from_a_caching_picture_folder_captures_nothing_and_takes
 fn the_capture_of_prefixes_with_no_window_scene_opens_no_window() {
     let config = parse_config("shots mac ./s --windows --select {select}\n").unwrap();
     let picks = [
-        (Lane::Mac, PickKind::Shots, "mac.component.a.".to_string()),
-        (Lane::Mac, PickKind::Shots, "mac.component.b.".to_string()),
+        Pick::Shots(Lane::Mac, shots::Prefix::parse("mac.component.a.").unwrap()),
+        Pick::Shots(Lane::Mac, shots::Prefix::parse("mac.component.b.").unwrap()),
     ];
     let steps = lane_steps(&config, Lane::Mac, &[], &picks, &[], &|_| Ok(None)).unwrap();
     assert!(steps.iter().all(|step| step.window.is_none()));
@@ -821,8 +833,8 @@ fn the_capture_of_prefixes_with_no_window_scene_opens_no_window() {
 fn a_shots_line_with_the_placeholder_beside_other_text_repeats_the_word_for_each_prefix() {
     let config = parse_config("shots mac ./s --select={select}\n").unwrap();
     let picks = [
-        (Lane::Mac, PickKind::Shots, "mac.a.".to_string()),
-        (Lane::Mac, PickKind::Shots, "mac.b.".to_string()),
+        Pick::Shots(Lane::Mac, shots::Prefix::parse("mac.a.").unwrap()),
+        Pick::Shots(Lane::Mac, shots::Prefix::parse("mac.b.").unwrap()),
     ];
     let steps = lane_steps(&config, Lane::Mac, &[], &picks, &[], &|_| Ok(None)).unwrap();
     assert_eq!(
@@ -840,8 +852,8 @@ fn a_shots_line_with_the_placeholder_beside_other_text_repeats_the_word_for_each
 fn a_shots_line_that_puts_the_placeholder_after_no_flag_cannot_repeat_it_and_is_refused() {
     let config = parse_config("shots mac ./s {select}\n").unwrap();
     let picks = [
-        (Lane::Mac, PickKind::Shots, "mac.a.".to_string()),
-        (Lane::Mac, PickKind::Shots, "mac.b.".to_string()),
+        Pick::Shots(Lane::Mac, shots::Prefix::parse("mac.a.").unwrap()),
+        Pick::Shots(Lane::Mac, shots::Prefix::parse("mac.b.").unwrap()),
     ];
     let Err(Fail::Message(message)) =
         lane_steps(&config, Lane::Mac, &[], &picks, &[], &|_| Ok(None))
@@ -859,8 +871,8 @@ fn a_test_run_that_opens_windows_may_take_any_checkout_and_holds_the_window_lock
     .unwrap();
     let program_of = |class: &str| Ok((class == "MenuTests").then(|| "ui".to_string()));
     let picks = [
-        (Lane::Mac, PickKind::Class, "MenuTests".to_string()),
-        (Lane::Mac, PickKind::Class, "ModelTests".to_string()),
+        Pick::Class(Lane::Mac, "MenuTests".to_string()),
+        Pick::Class(Lane::Mac, "ModelTests".to_string()),
     ];
     let steps = lane_steps(
         &config,
@@ -908,7 +920,7 @@ fn a_shots_run_holds_the_window_lock_for_each_prefix_that_selects_a_scene_shown_
         ("mac.settings.".to_string(), Access::Exclusive),
     ];
     let run = |prefix: &str| {
-        let pick = (Lane::Mac, PickKind::Shots, prefix.to_string());
+        let pick = Pick::Shots(Lane::Mac, shots::Prefix::parse(prefix).unwrap());
         lane_steps(&config, Lane::Mac, &[], &[pick], &windowed, &|_| Ok(None)).unwrap()
     };
     for prefix in ["mac.welcome.", "mac.settings."] {
@@ -1572,7 +1584,7 @@ fn a_build_that_reuses_a_cached_run_leaves_the_passing_build_that_land_counts() 
     let commit = resolve(&top, "HEAD").unwrap();
     let store = crate::lists::fixtures::make_store_named(&places, "demo-project", &["demo"]);
     let records = BuildRecords::open(&places, "demo").unwrap().unwrap();
-    let pick: Pick = (Lane::Mac, PickKind::Shots, "mac.a.".to_string());
+    let pick: Pick = Pick::Shots(Lane::Mac, shots::Prefix::parse("mac.a.").unwrap());
     let record = |outcome: RunEnd, shots: StepResult| {
         let step = |name: &str, kind, result| StepRecord {
             at_merge_base: None,
@@ -1800,7 +1812,10 @@ fn a_shots_run_is_given_the_picture_folder_its_app_tree_and_its_before_runs_find
 
 /// The pick of the shots of the Mac's a screens.
 fn a_screens() -> Vec<Pick> {
-    vec![(Lane::Mac, PickKind::Shots, "mac.a.".to_string())]
+    vec![Pick::Shots(
+        Lane::Mac,
+        shots::Prefix::parse("mac.a.").unwrap(),
+    )]
 }
 
 #[test]
@@ -1820,7 +1835,7 @@ fn a_lanes_shots_runs_compare_with_the_cached_run_of_the_merge_base_and_a_run_of
             ENVIRONMENT,
             commit,
             picture_tree(&top, commit, &config, Lane::Mac, ENVIRONMENT).unwrap(),
-            &LanePick::of_lane(Lane::Mac, &a_screens()).unwrap(),
+            &a_screens(),
             false,
             false,
             false,
@@ -1862,7 +1877,10 @@ fn a_prefix_that_starts_no_shot_declared_at_the_merge_base_compares_with_no_run(
     crate::testing::git(&top, &["checkout", "-q", "-b", "work"]);
     crate::testing::git(&top, &["commit", "-q", "--allow-empty", "-m", "Work"]);
     let work = resolve(&top, "HEAD").unwrap();
-    let new = vec![(Lane::Mac, PickKind::Shots, "mac.new.".to_string())];
+    let new = [Pick::Shots(
+        Lane::Mac,
+        shots::Prefix::parse("mac.new.").unwrap(),
+    )];
     let store = ShotsCache::of(
         &places,
         &top,
@@ -1871,7 +1889,7 @@ fn a_prefix_that_starts_no_shot_declared_at_the_merge_base_compares_with_no_run(
         ENVIRONMENT,
         &work,
         picture_tree(&top, &work, &config, Lane::Mac, ENVIRONMENT).unwrap(),
-        &LanePick::of_lane(Lane::Mac, &new).unwrap(),
+        &new,
         false,
         false,
         false,

@@ -77,7 +77,7 @@ fn a_bridge_change_builds_both_lanes_with_each_step_once() {
 
 #[test]
 fn a_pick_in_a_lane_the_branch_does_not_touch_builds_what_the_lane_needs() {
-    let picks = vec![(Lane::Mac, PickKind::Class, "FooTests".to_string())];
+    let picks = vec![Pick::Class(Lane::Mac, "FooTests".to_string())];
     let plan = plan(&config(), &paths(&["bae-library/src/lib.rs"]), &picks);
     assert_eq!(names(&plan), vec![("mac", vec!["macos-tests"])]);
 }
@@ -85,7 +85,7 @@ fn a_pick_in_a_lane_the_branch_does_not_touch_builds_what_the_lane_needs() {
 #[test]
 fn a_pick_in_a_lane_with_no_needs_line_runs_with_no_build() {
     let config = parse_config("step mac a ./a\ntest mac ./t {class}\n").unwrap();
-    let picks = vec![(Lane::Mac, PickKind::Class, "FooTests".to_string())];
+    let picks = vec![Pick::Class(Lane::Mac, "FooTests".to_string())];
     let plan = plan(&config, &[], &picks);
     assert_eq!(names(&plan), vec![("mac", vec![])]);
 }
@@ -114,8 +114,8 @@ fn the_flags_take_a_name_without_a_lane_and_fresh_anywhere() {
     assert_eq!(
         picks,
         vec![
-            (Lane::Android, PickKind::Class, "FooTests".to_string()),
-            (Lane::Mac, PickKind::Shots, "mac.a.".to_string())
+            Pick::Class(Lane::Android, "FooTests".to_string()),
+            Pick::Shots(Lane::Mac, shots::Prefix::parse("mac.a.").unwrap())
         ]
     );
     assert!(parse_picks(&["--test".to_string()], |_, _| Ok(Lane::Mac)).is_err());
@@ -125,6 +125,12 @@ fn the_flags_take_a_name_without_a_lane_and_fresh_anywhere() {
 fn picks_of(words: &[&str]) -> Result<Vec<Pick>> {
     let args: Vec<String> = words.iter().map(|word| word.to_string()).collect();
     parse_picks(&args, |_, arg| lane_of_prefix(arg)).map(|(picks, _)| picks)
+}
+
+#[test]
+fn an_invalid_shots_prefix_fails_when_the_command_reads_it() {
+    let refused = picks_of(&["--shots", "mac.Upper"]).unwrap_err().text();
+    assert!(refused.contains("mac.Upper"), "{refused}");
 }
 
 #[test]
@@ -139,7 +145,10 @@ fn a_shots_prefix_that_selects_every_shot_of_its_lane_is_refused_naming_the_rule
     }
     assert_eq!(
         picks_of(&["--shots", "mac.import"]).unwrap(),
-        vec![(Lane::Mac, PickKind::Shots, "mac.import".to_string())]
+        vec![Pick::Shots(
+            Lane::Mac,
+            shots::Prefix::parse("mac.import").unwrap()
+        )]
     );
 }
 
@@ -148,11 +157,10 @@ fn all_shots_names_its_lane_and_picks_every_shot_of_it_where_the_refusal_says_so
     assert_eq!(
         picks_of(&["--all-shots", "mac", "--shots", "android.welcome."]).unwrap(),
         vec![
-            (Lane::Mac, PickKind::Shots, "mac.".to_string()),
-            (
+            app_build::all_shots(Lane::Mac),
+            Pick::Shots(
                 Lane::Android,
-                PickKind::Shots,
-                "android.welcome.".to_string()
+                shots::Prefix::parse("android.welcome.").unwrap()
             )
         ]
     );
