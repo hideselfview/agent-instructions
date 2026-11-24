@@ -723,6 +723,34 @@ fn the_shots_prefixes_a_branch_ran_come_back_once_each_whatever_their_result() {
 }
 
 #[test]
+fn shots_ran_counts_a_run_named_by_a_branch_commit_that_recorded_no_commit() {
+    let scratch = Scratch::new("timing-named-by-commit");
+    let path = store(&scratch);
+    let sha = "d".repeat(40);
+    let mut failed = run(
+        NOW,
+        Lane::Mac,
+        0,
+        RunEnd::Failed,
+        vec![step(
+            "shots mac.base.",
+            StepKind::Shots,
+            NOW,
+            1,
+            StepResult::Failed(Default::default()),
+        )],
+    );
+    failed.built_ref = sha.clone();
+    failed.requested_commit = None;
+    record(&path, &failed).unwrap();
+    let conn = crate::db::open_reader(&path).unwrap().unwrap();
+    assert_eq!(
+        shots_ran(&conn, "bae", Lane::Mac, "branch", &[sha], NOW, &path).unwrap(),
+        ["mac.base."]
+    );
+}
+
+#[test]
 fn a_step_keeps_whether_it_ran_at_the_merge_base_or_at_the_commit() {
     let scratch = Scratch::new("timing-at-merge-base");
     let path = store(&scratch);

@@ -622,8 +622,13 @@ pub fn shots_ran(
     let what = || format!("reading {}", path.display());
     let commits = serde_json::to_string(commits).context(what)?;
     // A recorded checkout can also identify the target when a run recorded
-    // only the checkout. A raw ref is matched by name, as refs can move.
-    let matches_branch = branch_run_match("COALESCE(q.requested_commit, c.built_commit)");
+    // only the checkout, and a run named by one of the commits matches by its
+    // name when it recorded neither. A raw ref is matched by name, as refs can
+    // move.
+    let matches_branch = format!(
+        "({} OR r.built_ref IN (SELECT value FROM json_each(?4)))",
+        branch_run_match("COALESCE(q.requested_commit, c.built_commit)")
+    );
     let mut statement = conn
         .prepare(
             format!(
