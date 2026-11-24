@@ -49,7 +49,7 @@ fn colors_dir(scratch: &Scratch, scene: &str) -> std::path::PathBuf {
 fn a_group_draws_its_swatches_in_every_theme_over_the_ground_and_its_scene_in_the_first() {
     let scratch = Scratch::new("color-group-surfaces");
     let dir = colors_dir(&scratch, "<div data-color=\"bg\">window</div>");
-    let page = frame(Source::Dir(&dir), 0, &dirs(&scratch)).unwrap();
+    let page = frame(Source::Dir(&dir), 0, &scratch.places().design_dirs()).unwrap();
     assert!(!page.contains("@@"), "every marker is filled");
     let order: Vec<usize> = [
         "--bg: #111111",
@@ -75,7 +75,7 @@ fn a_group_draws_its_swatches_in_every_theme_over_the_ground_and_its_scene_in_th
 fn a_table_draws_one_row_per_entry_with_a_gap_where_a_row_has_no_color() {
     let scratch = Scratch::new("color-group-table");
     let dir = colors_dir(&scratch, "");
-    let page = frame(Source::Dir(&dir), 1, &dirs(&scratch)).unwrap();
+    let page = frame(Source::Dir(&dir), 1, &scratch.places().design_dirs()).unwrap();
     for part in [
         "grid-template-columns: auto repeat(2, minmax(72px, max-content))",
         "<div class=\"cg-th cg-nm\">text</div><div class=\"cg-th cg-nm\">fill</div>",
@@ -98,7 +98,7 @@ fn a_scene_that_points_at_no_color_shows_why_and_a_missing_group_fails() {
         &scratch,
         "<b data-color=\"paper\">x</b><i data-color=\"ink\">y</i>",
     );
-    let cache = dirs(&scratch);
+    let cache = scratch.places().design_dirs();
     let page = frame(Source::Dir(&dir), 0, &cache).unwrap();
     assert!(
         page.contains("<div class=\"cg-problem\">")
@@ -119,7 +119,7 @@ fn a_scene_that_points_at_no_color_shows_why_and_a_missing_group_fails() {
 fn the_comparison_draws_its_scene_once_per_option_in_the_options_colors() {
     let scratch = Scratch::new("color-group-comparison");
     let dir = colors_dir(&scratch, "<b style=\"color: var(--accent)\">Show all</b>");
-    let cache = dirs(&scratch);
+    let cache = scratch.places().design_dirs();
     let error = comparison(Source::Dir(&dir), &cache).unwrap_err().text();
     assert!(
         error.ends_with("design/system/colors.json has no comparison"),
@@ -171,13 +171,4 @@ fn the_comparison_draws_its_scene_once_per_option_in_the_options_colors() {
     .map(|part| page.find(part).unwrap_or_else(|| panic!("{part} in {page}")))
     .collect();
     assert!(order.windows(2).all(|w| w[0] < w[1]), "{order:?}");
-}
-
-/// The folders the pages are built from: a fonts folder that does not exist,
-/// as on a host that is not a Mac.
-fn dirs(scratch: &Scratch) -> crate::places::DesignDirs {
-    crate::places::DesignDirs {
-        cache: scratch.dir.join("cache"),
-        fonts: scratch.dir.join("fonts"),
-    }
 }

@@ -32,6 +32,7 @@
 //! whatever its props. A component with no preview has no component shot,
 //! so the listing leaves it out.
 
+use crate::Folders;
 use crate::design::{self, Frame};
 use crate::names::Previews;
 use crate::render::instances::{self, Instance};
@@ -289,21 +290,25 @@ pub(crate) fn lines(uncovered: &[Uncovered], against: Option<&str>) -> Vec<Strin
 /// The component states of the repo at <root> that no preview row shows, as
 /// its files are, or as they are at revision <at>, which is written into a
 /// scratch folder of <cache> to be drawn.
-pub(crate) fn read(root: &Path, at: Option<&str>, cache: &Path) -> Result<Vec<Uncovered>, String> {
+pub(crate) fn read(
+    root: &Path,
+    at: Option<&str>,
+    folders: Folders<'_>,
+) -> Result<Vec<Uncovered>, String> {
     let Some(rev) = at else {
         let settings = Settings::load(root).map_err(|e| e.to_string())?;
-        return Ok(uncovered(&draw(root, &settings, cache)?));
+        return Ok(uncovered(&draw(root, &settings, folders)?));
     };
-    design::at_revision(root, rev, cache, |work| {
+    design::at_revision(root, rev, folders.cache, |work| {
         let settings = Settings::load(work).map_err(|e| e.to_string())?;
-        draw(work, &settings, cache).map(|drawn| uncovered(&drawn))
+        draw(work, &settings, folders).map(|drawn| uncovered(&drawn))
     })
 }
 
 /// Draws every board and every preview of the repo at <root> and reads the
 /// components each draws. A repo with no preview has no state to list, so
 /// nothing is drawn.
-fn draw(root: &Path, settings: &Settings, cache: &Path) -> Result<Drawn, String> {
+fn draw(root: &Path, settings: &Settings, folders: Folders<'_>) -> Result<Drawn, String> {
     let previews = Previews::of(root)?;
     let Some((first, _)) = previews.components.first() else {
         return Ok(Drawn::default());
@@ -313,7 +318,7 @@ fn draw(root: &Path, settings: &Settings, cache: &Path) -> Result<Drawn, String>
         .map_err(|e| e.to_string())?
         .row
         .as_str();
-    render::with_design(root, cache, async |server, chrome, frames| {
+    render::with_design(root, folders, async |server, chrome, frames| {
         let boards = frames.iter().map(|(name, frame)| Sheet {
             name,
             url: server.board_url(name),

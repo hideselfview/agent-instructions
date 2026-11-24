@@ -12,6 +12,7 @@
 //! bytes never decide: a rebase that merges unrelated lines into a board
 //! file, `canvas.json` or a component's source changes bytes and no drawing.
 
+use crate::Folders;
 use crate::design;
 use crate::names::{Platform, Previews};
 use crate::render::{self, board, preview};
@@ -88,15 +89,15 @@ pub(crate) fn lines(
     against: &str,
     boards: &[String],
     components: &[String],
-    cache: &Path,
+    folders: Folders<'_>,
 ) -> Result<Vec<String>, String> {
     let selection = if boards.is_empty() && components.is_empty() {
         Selection::All
     } else {
         Selection::Named { boards, components }
     };
-    let before = read(root, at, cache, selection)?;
-    let after = read(root, against, cache, selection)?;
+    let before = read(root, at, folders, selection)?;
+    let after = read(root, against, folders, selection)?;
     let names: BTreeSet<_> = before.keys().chain(after.keys()).collect();
     let mut base = None;
     names
@@ -156,15 +157,17 @@ fn holds(root: &Path, rev: &str, what: &str) -> Result<bool, String> {
 fn read(
     root: &Path,
     rev: &str,
-    cache: &Path,
+    folders: Folders<'_>,
     selection: Selection<'_>,
 ) -> Result<Drawings, String> {
-    design::at_revision(root, rev, cache, |work| draw(work, cache, selection))
+    design::at_revision(root, rev, folders.cache, |work| {
+        draw(work, folders, selection)
+    })
 }
 
-fn draw(work: &Path, cache: &Path, selection: Selection<'_>) -> Result<Drawings, String> {
+fn draw(work: &Path, folders: Folders<'_>, selection: Selection<'_>) -> Result<Drawings, String> {
     let previews = Previews::of(work)?;
-    render::with_design(work, cache, async |server, chrome, frames| {
+    render::with_design(work, folders, async |server, chrome, frames| {
         let (boards, components): (Vec<_>, Vec<_>) = match selection {
             Selection::All => (
                 frames

@@ -164,6 +164,38 @@ fn respond_with(
     stream.write_all(body)
 }
 
+/// The SF Mono file <name> of the family's folder (`Places::fonts`), for a
+/// board's page to load.
+fn serve_font(stream: &mut TcpStream, model: &Model, name: &str) -> std::io::Result<()> {
+    match std::fs::read(model.places.fonts.join(name)) {
+        // A board's frame runs in a sandbox with no origin of its own, so it
+        // loads the font as a cross-origin request.
+        Ok(font) => respond_with(
+            stream,
+            "200 OK",
+            "font/otf",
+            &["Access-Control-Allow-Origin: *"],
+            &font,
+        ),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => respond(
+            stream,
+            "404 Not Found",
+            "text/plain; charset=utf-8",
+            b"no such SF Mono file on this Mac\n",
+        ),
+        Err(error) => {
+            let message = format!("cannot read the SF Mono file {name}: {error}");
+            crate::text::note(&message);
+            respond(
+                stream,
+                "500 Internal Server Error",
+                "text/plain; charset=utf-8",
+                format!("{message}\n").as_bytes(),
+            )
+        }
+    }
+}
+
 fn handle(mut stream: TcpStream, names: &[String], model: &Model) -> std::io::Result<()> {
     stream.set_read_timeout(Some(Duration::from_secs(10)))?;
     let mut reader = BufReader::new(stream.try_clone()?);
@@ -301,6 +333,9 @@ fn handle(mut stream: TcpStream, names: &[String], model: &Model) -> std::io::Re
         return super::scratch_view::serve(stream, model, route);
     }
     let here = on_this_mac(&asker);
+    if let Some(boards::routes::Route::Font(name)) = boards::routes::route(path) {
+        return serve_font(&mut stream, model, &name);
+    }
     match path {
         "/" => respond(
             &mut stream,
@@ -335,42 +370,6 @@ fn handle(mut stream: TcpStream, names: &[String], model: &Model) -> std::io::Re
             model.hooks_json().as_bytes(),
         ),
         "/events" => events(stream, model),
-        _ if matches!(
-            boards::routes::route(path),
-            Some(boards::routes::Route::Font(_))
-        ) =>
-        {
-            let Some(boards::routes::Route::Font(name)) = boards::routes::route(path) else {
-                unreachable!("the guard matched a font route")
-            };
-            match std::fs::read(model.places.fonts.join(&name)) {
-                // A board's frame runs in a sandbox with no origin of its
-                // own, so it loads the font as a cross-origin request.
-                Ok(font) => respond_with(
-                    &mut stream,
-                    "200 OK",
-                    "font/otf",
-                    &["Access-Control-Allow-Origin: *"],
-                    &font,
-                ),
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => respond(
-                    &mut stream,
-                    "404 Not Found",
-                    "text/plain; charset=utf-8",
-                    b"no such SF Mono file on this Mac\n",
-                ),
-                Err(error) => {
-                    let message = format!("cannot read the SF Mono file {name}: {error}");
-                    crate::text::note(&message);
-                    respond(
-                        &mut stream,
-                        "500 Internal Server Error",
-                        "text/plain; charset=utf-8",
-                        format!("{message}\n").as_bytes(),
-                    )
-                }
-            }
-        }
         _ if path.starts_with("/designs/") => {
             let route = designs_route(&path["/designs/".len()..]);
             if let Some(DesignsRoute::Picture(project, commit, lane, shot, side)) = route {

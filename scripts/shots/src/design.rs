@@ -2,6 +2,7 @@
 //! load, a board's frame, and the hash of everything a board's picture
 //! depends on, which keys the picture in the picture folder (pictures.rs).
 
+use crate::Folders;
 use crate::render::preview::{REACT, REACT_DOM};
 use crate::settings::Settings;
 use boards::{MOCKS, Source, board_path};
@@ -67,15 +68,14 @@ pub(crate) struct DesignSystem {
 impl DesignSystem {
     /// The design system of the repo at <root>, its bundles built in a
     /// scratch folder in <cache>; nothing is written into the repo.
-    pub(crate) fn of(root: &Path, cache: &Path) -> Result<Self, DesignError> {
+    pub(crate) fn of(root: &Path, folders: Folders<'_>) -> Result<Self, DesignError> {
         let canvas = root.join(boards::CANVAS);
         let index: serde_json::Value = serde_json::from_slice(&read(&canvas)?)
             .map_err(|e| DesignError::BadCanvas(canvas, e.to_string()))?;
         let namespace = boards::design_namespace(&index)?;
-        // The one place the shots program names Terminal's folder.
-        let fonts = PathBuf::from(boards::fonts::TERMINAL_FONTS);
+        let fonts = folders.fonts.to_path_buf();
         let [tokens_css, bundle_css, bundle_js] =
-            Source::Dir(root).board_design_system(cache, &fonts)?;
+            Source::Dir(root).board_design_system(folders.cache, &fonts)?;
         Ok(Self {
             namespace,
             tokens_css,

@@ -1,4 +1,5 @@
-//! The "SF Mono" family the boards draw mono text in. The Mac does not
+//! The "SF Mono" family that boards whose mono stack names it draw mono
+//! text in. The Mac does not
 //! install it as a family that a browser can name: its mono system font is
 //! the hidden ".SF NS Mono", and Chrome draws the boards' mono stack in Menlo,
 //! which is narrower (7.225 pt a character against the app's 7.43). The Mac
@@ -44,28 +45,26 @@ pub(crate) fn is_font_file(name: &str) -> bool {
 
 /// The `@font-face` rules for the files of the family in <dir>, each loading
 /// from `URL_PREFIX` on the server that serves the page. A page that is a
-/// file, as `builds design render` prints, loads no font and draws Menlo.
-/// Empty when <dir> is no folder, as on a host that is not a Mac; an error
-/// when <dir> exists and lacks or cannot read a file of the family, which
-/// would draw Menlo's narrower mono text with nothing saying why.
+/// file, as `builds design render` prints, cannot load them, because the URLs
+/// are server paths, and draws the mono stack's next family. Empty when <dir>
+/// is no folder, as on a host that is not a Mac; an error when <dir> exists
+/// and a file of the family is missing or cannot be opened, which would draw
+/// Menlo's narrower mono text with nothing saying why.
 pub fn font_face_css(dir: &Path) -> Result<String> {
     if !dir.is_dir() {
         return Ok(String::new());
     }
     let mut rules = Vec::new();
     for (file, weight, italic) in FACES {
-        match std::fs::metadata(dir.join(file)) {
+        let path = dir.join(file);
+        let opened = std::fs::File::open(&path).and_then(|opened| opened.metadata());
+        match opened {
             Ok(meta) if meta.is_file() => {}
-            Ok(_) => {
-                return Err(Error::new(format!(
-                    "{} is not a file",
-                    dir.join(file).display()
-                )));
-            }
+            Ok(_) => return Err(Error::new(format!("{} is not a file", path.display()))),
             Err(error) => {
                 return Err(Error::new(format!(
                     "the SF Mono file {} cannot be read: {error}",
-                    dir.join(file).display()
+                    path.display()
                 )));
             }
         }

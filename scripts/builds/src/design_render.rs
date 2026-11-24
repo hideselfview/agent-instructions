@@ -178,7 +178,7 @@ pub(crate) fn script_safe(js: &str) -> String {
 
 /// Board <board> of <from> as one page of HTML in <theme>, drawn with the
 /// design system of <from>; a commit's is generated into <cache>
-/// (`Places::design_dirs`).
+/// (`DesignDirs::cache`).
 pub fn render_board(from: Source, board: &str, theme: Theme, dirs: &DesignDirs) -> Result<String> {
     from.check()?;
     let name = board_name(board)?;

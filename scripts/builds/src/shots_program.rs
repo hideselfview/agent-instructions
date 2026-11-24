@@ -73,6 +73,7 @@ pub fn cmd_shots(places: &Places, args: &[String]) -> Result<()> {
             let checker = shots::Checker {
                 versions: &VERSIONS,
                 cache: &cache(places),
+                fonts: &places.fonts,
             };
             if shots::main(&checker, args) {
                 Ok(())

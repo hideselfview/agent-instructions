@@ -310,7 +310,14 @@ fn the_design_system_comes_from_the_repos_sources_and_its_canvas_namespace() {
          (c / 'bundle.css').write_text('.x {}')\n",
     );
     let cache = tempfile::tempdir().unwrap();
-    let design = DesignSystem::of(r, cache.path()).unwrap();
+    let design = DesignSystem::of(
+        r,
+        Folders {
+            cache: cache.path(),
+            fonts: &cache.path().join("no-fonts"),
+        },
+    )
+    .unwrap();
     assert_eq!(design.namespace, "demo");
     assert_eq!(design.bundle_js, "window.Demo = {};");
     assert_eq!(design.bundle_css, ".x {}");

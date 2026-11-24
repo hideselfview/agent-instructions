@@ -30,7 +30,7 @@ pub(crate) fn measure(
         return Ok(BTreeMap::new());
     }
     let runtime = runtime::check(root).map_err(|e| e.to_string())?;
-    let design = DesignSystem::of(root, checker.cache).map_err(|e| e.to_string())?;
+    let design = DesignSystem::of(root, checker.folders()).map_err(|e| e.to_string())?;
     let previews = Previews::of(root)?;
     let tree = Tree {
         root,

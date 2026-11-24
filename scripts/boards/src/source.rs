@@ -159,8 +159,8 @@ impl Source<'_> {
     /// The design system as a board draws in Chrome on a Mac: its
     /// tokens.css ends with the `@font-face` rules for the SF Mono files in
     /// <fonts> (`fonts`), which a page loads from the server that serves it.
-    /// A page that is a file loads no font. What is published or written to
-    /// the repo takes `design_system`.
+    /// A page that is a file cannot load those files. What is published or
+    /// written to the repo takes `design_system`.
     pub fn board_design_system(&self, cache: &Path, fonts: &Path) -> Result<[String; 3]> {
         let [css, bundle_css, bundle_js] = self.design_system(cache)?;
         let rules = crate::fonts::font_face_css(fonts)?;

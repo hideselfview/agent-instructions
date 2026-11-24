@@ -69,6 +69,27 @@ pub struct Checker<'a> {
     /// The cache folder, which builds keeps on its build volume. It holds
     /// pinned Chrome and the scratch folders the design system is built in.
     pub cache: &'a Path,
+    /// The folder of the SF Mono files the boards' pages load
+    /// (`boards::fonts`): Terminal.app's on a Mac.
+    pub fonts: &'a Path,
+}
+
+impl<'a> Checker<'a> {
+    /// The folders a drawing of boards reads and writes.
+    pub(crate) fn folders(&self) -> Folders<'a> {
+        Folders {
+            cache: self.cache,
+            fonts: self.fonts,
+        }
+    }
+}
+
+/// The folders a drawing of boards uses: the checker's cache, and the SF Mono
+/// folder.
+#[derive(Clone, Copy)]
+pub(crate) struct Folders<'a> {
+    pub(crate) cache: &'a Path,
+    pub(crate) fonts: &'a Path,
 }
 
 #[derive(Parser)]
@@ -642,9 +663,11 @@ fn run(checker: &Checker, action: Action) -> Result<bool, String> {
             Ok(true)
         }
         Action::States { at, against } => {
-            let now = states::read(&root, at.as_deref(), checker.cache)?;
+            let now = states::read(&root, at.as_deref(), checker.folders())?;
             let listed = match &against {
-                Some(rev) => states::added(now, &states::read(&root, Some(rev), checker.cache)?),
+                Some(rev) => {
+                    states::added(now, &states::read(&root, Some(rev), checker.folders())?)
+                }
                 None => now,
             };
             for line in states::lines(&listed, against.as_deref()) {
@@ -658,7 +681,14 @@ fn run(checker: &Checker, action: Action) -> Result<bool, String> {
             boards,
             components,
         } => {
-            let lines = draws::lines(&root, &at, &against, &boards, &components, checker.cache)?;
+            let lines = draws::lines(
+                &root,
+                &at,
+                &against,
+                &boards,
+                &components,
+                checker.folders(),
+            )?;
             for line in lines {
                 println!("{line}");
             }
@@ -816,6 +846,7 @@ mod tests {
         let checker = Checker {
             versions: &versions,
             cache: dir.path(),
+            fonts: &dir.path().join("no-fonts"),
         };
         let shots = declared(&["mac.welcome.a", "mac.settings.b", "mac.other.c"]);
         let pictures =

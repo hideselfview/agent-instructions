@@ -92,8 +92,9 @@ pub struct Places {
     pub lists: PathBuf,
     /// The Codex CLI that delivers and checks registered thread notifications.
     pub codex_program: PathBuf,
-    /// The folder of the SF Mono files that boards draw mono text in: the
-    /// Mac's Terminal.app ships them (`boards::fonts`).
+    /// The folder of the SF Mono files that the boards whose mono stack names
+    /// them draw mono text in: the Mac's Terminal.app ships them
+    /// (`boards::fonts`).
     pub fonts: PathBuf,
 }
 
