@@ -133,6 +133,55 @@ fn a_text_compares_its_top_and_height_even_when_it_spans_its_container() {
     );
 }
 
+#[test]
+fn a_text_box_that_spans_its_container_and_is_centred_on_the_board_text_does_not_move() {
+    let board = texts();
+    let mut shot = board.clone();
+    // The shot's box is the whole 52 pt bar the title sits in, centred on the
+    // board's 20 pt line, and as wide as the bar.
+    shot[0].bounds = Bounds {
+        x: 0.0,
+        y: -6.0,
+        width: 300.0,
+        height: 52.0,
+    };
+    assert!(warnings(&board, &shot).is_empty());
+}
+
+#[test]
+fn a_text_box_taller_than_the_board_text_and_not_centred_on_it_is_resized() {
+    let board = texts();
+    let mut shot = board.clone();
+    // Taller, with its middle 8 pt below the board's.
+    shot[0].bounds.height = 36.0;
+    shot[0].bounds.y = 10.0;
+    let found: Vec<_> = warnings(&board, &shot)
+        .iter()
+        .map(Warning::sentence)
+        .collect();
+    assert_eq!(found, ["“Title” is 16 pt taller in the shot"]);
+}
+
+#[test]
+fn a_text_box_no_wider_than_the_board_text_compares_its_height() {
+    let board = texts();
+    let mut shot = board.clone();
+    // Centred on the board's line and taller, but not wider: no container.
+    shot[0].bounds.y -= 10.0;
+    shot[0].bounds.height += 20.0;
+    let found: Vec<_> = warnings(&board, &shot)
+        .iter()
+        .map(Warning::sentence)
+        .collect();
+    assert_eq!(
+        found,
+        [
+            "“Title” moved 10 pt up in the shot",
+            "“Title” is 20 pt taller in the shot"
+        ]
+    );
+}
+
 /// Three images, the first two symbols in text lines as a board boxes them
 /// (the line's height), and two buttons that fix the frame.
 fn symbols() -> Vec<Element> {

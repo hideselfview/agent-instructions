@@ -1271,6 +1271,14 @@ for the element: no background, glyph colour or foreground colour difference,
 and no finding that it found no measurable glyph colour. It checks the
 element's presence, words, box and font as for any other element.
 
+The checker reads a text's place from its box, and a platform's text box can
+span its container: the Mac's window title is the whole title bar. A shot text
+box that is wider than the board's text box and holds it on every side (each
+edge within the box-edge tolerance), with the same middle height within that
+tolerance, puts the text where the board does, so the checker reports no move
+or height difference for it. A box that is not wider, or that does not hold
+the board's box or has another middle, still reports them.
+
 A change to the comparison alone (a tolerance, the sentence of a finding, the
 report page) changes only the comparison version, so the next shots check
 takes no shot and builds no app for it. When builds has the run of a commit

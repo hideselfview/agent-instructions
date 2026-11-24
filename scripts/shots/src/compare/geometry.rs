@@ -102,6 +102,19 @@ fn lies_inside(board: &Bounds, shot: &Bounds) -> bool {
         && shot.y + shot.height <= board.y + board.height + EDGE_TOLERANCE
 }
 
+/// Whether `shot` is a container of the board's text box: wider, and holding
+/// it on every side, each edge within the tolerance, with its middle height
+/// the board's within the tolerance.
+fn spans_container(board: &Bounds, shot: &Bounds) -> bool {
+    let middle = |b: &Bounds| b.y + b.height / 2.0;
+    shot.x <= board.x + EDGE_TOLERANCE
+        && shot.x + shot.width >= board.x + board.width - EDGE_TOLERANCE
+        && shot.width > board.width + EDGE_TOLERANCE
+        && shot.y <= board.y + EDGE_TOLERANCE
+        && shot.y + shot.height >= board.y + board.height - EDGE_TOLERANCE
+        && (middle(shot) - middle(board)).abs() <= EDGE_TOLERANCE
+}
+
 /// The geometry warnings of the pairs, the shot's boxes moved back by `offset`.
 pub(crate) fn boxes(
     board: &[Element],
@@ -127,7 +140,14 @@ pub(crate) fn boxes(
                         Axis::start_and_length(from.x, from.width, to_bounds.x, to_bounds.width)
                     })
                     .flatten(),
-                Axis::start_and_length(from.y, from.height, to_bounds.y, to_bounds.height),
+                // A text box that spans its container, as the Mac's window
+                // title spans its bar, holds the board's box and shares its
+                // middle height: the text sits where the board draws it.
+                (!spans_container(&from, &to_bounds))
+                    .then(|| {
+                        Axis::start_and_length(from.y, from.height, to_bounds.y, to_bounds.height)
+                    })
+                    .flatten(),
             )
         } else if is_glyph_in_box(b.kind, &from, &to_bounds) && lies_inside(&from, &to_bounds) {
             (None, None)
