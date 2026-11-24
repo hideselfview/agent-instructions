@@ -189,6 +189,7 @@ pub(crate) enum What {
         height: f64,
         delta: f64,
     },
+    WindowCorners,
 }
 
 /// A length rounded to a tenth of a point, as a sentence writes it.
@@ -286,6 +287,7 @@ impl From<&Warning> for What {
                 height: tenth(bounds.height),
                 delta: *delta,
             },
+            Warning::WindowCorners => Self::WindowCorners,
         }
     }
 }

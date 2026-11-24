@@ -4,10 +4,12 @@
 
 pub(crate) mod align;
 pub(crate) mod colour;
+mod corners;
 pub(crate) mod geometry;
 pub(crate) mod normalize;
 pub(crate) mod regions;
 
+use crate::names::Platform;
 use crate::shots::{Bounds, Element, Picture, Size};
 use align::Step;
 use colour::{Rgb, hex};
@@ -385,6 +387,19 @@ pub(crate) struct Side<'a> {
     pub(crate) unshot: &'a [Bounds],
 }
 
+/// The pixel at (`x`, `y`), when the picture has it.
+fn rgba(picture: &Picture, x: i64, y: i64) -> Option<[u8; 4]> {
+    if x < 0 || y < 0 || x >= i64::from(picture.width) || y >= i64::from(picture.height) {
+        return None;
+    }
+    let at = (y as usize * picture.width as usize + x as usize) * 4;
+    Some(
+        picture.pixels[at..at + 4]
+            .try_into()
+            .expect("a pixel has four channels"),
+    )
+}
+
 /// Which colour of an element differs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -455,10 +470,16 @@ pub(crate) enum Warning {
         bounds: Bounds,
         delta: f64,
     },
+    WindowCorners,
 }
 
 /// The warnings for the matched `pairs` of two sides.
-pub(crate) fn warnings(board: &Side, shot: &Side, pairs: &[(Entry, Entry)]) -> Vec<Warning> {
+pub(crate) fn warnings(
+    platform: Platform,
+    board: &Side,
+    shot: &Side,
+    pairs: &[(Entry, Entry)],
+) -> Vec<Warning> {
     let offset = geometry::frame_offset(board.elements, shot.elements, pairs);
     let mut found = Vec::new();
     if offset.0.abs() > EDGE_TOLERANCE || offset.1.abs() > EDGE_TOLERANCE {
@@ -475,8 +496,14 @@ pub(crate) fn warnings(board: &Side, shot: &Side, pairs: &[(Entry, Entry)]) -> V
     ));
     found.extend(geometry::fonts(board.elements, shot.elements, pairs));
     found.extend(colour::pairs(board, shot, pairs));
+    let corners = (platform == Platform::Mac)
+        .then(|| corners::Corners::of(board, shot))
+        .flatten();
+    if corners.as_ref().is_some_and(corners::Corners::differ) {
+        found.push(Warning::WindowCorners);
+    }
     found.extend(
-        regions::regions(board, shot, offset)
+        regions::regions(board, shot, offset, corners.as_ref())
             .into_iter()
             .map(|r| Warning::Region {
                 bounds: r.bounds,
@@ -588,7 +615,7 @@ impl Warning {
             | Self::Colour { entry, .. }
             | Self::ForegroundColour { entry, .. }
             | Self::TextColourUnavailable { entry, .. } => Some(entry),
-            Self::FrameOffset { .. } | Self::Region { .. } => None,
+            Self::FrameOffset { .. } | Self::Region { .. } | Self::WindowCorners => None,
         }
     }
 
@@ -714,6 +741,9 @@ impl Warning {
                 bounds.x,
                 bounds.y
             ),
+            Self::WindowCorners => {
+                "The board and shot show different window corner shapes".to_string()
+            }
         }
     }
 }

@@ -37,14 +37,19 @@ fn side<'a>(elements: &'a [Element], picture: &'a Picture, scale: f64) -> Side<'
 #[test]
 fn equal_pictures_have_no_regions() {
     let p = picture(64, 64, &[(20, 20, 8)]);
-    assert!(regions(&side(&[], &p, 1.0), &side(&[], &p, 1.0), (0.0, 0.0)).is_empty());
+    assert!(regions(&side(&[], &p, 1.0), &side(&[], &p, 1.0), (0.0, 0.0), None).is_empty());
 }
 
 #[test]
 fn a_changed_icon_marks_its_cell() {
     let board = picture(64, 64, &[(20, 20, 8)]);
     let shot = picture(64, 64, &[]);
-    let found = regions(&side(&[], &board, 1.0), &side(&[], &shot, 1.0), (0.0, 0.0));
+    let found = regions(
+        &side(&[], &board, 1.0),
+        &side(&[], &shot, 1.0),
+        (0.0, 0.0),
+        None,
+    );
     assert_eq!(found.len(), 1);
     assert_eq!(
         found[0].bounds,
@@ -62,7 +67,12 @@ fn a_changed_icon_marks_its_cell() {
 fn neighbouring_cells_merge_into_one_rectangle() {
     let board = picture(64, 64, &[(10, 20, 10), (30, 20, 10)]);
     let shot = picture(64, 64, &[]);
-    let found = regions(&side(&[], &board, 1.0), &side(&[], &shot, 1.0), (0.0, 0.0));
+    let found = regions(
+        &side(&[], &board, 1.0),
+        &side(&[], &shot, 1.0),
+        (0.0, 0.0),
+        None,
+    );
     assert_eq!(found.len(), 1);
     assert_eq!(
         found[0].bounds,
@@ -79,7 +89,12 @@ fn neighbouring_cells_merge_into_one_rectangle() {
 fn cells_apart_are_separate_regions() {
     let board = picture(64, 64, &[(2, 2, 8), (50, 50, 8)]);
     let shot = picture(64, 64, &[]);
-    let found = regions(&side(&[], &board, 1.0), &side(&[], &shot, 1.0), (0.0, 0.0));
+    let found = regions(
+        &side(&[], &board, 1.0),
+        &side(&[], &shot, 1.0),
+        (0.0, 0.0),
+        None,
+    );
     assert_eq!(found.len(), 2);
 }
 
@@ -99,6 +114,7 @@ fn a_difference_inside_a_text_or_control_box_is_left_to_the_other_checks() {
         &side(&list, &board, 1.0),
         &side(&list, &shot, 1.0),
         (0.0, 0.0),
+        None,
     );
     assert!(found.is_empty());
 }
@@ -119,6 +135,7 @@ fn an_image_element_is_compared() {
         &side(&list, &board, 1.0),
         &side(&list, &shot, 1.0),
         (0.0, 0.0),
+        None,
     );
     assert_eq!(found.len(), 1);
 }
@@ -129,7 +146,12 @@ fn the_frames_are_aligned_by_the_offset_and_pictures_by_their_scale() {
     // 4 pt down at two pixels to the point.
     let board = picture(64, 64, &[(20, 20, 8)]);
     let shot = picture(128, 128, &[(48, 48, 16)]);
-    let found = regions(&side(&[], &board, 1.0), &side(&[], &shot, 2.0), (4.0, 4.0));
+    let found = regions(
+        &side(&[], &board, 1.0),
+        &side(&[], &shot, 2.0),
+        (4.0, 4.0),
+        None,
+    );
     assert!(found.is_empty(), "{found:?}");
 }
 
@@ -145,9 +167,15 @@ fn an_area_the_board_marks_as_not_in_the_shot_is_left_out() {
     }];
     let mut with = side(&[], &board, 1.0);
     with.unshot = &area;
-    assert!(regions(&with, &side(&[], &shot, 1.0), (0.0, 0.0)).is_empty());
+    assert!(regions(&with, &side(&[], &shot, 1.0), (0.0, 0.0), None).is_empty());
     assert_eq!(
-        regions(&side(&[], &board, 1.0), &side(&[], &shot, 1.0), (0.0, 0.0)).len(),
+        regions(
+            &side(&[], &board, 1.0),
+            &side(&[], &shot, 1.0),
+            (0.0, 0.0),
+            None
+        )
+        .len(),
         1
     );
 }

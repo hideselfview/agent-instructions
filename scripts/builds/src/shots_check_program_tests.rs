@@ -37,7 +37,7 @@ fn records(findings: &[(&str, &str, &str)]) -> String {
     let findings: Vec<_> = findings
         .iter()
         .map(|(scene, level, sentence)| {
-            serde_json::json!({"scene": scene, "level": level, "kind": "missing", "sentence": sentence})
+            serde_json::json!({"scene": scene, "level": level, "kind": "new-kind", "sentence": sentence})
         })
         .collect();
     serde_json::json!({"version": "new", "commit": "c", "scenes": ["mac.a", "mac.b"], "findings": findings})

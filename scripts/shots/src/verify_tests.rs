@@ -4,6 +4,123 @@ fn name(text: &str) -> Name {
     Name::parse(text).unwrap()
 }
 
+#[test]
+fn a_mac_window_compares_content_inside_its_corners() {
+    let pair = compare_window(
+        "mac.welcome.a",
+        window_picture(1, 16, [255, 255, 255, 255], false),
+        window_picture(2, 16, [0, 0, 0, 0], false),
+    );
+    assert!(pair.warnings.is_empty(), "{:?}", pair.warnings);
+}
+
+#[test]
+fn a_different_window_shape_reports_one_warning() {
+    for (board, shot) in [(24, 16), (16, 24)] {
+        let pair = compare_window(
+            "mac.welcome.a",
+            window_picture(2, board, [255, 255, 255, 255], false),
+            window_picture(2, shot, [0, 0, 0, 0], false),
+        );
+        assert_eq!(pair.warnings, [Warning::WindowCorners]);
+    }
+}
+
+#[test]
+fn a_one_pixel_shift_in_the_window_outline_draws_no_warning() {
+    let pair = compare_window(
+        "mac.welcome.a",
+        window_picture(1, 18, [255, 255, 255, 255], false),
+        window_picture(1, 16, [0, 0, 0, 0], false),
+    );
+    assert!(pair.warnings.is_empty(), "{:?}", pair.warnings);
+}
+
+#[test]
+fn a_difference_inside_a_mac_window_corner_still_marks_its_region() {
+    let pair = compare_window(
+        "mac.welcome.a",
+        window_picture(2, 16, [255, 255, 255, 255], true),
+        window_picture(2, 16, [0, 0, 0, 0], false),
+    );
+    let [Warning::Region { bounds, .. }] = &pair.warnings[..] else {
+        panic!("expected one picture region, found {:?}", pair.warnings);
+    };
+    assert_eq!((bounds.x, bounds.y), (0.0, 0.0));
+}
+
+#[test]
+fn an_android_picture_compares_its_corners() {
+    let pair = compare_window(
+        "android.welcome.a",
+        window_picture(1, 16, [255, 255, 255, 255], false),
+        window_picture(1, 16, [0, 0, 0, 0], false),
+    );
+    assert_eq!(pair.warnings.len(), 4);
+    assert!(
+        pair.warnings
+            .iter()
+            .all(|w| matches!(w, Warning::Region { .. }))
+    );
+}
+
+fn compare_window(scene: &str, board: Picture, shot: Picture) -> Checked {
+    let scene = name(scene);
+    let size = crate::shots::Size {
+        width: 64.0,
+        height: 64.0,
+    };
+    let list = |width| ElementList {
+        board: scene.to_string(),
+        platform: scene.platform(),
+        size,
+        scale: f64::from(width) / size.width,
+        elements: Vec::new(),
+        slots: Vec::new(),
+        unshot: Vec::new(),
+    };
+    compare_pair(
+        &scene,
+        Drawn {
+            list: list(board.width),
+            picture: board,
+            png: PathBuf::new(),
+        },
+        &Shot {
+            list: list(shot.width),
+            picture: shot,
+        },
+        PathBuf::new(),
+    )
+}
+
+/// A flat 64 pt picture with four diagonal cuts and an optional white mark.
+fn window_picture(scale: u32, cut: u32, outside: [u8; 4], mark: bool) -> Picture {
+    let width = 64 * scale;
+    let mut pixels = Vec::new();
+    for y in 0..width {
+        for x in 0..width {
+            let corner_x = x.min(width - 1 - x);
+            let corner_y = y.min(width - 1 - y);
+            pixels.extend(if corner_x + corner_y < cut * scale {
+                outside
+            } else if mark
+                && (9 * scale..15 * scale).contains(&x)
+                && (9 * scale..15 * scale).contains(&y)
+            {
+                [255, 255, 255, 255]
+            } else {
+                [40, 40, 40, 255]
+            });
+        }
+    }
+    Picture {
+        width,
+        height: width,
+        pixels,
+    }
+}
+
 fn outcome(checked: Vec<Checked>) -> Outcome {
     Outcome {
         runtime: String::new(),

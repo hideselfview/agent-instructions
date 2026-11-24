@@ -4,7 +4,8 @@
 //! tolerance is marked, and neighbouring marked cells merge into rectangles.
 
 use super::colour::{Lab, delta_e, pixel};
-use super::{DELTA_E_TOLERANCE, REGION_CELL, Side};
+use super::corners::Corners;
+use super::{DELTA_E_TOLERANCE, PictureSide, REGION_CELL, Side};
 use crate::shots::{Bounds, Element, Picture};
 
 /// A marked area of the board's frame, in points.
@@ -39,12 +40,25 @@ fn covered(list: &[Element], offset: (f64, f64)) -> Vec<Bounds> {
 /// The mean difference of the two pictures over the cell at (`x`, `y`) of the
 /// board's frame, sampled every point; the shot's frame is `offset` from the
 /// board's.
-fn cell_delta(board: &Side, shot: &Side, offset: (f64, f64), x: f64, y: f64) -> Option<f64> {
+fn cell_delta(
+    board: &Side,
+    shot: &Side,
+    offset: (f64, f64),
+    x: f64,
+    y: f64,
+    corners: Option<&Corners>,
+) -> Option<f64> {
     let (mut total, mut count) = (0.0, 0);
     let steps = REGION_CELL as i64;
     for dy in 0..steps {
         for dx in 0..steps {
             let (px, py) = (x + dx as f64 + 0.5, y + dy as f64 + 0.5);
+            if corners.is_some_and(|corners| {
+                !corners.contains(PictureSide::Board, board, px, py)
+                    || !corners.contains(PictureSide::Shot, shot, px + offset.0, py + offset.1)
+            }) {
+                continue;
+            }
             let at = |picture: &Picture, scale: f64, shift: (f64, f64)| {
                 pixel(
                     picture,
@@ -65,7 +79,12 @@ fn cell_delta(board: &Side, shot: &Side, offset: (f64, f64), x: f64, y: f64) -> 
 }
 
 /// The regions where the pictures differ outside the covered boxes.
-pub(crate) fn regions(board: &Side, shot: &Side, offset: (f64, f64)) -> Vec<Region> {
+pub(super) fn regions(
+    board: &Side,
+    shot: &Side,
+    offset: (f64, f64),
+    corners: Option<&Corners>,
+) -> Vec<Region> {
     let covers: Vec<Bounds> = covered(board.elements, (0.0, 0.0))
         .into_iter()
         .chain(covered(shot.elements, offset))
@@ -87,7 +106,8 @@ pub(crate) fn regions(board: &Side, shot: &Side, offset: (f64, f64)) -> Vec<Regi
             if covers.iter().any(|b| meets(*b, x, y)) {
                 continue;
             }
-            *cell = cell_delta(board, shot, offset, x, y).filter(|d| *d > DELTA_E_TOLERANCE);
+            *cell =
+                cell_delta(board, shot, offset, x, y, corners).filter(|d| *d > DELTA_E_TOLERANCE);
         }
     }
     // Neighbouring marked cells (sharing an edge) are one region.

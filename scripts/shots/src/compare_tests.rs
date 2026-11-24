@@ -249,6 +249,7 @@ fn an_offset_frame_is_reported_once_and_not_per_element() {
     let picture = flat(120, 200);
     let found = compare(&board, &shot, Slots::NONE);
     let warnings = warnings(
+        Platform::Mac,
         &Side {
             elements: &board,
             picture: &picture,
@@ -285,6 +286,7 @@ fn an_offset_under_the_tolerance_is_not_reported() {
     let found = compare(&board, &shot, Slots::NONE);
     assert!(
         warnings(
+            Platform::Mac,
             &Side {
                 elements: &board,
                 picture: &picture,

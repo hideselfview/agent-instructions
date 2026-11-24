@@ -12,12 +12,13 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+use serde::Deserialize;
+
 use crate::checkout::Checkout;
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::lane::Lane;
 use crate::places::Places;
-use crate::shot_causes::{self, Run};
 use crate::shot_findings;
 use crate::shots_cache::Cached;
 use crate::text::{note, plural};
@@ -30,6 +31,20 @@ const PROGRAM: &str = "scripts/builds/target/release/builds";
 
 /// The folder of the checkout's builds program, where cargo runs.
 const PROGRAM_CRATE: &str = "scripts/builds";
+
+/// The fields the program comparison reads from either version's report.
+#[derive(Deserialize)]
+struct Run {
+    scenes: Vec<String>,
+    findings: Vec<FindingText>,
+}
+
+#[derive(Deserialize)]
+struct FindingText {
+    scene: String,
+    level: String,
+    sentence: String,
+}
 
 /// What the compared program made of a scene's findings that the cached run
 /// did not, and what it no longer makes.
@@ -123,8 +138,12 @@ pub(crate) fn recheck(program: &Path, cached: &Cached) -> Result<String> {
 /// The text that compares the findings of the cached run with those that
 /// <program> makes of the same pictures and element lists.
 fn compare(cached: &Cached, program: &Path) -> Result<String> {
-    let before = shot_causes::read(&cached.report())?;
-    let after = shot_causes::parse(&recheck(program, cached)?)?;
+    let file = cached.findings_json();
+    let before =
+        std::fs::read_to_string(&file).context(|| format!("reading {}", file.display()))?;
+    let before = serde_json::from_str(&before).context(|| format!("reading {}", file.display()))?;
+    let after = serde_json::from_str(&recheck(program, cached)?)
+        .context(|| "reading the findings the program printed".to_string())?;
     Ok(text(&before, &after))
 }
 

@@ -95,6 +95,7 @@ fn each_finding_and_warning_is_a_record_with_its_kind_component_element_and_numb
                     },
                     delta: 9.0,
                 },
+                Warning::WindowCorners,
             ],
         ),
     ];
@@ -154,6 +155,8 @@ fn each_finding_and_warning_is_a_record_with_its_kind_component_element_and_numb
             {"scene": "mac.welcome.b", "level": "warning", "kind": "region",
              "x": 16.0, "y": 32.0, "width": 80.0, "height": 16.0, "delta": 9.0,
              "sentence": "The pictures differ in the area 80 pt wide and 16 pt high at (16, 32)"},
+            {"scene": "mac.welcome.b", "level": "warning", "kind": "window-corners",
+             "sentence": "The board and shot show different window corner shapes"},
         ],
     });
     assert_eq!(json, expected);

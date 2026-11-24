@@ -177,6 +177,7 @@ pub(crate) fn compare_pair(name: &Name, board: Drawn, shot: &Shot, shot_png: Pat
         .chain(Slots::new(&list.slots, list.size).covered())
         .collect();
     let warnings = compare::warnings(
+        name.platform(),
         &Side {
             elements: &list.elements,
             picture: &picture,

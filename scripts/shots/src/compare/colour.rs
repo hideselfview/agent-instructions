@@ -2,7 +2,7 @@
 //! them.
 
 use super::normalize::Entry;
-use super::{DELTA_E_TOLERANCE, EDGE_TOLERANCE, Part, PictureSide, Side, Warning};
+use super::{DELTA_E_TOLERANCE, EDGE_TOLERANCE, Part, PictureSide, Side, Warning, rgba};
 use crate::shots::{Bounds, Element, Picture, Role};
 use std::collections::HashMap;
 
@@ -110,15 +110,7 @@ pub(crate) const FAR_FROM_BACKGROUND: f64 = 10.0;
 
 /// The pixel at (`x`, `y`), when the picture has it.
 pub(crate) fn pixel(picture: &Picture, x: i64, y: i64) -> Option<Rgb> {
-    if x < 0 || y < 0 || x >= i64::from(picture.width) || y >= i64::from(picture.height) {
-        return None;
-    }
-    let at = (y as usize * picture.width as usize + x as usize) * 4;
-    Some([
-        picture.pixels[at],
-        picture.pixels[at + 1],
-        picture.pixels[at + 2],
-    ])
+    rgba(picture, x, y).map(|[r, g, b, _]| [r, g, b])
 }
 
 /// The colour that fills most of a box, counting

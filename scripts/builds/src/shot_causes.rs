@@ -41,10 +41,6 @@ pub struct Run {
 #[derive(Debug, Deserialize)]
 pub struct Record {
     pub scene: String,
-    /// `finding`, which can fail a run, or `warning`, which never does.
-    pub level: String,
-    /// The sentence the shots program printed for the record.
-    pub sentence: String,
     /// The design-system component that draws the board element the record
     /// is about; none when it is about no board element or no component
     /// draws it.
@@ -88,6 +84,7 @@ pub enum What {
     },
     TextColourUnavailable {},
     Region {},
+    WindowCorners {},
 }
 
 /// Which state of an element differs.
@@ -143,6 +140,7 @@ impl What {
             }
             What::TextColourUnavailable { .. } => "the checker could not measure a glyph colour",
             What::Region { .. } => "the pictures differ in an area",
+            What::WindowCorners {} => "the board and shot show different window corner shapes",
         }
     }
 }
