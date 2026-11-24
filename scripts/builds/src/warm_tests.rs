@@ -527,12 +527,10 @@ fn runs_naming(profile: &Path, top: &Path) -> (Vec<PathBuf>, Vec<PathBuf>) {
     let top = top.display();
     let dist = format!("cargo:rustc-link-search=native={top}/bae-ffmpeg/dist/lib\n");
     let env = format!("cargo:rustc-env=SOURCE_DIR={top}\n");
-    let neighbour = format!("cargo:rustc-link-search=native={top}2/dist/lib\n");
     let debug_only = format!("OUT_DIR = Some({top}/target/out)\ncargo:rerun-if-changed=build.rs\n");
     build_script_run(profile, "ffmpeg-sys", "1111111111111111", false, &dist);
     build_script_run(profile, "other-sys", "2222222222222222", false, &env);
     build_script_run(profile, "old-sys", "3333333333333333", true, &dist);
-    build_script_run(profile, "near-sys", "4444444444444444", false, &neighbour);
     build_script_run(profile, "quiet-sys", "5555555555555555", false, &debug_only);
     let unit =
         |package: &str, hash: &str| profile.join(format!("build/{package}/{hash}/fingerprint"));
@@ -542,10 +540,7 @@ fn runs_naming(profile: &Path, top: &Path) -> (Vec<PathBuf>, Vec<PathBuf>) {
             unit("other-sys", "2222222222222222"),
             profile.join(".fingerprint/old-sys-3333333333333333"),
         ],
-        vec![
-            unit("near-sys", "4444444444444444"),
-            unit("quiet-sys", "5555555555555555"),
-        ],
+        vec![unit("quiet-sys", "5555555555555555")],
     )
 }
 
@@ -617,4 +612,73 @@ fn a_new_app_checkout_forgets_the_build_script_runs_that_name_the_sources_paths(
     clone_lane(&tool, Lane::Mac, &source, &dest).unwrap();
 
     assert_runs_forgotten(&moved(&forgotten), &moved(&kept));
+}
+
+#[test]
+fn a_build_folder_forgets_the_build_script_runs_that_name_another_checkout() {
+    let scratch = Scratch::new("forget-other-checkouts");
+    let tool = scratch.tool(0);
+    let (main, _) = warm_main(&scratch, &tool);
+    cmd_new(
+        &tool,
+        &crate::testing::no_ssh(),
+        &[main.display().to_string(), "--for".into(), "agent".into()],
+    )
+    .unwrap();
+    let side = Checkout::find(
+        &scratch
+            .dir
+            .join("demo-worktrees/side-1")
+            .display()
+            .to_string(),
+    )
+    .unwrap();
+    let (trees, builds) = (
+        scratch.dir.join("demo-worktrees"),
+        tool.places.root.join("demo"),
+    );
+    let ours = side.build_root(&tool.places);
+    let search = |path: &Path| format!("cargo:rustc-link-search=native={}\n", path.display());
+    let runs = [
+        (
+            "gone-tree",
+            true,
+            search(&trees.join("side-15/bae-ffmpeg/dist/lib")),
+        ),
+        (
+            "gone-root",
+            true,
+            search(&builds.join("side-15/target/debug/build/x/out")),
+        ),
+        ("near-tree", true, search(&trees.join("side-10/dist"))),
+        ("main-tree", true, search(&main.join("bae-ffmpeg/dist/lib"))),
+        (
+            "own-tree",
+            false,
+            search(&trees.join("side-1/bae-ffmpeg/dist/lib")),
+        ),
+        (
+            "own-root",
+            false,
+            search(&ours.join("target/debug/build/x/out")),
+        ),
+        ("system", false, search(Path::new("/opt/ffmpeg/lib"))),
+    ];
+    let profile = ours.join("target/debug");
+    // A unit is named by its hash alone, so each run has its own.
+    let hash = |at: usize| format!("{at:016x}");
+    for (at, (package, _, printed)) in runs.iter().enumerate() {
+        build_script_run(&profile, package, &hash(at), false, printed);
+    }
+
+    crate::units::other_checkouts::forget_runs_naming_other_checkouts(&tool.places, &side).unwrap();
+
+    for (at, (package, forgotten, _)) in runs.iter().enumerate() {
+        let fingerprint = profile.join(format!("build/{package}/{}/fingerprint", hash(at)));
+        assert_eq!(
+            !fingerprint.exists(),
+            *forgotten,
+            "{package}: a run that names another checkout is forgotten, any other is kept"
+        );
+    }
 }

@@ -39,9 +39,9 @@
 //! FFMPEG_DIR) prints it in a `cargo:` line, and cargo's record of the run
 //! does not name the variable, so the clone would keep the source's path in
 //! its links and fail once that checkout is removed. Before the clone is
-//! placed, the record of each run whose `cargo:` lines name the source's
-//! working tree or build root is deleted from it (`forget_runs_naming`), and
-//! cargo runs those scripts again.
+//! placed, the record of each run whose `cargo:` lines name another checkout
+//! is deleted from it (`OtherCheckouts::forget_runs_in`), and cargo runs those
+//! scripts again.
 //!
 //! The clone is made beside its destination and renamed over the empty folder,
 //! so the folder is empty or whole. Every incremental folder is then deleted,
@@ -66,6 +66,7 @@ use crate::manifest::{BuildDir, build_dirs};
 use crate::prune::{Run, prune_root};
 use crate::text::note;
 use crate::tool::Tool;
+use crate::units::other_checkouts::OtherCheckouts;
 use crate::units::prune::Ages;
 use crate::units::unit::built_count;
 use crate::units::{self, GUARD, Guard, is_profile_dir, lock_guard_creating};
@@ -169,18 +170,18 @@ pub(crate) fn try_hold_folders(root: &Path, folders: &[PathBuf]) -> Result<Optio
 }
 
 /// Clones <from> to <to>, an empty folder, as one step: the clone is made
-/// beside <to>, its build script runs that name <source_paths> are forgotten
-/// (`forget_runs_naming`), and it is renamed over <to>, so <to> is empty or
+/// beside <to>, its build script runs that name a checkout but <others>' own
+/// are forgotten (`OtherCheckouts::forget_runs_in`), and it is renamed over <to>, so <to> is empty or
 /// whole. A clone that fails is deleted, and a failure to delete it is part of
 /// the error.
-fn clone_into_place(from: &Path, to: &Path, source_paths: &[&Path]) -> Result<()> {
+fn clone_into_place(from: &Path, to: &Path, others: &OtherCheckouts) -> Result<()> {
     let staging = to.with_file_name(format!(
         ".{}.warm.{}",
         crate::checkout::file_name(to),
         crate::text::staged_suffix()
     ));
     let cloned = clone_dir(from, &staging)
-        .and_then(|()| units::source_paths::forget_runs_naming(&staging, source_paths))
+        .and_then(|()| others.forget_runs_in(&staging))
         .and_then(|()| {
             std::fs::rename(&staging, to)
                 .context(|| format!("moving the clone into {}", to.display()))
@@ -376,7 +377,7 @@ pub fn fill(tool: &Tool, checkout: &Checkout) -> Result<()> {
         return Ok(());
     };
     let source = target_of(&held.candidate.root);
-    clone_into_place(&source, &dest, &[&held.candidate.top, &held.candidate.root])?;
+    clone_into_place(&source, &dest, &OtherCheckouts::of(&tool.places, checkout))?;
     // The source's files are read while its guard is held: no build there
     // writes them, so their mtimes are what its fingerprints were made from.
     match_times(&held.candidate.top, &checkout.top)?;
@@ -510,10 +511,11 @@ pub fn clone_lane(tool: &Tool, lane: Lane, source: &Checkout, dest: &Checkout) -
         ));
         return Ok(());
     };
+    let others = OtherCheckouts::of(&tool.places, dest);
     let mut cloned = Vec::new();
     for dir in &folders {
         let (from, to) = (source_root.join(&dir.path), dest_root.join(&dir.path));
-        clone_into_place(&from, &to, &[&source.top, &source_root])?;
+        clone_into_place(&from, &to, &others)?;
         note(format!("cloned {} into {}", from.display(), to.display()));
         cloned.push(to);
     }

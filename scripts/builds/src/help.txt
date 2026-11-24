@@ -449,9 +449,11 @@ no claim, a clean tree, every commit on origin/main by patch, no build running
 there. A new worktree costs a few seconds, since `builds new` clones a warm
 checkout's `target` into it, so a free one waits for nothing. The clone then
 deletes cargo's record of each build script run whose `cargo:` lines name a path
-of the checkout it came from (a link search path such as FFMPEG_DIR's), so
-cargo runs that script again in the new checkout, and the new checkout's links
-never name a folder of a worktree that is later removed.
+of another checkout of the repo (a link search path such as FFMPEG_DIR's), so
+cargo runs that script again in the new checkout. `builds cargo` deletes the
+same records from the checkout's cargo folders before each run, so a folder
+cloned earlier is repaired too, and no link names a folder of a worktree that
+is later removed.
 
 A claim records who works in a side worktree, so that no other session takes
 it: whoever hands out the worktree (a coordinator dispatching an agent, or the
