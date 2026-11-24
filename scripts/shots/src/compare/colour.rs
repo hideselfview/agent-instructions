@@ -4,6 +4,7 @@
 use super::normalize::Entry;
 use super::{DELTA_E_TOLERANCE, EDGE_TOLERANCE, Part, PictureSide, Side, Warning, rgba};
 use crate::names::Platform;
+use crate::render::read::is_window_role;
 use crate::shots::{Bounds, Element, Picture, Role};
 use std::collections::HashMap;
 
@@ -351,11 +352,16 @@ pub(crate) fn pairs(
         // A covered element's box holds the covering view's pixels, on the
         // side that has the covering element and on the other, which draws
         // the same view there.
+        // The Android harness records no window in its list (it writes
+        // Compose roles, never menu or dialog), so a shot's list there says
+        // nothing of what covers what: the board's does.
+        let shot_covers = platform != Platform::Android;
         let hidden = [
             (PictureSide::Board, board.elements, b),
             (PictureSide::Shot, shot.elements, s),
         ]
         .into_iter()
+        .filter(|(side, ..)| shot_covers || *side == PictureSide::Board)
         .find_map(|(side, list, entry)| {
             covering(platform, list, entry).map(|over| (side, entry, over))
         });
@@ -425,7 +431,7 @@ fn is_partial_coverage(partial: &Palette, thin: Rgb, whole: &Palette, full: Rgb)
 /// measure. A list holds an element after the elements under it, and each
 /// parent before its children (`Shot::problems`). On Android the reader lists
 /// each window (a menu or a dialog, a tree of its own whose root's native role
-/// says so) before the page it opens over, the outer window before the
+/// says so, as the board reader writes it) before the page it opens over, the outer window before the
 /// windows inside it (`render::read::build`): a window covers the page's
 /// texts wherever it is listed, a later window covers an earlier one, and the
 /// page, lying under every window, covers none of theirs.
@@ -454,9 +460,8 @@ fn covering(platform: Platform, list: &[Element], entry: &Entry) -> Option<usize
         }
         top
     };
-    let is_window = |top: usize| {
-        platform == Platform::Android && matches!(list[top].native.as_str(), "menu" | "dialog")
-    };
+    let is_window =
+        |top: usize| platform == Platform::Android && is_window_role(platform, &list[top].native);
     let tree = root(entry.index);
     let drawn_over = |index: usize| {
         if index > last {

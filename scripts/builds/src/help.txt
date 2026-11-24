@@ -1293,8 +1293,10 @@ under every window, covers none of theirs. In each case the checker reports
 no colour finding for the element: no background, glyph colour or foreground
 colour difference, and no finding that it found no measurable glyph colour.
 It checks the element's presence, words, box and font as for any other
-element. A Mac board's modal has no element of its own, so no list says it
-covers a text, and the checker reports the colours of a text under one.
+element. The Android harness writes no window role into a shot's list, so on
+Android only the board's list says what covers a text. A Mac board's modal has
+no element of its own, so no list says it covers a text, and the checker
+reports the colours of a text under one.
 
 The checker measures a text's glyph colour from the brightest pixels it
 draws, and thin glyphs (the Mac's 11.5 pt years) have strokes under a pixel

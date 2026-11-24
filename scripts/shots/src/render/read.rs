@@ -149,12 +149,17 @@ type Pending<'a> = (&'a Raw, Option<usize>, bool);
 /// (`role=dialog`), which TalkBack moves into before the screen. An ignored
 /// node is no window: its visible children stay in the page.
 fn is_window(node: &Raw, platform: Platform) -> bool {
-    !node.ignored
-        && match platform {
-            Platform::Mac => node.chrome_role == "menu",
-            Platform::Android => matches!(node.chrome_role.as_str(), "menu" | "dialog"),
-            Platform::Web => false,
-        }
+    !node.ignored && is_window_role(platform, &node.chrome_role)
+}
+
+/// Whether a node of Chrome role <role> is a window on <platform>, the role
+/// an element keeps as its `native` (`element`).
+pub(crate) fn is_window_role(platform: Platform, role: &str) -> bool {
+    match platform {
+        Platform::Mac => role == "menu",
+        Platform::Android => matches!(role, "menu" | "dialog"),
+        Platform::Web => false,
+    }
 }
 
 /// The elements of `raw`, in reading order (the tree's order from its first

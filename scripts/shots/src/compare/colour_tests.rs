@@ -461,8 +461,12 @@ fn an_element_that_a_later_element_covers_is_compared_for_no_colour() {
     };
     // A sheet drawn after the text, beyond its box, hides it.
     assert!(warn_with_cover(|list| list.push(sheet(None, covering)), &board, &shot).is_empty());
-    // The same box listed before the text is an overlay the list holds before
-    // the page it opens over, and hides it too (`an_overlay_listed_before...`).
+    // The same box listed before the text hides nothing: no Mac list holds an
+    // element before the page it covers.
+    assert_eq!(
+        warn_with_cover(|list| list.insert(0, sheet(None, covering)), &board, &shot).len(),
+        1
+    );
     // A box that holds the text, as its parent, hides nothing.
     let mut text = labelled(Role::Text, "Word", None);
     text.parent = Some(0);
@@ -566,9 +570,8 @@ fn window(native: &str, bounds: Bounds) -> crate::shots::Element {
     window
 }
 
-/// How many colour warnings the `list` of <platform> gives its text, the
-/// last element, when the board and the shot differ only in the text's
-/// colour.
+/// How many colour warnings the `list` of <platform> gives, as the board's
+/// and the shot's list, when the pictures differ only in the glyph colour.
 fn warnings_in(platform: Platform, list: Vec<crate::shots::Element>) -> usize {
     let draw = |ink: Rgb| picture(8, 8, move |x, _| if x < 3 { ink } else { [40, 40, 48] });
     let (board, shot) = (draw([255, 255, 255]), draw([224, 224, 224]));
@@ -648,4 +651,27 @@ fn an_android_window_is_covered_by_a_later_window_and_by_neither_an_earlier_one_
         sheet(None, OVER),
     ];
     assert_eq!(warnings_in(Platform::Android, inner_text), 1);
+}
+
+#[test]
+fn an_android_shot_s_own_list_never_covers_a_text() {
+    // The harness writes no window role, so a page element listed after a
+    // window's text in the shot says nothing of what lies over what.
+    let draw = |ink: Rgb| picture(8, 8, move |x, _| if x < 3 { ink } else { [40, 40, 48] });
+    let (board, shot) = (draw([255, 255, 255]), draw([224, 224, 224]));
+    let beside = Bounds { x: 30.0, ..OVER };
+    let board_list = vec![labelled(Role::Text, "Word", None), sheet(None, beside)];
+    let shot_list = vec![labelled(Role::Text, "Word", None), sheet(None, OVER)];
+    let found = crate::compare::compare(&board_list, &shot_list, crate::compare::Slots::NONE);
+    let warned = |platform| {
+        pairs(
+            platform,
+            &side(&board_list, &board),
+            &side(&shot_list, &shot),
+            &found.pairs,
+        )
+        .len()
+    };
+    assert_eq!(warned(Platform::Android), 1);
+    assert_eq!(warned(Platform::Mac), 0);
 }
