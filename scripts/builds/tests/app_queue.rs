@@ -1469,60 +1469,18 @@ fn declare_scenes(top: &Path, folder: &str, file: &str, text: &str) {
     std::fs::write(top.join(folder).join(file), text).unwrap();
 }
 
-/// Writes shot.sh in <top> and commits it: a shots program that logs its
-/// arguments and writes a report, outside the checkout, whose findings.json
-/// names the shots checker this builds keeps runs of, so builds keeps each
-/// run.
+/// Commits the reporting shots program and declares one scene on both lanes.
 fn reporting_shots(top: &Path) {
-    let shot = top.join("shot.sh");
-    std::fs::write(
-        &shot,
-        format!(
-            "#!/bin/sh
-echo \"shots $*\" >> \"$QUEUE_TEST_DIR/log\"
-report=\"$QUEUE_TEST_DIR/report-$$\"
-mkdir -p \"$report\"
-echo '<html></html>' > \"$report/index.html\"
-echo '{{\"version\": \"{}\", \"capture_version\": \"{}\", \"commit\": \"c\", \"scenes\": [], \"findings\": []}}' > \"$report/findings.json\"
-echo \"builds shots: report at $report/index.html\" >&2
-",
-            env!("COMPARISON_SOURCE"),
-            env!("CAPTURE_SOURCE")
-        ),
-    )
-    .unwrap();
-    let mut mode = std::fs::metadata(&shot).unwrap().permissions();
-    std::os::unix::fs::PermissionsExt::set_mode(&mut mode, 0o755);
-    std::fs::set_permissions(&shot, mode).unwrap();
-    declare_scenes(
-        top,
-        "declared-mac",
-        "Shots.swift",
-        "let scenes = [\"mac.a.one\"]\n",
-    );
+    write_reporting_shots(top, "");
     declare_scenes(
         top,
         "declared-android",
         "Shots.kt",
         "val scenes = listOf(shot(\"android.a.one\"))\n",
     );
-    for args in [
-        &["add", "shot.sh", "declared-mac", "declared-android"][..],
-        &["commit", "-q", "-m", "Add the shots program"],
-        &["push", "-q", "origin", "main"],
-    ] {
-        let out = Command::new("git")
-            .arg("-C")
-            .arg(top)
-            .args(args)
-            .output()
-            .unwrap();
-        assert!(
-            out.status.success(),
-            "git {args:?}: {}",
-            String::from_utf8_lossy(&out.stderr)
-        );
-    }
+    git_in(top, &["add", "shot.sh", "declared-mac", "declared-android"]);
+    git_in(top, &["commit", "-q", "-m", "Add the shots program"]);
+    git_in(top, &["push", "-q", "origin", "main"]);
 }
 
 /// `--all-shots mac` runs the mac lane's shots line once, with the prefix
@@ -1674,10 +1632,9 @@ fn git_in(top: &Path, args: &[&str]) -> String {
     String::from_utf8(out.stdout).unwrap().trim().to_string()
 }
 
-/// Commits the shots program (see `reporting_shots`) with <hook>, shell that
-/// runs before it reports, and the declared scene `mac.a.one` on main, and
-/// returns main's commit.
-fn commit_shots(top: &Path, hook: &str) -> String {
+/// Writes a shots program that logs its arguments, runs <hook> and writes
+/// a report in the fixture's folder. Declares one Mac scene in the checkout.
+fn write_reporting_shots(top: &Path, hook: &str) {
     let shot = top.join("shot.sh");
     assert!(!shot.exists(), "shot.sh exists already");
     std::fs::write(
@@ -1706,6 +1663,12 @@ echo \"builds shots: report at $report/index.html\" >&2
         "Shots.swift",
         "let scenes = [\"mac.a.one\"]\n",
     );
+}
+
+/// Commits the reporting shots program and the declared Mac scene on main,
+/// and returns main's commit.
+fn commit_shots(top: &Path, hook: &str) -> String {
+    write_reporting_shots(top, hook);
     git_in(top, &["add", "shot.sh", "declared-mac"]);
     git_in(top, &["commit", "-q", "-m", "Add the shots program"]);
     git_in(top, &["push", "-q", "origin", "main"]);
