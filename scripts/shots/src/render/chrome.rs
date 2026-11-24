@@ -343,6 +343,45 @@ pub(crate) async fn with_chrome<T>(
     with_executable(installed(cache)?, LAUNCH_DEADLINE, work).await
 }
 
+/// Ends every process of one Chrome when the program that started it ends,
+/// however it ends. The program's kill (SIGKILL, which no handler sees) leaves
+/// the browser and its helpers running, with the program's parent as their
+/// parent; the kernel closes the program's end of the watchdog's stdin, and the
+/// watchdog then kills each process whose command line names the browser's
+/// profile folder, which no other browser shares. Each run that ends the
+/// program's own way calls `fire`, which does the same for what the browser
+/// left behind.
+struct Watchdog {
+    child: tokio::process::Child,
+}
+
+impl Watchdog {
+    /// Starts the watchdog of the Chrome that will use the profile folder
+    /// <profile>, before Chrome starts, so that a kill while Chrome starts
+    /// leaves nothing either.
+    fn over(profile: &Path) -> Result<Self, ChromeError> {
+        let pattern = format!("--user-data-dir={}", profile.display());
+        let child = tokio::process::Command::new("sh")
+            .args([
+                "-c",
+                "cat >/dev/null; exec pkill -KILL -f -- \"$0\"",
+                &pattern,
+            ])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .map_err(|e| ChromeError::Launch(format!("cannot start the Chrome watchdog: {e}")))?;
+        Ok(Self { child })
+    }
+
+    /// Ends what is left of Chrome and waits for the watchdog to finish.
+    async fn fire(mut self) {
+        drop(self.child.stdin.take());
+        note_unless_done("ending what Chrome left running", self.child.wait()).await;
+    }
+}
+
 /// `with_chrome` for the browser at <executable>, which has <launch_deadline>
 /// to print its debugging address.
 async fn with_executable<T>(
@@ -351,6 +390,7 @@ async fn with_executable<T>(
     work: impl AsyncFnOnce(&Chrome) -> T,
 ) -> Result<T, ChromeError> {
     let profile = tempfile::tempdir().map_err(|e| ChromeError::Launch(e.to_string()))?;
+    let watchdog = Watchdog::over(profile.path())?;
     let config = BrowserConfig::builder()
         .user_data_dir(profile.path())
         .chrome_executable(executable)
@@ -387,6 +427,7 @@ async fn with_executable<T>(
         };
         note_unless_done("closing Chrome", chrome.browser.close()).await;
         note_unless_done("waiting for Chrome", chrome.browser.wait()).await;
+        watchdog.fire().await;
         out
     };
     // The events end when the browser closes, which `running` does last; a

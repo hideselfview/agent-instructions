@@ -197,3 +197,44 @@ fn the_pinned_chrome_starts_from_the_cache() {
         "{started:?}"
     );
 }
+
+#[tokio::test]
+async fn processes_of_a_chrome_end_when_the_program_that_started_it_ends() {
+    // A stand-in browser: any process whose command line names the profile.
+    let profile = tempfile::tempdir().unwrap();
+    let mut browser = tokio::process::Command::new("sh")
+        .args(["-c", "sleep 300; true", "--"])
+        .arg(format!("--user-data-dir={}", profile.path().display()))
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut watchdog = Watchdog::over(profile.path()).unwrap();
+    // The program ends: the kernel closes its end of the watchdog's stdin.
+    drop(watchdog.child.stdin.take());
+    let status = tokio::time::timeout(Duration::from_secs(20), browser.wait())
+        .await
+        .expect("the watchdog ended the browser")
+        .unwrap();
+    assert!(!status.success(), "{status}");
+    watchdog.fire().await;
+}
+
+#[tokio::test]
+async fn firing_the_watchdog_leaves_other_browsers_alone() {
+    let (mine, other) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let start = |profile: &Path| {
+        tokio::process::Command::new("sh")
+            .args(["-c", "sleep 300; true", "--"])
+            .arg(format!("--user-data-dir={}", profile.display()))
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .kill_on_drop(true)
+            .spawn()
+            .unwrap()
+    };
+    let (mut mine_browser, mut other_browser) = (start(mine.path()), start(other.path()));
+    Watchdog::over(mine.path()).unwrap().fire().await;
+    mine_browser.wait().await.unwrap();
+    assert!(other_browser.try_wait().unwrap().is_none());
+}
