@@ -816,7 +816,7 @@ mod tests {
         };
         let folders = boards::Folders {
             cache: dir.path().to_path_buf(),
-            fonts: dir.path().join("no-fonts"),
+            fonts: None,
         };
         let checker = Checker {
             versions: &versions,

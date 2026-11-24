@@ -95,7 +95,7 @@ pub struct Places {
     /// The folder of the SF Mono files that the boards whose mono stack names
     /// them draw mono text in: the Mac's Terminal.app ships them
     /// (`boards::fonts`).
-    pub fonts: PathBuf,
+    pub fonts: Option<PathBuf>,
 }
 
 impl Places {
@@ -132,7 +132,7 @@ impl Places {
             uid: unsafe { libc::getuid() },
             lists,
             codex_program: PathBuf::from("codex"),
-            fonts: PathBuf::from(boards::fonts::TERMINAL_FONTS),
+            fonts: cfg!(target_os = "macos").then(|| PathBuf::from(boards::fonts::TERMINAL_FONTS)),
         })
     }
 

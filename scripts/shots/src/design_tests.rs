@@ -13,7 +13,7 @@ pub(crate) fn system(tokens: &str, css: &str, js: &str) -> DesignSystem {
         tokens_css: tokens.to_string(),
         bundle_css: css.to_string(),
         bundle_js: js.to_string(),
-        fonts: PathBuf::new(),
+        fonts: None,
     }
 }
 
@@ -314,7 +314,7 @@ fn the_design_system_comes_from_the_repos_sources_and_its_canvas_namespace() {
         r,
         &boards::Folders {
             cache: cache.path().to_path_buf(),
-            fonts: cache.path().join("no-fonts"),
+            fonts: None,
         },
     )
     .unwrap();

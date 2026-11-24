@@ -46,14 +46,10 @@ pub(crate) fn is_font_file(name: &str) -> bool {
 /// The `@font-face` rules for the files of the family in <dir>, each loading
 /// from `URL_PREFIX` on the server that serves the page. A page that is a
 /// file, as `builds design render` prints, cannot load them, because the URLs
-/// are server paths, and draws the mono stack's next family. Empty when <dir>
-/// is no folder, as on a host that is not a Mac; an error when <dir> exists
-/// and a file of the family is missing or cannot be opened, which would draw
-/// Menlo's narrower mono text with nothing saying why.
+/// are server paths, and draws the mono stack's next family. An error when a
+/// file of the family is missing or cannot be opened, or <dir> is gone, which
+/// would draw Menlo's narrower mono text with nothing saying why.
 pub fn font_face_css(dir: &Path) -> Result<String> {
-    if !dir.is_dir() {
-        return Ok(String::new());
-    }
     let mut rules = Vec::new();
     for (file, weight, italic) in FACES {
         let path = dir.join(file);

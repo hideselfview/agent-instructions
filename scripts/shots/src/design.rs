@@ -61,7 +61,7 @@ pub(crate) struct DesignSystem {
     pub(crate) bundle_js: String,
     /// The folder the boards' SF Mono files are served from, which
     /// `tokens_css` has rules for (`boards::fonts`).
-    pub(crate) fonts: PathBuf,
+    pub(crate) fonts: Option<PathBuf>,
 }
 
 impl DesignSystem {

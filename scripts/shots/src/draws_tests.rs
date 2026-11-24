@@ -26,13 +26,12 @@ fn copy_tree(from: &Path, to: &Path) {
     }
 }
 
-/// The checker's cache folder, and a fonts folder that does not exist, as on
-/// a host that is not a Mac.
+/// The checker's cache folder, and no fonts folder, as on a host that is not
+/// a Mac.
 fn folders() -> boards::Folders {
-    let home = std::path::PathBuf::from(std::env::var_os("HOME").expect("HOME is set"));
     boards::Folders {
-        cache: home.join(".cache/builds-shots"),
-        fonts: tempfile::tempdir().unwrap().path().join("fonts"),
+        cache: crate::render::fixture::cache(),
+        fonts: None,
     }
 }
 

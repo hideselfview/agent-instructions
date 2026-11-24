@@ -27,8 +27,11 @@ fn each_font_file_of_the_family_gets_a_rule_with_its_weight_and_style() {
 }
 
 #[test]
-fn no_folder_gives_no_rule_and_a_folder_missing_a_file_is_an_error() {
-    assert_eq!(font_face_css(Path::new("/no/such/folder")).unwrap(), "");
+fn a_folder_that_is_gone_or_missing_a_file_is_an_error() {
+    let gone = font_face_css(Path::new("/no/such/folder"))
+        .unwrap_err()
+        .text();
+    assert!(gone.contains("/no/such/folder"), "{gone}");
     let mut files = all_files();
     files.retain(|file| *file != "SF-Mono-Heavy.otf");
     let dir = folder("fonts-missing", &files);

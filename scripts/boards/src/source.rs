@@ -163,7 +163,10 @@ impl Source<'_> {
     /// written to the repo takes `design_system`.
     pub fn board_design_system(&self, folders: &crate::Folders) -> Result<[String; 3]> {
         let [css, bundle_css, bundle_js] = self.design_system(&folders.cache)?;
-        let rules = crate::fonts::font_face_css(&folders.fonts)?;
+        let rules = match &folders.fonts {
+            Some(fonts) => crate::fonts::font_face_css(fonts)?,
+            None => String::new(),
+        };
         Ok([format!("{css}\n{rules}"), bundle_css, bundle_js])
     }
 

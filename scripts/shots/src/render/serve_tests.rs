@@ -140,7 +140,7 @@ async fn serves_the_sf_mono_files_of_its_fonts_folder_and_nothing_else_under_fon
     std::fs::write(fonts.path().join("SF-Mono-Regular.otf"), "font bytes").unwrap();
     std::fs::write(fonts.path().join("secret.txt"), "secret").unwrap();
     let mut design = system("tokens", "css", "js");
-    design.fonts = fonts.path().to_path_buf();
+    design.fonts = Some(fonts.path().to_path_buf());
     let tree = Tree {
         root: root.path(),
         design: &design,

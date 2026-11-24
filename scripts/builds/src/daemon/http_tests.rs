@@ -30,11 +30,11 @@ fn server(name: &str) -> Server {
 
 /// `server`, after <prepare> has made what the daemon reads at start (the
 /// scratch volume's lists, say) in the scratch folder and the places.
-fn server_with(name: &str, prepare: impl FnOnce(&Scratch, &crate::places::Places)) -> Server {
+fn server_with(name: &str, prepare: impl FnOnce(&Scratch, &mut crate::places::Places)) -> Server {
     let scratch = Scratch::new(name);
     let tool = scratch.tool(0);
-    let places = tool.places.clone();
-    prepare(&scratch, &places);
+    let mut places = tool.places.clone();
+    prepare(&scratch, &mut places);
     std::fs::create_dir_all(places.root.join("demo")).unwrap();
     std::fs::write(places.root.join("demo/app-checkouts"), "side-1\n").unwrap();
     let gate = scratch.dir.join("gate");
@@ -354,14 +354,16 @@ fn design_store(scratch: &Scratch, places: &crate::places::Places) {
 fn a_board_names_the_sf_mono_files_and_the_daemon_serves_them_and_only_them() {
     let s = server_with("http-fonts", |scratch, places| {
         design_store(scratch, places);
-        std::fs::create_dir_all(&places.fonts).unwrap();
+        let fonts = scratch.dir.join("fonts");
+        std::fs::create_dir_all(&fonts).unwrap();
         for (file, ..) in boards::fonts::FACES {
-            std::fs::write(places.fonts.join(file), "font bytes").unwrap();
+            std::fs::write(fonts.join(file), "font bytes").unwrap();
         }
-        std::fs::write(places.fonts.join("secret.txt"), "secret").unwrap();
+        std::fs::write(fonts.join("secret.txt"), "secret").unwrap();
+        places.fonts = Some(fonts);
     });
     let (_, _, board) = s.get("/design/demo/1/board/0/proposed");
-    let rules = boards::fonts::font_face_css(&s.model.places.fonts).unwrap();
+    let rules = boards::fonts::font_face_css(s.model.places.fonts.as_ref().unwrap()).unwrap();
     assert_eq!(rules.lines().count(), 12);
     assert!(board.contains(&rules), "{board}");
     let reply = s.get_raw("/fonts/sf-mono/SF-Mono-Regular.otf");
@@ -378,7 +380,9 @@ fn a_board_names_the_sf_mono_files_and_the_daemon_serves_them_and_only_them() {
 #[test]
 fn the_daemon_draws_a_design_changes_review_page_and_its_boards_from_the_changes_last_commit_on_each_request()
  {
-    let s = server_with("http-design", design_store);
+    let s = server_with("http-design", |scratch, places| {
+        design_store(scratch, places)
+    });
     let (status, kind, page) = s.get("/design/demo/1");
     assert_eq!((status, kind.as_str()), (200, "text/html; charset=utf-8"));
     assert!(page.contains("/design/demo/1/board/0"), "{page}");
@@ -543,7 +547,7 @@ fn hook_store(_scratch: &Scratch, places: &crate::places::Places) {
 
 #[test]
 fn the_daemon_serves_the_hook_runs_with_their_over_limit_runs() {
-    let s = server_with("http-hooks", hook_store);
+    let s = server_with("http-hooks", |scratch, places| hook_store(scratch, places));
     let (status, kind, body) = s.get("/api/hooks");
     assert_eq!((status, kind.as_str()), (200, "application/json"));
     let hooks: serde_json::Value = serde_json::from_str(&body).unwrap();
@@ -903,7 +907,9 @@ fn next_event(reader: &mut BufReader<TcpStream>, name: &str) -> String {
 
 #[test]
 fn the_dashboard_stream_sends_lists_and_hooks_when_the_volume_is_gone() {
-    let s = server_with("http-stream-without-volume", hook_store);
+    let s = server_with("http-stream-without-volume", |scratch, places| {
+        hook_store(scratch, places)
+    });
     std::fs::rename(&s.model.places.root, s.scratch.dir.join("other-volume")).unwrap();
 
     let host = format!("127.0.0.1:{}", s.port);
@@ -992,7 +998,9 @@ fn scratch_store(scratch: &Scratch, places: &crate::places::Places) {
 
 #[test]
 fn the_scratch_view_draws_a_worktrees_files_and_redraws_after_each_change_only_on_this_mac() {
-    let s = server_with("http-scratch", scratch_store);
+    let s = server_with("http-scratch", |scratch, places| {
+        scratch_store(scratch, places)
+    });
     let (status, kind, page) = s.get("/design/demo/scratch/side-1/A");
     assert_eq!((status, kind.as_str()), (200, "text/html; charset=utf-8"));
     assert!(
@@ -1124,7 +1132,9 @@ fn the_designs_page_reports_a_store_in_a_folder_with_an_invalid_project_name() {
 
 #[test]
 fn the_designs_page_lists_the_scratch_boards_only_on_this_mac() {
-    let s = server_with("http-scratch-list", scratch_store);
+    let s = server_with("http-scratch-list", |scratch, places| {
+        scratch_store(scratch, places)
+    });
     assert_eq!(
         page_data_at(&s, "/designs/demo", "127.0.0.1")["scratch"],
         serde_json::json!({ "boards": [{

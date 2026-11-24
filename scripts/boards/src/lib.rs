@@ -28,11 +28,12 @@ use std::path::PathBuf;
 
 /// The folders a board's page is built from: the cache the design systems
 /// generated for commits are kept in, and the folder of the SF Mono files
-/// its tokens.css has rules for (`fonts`).
+/// its tokens.css has rules for (`fonts`); none on a host that is not a Mac,
+/// whose boards draw the next family of their mono stack.
 #[derive(Clone, Debug)]
 pub struct Folders {
     pub cache: PathBuf,
-    pub fonts: PathBuf,
+    pub fonts: Option<PathBuf>,
 }
 
 /// Why reading a repo's design files failed, as a sentence that names the

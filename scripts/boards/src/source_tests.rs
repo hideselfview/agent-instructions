@@ -349,7 +349,7 @@ fn a_board_draws_with_the_sf_mono_rules_and_what_is_published_has_none() {
     let drawn = Source::Dir(&dir)
         .board_design_system(&crate::Folders {
             cache: cache(&scratch),
-            fonts: fonts.clone(),
+            fonts: Some(fonts.clone()),
         })
         .unwrap();
     assert!(!plain[0].contains("@font-face"));

@@ -74,9 +74,12 @@ async fn answer(tree: Tree<'_>, url_path: &str) -> Result<Option<Found>, String>
     Ok(match route {
         Route::Runtime => Some((javascript, tree.runtime.as_bytes().to_vec())),
         Route::Design(namespace, _) if namespace != tree.design.namespace => None,
-        Route::Font(name) => read(&tree.design.fonts.join(name))
-            .await?
-            .map(|bytes| ("font/otf", bytes)),
+        Route::Font(name) => match &tree.design.fonts {
+            Some(fonts) => read(&fonts.join(name))
+                .await?
+                .map(|bytes| ("font/otf", bytes)),
+            None => None,
+        },
         Route::Design(_, file) => {
             let (kind, text) = match file {
                 DesignFile::TokensCss => ("text/css; charset=utf-8", &tree.design.tokens_css),

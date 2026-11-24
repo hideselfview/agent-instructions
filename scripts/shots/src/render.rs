@@ -3,7 +3,7 @@
 pub(crate) mod board;
 pub(crate) mod chrome;
 #[cfg(test)]
-mod fixture;
+pub(crate) mod fixture;
 pub(crate) mod instances;
 pub(crate) mod preview;
 pub(crate) mod read;
