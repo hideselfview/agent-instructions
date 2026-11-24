@@ -25,3 +25,13 @@ fn routes_stay_inside_the_mocks() {
     assert_eq!(route("/../../secret.txt"), None);
     assert_eq!(route("//etc/passwd"), None);
 }
+
+#[test]
+fn the_sf_mono_files_have_a_route_and_nothing_else_under_it_does() {
+    assert_eq!(
+        route("/fonts/sf-mono/SF-Mono-Regular.otf"),
+        Some(Route::Font("SF-Mono-Regular.otf".into()))
+    );
+    assert_eq!(route("/fonts/sf-mono/secret.txt"), None);
+    assert_eq!(route("/fonts/sf-mono/../SF-Mono-Regular.otf"), None);
+}

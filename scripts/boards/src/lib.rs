@@ -9,6 +9,7 @@ pub mod app_build;
 pub mod board;
 pub mod colors;
 pub mod component_key;
+pub mod fonts;
 pub mod preview;
 pub mod routes;
 pub mod runtime;

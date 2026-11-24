@@ -69,7 +69,7 @@ impl DesignSystem {
         let index: serde_json::Value = serde_json::from_slice(&read(&canvas)?)
             .map_err(|e| DesignError::BadCanvas(canvas, e.to_string()))?;
         let namespace = boards::design_namespace(&index)?;
-        let [tokens_css, bundle_css, bundle_js] = Source::Dir(root).design_system(cache)?;
+        let [tokens_css, bundle_css, bundle_js] = Source::Dir(root).board_design_system(cache)?;
         Ok(Self {
             namespace,
             tokens_css,

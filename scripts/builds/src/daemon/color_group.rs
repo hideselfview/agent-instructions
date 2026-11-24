@@ -111,7 +111,7 @@ fn page(
     scene: &str,
     cache: &Path,
 ) -> Result<String> {
-    let [tokens_css, bundle_css, bundle_js] = from.design_system(cache)?;
+    let [tokens_css, bundle_css, bundle_js] = from.board_design_system(cache)?;
     let themes: Vec<&str> = palette
         .themes
         .iter()

@@ -22,6 +22,8 @@ pub enum Route {
     Runtime,
     /// A file of the design system whose namespace is the first field.
     Design(String, DesignFile),
+    /// A file of the SF Mono family, by its name (`fonts`).
+    Font(String),
     /// A file under `design/mocks`, by its path there.
     Mocks(String),
 }
@@ -46,6 +48,9 @@ pub fn route(url_path: &str) -> Option<Route> {
             _ => return None,
         };
         return Some(Route::Design(namespace.to_string(), file));
+    }
+    if let Some(name) = path.strip_prefix(crate::fonts::URL_PREFIX) {
+        return crate::fonts::is_font_file(name).then(|| Route::Font(name.to_string()));
     }
     let relative = Path::new(path.strip_prefix('/')?);
     if relative.as_os_str().is_empty()

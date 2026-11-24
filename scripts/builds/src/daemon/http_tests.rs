@@ -345,6 +345,18 @@ fn design_store(scratch: &Scratch, places: &crate::places::Places) {
 }
 
 #[test]
+fn a_board_names_the_sf_mono_files_and_the_daemon_serves_only_those() {
+    let s = server_with("http-fonts", design_store);
+    let (_, _, board) = s.get("/design/demo/1/board/0/proposed");
+    let rules = boards::fonts::font_face_css(std::path::Path::new(boards::fonts::TERMINAL_FONTS));
+    assert!(board.contains(&rules), "{board}");
+    for refused in ["secret.txt", "..%2Fsecret.txt", "SF-Mono-Unknown.otf"] {
+        let (status, _, body) = s.get(&format!("/fonts/sf-mono/{refused}"));
+        assert_eq!(status, 404, "{body}");
+    }
+}
+
+#[test]
 fn the_daemon_draws_a_design_changes_review_page_and_its_boards_from_the_changes_last_commit_on_each_request()
  {
     let s = server_with("http-design", design_store);

@@ -2,7 +2,8 @@
 //! canvas's routes (`boards::routes`): the boards and their parts as
 //! siblings, the runtime copy and the design system under
 //! `/ds/<namespace>/`, each also under `/storage/`. It also serves React at
-//! `/react.js` and `/react-dom.js`, and each component's preview page at
+//! `/react.js` and `/react-dom.js`, the SF Mono files of Terminal.app under
+//! `/fonts/sf-mono/`, and each component's preview page at
 //! `/components/<Name>.html` with the design system loaded ahead of its
 //! script.
 
@@ -44,6 +45,16 @@ async fn read(file: &Path) -> Result<Option<Vec<u8>>, String> {
     }
 }
 
+/// The bytes of the font file <name> of the SF Mono family in <folder>; none
+/// when it is no file of the family or the folder lacks it.
+async fn read_font(folder: &Path, name: &str) -> Result<Option<Vec<u8>>, String> {
+    let (folder, name) = (folder.to_path_buf(), name.to_string());
+    tokio::task::spawn_blocking(move || boards::fonts::read_font(&folder, &name))
+        .await
+        .map_err(|error| error.to_string())?
+        .map_err(|error| format!("cannot read the SF Mono files: {error}"))
+}
+
 /// What <url_path> names; none when it names nothing, and an error that says
 /// why when it names something the server cannot give.
 async fn answer(tree: Tree<'_>, url_path: &str) -> Result<Option<Found>, String> {
@@ -73,6 +84,12 @@ async fn answer(tree: Tree<'_>, url_path: &str) -> Result<Option<Found>, String>
     Ok(match route {
         Route::Runtime => Some((javascript, tree.runtime.as_bytes().to_vec())),
         Route::Design(namespace, _) if namespace != tree.design.namespace => None,
+        Route::Font(name) => {
+            let folder = Path::new(boards::fonts::TERMINAL_FONTS);
+            read_font(folder, &name)
+                .await?
+                .map(|bytes| ("font/otf", bytes))
+        }
         Route::Design(_, file) => {
             let (kind, text) = match file {
                 DesignFile::TokensCss => ("text/css; charset=utf-8", &tree.design.tokens_css),

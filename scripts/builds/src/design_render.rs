@@ -205,7 +205,7 @@ pub fn render_board(from: Source, board: &str, theme: Theme, cache: &Path) -> Re
         }
         parts.insert(key, part);
     }
-    let [tokens_css, bundle_css, bundle_js] = from.design_system(cache)?;
+    let [tokens_css, bundle_css, bundle_js] = from.board_design_system(cache)?;
     let styles: String = parts.values().map(|p| p.style.as_str()).collect();
     let templates: String = parts
         .iter()
@@ -252,7 +252,7 @@ pub fn render_preview(from: Source, name: &str, cache: &Path) -> Result<String> 
     }
     let rel = preview::preview_path(name);
     let html = from.read(&rel, "the preview")?;
-    let [tokens_css, bundle_css, bundle_js] = from.design_system(cache)?;
+    let [tokens_css, bundle_css, bundle_js] = from.board_design_system(cache)?;
     let loads = format!(
         "<style>{tokens_css}</style><style>{bundle_css}</style>{REACT}<script>{}</script>",
         script_safe(&bundle_js)

@@ -20,9 +20,9 @@ async fn get(server: &Server, path: &str) -> String {
         .write_all(format!("GET {path} HTTP/1.1\r\nHost: x\r\n\r\n").as_bytes())
         .await
         .unwrap();
-    let mut response = String::new();
-    stream.read_to_string(&mut response).await.unwrap();
-    response
+    let mut response = Vec::new();
+    stream.read_to_end(&mut response).await.unwrap();
+    String::from_utf8_lossy(&response).into_owned()
 }
 
 #[tokio::test]
@@ -128,6 +128,33 @@ async fn a_file_it_cannot_give_answers_500_with_the_cause() {
             folder.starts_with("HTTP/1.1 500") && folder.contains("cannot read"),
             "{folder}"
         );
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn serves_the_sf_mono_files_of_this_mac_and_nothing_else_under_fonts() {
+    let root = tree();
+    let design = system("tokens", "css", "js");
+    let tree = Tree {
+        root: root.path(),
+        design: &design,
+        runtime: "runtime",
+    };
+    let installed = std::path::Path::new(boards::fonts::TERMINAL_FONTS).join("SF-Mono-Regular.otf");
+    with_server(tree, async |server| {
+        let font = get(server, "/fonts/sf-mono/SF-Mono-Regular.otf").await;
+        if installed.is_file() {
+            assert!(font.starts_with("HTTP/1.1 200 OK"), "{font}");
+            assert!(font.contains("Content-Type: font/otf"), "{font}");
+        } else {
+            assert!(font.starts_with("HTTP/1.1 404"), "{font}");
+        }
+        for refused in ["secret.txt", "..%2Fsecret.txt", "SF-Mono-Unknown.otf"] {
+            let answer = get(server, &format!("/fonts/sf-mono/{refused}")).await;
+            assert!(answer.starts_with("HTTP/1.1 404"), "{answer}");
+        }
     })
     .await
     .unwrap();

@@ -36,6 +36,9 @@
 //!                   the review page of an open design change, drawn now,
 //!                   which links the scratch boards in the change's worktree
 //!                   when it is asked for on this Mac
+//!     /fonts/sf-mono/<file>
+//!                   a file of the SF Mono family from Terminal.app, which the
+//!                   boards' pages load (`boards::fonts`)
 //!     /design/<project>/<design id>/board/<n>/now and /proposed
 //!     /design/<project>/<design id>/changed/<k>/proposed
 //!     /design/<project>/<design id>/deleted/<k>/now
@@ -320,6 +323,34 @@ fn handle(mut stream: TcpStream, names: &[String], model: &Model) -> std::io::Re
             model.hooks_json().as_bytes(),
         ),
         "/events" => events(stream, model),
+        _ if path.starts_with(boards::fonts::URL_PREFIX) => {
+            let name = &path[boards::fonts::URL_PREFIX.len()..];
+            let folder = std::path::Path::new(boards::fonts::TERMINAL_FONTS);
+            match boards::fonts::read_font(folder, name) {
+                // A board's frame runs in a sandbox with no origin of its
+                // own, so it loads the font as a cross-origin request.
+                Ok(Some(font)) => {
+                    write!(
+                        stream,
+                        "HTTP/1.1 200 OK\r\nContent-Type: font/otf\r\nContent-Length: {}\r\nAccess-Control-Allow-Origin: *\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n",
+                        font.len()
+                    )?;
+                    stream.write_all(&font)
+                }
+                Ok(None) => respond(
+                    &mut stream,
+                    "404 Not Found",
+                    "text/plain; charset=utf-8",
+                    b"no such SF Mono file on this Mac\n",
+                ),
+                Err(error) => respond(
+                    &mut stream,
+                    "500 Internal Server Error",
+                    "text/plain; charset=utf-8",
+                    format!("cannot read the SF Mono files: {error}\n").as_bytes(),
+                ),
+            }
+        }
         _ if path.starts_with("/designs/") => {
             let route = designs_route(&path["/designs/".len()..]);
             if let Some(DesignsRoute::Picture(project, commit, lane, shot, side)) = route {
