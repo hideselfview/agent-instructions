@@ -18,11 +18,10 @@
 //! the shared design-system sources (the component sources, the tokens): any
 //! of them can change any component's drawing, so they are listed apart and
 //! the design change names the components that change. A spec glob names the
-//! spec files; when the commits are a design change (they change a place, a
-//! source or a shared file), each section of a spec file (by heading) they
-//! touch is a place, written `path#heading`. A path none of this covers is
-//! outside the design files, and a spec file in commits that are no design
-//! change is outside them too.
+//! spec files; each section of a spec file (by heading) the commits touch is a
+//! place, written `path#heading`. A spec file alone makes no design change
+//! (the spec moves with every commit), but a design change may resolve its
+//! sections. A path none of this covers is outside the design files.
 //!
 //! A drawing (`drawing_at`) is the git object each changed board, component
 //! folder and source is at one commit. Comparing two drawings tells whether
@@ -216,8 +215,7 @@ pub struct Changes {
     pub places: BTreeSet<String>,
     /// Changed shared design-system sources, by file.
     pub sources: BTreeSet<String>,
-    /// Changed spec sections, `path#heading`; only when the commits are a
-    /// design change.
+    /// Changed spec sections, `path#heading`.
     pub spec: BTreeSet<String>,
     /// Changed files under the globs' root directories that are none of
     /// the above.
@@ -234,12 +232,20 @@ pub struct Changes {
 
 impl Changes {
     /// Do the commits change design files at all? A spec file alone is no
-    /// design change: the spec moves with every commit.
+    /// design change: the spec moves with every commit, so a landing needs a
+    /// design change for the spec sections only when it needs one for
+    /// something else (`has_places`).
     pub fn is_design_change(&self) -> bool {
         !(self.places.is_empty()
             && self.deleted.is_empty()
             && self.sources.is_empty()
             && self.shared.is_empty())
+    }
+
+    /// Is there a place for a design change to resolve: the commits change
+    /// design files, or only spec sections?
+    pub fn has_places(&self) -> bool {
+        self.is_design_change() || !self.spec.is_empty()
     }
 
     /// The changed paths whose bytes a board's drawing shows: the places
@@ -553,14 +559,10 @@ pub fn changes_of(top: &Path, globs: &Globs, shas: &[String]) -> Result<Changes>
             }
         }
     }
-    if changes.is_design_change() {
-        for (sha, changed) in per_commit {
-            for path in changed.iter().filter(|p| changes.spec_files.contains(*p)) {
-                changes.spec.extend(spec_sections(top, sha, path)?);
-            }
+    for (sha, changed) in per_commit {
+        for path in changed.iter().filter(|p| changes.spec_files.contains(*p)) {
+            changes.spec.extend(spec_sections(top, sha, path)?);
         }
-    } else {
-        changes.outside.append(&mut changes.spec_files);
     }
     Ok(changes)
 }

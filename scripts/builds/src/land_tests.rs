@@ -685,6 +685,42 @@ fn shared_only_design_files_with_the_design_change_land() {
 }
 
 #[test]
+fn spec_sections_need_no_design_change_but_land_with_one() {
+    let f = fixture("land-spec-only", "true\n", None);
+    let (one, a, _two, _b) = two_branches(&f);
+    let (code, _, _) = run_land(
+        &f,
+        &one,
+        &["--done", "7", &a],
+        Cues {
+            places: "spec spec/bae.md#Sync",
+            ..project()
+        },
+    );
+    assert_eq!(code, 0, "a spec section alone needs no design change");
+}
+
+#[test]
+fn spec_sections_land_through_a_design_change_beside_the_items() {
+    let f = fixture("land-spec-design", "true\n", None);
+    let (one, a, _two, _b) = two_branches(&f);
+    let (code, _, calls) = run_land(
+        &f,
+        &one,
+        &["--done", "7", "--design", "3", &a],
+        Cues {
+            places: "spec spec/bae.md#Sync",
+            ..project()
+        },
+    );
+    assert_eq!(code, 0);
+    assert!(calls.contains(&format!(
+        "design check 3 {} {a} --project bae",
+        one.display()
+    )));
+}
+
+#[test]
 fn a_design_change_alone_lands_commits_that_are_all_design_files() {
     let f = fixture("land-design-alone", "true\n", None);
     let (one, a, _two, _b) = two_branches(&f);

@@ -567,7 +567,7 @@ fn resolve(
     affected: &BTreeSet<String>,
     stamp: &Stamp,
 ) -> Result<Vec<Id>> {
-    if !changes.is_design_change() {
+    if !changes.has_places() {
         fail!("the range {} changes no design files", request.range);
     }
     let changed = changes.resolvable();
@@ -1365,7 +1365,7 @@ fn covers_drawings(designs: &[DrawnChange], changes: &Changes) -> Result<()> {
 /// person approved each, and does each place name its app work? `builds design check` runs this check, and
 /// builds land runs that command before it lands design changes.
 pub fn check_changes(designs: &[DrawnChange], changes: &Changes) -> Result<()> {
-    if !changes.is_design_change() {
+    if !changes.has_places() {
         let ids: Vec<Id> = designs.iter().map(|d| d.design.id).collect();
         fail!(
             "the commits change no design files, so there is nothing to check for {}",

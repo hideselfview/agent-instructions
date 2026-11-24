@@ -567,7 +567,8 @@ design-globs`:
                     components whose drawing changes
   --spec-files      the spec files: each section (by heading) a design
                     change's commits touch is a place, written
-                    spec/bae.md#Heading; a spec file alone is no design change.
+                    spec/bae.md#Heading; a spec file alone is no design
+                    change, but a design change may resolve its sections.
                     `item take` checks each brief against them too
 
 A glob is /-separated: `*` (any characters) and `?` (one character) stay inside
@@ -626,8 +627,9 @@ session that recorded the change has ended. builds sends no second message.
       PATH` (a component folder once, with a trailing /), `source PATH`,
       `deleted PATH` (a board file the commits delete), `spec PATH#HEADING` or
       `shared PATH`; nothing when there is none. builds land requires
-      --design N whenever this prints anything, once for each design change
-      that resolves some of it.
+      --design N whenever this prints a line that is no `spec` line, once for
+      each design change that resolves some of it; a landing whose only lines
+      are `spec` lines takes --design N and needs none.
 
   builds design only DIR REV...
       Prints nothing and succeeds when the commits are a design change and
@@ -677,7 +679,7 @@ session that recorded the change has ended. builds sends no second message.
       it lists as a row of the component's preview in the same change, so that
       the component's own shot covers it.
       Record stores every design place the range changes (a board, a
-      component folder, a spec section) with no app work, and `places` is
+      component folder, a spec section, alone or with the others) with no app work, and `places` is
       optional: no app work item exists for a change before the person
       approves it (decision #304). After the person approves, the design
       session names each place's app work with `builds design amend N`, by

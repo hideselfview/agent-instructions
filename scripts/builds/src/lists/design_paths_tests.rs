@@ -334,15 +334,16 @@ fn a_source_is_listed_apart_even_where_the_component_glob_would_take_it() {
 }
 
 #[test]
-fn a_spec_file_alone_is_no_design_change_and_is_outside_the_design_files() {
+fn a_spec_file_alone_is_no_design_change_though_its_sections_are_places() {
     let scratch = Scratch::new("design-paths-spec-alone");
     let dir = scratch.dir.join("bae");
     repo(&dir, "target 1\n");
     let sha = commit(&dir, &[("spec/bae.md", "# bae\n\ntext\n")], "spec");
     let changes = changes_of(&dir, &full_globs(), &[sha]).unwrap();
-    assert!(!changes.is_design_change());
-    assert!(changes.spec.is_empty());
-    assert_eq!(changes.outside, set(&["spec/bae.md"]));
+    assert!(!changes.is_design_change() && !changes.only_design());
+    assert!(changes.has_places());
+    assert_eq!(changes.spec, set(&["spec/bae.md#bae"]));
+    assert!(changes.outside.is_empty());
 }
 
 #[test]

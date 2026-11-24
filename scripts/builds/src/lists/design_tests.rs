@@ -2361,9 +2361,32 @@ fn spec_sections_a_design_change_touches_are_places_resolved_like_the_others() {
     request["places"]["spec/bae.md#bae"] = json!({ "matches": "the title line, no behaviour" });
     w.amend(1, request).unwrap();
     assert!(w.run(&format!("check 1 {wt} {sha}")).is_ok());
-    // A commit that changes only the spec is no design change.
+    // A commit that changes only the spec is no design change, though its
+    // sections are places that a design change may resolve.
     let spec_only = w.commit(&["spec/words.md"]);
-    assert_eq!(w.run(&format!("places {wt} {spec_only}")).unwrap(), "");
+    assert_eq!(
+        w.run(&format!("places {wt} {spec_only}")).unwrap(),
+        "spec spec/words.md#(before the first heading)\n"
+    );
+}
+
+#[test]
+fn a_range_whose_only_places_are_spec_sections_is_recorded_and_checked_like_any_other() {
+    let w = world("design-spec-only");
+    let sha = w.commit(&["spec/words.md"]);
+    let wt = w.worktree();
+    let place = "spec/words.md#(before the first heading)";
+    let mut request = base_request(&w, json!({}));
+    request["review"] = review_of(&[]);
+    w.request(request.clone()).unwrap();
+    w.approve(1);
+    let refused = message(w.run(&format!("check 1 {wt} {sha}")));
+    assert!(refused.contains(place), "{refused}");
+    request["places"][place] = json!({ "new": draft("Write the words into the app") });
+    w.amend(1, request).unwrap();
+    assert!(w.run(&format!("check 1 {wt} {sha}")).is_ok());
+    // The commit is still no design change, so it needs none to land.
+    assert!(message(w.run(&format!("only {wt} {sha}"))).contains("no design files"));
 }
 
 #[test]

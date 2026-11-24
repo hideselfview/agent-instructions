@@ -54,7 +54,8 @@
 //! origin/main; `--part N` lands the earlier commits. `builds design places`
 //! prints one line per changed design path (`place`, `source`, `spec` or
 //! `shared`, then the path), nothing when none;
-//! any line, shared-only included, requires `--design`. When every commit's
+//! any line but a `spec` line, shared-only included, requires `--design`; a
+//! landing whose only lines are `spec` lines takes `--design` and needs none. When every commit's
 //! paths are design files (`builds design only`: boards, the design system,
 //! spec lines), `--design` alone satisfies the `--done`/`--part`
 //! requirement: the design changes hold the app work. A repo in no project
@@ -808,7 +809,10 @@ impl Landing<'_> {
             }
             self.check_done_leaves_nothing(out)?;
         }
-        if !places.is_empty() && request.designs.is_empty() {
+        // A spec section is a place that a design change may resolve, but a
+        // landing needs a design change only for the other places.
+        let needs_design = places.lines().any(|line| !line.starts_with("spec "));
+        if needs_design && request.designs.is_empty() {
             let _ = writeln!(
                 out,
                 "LANDING REFUSED, land fetched and pushed nothing: the commits change design places; name each design change that resolves them with --design N"
