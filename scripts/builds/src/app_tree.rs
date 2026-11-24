@@ -87,7 +87,10 @@ pub fn of(top: &Path, commit: &str, config: &Config, lane: Lane) -> Result<Strin
 /// the canvas runtime that draws the boards. Empty when <paths>, the commit's
 /// files, holds no design system.
 fn scene_size_inputs(top: &Path, commit: &str, paths: &[&str]) -> Result<Vec<String>> {
-    if !paths.iter().any(|path| in_dir(path, DESIGN_SYSTEM)) {
+    if !paths
+        .iter()
+        .any(|path| in_dir(path, crate::design_system_artifact::SYSTEM))
+    {
         return Ok(Vec::new());
     }
     let mut inputs = Source::Commit {
@@ -98,9 +101,6 @@ fn scene_size_inputs(top: &Path, commit: &str, paths: &[&str]) -> Result<Vec<Str
     inputs.push(boards::runtime::RECORD.to_string());
     Ok(inputs)
 }
-
-/// The folder of the design system.
-const DESIGN_SYSTEM: &str = "design/system";
 
 /// Whether <path> is <input> or a file below it.
 fn is_at(path: &str, input: &str) -> bool {
