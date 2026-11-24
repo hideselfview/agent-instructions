@@ -1272,6 +1272,17 @@ for the element: no background, glyph colour or foreground colour difference,
 and no finding that it found no measurable glyph colour. It checks the
 element's presence, words, box and font as for any other element.
 
+The checker measures a text's glyph colour from the brightest pixels it
+draws, and thin glyphs (the Mac's 11.5 pt years) have strokes under a pixel
+wide, so no pixel shows the colour in full: three years drawn in #6A6A7A
+measured #61616F, #575765 and #5B5B69. When one side's glyph colour is not the
+colour of at least a quarter of that side's foreground pixels (within one step
+a channel), and it lies on the line from the side's background to the other
+side's colour, 0.7 of the way or more and within the colour tolerance, the
+checker takes it as the other side's colour with partial coverage and reports
+no difference. A colour that fills its strokes, or lies off that line or below
+0.7, still differs.
+
 The checker reads a text's place from its box, and a platform's text box can
 span its container: the Mac's window title is the whole title bar. A shot text
 box that is wider than the board's text box and holds it on every side (each

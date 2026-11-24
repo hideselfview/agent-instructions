@@ -485,3 +485,57 @@ fn a_later_element_that_covers_part_of_the_box_hides_its_colours() {
         1
     );
 }
+
+/// An 8 x 8 box of text on `background`: every pixel of the first three
+/// columns draws `ink` at a coverage that falls from `peak` by 0.04 for each
+/// step along the box, so no coverage fills more than a few pixels, as a thin
+/// glyph does.
+fn thin_glyphs(background: Rgb, ink: Rgb, peak: f64) -> Picture {
+    picture(8, 8, move |x, y| {
+        if x >= 3 {
+            return background;
+        }
+        let coverage = peak - 0.04 * f64::from(y + 2 * x);
+        std::array::from_fn(|c| {
+            let (back, front) = (f64::from(background[c]), f64::from(ink[c]));
+            (back + coverage * (front - back)).round() as u8
+        })
+    })
+}
+
+#[test]
+fn a_glyph_that_never_reaches_full_coverage_reads_as_the_colour_it_is_a_part_of() {
+    let background = [17, 17, 27];
+    let ink = [106, 106, 122];
+    let full = picture(8, 8, |x, _| if x < 3 { ink } else { background });
+    // The shot's glyphs peak at 0.85 of the drawn colour, on another
+    // background of the same dark.
+    let thin = thin_glyphs([15, 15, 24], ink, 0.85);
+    assert_eq!(warn(Role::Text, &full, &thin), Vec::<String>::new());
+    // The board can be the thin side.
+    assert!(warn(Role::Text, &thin, &full).is_empty());
+}
+
+#[test]
+fn a_glyph_that_never_reaches_full_coverage_still_warns_when_too_dim_or_off_hue() {
+    let background = [17, 17, 27];
+    let full = |ink: Rgb| picture(8, 8, move |x, _| if x < 3 { ink } else { background });
+    // A peak of 0.6 is another colour, not a thin render of this one.
+    let dim = thin_glyphs(background, [106, 106, 122], 0.6);
+    assert_eq!(warn(Role::Text, &full([106, 106, 122]), &dim).len(), 1);
+    // A thin render of another hue is not this colour either.
+    let other = thin_glyphs(background, [122, 106, 106], 0.85);
+    assert_eq!(warn(Role::Text, &full([106, 106, 122]), &other).len(), 1);
+}
+
+#[test]
+fn a_dimmer_glyph_that_fills_its_strokes_still_warns() {
+    // The glyphs cover whole columns in both pictures: 0.87 of the board's
+    // colour is the colour drawn, not a partial coverage.
+    let background = [46, 46, 57];
+    let draw = |ink: Rgb| picture(8, 8, move |x, _| if x < 3 { ink } else { background });
+    assert_eq!(
+        warn(Role::Text, &draw([187, 187, 192]), &draw([168, 168, 179])).len(),
+        1
+    );
+}

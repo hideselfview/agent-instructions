@@ -173,6 +173,17 @@ fn dot(first: [i32; 3], second: [i32; 3]) -> i32 {
 /// a drawn part (a label, an edge, a switch) and not as antialiasing.
 const DRAWN_PART_SHARE: f64 = 0.1;
 
+/// The share of an element's foreground pixels that a glyph colour fills for
+/// the glyphs to reach their full coverage: a thin glyph's strokes are less
+/// than a pixel wide, so no pixel shows the colour in full, and the pixels
+/// nearest it are a few of the many partial coverages.
+const FULL_COVERAGE_SHARE: f64 = 0.25;
+
+/// The least share of a drawn colour that a thin glyph's brightest pixel
+/// shows. Thin glyphs measured at 0.78 to 0.92; a peak below this is another
+/// colour.
+const THIN_GLYPH_PEAK: f64 = 0.7;
+
 struct Palette {
     background: Rgb,
     foreground: Vec<(Rgb, usize)>,
@@ -207,6 +218,27 @@ impl Palette {
         self.colours
             .iter()
             .any(|(drawn, _)| delta_e(Lab::of(*drawn), lab) <= DELTA_E_TOLERANCE)
+    }
+
+    /// Whether the glyphs reach their full coverage in `glyph`: the pixels
+    /// within one step of it in every channel are at least
+    /// [`FULL_COVERAGE_SHARE`] of the foreground.
+    fn reaches_full_coverage(&self, glyph: Rgb) -> bool {
+        let foreground: usize = self.foreground.iter().map(|(_, count)| count).sum();
+        let near: usize = self
+            .foreground
+            .iter()
+            .filter(|(colour, _)| colour.iter().zip(glyph).all(|(a, b)| a.abs_diff(b) <= 1))
+            .map(|(_, count)| count)
+            .sum();
+        near as f64 >= foreground as f64 * FULL_COVERAGE_SHARE
+    }
+
+    /// How far each channel of `colour` is from the background.
+    fn offset(&self, colour: Rgb) -> [f64; 3] {
+        std::array::from_fn(|channel| {
+            f64::from(colour[channel]) - f64::from(self.background[channel])
+        })
     }
 
     /// Follow the dominant foreground colour away from the background to find
@@ -327,6 +359,13 @@ pub(crate) fn pairs(board: &Side, shot: &Side, pairs: &[(Entry, Entry)]) -> Vec<
                     from.as_ref().and_then(Palette::glyph_colour),
                     to.as_ref().and_then(Palette::glyph_colour),
                 ) {
+                    (Some(drawn), Some(measured))
+                        if matches!((&from, &to), (Some(from), Some(to))
+                            if is_partial_coverage(to, measured, from, drawn)
+                                || is_partial_coverage(from, drawn, to, measured)) =>
+                    {
+                        None
+                    }
                     (Some(from), Some(to)) => differ(b, Part::Text, from, to),
                     (None, Some(_)) => {
                         Some(unmeasured(b, PictureSide::Board, &board.elements[b.index]))
@@ -345,6 +384,31 @@ pub(crate) fn pairs(board: &Side, shot: &Side, pairs: &[(Entry, Entry)]) -> Vec<
         }
     }
     warnings
+}
+
+/// Whether the glyph colour `thin` of `partial` is a glyph drawn in `full` of
+/// `whole` that no pixel covers in full: `partial` reaches no full coverage,
+/// and `thin` lies on the line from its background to `full`'s colour,
+/// [`THIN_GLYPH_PEAK`] of the way or more, within [`DELTA_E_TOLERANCE`].
+fn is_partial_coverage(partial: &Palette, thin: Rgb, whole: &Palette, full: Rgb) -> bool {
+    if partial.reaches_full_coverage(thin) {
+        return false;
+    }
+    let (seen, drawn) = (partial.offset(thin), whole.offset(full));
+    let length: f64 = drawn.iter().map(|d| d * d).sum();
+    if length == 0.0 {
+        return false;
+    }
+    let peak = seen.iter().zip(drawn).map(|(a, b)| a * b).sum::<f64>() / length;
+    if !(THIN_GLYPH_PEAK..=1.0).contains(&peak) {
+        return false;
+    }
+    let expected: Rgb = std::array::from_fn(|channel| {
+        (f64::from(partial.background[channel]) + peak * drawn[channel])
+            .round()
+            .clamp(0.0, 255.0) as u8
+    });
+    rgb_delta(thin, expected) <= DELTA_E_TOLERANCE
 }
 
 /// The index of an element drawn after <entry>, and no part of it, that
