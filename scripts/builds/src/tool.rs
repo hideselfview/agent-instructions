@@ -19,6 +19,9 @@ pub struct Tool {
     /// The reviewer the commands that check text before they write it ask.
     pub reviewer: Reviewer,
     pub session: Session,
+    /// The directory the command runs in: what it reads a claim or a
+    /// repo from when its arguments name none.
+    pub dir: PathBuf,
     /// This builds program (`crate::this_program`), which `builds install`
     /// copies, and which `builds design record` and `amend` run as `builds
     /// shots states` to find the component states a design change adds
@@ -30,20 +33,22 @@ pub struct Tool {
 
 impl Tool {
     /// A tool whose builds program is <program>.
-    pub fn new(places: Places, rules: Rules, program: PathBuf, session: Session) -> Tool {
+    pub fn new(places: Places, rules: Rules, program: PathBuf, session: Session) -> Result<Tool> {
+        let dir = crate::lists::args::current_dir()?;
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .expect("the clock is after 1970")
             .as_secs() as i64;
-        Tool {
+        Ok(Tool {
             reviewer: Reviewer::installed(&places, &session, std::env::var_os("BUILDS_REVIEWER")),
             session,
+            dir,
             program,
             places,
             rules,
             now,
             measured: HashMap::new(),
-        }
+        })
     }
 
     /// <path>'s size and newest write, counting every write made before

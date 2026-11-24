@@ -18,7 +18,7 @@ use rusqlite::Connection;
 
 use crate::fail::Result;
 use crate::lists::Stamp;
-use crate::lists::args::{Args, current_dir};
+use crate::lists::args::Args;
 use crate::lists::store::Store;
 use crate::review::check;
 use crate::review::files;
@@ -542,7 +542,7 @@ pub fn check_open_misses(inputs: &OpenMisses) -> Result<(String, bool)> {
 /// stored diff for a miss or a check gave no answer.
 pub(super) fn check_misses_command(tool: &crate::tool::Tool, args: &Args) -> Result<()> {
     let model = model_check::selection(args.value("model")?);
-    let store = Store::resolve(&tool.places, args, &current_dir()?)?;
+    let store = Store::resolve(&tool.places, args, &tool.dir)?;
     let root = super::rules_root(args)?;
     let reviewer = tool.reviewer.program_for(args.value("reviewer")?);
     let stamp = Stamp {

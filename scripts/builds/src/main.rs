@@ -405,7 +405,7 @@ fn run(command: &str, args: &[String], session: ack::agent::Session) -> Result<(
                     Rules::from_env()?,
                     this_program()?,
                     session,
-                ),
+                )?,
                 args,
             );
         }
@@ -444,7 +444,7 @@ fn run(command: &str, args: &[String], session: ack::agent::Session) -> Result<(
         Rules::from_env()?,
         this_program()?,
         session,
-    );
+    )?;
     match command {
         "setup" => setup::cmd_setup(&tool, &host::Ssh::from_env(), args),
         "new" => worktree::cmd_new(&tool, &host::Ssh::from_env(), args),

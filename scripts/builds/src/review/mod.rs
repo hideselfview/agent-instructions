@@ -107,7 +107,7 @@ use crate::fail;
 use crate::fail::{Context, Fail, Result};
 use crate::inbox::{Messaging, Recipient};
 use crate::lists::Stamp;
-use crate::lists::args::{Args, current_dir};
+use crate::lists::args::Args;
 use crate::lists::design_paths::Globs;
 use crate::lists::spec_check::Brief;
 use crate::lists::store::{Store, project_of};
@@ -1240,7 +1240,7 @@ fn tell_judge_waiting(tool: &Tool, store: &Store, stamp: &Stamp) -> Result<()> {
 /// `builds review wait LANDING`: waits until every finding of the review
 /// landing is settled, then prints how each was settled (judge.rs).
 fn wait_command(tool: &Tool, args: &[String]) -> Result<()> {
-    let (store, landing) = wait_target(&tool.places, args, &current_dir()?)?;
+    let (store, landing) = wait_target(&tool.places, args, &tool.dir)?;
     drop(store.open_existing()?);
     print!("{}", judge::wait(&store, landing, judge::WAIT_LIMIT)?);
     Ok(())
@@ -1476,7 +1476,7 @@ fn settle(tool: &Tool, args: &[String], caller: Option<&Caller>) -> Result<()> {
         .map_err(|_| Fail::Message(format!("'{finding}' is not a finding number")))?;
     let why = args.why()?;
     let (store, _) = store_of(tool, &args)?;
-    let stamp = Stamp::resolve(tool.now, &args, &current_dir()?)?;
+    let stamp = Stamp::resolve(tool.now, &args, &tool.dir)?;
     let sessions = tool.places.sessions();
     if again {
         store.write(&stamp, &format!("review settle {id} again"), |db| {
@@ -1533,7 +1533,7 @@ fn dispute_command(
     let id = finding_named(&args)?;
     let why = args.why()?;
     let (store, conn) = store_of(tool, &args)?;
-    let stamp = Stamp::resolve(tool.now, &args, &current_dir()?)?;
+    let stamp = Stamp::resolve(tool.now, &args, &tool.dir)?;
     let finding = store.write(&stamp, &format!("review dispute {id}"), |db| {
         judge::dispute(db, id, why, &stamp)
     })?;
@@ -1559,7 +1559,7 @@ fn keep_command(tool: &Tool, args: &[String], caller: Option<&Caller>) -> Result
     let id = finding_named(&args)?;
     let why = args.why()?;
     let (store, _) = store_of(tool, &args)?;
-    let stamp = Stamp::resolve(tool.now, &args, &current_dir()?)?;
+    let stamp = Stamp::resolve(tool.now, &args, &tool.dir)?;
     let sessions = tool.places.sessions();
     store.write(&stamp, &format!("review keep {id}"), |db| {
         judge::may_judge(db, &sessions, id, caller)?;
@@ -1678,8 +1678,7 @@ fn replay(tool: &Tool, args: &[String]) -> Result<()> {
         designs.push(Globs::read(&*store.open_existing()?, &case.repo)?);
         stores.push(store);
     }
-    let cwd = current_dir()?;
-    let stamp = Stamp::resolve(tool.now, &args, &cwd)?;
+    let stamp = Stamp::resolve(tool.now, &args, &tool.dir)?;
     // Runs the cases under the rules and groups of <root>, every group in
     // <model> when given, and records each case's run.
     let replay_under = |root: &Path, model: Option<&str>| -> Result<Vec<cases::CaseResult>> {
@@ -1734,13 +1733,13 @@ fn replay_landings(tool: &Tool, args: &Args) -> Result<()> {
                 .map_err(|_| Fail::Message(format!("'{landing}' is not a landing number")))
         })
         .collect::<Result<_>>()?;
-    let store = Store::resolve(&tool.places, args, &current_dir()?)?;
+    let store = Store::resolve(&tool.places, args, &tool.dir)?;
     // Fails when the project has no store, before anything asks who writes.
     drop(store.open_existing()?);
     let root = rules_root(args)?;
     let reviewer = tool.reviewer.program_for(args.value("reviewer")?);
     let repo_dir = PathBuf::from(args.require("repo-dir")?);
-    let stamp = Stamp::resolve(tool.now, args, &current_dir()?)?;
+    let stamp = Stamp::resolve(tool.now, args, &tool.dir)?;
     let replayed = rerun::replay(&rerun::Inputs {
         store: &store,
         project: &store.project,
@@ -1764,7 +1763,7 @@ fn replay_landings(tool: &Tool, args: &Args) -> Result<()> {
 /// repo. Fails when that project has no store, so that no review command
 /// answers from an empty one.
 fn store_of(tool: &Tool, args: &Args) -> Result<(Store, crate::db::Held)> {
-    let store = Store::resolve(&tool.places, args, &current_dir()?)?;
+    let store = Store::resolve(&tool.places, args, &tool.dir)?;
     let conn = store.open_existing()?;
     Ok((store, conn))
 }
@@ -1791,7 +1790,7 @@ fn audit_command(tool: &Tool, args: &[String]) -> Result<()> {
         .parse()
         .map_err(|_| Fail::Message(format!("'{landing}' is not a landing number")))?;
     // audit::audit opens the store, and fails when the project has none.
-    let store = Store::resolve(&tool.places, &args, &current_dir()?)?;
+    let store = Store::resolve(&tool.places, &args, &tool.dir)?;
     let root = rules_root(&args)?;
     let reviewer = tool.reviewer.program_for(args.value("reviewer")?);
     let repo_dir = PathBuf::from(args.require("repo-dir")?);
