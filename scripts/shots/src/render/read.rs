@@ -614,12 +614,18 @@ fn relative_to(mut bounds: Bounds, origin: (f64, f64)) -> Bounds {
     bounds
 }
 
-/// The boxes of the elements <selector> matches, measured from `origin`.
-async fn boxes(page: &Page, selector: &str, origin: (f64, f64)) -> Result<Vec<Bounds>, ReadError> {
+/// The boxes of the elements <selector> matches inside <scope> (a JavaScript
+/// expression for the node to search under), measured from `origin`.
+async fn boxes(
+    page: &Page,
+    scope: &str,
+    selector: &str,
+    origin: (f64, f64),
+) -> Result<Vec<Bounds>, ReadError> {
     let selector = serde_json::to_string(selector).expect("a string serializes");
     let bounds: Vec<Bounds> = page
         .evaluate(format!(
-            "[...document.querySelectorAll({selector})].map(e => {{ \
+            "[...{scope}.querySelectorAll({selector})].map(e => {{ \
              const r = e.getBoundingClientRect(); \
              return {{x: r.x, y: r.y, width: r.width, height: r.height}}; }})"
         ))
@@ -633,17 +639,19 @@ async fn boxes(page: &Page, selector: &str, origin: (f64, f64)) -> Result<Vec<Bo
 /// The boxes of the parts of a board that the app draws no counterpart for,
 /// such as an on-screen keyboard: the elements each of <selectors> (the
 /// app's `shots-unshot` line) matches. Such a part is hidden from the
-/// accessibility tree, so the picture comparison leaves its area out. The
-/// boxes are measured from `origin`.
+/// accessibility tree, so the picture comparison leaves its area out. Only
+/// the parts inside <scope> (a JavaScript expression for a node, such as
+/// `document`) count, and the boxes are measured from `origin`.
 pub(crate) async fn unshot(
     page: &Page,
     selectors: &[String],
+    scope: &str,
     origin: (f64, f64),
 ) -> Result<Vec<Bounds>, ReadError> {
     if selectors.is_empty() {
         return Ok(Vec::new());
     }
-    boxes(page, &selectors.join(", "), origin).await
+    boxes(page, scope, &selectors.join(", "), origin).await
 }
 
 /// The class of the dashed stand-in a container's preview holds for its
@@ -653,7 +661,7 @@ const SLOT_CLASS: &str = "bae-preview-slot";
 /// The boxes of the board's preview slots, measured from `origin`. The
 /// comparison leaves out what either side draws inside them (compare.rs).
 pub(crate) async fn slots(page: &Page, origin: (f64, f64)) -> Result<Vec<Bounds>, ReadError> {
-    boxes(page, &format!(".{SLOT_CLASS}"), origin).await
+    boxes(page, "document", &format!(".{SLOT_CLASS}"), origin).await
 }
 
 /// The elements under the DOM node `backend`, in reading order, with boxes

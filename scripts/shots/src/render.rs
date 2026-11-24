@@ -125,12 +125,14 @@ pub(crate) fn with_design<T>(
 }
 
 /// One board drawn: its picture, size and elements.
-struct Drawn {
-    png: Vec<u8>,
-    size: Size,
-    elements: Vec<crate::shots::Element>,
-    unshot: Vec<crate::shots::Bounds>,
-    slots: Vec<crate::shots::Bounds>,
+pub(crate) struct Drawn {
+    pub(crate) png: Vec<u8>,
+    pub(crate) size: Size,
+    pub(crate) elements: Vec<crate::shots::Element>,
+    /// The boxes of the parts the app draws no counterpart for.
+    pub(crate) unshot: Vec<crate::shots::Bounds>,
+    /// The boxes of the preview slots.
+    pub(crate) slots: Vec<crate::shots::Bounds>,
 }
 
 async fn draw_with(
@@ -211,7 +213,7 @@ async fn draw_screen(
     let elements = read::elements(page, rendered.frame, platform)
         .await
         .map_err(|e| e.to_string())?;
-    let unshot = read::unshot(page, &settings.unshot, (0.0, 0.0))
+    let unshot = read::unshot(page, &settings.unshot, "document", (0.0, 0.0))
         .await
         .map_err(|e| e.to_string())?;
     let slots = read::slots(page, (rendered.frame.x, rendered.frame.y))
@@ -240,7 +242,7 @@ async fn draw_component(
 ) -> Result<Drawn, String> {
     let component = name.component(previews);
     let marks = settings.preview(&component).map_err(|e| e.to_string())?;
-    let row = preview::render_row(
+    preview::render_row(
         page,
         &component,
         name.state(),
@@ -253,12 +255,5 @@ async fn draw_component(
         },
     )
     .await
-    .map_err(|e| e.to_string())?;
-    Ok(Drawn {
-        png: row.png,
-        size: row.size,
-        elements: row.elements,
-        unshot: row.unshot,
-        slots: row.slots,
-    })
+    .map_err(|e| e.to_string())
 }

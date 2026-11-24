@@ -12,11 +12,12 @@
 
 use crate::design::Frame;
 use crate::names::{Platform, state_id};
+use crate::render::Drawn;
 use crate::render::board::{self, BoardError};
 use crate::render::read;
 use crate::settings::Preview;
+use crate::shots::Bounds;
 use crate::shots::Size;
-use crate::shots::{Bounds, Element};
 use chromiumoxide::Page;
 use chromiumoxide::cdp::browser_protocol::dom::DescribeNodeParams;
 use chromiumoxide::cdp::browser_protocol::page::{CaptureScreenshotFormat, Viewport};
@@ -91,24 +92,9 @@ fn js(text: &str) -> String {
 
 /// The selectors a row is read with: those of the page's rows (`shots-preview`)
 /// and those of the parts the app draws no counterpart for (`shots-unshot`).
-#[derive(Clone, Copy)]
 pub(crate) struct Marks<'a> {
     pub(crate) rows: &'a Preview,
     pub(crate) unshot: &'a [String],
-}
-
-/// A state's picture and element list.
-pub(crate) struct Row {
-    pub(crate) png: Vec<u8>,
-    /// The cell's size in points.
-    pub(crate) size: Size,
-    pub(crate) elements: Vec<Element>,
-    /// The boxes of the preview slots in the cell, measured from its
-    /// top-left like the elements.
-    pub(crate) slots: Vec<Bounds>,
-    /// The boxes of the unshot parts inside the cell, measured from its
-    /// top-left like the elements.
-    pub(crate) unshot: Vec<Bounds>,
 }
 
 pub(crate) enum CaptureArea {
@@ -163,7 +149,7 @@ pub(crate) async fn render_row(
     scale: f64,
     platform: Platform,
     marks: Marks<'_>,
-) -> Result<Row, PreviewError> {
+) -> Result<Drawn, PreviewError> {
     let Marks {
         rows: marks,
         unshot,
@@ -213,7 +199,7 @@ pub(crate) async fn render_row(
     let object = page
         .execute(
             EvaluateParams::builder()
-                .expression(cell)
+                .expression(cell.clone())
                 .build()
                 .map_err(board::protocol)?,
         )
@@ -236,19 +222,8 @@ pub(crate) async fn render_row(
     )
     .await?;
     let slots = read::slots(page, (rendered.frame.x, rendered.frame.y)).await?;
-    // The page holds every row, so the boxes of the other rows' unshot parts
-    // lie outside the cell.
-    let unshot = read::unshot(page, unshot, (rendered.frame.x, rendered.frame.y))
-        .await?
-        .into_iter()
-        .filter(|b| {
-            b.x < rendered.frame.width
-                && b.y < rendered.frame.height
-                && b.x + b.width > 0.0
-                && b.y + b.height > 0.0
-        })
-        .collect();
-    Ok(Row {
+    let unshot = read::unshot(page, unshot, &cell, (rendered.frame.x, rendered.frame.y)).await?;
+    Ok(Drawn {
         png: rendered.png,
         size: Size {
             width: rendered.frame.width,

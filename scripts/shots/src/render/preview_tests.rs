@@ -221,8 +221,9 @@ async fn an_android_row_whose_class_names_a_font_to_fetch_is_drawn() {
     row.unwrap();
 }
 
-/// A preview page of two rows that each draw a keyboard, the second below the
-/// first, and a row-less strip of the same class outside both cells.
+/// A preview page of two rows, the second below the first. The first draws a
+/// part of class `kb` that reaches down over the top of the second row's cell;
+/// the second draws a part of the same class inside its own cell.
 const KEYBOARD_PREVIEW: &str = r#"<!doctype html><html><head><meta charset="utf-8">
 <style>body{margin:0;font:13px sans-serif}.row{display:flex;height:300px}
 .row-cell{width:400px;position:relative}
@@ -232,7 +233,7 @@ const h = React.createElement;
 const W = (name, child) => h('div', {className: 'row'},
   h('span', {className: 'row-name'}, name), h('div', {className: 'row-cell'}, child));
 ReactDOM.createRoot(document.getElementById('root')).render(h('div', null,
-  W('Plain', h('div', null, 'Words')),
+  W('Plain', h('div', {className: 'kb', style: {top: '250px', height: '100px'}}, 'Words')),
   W('Typing', h('div', {className: 'kb'}, 'keys'))));
 </script></body></html>"#;
 
@@ -277,9 +278,10 @@ async fn a_row_reports_the_unshot_parts_inside_its_cell_from_the_cells_corner() 
         .map(|b| (b.x, b.y, b.width, b.height))
         .collect();
     assert_eq!(boxes, [(10.0, 200.0, 380.0, 80.0)]);
-    assert!(
-        plain.is_empty(),
-        "the other row's keyboard is outside this cell: {plain:?}"
-    );
+    let boxes: Vec<_> = plain
+        .iter()
+        .map(|b| (b.x, b.y, b.width, b.height))
+        .collect();
+    assert_eq!(boxes, [(10.0, 250.0, 380.0, 100.0)]);
     assert!(none.is_empty(), "no selector, no boxes");
 }
