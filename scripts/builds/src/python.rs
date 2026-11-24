@@ -15,13 +15,13 @@
 //! When the first `python3` is 3.11 or later, PATH stays as it is.
 
 use std::ffi::{OsStr, OsString};
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::places::Places;
+use crate::worktree::is_executable;
 
 /// The commands that run a repo's steps, directly or through the builds they
 /// start.
@@ -79,7 +79,7 @@ fn prepare(path: &OsStr, extra: &[PathBuf], folder: &Path) -> Result<Option<OsSt
         },
         None => "PATH has no python3".to_string(),
     };
-    let found = candidates(path, extra, folder)
+    let found = candidates(path, extra, folder, &mut problems)
         .into_iter()
         .filter(|candidate| Some(candidate) != first.as_ref())
         .find(|candidate| match version(candidate) {
@@ -92,7 +92,7 @@ fn prepare(path: &OsStr, extra: &[PathBuf], folder: &Path) -> Result<Option<OsSt
     std::fs::create_dir_all(folder).context(|| format!("making {}", folder.display()))?;
     let python3 = folder.join("python3");
     match found {
-        Some(found) => link(&found, &python3)?,
+        Some(found) => crate::built_tools::point(&python3, &found)?,
         None => {
             let mut why = format!(
                 "builds runs Python steps with Python {}.{} or later, which has tomllib, and \
@@ -119,63 +119,68 @@ fn prepare(path: &OsStr, extra: &[PathBuf], folder: &Path) -> Result<Option<OsSt
 
 /// The executables that may be a Python of 3.11 or later, in the order to try
 /// them: in each folder of <path> and then <extra>, `python3`, then each
-/// `python3.N` the newest first. A folder <folder> is the one this module
-/// makes, so its `python3` is no candidate.
-fn candidates(path: &OsStr, extra: &[PathBuf], folder: &Path) -> Vec<PathBuf> {
+/// `python3.N` the newest first. <folder> is the one this module makes, so its
+/// `python3` is no candidate. A folder that cannot be listed adds its error to
+/// <problems>.
+fn candidates(
+    path: &OsStr,
+    extra: &[PathBuf],
+    folder: &Path,
+    problems: &mut Vec<String>,
+) -> Vec<PathBuf> {
+    let mut seen = Vec::new();
     let mut found = Vec::new();
     for dir in std::env::split_paths(path).chain(extra.iter().cloned()) {
-        if dir == folder {
+        if dir == folder || seen.contains(&dir) {
             continue;
         }
-        let mut versioned: Vec<(u32, PathBuf)> = std::fs::read_dir(&dir)
-            .into_iter()
-            .flatten()
-            .flatten()
-            .filter_map(|entry| {
-                let minor = entry
-                    .file_name()
-                    .to_str()?
-                    .strip_prefix("python3.")?
-                    .parse::<u32>()
-                    .ok()?;
-                (minor >= MINIMUM.1 && is_executable(&entry.path())).then(|| (minor, entry.path()))
-            })
-            .collect();
+        let mut versioned: Vec<(u32, PathBuf)> = Vec::new();
+        match std::fs::read_dir(&dir) {
+            Ok(entries) => {
+                for entry in entries {
+                    match entry {
+                        Ok(entry) => {
+                            let minor = entry
+                                .file_name()
+                                .to_str()
+                                .and_then(|name| name.strip_prefix("python3."))
+                                .and_then(|minor| minor.parse::<u32>().ok());
+                            if let Some(minor) = minor
+                                && minor >= MINIMUM.1
+                                && is_executable(&entry.path())
+                            {
+                                versioned.push((minor, entry.path()));
+                            }
+                        }
+                        Err(error) => {
+                            problems.push(format!("listing {} failed: {error}", dir.display()))
+                        }
+                    }
+                }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => problems.push(format!("listing {} failed: {error}", dir.display())),
+        }
         versioned.sort_by_key(|(minor, _)| std::cmp::Reverse(*minor));
         let plain = dir.join("python3");
         if is_executable(&plain) {
             found.push(plain);
         }
         found.extend(versioned.into_iter().map(|(_, path)| path));
+        seen.push(dir);
     }
     found
-}
-
-fn is_executable(path: &Path) -> bool {
-    std::fs::metadata(path)
-        .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
 }
 
 /// The (major, minor) version of the Python <program>; fails saying why it
 /// could not run or did not answer.
 fn version(program: &Path) -> std::result::Result<(u32, u32), String> {
-    let output = Command::new(program)
-        .args([
-            "-c",
-            "import sys; print(sys.version_info[0], sys.version_info[1])",
-        ])
-        .stdin(std::process::Stdio::null())
-        .output()
-        .map_err(|error| format!("{} could not run: {error}", program.display()))?;
-    if !output.status.success() {
-        return Err(format!(
-            "{} failed ({}): {}",
-            program.display(),
-            output.status,
-            String::from_utf8_lossy(&output.stderr).trim()
-        ));
-    }
-    let text = String::from_utf8_lossy(&output.stdout);
+    let mut command = Command::new(program);
+    command.args([
+        "-c",
+        "import sys; print(sys.version_info[0], sys.version_info[1])",
+    ]);
+    let text = crate::host::output_of(command, &program.display().to_string())?;
     let mut words = text.split_whitespace().map(str::parse::<u32>);
     match (words.next(), words.next()) {
         (Some(Ok(major)), Some(Ok(minor))) => Ok((major, minor)),
@@ -185,14 +190,6 @@ fn version(program: &Path) -> std::result::Result<(u32, u32), String> {
             text.trim()
         )),
     }
-}
-
-/// Makes <link> point at <python> and keeps a link that already does.
-fn link(python: &Path, link: &Path) -> Result<()> {
-    if std::fs::read_link(link).is_ok_and(|target| target == python) {
-        return Ok(());
-    }
-    crate::setup::replace_link(python, link)
 }
 
 /// Makes <file> a script that prints <why> to stderr and exits 1, replacing
@@ -205,18 +202,7 @@ fn refusing_script(file: &Path, why: &str) -> Result<()> {
     if std::fs::read_to_string(file).is_ok_and(|now| now == script) {
         return Ok(());
     }
-    let staged = file.with_file_name(format!(".python3.{}", crate::text::staged_suffix()));
-    let write = || -> std::io::Result<()> {
-        use std::io::Write;
-        std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o755)
-            .open(&staged)?
-            .write_all(script.as_bytes())
-    };
-    write().context(|| format!("writing {}", staged.display()))?;
-    std::fs::rename(&staged, file).context(|| format!("replacing {}", file.display()))
+    crate::whole_file::write_executable(file, script)
 }
 
 #[cfg(test)]

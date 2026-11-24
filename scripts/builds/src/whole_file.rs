@@ -13,6 +13,16 @@ pub fn write(file: &Path, contents: impl AsRef<[u8]>) -> Result<()> {
     stage(file, contents)?.put()
 }
 
+/// `write`, with the file executable for everyone who can read it: the mode is
+/// set on the `part` file, so no reader finds the file without it.
+pub fn write_executable(file: &Path, contents: impl AsRef<[u8]>) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let staged = stage(file, contents)?;
+    std::fs::set_permissions(&staged.part, std::fs::Permissions::from_mode(0o755))
+        .context(|| format!("making {} executable", staged.part.display()))?;
+    staged.put()
+}
+
 /// New contents of a file, written to the process's `part` file beside it, that
 /// `put` renames onto the file and `discard` removes.
 pub struct Staged {

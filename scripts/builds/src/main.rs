@@ -384,6 +384,9 @@ pub fn version() -> String {
 }
 
 fn run(command: &str, args: &[String], session: ack::agent::Session) -> Result<()> {
+    if python::STEP_COMMANDS.contains(&command) {
+        python::use_new_python(&Places::from_env()?)?;
+    }
     match command {
         // These run in the caller's environment as it is, which cargo
         // inherits; `cargo` asks git about its checkout without changing it.
@@ -439,9 +442,6 @@ fn run(command: &str, args: &[String], session: ack::agent::Session) -> Result<(
         ack::agent::clear_for_daemon();
     }
     checkout::drop_git_local_env()?;
-    if python::STEP_COMMANDS.contains(&command) {
-        python::use_new_python(&Places::from_env()?)?;
-    }
     text::use_callers_collation();
     let mut tool = Tool::new(
         Places::from_env()?,

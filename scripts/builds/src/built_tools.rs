@@ -323,7 +323,7 @@ fn take_place(staged: &Path, dest: &Path) -> Result<()> {
 }
 
 /// Points the symlink <link> at <dest>, unless it points there already.
-fn point(link: &Path, dest: &Path) -> Result<()> {
+pub fn point(link: &Path, dest: &Path) -> Result<()> {
     if std::fs::read_link(link).is_ok_and(|current| current == dest) {
         return Ok(());
     }

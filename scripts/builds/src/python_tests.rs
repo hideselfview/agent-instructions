@@ -1,5 +1,6 @@
 use super::*;
 use crate::testing::Scratch;
+use std::os::unix::fs::PermissionsExt;
 
 /// A script <name> in <folder> that says it is Python <major>.<minor>.
 fn fake(folder: &Path, name: &str, major: u32, minor: u32) -> PathBuf {
@@ -91,4 +92,20 @@ fn with_no_python_of_3_11_or_more_python3_fails_naming_the_version_found() {
         said.contains(&format!("{} failed", broken.display())),
         "{said}"
     );
+}
+
+#[test]
+fn a_command_that_runs_steps_puts_the_python_folder_first_on_its_own_path() {
+    let scratch = Scratch::new("python-use");
+    let system = scratch.dir.join("system");
+    fake(&system, "python3", 3, 9);
+    let places = scratch.places();
+    let folder = super::folder(&places);
+    assert!(!folder.exists());
+    // SAFETY: nextest runs this test in a process of its own, with one thread.
+    unsafe { std::env::set_var("PATH", &system) };
+    use_new_python(&places).unwrap();
+    let path = std::env::var("PATH").unwrap();
+    assert_eq!(path, format!("{}:{}", folder.display(), system.display()));
+    assert!(folder.join("python3").exists());
 }

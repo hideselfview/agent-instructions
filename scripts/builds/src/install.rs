@@ -138,13 +138,9 @@ fn on_path(name: &str) -> Option<PathBuf> {
 
 /// The first executable named <name> in the folders of <path>.
 pub fn on_path_in(name: &str, path: &std::ffi::OsStr) -> Option<PathBuf> {
-    use std::os::unix::fs::PermissionsExt;
     std::env::split_paths(path)
         .map(|dir| dir.join(name))
-        .find(|candidate| {
-            std::fs::metadata(candidate)
-                .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
-        })
+        .find(|candidate| crate::worktree::is_executable(candidate))
 }
 
 /// Fails when <me> is the installed binary <dest>: copying it onto itself
