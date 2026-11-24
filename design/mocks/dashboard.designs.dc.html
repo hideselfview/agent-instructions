@@ -30,6 +30,13 @@
 .dz-frame.tall{aspect-ratio:9/16}
 .dz-name{font:500 12px var(--font-mono);color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dz-title{font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dz-body{display:flex;gap:24px;align-items:flex-start}
+.dz-main{flex:1 1 0;min-width:0;display:flex;flex-direction:column;gap:16px}
+.dz-rail{flex:none;width:240px;display:flex;flex-direction:column;font-size:13px}
+.dz-rail .k{margin:0 0 6px 12px;color:var(--muted);font-size:11px;letter-spacing:.06em;text-transform:uppercase}
+.dz-rail a{padding:3px 10px;border-left:2px solid var(--line);color:var(--muted);line-height:1.35;text-decoration:none}
+.dz-rail a.sub{padding-left:22px;font-size:12px}
+.dz-rail a.cur{color:var(--text);border-left-color:var(--accent)}
 </style></helmet>
 <div class="dz">
 <div class="dz-head">
@@ -56,6 +63,7 @@
 </div>
 <input class="dz-filter" type="search" placeholder="Filter" aria-label="Filter">
 </div>
+<div class="dz-body"><div class="dz-main">
 <div class="dz-grid">
   <div class="dz-board"><div class="dz-frame"></div><span class="dz-name">mac.welcome.libraries</span><span class="dz-title">macOS: the libraries on this Mac</span></div>
   <div class="dz-board"><div class="dz-frame"></div><span class="dz-name">mac.welcome.libraries.none</span><span class="dz-title">macOS: no library yet</span></div>
@@ -66,6 +74,21 @@
   <div class="dz-board"><div class="dz-frame tall"></div><span class="dz-name">android.welcome.libraries</span><span class="dz-title">The libraries on this phone</span></div>
   <div class="dz-board"><div class="dz-frame tall"></div><span class="dz-name">android.welcome.opening.damaged</span><span class="dz-title">The library's data is damaged</span></div>
 </div>
+</div>
+<nav class="dz-rail" aria-label="On this page">
+<div class="k">On this page</div>
+<a href="#">A new device</a>
+<a href="#">Your libraries and removing one</a>
+<a href="#">Joining from an invite</a>
+<a href="#">Adding this device from another of yours</a>
+<a href="#" class="cur">Opening</a>
+<a href="#" class="sub">Android</a>
+<a href="#" class="sub cur">macOS</a>
+<a href="#">Entering a code</a>
+<a href="#">Resetting this device</a>
+<a href="#">Creating a library</a>
+<a href="#">Saved restore codes</a>
+</nav></div>
 </div>
 </x-dc>
 <script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1000}}'>
