@@ -1,6 +1,6 @@
 ---
 name: board-matching
-description: Run the rounds of work that make every shot of an app match its board, on every platform, until a full measurement shows no findings or only ones a board decision settled. A coordinator measures every shot, fixes the causes many scenes share first, then one component per agent, then each screen's layout and state. Use when asked to make an app's shots match its boards, for board matching, or for shot findings across many screens.
+description: Run the rounds of work that make every shot of an app match its board, on every platform, until a full measurement shows no findings or only ones a board decision settled. A coordinator measures every shot, fixes the causes many scenes share first, then runs agents in parallel on a few large chunks of components and screens, each of which clears every finding in its chunk before it reports. Use when asked to make an app's shots match its boards, for board matching, or for shot findings across many screens.
 ---
 
 # Board matching
@@ -13,13 +13,15 @@ reports is a finding. A lane is one platform's app builds, such as mac or
 android (`builds help`, APP BUILDS).
 
 The goal is that a full measurement on every lane shows no findings, or only
-ones a board decision settled. The coordinator reaches it in rounds. Each round
-measures every shot, fixes the causes that many scenes share, measures again,
-fixes components one agent each, measures again, and then fixes each screen's
-layout and state. The coordinator runs the rounds and dispatches the fixes; its
-agents implement, review and land them as for any item (`builds help workflow`,
-WHAT AN IMPLEMENTING AGENT DOES). This skill states the method, and
-`builds help` gives each command's details.
+ones a board decision settled. The coordinator reaches it in as few rounds as it
+can. Each round measures every shot, fixes the causes that many scenes share,
+measures again, and then splits the rest into a few large chunks, such as one
+platform's components or a group of its screens. One agent owns each chunk, the
+chunks run in parallel, and each agent clears every finding in its chunk before
+it reports (Chunks, below). The coordinator runs the rounds and dispatches the
+fixes; its agents implement, review and land them as for any item
+(`builds help workflow`, WHAT AN IMPLEMENTING AGENT DOES). This skill states the
+method, and `builds help` gives each command's details.
 
 ## Plan and item
 
@@ -48,13 +50,14 @@ A round is one cycle of these steps:
    board.
 3. Fix the shared causes, the shots' staging and the previews.
 4. Measure every lane again.
-5. Fix components, one agent each.
-6. Measure every lane again.
-7. Fix each screen: its layout, its state, and the differences between board and
-   app that need a board decision.
+5. Split the findings left into chunks and run one agent per chunk, all at once:
+   the components, and the screens in a few groups (Chunks, Components and
+   Screens, below).
+6. Measure every lane again once the chunks land.
 
-Repeat rounds until a measurement meets the goal. Then close the plan's item,
-and delete the plan and any line of the project file that names it.
+Start another round only for the findings a measurement still shows. Repeat
+rounds until a measurement meets the goal. Then close the plan's item, and
+delete the plan and any line of the project file that names it.
 
 ## Measurements
 
@@ -134,30 +137,54 @@ tabs, or one that gives a grid no width. Read the preview of each component near
 the top of the ranking. A preview fault goes to the design session
 (`builds item add --for design-session`).
 
+## Chunks
+
+A chunk is a large share of one round's findings that one agent owns, such as
+every component of a lane, or a group of a lane's screens. Cut a round into as
+few chunks as keeps each agent's files apart from every other's, and run them at
+the same time. A chunk of a few findings wastes a review, an app build and a
+landing on work that another chunk's agent could have done in the same branch.
+
+The agent clears every finding in its chunk before it reports. Each finding ends
+in one of two ways:
+
+- fixed and landed;
+- traced to a cause outside the app, such as a board, a preview or the checker,
+  and reported with its numbers on both sides, so that the coordinator can send
+  it on (Differences between board and app, below).
+
+The agent defers a finding only for a reason it names: a fix that another
+running agent lands changes the finding, or the finding needs a board decision.
+It lands its work in parts as it goes (`--part N`), with one commit per cause
+and one review and app build per part, and it reports once nothing in the chunk
+is left. When an agent reports with findings it has not worked, the coordinator
+sends it straight back with the list.
+
 ## Components
 
-Queue one item per component from the ranking, and run one agent per component,
-about eight at once, from the top. Each agent fixes what is wrong inside its
-component once, never once per screen: its size, its colours, its missing parts,
-and every finding in the component's own shots. A finding that an element moved
-waits for the screen step, which fixes the layout that places the component.
+The components chunk takes every component in the ranking, from the top. Its
+agent fixes what is wrong inside each component once, never once per screen: its
+size, its colours, its missing parts, and every finding in the component's own
+shots. A finding that an element moved belongs to a screens chunk, which fixes
+the layout that places the component.
 
 No two running branches change one component's files. An item whose component
 another running branch changes waits on that branch's item (`builds item wait`).
 
-Each agent fixes all its findings on one branch, reviews it, runs one app build
-with its component's shots last (`builds help workflow`, WHAT AN IMPLEMENTING
-AGENT DOES) and lands. An agent rebases only when `builds land` refuses because
-its cherry-pick conflicts: each shots run compares with the run of its own merge
-base, so a branch behind origin/main needs no rebase to compare (`builds help`,
-APP BUILDS).
+Each part of the chunk goes on one branch: the agent reviews it, runs one app
+build with the shots of the components it changed last (`builds help workflow`,
+WHAT AN IMPLEMENTING AGENT DOES) and lands it. An agent rebases only when
+`builds land` refuses because its cherry-pick conflicts: each shots run compares
+with the run of its own merge base, so a branch behind origin/main needs no
+rebase to compare (`builds help`, APP BUILDS).
 
 ## Screens
 
-The screen step fixes, screen by screen, the findings the component step left:
+Each screens chunk fixes, screen by screen, the findings that are no component's
+own:
 
 - the layout that places each component on the screen, which fixes the moves the
-  component agents left, such as a shot window narrower than its board, which
+  components chunk left, such as a shot window narrower than its board, which
   moves every tile and row in it;
 - the state the screen shows;
 - each difference between board and app that needs a board decision (below).
