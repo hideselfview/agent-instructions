@@ -17,6 +17,7 @@ pub mod color_group;
 pub mod component_shots;
 pub mod design_cards;
 pub mod designs;
+mod designs_headings;
 pub mod effect;
 pub mod fsevents;
 pub mod hosts;

@@ -41,7 +41,17 @@ body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 var
 .dz-board .problem { position: absolute; inset: 0; overflow: hidden; }
 .dz-zoom { position: absolute; right: 10px; bottom: 10px; display: flex; gap: 8px; align-items: center; color: var(--muted); font-size: 12px; cursor: default; }
 .dz-title { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-#main { display: flex; flex-direction: column; gap: 24px; }
+.dz-body { display: flex; gap: 24px; align-items: flex-start; }
+#main { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 24px; }
+/* The contents column stands under the Filter field, at its width, and stays
+   in place while the page scrolls. */
+.dz-rail { position: sticky; top: calc(var(--bar, 0px) + 12px); flex: none; width: 240px; max-height: calc(100vh - var(--bar, 0px) - 24px); overflow-y: auto; display: flex; flex-direction: column; font-size: 13px; }
+.dz-rail .k { margin: 0 0 6px 12px; color: var(--muted); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }
+.dz-rail a { padding: 3px 10px; border-left: 2px solid var(--line); color: var(--muted); line-height: 1.35; text-decoration: none; overflow-wrap: anywhere; }
+.dz-rail a.sub { padding-left: 22px; font-size: 12px; }
+.dz-rail a.cur { color: var(--text); border-left-color: var(--accent); }
+.dz-rail a:hover { color: var(--text); }
+.dz-rail a:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .ds-sec { display: flex; flex-direction: column; gap: 10px; }
 .ds-sec h2 { margin: 0; font: 600 15px var(--sans); }
 .ds-colors { display: block; width: 100%; height: 120px; border: 0; }
@@ -74,6 +84,7 @@ a.ds-comp:hover .ds-prev, a.ds-comp:focus-visible .ds-prev { border-color: var(-
 a.ds-comp:hover .ds-k, a.ds-comp:focus-visible .ds-k { color: var(--accent); }
 a.ds-comp:focus-visible { outline: none; }
 .problem { color: var(--bad); background: var(--bad-bg); border-radius: 6px; padding: 8px 10px; font-size: 13px; overflow-wrap: anywhere; }
+@media (max-width: 900px) { .dz-rail { display: none; } }
 @media (max-width: 600px) { .dz { padding: 0 12px 32px; } .dz-bar { padding-top: 8px; gap: 8px; } .dz-pages { flex-wrap: nowrap; overflow-x: auto; } .dz-pages button { flex: none; white-space: nowrap; } }
 .pub-links { display: flex; flex-direction: column; gap: 4px; color: var(--text-2); }
 .scratch { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
@@ -90,7 +101,10 @@ a.ds-comp:focus-visible { outline: none; }
       <input class="dz-filter" id="filter" type="search" placeholder="Filter" aria-label="Filter">
     </div>
   </div>
-  <div id="main"></div>
+  <div class="dz-body">
+    <div id="main"></div>
+    <nav class="dz-rail" id="rail" aria-label="On this page" hidden></nav>
+  </div>
 </div>
 <dialog class="lane-dlg" id="publish" aria-label="Publish to claude.ai">
   <div class="lm-head"><span class="lm-title" id="pub-title"></span><button type="button" id="pub-close">Close</button></div>
@@ -105,6 +119,9 @@ a.ds-comp:focus-visible { outline: none; }
 </script>
 <script>
 @@FILTER@@
+</script>
+<script>
+@@CONTENTS@@
 </script>
 <script>
 const data = JSON.parse(document.getElementById("data").textContent);
@@ -152,7 +169,7 @@ function boardView(b) {
   box.append(framed, h("span", {class: "dz-title", title: b.name}, b.title || b.name));
   return {b, box, frame, loaded: false};
 }
-function canvasView(boards) {
+function canvasView(boards, onMove) {
   const view = h("div", {class: "dz-view", tabindex: "0", "aria-label": "Boards on the canvas"});
   const world = h("div", {class: "dz-world"});
   const fitButton = h("button", {type: "button", class: "qbtn"}, "Fit");
@@ -174,6 +191,7 @@ function canvasView(boards) {
         p.frame.setAttribute("src", data.base + "/board/" + encodeURIComponent(p.b.name));
       }
     }
+    onMove((hh / 2 - y) / k);
   }
   function fit() {
     const w = view.clientWidth - 2 * FIT_MARGIN, hh = view.clientHeight - 2 * FIT_MARGIN;
@@ -183,6 +201,15 @@ function canvasView(boards) {
     k = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.min(w / (right - left), hh / (bottom - top))));
     x = FIT_MARGIN - left * k + (w - (right - left) * k) / 2;
     y = FIT_MARGIN - top * k;
+    show();
+  }
+  // Moves the canvas so that <box>, the left, top and width of a row of
+  // boards, is at the top left of the view: at the zoom the person has, or at
+  // the one that fits the row's width, whichever is smaller.
+  function showRow(box) {
+    k = Math.max(MIN_ZOOM, Math.min(k, (view.clientWidth - 2 * FIT_MARGIN) / box.width));
+    x = FIT_MARGIN - box.left * k;
+    y = FIT_MARGIN - box.top * k;
     show();
   }
   // Zooms by <factor> about the point (<px>, <py>) of the view.
@@ -239,15 +266,22 @@ function canvasView(boards) {
     if (!fitted && view.clientWidth > 0 && view.clientHeight > 0) { fitted = true; fit(); }
     else show();
   }).observe(view);
-  return view;
+  return {view, showRow};
 }
 function pageView(page) {
   if (!page.boards.length) return h("div", {class: "dz-sub"}, "No board is on this page.");
   const boards = page.boards.filter(b => matches(b.title || b.name));
   if (!boards.length) return noMatch();
   const problems = boards.filter(b => b.error);
-  return [problems.map(b => h("div", {class: "problem"}, b.name + ": " + b.error)),
-    canvasView(boards.filter(b => !b.error))];
+  // The column lists the rows of the boards the canvas draws, and marks the
+  // row that holds the view's centre.
+  const drawn = boards.filter(b => !b.error);
+  const entries = boardEntries(page.headings, drawn);
+  let showRow;
+  const mark = railView(rail, entries, tabHref(), entry => showRow(rowBox(entry.row)));
+  const canvas = canvasView(drawn, y => mark(rowAt(entries, y)));
+  showRow = canvas.showRow;
+  return [problems.map(b => h("div", {class: "problem"}, b.name + ": " + b.error)), canvas.view];
 }
 
 // The design system: its colors in the groups its colors.json lists, its
@@ -397,7 +431,7 @@ function systemView() {
   if (c.error) out.push(h("div", {class: "problem"}, c.error));
   else if (c.groups.length || c.problems.length) {
     const groups = h("div", {class: "ds-groups"}, c.groups.map(groupView));
-    out.push(h("section", {class: "ds-sec"}, h("h2", {}, "Components"),
+    out.push(h("section", {class: "ds-sec", "data-lift": ""}, h("h2", {}, "Components"),
       c.problems.map(p => h("div", {class: "problem"}, p)), groups));
   }
   if (!out.length) out.push(h("div", {class: "dz-sub"}, "The design system has no colors, text styles or components."));
@@ -419,17 +453,39 @@ function scratchView() {
       : [h("a", {href: b.link}, b.board), h("span", {class: "dz-sub"}, " in " + b.worktree)])));
 }
 
+// The contents column: <rail> is its element, and <spy>() marks the entry on
+// screen, as the page scrolls on the design system tab; a canvas marks it as
+// the view moves.
+const rail = document.getElementById("rail");
+const tabHref = () => "#" + encodeURIComponent(chosen());
+const barHeight = () => document.getElementById("bar").offsetHeight;
+let spy = () => {};
+function systemRail() {
+  const entries = systemEntries(document.getElementById("main"));
+  const mark = railView(rail, entries, tabHref(), entry =>
+    window.scrollTo(0, window.scrollY + entry.heading.getBoundingClientRect().top - stuckTop(entry, barHeight())));
+  spy = () => mark(systemCurrent(entries, barHeight()));
+  spy();
+}
+window.addEventListener("scroll", () => spy(), {passive: true});
+window.addEventListener("resize", () => spy());
+new ResizeObserver(() => spy()).observe(document.getElementById("main"));
+
 function render() {
   renderTabs();
+  spy = () => {};
+  rail.replaceChildren();
+  rail.hidden = true;
   const id = chosen();
   const page = data.pages.find(p => p.id === id);
   const view = [page ? pageView(page) : id === SCRATCH ? scratchView() : systemView()].flat();
   document.getElementById("main").replaceChildren(...view);
-  if (id === SYSTEM) filterSystem();
+  if (id === SYSTEM) { filterSystem(); systemRail(); }
 }
 // Typing redraws the tab: a page or the scratch list draws only the entries
-// that match, and the design system tab hides the ones that do not.
-filterInput.addEventListener("input", () => { if (chosen() === SYSTEM) filterSystem(); else render(); });
+// that match, and the design system tab hides the ones that do not. The column
+// lists the sections that still show.
+filterInput.addEventListener("input", () => { if (chosen() === SYSTEM) { filterSystem(); systemRail(); } else render(); });
 // The toolbar's height, which the stuck headings sit under.
 new ResizeObserver(() => document.documentElement.style.setProperty("--bar", document.getElementById("bar").offsetHeight + "px"))
   .observe(document.getElementById("bar"));

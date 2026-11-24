@@ -66,6 +66,12 @@ fn designs_repo(scratch: &Scratch) -> (PathBuf, String) {
                 "D.dc.html": { "page": "one", "title": "No size", "x": 0, "y": 900 },
                 "E.dc.html": { "page": "one", "title": "No place", "w": 100, "h": 100 },
             },
+            "notes": {
+                "r1": { "page": "two", "x": 0, "y": 0, "kind": "title1", "w": 240, "text": "Rows: Android" },
+                "r2": { "page": "two", "x": 0, "y": 400, "kind": "title1", "w": 240, "text": "Rows: macOS" },
+                "r0": { "x": 0, "y": 900, "kind": "title1", "w": 240, "text": "Alone" },
+                "words": { "page": "two", "x": 0, "y": 50, "size": 24, "w": 420, "text": "Not a heading" },
+            },
         })
         .to_string(),
     );
@@ -107,14 +113,15 @@ fn the_page_has_each_page_of_the_index_with_its_boards_at_their_canvas_places_at
     assert_eq!(
         data["pages"],
         json!([
-            { "id": "one", "name": "One", "boards": [
+            { "id": "one", "name": "One", "headings": [{ "name": "Alone", "y": 900.0 }], "boards": [
                 { "name": "C", "title": null, "x": 0.0, "y": 0.0, "w": 100, "h": 100 },
                 { "name": "D", "title": "No size",
                   "error": "design/mocks/canvas.json gives no width and height for D.dc.html" },
                 { "name": "E", "title": "No place",
                   "error": "design/mocks/canvas.json gives no x and y for E.dc.html" },
             ] },
-            { "id": "two", "name": "Two", "boards": [
+            { "id": "two", "name": "Two", "headings": [{ "name": "Rows", "y": 0.0, "subs": [
+                { "name": "Android", "y": 0.0 }, { "name": "macOS", "y": 400.0 }] }], "boards": [
                 { "name": "A", "title": "Right", "x": 500.0, "y": 0.0, "w": 400, "h": 300 },
                 { "name": "B", "title": "Left", "x": 0.0, "y": 0.0, "w": 412, "h": 916 },
             ] },
@@ -451,4 +458,100 @@ fn the_page_carries_the_filter_script_the_tests_run() {
     )
     .unwrap();
     assert!(page.contains(include_str!("designs_filter.js")));
+}
+
+fn contents_run(steps: &str) -> Value {
+    let script = format!(
+        "{}\nconst out = [];\n{steps}",
+        include_str!("designs_contents.js")
+    );
+    run_script(&script, "out")
+}
+
+/// A canvas page's headings and boards for the contents column: "Rows" drawn
+/// for Android (y 0) and macOS (y 400), then "Alone" (y 900). Boards a and b
+/// stand in the Android row, c in the macOS row, d under "Alone".
+const CANVAS_PAGE: &str = r#"
+const headings = [
+  {name: "Rows", y: 0, subs: [{name: "Android", y: 0}, {name: "macOS", y: 400}]},
+  {name: "Alone", y: 900},
+];
+const board = (name, x, y, w) => ({name, x, y, w, h: 100});
+const boards = [board("a", 20, 10, 100), board("b", 200, 30, 100), board("c", 50, 410, 300), board("d", 0, 950, 50)];
+const names = entries => entries.map(e => [e.name, e.subs.map(s => s.name)]);
+"#;
+
+#[test]
+fn the_contents_column_of_a_canvas_page_lists_its_headings_and_a_platform_pair_as_one_entry() {
+    let steps = format!(
+        "{CANVAS_PAGE}{}",
+        r#"
+      out.push(names(boardEntries(headings, boards)));
+      out.push(names(boardEntries(headings, boards.filter(b => b.name === "c" || b.name === "d"))));
+      out.push(names(boardEntries(headings, boards.filter(b => b.name === "d"))));
+      out.push(names(boardEntries(headings, [])));
+    "#
+    );
+    assert_eq!(
+        contents_run(&steps),
+        json!([
+            [["Rows", ["Android", "macOS"]], ["Alone", []]],
+            [["Rows", ["macOS"]], ["Alone", []]],
+            [["Alone", []]],
+            [],
+        ])
+    );
+}
+
+#[test]
+fn the_current_entry_is_the_row_that_holds_the_views_centre() {
+    let steps = format!(
+        "{CANVAS_PAGE}{}",
+        r#"
+      const entries = boardEntries(headings, boards);
+      for (const y of [-500, 0, 399, 400, 899, 900, 5000]) out.push(rowAt(entries, y).name);
+      out.push(rowAt([], 0));
+    "#
+    );
+    assert_eq!(
+        contents_run(&steps),
+        json!([
+            "Android", "Android", "Android", "macOS", "macOS", "Alone", "Alone", null
+        ])
+    );
+}
+
+#[test]
+fn a_click_on_an_entry_goes_to_the_box_of_the_boards_in_its_row() {
+    let steps = format!(
+        "{CANVAS_PAGE}{}",
+        r#"
+      const [rows, alone] = boardEntries(headings, boards);
+      out.push(rowBox(rows.subs[0].row), rowBox(rows.subs[1].row), rowBox(alone.row), rows.row === rows.subs[0].row);
+    "#
+    );
+    assert_eq!(
+        contents_run(&steps),
+        json!([
+            { "left": 20, "top": 10, "width": 280 },
+            { "left": 50, "top": 410, "width": 300 },
+            { "left": 0, "top": 950, "width": 50 },
+            true,
+        ])
+    );
+}
+
+#[test]
+fn the_page_carries_the_contents_script_the_tests_run() {
+    let scratch = Scratch::new("designs-contents-page");
+    let (dir, _) = designs_repo(&scratch);
+    let page = page(
+        "demo",
+        &dir,
+        &scratch.dir.join("cache"),
+        Ok(Standing::default()),
+        &Value::Null,
+    )
+    .unwrap();
+    assert!(page.contains(include_str!("designs_contents.js")));
 }

@@ -6,7 +6,8 @@
 //! component is a frame that loads its own page drawn from that commit, so
 //! the page and its frames show the same commit when origin/main moves. A
 //! page's boards stand on a canvas the person pans and zooms, each at the x,
-//! y, width and height that the index gives it. A board is drawn the way the review page's frames draw it
+//! y, width and height that the index gives it, and the column at the page's
+//! right lists the page's row headings (`designs_headings.rs`). A board is drawn the way the review page's frames draw it
 //! (`design_render::render_board`, in the dark), and a component's preview the
 //! way the Design System page draws its card
 //! (`design_render::render_preview`).
@@ -37,6 +38,7 @@ use boards::tokens::specimen;
 use boards::{BOARD_SUFFIX, CANVAS, Source, TOKENS_JSON, canvas_place, canvas_size};
 use serde_json::{Value, json};
 
+use super::designs_headings::headings;
 use crate::design_canvas::{CANVASES, page_of, pages_of, parse_canvases, placed};
 use crate::design_render::{FRAMES_SCRIPT, NOW, fill, preview_frame, render_board};
 use crate::fail;
@@ -49,6 +51,8 @@ use crate::places::Places;
 const DESIGNS_PAGE: &str = include_str!("designs.html");
 /// The Filter field's matching and hiding, which the page's script calls.
 const FILTER: &str = include_str!("designs_filter.js");
+/// The contents column's entries and marks, which the page's script calls.
+const CONTENTS: &str = include_str!("designs_contents.js");
 /// The dashboard's colors and fonts, which its page and the Designs page
 /// share.
 pub const PALETTE: &str = include_str!("palette.css");
@@ -119,10 +123,20 @@ pub fn page(
         };
         boards.push(drawn);
     }
+    let mut headings = headings(&index, first)?;
     let pages: Vec<Value> = pages
         .into_iter()
-        .map(|(id, name, boards)| json!({ "id": id, "name": name, "boards": boards }))
+        .map(|(id, name, boards)| {
+            let rows = headings.remove(id).unwrap_or_default();
+            json!({ "id": id, "name": name, "boards": boards, "headings": rows })
+        })
         .collect();
+    if let Some(page) = headings.keys().next() {
+        fail!(
+            "{}: a note is on page {page}, which it does not list",
+            from.label(CANVAS)
+        );
+    }
     let system = match from
         .read(TOKENS_JSON, "the design system's tokens")
         .and_then(|text| specimen(&text))
@@ -194,6 +208,7 @@ pub fn page(
             ("DATA", &data),
             ("FRAMES", FRAMES_SCRIPT),
             ("FILTER", FILTER),
+            ("CONTENTS", CONTENTS),
         ],
     ))
 }
