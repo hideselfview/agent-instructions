@@ -134,7 +134,7 @@ impl Prefix {
         }
     }
 
-    pub(crate) fn platform(&self) -> Platform {
+    pub fn platform(&self) -> Platform {
         self.platform
     }
 
