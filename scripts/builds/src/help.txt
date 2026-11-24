@@ -1294,9 +1294,9 @@ the board's box or has another middle, still reports them.
 The checker estimates the offset of the shot's frame from the board's as the
 median offset of the matched pairs' top-left corners. A text box that is not
 as wide as its pair, within the box-edge tolerance, adds its vertical offset
-and no horizontal one, because a wrapped line and a line that spans its
-container sit in their boxes by alignment, and the boxes' left edges differ
-while the text does not move.
+and its horizontal one only when no other pair gives a horizontal offset,
+because a wrapped line and a line that spans its container sit in their boxes
+by alignment, and the boxes' left edges differ while the text does not move.
 
 A change to the comparison alone (a tolerance, the sentence of a finding, the
 report page) changes only the comparison version, so the next shots check

@@ -19,14 +19,15 @@ fn median(mut values: Vec<f64>) -> f64 {
 }
 
 /// How far the shot's frame sits right and down of the board's: the median
-/// offset of the matched pairs' top-left corners, each axis from the pairs
-/// whose corner is where the element is drawn.
+/// offset of the matched pairs' top-left corners. Horizontally the median
+/// takes the pairs whose left edge is where the element is drawn, and only
+/// when there are none, the texts of another width.
 pub(crate) fn frame_offset(
     board: &[Element],
     shot: &[Element],
     pairs: &[(Entry, Entry)],
 ) -> (f64, f64) {
-    let (mut dx, mut dy) = (Vec::new(), Vec::new());
+    let (mut dx, mut dy, mut other_width) = (Vec::new(), Vec::new(), Vec::new());
     for (b, s) in pairs {
         let (from, to) = (b.bounds(board), shot[s.index].bounds);
         // A symbol's corner is wherever the platform puts its glyph in the
@@ -37,10 +38,16 @@ pub(crate) fn frame_offset(
         dy.push(to.y - from.y);
         // A text box of another width is another line layout (the board
         // wraps the line, the shot spans its container) and the text sits
-        // in it by its alignment, so its left edge says nothing of the frame.
+        // in it by its alignment, so its left edge is a worse witness of the
+        // frame than the left edge of a box that is drawn where it is.
         if b.kind != Role::Text || widths_agree(&from, &to) {
             dx.push(to.x - from.x);
+        } else {
+            other_width.push(to.x - from.x);
         }
+    }
+    if dx.is_empty() {
+        dx = other_width;
     }
     (median(dx), median(dy))
 }

@@ -202,6 +202,16 @@ fn a_text_box_of_another_width_says_nothing_of_the_frames_left_edge() {
     assert!(warnings(&board, &shot).is_empty());
 }
 
+#[test]
+fn texts_of_another_width_give_the_horizontal_offset_when_nothing_else_does() {
+    // Only texts pair, and every shot box is wider and starts 4 pt left: the
+    // offset is still measured, from their left edges.
+    let board = vec![boxed(Role::Text, "Pinned", 32.0, 2.0, 360.0, 36.0)];
+    let shot = vec![boxed(Role::Text, "Pinned", 28.0, 1.5, 383.0, 36.0)];
+    let pairs = compare(&board, &shot, Slots::NONE).pairs;
+    assert_eq!(frame_offset(&board, &shot, &pairs), (-4.0, -0.5));
+}
+
 /// Three images, the first two symbols in text lines as a board boxes them
 /// (the line's height), and two buttons that fix the frame.
 fn symbols() -> Vec<Element> {
