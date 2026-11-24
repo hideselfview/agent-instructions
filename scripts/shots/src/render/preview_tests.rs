@@ -11,11 +11,19 @@ fn hex(text: &str) -> String {
     crate::hex::hex(&Sha256::digest(text.as_bytes()))
 }
 
-fn marks() -> Preview {
-    Preview {
+fn rows() -> &'static Preview {
+    static ROWS: std::sync::OnceLock<Preview> = std::sync::OnceLock::new();
+    ROWS.get_or_init(|| Preview {
         row: ".row".to_string(),
         name: ".row-name".to_string(),
         cell: ".row-cell".to_string(),
+    })
+}
+
+fn marks(unshot: &[String]) -> Marks<'_> {
+    Marks {
+        rows: rows(),
+        unshot,
     }
 }
 
@@ -91,7 +99,7 @@ async fn a_row_reads_as_the_state_it_names() {
             &url,
             2.0,
             Platform::Mac,
-            &marks(),
+            marks(&[]),
         )
         .await;
         let page = chrome.new_page().await.unwrap();
@@ -102,7 +110,7 @@ async fn a_row_reads_as_the_state_it_names() {
             &url,
             1.0,
             Platform::Mac,
-            &marks(),
+            marks(&[]),
         )
         .await;
         (row, missing)
@@ -156,7 +164,7 @@ async fn a_shared_row_gets_the_android_class_on_the_android_lane_only() {
         let mut widths = Vec::new();
         for platform in [Platform::Mac, Platform::Android] {
             let page = chrome.new_page().await.unwrap();
-            let row = render_row(&page, "MacRow", "label", &url, 1.0, platform, &marks())
+            let row = render_row(&page, "MacRow", "label", &url, 1.0, platform, marks(&[]))
                 .await
                 .unwrap();
             widths.push(row.size.width);
@@ -201,7 +209,7 @@ async fn an_android_row_whose_class_names_a_font_to_fetch_is_drawn() {
                         &server.preview_url("Late"),
                         1.0,
                         Platform::Android,
-                        &marks(),
+                        marks(&[]),
                     )
                     .await
                     .map_err(|e| e.to_string())
@@ -211,4 +219,67 @@ async fn an_android_row_whose_class_names_a_font_to_fetch_is_drawn() {
     })
     .await;
     row.unwrap();
+}
+
+/// A preview page of two rows that each draw a keyboard, the second below the
+/// first, and a row-less strip of the same class outside both cells.
+const KEYBOARD_PREVIEW: &str = r#"<!doctype html><html><head><meta charset="utf-8">
+<style>body{margin:0;font:13px sans-serif}.row{display:flex;height:300px}
+.row-cell{width:400px;position:relative}
+.kb{position:absolute;left:10px;top:200px;width:380px;height:80px;background:#ccc}</style></head>
+<body><div id="root"></div><script>
+const h = React.createElement;
+const W = (name, child) => h('div', {className: 'row'},
+  h('span', {className: 'row-name'}, name), h('div', {className: 'row-cell'}, child));
+ReactDOM.createRoot(document.getElementById('root')).render(h('div', null,
+  W('Plain', h('div', null, 'Words')),
+  W('Typing', h('div', {className: 'kb'}, 'keys'))));
+</script></body></html>"#;
+
+#[tokio::test]
+async fn a_row_reports_the_unshot_parts_inside_its_cell_from_the_cells_corner() {
+    let root = fixture::tree(&[]);
+    fixture::write(
+        root.path(),
+        "design/system/components/MacRow/preview.html",
+        KEYBOARD_PREVIEW,
+    );
+    let unshot = [".kb".to_string()];
+    let (typing, plain, none) = fixture::with_browser(root.path(), async |server, chrome| {
+        let url = server.preview_url("MacRow");
+        let mut rows = Vec::new();
+        for (state, unshot) in [
+            ("typing", &unshot[..]),
+            ("plain", &unshot[..]),
+            ("typing", &[][..]),
+        ] {
+            let page = chrome.new_page().await.unwrap();
+            rows.push(
+                render_row(
+                    &page,
+                    "MacRow",
+                    state,
+                    &url,
+                    1.0,
+                    Platform::Mac,
+                    marks(unshot),
+                )
+                .await
+                .unwrap()
+                .unshot,
+            );
+        }
+        (rows[0].clone(), rows[1].clone(), rows[2].clone())
+    })
+    .await;
+    let boxes: Vec<_> = typing
+        .iter()
+        .map(|b| (b.x, b.y, b.width, b.height))
+        .collect();
+    assert_eq!(boxes, [(10.0, 200.0, 380.0, 80.0)]);
+    assert!(
+        plain.is_empty(),
+        "the other row's keyboard is outside this cell: {plain:?}"
+    );
+    assert!(none.is_empty(), "no selector, no boxes");
 }

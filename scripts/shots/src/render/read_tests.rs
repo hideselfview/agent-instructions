@@ -479,7 +479,7 @@ async fn a_boards_on_screen_keyboard_is_found_and_not_an_element() {
             .await
             .unwrap();
         (
-            unshot(&page, &[".demo-keyboard".to_string()])
+            unshot(&page, &[".demo-keyboard".to_string()], (0.0, 0.0))
                 .await
                 .unwrap(),
             elements(&page, rendered.frame, Platform::Android)

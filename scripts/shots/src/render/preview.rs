@@ -89,6 +89,14 @@ fn js(text: &str) -> String {
     serde_json::to_string(text).expect("a string serializes")
 }
 
+/// The selectors a row is read with: those of the page's rows (`shots-preview`)
+/// and those of the parts the app draws no counterpart for (`shots-unshot`).
+#[derive(Clone, Copy)]
+pub(crate) struct Marks<'a> {
+    pub(crate) rows: &'a Preview,
+    pub(crate) unshot: &'a [String],
+}
+
 /// A state's picture and element list.
 pub(crate) struct Row {
     pub(crate) png: Vec<u8>,
@@ -98,6 +106,9 @@ pub(crate) struct Row {
     /// The boxes of the preview slots in the cell, measured from its
     /// top-left like the elements.
     pub(crate) slots: Vec<Bounds>,
+    /// The boxes of the unshot parts inside the cell, measured from its
+    /// top-left like the elements.
+    pub(crate) unshot: Vec<Bounds>,
 }
 
 pub(crate) enum CaptureArea {
@@ -140,7 +151,7 @@ pub(crate) async fn capture(page: &Page, area: CaptureArea) -> Result<board::Ren
 /// Loads the preview at `url` and draws the row of `state`, at `scale` pixels
 /// per point: the picture of its cell and the elements inside it, measured
 /// from the cell's top-left, read as `platform`'s boards are. `marks` are the
-/// selectors of the page's rows. The android lane's page body gets the class
+/// selectors of the page's rows and unshot parts. The android lane's page body gets the class
 /// `bae-preview-android` from its creation, so the fonts that class names load
 /// while the page loads, and a row both lanes shoot draws on each platform's
 /// own surface.
@@ -151,8 +162,12 @@ pub(crate) async fn render_row(
     url: &str,
     scale: f64,
     platform: Platform,
-    marks: &Preview,
+    marks: Marks<'_>,
 ) -> Result<Row, PreviewError> {
+    let Marks {
+        rows: marks,
+        unshot,
+    } = marks;
     board::load(
         page,
         component,
@@ -221,6 +236,18 @@ pub(crate) async fn render_row(
     )
     .await?;
     let slots = read::slots(page, (rendered.frame.x, rendered.frame.y)).await?;
+    // The page holds every row, so the boxes of the other rows' unshot parts
+    // lie outside the cell.
+    let unshot = read::unshot(page, unshot, (rendered.frame.x, rendered.frame.y))
+        .await?
+        .into_iter()
+        .filter(|b| {
+            b.x < rendered.frame.width
+                && b.y < rendered.frame.height
+                && b.x + b.width > 0.0
+                && b.y + b.height > 0.0
+        })
+        .collect();
     Ok(Row {
         png: rendered.png,
         size: Size {
@@ -229,6 +256,7 @@ pub(crate) async fn render_row(
         },
         elements,
         slots,
+        unshot,
     })
 }
 

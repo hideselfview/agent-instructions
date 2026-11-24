@@ -633,12 +633,17 @@ async fn boxes(page: &Page, selector: &str, origin: (f64, f64)) -> Result<Vec<Bo
 /// The boxes of the parts of a board that the app draws no counterpart for,
 /// such as an on-screen keyboard: the elements each of <selectors> (the
 /// app's `shots-unshot` line) matches. Such a part is hidden from the
-/// accessibility tree, so the picture comparison leaves its area out.
-pub(crate) async fn unshot(page: &Page, selectors: &[String]) -> Result<Vec<Bounds>, ReadError> {
+/// accessibility tree, so the picture comparison leaves its area out. The
+/// boxes are measured from `origin`.
+pub(crate) async fn unshot(
+    page: &Page,
+    selectors: &[String],
+    origin: (f64, f64),
+) -> Result<Vec<Bounds>, ReadError> {
     if selectors.is_empty() {
         return Ok(Vec::new());
     }
-    boxes(page, &selectors.join(", "), (0.0, 0.0)).await
+    boxes(page, &selectors.join(", "), origin).await
 }
 
 /// The class of the dashed stand-in a container's preview holds for its

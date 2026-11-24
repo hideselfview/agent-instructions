@@ -211,7 +211,7 @@ async fn draw_screen(
     let elements = read::elements(page, rendered.frame, platform)
         .await
         .map_err(|e| e.to_string())?;
-    let unshot = read::unshot(page, &settings.unshot)
+    let unshot = read::unshot(page, &settings.unshot, (0.0, 0.0))
         .await
         .map_err(|e| e.to_string())?;
     let slots = read::slots(page, (rendered.frame.x, rendered.frame.y))
@@ -247,7 +247,10 @@ async fn draw_component(
         &server.preview_url(&component),
         scale,
         platform,
-        marks,
+        preview::Marks {
+            rows: marks,
+            unshot: &settings.unshot,
+        },
     )
     .await
     .map_err(|e| e.to_string())?;
@@ -255,7 +258,7 @@ async fn draw_component(
         png: row.png,
         size: row.size,
         elements: row.elements,
-        unshot: Vec::new(),
+        unshot: row.unshot,
         slots: row.slots,
     })
 }
