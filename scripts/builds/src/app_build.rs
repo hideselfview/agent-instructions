@@ -3073,15 +3073,43 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
         .cloned()
         .collect();
     let (names, picks) = split_picks(&tail)?;
-    let names = &names[..];
-    let config = config_at(places, repo, commit)?;
+    let plan = explicit_plan(places, repo, commit, &names, picks)?;
+    let pinned = pin(places)?;
+    run_lanes(
+        &pinned,
+        repo,
+        (&plan.commit, commit),
+        &plan.lanes,
+        &BuildPicks::pending(plan.picks),
+        &[],
+        fresh,
+    )
+}
+
+/// What an app build with named steps or picks builds: the one commit its ref
+/// named when the plan was made, and the lanes with the steps to run there.
+struct ExplicitPlan {
+    commit: String,
+    lanes: Vec<(Lane, Vec<String>)>,
+    picks: Vec<Pick>,
+}
+
+/// Resolves <git_ref> once, checks <names> and <picks> against `.app-build`
+/// and the declared shots at that commit, and returns the plan to build that
+/// commit, so a branch that moves meanwhile changes nothing the lanes build.
+fn explicit_plan(
+    places: &Places,
+    repo: &str,
+    git_ref: &str,
+    names: &[String],
+    picks: Vec<Pick>,
+) -> Result<ExplicitPlan> {
+    let (top, commit, config) = commit_and_config(places, repo, git_ref)?;
     for name in names {
         step_named(&config, name)?;
     }
     require_pickers(&config, &picks)?;
-    let top = fetched_local_source(places, repo)?;
-    crate::shots_declared::refuse_undeclared(&top, &resolve(&top, commit)?, &picks)?;
-    let pinned = pin(places)?;
+    crate::shots_declared::refuse_undeclared(&top, &commit, &picks)?;
     // The lanes the steps or picks are in: those with a step named, or with
     // any step when none is named and no pick is, each with its own names.
     let lanes: Vec<(Lane, Vec<String>)> = Lane::ALL
@@ -3099,15 +3127,11 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
     if lanes.is_empty() {
         fail!("{CONFIG} names no step");
     }
-    run_lanes(
-        &pinned,
-        repo,
-        (commit, commit),
-        &lanes,
-        &BuildPicks::pending(picks),
-        &[],
-        fresh,
-    )
+    Ok(ExplicitPlan {
+        commit,
+        lanes,
+        picks,
+    })
 }
 
 /// Whether <names> start with the flag <flag>, and <names> without it.

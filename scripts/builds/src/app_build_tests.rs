@@ -2250,3 +2250,28 @@ fn the_capture_step_counts_the_screenshots_and_the_runs_after_it_count_none() {
 
 #[path = "app_build_pictures_tests.rs"]
 mod pictures;
+
+/// An app build with named steps hands its lanes the commit its ref named
+/// when it checked the steps, not the ref, which a branch can move off.
+#[test]
+fn an_explicit_step_plan_pins_the_commit_its_ref_named() {
+    let scratch = crate::testing::Scratch::new("explicit-plan");
+    let places = scratch.places();
+    let top = scratch.dir.join("repo");
+    shots_repo(&top);
+    places
+        .write_app_checkouts(
+            "demo",
+            Lane::Mac,
+            &[crate::lane::AppCheckout::by_person("side-1")],
+        )
+        .unwrap();
+    let marker = places.root.join("demo/side-1");
+    std::fs::create_dir_all(&marker).unwrap();
+    std::fs::write(marker.join(".checkout"), top.display().to_string()).unwrap();
+    crate::testing::git(&top, &["branch", "work"]);
+    let plan = explicit_plan(&places, "demo", "work", &["macos".to_string()], Vec::new()).unwrap();
+    assert_eq!(plan.commit, resolve(&top, "work").unwrap());
+    assert_eq!(plan.commit.len(), 40);
+    assert_eq!(plan.lanes, [(Lane::Mac, vec!["macos".to_string()])]);
+}
