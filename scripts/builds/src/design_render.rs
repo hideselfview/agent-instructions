@@ -50,7 +50,7 @@ use crate::lists::design::Circle;
 use crate::lists::design_paths::PlaceKind;
 use crate::lists::view::DesignView;
 use crate::lists::{DesignChange, ReviewEntry, Shown, Theme};
-use crate::places::DesignDirs;
+use boards::Folders;
 
 const BOARD_PAGE: &str = include_str!("design_render/board.html");
 const REVIEW_PAGE: &str = include_str!("design_render/review.html");
@@ -178,8 +178,8 @@ pub(crate) fn script_safe(js: &str) -> String {
 
 /// Board <board> of <from> as one page of HTML in <theme>, drawn with the
 /// design system of <from>; a commit's is generated into <cache>
-/// (`DesignDirs::cache`).
-pub fn render_board(from: Source, board: &str, theme: Theme, dirs: &DesignDirs) -> Result<String> {
+/// (`Folders::cache`).
+pub fn render_board(from: Source, board: &str, theme: Theme, dirs: &Folders) -> Result<String> {
     from.check()?;
     let name = board_name(board)?;
     let mut parts: BTreeMap<String, Part> = BTreeMap::new();
@@ -206,7 +206,7 @@ pub fn render_board(from: Source, board: &str, theme: Theme, dirs: &DesignDirs) 
         }
         parts.insert(key, part);
     }
-    let [tokens_css, bundle_css, bundle_js] = from.board_design_system(&dirs.cache, &dirs.fonts)?;
+    let [tokens_css, bundle_css, bundle_js] = from.board_design_system(dirs)?;
     let styles: String = parts.values().map(|p| p.style.as_str()).collect();
     let templates: String = parts
         .iter()
@@ -246,14 +246,14 @@ pub fn script_json(value: &Value) -> String {
 /// Component <name>'s preview page of <from>, with the design system of
 /// <from> and React loaded ahead of its own script, as the Design System
 /// page draws its card; a commit's design system is generated into <cache>.
-pub fn render_preview(from: Source, name: &str, dirs: &DesignDirs) -> Result<String> {
+pub fn render_preview(from: Source, name: &str, dirs: &Folders) -> Result<String> {
     from.check()?;
     if !preview::is_component_name(name) {
         fail!("{name:?} is no component: a component's name is letters and digits");
     }
     let rel = preview::preview_path(name);
     let html = from.read(&rel, "the preview")?;
-    let [tokens_css, bundle_css, bundle_js] = from.board_design_system(&dirs.cache, &dirs.fonts)?;
+    let [tokens_css, bundle_css, bundle_js] = from.board_design_system(dirs)?;
     let loads = format!(
         "<style>{tokens_css}</style><style>{bundle_css}</style>{REACT}<script>{}</script>",
         script_safe(&bundle_js)
@@ -271,12 +271,7 @@ pub fn render_preview(from: Source, name: &str, dirs: &DesignDirs) -> Result<Str
 /// page (`render_preview`) with `PREVIEW_FIT`, which draws it at its own size
 /// and tells the page that size. A frame of a review page (<for_review>) also
 /// answers the page's question for the boxes of the elements a selector finds.
-pub fn preview_frame(
-    from: Source,
-    name: &str,
-    dirs: &DesignDirs,
-    for_review: bool,
-) -> Result<String> {
+pub fn preview_frame(from: Source, name: &str, dirs: &Folders, for_review: bool) -> Result<String> {
     let page = render_preview(from, name, dirs)?;
     let mut loads = format!("<script>{PREVIEW_FIT}</script>");
     if for_review {

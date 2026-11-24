@@ -28,7 +28,7 @@ use boards::{Source, escape_html as escape};
 use crate::design_render::{REACT, fill, script_safe};
 use crate::fail;
 use crate::fail::Result;
-use crate::places::DesignDirs;
+use boards::Folders;
 
 const FRAME_PAGE: &str = include_str!("color_group.html");
 const FRAME_SCRIPT: &str = include_str!("color_group.js");
@@ -37,7 +37,7 @@ const FRAME_SCRIPT: &str = include_str!("color_group.js");
 /// is generated into <cache>. Fails when the color groups cannot be read or
 /// have no group <n>. A scene that cannot be read, or that points at a name
 /// that is no color, shows as that problem in the scene's place.
-pub fn frame(from: Source, n: usize, dirs: &DesignDirs) -> Result<String> {
+pub fn frame(from: Source, n: usize, dirs: &Folders) -> Result<String> {
     from.check()?;
     let palette = colors::read(&from)?;
     let Some(group) = palette.colors.groups.get(n) else {
@@ -62,7 +62,7 @@ pub fn frame(from: Source, n: usize, dirs: &DesignDirs) -> Result<String> {
 /// design system is generated into <cache>. Fails when the color groups
 /// cannot be read or have no comparison. A scene that cannot be read shows
 /// as that problem in its place.
-pub fn comparison(from: Source, dirs: &DesignDirs) -> Result<String> {
+pub fn comparison(from: Source, dirs: &Folders) -> Result<String> {
     from.check()?;
     let palette = colors::read(&from)?;
     let Some(comparison) = &palette.colors.comparison else {
@@ -108,9 +108,9 @@ fn page(
     palette: &Palette,
     swatches: &str,
     scene: &str,
-    dirs: &DesignDirs,
+    dirs: &Folders,
 ) -> Result<String> {
-    let [tokens_css, bundle_css, bundle_js] = from.board_design_system(&dirs.cache, &dirs.fonts)?;
+    let [tokens_css, bundle_css, bundle_js] = from.board_design_system(dirs)?;
     let themes: Vec<&str> = palette
         .themes
         .iter()

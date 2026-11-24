@@ -312,9 +312,9 @@ fn the_design_system_comes_from_the_repos_sources_and_its_canvas_namespace() {
     let cache = tempfile::tempdir().unwrap();
     let design = DesignSystem::of(
         r,
-        Folders {
-            cache: cache.path(),
-            fonts: &cache.path().join("no-fonts"),
+        &boards::Folders {
+            cache: cache.path().to_path_buf(),
+            fonts: cache.path().join("no-fonts"),
         },
     )
     .unwrap();

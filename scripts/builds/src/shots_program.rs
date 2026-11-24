@@ -72,8 +72,10 @@ pub fn cmd_shots(places: &Places, args: &[String]) -> Result<()> {
             places.require_volume()?;
             let checker = shots::Checker {
                 versions: &VERSIONS,
-                cache: &cache(places),
-                fonts: &places.fonts,
+                folders: &boards::Folders {
+                    cache: cache(places),
+                    fonts: places.fonts.clone(),
+                },
             };
             if shots::main(&checker, args) {
                 Ok(())

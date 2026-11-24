@@ -213,7 +213,7 @@ pub(crate) fn compare_pair(name: &Name, board: Drawn, shot: &Shot, shot_png: Pat
 pub(crate) fn verify(job: &Verification) -> Result<Outcome, String> {
     let root = job.root;
     let runtime = runtime::check(root).map_err(|e| e.to_string())?;
-    let design = DesignSystem::of(root, job.checker.folders()).map_err(|e| e.to_string())?;
+    let design = DesignSystem::of(root, job.checker.folders).map_err(|e| e.to_string())?;
 
     let previews = Previews::of(root)?;
     let problems = lint::problems(root, &job.settings.preview_calls, &previews, job.declared);
@@ -256,7 +256,7 @@ pub(crate) fn verify(job: &Verification) -> Result<Outcome, String> {
         tree,
         job.settings,
         &previews,
-        job.checker.cache,
+        &job.checker.folders.cache,
         &to_draw,
         &scales,
         &boards,

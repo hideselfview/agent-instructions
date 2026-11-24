@@ -10,7 +10,6 @@ pub(crate) mod read;
 pub(crate) mod runtime;
 pub(crate) mod serve;
 
-use crate::Folders;
 use crate::design::{self, DesignSystem};
 use crate::names::{self, Name};
 use crate::settings::Settings;
@@ -105,7 +104,7 @@ pub(crate) fn with_browser<T>(
 /// runtime copy and builds the design system the boards load first.
 pub(crate) fn with_design<T>(
     root: &Path,
-    folders: Folders<'_>,
+    folders: &boards::Folders,
     work: impl AsyncFnOnce(
         &serve::Server,
         &chrome::Chrome,
@@ -120,7 +119,7 @@ pub(crate) fn with_design<T>(
         design: &design,
         runtime: runtime.copy.text,
     };
-    with_browser(tree, folders.cache, async |server, chrome| {
+    with_browser(tree, &folders.cache, async |server, chrome| {
         work(server, chrome, &frames).await
     })
 }

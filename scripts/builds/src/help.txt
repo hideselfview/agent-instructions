@@ -1277,7 +1277,8 @@ from the Mac when a page asks. The repo keeps no copy of a font, and the
 tokens.css that builds writes and publishes has no such rule. A host without
 the folder adds no rule and draws Menlo; a folder that lacks or cannot read
 one of the files fails the drawing and names the file. The page that `builds
-design render` prints is a file, which loads no font, so it draws Menlo.
+design render` prints is a file, which cannot load the SF Mono files (their
+URLs are server paths), so it draws the next family of the stack.
 
 The checker compares the colours of an element only where the element's own
 pixels show. When a later element of the same list, such as a sheet, popover

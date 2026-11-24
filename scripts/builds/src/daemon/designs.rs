@@ -47,7 +47,8 @@ use crate::fail::{Fail, Result};
 use crate::lists::publish::{Request, Standing, ask_and_tell};
 use crate::lists::store::Store;
 use crate::lists::{Stamp, Theme};
-use crate::places::{DesignDirs, Places};
+use crate::places::Places;
+use boards::Folders;
 
 const DESIGNS_PAGE: &str = include_str!("designs.html");
 /// The Filter field's matching and hiding, which the page's script calls.
@@ -274,7 +275,7 @@ pub fn ask(places: &Places, project: &str, repo: &Path, rev: &str, now: i64) -> 
 
 /// Board <name> of commit <commit> of the repo <repo> is in, drawn in the
 /// dark as the Designs page's frame loads it.
-pub fn board(repo: &Path, commit: &str, name: &str, dirs: &DesignDirs) -> Result<String> {
+pub fn board(repo: &Path, commit: &str, name: &str, dirs: &Folders) -> Result<String> {
     render_board(
         Source::Commit { repo, rev: commit },
         name,
@@ -285,20 +286,20 @@ pub fn board(repo: &Path, commit: &str, name: &str, dirs: &DesignDirs) -> Result
 
 /// Group <n> of the colors at commit <commit> of the repo <repo> is in, as
 /// the Designs page's frame loads it (`color_group::frame`).
-pub fn color_group(repo: &Path, commit: &str, n: usize, dirs: &DesignDirs) -> Result<String> {
+pub fn color_group(repo: &Path, commit: &str, n: usize, dirs: &Folders) -> Result<String> {
     super::color_group::frame(Source::Commit { repo, rev: commit }, n, dirs)
 }
 
 /// The colors' comparison at commit <commit> of the repo <repo> is in, as
 /// the Designs page's frame loads it (`color_group::comparison`).
-pub fn color_comparison(repo: &Path, commit: &str, dirs: &DesignDirs) -> Result<String> {
+pub fn color_comparison(repo: &Path, commit: &str, dirs: &Folders) -> Result<String> {
     super::color_group::comparison(Source::Commit { repo, rev: commit }, dirs)
 }
 
 /// Component <name>'s preview at commit <commit> of the repo <repo> is in,
 /// as the Designs page's frame loads it: with `PREVIEW_FIT`, which draws it
 /// at its own size and tells the page that size.
-pub fn preview(repo: &Path, commit: &str, name: &str, dirs: &DesignDirs) -> Result<String> {
+pub fn preview(repo: &Path, commit: &str, name: &str, dirs: &Folders) -> Result<String> {
     preview_frame(Source::Commit { repo, rev: commit }, name, dirs, false)
 }
 

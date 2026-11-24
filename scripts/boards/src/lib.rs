@@ -24,6 +24,16 @@ pub use source::{Source, exists_in, export, git, git_text, in_scratch};
 pub use tokens::{TOKENS_CSS, TOKENS_JSON, tokens_css};
 
 use std::fmt;
+use std::path::PathBuf;
+
+/// The folders a board's page is built from: the cache the design systems
+/// generated for commits are kept in, and the folder of the SF Mono files
+/// its tokens.css has rules for (`fonts`).
+#[derive(Clone, Debug)]
+pub struct Folders {
+    pub cache: PathBuf,
+    pub fonts: PathBuf,
+}
 
 /// Why reading a repo's design files failed, as a sentence that names the
 /// file or the command.

@@ -98,14 +98,6 @@ pub struct Places {
     pub fonts: PathBuf,
 }
 
-/// The folders a board's page is built from: the design systems generated
-/// for commits, and the SF Mono files its tokens.css names.
-#[derive(Clone, Debug)]
-pub struct DesignDirs {
-    pub cache: PathBuf,
-    pub fonts: PathBuf,
-}
-
 impl Places {
     pub fn from_env() -> Result<Places> {
         let home = match std::env::var_os("HOME") {
@@ -171,8 +163,8 @@ impl Places {
     }
 
     /// The folders the pages of boards are built from.
-    pub fn design_dirs(&self) -> DesignDirs {
-        DesignDirs {
+    pub fn design_dirs(&self) -> boards::Folders {
+        boards::Folders {
             cache: self.design_system_cache(),
             fonts: self.fonts.clone(),
         }

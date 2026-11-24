@@ -43,3 +43,13 @@ fn only_the_family_s_files_are_named() {
     assert!(!is_font_file("../SF-Mono-Regular.otf"));
     assert!(!is_font_file("SFMono-Terminal.ttf"));
 }
+
+#[test]
+fn a_file_that_cannot_be_opened_is_an_error() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = folder("fonts-unreadable", &all_files());
+    let locked = dir.dir.join("SF-Mono-Bold.otf");
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let error = font_face_css(&dir.dir).unwrap_err().text();
+    assert!(error.contains("SF-Mono-Bold.otf"), "{error}");
+}

@@ -347,10 +347,52 @@ fn a_board_draws_with_the_sf_mono_rules_and_what_is_published_has_none() {
     }
     let plain = Source::Dir(&dir).design_system(&cache(&scratch)).unwrap();
     let drawn = Source::Dir(&dir)
-        .board_design_system(&cache(&scratch), &fonts)
+        .board_design_system(&crate::Folders {
+            cache: cache(&scratch),
+            fonts: fonts.clone(),
+        })
         .unwrap();
     assert!(!plain[0].contains("@font-face"));
     assert!(drawn[0].starts_with(&plain[0]), "{}", drawn[0]);
     assert_eq!(drawn[0].matches("@font-face").count(), 12);
     assert_eq!(drawn[1..], plain[1..]);
+}
+
+#[test]
+fn an_archive_that_tar_stops_reading_early_still_unpacks() {
+    let scratch = Scratch::new("unpack-padding");
+    let from = scratch.dir.join("from");
+    std::fs::create_dir_all(&from).unwrap();
+    std::fs::write(from.join("a.txt"), "a").unwrap();
+    let made = std::process::Command::new("tar")
+        .arg("-c")
+        .arg("-C")
+        .arg(&from)
+        .arg("a.txt")
+        .output()
+        .unwrap();
+    assert!(made.status.success());
+    // Far more padding after the end marker than a pipe holds, which tar
+    // never reads.
+    let mut archive = made.stdout;
+    archive.resize(archive.len() + 8 * 1024 * 1024, 0);
+    let into = scratch.dir.join("into");
+    std::fs::create_dir_all(&into).unwrap();
+    unpack(&archive, &into, "the files", "HEAD").unwrap();
+    assert_eq!(std::fs::read_to_string(into.join("a.txt")).unwrap(), "a");
+}
+
+#[test]
+fn a_tar_that_fails_is_reported_whatever_the_pipe_does() {
+    let scratch = Scratch::new("unpack-garbage");
+    let error = message(unpack(
+        &vec![7u8; 8 * 1024 * 1024],
+        &scratch.dir,
+        "the files",
+        "HEAD",
+    ));
+    assert!(
+        error.contains("tar failed to unpack the files of HEAD"),
+        "{error}"
+    );
 }

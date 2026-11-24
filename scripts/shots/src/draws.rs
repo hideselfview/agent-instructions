@@ -12,7 +12,6 @@
 //! bytes never decide: a rebase that merges unrelated lines into a board
 //! file, `canvas.json` or a component's source changes bytes and no drawing.
 
-use crate::Folders;
 use crate::design;
 use crate::names::{Platform, Previews};
 use crate::render::{self, board, preview};
@@ -89,7 +88,7 @@ pub(crate) fn lines(
     against: &str,
     boards: &[String],
     components: &[String],
-    folders: Folders<'_>,
+    folders: &boards::Folders,
 ) -> Result<Vec<String>, String> {
     let selection = if boards.is_empty() && components.is_empty() {
         Selection::All
@@ -157,15 +156,19 @@ fn holds(root: &Path, rev: &str, what: &str) -> Result<bool, String> {
 fn read(
     root: &Path,
     rev: &str,
-    folders: Folders<'_>,
+    folders: &boards::Folders,
     selection: Selection<'_>,
 ) -> Result<Drawings, String> {
-    design::at_revision(root, rev, folders.cache, |work| {
+    design::at_revision(root, rev, &folders.cache, |work| {
         draw(work, folders, selection)
     })
 }
 
-fn draw(work: &Path, folders: Folders<'_>, selection: Selection<'_>) -> Result<Drawings, String> {
+fn draw(
+    work: &Path,
+    folders: &boards::Folders,
+    selection: Selection<'_>,
+) -> Result<Drawings, String> {
     let previews = Previews::of(work)?;
     render::with_design(work, folders, async |server, chrome, frames| {
         let (boards, components): (Vec<_>, Vec<_>) = match selection {

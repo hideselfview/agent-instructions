@@ -158,12 +158,12 @@ impl Source<'_> {
 
     /// The design system as a board draws in Chrome on a Mac: its
     /// tokens.css ends with the `@font-face` rules for the SF Mono files in
-    /// <fonts> (`fonts`), which a page loads from the server that serves it.
+    /// <folders>' fonts folder (`fonts`), which a page loads from the server that serves it.
     /// A page that is a file cannot load those files. What is published or
     /// written to the repo takes `design_system`.
-    pub fn board_design_system(&self, cache: &Path, fonts: &Path) -> Result<[String; 3]> {
-        let [css, bundle_css, bundle_js] = self.design_system(cache)?;
-        let rules = crate::fonts::font_face_css(fonts)?;
+    pub fn board_design_system(&self, folders: &crate::Folders) -> Result<[String; 3]> {
+        let [css, bundle_css, bundle_js] = self.design_system(&folders.cache)?;
+        let rules = crate::fonts::font_face_css(&folders.fonts)?;
         Ok([format!("{css}\n{rules}"), bundle_css, bundle_js])
     }
 
@@ -431,6 +431,11 @@ pub fn export(repo: &Path, rev: &str, paths: &[String], into: &Path, what: &str)
             String::from_utf8_lossy(&archive.stderr).trim()
         );
     }
+    unpack(&archive.stdout, into, what, rev)
+}
+
+/// Unpacks the tar archive <archive> into <into>.
+fn unpack(archive: &[u8], into: &Path, what: &str, rev: &str) -> Result<()> {
     let mut tar = Command::new("tar")
         .arg("-x")
         .arg("-C")
@@ -444,7 +449,7 @@ pub fn export(repo: &Path, rev: &str, paths: &[String], into: &Path, what: &str)
     // tar has unpacked everything. A tar that failed says so in its status.
     match std::io::Write::write_all(
         &mut tar.stdin.take().expect("tar's stdin is piped"),
-        &archive.stdout,
+        archive,
     ) {
         Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => {}
         written => written.context(|| "feeding tar".to_string())?,

@@ -28,14 +28,12 @@ fn copy_tree(from: &Path, to: &Path) {
 
 /// The checker's cache folder, and a fonts folder that does not exist, as on
 /// a host that is not a Mac.
-fn cache() -> crate::Folders<'static> {
-    static FOLDERS: std::sync::OnceLock<(std::path::PathBuf, std::path::PathBuf)> =
-        std::sync::OnceLock::new();
-    let (cache, fonts) = FOLDERS.get_or_init(|| {
-        let home = std::path::PathBuf::from(std::env::var_os("HOME").expect("HOME is set"));
-        (home.join(".cache/builds-shots"), home.join("no-such-fonts"))
-    });
-    crate::Folders { cache, fonts }
+fn folders() -> boards::Folders {
+    let home = std::path::PathBuf::from(std::env::var_os("HOME").expect("HOME is set"));
+    boards::Folders {
+        cache: home.join(".cache/builds-shots"),
+        fonts: tempfile::tempdir().unwrap().path().join("fonts"),
+    }
 }
 
 const BOARD: &str = "dashboard.designs-publish";
@@ -82,9 +80,9 @@ fn history() -> tempfile::TempDir {
 fn a_board_whose_bytes_change_and_drawing_does_not_draws_alike_and_a_redrawn_one_differs() {
     let repo = history();
     let boards = vec![BOARD.to_string()];
-    let same = lines(repo.path(), "a", "b", &boards, &[], cache()).unwrap();
+    let same = lines(repo.path(), "a", "b", &boards, &[], &folders()).unwrap();
     assert_eq!(same, vec![format!("alike board {BOARD}")]);
-    let moved = lines(repo.path(), "b", "c", &boards, &[], cache()).unwrap();
+    let moved = lines(repo.path(), "b", "c", &boards, &[], &folders()).unwrap();
     assert_eq!(moved, vec![format!("differs board {BOARD}")]);
 }
 
@@ -136,7 +134,7 @@ fn a_preview_draws_at_rest_even_when_a_rule_marks_an_animation_important() {
             "at-rest",
             &[],
             &[component.to_string()],
-            cache(),
+            &folders(),
         )
         .unwrap();
         assert_eq!(drawings, ["alike component Welcome"], "{revision}");
@@ -169,7 +167,7 @@ fn a_label_below_the_viewport_changes_the_full_preview_drawing() {
         "after-label",
         &[],
         &[component.to_string()],
-        cache(),
+        &folders(),
     )
     .unwrap();
     assert_eq!(drawings, ["differs component MacRow"]);
@@ -224,7 +222,7 @@ fn a_board_or_component_that_neither_revision_draws_draws_alike_when_their_merge
     let (repo, component) = history_with_deletions();
     let boards = vec![BOARD.to_string()];
     let components = vec![component.clone()];
-    let both_gone = lines(repo.path(), "d", "e", &boards, &components, cache()).unwrap();
+    let both_gone = lines(repo.path(), "d", "e", &boards, &components, &folders()).unwrap();
     assert_eq!(
         both_gone,
         vec![
@@ -238,13 +236,13 @@ fn a_board_or_component_that_neither_revision_draws_draws_alike_when_their_merge
 fn a_board_or_component_that_no_revision_holds_is_an_error() {
     let (repo, _) = history_with_deletions();
     let missing = vec!["no-such-board".to_string()];
-    let error = lines(repo.path(), "d", "e", &missing, &[], cache()).unwrap_err();
+    let error = lines(repo.path(), "d", "e", &missing, &[], &folders()).unwrap_err();
     assert!(
         error.contains("board no-such-board exists at neither"),
         "{error}"
     );
     let missing = vec!["NoSuchComponent".to_string()];
-    let error = lines(repo.path(), "d", "e", &[], &missing, cache()).unwrap_err();
+    let error = lines(repo.path(), "d", "e", &[], &missing, &folders()).unwrap_err();
     assert!(
         error.contains("component NoSuchComponent exists at neither"),
         "{error}"
@@ -257,7 +255,7 @@ fn a_board_or_component_that_exists_at_one_revision_only_differs() {
     let boards = vec![BOARD.to_string()];
     let components = vec![component.clone()];
     for (at, against) in [("p", "d"), ("d", "p")] {
-        let changed = lines(repo.path(), at, against, &boards, &components, cache()).unwrap();
+        let changed = lines(repo.path(), at, against, &boards, &components, &folders()).unwrap();
         assert_eq!(
             changed,
             vec![
@@ -273,7 +271,7 @@ fn a_board_or_component_that_exists_at_one_revision_only_differs() {
 fn without_selectors_draws_compares_the_boards_and_previews_of_both_revisions() {
     let (repo, component) = history_with_deletions();
     for (at, against) in [("p", "d"), ("d", "p")] {
-        let drawings = lines(repo.path(), at, against, &[], &[], cache()).unwrap();
+        let drawings = lines(repo.path(), at, against, &[], &[], &folders()).unwrap();
         assert!(
             drawings.contains(&format!("differs board {BOARD}")),
             "{drawings:?}"
@@ -294,7 +292,7 @@ fn without_selectors_draws_reports_a_canvas_entry_whose_file_is_missing() {
     let repo = history();
     std::fs::remove_file(repo.path().join(boards::board_path(BOARD))).unwrap();
     git(repo.path(), &["commit", "-q", "-am", "missing board"]);
-    let error = lines(repo.path(), "HEAD", "c", &[], &[], cache()).unwrap_err();
+    let error = lines(repo.path(), "HEAD", "c", &[], &[], &folders()).unwrap_err();
     assert!(
         error.starts_with("HEAD:") && error.contains(&boards::board_path(BOARD)),
         "{error}"
