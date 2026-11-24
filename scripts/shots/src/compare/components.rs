@@ -11,11 +11,12 @@ impl Component {
     pub(super) fn extent(&self) -> (usize, usize, usize, usize) {
         let columns = self.cells.iter().map(|c| c.0);
         let rows = self.cells.iter().map(|c| c.1);
+        let held = "a component holds a cell";
         (
-            columns.clone().min().unwrap_or(0),
-            rows.clone().min().unwrap_or(0),
-            columns.max().unwrap_or(0),
-            rows.max().unwrap_or(0),
+            columns.clone().min().expect(held),
+            rows.clone().min().expect(held),
+            columns.max().expect(held),
+            rows.max().expect(held),
         )
     }
 }
