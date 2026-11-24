@@ -269,6 +269,7 @@ pub fn cmd_programs(places: &crate::places::Places, args: &[String]) -> Result<(
     let here = std::env::current_dir().context(|| "reading the step's folder".to_string())?;
     let xcode_cache = crate::xcode_cache::settings_for(places, &here)?;
     use std::os::unix::process::CommandExt;
+    let path = crate::python::path_for_step(&command[0], &path)?.unwrap_or(path);
     let error = std::process::Command::new(&command[0])
         .args(&command[1..])
         .env("PATH", path)

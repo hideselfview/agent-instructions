@@ -132,6 +132,7 @@ mod procs;
 mod programs;
 mod prune;
 mod prune_schedule;
+mod python;
 mod queue;
 mod readings_file;
 mod remote;

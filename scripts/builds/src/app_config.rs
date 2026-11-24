@@ -933,6 +933,11 @@ fn start_of(top: &Path, command: &[String]) -> Result<Command> {
     };
     let mut start = Command::new(path);
     start.args(args).current_dir(top);
+    if let Some(python_path) =
+        crate::python::path_for_step(program, &std::env::var_os("PATH").unwrap_or_default())?
+    {
+        start.env("PATH", python_path);
+    }
     Ok(start)
 }
 
