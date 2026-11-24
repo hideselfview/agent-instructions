@@ -182,6 +182,26 @@ fn a_text_box_no_wider_than_the_board_text_compares_its_height() {
     );
 }
 
+#[test]
+fn a_text_box_of_another_width_says_nothing_of_the_frames_left_edge() {
+    // A line of text the board shrink-wraps and the shot lays out at its full
+    // width, centred in both: the box's left edge moves 6.3 pt and the text
+    // stays where it is. The button beside it fixes the frame at no offset.
+    let board = vec![
+        boxed(Role::Text, "Scan", 46.3, 305.0, 318.3, 30.0),
+        boxed(Role::Button, "Cancel", 160.1, 364.0, 90.9, 40.0),
+    ];
+    let shot = vec![
+        boxed(Role::Text, "Scan", 40.0, 304.9, 331.0, 30.1),
+        boxed(Role::Button, "Cancel", 160.0, 364.0, 91.0, 40.0),
+    ];
+    let pairs = compare(&board, &shot, Slots::NONE).pairs;
+    let (dx, dy) = frame_offset(&board, &shot, &pairs);
+    assert!(dx.abs() < 0.1, "{dx}");
+    assert!(dy.abs() < 0.1, "{dy}");
+    assert!(warnings(&board, &shot).is_empty());
+}
+
 /// Three images, the first two symbols in text lines as a board boxes them
 /// (the line's height), and two buttons that fix the frame.
 fn symbols() -> Vec<Element> {

@@ -19,22 +19,35 @@ fn median(mut values: Vec<f64>) -> f64 {
 }
 
 /// How far the shot's frame sits right and down of the board's: the median
-/// offset of the matched pairs' top-left corners.
+/// offset of the matched pairs' top-left corners, each axis from the pairs
+/// whose corner is where the element is drawn.
 pub(crate) fn frame_offset(
     board: &[Element],
     shot: &[Element],
     pairs: &[(Entry, Entry)],
 ) -> (f64, f64) {
-    // A symbol's corner is wherever the platform puts its glyph in the box,
-    // so a symbol says nothing of the frame.
-    let (dx, dy): (Vec<f64>, Vec<f64>) = pairs
-        .iter()
-        .filter_map(|(b, s)| {
-            let (from, to) = (b.bounds(board), shot[s.index].bounds);
-            (!is_glyph_in_box(b.kind, &from, &to)).then_some((to.x - from.x, to.y - from.y))
-        })
-        .unzip();
+    let (mut dx, mut dy) = (Vec::new(), Vec::new());
+    for (b, s) in pairs {
+        let (from, to) = (b.bounds(board), shot[s.index].bounds);
+        // A symbol's corner is wherever the platform puts its glyph in the
+        // box, so a symbol says nothing of the frame.
+        if is_glyph_in_box(b.kind, &from, &to) {
+            continue;
+        }
+        dy.push(to.y - from.y);
+        // A text box of another width is another line layout (the board
+        // wraps the line, the shot spans its container) and the text sits
+        // in it by its alignment, so its left edge says nothing of the frame.
+        if b.kind != Role::Text || widths_agree(&from, &to) {
+            dx.push(to.x - from.x);
+        }
+    }
     (median(dx), median(dy))
+}
+
+/// Whether two text boxes have the same width within the tolerance.
+fn widths_agree(board: &Bounds, shot: &Bounds) -> bool {
+    (shot.width - board.width).abs() <= EDGE_TOLERANCE
 }
 
 /// How one axis of a box differs: the shift of its start, and how much longer
@@ -130,9 +143,8 @@ pub(crate) fn boxes(
         let (horizontal, vertical) = if b.kind == Role::Text {
             // A platform's text box may span its container, so its left edge
             // and width say something only where the two widths agree.
-            let widths_agree = (to_bounds.width - from.width).abs() <= EDGE_TOLERANCE;
             (
-                widths_agree
+                widths_agree(&from, &to_bounds)
                     .then(|| {
                         Axis::start_and_length(from.x, from.width, to_bounds.x, to_bounds.width)
                     })
