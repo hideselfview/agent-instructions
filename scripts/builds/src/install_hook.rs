@@ -10,7 +10,6 @@
 //! worktree runs its own branch's hook rather than the installing checkout's.
 //! A name with a dot is a helper script, not a git hook, and gets none.
 
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use crate::fail;
@@ -47,12 +46,6 @@ exec \"$hook\" \"$@\"
     )
 }
 
-fn write_executable(path: &Path, text: &str) -> Result<()> {
-    std::fs::write(path, text).context(|| format!("writing {}", path.display()))?;
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755))
-        .context(|| format!("making {} executable", path.display()))
-}
-
 /// The names of the executable files in <top>/scripts/hooks that are git
 /// hooks other than pre-commit, sorted.
 fn forwarded_hooks(top: &Path) -> Result<Vec<String>> {
@@ -64,9 +57,10 @@ fn forwarded_hooks(top: &Path) -> Result<Vec<String>> {
     for entry in entries {
         let entry = entry.context(|| format!("reading {}", dir.display()))?;
         let name = entry.file_name().to_string_lossy().into_owned();
-        let executable = std::fs::metadata(entry.path())
-            .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0);
-        if executable && name != "pre-commit" && !name.contains('.') {
+        if crate::worktree::is_executable(&entry.path())
+            && name != "pre-commit"
+            && !name.contains('.')
+        {
             names.push(name);
         }
     }
@@ -83,13 +77,13 @@ pub fn install(repo: &Path) -> Result<PathBuf> {
     std::fs::create_dir_all(&dir).context(|| format!("creating {}", dir.display()))?;
     let dir = std::fs::canonicalize(&dir).context(|| format!("resolving {}", dir.display()))?;
     let path = dir.join("pre-commit");
-    write_executable(&path, HOOK)?;
+    crate::whole_file::write_executable(&path, HOOK)?;
     let top = git_text(
         git(repo).args(["rev-parse", "--show-toplevel"]),
         "find the top of the repo",
     )?;
     for name in forwarded_hooks(Path::new(top.trim()))? {
-        write_executable(&dir.join(&name), &forwarder(&name))?;
+        crate::whole_file::write_executable(&dir.join(&name), forwarder(&name))?;
     }
     Ok(path)
 }

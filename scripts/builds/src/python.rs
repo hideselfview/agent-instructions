@@ -92,7 +92,12 @@ fn prepare(path: &OsStr, extra: &[PathBuf], folder: &Path) -> Result<Option<OsSt
     std::fs::create_dir_all(folder).context(|| format!("making {}", folder.display()))?;
     let python3 = folder.join("python3");
     match found {
-        Some(found) => crate::built_tools::point(&python3, &found)?,
+        Some(found) => {
+            for problem in &problems {
+                crate::text::note(format!("python: {problem}"));
+            }
+            crate::built_tools::point(&python3, &found)?
+        }
         None => {
             let mut why = format!(
                 "builds runs Python steps with Python {}.{} or later, which has tomllib, and \
@@ -121,7 +126,7 @@ fn prepare(path: &OsStr, extra: &[PathBuf], folder: &Path) -> Result<Option<OsSt
 /// them: in each folder of <path> and then <extra>, `python3`, then each
 /// `python3.N` the newest first. <folder> is the one this module makes, so its
 /// `python3` is no candidate. A folder that cannot be listed adds its error to
-/// <problems>.
+/// <problems>, which `prepare` says on stderr when it links a Python anyway.
 fn candidates(
     path: &OsStr,
     extra: &[PathBuf],
@@ -134,33 +139,17 @@ fn candidates(
         if dir == folder || seen.contains(&dir) {
             continue;
         }
-        let mut versioned: Vec<(u32, PathBuf)> = Vec::new();
-        match std::fs::read_dir(&dir) {
-            Ok(entries) => {
-                for entry in entries {
-                    match entry {
-                        Ok(entry) => {
-                            let minor = entry
-                                .file_name()
-                                .to_str()
-                                .and_then(|name| name.strip_prefix("python3."))
-                                .and_then(|minor| minor.parse::<u32>().ok());
-                            if let Some(minor) = minor
-                                && minor >= MINIMUM.1
-                                && is_executable(&entry.path())
-                            {
-                                versioned.push((minor, entry.path()));
-                            }
-                        }
-                        Err(error) => {
-                            problems.push(format!("listing {} failed: {error}", dir.display()))
-                        }
-                    }
-                }
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => problems.push(format!("listing {} failed: {error}", dir.display())),
-        }
+        let entries = crate::capped_store::entries_in(&dir).unwrap_or_else(|error| {
+            problems.push(error.text());
+            Vec::new()
+        });
+        let mut versioned: Vec<(u32, PathBuf)> = entries
+            .into_iter()
+            .filter_map(|(name, path)| {
+                let minor = name.strip_prefix("python3.")?.parse::<u32>().ok()?;
+                (minor >= MINIMUM.1 && is_executable(&path)).then_some((minor, path))
+            })
+            .collect();
         versioned.sort_by_key(|(minor, _)| std::cmp::Reverse(*minor));
         let plain = dir.join("python3");
         if is_executable(&plain) {
