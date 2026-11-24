@@ -72,7 +72,7 @@ pub(crate) fn enabled_state(kind: Role, enabled: bool) -> Option<bool> {
 /// is one text, which the outer element stands for.
 fn is_selectable_copy(list: &[Element], index: usize) -> bool {
     let element = &list[index];
-    let Some(parent) = element.parent.filter(|p| *p < index) else {
+    let Some(parent) = element.parent else {
         return false;
     };
     let holder = &list[parent];
