@@ -302,31 +302,31 @@ fn candidate_at(root: &Path) -> Candidate {
 }
 
 #[test]
-fn a_revision_without_a_lock_is_empty_and_git_failing_is_an_error() {
+fn lock_blob_distinguishes_an_absent_lock_from_a_git_failure() {
     let scratch = Scratch::new("warm-lock-blob");
     let main = scratch.dir.join("demo");
     repo(&main, "target 1G\n");
-    assert_eq!(lock_blob(&main, "HEAD").unwrap(), "");
-    assert_eq!(lock_blob(&main, "origin/main").unwrap(), "");
+    assert_eq!(lock_blob(&main, "HEAD").unwrap(), None);
+    assert_eq!(lock_blob(&main, "origin/main").unwrap(), None);
     std::fs::write(main.join("Cargo.lock"), "# lock\n").unwrap();
     git(&main, &["add", "Cargo.lock"]);
     git(&main, &["commit", "-q", "-m", "Lock"]);
-    assert_eq!(lock_blob(&main, "HEAD").unwrap().len(), 40);
+    assert_eq!(
+        lock_blob(&main, "HEAD").unwrap(),
+        Some(crate::testing::git_out(
+            &main,
+            &["hash-object", "Cargo.lock"]
+        ))
+    );
 
     let not_a_repo = scratch.dir.join("plain");
     std::fs::create_dir_all(&not_a_repo).unwrap();
     let fault = lock_blob(&not_a_repo, "HEAD").unwrap_err().text();
-    assert!(
-        fault.contains("git failed to find Cargo.lock at HEAD"),
-        "{fault}"
-    );
+    assert!(fault.contains("HEAD:Cargo.lock"), "{fault}");
 
     std::fs::write(main.join(".git/HEAD"), "garbage\n").unwrap();
     let broken = lock_blob(&main, "HEAD").unwrap_err().text();
-    assert!(
-        broken.contains("git failed to find Cargo.lock at HEAD"),
-        "{broken}"
-    );
+    assert!(broken.contains("HEAD:Cargo.lock"), "{broken}");
 }
 
 #[test]

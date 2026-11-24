@@ -48,7 +48,7 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use crate::checkout::{Checkout, Root};
+use crate::checkout::{Checkout, Root, resolve_revision};
 use crate::evict::{cargo_locks, lock_exclusive_creating};
 use crate::fail;
 use crate::fail::{Context, Result};
@@ -239,28 +239,9 @@ pub(crate) fn is_empty_dir(dir: &Path) -> Result<bool> {
         .is_none())
 }
 
-/// The blob git has for Cargo.lock at <rev> in <dir>, or "" when <rev> has
-/// none. `rev-parse --verify -q` exits 1, silently, for a name that resolves
-/// to nothing; any other way for git to fail (it did not start, another exit
-/// status, a signal, a broken repo) is an error, never read as "no lock".
-fn lock_blob(dir: &Path, rev: &str) -> Result<String> {
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(dir)
-        .args(["rev-parse", "--verify", "-q", &format!("{rev}:Cargo.lock")])
-        .stdin(Stdio::null())
-        .output()
-        .context(|| format!("running git in {}", dir.display()))?;
-    match output.status.code() {
-        Some(0) => Ok(String::from_utf8_lossy(&output.stdout).trim().to_string()),
-        Some(1) if output.stderr.is_empty() => Ok(String::new()),
-        _ => fail!(
-            "git failed to find Cargo.lock at {rev} in {}: {} {}",
-            dir.display(),
-            output.status,
-            String::from_utf8_lossy(&output.stderr).trim()
-        ),
-    }
+/// The blob Git has for Cargo.lock at <rev> in <dir>, or None when it has none.
+fn lock_blob(dir: &Path, rev: &str) -> Result<Option<String>> {
+    resolve_revision(dir, &format!("{rev}:Cargo.lock"))
 }
 
 /// Every other checkout of <checkout>'s repo whose `target` could be cloned
