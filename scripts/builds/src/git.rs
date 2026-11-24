@@ -10,20 +10,10 @@ use crate::fail::{Context, Result};
 
 /// What <args> prints in <repo>, or why it failed.
 pub fn text(repo: &Path, args: &[&str]) -> Result<String> {
-    let output = boards::git(repo)
-        .args(args)
-        .stdin(Stdio::null())
-        .output()
-        .context(|| format!("running git {}", args.join(" ")))?;
-    if !output.status.success() {
-        fail!(
-            "git {} failed in {}: {}",
-            args.join(" "),
-            repo.display(),
-            String::from_utf8_lossy(&output.stderr).trim()
-        );
-    }
-    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+    Ok(boards::git_text(
+        boards::git(repo).args(args),
+        &format!("run git {} in {}", args.join(" "), repo.display()),
+    )?)
 }
 
 /// The full object ID of <rev>, or None when Git cannot find it. Quiet
