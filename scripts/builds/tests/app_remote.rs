@@ -485,7 +485,7 @@ fn a_stop_signal_ends_an_app_build_that_waits_for_its_hosts_display() {
         "mac",
         "Good",
     ]);
-    build.until_said("takes m1's display");
+    build.until_said("to release m1's display");
     build.signal(libc::SIGTERM);
     let status = build
         .ended_within(Duration::from_secs(20))
