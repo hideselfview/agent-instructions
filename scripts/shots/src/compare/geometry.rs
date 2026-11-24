@@ -25,20 +25,15 @@ pub(crate) fn frame_offset(
     shot: &[Element],
     pairs: &[(Entry, Entry)],
 ) -> (f64, f64) {
-    // A symbol's corner is wherever its glyph sits in the box, so its middle
-    // stands for it.
-    let anchor = |b: &Entry, s: &Entry| {
-        let (from, to) = (b.bounds(board), shot[s.index].bounds);
-        if is_glyph_in_box(b.kind, &from, &to) {
-            (
-                to.x + to.width / 2.0 - (from.x + from.width / 2.0),
-                to.y + to.height / 2.0 - (from.y + from.height / 2.0),
-            )
-        } else {
-            (to.x - from.x, to.y - from.y)
-        }
-    };
-    let (dx, dy): (Vec<f64>, Vec<f64>) = pairs.iter().map(|(b, s)| anchor(b, s)).unzip();
+    // A symbol's corner is wherever the platform puts its glyph in the box,
+    // so a symbol says nothing of the frame.
+    let (dx, dy): (Vec<f64>, Vec<f64>) = pairs
+        .iter()
+        .filter_map(|(b, s)| {
+            let (from, to) = (b.bounds(board), shot[s.index].bounds);
+            (!is_glyph_in_box(b.kind, &from, &to)).then_some((to.x - from.x, to.y - from.y))
+        })
+        .unzip();
     (median(dx), median(dy))
 }
 
@@ -89,22 +84,22 @@ impl Axis {
     }
 }
 
-impl Axis {
-    /// A box drawn inside the one it fills, compared by its middle: the shift
-    /// of the middle, and no size.
-    fn middle(board_start: f64, board_len: f64, shot_start: f64, shot_len: f64) -> Option<Self> {
-        let shift = (shot_start + shot_len / 2.0) - (board_start + board_len / 2.0);
-        (shift.abs() > EDGE_TOLERANCE).then_some(Self { shift, grow: 0.0 })
-    }
-}
-
-/// Whether a pair of images is a symbol the Mac boxes by the glyph it draws
-/// (no larger than the board's box, which is as high as the line the symbol
-/// sits in), so that the sides share the middle of the box and not its edges.
+/// Whether a pair of images is a symbol the Mac boxes by the glyph it draws:
+/// no larger than the board's box, which is as high as the line the symbol
+/// sits in. The glyph's place in that box is the platform's, so the sides
+/// share only that the glyph lies inside the box.
 fn is_glyph_in_box(kind: Role, board: &Bounds, shot: &Bounds) -> bool {
     kind == Role::Image
         && shot.width <= board.width + EDGE_TOLERANCE
         && shot.height <= board.height + EDGE_TOLERANCE
+}
+
+/// Whether `shot` lies inside `board`, each edge within the tolerance.
+fn lies_inside(board: &Bounds, shot: &Bounds) -> bool {
+    shot.x >= board.x - EDGE_TOLERANCE
+        && shot.y >= board.y - EDGE_TOLERANCE
+        && shot.x + shot.width <= board.x + board.width + EDGE_TOLERANCE
+        && shot.y + shot.height <= board.y + board.height + EDGE_TOLERANCE
 }
 
 /// The geometry warnings of the pairs, the shot's boxes moved back by `offset`.
@@ -134,11 +129,8 @@ pub(crate) fn boxes(
                     .flatten(),
                 Axis::start_and_length(from.y, from.height, to_bounds.y, to_bounds.height),
             )
-        } else if is_glyph_in_box(b.kind, &from, &to_bounds) {
-            (
-                Axis::middle(from.x, from.width, to_bounds.x, to_bounds.width),
-                Axis::middle(from.y, from.height, to_bounds.y, to_bounds.height),
-            )
+        } else if is_glyph_in_box(b.kind, &from, &to_bounds) && lies_inside(&from, &to_bounds) {
+            (None, None)
         } else {
             (
                 Axis::edges(from.x, from.width, to_bounds.x, to_bounds.width),
