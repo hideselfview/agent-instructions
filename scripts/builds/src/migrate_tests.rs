@@ -2389,7 +2389,10 @@ fn an_app_build_run_keeps_its_checkout_when_the_store_adds_requested_commits() {
     }
     move_store(&places, &path, 0).unwrap();
     let run = crate::app_timing::read_run(&path).unwrap();
-    assert_eq!(run.built_commit.map(|built| built.sha).as_deref(), Some(commit.as_str()));
+    assert_eq!(
+        run.built_commit.map(|built| built.sha).as_deref(),
+        Some(commit.as_str())
+    );
     assert_eq!(run.requested_commit, None);
 }
 
