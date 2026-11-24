@@ -347,10 +347,12 @@ pub(crate) fn pairs(board: &Side, shot: &Side, pairs: &[(Entry, Entry)]) -> Vec<
     warnings
 }
 
-/// The index of an element drawn after <entry>, and no part of it, that holds
-/// the whole of its box: a sheet, popover or scrim over it. A list holds an
-/// element after the elements under it, so the box shows the later element's
-/// pixels. A list holds each parent before its children (`Shot::problems`).
+/// The index of an element drawn after <entry>, and no part of it, that
+/// overlaps its box by more than [`EDGE_TOLERANCE`] in each direction: a
+/// sheet, popover or scrim over it. A list holds an element after the
+/// elements under it, so the box shows the later element's pixels where they
+/// overlap, and a glyph the overlap cuts has no colour of its own to measure.
+/// A list holds each parent before its children (`Shot::problems`).
 fn covering(list: &[Element], entry: &Entry) -> Option<usize> {
     let at = entry.bounds(list);
     let own = |index: usize| index == entry.index || entry.folded.contains(&index);
@@ -372,10 +374,10 @@ fn covering(list: &[Element], entry: &Entry) -> Option<usize> {
     ((last + 1)..list.len()).find(|&index| {
         let over = list[index].bounds;
         !part_of_entry(index)
-            && over.x <= at.x + tolerance
-            && over.y <= at.y + tolerance
-            && over.x + over.width >= at.x + at.width - tolerance
-            && over.y + over.height >= at.y + at.height - tolerance
+            && over.x + over.width > at.x + tolerance
+            && over.x < at.x + at.width - tolerance
+            && over.y + over.height > at.y + tolerance
+            && over.y < at.y + at.height - tolerance
     })
 }
 

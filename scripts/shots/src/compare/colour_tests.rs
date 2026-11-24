@@ -462,21 +462,26 @@ fn an_element_that_a_later_element_covers_is_compared_for_no_colour() {
 }
 
 #[test]
-fn a_later_element_that_covers_only_part_of_the_box_hides_nothing() {
+fn a_later_element_that_covers_part_of_the_box_hides_its_colours() {
     let draw = |ink: Rgb| picture(8, 8, move |x, _| if x < 3 { ink } else { [40, 40, 48] });
-    let beside = Bounds {
-        x: 4.0,
+    let (board, shot) = (draw([255, 255, 255]), draw([224, 224, 224]));
+    let over = |x: f64| Bounds {
+        x,
         y: 0.0,
         width: 8.0,
         height: 8.0,
     };
+    // The box's right half is a sheet's, and the glyph is cut: its colour
+    // says nothing of the element.
+    assert!(warn_with_cover(|list| list.push(sheet(None, over(4.0))), &board, &shot).is_empty());
+    // Another box that overlaps by no more than the edge tolerance hides
+    // nothing.
     assert_eq!(
-        warn_with_cover(
-            |list| list.push(sheet(None, beside)),
-            &draw([255, 255, 255]),
-            &draw([224, 224, 224])
-        )
-        .len(),
+        warn_with_cover(|list| list.push(sheet(None, over(6.0))), &board, &shot).len(),
+        1
+    );
+    assert_eq!(
+        warn_with_cover(|list| list.push(sheet(None, over(8.0))), &board, &shot).len(),
         1
     );
 }
