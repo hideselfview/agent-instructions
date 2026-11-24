@@ -653,22 +653,6 @@ fn build_runner_here(
     Ok(Some((runner.variable.clone(), path)))
 }
 
-/// Takes <checkout>'s guard (`units::hold_guard`) and, under it, deletes the
-/// record of each build script run in the checkout's cargo folders whose
-/// `cargo:` lines name another checkout, so cargo runs the script again. A
-/// folder cloned from another checkout before builds forgot those runs at the
-/// clone holds them, and its links then search a folder that may be removed.
-fn hold_guard_for_cargo(
-    places: &Places,
-    checkout: Option<&Checkout>,
-) -> Result<Option<std::fs::File>> {
-    let guard = crate::units::hold_guard(places, checkout)?;
-    if let Some(checkout) = checkout {
-        crate::units::other_checkouts::forget_runs_naming_other_checkouts(places, checkout)?;
-    }
-    Ok(guard)
-}
-
 /// Runs cargo here, with the recorder reading its output and <watch> each
 /// line of it that is no message for the recorder. When this process's
 /// stderr is no terminal, cargo's messages pass through builds, which times
@@ -689,7 +673,7 @@ fn run_here(
     watch: &crate::cargo_run_outcome::Watch,
 ) -> Result<Exited> {
     // Held until cargo has exited and the recorder has read its last line.
-    let guard = hold_guard_for_cargo(places, checkout)?;
+    let guard = crate::units::hold_guard(places, checkout)?;
     let root = checkout
         .map(|checkout| checkout.build_root(places))
         .filter(|root| root.is_dir());
@@ -844,7 +828,7 @@ fn run_mutants_here(
     env: &dyn Fn(&str) -> Option<std::ffi::OsString>,
 ) -> Result<Exited> {
     let setup = CargoSetup::read(places, checkout, env)?;
-    let guard = hold_guard_for_cargo(places, checkout)?;
+    let guard = crate::units::hold_guard(places, checkout)?;
     let settings = crate::cargo_mutants::cargo_args(
         setup
             .config

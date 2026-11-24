@@ -8,7 +8,7 @@
 //! that checkout's path in its printed lines and cargo calls the run up to
 //! date. The folder's links then search the other checkout's folders, and fail
 //! once that checkout is removed (and read another checkout's files until
-//! then). A run whose lines name another checkout is deleted, so cargo runs
+//! then). A clone deletes each run whose lines name another checkout, so cargo runs
 //! the script again where it now builds.
 
 use std::path::{Path, PathBuf};
@@ -18,22 +18,7 @@ use super::{profile_dirs, remove};
 use crate::checkout::{Checkout, file_name, worktrees_folder};
 use crate::evict::lock_exclusive_creating;
 use crate::fail::{Context, Result};
-use crate::manifest::build_dirs;
 use crate::places::Places;
-
-/// Deletes the fingerprint of each build script run in the cargo folders of
-/// <checkout>'s build root that printed a `cargo:` line naming another
-/// checkout of the repo (`OtherCheckouts`), so that cargo runs the script
-/// again. A folder cloned before builds forgot such runs at the clone holds
-/// them still.
-pub fn forget_runs_naming_other_checkouts(places: &Places, checkout: &Checkout) -> Result<()> {
-    let others = OtherCheckouts::of(places, checkout);
-    let root = checkout.build_root(places);
-    for dir in build_dirs(&checkout.top)? {
-        others.forget_runs_in(&root.join(&dir.path))?;
-    }
-    Ok(())
-}
 
 /// The paths of a repo's checkouts other than one of them: any folder below
 /// the repo's worktrees folder or the repo's build roots but the checkout's

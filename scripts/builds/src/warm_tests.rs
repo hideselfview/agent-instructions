@@ -615,29 +615,15 @@ fn a_new_app_checkout_forgets_the_build_script_runs_that_name_the_sources_paths(
 }
 
 #[test]
-fn a_build_folder_forgets_the_build_script_runs_that_name_another_checkout() {
+fn a_new_target_forgets_the_build_script_runs_that_name_any_other_checkout() {
     let scratch = Scratch::new("forget-other-checkouts");
     let tool = scratch.tool(0);
-    let (main, _) = warm_main(&scratch, &tool);
-    cmd_new(
-        &tool,
-        &crate::testing::no_ssh(),
-        &[main.display().to_string(), "--for".into(), "agent".into()],
-    )
-    .unwrap();
-    let side = Checkout::find(
-        &scratch
-            .dir
-            .join("demo-worktrees/side-1")
-            .display()
-            .to_string(),
-    )
-    .unwrap();
+    let (main, source) = warm_main(&scratch, &tool);
     let (trees, builds) = (
         scratch.dir.join("demo-worktrees"),
         tool.places.root.join("demo"),
     );
-    let ours = side.build_root(&tool.places);
+    let new_root = builds.join("side-1");
     let search = |path: &Path| format!("cargo:rustc-link-search=native={}\n", path.display());
     let runs = [
         (
@@ -660,21 +646,28 @@ fn a_build_folder_forgets_the_build_script_runs_that_name_another_checkout() {
         (
             "own-root",
             false,
-            search(&ours.join("target/debug/build/x/out")),
+            search(&new_root.join("target/debug/build/x/out")),
         ),
         ("system", false, search(Path::new("/opt/ffmpeg/lib"))),
     ];
-    let profile = ours.join("target/debug");
     // A unit is named by its hash alone, so each run has its own.
     let hash = |at: usize| format!("{at:016x}");
     for (at, (package, _, printed)) in runs.iter().enumerate() {
-        build_script_run(&profile, package, &hash(at), false, printed);
+        build_script_run(&source.join("debug"), package, &hash(at), false, printed);
     }
 
-    crate::units::other_checkouts::forget_runs_naming_other_checkouts(&tool.places, &side).unwrap();
+    cmd_new(
+        &tool,
+        &crate::testing::no_ssh(),
+        &[main.display().to_string(), "--for".into(), "agent".into()],
+    )
+    .unwrap();
 
     for (at, (package, forgotten, _)) in runs.iter().enumerate() {
-        let fingerprint = profile.join(format!("build/{package}/{}/fingerprint", hash(at)));
+        let fingerprint = new_root.join(format!(
+            "target/debug/build/{package}/{}/fingerprint",
+            hash(at)
+        ));
         assert_eq!(
             !fingerprint.exists(),
             *forgotten,
