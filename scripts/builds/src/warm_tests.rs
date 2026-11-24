@@ -522,3 +522,127 @@ fn a_source_with_no_cargo_build_leaves_the_new_checkout_cold() {
             .is_none()
     );
 }
+
+/// Writes the run of a build script that printed <printed>, in the shared
+/// folders layout (build/<package>-<hash>/) when <shared> is set, else in the
+/// unit folders layout (build/<package>/<hash>/).
+fn build_script_run(profile: &Path, package: &str, hash: &str, shared: bool, printed: &str) {
+    if shared {
+        let print = profile.join(format!("build/{package}-{hash}/output"));
+        std::fs::create_dir_all(print.parent().unwrap()).unwrap();
+        std::fs::write(print, printed).unwrap();
+        fill_file(
+            &profile.join(format!(
+                ".fingerprint/{package}-{hash}/run-build-script-build-script-build"
+            )),
+            1,
+        );
+    } else {
+        let unit = profile.join(format!("build/{package}/{hash}"));
+        std::fs::create_dir_all(unit.join("run")).unwrap();
+        std::fs::write(unit.join("run/stdout"), printed).unwrap();
+        fill_file(
+            &unit.join("fingerprint/run-build-script-build-script-build"),
+            1,
+        );
+    }
+}
+
+/// Writes into <profile> the runs a clone from <top> must forget and the ones
+/// it must keep. Returns the fingerprint folder of each run to forget, then of
+/// each to keep.
+fn runs_naming(profile: &Path, top: &Path) -> (Vec<PathBuf>, Vec<PathBuf>) {
+    let top = top.display();
+    let dist = format!("cargo:rustc-link-search=native={top}/bae-ffmpeg/dist/lib\n");
+    let env = format!("cargo:rustc-env=SOURCE_DIR={top}\n");
+    let neighbour = format!("cargo:rustc-link-search=native={top}2/dist/lib\n");
+    let debug_only = format!("OUT_DIR = Some({top}/target/out)\ncargo:rerun-if-changed=build.rs\n");
+    build_script_run(profile, "ffmpeg-sys", "1111111111111111", false, &dist);
+    build_script_run(profile, "other-sys", "2222222222222222", false, &env);
+    build_script_run(profile, "old-sys", "3333333333333333", true, &dist);
+    build_script_run(profile, "near-sys", "4444444444444444", false, &neighbour);
+    build_script_run(profile, "quiet-sys", "5555555555555555", false, &debug_only);
+    let unit =
+        |package: &str, hash: &str| profile.join(format!("build/{package}/{hash}/fingerprint"));
+    (
+        vec![
+            unit("ffmpeg-sys", "1111111111111111"),
+            unit("other-sys", "2222222222222222"),
+            profile.join(".fingerprint/old-sys-3333333333333333"),
+        ],
+        vec![
+            unit("near-sys", "4444444444444444"),
+            unit("quiet-sys", "5555555555555555"),
+        ],
+    )
+}
+
+fn assert_runs_forgotten(forgotten: &[PathBuf], kept: &[PathBuf]) {
+    for fingerprint in forgotten {
+        assert!(
+            !fingerprint.exists(),
+            "{} names the source checkout's path, so cargo must run its build script again",
+            fingerprint.display()
+        );
+    }
+    for fingerprint in kept {
+        assert!(
+            fingerprint.is_dir(),
+            "{} names no path of the source checkout and is still built",
+            fingerprint.display()
+        );
+    }
+}
+
+#[test]
+fn a_new_target_forgets_the_build_script_runs_that_name_the_sources_paths() {
+    let scratch = Scratch::new("warm-forget");
+    let tool = scratch.tool(0);
+    let (main, source) = warm_main(&scratch, &tool);
+    let (forgotten, kept) = runs_naming(&source.join("debug"), &main);
+    let new_target = tool.places.root.join("demo/side-1/target");
+    let moved = |paths: &[PathBuf]| -> Vec<PathBuf> {
+        paths
+            .iter()
+            .map(|path| new_target.join(path.strip_prefix(&source).unwrap()))
+            .collect()
+    };
+
+    cmd_new(
+        &tool,
+        &crate::testing::no_ssh(),
+        &[main.display().to_string(), "--for".into(), "agent".into()],
+    )
+    .unwrap();
+
+    assert_runs_forgotten(&moved(&forgotten), &moved(&kept));
+    for fingerprint in forgotten.iter().chain(&kept) {
+        assert!(
+            fingerprint.exists(),
+            "the source keeps {}",
+            fingerprint.display()
+        );
+    }
+}
+
+#[test]
+fn a_new_app_checkout_forgets_the_build_script_runs_that_name_the_sources_paths() {
+    let scratch = Scratch::new("warm-lane-forget");
+    let tool = scratch.tool(0);
+    let (source, dest) = lane_checkouts(&scratch, &tool);
+    let (from, to) = (
+        source.build_root(&tool.places),
+        dest.build_root(&tool.places),
+    );
+    let (forgotten, kept) = runs_naming(&from.join("target-macos/debug"), &source.top);
+    let moved = |paths: &[PathBuf]| -> Vec<PathBuf> {
+        paths
+            .iter()
+            .map(|path| to.join(path.strip_prefix(&from).unwrap()))
+            .collect()
+    };
+
+    clone_lane(&tool, Lane::Mac, &source, &dest).unwrap();
+
+    assert_runs_forgotten(&moved(&forgotten), &moved(&kept));
+}

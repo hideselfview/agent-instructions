@@ -35,6 +35,14 @@
 //! source's did when it was built; a file that differs keeps its new mtime and
 //! is rebuilt, as it must be.
 //!
+//! A build script that reads a path from its environment (ffmpeg-sys-next's
+//! FFMPEG_DIR) prints it in a `cargo:` line, and cargo's record of the run
+//! does not name the variable, so the clone would keep the source's path in
+//! its links and fail once that checkout is removed. After the clone, the
+//! record of each run whose `cargo:` lines name the source's working tree or
+//! build root is deleted (`forget_runs_naming`), and cargo runs those scripts
+//! again.
+//!
 //! The clone is made beside its destination and renamed over the empty folder,
 //! so the folder is empty or whole. Every incremental folder is then deleted,
 //! whatever its age: the clone's folders were written by the source's builds
@@ -371,6 +379,7 @@ pub fn fill(tool: &Tool, checkout: &Checkout) -> Result<()> {
     // The source's files are read while its guard is held: no build there
     // writes them, so their mtimes are what its fingerprints were made from.
     match_times(&held.candidate.top, &checkout.top)?;
+    units::source_paths::forget_runs_naming(&dest, &[&held.candidate.top, &held.candidate.root])?;
     drop(held);
     note(format!(
         "cloned {} into {}",
@@ -511,6 +520,9 @@ pub fn clone_lane(tool: &Tool, lane: Lane, source: &Checkout, dest: &Checkout) -
     // The source's files are read while its guard is held: no build there
     // writes them, so their mtimes are what its fingerprints were made from.
     match_times(&source.top, &dest.top)?;
+    for folder in &cloned {
+        units::source_paths::forget_runs_naming(folder, &[&source.top, &source_root])?;
+    }
     drop(held);
     // An app checkout's builds run without incremental compilation.
     units::prune::prune(&Ages::new(tool.rules.unused_days, 0), Run::Real, &cloned)?;

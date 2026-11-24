@@ -64,6 +64,7 @@ pub mod idle;
 pub mod objects;
 pub mod prune;
 pub mod record;
+pub mod source_paths;
 pub mod unit;
 
 use std::collections::HashSet;

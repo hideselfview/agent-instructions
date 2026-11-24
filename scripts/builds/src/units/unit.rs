@@ -66,6 +66,15 @@ impl Unit {
         paths
     }
 
+    /// The file a build script's run wrote its `cargo:` lines to, in either
+    /// layout; None for a unit that is no run.
+    pub fn printed(&self) -> Option<PathBuf> {
+        match &self.place {
+            Place::Shared { build } => build.as_ref().map(|build| build.join("output")),
+            Place::Own { folder, .. } => Some(folder.join("run/stdout")),
+        }
+    }
+
     /// Deletes its paths in order, then its own folder, which is empty by
     /// then.
     pub fn delete(&self) -> Result<()> {
