@@ -340,12 +340,16 @@ const GEOMETRY: &str = r#"function({frame, bodyOverflowAppliesToViewport}) {
     copy.querySelectorAll('[aria-hidden="true"]').forEach((n) => n.remove());
     return copy.textContent;
   };
+  // The element above a node in the flat tree: a node at the top of a shadow
+  // tree (the text of an input) sits under its host.
+  const flatParent = (node) =>
+    node.parentElement || (node.parentNode instanceof ShadowRoot ? node.parentNode.host : null);
   const clippingParent = (element, style) => {
     // Overflow between a positioned box and its containing block does not clip it.
     if (element instanceof HTMLElement && (style.position === 'absolute' || style.position === 'fixed')) {
       return element.offsetParent;
     }
-    return element.parentElement;
+    return flatParent(element);
   };
   const visible = (rect, ancestor) => {
     let left = Math.max(rect.left, frame.x);
@@ -387,7 +391,7 @@ const GEOMETRY: &str = r#"function({frame, bodyOverflowAppliesToViewport}) {
   } else {
     return null;
   }
-  const element = isText ? this.parentElement : this;
+  const element = isText ? flatParent(this) : this;
   const style = element ? getComputedStyle(element) : null;
   if (!visible(rect, isText ? element : clippingParent(element, style))) {
     return {visibility: 'clipped'};

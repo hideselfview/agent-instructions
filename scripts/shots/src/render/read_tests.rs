@@ -336,6 +336,38 @@ async fn a_board_reads_elements_with_area_inside_its_frame_and_overflow_clips() 
 }
 
 #[tokio::test]
+async fn a_clipped_fields_typed_text_is_no_element() {
+    let root = fixture::tree(&[(
+        "fixture.clipped-field",
+        r#"<x-dc><helmet><style>body{margin:0;font:16px/20px sans-serif}</style></helmet>
+<div style="height:40px;overflow:hidden">
+  <div><input aria-label="Shown" value="Shown value"></div>
+  <div style="margin-top:40px"><input aria-label="Hidden" value="Hidden value"></div>
+</div>
+</x-dc>"#,
+    )]);
+    let elements = fixture::with_browser(root.path(), async |server, chrome| {
+        let page = chrome.new_page().await.unwrap();
+        let url = server.board_url("fixture.clipped-field");
+        let rendered = render(
+            &page,
+            "fixture.clipped-field",
+            &url,
+            Frame { w: 300, h: 200 },
+            1.0,
+        )
+        .await
+        .unwrap();
+        elements(&page, rendered.frame, Platform::Mac)
+            .await
+            .unwrap()
+    })
+    .await;
+    let labels: Vec<_> = elements.iter().filter_map(|e| e.label.as_deref()).collect();
+    assert_eq!(labels, ["Shown"], "{elements:#?}");
+}
+
+#[tokio::test]
 async fn a_boards_on_screen_keyboard_is_found_and_not_an_element() {
     let root = fixture::tree(&[("fixture.roles", BOARD)]);
     let found = fixture::with_browser(root.path(), async |server, chrome| {
