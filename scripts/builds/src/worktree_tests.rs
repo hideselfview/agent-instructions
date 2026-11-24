@@ -418,6 +418,27 @@ fn a_repo_two_projects_hold_gets_no_worktree_or_claim_without_a_project() {
         .contains("repo demo is in two projects")
     );
     assert!(!checkout.claim_file().exists());
+
+    // Release takes --project before or after the checkout, as the commands
+    // that name a project do.
+    for flags in [
+        [arg.clone(), "--project".into(), "second".into()],
+        ["--project".into(), "second".into(), arg.clone()],
+    ] {
+        crate::claim::cmd_claim(
+            &tool.places,
+            &[
+                arg.clone(),
+                "agent B".into(),
+                "--project".into(),
+                "second".into(),
+            ],
+            tool.now,
+        )
+        .unwrap();
+        cmd_release(&tool.places, &flags).unwrap();
+        assert!(!checkout.claim_file().exists());
+    }
 }
 
 #[test]
