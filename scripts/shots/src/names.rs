@@ -127,7 +127,7 @@ impl Prefix {
         })
     }
 
-    pub(crate) fn all_of(platform: Platform) -> Self {
+    pub fn all_of(platform: Platform) -> Self {
         Self {
             platform,
             text: format!("{}.", platform.word()),
@@ -138,7 +138,7 @@ impl Prefix {
         self.platform
     }
 
-    pub(crate) fn matches(&self, name: &Name) -> bool {
+    pub fn matches(&self, name: &Name) -> bool {
         name.to_string().starts_with(&self.text)
     }
 

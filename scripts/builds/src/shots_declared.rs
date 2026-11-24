@@ -75,9 +75,8 @@ pub fn windowed_prefixes(
         let Pick::Shots(lane, prefix) = pick else {
             continue;
         };
-        let prefix = prefix.as_str();
-        if adds_display && prefix.starts_with("mac.") {
-            windowed.push((prefix.to_string(), Access::Exclusive));
+        if adds_display && prefix.platform() == boards::app_build::Platform::Mac {
+            windowed.push((prefix.as_str().to_string(), Access::Exclusive));
             continue;
         }
         if !declared.contains_key(lane) {
@@ -85,7 +84,7 @@ pub fn windowed_prefixes(
         }
         let access = declared[lane]
             .iter()
-            .filter(|scene| scene.name.to_string().starts_with(prefix))
+            .filter(|scene| prefix.matches(&scene.name))
             .filter_map(|scene| {
                 if scene.marks.takes_focus
                     || (scene.marks.in_window && !config.mac_shares_shot_display)
@@ -99,7 +98,7 @@ pub fn windowed_prefixes(
             })
             .max();
         if let Some(access) = access {
-            windowed.push((prefix.to_string(), access));
+            windowed.push((prefix.as_str().to_string(), access));
         }
     }
     Ok(windowed)

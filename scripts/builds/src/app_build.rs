@@ -285,9 +285,7 @@ pub const ALL_SHOTS: &str = "--all-shots";
 /// The pick of <lane>'s full set of shots: the run of the lane's `shots` line
 /// with the prefix every shot of the lane starts with.
 pub fn all_shots(lane: Lane) -> Pick {
-    let prefix = shots::Prefix::parse(&lane.all_shots_prefix())
-        .expect("each lane has a valid prefix for all its shots");
-    Pick::Shots(lane, prefix)
+    Pick::Shots(lane, shots::Prefix::all_of(lane.shots_platform()))
 }
 
 /// The pick of the `--all-shots <lane>` flag whose words after the flag are
