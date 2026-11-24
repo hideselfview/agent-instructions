@@ -40,6 +40,10 @@ fn a_step_run_by_programs_hold_finds_python_3_11_or_later_before_macos_3_9() {
     programs::programs_folder(&home);
     fake_python(&dir.join("system"), "python3", 9);
     let newer = fake_python(&dir.join("brew"), "python3.13", 13);
+    // A newer Python that cannot run is passed over, and builds says why.
+    let broken = dir.join("brew/python3.14");
+    std::fs::write(&broken, "#!/bin/sh\nexit 3\n").unwrap();
+    std::fs::set_permissions(&broken, std::fs::Permissions::from_mode(0o755)).unwrap();
     let path = std::env::join_paths([
         dir.join("system"),
         dir.join("brew"),
@@ -72,6 +76,10 @@ fn a_step_run_by_programs_hold_finds_python_3_11_or_later_before_macos_3_9() {
     assert_eq!(
         String::from_utf8_lossy(&ran.stdout).trim(),
         newer.display().to_string(),
+        "{said}"
+    );
+    assert!(
+        said.contains(&format!("python: {} failed", broken.display())),
         "{said}"
     );
     std::fs::remove_dir_all(&dir).unwrap();
