@@ -306,9 +306,10 @@ struct Geometry {
     /// `false`). Chrome's accessibility tree has no selected state for a
     /// button, where the Mac marks the open row of a sidebar selected.
     current: bool,
-    /// The node is a text whose nearest DOM ancestor with `aria-selected`
-    /// says `true`. Chrome's accessibility tree has no selected state for a
-    /// text, where the Mac marks every text of a selected row selected.
+    /// The node's own element, or its nearest DOM ancestor with
+    /// `aria-selected`, says `true`. Chrome's accessibility tree has no
+    /// selected state for a text or an image, where the Mac marks every
+    /// element of a selected row selected.
     in_selected: bool,
     /// The design-system component that draws the node: the nearest one
     /// above it in React's tree.
@@ -409,7 +410,7 @@ const GEOMETRY: &str = r#"function({frame, bodyOverflowAppliesToViewport}) {
       : this.getAttribute('role') === 'textbox' ? typed(this) : null,
     current: !isText && this.hasAttribute('aria-current')
       && this.getAttribute('aria-current') !== 'false',
-    in_selected: isText && element !== null
+    in_selected: element !== null
       && element.closest('[aria-selected]')?.getAttribute('aria-selected') === 'true',
     component: componentOf(this),
     secret: !isText && this.tagName === 'INPUT' && this.type === 'password',

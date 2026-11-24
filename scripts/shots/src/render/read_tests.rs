@@ -250,8 +250,8 @@ const BOARD: &str = r##"<x-dc><helmet><style>body{margin:0;font:13px sans-serif}
 <button aria-current="page">Open pane</button>
 <button aria-current="false">Closed pane</button>
 <button>Plain pane</button>
-<div role="row" aria-selected="true"><span>Picked one</span><div><span>Picked two</span></div><div aria-selected="false"><span>Unpicked inside</span></div></div>
-<div role="row" aria-selected="false"><span>Other row</span></div>
+<div role="row" aria-selected="true"><span>Picked one</span><div><span>Picked two</span></div><div aria-selected="false"><span>Unpicked inside</span></div><img alt="Picked art" width="10" height="10" src="data:image/gif;base64,R0lGODlhAQABAAAAACw="></div>
+<div role="row" aria-selected="false"><span>Other row</span><img alt="Other art" width="10" height="10" src="data:image/gif;base64,R0lGODlhAQABAAAAACw="></div>
 <p>Plain words</p>
 <img alt="Cover" width="10" height="10" src="data:image/gif;base64,R0lGODlhAQABAAAAACw=">
 <div role="slider" aria-valuenow="5" aria-valuemin="0" aria-valuemax="10" aria-label="Volume" tabindex="0">x</div>
@@ -483,7 +483,18 @@ async fn a_board_reads_as_the_shots_do() {
             "{unselected:?} sits under no selected ancestor"
         );
     }
-    find(&elements, Role::Image, "Cover");
+    assert_eq!(
+        find(&elements, Role::Image, "Picked art").selected,
+        Some(true),
+        "an image in the selected row reads as selected, as the Mac's does"
+    );
+    for unselected in ["Other art", "Cover"] {
+        assert_ne!(
+            find(&elements, Role::Image, unselected).selected,
+            Some(true),
+            "{unselected:?} sits under no selected ancestor"
+        );
+    }
     find(&elements, Role::Stepper, "Number of CD");
     assert_eq!(
         find(&elements, Role::Slider, "Volume").value.as_deref(),
