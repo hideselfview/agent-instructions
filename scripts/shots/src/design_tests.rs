@@ -13,6 +13,7 @@ pub(crate) fn system(tokens: &str, css: &str, js: &str) -> DesignSystem {
         tokens_css: tokens.to_string(),
         bundle_css: css.to_string(),
         bundle_js: js.to_string(),
+        fonts: PathBuf::new(),
     }
 }
 

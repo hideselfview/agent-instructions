@@ -92,6 +92,17 @@ pub struct Places {
     pub lists: PathBuf,
     /// The Codex CLI that delivers and checks registered thread notifications.
     pub codex_program: PathBuf,
+    /// The folder of the SF Mono files that boards draw mono text in: the
+    /// Mac's Terminal.app ships them (`boards::fonts`).
+    pub fonts: PathBuf,
+}
+
+/// The folders a board's page is built from: the design systems generated
+/// for commits, and the SF Mono files its tokens.css names.
+#[derive(Clone, Debug)]
+pub struct DesignDirs {
+    pub cache: PathBuf,
+    pub fonts: PathBuf,
 }
 
 impl Places {
@@ -128,6 +139,7 @@ impl Places {
             uid: unsafe { libc::getuid() },
             lists,
             codex_program: PathBuf::from("codex"),
+            fonts: PathBuf::from(boards::fonts::TERMINAL_FONTS),
         })
     }
 
@@ -154,6 +166,14 @@ impl Places {
             self.home.join("Library/Caches/builds/design-systems")
         } else {
             self.cache_home.join("builds/design-systems")
+        }
+    }
+
+    /// The folders the pages of boards are built from.
+    pub fn design_dirs(&self) -> DesignDirs {
+        DesignDirs {
+            cache: self.design_system_cache(),
+            fonts: self.fonts.clone(),
         }
     }
 

@@ -204,12 +204,12 @@ fn a_design_system_that_cannot_be_read_shows_its_problem_and_a_bad_index_fails_t
 fn a_frame_draws_its_board_or_its_preview_at_the_commit_the_page_names() {
     let scratch = Scratch::new("designs-frames");
     let (dir, commit) = designs_repo(&scratch);
-    let cache = scratch.dir.join("cache");
-    let drawn = board(&dir, &commit, "A", &cache).unwrap();
+    let dirs = dirs(&scratch);
+    let drawn = board(&dir, &commit, "A", &dirs).unwrap();
     assert!(drawn.contains("<html data-theme=\"dark\">") && drawn.contains("board A"));
-    let error = board(&dir, "HEAD", "A", &cache).unwrap_err().text();
+    let error = board(&dir, "HEAD", "A", &dirs).unwrap_err().text();
     assert!(error.contains("is not there"), "{error}");
-    let card = preview(&dir, &commit, "Row", &cache).unwrap();
+    let card = preview(&dir, &commit, "Row", &dirs).unwrap();
     let order: Vec<usize> = [
         "<head>",
         "previewWidth",
@@ -227,7 +227,7 @@ fn a_frame_draws_its_board_or_its_preview_at_the_commit_the_page_names() {
     })
     .collect();
     assert!(order.windows(2).all(|w| w[0] < w[1]), "{order:?}");
-    let error = preview(&dir, &commit, "../Row", &cache).unwrap_err().text();
+    let error = preview(&dir, &commit, "../Row", &dirs).unwrap_err().text();
     assert!(error.contains("is no component"), "{error}");
 }
 
@@ -237,14 +237,14 @@ fn a_frame_draws_its_board_or_its_preview_at_the_commit_the_page_names() {
 fn a_review_frame_draws_the_preview_and_answers_the_pages_circles() {
     let scratch = Scratch::new("designs-review-preview");
     let (dir, commit) = designs_repo(&scratch);
-    let cache = scratch.dir.join("cache");
+    let dirs = dirs(&scratch);
     let frame = preview_frame(
         Source::Commit {
             repo: &dir,
             rev: &commit,
         },
         "Row",
-        &cache,
+        &dirs,
         true,
     )
     .unwrap();
@@ -258,7 +258,7 @@ fn a_review_frame_draws_the_preview_and_answers_the_pages_circles() {
     ] {
         assert!(frame.contains(part), "{part} in {frame}");
     }
-    let plain = preview(&dir, &commit, "Row", &cache).unwrap();
+    let plain = preview(&dir, &commit, "Row", &dirs).unwrap();
     assert!(!plain.contains("designCircles"));
 }
 
@@ -554,4 +554,13 @@ fn the_page_carries_the_contents_script_the_tests_run() {
     )
     .unwrap();
     assert!(page.contains(include_str!("designs_contents.js")));
+}
+
+/// The folders the pages are built from: a fonts folder that does not exist,
+/// as on a host that is not a Mac.
+fn dirs(scratch: &Scratch) -> crate::places::DesignDirs {
+    crate::places::DesignDirs {
+        cache: scratch.dir.join("cache"),
+        fonts: scratch.dir.join("fonts"),
+    }
 }

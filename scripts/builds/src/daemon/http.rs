@@ -144,9 +144,21 @@ pub(super) fn respond(
     kind: &str,
     body: &[u8],
 ) -> std::io::Result<()> {
+    respond_with(stream, status, kind, &[], body)
+}
+
+/// `respond`, with the header lines <headers> besides the usual ones.
+fn respond_with(
+    stream: &mut TcpStream,
+    status: &str,
+    kind: &str,
+    headers: &[&str],
+    body: &[u8],
+) -> std::io::Result<()> {
+    let extra: String = headers.iter().map(|line| format!("{line}\r\n")).collect();
     write!(
         stream,
-        "HTTP/1.1 {status}\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n",
+        "HTTP/1.1 {status}\r\nContent-Type: {kind}\r\nContent-Length: {}\r\n{extra}Cache-Control: no-store\r\nConnection: close\r\n\r\n",
         body.len()
     )?;
     stream.write_all(body)
@@ -323,32 +335,40 @@ fn handle(mut stream: TcpStream, names: &[String], model: &Model) -> std::io::Re
             model.hooks_json().as_bytes(),
         ),
         "/events" => events(stream, model),
-        _ if path.starts_with(boards::fonts::URL_PREFIX) => {
-            let name = &path[boards::fonts::URL_PREFIX.len()..];
-            let folder = std::path::Path::new(boards::fonts::TERMINAL_FONTS);
-            match boards::fonts::read_font(folder, name) {
+        _ if matches!(
+            boards::routes::route(path),
+            Some(boards::routes::Route::Font(_))
+        ) =>
+        {
+            let Some(boards::routes::Route::Font(name)) = boards::routes::route(path) else {
+                unreachable!("the guard matched a font route")
+            };
+            match std::fs::read(model.places.fonts.join(&name)) {
                 // A board's frame runs in a sandbox with no origin of its
                 // own, so it loads the font as a cross-origin request.
-                Ok(Some(font)) => {
-                    write!(
-                        stream,
-                        "HTTP/1.1 200 OK\r\nContent-Type: font/otf\r\nContent-Length: {}\r\nAccess-Control-Allow-Origin: *\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n",
-                        font.len()
-                    )?;
-                    stream.write_all(&font)
-                }
-                Ok(None) => respond(
+                Ok(font) => respond_with(
+                    &mut stream,
+                    "200 OK",
+                    "font/otf",
+                    &["Access-Control-Allow-Origin: *"],
+                    &font,
+                ),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => respond(
                     &mut stream,
                     "404 Not Found",
                     "text/plain; charset=utf-8",
                     b"no such SF Mono file on this Mac\n",
                 ),
-                Err(error) => respond(
-                    &mut stream,
-                    "500 Internal Server Error",
-                    "text/plain; charset=utf-8",
-                    format!("cannot read the SF Mono files: {error}\n").as_bytes(),
-                ),
+                Err(error) => {
+                    let message = format!("cannot read the SF Mono file {name}: {error}");
+                    crate::text::note(&message);
+                    respond(
+                        &mut stream,
+                        "500 Internal Server Error",
+                        "text/plain; charset=utf-8",
+                        format!("{message}\n").as_bytes(),
+                    )
+                }
             }
         }
         _ if path.starts_with("/designs/") => {

@@ -47,7 +47,7 @@ use crate::fail::{Fail, Result};
 use crate::lists::publish::{Request, Standing, ask_and_tell};
 use crate::lists::store::Store;
 use crate::lists::{Stamp, Theme};
-use crate::places::Places;
+use crate::places::{DesignDirs, Places};
 
 const DESIGNS_PAGE: &str = include_str!("designs.html");
 /// The Filter field's matching and hiding, which the page's script calls.
@@ -274,32 +274,32 @@ pub fn ask(places: &Places, project: &str, repo: &Path, rev: &str, now: i64) -> 
 
 /// Board <name> of commit <commit> of the repo <repo> is in, drawn in the
 /// dark as the Designs page's frame loads it.
-pub fn board(repo: &Path, commit: &str, name: &str, cache: &Path) -> Result<String> {
+pub fn board(repo: &Path, commit: &str, name: &str, dirs: &DesignDirs) -> Result<String> {
     render_board(
         Source::Commit { repo, rev: commit },
         name,
         Theme::Dark,
-        cache,
+        dirs,
     )
 }
 
 /// Group <n> of the colors at commit <commit> of the repo <repo> is in, as
 /// the Designs page's frame loads it (`color_group::frame`).
-pub fn color_group(repo: &Path, commit: &str, n: usize, cache: &Path) -> Result<String> {
-    super::color_group::frame(Source::Commit { repo, rev: commit }, n, cache)
+pub fn color_group(repo: &Path, commit: &str, n: usize, dirs: &DesignDirs) -> Result<String> {
+    super::color_group::frame(Source::Commit { repo, rev: commit }, n, dirs)
 }
 
 /// The colors' comparison at commit <commit> of the repo <repo> is in, as
 /// the Designs page's frame loads it (`color_group::comparison`).
-pub fn color_comparison(repo: &Path, commit: &str, cache: &Path) -> Result<String> {
-    super::color_group::comparison(Source::Commit { repo, rev: commit }, cache)
+pub fn color_comparison(repo: &Path, commit: &str, dirs: &DesignDirs) -> Result<String> {
+    super::color_group::comparison(Source::Commit { repo, rev: commit }, dirs)
 }
 
 /// Component <name>'s preview at commit <commit> of the repo <repo> is in,
 /// as the Designs page's frame loads it: with `PREVIEW_FIT`, which draws it
 /// at its own size and tells the page that size.
-pub fn preview(repo: &Path, commit: &str, name: &str, cache: &Path) -> Result<String> {
-    preview_frame(Source::Commit { repo, rev: commit }, name, cache, false)
+pub fn preview(repo: &Path, commit: &str, name: &str, dirs: &DesignDirs) -> Result<String> {
+    preview_frame(Source::Commit { repo, rev: commit }, name, dirs, false)
 }
 
 #[cfg(test)]

@@ -340,12 +340,17 @@ fn a_scratch_folder_that_cannot_be_removed_fails_the_call() {
 fn a_board_draws_with_the_sf_mono_rules_and_what_is_published_has_none() {
     let scratch = Scratch::new("board-fonts");
     let dir = tree(&scratch);
+    let fonts = scratch.dir.join("fonts");
+    std::fs::create_dir_all(&fonts).unwrap();
+    for (file, ..) in crate::fonts::FACES {
+        std::fs::write(fonts.join(file), "").unwrap();
+    }
     let plain = Source::Dir(&dir).design_system(&cache(&scratch)).unwrap();
     let drawn = Source::Dir(&dir)
-        .board_design_system(&cache(&scratch))
+        .board_design_system(&cache(&scratch), &fonts)
         .unwrap();
     assert!(!plain[0].contains("@font-face"));
-    let fonts = crate::fonts::font_face_css(Path::new(crate::fonts::TERMINAL_FONTS));
-    assert_eq!(drawn[0], format!("{}\n{fonts}", plain[0]));
+    assert!(drawn[0].starts_with(&plain[0]), "{}", drawn[0]);
+    assert_eq!(drawn[0].matches("@font-face").count(), 12);
     assert_eq!(drawn[1..], plain[1..]);
 }

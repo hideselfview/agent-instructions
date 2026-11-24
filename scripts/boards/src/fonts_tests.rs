@@ -8,37 +8,38 @@ fn folder(name: &str, files: &[&str]) -> crate::testing::Scratch {
     dir
 }
 
-#[test]
-fn each_font_file_of_the_folder_gets_a_rule_with_its_weight_and_style() {
-    let dir = folder(
-        "fonts-rules",
-        &[
-            "SF-Mono-Regular.otf",
-            "SF-Mono-BoldItalic.otf",
-            "SFMono-Terminal.ttf",
-        ],
-    );
-    assert_eq!(
-        font_face_css(&dir.dir),
-        "@font-face { font-family: \"SF Mono\"; font-weight: 400; font-style: normal; src: url(\"/fonts/sf-mono/SF-Mono-Regular.otf\") format(\"opentype\"); }\n\
-         @font-face { font-family: \"SF Mono\"; font-weight: 700; font-style: italic; src: url(\"/fonts/sf-mono/SF-Mono-BoldItalic.otf\") format(\"opentype\"); }"
-    );
+fn all_files() -> Vec<&'static str> {
+    FACES.iter().map(|(file, ..)| *file).collect()
 }
 
 #[test]
-fn a_folder_with_no_font_or_no_folder_gives_no_rule() {
-    assert_eq!(font_face_css(&folder("fonts-none", &[]).dir), "");
-    assert_eq!(font_face_css(Path::new("/no/such/folder")), "");
+fn each_font_file_of_the_family_gets_a_rule_with_its_weight_and_style() {
+    let mut files = all_files();
+    files.push("SFMono-Terminal.ttf");
+    let dir = folder("fonts-rules", &files);
+    let css = font_face_css(&dir.dir).unwrap();
+    assert_eq!(css.lines().count(), 12);
+    assert!(css.lines().any(|rule| rule
+        == "@font-face { font-family: \"SF Mono\"; font-weight: 400; font-style: normal; src: url(\"/fonts/sf-mono/SF-Mono-Regular.otf\") format(\"opentype\"); }"));
+    assert!(css.lines().any(|rule| rule
+        == "@font-face { font-family: \"SF Mono\"; font-weight: 700; font-style: italic; src: url(\"/fonts/sf-mono/SF-Mono-BoldItalic.otf\") format(\"opentype\"); }"));
+    assert!(!css.contains("Terminal"));
 }
 
 #[test]
-fn only_the_family_s_files_are_read() {
-    let dir = folder("fonts-read", &["SF-Mono-Regular.otf", "secret.txt"]);
-    assert_eq!(
-        read_font(&dir.dir, "SF-Mono-Regular.otf").unwrap(),
-        Some(b"SF-Mono-Regular.otf".to_vec())
-    );
-    assert_eq!(read_font(&dir.dir, "secret.txt").unwrap(), None);
-    assert_eq!(read_font(&dir.dir, "../secret.txt").unwrap(), None);
-    assert_eq!(read_font(&dir.dir, "SF-Mono-Bold.otf").unwrap(), None);
+fn no_folder_gives_no_rule_and_a_folder_missing_a_file_is_an_error() {
+    assert_eq!(font_face_css(Path::new("/no/such/folder")).unwrap(), "");
+    let mut files = all_files();
+    files.retain(|file| *file != "SF-Mono-Heavy.otf");
+    let dir = folder("fonts-missing", &files);
+    let error = font_face_css(&dir.dir).unwrap_err().text();
+    assert!(error.contains("SF-Mono-Heavy.otf"), "{error}");
+}
+
+#[test]
+fn only_the_family_s_files_are_named() {
+    assert!(is_font_file("SF-Mono-Regular.otf"));
+    assert!(!is_font_file("secret.txt"));
+    assert!(!is_font_file("../SF-Mono-Regular.otf"));
+    assert!(!is_font_file("SFMono-Terminal.ttf"));
 }

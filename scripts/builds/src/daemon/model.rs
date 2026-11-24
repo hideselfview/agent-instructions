@@ -1297,14 +1297,14 @@ impl Model {
         let (_, snapshot) = self.lists.current();
         let (design, _) = super::lists::open_design(&snapshot, project, id)?;
         let entry = crate::design_render::review_board(&design, n)?;
-        let cache = self.places.design_system_cache();
+        let dirs = self.places.design_dirs();
         Some(
             crate::design_render::source_of(&design, side).and_then(|from| match &entry.shown {
                 crate::lists::Shown::Board { path, theme } => {
-                    crate::design_render::render_board(from, path, *theme, &cache)
+                    crate::design_render::render_board(from, path, *theme, &dirs)
                 }
                 crate::lists::Shown::Component(name) => {
-                    crate::design_render::preview_frame(from, name, &cache, true)
+                    crate::design_render::preview_frame(from, name, &dirs, true)
                 }
             }),
         )
@@ -1353,7 +1353,7 @@ impl Model {
                 from,
                 board,
                 crate::lists::Theme::Dark,
-                &self.places.design_system_cache(),
+                &self.places.design_dirs(),
             )
         })
     }
@@ -1422,7 +1422,7 @@ impl Model {
         name: &str,
     ) -> Option<crate::fail::Result<String>> {
         Some(self.design_checkout(project)?.and_then(|repo| {
-            super::designs::board(&repo, commit, name, &self.places.design_system_cache())
+            super::designs::board(&repo, commit, name, &self.places.design_dirs())
         }))
     }
 
@@ -1435,7 +1435,7 @@ impl Model {
         n: usize,
     ) -> Option<crate::fail::Result<String>> {
         Some(self.design_checkout(project)?.and_then(|repo| {
-            super::designs::color_group(&repo, commit, n, &self.places.design_system_cache())
+            super::designs::color_group(&repo, commit, n, &self.places.design_dirs())
         }))
     }
 
@@ -1447,7 +1447,7 @@ impl Model {
         commit: &str,
     ) -> Option<crate::fail::Result<String>> {
         Some(self.design_checkout(project)?.and_then(|repo| {
-            super::designs::color_comparison(&repo, commit, &self.places.design_system_cache())
+            super::designs::color_comparison(&repo, commit, &self.places.design_dirs())
         }))
     }
 
@@ -1460,7 +1460,7 @@ impl Model {
         name: &str,
     ) -> Option<crate::fail::Result<String>> {
         Some(self.design_checkout(project)?.and_then(|repo| {
-            super::designs::preview(&repo, commit, name, &self.places.design_system_cache())
+            super::designs::preview(&repo, commit, name, &self.places.design_dirs())
         }))
     }
 

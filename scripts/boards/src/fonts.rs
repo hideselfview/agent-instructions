@@ -6,20 +6,22 @@
 //! when a page asks for them and describe them to the page with `@font-face`;
 //! nothing here copies a font into a repo.
 
+use crate::{Error, Result};
 use std::path::Path;
 
 /// The folder of Terminal.app that holds the SF Mono files.
 pub const TERMINAL_FONTS: &str =
     "/System/Applications/Utilities/Terminal.app/Contents/Resources/Fonts";
 
-/// The family name the boards' mono stack names.
+/// The family name that a board's mono stack can name to draw the files
+/// (bae's does: `ui-monospace, "SF Mono", Menlo, monospace`).
 pub const FAMILY: &str = "SF Mono";
 
 /// The URL path a font file is served under, before its file name.
 pub const URL_PREFIX: &str = "/fonts/sf-mono/";
 
 /// The files of the family: name, CSS weight, italic.
-const FACES: [(&str, u16, bool); 12] = [
+pub const FACES: [(&str, u16, bool); 12] = [
     ("SF-Mono-Light.otf", 300, false),
     ("SF-Mono-LightItalic.otf", 300, true),
     ("SF-Mono-Regular.otf", 400, false),
@@ -35,39 +37,44 @@ const FACES: [(&str, u16, bool); 12] = [
 ];
 
 /// Whether <name> is the name of a file of the family: the only names a
-/// server reads from the folder.
-pub fn is_font_file(name: &str) -> bool {
+/// server reads from the folder (`routes::route`).
+pub(crate) fn is_font_file(name: &str) -> bool {
     FACES.iter().any(|(file, ..)| *file == name)
 }
 
-/// The `@font-face` rules for the files of the family that <dir> holds, each
-/// loading from `URL_PREFIX` on the server that serves the page. Empty when
-/// <dir> holds none, as on a host that is not a Mac.
-pub fn font_face_css(dir: &Path) -> String {
-    FACES
-        .iter()
-        .filter(|(file, ..)| dir.join(file).is_file())
-        .map(|(file, weight, italic)| {
-            let style = if *italic { "italic" } else { "normal" };
-            format!(
-                "@font-face {{ font-family: \"{FAMILY}\"; font-weight: {weight}; font-style: {style}; src: url(\"{URL_PREFIX}{file}\") format(\"opentype\"); }}"
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-/// The bytes of the font file <name> in <dir>; none when <name> is no file of
-/// the family or <dir> lacks it.
-pub fn read_font(dir: &Path, name: &str) -> std::io::Result<Option<Vec<u8>>> {
-    if !is_font_file(name) {
-        return Ok(None);
+/// The `@font-face` rules for the files of the family in <dir>, each loading
+/// from `URL_PREFIX` on the server that serves the page. A page that is a
+/// file, as `builds design render` prints, loads no font and draws Menlo.
+/// Empty when <dir> is no folder, as on a host that is not a Mac; an error
+/// when <dir> exists and lacks or cannot read a file of the family, which
+/// would draw Menlo's narrower mono text with nothing saying why.
+pub fn font_face_css(dir: &Path) -> Result<String> {
+    if !dir.is_dir() {
+        return Ok(String::new());
     }
-    match std::fs::read(dir.join(name)) {
-        Ok(bytes) => Ok(Some(bytes)),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(error),
+    let mut rules = Vec::new();
+    for (file, weight, italic) in FACES {
+        match std::fs::metadata(dir.join(file)) {
+            Ok(meta) if meta.is_file() => {}
+            Ok(_) => {
+                return Err(Error::new(format!(
+                    "{} is not a file",
+                    dir.join(file).display()
+                )));
+            }
+            Err(error) => {
+                return Err(Error::new(format!(
+                    "the SF Mono file {} cannot be read: {error}",
+                    dir.join(file).display()
+                )));
+            }
+        }
+        let style = if italic { "italic" } else { "normal" };
+        rules.push(format!(
+            "@font-face {{ font-family: \"{FAMILY}\"; font-weight: {weight}; font-style: {style}; src: url(\"{URL_PREFIX}{file}\") format(\"opentype\"); }}"
+        ));
     }
+    Ok(rules.join("\n"))
 }
 
 #[cfg(test)]

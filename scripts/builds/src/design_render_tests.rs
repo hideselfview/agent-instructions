@@ -10,6 +10,15 @@ fn message<T: std::fmt::Debug>(result: Result<T>) -> String {
 }
 
 /// Where a test keeps the design systems it generates for commits.
+/// The folders the pages are built from: a fonts folder that does not exist,
+/// as on a host that is not a Mac.
+fn dirs(scratch: &Scratch) -> crate::places::DesignDirs {
+    crate::places::DesignDirs {
+        cache: cache(scratch),
+        fonts: scratch.dir.join("fonts"),
+    }
+}
+
 fn cache(scratch: &Scratch) -> PathBuf {
     scratch.dir.join("design-systems")
 }
@@ -59,7 +68,7 @@ fn commit(dir: &Path) -> String {
 fn a_board_renders_with_its_imported_board_its_values_and_the_design_system() {
     let scratch = Scratch::new("render-board");
     let dir = tree(&scratch);
-    let page = render_board(Source::Dir(&dir), "A", Theme::Light, &cache(&scratch)).unwrap();
+    let page = render_board(Source::Dir(&dir), "A", Theme::Light, &dirs(&scratch)).unwrap();
     assert!(page.contains("<html data-theme=\"light\">"));
     for part in [
         "--tokens: 1",
@@ -83,7 +92,7 @@ fn a_board_renders_with_its_imported_board_its_values_and_the_design_system() {
         Source::Dir(&dir),
         "design/mocks/A.dc.html",
         Theme::Dark,
-        &cache(&scratch),
+        &dirs(&scratch),
     )
     .unwrap();
     assert!(by_path.contains("<html data-theme=\"dark\">"));
@@ -98,7 +107,7 @@ fn a_board_that_cannot_be_drawn_says_what_is_missing() {
             Source::Dir(&dir),
             "Nope",
             Theme::Dark,
-            &cache(&scratch)
+            &dirs(&scratch)
         ))
         .contains("Nope.dc.html is not there")
     );
@@ -107,7 +116,7 @@ fn a_board_that_cannot_be_drawn_says_what_is_missing() {
             Source::Dir(&dir),
             "../A",
             Theme::Dark,
-            &cache(&scratch)
+            &dirs(&scratch)
         ))
         .contains("is no board")
     );
@@ -121,7 +130,7 @@ fn a_board_that_cannot_be_drawn_says_what_is_missing() {
             Source::Dir(&dir),
             "C",
             Theme::Dark,
-            &cache(&scratch)
+            &dirs(&scratch)
         ))
         .contains("mounts the board Gone, which is no file")
     );
@@ -131,7 +140,7 @@ fn a_board_that_cannot_be_drawn_says_what_is_missing() {
             Source::Dir(&dir),
             "D",
             Theme::Dark,
-            &cache(&scratch)
+            &dirs(&scratch)
         ))
         .contains("has no <x-dc>")
     );
@@ -145,7 +154,7 @@ fn a_board_that_cannot_be_drawn_says_what_is_missing() {
             Source::Dir(&dir),
             "A",
             Theme::Dark,
-            &cache(&scratch)
+            &dirs(&scratch)
         ))
         .contains("build-bundle.py failed")
     );
@@ -302,7 +311,7 @@ fn now_is_origin_main_and_proposed_is_the_last_commit_each_with_its_own_design_s
     );
     let draw = |side| {
         let from = source_of(&change, side).unwrap();
-        render_board(from, "A", Theme::Dark, &cache(&scratch)).unwrap()
+        render_board(from, "A", Theme::Dark, &dirs(&scratch)).unwrap()
     };
     let now = draw(Side::Now);
     assert!(now.contains("hello from A") && now.contains("BUNDLE_MARK"));
@@ -387,7 +396,7 @@ fn a_board_the_change_adds_has_no_now_and_a_board_it_deletes_has_only_a_now() {
         source_of(&change, Side::Now).unwrap(),
         "design/mocks/Old.dc.html",
         Theme::Dark,
-        &cache(&scratch),
+        &dirs(&scratch),
     )
     .unwrap();
     assert!(old.contains("the old board"));
@@ -465,7 +474,7 @@ fn a_review_page_shows_a_components_preview_now_and_proposed() {
     let frame = preview_frame(
         source_of(&change, Side::Now).unwrap(),
         "MacRow",
-        &cache(&scratch),
+        &dirs(&scratch),
         true,
     )
     .unwrap();
@@ -474,7 +483,7 @@ fn a_review_page_shows_a_components_preview_now_and_proposed() {
         preview_frame(
             source_of(&change, side).unwrap(),
             "MacRow",
-            &cache(&scratch),
+            &dirs(&scratch),
             true,
         )
         .unwrap()
@@ -626,7 +635,7 @@ fn a_board_is_read_at_a_commit_whatever_the_worktree_has_checked_out() {
             Source::Commit { repo: &dir, rev },
             "A",
             Theme::Dark,
-            &cache(&scratch),
+            &dirs(&scratch),
         )
         .unwrap()
     };
@@ -645,7 +654,7 @@ fn a_board_is_read_at_a_commit_whatever_the_worktree_has_checked_out() {
         },
         "A",
         Theme::Dark,
-        &cache(&scratch),
+        &dirs(&scratch),
     ));
     assert!(missing.contains("find the commit nope"), "{missing}");
     let absent = message(render_board(
@@ -655,7 +664,7 @@ fn a_board_is_read_at_a_commit_whatever_the_worktree_has_checked_out() {
         },
         "Nope",
         Theme::Dark,
-        &cache(&scratch),
+        &dirs(&scratch),
     ));
     assert!(
         absent.contains(&format!("{first}:design/mocks/Nope.dc.html is not there")),
@@ -823,7 +832,7 @@ fn the_review_page_gives_each_board_its_circles_and_each_board_page_answers_what
         source_of(&change, Side::Proposed).unwrap(),
         "A",
         Theme::Dark,
-        &cache(&scratch),
+        &dirs(&scratch),
     )
     .unwrap();
     assert!(board.contains("function foundBy") && board.contains("designBoxes"));

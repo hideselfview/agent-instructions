@@ -156,14 +156,15 @@ impl Source<'_> {
         Ok([css, bundle_css, bundle_js])
     }
 
-    /// The design system as a board draws in Chrome on this Mac: its
-    /// tokens.css ends with the `@font-face` rules for the SF Mono files of
-    /// this Mac (`fonts`), which the page loads from the server that serves
-    /// it. What is published or written to the repo takes `design_system`.
-    pub fn board_design_system(&self, cache: &Path) -> Result<[String; 3]> {
+    /// The design system as a board draws in Chrome on a Mac: its
+    /// tokens.css ends with the `@font-face` rules for the SF Mono files in
+    /// <fonts> (`fonts`), which a page loads from the server that serves it.
+    /// A page that is a file loads no font. What is published or written to
+    /// the repo takes `design_system`.
+    pub fn board_design_system(&self, cache: &Path, fonts: &Path) -> Result<[String; 3]> {
         let [css, bundle_css, bundle_js] = self.design_system(cache)?;
-        let fonts = crate::fonts::font_face_css(Path::new(crate::fonts::TERMINAL_FONTS));
-        Ok([format!("{css}\n{fonts}"), bundle_css, bundle_js])
+        let rules = crate::fonts::font_face_css(fonts)?;
+        Ok([format!("{css}\n{rules}"), bundle_css, bundle_js])
     }
 
     /// The tokens.css of the source's tokens.json; an error names the file.

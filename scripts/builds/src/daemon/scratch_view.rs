@@ -273,7 +273,7 @@ pub fn serve(mut stream: TcpStream, model: &Model, route: Route) -> std::io::Res
             source(&worktree, side),
             target.board,
             theme,
-            &model.places.design_system_cache(),
+            &model.places.design_dirs(),
         ),
     };
     drawn_page(&mut stream, Some(answer), b"")

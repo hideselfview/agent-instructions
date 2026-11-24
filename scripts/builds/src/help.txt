@@ -1263,10 +1263,11 @@ versions, and so does a change to a test file. builds keys the shots, the
 element lists and the board pictures by the capture version, and the findings
 by the comparison version.
 
-Boards draw mono text in "SF Mono". The Mac installs its mono system font
-only as the hidden family ".SF NS Mono", which Chrome cannot name, so without
-help Chrome draws the mono stack in Menlo, 7.225 pt a character against the
-app's 7.43. The Mac ships the SF Mono family inside Terminal.app
+A board whose mono stack names "SF Mono" (bae's does) draws that family. The
+Mac installs its mono system font only as the hidden family ".SF NS Mono",
+which Chrome cannot name, so without help Chrome draws the stack in Menlo,
+7.225 pt a character against the app's 7.43. The Mac ships the SF Mono family
+inside Terminal.app
 (/System/Applications/Utilities/Terminal.app/Contents/Resources/Fonts). The
 shots renderer and the dashboard's board and preview pages add `@font-face`
 rules for each SF Mono file there to the design system's tokens.css, and serve
@@ -1274,7 +1275,9 @@ the files under /fonts/sf-mono/ (the dashboard with
 Access-Control-Allow-Origin, since its frames have no origin), reading them
 from the Mac when a page asks. The repo keeps no copy of a font, and the
 tokens.css that builds writes and publishes has no such rule. A host without
-those files adds no rule, and its boards draw Menlo.
+the folder adds no rule and draws Menlo; a folder that lacks or cannot read
+one of the files fails the drawing and names the file. The page that `builds
+design render` prints is a file, which loads no font, so it draws Menlo.
 
 The checker compares the colours of an element only where the element's own
 pixels show. When a later element of the same list, such as a sheet, popover

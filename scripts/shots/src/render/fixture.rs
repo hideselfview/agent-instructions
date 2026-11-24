@@ -34,6 +34,7 @@ Frame:function(p){return React.createElement('div',null,React.Children.map(p.chi
 Nothing:function(){return null},\
 Word:function(p){return p.value}};"
             .to_string(),
+        fonts: std::path::PathBuf::new(),
     }
 }
 

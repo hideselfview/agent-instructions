@@ -877,7 +877,7 @@ fn render(tool: &Tool, args: &[String]) -> Result<String> {
         (false, Some(rev)) => boards::Source::Commit { repo: dir, rev },
         (false, None) => boards::Source::Dir(dir),
     };
-    crate::design_render::render_board(source, board, theme, &tool.places.design_system_cache())
+    crate::design_render::render_board(source, board, theme, &tool.places.design_dirs())
 }
 
 /// `tokens-css DIR`: writes DIR's design/system/tokens.css from its

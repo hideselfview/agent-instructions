@@ -228,17 +228,7 @@ fn the_page_starts_one_build_per_lane_and_a_failed_one_shows_failed_with_its_out
 impl Server {
     /// The status code, content type and body of a GET of <path> from the machine's own browser.
     fn get(&self, path: &str) -> (u16, String, String) {
-        let request = format!(
-            "GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\n\r\n",
-            self.port
-        );
-        let mut stream = TcpStream::connect(("127.0.0.1", self.port)).unwrap();
-        stream
-            .set_read_timeout(Some(std::time::Duration::from_secs(10)))
-            .unwrap();
-        stream.write_all(request.as_bytes()).unwrap();
-        let mut reply = String::new();
-        stream.read_to_string(&mut reply).unwrap();
+        let reply = self.get_raw(path);
         let (head, body) = reply.split_once("\r\n\r\n").unwrap();
         let kind = head
             .lines()
@@ -250,6 +240,22 @@ impl Server {
             kind,
             body.to_string(),
         )
+    }
+
+    /// The whole reply to a GET of <path>, head and body.
+    fn get_raw(&self, path: &str) -> String {
+        let request = format!(
+            "GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\n\r\n",
+            self.port
+        );
+        let mut stream = TcpStream::connect(("127.0.0.1", self.port)).unwrap();
+        stream
+            .set_read_timeout(Some(std::time::Duration::from_secs(10)))
+            .unwrap();
+        stream.write_all(request.as_bytes()).unwrap();
+        let mut reply = String::new();
+        stream.read_to_string(&mut reply).unwrap();
+        reply
     }
 }
 
@@ -345,11 +351,24 @@ fn design_store(scratch: &Scratch, places: &crate::places::Places) {
 }
 
 #[test]
-fn a_board_names_the_sf_mono_files_and_the_daemon_serves_only_those() {
-    let s = server_with("http-fonts", design_store);
+fn a_board_names_the_sf_mono_files_and_the_daemon_serves_them_and_only_them() {
+    let s = server_with("http-fonts", |scratch, places| {
+        design_store(scratch, places);
+        std::fs::create_dir_all(&places.fonts).unwrap();
+        for (file, ..) in boards::fonts::FACES {
+            std::fs::write(places.fonts.join(file), "font bytes").unwrap();
+        }
+        std::fs::write(places.fonts.join("secret.txt"), "secret").unwrap();
+    });
     let (_, _, board) = s.get("/design/demo/1/board/0/proposed");
-    let rules = boards::fonts::font_face_css(std::path::Path::new(boards::fonts::TERMINAL_FONTS));
+    let rules = boards::fonts::font_face_css(&s.model.places.fonts).unwrap();
+    assert_eq!(rules.lines().count(), 12);
     assert!(board.contains(&rules), "{board}");
+    let reply = s.get_raw("/fonts/sf-mono/SF-Mono-Regular.otf");
+    assert!(reply.starts_with("HTTP/1.1 200 OK"), "{reply}");
+    assert!(reply.contains("Content-Type: font/otf"), "{reply}");
+    assert!(reply.contains("Access-Control-Allow-Origin: *"), "{reply}");
+    assert!(reply.ends_with("font bytes"), "{reply}");
     for refused in ["secret.txt", "..%2Fsecret.txt", "SF-Mono-Unknown.otf"] {
         let (status, _, body) = s.get(&format!("/fonts/sf-mono/{refused}"));
         assert_eq!(status, 404, "{body}");

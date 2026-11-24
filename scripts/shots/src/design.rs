@@ -59,6 +59,9 @@ pub(crate) struct DesignSystem {
     pub(crate) tokens_css: String,
     pub(crate) bundle_css: String,
     pub(crate) bundle_js: String,
+    /// The folder the boards' SF Mono files are served from, which
+    /// `tokens_css` has rules for (`boards::fonts`).
+    pub(crate) fonts: PathBuf,
 }
 
 impl DesignSystem {
@@ -69,12 +72,16 @@ impl DesignSystem {
         let index: serde_json::Value = serde_json::from_slice(&read(&canvas)?)
             .map_err(|e| DesignError::BadCanvas(canvas, e.to_string()))?;
         let namespace = boards::design_namespace(&index)?;
-        let [tokens_css, bundle_css, bundle_js] = Source::Dir(root).board_design_system(cache)?;
+        // The one place the shots program names Terminal's folder.
+        let fonts = PathBuf::from(boards::fonts::TERMINAL_FONTS);
+        let [tokens_css, bundle_css, bundle_js] =
+            Source::Dir(root).board_design_system(cache, &fonts)?;
         Ok(Self {
             namespace,
             tokens_css,
             bundle_css,
             bundle_js,
+            fonts,
         })
     }
 

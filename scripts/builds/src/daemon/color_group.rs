@@ -22,14 +22,13 @@
 //! and every drawing in the design system's colors sits in an element that
 //! names its theme (`data-theme`), where the tokens set every color.
 
-use std::path::Path;
-
 use boards::colors::{self, Cluster, Group, Palette, Table};
 use boards::{Source, escape_html as escape};
 
 use crate::design_render::{REACT, fill, script_safe};
 use crate::fail;
 use crate::fail::Result;
+use crate::places::DesignDirs;
 
 const FRAME_PAGE: &str = include_str!("color_group.html");
 const FRAME_SCRIPT: &str = include_str!("color_group.js");
@@ -38,7 +37,7 @@ const FRAME_SCRIPT: &str = include_str!("color_group.js");
 /// is generated into <cache>. Fails when the color groups cannot be read or
 /// have no group <n>. A scene that cannot be read, or that points at a name
 /// that is no color, shows as that problem in the scene's place.
-pub fn frame(from: Source, n: usize, cache: &Path) -> Result<String> {
+pub fn frame(from: Source, n: usize, dirs: &DesignDirs) -> Result<String> {
     from.check()?;
     let palette = colors::read(&from)?;
     let Some(group) = palette.colors.groups.get(n) else {
@@ -55,7 +54,7 @@ pub fn frame(from: Source, n: usize, cache: &Path) -> Result<String> {
             Err(problem) => problem_html(&problem),
         },
     };
-    page(&from, &palette, &swatches(&palette, group), &scene, cache)
+    page(&from, &palette, &swatches(&palette, group), &scene, dirs)
 }
 
 /// The frame of the comparison of the colors of <from>: its scene once for
@@ -63,7 +62,7 @@ pub fn frame(from: Source, n: usize, cache: &Path) -> Result<String> {
 /// design system is generated into <cache>. Fails when the color groups
 /// cannot be read or have no comparison. A scene that cannot be read shows
 /// as that problem in its place.
-pub fn comparison(from: Source, cache: &Path) -> Result<String> {
+pub fn comparison(from: Source, dirs: &DesignDirs) -> Result<String> {
     from.check()?;
     let palette = colors::read(&from)?;
     let Some(comparison) = &palette.colors.comparison else {
@@ -96,7 +95,7 @@ pub fn comparison(from: Source, cache: &Path) -> Result<String> {
             format!("<style>{css}</style><div class=\"cg-row\">{drawn}</div>")
         }
     };
-    page(&from, &palette, "", &scenes, cache)
+    page(&from, &palette, "", &scenes, dirs)
 }
 
 fn problem_html(problem: &str) -> String {
@@ -109,9 +108,9 @@ fn page(
     palette: &Palette,
     swatches: &str,
     scene: &str,
-    cache: &Path,
+    dirs: &DesignDirs,
 ) -> Result<String> {
-    let [tokens_css, bundle_css, bundle_js] = from.board_design_system(cache)?;
+    let [tokens_css, bundle_css, bundle_js] = from.board_design_system(&dirs.cache, &dirs.fonts)?;
     let themes: Vec<&str> = palette
         .themes
         .iter()
