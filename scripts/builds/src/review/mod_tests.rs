@@ -2422,6 +2422,88 @@ fn a_finding_on_a_design_file_of_a_rule_that_judges_none_is_dropped() {
 }
 
 #[test]
+fn a_capture_file_fix_reaches_only_its_capture_rules_and_the_groups_with_open_findings() {
+    let demo = demo("review-capture-fix");
+    let fake = fake(&demo.scratch.dir);
+    style_group(&fake, serde_json::json!([style_site("a.rs", "a.rs")]));
+    capture_rule_file(
+        &fake.root,
+        "beta",
+        "rule-c",
+        "shots/**",
+        "**Rule C.** A shot turns animation off.",
+    );
+    fake.answer("beta", &[("rule-b", None), ("rule-c", None)]);
+    let side = demo.add_side(1, "agent", "work");
+    std::fs::write(side.join(".app-build"), "shots-declared mac shots\n").unwrap();
+    std::fs::create_dir_all(side.join("shots")).unwrap();
+    demo.commit(&side, "shots/Row.rs");
+    demo.commit(&side, "a.rs");
+    fake.answer("alpha", &[("rule-a", Some(BAD))]);
+    let landing = run_review(&demo, &fake, &side, "k").landing.unwrap();
+    let first = fake.prompts();
+    assert_eq!(first.len(), 3, "{first:?}");
+    for (group, prompt) in first {
+        assert_eq!(
+            prompt.contains("+shots/Row.rs"),
+            group == "beta",
+            "{prompt}"
+        );
+    }
+    let found = findings_of(&demo, landing);
+    assert_eq!(found.len(), 2, "{found:?}");
+    for finding in &found {
+        settle_as(
+            &demo,
+            finding.id,
+            "confirmed",
+            "The regression needs a test.",
+        );
+        if finding.group == "alpha" {
+            fake.closes("alpha", "rule-a", &[finding.id]);
+        } else {
+            assert_eq!(finding.group, "style");
+            fake.answer_task(
+                "style",
+                serde_json::json!({
+                    "summary": "A capture test covers the regression.",
+                    "sites": [],
+                    "follow_up": [{"id": finding.id, "verdict": "fixed"}],
+                }),
+            );
+        }
+    }
+
+    fix(&side, &["shots/Row.rs"]);
+    let read = run_review(&demo, &fake, &side, "k");
+    let prompts = fake.prompts();
+    assert_eq!(prompts.len(), 3, "{}", read.text);
+    for (group, prompt) in prompts {
+        let (diff, rest) = prompt
+            .split_once("# Diff\n\n```diff\n")
+            .unwrap()
+            .1
+            .split_once("\n```\n")
+            .unwrap();
+        if group == "beta" {
+            assert!(diff.contains("+shots/Row.rs fixed"), "{prompt}");
+        } else {
+            assert!(diff.is_empty(), "{prompt}");
+            assert!(rest.contains("+shots/Row.rs fixed"), "{prompt}");
+        }
+    }
+    for finding in found {
+        assert!(
+            read.text
+                .contains(&format!("closed finding {}", finding.id)),
+            "{}",
+            read.text
+        );
+    }
+    assert!(read.refusal.is_none(), "{:?}", read.refusal);
+}
+
+#[test]
 fn a_finding_on_a_capture_file_of_a_rule_that_judges_none_is_dropped() {
     let demo = demo("review-capture-drop");
     let fake = fake(&demo.scratch.dir);

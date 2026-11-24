@@ -44,10 +44,10 @@
 //! changes since the last net change it did read so. Of the other groups of
 //! a run, none reads a file where a group of the run holds open findings,
 //! and each reads every other changed file its rules cover
-//! (`run::ask_groups`). No group reads a design file of the repo (`builds
-//! lists design-globs`) or a capture file (below a `shots-declared` folder)
-//! unless one of its rules judges files of that kind (`rules::Rule::judges`):
-//! the rest judge code. `landing::Coverage`
+//! (`run::ask_groups`). New findings in design and capture files require
+//! rules that judge those kinds of files (`rules::Rule::judges`). A group
+//! also reads capture file changes to decide whether its open findings are
+//! fixed. `landing::Coverage`
 //! says what the review read, for this run and for `builds land`. The run
 //! refuses when the review lacks nothing and no confirmed finding is open.
 //!

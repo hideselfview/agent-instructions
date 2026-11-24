@@ -29,6 +29,8 @@ pub struct Input<'a> {
     /// The open confirmed findings of the group's rules, which the reviewer
     /// checks against the code as it is now.
     pub open: &'a [&'a Finding],
+    /// Uncovered capture changes the reviewer reads to decide open findings.
+    pub capture_evidence: &'a str,
     /// The branch's commits with the files each changes, which the reviewer
     /// reads only when it holds open findings; None when the diff did not
     /// come from a branch.
@@ -145,13 +147,19 @@ fn project_part(input: &Input) -> String {
 
 /// What the reviewer reads about the change: the diff, the new text of the
 /// file around its hunks when the group reads one file at a time, and the
-/// open confirmed findings.
+/// open confirmed findings with their capture evidence.
 fn change_part(input: &Input) -> String {
     let mut out = format!("{DIFF_START}{}\n```\n", input.diff.trim_end());
     if !input.context.is_empty() {
         out.push_str(&format!(
             "\n# The file's new text around each hunk\n\n```\n{}\n```\n",
             input.context.trim_end()
+        ));
+    }
+    if !input.capture_evidence.is_empty() {
+        out.push_str(&format!(
+            "\n# Capture changes for open findings\n\nUse these changes only to decide the `follow_up` verdicts.\n\n```diff\n{}\n```\n",
+            input.capture_evidence.trim_end()
         ));
     }
     if !input.open.is_empty() {
@@ -229,7 +237,7 @@ pub fn group_part(input: &Input) -> String {
     if let Some(sites) = group.sites.as_deref().filter(|_| group.enumerate) {
         out.push_str(&format!(
             "\nFor new findings, use `summary` and `sites`. Omit `rules`.\n\
-             - The message holds one changed file: its diff, then its new text around each hunk with line numbers. Read the new text to see what each value is, where it comes from and what the code around the site does with it.\n\
+             - The diff holds at most one changed file. When the message includes new text around each hunk, read it to see what each value is, where it comes from and what the code around the site does with it.\n\
              - First list every site in the diff that {sites}. Give each site its file and kind, and copy its code exactly from the diff.\n\
              - Consider only sites on lines the diff adds or removes, the lines that start with `+` or `-`. The new text around each hunk, and the diff's lines that start with a space, are there to read, not to judge: the change does not touch them, or an earlier review read them. builds drops a finding on any of them. A diff with no such site has an empty `sites`, and `summary` says so; otherwise `summary` says in a sentence what the diff does.\n\
              - Then give each site a verdict against the rules listed above: `none` when it breaks none of them; otherwise `finding`, with `rule` set to the rule's name, `clause` copied exactly from that rule's text below, and one or two plain sentences on what goes wrong. A site that breaks two rules is listed twice, once per rule.\n",
@@ -298,6 +306,7 @@ pub(super) fn setup(
         diff: "",
         context: "",
         open: &[],
+        capture_evidence: "",
         commits: None,
     });
     let schema = schema();

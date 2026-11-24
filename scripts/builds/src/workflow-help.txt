@@ -387,10 +387,11 @@ run. The review checks design files (the boards, the design system and
 canvas.json, by the project's design globs) only against the rules about how a
 screen, board or component looks, never against the rules about code (decision
 #364). Each such rule says so in its front matter (`design: true`), and no
-other rule reads a design file. Screenshot capture files (the files below each
-`shots-declared` folder of the repo's .app-build) are checked the same way,
-only against the rules marked `capture: true`, because the shots run checks
-them (decision #397; `builds help`, LANDING AND REVIEW).
+other rule reads a design file. The review searches screenshot capture files
+(the files below each `shots-declared` folder of the repo's .app-build) for
+new findings only under rules marked `capture: true` (decision #397,
+`builds help`, LANDING AND REVIEW). A group that holds an open confirmed
+finding also reads capture file changes to decide whether the branch fixes it.
 
 Spend review usage only where a review can find something (decision #401).
 `builds review` takes a required `--kind code|mechanical`. `--kind code` runs

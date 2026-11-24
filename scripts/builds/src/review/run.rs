@@ -109,8 +109,8 @@ impl Material {
 
 /// What decides which rules read which files of a change in one repo: the
 /// project's groups and rules, and the repo's design files (`builds lists
-/// design-globs`) and capture files (its `shots-declared` folders), which only
-/// the rules that judge files of their kind read (`Rule::judges`).
+/// design-globs`) and capture files (its `shots-declared` folders). New
+/// findings in those files require a rule that judges their kind (`Rule::judges`).
 #[derive(Clone, Copy)]
 pub struct Scope<'a> {
     pub material: &'a Material,
@@ -538,19 +538,18 @@ fn group_covers(members: &[&Rule], paths: &[String], files: &Globs) -> bool {
     members.iter().any(|rule| rule.matches(paths, files))
 }
 
-/// The units of group <at>, <group> with <members>, over <diff>, its view
-/// of the change (`unjudged`): a group that lists sites gets one per changed
+/// The units of group <at>, <group> with <members>, over its view of the
+/// change: a group that lists sites gets one per changed
 /// file its rules cover, by either path of a rename, or one per changed file
-/// when it holds a finding of <open>, and one for the commit messages when it
+/// in the review diff when it holds an open finding, and one for the commit messages when it
 /// reads them; any other group gets one for the whole diff, with the commit
 /// messages when it reads them (`Diff::text_for`).
 fn units_of<'a>(
     group: &'a Group,
     members: &'a [&'a Rule],
     at: usize,
-    diff: &Diff,
+    view: &GroupView<'_>,
     files: &Globs,
-    open: &[Finding],
 ) -> Vec<Unit<'a>> {
     let unit = |file| Unit {
         group,
@@ -561,34 +560,63 @@ fn units_of<'a>(
     if !group.enumerate {
         return vec![unit(None)];
     }
-    let holds = !held_by(group, members, open).is_empty();
-    let mut units: Vec<Unit> = diff
+    let mut units: Vec<Unit> = view
+        .diff
         .patch
         .files()
-        .filter(|file| holds || group_covers(members, &file.paths(), files))
+        .filter(|file| !view.held.is_empty() || group_covers(members, &file.paths(), files))
         .cloned()
         .map(|file| unit(Some(file)))
         .collect();
-    if let Some(messages) = diff.commit_messages_for(group) {
+    if let Some(messages) = view.diff.commit_messages_for(group) {
         units.push(unit(Some(messages.file())));
+    }
+    if units.is_empty() && !view.capture_evidence.is_empty() {
+        units.push(unit(None));
     }
     units
 }
 
-/// The design and capture files of <diff> that no rule of <members> covers,
-/// by <files>: a group reads such a file only when one of its rules judges
-/// files of its kind and covers it, whether or not the group holds open
-/// findings.
-fn unjudged(members: &[&Rule], diff: &Diff, files: &Globs) -> Vec<String> {
-    diff.patch
-        .files()
-        .filter(|file| {
-            let paths = file.paths();
-            paths.iter().any(|path| files.kind_of(path).is_some())
-                && !group_covers(members, &paths, files)
-        })
-        .map(|file| file.path.clone())
-        .collect()
+struct GroupView<'a> {
+    diff: Diff,
+    excludes_files: bool,
+    held: Vec<&'a Finding>,
+    capture_evidence: String,
+}
+
+/// Leave uncovered design and capture files out of the diff for new findings.
+/// When the group holds open findings, show uncovered capture changes as
+/// evidence for closing them. Every unit of the group gets that evidence.
+fn view_of<'a>(
+    group: &Group,
+    members: &[&Rule],
+    diff: &Diff,
+    files: &Globs,
+    open: &'a [Finding],
+) -> GroupView<'a> {
+    let held = held_by(group, members, open);
+    let mut excluded = Vec::new();
+    let mut capture_evidence = String::new();
+    for file in diff.patch.files() {
+        let paths = file.paths();
+        let kinds: Vec<_> = paths
+            .iter()
+            .filter_map(|path| files.kind_of(path))
+            .collect();
+        if kinds.is_empty() || group_covers(members, &paths, files) {
+            continue;
+        }
+        excluded.push(file.path.clone());
+        if !held.is_empty() && kinds.iter().all(|kind| *kind == FileKind::Capture) {
+            capture_evidence.push_str(&file.text);
+        }
+    }
+    GroupView {
+        diff: diff.without(&excluded),
+        excludes_files: !excluded.is_empty(),
+        held,
+        capture_evidence,
+    }
 }
 
 /// The files of its units, <paths>, that group <at> of <picked> does not
@@ -629,9 +657,8 @@ fn judges_code(
     units: &[Unit],
     diff: &Diff,
     files: &Globs,
-    open: &[Finding],
+    held: &[&Finding],
 ) -> bool {
-    let held = held_by(group, members, open);
     if held.iter().any(|finding| {
         finding.file != files::COMMIT_MESSAGE
             && files.includes_code(std::slice::from_ref(&finding.file))
@@ -660,12 +687,12 @@ fn judges_code(
 /// Asks the reviewers of <picked> and checks what comes back: one per group,
 /// except that a group that lists sites gets one per changed file its rule
 /// covers by either path of a rename, each given that file's diff and its new
-/// text around the hunks. No group reads a design or capture file of <scope>'s repo
-/// unless one of its rules judges files of its kind and covers it (`unjudged`).
+/// text around the hunks. A group's diff includes a design or capture file
+/// only when a rule of the group covers it (`view_of`).
 /// Each call also gets the findings of <open> in its group's rules, and
 /// closes each one whose problem the code no longer has. A group that holds
-/// findings of <open> reads every other file of <diff>, so that it sees a fix
-/// in any file. Of the other groups, none reads a file where a
+/// findings of <open> also reads uncovered code in the diff and receives
+/// uncovered capture changes as evidence for its open findings. Of the other groups, none reads a file where a
 /// group of <picked> holds findings of <open>, and each reads every other
 /// file it reads on a first review. The calls of a group come back as one
 /// call with the findings of all.
@@ -679,20 +706,17 @@ pub fn ask_groups(
     open: &[Finding],
 ) -> Asked {
     let (material, files) = (scope.material, scope.files);
-    // Each group's view of the change: the diff without the design and capture files the
-    // group does not judge.
-    let unjudged: Vec<Vec<String>> = picked
+    let views: Vec<_> = picked
         .iter()
-        .map(|(_, members)| unjudged(members, diff, files))
+        .map(|(group, members)| view_of(group, members, diff, files, open))
         .collect();
-    let views: Vec<Diff> = unjudged.iter().map(|paths| diff.without(paths)).collect();
     // The units a first review asks, and the files of each group's units that
     // it does not read now. A unit of the whole view reads every file of it,
     // and the commit messages when its group reads them.
     let first: Vec<Vec<Unit>> = picked
         .iter()
         .enumerate()
-        .map(|(at, (group, members))| units_of(group, members, at, &views[at], files, open))
+        .map(|(at, (group, members))| units_of(group, members, at, &views[at], files))
         .collect();
     let not_read: Vec<Vec<String>> = first
         .iter()
@@ -707,8 +731,9 @@ pub fn ask_groups(
                 match &unit.file {
                     Some(file) => read.push(file),
                     None => {
-                        read.extend(views[at].patch.files());
-                        reads_commit_messages = views[at].commit_messages_for(unit.group).is_some();
+                        read.extend(views[at].diff.patch.files());
+                        reads_commit_messages =
+                            views[at].diff.commit_messages_for(unit.group).is_some();
                     }
                 }
             }
@@ -724,7 +749,7 @@ pub fn ask_groups(
     let diffs: Vec<Diff> = not_read
         .iter()
         .zip(&views)
-        .map(|(paths, view)| view.without(paths))
+        .map(|(paths, view)| view.diff.without(paths))
         .collect();
     // Builds asks only the units that can read their files.
     let units: Vec<Vec<Unit>> = first
@@ -735,8 +760,10 @@ pub fn ask_groups(
                 .filter(|unit| match &unit.file {
                     Some(file) => !not_read[unit.diff].contains(&file.path),
                     None => {
-                        (not_read[unit.diff].is_empty() && unjudged[unit.diff].is_empty())
+                        let view = &views[unit.diff];
+                        (not_read[unit.diff].is_empty() && !view.excludes_files)
                             || !diffs[unit.diff].text_for(unit.group).trim().is_empty()
+                            || !view.capture_evidence.is_empty()
                     }
                 })
                 .collect()
@@ -748,7 +775,14 @@ pub fn ask_groups(
         .map(|(at, (group, members))| {
             if kind == ReviewKind::Branch {
                 reviewer.for_branch_review(|| {
-                    judges_code(group, members, &units[at], &diffs[at], files, open)
+                    judges_code(
+                        group,
+                        members,
+                        &units[at],
+                        &diffs[at],
+                        files,
+                        &views[at].held,
+                    )
                 })
             } else {
                 reviewer.clone()
@@ -789,7 +823,7 @@ pub fn ask_groups(
             None => (read.text_for(group), String::new()),
         };
         let names = prompt::answer_names(group, unit.members);
-        let given = held_by(group, unit.members, open);
+        let view = &views[unit.diff];
         let parts = prompt::build(&prompt::Input {
             group,
             rules: unit.members,
@@ -797,12 +831,13 @@ pub fn ask_groups(
             brief,
             diff: &text_diff,
             context: &context,
-            open: &given,
+            open: &view.held,
             commits: read.commits.as_deref(),
+            capture_evidence: &view.capture_evidence,
         });
         let selected = reviewer.select(&group.model);
         let setup = prompt::setup(group, unit.members, &selected);
-        let given_ids: Vec<i64> = given.iter().map(|f| f.id).collect();
+        let given_ids: Vec<i64> = view.held.iter().map(|f| f.id).collect();
         let started_at = crate::app_timing::now();
         let began = crate::clock::Moment::now();
         let output = call::run(
