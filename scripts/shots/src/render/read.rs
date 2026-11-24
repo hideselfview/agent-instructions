@@ -143,7 +143,8 @@ fn nonempty(text: Option<&str>) -> Option<String> {
 /// The elements of `raw`, in reading order (the tree's order from its first
 /// node). Ignored nodes (hidden, clipped, `aria-hidden`, presentational) are left out,
 /// their visible children kept; a text inside a named control is the
-/// control's name, not an element of its own. An open menu (`role=menu`) is a
+/// control's name, and a text inside a field is its value, not an element of
+/// its own. An open menu (`role=menu`) is a
 /// window of its own on mac and android, which the shots read after the
 /// window it opens over, so its elements come after the rest of the page's,
 /// in the order the page opens its menus.
@@ -199,7 +200,7 @@ pub(crate) fn build(raw: &[Raw], platform: Platform) -> Result<Vec<Element>, Rea
             next_parent = Some(elements.len());
             elements.push(element(node, role, label.clone(), bounds, parent, platform));
         }
-        if kept && role.is_control() && label.is_some() {
+        if kept && role.is_control() && (label.is_some() || role == Role::Field) {
             next_folded = true;
         }
         for child in node.children.iter().rev() {

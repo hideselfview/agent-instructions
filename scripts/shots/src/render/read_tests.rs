@@ -81,6 +81,21 @@ fn a_controls_text_is_its_name_and_not_an_element() {
 }
 
 #[test]
+fn an_unnamed_fields_text_is_its_value_and_not_an_element() {
+    let mut field = node("2", "textbox", &["3"]);
+    field.value = Some("harbor".to_string());
+    let raw = [
+        node("1", "RootWebArea", &["2"]),
+        field,
+        named(node("3", "StaticText", &[]), "harbor"),
+    ];
+    let elements = build(&raw, Platform::Android).unwrap();
+    assert_eq!(elements.len(), 1);
+    assert_eq!(elements[0].role, Role::Field);
+    assert_eq!(elements[0].value.as_deref(), Some("harbor"));
+}
+
+#[test]
 fn ignored_nodes_are_left_out_and_their_children_attach_to_the_next_kept_ancestor() {
     let mut hidden = named(node("3", "StaticText", &[]), "Note");
     hidden.ignored = true;
