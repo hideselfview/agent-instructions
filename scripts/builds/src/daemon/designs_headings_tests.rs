@@ -53,9 +53,9 @@ fn a_heading_drawn_for_android_and_for_macos_is_one_entry_with_both_as_sub_entri
     assert_eq!(
         headings(&index, "p").unwrap()["p"],
         vec![
-            json!({ "name": "Albums → album → artist", "y": 0.0, "subs": [
+            json!({ "name": "Albums → album → artist", "subs": [
                 { "name": "Android", "y": 0.0 }, { "name": "macOS", "y": 100.0 }] }),
-            json!({ "name": "Library states", "y": 200.0, "subs": [
+            json!({ "name": "Library states", "subs": [
                 { "name": "macOS", "y": 200.0 }, { "name": "Android", "y": 300.0 }] }),
             json!({ "name": "Switch library: Android", "y": 400.0 }),
             json!({ "name": "Several selected: macOS", "y": 500.0 }),
@@ -91,4 +91,23 @@ fn a_heading_with_no_text_or_no_y_fails_and_names_the_note() {
         .unwrap_err()
         .text();
     assert!(error.contains("note n (\"Row\") gives no y"), "{error}");
+}
+
+#[test]
+fn each_row_gets_the_boards_from_its_y_down_to_the_next_heading_and_the_first_also_those_above() {
+    let boards = [("a", -50.0), ("b", 10.0), ("c", 400.0), ("d", 950.0)]
+        .map(|(name, y)| json!({ "name": name, "x": 0, "y": y }));
+    let entries = vec![
+        json!({ "name": "Rows", "subs": [{ "name": "Android", "y": 0.0 }, { "name": "macOS", "y": 400.0 }] }),
+        json!({ "name": "Alone", "y": 900.0 }),
+    ];
+    assert_eq!(
+        with_rows(entries, &boards),
+        vec![
+            json!({ "name": "Rows", "subs": [
+                { "name": "Android", "y": 0.0, "boards": ["a", "b"] },
+                { "name": "macOS", "y": 400.0, "boards": ["c"] }] }),
+            json!({ "name": "Alone", "y": 900.0, "boards": ["d"] }),
+        ]
+    );
 }

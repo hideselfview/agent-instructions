@@ -197,6 +197,16 @@ pub(crate) fn placed(index: &Value) -> Result<&Map<String, Value>> {
     }
 }
 
+/// The notes that <index>, the repo's `CANVAS`, gives, by id; none when it
+/// gives no `notes`.
+pub(crate) fn notes_of(index: &Value) -> Result<Option<&Map<String, Value>>> {
+    match index.get("notes") {
+        None => Ok(None),
+        Some(Value::Object(notes)) => Ok(Some(notes)),
+        Some(_) => fail!("{CANVAS}: `notes` is not an object of notes"),
+    }
+}
+
 /// The page that <entry>, the <kind> <name> of the index, is on: its own, or
 /// the first page when it names none, as the canvas places it.
 pub(crate) fn page_of<'a>(
@@ -262,11 +272,7 @@ pub fn split<'a>(
         fail!("{CANVAS} places {name}, which is no board file");
     }
     let no_notes = Map::new();
-    let notes = match index.get("notes") {
-        None => &no_notes,
-        Some(Value::Object(notes)) => notes,
-        Some(_) => fail!("{CANVAS}: `notes` is not an object of notes"),
-    };
+    let notes = notes_of(index)?.unwrap_or(&no_notes);
     // The canvas that each board and each note is on, by its page.
     let place = |kind: &str, entries: &Map<String, Value>| -> Result<BTreeMap<String, usize>> {
         let mut on = BTreeMap::new();

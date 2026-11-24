@@ -38,7 +38,7 @@ use boards::tokens::specimen;
 use boards::{BOARD_SUFFIX, CANVAS, Source, TOKENS_JSON, canvas_place, canvas_size};
 use serde_json::{Value, json};
 
-use super::designs_headings::headings;
+use super::designs_headings::{headings, with_rows};
 use crate::design_canvas::{CANVASES, page_of, pages_of, parse_canvases, placed};
 use crate::design_render::{FRAMES_SCRIPT, NOW, fill, preview_frame, render_board};
 use crate::fail;
@@ -127,7 +127,7 @@ pub fn page(
     let pages: Vec<Value> = pages
         .into_iter()
         .map(|(id, name, boards)| {
-            let rows = headings.remove(id).unwrap_or_default();
+            let rows = with_rows(headings.remove(id).unwrap_or_default(), &boards);
             json!({ "id": id, "name": name, "boards": boards, "headings": rows })
         })
         .collect();

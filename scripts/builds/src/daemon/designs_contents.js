@@ -5,24 +5,17 @@
 // draw use the page's `h`.
 
 // The entries of a canvas page: its row headings (the server's `headings`,
-// each {name, y} or, for a heading drawn once for each platform, {name, y,
-// subs}), each with the row it stands for: the drawn <boards> from its y down
-// to the next heading's y (the first row also holds the boards above it). A
-// row with no drawn board has no entry, so the Filter field narrows the column
-// along with the boards.
+// each {name, y, boards} or, for a heading drawn once for each platform, {name,
+// subs} whose subs are such headings), each with the row it stands for: the
+// drawn <boards> that the heading names. A row with no drawn board has no
+// entry, so the Filter field narrows the column along with the boards.
 function boardEntries(headings, boards) {
-  const rows = headings.flatMap(e => e.subs || [e]).sort((a, b) => a.y - b.y);
-  const rowOf = leaf => {
-    const n = rows.indexOf(leaf);
-    const from = n ? leaf.y : -Infinity, to = n + 1 < rows.length ? rows[n + 1].y : Infinity;
-    return {boards: boards.filter(b => b.y >= from && b.y < to)};
-  };
-  const entry = leaf => ({name: leaf.name, y: leaf.y, row: rowOf(leaf), subs: []});
+  const entry = leaf => ({name: leaf.name, y: leaf.y, row: {boards: boards.filter(b => leaf.boards.includes(b.name))}, subs: []});
   const kept = e => e.row.boards.length > 0;
   return headings.flatMap(e => {
     if (!e.subs) return [entry(e)].filter(kept);
     const subs = e.subs.map(entry).filter(kept);
-    return subs.length ? [{name: e.name, y: e.y, row: subs[0].row, subs}] : [];
+    return subs.length ? [{name: e.name, row: subs[0].row, subs}] : [];
   });
 }
 // The entry of <entries> whose row holds the height <y> of the canvas: the

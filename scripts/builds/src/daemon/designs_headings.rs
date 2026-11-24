@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 use boards::CANVAS;
 use serde_json::{Value, json};
 
-use crate::design_canvas::page_of;
+use crate::design_canvas::{notes_of, page_of};
 use crate::fail;
 use crate::fail::Result;
 
@@ -26,16 +26,14 @@ struct Heading<'a> {
 
 /// The entries of each page of <index>, the repo's `CANVAS`, by page id:
 /// each a `{ "name", "y" }` object in order of its y, or, for a heading
-/// drawn once for each platform, a `{ "name", "y", "subs" }` object whose
-/// `subs` are the two platforms' `{ "name", "y" }` objects, and whose `y` is
-/// the first one's. <first> is the page of a note that names none. Fails
+/// drawn once for each platform, a `{ "name", "subs" }` object whose `subs`
+/// are the two platforms' `{ "name", "y" }` objects in order of their y.
+/// <first> is the page of a note that names none. Fails
 /// when a note that is a heading has no text or no y.
 pub fn headings(index: &Value, first: &str) -> Result<BTreeMap<String, Vec<Value>>> {
     let mut by_page: BTreeMap<&str, Vec<Heading>> = BTreeMap::new();
-    let notes = match index.get("notes") {
-        None => return Ok(BTreeMap::new()),
-        Some(Value::Object(notes)) => notes,
-        Some(_) => fail!("{CANVAS}: `notes` is not an object of notes"),
+    let Some(notes) = notes_of(index)? else {
+        return Ok(BTreeMap::new());
     };
     for (id, note) in notes {
         if note.get("size").is_some() {
@@ -91,7 +89,6 @@ fn entries(mut found: Vec<Heading>) -> Vec<Value> {
         subs.sort_by(|a, b| a.1.total_cmp(&b.1));
         out.push(json!({
             "name": stem,
-            "y": subs[0].1,
             "subs": subs.iter().map(|(name, y)| json!({ "name": name, "y": y })).collect::<Vec<_>>(),
         }));
     }
@@ -118,6 +115,47 @@ fn only<'a, 'b>(found: &'b [Heading<'a>], stem: &str, platform: &str) -> Option<
         (Some(one), None) => Some(one),
         _ => None,
     }
+}
+
+/// <entries>, a page's entries from `headings`, with each heading that has
+/// no sub-entries, and each sub-entry, given the names of the page's <boards>
+/// (each a `{ "name", "y", ... }` object) in its row: those from its y down
+/// to the next heading's y, the first row also holding the boards above it.
+/// A board with no y is in no row.
+pub fn with_rows(entries: Vec<Value>, boards: &[Value]) -> Vec<Value> {
+    let mut ys: Vec<f64> = entries
+        .iter()
+        .flat_map(|e| match e["subs"].as_array() {
+            Some(subs) => subs.iter().map(|s| s["y"].as_f64()).collect(),
+            None => vec![e["y"].as_f64()],
+        })
+        .flatten()
+        .collect();
+    ys.sort_by(f64::total_cmp);
+    let boards_of = |y: f64| -> Vec<Value> {
+        let n = ys.iter().position(|other| *other == y).unwrap_or(0);
+        let from = if n == 0 { f64::NEG_INFINITY } else { y };
+        let to = ys.get(n + 1).copied().unwrap_or(f64::INFINITY);
+        boards
+            .iter()
+            .filter(|b| b["y"].as_f64().is_some_and(|by| by >= from && by < to))
+            .map(|b| b["name"].clone())
+            .collect()
+    };
+    let row = |mut leaf: Value| {
+        leaf["boards"] = Value::Array(boards_of(leaf["y"].as_f64().unwrap_or(0.0)));
+        leaf
+    };
+    entries
+        .into_iter()
+        .map(|mut e| match e["subs"].as_array().cloned() {
+            Some(subs) => {
+                e["subs"] = Value::Array(subs.into_iter().map(row).collect());
+                e
+            }
+            None => row(e),
+        })
+        .collect()
 }
 
 #[cfg(test)]

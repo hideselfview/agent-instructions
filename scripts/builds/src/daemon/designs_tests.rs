@@ -113,15 +113,15 @@ fn the_page_has_each_page_of_the_index_with_its_boards_at_their_canvas_places_at
     assert_eq!(
         data["pages"],
         json!([
-            { "id": "one", "name": "One", "headings": [{ "name": "Alone", "y": 900.0 }], "boards": [
+            { "id": "one", "name": "One", "headings": [{ "name": "Alone", "y": 900.0, "boards": ["C"] }], "boards": [
                 { "name": "C", "title": null, "x": 0.0, "y": 0.0, "w": 100, "h": 100 },
                 { "name": "D", "title": "No size",
                   "error": "design/mocks/canvas.json gives no width and height for D.dc.html" },
                 { "name": "E", "title": "No place",
                   "error": "design/mocks/canvas.json gives no x and y for E.dc.html" },
             ] },
-            { "id": "two", "name": "Two", "headings": [{ "name": "Rows", "y": 0.0, "subs": [
-                { "name": "Android", "y": 0.0 }, { "name": "macOS", "y": 400.0 }] }], "boards": [
+            { "id": "two", "name": "Two", "headings": [{ "name": "Rows", "subs": [
+                { "name": "Android", "y": 0.0, "boards": ["A", "B"] }, { "name": "macOS", "y": 400.0, "boards": [] }] }], "boards": [
                 { "name": "A", "title": "Right", "x": 500.0, "y": 0.0, "w": 400, "h": 300 },
                 { "name": "B", "title": "Left", "x": 0.0, "y": 0.0, "w": 412, "h": 916 },
             ] },
@@ -473,8 +473,8 @@ fn contents_run(steps: &str) -> Value {
 /// stand in the Android row, c in the macOS row, d under "Alone".
 const CANVAS_PAGE: &str = r#"
 const headings = [
-  {name: "Rows", y: 0, subs: [{name: "Android", y: 0}, {name: "macOS", y: 400}]},
-  {name: "Alone", y: 900},
+  {name: "Rows", subs: [{name: "Android", y: 0, boards: ["a", "b"]}, {name: "macOS", y: 400, boards: ["c"]}]},
+  {name: "Alone", y: 900, boards: ["d"]},
 ];
 const board = (name, x, y, w) => ({name, x, y, w, h: 100});
 const boards = [board("a", 20, 10, 100), board("b", 200, 30, 100), board("c", 50, 410, 300), board("d", 0, 950, 50)];
