@@ -30,6 +30,7 @@
 //! commit holds, so the page has the tab only when it is asked for on this
 //! Mac.
 
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use boards::colors;
@@ -38,7 +39,7 @@ use boards::tokens::specimen;
 use boards::{BOARD_SUFFIX, CANVAS, Source, TOKENS_JSON, canvas_place, canvas_size};
 use serde_json::{Value, json};
 
-use super::designs_headings::{headings, with_rows};
+use super::designs_headings::headings;
 use crate::design_canvas::{CANVASES, page_of, pages_of, parse_canvases, placed};
 use crate::design_render::{FRAMES_SCRIPT, NOW, fill, preview_frame, render_board};
 use crate::fail;
@@ -123,11 +124,15 @@ pub fn page(
         };
         boards.push(drawn);
     }
-    let mut headings = headings(&index, first)?;
+    let drawn: BTreeMap<&str, &[Value]> = pages
+        .iter()
+        .map(|(id, _, boards)| (*id, boards.as_slice()))
+        .collect();
+    let mut headings = headings(&index, first, &drawn)?;
     let pages: Vec<Value> = pages
         .into_iter()
         .map(|(id, name, boards)| {
-            let rows = with_rows(headings.remove(id).unwrap_or_default(), &boards);
+            let rows = headings.remove(id).unwrap_or_default();
             json!({ "id": id, "name": name, "boards": boards, "headings": rows })
         })
         .collect();

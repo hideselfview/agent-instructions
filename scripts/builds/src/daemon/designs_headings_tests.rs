@@ -13,19 +13,19 @@ fn a_page_gets_the_notes_without_a_size_in_order_of_their_y() {
         "other": note("one", 40, "Elsewhere"),
         "no-page": { "x": 0, "y": 10, "text": "On the first page" },
     } });
-    let found = headings(&index, "one").unwrap();
+    let found = headings(&index, "one", &BTreeMap::new()).unwrap();
     assert_eq!(
         found["two"],
         vec![
-            json!({ "name": "First", "y": 0.0 }),
-            json!({ "name": "Second", "y": 300.0 })
+            json!({ "name": "First", "y": 0.0, "boards": [] }),
+            json!({ "name": "Second", "y": 300.0, "boards": [] })
         ]
     );
     assert_eq!(
         found["one"],
         vec![
-            json!({ "name": "On the first page", "y": 10.0 }),
-            json!({ "name": "Elsewhere", "y": 40.0 }),
+            json!({ "name": "On the first page", "y": 10.0, "boards": [] }),
+            json!({ "name": "Elsewhere", "y": 40.0, "boards": [] }),
         ]
     );
 }
@@ -33,7 +33,7 @@ fn a_page_gets_the_notes_without_a_size_in_order_of_their_y() {
 #[test]
 fn an_index_without_notes_gives_no_headings() {
     assert!(
-        headings(&json!({ "boards": {} }), "one")
+        headings(&json!({ "boards": {} }), "one", &BTreeMap::new())
             .unwrap()
             .is_empty()
     );
@@ -51,15 +51,15 @@ fn a_heading_drawn_for_android_and_for_macos_is_one_entry_with_both_as_sub_entri
         "g": note("p", 600, "Errors"),
     } });
     assert_eq!(
-        headings(&index, "p").unwrap()["p"],
+        headings(&index, "p", &BTreeMap::new()).unwrap()["p"],
         vec![
             json!({ "name": "Albums → album → artist", "subs": [
-                { "name": "Android", "y": 0.0 }, { "name": "macOS", "y": 100.0 }] }),
+                { "name": "Android", "y": 0.0, "boards": [] }, { "name": "macOS", "y": 100.0, "boards": [] }] }),
             json!({ "name": "Library states", "subs": [
-                { "name": "macOS", "y": 200.0 }, { "name": "Android", "y": 300.0 }] }),
-            json!({ "name": "Switch library: Android", "y": 400.0 }),
-            json!({ "name": "Several selected: macOS", "y": 500.0 }),
-            json!({ "name": "Errors", "y": 600.0 }),
+                { "name": "macOS", "y": 200.0, "boards": [] }, { "name": "Android", "y": 300.0, "boards": [] }] }),
+            json!({ "name": "Switch library: Android", "y": 400.0, "boards": [] }),
+            json!({ "name": "Several selected: macOS", "y": 500.0, "boards": [] }),
+            json!({ "name": "Errors", "y": 600.0, "boards": [] }),
         ]
     );
 }
@@ -72,37 +72,48 @@ fn a_platform_drawn_twice_under_one_name_pairs_with_nothing() {
         "c": note("p", 200, "Sync: macOS"),
     } });
     assert_eq!(
-        headings(&index, "p").unwrap()["p"],
+        headings(&index, "p", &BTreeMap::new()).unwrap()["p"],
         vec![
-            json!({ "name": "Sync: Android", "y": 0.0 }),
-            json!({ "name": "Sync: Android", "y": 100.0 }),
-            json!({ "name": "Sync: macOS", "y": 200.0 }),
+            json!({ "name": "Sync: Android", "y": 0.0, "boards": [] }),
+            json!({ "name": "Sync: Android", "y": 100.0, "boards": [] }),
+            json!({ "name": "Sync: macOS", "y": 200.0, "boards": [] }),
         ]
     );
 }
 
 #[test]
 fn a_heading_with_no_text_or_no_y_fails_and_names_the_note() {
-    let error = headings(&json!({ "notes": { "n": { "y": 0 } } }), "p")
-        .unwrap_err()
-        .text();
+    let error = headings(
+        &json!({ "notes": { "n": { "y": 0 } } }),
+        "p",
+        &BTreeMap::new(),
+    )
+    .unwrap_err()
+    .text();
     assert!(error.contains("note n has no text"), "{error}");
-    let error = headings(&json!({ "notes": { "n": { "text": "Row" } } }), "p")
-        .unwrap_err()
-        .text();
+    let error = headings(
+        &json!({ "notes": { "n": { "text": "Row" } } }),
+        "p",
+        &BTreeMap::new(),
+    )
+    .unwrap_err()
+    .text();
     assert!(error.contains("note n (\"Row\") gives no y"), "{error}");
 }
 
 #[test]
 fn each_row_gets_the_boards_from_its_y_down_to_the_next_heading_and_the_first_also_those_above() {
-    let boards = [("a", -50.0), ("b", 10.0), ("c", 400.0), ("d", 950.0)]
+    let index = json!({ "notes": {
+        "a": note("p", 0, "Rows: Android"),
+        "b": note("p", 400, "Rows: macOS"),
+        "c": note("p", 900, "Alone"),
+    } });
+    let drawn = [("a", -50.0), ("b", 10.0), ("c", 400.0), ("d", 950.0)]
         .map(|(name, y)| json!({ "name": name, "x": 0, "y": y }));
-    let entries = vec![
-        json!({ "name": "Rows", "subs": [{ "name": "Android", "y": 0.0 }, { "name": "macOS", "y": 400.0 }] }),
-        json!({ "name": "Alone", "y": 900.0 }),
-    ];
+    let nowhere = [json!({ "name": "e", "error": "no place" })];
+    let boards: BTreeMap<&str, &[Value]> = BTreeMap::from([("p", &drawn[..]), ("q", &nowhere[..])]);
     assert_eq!(
-        with_rows(entries, &boards),
+        headings(&index, "p", &boards).unwrap()["p"],
         vec![
             json!({ "name": "Rows", "subs": [
                 { "name": "Android", "y": 0.0, "boards": ["a", "b"] },
