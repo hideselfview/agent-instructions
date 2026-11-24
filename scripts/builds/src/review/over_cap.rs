@@ -43,8 +43,56 @@ pub struct Branch<'a> {
     pub patch_id: &'a str,
 }
 
-/// What the store says of <branch> over the cap, if it recorded it.
+/// What the store says of <branch> over the cap, if it recorded it. The
+/// person's answer approving a review holds for the branch while it stays
+/// under review: a fix, an added commit or a rebase changes the net change's
+/// patch id, and the branch keeps the answer until its review landing ends
+/// (`approved_for_branch`). The person's answer for this exact net change
+/// (approved or closed without approving) stands as it is.
 pub fn standing(db: &Connection, branch: Branch) -> Result<Option<Standing>> {
+    let exact = exact_standing(db, branch)?;
+    if matches!(
+        exact,
+        Some(
+            Standing::Approved(_)
+                | Standing::Waiting(Waiting::Mechanical(_) | Waiting::Declined(_))
+        )
+    ) {
+        return Ok(exact);
+    }
+    Ok(match approved_for_branch(db, branch.change)? {
+        Some(id) => Some(Standing::Approved(id)),
+        None => exact,
+    })
+}
+
+/// The question the person answered to approve a review of <change>, asked
+/// after the last of the change's review landings ended: the answer holds
+/// for the branch, whatever its net change is by now. A later landing of the
+/// same branch name is new work, which asks again.
+fn approved_for_branch(db: &Connection, change: Change) -> Result<Option<Id>> {
+    let mut statement = db
+        .prepare(
+            "SELECT question_id FROM review_over_cap WHERE repo = ?1 AND key = ?2 AND question_id IS NOT NULL
+               AND at > COALESCE((SELECT MAX(COALESCE(landed_at, abandoned_at)) FROM review_landing WHERE repo = ?1 AND key = ?2), -1)
+             ORDER BY at DESC, id DESC",
+        )
+        .sql()?;
+    let asked: Vec<Id> = statement
+        .query_map(params![change.repo, change.key], |row| row.get(0))
+        .sql()?
+        .collect::<std::result::Result<_, _>>()
+        .sql()?;
+    for id in asked {
+        if let Some((Kind::Question, Some(How::Answered(_)))) = lists_record::standing(db, id)? {
+            return Ok(Some(id));
+        }
+    }
+    Ok(None)
+}
+
+/// What the store says of exactly <branch>'s net change over the cap.
+fn exact_standing(db: &Connection, branch: Branch) -> Result<Option<Standing>> {
     let row: Option<(Option<String>, Option<Id>)> = db
         .query_row(
             "SELECT mechanical, question_id FROM review_over_cap WHERE repo = ?1 AND key = ?2 AND patch_id = ?3",

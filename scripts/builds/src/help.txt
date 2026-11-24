@@ -3683,7 +3683,12 @@ run `review replay --rules-root` on it.
                               the commits while the question is open. When the
                               person answers it, the next `review` reviews
                               the branch; when they close it any other way,
-                              nothing reviews or lands the branch.
+                              nothing reviews or lands the branch. The
+                              person's answer holds for the branch, whatever
+                              fixes, commits or rebases change its net change
+                              later, until the branch's review landing lands or
+                              is abandoned; work on the same branch name after
+                              that asks again.
                               A run on a key that has a review already asks
                               only what the review lacks (above), and asks the
                               groups that hold open confirmed findings again

@@ -2032,6 +2032,40 @@ fn a_branch_over_the_cap_starts_no_reviewer_and_asks_the_person_until_they_answe
 }
 
 #[test]
+fn the_persons_answer_holds_for_the_branch_after_more_commits_change_its_net_change() {
+    let demo = demo("review-over-cap-holds");
+    let fake = fake(&demo.scratch.dir);
+    let side = demo.add_side(1, "agent", "work");
+    big_commit(&side, "big.rs", "let x = 1;\n");
+    run_review(&demo, &fake, &side, "k");
+    let Some(over_cap::Standing::Waiting(over_cap::Waiting::Asked(question))) =
+        over_cap_standing(&demo, &side)
+    else {
+        panic!("asked")
+    };
+    demo.store
+        .write(&stamp(), "answer", |db| {
+            let decision = crate::lists::fixtures::decision_answering(db, question);
+            crate::lists::record::close(
+                db,
+                question,
+                crate::lists::How::Answered(decision),
+                &stamp(),
+            )
+        })
+        .unwrap();
+    // The agent adds work before the review runs, which changes the patch id.
+    std::fs::write(side.join("more.rs"), "fn more() {}\n").unwrap();
+    crate::testing::git(&side, &["add", "more.rs"]);
+    crate::testing::git(&side, &["commit", "-q", "-m", "more"]);
+    let questions = demo.store.load().unwrap().questions.len();
+    let reviewed = run_review(&demo, &fake, &side, "k");
+    assert!(reviewed.landing.is_some(), "{}", reviewed.text);
+    assert!(!fake.prompts().is_empty());
+    assert_eq!(demo.store.load().unwrap().questions.len(), questions);
+}
+
+#[test]
 fn a_branch_over_the_cap_that_the_person_closed_without_answering_is_not_reviewed() {
     let demo = demo("review-over-cap-declined");
     let fake = fake(&demo.scratch.dir);
