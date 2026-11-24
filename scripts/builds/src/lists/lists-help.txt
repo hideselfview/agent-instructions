@@ -207,7 +207,8 @@ main checkout holds or that more than one holds; an absolute path is itself.
                   [--origin N] [--tag T]...
       Needs a title of five to seven words, a known area (otherwise refused,
       naming the areas and `area add`), details, waits on open records, and a
-      brief that exists.
+      brief that exists. Refused when an open item in the project has the same
+      title and details; the refusal names that item.
 
   builds item edit N [--title T] [--area A] [--details-file F] [--brief P]
                      [--for F] [--origin N] [--tag T]... [--untag T]...

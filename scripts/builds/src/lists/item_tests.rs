@@ -108,6 +108,40 @@ fn add_item_makes_a_stamped_item_with_the_next_id() {
 }
 
 #[test]
+fn a_draft_matching_an_open_item_is_refused_and_names_it() {
+    let db = db();
+    let first = draft("One two three four five");
+    let id = add_item(&db, &first, None, &stamp(NOON)).unwrap();
+    let message = refusal(add_item(&db, &first, None, &stamp(NOON)));
+    assert!(
+        message.contains(&id.to_string()) && message.contains("same title and details"),
+        "{message}"
+    );
+    // A refused draft hands out no id.
+    assert_eq!(crate::lists::fixtures::next_id(&db), Id(id.0 + 1));
+    // Another title, or other details, is another item.
+    assert!(add_item(&db, &draft("One two three four six"), None, &stamp(NOON)).is_ok());
+    let mut other_details = draft("One two three four five");
+    other_details.details = "other details".into();
+    assert!(add_item(&db, &other_details, None, &stamp(NOON)).is_ok());
+}
+
+#[test]
+fn a_draft_matching_a_closed_item_is_added() {
+    let db = db();
+    let first = draft("One two three four five");
+    let id = add_item(&db, &first, None, &stamp(NOON)).unwrap();
+    close(
+        &db,
+        id,
+        How::Landed(vec![crate::lists::fixtures::sha('a')]),
+        &stamp(NOON),
+    )
+    .unwrap();
+    assert!(add_item(&db, &first, None, &stamp(NOON)).is_ok());
+}
+
+#[test]
 fn an_edit_changes_named_fields_by_the_drafts_rules() {
     let db = db();
     let id = item(&db, vec![]);

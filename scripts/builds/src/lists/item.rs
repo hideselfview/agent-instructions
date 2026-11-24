@@ -8,7 +8,7 @@
 
 use std::collections::BTreeMap;
 
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 
 use crate::db::Sql;
@@ -316,6 +316,29 @@ pub fn open_item(lists: &Lists, id: Id) -> Result<&Item> {
     }
 }
 impl ItemDraft {
+    /// Refuses a draft with the same title and details as an item that is
+    /// still open, and names that item: one finder that files the same item
+    /// twice costs every reader of the queue.
+    fn require_not_open_already(&self, db: &Connection) -> Result<()> {
+        let twin: Option<Id> = db
+            .query_row(
+                "SELECT item.id FROM item
+                 WHERE item.title = ?1 AND item.details = ?2
+                   AND NOT EXISTS (SELECT 1 FROM closing WHERE closing.record_id = item.id)
+                 ORDER BY item.id LIMIT 1",
+                params![self.title, self.details],
+                |row| row.get(0),
+            )
+            .optional()
+            .sql()?;
+        match twin {
+            Some(id) => {
+                fail!("{id} is still open with the same title and details; use it, or edit it")
+            }
+            None => Ok(()),
+        }
+    }
+
     /// The draft's own rules, against the state it lands in: title words, a
     /// known area, details, and every wait on an open record.
     pub fn validate(&self, db: &Connection) -> Result<()> {
@@ -327,6 +350,7 @@ impl ItemDraft {
         for wait in &self.waits {
             require_open_wait(db, wait)?;
         }
+        self.require_not_open_already(db)?;
         if self.brief.as_deref().is_some_and(|b| b.trim().is_empty()) {
             fail!("brief is empty");
         }
