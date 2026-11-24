@@ -114,8 +114,33 @@ fn ignored_nodes_are_left_out_and_their_children_attach_to_the_next_kept_ancesto
     assert_eq!(elements[1].parent, Some(0));
 }
 
+fn order(elements: &[Element]) -> Vec<&str> {
+    elements
+        .iter()
+        .map(|e| e.label.as_deref().unwrap_or(&e.native))
+        .collect()
+}
+
 #[test]
-fn an_open_menu_is_read_after_the_page_it_opens_over() {
+fn an_open_menu_is_read_after_the_page_it_opens_over_on_a_mac() {
+    let raw = [
+        node("1", "list", &["2", "3", "5"]),
+        named(node("2", "button", &[]), "Kitchen"),
+        node("3", "menu", &["4"]),
+        named(node("4", "button", &[]), "Details"),
+        named(node("5", "button", &[]), "Den"),
+    ];
+    let elements = build(&raw, Platform::Mac).unwrap();
+    assert_eq!(
+        order(&elements),
+        ["list", "Kitchen", "Den", "menu", "Details"]
+    );
+    assert_eq!(elements[3].parent, Some(0));
+    assert_eq!(elements[4].parent, Some(3));
+}
+
+#[test]
+fn an_android_menu_is_read_before_the_page_it_opens_over() {
     let raw = [
         node("1", "list", &["2", "3", "5"]),
         named(node("2", "button", &[]), "Kitchen"),
@@ -124,13 +149,90 @@ fn an_open_menu_is_read_after_the_page_it_opens_over() {
         named(node("5", "button", &[]), "Den"),
     ];
     let elements = build(&raw, Platform::Android).unwrap();
-    let order: Vec<_> = elements
-        .iter()
-        .map(|e| e.label.as_deref().unwrap_or(&e.native))
-        .collect();
-    assert_eq!(order, ["list", "Kitchen", "Den", "menu", "Details"]);
-    assert_eq!(elements[3].parent, Some(0));
-    assert_eq!(elements[4].parent, Some(3));
+    assert_eq!(
+        order(&elements),
+        ["menu", "Details", "list", "Kitchen", "Den"]
+    );
+    assert_eq!(elements[0].parent, None, "a window hangs from no page node");
+    assert_eq!(elements[1].parent, Some(0));
+    assert_eq!(elements[2].parent, None);
+    assert_eq!(elements[3].parent, Some(2));
+    assert_eq!(elements[4].parent, Some(2));
+}
+
+#[test]
+fn an_android_dialog_is_read_before_the_page_it_opens_over() {
+    let raw = [
+        node("1", "list", &["2", "3"]),
+        named(node("2", "button", &[]), "Page"),
+        given(node("3", "dialog", &["4"]), "Pair with Kitchen"),
+        named(node("4", "button", &[]), "Cancel"),
+    ];
+    let elements = build(&raw, Platform::Android).unwrap();
+    assert_eq!(
+        order(&elements),
+        ["Pair with Kitchen", "Cancel", "list", "Page"]
+    );
+}
+
+#[test]
+fn android_windows_are_read_in_tree_order_each_without_the_windows_in_it() {
+    let raw = [
+        node("1", "list", &["2", "3", "7", "9"]),
+        named(node("2", "button", &[]), "Page"),
+        given(node("3", "dialog", &["4", "5"]), "Sheet"),
+        named(node("4", "button", &[]), "In sheet"),
+        node("5", "menu", &["6"]),
+        named(node("6", "button", &[]), "In nested menu"),
+        node("7", "menu", &["8"]),
+        named(node("8", "button", &[]), "In second menu"),
+        named(node("9", "button", &[]), "Footer"),
+    ];
+    let elements = build(&raw, Platform::Android).unwrap();
+    assert_eq!(
+        order(&elements),
+        [
+            "Sheet",
+            "In sheet",
+            "menu",
+            "In nested menu",
+            "menu",
+            "In second menu",
+            "list",
+            "Page",
+            "Footer"
+        ]
+    );
+}
+
+#[test]
+fn an_ignored_android_window_is_no_window() {
+    let mut hidden = given(node("3", "dialog", &["4"]), "Hidden");
+    hidden.ignored = true;
+    let raw = [
+        node("1", "list", &["2", "3"]),
+        named(node("2", "button", &[]), "Page"),
+        hidden,
+        named(node("4", "button", &[]), "Inside"),
+    ];
+    let elements = build(&raw, Platform::Android).unwrap();
+    assert_eq!(order(&elements), ["list", "Page", "Inside"]);
+}
+
+#[test]
+fn a_dialog_stays_in_its_place_on_a_mac() {
+    let raw = [
+        node("1", "list", &["2", "3", "5"]),
+        named(node("2", "button", &[]), "Before"),
+        given(node("3", "dialog", &["4"]), "Sheet"),
+        named(node("4", "button", &[]), "Inside"),
+        named(node("5", "button", &[]), "After"),
+    ];
+    let elements = build(&raw, Platform::Mac).unwrap();
+    assert_eq!(
+        order(&elements),
+        ["list", "Before", "Sheet", "Inside", "After"]
+    );
 }
 
 #[test]

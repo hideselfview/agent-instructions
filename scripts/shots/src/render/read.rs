@@ -140,31 +140,114 @@ fn nonempty(text: Option<&str>) -> Option<String> {
     text.map(words).filter(|w| !w.is_empty())
 }
 
+/// A node the walk has yet to read: the node, the index of the nearest kept
+/// ancestor, and whether a named control is above it.
+type Pending<'a> = (&'a Raw, Option<usize>, bool);
+
+/// Whether a node is a window of its own over the screen under it: an open
+/// menu (`role=menu`) on mac and android, and on android also a dialog
+/// (`role=dialog`), which TalkBack moves into before the screen. An ignored
+/// node is no window: its visible children stay in the page.
+fn is_window(node: &Raw, platform: Platform) -> bool {
+    !node.ignored
+        && match platform {
+            Platform::Mac => node.chrome_role == "menu",
+            Platform::Android => matches!(node.chrome_role.as_str(), "menu" | "dialog"),
+            Platform::Web => false,
+        }
+}
+
 /// The elements of `raw`, in reading order (the tree's order from its first
 /// node). Ignored nodes (hidden, clipped, `aria-hidden`, presentational) are left out,
 /// their visible children kept; a text inside a named control is the
 /// control's name, and a text inside a field is its value, not an element of
-/// its own. An open menu (`role=menu`) is a
-/// window of its own on mac and android, which the shots read after the
-/// window it opens over, so its elements come after the rest of the page's,
-/// in the order the page opens its menus.
+/// its own.
+///
+/// An open window reads apart from the page it opens over. On a mac the shots
+/// read an open menu after the page, in the order the page opens its menus. On
+/// android the shots read each window (a menu or a dialog) before the page,
+/// as TalkBack moves its focus into a window that opens: the windows come in
+/// the tree's order, an outer window before the windows inside it, each
+/// without them, and an android window hangs from no node of the page.
 pub(crate) fn build(raw: &[Raw], platform: Platform) -> Result<Vec<Element>, ReadError> {
     let by_id: HashMap<&str, &Raw> = raw.iter().map(|n| (n.id.as_str(), n)).collect();
     let Some(first) = raw.first() else {
         return Ok(Vec::new());
     };
     let mut elements = Vec::new();
-    // (node, index of the nearest kept ancestor, a named control above it)
-    let mut pending = vec![(first, None, false)];
-    // The open menus the page holds, each read once the page before it is.
-    let mut menus = VecDeque::new();
-    let mut reading_menu = false;
-    while let Some((node, parent, folded)) = pending.pop().or_else(|| {
-        reading_menu = true;
-        menus.pop_front()
-    }) {
-        if node.chrome_role == "menu" && !node.ignored && !std::mem::take(&mut reading_menu) {
-            menus.push_back((node, parent, folded));
+    let mut windows = VecDeque::new();
+    match platform {
+        Platform::Android => {
+            for window in windows_in_tree_order(first, &by_id, platform)? {
+                read(
+                    &mut elements,
+                    &by_id,
+                    platform,
+                    (window, None, false),
+                    &mut windows,
+                )?;
+            }
+            read(
+                &mut elements,
+                &by_id,
+                platform,
+                (first, None, false),
+                &mut windows,
+            )?;
+        }
+        Platform::Mac | Platform::Web => {
+            read(
+                &mut elements,
+                &by_id,
+                platform,
+                (first, None, false),
+                &mut windows,
+            )?;
+            while let Some(window) = windows.pop_front() {
+                read(&mut elements, &by_id, platform, window, &mut windows)?;
+            }
+        }
+    }
+    Ok(elements)
+}
+
+/// The windows under `root`, each before the windows inside it.
+fn windows_in_tree_order<'a>(
+    root: &'a Raw,
+    by_id: &HashMap<&str, &'a Raw>,
+    platform: Platform,
+) -> Result<Vec<&'a Raw>, ReadError> {
+    let mut found = Vec::new();
+    let mut pending = vec![root];
+    while let Some(node) = pending.pop() {
+        if is_window(node, platform) {
+            found.push(node);
+        }
+        for child in node.children.iter().rev() {
+            pending.push(
+                by_id
+                    .get(child.as_str())
+                    .ok_or_else(|| ReadError::NoNode(child.clone()))?,
+            );
+        }
+    }
+    Ok(found)
+}
+
+/// Reads `start` and what is under it into `elements`. A window under `start`
+/// is left for `windows` to hold, to be read apart from `start`.
+fn read<'a>(
+    elements: &mut Vec<Element>,
+    by_id: &HashMap<&str, &'a Raw>,
+    platform: Platform,
+    start: Pending<'a>,
+    windows: &mut VecDeque<Pending<'a>>,
+) -> Result<(), ReadError> {
+    let start_id = start.0.id.as_str();
+    let mut pending = vec![start];
+    while let Some((node, parent, folded)) = pending.pop() {
+        if node.id != start_id && is_window(node, platform) {
+            windows.push_back((node, parent, folded));
             continue;
         }
         let role = Role::for_node(node, platform);
@@ -210,7 +293,7 @@ pub(crate) fn build(raw: &[Raw], platform: Platform) -> Result<Vec<Element>, Rea
             pending.push((child, next_parent, next_folded));
         }
     }
-    Ok(elements)
+    Ok(())
 }
 
 fn element(
