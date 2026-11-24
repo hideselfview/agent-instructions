@@ -80,6 +80,32 @@ fn elements_with_no_words_are_structure() {
 }
 
 #[test]
+fn a_selectable_text_the_mac_reports_as_a_text_holding_a_text_is_one_text() {
+    // SwiftUI's `.textSelection(.enabled)`: an AXStaticText whose only child is
+    // an AXStaticText with the same label at the same frame.
+    let list = [
+        element(Role::Text, Some("Details"), None),
+        element(Role::Text, Some("Details"), Some(0)),
+        element(Role::Text, Some("Next"), None),
+    ];
+    let kept: Vec<_> = entries(&list).iter().map(|e| e.index).collect();
+    assert_eq!(kept, [0, 2]);
+}
+
+#[test]
+fn a_text_in_a_text_stays_when_its_words_frame_or_siblings_differ() {
+    let mut moved = element(Role::Text, Some("Details"), Some(0));
+    moved.bounds.x = 5.0;
+    let other_words = element(Role::Text, Some("More"), Some(0));
+    let sibling = element(Role::Text, Some("Details"), Some(0));
+    let kept = |list: &[Element]| entries(list).len();
+    let parent = || element(Role::Text, Some("Details"), None);
+    assert_eq!(kept(&[parent(), moved]), 2);
+    assert_eq!(kept(&[parent(), other_words]), 2);
+    assert_eq!(kept(&[parent(), sibling.clone(), sibling]), 3);
+}
+
+#[test]
 fn a_field_without_a_label_is_named_by_its_placeholder() {
     let mut field = element(Role::Field, None, None);
     field.placeholder = Some("Restore code".to_string());

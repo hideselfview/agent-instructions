@@ -66,6 +66,23 @@ pub(crate) fn enabled_state(kind: Role, enabled: bool) -> Option<bool> {
     (kind != Role::Text).then_some(enabled)
 }
 
+/// Whether the text at `index` is the inner half of a selectable text. SwiftUI
+/// shows `.textSelection(.enabled)` text to accessibility as a static text
+/// that holds one static text with the same label at the same frame. The pair
+/// is one text, which the outer element stands for.
+fn is_selectable_copy(list: &[Element], index: usize) -> bool {
+    let element = &list[index];
+    let Some(parent) = element.parent.filter(|p| *p < index) else {
+        return false;
+    };
+    let holder = &list[parent];
+    element.role == Role::Text
+        && holder.role == Role::Text
+        && element.bounds == holder.bounds
+        && name(element) == name(holder)
+        && list.iter().filter(|e| e.parent == Some(parent)).count() == 1
+}
+
 /// The entries of `list`, in its order.
 pub(crate) fn entries(list: &[Element]) -> Vec<Entry> {
     // Whether a named control holds the element, directly or further up.
@@ -82,7 +99,10 @@ pub(crate) fn entries(list: &[Element]) -> Vec<Entry> {
             Role::Text | Role::Image | Role::Other => words.is_empty(),
             _ => false,
         };
-        if structure || (element.role == Role::Text && inside_control[index]) {
+        if structure
+            || (element.role == Role::Text && inside_control[index])
+            || is_selectable_copy(list, index)
+        {
             continue;
         }
         entries.push(Entry {
