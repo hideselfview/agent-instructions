@@ -84,7 +84,7 @@ fn approved_for_branch(db: &Connection, change: Change) -> Result<Option<Id>> {
         .collect::<std::result::Result<_, _>>()
         .sql()?;
     for id in asked {
-        if let Some((Kind::Question, Some(How::Answered(_)))) = lists_record::standing(db, id)? {
+        if let Standing::Approved(id) = question_standing(db, id)? {
             return Ok(Some(id));
         }
     }
@@ -109,12 +109,18 @@ fn exact_standing(db: &Connection, branch: Branch) -> Result<Option<Standing>> {
         return Ok(Some(Standing::Waiting(Waiting::Mechanical(known))));
     }
     let id = question.expect("the table holds a mechanical word or a question");
-    Ok(Some(match lists_record::standing(db, id)? {
+    Ok(Some(question_standing(db, id)?))
+}
+
+/// Where the branch stands by the state of its question <id>; fails when the
+/// store holds no question under that id.
+fn question_standing(db: &Connection, id: Id) -> Result<Standing> {
+    Ok(match lists_record::standing(db, id)? {
         Some((Kind::Question, None)) => Standing::Waiting(Waiting::Asked(id)),
         Some((Kind::Question, Some(How::Answered(_)))) => Standing::Approved(id),
         Some((Kind::Question, Some(_))) => Standing::Waiting(Waiting::Declined(id)),
         other => fail!("review_over_cap names {id} as a question, and the store has {other:?}"),
-    }))
+    })
 }
 
 /// Records <branch> as needing no review for <why>.
