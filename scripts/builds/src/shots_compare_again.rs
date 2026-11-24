@@ -138,8 +138,8 @@ fn compare_again(places: &Places, key: &Key, program: &Path) -> Result<Option<Ca
     Ok(Some(cached))
 }
 
-/// The first 12 characters of a version.
-fn short(version: &str) -> &str {
+/// The first 12 characters of a shots program version.
+pub fn short(version: &str) -> &str {
     &version[..version.len().min(12)]
 }
 

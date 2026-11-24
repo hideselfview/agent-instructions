@@ -54,6 +54,7 @@ use crate::lane::Lane;
 use crate::places::Places;
 use crate::shot_causes;
 use crate::shots_cache::{self, Cached, Key};
+use crate::shots_compare_again::short;
 use crate::text::note;
 
 /// The line the shots program's own output starts after: cargo's, for the
@@ -258,7 +259,7 @@ fn note_run(cached: &Cached) {
         &commit[..commit.len().min(12)],
         lane.word(),
         age(now() - cached.recorded_at()),
-        &versions.comparison[..versions.comparison.len().min(12)],
+        short(&versions.comparison),
         cached.exit_code()
     ));
 }
@@ -316,8 +317,8 @@ fn no_run(repo: &str, git_ref: &str, commit: &str, lane: Lane, prefix: &str) -> 
         "no run of {prefix} on {} is cached for {repo} at {} (shots program capture version {}, comparison version {}); `{}` makes one",
         lane.word(),
         &commit[..12.min(commit.len())],
-        &versions.capture[..12.min(versions.capture.len())],
-        &versions.comparison[..12.min(versions.comparison.len())],
+        short(&versions.capture),
+        short(&versions.comparison),
         how_to_make(repo, git_ref, lane, prefix)
     ))
 }
@@ -374,10 +375,10 @@ fn older_program_note(cached: &Cached) -> Option<String> {
     (versions != mine).then(|| {
         format!(
             "no run of this builds' shots program (capture version {}, comparison version {}) is cached, so these are the findings the older shots program stored: capture version {}, comparison version {}",
-            &mine.capture[..mine.capture.len().min(12)],
-            &mine.comparison[..mine.comparison.len().min(12)],
-            &versions.capture[..versions.capture.len().min(12)],
-            &versions.comparison[..versions.comparison.len().min(12)]
+            short(&mine.capture),
+            short(&mine.comparison),
+            short(&versions.capture),
+            short(&versions.comparison)
         )
     })
 }
