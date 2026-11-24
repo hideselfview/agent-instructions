@@ -18,21 +18,18 @@ use crate::fail::{Context, Result};
 /// Deletes the fingerprint of each build script run in <folder>, a cloned
 /// build folder, that printed a `cargo:` line naming one of <paths> (the
 /// checkout the clone came from: its working tree and its build root), so that
-/// cargo runs the script again in the new checkout. Returns how many it
-/// deleted.
-pub fn forget_runs_naming(folder: &Path, paths: &[&Path]) -> Result<usize> {
-    let mut forgotten = 0;
+/// cargo runs the script again in the new checkout.
+pub fn forget_runs_naming(folder: &Path, paths: &[&Path]) -> Result<()> {
     for profile in profile_dirs(folder)? {
         for unit in units_in(&profile)?.list {
             if let Some(fingerprint) = &unit.fingerprint
                 && prints_a_path_of(&unit, paths)?
             {
                 remove(fingerprint)?;
-                forgotten += 1;
             }
         }
     }
-    Ok(forgotten)
+    Ok(())
 }
 
 fn prints_a_path_of(unit: &Unit, paths: &[&Path]) -> Result<bool> {
