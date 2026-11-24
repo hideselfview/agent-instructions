@@ -52,9 +52,16 @@ impl Entry {
 }
 
 /// The words an element is known by: its label, or for a field with none the
-/// placeholder it shows.
+/// placeholder it shows. SwiftUI joins the texts of a combined control with
+/// ", " where a board joins them with a space, so a control's label reads
+/// each ", " as a space, on both sides. A text keeps its own commas.
 fn name(element: &Element) -> String {
     let label = element.label.as_deref().map(words).unwrap_or_default();
+    let label = if element.role == Role::Text {
+        label
+    } else {
+        words(&label.replace(", ", " "))
+    };
     match (&element.placeholder, label.is_empty(), element.role) {
         (Some(placeholder), true, Role::Field) => words(placeholder),
         _ => label,

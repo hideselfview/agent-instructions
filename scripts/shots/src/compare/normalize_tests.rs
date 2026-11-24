@@ -35,6 +35,19 @@ fn words_are_composed_collapsed_and_trimmed_and_nothing_else() {
 }
 
 #[test]
+fn a_controls_label_joined_with_commas_reads_as_the_board_joins_it_with_spaces() {
+    let shot = [element(Role::Button, Some("Barcode, 0 41234, Copy"), None)];
+    let board = [element(Role::Button, Some("Barcode 0 41234 Copy"), None)];
+    assert_eq!(entries(&shot)[0].words, entries(&board)[0].words);
+}
+
+#[test]
+fn a_texts_own_commas_stay() {
+    let list = [element(Role::Text, Some("Hello, world"), None)];
+    assert_eq!(entries(&list)[0].words, "Hello, world");
+}
+
+#[test]
 fn a_text_inside_a_named_control_is_the_controls_name() {
     let list = [
         element(Role::Button, Some("Set up"), None),
