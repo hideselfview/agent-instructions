@@ -340,6 +340,18 @@ pub(crate) fn pairs(board: &Side, shot: &Side, pairs: &[(Entry, Entry)]) -> Vec<
         }
         let from = palette(board.picture, board.scale, b.bounds(board.elements));
         let to = palette(shot.picture, shot.scale, shot.elements[s.index].bounds);
+        let board_glyph = from.as_ref().and_then(Palette::glyph_colour);
+        let obscured = b.kind == Role::Text
+            && from.as_ref().is_some_and(|palette| {
+                board_text_is_obscured(&board.elements[b.index], palette, board_glyph)
+            });
+        if obscured {
+            crate::log::note(format_args!(
+                "colours of Text “{}” skipped: the board draws it dimmer than its recorded colour",
+                b.words
+            ));
+            continue;
+        }
         if let (Some(from), Some(to)) = (&from, &to) {
             // A box that fits its glyph tightly is mostly glyph, and a looser
             // box is mostly surface, so one side's majority colour can be the
@@ -387,28 +399,73 @@ pub(crate) fn pairs(board: &Side, shot: &Side, pairs: &[(Entry, Entry)]) -> Vec<
 /// and `thin` lies on the line from its background to `full`'s colour,
 /// [`THIN_GLYPH_PEAK`] of the way or more, within [`DELTA_E_TOLERANCE`].
 fn is_partial_coverage(partial: &Palette, thin: Rgb, whole: &Palette, full: Rgb) -> bool {
-    if partial.reaches_full_coverage(thin) {
+    !partial.reaches_full_coverage(thin)
+        && is_on_blend(partial.background, thin, whole.offset(full))
+}
+
+/// Whether <seen> lies on the line from <background> to the colour that is
+/// <drawn> from it, [`THIN_GLYPH_PEAK`] of the way or more, within
+/// [`DELTA_E_TOLERANCE`].
+fn is_on_blend(background: Rgb, seen: Rgb, drawn: [i32; 3]) -> bool {
+    let length = dot(drawn, drawn);
+    if length == 0 {
         return false;
     }
-    let (seen, drawn) = (partial.offset(thin), whole.offset(full));
-    let peak = f64::from(dot(seen, drawn)) / f64::from(dot(drawn, drawn));
+    let offset: [i32; 3] =
+        std::array::from_fn(|channel| i32::from(seen[channel]) - i32::from(background[channel]));
+    let peak = f64::from(dot(offset, drawn)) / f64::from(length);
     if !(THIN_GLYPH_PEAK..=1.0).contains(&peak) {
         return false;
     }
     let expected: Rgb = std::array::from_fn(|channel| {
-        (f64::from(partial.background[channel]) + peak * f64::from(drawn[channel]))
+        (f64::from(background[channel]) + peak * f64::from(drawn[channel]))
             .round()
             .clamp(0.0, 255.0) as u8
     });
-    rgb_delta(thin, expected) <= DELTA_E_TOLERANCE
+    rgb_delta(seen, expected) <= DELTA_E_TOLERANCE
 }
 
-/// The index of an element drawn after <entry>, and no part of it, that
+/// The colour a board gives a text in its element list: the board's CSS, which
+/// is the colour it draws, so a glyph far dimmer than it, or none at all
+/// where it contrasts with the background, is the text under a scrim or
+/// clipped. None for a text with no recorded colour or a see-through one.
+fn recorded_colour(element: &Element) -> Option<Rgb> {
+    let recorded = element.text.as_ref()?.color.as_deref()?;
+    let digits = recorded.strip_prefix('#')?;
+    let byte = |at: usize| u8::from_str_radix(digits.get(at..at + 2)?, 16).ok();
+    match digits.len() {
+        6 => Some([byte(0)?, byte(2)?, byte(4)?]),
+        8 if byte(6)? == 255 => Some([byte(0)?, byte(2)?, byte(4)?]),
+        _ => None,
+    }
+}
+
+/// Whether the board draws the text <entry> under something: its element
+/// records a colour, and the glyph pixels in <palette> are far from it, or
+/// there are none though the colour contrasts with the background.
+fn board_text_is_obscured(element: &Element, palette: &Palette, glyph: Option<Rgb>) -> bool {
+    let Some(recorded) = recorded_colour(element) else {
+        return false;
+    };
+    match glyph {
+        Some(glyph) => {
+            rgb_delta(glyph, recorded) > DELTA_E_TOLERANCE
+                && !is_on_blend(palette.background, glyph, palette.offset(recorded))
+        }
+        None => rgb_delta(palette.background, recorded) > FAR_FROM_BACKGROUND,
+    }
+}
+
+/// The index of an element drawn over <entry>, and no part of it, that
 /// overlaps its box by more than [`EDGE_TOLERANCE`] in each direction: a
-/// sheet, popover or scrim over it. A list holds an element after the
-/// elements under it, so the box shows the later element's pixels where they
-/// overlap, and a glyph the overlap cuts has no colour of its own to measure.
-/// A list holds each parent before its children (`Shot::problems`).
+/// sheet, popover or scrim over it. The box shows that element's pixels where
+/// they overlap, and a glyph the overlap cuts has no colour of its own to
+/// measure. A list holds an element after the elements under it, and each
+/// parent before its children (`Shot::problems`); an overlay is the
+/// exception: a dialog, menu or popover is a tree of its own that a list holds
+/// before the page it opens over (`compare::inside_dialog`), though it draws
+/// on top. So an element of another tree listed before the entry's tree
+/// covers it too.
 fn covering(list: &[Element], entry: &Entry) -> Option<usize> {
     let at = entry.bounds(list);
     let own = |index: usize| index == entry.index || entry.folded.contains(&index);
@@ -427,9 +484,23 @@ fn covering(list: &[Element], entry: &Entry) -> Option<usize> {
         false
     };
     let tolerance = EDGE_TOLERANCE;
-    ((last + 1)..list.len()).find(|&index| {
+    let root = |index: usize| {
+        let mut top = index;
+        while let Some(parent) = list[top].parent {
+            top = parent;
+        }
+        top
+    };
+    let tree = root(entry.index);
+    let is_overlay = |index: usize| {
+        list[index].parent.is_none()
+            && (index < tree || matches!(list[index].native.as_str(), "dialog" | "alertdialog"))
+            && index != tree
+    };
+    (0..list.len()).find(|&index| {
         let over = list[index].bounds;
-        !part_of_entry(index)
+        (index > last || is_overlay(index))
+            && !part_of_entry(index)
             && over.x + over.width > at.x + tolerance
             && over.x < at.x + at.width - tolerance
             && over.y + over.height > at.y + tolerance

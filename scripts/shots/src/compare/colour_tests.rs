@@ -445,11 +445,8 @@ fn an_element_that_a_later_element_covers_is_compared_for_no_colour() {
     };
     // A sheet drawn after the text, beyond its box, hides it.
     assert!(warn_with_cover(|list| list.push(sheet(None, covering)), &board, &shot).is_empty());
-    // The same box drawn before the text hides nothing.
-    assert_eq!(
-        warn_with_cover(|list| list.insert(0, sheet(None, covering)), &board, &shot).len(),
-        1
-    );
+    // The same box listed before the text is an overlay the list holds before
+    // the page it opens over, and hides it too (`an_overlay_listed_before...`).
     // A box that holds the text, as its parent, hides nothing.
     let mut text = labelled(Role::Text, "Word", None);
     text.parent = Some(0);
@@ -538,4 +535,86 @@ fn a_dimmer_glyph_that_fills_its_strokes_still_warns() {
         warn(Role::Text, &draw([187, 187, 192]), &draw([168, 168, 179])).len(),
         1
     );
+}
+
+fn dialog(bounds: Bounds) -> crate::shots::Element {
+    let mut dialog = sheet(None, bounds);
+    dialog.native = "dialog".to_string();
+    dialog
+}
+
+#[test]
+fn an_overlay_listed_before_the_text_it_covers_hides_the_text_s_colours() {
+    // A board lists a dialog or menu before the page it opens over, though it
+    // draws it over the page: the sheet's pixels are in the text's box.
+    let draw = |ink: Rgb| picture(8, 8, move |x, _| if x < 3 { ink } else { [40, 40, 48] });
+    let (board, shot) = (draw([255, 255, 255]), draw([224, 224, 224]));
+    let over = Bounds {
+        x: -2.0,
+        y: -2.0,
+        width: 20.0,
+        height: 20.0,
+    };
+    assert!(warn_with_cover(|list| list.insert(0, dialog(over)), &board, &shot).is_empty());
+    // So does a box of another tree that is not a dialog, a menu say.
+    assert!(warn_with_cover(|list| list.insert(0, sheet(None, over)), &board, &shot).is_empty());
+    // A box of another tree beside the text hides nothing.
+    let beside = Bounds { x: 20.0, ..over };
+    assert_eq!(
+        warn_with_cover(|list| list.insert(0, sheet(None, beside)), &board, &shot).len(),
+        1
+    );
+    // The dialog's own text is no text under it.
+    let mut text = labelled(Role::Text, "Word", None);
+    text.parent = Some(0);
+    let held = vec![dialog(over), text];
+    let found = crate::compare::compare(&held, &held, crate::compare::Slots::NONE);
+    assert_eq!(
+        pairs(&side(&held, &board), &side(&held, &shot), &found.pairs).len(),
+        1
+    );
+}
+
+/// `warn` for a text whose board element records `colour`.
+fn warn_recorded(board: &Picture, shot: &Picture, colour: &str) -> Vec<String> {
+    let (b, s) = (
+        [labelled(Role::Text, "Word", Some(colour))],
+        [labelled(Role::Text, "Word", None)],
+    );
+    let found = crate::compare::compare(&b, &s, crate::compare::Slots::NONE);
+    pairs(&side(&b, board), &side(&s, shot), &found.pairs)
+        .iter()
+        .map(Warning::sentence)
+        .collect()
+}
+
+#[test]
+fn a_board_text_drawn_far_dimmer_than_its_recorded_colour_is_under_something() {
+    // The board's CSS gives the colour it draws: a glyph at a fifth of it is
+    // behind a scrim or a clip, and says nothing of the text.
+    let draw = |ink: Rgb| picture(8, 8, move |x, _| if x < 3 { ink } else { [10, 10, 14] });
+    let dim = draw([62, 62, 70]);
+    let shot = draw([242, 242, 244]);
+    assert!(warn_recorded(&dim, &shot, "#F2F2F4FF").is_empty());
+    // A glyph drawn in the recorded colour, against a shot of another one,
+    // is a difference.
+    assert_eq!(
+        warn_recorded(&shot, &draw([168, 168, 179]), "#F2F2F4FF").len(),
+        1
+    );
+    // With no colour recorded, nothing says the board's glyph is dimmed.
+    assert_eq!(warn(Role::Text, &dim, &shot).len(), 1);
+}
+
+#[test]
+fn a_board_text_with_no_glyph_pixels_but_a_visible_recorded_colour_is_hidden() {
+    let flat = picture(8, 8, |_, _| [10, 10, 14]);
+    let shot = picture(
+        8,
+        8,
+        |x, _| if x < 3 { [242, 242, 244] } else { [10, 10, 14] },
+    );
+    assert!(warn_recorded(&flat, &shot, "#F2F2F4FF").is_empty());
+    // A recorded colour that is itself near the background hides nothing.
+    assert_eq!(warn_recorded(&flat, &shot, "#0C0C10FF").len(), 1);
 }

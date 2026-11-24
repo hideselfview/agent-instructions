@@ -1285,10 +1285,22 @@ The checker compares the colours of an element only where the element's own
 pixels show. When a later element of the same list, such as a sheet, popover
 or scrim, is not part of an element and overlaps its box by more than the
 box-edge tolerance in each direction, some pixels in that box are the covering
-view's and a glyph there may be cut, so the checker reports no colour finding
-for the element: no background, glyph colour or foreground colour difference,
-and no finding that it found no measurable glyph colour. It checks the
-element's presence, words, box and font as for any other element.
+view's and a glyph there may be cut. A dialog, menu or other tree of its own
+that the list holds before the element's tree covers it the same way, because
+a board lists an overlay before the page it opens over. In both cases the
+checker reports no colour finding for the element: no background, glyph
+colour or foreground colour difference, and no finding that it found no
+measurable glyph colour. It checks the element's presence, words, box and
+font as for any other element.
+
+A board's element list records each text's colour from the board's CSS, which
+is the colour the board draws. When the glyph pixels the checker reads in a
+board text are far from that colour (not on the line from the background to
+it, 0.7 of the way or more, within the colour tolerance), or there are none
+though the colour contrasts with the background, the board draws the text
+under a scrim or clipped by a sheet's edge, and the checker reports no colour
+finding for the pair. The shot's recorded colours are not used, because the
+platform's accessibility colours differ from the drawn ones.
 
 The checker measures a text's glyph colour from the brightest pixels it
 draws, and thin glyphs (the Mac's 11.5 pt years) have strokes under a pixel
