@@ -368,30 +368,6 @@ pub(crate) fn pairs(
         }
         let from = palette(board.picture, board.scale, b.bounds(board.elements));
         let to = palette(shot.picture, shot.scale, shot.elements[s.index].bounds);
-        if b.kind == Role::Text {
-            let board_glyph = from.as_ref().and_then(Palette::glyph_colour);
-            match recorded_colour(&board.elements[b.index]) {
-                Err(()) => {
-                    warnings.push(unmeasured(b, PictureSide::Board, &board.elements[b.index]));
-                    continue;
-                }
-                Ok(Some(recorded))
-                    if from
-                        .as_ref()
-                        .zip(board_glyph)
-                        .is_some_and(|(palette, glyph)| {
-                            board_glyph_is_dimmed(palette, glyph, recorded)
-                        }) =>
-                {
-                    crate::log::note(format_args!(
-                        "colours of Text “{}” skipped: the board draws it dimmer than the colour it records",
-                        b.words
-                    ));
-                    continue;
-                }
-                Ok(_) => {}
-            }
-        }
         if let (Some(from), Some(to)) = (&from, &to) {
             // A box that fits its glyph tightly is mostly glyph, and a looser
             // box is mostly surface, so one side's majority colour can be the
@@ -442,47 +418,16 @@ fn is_partial_coverage(partial: &Palette, thin: Rgb, whole: &Palette, full: Rgb)
     !partial.reaches_full_coverage(thin) && partial.is_on_blend(thin, whole.offset(full))
 }
 
-/// The colour a board gives a text in its element list: the board's CSS,
-/// which is the colour it draws (`#RRGGBBAA`, as `render::read` writes it).
-/// None for a text with no recorded colour or a see-through one; an error for
-/// a value that is no such colour, which the reader never writes.
-fn recorded_colour(element: &Element) -> Result<Option<Rgb>, ()> {
-    let Some(recorded) = element
-        .text
-        .as_ref()
-        .and_then(|style| style.color.as_deref())
-    else {
-        return Ok(None);
-    };
-    let byte = |at: usize| {
-        recorded
-            .strip_prefix('#')
-            .filter(|digits| digits.len() == 8)
-            .and_then(|digits| digits.get(at..at + 2))
-            .and_then(|pair| u8::from_str_radix(pair, 16).ok())
-            .ok_or(())
-    };
-    Ok((byte(6)? == 255).then_some([byte(0)?, byte(2)?, byte(4)?]))
-}
-
-/// Whether the board draws a text under something: the glyph colour read from
-/// <palette> is far from <recorded>, the colour its element records. The board
-/// draws the colour it records, so a glyph far dimmer than it, and not a thin
-/// glyph's partial coverage of it, is behind a scrim or clipped by a sheet.
-fn board_glyph_is_dimmed(palette: &Palette, glyph: Rgb, recorded: Rgb) -> bool {
-    rgb_delta(glyph, recorded) > DELTA_E_TOLERANCE
-        && !palette.is_on_blend(glyph, palette.offset(recorded))
-}
-
 /// The index of an element drawn over <entry>, and no part of it, that
 /// overlaps its box by more than [`EDGE_TOLERANCE`] in each direction: a
 /// sheet, popover or scrim over it. The box shows that element's pixels where
 /// they overlap, and a glyph the overlap cuts has no colour of its own to
 /// measure. A list holds an element after the elements under it, and each
-/// parent before its children (`Shot::problems`). On Android the reader
-/// lists each window (a menu or a dialog) before the page it opens over, the
-/// outer window before the windows inside it (`render::read::build`), so
-/// a window listed before the page covers the page's texts as well, and the
+/// parent before its children (`Shot::problems`). On Android the reader lists
+/// each window (a menu or a dialog, a tree of its own whose root's native role
+/// says so) before the page it opens over, the outer window before the
+/// windows inside it (`render::read::build`): a window covers the page's
+/// texts wherever it is listed, a later window covers an earlier one, and the
 /// page, lying under every window, covers none of theirs.
 fn covering(platform: Platform, list: &[Element], entry: &Entry) -> Option<usize> {
     let at = entry.bounds(list);
@@ -509,35 +454,15 @@ fn covering(platform: Platform, list: &[Element], entry: &Entry) -> Option<usize
         }
         top
     };
-    let tree = root(entry.index);
-    // A window of an Android list lies inside the window or page it opens
-    // over, which the list holds after it; a tree of the page lies inside no
-    // tree before it.
-    let is_inside_earlier_tree = |top: usize| {
-        let inner = list[top].bounds;
-        (0..top).any(|index| {
-            let outer = list[index].bounds;
-            list[index].parent.is_none()
-                && inner.x >= outer.x - tolerance
-                && inner.y >= outer.y - tolerance
-                && inner.x + inner.width <= outer.x + outer.width + tolerance
-                && inner.y + inner.height <= outer.y + outer.height + tolerance
-        })
+    let is_window = |top: usize| {
+        platform == Platform::Android && matches!(list[top].native.as_str(), "menu" | "dialog")
     };
-    // Android lists each window before what it opens over, the outer window
-    // before the windows inside it: a tree before the entry's covers it unless
-    // the entry's own tree is a window inside it, and a tree after covers it
-    // only when that tree is a window inside an earlier one.
+    let tree = root(entry.index);
     let drawn_over = |index: usize| {
         if index > last {
-            platform != Platform::Android
-                || root(index) == tree
-                || is_inside_earlier_tree(root(index))
+            !is_window(tree) || root(index) == tree || is_window(root(index))
         } else {
-            platform == Platform::Android
-                && list[index].parent.is_none()
-                && index < tree
-                && !is_inside_earlier_tree(tree)
+            !is_window(tree) && is_window(root(index))
         }
     };
     (0..list.len()).find(|&index| {

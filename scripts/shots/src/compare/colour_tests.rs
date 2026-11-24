@@ -428,24 +428,19 @@ fn warn_with_cover(
     board: &Picture,
     shot: &Picture,
 ) -> Vec<String> {
-    warn_with_cover_on(Platform::Mac, cover, board, shot)
-}
-
-/// `warn_with_cover` for the lists of <platform>.
-fn warn_with_cover_on(
-    platform: Platform,
-    cover: impl Fn(&mut Vec<crate::shots::Element>),
-    board: &Picture,
-    shot: &Picture,
-) -> Vec<String> {
     let mut b = vec![labelled(Role::Text, "Word", None)];
     let s = [labelled(Role::Text, "Word", None)];
     cover(&mut b);
     let found = crate::compare::compare(&b, &s, crate::compare::Slots::NONE);
-    pairs(platform, &side(&b, board), &side(&s, shot), &found.pairs)
-        .iter()
-        .map(Warning::sentence)
-        .collect()
+    pairs(
+        Platform::Mac,
+        &side(&b, board),
+        &side(&s, shot),
+        &found.pairs,
+    )
+    .iter()
+    .map(Warning::sentence)
+    .collect()
 }
 
 fn sheet(parent: Option<usize>, bounds: Bounds) -> crate::shots::Element {
@@ -564,11 +559,38 @@ fn a_dimmer_glyph_that_fills_its_strokes_still_warns() {
     );
 }
 
-/// The colour warnings of a text in a page, with `window` listed before the
-/// page, on <platform>.
-fn warn_under_window(platform: Platform, window: Bounds) -> usize {
+/// An Android window: a tree of its own whose root's native role says so.
+fn window(native: &str, bounds: Bounds) -> crate::shots::Element {
+    let mut window = sheet(None, bounds);
+    window.native = native.to_string();
+    window
+}
+
+/// How many colour warnings the `list` of <platform> gives its text, the
+/// last element, when the board and the shot differ only in the text's
+/// colour.
+fn warnings_in(platform: Platform, list: Vec<crate::shots::Element>) -> usize {
     let draw = |ink: Rgb| picture(8, 8, move |x, _| if x < 3 { ink } else { [40, 40, 48] });
     let (board, shot) = (draw([255, 255, 255]), draw([224, 224, 224]));
+    let found = crate::compare::compare(&list, &list, crate::compare::Slots::NONE);
+    pairs(
+        platform,
+        &side(&list, &board),
+        &side(&list, &shot),
+        &found.pairs,
+    )
+    .len()
+}
+
+const OVER: Bounds = Bounds {
+    x: -2.0,
+    y: -2.0,
+    width: 20.0,
+    height: 20.0,
+};
+
+/// A page root that holds the text, and the text, which sits inside OVER.
+fn page_with_text() -> Vec<crate::shots::Element> {
     let page = Bounds {
         x: -50.0,
         y: -50.0,
@@ -576,16 +598,8 @@ fn warn_under_window(platform: Platform, window: Bounds) -> usize {
         height: 200.0,
     };
     let mut text = labelled(Role::Text, "Word", None);
-    text.parent = Some(1);
-    let held = vec![sheet(None, window), sheet(None, page), text];
-    let found = crate::compare::compare(&held, &held, crate::compare::Slots::NONE);
-    pairs(
-        platform,
-        &side(&held, &board),
-        &side(&held, &shot),
-        &found.pairs,
-    )
-    .len()
+    text.parent = Some(0);
+    vec![sheet(None, page), text]
 }
 
 #[test]
@@ -593,109 +607,45 @@ fn an_android_window_listed_before_the_page_hides_the_page_s_text_colours() {
     // The reader lists an Android menu or dialog before the page it opens
     // over, though it draws it on top: the window's pixels are in the text's
     // box.
-    let over = Bounds {
-        x: -2.0,
-        y: -2.0,
-        width: 20.0,
-        height: 20.0,
-    };
-    assert_eq!(warn_under_window(Platform::Android, over), 0);
-    // On a Mac the page is read first, and an element listed before it is no
-    // cover.
-    assert_eq!(warn_under_window(Platform::Mac, over), 1);
-    // A window beside the text hides nothing.
-    let beside = Bounds { x: 20.0, ..over };
-    assert_eq!(warn_under_window(Platform::Android, beside), 1);
+    for native in ["menu", "dialog"] {
+        let mut list = page_with_text();
+        list.insert(0, window(native, OVER));
+        list[2].parent = Some(1);
+        assert_eq!(warnings_in(Platform::Android, list.clone()), 0);
+        // A Mac lists nothing before its page.
+        assert_eq!(warnings_in(Platform::Mac, list), 1);
+    }
+    // A window beside the text hides nothing, and neither does a tree that is
+    // no window.
+    let mut beside = page_with_text();
+    beside.insert(0, window("menu", Bounds { x: 20.0, ..OVER }));
+    beside[2].parent = Some(1);
+    assert_eq!(warnings_in(Platform::Android, beside), 1);
+    let mut plain = page_with_text();
+    plain.insert(0, sheet(None, OVER));
+    plain[2].parent = Some(1);
+    assert_eq!(warnings_in(Platform::Android, plain), 1);
 }
 
 #[test]
-fn an_android_window_hides_neither_the_text_of_a_window_over_it_nor_its_own() {
-    let draw = |ink: Rgb| picture(8, 8, move |x, _| if x < 3 { ink } else { [40, 40, 48] });
-    let (board, shot) = (draw([255, 255, 255]), draw([224, 224, 224]));
-    let over = Bounds {
-        x: -2.0,
-        y: -2.0,
-        width: 20.0,
-        height: 20.0,
-    };
-    // An outer window, then a window inside it that holds the text, then a
-    // tree of the page: the outer window lies under the inner one, and the
-    // page under both.
+fn an_android_window_is_covered_by_a_later_window_and_by_neither_an_earlier_one_nor_the_page() {
+    // An outer window, a window inside it, then the page: the inner window
+    // lies over the outer one, and the page under both.
     let mut text = labelled(Role::Text, "Word", None);
-    text.parent = Some(1);
-    let beside = Bounds { x: 30.0, ..over };
-    let held = vec![
-        sheet(None, over),
-        sheet(None, over),
-        text,
-        sheet(None, beside),
+    text.parent = Some(0);
+    let outer_text = vec![
+        window("dialog", OVER),
+        text.clone(),
+        window("menu", OVER),
+        sheet(None, OVER),
     ];
-    let found = crate::compare::compare(&held, &held, crate::compare::Slots::NONE);
-    assert_eq!(
-        pairs(
-            Platform::Android,
-            &side(&held, &board),
-            &side(&held, &shot),
-            &found.pairs
-        )
-        .len(),
-        1
-    );
-}
-
-/// `warn` for a text whose board element records `colour`.
-fn warn_recorded(board: &Picture, shot: &Picture, colour: &str) -> Vec<String> {
-    let (b, s) = (
-        [labelled(Role::Text, "Word", Some(colour))],
-        [labelled(Role::Text, "Word", None)],
-    );
-    let found = crate::compare::compare(&b, &s, crate::compare::Slots::NONE);
-    pairs(
-        Platform::Mac,
-        &side(&b, board),
-        &side(&s, shot),
-        &found.pairs,
-    )
-    .iter()
-    .map(Warning::sentence)
-    .collect()
-}
-
-#[test]
-fn a_board_text_drawn_far_dimmer_than_its_recorded_colour_is_under_something() {
-    // The board's CSS gives the colour it draws: a glyph at a fifth of it is
-    // behind a scrim or a clip, and says nothing of the text.
-    let draw = |ink: Rgb| picture(8, 8, move |x, _| if x < 3 { ink } else { [10, 10, 14] });
-    let dim = draw([62, 62, 70]);
-    let shot = draw([242, 242, 244]);
-    assert!(warn_recorded(&dim, &shot, "#F2F2F4FF").is_empty());
-    // A glyph drawn in the recorded colour, against a shot of another one,
-    // is a difference.
-    assert_eq!(
-        warn_recorded(&shot, &draw([168, 168, 179]), "#F2F2F4FF").len(),
-        1
-    );
-    // With no colour recorded, nothing says the board's glyph is dimmed.
-    assert_eq!(warn(Role::Text, &dim, &shot).len(), 1);
-}
-
-#[test]
-fn a_board_text_with_no_glyph_pixels_is_still_reported() {
-    // No glyph pixels can be a scrim or a box that missed its glyphs.
-    let flat = picture(8, 8, |_, _| [10, 10, 14]);
-    let shot = picture(
-        8,
-        8,
-        |x, _| if x < 3 { [242, 242, 244] } else { [10, 10, 14] },
-    );
-    assert_eq!(warn_recorded(&flat, &shot, "#F2F2F4FF").len(), 1);
-}
-
-#[test]
-fn a_recorded_colour_that_is_no_colour_is_reported_as_unmeasured() {
-    let draw = |ink: Rgb| picture(8, 8, move |x, _| if x < 3 { ink } else { [10, 10, 14] });
-    let (board, shot) = (draw([62, 62, 70]), draw([242, 242, 244]));
-    let found = warn_recorded(&board, &shot, "#F2F2F4");
-    assert_eq!(found.len(), 1, "{found:?}");
-    assert!(found[0].contains("no measurable glyph colour"), "{found:?}");
+    assert_eq!(warnings_in(Platform::Android, outer_text), 0);
+    text.parent = Some(1);
+    let inner_text = vec![
+        window("dialog", OVER),
+        window("menu", OVER),
+        text,
+        sheet(None, OVER),
+    ];
+    assert_eq!(warnings_in(Platform::Android, inner_text), 1);
 }
