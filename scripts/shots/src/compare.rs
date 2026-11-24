@@ -498,7 +498,7 @@ pub(crate) fn warnings(
         offset,
     ));
     found.extend(geometry::fonts(board.elements, shot.elements, pairs));
-    found.extend(colour::pairs(board, shot, pairs));
+    found.extend(colour::pairs(platform, board, shot, pairs));
     let window = (platform == Platform::Mac)
         .then(|| window::Window::of(board, shot, offset))
         .flatten();

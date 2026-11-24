@@ -1,4 +1,5 @@
 use super::*;
+use crate::names::Platform;
 
 fn close(actual: f64, expected: f64) {
     assert!(
@@ -192,10 +193,15 @@ fn warn(role: Role, board: &Picture, shot: &Picture) -> Vec<String> {
         [labelled(role, "Word", None)],
     );
     let found = crate::compare::compare(&b, &s, crate::compare::Slots::NONE);
-    pairs(&side(&b, board), &side(&s, shot), &found.pairs)
-        .iter()
-        .map(Warning::sentence)
-        .collect()
+    pairs(
+        Platform::Mac,
+        &side(&b, board),
+        &side(&s, shot),
+        &found.pairs,
+    )
+    .iter()
+    .map(Warning::sentence)
+    .collect()
 }
 
 #[test]
@@ -352,7 +358,12 @@ fn rendered_glyphs_of_the_same_colour_do_not_warn() {
     let b = drawn(&board, "#F26877FF");
     let s = drawn(&shot, "#F7808AFF");
     let found = crate::compare::compare(&b, &s, crate::compare::Slots::NONE);
-    let warnings = pairs(&side(&b, &board), &side(&s, &shot), &found.pairs);
+    let warnings = pairs(
+        Platform::Mac,
+        &side(&b, &board),
+        &side(&s, &shot),
+        &found.pairs,
+    );
     assert!(warnings.is_empty(), "{warnings:?}");
 }
 
@@ -417,11 +428,21 @@ fn warn_with_cover(
     board: &Picture,
     shot: &Picture,
 ) -> Vec<String> {
+    warn_with_cover_on(Platform::Mac, cover, board, shot)
+}
+
+/// `warn_with_cover` for the lists of <platform>.
+fn warn_with_cover_on(
+    platform: Platform,
+    cover: impl Fn(&mut Vec<crate::shots::Element>),
+    board: &Picture,
+    shot: &Picture,
+) -> Vec<String> {
     let mut b = vec![labelled(Role::Text, "Word", None)];
     let s = [labelled(Role::Text, "Word", None)];
     cover(&mut b);
     let found = crate::compare::compare(&b, &s, crate::compare::Slots::NONE);
-    pairs(&side(&b, board), &side(&s, shot), &found.pairs)
+    pairs(platform, &side(&b, board), &side(&s, shot), &found.pairs)
         .iter()
         .map(Warning::sentence)
         .collect()
@@ -453,7 +474,13 @@ fn an_element_that_a_later_element_covers_is_compared_for_no_colour() {
     let held = vec![sheet(None, covering), text];
     let found = crate::compare::compare(&held, &held, crate::compare::Slots::NONE);
     assert_eq!(
-        pairs(&side(&held, &board), &side(&held, &shot), &found.pairs).len(),
+        pairs(
+            Platform::Mac,
+            &side(&held, &board),
+            &side(&held, &shot),
+            &found.pairs
+        )
+        .len(),
         1
     );
 }
@@ -537,16 +564,52 @@ fn a_dimmer_glyph_that_fills_its_strokes_still_warns() {
     );
 }
 
-fn dialog(bounds: Bounds) -> crate::shots::Element {
-    let mut dialog = sheet(None, bounds);
-    dialog.native = "dialog".to_string();
-    dialog
+/// The colour warnings of a text in a page, with `window` listed before the
+/// page, on <platform>.
+fn warn_under_window(platform: Platform, window: Bounds) -> usize {
+    let draw = |ink: Rgb| picture(8, 8, move |x, _| if x < 3 { ink } else { [40, 40, 48] });
+    let (board, shot) = (draw([255, 255, 255]), draw([224, 224, 224]));
+    let page = Bounds {
+        x: -50.0,
+        y: -50.0,
+        width: 200.0,
+        height: 200.0,
+    };
+    let mut text = labelled(Role::Text, "Word", None);
+    text.parent = Some(1);
+    let held = vec![sheet(None, window), sheet(None, page), text];
+    let found = crate::compare::compare(&held, &held, crate::compare::Slots::NONE);
+    pairs(
+        platform,
+        &side(&held, &board),
+        &side(&held, &shot),
+        &found.pairs,
+    )
+    .len()
 }
 
 #[test]
-fn an_overlay_listed_before_the_text_it_covers_hides_the_text_s_colours() {
-    // A board lists a dialog or menu before the page it opens over, though it
-    // draws it over the page: the sheet's pixels are in the text's box.
+fn an_android_window_listed_before_the_page_hides_the_page_s_text_colours() {
+    // The reader lists an Android menu or dialog before the page it opens
+    // over, though it draws it on top: the window's pixels are in the text's
+    // box.
+    let over = Bounds {
+        x: -2.0,
+        y: -2.0,
+        width: 20.0,
+        height: 20.0,
+    };
+    assert_eq!(warn_under_window(Platform::Android, over), 0);
+    // On a Mac the page is read first, and an element listed before it is no
+    // cover.
+    assert_eq!(warn_under_window(Platform::Mac, over), 1);
+    // A window beside the text hides nothing.
+    let beside = Bounds { x: 20.0, ..over };
+    assert_eq!(warn_under_window(Platform::Android, beside), 1);
+}
+
+#[test]
+fn an_android_window_hides_neither_the_text_of_a_window_over_it_nor_its_own() {
     let draw = |ink: Rgb| picture(8, 8, move |x, _| if x < 3 { ink } else { [40, 40, 48] });
     let (board, shot) = (draw([255, 255, 255]), draw([224, 224, 224]));
     let over = Bounds {
@@ -555,22 +618,27 @@ fn an_overlay_listed_before_the_text_it_covers_hides_the_text_s_colours() {
         width: 20.0,
         height: 20.0,
     };
-    assert!(warn_with_cover(|list| list.insert(0, dialog(over)), &board, &shot).is_empty());
-    // So does a box of another tree that is not a dialog, a menu say.
-    assert!(warn_with_cover(|list| list.insert(0, sheet(None, over)), &board, &shot).is_empty());
-    // A box of another tree beside the text hides nothing.
-    let beside = Bounds { x: 20.0, ..over };
-    assert_eq!(
-        warn_with_cover(|list| list.insert(0, sheet(None, beside)), &board, &shot).len(),
-        1
-    );
-    // The dialog's own text is no text under it.
+    // An outer window, then a window inside it that holds the text, then a
+    // tree of the page: the outer window lies under the inner one, and the
+    // page under both.
     let mut text = labelled(Role::Text, "Word", None);
-    text.parent = Some(0);
-    let held = vec![dialog(over), text];
+    text.parent = Some(1);
+    let beside = Bounds { x: 30.0, ..over };
+    let held = vec![
+        sheet(None, over),
+        sheet(None, over),
+        text,
+        sheet(None, beside),
+    ];
     let found = crate::compare::compare(&held, &held, crate::compare::Slots::NONE);
     assert_eq!(
-        pairs(&side(&held, &board), &side(&held, &shot), &found.pairs).len(),
+        pairs(
+            Platform::Android,
+            &side(&held, &board),
+            &side(&held, &shot),
+            &found.pairs
+        )
+        .len(),
         1
     );
 }
@@ -582,10 +650,15 @@ fn warn_recorded(board: &Picture, shot: &Picture, colour: &str) -> Vec<String> {
         [labelled(Role::Text, "Word", None)],
     );
     let found = crate::compare::compare(&b, &s, crate::compare::Slots::NONE);
-    pairs(&side(&b, board), &side(&s, shot), &found.pairs)
-        .iter()
-        .map(Warning::sentence)
-        .collect()
+    pairs(
+        Platform::Mac,
+        &side(&b, board),
+        &side(&s, shot),
+        &found.pairs,
+    )
+    .iter()
+    .map(Warning::sentence)
+    .collect()
 }
 
 #[test]
@@ -607,14 +680,22 @@ fn a_board_text_drawn_far_dimmer_than_its_recorded_colour_is_under_something() {
 }
 
 #[test]
-fn a_board_text_with_no_glyph_pixels_but_a_visible_recorded_colour_is_hidden() {
+fn a_board_text_with_no_glyph_pixels_is_still_reported() {
+    // No glyph pixels can be a scrim or a box that missed its glyphs.
     let flat = picture(8, 8, |_, _| [10, 10, 14]);
     let shot = picture(
         8,
         8,
         |x, _| if x < 3 { [242, 242, 244] } else { [10, 10, 14] },
     );
-    assert!(warn_recorded(&flat, &shot, "#F2F2F4FF").is_empty());
-    // A recorded colour that is itself near the background hides nothing.
-    assert_eq!(warn_recorded(&flat, &shot, "#0C0C10FF").len(), 1);
+    assert_eq!(warn_recorded(&flat, &shot, "#F2F2F4FF").len(), 1);
+}
+
+#[test]
+fn a_recorded_colour_that_is_no_colour_is_reported_as_unmeasured() {
+    let draw = |ink: Rgb| picture(8, 8, move |x, _| if x < 3 { ink } else { [10, 10, 14] });
+    let (board, shot) = (draw([62, 62, 70]), draw([242, 242, 244]));
+    let found = warn_recorded(&board, &shot, "#F2F2F4");
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert!(found[0].contains("no measurable glyph colour"), "{found:?}");
 }

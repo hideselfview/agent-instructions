@@ -3,6 +3,7 @@
 
 use super::normalize::Entry;
 use super::{DELTA_E_TOLERANCE, EDGE_TOLERANCE, Part, PictureSide, Side, Warning, rgba};
+use crate::names::Platform;
 use crate::shots::{Bounds, Element, Picture, Role};
 use std::collections::HashMap;
 
@@ -234,6 +235,26 @@ impl Palette {
         near as f64 >= foreground as f64 * FULL_COVERAGE_SHARE
     }
 
+    /// Whether <seen> lies on the line from the background to the colour that
+    /// is <drawn> from it, [`THIN_GLYPH_PEAK`] of the way or more, within
+    /// [`DELTA_E_TOLERANCE`].
+    fn is_on_blend(&self, seen: Rgb, drawn: [i32; 3]) -> bool {
+        let length = dot(drawn, drawn);
+        if length == 0 {
+            return false;
+        }
+        let peak = f64::from(dot(self.offset(seen), drawn)) / f64::from(length);
+        if !(THIN_GLYPH_PEAK..=1.0).contains(&peak) {
+            return false;
+        }
+        let expected: Rgb = std::array::from_fn(|channel| {
+            (f64::from(self.background[channel]) + peak * f64::from(drawn[channel]))
+                .round()
+                .clamp(0.0, 255.0) as u8
+        });
+        rgb_delta(seen, expected) <= DELTA_E_TOLERANCE
+    }
+
     /// How far each channel of `colour` is from the background.
     fn offset(&self, colour: Rgb) -> [i32; 3] {
         std::array::from_fn(|channel| {
@@ -309,7 +330,12 @@ pub(crate) fn hex(colour: Rgb) -> String {
 }
 
 /// The colour warnings of the pairs, measured from each element's picture.
-pub(crate) fn pairs(board: &Side, shot: &Side, pairs: &[(Entry, Entry)]) -> Vec<Warning> {
+pub(crate) fn pairs(
+    platform: Platform,
+    board: &Side,
+    shot: &Side,
+    pairs: &[(Entry, Entry)],
+) -> Vec<Warning> {
     let mut warnings = Vec::new();
     let differ = |entry: &Entry, part: Part, from: Rgb, to: Rgb| {
         let delta = rgb_delta(from, to);
@@ -330,7 +356,9 @@ pub(crate) fn pairs(board: &Side, shot: &Side, pairs: &[(Entry, Entry)]) -> Vec<
             (PictureSide::Shot, shot.elements, s),
         ]
         .into_iter()
-        .find_map(|(side, list, entry)| covering(list, entry).map(|over| (side, entry, over)));
+        .find_map(|(side, list, entry)| {
+            covering(platform, list, entry).map(|over| (side, entry, over))
+        });
         if let Some((side, entry, over)) = hidden {
             crate::log::note(format_args!(
                 "colours of {:?} “{}” skipped: element {over} of the {side:?} list covers it",
@@ -340,17 +368,29 @@ pub(crate) fn pairs(board: &Side, shot: &Side, pairs: &[(Entry, Entry)]) -> Vec<
         }
         let from = palette(board.picture, board.scale, b.bounds(board.elements));
         let to = palette(shot.picture, shot.scale, shot.elements[s.index].bounds);
-        let board_glyph = from.as_ref().and_then(Palette::glyph_colour);
-        let obscured = b.kind == Role::Text
-            && from.as_ref().is_some_and(|palette| {
-                board_text_is_obscured(&board.elements[b.index], palette, board_glyph)
-            });
-        if obscured {
-            crate::log::note(format_args!(
-                "colours of Text “{}” skipped: the board draws it dimmer than its recorded colour",
-                b.words
-            ));
-            continue;
+        if b.kind == Role::Text {
+            let board_glyph = from.as_ref().and_then(Palette::glyph_colour);
+            match recorded_colour(&board.elements[b.index]) {
+                Err(()) => {
+                    warnings.push(unmeasured(b, PictureSide::Board, &board.elements[b.index]));
+                    continue;
+                }
+                Ok(Some(recorded))
+                    if from
+                        .as_ref()
+                        .zip(board_glyph)
+                        .is_some_and(|(palette, glyph)| {
+                            board_glyph_is_dimmed(palette, glyph, recorded)
+                        }) =>
+                {
+                    crate::log::note(format_args!(
+                        "colours of Text “{}” skipped: the board draws it dimmer than the colour it records",
+                        b.words
+                    ));
+                    continue;
+                }
+                Ok(_) => {}
+            }
         }
         if let (Some(from), Some(to)) = (&from, &to) {
             // A box that fits its glyph tightly is mostly glyph, and a looser
@@ -399,61 +439,39 @@ pub(crate) fn pairs(board: &Side, shot: &Side, pairs: &[(Entry, Entry)]) -> Vec<
 /// and `thin` lies on the line from its background to `full`'s colour,
 /// [`THIN_GLYPH_PEAK`] of the way or more, within [`DELTA_E_TOLERANCE`].
 fn is_partial_coverage(partial: &Palette, thin: Rgb, whole: &Palette, full: Rgb) -> bool {
-    !partial.reaches_full_coverage(thin)
-        && is_on_blend(partial.background, thin, whole.offset(full))
+    !partial.reaches_full_coverage(thin) && partial.is_on_blend(thin, whole.offset(full))
 }
 
-/// Whether <seen> lies on the line from <background> to the colour that is
-/// <drawn> from it, [`THIN_GLYPH_PEAK`] of the way or more, within
-/// [`DELTA_E_TOLERANCE`].
-fn is_on_blend(background: Rgb, seen: Rgb, drawn: [i32; 3]) -> bool {
-    let length = dot(drawn, drawn);
-    if length == 0 {
-        return false;
-    }
-    let offset: [i32; 3] =
-        std::array::from_fn(|channel| i32::from(seen[channel]) - i32::from(background[channel]));
-    let peak = f64::from(dot(offset, drawn)) / f64::from(length);
-    if !(THIN_GLYPH_PEAK..=1.0).contains(&peak) {
-        return false;
-    }
-    let expected: Rgb = std::array::from_fn(|channel| {
-        (f64::from(background[channel]) + peak * f64::from(drawn[channel]))
-            .round()
-            .clamp(0.0, 255.0) as u8
-    });
-    rgb_delta(seen, expected) <= DELTA_E_TOLERANCE
-}
-
-/// The colour a board gives a text in its element list: the board's CSS, which
-/// is the colour it draws, so a glyph far dimmer than it, or none at all
-/// where it contrasts with the background, is the text under a scrim or
-/// clipped. None for a text with no recorded colour or a see-through one.
-fn recorded_colour(element: &Element) -> Option<Rgb> {
-    let recorded = element.text.as_ref()?.color.as_deref()?;
-    let digits = recorded.strip_prefix('#')?;
-    let byte = |at: usize| u8::from_str_radix(digits.get(at..at + 2)?, 16).ok();
-    match digits.len() {
-        6 => Some([byte(0)?, byte(2)?, byte(4)?]),
-        8 if byte(6)? == 255 => Some([byte(0)?, byte(2)?, byte(4)?]),
-        _ => None,
-    }
-}
-
-/// Whether the board draws the text <entry> under something: its element
-/// records a colour, and the glyph pixels in <palette> are far from it, or
-/// there are none though the colour contrasts with the background.
-fn board_text_is_obscured(element: &Element, palette: &Palette, glyph: Option<Rgb>) -> bool {
-    let Some(recorded) = recorded_colour(element) else {
-        return false;
+/// The colour a board gives a text in its element list: the board's CSS,
+/// which is the colour it draws (`#RRGGBBAA`, as `render::read` writes it).
+/// None for a text with no recorded colour or a see-through one; an error for
+/// a value that is no such colour, which the reader never writes.
+fn recorded_colour(element: &Element) -> Result<Option<Rgb>, ()> {
+    let Some(recorded) = element
+        .text
+        .as_ref()
+        .and_then(|style| style.color.as_deref())
+    else {
+        return Ok(None);
     };
-    match glyph {
-        Some(glyph) => {
-            rgb_delta(glyph, recorded) > DELTA_E_TOLERANCE
-                && !is_on_blend(palette.background, glyph, palette.offset(recorded))
-        }
-        None => rgb_delta(palette.background, recorded) > FAR_FROM_BACKGROUND,
-    }
+    let byte = |at: usize| {
+        recorded
+            .strip_prefix('#')
+            .filter(|digits| digits.len() == 8)
+            .and_then(|digits| digits.get(at..at + 2))
+            .and_then(|pair| u8::from_str_radix(pair, 16).ok())
+            .ok_or(())
+    };
+    Ok((byte(6)? == 255).then_some([byte(0)?, byte(2)?, byte(4)?]))
+}
+
+/// Whether the board draws a text under something: the glyph colour read from
+/// <palette> is far from <recorded>, the colour its element records. The board
+/// draws the colour it records, so a glyph far dimmer than it, and not a thin
+/// glyph's partial coverage of it, is behind a scrim or clipped by a sheet.
+fn board_glyph_is_dimmed(palette: &Palette, glyph: Rgb, recorded: Rgb) -> bool {
+    rgb_delta(glyph, recorded) > DELTA_E_TOLERANCE
+        && !palette.is_on_blend(glyph, palette.offset(recorded))
 }
 
 /// The index of an element drawn over <entry>, and no part of it, that
@@ -461,12 +479,12 @@ fn board_text_is_obscured(element: &Element, palette: &Palette, glyph: Option<Rg
 /// sheet, popover or scrim over it. The box shows that element's pixels where
 /// they overlap, and a glyph the overlap cuts has no colour of its own to
 /// measure. A list holds an element after the elements under it, and each
-/// parent before its children (`Shot::problems`); an overlay is the
-/// exception: a dialog, menu or popover is a tree of its own that a list holds
-/// before the page it opens over (`compare::inside_dialog`), though it draws
-/// on top. So an element of another tree listed before the entry's tree
-/// covers it too.
-fn covering(list: &[Element], entry: &Entry) -> Option<usize> {
+/// parent before its children (`Shot::problems`). On Android the reader
+/// lists each window (a menu or a dialog) before the page it opens over, the
+/// outer window before the windows inside it (`render::read::build`), so
+/// a window listed before the page covers the page's texts as well, and the
+/// page, lying under every window, covers none of theirs.
+fn covering(platform: Platform, list: &[Element], entry: &Entry) -> Option<usize> {
     let at = entry.bounds(list);
     let own = |index: usize| index == entry.index || entry.folded.contains(&index);
     let last = entry
@@ -492,14 +510,39 @@ fn covering(list: &[Element], entry: &Entry) -> Option<usize> {
         top
     };
     let tree = root(entry.index);
-    let is_overlay = |index: usize| {
-        list[index].parent.is_none()
-            && (index < tree || matches!(list[index].native.as_str(), "dialog" | "alertdialog"))
-            && index != tree
+    // A window of an Android list lies inside the window or page it opens
+    // over, which the list holds after it; a tree of the page lies inside no
+    // tree before it.
+    let is_inside_earlier_tree = |top: usize| {
+        let inner = list[top].bounds;
+        (0..top).any(|index| {
+            let outer = list[index].bounds;
+            list[index].parent.is_none()
+                && inner.x >= outer.x - tolerance
+                && inner.y >= outer.y - tolerance
+                && inner.x + inner.width <= outer.x + outer.width + tolerance
+                && inner.y + inner.height <= outer.y + outer.height + tolerance
+        })
+    };
+    // Android lists each window before what it opens over, the outer window
+    // before the windows inside it: a tree before the entry's covers it unless
+    // the entry's own tree is a window inside it, and a tree after covers it
+    // only when that tree is a window inside an earlier one.
+    let drawn_over = |index: usize| {
+        if index > last {
+            platform != Platform::Android
+                || root(index) == tree
+                || is_inside_earlier_tree(root(index))
+        } else {
+            platform == Platform::Android
+                && list[index].parent.is_none()
+                && index < tree
+                && !is_inside_earlier_tree(tree)
+        }
     };
     (0..list.len()).find(|&index| {
         let over = list[index].bounds;
-        (index > last || is_overlay(index))
+        drawn_over(index)
             && !part_of_entry(index)
             && over.x + over.width > at.x + tolerance
             && over.x < at.x + at.width - tolerance
