@@ -133,6 +133,65 @@ fn a_text_compares_its_top_and_height_even_when_it_spans_its_container() {
     );
 }
 
+/// Three symbol images in text lines, as a board boxes them: the line's height.
+fn symbols() -> Vec<Element> {
+    vec![
+        boxed(Role::Image, "Identified", 100.0, 50.0, 13.0, 16.0),
+        boxed(Role::Image, "Queued", 200.0, 50.0, 12.0, 16.0),
+        boxed(Role::Image, "Cover", 300.0, 50.0, 40.0, 40.0),
+    ]
+}
+
+/// The box the Mac reports for a symbol: its glyph, centred in the board's box.
+fn glyph_in(board: &Element, width: f64, height: f64) -> Bounds {
+    let b = board.bounds;
+    Bounds {
+        x: b.x + (b.width - width) / 2.0,
+        y: b.y + (b.height - height) / 2.0,
+        width,
+        height,
+    }
+}
+
+#[test]
+fn an_image_drawn_smaller_than_its_box_and_centred_in_it_matches() {
+    let board = symbols();
+    let mut shot = board.clone();
+    shot[0].bounds = glyph_in(&board[0], 10.0, 10.0);
+    shot[1].bounds = glyph_in(&board[1], 11.5, 11.5);
+    assert!(warnings(&board, &shot).is_empty());
+}
+
+#[test]
+fn an_image_drawn_smaller_than_its_box_and_off_its_centre_moved() {
+    let board = symbols();
+    let mut shot = board.clone();
+    shot[0].bounds = glyph_in(&board[0], 10.0, 10.0);
+    shot[0].bounds.y += 5.0;
+    let found = warnings(&board, &shot);
+    assert_eq!(found.len(), 1);
+    assert_eq!(
+        found[0].sentence(),
+        "“Identified” moved 5 pt down in the shot"
+    );
+}
+
+#[test]
+fn an_image_drawn_larger_than_its_box_is_resized() {
+    let board = symbols();
+    let mut shot = board.clone();
+    shot[2].bounds.width += 10.0;
+    shot[2].bounds.height += 10.0;
+    shot[2].bounds.x -= 5.0;
+    shot[2].bounds.y -= 5.0;
+    let found = warnings(&board, &shot);
+    assert_eq!(found.len(), 1);
+    assert_eq!(
+        found[0].sentence(),
+        "“Cover” is 10 pt wider and 10 pt taller in the shot"
+    );
+}
+
 fn styled(size: Option<f64>, weight: Option<u32>) -> Element {
     let mut e = boxed(Role::Text, "Word", 0.0, 0.0, 10.0, 10.0);
     e.text = Some(TextStyle {
