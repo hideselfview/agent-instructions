@@ -167,12 +167,14 @@ fn respond_with(
 /// The SF Mono file <name> of the family's folder (`Places::fonts`), for a
 /// board's page to load.
 fn serve_font(stream: &mut TcpStream, model: &Model, name: &str) -> std::io::Result<()> {
-    // A host that is not a Mac has no folder, and no file of it.
-    let read = match &model.places.fonts {
-        Some(fonts) => std::fs::read(fonts.join(name)),
-        None => Err(std::io::ErrorKind::NotFound.into()),
-    };
-    match read {
+    // The dashboard runs only on a Mac (`cmd_dashboard`), where Places has the
+    // folder.
+    let fonts = model
+        .places
+        .fonts
+        .as_ref()
+        .expect("a Mac's places name the SF Mono folder");
+    match std::fs::read(fonts.join(name)) {
         // A board's frame runs in a sandbox with no origin of its own, so it
         // loads the font as a cross-origin request.
         Ok(font) => respond_with(
