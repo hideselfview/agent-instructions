@@ -333,7 +333,7 @@ pub fn record(path: &Path, run: &RunRecord) -> Result<()> {
     crate::app_build_step_failure::record(&tx, id, &run.steps)?;
     crate::app_build_step_shots::record(&tx, id, &run.steps)?;
     if let Some(commit) = &run.requested_commit {
-        crate::app_build_commit::record_requested(&tx, id, commit).context(what)?;
+        crate::app_build_requested_commit::record(&tx, id, commit).context(what)?;
     }
     if let Some(commit) = &run.built_commit {
         crate::app_build_commit::record(&tx, id, &commit.sha).context(what)?;
