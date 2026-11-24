@@ -276,7 +276,7 @@ fn design_globs_sets_the_globs_of_an_existing_store() {
     assert!(
         refusal(run(
             &tool,
-            "design-globs bae --design-places forage:design/*.html"
+            "design-globs bae --design-places forage:design/*.html --by tester"
         ))
         .contains("repo forage, which is not one of the project's")
     );
@@ -316,7 +316,11 @@ fn design_globs_sets_the_globs_of_an_existing_store() {
             .canvas
     );
     assert!(
-        refusal(run(&tool, "design-globs nobody --spec-files bae:spec/*.md")).contains("nobody")
+        refusal(run(
+            &tool,
+            "design-globs nobody --spec-files bae:spec/*.md --by tester"
+        ))
+        .contains("nobody")
     );
 
     // A repo two projects hold needs design globs in one of them only.
