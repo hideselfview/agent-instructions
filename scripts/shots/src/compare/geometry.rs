@@ -107,11 +107,8 @@ fn lies_inside(board: &Bounds, shot: &Bounds) -> bool {
 /// the board's within the tolerance.
 fn spans_container(board: &Bounds, shot: &Bounds) -> bool {
     let middle = |b: &Bounds| b.y + b.height / 2.0;
-    shot.x <= board.x + EDGE_TOLERANCE
-        && shot.x + shot.width >= board.x + board.width - EDGE_TOLERANCE
+    lies_inside(shot, board)
         && shot.width > board.width + EDGE_TOLERANCE
-        && shot.y <= board.y + EDGE_TOLERANCE
-        && shot.y + shot.height >= board.y + board.height - EDGE_TOLERANCE
         && (middle(shot) - middle(board)).abs() <= EDGE_TOLERANCE
 }
 
