@@ -21,25 +21,27 @@ use crate::text::note;
 const NEAREST: usize = 6;
 
 /// Fails when a shots pick of <picks> starts no shot that the harnesses
-/// declare at <commit> of the repo at <top>, and names the nearest declared
-/// prefixes. A lane's full set (`--all-shots`) needs no declared name.
+/// declare for its own lane at <commit> of the repo at <top>, and names the
+/// nearest declared prefixes. A lane's full set (`--all-shots`) needs no
+/// declared name, and a lane no pick names is not read.
 pub fn refuse_undeclared(top: &Path, commit: &str, picks: &[Pick]) -> Result<()> {
-    let wanted: Vec<&str> = picks
-        .iter()
-        .filter_map(|pick| match pick {
-            Pick::Shots(_, prefix) if !pick.is_all_shots() => Some(prefix.as_str()),
-            _ => None,
-        })
-        .collect();
-    if wanted.is_empty() {
-        return Ok(());
-    }
-    let declared = declared_names_at(top, commit)?;
-    for prefix in wanted {
-        if starts_a_shot(&declared, prefix) {
+    let mut declared: HashMap<Lane, Vec<String>> = HashMap::new();
+    for pick in picks {
+        let Pick::Shots(lane, prefix) = pick else {
+            continue;
+        };
+        if pick.is_all_shots() {
             continue;
         }
-        let near = nearest(&declared, prefix);
+        let prefix = prefix.as_str();
+        if !declared.contains_key(lane) {
+            declared.insert(*lane, declared_names_in_lane(top, commit, *lane)?);
+        }
+        let declared = &declared[lane];
+        if starts_a_shot(declared, prefix) {
+            continue;
+        }
+        let near = nearest(declared, prefix);
         let hint = if near.is_empty() {
             "The repo declares no shot on that platform.".to_string()
         } else {
@@ -63,39 +65,44 @@ pub fn windowed_prefixes(
     picks: &[Pick],
 ) -> Result<Vec<(String, crate::window_lock::Access)>> {
     use crate::window_lock::Access;
-    let wanted: Vec<&str> = Pick::prefixes(picks).map(shots::Prefix::as_str).collect();
-    if wanted.is_empty() {
-        return Ok(Vec::new());
-    }
     let adds_display = config
         .picker_in(Lane::Mac, crate::app_config::PickKind::Shots, None)
         .is_some_and(|picker| picker.opens_windows)
         && !config.mac_shares_shot_display;
-    let declared = declared_at(top, commit, None)?;
-    Ok(wanted
-        .into_iter()
-        .filter_map(|prefix| {
-            if adds_display && prefix.starts_with("mac.") {
-                return Some((prefix.to_string(), Access::Exclusive));
-            }
-            declared
-                .iter()
-                .filter(|scene| scene.name.to_string().starts_with(prefix))
-                .filter_map(|scene| {
-                    if scene.marks.takes_focus
-                        || (scene.marks.in_window && !config.mac_shares_shot_display)
-                    {
-                        Some(Access::Exclusive)
-                    } else if scene.marks.in_window {
-                        Some(Access::Shared)
-                    } else {
-                        None
-                    }
-                })
-                .max()
-                .map(|access| (prefix.to_string(), access))
-        })
-        .collect())
+    let mut declared: HashMap<Lane, Vec<shots::Declared>> = HashMap::new();
+    let mut windowed = Vec::new();
+    for pick in picks {
+        let Pick::Shots(lane, prefix) = pick else {
+            continue;
+        };
+        let prefix = prefix.as_str();
+        if adds_display && prefix.starts_with("mac.") {
+            windowed.push((prefix.to_string(), Access::Exclusive));
+            continue;
+        }
+        if !declared.contains_key(lane) {
+            declared.insert(*lane, declared_at(top, commit, Some(*lane))?);
+        }
+        let access = declared[lane]
+            .iter()
+            .filter(|scene| scene.name.to_string().starts_with(prefix))
+            .filter_map(|scene| {
+                if scene.marks.takes_focus
+                    || (scene.marks.in_window && !config.mac_shares_shot_display)
+                {
+                    Some(Access::Exclusive)
+                } else if scene.marks.in_window {
+                    Some(Access::Shared)
+                } else {
+                    None
+                }
+            })
+            .max();
+        if let Some(access) = access {
+            windowed.push((prefix.to_string(), access));
+        }
+    }
+    Ok(windowed)
 }
 
 /// Whether a name of <declared> starts with <prefix>.

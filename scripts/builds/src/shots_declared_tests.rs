@@ -138,6 +138,53 @@ fn a_capture_that_adds_a_display_for_bitmap_scenes_needs_the_window_lock() {
     );
 }
 
+/// <declaring>'s repo with the Android harness's folder removed from the
+/// commit, so the Android declarations cannot be read there.
+fn without_android_folder(top: &std::path::Path) {
+    git(top, &["rm", "-rq", "bae-android"]);
+    git(top, &["commit", "-q", "-m", "Drop the Android harness"]);
+}
+
+#[test]
+fn a_mac_pick_is_checked_against_the_mac_harness_alone() {
+    let scratch = Scratch::new("shots-declared-lane-refuse");
+    let top = declaring(&scratch);
+    without_android_folder(&top);
+    refuse_undeclared(&top, "HEAD", &picks(&["mac.settings.appearance"])).unwrap();
+    let refused = refuse_undeclared(&top, "HEAD", &picks(&["mac.settings.look"]))
+        .unwrap_err()
+        .text();
+    assert!(refused.contains("mac.settings.general"), "{refused}");
+}
+
+#[test]
+fn a_prefix_is_checked_against_the_names_of_its_own_lane() {
+    let scratch = Scratch::new("shots-declared-own-lane");
+    let top = declaring(&scratch);
+    let wrong_lane = vec![Pick::Shots(
+        Lane::Android,
+        shots::Prefix::parse("android.settings.").unwrap(),
+    )];
+    refuse_undeclared(&top, "HEAD", &wrong_lane).unwrap();
+    let mac_named_android = vec![Pick::Shots(
+        Lane::Mac,
+        shots::Prefix::parse("android.activity.").unwrap(),
+    )];
+    assert!(refuse_undeclared(&top, "HEAD", &mac_named_android).is_err());
+}
+
+#[test]
+fn a_mac_pick_needs_no_readable_android_harness_to_name_its_window_access() {
+    let scratch = Scratch::new("shots-declared-lane-windows");
+    let top = declaring(&scratch);
+    without_android_folder(&top);
+    let config = parse_config("shared-shot-display mac\n").unwrap();
+    assert_eq!(
+        windowed_prefixes(&top, "HEAD", &config, &picks(&["mac.settings.alert"])).unwrap(),
+        [("mac.settings.alert".to_string(), Access::Exclusive)]
+    );
+}
+
 #[test]
 fn the_nearest_prefixes_start_at_the_longest_stem_some_shot_has() {
     let declared: Vec<String> = [
