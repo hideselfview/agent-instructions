@@ -439,11 +439,16 @@ pub fn export(repo: &Path, rev: &str, paths: &[String], into: &Path, what: &str)
         .stderr(Stdio::piped())
         .spawn()
         .context(|| format!("running tar to unpack {what}"))?;
-    std::io::Write::write_all(
+    // tar stops reading at the archive's end marker, before the padding that
+    // git archive writes after it, so the writer can meet a closed pipe after
+    // tar has unpacked everything. A tar that failed says so in its status.
+    match std::io::Write::write_all(
         &mut tar.stdin.take().expect("tar's stdin is piped"),
         &archive.stdout,
-    )
-    .context(|| "feeding tar".to_string())?;
+    ) {
+        Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => {}
+        written => written.context(|| "feeding tar".to_string())?,
+    }
     let unpacked = tar
         .wait_with_output()
         .context(|| "waiting for tar".to_string())?;
