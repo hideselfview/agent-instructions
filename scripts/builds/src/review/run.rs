@@ -280,7 +280,7 @@ pub fn diff_of(worktree: &Path, base: &str) -> Result<NetChange> {
 /// The change of <head> past <base> (from their common ancestor), in
 /// <worktree>'s repo, without the test cases (`commits::without_test_cases`).
 pub fn diff_between(worktree: &Path, base: &str, head: &str) -> Result<NetChange> {
-    let text_of = |args: &[&str]| commits::git_text(worktree, args);
+    let text_of = |args: &[&str]| crate::git::text(worktree, args);
     let merge_base = text_of(&["merge-base", base, head])?.trim().to_string();
     let range = format!("{merge_base}...{head}");
     let without = commits::without_test_cases();
@@ -304,7 +304,10 @@ pub fn diff_between(worktree: &Path, base: &str, head: &str) -> Result<NetChange
         &format!("{merge_base}..{head}"),
     ])?;
     let head = text_of(&["rev-parse", head])?.trim().to_string();
-    let changed = commits::paths(worktree, &commits::in_range(worktree, &merge_base, &head)?)?;
+    let changed = commits::paths(
+        worktree,
+        &crate::git::commits_in_range(worktree, &merge_base, &head)?,
+    )?;
     let commit_summary = commits::summary(worktree, &merge_base, &head)?;
     Ok(NetChange {
         diff: Diff {
@@ -348,10 +351,11 @@ pub fn diff_since(
     base: &str,
     head: &str,
 ) -> Result<NetChange> {
-    let text_of = |args: &[&str]| commits::git_text(worktree, args);
+    let text_of = |args: &[&str]| crate::git::text(worktree, args);
     let merge_base = text_of(&["merge-base", base, head])?.trim().to_string();
     let head = text_of(&["rev-parse", head])?.trim().to_string();
-    let read = commits::exists(worktree, read_base)? && commits::exists(worktree, read_head)?;
+    let read = crate::git::commit_exists(worktree, read_base)?
+        && crate::git::commit_exists(worktree, read_head)?;
     let (tree, whole) = if read {
         merged(worktree, read_base, read_head, &merge_base)?
     } else {
@@ -990,7 +994,7 @@ pub fn split_deleted_findings(
     if open.is_empty() {
         return Ok((open, Vec::new()));
     }
-    let tree = commits::git_text(worktree, &["ls-tree", "-r", "--name-only", head])?;
+    let tree = crate::git::text(worktree, &["ls-tree", "-r", "--name-only", head])?;
     let (present, deleted): (Vec<_>, Vec<_>) = open.into_iter().partition(|finding| {
         finding.file == files::COMMIT_MESSAGE
             || tree.lines().any(|path| names_file(path, &finding.file))

@@ -621,7 +621,7 @@ fn new_that_fails_after_adding_a_worktree_removes_the_worktree_and_its_branch() 
     ));
     assert!(error.contains("post-checkout"), "{error}");
     assert!(!scratch.dir.join("demo-worktrees/side-1").exists());
-    assert!(!crate::checkout::branch_exists(&main, "work").unwrap());
+    assert!(!crate::git::branch_exists(&main, "work").unwrap());
     assert!(!tool.places.root.join("demo/side-1").exists());
     assert!(
         !crate::testing::git_out(&main, &["worktree", "list"]).contains("side-1"),
@@ -660,7 +660,7 @@ fn new_that_fails_in_a_free_worktree_leaves_it_unclaimed_and_without_the_new_bra
     assert!(error.contains("post-checkout"), "{error}");
     let checkout = Checkout::find(&side.display().to_string()).unwrap();
     assert!(Claim::read(&checkout.claim_file()).unwrap().is_none());
-    assert!(!crate::checkout::branch_exists(&main, "work").unwrap());
+    assert!(!crate::git::branch_exists(&main, "work").unwrap());
     assert_eq!(
         crate::testing::git_out(&side, &["rev-parse", "--abbrev-ref", "HEAD"]),
         "HEAD",

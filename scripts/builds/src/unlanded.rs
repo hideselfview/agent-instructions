@@ -118,9 +118,7 @@ fn holders(
     }
     let mut holders: Vec<String> = Vec::new();
     for name in elsewhere.into_iter().chain(items.iter().cloned()) {
-        if Some(&name) != own
-            && !holders.contains(&name)
-            && crate::checkout::branch_exists(top, &name)?
+        if Some(&name) != own && !holders.contains(&name) && crate::git::branch_exists(top, &name)?
         {
             holders.push(name);
         }
@@ -198,7 +196,7 @@ pub fn in_worktree(
         if Some(&name) == branch.as_ref() || checked_out.contains(&&name) || held.contains(&name) {
             continue;
         }
-        let Some(tip) = crate::checkout::branch_tip(top, &name)? else {
+        let Some(tip) = crate::git::branch_tip(top, &name)? else {
             continue;
         };
         let waiting = crate::side_git::waiting_to_land(top, &tip).map_err(unread)?;

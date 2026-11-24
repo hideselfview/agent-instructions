@@ -47,7 +47,6 @@ use crate::fail;
 use crate::fail::Result;
 use crate::lane::Lane;
 use crate::places::Places;
-use crate::review::commits;
 use crate::shots_declared::{ShotDeclarations, ShotNames};
 
 /// The flag of `builds app-build` that names this command.
@@ -432,7 +431,7 @@ pub enum ShotsToCover<'a> {
 
 impl<'a> BranchBuilds<'a> {
     pub fn off_main(top: &'a Path, target: &'a str, named: &'a str) -> Result<Option<Self>> {
-        let commits = commits::in_range(top, "origin/main", target)?;
+        let commits = crate::git::commits_in_range(top, "origin/main", target)?;
         if commits.is_empty() {
             return Ok(None);
         }
@@ -500,7 +499,7 @@ impl<'a> BranchBuilds<'a> {
                     .collect())
             },
             &mut |commit, target| {
-                if !commits::exists(top, commit)? {
+                if !crate::git::commit_exists(top, commit)? {
                     crate::text::note(format!(
                         "a passing app build built {commit}, which git does not have in {}, so that build covers nothing",
                         top.display()

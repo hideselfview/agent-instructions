@@ -431,7 +431,7 @@ pub fn line_at(repo: &Path, from: &str, head: &str, path: &str, line: i64) -> Re
     if from == head {
         return Ok(Some(line));
     }
-    let diff = super::commits::git_text(
+    let diff = crate::git::text(
         repo,
         &[
             "diff",

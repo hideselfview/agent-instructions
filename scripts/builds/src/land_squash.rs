@@ -11,11 +11,11 @@ use std::path::Path;
 
 use crate::fail;
 use crate::fail::Result;
-use crate::review::commits::git_text;
+use crate::git::text;
 
 /// What git prints for <args> in <dir>, without the trailing newline.
 fn run(dir: &Path, args: &[&str]) -> Result<String> {
-    Ok(git_text(dir, args)?.trim_end_matches('\n').to_string())
+    Ok(text(dir, args)?.trim_end_matches('\n').to_string())
 }
 
 /// Builds the commit that holds <shas> (full ids, oldest first, two or more)

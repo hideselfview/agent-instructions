@@ -17,7 +17,6 @@ use crate::fail::Result;
 use crate::lists::Stamp;
 use crate::lists::store::Store;
 use crate::review::audit::candidate_misses;
-use crate::review::commits;
 use crate::review::prompt;
 use crate::review::record::{self, Call, Finding, Kind, NewRun, RunRow, Verdict};
 use crate::review::render;
@@ -244,7 +243,7 @@ pub fn replay(inputs: &Inputs) -> Result<Replayed> {
 /// The base and head of <run>'s net change in <repo>; fails when the repo
 /// does not have both commits.
 pub(super) fn net_change(repo: &Path, run: &RunRow) -> Result<(String, String)> {
-    if commits::exists(repo, &run.base)? && commits::exists(repo, &run.head)? {
+    if crate::git::commit_exists(repo, &run.base)? && crate::git::commit_exists(repo, &run.head)? {
         return Ok((run.base.clone(), run.head.clone()));
     }
     fail!(

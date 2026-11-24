@@ -56,10 +56,11 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use crate::checkout::{Checkout, Root, resolve_revision};
+use crate::checkout::{Checkout, Root};
 use crate::evict::{cargo_locks, lock_exclusive_creating};
 use crate::fail;
 use crate::fail::{Context, Result};
+use crate::git::resolve_revision;
 use crate::lane::Lane;
 use crate::manifest::{BuildDir, build_dirs};
 use crate::prune::{Run, prune_root};
@@ -252,16 +253,11 @@ pub(crate) fn is_empty_dir(dir: &Path) -> Result<bool> {
         .is_none())
 }
 
-/// The blob Git has for Cargo.lock at <rev> in <dir>, or None when it has none.
-fn lock_blob(dir: &Path, rev: &str) -> Result<Option<String>> {
-    resolve_revision(dir, &format!("{rev}:Cargo.lock"))
-}
-
 /// Every other checkout of <checkout>'s repo whose `target` could be cloned
 /// into a folder capped at <cap_kib>, unranked.
 fn candidates(tool: &Tool, checkout: &Checkout, cap_kib: u64) -> Result<Vec<Candidate>> {
     let dest_root = checkout.build_root(&tool.places);
-    let wanted = lock_blob(&checkout.top, "origin/main")?;
+    let wanted = resolve_revision(&checkout.top, "origin/main:Cargo.lock")?;
     let mut found: Vec<(Root, Checkout)> = Vec::new();
     for root in tool.roots()? {
         let Some(live) = root.live.clone() else {
@@ -295,7 +291,7 @@ fn candidates(tool: &Tool, checkout: &Checkout, cap_kib: u64) -> Result<Vec<Cand
         candidates.push(Candidate {
             top: live.top.clone(),
             units,
-            same_lock: lock_blob(&live.top, "HEAD")? == wanted,
+            same_lock: resolve_revision(&live.top, "HEAD:Cargo.lock")? == wanted,
             root: root.path,
             finished,
         });

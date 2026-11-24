@@ -26,10 +26,11 @@
 
 use std::path::Path;
 
-use crate::checkout::{Checkout, branch_exists};
+use crate::checkout::Checkout;
 use crate::claim::{Claim, Note};
 use crate::fail;
 use crate::fail::Result;
+use crate::git::branch_exists;
 use crate::lists::args::Args;
 use crate::lists::draft::find_brief;
 use crate::lists::held::waits_on_open;

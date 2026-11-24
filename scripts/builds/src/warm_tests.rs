@@ -302,34 +302,6 @@ fn candidate_at(root: &Path) -> Candidate {
 }
 
 #[test]
-fn lock_blob_distinguishes_an_absent_lock_from_a_git_failure() {
-    let scratch = Scratch::new("warm-lock-blob");
-    let main = scratch.dir.join("demo");
-    repo(&main, "target 1G\n");
-    assert_eq!(lock_blob(&main, "HEAD").unwrap(), None);
-    assert_eq!(lock_blob(&main, "origin/main").unwrap(), None);
-    std::fs::write(main.join("Cargo.lock"), "# lock\n").unwrap();
-    git(&main, &["add", "Cargo.lock"]);
-    git(&main, &["commit", "-q", "-m", "Lock"]);
-    assert_eq!(
-        lock_blob(&main, "HEAD").unwrap(),
-        Some(crate::testing::git_out(
-            &main,
-            &["hash-object", "Cargo.lock"]
-        ))
-    );
-
-    let not_a_repo = scratch.dir.join("plain");
-    std::fs::create_dir_all(&not_a_repo).unwrap();
-    let fault = lock_blob(&not_a_repo, "HEAD").unwrap_err().text();
-    assert!(fault.contains("HEAD:Cargo.lock"), "{fault}");
-
-    std::fs::write(main.join(".git/HEAD"), "garbage\n").unwrap();
-    let broken = lock_blob(&main, "HEAD").unwrap_err().text();
-    assert!(broken.contains("HEAD:Cargo.lock"), "{broken}");
-}
-
-#[test]
 fn a_new_tree_takes_the_sources_mtimes_for_the_files_that_match() {
     let scratch = Scratch::new("warm-match-times");
     let (source, dest) = (scratch.dir.join("source"), scratch.dir.join("dest"));

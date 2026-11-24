@@ -51,7 +51,7 @@ pub fn landing_worktree(pid: i32, argv: &[String]) -> Option<std::result::Result
 /// landing of another process that holds the turn of landings in the
 /// worktree. None when no other landing holds it.
 pub fn waits_for(worktree: &Path, pid: i32) -> Result<Option<TurnWait>> {
-    let git_dir = crate::review::commits::git_text(worktree, &["rev-parse", "--absolute-git-dir"])
+    let git_dir = crate::git::text(worktree, &["rev-parse", "--absolute-git-dir"])
         .map(|text| text.trim().to_string())?;
     let file = PathBuf::from(git_dir).join(WORKTREE_TURN_FILE);
     Ok(held_by_another(&file, pid)?.map(|holder| TurnWait {

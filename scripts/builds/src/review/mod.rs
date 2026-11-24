@@ -371,7 +371,7 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
             refusal: None,
         });
     }
-    let shas = commits::in_range(inputs.worktree, &change.base, &change.head)?;
+    let shas = crate::git::commits_in_range(inputs.worktree, &change.base, &change.head)?;
     let material = run::Material::load(inputs.root, inputs.project)?;
     let design = Globs::read(&conn, inputs.repo)?.with_capture_folders(inputs.worktree)?;
     let scope = run::Scope {
@@ -1047,7 +1047,7 @@ fn known_answer(tool: &Tool, args: &Args, checkout: &Checkout, base: &str) -> Re
     {
         return Ok(true);
     }
-    let shas = commits::in_range(&checkout.top, &net.base, &net.head)?;
+    let shas = crate::git::commits_in_range(&checkout.top, &net.base, &net.head)?;
     crate::lists::change_is_design_only(&store, &checkout.top, &checkout.repo(), &shas)
 }
 

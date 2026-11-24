@@ -70,6 +70,7 @@ mod flock;
 mod floor;
 mod free_worktrees;
 mod fsevents_log;
+mod git;
 mod glob;
 mod handed_runs;
 mod health;

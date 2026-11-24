@@ -311,7 +311,10 @@ fn assess(
     }
     if let CodeCheck::Branch(head) | CodeCheck::Squashed(head) = check {
         let since = run::diff_since(dir, &last.base, &last.head, BRANCH_BASE, head)?;
-        let branch = commits::paths(dir, &commits::in_range(dir, &since.base, &since.head)?)?;
+        let branch = commits::paths(
+            dir,
+            &crate::git::commits_in_range(dir, &since.base, &since.head)?,
+        )?;
         let messages_unread = matches!(check, CodeCheck::Branch(_))
             && !scope.commit_text_groups(&since.diff, &branch).is_empty();
         unfinished.unreviewed = since

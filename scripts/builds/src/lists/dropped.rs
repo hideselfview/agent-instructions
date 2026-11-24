@@ -83,7 +83,7 @@ pub fn read(worktree: &str, branch: &str) -> Result<DroppedWork> {
     };
     let unread =
         |error: String| fail::Fail::Message(format!("reading the work in {worktree}: {error}"));
-    if crate::checkout::branch_exists(&main, branch)? {
+    if crate::git::branch_exists(&main, branch)? {
         add(
             crate::side_git::waiting_to_land(&main, &format!("refs/heads/{branch}"))
                 .map_err(unread)?,
@@ -381,7 +381,7 @@ pub fn discard(work: &DroppedWork) -> Result<()> {
             "remove the files not committed",
         )?;
     }
-    if crate::checkout::branch_exists(&main, &work.branch)? {
+    if crate::git::branch_exists(&main, &work.branch)? {
         git_text(
             git(&main).args(["branch", "-q", "-D", &work.branch]),
             "delete the branch",

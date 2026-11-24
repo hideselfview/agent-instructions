@@ -23,11 +23,11 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use crate::checkout::{branch_exists, file_name, worktree_list};
+use crate::checkout::{file_name, worktree_list};
 use crate::fail::{Fail, Result};
+use crate::git::branch_exists;
 use crate::lists::Stamp;
 use crate::lists::store::Store;
-use crate::review::commits;
 use crate::review::record::{self, LandingRow};
 use crate::side_git::{ask, waiting_to_land};
 use boards::{git, git_text};
@@ -141,7 +141,7 @@ fn end_of(main: &Path, branch: &str, head: &str, kept: bool) -> Result<Option<En
     if kept {
         return Ok(None);
     }
-    if commits::exists(main, head)? {
+    if crate::git::commit_exists(main, head)? {
         if !unlanded(head)? {
             return Ok(Some(End::Landed));
         }

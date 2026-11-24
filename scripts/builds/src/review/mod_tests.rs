@@ -2331,7 +2331,7 @@ fn a_group_whose_rules_judge_no_design_file_reads_no_design_file() {
         material: &material,
         files: &design,
     };
-    let shas = commits::in_range(&side, "main", "HEAD").unwrap();
+    let shas = crate::git::commits_in_range(&side, "main", "HEAD").unwrap();
     let needs = landing::needs(&side, shas, |paths| scope.group_names(paths)).unwrap();
     let verdict = landing::judge(
         &conn,

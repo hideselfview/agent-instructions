@@ -210,7 +210,7 @@ enum Start {
 /// worktree checks it out: git would refuse the checkout after `builds new`
 /// claimed the worktree.
 fn require_resumable(main: &Path, branch: &str) -> Result<()> {
-    if !crate::checkout::branch_exists(main, branch)? {
+    if !crate::git::branch_exists(main, branch)? {
         fail!(
             "new: {} has no branch {branch} to resume",
             crate::checkout::file_name(main)
