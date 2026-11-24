@@ -237,4 +237,31 @@ async fn firing_the_watchdog_leaves_other_browsers_alone() {
     Watchdog::over(mine.path()).unwrap().fire().await;
     mine_browser.wait().await.unwrap();
     assert!(other_browser.try_wait().unwrap().is_none());
+    other_browser.kill().await.unwrap();
+}
+
+#[tokio::test]
+async fn a_watchdog_says_when_chrome_left_processes_and_when_its_kill_failed() {
+    let profile = tempfile::tempdir().unwrap();
+    let nothing = Watchdog::over(profile.path()).unwrap().end().await;
+    assert!(nothing.is_ok(), "{nothing:?}");
+    let mut left = tokio::process::Command::new("sh")
+        .args(["-c", "sleep 300; true", "--"])
+        .arg(format!("--user-data-dir={}", profile.path().display()))
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let killed = Watchdog::over(profile.path()).unwrap().end().await;
+    left.wait().await.unwrap();
+    assert!(
+        killed.unwrap_err().to_string().contains("left processes"),
+        "named"
+    );
+    // A pattern that is no valid expression makes pkill exit 2.
+    let failed = Watchdog::over(Path::new("/x[")).unwrap().end().await;
+    assert!(
+        failed.unwrap_err().to_string().contains("pkill failed"),
+        "named"
+    );
 }

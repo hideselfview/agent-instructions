@@ -369,16 +369,27 @@ impl Watchdog {
             ])
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
             .spawn()
             .map_err(|e| ChromeError::Launch(format!("cannot start the Chrome watchdog: {e}")))?;
         Ok(Self { child })
     }
 
     /// Ends what is left of Chrome and waits for the watchdog to finish.
-    async fn fire(mut self) {
+    async fn fire(self) {
+        note_unless_done("ending what Chrome left running", self.end()).await;
+    }
+
+    /// `pkill` exits 1 when no process matched, the normal end after Chrome
+    /// closed itself; 0 means it killed processes Chrome left behind, and any
+    /// other status means the kill failed (its own message goes to stderr).
+    async fn end(mut self) -> std::io::Result<()> {
         drop(self.child.stdin.take());
-        note_unless_done("ending what Chrome left running", self.child.wait()).await;
+        let status = self.child.wait().await?;
+        match status.code() {
+            Some(1) => Ok(()),
+            Some(0) => Err(std::io::Error::other("Chrome left processes running")),
+            _ => Err(std::io::Error::other(format!("pkill failed: {status}"))),
+        }
     }
 }
 
