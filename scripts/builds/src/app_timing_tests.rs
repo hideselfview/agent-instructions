@@ -28,7 +28,7 @@ fn run(at: i64, lane: Lane, wait_ms: u64, outcome: RunEnd, steps: Vec<StepRecord
         lane,
         checkout: "side-1".to_string(),
         built_ref: "branch".to_string(),
-        requested_commit: None,
+        requested_commit: Some("f".repeat(40)),
         built_commit: None,
         who: Some("agent".to_string()),
         wait_ms,
@@ -36,6 +36,11 @@ fn run(at: i64, lane: Lane, wait_ms: u64, outcome: RunEnd, steps: Vec<StepRecord
         load: None,
         steps,
     }
+}
+
+fn record_checkout(run: &mut RunRecord, commit: String) {
+    run.requested_commit = Some(commit.clone());
+    run.built_commit = Some(commit);
 }
 
 const NOW: i64 = 1_000_000;
@@ -68,7 +73,7 @@ fn a_run_keeps_the_commit_it_built_and_a_run_with_none_has_no_row() {
     let path = store(&scratch);
     let commit = "0123456789abcdef0123456789abcdef01234567";
     let mut built = run(NOW, Lane::Mac, 0, RunEnd::Passed, Vec::new());
-    built.built_commit = Some(commit.to_string());
+    record_checkout(&mut built, commit.to_string());
     record(&path, &built).unwrap();
     record(&path, &run(NOW, Lane::Mac, 0, RunEnd::Passed, Vec::new())).unwrap();
     let conn = crate::db::open_reader(&path).unwrap().unwrap();
@@ -91,7 +96,7 @@ fn passing_runs_of_a_lane_come_back_newest_first_with_their_passed_steps() {
     let path = store(&scratch);
     let built = |commit: &str, lane: Lane, outcome: RunEnd, steps: Vec<StepRecord>| {
         let mut run = run(NOW, lane, 0, outcome, steps);
-        run.built_commit = Some(commit.repeat(40));
+        record_checkout(&mut run, commit.repeat(40));
         run
     };
     let passing = |name: &str| step(name, StepKind::Step, NOW, 1, StepResult::Passed);
@@ -170,7 +175,7 @@ fn a_branchs_passing_build_is_found_by_its_name_or_its_commit_whatever_ran_since
     let build = |at: i64, named: &str, commit: &str| {
         let mut run = run(at, Lane::Mac, 0, RunEnd::Passed, vec![passing("macos")]);
         run.built_ref = named.to_string();
-        run.built_commit = Some(commit.repeat(40));
+        record_checkout(&mut run, commit.repeat(40));
         run
     };
     record(&path, &build(NOW, "branch", "a")).unwrap();
@@ -200,7 +205,7 @@ fn a_commits_passing_shots_run_is_found_whatever_ran_since() {
     let path = store(&scratch);
     let build = |at: i64, commit: &str, steps: Vec<StepRecord>| {
         let mut run = run(at, Lane::Mac, 0, RunEnd::Passed, steps);
-        run.built_commit = Some(commit.repeat(40));
+        record_checkout(&mut run, commit.repeat(40));
         run
     };
     let shots = step("shots mac.a.", StepKind::Shots, NOW, 1, StepResult::Passed);
@@ -573,7 +578,10 @@ fn a_recorded_run_reads_back_whole() {
             step("android", StepKind::Step, NOW + 30, 10, StepResult::Stopped),
         ],
     );
-    built.built_commit = Some("0123456789abcdef0123456789abcdef01234567".to_string());
+    record_checkout(
+        &mut built,
+        "0123456789abcdef0123456789abcdef01234567".into(),
+    );
     built.load = Some(crate::host::Load {
         cores: 8,
         one_minute: 2.5,
@@ -636,7 +644,7 @@ fn the_shots_prefixes_a_branch_ran_come_back_once_each_whatever_their_result() {
             step("macos", StepKind::Step, NOW, 1, StepResult::Passed),
         ],
     );
-    first.built_commit = Some("a".repeat(40));
+    record_checkout(&mut first, "a".repeat(40));
     record(&path, &first).unwrap();
     let mut second = run(
         NOW + 5,
@@ -649,7 +657,7 @@ fn the_shots_prefixes_a_branch_ran_come_back_once_each_whatever_their_result() {
             shots("mac.stopped.", StepResult::Stopped),
         ],
     );
-    second.built_commit = Some("b".repeat(40));
+    record_checkout(&mut second, "b".repeat(40));
     second.built_ref = "tag".to_string();
     record(&path, &second).unwrap();
     let mut other_ref = run(
@@ -660,7 +668,7 @@ fn the_shots_prefixes_a_branch_ran_come_back_once_each_whatever_their_result() {
         vec![shots("mac.x.", StepResult::Passed)],
     );
     other_ref.built_ref = "other".to_string();
-    other_ref.built_commit = Some("c".repeat(40));
+    record_checkout(&mut other_ref, "c".repeat(40));
     record(&path, &other_ref).unwrap();
     record(
         &path,
