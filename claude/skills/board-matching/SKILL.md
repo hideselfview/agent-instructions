@@ -145,11 +145,12 @@ waits for the screen step, which fixes the layout that places the component.
 No two running branches change one component's files. An item whose component
 another running branch changes waits on that branch's item (`builds item wait`).
 
-Each agent fixes all its findings on one branch, runs one app build with its
-component's shots, reviews and lands. An agent rebases only when `builds land`
-refuses because its cherry-pick conflicts: each shots run compares with the run
-of its own merge base, so a branch behind origin/main needs no rebase to compare
-(`builds help`, APP BUILDS).
+Each agent fixes all its findings on one branch, reviews it, runs one app build
+with its component's shots last (`builds help workflow`, WHAT AN IMPLEMENTING
+AGENT DOES) and lands. An agent rebases only when `builds land` refuses because
+its cherry-pick conflicts: each shots run compares with the run of its own merge
+base, so a branch behind origin/main needs no rebase to compare (`builds help`,
+APP BUILDS).
 
 ## Screens
 

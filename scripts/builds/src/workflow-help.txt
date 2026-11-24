@@ -139,7 +139,9 @@ and the agent lands it with one `builds land` that names each item with
 `--done N` and each design change with `--design N`. Each commit still holds
 one concern. The agent compares the full set of boards, or runs the full test
 suite of the code it changed, once after the batch's last commit, and before
-then checks only what each change touches. A fix waits for the batch only
+then checks only what each change touches. The agent runs the branch's app
+build last, after that comparison and after the review's fixes (WHAT AN
+IMPLEMENTING AGENT DOES, step 9). A fix waits for the batch only
 while the agent still works on the other fixes it holds or the next cleanup of
 its series, and never waits for work that nobody has started.
 
@@ -216,29 +218,13 @@ WHAT AN IMPLEMENTING AGENT DOES
      Write the draft so it has none of those findings.
   4. Review its own diff once, against the brief and the matching rules.
   5. Check only what the change touches: the hook, the tests of the changed
-     code, and `builds app-build <repo> <branch>` for app changes, which picks
-     the steps, lane and host (BUILDS). Nobody runs a full test suite or the
-     full CI script locally: CI runs them, and a whole app test suite also
-     opens the app on the person's screen. builds refuses a whole lane's shots
-     in --shots (mac. or android.) and the steps a `ci-only` line of
-     `.app-build` names. Run a whole lane's shots with `--all-shots` only to
-     make a run that `builds shots check-program` compares a change to the
-     shots program with.
-     A shots check compares against the findings of the commit the branch
-     started from: read them with `builds shots findings`, never by building
-     that commit, and open the report path it prints, never a checkout's
-     shots/ folder. To fix a run's shot findings, start from `builds shots
-     findings ... --by-cause`, which ranks the design-system components
-     behind the findings by the scenes they break: fix the component at the
-     top once, not each scene it breaks. A component's shots go in its
-     capture file, Components/<Component>.<extension> in the platform's
-     shots-declared folder, one shot for each row of its preview (`builds
-     help`, APP BUILDS): before you add or move them, run `builds shots
-     components <Component>`, which lists each row with the file that
-     declares its shot. To run the hook's checks over every file the branch
-     changed, run `builds checks run --since origin/main`, which leaves HEAD,
-     the index and the files on the branch. Never move HEAD to check a
-     branch: an app build started meanwhile builds what HEAD points at.
+     code and, for app changes, the app build, which runs last (step 9).
+     Nobody runs a full test suite or the full CI script locally: CI runs
+     them, and a whole app test suite also opens the app on the person's
+     screen. To run the hook's checks over every file the branch changed,
+     run `builds checks run --since origin/main`, which leaves HEAD, the
+     index and the files on the branch. Never move HEAD to check a branch:
+     an app build started meanwhile builds what HEAD points at.
   6. Before every commit, including fix commits, reread every app string,
      error, help text, doc and spec line it adds against
      rules/text-people-read/write-plain-literal-active-sentences.md, and
@@ -262,10 +248,34 @@ WHAT AN IMPLEMENTING AGENT DOES
      each confirmed finding in a new commit and run `builds review` again,
      until no confirmed finding is open. When a confirmed finding looks
      wrong, dispute it once (`builds review dispute`) instead of fixing it.
-  9. Land the branch with `builds land` in this worktree, with the brief's
-     items (LANDING), once nothing is unreviewed and no confirmed finding is
-     open. Land refuses a worktree with uncommitted changes.
- 10. Report the landed commits and the checks, or what stopped the landing.
+  9. Run the branch's app build last, so that no later commit makes it run
+     again (decision #634 in project builds): after the full comparison of
+     boards on a design branch, and after the fixes of the review's
+     confirmed findings. The review may run while the agent compares the
+     boards.
+     `builds app-build <repo> <branch>` picks the steps, lane and host
+     (BUILDS). builds refuses a whole lane's shots in --shots (mac. or
+     android.) and the steps a `ci-only` line of `.app-build` names. Run a
+     whole lane's shots with `--all-shots` only to make a run that `builds
+     shots check-program` compares a change to the shots program with.
+     A shots check compares against the findings of the commit the branch
+     started from: read them with `builds shots findings`, never by building
+     that commit, and open the report path it prints, never a checkout's
+     shots/ folder. To fix a run's shot findings, start from `builds shots
+     findings ... --by-cause`, which ranks the design-system components
+     behind the findings by the scenes they break: fix the component at the
+     top once, not each scene it breaks. A component's shots go in its
+     capture file, Components/<Component>.<extension> in the platform's
+     shots-declared folder, one shot for each row of its preview (`builds
+     help`, APP BUILDS): before you add or move them, run `builds shots
+     components <Component>`, which lists each row with the file that
+     declares its shot. Each fix is a new commit, which the review reads
+     (step 8) before the app build runs again.
+ 10. Land the branch with `builds land` in this worktree, with the brief's
+     items (LANDING), once nothing is unreviewed, no confirmed finding is
+     open and, for app changes, the app build has passed. Land refuses a
+     worktree with uncommitted changes.
+ 11. Report the landed commits and the checks, or what stopped the landing.
 
 Agents share their coordinator's scratchpad folder, so each keeps its scratch
 files (commit messages, probes) in a folder of its own, named for its branch.
