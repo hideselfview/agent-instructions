@@ -4,6 +4,7 @@
 //! tolerance is marked, and neighbouring marked cells merge into rectangles.
 
 use super::colour::{Lab, delta_e, pixel};
+use super::components::components;
 use super::window::Window;
 use super::{DELTA_E_TOLERANCE, PictureSide, REGION_CELL, Side};
 use crate::shots::{Bounds, Element, Picture};
@@ -111,37 +112,16 @@ pub(super) fn regions(
         }
     }
     // Neighbouring marked cells (sharing an edge) are one region.
-    let mut seen = vec![vec![false; columns]; rows];
-    let mut found = Vec::new();
-    for row in 0..rows {
-        for column in 0..columns {
-            if seen[row][column] || marked[row][column].is_none() {
-                continue;
-            }
-            let mut stack = vec![(row, column)];
-            seen[row][column] = true;
-            let (mut top, mut left, mut bottom, mut right) = (row, column, row, column);
-            let mut delta: f64 = 0.0;
-            while let Some((r, c)) = stack.pop() {
-                top = top.min(r);
-                bottom = bottom.max(r);
-                left = left.min(c);
-                right = right.max(c);
-                delta = delta.max(marked[r][c].unwrap_or(0.0));
-                let neighbours = [
-                    (r.wrapping_sub(1), c),
-                    (r + 1, c),
-                    (r, c.wrapping_sub(1)),
-                    (r, c + 1),
-                ];
-                for (nr, nc) in neighbours {
-                    if nr < rows && nc < columns && !seen[nr][nc] && marked[nr][nc].is_some() {
-                        seen[nr][nc] = true;
-                        stack.push((nr, nc));
-                    }
-                }
-            }
-            found.push(Region {
+    components(columns, rows, |column, row| marked[row][column].is_some())
+        .into_iter()
+        .map(|component| {
+            let (left, top, right, bottom) = component.extent();
+            let delta = component
+                .cells
+                .iter()
+                .filter_map(|&(column, row)| marked[row][column])
+                .fold(0.0, f64::max);
+            Region {
                 bounds: Bounds {
                     x: left as f64 * REGION_CELL,
                     y: top as f64 * REGION_CELL,
@@ -149,10 +129,9 @@ pub(super) fn regions(
                     height: (bottom - top + 1) as f64 * REGION_CELL,
                 },
                 delta,
-            });
-        }
-    }
-    found
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]

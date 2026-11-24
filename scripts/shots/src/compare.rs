@@ -5,6 +5,7 @@
 pub(crate) mod align;
 mod buttons;
 pub(crate) mod colour;
+mod components;
 mod corners;
 pub(crate) mod geometry;
 pub(crate) mod normalize;

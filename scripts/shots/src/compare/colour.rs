@@ -118,7 +118,7 @@ pub(crate) fn pixel(picture: &Picture, x: i64, y: i64) -> Option<Rgb> {
 /// drawn as a glow of many near shades counts as a whole, and a text's one
 /// fill never wins over it for being the most frequent single shade. Returns
 /// the most frequent colour of the biggest group, and that group's centre.
-fn background_of(counts: &HashMap<Rgb, usize>) -> Option<(Rgb, Lab)> {
+pub(super) fn background_of(counts: &HashMap<Rgb, usize>) -> Option<(Rgb, Lab)> {
     groups_of(counts.iter().map(|(colour, count)| (*colour, *count)))
         .into_iter()
         .max_by_key(|group| (group.total, group.colour))

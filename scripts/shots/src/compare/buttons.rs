@@ -4,17 +4,16 @@
 
 use std::collections::HashMap;
 
+use super::colour::{FAR_FROM_BACKGROUND, Rgb, background_of, pixel, rgb_delta};
+use super::components::components;
 use super::corners::Corners;
-use super::{EDGE_TOLERANCE, PictureSide, Side, rgba};
+use super::{EDGE_TOLERANCE, PictureSide, Side};
 use crate::shots::Bounds;
 
 /// The window's top left, in points, where the buttons sit.
 const STRIP: (f64, f64) = (96.0, 48.0);
 /// A button is this many points across, in each direction.
 const SIZE: std::ops::RangeInclusive<f64> = 10.0..=18.0;
-/// A pixel belongs to a button when a channel differs this much from the
-/// strip's backdrop.
-const CONTRAST: u8 = 12;
 /// A round button fills at least this much of its box.
 const FILL: f64 = 0.6;
 /// The points around a button that the picture comparison leaves out too, for
@@ -77,57 +76,25 @@ fn find(picture: PictureSide, side: &Side, corners: &Corners) -> Vec<Bounds> {
         )
     };
     let colour = |x: usize, y: usize| {
-        let [r, g, b, _] =
-            rgba(side.picture, x as i64, y as i64).expect("the strip is in the picture");
-        [r, g, b]
+        pixel(side.picture, x as i64, y as i64).expect("the strip is in the picture")
     };
-    let mut counts: HashMap<[u8; 3], usize> = HashMap::new();
+    let mut counts: HashMap<Rgb, usize> = HashMap::new();
     for y in 0..high {
         for x in 0..wide {
             if inside(x, y) {
-                *counts.entry(colour(x, y).map(|c| c >> 3)).or_default() += 1;
+                *counts.entry(colour(x, y)).or_default() += 1;
             }
         }
     }
-    let Some((backdrop, _)) = counts.into_iter().max_by_key(|(key, count)| (*count, *key)) else {
+    let Some((backdrop, _)) = background_of(&counts) else {
         return Vec::new();
     };
-    let backdrop = backdrop.map(|c| (c << 3) + 4);
     let marked = |x: usize, y: usize| {
-        inside(x, y)
-            && colour(x, y)
-                .iter()
-                .zip(backdrop)
-                .any(|(&c, b)| c.abs_diff(b) >= CONTRAST)
+        inside(x, y) && rgb_delta(backdrop, colour(x, y)) > FAR_FROM_BACKGROUND
     };
-    let mut seen = vec![false; wide * high];
     let mut found = Vec::new();
-    for start in 0..wide * high {
-        if seen[start] || !marked(start % wide, start / wide) {
-            continue;
-        }
-        seen[start] = true;
-        let mut stack = vec![start];
-        let (mut left, mut top, mut right, mut bottom) = (wide, high, 0, 0);
-        let mut count = 0;
-        while let Some(at) = stack.pop() {
-            let (x, y) = (at % wide, at / wide);
-            count += 1;
-            (left, right) = (left.min(x), right.max(x));
-            (top, bottom) = (top.min(y), bottom.max(y));
-            let around = [
-                (x.wrapping_sub(1), y),
-                (x + 1, y),
-                (x, y.wrapping_sub(1)),
-                (x, y + 1),
-            ];
-            for (nx, ny) in around {
-                if nx < wide && ny < high && !seen[ny * wide + nx] && marked(nx, ny) {
-                    seen[ny * wide + nx] = true;
-                    stack.push(ny * wide + nx);
-                }
-            }
-        }
+    for component in components(wide, high, marked) {
+        let (left, top, right, bottom) = component.extent();
         let bounds = Bounds {
             x: left as f64 / scale,
             y: top as f64 / scale,
@@ -137,7 +104,7 @@ fn find(picture: PictureSide, side: &Side, corners: &Corners) -> Vec<Bounds> {
         let area = (right - left + 1) * (bottom - top + 1);
         if SIZE.contains(&bounds.width)
             && SIZE.contains(&bounds.height)
-            && count as f64 >= FILL * area as f64
+            && component.cells.len() as f64 >= FILL * area as f64
         {
             found.push(bounds);
         }
