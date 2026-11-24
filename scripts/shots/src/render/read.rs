@@ -217,12 +217,18 @@ fn windows_in_tree_order<'a>(
     by_id: &HashMap<&str, &'a Raw>,
     platform: Platform,
 ) -> Result<Vec<&'a Raw>, ReadError> {
+    let mut nodes = pre_order(root, by_id)?;
+    nodes.retain(|node| is_window(node, platform));
+    Ok(nodes)
+}
+
+/// `root` and every node under it, each node before its children, the
+/// children in order.
+fn pre_order<'a>(root: &'a Raw, by_id: &HashMap<&str, &'a Raw>) -> Result<Vec<&'a Raw>, ReadError> {
     let mut found = Vec::new();
     let mut pending = vec![root];
     while let Some(node) = pending.pop() {
-        if is_window(node, platform) {
-            found.push(node);
-        }
+        found.push(node);
         for child in node.children.iter().rev() {
             pending.push(
                 by_id
@@ -665,19 +671,7 @@ fn subtree(raw: &[Raw], backend: i64) -> Result<Vec<Raw>, ReadError> {
         .iter()
         .find(|n| n.backend == Some(backend))
         .ok_or_else(|| ReadError::NoNode(format!("DOM node {backend}")))?;
-    let mut found = Vec::new();
-    let mut pending = vec![root];
-    while let Some(node) = pending.pop() {
-        found.push(node.clone());
-        for child in node.children.iter().rev() {
-            pending.push(
-                by_id
-                    .get(child.as_str())
-                    .ok_or_else(|| ReadError::NoNode(child.clone()))?,
-            );
-        }
-    }
-    Ok(found)
+    Ok(pre_order(root, &by_id)?.into_iter().cloned().collect())
 }
 
 /// The id of the style that turns transforms off while the reader measures.
