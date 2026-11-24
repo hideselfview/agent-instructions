@@ -52,6 +52,51 @@ fn a_lanes_app_tree_changes_only_with_the_paths_its_on_lines_name() {
     );
 }
 
+/// A repo whose design system has a component preview, which draws the size
+/// of a component scene, and a board, with `.app-build` <LINES>.
+fn design_repo(scratch: &Scratch) -> std::path::PathBuf {
+    let top = scratch.dir.join("design-repo");
+    crate::testing::repo(&top, "target\n");
+    for (path, text) in [
+        (CONFIG, LINES),
+        ("app-mac/main.m", "mac"),
+        ("design/system/components/Row.preview.html", "row 273"),
+        ("design/mocks/welcome.dc.html", "board"),
+        ("design/mocks/runtime.toml", "runtime = \"a\""),
+    ] {
+        let file = top.join(path);
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(file, text).unwrap();
+    }
+    git(&top, &["add", "."]);
+    git(&top, &["commit", "-q", "-m", "Design"]);
+    top
+}
+
+#[test]
+fn a_lanes_app_tree_changes_with_what_sizes_a_component_scene() {
+    let scratch = Scratch::new("app-tree-sizes");
+    let top = design_repo(&scratch);
+    let config = parse_config(LINES).unwrap();
+    let tree = |commit: &str| of(&top, commit, &config, Lane::Mac).unwrap();
+    let first = resolve(&top, "HEAD").unwrap();
+    let before = tree(&first);
+    let board = commit_change(&top, "design/mocks/welcome.dc.html", "another board");
+    assert_eq!(
+        tree(&board),
+        before,
+        "a screen board sizes no component scene"
+    );
+    let preview = commit_change(&top, "design/system/components/Row.preview.html", "row 420");
+    assert_ne!(tree(&preview), before, "a preview draws the scene's size");
+    let runtime = commit_change(&top, "design/mocks/runtime.toml", "runtime = \"b\"");
+    assert_ne!(
+        tree(&runtime),
+        tree(&preview),
+        "the runtime draws the scene"
+    );
+}
+
 const RUST_LINES: &str = "step mac macos true\non app-mac/ macos\non bridge/ macos\n";
 
 /// A repo of the crates bridge (which depends on core through the

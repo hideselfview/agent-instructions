@@ -11,6 +11,12 @@
 //! with its path, and of the `.app-build` itself, which holds the capture
 //! commands.
 //!
+//! The shots program draws each component scene at the size of its board,
+//! which it measures from the design system's preview pages and the canvas
+//! runtime when it captures, and no `on` line names those files. The app tree
+//! holds them too (`scene_size_inputs`), so a change to what sizes a scene
+//! keys a new picture folder and no earlier capture of another size is reused.
+//!
 //! The app also builds from Rust crates, which no `on` line names unless the
 //! crate's folder is one (a bridge crate's is). The lane's Rust seeds are the
 //! crates whose folders a rule of the lane matches, and the crates a script
@@ -25,6 +31,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
+use boards::Source;
 use sha2::{Digest, Sha256};
 
 use crate::app_config::{CONFIG, Config, Rule, run_git};
@@ -61,14 +68,43 @@ pub fn of(top: &Path, commit: &str, config: &Config, lane: Lane) -> Result<Strin
     }
     let matched = |path: &str| path == CONFIG || rules.iter().any(|rule| rule.matches(path));
     let crate_dirs = closure_dirs(top, commit, &paths, &matched)?;
+    let sizing = scene_size_inputs(top, commit, &paths)?;
     let mut hasher = Sha256::new();
     for (line, path) in listing.lines().zip(&paths) {
-        if matched(path) || is_rust_input(path, &crate_dirs) {
+        if matched(path)
+            || is_rust_input(path, &crate_dirs)
+            || sizing.iter().any(|input| is_at(path, input))
+        {
             hasher.update(line.as_bytes());
             hasher.update([b'\n']);
         }
     }
     Ok(crate::text::hex(&hasher.finalize()[..8]))
+}
+
+/// The paths of the files that size a component scene at <commit>: the design
+/// system's files, with what its symbolic links point at, and the record of
+/// the canvas runtime that draws the boards. Empty when <paths>, the commit's
+/// files, holds no design system.
+fn scene_size_inputs(top: &Path, commit: &str, paths: &[&str]) -> Result<Vec<String>> {
+    if !paths.iter().any(|path| in_dir(path, DESIGN_SYSTEM)) {
+        return Ok(Vec::new());
+    }
+    let mut inputs = Source::Commit {
+        repo: top,
+        rev: commit,
+    }
+    .design_system_inputs()?;
+    inputs.push(boards::runtime::RECORD.to_string());
+    Ok(inputs)
+}
+
+/// The folder of the design system.
+const DESIGN_SYSTEM: &str = "design/system";
+
+/// Whether <path> is <input> or a file below it.
+fn is_at(path: &str, input: &str) -> bool {
+    path == input || in_dir(path, input)
 }
 
 /// The id that keys <tree>'s shots in the picture folder for a shots run made
