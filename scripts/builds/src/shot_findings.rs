@@ -33,7 +33,10 @@
 //! `builds shots findings <repo> <ref> <platform> <prefix>` prints the newest
 //! cached run of the commit made in any environment, with the environment it
 //! was made in, and with `--by-cause` its findings grouped by cause, from the records
-//! its report holds (shot_causes.rs). `builds app-build <repo> <ref>
+//! its report holds (shot_causes.rs). When this builds' shots program made
+//! no run of the commit, it prints the newest run another program version
+//! made, with the findings that run stored, and says which versions made
+//! them (`shots_cache::lookup_older_program`). `builds app-build <repo> <ref>
 //! --shots <prefix>` (or, in its lane form, `--shots <platform> <prefix>` with
 //! no build step) prints it too, in place of taking the lane's lock, unless
 //! the command has `--fresh`. A run of
@@ -45,12 +48,12 @@ use std::path::Path;
 use crate::app_build;
 use crate::app_timing::now;
 use crate::fail;
-use crate::fail::{Context, Result};
+use crate::fail::{Context, Fail, Result};
 use crate::host::sh_quote;
 use crate::lane::Lane;
 use crate::places::Places;
 use crate::shot_causes;
-use crate::shots_cache::{Cached, Key};
+use crate::shots_cache::{self, Cached, Key};
 use crate::text::note;
 
 /// The line the shots program's own output starts after: cargo's, for the
@@ -305,6 +308,20 @@ pub fn how_to_make(repo: &str, git_ref: &str, lane: Lane, prefix: &str) -> Strin
     }
 }
 
+/// The error for a commit that has no cached run of <prefix> on <lane> by this
+/// builds' shots checker, naming the app-build command that makes one.
+fn no_run(repo: &str, git_ref: &str, commit: &str, lane: Lane, prefix: &str) -> Fail {
+    let versions = &crate::shots_program::VERSIONS;
+    Fail::Message(format!(
+        "no run of {prefix} on {} is cached for {repo} at {} (shots program capture version {}, comparison version {}); `{}` makes one",
+        lane.word(),
+        &commit[..12.min(commit.len())],
+        &versions.capture[..12.min(versions.capture.len())],
+        &versions.comparison[..12.min(versions.comparison.len())],
+        how_to_make(repo, git_ref, lane, prefix)
+    ))
+}
+
 /// The newest cached run of <prefix> on <lane> for <repo> at <git_ref> by this
 /// builds' shots checker, made in any environment, which it marks used,
 /// comparing again with the builds program <program> the run of another
@@ -319,18 +336,50 @@ pub fn cached_run(
     program: &Path,
 ) -> Result<Cached> {
     let commit = commit_of(places, repo, git_ref)?;
-    let versions = &crate::shots_program::VERSIONS;
     match crate::shots_compare_again::lookup_newest(places, repo, &commit, lane, prefix, program)? {
         Some(cached) => Ok(cached),
-        None => fail!(
-            "no run of {prefix} on {} is cached for {repo} at {} (shots program capture version {}, comparison version {}); `{}` makes one",
-            lane.word(),
-            &commit[..12.min(commit.len())],
-            &versions.capture[..12.min(versions.capture.len())],
-            &versions.comparison[..12.min(versions.comparison.len())],
-            how_to_make(repo, git_ref, lane, prefix)
-        ),
+        None => Err(no_run(repo, git_ref, &commit, lane, prefix)),
     }
+}
+
+/// The run `builds shots findings` prints for <commit>: `cached_run`'s, or
+/// when this builds' shots checker made none, the newest run any other
+/// shots checker made, with the findings it stored. Fails, naming the
+/// app-build command that makes a run, when none is cached.
+fn printable_run(
+    places: &Places,
+    repo: &str,
+    git_ref: &str,
+    commit: &str,
+    lane: Lane,
+    prefix: &str,
+    program: &Path,
+) -> Result<Cached> {
+    if let Some(cached) =
+        crate::shots_compare_again::lookup_newest(places, repo, commit, lane, prefix, program)?
+    {
+        return Ok(cached);
+    }
+    match shots_cache::lookup_older_program(places, repo, commit, lane, prefix)? {
+        Some(cached) => Ok(cached),
+        None => Err(no_run(repo, git_ref, commit, lane, prefix)),
+    }
+}
+
+/// What to tell the reader of <cached>, when a shots checker other than this
+/// builds' made it: which versions made its findings.
+fn older_program_note(cached: &Cached) -> Option<String> {
+    let versions = &cached.key.versions;
+    let mine = &*crate::shots_program::VERSIONS;
+    (versions != mine).then(|| {
+        format!(
+            "no run of this builds' shots program (capture version {}, comparison version {}) is cached, so these are the findings the older shots program stored: capture version {}, comparison version {}",
+            &mine.capture[..mine.capture.len().min(12)],
+            &mine.comparison[..mine.comparison.len().min(12)],
+            &versions.capture[..versions.capture.len().min(12)],
+            &versions.comparison[..versions.comparison.len().min(12)]
+        )
+    })
 }
 
 /// `builds shots findings`, given the arguments after `findings`.
@@ -342,7 +391,11 @@ pub fn cmd_findings(places: &Places, args: &[String]) -> Result<()> {
     };
     let lane = Lane::parse_or_fail(lane)?;
     let program = crate::this_program()?;
-    let cached = cached_run(places, repo, git_ref, lane, prefix, &program)?;
+    let commit = commit_of(places, repo, git_ref)?;
+    let cached = printable_run(places, repo, git_ref, &commit, lane, prefix, &program)?;
+    if let Some(said) = older_program_note(&cached) {
+        note(said);
+    }
     if grouped {
         let text = by_cause(&cached, git_ref)?;
         note_run(&cached);

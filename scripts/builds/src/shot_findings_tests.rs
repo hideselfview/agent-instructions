@@ -182,3 +182,64 @@ fn a_reports_findings_name_the_version_that_made_them() {
             .contains("names no shots checker versions")
     );
 }
+
+fn run_key(environment: &str, capture: &str, comparison: &str) -> Key {
+    Key {
+        repo: "demo".to_string(),
+        commit: "a".repeat(40),
+        lane: Lane::Mac,
+        environment: environment.to_string(),
+        prefix: "mac.".to_string(),
+        versions: crate::shots_program::Versions {
+            capture: capture.to_string(),
+            comparison: comparison.to_string(),
+        },
+    }
+}
+
+#[test]
+fn findings_print_the_newest_run_an_older_shots_program_made_and_say_so() {
+    let scratch = crate::testing::Scratch::new("shots-older-program");
+    let places = scratch.places();
+    let program = Path::new("/nonexistent/builds");
+    let commit = "a".repeat(40);
+    let find = || printable_run(&places, "demo", "main", &commit, Lane::Mac, "mac.", program);
+    let error = find().expect_err("no run is cached").text();
+    assert!(error.contains("no run of mac. on mac is cached"), "{error}");
+    let first = run_key("env", "old-capture", "old-comparison");
+    shots_cache::stage(&places, &first)
+        .unwrap()
+        .finish_at(1, "FAIL older\n", 100)
+        .unwrap();
+    let second = run_key("env", "new-capture", "new-compare");
+    shots_cache::stage(&places, &second)
+        .unwrap()
+        .finish_at(1, "FAIL newer\n", 200)
+        .unwrap();
+    let found = find().unwrap();
+    assert_eq!(
+        found.key, second,
+        "the newest run, whichever program made it"
+    );
+    assert_eq!(found.findings, "FAIL newer\n");
+    let said = older_program_note(&found).expect("the run is of another program");
+    assert!(
+        said.contains("new-capture") && said.contains("new-compare"),
+        "{said}"
+    );
+    let current = run_key(
+        "env",
+        &crate::shots_program::VERSIONS.capture,
+        &crate::shots_program::VERSIONS.comparison,
+    );
+    let made = shots_cache::stage(&places, &current)
+        .unwrap()
+        .finish_at(1, "FAIL current\n", 50)
+        .unwrap();
+    assert_eq!(
+        find().unwrap().key,
+        current,
+        "this program's own run comes first"
+    );
+    assert!(older_program_note(&made).is_none());
+}

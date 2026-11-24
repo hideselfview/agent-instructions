@@ -569,6 +569,48 @@ pub fn read_covering<T>(
     Ok(read)
 }
 
+/// The newest run of <repo>'s <commit>, <lane> and exactly <prefix> that any
+/// shots program made, in any environment: the run a reader of its findings
+/// takes when this builds' program made none. Reading it marks it used.
+pub fn lookup_older_program(
+    places: &Places,
+    repo: &str,
+    commit: &str,
+    lane: Lane,
+    prefix: &str,
+) -> Result<Option<Cached>> {
+    let mut newest: Option<Cached> = None;
+    for environment in environments(places, repo, commit, lane)? {
+        let prefix_folder = prefixes_folder(places, repo, commit, lane, &environment).join(prefix);
+        for (capture, captures) in folders_in(&prefix_folder)? {
+            for (comparison, folder) in folders_in(&captures)? {
+                let key = Key::new(
+                    repo,
+                    commit,
+                    lane,
+                    &environment,
+                    prefix,
+                    &Versions {
+                        capture: capture.clone(),
+                        comparison,
+                    },
+                );
+                if let Some(cached) = read(&folder, &key)?
+                    && newest
+                        .as_ref()
+                        .is_none_or(|known| cached.recorded_at() > known.recorded_at())
+                {
+                    newest = Some(cached);
+                }
+            }
+        }
+    }
+    if let Some(cached) = &newest {
+        mark_used(cached)?;
+    }
+    Ok(newest)
+}
+
 /// The run cached under <key>, if any; reading it marks it used.
 pub fn lookup(places: &Places, key: &Key) -> Result<Option<Cached>> {
     check_key(key)?;
