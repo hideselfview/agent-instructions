@@ -233,7 +233,8 @@ const h = React.createElement;
 const W = (name, child) => h('div', {className: 'row'},
   h('span', {className: 'row-name'}, name), h('div', {className: 'row-cell'}, child));
 ReactDOM.createRoot(document.getElementById('root')).render(h('div', null,
-  W('Plain', h('div', {className: 'kb', style: {top: '250px', height: '100px'}}, 'Words')),
+  W('Plain', h('div', {className: 'kb', style: {top: '250px', height: '100px'}},
+    h('div', {className: 'bae-preview-slot'}, 'slot'))),
   W('Typing', h('div', {className: 'kb'}, 'keys'))));
 </script></body></html>"#;
 
@@ -284,4 +285,30 @@ async fn a_row_reports_the_unshot_parts_inside_its_cell_from_the_cells_corner() 
         .collect();
     assert_eq!(boxes, [(10.0, 250.0, 380.0, 100.0)]);
     assert!(none.is_empty(), "no selector, no boxes");
+}
+
+#[tokio::test]
+async fn a_row_reports_only_the_preview_slots_inside_its_cell() {
+    let root = fixture::tree(&[]);
+    fixture::write(
+        root.path(),
+        "design/system/components/MacRow/preview.html",
+        KEYBOARD_PREVIEW,
+    );
+    let (typing, plain) = fixture::with_browser(root.path(), async |server, chrome| {
+        let url = server.preview_url("MacRow");
+        let mut rows = Vec::new();
+        for state in ["typing", "plain"] {
+            let page = chrome.new_page().await.unwrap();
+            rows.push(
+                render_row(&page, "MacRow", state, &url, 1.0, Platform::Mac, marks(&[]))
+                    .await
+                    .unwrap()
+                    .slots,
+            );
+        }
+        (rows[0].len(), rows[1].len())
+    })
+    .await;
+    assert_eq!((typing, plain), (0, 1));
 }

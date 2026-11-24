@@ -658,10 +658,15 @@ pub(crate) async fn unshot(
 /// content.
 const SLOT_CLASS: &str = "bae-preview-slot";
 
-/// The boxes of the board's preview slots, measured from `origin`. The
-/// comparison leaves out what either side draws inside them (compare.rs).
-pub(crate) async fn slots(page: &Page, origin: (f64, f64)) -> Result<Vec<Bounds>, ReadError> {
-    boxes(page, "document", &format!(".{SLOT_CLASS}"), origin).await
+/// The boxes of the preview slots inside <scope> (a JavaScript expression for
+/// a node, such as `document`), measured from `origin`. The comparison leaves
+/// out what either side draws inside them (compare.rs).
+pub(crate) async fn slots(
+    page: &Page,
+    scope: &str,
+    origin: (f64, f64),
+) -> Result<Vec<Bounds>, ReadError> {
+    boxes(page, scope, &format!(".{SLOT_CLASS}"), origin).await
 }
 
 /// The elements under the DOM node `backend`, in reading order, with boxes

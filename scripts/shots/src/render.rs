@@ -216,7 +216,7 @@ async fn draw_screen(
     let unshot = read::unshot(page, &settings.unshot, "document", (0.0, 0.0))
         .await
         .map_err(|e| e.to_string())?;
-    let slots = read::slots(page, (rendered.frame.x, rendered.frame.y))
+    let slots = read::slots(page, "document", (rendered.frame.x, rendered.frame.y))
         .await
         .map_err(|e| e.to_string())?;
     Ok(Drawn {
