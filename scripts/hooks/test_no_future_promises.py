@@ -58,6 +58,36 @@ CASES = [
         tool_result("ok"), say("Done.")]),
     (False, "phrase in a sidechain entry", [
         user("hi"), {**say("from now on"), "isSidechain": True}, say("Done.")]),
+    # A scheduled prompt is a meta user entry with a promptId of its own; the hook's
+    # feedback entry and the tool results of a turn share the turn's promptId.
+    (False, "phrase before a scheduled meta prompt", [
+        user("hi", promptId="p1"), say("From now on I check."),
+        user("Health check: run it", isMeta=True, promptId="p2", scheduledTaskId="s1"),
+        say("Nothing to report.")]),
+    (True, "phrase after a scheduled meta prompt", [
+        user("hi", promptId="p1"), say("Done."),
+        user("Health check: run it", isMeta=True, promptId="p2", scheduledTaskId="s1"),
+        say("Next time I check.")]),
+    (True, "phrase before the hook's feedback entry of the same turn", [
+        user("hi", promptId="p1"), say("From now on I check."),
+        user("Stop hook feedback: drop it", isMeta=True, promptId="p1"), say("Done.")]),
+    (False, "phrase before a typed prompt with a new promptId", [
+        user("one", promptId="p1"), say("From now on I check."),
+        user("two", promptId="p2"), say("Done.")]),
+    (False, "phrase in a task notification with a new promptId", [
+        user("one", promptId="p1"), say("Next time I ask."),
+        user("<task-notification>done</task-notification>", promptId="p2"), say("Done.")]),
+    (True, "tool results of the turn share its promptId", [
+        user("hi", promptId="p1"), say("Going forward I check."),
+        {**tool_result("ok"), "promptId": "p1"}, say("Done.")]),
+    (False, "phrase in double quotes", [user("hi"), say('The hook flags "from now on" in a reply.')]),
+    (False, "phrase in curly double quotes", [user("hi"), say("The hook flags “next time” in a reply.")]),
+    (False, "phrase in backticks", [user("hi"), say("The hook flags `going forward` in a reply.")]),
+    (False, "phrase in a code fence", [user("hi"), say("Text:\n```\nI'll remember this\n```\nDone.")]),
+    (False, "phrase in a blockquote line", [user("hi"), say("The user wrote:\n> from now on do X\nDone.")]),
+    (True, "phrase outside the quotes beside a quoted one", [
+        user("hi"), say('The hook flags "next time". From now on I check.')]),
+    (True, "an apostrophe is no quote", [user("hi"), say("It's done. I'll remember that.")]),
     (False, "a similar word", [user("hi"), say("The next timeout and the going rate.")]),
     (False, "stop_hook_active", [user("hi"), say("From now on I check.")], {"stop_hook_active": True}),
 ]
@@ -73,6 +103,16 @@ with tempfile.TemporaryDirectory() as tmp:
         got = json.loads(out)["decision"] == "block" if out else False
         print(("ok  " if got == want else "FAIL"), "block" if got else "allow", name)
         bad += got != want
+    # The message names only mechanisms that exist.
+    path = Path(tmp) / "msg.jsonl"
+    path.write_text("".join(json.dumps(e) + "\n" for e in [user("hi"), say("Next time I check.")]))
+    out = subprocess.run([sys.executable, "-I", HOOK], capture_output=True, text=True,
+                         input=json.dumps({"transcript_path": str(path)})).stdout
+    reason = json.loads(out)["reason"]
+    ok = ("queue item" in reason and "CLAUDE.md" in reason and "say nothing" in reason
+          and "hook, a test" not in reason and "tool, or check" not in reason)
+    print(("ok  " if ok else "FAIL"), "message names existing mechanisms")
+    bad += not ok
     # A missing transcript lets the stop through.
     out = subprocess.run([sys.executable, "-I", HOOK],
                          input=json.dumps({"transcript_path": f"{tmp}/none.jsonl"}),
