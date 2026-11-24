@@ -793,6 +793,20 @@ fn a_lane_whose_picture_folder_caches_every_shot_has_no_capture_step() {
 }
 
 #[test]
+fn a_single_prefix_read_from_a_caching_picture_folder_captures_nothing_and_takes_no_window() {
+    let config = parse_config("shots mac ./s --windows --select {select}\n").unwrap();
+    let picks = [(Lane::Mac, PickKind::Shots, "mac.a.".to_string())];
+    let windowed = [("mac.a.".to_string(), Access::Exclusive)];
+    let steps = lane_steps_with(&config, Lane::Mac, &[], &picks, &windowed, true, &|_| {
+        Ok(None)
+    })
+    .unwrap();
+    assert_eq!(names(&steps), vec!["shots mac.a."]);
+    assert!(steps[0].command.contains(&"--no-capture".to_string()));
+    assert!(steps[0].window.is_none());
+}
+
+#[test]
 fn the_capture_of_prefixes_with_no_window_scene_opens_no_window() {
     let config = parse_config("shots mac ./s --windows --select {select}\n").unwrap();
     let picks = [

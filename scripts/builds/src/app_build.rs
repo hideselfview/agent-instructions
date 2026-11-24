@@ -403,7 +403,7 @@ fn lane_steps_with(
             PickKind::Shots => shots_scenes(&command),
             PickKind::Class => None,
         };
-        let reads_pictures = captures_once && kind == PickKind::Shots;
+        let reads_pictures = (captures_once || folder_caches) && kind == PickKind::Shots;
         if reads_pictures {
             command.push(NO_CAPTURE.to_string());
         }
