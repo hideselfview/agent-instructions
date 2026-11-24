@@ -57,7 +57,8 @@ fn the_drop_command_accepts_a_prefix_from_a_build_named_by_commit() {
     git(&dir, &["checkout", "-q", "-b", "work"]);
     git(&dir, &["commit", "-q", "--allow-empty", "-m", "change"]);
     let head = git_out(&dir, &["rev-parse", "HEAD"]);
-    let tool = scratch.tool(0);
+    let mut tool = scratch.tool(0);
+    tool.dir = dir;
     let store = make_store_named(&tool.places, "demo", &["bae"]);
     let prefix = "mac.seek.";
     let run = RunRecord {
@@ -95,11 +96,7 @@ fn the_drop_command_accepts_a_prefix_from_a_build_named_by_commit() {
         "agent",
     ]
     .map(str::to_string);
-    let original = current_dir().unwrap();
-    std::env::set_current_dir(&dir).unwrap();
-    let result = cmd_drop_shots(&tool, &args);
-    std::env::set_current_dir(original).unwrap();
-    result.unwrap();
+    cmd_drop_shots(&tool, &args).unwrap();
     let db = store.open_existing().unwrap();
     assert_eq!(
         dropped(&db, "bae", "work", Lane::Mac, tool.now).unwrap(),

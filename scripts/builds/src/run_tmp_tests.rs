@@ -116,12 +116,10 @@ fn a_run_replaces_relative_tmpdir_and_an_unreadable_tmpdir_outside_the_run_folde
     std::fs::create_dir_all(places.root.join(".tmp/1-2")).unwrap();
     let outside = scratch.dir.join("loop");
     symlink(&outside, &outside).unwrap();
-    let dir = std::env::current_dir().unwrap();
-    std::env::set_current_dir(&places.root).unwrap();
     places.tmpdir = Some(PathBuf::from(".tmp/1-2"));
-    let relative = enter(&places, "cargo", &[]);
-    std::env::set_current_dir(dir).unwrap();
-    let relative = relative.unwrap().expect("cargo gets its own folder");
+    let relative = enter(&places, "cargo", &[])
+        .unwrap()
+        .expect("cargo gets its own folder");
     assert!(relative.folder.is_absolute());
     drop(relative);
 

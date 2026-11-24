@@ -15,7 +15,7 @@ use crate::fail;
 use crate::fail::Result;
 use crate::lane::Lane;
 use crate::lists::Stamp;
-use crate::lists::args::{Args, current_dir};
+use crate::lists::args::Args;
 use crate::lists::store::Store;
 use crate::text::note;
 use crate::tool::Tool;
@@ -84,16 +84,16 @@ pub fn record(
 /// app builds of <branch> in <lane> ran since the branch left origin/main,
 /// and says so. Runs in the branch's worktree.
 pub fn cmd_drop_shots(tool: &Tool, args: &[String]) -> Result<()> {
-    let cwd = current_dir()?;
+    let cwd = &tool.dir;
     let args = Args::parse(args, &["why"], &[])?;
     let [repo, branch, lane, prefix] = args.exactly(4, USAGE)? else {
         unreachable!("exactly four")
     };
     let lane = Lane::parse_or_fail(lane)?;
     let why = args.why()?;
-    let store = Store::resolve(&tool.places, &args, &cwd)?;
-    let stamp = Stamp::resolve(tool.now, &args, &cwd)?;
-    let Some(checkout) = crate::checkout::Checkout::at(&cwd)? else {
+    let store = Store::resolve(&tool.places, &args, cwd)?;
+    let stamp = Stamp::resolve(tool.now, &args, cwd)?;
+    let Some(checkout) = crate::checkout::Checkout::at(cwd)? else {
         fail!("{} is in no git checkout", cwd.display());
     };
     let since = branch_since(&checkout.top, "origin/main", branch)?;
