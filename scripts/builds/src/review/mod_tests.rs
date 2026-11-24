@@ -1940,6 +1940,11 @@ fn every_review_command_fails_for_a_project_with_no_store() {
             &rules,
         ],
     ];
+    // The commands run in a folder that no claim names, as on a host where
+    // the checkout was sent: none may reach the question of who writes before
+    // it finds the project has no store.
+    let original = current_dir().unwrap();
+    std::env::set_current_dir(&demo.scratch.dir).unwrap();
     for command in commands {
         let mut args: Vec<String> = command.iter().map(|word| word.to_string()).collect();
         args.extend(["--project".to_string(), "ghost".to_string()]);
@@ -1951,6 +1956,7 @@ fn every_review_command_fails_for_a_project_with_no_store() {
             command.join(" ")
         );
     }
+    std::env::set_current_dir(original).unwrap();
 }
 
 /// A commit of <file> in <side> that adds more lines than the review cap.

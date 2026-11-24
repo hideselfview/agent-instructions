@@ -1734,8 +1734,9 @@ fn replay_landings(tool: &Tool, args: &Args) -> Result<()> {
                 .map_err(|_| Fail::Message(format!("'{landing}' is not a landing number")))
         })
         .collect::<Result<_>>()?;
-    // rerun::replay opens the store, and fails when the project has none.
     let store = Store::resolve(&tool.places, args, &current_dir()?)?;
+    // Fails when the project has no store, before anything asks who writes.
+    drop(store.open_existing()?);
     let root = rules_root(args)?;
     let reviewer = tool.reviewer.program_for(args.value("reviewer")?);
     let repo_dir = PathBuf::from(args.require("repo-dir")?);
