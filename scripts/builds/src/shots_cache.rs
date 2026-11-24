@@ -541,6 +541,11 @@ fn mark_used(cached: &Cached) -> Result<()> {
     capped_store::mark_used(&cached.folder.join(RUN_FILE))
 }
 
+/// The last use of a published run, or none for output without a verdict.
+fn last_used_at(folder: &Path) -> Result<Option<i64>> {
+    capped_store::written_at(&folder.join(RUN_FILE))
+}
+
 /// Reads a covering run in any environment with the current shots program
 /// versions. The cache lease protects both the read and its last-use renewal.
 pub fn read_covering<T>(
@@ -636,7 +641,9 @@ pub fn covering_folders(
     let mut folders = Vec::new();
     for key in covering_keys(places, repo, commit, lane, made, prefix, versions)? {
         for (_, folder) in folders_in(&captures_folder(places, &key))? {
-            folders.push(folder);
+            if last_used_at(&folder)?.is_some() {
+                folders.push(folder);
+            }
         }
     }
     Ok(folders)
@@ -706,8 +713,7 @@ fn group(places: &Places, repo: &str, named: &Named) -> Result<Group> {
                 for (_, prefix) in folders_in(&environment)? {
                     for (_, capture) in folders_in(&prefix)? {
                         for (_, folder) in folders_in(&capture)? {
-                            let Some(last_use) = capped_store::written_at(&folder.join(RUN_FILE))?
-                            else {
+                            let Some(last_use) = last_used_at(&folder)? else {
                                 kept.push(Kept::Folder {
                                     folder: capped_store::Folder::unpinned(folder),
                                     last_use: Use::NewestInside,

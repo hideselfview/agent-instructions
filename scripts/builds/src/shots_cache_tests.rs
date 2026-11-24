@@ -13,6 +13,19 @@ fn the_cache_ignores_legacy_verdicts() {
     )
     .unwrap();
     assert!(lookup(&places, &key).unwrap().is_none());
+    assert!(
+        covering_folders(
+            &places,
+            &key.repo,
+            &key.commit,
+            key.lane,
+            &key.prefix,
+            &key.versions
+        )
+        .unwrap()
+        .is_empty(),
+        "waiting branches cannot pin a run without a current verdict"
+    );
     crate::testing::age_all(&cached.folder, 48);
     prune_runs(&scratch.tool(0), Run::Real, 0).unwrap();
     assert!(!cached.folder.exists());
