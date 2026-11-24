@@ -32,9 +32,6 @@ pub const SHARED_FILES: [&str; 4] = [
     "components/bundle.css",
     "components/bundle.js",
 ];
-/// The component the artifact type shows above the brand book, which it asks
-/// to be written last.
-const COVER: &str = "project/components/Cover/";
 /// The file that a call which only removes files names as its `file_path`,
 /// which every publish needs: one the artifact publishes anyway.
 pub const REMOVAL_ANCHOR: &str = "project/README.md";
@@ -132,16 +129,13 @@ fn is_identifier(name: &str) -> bool {
 }
 
 /// Where <path> goes among the artifact's calls, lower first: the shared
-/// files first, since every preview loads them, and the cover last, as the
-/// artifact type asks.
+/// files first, since every preview loads them.
 pub fn rank(path: &str) -> u8 {
     if SHARED_FILES
         .iter()
         .any(|rel| path.strip_prefix("project/") == Some(rel))
     {
         0
-    } else if path.starts_with(COVER) {
-        2
     } else {
         1
     }

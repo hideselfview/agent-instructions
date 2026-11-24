@@ -56,7 +56,6 @@ fn demo(scratch: &Scratch) -> PathBuf {
         ("components/index.d.ts", "export {};\n"),
         ("components/MacButton/README.md", "A button.\n"),
         ("components/MacButton/preview.html", "<!-- @dsCard -->\n"),
-        ("components/Cover/preview.html", "<!-- @dsCard -->\n"),
         ("assets/Logos/README.md", "Logos.\n"),
         ("assets/Logos/mark.svg", MARK),
     ] {
@@ -231,7 +230,6 @@ fn every_artifact_gets_its_files_from_one_commit() {
         "project/README.md",
         "project/assets/Logos/README.md",
         "project/assets/Logos/sheep.svg",
-        "project/components/Cover/preview.html",
         "project/components/MacButton/README.md",
         "project/components/MacButton/preview.html",
         "project/components/bundle.css",
@@ -382,7 +380,7 @@ fn a_repo_without_a_canvases_file_or_runtime_record_is_refused() {
 
 /// No call sends more files than one publish does. A canvas's index goes
 /// first, as the file_path of its first call, with the design system's copy;
-/// the design system's tokens and bundles go first and its cover last.
+/// the design system's tokens and bundles go first.
 #[test]
 fn calls_hold_at_most_one_publishs_files_in_order() {
     let scratch = Scratch::new("publish-calls");
@@ -440,7 +438,7 @@ fn calls_hold_at_most_one_publishs_files_in_order() {
             "project/components/bundle.css",
             "project/components/bundle.js",
         ],
-        "project/components/Cover/preview.html",
+        "project/components/Zz/preview.html",
     );
 }
 

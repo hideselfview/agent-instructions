@@ -103,15 +103,14 @@ fn a_component_folder_that_is_no_identifier_is_refused() {
     assert_eq!(published["project/components/bundle.js"], "bjs");
 }
 
-/// The shared files go in the first call and the cover in the last.
+/// The shared files go in the first call.
 #[test]
-fn the_shared_files_go_first_and_the_cover_last() {
+fn the_shared_files_go_first() {
     for rel in SHARED_FILES {
         assert_eq!(rank(&format!("project/{rel}")), 0, "{rel}");
     }
     assert_eq!(rank("project/README.md"), 1);
     assert_eq!(rank("project/components/MacButton/preview.html"), 1);
-    assert_eq!(rank("project/components/Cover/preview.html"), 2);
 }
 
 /// A new design system's index takes its namespace from the bundle's header,
