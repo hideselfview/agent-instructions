@@ -47,8 +47,8 @@ pub fn refuse_undeclared(top: &Path, commit: &str, picks: &[Pick]) -> Result<()>
 }
 
 /// The shots prefixes that need a display, with the access each needs.
-/// A legacy Mac harness that runs with `--windows` can add a display even
-/// for a bitmap capture. A sharing harness opens a window only when a
+/// A Mac harness that passes `--windows` and has no `shared-shot-display`
+/// line adds its own display even for a bitmap capture. A sharing harness opens a window only when a
 /// selected scene declares one.
 pub fn windowed_prefixes(
     top: &Path,

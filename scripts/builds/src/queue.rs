@@ -125,7 +125,12 @@ pub fn open_locked(path: &Path) -> Result<libc::c_int> {
 /// The lock on the file at <path> (made if missing), or None when a process
 /// holds it. The descriptor closes on exec.
 pub fn try_lock(path: &Path) -> Result<Option<libc::c_int>> {
-    match open_with(path, libc::O_CREAT | libc::O_NONBLOCK) {
+    try_lock_mode(path, libc::LOCK_EX)
+}
+
+/// Like `try_lock`, taking the lock in <mode> (`LOCK_SH` or `LOCK_EX`).
+pub fn try_lock_mode(path: &Path, mode: libc::c_int) -> Result<Option<libc::c_int>> {
+    match open_with_mode(path, libc::O_CREAT | libc::O_NONBLOCK, mode) {
         Ok(fd) => Ok(Some(fd)),
         Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => Ok(None),
         Err(error) => fail!("locking {}: {error}", path.display()),

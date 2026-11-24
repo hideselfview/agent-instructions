@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::places::Places;
-use crate::queue::open_with_mode;
+use crate::queue;
 use crate::text::note;
 
 /// How a step uses the host's windows and displays.
@@ -112,9 +112,9 @@ pub fn take_access(
         Access::Shared => libc::LOCK_SH,
         Access::Exclusive => libc::LOCK_EX,
     };
-    let lock = match open_with_mode(&file, libc::O_CREAT | libc::O_NONBLOCK, mode) {
-        Ok(lock) => lock,
-        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+    let lock = match queue::try_lock_mode(&file, mode)? {
+        Some(lock) => lock,
+        None => {
             let other =
                 holder_of(places, host)?.unwrap_or_else(|| "another window run".to_string());
             announce(&format!("waiting for {other} to release {host}'s display"));
@@ -128,7 +128,6 @@ pub fn take_access(
                 None => return Ok(None),
             }
         }
-        Err(error) => fail!("locking {}: {error}", file.display()),
     };
     // Keep the display locked while the step's processes still use it.
     if let Err(error) = crate::flock::inherit(lock) {

@@ -129,7 +129,12 @@ fn two_shot_captures_share_a_host_and_a_focus_run_waits_for_both() {
         });
         announced.recv_timeout(Duration::from_secs(10)).unwrap();
         drop(first);
-        assert!(held.recv_timeout(SETTLE).is_err());
+        assert!(
+            crate::queue::try_lock_mode(&places.app_window_lock_file("m1"), libc::LOCK_EX)
+                .unwrap()
+                .is_none(),
+            "an exclusive run cannot take the display while a shared capture holds it"
+        );
         drop(second);
         held.recv_timeout(Duration::from_secs(10)).unwrap();
     });
