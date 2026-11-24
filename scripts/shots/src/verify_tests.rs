@@ -64,6 +64,116 @@ fn an_android_picture_compares_its_corners() {
     );
 }
 
+#[test]
+fn window_buttons_at_the_same_places_compare_equal_whatever_they_are_drawn_as() {
+    let pair = compare_window(
+        "mac.welcome.a",
+        with_buttons(
+            window_picture(2, 16, [255, 255, 255, 255], false),
+            2,
+            &BOARD_BUTTONS,
+        ),
+        with_buttons(window_picture(2, 16, [0, 0, 0, 0], false), 2, &SHOT_BUTTONS),
+    );
+    assert!(pair.warnings.is_empty(), "{:?}", pair.warnings);
+}
+
+#[test]
+fn a_window_button_in_another_place_marks_the_area() {
+    let mut moved = SHOT_BUTTONS;
+    moved[1].0 += 4.0;
+    let pair = compare_window(
+        "mac.welcome.a",
+        with_buttons(
+            window_picture(2, 16, [255, 255, 255, 255], false),
+            2,
+            &BOARD_BUTTONS,
+        ),
+        with_buttons(window_picture(2, 16, [0, 0, 0, 0], false), 2, &moved),
+    );
+    assert!(
+        matches!(&pair.warnings[..], [Warning::Region { .. }, ..]),
+        "{:?}",
+        pair.warnings
+    );
+}
+
+#[test]
+fn a_missing_window_button_marks_the_area() {
+    let pair = compare_window(
+        "mac.welcome.a",
+        with_buttons(
+            window_picture(2, 16, [255, 255, 255, 255], false),
+            2,
+            &BOARD_BUTTONS,
+        ),
+        with_buttons(
+            window_picture(2, 16, [0, 0, 0, 0], false),
+            2,
+            &SHOT_BUTTONS[..2],
+        ),
+    );
+    assert!(
+        matches!(&pair.warnings[..], [Warning::Region { .. }, ..]),
+        "{:?}",
+        pair.warnings
+    );
+}
+
+#[test]
+fn a_difference_beside_the_window_buttons_still_marks_its_region() {
+    let mut shot = with_buttons(window_picture(2, 16, [0, 0, 0, 0], false), 2, &SHOT_BUTTONS);
+    paint_disc(&mut shot, 2, (56.0, 30.0), 5.0, [255, 255, 255]);
+    let pair = compare_window(
+        "mac.welcome.a",
+        with_buttons(
+            window_picture(2, 16, [255, 255, 255, 255], false),
+            2,
+            &BOARD_BUTTONS,
+        ),
+        shot,
+    );
+    assert!(
+        matches!(&pair.warnings[..], [Warning::Region { .. }]),
+        "{:?}",
+        pair.warnings
+    );
+}
+
+/// Where a 10 pt button's middle sits, in points, and its colour.
+type Button = (f64, f64, [u8; 3]);
+const BOARD_BUTTONS: [Button; 3] = [
+    (17.0, 20.0, [255, 95, 87]),
+    (31.0, 20.0, [254, 188, 46]),
+    (45.0, 20.0, [40, 200, 64]),
+];
+/// The system's buttons: the same places, with a shaded look.
+const SHOT_BUTTONS: [Button; 3] = [
+    (17.0, 20.0, [160, 20, 20]),
+    (31.0, 20.0, [200, 120, 0]),
+    (45.0, 20.0, [0, 110, 0]),
+];
+
+fn with_buttons(mut picture: Picture, scale: u32, buttons: &[Button]) -> Picture {
+    for (x, y, colour) in buttons {
+        paint_disc(&mut picture, scale, (*x, *y), 5.0, *colour);
+    }
+    picture
+}
+
+fn paint_disc(picture: &mut Picture, scale: u32, middle: (f64, f64), radius: f64, colour: [u8; 3]) {
+    let scale = f64::from(scale);
+    for y in 0..picture.height {
+        for x in 0..picture.width {
+            let (px, py) = ((f64::from(x) + 0.5) / scale, (f64::from(y) + 0.5) / scale);
+            if (px - middle.0).hypot(py - middle.1) <= radius {
+                let at = (y * picture.width + x) as usize * 4;
+                picture.pixels[at..at + 3].copy_from_slice(&colour);
+            }
+        }
+    }
+}
+
 fn compare_window(scene: &str, board: Picture, shot: Picture) -> Checked {
     let scene = name(scene);
     let size = crate::shots::Size {

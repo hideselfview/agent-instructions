@@ -4,7 +4,7 @@
 //! tolerance is marked, and neighbouring marked cells merge into rectangles.
 
 use super::colour::{Lab, delta_e, pixel};
-use super::corners::Corners;
+use super::window::Window;
 use super::{DELTA_E_TOLERANCE, PictureSide, REGION_CELL, Side};
 use crate::shots::{Bounds, Element, Picture};
 
@@ -46,16 +46,16 @@ fn cell_delta(
     offset: (f64, f64),
     x: f64,
     y: f64,
-    corners: Option<&Corners>,
+    window: Option<&Window>,
 ) -> Option<f64> {
     let (mut total, mut count) = (0.0, 0);
     let steps = REGION_CELL as i64;
     for dy in 0..steps {
         for dx in 0..steps {
             let (px, py) = (x + dx as f64 + 0.5, y + dy as f64 + 0.5);
-            if corners.is_some_and(|corners| {
-                !corners.contains(PictureSide::Board, board, px, py)
-                    || !corners.contains(PictureSide::Shot, shot, px + offset.0, py + offset.1)
+            if window.is_some_and(|window| {
+                !window.compares(PictureSide::Board, board, px, py)
+                    || !window.compares(PictureSide::Shot, shot, px + offset.0, py + offset.1)
             }) {
                 continue;
             }
@@ -83,7 +83,7 @@ pub(super) fn regions(
     board: &Side,
     shot: &Side,
     offset: (f64, f64),
-    corners: Option<&Corners>,
+    window: Option<&Window>,
 ) -> Vec<Region> {
     let covers: Vec<Bounds> = covered(board.elements, (0.0, 0.0))
         .into_iter()
@@ -107,7 +107,7 @@ pub(super) fn regions(
                 continue;
             }
             *cell =
-                cell_delta(board, shot, offset, x, y, corners).filter(|d| *d > DELTA_E_TOLERANCE);
+                cell_delta(board, shot, offset, x, y, window).filter(|d| *d > DELTA_E_TOLERANCE);
         }
     }
     // Neighbouring marked cells (sharing an edge) are one region.

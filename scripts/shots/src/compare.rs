@@ -3,11 +3,13 @@
 //! another kind, or in another state.
 
 pub(crate) mod align;
+mod buttons;
 pub(crate) mod colour;
 mod corners;
 pub(crate) mod geometry;
 pub(crate) mod normalize;
 pub(crate) mod regions;
+mod window;
 
 use crate::names::Platform;
 use crate::shots::{Bounds, Element, Picture, Size};
@@ -496,14 +498,14 @@ pub(crate) fn warnings(
     ));
     found.extend(geometry::fonts(board.elements, shot.elements, pairs));
     found.extend(colour::pairs(board, shot, pairs));
-    let corners = (platform == Platform::Mac)
-        .then(|| corners::Corners::of(board, shot))
+    let window = (platform == Platform::Mac)
+        .then(|| window::Window::of(board, shot, offset))
         .flatten();
-    if corners.as_ref().is_some_and(corners::Corners::differ) {
+    if window.as_ref().is_some_and(window::Window::corners_differ) {
         found.push(Warning::WindowCorners);
     }
     found.extend(
-        regions::regions(board, shot, offset, corners.as_ref())
+        regions::regions(board, shot, offset, window.as_ref())
             .into_iter()
             .map(|r| Warning::Region {
                 bounds: r.bounds,
