@@ -133,25 +133,11 @@ pub(crate) fn list(
     let mut components = Vec::new();
     let mut design_only = 0;
     let mut design_only_rows = 0;
-    for (platform, spec) in &settings.design_only {
-        let (name, row) = split_design_only(spec);
-        let drawn = previews.components.iter().find(|(known, key)| {
-            known == name && key.platform.is_none_or(|p| p == platform.word())
-        });
-        let Some((name, _)) = drawn else {
-            return Err(format!(
-                "shots-design-only names {name} on {}, which has no preview there",
-                platform.word()
-            ));
-        };
-        if let Some(row) = row
-            && !preview_rows(root, name, settings)?.contains(&row.to_string())
-        {
-            return Err(format!(
-                "shots-design-only names {name}.{row} on {}, which is no row of {name}'s preview",
-                platform.word()
-            ));
-        }
+    if let Some(problem) = design_only_problems(root, previews, settings)?
+        .into_iter()
+        .next()
+    {
+        return Err(problem);
     }
     for (name, key) in &previews.components {
         let states = preview_rows(root, name, settings)?;
@@ -236,6 +222,38 @@ pub(crate) fn list(
         design_only,
         design_only_rows,
     })
+}
+
+/// One sentence for each `shots-design-only` name that names a component
+/// with no preview on its platform, or a row its component's preview lacks.
+pub(crate) fn design_only_problems(
+    root: &Path,
+    previews: &Previews,
+    settings: &Settings,
+) -> Result<Vec<String>, String> {
+    let mut problems = Vec::new();
+    for (platform, spec) in &settings.design_only {
+        let (name, row) = split_design_only(spec);
+        let drawn = previews.components.iter().find(|(known, key)| {
+            known == name && key.platform.is_none_or(|p| p == platform.word())
+        });
+        let Some((name, _)) = drawn else {
+            problems.push(format!(
+                "shots-design-only names {name} on {}, which has no preview there",
+                platform.word()
+            ));
+            continue;
+        };
+        if let Some(row) = row
+            && !preview_rows(root, name, settings)?.contains(&row.to_string())
+        {
+            problems.push(format!(
+                "shots-design-only names {name}.{row} on {}, which is no row of {name}'s preview",
+                platform.word()
+            ));
+        }
+    }
+    Ok(problems)
 }
 
 /// The ids of the rows of component <name>'s preview page in the repo at

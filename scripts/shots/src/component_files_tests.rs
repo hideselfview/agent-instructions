@@ -261,6 +261,21 @@ fn a_design_only_line_for_a_component_with_no_preview_there_is_refused() {
     }
 }
 
+#[test]
+fn every_design_only_line_that_names_a_lost_component_or_row_is_reported() {
+    let root = repo();
+    let settings = Settings::parse(&format!(
+        "shots-declared mac {MAC}\nshots-preview-calls N W\n\
+         shots-design-only mac Cover MacRow.label MacRow.gone Artwork\n"
+    ))
+    .unwrap();
+    let previews = Previews::of(root.path()).unwrap();
+    let problems = design_only_problems(root.path(), &previews, &settings).unwrap();
+    assert_eq!(problems.len(), 2, "{problems:?}");
+    assert!(problems[0].contains("Cover") && problems[0].contains("no preview"));
+    assert!(problems[1].contains("MacRow.gone") && problems[1].contains("no row"));
+}
+
 /// A platform that draws only some rows of a component marks the others as
 /// design only: those rows have no shot to keep, the component's other rows
 /// still need theirs, and the listing counts the rows it left out.

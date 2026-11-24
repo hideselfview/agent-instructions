@@ -625,7 +625,11 @@ fn run(checker: &Checker, action: Action) -> Result<bool, String> {
             for problem in &problems {
                 crate::log::note(&problem.sentence);
             }
-            Ok(problems.is_empty())
+            let design_only = component_files::design_only_problems(&root, &previews, &settings)?;
+            for problem in &design_only {
+                crate::log::note(problem);
+            }
+            Ok(problems.is_empty() && design_only.is_empty())
         }
         Action::Components { components } => {
             let declared = read_declared()?;

@@ -1782,7 +1782,8 @@ built again.
                               the component's other rows: `components` leaves
                               them out and counts them, and a name that is no
                               component with a preview there, or no row of its
-                              preview, is an error. `shots-unshot
+                              preview, is an error, which `lint` reports too
+                              so that the commit hook refuses it. `shots-unshot
                               <selector>...` the parts of a board that the
                               app draws nothing for. A board's elements with
                               the class `bae-preview-slot` are a container's
