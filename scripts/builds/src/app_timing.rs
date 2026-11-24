@@ -621,7 +621,9 @@ pub fn shots_ran(
 ) -> Result<Vec<String>> {
     let what = || format!("reading {}", path.display());
     let commits = serde_json::to_string(commits).context(what)?;
-    let matches_branch = branch_run_match("COALESCE(c.built_commit, q.requested_commit)");
+    // A recorded checkout can also identify the target when a run recorded
+    // only the checkout. A raw ref is matched by name, as refs can move.
+    let matches_branch = branch_run_match("COALESCE(q.requested_commit, c.built_commit)");
     let mut statement = conn
         .prepare(
             format!(
