@@ -305,6 +305,10 @@ struct Geometry {
     /// `false`). Chrome's accessibility tree has no selected state for a
     /// button, where the Mac marks the open row of a sidebar selected.
     current: bool,
+    /// The node is a text whose nearest DOM ancestor with `aria-selected`
+    /// says `true`. Chrome's accessibility tree has no selected state for a
+    /// text, where the Mac marks every text of a selected row selected.
+    in_selected: bool,
     /// The design-system component that draws the node: the nearest one
     /// above it in React's tree.
     component: Option<String>,
@@ -400,6 +404,8 @@ const GEOMETRY: &str = r#"function({frame, bodyOverflowAppliesToViewport}) {
       : this.getAttribute('role') === 'textbox' ? typed(this) : null,
     current: !isText && this.hasAttribute('aria-current')
       && this.getAttribute('aria-current') !== 'false',
+    in_selected: isText && element !== null
+      && element.closest('[aria-selected]')?.getAttribute('aria-selected') === 'true',
     component: componentOf(this),
     secret: !isText && this.tagName === 'INPUT' && this.type === 'password',
   };
@@ -646,7 +652,7 @@ async fn gather(page: &Page, frame: Bounds) -> Result<Vec<Raw>, ReadError> {
                         };
                         raw.placeholder = geometry.placeholder;
                         raw.component = geometry.component;
-                        if geometry.current && raw.selected.is_none() {
+                        if (geometry.current || geometry.in_selected) && raw.selected.is_none() {
                             raw.selected = Some(true);
                         }
                         // Chrome gives an empty field its placeholder as its

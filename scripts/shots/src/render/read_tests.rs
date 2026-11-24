@@ -235,6 +235,9 @@ const BOARD: &str = r##"<x-dc><helmet><style>body{margin:0;font:13px sans-serif}
 <button aria-current="page">Open pane</button>
 <button aria-current="false">Closed pane</button>
 <button>Plain pane</button>
+<div role="row" aria-selected="true"><span>Picked one</span><div><span>Picked two</span></div><div aria-selected="false"><span>Unpicked inside</span></div></div>
+<div role="row" aria-selected="false"><span>Other row</span></div>
+<p>Plain words</p>
 <img alt="Cover" width="10" height="10" src="data:image/gif;base64,R0lGODlhAQABAAAAACw=">
 <div role="slider" aria-valuenow="5" aria-valuemin="0" aria-valuemax="10" aria-label="Volume" tabindex="0">x</div>
 <div role="progressbar" aria-valuenow="40" aria-valuemin="0" aria-valuemax="100" aria-label="Import">x</div>
@@ -416,6 +419,23 @@ async fn a_board_reads_as_the_shots_do() {
         find(&elements, Role::Button, "Plain pane").selected,
         Some(true)
     );
+    assert_eq!(
+        find(&elements, Role::Text, "Picked one").selected,
+        Some(true),
+        "a text in a row that marks itself selected reads as selected, as the Mac's does"
+    );
+    assert_eq!(
+        find(&elements, Role::Text, "Picked two").selected,
+        Some(true),
+        "a text deeper in the selected row reads as selected too"
+    );
+    for unselected in ["Unpicked inside", "Other row", "Plain words"] {
+        assert_ne!(
+            find(&elements, Role::Text, unselected).selected,
+            Some(true),
+            "{unselected:?} sits under no selected ancestor"
+        );
+    }
     find(&elements, Role::Image, "Cover");
     find(&elements, Role::Stepper, "Number of CD");
     assert_eq!(
