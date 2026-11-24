@@ -235,9 +235,9 @@ impl Palette {
     }
 
     /// How far each channel of `colour` is from the background.
-    fn offset(&self, colour: Rgb) -> [f64; 3] {
+    fn offset(&self, colour: Rgb) -> [i32; 3] {
         std::array::from_fn(|channel| {
-            f64::from(colour[channel]) - f64::from(self.background[channel])
+            i32::from(colour[channel]) - i32::from(self.background[channel])
         })
     }
 
@@ -246,11 +246,7 @@ impl Palette {
     /// text box can have more contrast without lying on that blend line.
     fn glyph_colour(&self) -> Option<Rgb> {
         let (mode, count) = self.mode()?;
-        let offset = |colour: Rgb| {
-            std::array::from_fn(|channel| {
-                i32::from(colour[channel]) - i32::from(self.background[channel])
-            })
-        };
+        let offset = |colour: Rgb| self.offset(colour);
         let dominant = offset(mode);
         let mut strongest = (dot(dominant, dominant), count, mode);
         for &(colour, count) in &self.foreground {
@@ -395,16 +391,12 @@ fn is_partial_coverage(partial: &Palette, thin: Rgb, whole: &Palette, full: Rgb)
         return false;
     }
     let (seen, drawn) = (partial.offset(thin), whole.offset(full));
-    let length: f64 = drawn.iter().map(|d| d * d).sum();
-    if length == 0.0 {
-        return false;
-    }
-    let peak = seen.iter().zip(drawn).map(|(a, b)| a * b).sum::<f64>() / length;
+    let peak = f64::from(dot(seen, drawn)) / f64::from(dot(drawn, drawn));
     if !(THIN_GLYPH_PEAK..=1.0).contains(&peak) {
         return false;
     }
     let expected: Rgb = std::array::from_fn(|channel| {
-        (f64::from(partial.background[channel]) + peak * drawn[channel])
+        (f64::from(partial.background[channel]) + peak * f64::from(drawn[channel]))
             .round()
             .clamp(0.0, 255.0) as u8
     });
