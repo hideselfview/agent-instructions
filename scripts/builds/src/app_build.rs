@@ -360,13 +360,24 @@ pub fn split_picks(args: &[String]) -> Result<(Vec<String>, Vec<Pick>)> {
 }
 
 /// The refusal for a pick of a kind whose line <config> lacks in <lane>.
-pub fn missing_line(lane: Lane, kind: PickKind, arg: &str) -> Fail {
+fn missing_line(lane: Lane, kind: PickKind, arg: &str) -> Fail {
     Fail::Message(format!(
         "{CONFIG} has no `{} {} ...` line, so it cannot run the {} {arg}",
         kind.line(),
         lane.word(),
         kind.what()
     ))
+}
+
+/// Fails when the config has no line that runs a requested pick.
+pub fn require_pickers(config: &Config, picks: &[Pick]) -> Result<()> {
+    for pick in picks {
+        let (lane, kind) = (pick.lane(), pick.kind());
+        if config.picker(lane, kind).is_none() {
+            return Err(missing_line(lane, kind, pick.argument()));
+        }
+    }
+    Ok(())
 }
 
 /// One run of a `test` or `shots` line: the line, and its arguments (every
@@ -3067,12 +3078,7 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
     for name in names {
         step_named(&config, name)?;
     }
-    for pick in &picks {
-        let (lane, kind) = (pick.lane(), pick.kind());
-        if config.picker(lane, kind).is_none() {
-            return Err(missing_line(lane, kind, pick.argument()));
-        }
-    }
+    require_pickers(&config, &picks)?;
     let top = fetched_local_source(places, repo)?;
     crate::shots_declared::refuse_undeclared(&top, &resolve(&top, commit)?, &picks)?;
     let pinned = pin(places)?;

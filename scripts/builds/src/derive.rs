@@ -312,12 +312,7 @@ pub fn derive_and_run(places: &Places, args: &[String]) -> Result<()> {
         PickKind::Shots => lane_of_prefix(arg),
         PickKind::Class => lane_of_class(&lanes_declaring(&top, &config, &commit, arg)?, arg),
     })?;
-    for pick in &picks {
-        let (lane, kind) = (pick.lane(), pick.kind());
-        if config.picker(lane, kind).is_none() {
-            return Err(app_build::missing_line(lane, kind, pick.argument()));
-        }
-    }
+    app_build::require_pickers(&config, &picks)?;
     let asked_for_picks = !picks.is_empty();
     let use_cache = !fresh && Pick::prefixes(&picks).next().is_some();
     let records = if use_cache {
