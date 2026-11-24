@@ -384,7 +384,6 @@ pub fn fill(tool: &Tool, checkout: &Checkout) -> Result<()> {
     // The source's files are read while its guard is held: no build there
     // writes them, so their mtimes are what its fingerprints were made from.
     match_times(&held.candidate.top, &checkout.top)?;
-    units::source_paths::forget_runs_naming(&dest, &[&held.candidate.top, &held.candidate.root])?;
     drop(held);
     note(format!(
         "cloned {} into {}",
