@@ -167,15 +167,12 @@ fn respond_with(
 /// The SF Mono file <name> of the family's folder (`Places::fonts`), for a
 /// board's page to load.
 fn serve_font(stream: &mut TcpStream, model: &Model, name: &str) -> std::io::Result<()> {
-    let Some(fonts) = &model.places.fonts else {
-        return respond(
-            stream,
-            "404 Not Found",
-            "text/plain; charset=utf-8",
-            b"this host has no SF Mono files\n",
-        );
+    // A host that is not a Mac has no folder, and no file of it.
+    let read = match &model.places.fonts {
+        Some(fonts) => std::fs::read(fonts.join(name)),
+        None => Err(std::io::ErrorKind::NotFound.into()),
     };
-    match std::fs::read(fonts.join(name)) {
+    match read {
         // A board's frame runs in a sandbox with no origin of its own, so it
         // loads the font as a cross-origin request.
         Ok(font) => respond_with(

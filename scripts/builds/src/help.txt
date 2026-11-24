@@ -1274,9 +1274,10 @@ rules for each SF Mono file there to the design system's tokens.css, and serve
 the files under /fonts/sf-mono/ (the dashboard with
 Access-Control-Allow-Origin, since its frames have no origin), reading them
 from the Mac when a page asks. The repo keeps no copy of a font, and the
-tokens.css that builds writes and publishes has no such rule. A host without
-the folder adds no rule and draws Menlo; a folder that lacks or cannot read
-one of the files fails the drawing and names the file. The page that `builds
+tokens.css that builds writes and publishes has no such rule. A host that is
+not a Mac has no such folder, adds no rule and draws the next family of the
+stack; on a Mac, a folder that is gone, or lacks or cannot read one of the
+files, fails the drawing and names it. The page that `builds
 design render` prints is a file, which cannot load the SF Mono files (their
 URLs are server paths), so it draws the next family of the stack.
 
