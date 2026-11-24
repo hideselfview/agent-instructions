@@ -123,6 +123,8 @@ pub struct Config {
     /// How each lane runs test classes and one selection of shots: at most
     /// one test line per lane and program, and one shots line per lane.
     pub pickers: Vec<Picker>,
+    /// The Mac capture leases the host display only for scenes with windows.
+    pub mac_shares_shot_display: bool,
     /// The folders each lane's runs of tests and screenshots write, from the
     /// `results` lines, in the order written.
     pub results: Vec<(Lane, String)>,
@@ -304,7 +306,7 @@ pub struct Picker {
     /// line that passes `--windows`: its runs open windows, so each holds its
     /// host's window lock while it runs (window_lock.rs). A shots run opens
     /// one only when its prefix starts a scene shown in its window
-    /// (`Step::opens_windows`).
+    /// (`Step::window`).
     pub opens_windows: bool,
 }
 
@@ -404,10 +406,8 @@ pub struct Step {
     /// Where it may run: `Where::Here` for a step a `here` line names, else
     /// `Where::Anywhere`.
     pub place: Where,
-    /// True for a test run whose line opens windows (`Picker::opens_windows`)
-    /// and for a shots run that selects a scene shown in its window: the run
-    /// holds the host's window lock.
-    pub opens_windows: bool,
+    /// The host display access the step needs, if any.
+    pub window: Option<crate::window_lock::Access>,
     /// True for a step a `ci-only` line names: only CI runs it, and
     /// `builds app-build` refuses it.
     pub ci_only: bool,
@@ -514,6 +514,7 @@ pub fn parse_config(text: &str) -> Result<Config> {
     let mut here: Vec<String> = Vec::new();
     let mut ci_only: Vec<String> = Vec::new();
     let mut windowed: Vec<(Lane, Option<String>)> = Vec::new();
+    let mut mac_shares_shot_display = false;
     let mut rules: Vec<Rule> = Vec::new();
     let mut needs: Vec<(Lane, Vec<String>)> = Vec::new();
     let mut sources: Vec<Source> = Vec::new();
@@ -558,7 +559,7 @@ pub fn parse_config(text: &str) -> Result<Config> {
                     limit: None,
                     scenes: None,
                     place: Where::Anywhere,
-                    opens_windows: false,
+                    window: None,
                     ci_only: false,
                 });
             }
@@ -604,6 +605,12 @@ pub fn parse_config(text: &str) -> Result<Config> {
                     command,
                     opens_windows,
                 });
+            }
+            ("shared-shot-display", "mac") if value.is_empty() && !mac_shares_shot_display => {
+                mac_shares_shot_display = true;
+            }
+            ("shared-shot-display", _) => {
+                fail!("{CONFIG}: use one `shared-shot-display mac` line")
             }
             (keyword, _) if keyword.starts_with("shots-") => {}
             ("on", _) => {
@@ -788,6 +795,7 @@ pub fn parse_config(text: &str) -> Result<Config> {
         android,
         steps,
         pickers,
+        mac_shares_shot_display,
         results,
         rules,
         needs,

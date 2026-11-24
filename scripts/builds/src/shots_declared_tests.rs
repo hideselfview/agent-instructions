@@ -1,6 +1,8 @@
 use super::*;
+use crate::app_config::parse_config;
 use crate::lane::Lane;
 use crate::testing::{Scratch, git, repo};
+use crate::window_lock::Access;
 
 const CONFIG_TEXT: &str = "\
 shots-declared android bae-android/shots
@@ -101,20 +103,38 @@ fn a_prefix_that_selects_a_window_scene_is_named_and_one_that_selects_none_is_no
     ]);
     asked.push((Lane::Mac, PickKind::Class, "FooTests".to_string()));
     asked.push(crate::app_build::all_shots(Lane::Mac));
+    let config = parse_config("shared-shot-display mac\n").unwrap();
     assert_eq!(
-        windowed_prefixes(&top, "HEAD", &asked).unwrap(),
+        windowed_prefixes(&top, "HEAD", &config, &asked).unwrap(),
         [
-            "mac.settings.",
-            "mac.settings.window",
-            "mac.settings.alert",
-            "mac."
+            ("mac.settings.".to_string(), Access::Exclusive),
+            ("mac.settings.window".to_string(), Access::Shared),
+            ("mac.settings.alert".to_string(), Access::Exclusive),
+            ("mac.".to_string(), Access::Exclusive),
         ],
-        "a window scene needs the lock whether or not it takes the focus; a class is no prefix, \
-         and a prefix of component or content scenes selects no window"
+    );
+}
+
+#[test]
+fn a_capture_that_adds_a_display_for_bitmap_scenes_needs_the_window_lock() {
+    let scratch = Scratch::new("shots-declared-own-display");
+    let top = declaring(&scratch);
+    let config = format!("{CONFIG_TEXT}shots mac ./capture --windows --select {{select}}\n");
+    std::fs::write(top.join(".app-build"), &config).unwrap();
+    git(&top, &["add", ".app-build"]);
+    git(
+        &top,
+        &["commit", "-q", "-m", "Use a window-capable capture"],
     );
     assert_eq!(
-        windowed_prefixes(&top, "HEAD", &picks(&["mac.welcome."])).unwrap(),
-        Vec::<String>::new()
+        windowed_prefixes(
+            &top,
+            "HEAD",
+            &parse_config(&config).unwrap(),
+            &picks(&["mac.welcome."])
+        )
+        .unwrap(),
+        [("mac.welcome.".to_string(), Access::Exclusive)]
     );
 }
 

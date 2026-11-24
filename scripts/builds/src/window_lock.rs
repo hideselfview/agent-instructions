@@ -1,17 +1,13 @@
-//! The lock on a host's display. A step that opens windows (a test run of an
-//! `opens-windows` line, or a shots run that passes `--windows`) drives the
-//! apps on the host's one display, and a second such run there would make
-//! XCUITest see the other run's windows as interruptions. So each of those
-//! steps holds the host's window lock while it runs, whichever repo, lane and
-//! app checkout it runs in, and a step that finds the lock held waits for it
-//! and says which run holds it. A `builds remote run` job on a Mac holds the
-//! same lock (remote.rs `run_job_on`), since builds cannot tell whether its
-//! command opens windows.
+//! Access to a host's windows and displays. A capture that leases the harness's
+//! shared display takes a shared lock. UI tests, runs that take keyboard focus,
+//! and runs that can add a display of their own take the lock exclusively.
+//! A `builds remote run` job on a Mac is exclusive because builds cannot tell
+//! whether its command opens windows.
 //!
 //! The lock is the file `<root>/.app-windows/<host>`:
 //! its descriptor stays open in every process the step starts, so the lock
-//! lasts as long as the step's processes do. The holder writes what it runs to
-//! `<host>.run` while it holds the lock, for a waiter to name.
+//! lasts as long as the step's processes do. An exclusive holder writes what
+//! it runs to `<host>.run`, for a waiter to name.
 
 use std::path::PathBuf;
 
@@ -20,8 +16,17 @@ use serde::{Deserialize, Serialize};
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::places::Places;
-use crate::queue;
+use crate::queue::open_with_mode;
 use crate::text::note;
+
+/// How a step uses the host's windows and displays.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Access {
+    /// A window capture that uses the harness's shared display.
+    Shared,
+    /// A step that can change displays or take the keyboard focus.
+    Exclusive,
+}
 
 /// What the run that holds a host's window lock runs.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -34,7 +39,7 @@ struct Holder {
 /// A host's window lock, held until this value drops.
 pub struct Window {
     lock: libc::c_int,
-    run_file: PathBuf,
+    run_file: Option<PathBuf>,
 }
 
 impl Window {
@@ -49,12 +54,13 @@ impl Drop for Window {
     fn drop(&mut self) {
         // Removed while the lock is still held, so a waiter never reads the
         // record of a run that has ended.
-        if let Err(error) = std::fs::remove_file(&self.run_file)
+        if let Some(run_file) = &self.run_file
+            && let Err(error) = std::fs::remove_file(run_file)
             && error.kind() != std::io::ErrorKind::NotFound
         {
             note(format!(
                 "could not remove {}, so a waiting run may name a run that ended: {error}",
-                self.run_file.display()
+                run_file.display()
             ));
         }
         unsafe { libc::close(self.lock) };
@@ -88,21 +94,41 @@ pub fn take(
     announce: &dyn Fn(&str),
     stopped: &dyn Fn() -> bool,
 ) -> Result<Option<Window>> {
+    take_access(places, host, what, Access::Exclusive, announce, stopped)
+}
+
+pub fn take_access(
+    places: &Places,
+    host: &str,
+    what: &str,
+    access: Access,
+    announce: &dyn Fn(&str),
+    stopped: &dyn Fn() -> bool,
+) -> Result<Option<Window>> {
     let file = places.app_window_lock_file(host);
     let dir = file.parent().expect("a lock file has a folder");
     std::fs::create_dir_all(dir).context(|| format!("creating {}", dir.display()))?;
-    let lock = match queue::try_lock(&file)? {
-        Some(lock) => lock,
-        None => {
-            let other = holder_of(places, host)?.unwrap_or_else(|| "another run".to_string());
-            announce(&format!(
-                "waiting for {other} to end, since only one run that opens windows takes {host}'s display at a time"
-            ));
-            match crate::lock_wake::wait_for_lock(&file, &format!("{host}'s display"), stopped)? {
+    let mode = match access {
+        Access::Shared => libc::LOCK_SH,
+        Access::Exclusive => libc::LOCK_EX,
+    };
+    let lock = match open_with_mode(&file, libc::O_CREAT | libc::O_NONBLOCK, mode) {
+        Ok(lock) => lock,
+        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+            let other =
+                holder_of(places, host)?.unwrap_or_else(|| "another window run".to_string());
+            announce(&format!("waiting for {other} to release {host}'s display"));
+            match crate::lock_wake::wait_for_lock_mode(
+                &file,
+                &format!("{host}'s display"),
+                stopped,
+                mode,
+            )? {
                 Some(lock) => lock,
                 None => return Ok(None),
             }
         }
+        Err(error) => fail!("locking {}: {error}", file.display()),
     };
     // Keep the display locked while the step's processes still use it.
     if let Err(error) = crate::flock::inherit(lock) {
@@ -114,16 +140,18 @@ pub fn take(
     }
     let window = Window {
         lock,
-        run_file: Window::holder_file(places, host),
+        run_file: (access == Access::Exclusive).then(|| Window::holder_file(places, host)),
     };
-    let holder = Holder {
-        pid: std::process::id() as i32,
-        what: what.to_string(),
-    };
-    crate::whole_file::write(
-        &window.run_file,
-        serde_json::to_vec(&holder).expect("a holder serializes"),
-    )?;
+    if let Some(run_file) = &window.run_file {
+        let holder = Holder {
+            pid: std::process::id() as i32,
+            what: what.to_string(),
+        };
+        crate::whole_file::write(
+            run_file,
+            serde_json::to_vec(&holder).expect("a holder serializes"),
+        )?;
+    }
     Ok(Some(window))
 }
 

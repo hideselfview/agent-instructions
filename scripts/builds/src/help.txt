@@ -1025,6 +1025,9 @@ A repo's `.app-build` at its root says what its app builds run, one line each:
                     prefix in its {select}: `builds shots run`, to which
                     builds adds --before <findings.json> when the run
                     compares with another (below)
+  shared-shot-display mac
+                    The Mac harness leases a shared display for window shots.
+                    Bitmap shots from that harness need no display.
   shots-<setting> ...
                     a setting of the shots checker (`builds shots`), which
                     reads these lines itself: the parser of the other lines
@@ -1114,25 +1117,21 @@ it runs them in an app checkout on this Mac. A host runs UI tests only
 with the settings HOSTS names, since nobody is at its screen to type a
 password.
 
-Each host, this Mac included, has one display and one keyboard focus, so a step that opens windows (a test run of an
-`opens-windows` line, or a --shots or --all-shots run whose prefix starts a scene shown in its window) holds the host's window lock while it runs, and no second
-such step runs on that host: UI tests of two builds, in two app checkouts, never
-share the display. Every window scene of bae's shots draws on a shot display that the shot
-test adds to the Mac and removes when it ends, and a second run doing the same meanwhile
-left window scenes with no picture, so window scenes that take no keyboard focus hold the lock too. This Mac's window lock is its own, beside each host's. The lock covers the host across repos, lanes and checkouts,
-and a step on another host takes its own. A step that finds the lock held waits
-for it and prints that it waits, naming the run that holds it. The build keeps
-its app checkout and its place in the lane while it waits, and a takeover ends
-the wait. Steps that open no windows never wait for it, and neither does a
---shots run whose prefix starts only scenes drawn without a window (bae's
-`mac.component.` scenes that are no window, which the harness draws into a bitmap): builds reads
-which declared scenes are shown in a window from the harness source
-(`frame: .window(`), so those shots run at once on every app
-checkout. builds cannot tell
-whether the command of a `builds remote run` job opens windows, so every such
-job on a Mac holds that Mac's window lock from before it sends its commit
-until it ends, and waits for it the same way; a job on a Linux host takes no
-lock. `builds cargo` jobs open no windows and take no lock.
+Each Mac has one keyboard focus. A test that opens windows or a shot that
+takes the keyboard focus holds that Mac's window lock exclusively. A Mac
+harness that declares `shared-shot-display mac` leases the same shot display
+across builds on that Mac. Its window shots take the lock in shared mode, so
+they can draw together. Builds reads window scenes from `frame: .window(`
+and reads scenes that take the focus from `takesFocus: true`. Bitmap-only runs
+of a sharing harness take no lock. A Mac harness that passes `--windows`
+and adds its own display takes the lock exclusively for every capture.
+
+The lock covers every repo, lane and checkout on one host. A step that finds
+the lock held waits and names the run it waits for when builds knows its name.
+The build keeps its app checkout and its place in the lane while it waits.
+A takeover ends the wait. Builds cannot tell whether a `builds remote run`
+command opens windows, so each remote job on a Mac holds the lock exclusively
+until it ends. Linux remote jobs and cargo jobs take no window lock.
 
 A --shots or --all-shots run whose prefix starts a scene shown in its window
 draws that scene on a shot display, and macOS makes the shot display only when the Mac
@@ -1325,8 +1324,8 @@ lane's `shots` line with one `--select <prefix>` for each prefix (a line whose
 each prefix taken and ends without drawing boards or comparing. Each prefix then
 runs with --no-capture and takes its shots from the folder, so the app's capture
 (Gradle, xcodebuild) starts once for the lane, not once for each prefix. The
-capture step holds the window lock when any prefix starts a scene shown in its
-window, and its time limit counts the scenes of every prefix; the prefix runs
+capture step uses the strongest window access any of its prefixes needs,
+and its time limit counts the scenes of every prefix; the prefix runs
 open no window. A capture step that fails fails the build with its output, and
 a prefix run that finds a shot missing in the folder fails as --no-capture does.
 A lane with one prefix runs that prefix alone, as before. The merge base's runs

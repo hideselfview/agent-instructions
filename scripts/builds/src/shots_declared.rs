@@ -46,17 +46,17 @@ pub fn refuse_undeclared(top: &Path, commit: &str, picks: &[Pick]) -> Result<()>
     Ok(())
 }
 
-/// The shots of <picks> that select a scene shown in its window, named by
-/// their prefixes, in the order of <picks>: the shots picks of any lane whose
-/// prefix starts a shot that the harnesses declare at <commit> as shown in a
-/// window. Every such scene draws on a shot display of its host's, which a
-/// second run on the host would add or remove while the first draws, and a
-/// scene that takes the keyboard focus (`takesFocus: true`) also moves the
-/// focus, so such a run holds the host's window lock (`Step::opens_windows`).
-/// A run of the other prefixes draws no window and needs no lock. A run of a
-/// lane's full set of shots (`--all-shots`) selects every scene, so it counts
-/// when the lane declares any window scene.
-pub fn windowed_prefixes(top: &Path, commit: &str, picks: &[Pick]) -> Result<Vec<String>> {
+/// The shots prefixes that need a display, with the access each needs.
+/// A legacy Mac harness that runs with `--windows` can add a display even
+/// for a bitmap capture. A sharing harness opens a window only when a
+/// selected scene declares one.
+pub fn windowed_prefixes(
+    top: &Path,
+    commit: &str,
+    config: &crate::app_config::Config,
+    picks: &[Pick],
+) -> Result<Vec<(String, crate::window_lock::Access)>> {
+    use crate::window_lock::Access;
     let wanted: Vec<&String> = picks
         .iter()
         .filter(|pick| pick.1 == PickKind::Shots)
@@ -65,15 +65,34 @@ pub fn windowed_prefixes(top: &Path, commit: &str, picks: &[Pick]) -> Result<Vec
     if wanted.is_empty() {
         return Ok(Vec::new());
     }
+    let adds_display = config
+        .picker_in(Lane::Mac, PickKind::Shots, None)
+        .is_some_and(|picker| picker.opens_windows)
+        && !config.mac_shares_shot_display;
     let declared = declared_at(top, commit, None)?;
     Ok(wanted
         .into_iter()
-        .filter(|prefix| {
-            declared.iter().any(|scene| {
-                scene.marks.in_window && scene.name.to_string().starts_with(prefix.as_str())
-            })
+        .filter_map(|prefix| {
+            if adds_display && prefix.starts_with("mac.") {
+                return Some((prefix.clone(), Access::Exclusive));
+            }
+            declared
+                .iter()
+                .filter(|scene| scene.name.to_string().starts_with(prefix.as_str()))
+                .filter_map(|scene| {
+                    if scene.marks.takes_focus
+                        || (scene.marks.in_window && !config.mac_shares_shot_display)
+                    {
+                        Some(Access::Exclusive)
+                    } else if scene.marks.in_window {
+                        Some(Access::Shared)
+                    } else {
+                        None
+                    }
+                })
+                .max()
+                .map(|access| (prefix.clone(), access))
         })
-        .cloned()
         .collect())
 }
 

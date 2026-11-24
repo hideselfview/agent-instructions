@@ -152,11 +152,10 @@ with every shot of the platform selected and keeps the findings and the report,
 which `builds shots findings bae <branch> mac mac.` prints again. The run fails
 only on the pairs that are worse than in the run of the branch's merge base with
 origin/main, which builds keeps and makes first when it has none. A scene that
-run did not check lists its findings and fails nothing. The renderer draws every
-Mac window scene on one virtual display of 1600 by 1200 points at 2 pixels a
-point, which the shot test adds beside the Mac's own displays, so a scene
-renders the same on each Mac. The renderer fails a scene whose window does not
-fit that display's free area.
+run did not check lists its findings and fails nothing. The Mac harness leases
+one virtual display across window shots on the same Mac. Each capture uses its
+own area of 1600 by 1200 points at two pixels per point. The renderer fails a
+scene whose window exceeds the free area.
 
 The `ci-only` line of `.app-build` names steps that only CI runs, such as the
 whole test suites (`macos-tests-run`, `macos-tests-all`, `android-tests`), and

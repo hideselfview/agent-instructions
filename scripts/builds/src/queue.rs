@@ -76,6 +76,14 @@ pub fn route_repoint_signal() {
 /// waiting for the lock unless <flags> holds O_NONBLOCK. With O_NONBLOCK, returns
 /// `WouldBlock` when another process holds the lock.
 pub fn open_with(path: &Path, flags: libc::c_int) -> std::io::Result<libc::c_int> {
+    open_with_mode(path, flags, libc::LOCK_EX)
+}
+
+pub fn open_with_mode(
+    path: &Path,
+    flags: libc::c_int,
+    mode: libc::c_int,
+) -> std::io::Result<libc::c_int> {
     let c_path = CString::new(path.as_os_str().as_bytes()).expect("a path holds no NUL");
     let fd = loop {
         let fd = unsafe {
@@ -94,9 +102,9 @@ pub fn open_with(path: &Path, flags: libc::c_int) -> std::io::Result<libc::c_int
         }
     };
     let operation = if flags & libc::O_NONBLOCK != 0 {
-        libc::LOCK_EX | libc::LOCK_NB
+        mode | libc::LOCK_NB
     } else {
-        libc::LOCK_EX
+        mode
     };
     loop {
         if unsafe { libc::flock(fd, operation) } == 0 {
@@ -605,7 +613,12 @@ impl Queue {
                             .expect("no panic holding it")
                             .current
                             .insert(generation);
-                        wake.block_on(self.ticket_path(name), generation, shared.clone())?;
+                        wake.block_on(
+                            self.ticket_path(name),
+                            generation,
+                            libc::LOCK_EX,
+                            shared.clone(),
+                        )?;
                         waiting.push((generation, name.clone()));
                     }
                 }

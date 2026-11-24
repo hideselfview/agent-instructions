@@ -45,6 +45,7 @@ fn a_config_names_each_platforms_build() {
             }),
             steps: Vec::new(),
             pickers: Vec::new(),
+            mac_shares_shot_display: false,
             results: Vec::new(),
             rules: Vec::new(),
             needs: Vec::new(),
@@ -107,7 +108,7 @@ fn step_lines_name_a_command_each_in_the_order_written() {
         limit: None,
         scenes: None,
         place: Where::Anywhere,
-        opens_windows: false,
+        window: None,
         ci_only: false,
     };
     assert_eq!(

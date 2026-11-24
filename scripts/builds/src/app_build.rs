@@ -135,6 +135,7 @@ use crate::shot_findings;
 use crate::shots_cache;
 use crate::text::note;
 use crate::tool::Tool;
+use crate::window_lock::Access;
 
 const USAGE: &str = "usage: builds app-build <repo> <ref> [--test <Class>]... [--shots <prefix>]... [--all-shots mac|android]... [--fresh] | builds app-build <repo> <ref> <step>... [--test mac|android <Class>]... [--shots mac|android <prefix>]... [--all-shots mac|android]... [--fresh] | builds app-build <repo> --list | builds app-build <repo> --lane mac|android <ref> [<step>...] [--test mac|android <Class>]... [--shots mac|android <prefix>]... [--all-shots mac|android]...";
 
@@ -329,15 +330,14 @@ struct PickRun<'a> {
 /// builds caches the findings of each prefix's run; a lane with two or more
 /// prefixes first takes all their shots in one capture step (`capture_step`),
 /// and each prefix's run then reads them from the picture folder with
-/// `--no-capture`. A shots run opens windows (holds the window lock) only when
-/// its prefix is one of <windowed>, the prefixes that select a scene shown in
-/// its window (`shots_declared::windowed_prefixes`).
+/// `--no-capture`. <windowed> gives each prefix's display access, when it
+/// captures on the host's display (`shots_declared::windowed_prefixes`).
 fn lane_steps(
     config: &Config,
     lane: Lane,
     names: &[String],
     picks: &[Pick],
-    windowed: &[String],
+    windowed: &[(String, Access)],
     program_of: &dyn Fn(&str) -> Result<Option<String>>,
 ) -> Result<Vec<Step>> {
     lane_steps_with(config, lane, names, picks, windowed, false, program_of)
@@ -350,7 +350,7 @@ fn lane_steps_with(
     lane: Lane,
     names: &[String],
     picks: &[Pick],
-    windowed: &[String],
+    windowed: &[(String, Access)],
     folder_caches: bool,
     program_of: &dyn Fn(&str) -> Result<Option<String>>,
 ) -> Result<Vec<Step>> {
@@ -403,7 +403,7 @@ fn lane_steps_with(
             PickKind::Shots => shots_scenes(&command),
             PickKind::Class => None,
         };
-        let reads_pictures = captures_once && kind == PickKind::Shots;
+        let reads_pictures = (captures_once || folder_caches) && kind == PickKind::Shots;
         if reads_pictures {
             command.push(NO_CAPTURE.to_string());
         }
@@ -414,11 +414,11 @@ fn lane_steps_with(
             scenes,
             command,
             place: lock::Where::Anywhere,
-            opens_windows: !reads_pictures
-                && match kind {
-                    PickKind::Shots => selects(&run.args, windowed),
-                    _ => run.picker.opens_windows,
-                },
+            window: match kind {
+                PickKind::Shots if !reads_pictures => window_access(&run.args, windowed),
+                PickKind::Shots => None,
+                PickKind::Class => run.picker.opens_windows.then_some(Access::Exclusive),
+            },
             ci_only: false,
         });
     }
@@ -434,10 +434,13 @@ fn shots_scenes(command: &[String]) -> Option<Scenes> {
         .map(|(each, count)| Scenes { count, each })
 }
 
-/// Whether one of the shots prefixes <args> is one of <prefixes>.
-fn selects(args: &[&str], prefixes: &[String]) -> bool {
-    args.iter()
-        .any(|arg| prefixes.iter().any(|prefix| prefix == arg))
+/// The strongest display access that a step's selected prefixes need.
+fn window_access(args: &[&str], prefixes: &[(String, Access)]) -> Option<Access> {
+    prefixes
+        .iter()
+        .filter(|(prefix, _)| args.contains(&prefix.as_str()))
+        .map(|(_, access)| *access)
+        .max()
 }
 
 /// The start of the name of a lane's capture step (`capture_step`).
@@ -471,7 +474,7 @@ fn capture_step(
     lane: Lane,
     picker: &Picker,
     prefixes: &[&str],
-    windowed: &[String],
+    windowed: &[(String, Access)],
 ) -> Result<Step> {
     let mut command = picker.command_repeating(prefixes)?;
     let scenes = shots_scenes(&command);
@@ -483,7 +486,7 @@ fn capture_step(
         scenes,
         command,
         place: lock::Where::Anywhere,
-        opens_windows: selects(prefixes, windowed),
+        window: window_access(prefixes, windowed),
         ci_only: false,
     })
 }
@@ -792,9 +795,8 @@ fn run_steps_with(
     // runs after it only read them from the picture folder.
     let mut capture_ran = false;
     for step in steps {
-        // A step that opens windows holds its host's display alone.
-        let _window = if step.opens_windows {
-            match held.take_window(&step.name)? {
+        let _window = if let Some(access) = step.window {
+            match held.take_window(&step.name, access)? {
                 Some(window) => Some(window),
                 None => return Ok(Ended::Stopped),
             }
@@ -1058,7 +1060,7 @@ fn run_remote_step(
     };
     let mut held = remote.with_programs(with.programs, &command)?;
     // A step that opens windows holds the host's display on while it runs.
-    if step.opens_windows {
+    if step.window.is_some() {
         held = remote.keeping_display_on(&held);
     }
     let kept = lock::Captured::default();
@@ -1144,13 +1146,19 @@ const FRESH: &str = "--fresh";
 /// The prefixes of <lane>'s shots among <picks> that select a scene shown in
 /// a window at <commit> of the repo at <source>
 /// (`shots_declared::windowed_prefixes`).
-fn windowed_at(source: &Path, commit: &str, lane: Lane, picks: &[Pick]) -> Result<Vec<String>> {
+fn windowed_at(
+    source: &Path,
+    commit: &str,
+    lane: Lane,
+    config: &Config,
+    picks: &[Pick],
+) -> Result<Vec<(String, Access)>> {
     let own: Vec<Pick> = picks
         .iter()
         .filter(|(pick_lane, _, _)| *pick_lane == lane)
         .cloned()
         .collect();
-    crate::shots_declared::windowed_prefixes(source, commit, &own)
+    crate::shots_declared::windowed_prefixes(source, commit, config, &own)
 }
 
 /// The id that keys <lane>'s shots in the picture folder at <commit> of the
@@ -1828,7 +1836,7 @@ struct MergeBase {
     prefixes: Vec<shots::Prefix>,
     /// The prefixes of the picks that select a scene shown in its window at
     /// the merge base.
-    windowed: Vec<String>,
+    windowed: Vec<(String, Access)>,
 }
 
 impl MergeBase {
@@ -1857,7 +1865,7 @@ impl MergeBase {
             .find(|(own_lane, _)| *own_lane == lane)
             .map(|(_, names)| names)
             .expect("derive::plan lists each lane that has picks");
-        let windowed = windowed_at(source, &base, lane, &commands)?;
+        let windowed = windowed_at(source, &base, lane, &config, &commands)?;
         Ok(Some(MergeBase {
             commit: base,
             config,
@@ -1937,7 +1945,7 @@ struct LaneBuild<'a> {
     config: Config,
     /// The prefixes of the lane's shots picks that select a scene shown in
     /// its window at the commit.
-    windowed: Vec<String>,
+    windowed: Vec<(String, Access)>,
     /// The merge base, when the commit has one and the lane has shots picks
     /// that compare with a run of it. None for a lane that runs its picks
     /// against the checkout as it is (no step named): it cannot switch the
@@ -1977,7 +1985,7 @@ fn build_lane(
     ));
     let ssh = Ssh::from_env();
     // Only a shots prefix that selects a scene shown in its window draws one.
-    let windowed = windowed_at(&source, commit, lane, &commands)?;
+    let windowed = windowed_at(&source, commit, lane, &config, &commands)?;
     let runs_checkout_as_it_is =
         request.names.is_empty() && !selection.is_empty() && !request.needs_only;
     let base = if runs_checkout_as_it_is {
@@ -2011,7 +2019,7 @@ fn build_lane(
     // display of the host's.
     let draws = steps
         .iter()
-        .any(|step| step.opens_windows && takes_pictures(step));
+        .any(|step| step.window.is_some() && takes_pictures(step));
     let mut held = if draws {
         lock::take_drawing(places, &ssh, repo, lane, allowed, floor_kib)?
     } else {
@@ -2076,7 +2084,7 @@ struct CommitRun<'a> {
     names: &'a [String],
     picks: &'a [LanePick<'a>],
     /// The prefixes of <picks> that select a scene shown in its window.
-    windowed: &'a [String],
+    windowed: &'a [(String, Access)],
     environment: &'a str,
     /// The picture folder caches every shot of <picks> for <tree>: the lane
     /// builds nothing, and its shots runs capture none.

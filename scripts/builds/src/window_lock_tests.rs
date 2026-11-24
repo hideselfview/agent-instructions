@@ -49,7 +49,10 @@ fn a_second_window_run_on_one_host_waits_for_the_first_and_names_it() {
     let second_held = held_on(&places, &ssh);
     assert_eq!(host_of_checkout(&first_held), "m1");
     assert_eq!(host_of_checkout(&second_held), "m1");
-    let first = first_held.take_window("test one").unwrap().unwrap();
+    let first = first_held
+        .take_window("test one", Access::Exclusive)
+        .unwrap()
+        .unwrap();
     assert_eq!(
         holder_of(&places, "m1").unwrap().unwrap(),
         format!("demo's {}, step test one", first_held.checkout)
@@ -92,16 +95,63 @@ fn a_second_window_run_on_one_host_waits_for_the_first_and_names_it() {
 }
 
 #[test]
+fn two_shot_captures_share_a_host_and_a_focus_run_waits_for_both() {
+    let scratch = Scratch::new("window-shared-display");
+    let places = scratch.places();
+    let shared = || {
+        take_access(
+            &places,
+            "m1",
+            "window shots",
+            Access::Shared,
+            &|_| (),
+            &|| true,
+        )
+        .unwrap()
+        .expect("window shots can join another capture on the shared display")
+    };
+    let first = shared();
+    let second = shared();
+    let (waiting, announced) = channel();
+    let (acquired, held) = channel();
+    std::thread::scope(|scope| {
+        scope.spawn(|| {
+            let _focus = take(
+                &places,
+                "m1",
+                "focus shots",
+                &|_| waiting.send(()).unwrap(),
+                &|| false,
+            )
+            .unwrap()
+            .unwrap();
+            acquired.send(()).unwrap();
+        });
+        announced.recv_timeout(Duration::from_secs(10)).unwrap();
+        drop(first);
+        assert!(held.recv_timeout(SETTLE).is_err());
+        drop(second);
+        held.recv_timeout(Duration::from_secs(10)).unwrap();
+    });
+}
+
+#[test]
 fn window_runs_on_two_hosts_run_at_once() {
     let scratch = Scratch::new("window-two-hosts");
     let (places, ssh) = places_with(&scratch, "m1:app-1\nm2:app-1\n");
     let one = held_on(&places, &ssh);
     let two = held_on(&places, &ssh);
     assert_ne!(host_of_checkout(&one), host_of_checkout(&two));
-    let first = one.take_window("test one").unwrap().unwrap();
+    let first = one
+        .take_window("test one", Access::Exclusive)
+        .unwrap()
+        .unwrap();
     let (said, heard) = channel();
     let other = std::thread::spawn(move || {
-        let window = two.take_window("test two").unwrap().unwrap();
+        let window = two
+            .take_window("test two", Access::Exclusive)
+            .unwrap()
+            .unwrap();
         said.send(()).unwrap();
         drop(window);
         two.release();
@@ -187,7 +237,7 @@ fn the_mac_lane_holds_a_window_step_while_the_hosts_screen_is_locked() {
     crate::host::add(&places, &ssh, "m1", "user@m1").unwrap();
     let held = take_where(&places, &ssh, "demo", Lane::Mac, Where::Anywhere, 0).unwrap();
     let window = held
-        .take_window("shots")
+        .take_window("shots", Access::Exclusive)
         .unwrap()
         .expect("the step went on once the screen unlocked");
     let readings: u32 = std::fs::read_to_string(scratch.dir.join("ssh/readings"))

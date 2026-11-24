@@ -123,7 +123,7 @@ fn steps_stop_at_the_first_failure() {
         limit: None,
         scenes: None,
         place: lock::Where::Anywhere,
-        opens_windows: false,
+        window: None,
         ci_only: false,
     };
     let steps = [
@@ -179,7 +179,7 @@ fn a_step_that_fails_after_xcodebuild_said_it_cannot_start_is_the_hosts_failure(
         limit: None,
         scenes: None,
         place: lock::Where::Anywhere,
-        opens_windows: false,
+        window: None,
         ci_only: false,
     };
     let broken = step(format!("echo building; echo \"{said}\" >&2; exit 70"));
@@ -252,7 +252,7 @@ fn a_step_past_its_limit_is_killed_with_what_it_started_and_fails_the_build() {
         limit: Some(Duration::from_millis(500)),
         scenes: None,
         place: lock::Where::Anywhere,
-        opens_windows: false,
+        window: None,
         ci_only: false,
     };
     let after = Step {
@@ -262,7 +262,7 @@ fn a_step_past_its_limit_is_killed_with_what_it_started_and_fails_the_build() {
         limit: None,
         scenes: None,
         place: lock::Where::Anywhere,
-        opens_windows: false,
+        window: None,
         ci_only: false,
     };
     let started = std::time::Instant::now();
@@ -675,7 +675,7 @@ fn a_lane_with_several_shots_prefixes_captures_them_once_and_then_runs_each_with
         (Lane::Mac, PickKind::Shots, "mac.settings.".to_string()),
         (Lane::Mac, PickKind::Shots, "mac.component.row.".to_string()),
     ];
-    let windowed = ["mac.welcome.".to_string()];
+    let windowed = [("mac.welcome.".to_string(), Access::Exclusive)];
     let steps = lane_steps(&config, Lane::Mac, &[], &picks, &windowed, &|_| Ok(None)).unwrap();
     assert_eq!(
         names(&steps),
@@ -765,13 +765,13 @@ fn a_lane_with_several_shots_prefixes_captures_them_once_and_then_runs_each_with
         );
         assert!(!is_capture(&step.name));
     }
-    assert!(!steps[0].opens_windows);
+    assert!(steps[0].window.is_none());
     assert!(
-        capture.opens_windows,
+        capture.window.is_some(),
         "the capture takes the window scenes of the prefixes"
     );
     assert!(
-        steps[2..].iter().all(|step| !step.opens_windows),
+        steps[2..].iter().all(|step| step.window.is_none()),
         "a run that captures nothing opens no window"
     );
 }
@@ -800,7 +800,7 @@ fn the_capture_of_prefixes_with_no_window_scene_opens_no_window() {
         (Lane::Mac, PickKind::Shots, "mac.component.b.".to_string()),
     ];
     let steps = lane_steps(&config, Lane::Mac, &[], &picks, &[], &|_| Ok(None)).unwrap();
-    assert!(steps.iter().all(|step| !step.opens_windows));
+    assert!(steps.iter().all(|step| step.window.is_none()));
 }
 
 #[test]
@@ -857,8 +857,8 @@ fn a_test_run_that_opens_windows_may_take_any_checkout_and_holds_the_window_lock
         &program_of,
     )
     .unwrap();
-    assert!(steps[1].opens_windows);
-    assert!(!steps[2].opens_windows, "a unit test class opens none");
+    assert!(steps[1].window.is_some());
+    assert!(steps[2].window.is_none(), "a unit test class opens none");
     assert_eq!(place_of(&steps), lock::Where::Anywhere);
     let signed = lane_steps(
         &config,
@@ -889,20 +889,23 @@ fn a_test_run_that_opens_windows_may_take_any_checkout_and_holds_the_window_lock
 #[test]
 fn a_shots_run_holds_the_window_lock_for_each_prefix_that_selects_a_scene_shown_in_a_window() {
     let config = parse_config("shots mac ./s --windows --select {select}\n").unwrap();
-    let windowed = ["mac.welcome.".to_string(), "mac.settings.".to_string()];
+    let windowed = [
+        ("mac.welcome.".to_string(), Access::Exclusive),
+        ("mac.settings.".to_string(), Access::Exclusive),
+    ];
     let run = |prefix: &str| {
         let pick = (Lane::Mac, PickKind::Shots, prefix.to_string());
         lane_steps(&config, Lane::Mac, &[], &[pick], &windowed, &|_| Ok(None)).unwrap()
     };
     for prefix in ["mac.welcome.", "mac.settings."] {
         assert!(
-            run(prefix)[0].opens_windows,
+            run(prefix)[0].window.is_some(),
             "every window scene adds a shot display to its host, so no two such runs share it"
         );
     }
     let component = run("mac.component.row.");
     assert!(
-        !component[0].opens_windows,
+        component[0].window.is_none(),
         "a component run draws no window"
     );
     assert_eq!(place_of(&component), lock::Where::Anywhere);
@@ -970,7 +973,7 @@ fn fake(name: &str, command: &[&str], limit: Option<Duration>) -> Step {
         limit,
         scenes: None,
         place: lock::Where::Anywhere,
-        opens_windows: false,
+        window: None,
         ci_only: false,
     }
 }
@@ -1857,7 +1860,7 @@ fn a_prefix_that_starts_no_shot_declared_at_the_merge_base_compares_with_no_run(
         limit: None,
         scenes: None,
         place: lock::Where::Anywhere,
-        opens_windows: false,
+        window: None,
         ci_only: false,
     };
     let command = store.local_command(&step);

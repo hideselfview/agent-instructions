@@ -15,7 +15,7 @@ use crate::fail::Context;
 use crate::fail::Result;
 #[cfg(target_os = "macos")]
 use crate::kqueue::{Queue, event};
-use crate::queue::open_with;
+use crate::queue::open_with_mode;
 
 /// What the threads blocked in `flock` and the wait agree on.
 pub struct Shared {
@@ -108,6 +108,7 @@ impl Wake {
         &self,
         path: PathBuf,
         generation: u64,
+        mode: libc::c_int,
         shared: Arc<Mutex<Shared>>,
     ) -> Result<()> {
         let write = unsafe { libc::fcntl(self.write, libc::F_DUPFD_CLOEXEC, 0) };
@@ -115,7 +116,7 @@ impl Wake {
             fail!("starting a wait: {}", std::io::Error::last_os_error());
         }
         std::thread::spawn(move || {
-            let result = open_with(&path, 0);
+            let result = open_with_mode(&path, 0, mode);
             let code = match &result {
                 Ok(fd) => *fd,
                 Err(error) => -error.raw_os_error().unwrap_or(libc::EIO),
@@ -196,12 +197,21 @@ pub fn wait_for_lock(
     waiting_for: &str,
     stopped: &dyn Fn() -> bool,
 ) -> Result<Option<libc::c_int>> {
+    wait_for_lock_mode(file, waiting_for, stopped, libc::LOCK_EX)
+}
+
+pub fn wait_for_lock_mode(
+    file: &std::path::Path,
+    waiting_for: &str,
+    stopped: &dyn Fn() -> bool,
+    mode: libc::c_int,
+) -> Result<Option<libc::c_int>> {
     let wake = Wake::new(libc::SIGUSR2)?;
     let shared = Arc::new(Mutex::new(Shared {
         current: std::collections::HashSet::from([LOCK_WAIT]),
         open: true,
     }));
-    wake.block_on(file.to_path_buf(), LOCK_WAIT, shared.clone())?;
+    wake.block_on(file.to_path_buf(), LOCK_WAIT, mode, shared.clone())?;
     let taken = (|| -> Result<Option<libc::c_int>> {
         loop {
             if stopped() {

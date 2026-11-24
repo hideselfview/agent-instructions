@@ -302,12 +302,17 @@ impl Held {
     /// then, in the mac lane, while the host's screen is locked
     /// (host_screen_lock.rs). None when a takeover or an install stopped this
     /// build while it waited.
-    pub fn take_window(&self, step: &str) -> Result<Option<crate::window_lock::Window>> {
+    pub fn take_window(
+        &self,
+        step: &str,
+        access: crate::window_lock::Access,
+    ) -> Result<Option<crate::window_lock::Window>> {
         let host_name = host_of(&self.checkout);
-        let Some(window) = crate::window_lock::take(
+        let Some(window) = crate::window_lock::take_access(
             &self.places,
             host_name,
             &format!("{}'s {}, step {step}", self.repo, self.checkout),
+            access,
             &|words| note(words),
             &|| STOPPED.load(Ordering::SeqCst),
         )?
