@@ -66,7 +66,9 @@ pub struct SwitchSpec {
 
 /// A color that follows a color the switch sets: the same color, at an
 /// opacity when it names one (an opacity token or a number), in every theme
-/// or only in the themes it names.
+/// or only in the themes it names. It takes the value the followed color has
+/// in the theme `from_theme` names, or in the theme it is drawn in when it
+/// names none.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Derived {
@@ -74,6 +76,7 @@ pub struct Derived {
     pub from: String,
     pub opacity: Option<String>,
     pub themes: Option<Vec<String>>,
+    pub from_theme: Option<String>,
 }
 
 /// Colors whose swatches sit side by side.
@@ -291,7 +294,8 @@ fn check_scene(owner: &str, scene: &str, problems: &mut Vec<String>) {
 /// one entry per column, or none, with a problem for each column that sets
 /// no color of the tokens, each empty cell, each derived color that is no
 /// color, follows no color the table sets, names an opacity that is neither
-/// a token nor a number from 0 to 1, or names a theme the tokens lack, and
+/// a token nor a number from 0 to 1, or names a theme the tokens lack, in
+/// `themes` or `from_theme`, and
 /// when no row holds the values that tokens.json gives the colors the table
 /// sets.
 fn switch(
@@ -323,7 +327,7 @@ fn switch(
             )),
         }
     }
-    let mut opacities = Vec::new();
+    let mut follows = Vec::new();
     for derived in &spec.derived {
         if value(&derived.color).is_none() {
             problems.push(format!(
@@ -362,7 +366,17 @@ fn switch(
                 ));
             }
         }
-        opacities.push((column, opacity));
+        let from_theme = derived.from_theme.as_ref().and_then(|id| {
+            let found = tokens.themes.iter().position(|known| &known.id == id);
+            if found.is_none() {
+                problems.push(format!(
+                    "group {group} derives {} from the theme {id}, which the tokens lack",
+                    derived.color
+                ));
+            }
+            found
+        });
+        follows.push((column, opacity, from_theme));
     }
     let mut options = Vec::new();
     let mut chosen = None;
@@ -394,7 +408,7 @@ fn switch(
                     .zip(&cells)
                     .map(|(name, cell)| format!("--{name}: {}", cell[at]))
                     .collect();
-                for (derived, (column, opacity)) in spec.derived.iter().zip(&opacities) {
+                for (derived, (column, opacity, from_theme)) in spec.derived.iter().zip(&follows) {
                     let in_theme = derived
                         .themes
                         .as_ref()
@@ -402,7 +416,7 @@ fn switch(
                     let Some(column) = column.filter(|_| in_theme) else {
                         continue;
                     };
-                    let from = &cells[column][at];
+                    let from = &cells[column][from_theme.unwrap_or(at)];
                     out.push(match opacity {
                         None => format!("--{}: {from}", derived.color),
                         Some(opacity) => format!(

@@ -129,6 +129,7 @@ const SWITCH_TOKENS: &str = r##"{
       { "name": "accent", "value": { "dark": "#FF8888", "light": "#AA0000" } },
       { "name": "accent-tint", "value": { "dark": "rgba(255, 136, 136, 0.14)", "light": "rgba(170, 0, 0, 0.14)" } },
       { "name": "edge", "value": { "dark": "#ff8888", "light": "#000000" } },
+      { "name": "accent-inverse", "value": { "dark": "#AA0000", "light": "#FF8888" } },
       { "name": "accent-blue", "value": { "dark": "#8888FF", "light": "#0000AA" } },
       { "name": "accent-red", "value": { "dark": "#FF8888", "light": "#AA0000" } }
     ]
@@ -142,14 +143,16 @@ const SWITCH_COLORS: &str = r#"{
   "comparison": { "name": "Every accent", "about": "Each accent.", "scene": "every", "switch": "Accent" },
   "groups": [
     { "name": "Chosen", "about": "The chosen accent.",
-      "clusters": [{ "colors": ["background", "accent", "accent-tint", "edge"] }] },
+      "clusters": [{ "colors": ["background", "accent", "accent-tint", "edge", "accent-inverse"] }] },
     { "name": "Accents", "about": "The accents.",
       "table": { "columns": [{ "label": "text", "sets": "accent", "dot": true }],
         "rows": [{ "label": "blue", "colors": ["accent-blue"] },
                  { "label": "red", "colors": ["accent-red"] }],
         "switch": { "name": "Accent", "derived": [
           { "color": "accent-tint", "from": "accent", "opacity": "opacity-tint" },
-          { "color": "edge", "from": "accent", "themes": ["dark"] }] } } }
+          { "color": "edge", "from": "accent", "themes": ["dark"] },
+          { "color": "accent-inverse", "from": "accent", "from_theme": "light", "themes": ["dark"] },
+          { "color": "accent-inverse", "from": "accent", "from_theme": "dark", "themes": ["light"] }] } } }
   ]
 }"#;
 
@@ -167,8 +170,8 @@ fn a_table_that_names_a_switch_gives_each_row_the_declarations_that_draw_it() {
     assert_eq!(
         blue.declarations,
         [
-            "--accent: #8888FF; --accent-tint: color-mix(in srgb, #8888FF 14%, transparent); --edge: #8888FF",
-            "--accent: #0000AA; --accent-tint: color-mix(in srgb, #0000AA 14%, transparent)",
+            "--accent: #8888FF; --accent-tint: color-mix(in srgb, #8888FF 14%, transparent); --edge: #8888FF; --accent-inverse: #0000AA",
+            "--accent: #0000AA; --accent-tint: color-mix(in srgb, #0000AA 14%, transparent); --accent-inverse: #8888FF",
         ]
     );
 }
@@ -180,12 +183,14 @@ fn a_switch_that_sets_no_color_derives_wrongly_or_holds_no_row_of_the_tokens_say
             r#""from": "accent", "themes": ["dark"]"#,
             r#""from": "edge", "themes": ["dim"], "opacity": "2""#,
         )
+        .replace(r#""from_theme": "light""#, r#""from_theme": "dim""#)
         .replace(r#""switch": "Accent" }"#, r#""switch": "Hue" }"#);
     assert_eq!(
         palette(&broken, SWITCH_TOKENS).unwrap_err().text(),
         "group Accents derives edge from edge, which the table sets no column of; \
          group Accents derives edge at the opacity 2, which is neither an opacity token nor a number from 0 to 1; \
          group Accents derives edge in the theme dim, which the tokens lack; \
+         group Accents derives accent-inverse from the theme dim, which the tokens lack; \
          the comparison names the switch Hue, which no table names"
     );
     let unheld = SWITCH_TOKENS.replace(
@@ -201,7 +206,9 @@ fn a_switch_that_sets_no_color_derives_wrongly_or_holds_no_row_of_the_tokens_say
         palette(&unset, SWITCH_TOKENS).unwrap_err().text(),
         "column text of group Accents sets no color, and the group names a switch; \
          group Accents derives accent-tint from accent, which the table sets no column of; \
-         group Accents derives edge from accent, which the table sets no column of"
+         group Accents derives edge from accent, which the table sets no column of; \
+         group Accents derives accent-inverse from accent, which the table sets no column of; \
+         group Accents derives accent-inverse from accent, which the table sets no column of"
     );
 }
 
