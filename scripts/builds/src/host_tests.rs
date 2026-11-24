@@ -68,6 +68,7 @@ fn reads_what_a_host_prints() {
             git_fails: None,
             nextest: crate::cargo_program::Has::Nothing,
             mutants: crate::cargo_program::Has::Nothing,
+            node: crate::cargo_program::Has::Nothing,
             processes: crate::proc_limit::ProcessUse {
                 count: 300,
                 limit: 8000,
@@ -121,6 +122,7 @@ fn a_nextest_run_passes_over_a_host_without_the_pinned_cargo_nextest() {
             git_fails: None,
             nextest,
             mutants: Has::Nothing,
+            node: Has::Version(crate::cargo_program::NODE.version.to_string()),
             processes: crate::proc_limit::ProcessUse {
                 count: 100,
                 limit: 10_000,
@@ -158,10 +160,71 @@ fn a_nextest_run_passes_over_a_host_without_the_pinned_cargo_nextest() {
         takes_run(&hosts[1].0, &hosts[1].1, 50, Runs::Nextest).unwrap_err(),
         CannotRun::LacksProgram(LacksProgram {
             host: "m1".to_string(),
-            program: crate::cargo_program::NEXTEST,
+            program: &crate::cargo_program::NEXTEST,
             has: Has::Nothing
         })
     );
+}
+
+#[test]
+fn a_probe_reads_what_a_host_has_of_node() {
+    use crate::cargo_program::Has;
+    let said = "os=Darwin\narch=arm64\ncores=10\nload=1.50 1.20 1.10\nfree_kib=4\nmemory_free_percent=61\nswap_used_mib=0\nmemory_pressure_level=1\nprocs=1\nmax_procs=2\n";
+    assert_eq!(parse_probe(said).unwrap().node, Has::Nothing);
+    assert_eq!(
+        parse_probe(&format!("{said}node=22.17.0\n")).unwrap().node,
+        Has::Version("22.17.0".to_string())
+    );
+    assert_eq!(
+        parse_probe(&format!("{said}node_fails=dyld: missing \n"))
+            .unwrap()
+            .node,
+        Has::Broken("dyld: missing".to_string())
+    );
+}
+
+/// A run of tests skips a host that has no node at the version builds
+/// installs, saying which, while a run that tests nothing does not: builds'
+/// own tests run page scripts in node.
+#[test]
+fn a_test_run_passes_over_a_host_without_the_pinned_node() {
+    use crate::cargo_program::{Has, NEXTEST, NODE};
+    let with = |node: Has| {
+        Ok(Probe {
+            platform: crate::host_platform::Platform::here(),
+            cores: 10,
+            load: [0.0; 3],
+            free_kib: 100,
+            memory: crate::host_memory::Memory::at_rest(),
+            git_fails: None,
+            nextest: Has::Version(NEXTEST.version.to_string()),
+            mutants: Has::Nothing,
+            node,
+            processes: crate::proc_limit::ProcessUse {
+                count: 100,
+                limit: 10_000,
+            },
+        })
+    };
+    let hosts = vec![
+        (host("local"), with(Has::Version(NODE.version.to_string()))),
+        (host("m1"), with(Has::Nothing)),
+        (host("m2"), with(Has::Version("20.0.0".to_string()))),
+    ];
+    for runs in [Runs::Test, Runs::Nextest] {
+        let (ranked, why) = rank_by_room(&hosts, 50, &Default::default(), runs);
+        let names: Vec<String> = ranked.into_iter().map(|(host, _)| host.name).collect();
+        assert_eq!(names, ["local"], "{runs:?}");
+        assert!(
+            why.contains("m1 has no node (`builds host setup m1` installs 22.17.0)")
+                && why.contains(
+                    "m2 has node 20.0.0, not 22.17.0 (`builds host setup m2` installs 22.17.0)"
+                ),
+            "{why}"
+        );
+    }
+    let (ranked, _) = rank_by_room(&hosts, 50, &Default::default(), Runs::Cargo);
+    assert_eq!(ranked.len(), 3, "a clippy or check run needs no node");
 }
 
 #[test]
@@ -176,6 +239,7 @@ fn a_host_whose_git_fails_is_passed_over_saying_what_git_said() {
             git_fails: Some("no license".to_string()),
             nextest: crate::cargo_program::Has::Nothing,
             mutants: crate::cargo_program::Has::Nothing,
+            node: crate::cargo_program::Has::Nothing,
             processes: crate::proc_limit::ProcessUse {
                 count: 100,
                 limit: 10_000,
@@ -276,6 +340,7 @@ fn probe_of(load: f64, free_kib: u64) -> std::result::Result<Probe, String> {
         git_fails: None,
         nextest: crate::cargo_program::Has::Nothing,
         mutants: crate::cargo_program::Has::Nothing,
+        node: crate::cargo_program::Has::Nothing,
         processes: crate::proc_limit::ProcessUse {
             count: 100,
             limit: 10_000,
@@ -384,6 +449,7 @@ fn probe_with(cores: u32, load: f64, free_kib: u64) -> std::result::Result<Probe
         git_fails: None,
         nextest: crate::cargo_program::Has::Nothing,
         mutants: crate::cargo_program::Has::Nothing,
+        node: crate::cargo_program::Has::Nothing,
         processes: crate::proc_limit::ProcessUse {
             count: 100,
             limit: 10_000,
@@ -643,6 +709,7 @@ fn a_mutants_run_passes_over_a_host_without_the_pinned_cargo_mutants() {
             git_fails: None,
             nextest: Has::Nothing,
             mutants,
+            node: Has::Version(crate::cargo_program::NODE.version.to_string()),
             processes: crate::proc_limit::ProcessUse {
                 count: 100,
                 limit: 10_000,

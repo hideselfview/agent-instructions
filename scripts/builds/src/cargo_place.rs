@@ -233,9 +233,11 @@ pub enum CargoTool {
 }
 
 impl CargoTool {
-    /// What the run needs of the host that takes it.
-    pub fn runs(self) -> host::Runs {
+    /// What the run of cargo subcommand <subcommand> needs of the host that
+    /// takes it.
+    pub fn runs(self, subcommand: &str) -> host::Runs {
         match self {
+            CargoTool::Cargo if subcommand == "test" => host::Runs::Test,
             CargoTool::Cargo => host::Runs::Cargo,
             CargoTool::Nextest => host::Runs::Nextest,
             CargoTool::Mutants => host::Runs::Mutants,

@@ -279,6 +279,7 @@ fn a_host_that_cannot_build_the_mac_lane_takes_no_mac_checkout() {
             git_fails: None,
             nextest: crate::cargo_program::Has::Nothing,
             mutants: crate::cargo_program::Has::Nothing,
+            node: crate::cargo_program::Has::Nothing,
             processes: crate::proc_limit::ProcessUse {
                 count: 100,
                 limit: 10_000,

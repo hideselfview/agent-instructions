@@ -286,11 +286,12 @@ pub struct Probe {
     /// push reaches: every job runs git there, so the host refuses every job.
     /// None when git runs.
     pub git_fails: Option<String>,
-    /// What the host has of cargo-nextest and of cargo-mutants
-    /// (`cargo_program::NEXTEST.version` and `MUTANTS.version` are the
-    /// versions builds installs).
+    /// What the host has of cargo-nextest, cargo-mutants and node
+    /// (`cargo_program::NEXTEST.version`, `MUTANTS.version` and
+    /// `NODE.version` are the versions builds installs).
     pub nextest: crate::cargo_program::Has,
     pub mutants: crate::cargo_program::Has,
+    pub node: crate::cargo_program::Has,
     /// The user's processes and the limit on them (proc_limit.rs).
     pub processes: crate::proc_limit::ProcessUse,
 }
@@ -377,11 +378,12 @@ if ! said=$(git --version 2>&1); then echo "git_fails=$(printf '%s' "$said" | tr
 /// process lines.
 fn probe_script() -> String {
     format!(
-        "{}\n{PROBE_SCRIPT}{}\n{}\n{}\n{}",
+        "{}\n{PROBE_SCRIPT}{}\n{}\n{}\n{}\n{}",
         crate::host_platform::SCRIPT,
         crate::host_memory::SCRIPT,
         crate::cargo_program::NEXTEST.probe_lines(),
         crate::cargo_program::MUTANTS.probe_lines(),
+        crate::cargo_program::NODE.probe_lines(),
         crate::proc_limit::PROBE_LINES
     )
 }
@@ -430,6 +432,7 @@ pub fn parse_probe(text: &str) -> Result<Probe> {
         git_fails,
         nextest: crate::cargo_program::NEXTEST.parse_has(text),
         mutants: crate::cargo_program::MUTANTS.parse_has(text),
+        node: crate::cargo_program::NODE.parse_has(text),
         processes: crate::proc_limit::parse(text)?,
     })
 }
@@ -469,6 +472,7 @@ pub fn probe_local(places: &Places) -> Result<Probe> {
         git_fails: None,
         nextest: crate::cargo_program::NEXTEST.has(&places.home),
         mutants: crate::cargo_program::MUTANTS.has(&places.home),
+        node: crate::cargo_program::NODE.has(&places.home),
         processes: crate::proc_limit::local()?,
     })
 }
@@ -1137,11 +1141,16 @@ pub fn takes_cargo<'a>(
 /// that may take it are concerned.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Runs {
-    /// A subcommand that cargo itself provides.
+    /// A subcommand that cargo itself provides and that runs no test.
     Cargo,
-    /// `cargo nextest`, which needs cargo-nextest at its pinned version.
+    /// `cargo test`, whose tests run page scripts in node: it needs node at
+    /// its pinned version.
+    Test,
+    /// `cargo nextest`, which runs tests as `Test` does and needs
+    /// cargo-nextest at its pinned version.
     Nextest,
-    /// `cargo mutants`, which needs cargo-mutants at its pinned version.
+    /// `cargo mutants`, which runs tests as `Test` does and needs
+    /// cargo-mutants at its pinned version.
     Mutants,
     /// `lake build`, which needs Lean's toolchains: the host's setup for the
     /// job installs them (lean.rs).
@@ -1153,7 +1162,7 @@ pub enum Runs {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LacksProgram {
     pub host: String,
-    pub program: crate::cargo_program::Program,
+    pub program: &'static crate::cargo_program::Program,
     pub has: crate::cargo_program::Has,
 }
 
@@ -1191,7 +1200,7 @@ impl std::fmt::Display for CannotRun {
 
 /// Whether `builds cargo` may run <runs> on <host>, given its <probe>: what
 /// `takes_cargo` returns when the host may take cargo builds, and for a
-/// nextest or mutants run also has that program at its pinned version.
+/// run that needs programs also has them at their pinned versions.
 pub fn takes_run<'a>(
     host: &Host,
     probe: &'a std::result::Result<Probe, String>,
@@ -1203,33 +1212,37 @@ pub fn takes_run<'a>(
     Ok((probe, speed))
 }
 
-/// Whether <host>, which answered with <probe>, has the program <runs>
-/// needs, at its pinned version: cargo-nextest for a nextest run and
-/// cargo-mutants for a mutants run.
+/// Whether <host>, which answered with <probe>, has each program <runs>
+/// needs, at its pinned version: node for a run of tests, cargo-nextest for
+/// a nextest run and cargo-mutants for a mutants run. The error names the
+/// first it lacks.
 pub fn has_what_runs_needs(
     host: &Host,
     probe: &Probe,
     runs: Runs,
 ) -> std::result::Result<(), LacksProgram> {
-    use crate::cargo_program::{Has, MUTANTS, NEXTEST};
-    let (program, has) = match runs {
-        Runs::Nextest => (NEXTEST, &probe.nextest),
-        Runs::Mutants => (MUTANTS, &probe.mutants),
-        Runs::Cargo | Runs::Lake => return Ok(()),
+    use crate::cargo_program::{Has, MUTANTS, NEXTEST, NODE};
+    let needs = match runs {
+        Runs::Test => vec![(&NODE, &probe.node)],
+        Runs::Nextest => vec![(&NEXTEST, &probe.nextest), (&NODE, &probe.node)],
+        Runs::Mutants => vec![(&MUTANTS, &probe.mutants), (&NODE, &probe.node)],
+        Runs::Cargo | Runs::Lake => vec![],
     };
-    if *has != Has::Version(program.version.to_string()) {
-        return Err(LacksProgram {
-            host: host.name.clone(),
-            program,
-            has: has.clone(),
-        });
+    for (program, has) in needs {
+        if *has != Has::Version(program.version.to_string()) {
+            return Err(LacksProgram {
+                host: host.name.clone(),
+                program,
+                has: has.clone(),
+            });
+        }
     }
     Ok(())
 }
 
 /// The hosts a cargo build may run on, each with its probe, the one with the
 /// most room first: the reachable hosts above the free-disk floor with a
-/// measured core speed (and, for a nextest run, cargo-nextest: `takes_run`),
+/// measured core speed (and the programs the run needs: `takes_run`),
 /// ordered by `Probe::room_after`, given the number of runs that <recent>
 /// counts on each host, times the host's core speed against this Mac's.
 /// Hosts whose weighed room is equal to the hundredth of a core keep the

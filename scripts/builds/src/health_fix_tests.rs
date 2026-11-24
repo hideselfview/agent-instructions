@@ -24,6 +24,7 @@ fn probe(free_gib: f64, git_fails: Option<&str>) -> Probed {
         git_fails: git_fails.map(str::to_string),
         nextest: crate::cargo_program::Has::Nothing,
         mutants: crate::cargo_program::Has::Nothing,
+        node: crate::cargo_program::Has::Nothing,
         processes: crate::proc_limit::ProcessUse {
             count: 100,
             limit: 10_000,

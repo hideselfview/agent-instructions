@@ -368,7 +368,7 @@ pub fn cmd_cargo(args: &[String]) -> Result<()> {
                 Rules::from_env()?.floor_kib,
                 &checkout.repo(),
                 wanted,
-                tool.runs(),
+                tool.runs(&key.subcommand),
                 crate::cargo_needs::macos_package(args, checkout, &dir)?.as_deref(),
                 crate::app_timing::now(),
             )?

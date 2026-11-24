@@ -698,7 +698,11 @@ for that reason. For a nextest run, builds also skips a host
 without cargo-nextest at the version builds installs (0.9.143, installed by
 `builds install` on this Mac and by `builds host setup` on each host), and
 names the host and the version it has (a mutants run skips a host the same way
-for cargo-mutants); `BUILDS_CARGO_HOST` naming such a host
+for cargo-mutants). A run of tests (test, nextest run, mutants) also skips a
+host without node at the version builds installs (22.17.0, installed the
+same way, from nodejs.org into ~/.cargo/bin, which starts every host job's
+PATH), because builds' own tests run the dashboard's and the design
+renderer's page scripts in node. `BUILDS_CARGO_HOST` naming such a host
 fails. A host's free cores are its cores minus its
 one-minute load, less the host's cores again for each `builds cargo` or
 `builds lake` run that started there in the last minute and still runs: cargo
@@ -2078,7 +2082,9 @@ volume's device>` (`df /Volumes/Builds` names it).
                               get.nexte.st into ~/.cargo/bin, and changes
                               nothing on a host that has that version) and
                               cargo-mutants at its pinned version (cargo
-                              install --locked, into ~/.cargo/bin), as
+                              install --locked, into ~/.cargo/bin) and
+                              node at its pinned version (the node program
+                              of nodejs.org's release, into ~/.cargo/bin), as
                               `builds install` does here, and records the
                               host's core speed in `hosts`: this Mac's time
                               over the host's for the fixed compile `builds

@@ -204,6 +204,7 @@ fn probe(load: f64) -> std::result::Result<Probe, String> {
         git_fails: None,
         nextest: crate::cargo_program::Has::Nothing,
         mutants: crate::cargo_program::Has::Nothing,
+        node: crate::cargo_program::Has::Nothing,
         processes: crate::proc_limit::ProcessUse {
             count: 100,
             limit: 10_000,
@@ -635,6 +636,11 @@ fn a_nextest_run_goes_only_to_a_host_with_cargo_nextest() {
         &crate::cargo_program::NEXTEST,
         &r.home.join(".cargo/bin"),
         crate::cargo_program::NEXTEST.version,
+    );
+    crate::cargo_program::tests::fake_program(
+        &crate::cargo_program::NODE,
+        &r.home.join(".cargo/bin"),
+        crate::cargo_program::NODE.version,
     );
     let probes = ask();
     assert_eq!(

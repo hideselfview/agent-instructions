@@ -1,7 +1,9 @@
 //! The programs builds installs on every host that takes cargo work, one
-//! pinned version each, because a `builds cargo` run of the subcommand that
-//! needs one goes only to a host that has it (`host::takes_run`): cargo-nextest
-//! for `builds cargo nextest` and cargo-mutants for `builds cargo mutants`.
+//! pinned version each, because a `builds cargo` run that needs one goes only
+//! to a host that has it (`host::takes_run`): cargo-nextest for `builds cargo
+//! nextest`, cargo-mutants for `builds cargo mutants`, and node for every run
+//! of tests, since builds' own tests run the dashboard's and the design
+//! renderer's page scripts in it.
 //! `install` is run by `builds install` here and by `builds host setup-here`
 //! on each host, and `Program::probe_lines` and `Program::parse_has` are how a
 //! probe reads which version a host has.
@@ -13,15 +15,22 @@ use crate::fail;
 use crate::fail::{Context, Result};
 use crate::text::note;
 
-/// A cargo subcommand's program that builds pins to one version.
+/// A program that builds pins to one version.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Program {
-    /// The program's file name in `~/.cargo/bin`: `cargo-nextest`.
+    /// The program's file name in `~/.cargo/bin`: `cargo-nextest`. A host's
+    /// jobs find it there because their PATH starts with that folder
+    /// (`remote::root_script`).
     pub name: &'static str,
     /// The word a probe's answer names it by: `nextest=<version>`.
     pub key: &'static str,
-    /// What the program takes to print `<name> <version>` on its first line.
+    /// What the program takes to print its version on its first line.
     pub version_args: &'static [&'static str],
+    /// Which word of that line, counting from 1, holds the version
+    /// (`cargo-nextest 0.9.143`: 2; node's `v22.17.0`: 1).
+    pub version_word: usize,
+    /// What that word starts with before the version (node's `v`).
+    pub version_prefix: &'static str,
     /// The version on every host and on this Mac.
     pub version: &'static str,
 }
@@ -31,6 +40,8 @@ pub const NEXTEST: Program = Program {
     name: "cargo-nextest",
     key: "nextest",
     version_args: &["nextest", "--version"],
+    version_word: 2,
+    version_prefix: "",
     version: "0.9.143",
 };
 
@@ -39,7 +50,19 @@ pub const MUTANTS: Program = Program {
     name: "cargo-mutants",
     key: "mutants",
     version_args: &["mutants", "--version"],
+    version_word: 2,
+    version_prefix: "",
     version: "27.1.0",
+};
+
+/// node, which builds' tests run page scripts in.
+pub const NODE: Program = Program {
+    name: "node",
+    key: "node",
+    version_args: &["--version"],
+    version_word: 1,
+    version_prefix: "v",
+    version: "22.17.0",
 };
 
 /// Where cargo finds its subcommand programs under <home>.
@@ -68,11 +91,13 @@ impl Program {
             name,
             key,
             version_args,
+            version_word,
+            version_prefix,
             ..
         } = self;
         let args = version_args.join(" ");
         format!(
-            r#"if [ -e "$HOME/.cargo/bin/{name}" ]; then if v=$("$HOME/.cargo/bin/{name}" {args} 2>&1); then echo "{key}=$(printf '%s\n' "$v" | head -n 1 | awk '{{print $2}}')"; else echo "{key}_fails=$(printf '%s' "$v" | tr '\n' ' ')"; fi; fi"#
+            r#"if [ -e "$HOME/.cargo/bin/{name}" ]; then if v=$("$HOME/.cargo/bin/{name}" {args} 2>&1); then echo "{key}=$(printf '%s\n' "$v" | head -n 1 | awk '{{print ${version_word}}}' | sed 's/^{version_prefix}//')"; else echo "{key}_fails=$(printf '%s' "$v" | tr '\n' ' ')"; fi; fi"#
         )
     }
 
@@ -123,7 +148,8 @@ impl Program {
         match String::from_utf8_lossy(&output.stdout)
             .lines()
             .next()
-            .and_then(|line| line.split_whitespace().nth(1))
+            .and_then(|line| line.split_whitespace().nth(self.version_word - 1))
+            .map(|word| word.strip_prefix(self.version_prefix).unwrap_or(word))
         {
             Some(version) => Has::Version(version.to_string()),
             None => Has::Broken(format!("{} printed no version", program.display())),
@@ -170,11 +196,15 @@ impl Program {
         })
     }
 
-    /// Puts the program's `version` in <dir>: cargo-nextest's release build
-    /// for this machine, and cargo-mutants compiled from its crate.
+    /// Puts the program's `version` in <dir>: cargo-nextest's and node's
+    /// release builds for this machine, and cargo-mutants compiled from its
+    /// crate.
     fn fetch(&self, home: &Path, dir: &Path) -> Result<()> {
         if *self == NEXTEST {
             return download_nextest(dir);
+        }
+        if *self == NODE {
+            return download_node(dir);
         }
         let version = self.version;
         // A host's ssh shell may have no PATH to cargo.
@@ -239,10 +269,38 @@ fn download_nextest(dir: &Path) -> Result<()> {
     )
 }
 
+/// The name nodejs.org gives the release's build for this machine, such as
+/// `darwin-arm64` or `linux-x64`.
+fn node_platform() -> Result<String> {
+    let os = match crate::host_platform::Os::here() {
+        crate::host_platform::Os::Mac => "darwin",
+        crate::host_platform::Os::Linux => "linux",
+    };
+    let arch = match std::env::consts::ARCH {
+        "aarch64" => "arm64",
+        "x86_64" => "x64",
+        other => fail!("nodejs.org has no node release for the {other} processor"),
+    };
+    Ok(format!("{os}-{arch}"))
+}
+
+/// Downloads the release's build of node for this machine and puts its
+/// `node` program in <dir>.
+fn download_node(dir: &Path) -> Result<()> {
+    let release = format!("node-v{}-{}", NODE.version, node_platform()?);
+    crate::download::unpack_member(
+        &format!("https://nodejs.org/dist/v{}/{release}.tar.gz", NODE.version),
+        &format!("{release}/bin/node"),
+        dir,
+        &format!("node {}", NODE.version),
+    )
+}
+
 /// Installs every program that builds pins, on this Mac or a host.
 pub fn install_all(home: &Path) -> Result<()> {
     NEXTEST.install(home)?;
-    MUTANTS.install(home)
+    MUTANTS.install(home)?;
+    NODE.install(home)
 }
 
 #[cfg(test)]

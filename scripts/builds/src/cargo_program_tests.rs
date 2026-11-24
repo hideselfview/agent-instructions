@@ -6,15 +6,28 @@ use std::os::unix::fs::PermissionsExt;
 pub fn fake_program(of: &Program, dir: &Path, version: &str) {
     std::fs::create_dir_all(dir).unwrap();
     let program = dir.join(of.name);
+    // nextest's first line is `cargo-nextest 0.9.143`, node's `v22.17.0`.
+    let first = match of.version_word {
+        1 => format!("{}{version}", of.version_prefix),
+        _ => format!("{} {version}", of.name),
+    };
     std::fs::write(
         &program,
-        format!(
-            "#!/bin/sh\necho '{} {version}'\necho 'release: {version}'\n",
-            of.name
-        ),
+        format!("#!/bin/sh\necho '{first}'\necho 'release: {version}'\n"),
     )
     .unwrap();
     std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+#[test]
+fn node_prints_its_version_with_a_v() {
+    let scratch = Scratch::new("node-version");
+    let home = scratch.dir.join("home");
+    assert_eq!(NODE.has(&home), Has::Nothing);
+    fake_program(&NODE, &home.join(".cargo/bin"), NODE.version);
+    assert_eq!(NODE.has(&home), Has::Version(NODE.version.to_string()));
+    let probe = NODE.probe_lines();
+    assert!(probe.contains("awk '{print $1}' | sed 's/^v//'"), "{probe}");
 }
 
 #[test]
