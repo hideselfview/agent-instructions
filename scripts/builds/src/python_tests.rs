@@ -1,82 +1,94 @@
 use super::*;
-use std::os::unix::fs::PermissionsExt;
+use crate::testing::Scratch;
 
-/// A folder with a `python3`-named script in <folder> that says it is
-/// Python <major>.<minor>.
+/// A script <name> in <folder> that says it is Python <major>.<minor>.
 fn fake(folder: &Path, name: &str, major: u32, minor: u32) -> PathBuf {
+    script(folder, name, &format!("echo {major} {minor}"))
+}
+
+fn script(folder: &Path, name: &str, body: &str) -> PathBuf {
     std::fs::create_dir_all(folder).unwrap();
     let file = folder.join(name);
-    std::fs::write(&file, format!("#!/bin/sh\necho {major} {minor}\n")).unwrap();
+    std::fs::write(&file, format!("#!/bin/sh\n{body}\n")).unwrap();
     std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).unwrap();
     file
 }
 
-fn scratch(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("builds-python-{name}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
+fn joined(folders: &[&Path]) -> OsString {
+    std::env::join_paths(folders).unwrap()
 }
 
 #[test]
-fn a_new_enough_python3_first_on_path_stays_as_it_is() {
-    let dir = scratch("new");
-    fake(&dir.join("bin"), "python3", 3, 14);
-    let path = OsString::from(dir.join("bin"));
+fn a_new_enough_python3_first_on_path_leaves_path_as_it_is() {
+    let scratch = Scratch::new("python-new");
+    let bin = scratch.dir.join("bin");
+    fake(&bin, "python3", 3, 14);
     assert_eq!(
-        choose(Some(&path), &[], Some(&dir.join("home"))).unwrap(),
-        Choice::OnPath
+        prepare(&joined(&[&bin]), &[], &scratch.dir.join("python")).unwrap(),
+        None
     );
 }
 
 #[test]
-fn python_3_9_first_on_path_gives_way_to_a_later_python_of_3_11_or_more() {
-    let dir = scratch("old");
-    fake(&dir.join("system"), "python3", 3, 9);
-    let newer = fake(&dir.join("brew"), "python3.13", 3, 13);
-    fake(&dir.join("brew"), "python3.10", 3, 10);
-    let path = std::env::join_paths([dir.join("system")]).unwrap();
-    let home = dir.join("home");
-    let Choice::Linked(folder) = choose(Some(&path), &[dir.join("brew")], Some(&home)).unwrap()
-    else {
-        panic!("the old python3 stayed first");
-    };
-    assert_eq!(folder, home.join(FOLDER));
-    assert_eq!(std::fs::read_link(folder.join("python3")).unwrap(), newer);
-    // A second choice that finds another Python replaces the link.
-    let newest = fake(&dir.join("brew"), "python3", 3, 14);
-    choose(Some(&path), &[dir.join("brew")], Some(&home)).unwrap();
+fn python_3_9_first_on_path_gives_way_to_the_newest_python_3_n_of_3_11_or_more() {
+    let scratch = Scratch::new("python-old");
+    let (system, brew, folder) = (
+        scratch.dir.join("system"),
+        scratch.dir.join("brew"),
+        scratch.dir.join("python"),
+    );
+    fake(&system, "python3", 3, 9);
+    fake(&brew, "python3.10", 3, 10);
+    fake(&brew, "python3.12", 3, 12);
+    let newest = fake(&brew, "python3.13", 3, 13);
+    let path = prepare(&joined(&[&system]), std::slice::from_ref(&brew), &folder)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        path,
+        OsString::from(format!("{}:{}", folder.display(), system.display()))
+    );
     assert_eq!(std::fs::read_link(folder.join("python3")).unwrap(), newest);
 }
 
 #[test]
-fn no_python_of_3_11_or_more_fails_naming_the_version_found() {
-    let dir = scratch("none");
-    fake(&dir.join("system"), "python3", 3, 9);
-    let path = OsString::from(dir.join("system"));
-    let error = choose(Some(&path), &[dir.join("empty")], Some(&dir.join("home")))
-        .unwrap_err()
-        .text();
-    assert!(error.contains("Python 3.11 or later"), "{error}");
-    assert!(error.contains("is Python 3.9"), "{error}");
-}
-
-#[test]
-fn only_a_python_program_fails_for_want_of_a_new_python() {
-    assert!(is_python("python3"));
-    assert!(is_python("/usr/bin/python3.9"));
-    assert!(!is_python("cargo"));
-    assert!(!is_python("scripts/loc-words-test.sh"));
-}
-
-#[test]
-fn a_linked_python_goes_first_on_the_path_the_step_would_have_had() {
-    assert_eq!(
-        with_first(Path::new("/h/python"), OsStr::new("/a:/b")),
-        OsString::from("/h/python:/a:/b")
+fn the_folder_builds_made_is_not_a_candidate_for_its_own_link() {
+    let scratch = Scratch::new("python-again");
+    let (system, brew, folder) = (
+        scratch.dir.join("system"),
+        scratch.dir.join("brew"),
+        scratch.dir.join("python"),
     );
-    assert_eq!(
-        with_first(Path::new("/h/python"), OsStr::new("")),
-        OsString::from("/h/python")
+    fake(&system, "python3", 3, 9);
+    let newer = fake(&brew, "python3", 3, 13);
+    let first = prepare(&joined(&[&system]), std::slice::from_ref(&brew), &folder)
+        .unwrap()
+        .unwrap();
+    // A child builds started inherits the PATH with the folder first.
+    assert_eq!(prepare(&first, &[brew], &folder).unwrap(), None);
+    assert_eq!(std::fs::read_link(folder.join("python3")).unwrap(), newer);
+}
+
+#[test]
+fn with_no_python_of_3_11_or_more_python3_fails_naming_the_version_found() {
+    let scratch = Scratch::new("python-none");
+    let (system, folder) = (scratch.dir.join("system"), scratch.dir.join("python"));
+    fake(&system, "python3", 3, 9);
+    let broken = script(&scratch.dir.join("broken"), "python3.12", "exit 3");
+    let path = prepare(&joined(&[&system]), &[scratch.dir.join("broken")], &folder)
+        .unwrap()
+        .unwrap();
+    assert!(
+        path.to_string_lossy()
+            .starts_with(&folder.display().to_string())
+    );
+    let ran = Command::new(folder.join("python3")).output().unwrap();
+    let said = String::from_utf8_lossy(&ran.stderr);
+    assert!(!ran.status.success());
+    assert!(said.contains("Python 3.11 or later"), "{said}");
+    assert!(said.contains("system/python3 is Python 3.9"), "{said}");
+    assert!(
+        said.contains(&format!("{} failed", broken.display())),
+        "{said}"
     );
 }

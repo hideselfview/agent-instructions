@@ -439,6 +439,9 @@ fn run(command: &str, args: &[String], session: ack::agent::Session) -> Result<(
         ack::agent::clear_for_daemon();
     }
     checkout::drop_git_local_env()?;
+    if python::STEP_COMMANDS.contains(&command) {
+        python::use_new_python(&Places::from_env()?)?;
+    }
     text::use_callers_collation();
     let mut tool = Tool::new(
         Places::from_env()?,

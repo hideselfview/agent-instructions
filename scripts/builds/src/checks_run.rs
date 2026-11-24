@@ -260,11 +260,6 @@ fn execute(top: &Path, planned: &Planned, stream: bool, hook_check: Option<&str>
     };
     let mut command = Command::new(path);
     command.args(args).current_dir(top).stdin(Stdio::null());
-    if let Some(python_path) =
-        crate::python::path_for_step(program, &std::env::var_os("PATH").unwrap_or_default())?
-    {
-        command.env("PATH", python_path);
-    }
     for name in git_local_env_vars()? {
         command.env_remove(name);
     }

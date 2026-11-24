@@ -47,6 +47,16 @@ pub fn folder(home: &Path, version: &str) -> PathBuf {
     root(home).join(version)
 }
 
+/// <path>, a PATH, with <folder> first.
+pub fn path_with_first(folder: &Path, path: Option<&OsStr>) -> OsString {
+    let mut joined = OsString::from(folder);
+    if let Some(rest) = path.filter(|rest| !rest.is_empty()) {
+        joined.push(":");
+        joined.push(rest);
+    }
+    joined
+}
+
 /// A version's folder that this process holds.
 pub struct Pinned {
     version: String,
@@ -72,12 +82,7 @@ impl Pinned {
 
     /// <path>, a PATH, with the folder first.
     pub fn path(&self, path: Option<&OsStr>) -> OsString {
-        let mut joined = OsString::from(&self.dir);
-        if let Some(rest) = path.filter(|rest| !rest.is_empty()) {
-            joined.push(":");
-            joined.push(rest);
-        }
-        joined
+        path_with_first(&self.dir, path)
     }
 
     /// The lock's file, set to stay open across exec, and <path> with the
@@ -269,7 +274,6 @@ pub fn cmd_programs(places: &crate::places::Places, args: &[String]) -> Result<(
     let here = std::env::current_dir().context(|| "reading the step's folder".to_string())?;
     let xcode_cache = crate::xcode_cache::settings_for(places, &here)?;
     use std::os::unix::process::CommandExt;
-    let path = crate::python::path_for_step(&command[0], &path)?.unwrap_or(path);
     let error = std::process::Command::new(&command[0])
         .args(&command[1..])
         .env("PATH", path)

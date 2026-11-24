@@ -133,15 +133,18 @@ fn link_cache(dir: &Path, link: &Path, home: &Path) -> Result<()> {
 
 /// The first executable named <name> on PATH.
 fn on_path(name: &str) -> Option<PathBuf> {
+    std::env::var_os("PATH").and_then(|path| on_path_in(name, &path))
+}
+
+/// The first executable named <name> in the folders of <path>.
+pub fn on_path_in(name: &str, path: &std::ffi::OsStr) -> Option<PathBuf> {
     use std::os::unix::fs::PermissionsExt;
-    std::env::var_os("PATH").and_then(|path| {
-        std::env::split_paths(&path)
-            .map(|dir| dir.join(name))
-            .find(|candidate| {
-                std::fs::metadata(candidate)
-                    .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
-            })
-    })
+    std::env::split_paths(path)
+        .map(|dir| dir.join(name))
+        .find(|candidate| {
+            std::fs::metadata(candidate)
+                .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
+        })
 }
 
 /// Fails when <me> is the installed binary <dest>: copying it onto itself
