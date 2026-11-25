@@ -415,6 +415,9 @@ struct Geometry {
     /// The node's box has something drawn over part of it, or a sheet clips
     /// part of it.
     obscured: bool,
+    /// No point of the box could be asked what is on top of it, so `obscured`
+    /// says only what a clip shows.
+    obscured_untested: bool,
     /// The node is a password input.
     secret: bool,
 }
@@ -484,16 +487,23 @@ const GEOMETRY: &str = r#"function({frame, bodyOverflowAppliesToViewport}) {
   };
   // Whether the page draws another element over a point of the box's visible
   // part: the topmost element there is none inside the node's own element and
-  // none that holds it.
+  // none that holds it. `tested` is false when no point could be asked: the
+  // page answers only for points in the viewport, and a row of a preview
+  // lies beyond it.
   const coveredAt = (element, seen) => {
-    if (!element || getComputedStyle(element).pointerEvents === 'none') return false;
+    if (!element || getComputedStyle(element).pointerEvents === 'none') {
+      return {covered: false, tested: true};
+    }
     const width = seen.right - seen.left;
     const height = seen.bottom - seen.top;
+    let tested = false;
     for (const [fx, fy] of [[0.1, 0.5], [0.5, 0.5], [0.9, 0.5], [0.5, 0.15], [0.5, 0.85]]) {
       const top = document.elementFromPoint(seen.left + width * fx, seen.top + height * fy);
-      if (top && !element.contains(top) && !top.contains(element)) return true;
+      if (!top) continue;
+      tested = true;
+      if (!element.contains(top) && !top.contains(element)) return {covered: true, tested};
     }
-    return false;
+    return {covered: false, tested};
   };
   const isText = this.nodeType === 3;
   let rect;
@@ -514,6 +524,7 @@ const GEOMETRY: &str = r#"function({frame, bodyOverflowAppliesToViewport}) {
   }
   const clippedPartly = rect.width - (seen.right - seen.left) > 0.5
     || rect.height - (seen.bottom - seen.top) > 0.5;
+  const over = coveredAt(element, seen);
   return {
     visibility: 'visible',
     bounds: {x: rect.x, y: rect.y, width: rect.width, height: rect.height},
@@ -530,7 +541,8 @@ const GEOMETRY: &str = r#"function({frame, bodyOverflowAppliesToViewport}) {
     in_selected: element !== null
       && element.closest('[aria-selected]')?.getAttribute('aria-selected') === 'true',
     component: componentOf(this),
-    obscured: clippedPartly || coveredAt(element, seen),
+    obscured: clippedPartly || over.covered,
+    obscured_untested: !clippedPartly && !over.tested,
     secret: !isText && this.tagName === 'INPUT' && this.type === 'password',
   };
 }"#;
@@ -761,6 +773,7 @@ async fn gather(page: &Page, frame: Bounds) -> Result<Vec<Raw>, ReadError> {
     ))
     .await
     .map_err(protocol)?;
+    let mut untested = 0;
     let measured: Result<Vec<Raw>, ReadError> = async {
         let mut nodes = Vec::new();
         for node in &tree.result.nodes {
@@ -783,6 +796,7 @@ async fn gather(page: &Page, frame: Bounds) -> Result<Vec<Raw>, ReadError> {
                         raw.placeholder = geometry.placeholder;
                         raw.component = geometry.component;
                         raw.obscured = geometry.obscured;
+                        untested += usize::from(geometry.obscured_untested);
                         if (geometry.current || geometry.in_selected) && raw.selected.is_none() {
                             raw.selected = Some(true);
                         }
@@ -808,6 +822,11 @@ async fn gather(page: &Page, frame: Bounds) -> Result<Vec<Raw>, ReadError> {
     ))
     .await
     .map_err(protocol)?;
+    if untested > 0 {
+        crate::log::note(format_args!(
+            "{untested} elements lie where the page cannot say what is on top (outside its viewport): whether something covers them is not tested"
+        ));
+    }
     measured
 }
 

@@ -1303,6 +1303,9 @@ inside neither the element nor around it. It marks an element a sheet clips
 partly the same way. The checker reports no colour finding for a board element
 marked obscured, on any platform. An element whose own style turns pointer
 events off is never marked, because the page cannot say what lies over it.
+The page answers only for points inside its viewport, so an element wholly
+beyond it (a preview's lower rows) is not tested, and the reader counts those
+elements in a note.
 
 Android's native text rounds each glyph advance to a whole pixel, so a line the
 app draws is up to half a pixel off for each glyph against the board's
