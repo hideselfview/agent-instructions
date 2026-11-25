@@ -228,6 +228,9 @@ pub struct Changes {
     pub outside: BTreeSet<String>,
     /// Changed spec files, before their sections are read.
     spec_files: BTreeSet<String>,
+    /// Some changed file is a board, a component file other than its README
+    /// or a shared source: one that can change what a board draws.
+    draws: bool,
 }
 
 impl Changes {
@@ -260,6 +263,14 @@ impl Changes {
     /// sections.
     pub fn resolvable(&self) -> BTreeSet<&String> {
         self.places.iter().chain(&self.spec).collect()
+    }
+
+    /// Do the commits change a file a board's drawing comes from? A
+    /// component's README, a spec section and a shared file that is no source
+    /// change no drawing, so the states check has nothing to look at in a
+    /// range of those. A board or component the commits delete counts.
+    pub fn changes_a_drawing(&self) -> bool {
+        self.draws || !self.deleted.is_empty()
     }
 
     /// Is every changed path a design file (so the landing has no app code
@@ -377,8 +388,10 @@ pub fn classify(globs: &Globs, paths: &[String]) -> Changes {
     for path in paths {
         if sources.iter().any(|glob| glob.matches(path)) {
             changes.sources.insert(path.clone());
+            changes.draws = true;
         } else if let Some(place) = places.iter().find_map(|glob| glob.place(path)) {
             changes.places.insert(place);
+            changes.draws |= path.rsplit('/').next() != Some("README.md");
         } else if spec.iter().any(|glob| glob.matches(path)) {
             changes.spec_files.insert(path.clone());
         } else if roots.iter().any(|root| {

@@ -396,8 +396,13 @@ fn require_drafts(tool: &Tool, scope: &Scope, request: &DesignRequest) -> Result
 /// Refuses a change whose boards draw a component state that no preview row
 /// shows, unless its base already drew that state with no row (decision
 /// #391): the change adds each as a row of its component's preview, so that
-/// the component's own shot covers it.
+/// the component's own shot covers it. A range that changes no drawing
+/// (`Changes::changes_a_drawing`) has no state to find, so the checker, which
+/// draws every board, does not run.
 fn require_states_shown(tool: &Tool, scope: &Scope) -> Result<()> {
+    if !scope.changes.changes_a_drawing() {
+        return Ok(());
+    }
     crate::shots_program::require_states_shown(tool, &scope.checkout.top, &scope.tip, &scope.base)
         .map_err(|error| {
             crate::fail::Fail::Message(format!(

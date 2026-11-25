@@ -461,6 +461,24 @@ fn record_and_amend_refuse_a_change_that_adds_a_component_state_no_preview_row_s
     assert_eq!(w.bytes(), recorded);
 }
 
+/// A range that changes only a component's README changes no drawing, so
+/// record and amend ask the shots checker nothing; a range that changes a
+/// file the component draws from still asks it.
+#[test]
+fn record_and_amend_skip_the_states_check_for_a_range_that_changes_no_drawing() {
+    let mut w = world("design-record-states-readme");
+    let component = "design/system/components/MacHairline/";
+    w.commit(&["design/system/components/MacHairline/README.md"]);
+    w.tool.program = w.scratch.script("states-asked", "echo asked >&2; exit 1");
+    let request = base_request(&w, json!({ component: null }));
+    w.request(request.clone()).unwrap();
+    w.amend(1, request.clone()).unwrap();
+
+    w.commit(&["design/system/components/MacHairline/preview.html"]);
+    let refused = message(w.amend(1, request));
+    assert!(refused.contains("asked"), "{refused}");
+}
+
 /// Landing needs each place to name its app work: the design session gives
 /// it after the person approves, and giving it keeps the approval.
 #[test]
