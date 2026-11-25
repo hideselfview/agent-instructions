@@ -3,7 +3,11 @@
 use crate::render::slots::{Slot, Slots};
 use chromiumoxide::Page;
 use chromiumoxide::browser::{Browser, BrowserConfig};
+use chromiumoxide::cdp::browser_protocol::browser::BrowserContextId;
 use chromiumoxide::cdp::browser_protocol::page::GetLayoutMetricsReturns;
+use chromiumoxide::cdp::browser_protocol::target::{
+    CreateBrowserContextParams, CreateTargetParams,
+};
 use chromiumoxide::error::CdpError;
 use chromiumoxide::js::{Evaluation, EvaluationResult};
 use chromiumoxide::page::ScreenshotParams;
@@ -202,6 +206,8 @@ pub(crate) struct DrawPage {
     page: Page,
     _slot: Slot,
     in_flight: std::sync::Mutex<Option<String>>,
+    /// The browser context the page is the only page of.
+    context: BrowserContextId,
 }
 
 impl std::ops::Deref for DrawPage {
@@ -298,9 +304,15 @@ impl DrawPage {
             .await
     }
 
-    /// Closes the page, then gives its slot back.
-    async fn close(self) -> Result<(), CdpError> {
-        self.page.close().await
+    /// Closes the page and its browser context, noting each that fails, then
+    /// gives the slot back. <what> is the board or preview it drew.
+    async fn close(self, browser: &Browser, what: &str) {
+        note_unless_done(&format!("closing the page of {what}"), self.page.close()).await;
+        note_unless_done(
+            &format!("closing the browser context of {what}"),
+            browser.dispose_browser_context(self.context),
+        )
+        .await;
     }
 }
 
@@ -312,17 +324,35 @@ impl Chrome {
         self.open_page(slot).await.map_err(|e| e.to_string())
     }
 
+    /// Opens a page in a browser context of its own: pages of one browser
+    /// context share renderer processes, and with several drawing at once the
+    /// script that redraws a board (board.rs, `REDRAW`) waited on
+    /// `requestAnimationFrame` for over 120 seconds on a page that had already
+    /// loaded. A page in a context of its own does not share its renderer.
     async fn open_page(&self, slot: Slot) -> Result<DrawPage, ChromeError> {
-        let page = self
+        let context = self
             .browser
-            .new_page("about:blank")
+            .create_browser_context(CreateBrowserContextParams::default())
             .await
-            .map_err(|e| ChromeError::Protocol(format!("opening a page: {e}")))?;
-        Ok(DrawPage {
-            page,
-            _slot: slot,
-            in_flight: std::sync::Mutex::new(None),
-        })
+            .map_err(|e| ChromeError::Protocol(format!("opening a browser context: {e}")))?;
+        let mut target = CreateTargetParams::new("about:blank");
+        target.browser_context_id = Some(context.clone());
+        match self.browser.new_page(target).await {
+            Ok(page) => Ok(DrawPage {
+                page,
+                _slot: slot,
+                in_flight: std::sync::Mutex::new(None),
+                context,
+            }),
+            Err(e) => {
+                note_unless_done(
+                    "disposing the browser context of a page that did not open",
+                    self.browser.dispose_browser_context(context),
+                )
+                .await;
+                Err(ChromeError::Protocol(format!("opening a page: {e}")))
+            }
+        }
     }
 
     /// Runs <work> on a new page and closes the page after it, whatever
@@ -364,7 +394,7 @@ impl Chrome {
             Ok(out) => out.map_err(|e| format!("{what}: {e}")),
             Err(_) => Err(late("drawing it", last_said(&page).await)),
         };
-        note_unless_done(&format!("closing the page of {what}"), page.close()).await;
+        page.close(&self.browser, what).await;
         out
     }
 }

@@ -280,3 +280,37 @@ fn a_command_that_times_out_names_its_method() {
     };
     assert_eq!(error.to_string(), "Runtime.evaluate: Request timed out.");
 }
+
+#[test]
+fn each_page_has_a_browser_context_of_its_own_and_gives_it_back() {
+    use chromiumoxide::cdp::browser_protocol::target::GetBrowserContextsParams;
+    let root = tempfile::tempdir().unwrap();
+    let (while_open, after) =
+        tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(crate::render::fixture::with_browser(
+                root.path(),
+                async |_server, chrome| {
+                    let contexts = async || {
+                        chrome
+                            .browser
+                            .execute(GetBrowserContextsParams::default())
+                            .await
+                            .unwrap()
+                            .result
+                            .browser_context_ids
+                            .len()
+                    };
+                    let (first, second) = futures::future::join(
+                        chrome.with_page("first", async |_page| Ok(contexts().await)),
+                        chrome.with_page("second", async |_page| Ok(contexts().await)),
+                    )
+                    .await;
+                    ((first.unwrap(), second.unwrap()), contexts().await)
+                },
+            ));
+    // Each page sees its own context and, once both are open, the other's.
+    assert!(while_open.0 >= 1 && while_open.1 >= 1);
+    assert_eq!(while_open.0.max(while_open.1), 2);
+    assert_eq!(after, 0);
+}
