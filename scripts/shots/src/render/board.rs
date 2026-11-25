@@ -176,6 +176,33 @@ fn watch_script(mounted: &str, body_class: Option<&str>) -> String {
     )
 }
 
+/// Hides and shows the page's body three times, with two frames after each
+/// step. Chrome draws the frame it takes a picture of over the frames before
+/// it, and a rounded corner's antialiased edge comes out of that differently
+/// by how many frames drew it. After this, every draw of a page has drawn it
+/// the same number of times. The frames need the page's virtual time to run.
+/// Unlike `display: none`, hiding with `visibility` leaves the page's
+/// animations running, so the promises it tracks them with stay as they are.
+const REDRAW: &str = "(async () => {
+  const frames = () => new Promise(
+    (done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+  for (let turn = 0; turn < 3; turn++) {
+    document.body.style.visibility = 'hidden';
+    await frames();
+    document.body.style.visibility = '';
+    await frames();
+  }
+})()";
+
+async fn redraw(page: &Page) -> Result<(), BoardError> {
+    let running = SetVirtualTimePolicyParams::new(VirtualTimePolicy::Advance);
+    page.execute(running).await.map_err(protocol)?;
+    page.evaluate(REDRAW).await.map_err(protocol)?;
+    let paused = SetVirtualTimePolicyParams::new(VirtualTimePolicy::Pause);
+    page.execute(paused).await.map_err(protocol)?;
+    Ok(())
+}
+
 /// The element that says a canvas board is drawn: the runtime's root.
 pub(crate) const BOARD_MOUNTED: &str = "#dc-root";
 
@@ -335,16 +362,7 @@ pub(crate) async fn load(
             state,
         });
     }
-    // Hiding the body and showing it again makes Chrome draw the whole page
-    // again before the picture, so a page draws the same picture each time.
-    // Unlike `display: none`, hiding with `visibility` leaves the page's
-    // animations running, so the promises it tracks them with stay as they are.
-    page.evaluate(
-        "document.body.style.visibility = 'hidden'; document.body.offsetHeight; \
-         document.body.style.visibility = ''; document.body.offsetHeight",
-    )
-    .await
-    .map_err(protocol)?;
+    redraw(page).await?;
     // Inline important rules and animations started by script can still add
     // effects. Clear their keyframes without cancelling the animations,
     // which would reject any promises the page uses to track them.
