@@ -64,10 +64,18 @@ pub(crate) async fn with_browser<T>(
     root: &Path,
     work: impl AsyncFnOnce(&Server, &Chrome) -> T,
 ) -> T {
-    let design = design();
+    with_design(root, &design(), work).await
+}
+
+/// `with_browser` with <design> in place of the fixture's.
+pub(crate) async fn with_design<T>(
+    root: &Path,
+    design: &DesignSystem,
+    work: impl AsyncFnOnce(&Server, &Chrome) -> T,
+) -> T {
     let tree = Tree {
         root,
-        design: &design,
+        design,
         runtime: boards::runtime::newest().text,
     };
     serve::with_server(tree, async |server| {

@@ -225,3 +225,60 @@ async fn a_google_fonts_link_loads_the_checkers_own_copy_and_reaches_no_other_se
         .collect();
     assert!(outside.is_empty(), "{outside:?}");
 }
+
+fn runtime_errors(result: Result<Rendered, BoardError>) -> Vec<String> {
+    match result {
+        Err(BoardError::Runtime { errors, .. }) => errors,
+        other => panic!(
+            "expected a runtime error, got {:?}",
+            other.map(|r| r.png.len())
+        ),
+    }
+}
+
+#[tokio::test]
+async fn a_link_to_a_web_font_the_checker_holds_no_copy_of_fails_the_board() {
+    let root = tree();
+    fixture::write(
+        root.path(),
+        "design/mocks/fixture.oswald.dc.html",
+        &format!(
+            "{}<link rel=\"stylesheet\" href=\"https://fonts.googleapis.com/css2?family=Oswald\"><x-dc><div>Oswald</div></x-dc></body></html>",
+            fixture::HEAD
+        ),
+    );
+    let mut design = fixture::design();
+    design.bundle_css =
+        "@import url('https://fonts.googleapis.com/css2?family=Lobster');".to_string();
+    let linked = fixture::with_design(root.path(), &fixture::design(), async |server, chrome| {
+        let page = chrome.new_page().await.unwrap();
+        render(
+            &page,
+            "fixture.oswald",
+            &server.board_url("fixture.oswald"),
+            Frame { w: 300, h: 200 },
+            1.0,
+        )
+        .await
+    })
+    .await;
+    let imported = fixture::with_design(root.path(), &design, async |server, chrome| {
+        let page = chrome.new_page().await.unwrap();
+        render(
+            &page,
+            "fixture.wrapped",
+            &server.board_url("fixture.wrapped"),
+            Frame { w: 300, h: 200 },
+            1.0,
+        )
+        .await
+    })
+    .await;
+    let linked = runtime_errors(linked);
+    assert!(linked.iter().any(|e| e.contains("Oswald")), "{linked:?}");
+    let imported = runtime_errors(imported);
+    assert!(
+        imported.iter().any(|e| e.contains("Lobster")),
+        "{imported:?}"
+    );
+}

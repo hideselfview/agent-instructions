@@ -46,7 +46,7 @@ async fn read(file: &Path) -> Result<Option<Vec<u8>>, String> {
     }
 }
 
-/// What <url_path> names, with each Google Fonts link in a page or stylesheet
+/// What <url_path> names, with each Google Fonts link in a board, a preview or the bundle's stylesheet
 /// pointing at the server's own copy (`web_fonts`); none when it names
 /// nothing, and an error that says why when it names something the server
 /// cannot give.
@@ -93,10 +93,10 @@ async fn answer(tree: Tree<'_>, url_path: &str) -> Result<Option<Found>, String>
                 DesignFile::BundleCss => ("text/css; charset=utf-8", &tree.design.bundle_css),
                 DesignFile::BundleJs => (javascript, &tree.design.bundle_js),
             };
-            let text = if kind == javascript {
-                text.clone()
-            } else {
+            let text = if file == DesignFile::BundleCss {
                 web_fonts::relink(text)?
+            } else {
+                text.clone()
             };
             Some((kind, text.into_bytes()))
         }
@@ -106,7 +106,7 @@ async fn answer(tree: Tree<'_>, url_path: &str) -> Result<Option<Found>, String>
                 return Ok(None);
             };
             let kind = content_type(&file);
-            if kind.starts_with("text/html") || kind.starts_with("text/css") {
+            if kind.starts_with("text/html") {
                 let text = String::from_utf8(bytes)
                     .map_err(|error| format!("{} is not text: {error}", file.display()))?;
                 Some((kind, web_fonts::relink(&text)?.into_bytes()))
@@ -148,6 +148,7 @@ async fn respond(tree: Tree<'_>, mut stream: TcpStream) -> std::io::Result<()> {
     } else {
         Ok(None)
     };
+    let mut why_header = String::new();
     let (status, kind, body) = match answered {
         Ok(Some((kind, body))) => ("200 OK", kind, body),
         Ok(None) => (
@@ -157,6 +158,14 @@ async fn respond(tree: Tree<'_>, mut stream: TcpStream) -> std::io::Result<()> {
         ),
         Err(why) => {
             crate::log::note(format_args!("cannot answer {target}: {why}"));
+            // The page that asked cannot read the body of a stylesheet it
+            // failed to load, so the reason also goes in a header, which the
+            // render reads (`board::load`).
+            let one_line: String = why
+                .chars()
+                .map(|c| if c.is_control() { ' ' } else { c })
+                .collect();
+            why_header = format!("{CANNOT_ANSWER}: {one_line}\r\n");
             (
                 "500 Internal Server Error",
                 "text/plain",
@@ -165,7 +174,7 @@ async fn respond(tree: Tree<'_>, mut stream: TcpStream) -> std::io::Result<()> {
         }
     };
     let head = format!(
-        "HTTP/1.1 {status}\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n",
+        "HTTP/1.1 {status}\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nCache-Control: no-store\r\n{why_header}Connection: close\r\n\r\n",
         body.len()
     );
     stream.write_all(head.as_bytes()).await?;
@@ -174,6 +183,9 @@ async fn respond(tree: Tree<'_>, mut stream: TcpStream) -> std::io::Result<()> {
     }
     stream.shutdown().await
 }
+
+/// The header that gives why the server answered 500.
+pub(crate) const CANNOT_ANSWER: &str = "X-Cannot-Answer";
 
 pub(crate) struct Server {
     address: SocketAddr,

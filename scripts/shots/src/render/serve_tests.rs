@@ -199,8 +199,8 @@ async fn the_pinned_fonts_are_served_and_a_link_to_another_font_fails_the_page_t
         "<link href=\"https://fonts.googleapis.com/css2?family=Oswald:wght@400\">",
     );
     let design = system(
+        "tokens",
         "@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400&display=swap');",
-        "css",
         "js",
     );
     let tree = Tree {
@@ -225,14 +225,18 @@ async fn the_pinned_fonts_are_served_and_a_link_to_another_font_fails_the_page_t
         );
         let missing = get(server, "/web-fonts/roboto/no-such.woff2").await;
         assert!(missing.starts_with("HTTP/1.1 404"), "{missing}");
-        let tokens = get(server, "/ds/demo/tokens.css").await;
+        let bundle = get(server, "/ds/demo/components/bundle.css").await;
         assert!(
-            tokens.contains("@import url('/web-fonts/css2?family=Inter"),
-            "{tokens}"
+            bundle.contains("@import url('/web-fonts/css2?family=Inter"),
+            "{bundle}"
         );
         let other = get(server, "/android.other.font.dc.html").await;
         assert!(other.starts_with("HTTP/1.1 500"), "{other}");
         assert!(other.contains("Oswald"), "{other}");
+        assert!(
+            other.contains("X-Cannot-Answer: a page links the web font Oswald"),
+            "{other}"
+        );
     })
     .await
     .unwrap();
