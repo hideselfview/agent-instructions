@@ -115,11 +115,9 @@ pub fn listening(db: &Connection, sessions: &crate::inbox::Sessions) -> Result<O
     };
     let available = match &judge.inbox {
         Messaging::Claude(_) => {
-            let processes = crate::procs::Processes::read()?;
-            let running =
-                crate::claude_sessions::running(&sessions.claude, &processes).map_err(|why| {
-                    Fail::Message(format!("reading which Claude Code sessions run: {why}"))
-                })?;
+            let running = sessions.running_claude().map_err(|why| {
+                Fail::Message(format!("reading which Claude Code sessions run: {why}"))
+            })?;
             running
                 .iter()
                 .any(|session| session.session_id == judge.session)

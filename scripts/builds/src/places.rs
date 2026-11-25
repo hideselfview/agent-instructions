@@ -364,10 +364,7 @@ impl Places {
 
     /// How this machine reaches the agent sessions registered with builds.
     pub fn sessions(&self) -> crate::inbox::Sessions {
-        crate::inbox::Sessions {
-            claude: self.claude_sessions(),
-            codex: self.codex_program.clone(),
-        }
+        crate::inbox::Sessions::new(self.claude_sessions(), self.codex_program.clone())
     }
 
     /// The daemon's own folder: its socket, its log, its run records and the

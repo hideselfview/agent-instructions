@@ -132,6 +132,82 @@ fn a_health_answer_holds_a_claim_written_after_the_last_reading() {
     );
 }
 
+/// An agent that runs no implementation model in a worktree where an item
+/// runs shows in the daemon's health answer: this test process is the Claude
+/// Code session, with no `--model`, and works in the worktree.
+#[test]
+fn a_health_answer_names_an_agent_on_the_wrong_model() {
+    use crate::lists::fixtures::{NOON, item, make_store_named, stamp};
+    let scratch = Scratch::new("model-after-reading");
+    let tool = scratch.tool(0);
+    let main = scratch.dir.join("demo");
+    crate::testing::repo(&main, "target 1G\n");
+    let side = scratch.dir.join("demo-worktrees/side-1");
+    crate::testing::git(
+        &main,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "--detach",
+            &side.display().to_string(),
+        ],
+    );
+    let side = side.canonicalize().unwrap();
+    let checkout = crate::checkout::Checkout::find(&side.display().to_string()).unwrap();
+    crate::setup::setup(&tool, &crate::testing::no_ssh(), &checkout).unwrap();
+    crate::claim::write_claim(&checkout, "agent A", tool.now, None).unwrap();
+    let store = make_store_named(&tool.places, "demo", &["demo"]);
+    let id = store
+        .write(&stamp(NOON), "item add", |db| {
+            let id = item(db, vec![]);
+            crate::lists::running::start(
+                db,
+                &[id],
+                &[crate::lists::Running {
+                    worktree: side.display().to_string(),
+                    branch: "work".into(),
+                    brief: "b.md".into(),
+                    since: stamp(NOON),
+                }],
+            )?;
+            Ok(id)
+        })
+        .unwrap();
+    crate::testing::running_session(&tool.places, "s1");
+    std::env::set_current_dir(&side).unwrap();
+    let model = model_in(&scratch);
+    let mut seen = 0;
+    loop {
+        let page = model.page().unwrap();
+        let read = page.repos.iter().any(|repo| {
+            repo.checkouts
+                .iter()
+                .any(|c| c.name == "side-1" && c.git.is_some())
+        });
+        if read {
+            break;
+        }
+        seen = model.wait_change(seen);
+    }
+    model.stop_sampling();
+    model.sample_now().unwrap();
+    let Reply::Health(health) = ask(&model, &Question::Health) else {
+        panic!("health was not answered");
+    };
+    let lines: Vec<String> = health
+        .findings
+        .iter()
+        .filter(|f| f.kind == crate::health::FindingKind::Model)
+        .map(|f| f.advice.line())
+        .collect();
+    assert_eq!(lines.len(), 1, "{:?}", health.findings);
+    assert!(
+        lines[0].contains(&format!("for item {} names no model", id.0)),
+        "{lines:?}"
+    );
+}
+
 /// A worktree that git no longer lists leaves the page once the daemon is
 /// told its build root is gone: a card stands for a worktree that exists.
 #[test]

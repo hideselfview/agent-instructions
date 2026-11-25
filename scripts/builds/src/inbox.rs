@@ -206,14 +206,40 @@ impl Sent {
     }
 }
 
-/// Programs and state that reach registered sessions.
+/// Programs and state that reach registered sessions. The processes are read
+/// once, at the first question about running Claude Code sessions, and every
+/// clone and every question after it answers from that reading, so one
+/// health pass or one command judges the sessions from one list.
 #[derive(Clone, Debug)]
 pub struct Sessions {
     pub claude: std::path::PathBuf,
     pub codex: std::path::PathBuf,
+    processes:
+        std::sync::Arc<std::sync::OnceLock<std::result::Result<crate::procs::Processes, String>>>,
 }
 
 impl Sessions {
+    pub fn new(claude: std::path::PathBuf, codex: std::path::PathBuf) -> Sessions {
+        Sessions {
+            claude,
+            codex,
+            processes: Default::default(),
+        }
+    }
+
+    /// The Claude Code sessions that run, from this value's one reading of
+    /// the processes (`claude_sessions::running`).
+    pub fn running_claude(
+        &self,
+    ) -> std::result::Result<Vec<crate::claude_sessions::Running>, String> {
+        let processes = self
+            .processes
+            .get_or_init(|| crate::procs::Processes::read().map_err(|error| error.text()))
+            .as_ref()
+            .map_err(String::clone)?;
+        crate::claude_sessions::running(&self.claude, processes)
+    }
+
     pub fn send(&self, to: &Messaging, text: &str) -> Result<Sent> {
         match to {
             Messaging::Claude(inbox) => send_claude(inbox, text),

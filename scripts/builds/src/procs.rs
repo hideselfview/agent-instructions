@@ -65,6 +65,7 @@ pub struct Process {
     pub started: i64,
 }
 
+#[derive(Debug)]
 pub struct Processes {
     pub list: Vec<Process>,
     by_pid: HashMap<i32, usize>,
