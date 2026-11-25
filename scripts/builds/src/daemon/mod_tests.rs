@@ -245,7 +245,6 @@ fn a_rules_review_fails_with_the_error_of_a_failed_reading() {
     let lists = crate::lists::fixtures::read(&crate::lists::fixtures::db());
     let error = model.rules_review(&lists, &worktree).unwrap_err();
     assert!(error.contains(&why), "{error}");
-    std::fs::rename(&away, &places.root).unwrap();
 }
 
 /// A worktree that git no longer lists leaves the page once the daemon is
