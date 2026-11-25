@@ -172,8 +172,8 @@ fn spans_container(board: &Bounds, shot: &Bounds) -> bool {
 /// each glyph that sets them: a width by the glyphs of its label, a place by
 /// the glyphs of the labels before it on its line and its own. It holds for
 /// every element with a label, a text and a control alike (a chip's width and
-/// place come from its label); an element no label sizes differs by less than
-/// the box-edge tolerance either way.
+/// place come from its label), also for a control that no label sizes, which
+/// the checker cannot tell from a chip.
 pub(crate) fn boxes(
     board: &[Element],
     shot: &[Element],
