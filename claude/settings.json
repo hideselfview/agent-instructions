@@ -130,10 +130,10 @@
     },
     "claude-opus-5-5": {
       "effortLevel": "high",
-      "autoCompactWindow": 400000
+      "autoCompactWindow": 450000
     },
     "claude-sonnet-5-5": {
-      "autoCompactWindow": 400000
+      "autoCompactWindow": 500000
     }
   },
   "tui": "fullscreen",
