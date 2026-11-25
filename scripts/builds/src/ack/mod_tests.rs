@@ -349,7 +349,7 @@ fn an_agent_whose_version_builds_no_longer_keeps_gets_a_notice_listing_every_sec
         )
         .unwrap();
         // A store from before builds kept every acknowledged version.
-        db.execute("DELETE FROM ack_version", []).unwrap();
+        record::tests::forget_every_version(&db);
     }
     let notice = world.check(NOON + 60).unwrap().expect("the text changed");
     assert!(

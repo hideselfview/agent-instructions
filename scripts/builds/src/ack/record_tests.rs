@@ -140,3 +140,9 @@ pub fn plant_before_unread(db: &Connection) -> rusqlite::Result<()> {
          INSERT INTO ack_token (session, agent, part, token) VALUES ('s', 'a', 0, 't0');",
     )
 }
+
+/// Deletes every kept version, as a store from before builds kept every
+/// acknowledged version has none for an old acknowledgement.
+pub fn forget_every_version(db: &Connection) {
+    db.execute("DELETE FROM ack_version", []).unwrap();
+}
