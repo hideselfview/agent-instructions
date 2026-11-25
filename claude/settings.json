@@ -13,7 +13,7 @@
     ],
     "defaultMode": "bypassPermissions"
   },
-  "model": "opus[1m]",
+  "model": "sonnet",
   "hooks": {
     "SessionStart": [
       {
@@ -130,10 +130,10 @@
     },
     "claude-opus-5-5": {
       "effortLevel": "high",
-      "autoCompactWindow": 500000
+      "autoCompactWindow": 400000
     },
     "claude-sonnet-5-5": {
-      "autoCompactWindow": 550000
+      "autoCompactWindow": 400000
     }
   },
   "tui": "fullscreen",
