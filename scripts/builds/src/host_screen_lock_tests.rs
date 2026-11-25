@@ -1,4 +1,5 @@
 use super::*;
+use crate::fail::Fail;
 use crate::host::Host;
 use crate::host_scan::Scan;
 use std::cell::{Cell, RefCell};
@@ -132,4 +133,143 @@ fn a_takeover_ends_the_wait_and_a_failed_reading_fails_it() {
     })
     .unwrap_err();
     assert!(error.text().contains("ssh failed"));
+}
+
+/// A waiter that was killed or lost its connection ends with a non-zero exit
+/// (143 after SIGTERM). That is no failure of the build: the lane reads the
+/// lock again, as after a normal return.
+#[test]
+fn a_waiter_that_ends_by_a_signal_makes_the_lane_read_the_lock_again() {
+    let readings = RefCell::new(vec![Ok(true), Ok(true), Ok(false)].into_iter());
+    let waits = RefCell::new(vec![Err(Fail::Exit(143)), Ok(Ran::Finished)].into_iter());
+    let unlocked = wait_until_unlocked(
+        "m1",
+        &|| readings.borrow_mut().next().unwrap(),
+        &|_| {},
+        &|| waits.borrow_mut().next().unwrap(),
+    )
+    .unwrap();
+    assert!(unlocked);
+    assert_eq!(waits.borrow().len(), 0);
+}
+
+/// A folder with a stand-in `notifyutil`, which never gets the notification
+/// and records its pid, and a stand-in `ioreg`, which reports the screen
+/// locked for its first <locked_readings> calls and unlocked after.
+fn host_programs(dir: &std::path::Path, locked_readings: u32) {
+    use std::os::unix::fs::PermissionsExt;
+    let programs = [
+        (
+            "notifyutil",
+            format!(
+                "#!/bin/sh\necho $$ > {}/notifyutil.pid\nexec sleep 1000\n",
+                dir.display()
+            ),
+        ),
+        (
+            "ioreg",
+            format!(
+                "#!/bin/sh\nn=$(cat {d}/readings 2>/dev/null || echo 0)\necho $((n + 1)) > {d}/readings\nif [ \"$n\" -lt {locked_readings} ]; then echo '\"IOConsoleLocked\" = Yes'; else echo '\"IOConsoleLocked\" = No'; fi\n",
+                d = dir.display()
+            ),
+        ),
+    ];
+    for (name, body) in programs {
+        let path = dir.join(name);
+        std::fs::write(&path, body).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+}
+
+/// <script> run by `sh` with the stand-in programs of <dir> first on its path.
+fn run_script(dir: &std::path::Path, script: &str) -> std::process::Child {
+    let path = format!("{}:/usr/bin:/bin", dir.display());
+    std::process::Command::new("sh")
+        .arg("-c")
+        .arg(script)
+        .env("PATH", path)
+        .spawn()
+        .unwrap()
+}
+
+fn process_is_gone(pid: i32) -> bool {
+    for _ in 0..50 {
+        if unsafe { libc::kill(pid, 0) } != 0 {
+            return true;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    false
+}
+
+fn recorded_pid(dir: &std::path::Path, name: &str) -> i32 {
+    for _ in 0..50 {
+        if let Ok(text) = std::fs::read_to_string(dir.join(name))
+            && let Ok(pid) = text.trim().parse()
+        {
+            return pid;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    panic!("{name} never appeared in {}", dir.display());
+}
+
+/// The wait reads the lock again while it waits, so it returns once the screen
+/// reads unlocked although the notification never comes, and leaves its
+/// `notifyutil` behind to no one.
+#[test]
+fn the_wait_ends_once_the_screen_reads_unlocked_without_the_notification() {
+    crate::evict::in_temp_dir(&std::env::temp_dir(), "unlock-wait.", |dir| {
+        host_programs(dir, 3);
+        let mut waiter = run_script(dir, &wait_script(1));
+        let status =
+            wait_timeout::ChildExt::wait_timeout(&mut waiter, std::time::Duration::from_secs(15))
+                .unwrap();
+        if status.is_none() {
+            waiter.kill().unwrap();
+            panic!("the wait never ended");
+        }
+        assert!(status.unwrap().success());
+        assert!(process_is_gone(recorded_pid(dir, "notifyutil.pid")));
+        Ok(())
+    })
+    .unwrap();
+}
+
+/// A signal to the script takes its `notifyutil` with it.
+#[test]
+fn a_signal_to_the_wait_stops_its_notifyutil() {
+    crate::evict::in_temp_dir(&std::env::temp_dir(), "unlock-wait.", |dir| {
+        host_programs(dir, u32::MAX);
+        let mut waiter = run_script(dir, &wait_script(1));
+        let notifyutil = recorded_pid(dir, "notifyutil.pid");
+        unsafe { libc::kill(waiter.id() as i32, libc::SIGTERM) };
+        waiter.wait().unwrap();
+        assert!(process_is_gone(notifyutil));
+        Ok(())
+    })
+    .unwrap();
+}
+
+/// A wait whose connection ended, so its parent is gone, ends with its
+/// `notifyutil` instead of waiting for an unlock for days.
+#[test]
+fn a_wait_whose_parent_is_gone_ends_with_its_notifyutil() {
+    crate::evict::in_temp_dir(&std::env::temp_dir(), "unlock-wait.", |dir| {
+        host_programs(dir, u32::MAX);
+        let script_file = dir.join("wait.sh");
+        std::fs::write(&script_file, wait_script(1)).unwrap();
+        let outer = format!(
+            "sh {} & echo $! > {d}/waiter.pid; while [ ! -s {d}/notifyutil.pid ]; do sleep 0.1; done",
+            script_file.display(),
+            d = dir.display()
+        );
+        run_script(dir, &outer).wait().unwrap();
+        let waiter = recorded_pid(dir, "waiter.pid");
+        let notifyutil = recorded_pid(dir, "notifyutil.pid");
+        assert!(process_is_gone(waiter));
+        assert!(process_is_gone(notifyutil));
+        Ok(())
+    })
+    .unwrap();
 }
