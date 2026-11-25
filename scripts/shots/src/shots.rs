@@ -155,7 +155,7 @@ pub(crate) struct Size {
 }
 
 // A shot holds every key the harnesses write, whether or not a check reads it.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Bounds {
     pub(crate) x: f64,
@@ -265,26 +265,31 @@ pub(crate) struct Element {
     pub(crate) component: Option<String>,
     /// On a board, what the page draws over the element. Absent when nothing
     /// does, and in every shot.
-    #[serde(default, skip_serializing_if = "Cover::is_clear")]
+    #[serde(default = "Cover::clear", skip_serializing_if = "Cover::is_clear")]
     pub(crate) cover: Cover,
 }
 
 /// What a board's page draws over an element's box.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum Cover {
     /// Nothing, at the points asked.
-    #[default]
     Clear,
     /// Something is on top of part of the box (a modal's scrim, another
     /// element), or a sheet's edge clips part of it: its pixels are not all
     /// the element's own, and a glyph in them may be cut.
     Covered,
-    /// The page could not say what is on top at some point of the box.
+    /// The page could not say what is on top at some point of the box, and no
+    /// point it could ask about is covered.
     Untested,
 }
 
 impl Cover {
+    /// What a list that omits an element's cover says of it.
+    fn clear() -> Self {
+        Self::Clear
+    }
+
     fn is_clear(&self) -> bool {
         *self == Self::Clear
     }

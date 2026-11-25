@@ -278,7 +278,7 @@ fn read<'a>(
         let mut next_parent = parent;
         let mut next_folded = folded;
         if kept && !(role == Role::Text && inside_control) {
-            let Some(bounds) = node.geometry.as_ref().map(|geometry| geometry.bounds) else {
+            let Some(geometry) = node.geometry.as_ref() else {
                 return Err(ReadError::NoBox {
                     role: node.chrome_role.clone(),
                     name: node
@@ -290,7 +290,14 @@ fn read<'a>(
                 });
             };
             next_parent = Some(elements.len());
-            elements.push(element(node, role, label.clone(), bounds, parent, platform));
+            elements.push(element(
+                node,
+                geometry,
+                role,
+                label.clone(),
+                parent,
+                platform,
+            ));
         }
         if kept && role.is_control() && (label.is_some() || role == Role::Field) {
             next_folded = true;
@@ -307,9 +314,9 @@ fn read<'a>(
 
 fn element(
     node: &Raw,
+    geometry: &Geometry,
     role: Role,
     label: Option<String>,
-    bounds: Bounds,
     parent: Option<usize>,
     platform: Platform,
 ) -> Element {
@@ -339,31 +346,20 @@ fn element(
         native: node.chrome_role.clone(),
         label,
         value,
-        bounds,
+        bounds: geometry.bounds,
         enabled: !node.disabled,
         selected,
         text: if role == Role::Text {
-            node.geometry.as_ref().and_then(text_style)
+            text_style(geometry)
         } else {
             None
         },
         parent,
         focused: node.focused.then_some(true),
-        component: node
-            .geometry
-            .as_ref()
-            .and_then(|geometry| geometry.component.clone()),
-        cover: node
-            .geometry
-            .as_ref()
-            .map(|geometry| geometry.cover)
-            .unwrap_or_default(),
+        component: geometry.component.clone(),
+        cover: geometry.cover,
         placeholder: if role == Role::Field {
-            nonempty(
-                node.geometry
-                    .as_ref()
-                    .and_then(|g| g.placeholder.as_deref()),
-            )
+            nonempty(geometry.placeholder.as_deref())
         } else {
             None
         },
@@ -407,7 +403,7 @@ enum Measurement {
 }
 
 /// What a visible DOM node reports about its box and its font.
-#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 pub(crate) struct Geometry {
     bounds: Bounds,
     size: Option<f64>,

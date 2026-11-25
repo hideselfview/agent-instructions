@@ -17,7 +17,16 @@ fn node(id: &str, role: &str, children: &[&str]) -> Raw {
         children: children.iter().map(|c| c.to_string()).collect(),
         geometry: Some(Geometry {
             bounds: BOX,
-            ..Geometry::default()
+            size: None,
+            weight: None,
+            color: None,
+            placeholder: None,
+            field_value: None,
+            current: false,
+            in_selected: false,
+            component: None,
+            cover: Cover::Clear,
+            secret: false,
         }),
         ..Raw::default()
     }
