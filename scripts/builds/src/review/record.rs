@@ -1016,6 +1016,7 @@ pub fn open_progress(db: &Connection) -> Result<Vec<ReviewProgress>> {
                      UNION ALL SELECT finding_id, at FROM review_allowed
                      UNION ALL SELECT finding_id, at FROM review_dispute
                      UNION ALL SELECT finding_id, at FROM review_kept
+                     UNION ALL SELECT finding_id, at FROM review_kept_correction
                  ) changed ON changed.finding_id = f.id
                  WHERE r.landing_id = ?1 AND r.kind = 'review'
          )",

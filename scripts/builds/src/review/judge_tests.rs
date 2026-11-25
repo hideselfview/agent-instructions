@@ -795,6 +795,30 @@ fn the_judge_corrects_the_reason_it_kept_a_finding() {
 }
 
 #[test]
+fn a_correction_of_a_keep_counts_as_activity_on_the_landing() {
+    let (r, agent) = confirmed("judge-keep-again-activity");
+    let judge = caller("s-judge", "s-judge");
+    r.answer_as("dispute", Some(&agent), "wrong", "agent")
+        .unwrap();
+    r.answer_as("keep", Some(&judge), "real", "judge").unwrap();
+    // After every time the review's exchanges can carry, which run.rs reads
+    // from the system clock.
+    let later = Stamp {
+        at: 4_000_000_000,
+        by: "judge".to_string(),
+    };
+    r.demo
+        .store
+        .write(&later, "correct keep", |db| {
+            correct_keep(db, r.finding, "corrected", &later)
+        })
+        .unwrap();
+    let conn = r.demo.store.open_existing().unwrap();
+    let progress = record::open_progress(&conn).unwrap();
+    assert_eq!(progress[0].at, 4_000_000_000);
+}
+
+#[test]
 fn a_finding_has_one_dispute_and_a_second_disagreement_goes_to_the_coordinator() {
     let (r, agent) = confirmed("judge-dispute-once");
     let judge = caller("s-judge", "s-judge");
