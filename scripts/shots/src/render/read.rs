@@ -544,9 +544,9 @@ const GEOMETRY: &str = r#"function({frame, bodyOverflowAppliesToViewport}, boxed
   } else {
     return null;
   }
-  // A button or link (by the role Chrome computed: `boxedByGlyphInk`) that
-  // holds a glyph is boxed as the Mac boxes it: by the
-  // glyph's ink, not its room. A glyph's svg is its ink and its margins are
+  // A button or link (by the node's role on its platform, which sets
+  // `boxedByGlyphInk`) that holds a glyph is boxed as the Mac boxes it: by
+  // the glyph's ink, not its room. A glyph's svg is its ink and its margins are
   // the rest of its room, so each side of the control's box that its room
   // reaches moves in to the ink.
   let bounds = {x: rect.x, y: rect.y, width: rect.width, height: rect.height};
