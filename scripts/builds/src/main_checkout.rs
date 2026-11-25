@@ -98,6 +98,68 @@ pub fn forward_command(main: &Path) -> String {
     )
 }
 
+/// How the last install of a main checkout ended, as install.sh records it in
+/// the file `builds-install` of the repo's git folder: `ok <commit>` or
+/// `failed <commit> <step>`. install.sh writes it, since an install that
+/// fails before it builds `builds` has no program to write it.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Install {
+    Done,
+    Failed { commit: String, step: String },
+}
+
+/// The last install recorded for the main checkout at <main>; None when none
+/// is, and Err with what git said or what the file holds when that cannot be
+/// read.
+pub fn install_record(main: &Path) -> Result<Option<Install>, String> {
+    let dir = run(main, &["rev-parse", "--git-common-dir"])?;
+    let file = main.join(dir.trim()).join("builds-install");
+    let text = match std::fs::read_to_string(&file) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(format!("reading {}: {error}", file.display())),
+    };
+    let line = text.trim();
+    match line.split_once(' ') {
+        Some(("ok", _)) => Ok(Some(Install::Done)),
+        Some(("failed", rest)) => {
+            let (commit, step) = rest.split_once(' ').unwrap_or((rest, "an unnamed step"));
+            Ok(Some(Install::Failed {
+                commit: commit.to_string(),
+                step: step.to_string(),
+            }))
+        }
+        _ => Err(format!(
+            "{} holds {line:?}, which is neither `ok COMMIT` nor `failed COMMIT STEP`",
+            file.display()
+        )),
+    }
+}
+
+/// What the failed install of <main> says: the commit, the step, and that
+/// the builds on PATH is older than origin/main until an install succeeds.
+/// None when the last install did not fail.
+pub fn failed_install_words(main: &Path) -> Option<String> {
+    match install_record(main) {
+        Ok(Some(Install::Failed { commit, step })) => Some(format!(
+            "the install of {} in {} failed at {step}, so the builds on PATH is older than origin/main until an install succeeds",
+            &commit[..commit.len().min(8)],
+            main.display()
+        )),
+        Ok(_) => None,
+        Err(error) => Some(format!(
+            "builds could not read how the last install of {} ended: {error}",
+            main.display()
+        )),
+    }
+}
+
+/// The command that installs the main checkout at <main> again, once the
+/// cause of the failure is fixed.
+pub fn install_command(main: &Path) -> String {
+    crate::text::shell_word(&format!("{}/install.sh", main.display()))
+}
+
 /// The main checkout (`<home>/dev/<repo>`) of each repo of <repos> that has
 /// one on this Mac, each once, in repo order.
 pub fn main_checkouts<'a>(
@@ -129,7 +191,15 @@ pub fn findings(
         .flat_map(|lists| lists.repos.iter().map(String::as_str));
     main_checkouts(home, repos)
         .into_iter()
-        .filter_map(|main| finding(&main))
+        .flat_map(|main| {
+            let install = failed_install_words(&main).map(|words| {
+                Advice::run(
+                    format!("install: {words}; once the cause is fixed, run"),
+                    install_command(&main),
+                )
+            });
+            finding(&main).into_iter().chain(install)
+        })
         .map(|advice| Finding::new(FindingKind::MainCheckout, advice))
         .collect()
 }

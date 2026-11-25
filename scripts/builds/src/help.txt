@@ -2785,7 +2785,11 @@ STATUS, HEALTH AND THE DASHBOARD
                               <checkout> merge --ff-only origin/main`; when the
                               checkout is not on main or has commits
                               origin/main lacks, the finding says what the
-                              person does first);
+                              person does first); a project's main checkout
+                              whose last install failed (install.sh's
+                              record, as `land` reads it), with the commit and
+                              step and the command that installs again, until
+                              an install succeeds;
                               a local branch with commits waiting to land
                               that no worktree checks out and no open item of
                               any project runs in or keeps (`builds
@@ -3711,7 +3715,15 @@ run `review replay --rules-root` on it.
                               MAIN CHECKOUT BEHIND line that names the
                               checkout, says why and gives the command to run;
                               the landing still succeeds, with the commits on
-                              origin/main and the records written
+                              origin/main and the records written. When the
+                              last install.sh of the main checkout failed,
+                              land also prints an INSTALL FAILED line that
+                              names the commit, the step and the command to
+                              run again (install.sh records each install's end
+                              in the repo's git folder, file builds-install,
+                              since git does not report a failed hook); the
+                              line comes with each landing until an install
+                              succeeds
   builds review [run] <worktree> [<base>] --kind code|mechanical [--checked-by TEXT] [--landing <key>] [--item N]... [--head SHA] [--rules-root DIR] [--reviewer PROGRAM]
                               review the worktree's net change past <base>
                               (default origin/main) against the rules in

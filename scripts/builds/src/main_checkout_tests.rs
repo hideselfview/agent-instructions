@@ -111,6 +111,52 @@ fn health_lists_a_project_main_checkout_behind_origin_main() {
     );
 }
 
+/// Health lists a main checkout whose last install failed, with the step and
+/// the command that installs again, until an install succeeds; no record is no
+/// finding.
+#[test]
+fn health_lists_a_failed_install_until_an_install_succeeds() {
+    let scratch = Scratch::new("main-checkout-install");
+    let tool = scratch.tool(0);
+    crate::lists::cmd_lists(&tool, &words("init demo --repos demo --by tester")).unwrap();
+    let main = tool.places.home.join("dev/demo");
+    std::fs::create_dir_all(&main).unwrap();
+    git_out(&main, &["init", "-q", "-b", "main"]);
+    identify(&main);
+    commit_file(&main, "base.txt", "base");
+    git_out(&main, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    let found = || {
+        findings(
+            &tool.places.home,
+            &crate::lists::store::load_all(&tool.places),
+        )
+    };
+    assert!(found().is_empty(), "no install record is no finding");
+
+    let record = main.join(".git/builds-install");
+    let sha = git_out(&main, &["rev-parse", "HEAD"]);
+    std::fs::write(
+        &record,
+        format!("failed {sha} building builds with cargo\n"),
+    )
+    .unwrap();
+    let failed = found();
+    assert_eq!(failed.len(), 1, "{failed:?}");
+    assert_eq!(
+        failed[0].advice.command.as_deref(),
+        Some(format!("{}/install.sh", main.display()).as_str())
+    );
+    assert!(
+        failed[0].advice.text.contains(&sha[..8])
+            && failed[0].advice.text.contains("building builds with cargo")
+            && failed[0].advice.text.contains("older than origin/main"),
+        "{failed:?}"
+    );
+
+    std::fs::write(&record, format!("ok {sha}\n")).unwrap();
+    assert!(found().is_empty(), "a successful install clears it");
+}
+
 /// A repo's main checkout is `<home>/dev/<repo>`, listed once however many
 /// projects hold the repo, and a repo with no such folder has none.
 #[test]

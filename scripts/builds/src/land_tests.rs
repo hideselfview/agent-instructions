@@ -1551,6 +1551,31 @@ fn a_landing_fast_forwards_the_main_checkout_and_keeps_the_persons_edits() {
 }
 
 #[test]
+fn a_landing_whose_install_failed_says_so_and_names_the_step() {
+    let f = fixture("land-install-failed", "true\n", None);
+    // The main checkout's post-merge hook runs install.sh, which records how
+    // it ended in the git folder (install.sh); this one fails at its build.
+    let hook = f.main.join(".git/hooks/post-merge");
+    std::fs::write(
+        &hook,
+        "#!/bin/sh\necho \"failed $(git rev-parse HEAD) building builds with cargo\" > \"$(git rev-parse --git-common-dir)/builds-install\"\nexit 1\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&hook, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    let one = f.side(1, "a");
+    let a = commit_file(&one, "a.txt", "a\n", "add a");
+    let (code, out, _) = run_land(&f, &one, &["--done", "7", &a], project());
+    assert!(
+        code == 0
+            && out.contains("INSTALL FAILED:")
+            && out.contains("building builds with cargo")
+            && out.contains(&a[..8])
+            && out.contains(&format!("{}/install.sh", f.main.display())),
+        "{out}"
+    );
+}
+
+#[test]
 fn a_main_checkout_that_cannot_fast_forward_leaves_the_landing_landed_and_says_how() {
     let f = fixture("land-main-blocked", "true\n", None);
     let command = format!("git -C {} merge --ff-only origin/main", f.main.display());
