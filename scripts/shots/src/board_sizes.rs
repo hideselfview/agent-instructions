@@ -43,7 +43,7 @@ pub(crate) fn measure(
         tree,
         settings,
         &previews,
-        &checker.folders.cache,
+        checker.folders,
         &components,
         &scales,
         scratch.path(),

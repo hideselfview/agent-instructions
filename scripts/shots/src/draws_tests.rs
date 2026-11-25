@@ -32,6 +32,7 @@ fn folders() -> boards::Folders {
     boards::Folders {
         cache: crate::render::fixture::cache(),
         fonts: None,
+        volume: crate::render::fixture::volume(),
     }
 }
 

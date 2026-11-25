@@ -58,6 +58,22 @@ pub(crate) fn cache() -> PathBuf {
     PathBuf::from(std::env::var_os("HOME").expect("HOME is set")).join(".cache/builds-shots")
 }
 
+/// The build volume the tests keep the Chrome slots in, so that the tests and
+/// the builds runs on the host share them: the volume BUILDS_ROOT names, else
+/// the default one.
+pub(crate) fn volume() -> PathBuf {
+    std::env::var_os("BUILDS_ROOT").map_or_else(|| PathBuf::from("/Volumes/Builds"), PathBuf::from)
+}
+
+/// The folders the tests start Chrome with.
+pub(crate) fn folders() -> boards::Folders {
+    boards::Folders {
+        cache: cache(),
+        fonts: None,
+        volume: volume(),
+    }
+}
+
 /// Runs `work` with the tree of `root` and the fixture's design system
 /// served, and a browser started.
 pub(crate) async fn with_browser<T>(
@@ -79,7 +95,7 @@ pub(crate) async fn with_design<T>(
         runtime: boards::runtime::newest().text,
     };
     serve::with_server(tree, async |server| {
-        chrome::with_chrome(&cache(), async |chrome| work(server, chrome).await)
+        chrome::with_chrome(&folders(), async |chrome| work(server, chrome).await)
             .await
             .unwrap()
     })

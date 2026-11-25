@@ -315,6 +315,7 @@ fn the_design_system_comes_from_the_repos_sources_and_its_canvas_namespace() {
         &boards::Folders {
             cache: cache.path().to_path_buf(),
             fonts: None,
+            volume: cache.path().to_path_buf(),
         },
     )
     .unwrap();

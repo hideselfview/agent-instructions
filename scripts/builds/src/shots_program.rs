@@ -75,6 +75,7 @@ pub fn cmd_shots(places: &Places, args: &[String]) -> Result<()> {
                 folders: &boards::Folders {
                     cache: cache(places),
                     fonts: places.fonts.clone(),
+                    volume: places.root.clone(),
                 },
             };
             if shots::main(&checker, args) {

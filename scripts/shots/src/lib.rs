@@ -62,12 +62,10 @@ pub fn declared_scenes(
     declared::read(root, folders).map_err(|e| e.to_string())
 }
 
-/// The variable that names the build volume, which holds everything a run
-/// writes (`builds help`, BUILD VOLUME).
-pub const BUILD_ROOT_VARIABLE: &str = "BUILDS_ROOT";
-
-/// The build volume when `BUILD_ROOT_VARIABLE` is not set.
-pub const DEFAULT_BUILD_ROOT: &str = "/Volumes/Builds";
+/// The folder of the host's Chrome slot files, in the build volume's root. A
+/// name that starts with a dot is one of the volume's own, which `builds
+/// status` leaves out.
+pub const CHROME_SLOTS_FOLDER: &str = ".chrome-slots";
 
 /// What builds runs the checker with.
 pub struct Checker<'a> {
@@ -702,7 +700,7 @@ pub fn main(checker: &Checker, args: &[String]) -> bool {
         Action::Chrome => {
             let started = tokio::runtime::Runtime::new()
                 .map_err(|e| e.to_string())
-                .map(|runtime| runtime.block_on(render::chrome::start(&checker.folders.cache)));
+                .map(|runtime| runtime.block_on(render::chrome::start(checker.folders)));
             started.map(|started| {
                 println!("{}", started.line());
                 true
@@ -824,6 +822,7 @@ mod tests {
         let folders = boards::Folders {
             cache: dir.path().to_path_buf(),
             fonts: None,
+            volume: dir.path().to_path_buf(),
         };
         let checker = Checker {
             versions: &versions,

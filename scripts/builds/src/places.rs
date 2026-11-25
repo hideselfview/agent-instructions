@@ -26,8 +26,9 @@ pub const DERIVED_DATA_CAP_KIB: u64 = 15 * 1024 * 1024;
 pub const DERIVED_DATA_IDLE_MINUTES: u64 = 1440;
 /// The port `dashboard` serves on unless `--port` names another.
 pub const DASHBOARD_PORT: u16 = 7787;
-pub const ROOT_VARIABLE: &str = shots::BUILD_ROOT_VARIABLE;
+pub const ROOT_VARIABLE: &str = "BUILDS_ROOT";
 pub const LISTS_VARIABLE: &str = "BUILDS_LISTS";
+const DEFAULT_ROOT: &str = "/Volumes/Builds";
 
 /// The build root named by BUILDS_ROOT, including a relative path as given.
 pub fn build_root(setting: Option<&OsStr>) -> Result<PathBuf> {
@@ -36,7 +37,7 @@ pub fn build_root(setting: Option<&OsStr>) -> Result<PathBuf> {
             fail!("Set {ROOT_VARIABLE} to a build root path or leave it unset.")
         }
         Some(path) => Ok(PathBuf::from(path)),
-        None => Ok(PathBuf::from(shots::DEFAULT_BUILD_ROOT)),
+        None => Ok(PathBuf::from(DEFAULT_ROOT)),
     }
 }
 
@@ -166,6 +167,7 @@ impl Places {
         boards::Folders {
             cache: self.design_system_cache(),
             fonts: self.fonts.clone(),
+            volume: self.root.clone(),
         }
     }
 

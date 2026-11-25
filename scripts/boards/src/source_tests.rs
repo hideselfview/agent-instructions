@@ -350,6 +350,7 @@ fn a_board_draws_with_the_sf_mono_rules_and_what_is_published_has_none() {
         .board_design_system(&crate::Folders {
             cache: cache(&scratch),
             fonts: Some(fonts.clone()),
+            volume: scratch.dir.clone(),
         })
         .unwrap();
     assert!(!plain[0].contains("@font-face"));

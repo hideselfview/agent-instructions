@@ -29,7 +29,7 @@ fn left_out(name: &str) -> bool {
     MACOS_ENTRIES.contains(&name)
         || name == ".builds-daemon"
         || name == ".trash.lock"
-        || name == ".chrome-slots"
+        || name == shots::CHROME_SLOTS_FOLDER
 }
 
 /// Is <path> a folder the trash is being emptied through?

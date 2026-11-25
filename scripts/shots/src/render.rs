@@ -59,12 +59,12 @@ pub(crate) fn hashes(
 
 /// Renders the board of each of `names` from `tree` into `out` as
 /// `<name>.png` and `<name>.json`, in the Chrome kept in the program's cache
-/// folder <cache>; starts no browser when there is nothing to render.
+/// folder in <folders>; starts no browser when there is nothing to render.
 pub(crate) fn boards(
     tree: Tree<'_>,
     settings: &Settings,
     previews: &names::Previews,
-    cache: &Path,
+    folders: &boards::Folders,
     names: &[Name],
     scales: &Scales,
     out: &Path,
@@ -74,16 +74,17 @@ pub(crate) fn boards(
     }
     std::fs::create_dir_all(out).map_err(|e| format!("cannot prepare {}: {e}", out.display()))?;
     let drawn: Scales = names.iter().map(|n| (n.clone(), scales[n])).collect();
-    with_browser(tree, cache, async |server, chrome| {
+    with_browser(tree, folders, async |server, chrome| {
         draw_with(tree, settings, previews, &drawn, out, server, chrome).await
     })
 }
 
 /// Runs <work> on a runtime of its own with <tree> served and the pinned
-/// Chrome, kept in the program's cache folder <cache>, started.
+/// Chrome, kept in the program's cache folder, started, its pages taking the
+/// slots in the build volume <folders> name.
 pub(crate) fn with_browser<T>(
     tree: Tree<'_>,
-    cache: &Path,
+    folders: &boards::Folders,
     work: impl AsyncFnOnce(&serve::Server, &chrome::Chrome) -> Result<T, String>,
 ) -> Result<T, String> {
     tokio::runtime::Builder::new_multi_thread()
@@ -92,7 +93,7 @@ pub(crate) fn with_browser<T>(
         .map_err(|e| e.to_string())?
         .block_on(async {
             serve::with_server(tree, async |server| {
-                chrome::with_chrome(cache, async |chrome| work(server, chrome).await)
+                chrome::with_chrome(folders, async |chrome| work(server, chrome).await)
                     .await
                     .map_err(|e| e.to_string())?
             })
@@ -121,7 +122,7 @@ pub(crate) fn with_design<T>(
         design: &design,
         runtime: runtime.copy.text,
     };
-    with_browser(tree, &folders.cache, async |server, chrome| {
+    with_browser(tree, folders, async |server, chrome| {
         work(server, chrome, &frames).await
     })
 }

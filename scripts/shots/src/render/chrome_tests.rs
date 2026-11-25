@@ -137,7 +137,7 @@ fn a_browser_that_takes_longer_than_chromiumoxides_default_to_start_is_waited_fo
         .block_on(with_executable(
             browser,
             Duration::from_secs(40),
-            Slots::of_host().unwrap(),
+            Slots::of_host(&crate::render::fixture::volume()).unwrap(),
             async |_chrome| (),
         ))
         .unwrap_err()
@@ -160,7 +160,7 @@ fn a_browser_that_prints_no_address_fails_naming_the_window_server() {
         .block_on(with_executable(
             browser,
             Duration::from_secs(2),
-            Slots::of_host().unwrap(),
+            Slots::of_host(&crate::render::fixture::volume()).unwrap(),
             async |_chrome| (),
         ))
         .unwrap_err()
@@ -193,7 +193,7 @@ fn starting_chrome_names_how_it_came_out() {
 fn the_pinned_chrome_starts_from_the_cache() {
     let started = tokio::runtime::Runtime::new()
         .unwrap()
-        .block_on(start(&crate::render::fixture::cache()));
+        .block_on(start(&crate::render::fixture::folders()));
     assert!(
         matches!(started, Start::Started(ref version) if version.contains(PINNED)),
         "{started:?}"

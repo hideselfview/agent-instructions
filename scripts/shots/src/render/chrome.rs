@@ -365,22 +365,24 @@ fn one_line(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// Starts the pinned Chrome from the cache folder <cache>, as a run does, and
-/// closes it.
-pub(crate) async fn start(cache: &Path) -> Start {
-    Start::of(with_chrome(cache, async |chrome| chrome.version.clone()).await)
+/// Starts the pinned Chrome from the cache folder in <folders>, as a run does,
+/// and closes it.
+pub(crate) async fn start(folders: &boards::Folders) -> Start {
+    Start::of(with_chrome(folders, async |chrome| chrome.version.clone()).await)
 }
 
-/// Fetches the pinned build into the program's cache folder <cache> when it
-/// does not hold it, starts it
+/// Fetches the pinned build into the program's cache folder, in <folders>, when
+/// it does not hold it, starts it
 /// headless with `ARGS`, runs `work` with it and closes
 /// it. The browser's events are driven alongside `work` and end with it, so
-/// no task outlives the call.
+/// no task outlives the call. The pages it opens take the slots in the build
+/// volume <folders> name.
 pub(crate) async fn with_chrome<T>(
-    cache: &Path,
+    folders: &boards::Folders,
     work: impl AsyncFnOnce(&Chrome) -> T,
 ) -> Result<T, ChromeError> {
-    with_chrome_slots(cache, Slots::of_host().map_err(ChromeError::Launch)?, work).await
+    let slots = Slots::of_host(&folders.volume).map_err(ChromeError::Launch)?;
+    with_chrome_slots(&folders.cache, slots, work).await
 }
 
 /// `with_chrome` with the pages it opens taking their slots from <slots>.

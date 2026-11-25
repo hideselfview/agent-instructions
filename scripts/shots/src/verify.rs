@@ -256,7 +256,7 @@ pub(crate) fn verify(job: &Verification) -> Result<Outcome, String> {
         tree,
         job.settings,
         &previews,
-        &job.checker.folders.cache,
+        job.checker.folders,
         &to_draw,
         &scales,
         &boards,
