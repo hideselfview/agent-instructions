@@ -17,20 +17,23 @@ use crate::lane::Lane;
 use crate::places::Places;
 use crate::text::sort_collated;
 
-/// The git dir that <path> or a folder above it has, when that git dir still
-/// exists: a `.git` folder, or the folder a `.git` file names. None when no
-/// folder from <path> up has a `.git` (a folder outside every repo, or a
-/// worktree whose removal already deleted its `.git`, or whose git dir is
-/// gone).
+/// The git dir of the nearest `.git` at or above <path>, when that git dir
+/// still exists: a `.git` folder, or the folder a `.git` file names. The
+/// nearest `.git` decides, as it does for git: None when no folder from <path>
+/// up has one (a folder outside every repo, or a worktree whose removal
+/// already deleted its `.git`), and None when the nearest `.git` file names a
+/// git dir that is gone. A `.git` that cannot be read counts as existing.
 fn existing_git_dir_above(path: &Path) -> Option<PathBuf> {
-    path.ancestors().find_map(|folder| {
+    for folder in path.ancestors() {
         let dot_git = folder.join(".git");
-        let meta = std::fs::symlink_metadata(&dot_git).ok()?;
+        let meta = match std::fs::symlink_metadata(&dot_git) {
+            Ok(meta) => meta,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(_) => return Some(dot_git),
+        };
         if meta.is_dir() {
             return Some(dot_git);
         }
-        // A `.git` file that cannot be read or does not name a git dir is
-        // still a checkout git failed to read.
         let Some(named) = std::fs::read_to_string(&dot_git).ok().and_then(|text| {
             Some(
                 text.lines()
@@ -43,13 +46,12 @@ fn existing_git_dir_above(path: &Path) -> Option<PathBuf> {
             return Some(dot_git);
         };
         let git_dir = folder.join(named);
-        // Reading the folder's metadata fails when its parent cannot be
-        // searched, which is also a git dir git cannot read.
-        match std::fs::symlink_metadata(&git_dir) {
+        return match std::fs::symlink_metadata(&git_dir) {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
             _ => Some(git_dir),
-        }
-    })
+        };
+    }
+    None
 }
 
 /// The variables `git rev-parse --local-env-vars` lists. A git hook runs the
@@ -544,3 +546,7 @@ pub fn worktree_list(top: &Path) -> Result<Vec<Listed>> {
     }
     Ok(listed)
 }
+
+#[cfg(test)]
+#[path = "checkout_tests.rs"]
+mod tests;
