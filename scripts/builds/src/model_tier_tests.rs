@@ -171,3 +171,30 @@ fn model_findings_judge_the_agents_a_machine_read() {
     assert_eq!(found[0].kind, crate::health::FindingKind::Model);
     assert!(crate::health::model_findings(&[], &places(), &loaded).is_empty());
 }
+
+fn process(pid: i32, ppid: i32, name: &str) -> crate::procs::Process {
+    crate::procs::Process {
+        pid,
+        ppid,
+        uid: 501,
+        name: name.into(),
+        started: 0,
+    }
+}
+
+#[test]
+fn a_model_call_that_builds_started_is_no_agent() {
+    // `builds review` (pid 10) runs a reviewer (pid 11); a coordinator's
+    // Claude Code session (pid 20) runs an implementing agent (pid 21).
+    let processes = Processes::of(vec![
+        process(10, 1, "builds"),
+        process(11, 10, "2.1.332"),
+        process(20, 1, "2.1.332"),
+        process(21, 20, "2.1.332"),
+    ]);
+    let by_pid = |pid| processes.get(pid).unwrap();
+    assert!(started_by_builds(&processes, by_pid(11)));
+    assert!(!started_by_builds(&processes, by_pid(21)));
+    // A process whose parent is gone or unlisted was started by no builds.
+    assert!(!started_by_builds(&processes, by_pid(10)));
+}

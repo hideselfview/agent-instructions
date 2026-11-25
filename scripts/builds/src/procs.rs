@@ -83,13 +83,17 @@ impl Processes {
         Ok(Processes { list, by_pid })
     }
 
+    /// A listing of <list>, for tests of what a process list means.
+    #[cfg(test)]
+    pub fn of(list: Vec<Process>) -> Processes {
+        let by_pid = list.iter().enumerate().map(|(at, p)| (p.pid, at)).collect();
+        Processes { list, by_pid }
+    }
+
     /// A listing of no process, for tests of what a missing process means.
     #[cfg(test)]
     pub fn empty() -> Processes {
-        Processes {
-            list: Vec::new(),
-            by_pid: HashMap::new(),
-        }
+        Processes::of(Vec::new())
     }
 
     pub fn get(&self, pid: i32) -> Option<&Process> {
