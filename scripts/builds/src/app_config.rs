@@ -907,12 +907,7 @@ fn fail_on_unheld_index_lock(top: &Path, lock: CheckoutLock<'_>) -> Result<()> {
     if !path.exists() {
         return Ok(());
     }
-    let holders = Command::new("lsof")
-        .args(["-t", "--"])
-        .arg(&path)
-        .output()
-        .context(|| "running lsof to find who holds the git index lock".to_string())?;
-    if holders.stdout.iter().all(u8::is_ascii_whitespace) {
+    if !crate::evict::held_by_a_process(&path)? {
         fail!(
             "the app checkout's git lock {} exists and no process holds it: a git that was killed left it, and git refuses to write the checkout's index until it is deleted (delete it when no git of yours runs there)",
             path.display()
