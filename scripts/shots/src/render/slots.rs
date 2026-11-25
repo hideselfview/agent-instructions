@@ -11,6 +11,15 @@ use std::fs::File;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 
+/// The slots a host of <cores> cores offers: half of them, and at least one. A
+/// page draws on several threads (the compositor, the renderer and the
+/// browser process, besides the one raster thread), so a slot for each core
+/// let two runs use 13.5 of a host's 14 cores and leave no room for its other
+/// work.
+fn chrome_slots(cores: NonZeroUsize) -> NonZeroUsize {
+    NonZeroUsize::new(cores.get() / 2).unwrap_or(NonZeroUsize::MIN)
+}
+
 /// The slots one host offers for pages.
 #[derive(Clone, Debug)]
 pub(crate) struct Slots {
@@ -25,14 +34,16 @@ pub(crate) struct Slot {
 }
 
 impl Slots {
-    /// The host's slots in the build volume <volume>: one for each core, as many
-    /// as the pages that can rasterize at once without queueing (the cargo
-    /// bands follow the cores the same way, `builds host band`). Fails when the
-    /// host does not say how many cores it has.
+    /// The host's slots in the build volume <volume>: half the host's cores
+    /// (`chrome_slots`). Fails when the host does not say how many cores it
+    /// has.
     pub(crate) fn of_host(volume: &Path) -> Result<Self, String> {
         let cores = std::thread::available_parallelism()
             .map_err(|e| format!("cannot read the host's core count: {e}"))?;
-        Ok(Self::new(&volume.join(crate::CHROME_SLOTS_FOLDER), cores))
+        Ok(Self::new(
+            &volume.join(crate::CHROME_SLOTS_FOLDER),
+            chrome_slots(cores),
+        ))
     }
 
     /// <count> slots in <folder>.

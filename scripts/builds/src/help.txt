@@ -1206,8 +1206,9 @@ wait. A Chrome that fails to start for another reason fails the build at once.
 `builds health` lists each host that holds a build this way (HEALTH CHECK in
 `builds help workflow`).
 
-Each host draws no more pages at once than it has cores, however many Chromes
-run there. Every program that starts the pinned Chrome (a shots run, `builds
+Each host draws no more pages at once than half its cores (at least one),
+however many Chromes run there, so drawing boards leaves room for the host's
+other work. Every program that starts the pinned Chrome (a shots run, `builds
 shots draws`, the shots crate's tests) takes a slot before it opens a page and
 gives it back when the page closes. A slot is an exclusive flock on one of the
 files in <build volume>/.chrome-slots, the volume that BUILDS_ROOT names, so a

@@ -140,6 +140,16 @@ fn a_host_draws_no_more_pages_than_it_has_slots_however_many_processes_start_pag
 }
 
 #[test]
+fn a_host_gives_chrome_half_its_cores_and_at_least_one_slot() {
+    let slots = |cores: usize| chrome_slots(NonZeroUsize::new(cores).unwrap()).get();
+    assert_eq!(slots(1), 1);
+    assert_eq!(slots(2), 1);
+    assert_eq!(slots(3), 1);
+    assert_eq!(slots(10), 5);
+    assert_eq!(slots(14), 7);
+}
+
+#[test]
 fn the_host_keeps_its_slots_in_the_build_volume() {
     let volume = tempfile::tempdir().unwrap();
     let slots = Slots::of_host(volume.path()).unwrap();
