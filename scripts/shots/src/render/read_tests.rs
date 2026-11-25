@@ -702,7 +702,7 @@ async fn a_button_or_link_that_wraps_a_glyph_is_boxed_by_the_glyphs_ink_not_its_
 .only{position:absolute;left:10px;top:10px;padding:0;border:0;display:block}
 .only svg{width:10px;height:11px;margin:1px 2px 1.5px 1px}
 .link{position:absolute;left:10px;top:60px;display:inline-flex;align-items:center;gap:4px;height:20px}
-.link svg{width:6px;height:6px;margin:3px 3px 3px 3px}</style></helmet>
+.link svg{width:6.208px;height:6.19px;margin:2.86px 2.905px 2.95px 2.888px}</style></helmet>
 <button class="only" aria-label="Play"><svg class="bae-glyph" viewBox="0 0 10 11"><path d="M0 0h10v11z"/></svg></button>
 <a class="link" href="#">Words<svg class="bae-glyph" viewBox="0 0 6 6"><path d="M0 0h6v6z"/></svg></a>
 <div style="position:absolute;left:10px;top:100px">Words</div>
@@ -735,14 +735,15 @@ async fn a_button_or_link_that_wraps_a_glyph_is_boxed_by_the_glyphs_ink_not_its_
         play.bounds
     );
     // The link's words are as wide as the same words drawn alone below it,
-    // then the 4 pt gap
-    // and the arrow's 6 pt of ink: its room's 3 pt margin on the right is
-    // not the link's. Its line's 20 pt height stays, which the room does not
-    // reach.
+    // then the 4 pt gap, the arrow's room to its left and its 6.208 pt of
+    // ink: its room's 2.905 pt margin on the right is not the link's. The
+    // margins are the design system's own, fractions that layout rounds to
+    // 1/64 pt, which the room's edge may miss by. Its line's 20 pt height
+    // stays, which the room does not reach.
     let words = find(&elements, Role::Text, "Words");
     let link = find(&elements, Role::Link, "Words");
     assert!(
-        (link.bounds.width - (words.bounds.width + 4.0 + 6.0 + 3.0)).abs() < 0.01,
+        (link.bounds.width - (words.bounds.width + 4.0 + 2.888 + 6.208)).abs() < 0.03,
         "{:?} {:?}",
         link.bounds,
         words.bounds

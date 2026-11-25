@@ -561,7 +561,9 @@ const GEOMETRY: &str = r#"function({frame, bodyOverflowAppliesToViewport}, boxed
         right: ink.right + parseFloat(margin.marginRight),
         bottom: ink.bottom + parseFloat(margin.marginBottom),
       };
-      const reaches = (side) => Math.abs(room[side] - sides[side]) <= 0.01;
+      // Layout rounds a margin to 1/64 pt, so the room's edge may miss the
+      // control's by a few hundredths of a point.
+      const reaches = (side) => Math.abs(room[side] - sides[side]) <= 0.1;
       for (const side of ['left', 'top']) {
         if (reaches(side)) sides[side] = Math.max(sides[side], ink[side]);
       }
