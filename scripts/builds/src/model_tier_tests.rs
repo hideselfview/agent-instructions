@@ -121,3 +121,53 @@ fn several_items_in_one_worktree_are_all_named() {
         "{lines:?}"
     );
 }
+
+#[test]
+fn read_places_a_session_process_by_its_working_folder() {
+    let here = std::env::current_dir().unwrap();
+    let place = Place {
+        label: "bae/side-1".into(),
+        repo: "bae".into(),
+        top: here.clone(),
+        root: here,
+    };
+    let own = std::process::id() as i32;
+    let processes = Processes::read().unwrap();
+    let (agents, unread) = super::read(&processes, &HashSet::from([own]), &[place]);
+    assert!(unread.is_empty(), "{unread:?}");
+    assert_eq!(
+        agents
+            .iter()
+            .map(|a| (a.pid, a.provider, a.place))
+            .collect::<Vec<_>>(),
+        [(own, Provider::Claude, 0)]
+    );
+    // A process outside every place, or in no session, is no agent here.
+    assert!(
+        super::read(&processes, &HashSet::from([own]), &[])
+            .0
+            .is_empty()
+    );
+    assert!(
+        super::read(&processes, &HashSet::new(), &places())
+            .0
+            .is_empty()
+    );
+}
+
+#[test]
+fn model_findings_judge_the_agents_a_machine_read() {
+    let lists = running_in_side_1(1);
+    let loaded = Ok(vec![crate::lists::store::Loaded {
+        project: "demo".into(),
+        lists: Ok(lists),
+    }]);
+    let found = crate::health::model_findings(
+        &[agent(7, 0, "claude --model claude-opus-5-5")],
+        &places(),
+        &loaded,
+    );
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].kind, crate::health::FindingKind::Model);
+    assert!(crate::health::model_findings(&[], &places(), &loaded).is_empty());
+}

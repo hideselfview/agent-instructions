@@ -89,9 +89,8 @@ pub fn findings(agents: &[Agent], places: &[Place], lists: &[&Lists]) -> Vec<Adv
 }
 
 /// The agent processes among <processes> that work in one of <places>: each
-/// Claude Code session (a process named `claude` whose pid is in <claude>,
-/// the pids of `claude_sessions`, so a pid that another program took is no
-/// agent) and each `codex` process. The second value has a line for each
+/// Claude Code session (a process whose pid is in <claude>, the pids of
+/// `claude_sessions`) and each `codex` process. The second value has a line for each
 /// agent process whose arguments or working folder builds cannot read.
 pub fn read(
     processes: &Processes,
@@ -101,10 +100,12 @@ pub fn read(
     let mut agents = Vec::new();
     let mut unread = Vec::new();
     for process in &processes.list {
-        let provider = match process.name.as_str() {
-            "claude" if claude.contains(&process.pid) => Provider::Claude,
-            "codex" => Provider::Codex,
-            _ => continue,
+        let provider = if claude.contains(&process.pid) {
+            Provider::Claude
+        } else if process.name == "codex" {
+            Provider::Codex
+        } else {
+            continue;
         };
         let argv = match crate::procs::live_args(process.pid) {
             Ok(Some(argv)) => argv,
