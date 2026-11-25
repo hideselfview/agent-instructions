@@ -208,6 +208,46 @@ fn a_health_answer_names_an_agent_on_the_wrong_model() {
     );
 }
 
+/// A card never judges from an old reading of the processes: once the last
+/// reading failed, the rules review of a worktree fails with its error, even
+/// while the daemon holds the reading before it.
+#[test]
+fn a_rules_review_fails_with_the_error_of_a_failed_reading() {
+    let scratch = Scratch::new("review-after-failed-reading");
+    let model = model_in(&scratch);
+    model.stop_sampling();
+    model.sample_now().unwrap();
+    let places = scratch.places();
+    let away = scratch.dir.join("volume-away");
+    std::fs::rename(&places.root, &away).unwrap();
+    let why = model.sample_now().unwrap_err().to_string();
+    let commit = crate::side_git::Commit {
+        sha: "abcdef0".into(),
+        full: "abcdef0123456789abcdef0123456789abcdef01".into(),
+        time: 1,
+        authored: 1,
+        subject: "s".into(),
+    };
+    let git = crate::side_git::SideRead {
+        head: Some(commit.clone()),
+        ahead: vec![commit],
+        main: "0".repeat(40),
+        uncommitted: 0,
+        last_write: None,
+    };
+    let top = scratch.dir.join("demo-worktrees/side-1");
+    let worktree = crate::review::verdicts::Worktree {
+        repo: "demo",
+        top: &top,
+        branch: Some("work"),
+        git: &git,
+    };
+    let lists = crate::lists::fixtures::read(&crate::lists::fixtures::db());
+    let error = model.rules_review(&lists, &worktree).unwrap_err();
+    assert!(error.contains(&why), "{error}");
+    std::fs::rename(&away, &places.root).unwrap();
+}
+
 /// A worktree that git no longer lists leaves the page once the daemon is
 /// told its build root is gone: a card stands for a worktree that exists.
 #[test]

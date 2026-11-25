@@ -1622,21 +1622,13 @@ impl Model {
     /// project of <lists>, stands (`review_cards::standing`): None when
     /// land would take them as far as the review goes, or when they need no
     /// review.
-    fn rules_review(
+    pub(super) fn rules_review(
         &self,
         lists: &crate::lists::Lists,
         worktree: &crate::review::verdicts::Worktree,
     ) -> std::result::Result<Option<ItemWait>, String> {
         let Some(newest) = worktree.git.ahead.first() else {
             return Ok(None);
-        };
-        let store = crate::lists::store::Store::named(&self.places, &lists.project)
-            .map_err(crate::fail::Fail::text)?;
-        let Some(verdict) =
-            self.review_queries
-                .request(&self.review_reads, &store, lists.version, worktree)
-        else {
-            return Ok(Some(ItemWait::RulesReview(ReviewWait::Checking)));
         };
         // The daemon never reads the processes to answer: it takes the
         // sessions from its last sample, and fails with the reading's error
@@ -1647,6 +1639,14 @@ impl Model {
                 Some(sample) => sample.machine.claude_sessions.clone(),
                 None => return Ok(Some(ItemWait::RulesReview(ReviewWait::Checking))),
             }
+        };
+        let store = crate::lists::store::Store::named(&self.places, &lists.project)
+            .map_err(crate::fail::Fail::text)?;
+        let Some(verdict) =
+            self.review_queries
+                .request(&self.review_reads, &store, lists.version, worktree)
+        else {
+            return Ok(Some(ItemWait::RulesReview(ReviewWait::Checking)));
         };
         super::review_cards::standing(
             &store,
