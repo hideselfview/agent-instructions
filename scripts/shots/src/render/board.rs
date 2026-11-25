@@ -19,9 +19,7 @@ use chromiumoxide::cdp::browser_protocol::emulation::{
     EventVirtualTimeBudgetExpired, MediaFeature, SetDeviceMetricsOverrideParams,
     SetEmulatedMediaParams, SetVirtualTimePolicyParams, VirtualTimePolicy,
 };
-use chromiumoxide::cdp::browser_protocol::network::{
-    EnableParams as NetworkEnableParams, EventResponseReceived,
-};
+use chromiumoxide::cdp::browser_protocol::network::EventResponseReceived;
 use chromiumoxide::cdp::browser_protocol::page::{
     AddScriptToEvaluateOnNewDocumentParams, CaptureScreenshotFormat,
 };
@@ -59,13 +57,6 @@ pub(crate) struct Rendered {
     pub(crate) png: Vec<u8>,
     /// The captured rectangle in viewport coordinates, in points.
     pub(crate) frame: Bounds,
-}
-
-fn text_of(value: &serde_json::Value) -> String {
-    match value {
-        serde_json::Value::String(s) => s.clone(),
-        other => other.to_string(),
-    }
 }
 
 fn text(object: &RemoteObject) -> String {
@@ -264,15 +255,11 @@ pub(crate) async fn load(
 
     // The server answers 500 for what it cannot give, such as a link to a web
     // font it holds no copy of; the page goes on without it, so a 500 fails the
-    // board.
-    page.execute(NetworkEnableParams::default())
-        .await
-        .map_err(protocol)?;
+    // board. chromiumoxide has enabled the Network domain by now.
     let mut answered = page
         .event_listener::<EventResponseReceived>()
         .await
         .map_err(protocol)?;
-    let mut refused: Vec<(String, i64, String)> = Vec::new();
 
     page.goto(url).await.map_err(protocol)?;
     grant(page, LOAD_BUDGET_MS).await?;
@@ -298,18 +285,25 @@ pub(crate) async fn load(
                 errors.push(format!("uncaught: {} {detail}", details.text));
             }
             Some(event) = answered.next() => {
-                if event.response.status >= 500 {
-                    let why = event
-                        .response
+                let response = &event.response;
+                if response.status >= 500 {
+                    let why = response
                         .headers
                         .inner()
                         .as_object()
                         .into_iter()
                         .flatten()
                         .find(|(name, _)| name.eq_ignore_ascii_case(crate::render::serve::CANNOT_ANSWER))
-                        .map(|(_, why)| text_of(why))
-                        .unwrap_or_default();
-                    refused.push((event.response.url.clone(), event.response.status, why));
+                        .and_then(|(_, why)| why.as_str());
+                    errors.push(match why {
+                        Some(why) => format!("{} answered {}: {why}", response.url, response.status),
+                        None => format!(
+                            "{} answered {} and gave no {} header",
+                            response.url,
+                            response.status,
+                            crate::render::serve::CANNOT_ANSWER
+                        ),
+                    });
                 }
             }
             Some(_) = budget.next() => break,
@@ -320,9 +314,6 @@ pub(crate) async fn load(
                 )));
             }
         }
-    }
-    for (url, status, why) in refused {
-        errors.push(format!("{url} answered {status}: {why}"));
     }
     if !errors.is_empty() {
         return Err(BoardError::Runtime {
