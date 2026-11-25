@@ -129,12 +129,19 @@ pub fn ended(pid: i32) -> bool {
 /// The kernel reports exits even for processes this caller did not start.
 /// Fails if the kernel does not report the exit within ten seconds.
 pub fn terminate_and_wait(pid: i32) -> io::Result<()> {
+    exit_after(pid, || super::terminate(pid))
+}
+
+/// Registers for the exit of <pid>, runs <act>, and waits for the exit; a
+/// process that has already exited needs no wait. Fails if the kernel does
+/// not report the exit within ten seconds.
+pub fn exit_after(pid: i32, act: impl FnOnce() -> io::Result<()>) -> io::Result<()> {
     use crate::kqueue::{Queue, event};
     let queue = Queue::new()?;
     if let Err(error) = queue.watch_exit(pid) {
         return super::accept_gone(error);
     }
-    super::terminate(pid)?;
+    act()?;
     let mut notification = [event(0, 0, 0, 0)];
     queue.wait(
         &mut notification,

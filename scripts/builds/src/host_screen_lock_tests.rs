@@ -142,15 +142,22 @@ fn a_takeover_ends_the_wait_and_a_failed_reading_fails_it() {
 fn a_waiter_that_a_signal_ended_makes_the_lane_read_the_lock_again() {
     let readings = RefCell::new(vec![Ok(true), Ok(true), Ok(false)].into_iter());
     let waits = RefCell::new(vec![Err(Fail::Exit(143)), Ok(Ran::Finished)].into_iter());
+    let said = RefCell::new(Vec::new());
     let unlocked = wait_until_unlocked(
         "m1",
         &|| readings.borrow_mut().next().unwrap(),
-        &|_| {},
+        &|words| said.borrow_mut().push(words.to_string()),
         &|| waits.borrow_mut().next().unwrap(),
     )
     .unwrap();
     assert!(unlocked);
     assert_eq!(waits.borrow().len(), 0);
+    assert!(
+        said.borrow()
+            .iter()
+            .any(|words| words.contains("host m1") && words.contains("exit 143")),
+        "{said:?}"
+    );
 
     let error =
         wait_until_unlocked("m1", &|| Ok(true), &|_| {}, &|| Err(Fail::Exit(255))).unwrap_err();
@@ -161,31 +168,23 @@ fn a_waiter_that_a_signal_ended_makes_the_lane_read_the_lock_again() {
 /// `notifyutil` writes its pid to the FIFO `notifyutil.pid` and then waits for
 /// a notification that never comes, and `ioreg` reports the screen locked for
 /// its first <locked_readings> calls and unlocked after.
-fn host_programs(dir: &std::path::Path, locked_readings: u32) {
+fn host_programs(scratch: &crate::testing::Scratch, locked_readings: u32) {
+    let dir = scratch.dir.as_path();
     crate::testing::fifo(&dir.join("notifyutil.pid"));
-    program(
-        dir,
+    scratch.script(
         "notifyutil",
         &format!(
             "echo $$ > {}/notifyutil.pid\nexec sleep 1000",
             dir.display()
         ),
     );
-    program(
-        dir,
+    scratch.script(
         "ioreg",
         &format!(
             "n=$(cat {d}/readings 2>/dev/null || echo 0)\necho $((n + 1)) > {d}/readings\nif [ \"$n\" -lt {locked_readings} ]; then echo '\"IOConsoleLocked\" = Yes'; else echo '\"IOConsoleLocked\" = No'; fi",
             d = dir.display()
         ),
     );
-}
-
-fn program(dir: &std::path::Path, name: &str, body: &str) {
-    use std::os::unix::fs::PermissionsExt;
-    let path = dir.join(name);
-    std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
-    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
 }
 
 /// <script> run by `sh` with the stand-in programs of <dir> first on its path.
@@ -201,26 +200,12 @@ fn run_script(dir: &std::path::Path, script: &str) -> std::process::Child {
 
 /// Waits for the kernel to report that <pid> exited, for up to ten seconds.
 fn exits(pid: i32) -> bool {
-    use crate::kqueue::{Queue, event};
-    let queue = Queue::new().unwrap();
-    if let Err(error) = queue.watch_exit(pid) {
-        // The kernel refuses to watch a process that exited and has not been
-        // reaped yet, as one the script left to its parent.
-        assert_eq!(error.raw_os_error(), Some(libc::ESRCH), "{error}");
-        return true;
-    }
-    let mut notification = [event(0, 0, 0, 0)];
-    queue
-        .wait(
-            &mut notification,
-            Some(std::time::Instant::now() + std::time::Duration::from_secs(10)),
-        )
-        .is_ok()
+    crate::procs::exit_after(pid, || Ok(())).is_ok()
 }
 
-/// The pid that the stand-in `notifyutil` of <dir> wrote, once it started.
-fn notifyutil_pid(dir: &std::path::Path) -> i32 {
-    std::fs::read_to_string(dir.join("notifyutil.pid"))
+/// The pid that the file <name> of <dir> holds.
+fn pid_in(dir: &std::path::Path, name: &str) -> i32 {
+    std::fs::read_to_string(dir.join(name))
         .unwrap()
         .trim()
         .parse()
@@ -232,10 +217,12 @@ fn notifyutil_pid(dir: &std::path::Path) -> i32 {
 /// `notifyutil` behind to no one.
 #[test]
 fn the_wait_ends_once_the_screen_reads_unlocked_without_the_notification() {
-    crate::evict::in_temp_dir(&std::env::temp_dir(), "unlock-wait.", |dir| {
-        host_programs(dir, 3);
+    let scratch = crate::testing::Scratch::new("unlock-wait");
+    let dir = scratch.dir.as_path();
+    {
+        host_programs(&scratch, 3);
         let mut waiter = run_script(dir, &wait_script(1));
-        let notifyutil = notifyutil_pid(dir);
+        let notifyutil = pid_in(dir, "notifyutil.pid");
         let status =
             wait_timeout::ChildExt::wait_timeout(&mut waiter, std::time::Duration::from_secs(30))
                 .unwrap();
@@ -245,33 +232,33 @@ fn the_wait_ends_once_the_screen_reads_unlocked_without_the_notification() {
         };
         assert!(status.success());
         assert!(exits(notifyutil));
-        Ok(())
-    })
-    .unwrap();
+    }
 }
 
 /// A signal to the script takes its `notifyutil` with it.
 #[test]
 fn a_signal_to_the_wait_stops_its_notifyutil() {
-    crate::evict::in_temp_dir(&std::env::temp_dir(), "unlock-wait.", |dir| {
-        host_programs(dir, u32::MAX);
+    let scratch = crate::testing::Scratch::new("unlock-wait");
+    let dir = scratch.dir.as_path();
+    {
+        host_programs(&scratch, u32::MAX);
         let mut waiter = run_script(dir, &wait_script(1));
-        let notifyutil = notifyutil_pid(dir);
+        let notifyutil = pid_in(dir, "notifyutil.pid");
         unsafe { libc::kill(waiter.id() as i32, libc::SIGTERM) };
         assert_eq!(waiter.wait().unwrap().code(), Some(143));
         assert!(exits(notifyutil));
-        Ok(())
-    })
-    .unwrap();
+    }
 }
 
 /// A listener that fails ends the wait with its exit status, which the lane
 /// reports, instead of a wait that looks finished.
 #[test]
 fn a_listener_that_fails_ends_the_wait_with_its_status() {
-    crate::evict::in_temp_dir(&std::env::temp_dir(), "unlock-wait.", |dir| {
-        host_programs(dir, u32::MAX);
-        program(dir, "notifyutil", "exit 3");
+    let scratch = crate::testing::Scratch::new("unlock-wait");
+    let dir = scratch.dir.as_path();
+    {
+        host_programs(&scratch, u32::MAX);
+        scratch.script("notifyutil", "exit 3");
         let mut waiter = run_script(dir, &wait_script(1));
         let status =
             wait_timeout::ChildExt::wait_timeout(&mut waiter, std::time::Duration::from_secs(30))
@@ -281,17 +268,17 @@ fn a_listener_that_fails_ends_the_wait_with_its_status() {
             panic!("the wait never ended");
         };
         assert_eq!(status.code(), Some(3));
-        Ok(())
-    })
-    .unwrap();
+    }
 }
 
 /// A wait whose connection ended, so its parent is gone, ends with its
 /// `notifyutil` instead of waiting for an unlock for days.
 #[test]
 fn a_wait_whose_parent_is_gone_ends_with_its_notifyutil() {
-    crate::evict::in_temp_dir(&std::env::temp_dir(), "unlock-wait.", |dir| {
-        host_programs(dir, u32::MAX);
+    let scratch = crate::testing::Scratch::new("unlock-wait");
+    let dir = scratch.dir.as_path();
+    {
+        host_programs(&scratch, u32::MAX);
         let script_file = dir.join("wait.sh");
         std::fs::write(&script_file, wait_script(1)).unwrap();
         // The outer shell starts the wait, learns from the FIFO that its
@@ -302,16 +289,7 @@ fn a_wait_whose_parent_is_gone_ends_with_its_notifyutil() {
             d = dir.display()
         );
         run_script(dir, &outer).wait().unwrap();
-        let pid = |name: &str| -> i32 {
-            std::fs::read_to_string(dir.join(name))
-                .unwrap()
-                .trim()
-                .parse()
-                .unwrap()
-        };
-        assert!(exits(pid("waiter.pid")));
-        assert!(exits(pid("notifyutil.txt")));
-        Ok(())
-    })
-    .unwrap();
+        assert!(exits(pid_in(dir, "waiter.pid")));
+        assert!(exits(pid_in(dir, "notifyutil.txt")));
+    }
 }

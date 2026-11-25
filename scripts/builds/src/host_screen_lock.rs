@@ -154,7 +154,13 @@ pub fn wait_until_unlocked(
         &|| Ok(()),
         &format!("{}'s screen is unlocked", place(name)),
         &|| match wait() {
-            Err(Fail::Exit(WAITER_KILLED)) => Ok(Ran::Finished),
+            Err(Fail::Exit(WAITER_KILLED)) => {
+                announce(&format!(
+                    "the wait for {}'s screen to unlock was killed (exit {WAITER_KILLED}); reading the lock again",
+                    place(name)
+                ));
+                Ok(Ran::Finished)
+            }
             ended => ended,
         },
     )

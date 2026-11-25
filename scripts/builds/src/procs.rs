@@ -17,6 +17,8 @@ mod os;
 #[path = "procs_linux.rs"]
 pub(crate) mod os;
 
+#[cfg(all(test, target_os = "macos"))]
+pub use os::exit_after;
 #[cfg(target_os = "macos")]
 pub use os::terminate_and_wait;
 pub use os::{args, cwd, ended, environment, open_files, output_paths, tree_cpu, usage};
