@@ -40,7 +40,7 @@ pub(crate) fn frame_offset(
         // wraps the line, the shot spans its container) and the text sits
         // in it by its alignment, so its left edge is a worse witness of the
         // frame than the left edge of a box that is drawn where it is.
-        if b.kind != Role::Text || widths_agree(&from, &to) {
+        if b.kind != Role::Text || widths_agree(&from, &to, 0.0) {
             dx.push(to.x - from.x);
         } else {
             other_width.push(to.x - from.x);
@@ -52,9 +52,10 @@ pub(crate) fn frame_offset(
     (median(dx), median(dy))
 }
 
-/// Whether two text boxes have the same width within the tolerance.
-fn widths_agree(board: &Bounds, shot: &Bounds) -> bool {
-    (shot.width - board.width).abs() <= EDGE_TOLERANCE
+/// Whether two text boxes have the same width within the tolerance and
+/// <slack> points more.
+fn widths_agree(board: &Bounds, shot: &Bounds, slack: f64) -> bool {
+    (shot.width - board.width).abs() <= EDGE_TOLERANCE + slack
 }
 
 /// How one axis of a box differs: the shift of its start, and how much longer
@@ -139,20 +140,18 @@ fn lies_inside(board: &Bounds, shot: &Bounds) -> bool {
         && shot.y + shot.height <= board.y + board.height + EDGE_TOLERANCE
 }
 
-/// The glyphs of <entry>'s label and of the labels of <pairs> before it on its
-/// line of <board>: those that start at or left of its left edge and share
-/// most of its height.
-fn glyphs_up_to(board: &[Element], pairs: &[(Entry, Entry)], entry: &Entry, at: &Bounds) -> usize {
+/// The glyphs of the labels of <pairs> that start at or left of the left edge
+/// of <at>, a box of <board>, and share most of its height: its own label and
+/// those before it on its line.
+fn glyphs_up_to(board: &[Element], pairs: &[(Entry, Entry)], at: &Bounds) -> usize {
     pairs
         .iter()
         .map(|(other, _)| other)
-        .filter(|other| other.index != entry.index)
         .filter(|other| {
             let there = other.bounds(board);
             let shared = (at.y + at.height).min(there.y + there.height) - at.y.max(there.y);
             there.x <= at.x && shared > at.height.min(there.height) / 2.0
         })
-        .chain(std::iter::once(entry))
         .map(|labelled| labelled.words.chars().count())
         .sum()
 }
@@ -170,9 +169,11 @@ fn spans_container(board: &Bounds, shot: &Bounds) -> bool {
 /// The geometry warnings of the pairs, the shot's boxes moved back by `offset`.
 /// A platform that rounds each glyph advance to a whole pixel (Android's
 /// native text) sets a text's width and place off by `glyph_slack` points for
-/// each glyph that sets them: a width by the glyphs of the label, a place by
-/// the glyphs of the labels before it on its line and its own. That holds for
-/// a text and for a control a label sizes, a chip.
+/// each glyph that sets them: a width by the glyphs of its label, a place by
+/// the glyphs of the labels before it on its line and its own. It holds for
+/// every element with a label, a text and a control alike (a chip's width and
+/// place come from its label); an element no label sizes differs by less than
+/// the box-edge tolerance either way.
 pub(crate) fn boxes(
     board: &[Element],
     shot: &[Element],
@@ -189,12 +190,12 @@ pub(crate) fn boxes(
             ..to.bounds
         };
         let width_slack = glyph_slack * b.words.chars().count() as f64;
-        let place_slack = glyph_slack * glyphs_up_to(board, pairs, b, &from) as f64;
+        let place_slack = glyph_slack * glyphs_up_to(board, pairs, &from) as f64;
         let (horizontal, vertical) = if b.kind == Role::Text {
             // A platform's text box may span its container, so its left edge
             // and width say something only where the two widths agree.
             (
-                ((to_bounds.width - from.width).abs() <= EDGE_TOLERANCE + width_slack)
+                widths_agree(&from, &to_bounds, width_slack)
                     .then(|| {
                         Axis::start_and_length(from.x, from.width, to_bounds.x, to_bounds.width)
                     })

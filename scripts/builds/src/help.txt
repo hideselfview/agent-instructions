@@ -1303,8 +1303,8 @@ app draws is up to half a pixel off for each glyph against the board's
 fractional advances (167.66 px against 169.0 for "Your music, everywhere" at 16
 px), and the error adds up along a line and across the chips of a row. On the
 android lane the checker lets each glyph set a width and a place off by half a
-pixel: the width of a text, or of a control a label sizes, may differ by that
-for the glyphs of its label, and its left edge may sit off by that for the
+pixel: the width of an element with a label (a text, or a chip a label sizes)
+may differ by that for the glyphs of its label, and its left edge may sit off by that for the
 glyphs of the labels before it on its line and its own, besides the box-edge
 tolerance. A text whose width differs by that much compares its left edge as a
 text of the same width does. The mac lane keeps the box-edge tolerance alone.

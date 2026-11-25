@@ -227,7 +227,7 @@ fn warnings_with_slack(board: &[Element], shot: &[Element], slack: f64) -> Vec<S
 fn a_text_width_within_the_rounding_of_its_glyph_advances_is_the_same_layout() {
     // 22 glyphs, each advance off by up to a quarter point: a width 4 pt
     // wider is the same line, and its left edge is compared; a width 8 pt
-    // wider is another layout (a box that spans its container), as before.
+    // wider is another layout, a box that spans its container.
     let board = vec![
         boxed(
             Role::Text,
@@ -252,8 +252,8 @@ fn a_text_width_within_the_rounding_of_its_glyph_advances_is_the_same_layout() {
 #[test]
 fn a_text_after_others_on_its_line_may_sit_off_by_their_rounding_too() {
     // Three texts in a row: each starts after the earlier ones, so the third
-    // is off by the sum of their glyph errors: 2.3 pt left, with 14 glyphs
-    // before it and 2 pt of box tolerance.
+    // is off by the sum of their glyph errors: 2.3 pt left, with 20 glyphs
+    // before it, 12 of its own and 2 pt of box tolerance.
     let row = |x3: f64| {
         vec![
             boxed(Role::Text, "Harbor Records", 20.0, 10.0, 70.0, 16.0),
