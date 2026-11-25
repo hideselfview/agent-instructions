@@ -162,3 +162,64 @@ async fn serves_the_sf_mono_files_of_its_fonts_folder_and_nothing_else_under_fon
     .await
     .unwrap();
 }
+
+#[tokio::test]
+async fn a_page_that_links_google_fonts_links_the_pinned_copy_instead() {
+    let root = tempfile::tempdir().unwrap();
+    write(
+        root.path(),
+        "design/mocks/android.a.b.dc.html",
+        "<link href=\"https://fonts.googleapis.com/css2?family=Roboto:wght@400;500&amp;display=swap\" rel=\"stylesheet\">",
+    );
+    let design = system("tokens", "css", "js");
+    let tree = Tree {
+        root: root.path(),
+        design: &design,
+        runtime: "runtime",
+    };
+    with_server(tree, async |server| {
+        let board = get(server, "/android.a.b.dc.html").await;
+        assert!(
+            board.ends_with(
+                "<link href=\"/web-fonts/css2?family=Roboto:wght@400;500&amp;display=swap\" rel=\"stylesheet\">"
+            ),
+            "{board}"
+        );
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn the_pinned_roboto_is_served_for_any_weights_and_other_families_are_refused() {
+    let root = tree();
+    let design = system("tokens", "css", "js");
+    let tree = Tree {
+        root: root.path(),
+        design: &design,
+        runtime: "runtime",
+    };
+    with_server(tree, async |server| {
+        let css = get(
+            server,
+            "/web-fonts/css2?family=Roboto:wght@400;800&display=swap",
+        )
+        .await;
+        assert!(css.starts_with("HTTP/1.1 200 OK"), "{css}");
+        assert!(css.contains("text/css"), "{css}");
+        assert!(css.contains("url(/web-fonts/roboto/latin.woff2)"), "{css}");
+        let font = get(server, "/web-fonts/roboto/latin.woff2").await;
+        assert!(font.starts_with("HTTP/1.1 200 OK"), "{font}");
+        assert!(
+            font.contains("font/woff2") && font.contains("wOF2"),
+            "{font}"
+        );
+        let other = get(server, "/web-fonts/css2?family=Oswald:wght@400").await;
+        assert!(other.starts_with("HTTP/1.1 500"), "{other}");
+        assert!(other.contains("Oswald"), "{other}");
+        let missing = get(server, "/web-fonts/roboto/no-such.woff2").await;
+        assert!(missing.starts_with("HTTP/1.1 404"), "{missing}");
+    })
+    .await
+    .unwrap();
+}

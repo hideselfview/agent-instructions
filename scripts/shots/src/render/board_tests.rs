@@ -20,6 +20,11 @@ transition:opacity 1s !important}}#fade.on{opacity:0}</style></helmet>\
 <div id=\"spin\"></div><div id=\"fade\"></div></x-dc>",
         ),
         (
+            "fixture.roboto",
+            "<link rel=\"stylesheet\" href=\"https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&amp;display=swap\">\
+<x-dc><helmet><style>body{margin:0;font:700 20px Roboto}</style></helmet><div>Roboto</div></x-dc>",
+        ),
+        (
             "fixture.broken",
             "<x-dc><div>broken</div></x-dc>\
 <script type=\"text/x-dc\" data-dc-script>class Component extends DCLogic { renderVals( { }</script>",
@@ -182,4 +187,41 @@ async fn a_spinning_element_records_its_unrotated_box() {
     .await;
     assert_eq!(width, 40.0);
     assert_eq!(opacity, "0");
+}
+
+#[tokio::test]
+async fn a_google_fonts_link_loads_the_checkers_own_copy_and_reaches_no_other_server() {
+    let root = tree();
+    let (loaded, requests) = fixture::with_browser(root.path(), async |server, chrome| {
+        let page = chrome.new_page().await.unwrap();
+        render(
+            &page,
+            "fixture.roboto",
+            &server.board_url("fixture.roboto"),
+            Frame { w: 300, h: 200 },
+            1.0,
+        )
+        .await
+        .unwrap();
+        let loaded: bool = page
+            .evaluate("document.fonts.check('700 20px Roboto') && [...document.fonts].some(f => f.family.includes('Roboto') && f.status === 'loaded')")
+            .await
+            .unwrap()
+            .into_value()
+            .unwrap();
+        let requests: Vec<String> = page
+            .evaluate("performance.getEntriesByType('resource').map(e => e.name)")
+            .await
+            .unwrap()
+            .into_value()
+            .unwrap();
+        (loaded, requests)
+    })
+    .await;
+    assert!(loaded, "{requests:?}");
+    let outside: Vec<_> = requests
+        .iter()
+        .filter(|url| !url.starts_with("http://127.0.0.1:"))
+        .collect();
+    assert!(outside.is_empty(), "{outside:?}");
 }

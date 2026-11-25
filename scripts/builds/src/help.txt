@@ -1706,7 +1706,10 @@ built again.
                               either revision. The checker stops CSS animations
                               and transitions before it captures the pictures
                               and element boxes, and starts Chrome with software
-                              rasterization on one thread. Two pictures are
+                              rasterization on one thread. A page's Google Fonts
+                              link loads the checker's own copy of Roboto, never
+                              Google's answer, which differs from one request
+                              to the next. Two pictures are
                               alike when they have one size and no colour
                               channel of any pixel differs by more than 2 of
                               255, the noise that remains while the machine is

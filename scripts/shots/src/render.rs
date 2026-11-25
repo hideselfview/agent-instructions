@@ -9,6 +9,7 @@ pub(crate) mod preview;
 pub(crate) mod read;
 pub(crate) mod runtime;
 pub(crate) mod serve;
+pub(crate) mod web_fonts;
 
 use crate::design::{self, DesignSystem};
 use crate::names::{self, Name};
