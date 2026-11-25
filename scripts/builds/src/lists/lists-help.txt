@@ -283,6 +283,16 @@ main checkout holds or that more than one holds; an absolute path is itself.
       brief cites (default ~/.codex/agent-instructions), and --reviewer the
       program both checks run in place of the session reviewer.
 
+  builds item check-brief --worktree W [--worktree W2] --brief P
+                    [--spec-decided N] [--rules-root DIR] [--reviewer PROGRAM]
+      Runs the checks that `item take` runs on brief P (the pasted-text
+      check, the rulings check and the spec check of each W's repo) with the
+      same code, prints what take would print, and takes no item. It records
+      nothing in the store, not even the spec check. A session that writes a
+      brief runs it before it starts an agent, and fixes each sentence it
+      refuses. It takes the same --worktree, --brief, --spec-decided,
+      --rules-root and --reviewer as take, and names no item and no branch.
+
   builds item handoff N --brief P
       Sets a running item's brief for its next agent, in every worktree it
       runs in.

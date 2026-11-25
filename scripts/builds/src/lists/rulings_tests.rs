@@ -123,6 +123,28 @@ impl Bench {
         )
     }
 
+    /// `builds item check-brief` over a brief that holds <brief>, in side
+    /// worktree 1.
+    fn check_brief(&self, brief: &str) -> Result<()> {
+        let side = self
+            .demo
+            .add_side(1, "agent A", "work")
+            .display()
+            .to_string();
+        let file = self.demo.scratch.dir.join("brief.md");
+        std::fs::write(&file, brief).unwrap();
+        cmd_item(
+            &self.demo.tool,
+            &words(&[
+                "check-brief",
+                "--worktree",
+                &side,
+                "--brief",
+                &file.display().to_string(),
+            ]),
+        )
+    }
+
     /// The prompts of the rulings check the commands gave the reviewer.
     fn prompts(&self) -> Vec<String> {
         self.fake
@@ -331,4 +353,14 @@ fn a_brief_whose_hard_limits_cite_claude_md_and_builds_help_is_taken() {
     ))
     .unwrap();
     assert_eq!(b.demo.store.load().unwrap().items[0].running.len(), 1);
+}
+
+#[test]
+fn check_brief_refuses_a_brief_whose_standing_prohibition_cites_nothing() {
+    let b = bench("rulings-check-brief");
+    let prohibition = "Agents never reword commit messages.";
+    b.quotes(&[prohibition]);
+    let refused = refusal(b.check_brief(&format!("# Brief\n\nFix the parser. {prohibition}\n")));
+    assert!(refused.contains(&format!("\"{prohibition}\"")), "{refused}");
+    assert!(b.demo.store.load().unwrap().items.is_empty());
 }

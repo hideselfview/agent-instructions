@@ -118,6 +118,25 @@ impl Bench {
         cmd_item(&self.demo.tool, &words(&args))
     }
 
+    /// `builds item check-brief` with the brief, in side worktree 1.
+    fn check_brief(&self, extra: &[&str]) -> Result<()> {
+        let root = self.fake.root.display().to_string();
+        let program = self.fake.program.executable().display().to_string();
+        let mut args = vec![
+            "check-brief",
+            "--worktree",
+            &self.side,
+            "--brief",
+            &self.brief,
+            "--rules-root",
+            &root,
+            "--reviewer",
+            &program,
+        ];
+        args.extend_from_slice(extra);
+        cmd_item(&self.demo.tool, &words(&args))
+    }
+
     fn lists(&self) -> Lists {
         self.demo.store.load().unwrap()
     }
@@ -605,4 +624,57 @@ pub fn recorded_usage(db: &Connection) -> Vec<(Option<i64>, Option<i64>)> {
         .unwrap()
         .collect::<rusqlite::Result<Vec<_>>>()
         .unwrap()
+}
+
+#[test]
+fn check_brief_refuses_a_conflict_like_take_and_takes_and_records_nothing() {
+    let b = bench("spec-check-brief-conflict", true);
+    b.answer(conflict(SPEC_TEXT), json!([]));
+    let refused = refusal(b.check_brief(&[]));
+    assert!(
+        refused.contains(&format!("the brief says: \"{CONFLICT}\"")),
+        "{refused}"
+    );
+    assert!(
+        refused.contains(&format!("spec/demo.md:5 (repo demo) says: \"{SPEC_TEXT}\"")),
+        "{refused}"
+    );
+    let lists = b.lists();
+    assert!(lists.items[0].running.is_empty());
+    assert!(
+        lists.items[0].spec_checks.is_empty(),
+        "check-brief records no spec check"
+    );
+    assert_eq!(b.prompts().len(), 1, "the reviewer ran once");
+}
+
+#[test]
+fn check_brief_passes_a_brief_with_an_unstated_behavior_and_takes_nothing() {
+    let b = bench("spec-check-brief-unstated", true);
+    b.answer(
+        json!([]),
+        json!([{"brief": UNSTATED, "why": "searched for search box and text"}]),
+    );
+    b.check_brief(&[]).unwrap();
+    let lists = b.lists();
+    assert!(lists.items[0].running.is_empty());
+    assert!(lists.items[0].spec_checks.is_empty());
+    b.take(&[]).unwrap();
+    assert_eq!(
+        b.lists().items[0].running.len(),
+        1,
+        "take still works after"
+    );
+}
+
+#[test]
+fn check_brief_needs_a_worktree_and_names_no_items() {
+    let b = bench("spec-check-brief-args", true);
+    let none = refusal(cmd_item(
+        &b.demo.tool,
+        &words(&["check-brief", "--brief", &b.brief]),
+    ));
+    assert!(none.contains("needs --worktree"), "{none}");
+    let item = refusal(b.check_brief(&["1"]));
+    assert!(item.contains("names no items"), "{item}");
 }

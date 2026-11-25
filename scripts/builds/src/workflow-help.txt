@@ -323,6 +323,10 @@ DISPATCH
     the person's, or a standing prohibition, and names no source, cite the
     decision, rule file, CLAUDE.md or builds help section, or take the
     sentence out of the brief and ask the person.
+  - Before you start an agent, run `builds item check-brief --worktree W
+    --brief P`: it runs the checks of `builds item take` (pasted text,
+    rulings, spec) on the brief and takes nothing, so you fix a refused
+    sentence before an agent starts and reads the brief.
   - `builds item take` checks the brief against the product spec. When it
     refuses for a conflict, put the conflict on the decision stack with which
     text looks wrong and why, or fix the brief when the brief is wrong. Once

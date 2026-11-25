@@ -1,4 +1,4 @@
-//! `builds item add | edit | note | wait | take | handoff | stop | drop |
+//! `builds item add | edit | note | wait | take | check-brief | handoff | stop | drop |
 //! defer | place | check-landing | landed | show | list | times`: the work queue's
 //! commands. Each refuses a step that lacks what it needs, and every write is
 //! one `Store::write` made of the owners' operations (`item`, `running`,
@@ -31,7 +31,7 @@ use crate::lists::{item_event, project};
 use crate::text::note;
 use crate::tool::Tool;
 
-const USAGE: &str = "usage: builds item add --title T --area A --details-file F [--for design-session] [--wait REF [--until ENDER]]... [--brief P] [--priority first|last --why WHY] [--origin N] [--tag T]...\n       builds item edit N [--title T] [--area A] [--details-file F] [--brief P] [--for F] [--origin N] [--tag T]... [--untag T]...\n       builds item note N TEXT\n       builds item wait N (--on REF [--until ENDER] | --off REF [--blocks-nothing WHY])\n       builds item take N [M...] [--worktree W --branch B] --brief P [--as design-session] [--tier implementation|strongest]\n       builds item handoff N --brief P\n       builds item stop N --why WHY\n       builds item finished N --made WHAT\n       builds item drop N --why WHY\n       builds item defer N --issue URL\n       builds item place N first|last|none --why WHY\n       builds item check-landing DIR [--done N]... [--part N]... SHA...\n       builds item landed DIR [--done N]... [--part N]... SHA...\n       builds item show N\n       builds item list [--running] [--ready] [--area A] [--for F] [--tag T]\n       builds item times [N...]\n(REF is item:N, question:N, design:N or condition:TEXT, and a condition takes --until agent|coordinator|ci)";
+const USAGE: &str = "usage: builds item add --title T --area A --details-file F [--for design-session] [--wait REF [--until ENDER]]... [--brief P] [--priority first|last --why WHY] [--origin N] [--tag T]...\n       builds item edit N [--title T] [--area A] [--details-file F] [--brief P] [--for F] [--origin N] [--tag T]... [--untag T]...\n       builds item note N TEXT\n       builds item wait N (--on REF [--until ENDER] | --off REF [--blocks-nothing WHY])\n       builds item take N [M...] [--worktree W --branch B] --brief P [--as design-session] [--tier implementation|strongest]\n       builds item check-brief --worktree W [--worktree W2] --brief P\n       builds item handoff N --brief P\n       builds item stop N --why WHY\n       builds item finished N --made WHAT\n       builds item drop N --why WHY\n       builds item defer N --issue URL\n       builds item place N first|last|none --why WHY\n       builds item check-landing DIR [--done N]... [--part N]... SHA...\n       builds item landed DIR [--done N]... [--part N]... SHA...\n       builds item show N\n       builds item list [--running] [--ready] [--area A] [--for F] [--tag T]\n       builds item times [N...]\n(REF is item:N, question:N, design:N or condition:TEXT, and a condition takes --until agent|coordinator|ci)";
 
 pub fn cmd_item(tool: &Tool, args: &[String]) -> Result<()> {
     let cwd = current_dir()?;
@@ -44,6 +44,7 @@ pub fn cmd_item(tool: &Tool, args: &[String]) -> Result<()> {
         "note" => note_item(tool, rest, &cwd),
         "wait" => wait(tool, rest, &cwd),
         "take" => take::take(tool, rest, &cwd),
+        "check-brief" => take::check(tool, rest, &cwd),
         "handoff" => handoff(tool, rest, &cwd),
         "stop" => stop(tool, rest, &cwd),
         "finished" => finished(tool, rest, &cwd),
