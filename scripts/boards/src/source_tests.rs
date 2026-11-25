@@ -397,3 +397,78 @@ fn a_tar_that_fails_is_reported_whatever_the_pipe_does() {
         "{error}"
     );
 }
+
+/// A folder with a link and a file under `design/system`, as bae's sheep
+/// logo and its icon source are, to copy out.
+fn linked(scratch: &Scratch) -> PathBuf {
+    let dir = scratch.dir.join("from");
+    let logos = dir.join("design/system/assets/Logos");
+    std::fs::create_dir_all(&logos).unwrap();
+    std::fs::write(logos.join("README.md"), "logos").unwrap();
+    std::os::unix::fs::symlink("../../../../icon-source.svg", logos.join("bae-sheep.svg")).unwrap();
+    std::fs::write(dir.join("icon-source.svg"), "<svg/>").unwrap();
+    dir
+}
+
+#[test]
+fn copying_out_into_a_folder_that_holds_the_same_files_and_links_succeeds() {
+    let scratch = Scratch::new("source-copy-twice");
+    let dir = linked(&scratch);
+    let into = scratch.dir.join("into");
+    let inputs = ["design/system".to_string(), "icon-source.svg".to_string()];
+    Source::Dir(&dir).copy_out(&inputs, &into).unwrap();
+    // A second build of the same design system copies into the same folder.
+    Source::Dir(&dir).copy_out(&inputs, &into).unwrap();
+    let logos = into.join("design/system/assets/Logos");
+    assert_eq!(
+        std::fs::read_link(logos.join("bae-sheep.svg")).unwrap(),
+        PathBuf::from("../../../../icon-source.svg")
+    );
+    assert_eq!(
+        std::fs::read_to_string(logos.join("README.md")).unwrap(),
+        "logos"
+    );
+}
+
+#[test]
+fn copying_out_into_a_folder_that_holds_a_different_file_or_link_fails_and_names_it() {
+    let scratch = Scratch::new("source-copy-differs");
+    let dir = linked(&scratch);
+    let inputs = ["design/system".to_string(), "icon-source.svg".to_string()];
+    let logos = "design/system/assets/Logos";
+
+    let into = scratch.dir.join("other-link");
+    std::fs::create_dir_all(into.join(logos)).unwrap();
+    std::os::unix::fs::symlink("elsewhere.svg", into.join(logos).join("bae-sheep.svg")).unwrap();
+    let error = message(Source::Dir(&dir).copy_out(&inputs, &into));
+    assert!(
+        error.contains("bae-sheep.svg")
+            && error.contains("elsewhere.svg")
+            && error.contains("../../../../icon-source.svg"),
+        "{error}"
+    );
+
+    let into = scratch.dir.join("other-file");
+    std::fs::create_dir_all(into.join(logos)).unwrap();
+    std::fs::write(into.join(logos).join("README.md"), "another").unwrap();
+    let error = message(Source::Dir(&dir).copy_out(&inputs, &into));
+    assert!(
+        error.contains("README.md") && error.contains("different"),
+        "{error}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(into.join(logos).join("README.md")).unwrap(),
+        "another"
+    );
+
+    // A file where the source has a link is different too, and the link's
+    // target is never written through.
+    let into = scratch.dir.join("file-for-link");
+    std::fs::create_dir_all(into.join(logos)).unwrap();
+    std::fs::write(into.join(logos).join("bae-sheep.svg"), "<svg/>").unwrap();
+    let error = message(Source::Dir(&dir).copy_out(&inputs, &into));
+    assert!(
+        error.contains("bae-sheep.svg") && error.contains("already holds a file or folder"),
+        "{error}"
+    );
+}
