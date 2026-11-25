@@ -109,14 +109,22 @@ fn rules_file(places: &Places, session: &str, agent: &str) -> Result<PathBuf> {
     Ok(file.with_file_name(format!("{agent}.rules")))
 }
 
-/// Whether builds gave agent <agent> of <session> the rule <slug>.
-pub fn was_given_rule(places: &Places, session: &str, agent: &str, slug: &str) -> Result<bool> {
+/// What the rules file of agent <agent> of <session> holds: one slug on each
+/// line, empty when builds gave the agent no rule.
+fn rules_given(places: &Places, session: &str, agent: &str) -> Result<String> {
     let path = rules_file(places, session, agent)?;
     match std::fs::read_to_string(&path) {
-        Ok(held) => Ok(held.lines().any(|line| line == slug)),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Ok(held) => Ok(held),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
         Err(error) => fail!("reading {}: {error}", path.display()),
     }
+}
+
+/// Whether builds gave agent <agent> of <session> the rule <slug>.
+pub fn was_given_rule(places: &Places, session: &str, agent: &str, slug: &str) -> Result<bool> {
+    Ok(rules_given(places, session, agent)?
+        .lines()
+        .any(|line| line == slug))
 }
 
 /// Records that builds gave agent <agent> of <session> the rules <slugs>, by
@@ -124,11 +132,7 @@ pub fn was_given_rule(places: &Places, session: &str, agent: &str, slug: &str) -
 /// none.
 pub fn give_rules(places: &Places, session: &str, agent: &str, slugs: &[String]) -> Result<()> {
     let path = rules_file(places, session, agent)?;
-    let mut held = match std::fs::read_to_string(&path) {
-        Ok(held) => held,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(error) => fail!("reading {}: {error}", path.display()),
-    };
+    let mut held = rules_given(places, session, agent)?;
     for slug in slugs {
         held.push_str(slug);
         held.push('\n');
