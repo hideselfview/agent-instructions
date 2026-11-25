@@ -80,6 +80,15 @@ impl Processes {
         Ok(Processes { list, by_pid })
     }
 
+    /// A listing of no process, for tests of what a missing process means.
+    #[cfg(test)]
+    pub fn empty() -> Processes {
+        Processes {
+            list: Vec::new(),
+            by_pid: HashMap::new(),
+        }
+    }
+
     pub fn get(&self, pid: i32) -> Option<&Process> {
         self.by_pid.get(&pid).map(|at| &self.list[*at])
     }

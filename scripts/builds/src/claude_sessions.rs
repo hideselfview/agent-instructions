@@ -8,6 +8,8 @@
 use std::collections::HashSet;
 use std::path::Path;
 
+use crate::procs::Processes;
+
 /// A Claude Code process that is still running.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Running {
@@ -15,15 +17,12 @@ pub struct Running {
     pub session_id: String,
 }
 
-/// Seconds a process may have started after its record's `startedAt`: the
-/// record is written a moment after the process starts.
-const START_GRACE_SECONDS: i64 = 60;
-
-/// The sessions of <dir> whose process is alive. A pid that a later process
-/// took, one that started after its record did, is no running session. An
-/// unreadable record is an error, never skipped, so no caller takes a short
-/// list for all the sessions.
-pub fn running(dir: &Path) -> Result<Vec<Running>, String> {
+/// The sessions of <dir> whose process is alive among <processes>. A record
+/// whose pid a later process took, one that started after the record did,
+/// names no session. An unreadable record, and a pid that runs but that
+/// <processes> does not list, are errors, never skipped, so no caller takes a
+/// short list for all the sessions.
+pub fn running(dir: &Path, processes: &Processes) -> Result<Vec<Running>, String> {
     #[derive(serde::Deserialize)]
     struct Registered {
         pid: i32,
@@ -34,7 +33,6 @@ pub fn running(dir: &Path) -> Result<Vec<Running>, String> {
         started_at: i64,
     }
     let mut live = Vec::new();
-    let processes = crate::procs::Processes::read().map_err(|error| error.text())?;
     let entries = match std::fs::read_dir(dir) {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(live),
@@ -55,9 +53,18 @@ pub fn running(dir: &Path) -> Result<Vec<Running>, String> {
         };
         let registered: Registered = serde_json::from_slice(&bytes)
             .map_err(|error| format!("{}: {error}", path.display()))?;
-        if crate::procs::runs(registered.pid)
-            && !pid_taken(&processes, registered.pid, registered.started_at)
-        {
+        if !crate::procs::runs(registered.pid) {
+            continue;
+        }
+        let Some(process) = processes.get(registered.pid) else {
+            return Err(format!(
+                "{}: process {} runs, but builds cannot list it, so builds cannot tell whether it is the session",
+                path.display(),
+                registered.pid
+            ));
+        };
+        // The record is written after the process starts.
+        if process.started <= registered.started_at / 1000 {
             live.push(Running {
                 pid: registered.pid,
                 session_id: registered.session_id,
@@ -67,17 +74,12 @@ pub fn running(dir: &Path) -> Result<Vec<Running>, String> {
     Ok(live)
 }
 
-/// Did a process other than the one that wrote a record at <started_at> (ms)
-/// take <pid>? A process this user cannot list is taken to be the session's.
-fn pid_taken(processes: &crate::procs::Processes, pid: i32, started_at: i64) -> bool {
-    processes
-        .get(pid)
-        .is_some_and(|process| process.started > started_at / 1000 + START_GRACE_SECONDS)
-}
-
 /// The pids of <dir>'s running sessions.
-pub fn pids(dir: &Path) -> Result<HashSet<i32>, String> {
-    Ok(running(dir)?.into_iter().map(|r| r.pid).collect())
+pub fn pids(dir: &Path, processes: &Processes) -> Result<HashSet<i32>, String> {
+    Ok(running(dir, processes)?
+        .into_iter()
+        .map(|r| r.pid)
+        .collect())
 }
 
 #[cfg(test)]

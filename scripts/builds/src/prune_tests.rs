@@ -69,14 +69,7 @@ fn a_scratch_entry_goes_only_when_its_session_ended_and_nothing_inside_changed_f
     fill(&running.join("idle/f"), 1);
     age_all(&running.join("idle"), 80);
     age(&running.join("idle"), 80);
-    let sessions = tool.places.claude_sessions();
-    std::fs::create_dir_all(&sessions).unwrap();
-    let me = unsafe { libc::getpid() };
-    std::fs::write(
-        sessions.join(format!("{me}.json")),
-        format!(r#"{{"pid":{me},"sessionId":"running"}}"#),
-    )
-    .unwrap();
+    crate::testing::running_session(&tool.places, "running");
     prune_scratchpads(&tool, Run::Real).unwrap();
     assert!(
         !ended.join("idle").exists(),
@@ -471,14 +464,7 @@ fn the_folder_of_an_ended_session_goes_and_a_running_sessions_stays() {
     for session in ["running", "ended"] {
         age(&dir(&tool.places).unwrap().join(session), 1);
     }
-    let sessions = tool.places.claude_sessions();
-    std::fs::create_dir_all(&sessions).unwrap();
-    let me = unsafe { libc::getpid() };
-    std::fs::write(
-        sessions.join(format!("{me}.json")),
-        format!(r#"{{"pid":{me},"sessionId":"running"}}"#),
-    )
-    .unwrap();
+    crate::testing::running_session(&tool.places, "running");
     // A run that writes nothing.
     prune_agents(&tool, Run::Dry).unwrap();
     assert!(is_registered(&tool.places, "ended", "a1").unwrap());

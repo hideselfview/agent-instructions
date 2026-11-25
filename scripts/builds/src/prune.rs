@@ -548,7 +548,8 @@ pub fn prune_agents(tool: &Tool, run: Run) -> Result<()> {
 pub fn live_sessions(
     sessions: &Path,
 ) -> std::result::Result<std::collections::HashSet<std::ffi::OsString>, String> {
-    Ok(crate::claude_sessions::running(sessions)?
+    let processes = crate::procs::Processes::read().map_err(|error| error.text())?;
+    Ok(crate::claude_sessions::running(sessions, &processes)?
         .into_iter()
         .map(|running| running.session_id.into())
         .collect())

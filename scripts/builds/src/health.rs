@@ -672,7 +672,7 @@ pub fn sample(
         .iter()
         .flat_map(|q| q.queue.iter().map(|w| w.pid))
         .collect();
-    let sessions = match crate::claude_sessions::pids(&machine.claude_sessions()) {
+    let sessions = match crate::claude_sessions::pids(&machine.claude_sessions(), &processes) {
         Ok(sessions) => sessions,
         Err(error) => crate::fail!(
             "reading the running Claude Code sessions failed, so health cannot tell which shells a session waits on: {error}"

@@ -308,14 +308,28 @@ pub fn stale_socket(path: &Path) {
 /// Records <session> as a running Claude Code session in <places>' home, as
 /// Claude Code does: a record named for a live process, this test's own.
 pub fn running_session(places: &crate::places::Places, session: &str) {
+    session_started(places, session, now_millis());
+}
+
+/// Like `running_session`, with the record's start time <started_at> in
+/// milliseconds.
+pub fn session_started(places: &crate::places::Places, session: &str, started_at: i64) {
     let sessions = places.claude_sessions();
     std::fs::create_dir_all(&sessions).expect("creatable");
     let me = std::process::id();
     std::fs::write(
         sessions.join(format!("{me}.json")),
-        format!(r#"{{"pid":{me},"sessionId":"{session}"}}"#),
+        format!(r#"{{"pid":{me},"sessionId":"{session}","startedAt":{started_at}}}"#),
     )
     .expect("writable");
+}
+
+/// Milliseconds since 1970.
+pub fn now_millis() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("after 1970")
+        .as_millis() as i64
 }
 
 /// A session's inbox socket at <path> for a test, served by a thread: it takes
