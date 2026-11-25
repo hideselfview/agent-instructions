@@ -123,6 +123,19 @@ struct State {
     loose: HashMap<PathBuf, BranchReading>,
 }
 
+impl State {
+    /// What the daemon last learned of the processes: None before the first
+    /// reading, and the reading's error when the last reading failed.
+    fn last_sample(&self) -> crate::fail::Result<Option<&Sample>> {
+        if let Some(error) = &self.page.sample_error {
+            return Err(crate::fail::Fail::Message(format!(
+                "the daemon could not read processes: {error}"
+            )));
+        }
+        Ok(self.page.sample.as_ref())
+    }
+}
+
 /// The last health judgment and, when it fails, the reading still on screen.
 #[derive(Clone)]
 enum HealthReading {
@@ -1008,12 +1021,7 @@ impl Model {
     pub fn health_now(&self) -> crate::fail::Result<Option<Health>> {
         let (inputs, sample) = {
             let state = self.state.lock().expect("no panic holding it");
-            if let Some(error) = &state.page.sample_error {
-                return Err(crate::fail::Fail::Message(format!(
-                    "the daemon could not read processes: {error}"
-                )));
-            }
-            let Some(sample) = &state.page.sample else {
+            let Some(sample) = state.last_sample()? else {
                 return Ok(None);
             };
             (HealthInputs::of(&state), sample.clone())
@@ -1635,10 +1643,7 @@ impl Model {
         // when that failed.
         let running = {
             let state = self.state.lock().expect("no panic holding it");
-            if let Some(error) = &state.page.sample_error {
-                return Err(format!("the daemon could not read processes: {error}"));
-            }
-            match &state.page.sample {
+            match state.last_sample().map_err(crate::fail::Fail::text)? {
                 Some(sample) => sample.machine.claude_sessions.clone(),
                 None => return Ok(Some(ItemWait::RulesReview(ReviewWait::Checking))),
             }
@@ -2473,3 +2478,7 @@ pub struct ProcessPage {
     pub cpu: Option<f64>,
     pub memory: u64,
 }
+
+#[cfg(test)]
+#[path = "model_tests.rs"]
+mod tests;

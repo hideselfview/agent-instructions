@@ -644,6 +644,23 @@ pub(in crate::review) fn confirmed(name: &str) -> (Reviewed, Caller) {
 }
 
 #[test]
+fn a_dispute_is_not_recorded_when_the_sessions_cannot_be_read() {
+    let (r, agent) = confirmed("judge-dispute-unread");
+    let dir = r.demo.tool.places.claude_sessions();
+    std::fs::create_dir_all(&dir).unwrap();
+    let broken = dir.join("1.json");
+    std::fs::write(&broken, "not json").unwrap();
+    assert!(
+        r.answer_as("dispute", Some(&agent), "wrong", "agent")
+            .is_err()
+    );
+    // Nothing was recorded, so the same command runs again.
+    std::fs::remove_file(&broken).unwrap();
+    r.answer_as("dispute", Some(&agent), "wrong", "agent")
+        .expect("the dispute was not recorded by the failed run");
+}
+
+#[test]
 fn a_dispute_tells_the_judge_and_the_wait_ends_when_the_judge_keeps_the_finding() {
     let (r, agent) = confirmed("judge-dispute");
     r.answer_as("dispute", Some(&agent), "the rule allows it here", "agent")

@@ -314,9 +314,13 @@ pub fn release_stalled_claims(tool: &Tool, health: &crate::health::Health) -> Re
 /// settles the findings that wait (review/judge_told.rs). Returns one line
 /// for each message it sent, each judge it forgot and each store it could not
 /// read or send for.
-pub fn tell_judges(tool: &Tool, stores: &[Store]) -> Vec<String> {
+pub fn tell_judges(
+    tool: &Tool,
+    stores: &[Store],
+    running: &crate::health::ClaudeSessions,
+) -> Vec<String> {
     let sessions = tool.places.sessions();
-    let running = match crate::claude_sessions::running_now(&sessions.claude) {
+    let running = match running {
         Ok(running) => running,
         Err(error) => {
             return vec![format!(
@@ -331,14 +335,14 @@ pub fn tell_judges(tool: &Tool, stores: &[Store]) -> Vec<String> {
     let mut lines = Vec::new();
     for store in stores {
         let project = &store.project;
-        let done = crate::review::judge_told::forget_ended(store, &stamp, &sessions, &running)
+        let done = crate::review::judge_told::forget_ended(store, &stamp, &sessions, running)
             .and_then(|forgot| {
                 lines.extend(forgot);
-                crate::review::judge_told::tell_waiting(store, &stamp, &sessions, &running)
+                crate::review::judge_told::tell_waiting(store, &stamp, &sessions, running)
             })
             .and_then(|mut told| {
                 told.extend(crate::review::judge_ack::tell_outdated(
-                    store, &sessions, &running,
+                    store, &sessions, running,
                 )?);
                 Ok(told)
             });

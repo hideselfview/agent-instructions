@@ -391,6 +391,7 @@ mod stalled_claims {
             &mut crate::lists::store::load_all(&tool.places),
             &scanned,
             &Ok(vec![demo.store.clone()]),
+            &crate::claude_sessions::running_now(&tool.places.claude_sessions()),
         )
         .unwrap()
         .1

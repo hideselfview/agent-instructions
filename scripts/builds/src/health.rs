@@ -1764,10 +1764,14 @@ impl HostProcesses {
     }
 }
 
+/// The Claude Code sessions that run, read once for a health command, or why
+/// they could not be read.
+pub(crate) type ClaudeSessions = std::result::Result<Vec<crate::claude_sessions::Running>, String>;
+
 /// What health says of each project whose findings wait for a missing judge.
-fn judge_findings(tool: &Tool, stores: &[Store]) -> Vec<Finding> {
+fn judge_findings(tool: &Tool, stores: &[Store], running: &ClaudeSessions) -> Vec<Finding> {
     let sessions = tool.places.sessions();
-    let running = match crate::claude_sessions::running_now(&sessions.claude) {
+    let running = match running {
         Ok(running) => running,
         Err(error) => {
             return vec![Finding::new(
@@ -1782,7 +1786,7 @@ fn judge_findings(tool: &Tool, stores: &[Store]) -> Vec<Finding> {
     for store in stores {
         let project = &store.project;
         let oldest =
-            crate::review::judge_told::oldest_unsettled_without_judge(store, &sessions, &running);
+            crate::review::judge_told::oldest_unsettled_without_judge(store, &sessions, running);
         let advice = match oldest {
             Ok(Some(at)) => {
                 let age = crate::health_stillness::elapsed(tool.now, at);
@@ -1821,6 +1825,7 @@ pub(crate) fn finish_health(
     loaded: &mut std::result::Result<Vec<Loaded>, String>,
     scanned: &Scanned,
     projects: &Result<Vec<Store>>,
+    running: &ClaudeSessions,
 ) -> Result<(Health, Vec<String>)> {
     let assess = |health: &mut Health, loaded: &_| {
         crate::health_stillness::append(
@@ -1849,7 +1854,7 @@ pub(crate) fn finish_health(
         )],
     };
     let findings = match projects {
-        Ok(stores) => judge_findings(tool, stores),
+        Ok(stores) => judge_findings(tool, stores, running),
         Err(error) => vec![judge_discovery_failure(error)],
     };
     health.schedule_needed |= !findings.is_empty();
@@ -1980,9 +1985,10 @@ fn report(tool: &Tool, json: bool, stop_junk: bool, release_failures: Vec<Advice
         };
     }
     let projects = stores(&tool.places);
+    let running = crate::claude_sessions::running_now(&tool.places.claude_sessions());
     match &projects {
         Ok(stores) => {
-            crate::health_fix::tell_judges(tool, stores)
+            crate::health_fix::tell_judges(tool, stores, &running)
                 .iter()
                 .for_each(crate::text::note);
         }
@@ -2099,7 +2105,8 @@ fn report(tool: &Tool, json: bool, stop_junk: bool, release_failures: Vec<Advice
     stops.lines.iter().for_each(crate::text::note);
     scanned.orphans = stops.remaining;
     scanned.forget_stopped(&stops.stopped);
-    let (mut health, releases) = finish_health(tool, health, &mut loaded, &scanned, &projects)?;
+    let (mut health, releases) =
+        finish_health(tool, health, &mut loaded, &scanned, &projects, &running)?;
     releases.iter().for_each(crate::text::note);
     health.findings.extend(claim_findings(release_failures));
     health.findings.extend(dashboard_finding(dashboard));
@@ -2201,6 +2208,7 @@ mod tests {
             &mut project_lists(&projects),
             &scanned,
             &projects,
+            &Ok(Vec::new()),
         )
         .unwrap();
         let json = health_json(&health, &[]);

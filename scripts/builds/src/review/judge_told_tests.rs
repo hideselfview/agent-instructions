@@ -239,6 +239,7 @@ fn health(r: &Reviewed) -> Vec<String> {
     let mut lines = crate::health_fix::tell_judges(
         &r.demo.scratch.tool(0),
         std::slice::from_ref(&r.demo.store),
+        &crate::claude_sessions::running_now(&r.demo.scratch.tool(0).places.claude_sessions()),
     );
     lines.retain(|line| !line.contains(crate::review::judge_ack::ACKNOWLEDGE));
     lines
@@ -362,6 +363,7 @@ fn health_report(r: &Reviewed) -> crate::health::Health {
         &mut crate::lists::store::load_all(&tool.places),
         &scanned,
         &Ok(vec![r.demo.store.clone()]),
+        &crate::claude_sessions::running_now(&tool.places.claude_sessions()),
     )
     .unwrap()
     .0
