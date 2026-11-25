@@ -8,6 +8,14 @@ agents can do (`builds help lists`). Read this page and the lists overview, then
 acknowledge them with `builds ack` at session start and after compaction. Use
 `builds brief` to read the coding rules for the paths you will edit.
 
+`builds ack` prints the sections every agent uses. A coordinator, a design
+session and a judge also read the sections of their role, with `builds ack
+--role coordinator`, `--role design` or `--role judge`: PLAN, BRIEF, EXECUTE,
+DISPATCH and HEALTH CHECK for the coordinator, DESIGN CHANGES and PUBLISHING
+DESIGNS for the design session, JUDGING for the judge. An agent that takes up
+another role reads that role's sections the same way. `builds help workflow`
+prints every section.
+
 
 ROLES
 
@@ -286,13 +294,29 @@ Agents share their coordinator's scratchpad folder, so each keeps its scratch
 files (commit messages, probes) in a folder of its own, named for its branch.
 
 
-DISPATCH
+HANDOFF, AUDITS AND FLAKY TESTS
 
-  - Give each agent one task, or several to do one after another, one commit
-    each. When its context reaches about 550k tokens, it writes a handoff
+  - When an agent's context reaches about 550k tokens, it writes a handoff
     file at its next clean point (what's committed, what isn't, what's left,
     decisions, traps), and a fresh agent continues from it (`builds item
     handoff`).
+  - Read-only agents (planners, audits) read origin/main through `git show`
+    and `git grep`, never a checkout.
+  - Flaky tests and speed work (profiling, benchmarks, timing a build) never go
+    in the work queue. They need a quiet machine: on a loaded one, load hides
+    the cause and skews every number, and repeated runs slow every other agent.
+    Open a GitHub issue for each one instead, with what you know so far, and
+    take it off the queue. Whoever works the issue does it on a quiet machine,
+    and finds a flaky test's cause from its failure output and code. Logs that
+    record the state at the failure, such as which process holds a lock, show
+    the cause; run one test alone, which you pick by name, never the whole
+    suite in a loop.
+
+
+DISPATCH
+
+  - Give each agent one task, or several to do one after another, one commit
+    each.
   - Send the fixes of one area, or of one agent, as one batch (WORKTREES):
     take their items together (`builds item take N M ...`) with one brief.
   - Give work to the agent that already knows the area: a finding goes back
@@ -346,8 +370,6 @@ DISPATCH
     the agent to review it with `--kind mechanical --checked-by TEXT` and land
     it on the compiler, the hook and its machine check. Judges and
     coordinators spend review usage only on code people wrote (REVIEW).
-  - Read-only agents (planners, audits) read origin/main through `git show`
-    and `git grep`, never a checkout.
   - Dead code, code that nothing outside tests calls, is never a question
     for the person. Whoever finds dead code deletes it in the work they do.
     When the dead code is outside that work, as with an audit's findings,
@@ -373,15 +395,6 @@ DISPATCH
     whose CPU sits under 5% idle has no room, even with its load under its
     band, so start no agents for it; health says its CPU's idle share next
     to its load.
-  - Flaky tests and speed work (profiling, benchmarks, timing a build) never go
-    in the work queue. They need a quiet machine: on a loaded one, load hides
-    the cause and skews every number, and repeated runs slow every other agent.
-    Open a GitHub issue for each one instead, with what you know so far, and
-    take it off the queue. Whoever works the issue does it on a quiet machine,
-    and finds a flaky test's cause from its failure output and code. Logs that
-    record the state at the failure, such as which process holds a lock, show
-    the cause; run one test alone, which you pick by name, never the whole
-    suite in a loop.
   - Another worktree may keep an app build while the work of several agents
     needs it; clear it once those agents finish (`builds help`, APP BUILDS).
   - When an agent finishes, start the next work in the same turn, before
@@ -441,11 +454,10 @@ change of capture files only, which it already knows. Reviews are for code peopl
      message reaches an agent that a session dispatched, so the wait's end
      tells it: the wait ends once no finding waits for a settle, and prints
      each settle with its reason.
-  3. The judge judges each finding against the code and the rule, and
-     settles it as confirmed or dropped, with why (`builds review settle`).
-     While a judge listens, builds takes a verdict only from the judge and
-     the person, and it never takes a settle from the agent of the
-     finding's branch.
+  3. The judge settles each finding as confirmed or dropped, with why. While
+     a judge listens, builds takes a verdict only from the judge and the
+     person, and it never takes a settle from the agent of the finding's
+     branch (JUDGING).
   4. The agent fixes each confirmed finding in a new commit and runs `builds
      review` again. That run reads only the changes since the last review,
      including the fixes. Each reviewer gives a verdict for every open
@@ -516,6 +528,24 @@ that change and closes the finding. `builds review` refuses another run when
 every group has answered, the review has read every change, and no confirmed
 finding is open.
 
+A confirmed finding stays open until a later review closes it, the judge
+settles it again as dropped after a dispute, or the person allows its code to
+land as it is. Only the person allows a finding, and no agent passes
+--by-person on its own judgment (JUDGING).
+
+A branch that adds
+code that nothing outside tests calls does not land: the judge confirms the
+review's finding on that code, and the agent deletes the code or adds its
+caller. `builds help` (LANDING AND REVIEW) says how builds finds the changes
+since the last review and what each reviewer reads, and gives the review
+commands.
+
+
+JUDGING
+
+The judge judges each finding against the code and the rule, and settles it
+as confirmed or dropped, with why (`builds review settle`).
+
 Each settle, with its --why, is the record that scores the reviews. The
 settled findings stay in the project's store as the record of what reviews
 catch and miss: a confirmed finding counts as a true positive and a dropped
@@ -537,12 +567,7 @@ happens:
     TEXT`). No agent passes --by-person on its own judgment. An allowed
     finding stays confirmed and counts as a true positive.
 
-builds refuses to settle a closed or allowed finding again. A branch that adds
-code that nothing outside tests calls does not land: the judge confirms the
-review's finding on that code, and the agent deletes the code or adds its
-caller. `builds help` (LANDING AND REVIEW) says how builds finds the changes
-since the last review and what each reviewer reads, and gives the review
-commands.
+builds refuses to settle a closed or allowed finding again.
 
 
 LANDING
@@ -653,6 +678,20 @@ briefs, review pages and commit messages, and no other word for it:
 for a reusable piece and "shared board" for the board that draws one.
 
 
+BOARD EDITS OF A DECIDED CHANGE
+
+An implementing agent that edits an existing board for a change the person
+decided (ROLES) records the edit with `decision`, the id of the person's
+decision in the log. builds approves the change as it records it, because the
+decision is the person's approval, so the change needs no review page. The
+implementing agent lands it with the item that built the change (`builds land
+<worktree> --done N --design M <sha>...`). That agent names each place's app
+work in the same request: its own item, or how it checked that the app
+already matches (`places`, `builds help lists`).
+
+Nothing publishes the designs until the person asks (PUBLISHING DESIGNS).
+
+
 DESIGN CHANGES
 
 The design session lands its boards through a design change, which the person
@@ -672,15 +711,6 @@ a design change of its own, in a commit of its own, and lands its ready fixes
 as one batch (WORKTREES): `builds land <worktree> --design N --design M
 <sha>...` takes every change with all its commits, and a landing that names two
 or more design changes squashes nothing, so each fix keeps its commit.
-
-An implementing agent that edits an existing board for a change the person
-decided (ROLES) records the edit with `decision`, the id of the person's
-decision in the log. builds approves the change as it records it, because the
-decision is the person's approval, so the change needs no review page. The
-implementing agent lands it with the item that built the change (`builds land
-<worktree> --done N --design M <sha>...`). That agent names each place's app
-work in the same request: its own item, or how it checked that the app
-already matches (`places`, `builds help lists`).
 
   1. While drawing, look at a board with `builds design render`, which draws
      it from the worktree as one page of HTML. It publishes nothing. To try

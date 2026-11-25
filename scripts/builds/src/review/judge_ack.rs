@@ -29,7 +29,7 @@ pub fn tell_outdated(
     };
     let project = &store.project;
     let message = format!(
-        "You judge project {project}, and you have not acknowledged the text every agent reads: {why}. builds refuses your commands until you run `builds ack --agent {} --project {project}`, read every part and acknowledge it. Findings wait for you to settle.",
+        "You judge project {project}, and you have not acknowledged the text every agent reads: {why}. builds refuses your commands until you run `builds ack --agent {} --project {project} --role judge`, read every part and acknowledge it. Findings wait for you to settle.",
         judge.session
     );
     Ok(Some(match sessions.send(&judge.inbox, &message)? {

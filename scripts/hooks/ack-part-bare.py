@@ -25,13 +25,14 @@ REASON = (
     "ack-part-bare refuses a command that runs `builds ack part` in any form but the bare one, so "
     "that the whole text of the part reaches your context: no pipe, redirect, `;`, `&&`, `||`, "
     "subshell, `$(...)`, backticks, variable prefix, loop or script around it. Run exactly "
-    "`builds ack part N TOKEN`, optionally followed by `--agent ID` and `--project P`, as the "
+    "`builds ack part N TOKEN`, optionally followed by `--agent ID`, `--project P` and `--role ROLE`, as the "
     "previous part's last line gives it. The one addition allowed is a single leading "
     "`cd PATH && `, where PATH is one plain word of letters, digits, `/`, `.`, `_`, `-` and `~`."
 )
 
 NAME = r"[A-Za-z0-9_.-]+"
-OPTIONS = rf"(?: --agent {NAME})?(?: --project {NAME})?|(?: --project {NAME})?(?: --agent {NAME})?"
+ROLES = rf"(?: --role {NAME})*"
+OPTIONS = rf"(?: --agent {NAME})?(?: --project {NAME})?{ROLES}|(?: --project {NAME})?(?: --agent {NAME})?{ROLES}"
 CD = r"(?:cd [A-Za-z0-9/._~-]+ && )?"
 BARE = re.compile(rf"{CD}builds ack part \d+ [A-Za-z0-9]+(?:{OPTIONS})")
 # Programs that run a command given as one string.

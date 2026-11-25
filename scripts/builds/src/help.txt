@@ -41,12 +41,18 @@ session start and after compaction. These sections apply to every project.
 Builds tells the agent once when either section changes. Builds gives the
 agent each coding rule that covers a file when the agent first edits it
 (`builds rules-on-edit`); `builds brief` prints the rules for paths the agent
-has not edited.
+has not edited. The reading holds the sections that every agent uses. A
+coordinator, a design session and a judge add `--role coordinator`, `--role
+design` or `--role judge`, which adds the sections of that role (`builds help
+workflow` prints them all); an agent that takes up another role runs `builds
+ack` again with that role and reads only its sections. builds takes the roles
+an agent holds from the sections it acknowledged, so the gate asks no agent
+for a role's sections. After a compaction, the agent names its roles again.
 
 Builds requires acknowledgement for agent commands other than `help`, `ack`,
 `agent`, `brief`, `rules-on-edit`, `install`, `dashboard` and `version`.
 
-  builds ack [--agent ID] [--project P]
+  builds ack [--agent ID] [--project P] [--role ROLE]...
       Start a reading. Its first line says why builds asks agents to read the
       text: agents that skip it work in the person's checkout, push main and
       poll for builds. For an agent that Claude Code compacted since its last
@@ -63,7 +69,7 @@ Builds requires acknowledgement for agent commands other than `help`, `ack`,
       acknowledgement. When it no longer keeps that version, the notice of a
       change lists each section the agent has not acknowledged at its
       current text.
-  builds ack part PART TOKEN [--agent ID] [--project P]
+  builds ack part PART TOKEN [--agent ID] [--project P] [--role ROLE]...
       Print part PART of the reading, with no word added to the text. The
       part's first line says which part it is, and its last line gives the command for the next part, with a token that
       only this part's output shows, and the last part's last line gives the
@@ -71,7 +77,7 @@ Builds requires acknowledgement for agent commands other than `help`, `ack`,
       of part N - 1 (part 1 needs the one in the output of `builds ack`), so
       the agent fetches every part in order. Reading a part again shows it
       again with the same token.
-  builds ack VERSION TOKEN [--agent ID] [--project P]
+  builds ack VERSION TOKEN [--agent ID] [--project P] [--role ROLE]...
       Acknowledge version VERSION, giving the token from the last part's last
       line. builds refuses a wrong token and says which part gives it.
   builds ack --compacted

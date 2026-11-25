@@ -1,6 +1,11 @@
 //! The text builds asks agents to acknowledge: the workflow help and the
 //! overview that opens the lists help.
 //!
+//! Every agent reads the sections that all agents use. A coordinator, a design
+//! session and a judge also read the sections of their role (`Role`,
+//! `GROUPS`), which `builds ack --role` asks for. `builds help workflow` and
+//! `builds help lists` print every section.
+//!
 //! `builds ack` prints the text in parts of at most `PART_BYTES` bytes each,
 //! with no word added to it. Each part's last line gives the command for the
 //! next part, with a token that only that part's output holds, and the last
@@ -10,10 +15,104 @@
 //! passes about 30 KB, so each part stays well under that.
 
 use crate::fail::{Context, Result};
+use crate::help::{LISTS_OVERVIEW, WORKFLOW_HELP, chunks};
 
 /// The most bytes of the text one part holds. Its first and last line add
 /// about 400 bytes more.
 pub const PART_BYTES: usize = 20_000;
+
+/// A role whose sections only that role's agents read.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Role {
+    Coordinator,
+    Design,
+    Judge,
+}
+
+impl Role {
+    pub const ALL: [Role; 3] = [Role::Coordinator, Role::Design, Role::Judge];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Role::Coordinator => "coordinator",
+            Role::Design => "design",
+            Role::Judge => "judge",
+        }
+    }
+
+    pub fn parse(name: &str) -> Result<Role> {
+        match Role::ALL.into_iter().find(|role| role.name() == name) {
+            Some(role) => Ok(role),
+            None => {
+                crate::fail!("{name:?} is no role: the roles are coordinator, design and judge")
+            }
+        }
+    }
+
+    /// The name of the section of the workflow help that holds this role's
+    /// sections: an agent holds the role once it acknowledged that section.
+    fn marker(self) -> String {
+        format!("builds help workflow, {}", self.name())
+    }
+}
+
+/// The page whose sections a group takes.
+#[derive(Clone, Copy)]
+enum Page {
+    Workflow,
+    ListsOverview,
+}
+
+impl Page {
+    fn text(self) -> &'static str {
+        match self {
+            Page::Workflow => WORKFLOW_HELP,
+            Page::ListsOverview => LISTS_OVERVIEW,
+        }
+    }
+}
+
+/// The sections of a page that only the agents of some roles read, kept as one
+/// section of the text. Every other section of the page is read by all
+/// agents.
+struct Group {
+    name: &'static str,
+    how_to_read: &'static str,
+    page: Page,
+    headings: &'static [&'static str],
+    roles: &'static [Role],
+}
+
+const GROUPS: [Group; 4] = [
+    Group {
+        name: "builds help workflow, coordinator",
+        how_to_read: "builds help workflow",
+        page: Page::Workflow,
+        headings: &["PLAN, BRIEF, EXECUTE", "DISPATCH", "HEALTH CHECK"],
+        roles: &[Role::Coordinator],
+    },
+    Group {
+        name: "builds help workflow, design",
+        how_to_read: "builds help workflow",
+        page: Page::Workflow,
+        headings: &["DESIGN CHANGES", "PUBLISHING DESIGNS"],
+        roles: &[Role::Design],
+    },
+    Group {
+        name: "builds help workflow, judge",
+        how_to_read: "builds help workflow",
+        page: Page::Workflow,
+        headings: &["JUDGING"],
+        roles: &[Role::Judge],
+    },
+    Group {
+        name: "builds help lists overview, the order of the stack",
+        how_to_read: "builds help lists",
+        page: Page::ListsOverview,
+        headings: &["EFFECTS AND ORDER OF THE STACK"],
+        roles: &[Role::Coordinator, Role::Design, Role::Judge],
+    },
+];
 
 /// One file or help of the text.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -40,21 +139,51 @@ pub struct Text {
 }
 
 impl Text {
-    pub fn read() -> Text {
-        Text {
-            sections: vec![
-                Section {
-                    name: "builds help workflow".to_string(),
-                    text: crate::help::WORKFLOW_HELP.to_string(),
-                    how_to_read: "builds help workflow".to_string(),
-                },
-                Section {
-                    name: "builds help lists overview".to_string(),
-                    text: crate::help::LISTS_OVERVIEW.to_string(),
-                    how_to_read: "builds help lists".to_string(),
-                },
-            ],
+    /// The sections that every agent reads, then those of each of <roles>.
+    pub fn for_roles(roles: &[Role]) -> Text {
+        let page_without_groups = |page: Page, name: &str, how_to_read: &str| Section {
+            name: name.to_string(),
+            text: chunks(page.text())
+                .into_iter()
+                .filter(|(heading, _)| !GROUPS.iter().any(|group| group.headings.contains(heading)))
+                .map(|(_, text)| text)
+                .collect(),
+            how_to_read: how_to_read.to_string(),
+        };
+        let mut sections = vec![
+            page_without_groups(
+                Page::Workflow,
+                "builds help workflow",
+                "builds help workflow",
+            ),
+            page_without_groups(
+                Page::ListsOverview,
+                "builds help lists overview",
+                "builds help lists",
+            ),
+        ];
+        for group in &GROUPS {
+            if group.roles.iter().any(|role| roles.contains(role)) {
+                sections.push(Section {
+                    name: group.name.to_string(),
+                    text: chunks(group.page.text())
+                        .into_iter()
+                        .filter(|(heading, _)| group.headings.contains(heading))
+                        .map(|(_, text)| text)
+                        .collect(),
+                    how_to_read: group.how_to_read.to_string(),
+                });
+            }
         }
+        Text { sections }
+    }
+
+    /// The roles whose sections <known> (each section's name and hash) holds.
+    pub fn roles_held(known: &[(String, String)]) -> Vec<Role> {
+        Role::ALL
+            .into_iter()
+            .filter(|role| known.iter().any(|(name, _)| *name == role.marker()))
+            .collect()
     }
 
     /// The version: the hash of every section's name and text, in order.

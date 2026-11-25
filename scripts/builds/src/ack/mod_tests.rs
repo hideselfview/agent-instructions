@@ -87,7 +87,7 @@ impl World {
     /// `builds ack <args>` as <agent> runs it in <cwd>.
     fn ack_in(&self, cwd: &Path, agent: &str, args: &[&str], now: i64) -> Result<String> {
         let args: Vec<String> = args.iter().map(|arg| arg.to_string()).collect();
-        let args = Args::parse(&args, &[], &["compacted"])?;
+        let args = Args::parse(&args, &["role"], &["compacted"])?;
         super::ack(&self.places, &identity(agent), &args, cwd, now)
     }
 
@@ -185,7 +185,7 @@ fn an_agent_that_fetched_every_part_in_order_and_gave_the_last_token_passes() {
 fn each_part_shows_the_text_unchanged_and_ends_with_the_next_commands_token() {
     let world = world("ack-chain");
     let started = world.ack(&[], NOON).unwrap();
-    let text = Text::read();
+    let text = Text::for_roles(&[]);
     let parts = text.parts();
     assert!(parts.len() >= 2, "the workflow alone fills two parts");
     assert!(
@@ -285,7 +285,7 @@ impl World {
 }
 
 fn older_lists_overview() -> Text {
-    let mut text = Text::read();
+    let mut text = Text::for_roles(&[]);
     text.sections[1].text.push_str("\nEarlier lists help.");
     text
 }
@@ -308,7 +308,7 @@ fn an_edit_of_the_lists_overview_passes_the_command_with_one_notice_naming_the_c
 
 #[test]
 fn each_section_says_how_to_read_it() {
-    let text = Text::read();
+    let text = Text::for_roles(&[]);
     assert_eq!(
         text.how_to_read("builds help workflow"),
         "builds help workflow"
@@ -348,7 +348,7 @@ fn an_agent_whose_version_builds_no_longer_keeps_gets_a_notice_listing_every_sec
 #[test]
 fn a_section_that_left_the_text_is_named_as_removed() {
     let world = world("ack-section-left");
-    let mut older = Text::read();
+    let mut older = Text::for_roles(&[]);
     older.sections.push(text::Section {
         name: "rules/text/plain.md".to_string(),
         text: "Write plain sentences.".to_string(),
@@ -769,7 +769,7 @@ fn a_reading_whose_sections_changed_before_a_part_is_refused_even_with_the_same_
     let world = world("ack-reading-changed");
     let agent = Agent::resolve(&world.places, &identity(AGENT), None, &world.checkout).unwrap();
     let older = older_lists_overview();
-    assert_eq!(older.parts().len(), Text::read().parts().len());
+    assert_eq!(older.parts().len(), Text::for_roles(&[]).parts().len());
     let started = start(&world.places, &agent, &older, NOON).unwrap();
     let refusal = message(world.ack(&["part", "1", &next_command(&started)[2]], NOON));
     assert!(refusal.contains("changed since"), "{refusal}");
@@ -820,4 +820,142 @@ fn the_gate_refuses_a_claude_agent_that_names_no_id() {
     let refusal = message(gate(&world.places, &session, "du", &[]));
     assert!(refusal.contains("pass --agent ID"), "{refusal}");
     assert!(refusal.contains("BUILDS_AGENT=ID"), "{refusal}");
+}
+
+/// The names of the sections in the output of a whole reading by <agent>,
+/// parts and all, as the part headings give them.
+fn read_headings(world: &World, agent: &str, args: &[&str]) -> Vec<String> {
+    let mut shown = world.ack_as(agent, args, NOON).unwrap();
+    let mut headings = Vec::new();
+    loop {
+        for line in shown.lines() {
+            if let Some(name) = line.strip_prefix("===== ")
+                && let Some((name, _)) = name.split_once(" (section ")
+            {
+                headings.push(name.to_string());
+            }
+        }
+        let command = next_command(&shown);
+        if command[0] != "part" {
+            return headings;
+        }
+        let mut next: Vec<&str> = command.iter().map(String::as_str).collect();
+        next.extend(args);
+        shown = world.ack_as(agent, &next, NOON).unwrap();
+    }
+}
+
+impl World {
+    /// Reads and acknowledges the text with <flags> after `builds ack` as
+    /// <agent> does, following the commands each output gives.
+    fn acknowledge_with(&self, agent: &str, flags: &[&str]) {
+        let mut shown = self.ack_as(agent, flags, NOON).unwrap();
+        loop {
+            let command = next_command(&shown);
+            let mut args: Vec<&str> = command.iter().map(String::as_str).collect();
+            let last = args[0] != "part";
+            args.extend(flags);
+            shown = self.ack_as(agent, &args, NOON).unwrap();
+            if last {
+                return;
+            }
+        }
+    }
+}
+
+#[test]
+fn an_agent_with_no_role_reads_no_section_of_a_role() {
+    let world = world("ack-no-role");
+    let headings = read_headings(&world, AGENT, &[]);
+    assert_eq!(
+        headings,
+        vec!["builds help workflow", "builds help lists overview"]
+    );
+    let text = Text::for_roles(&[]);
+    assert!(
+        !text.sections[0].text.contains("\nDISPATCH\n")
+            && !text.sections[0].text.contains("\nJUDGING\n")
+    );
+}
+
+#[test]
+fn an_agent_that_acknowledged_the_text_every_agent_reads_passes_the_gate_with_no_role() {
+    let world = world("ack-core-passes");
+    world.acknowledge(NOON);
+    assert_eq!(world.check(NOON + 1).unwrap(), None);
+}
+
+#[test]
+fn a_role_reads_only_its_sections_and_the_commands_it_gives_carry_the_role() {
+    let world = world("ack-role");
+    world.acknowledge(NOON);
+    let started = world.ack(&["--role", "coordinator"], NOON).unwrap();
+    assert!(started.contains("in 1 parts"), "{started}");
+    assert!(started.contains("--role coordinator"), "{started}");
+    let headings = read_headings(&world, AGENT, &["--role", "coordinator"]);
+    assert_eq!(
+        headings,
+        vec![
+            "builds help workflow, coordinator",
+            "builds help lists overview, the order of the stack"
+        ]
+    );
+    world.acknowledge_with(AGENT, &["--role", "coordinator"]);
+    assert_eq!(world.check(NOON + 1).unwrap(), None);
+    // The agent holds the role now, so it has nothing more to read.
+    let again = world.ack(&[], NOON + 2).unwrap();
+    assert!(again.contains("nothing to read"), "{again}");
+    // A second role adds only its own section.
+    let judge = read_headings(&world, AGENT, &["--role", "judge"]);
+    assert_eq!(judge, vec!["builds help workflow, judge"]);
+}
+
+#[test]
+fn an_agent_that_starts_with_a_role_reads_the_text_every_agent_reads_and_the_role() {
+    let world = world("ack-role-first");
+    let headings = read_headings(&world, AGENT, &["--role", "design"]);
+    assert_eq!(
+        headings,
+        vec![
+            "builds help workflow",
+            "builds help lists overview",
+            "builds help workflow, design",
+            "builds help lists overview, the order of the stack"
+        ]
+    );
+    world.acknowledge_with(AGENT, &["--role", "design"]);
+    assert_eq!(world.check(NOON + 1).unwrap(), None);
+}
+
+#[test]
+fn a_change_to_a_section_of_a_role_is_told_to_the_agents_that_hold_the_role() {
+    let world = world("ack-role-change");
+    agent::register(&world.places, SESSION_ID, "a2").unwrap();
+    world.record_acknowledgement("bae", "a2", &Text::for_roles(&[]));
+    let mut older = Text::for_roles(&[Role::Coordinator]);
+    older.sections[2].text.push_str("\nEarlier dispatch text.");
+    world.record_acknowledgement("bae", AGENT, &older);
+    let notice = world
+        .check(NOON + 60)
+        .unwrap()
+        .expect("the section changed");
+    assert!(notice.contains("builds help workflow\n"), "{notice}");
+    assert_eq!(world.check(NOON + 61).unwrap(), None);
+    assert_eq!(world.check_as("a2", NOON + 62).unwrap(), None);
+}
+
+#[test]
+fn an_unknown_role_is_refused() {
+    let world = world("ack-bad-role");
+    let refusal = message(world.ack(&["--role", "planner"], NOON));
+    assert!(refusal.contains("is no role"), "{refusal}");
+}
+
+#[test]
+fn compaction_tells_the_agent_to_name_its_roles_again() {
+    let world = world("ack-compact-role");
+    world.acknowledge_with(AGENT, &["--role", "judge"]);
+    let output = world.compact(Some(AGENT)).unwrap();
+    assert!(output.contains("--role judge"), "{output}");
+    assert!(message(world.check(NOON)).contains("has not acknowledged"));
 }

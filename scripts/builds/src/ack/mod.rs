@@ -36,7 +36,7 @@ use crate::lists::args::{Args, current_dir};
 use crate::lists::store::{Store, project_of, stores};
 use crate::places::Places;
 use crate::text::shell_word;
-use text::{Text, random, show_part};
+use text::{Role, Text, random, show_part};
 
 /// The variable that holds the Claude Code session id in an agent's shell.
 pub const SESSION: &str = "CLAUDE_CODE_SESSION_ID";
@@ -46,7 +46,7 @@ pub const SESSION: &str = "CLAUDE_CODE_SESSION_ID";
 /// too.
 pub const PASSED: &str = "BUILDS_ACKNOWLEDGED";
 
-const USAGE: &str = "usage: builds ack [--agent ID] [--project P]\n       builds ack part PART TOKEN [--agent ID] [--project P]\n       builds ack VERSION TOKEN [--agent ID] [--project P]\n       builds ack --compacted\n       builds ack --codex-compacted";
+const USAGE: &str = "usage: builds ack [--agent ID] [--project P] [--role coordinator|design|judge]...\n       builds ack part PART TOKEN [--agent ID] [--project P] [--role ROLE]...\n       builds ack VERSION TOKEN [--agent ID] [--project P] [--role ROLE]...\n       builds ack --compacted\n       builds ack --codex-compacted";
 
 /// Refuses `builds <command> <args>` when an agent runs it with no
 /// acknowledgement, and prints the notice of a change of the text once
@@ -198,6 +198,19 @@ impl Agent {
         }
     }
 
+    /// The text the agent reads: the sections of every agent, and those of
+    /// each role it works as, which are the roles whose sections it
+    /// acknowledged and the <requested> ones.
+    fn text(&self, places: &Places, requested: &[Role]) -> Result<Text> {
+        let mut roles = Text::roles_held(&self.known(places)?);
+        for role in requested {
+            if !roles.contains(role) {
+                roles.push(*role);
+            }
+        }
+        Ok(Text::for_roles(&roles))
+    }
+
     /// The sections, each by name and hash, that the agent acknowledged in
     /// this session in any project's store: a section that several
     /// projects' texts share is read once.
@@ -337,12 +350,12 @@ fn check(
     now: i64,
 ) -> Result<Option<String>> {
     let agent = Agent::resolve(places, identity, project, cwd)?;
-    let text = Text::read();
+    let text = agent.text(places, &[])?;
     match agent.standing(places, &text, now)? {
         Standing::Current => Ok(None),
         Standing::Changed(changes) => Ok(changes.notice(&text)),
         Standing::NotAcknowledged => fail!(
-            "builds refuses this command until you read the text every agent reads before it works, and acknowledge it: {} has not acknowledged it in this session. Run `builds ack{}`, read every part it lists, and acknowledge them; then run this command again.",
+            "builds refuses this command until you read the text every agent reads before it works, and acknowledge it: {} has not acknowledged it in this session. Run `builds ack{}`, read every part it lists, and acknowledge them; then run this command again. A coordinator, a design session or a judge adds `--role coordinator`, `--role design` or `--role judge` to read the sections of its role.",
             agent.name(),
             agent.flags
         ),
@@ -365,7 +378,7 @@ pub fn outdated(store: &Store, session: &str) -> Result<Option<String>> {
 
 /// `builds ack`.
 pub fn cmd_ack(places: &Places, session: &agent::Session, args: &[String]) -> Result<()> {
-    let args = Args::parse(args, &[], &["compacted", "codex-compacted"])?;
+    let args = Args::parse(args, &["role"], &["compacted", "codex-compacted"])?;
     if args.switch("compacted") {
         println!("{}", compacted(places, agent::HookInput::from_stdin()?)?);
         return Ok(());
@@ -402,8 +415,18 @@ fn ack(
     cwd: &Path,
     now: i64,
 ) -> Result<String> {
-    let agent = Agent::resolve(places, identity, args.value("project")?, cwd)?;
-    let text = Text::read();
+    let mut agent = Agent::resolve(places, identity, args.value("project")?, cwd)?;
+    let mut requested = Vec::new();
+    for name in args.values("role") {
+        let role = Role::parse(name)?;
+        if !requested.contains(&role) {
+            requested.push(role);
+        }
+    }
+    for role in &requested {
+        agent.flags += &format!(" --role {}", role.name());
+    }
+    let text = agent.text(places, &requested)?;
     match args.positional() {
         [] => start(places, &agent, &text, now),
         [word, part, token] if word == "part" => part_of(places, &agent, &text, part, token),
@@ -634,7 +657,7 @@ fn compacted(places: &Places, hook: agent::HookInput) -> Result<String> {
     Ok(agent::hook_output(
         "SessionStart",
         &format!(
-            "Claude Code compacted your context, so builds ended your acknowledgements of the text every agent reads. {} Run `builds ack --agent {id}` before your next builds command.",
+            "Claude Code compacted your context, so builds ended your acknowledgements of the text every agent reads. {} Run `builds ack --agent {id}` before your next builds command, adding `--role coordinator`, `--role design` or `--role judge` for each role you work as.",
             agent::told(id)
         ),
     ))
