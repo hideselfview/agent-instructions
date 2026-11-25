@@ -32,9 +32,9 @@ fn a_reading_keeps_each_parts_tokens_until_the_next_reading_replaces_them() {
 fn an_acknowledgement_replaces_the_last_one_keeps_its_version_drops_the_old_one_and_ends_the_reading()
  {
     let db = crate::db::memory();
-    acknowledge(&db, "s1", "agent", "v1", 5, &[]).unwrap();
+    acknowledge(&db, "s1", "agent", "v1", &[]).unwrap();
     start_reading(&db, "s1", "agent", "v2", 10, &tokens(&["k0", "k1"])).unwrap();
-    acknowledge(&db, "s1", "agent", "v2", 12, &sections()).unwrap();
+    acknowledge(&db, "s1", "agent", "v2", &sections()).unwrap();
     assert_eq!(last(&db, "s1", "agent").unwrap(), Some("v2".to_string()));
     assert_eq!(kept_sections(&db, "v2").unwrap(), Some(sections()));
     assert_eq!(kept_sections(&db, "v1").unwrap(), None);
@@ -45,9 +45,9 @@ fn an_acknowledgement_replaces_the_last_one_keeps_its_version_drops_the_old_one_
 #[test]
 fn builds_keeps_each_version_an_agents_acknowledgement_names_and_no_other() {
     let db = crate::db::memory();
-    acknowledge(&db, "s1", "agent", "old", 0, &sections()).unwrap();
-    acknowledge(&db, "s1", "other", "v1", 1, &sections()).unwrap();
-    acknowledge(&db, "s1", "other", "v2", 2, &sections()).unwrap();
+    acknowledge(&db, "s1", "agent", "old", &sections()).unwrap();
+    acknowledge(&db, "s1", "other", "v1", &sections()).unwrap();
+    acknowledge(&db, "s1", "other", "v2", &sections()).unwrap();
     assert!(kept_sections(&db, "old").unwrap().is_some());
     assert!(kept_sections(&db, "v2").unwrap().is_some());
     assert_eq!(kept_sections(&db, "v1").unwrap(), None);
@@ -82,7 +82,8 @@ pub fn plant_acks_keyed_by_repo(db: &Connection) -> rusqlite::Result<()> {
 /// migrate.rs's move of that table starts from.
 pub fn plant_before_tokens(db: &Connection) -> rusqlite::Result<()> {
     db.execute_batch(
-        "INSERT INTO ack (session, agent, version, at) VALUES ('s', 'a', 'v1', 5);
+        "INSERT INTO ack_version (version, acknowledged_at) VALUES ('v1', 5);
+         INSERT INTO ack (session, agent, version, at) VALUES ('s', 'a', 'v1', 5);
          INSERT INTO ack_reading (session, agent, version, started_at) VALUES ('s', 'a', 'v1', 6);
          INSERT INTO ack_reading_section (session, agent, position, name) VALUES ('s', 'a', 1, 'help');
          INSERT INTO ack_word (session, agent, part, position, word) VALUES ('s', 'a', 1, 1, 'kodamir');",
@@ -94,15 +95,29 @@ pub fn plant_before_tokens(db: &Connection) -> rusqlite::Result<()> {
 /// sections: the state migrate.rs's move of those tables starts from.
 pub fn plant_before_unread(db: &Connection) -> rusqlite::Result<()> {
     db.execute_batch(
-        "INSERT INTO ack (session, agent, version, at) VALUES ('s', 'a', 'v1', 5);
+        "INSERT INTO ack_version (version, acknowledged_at) VALUES ('v1', 5);
+         INSERT INTO ack (session, agent, version, at) VALUES ('s', 'a', 'v1', 5);
          INSERT INTO ack_reading (session, agent, version, started_at) VALUES ('s', 'a', 'v2', 6);
          INSERT INTO ack_reading_section (session, agent, position, name) VALUES ('s', 'a', 1, 'help');
          INSERT INTO ack_token (session, agent, part, token) VALUES ('s', 'a', 0, 't0');",
     )
 }
 
-/// Deletes every kept version, as a store from before builds kept every
-/// acknowledged version has none for an old acknowledgement.
+/// Deletes every kept version, which no write of this file's does: the state
+/// that a store from before builds kept every version an acknowledgement
+/// names starts from.
 pub fn forget_every_version(db: &Connection) {
     db.execute("DELETE FROM ack_version", []).unwrap();
+}
+
+/// Writes two acknowledgements, one of a kept version with its time and one of
+/// a version builds kept nothing of, into the schema from before builds
+/// stopped keeping the time of each version: the state migrate.rs's move of
+/// that table starts from.
+pub fn plant_before_version_time(db: &Connection) -> rusqlite::Result<()> {
+    db.execute_batch(
+        "INSERT INTO ack_version (version, acknowledged_at) VALUES ('v1', 5);
+         INSERT INTO ack_version_section (version, name, hash) VALUES ('v1', 'help', 'h1');
+         INSERT INTO ack (session, agent, version) VALUES ('s', 'kept', 'v1'), ('s', 'lost', 'v0');",
+    )
 }

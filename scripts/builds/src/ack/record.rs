@@ -54,15 +54,20 @@ pub fn kept_sections(db: &Connection, version: &str) -> Result<Option<Vec<(Strin
 
 /// The sections, each by name and hash, of the version that <agent> in
 /// <session> last acknowledged in this store, or none when the agent has no
-/// acknowledgement here or builds no longer keeps that version (a store from
-/// before `acknowledge` kept every acknowledged version).
+/// acknowledgement here. Fails when builds keeps no sections of the version an
+/// acknowledgement names, which `acknowledge` never lets happen.
 pub fn acknowledged_sections(
     db: &Connection,
     session: &str,
     agent: &str,
 ) -> Result<Vec<(String, String)>> {
     match last(db, session, agent)? {
-        Some(version) => Ok(kept_sections(db, &version)?.unwrap_or_default()),
+        Some(version) => match kept_sections(db, &version)? {
+            Some(sections) => Ok(sections),
+            None => crate::fail!(
+                "builds keeps no sections of version {version}, which the acknowledgement of agent {agent} in session {session} names"
+            ),
+        },
         None => Ok(Vec::new()),
     }
 }
@@ -121,10 +126,10 @@ pub fn reading(db: &Connection, session: &str, agent: &str) -> Result<Option<Rea
     Ok(Some(Reading { version, tokens }))
 }
 
-/// Records that <agent> in <session> acknowledged version <version> at <at>
-/// of the text, whose sections had <sections> (name and hash), in place of
-/// its last acknowledgement, and ends its reading. builds keeps the version
-/// with its sections and the time, and deletes each version that no agent's
+/// Records that <agent> in <session> acknowledged version <version> of the
+/// text, whose sections had <sections> (name and hash), in place of its last
+/// acknowledgement, and ends its reading. builds keeps the version with its
+/// sections, and deletes each version that no agent's
 /// acknowledgement names: an agent's roles are the ones whose sections its
 /// version holds, so builds keeps that version.
 pub fn acknowledge(
@@ -132,7 +137,6 @@ pub fn acknowledge(
     session: &str,
     agent: &str,
     version: &str,
-    at: i64,
     sections: &[(String, String)],
 ) -> Result<()> {
     db.execute(
@@ -146,9 +150,8 @@ pub fn acknowledge(
     )
     .sql()?;
     db.execute(
-        "INSERT INTO ack_version (version, acknowledged_at) VALUES (?1, ?2)
-         ON CONFLICT (version) DO UPDATE SET acknowledged_at = excluded.acknowledged_at",
-        params![version, at],
+        "INSERT INTO ack_version (version) VALUES (?1) ON CONFLICT (version) DO NOTHING",
+        params![version],
     )
     .sql()?;
     for (name, hash) in sections {
@@ -223,6 +226,31 @@ pub fn drop_unread(db: &Connection) -> Result<()> {
         |db| {
             db.execute_batch(
                 "INSERT INTO ack (session, agent, version) SELECT session, agent, version FROM ack_old;",
+            )
+            .sql()
+        },
+        &[],
+    )
+}
+
+/// Deletes each acknowledgement of a version that builds keeps no sections
+/// of, so that its agent reads the text again, and makes `ack_version` again
+/// as record.sql writes it, without the time of each version, which nothing
+/// reads. migrate.rs runs a move with the foreign keys off.
+pub fn drop_version_time(db: &Connection) -> Result<()> {
+    db.execute_batch("DELETE FROM ack WHERE version NOT IN (SELECT version FROM ack_version);")
+        .sql()?;
+    crate::db::remake_table(
+        db,
+        "ack_version",
+        crate::db::statement(
+            include_str!("record.sql"),
+            "CREATE TABLE ack_version (",
+            ") STRICT, WITHOUT ROWID;",
+        ),
+        |db| {
+            db.execute_batch(
+                "INSERT INTO ack_version (version) SELECT version FROM ack_version_old;",
             )
             .sql()
         },

@@ -589,13 +589,13 @@ pub fn schema_before_landing_abandoned() -> String {
 
 #[cfg(test)]
 pub fn schema_before_app_build_requested_commit() -> String {
-    parts_before(APP_BUILD_REQUESTED_COMMIT_PART).join("\n")
+    joined_before(APP_BUILD_REQUESTED_COMMIT_PART)
 }
 
 /// The schema before app builds recorded reused shots comparisons.
 #[cfg(test)]
 pub fn schema_before_reused_shots() -> String {
-    parts_before(APP_BUILD_REUSED_SHOTS_PART).join("\n")
+    joined_before(APP_BUILD_REUSED_SHOTS_PART)
 }
 
 #[cfg(test)]
@@ -760,7 +760,44 @@ fn schema_before(part: &str) -> String {
 /// abandoned.
 #[cfg(test)]
 fn text_before(part: &str) -> String {
-    with_landing_not_abandoned(parts_before(part).join("\n"))
+    with_landing_not_abandoned(joined_before(part))
+}
+
+/// The parts of `SCHEMA_PARTS` before <part>, joined as `SCHEMA` joins them,
+/// with the acknowledged versions' table as it was before builds stopped
+/// keeping the time of each (`with_ack_version_time`).
+#[cfg(test)]
+fn joined_before(part: &str) -> String {
+    with_ack_version_time(parts_before(part).join("\n"))
+}
+
+/// The acknowledged versions' table with the time that builds kept of each
+/// version until it kept only the versions that agents' acknowledgements name.
+#[cfg(test)]
+const ACK_VERSION_WITH_TIME: &str = "CREATE TABLE ack_version (
+    version TEXT PRIMARY KEY CONSTRAINT ack_version_version_is_named CHECK (version <> ''),
+    acknowledged_at INTEGER NOT NULL
+) STRICT, WITHOUT ROWID;";
+
+/// <schema> as it was before builds stopped keeping the time at which an agent
+/// last acknowledged each version: with the time in the acknowledged
+/// versions' table. A schema with no such table is returned as it is. Every
+/// older schema than today's goes through this function.
+#[cfg(test)]
+pub fn with_ack_version_time(schema: String) -> String {
+    const START: &str = "CREATE TABLE ack_version (";
+    if !schema.contains(START) {
+        return schema;
+    }
+    let table = statement(&schema, START, ") STRICT, WITHOUT ROWID;").to_string();
+    schema.replacen(&table, ACK_VERSION_WITH_TIME, 1)
+}
+
+/// The schema as it was before builds stopped keeping the time at which an
+/// agent last acknowledged each version.
+#[cfg(test)]
+pub fn schema_before_ack_version_time() -> String {
+    with_ack_version_time(schema())
 }
 
 #[cfg(test)]

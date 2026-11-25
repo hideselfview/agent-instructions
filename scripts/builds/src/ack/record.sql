@@ -18,9 +18,7 @@ CREATE TABLE ack (
 -- notice to an agent names only the sections that changed since its version,
 -- and the roles of an agent are the ones whose sections its version holds.
 CREATE TABLE ack_version (
-    version TEXT PRIMARY KEY CONSTRAINT ack_version_version_is_named CHECK (version <> ''),
-    -- When an agent last acknowledged this version.
-    acknowledged_at INTEGER NOT NULL
+    version TEXT PRIMARY KEY CONSTRAINT ack_version_version_is_named CHECK (version <> '')
 ) STRICT, WITHOUT ROWID;
 
 -- The hash of each section of the text of a version that builds keeps, by

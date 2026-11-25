@@ -76,13 +76,7 @@ pub fn gate(
     let Some(identity) = session.identity()? else {
         return Ok(());
     };
-    if let Some(notice) = check(
-        places,
-        &identity,
-        flag(args, "project"),
-        &current_dir()?,
-        crate::app_timing::now(),
-    )? {
+    if let Some(notice) = check(places, &identity, flag(args, "project"), &current_dir()?)? {
         eprint!("{notice}");
     }
     // SAFETY: no other thread runs yet, so none reads the environment while
@@ -236,7 +230,7 @@ impl Agent {
     /// acknowledgement here has acknowledged the text all the same when it
     /// acknowledged every section of it in another project: this call records
     /// that.
-    fn standing(&self, places: &Places, text: &Text, now: i64) -> Result<Standing> {
+    fn standing(&self, places: &Places, text: &Text) -> Result<Standing> {
         let version = text.version();
         if self.last()?.as_deref() == Some(version.as_str()) {
             return Ok(Standing::Current);
@@ -255,12 +249,15 @@ impl Agent {
             None => Standing::Current,
             Some(last) => {
                 let names: Vec<String> = unread.sections.iter().map(|s| s.name.clone()).collect();
-                Standing::Changed(match record::kept_sections(&tx, &last)? {
-                    Some(kept) => Changes::Since {
-                        changed: names,
-                        removed: text.removed_since(&kept),
-                    },
-                    None => Changes::NotKept { sections: names },
+                let Some(kept) = record::kept_sections(&tx, &last)? else {
+                    fail!(
+                        "builds keeps no sections of version {last}, which the acknowledgement of {} names",
+                        self.name()
+                    );
+                };
+                Standing::Changed(Changes {
+                    changed: names,
+                    removed: text.removed_since(&kept),
                 })
             }
         };
@@ -269,7 +266,6 @@ impl Agent {
             &self.caller.session,
             &self.caller.id,
             &version,
-            now,
             &text.hashes(),
         )?;
         tx.commit().sql()?;
@@ -288,34 +284,19 @@ enum Standing {
     Changed(Changes),
 }
 
-/// What changed in the text since an agent acknowledged it.
-enum Changes {
-    /// The sections whose text differs, and the sections that left the text.
-    Since {
-        changed: Vec<String>,
-        removed: Vec<String>,
-    },
-    /// builds no longer keeps the version the agent acknowledged, so it lists
-    /// every section.
-    NotKept { sections: Vec<String> },
+/// What changed in the text since an agent acknowledged it: the sections
+/// whose text differs, and the sections that left the text.
+struct Changes {
+    changed: Vec<String>,
+    removed: Vec<String>,
 }
 
 impl Changes {
     /// The notice that tells the agent what changed and how to read it, or
     /// None when only the order of the sections changed.
     fn notice(&self, text: &Text) -> Option<String> {
-        let (changed, removed, intro) = match self {
-            Changes::Since { changed, removed } => (
-                changed.as_slice(),
-                removed.as_slice(),
-                "builds: the text every agent reads changed since you acknowledged it. This command runs as usual.",
-            ),
-            Changes::NotKept { sections } => (
-                sections.as_slice(),
-                &[][..],
-                "builds: the text every agent reads changed since you acknowledged it, and builds no longer keeps the version you acknowledged, so it lists each section whose current text you have not acknowledged in this session. This command runs as usual.",
-            ),
-        };
+        let Changes { changed, removed } = self;
+        let intro = "builds: the text every agent reads changed since you acknowledged it. This command runs as usual.";
         if changed.is_empty() && removed.is_empty() {
             return None;
         }
@@ -335,7 +316,7 @@ impl Changes {
 }
 
 /// Refuses the agent of <session> that runs a command in <cwd> with
-/// `--project` <project> at <now> when it has no acknowledgement of the text.
+/// `--project` <project> when it has no acknowledgement of the text.
 /// Returns the notice to print once when the text changed since the agent
 /// acknowledged it (`Agent::standing`).
 fn check(
@@ -343,11 +324,10 @@ fn check(
     identity: &agent::Identity,
     project: Option<&str>,
     cwd: &Path,
-    now: i64,
 ) -> Result<Option<String>> {
     let agent = Agent::resolve(places, identity, project, cwd)?;
     let text = agent.text(places, &[])?;
-    match agent.standing(places, &text, now)? {
+    match agent.standing(places, &text)? {
         Standing::Current => Ok(None),
         Standing::Changed(changes) => Ok(changes.notice(&text)),
         Standing::NotAcknowledged => fail!(
@@ -426,7 +406,7 @@ fn ack(
     match args.positional() {
         [] => start(places, &agent, &text, now),
         [word, part, token] if word == "part" => part_of(places, &agent, &text, part, token),
-        [version, token] => acknowledge(places, &agent, &text, version, token, now),
+        [version, token] => acknowledge(places, &agent, &text, version, token),
         _ => fail!("{USAGE}"),
     }
 }
@@ -450,7 +430,6 @@ fn start(places: &Places, agent: &Agent, text: &Text, now: i64) -> Result<String
             &agent.caller.session,
             &agent.caller.id,
             &version,
-            now,
             &text.hashes(),
         )?;
         tx.commit().sql()?;
@@ -590,7 +569,6 @@ fn acknowledge(
     text: &Text,
     version: &str,
     token: &str,
-    now: i64,
 ) -> Result<String> {
     let reading = reading_of(agent, &text.unread(&agent.known(places)?))?;
     if version != reading.version {
@@ -615,7 +593,6 @@ fn acknowledge(
         &agent.caller.session,
         &agent.caller.id,
         &text.version(),
-        now,
         &text.hashes(),
     )?;
     tx.commit().sql()?;

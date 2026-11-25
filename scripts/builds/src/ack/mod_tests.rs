@@ -1,6 +1,5 @@
 use super::*;
 use crate::lists::fixtures::{NOON, make_store_named};
-use crate::lists::store::project_of;
 use crate::testing::{Scratch, repo};
 use std::path::{Path, PathBuf};
 
@@ -91,17 +90,17 @@ impl World {
         super::ack(&self.places, &identity(agent), &args, cwd, now)
     }
 
-    fn check(&self, now: i64) -> Result<Option<String>> {
-        self.check_as(AGENT, now)
+    fn check(&self) -> Result<Option<String>> {
+        self.check_as(AGENT)
     }
 
-    fn check_as(&self, agent: &str, now: i64) -> Result<Option<String>> {
-        self.check_in(&self.checkout, agent, now)
+    fn check_as(&self, agent: &str) -> Result<Option<String>> {
+        self.check_in(&self.checkout, agent)
     }
 
     /// The gate for a command <agent> runs in <cwd>.
-    fn check_in(&self, cwd: &Path, agent: &str, now: i64) -> Result<Option<String>> {
-        super::check(&self.places, &identity(agent), None, cwd, now)
+    fn check_in(&self, cwd: &Path, agent: &str) -> Result<Option<String>> {
+        super::check(&self.places, &identity(agent), None, cwd)
     }
 
     /// Reads every part as <agent> does and returns the version and the
@@ -180,7 +179,7 @@ impl World {
 #[test]
 fn an_agent_that_has_not_acknowledged_is_refused_with_the_ack_command() {
     let world = world("ack-refused");
-    let refusal = message(world.check(NOON));
+    let refusal = message(world.check());
     assert!(
         refusal.contains("agent a1 has not acknowledged it"),
         "{refusal}"
@@ -192,7 +191,7 @@ fn an_agent_that_has_not_acknowledged_is_refused_with_the_ack_command() {
 fn an_agent_that_fetched_every_part_in_order_and_gave_the_last_token_passes() {
     let world = world("ack-passes");
     world.acknowledge(NOON);
-    world.check(NOON + 60).unwrap();
+    world.check().unwrap();
 }
 
 /// The opening output says what the text is and gives part 1's command; each
@@ -246,7 +245,7 @@ fn the_acknowledgement_needs_the_last_parts_token() {
     let (_, token) = world.read_all(NOON);
     let refusal = message(world.ack(&[&version, "wrong"], NOON));
     assert!(refusal.contains("the last line of part"), "{refusal}");
-    assert!(message(world.check(NOON)).contains("has not acknowledged"));
+    assert!(message(world.check()).contains("has not acknowledged"));
     // A reading's first token does not acknowledge either.
     let first = next_command(&world.ack(&[], NOON).unwrap())[2].clone();
     assert_ne!(first, token);
@@ -289,15 +288,7 @@ impl World {
     fn record_acknowledgement(&self, project: &str, agent: &str, text: &Text) {
         let store = Store::named(&self.places, project).unwrap();
         let db = db::open(&store.database(), Make::Never).unwrap();
-        record::acknowledge(
-            &db,
-            SESSION_ID,
-            agent,
-            &text.version(),
-            NOON,
-            &text.hashes(),
-        )
-        .unwrap();
+        record::acknowledge(&db, SESSION_ID, agent, &text.version(), &text.hashes()).unwrap();
     }
 }
 
@@ -313,14 +304,14 @@ fn older_lists_overview() -> Text {
 fn an_edit_of_the_lists_overview_passes_the_command_with_one_notice_naming_the_changed_section() {
     let world = world("ack-edited");
     world.record_acknowledgement("bae", AGENT, &older_lists_overview());
-    let notice = world.check(NOON + 120).unwrap().expect("the text changed");
+    let notice = world.check().unwrap().expect("the text changed");
     assert!(
         notice.contains("changed since you acknowledged it. This command runs as usual."),
         "{notice}"
     );
     assert!(notice.contains("  builds help lists\n"), "{notice}");
     assert!(!notice.contains("builds help workflow"), "{notice}");
-    assert_eq!(world.check(NOON + 180).unwrap(), None);
+    assert_eq!(world.check().unwrap(), None);
 }
 
 #[test]
@@ -337,28 +328,19 @@ fn each_section_says_how_to_read_it() {
 }
 
 #[test]
-fn an_agent_whose_version_builds_no_longer_keeps_gets_a_notice_listing_every_section() {
+fn an_acknowledgement_of_a_version_with_no_kept_sections_fails_loudly() {
     let world = world("ack-not-kept");
     world.record_acknowledgement("bae", AGENT, &older_lists_overview());
     {
-        let checkout = Checkout::at(&world.checkout).unwrap().unwrap();
-        let store = project_of(&world.places, &checkout, None).unwrap().unwrap();
-        let db = db::open(
-            &Store::named(&world.places, &store).unwrap().database(),
-            Make::Never,
-        )
-        .unwrap();
-        // A store from before builds kept every acknowledged version.
+        let store = Store::named(&world.places, "bae").unwrap();
+        let db = db::open(&store.database(), Make::Never).unwrap();
         record::tests::forget_every_version(&db);
     }
-    let notice = world.check(NOON + 60).unwrap().expect("the text changed");
+    let refusal = message(world.check());
     assert!(
-        notice.contains("builds no longer keeps the version you acknowledged"),
-        "{notice}"
+        refusal.contains("builds keeps no sections of version"),
+        "{refusal}"
     );
-    assert!(notice.contains("builds help workflow"), "{notice}");
-    assert!(notice.contains("builds help lists"), "{notice}");
-    assert_eq!(world.check(NOON + 120).unwrap(), None);
 }
 
 #[test]
@@ -371,20 +353,20 @@ fn a_section_that_left_the_text_is_named_as_removed() {
         how_to_read: "rules/text/plain.md".to_string(),
     });
     world.record_acknowledgement("bae", AGENT, &older);
-    let notice = world.check(NOON + 60).unwrap().expect("a section left");
+    let notice = world.check().unwrap().expect("a section left");
     assert!(
         notice.contains("Sections removed: rules/text/plain.md"),
         "{notice}"
     );
     assert!(!notice.contains("Read these sections"), "{notice}");
-    assert_eq!(world.check(NOON + 120).unwrap(), None);
+    assert_eq!(world.check().unwrap(), None);
 }
 
 #[test]
 fn an_acknowledgement_never_expires() {
     let world = world("ack-never-expires");
     world.acknowledge(NOON);
-    world.check(NOON + 365 * 24 * 3600).unwrap();
+    world.check().unwrap();
 }
 
 #[test]
@@ -426,7 +408,7 @@ impl World {
     }
 
     fn check_second(&self, cwd: &Path) -> Result<Option<String>> {
-        super::check(&self.places, &identity(AGENT), Some("second"), cwd, NOON)
+        super::check(&self.places, &identity(AGENT), Some("second"), cwd)
     }
 }
 
@@ -447,7 +429,7 @@ fn a_change_of_a_shared_section_is_told_once_across_projects() {
     let older = older_lists_overview();
     world.record_acknowledgement("bae", AGENT, &older);
     world.record_acknowledgement("second", AGENT, &older);
-    assert!(world.check(NOON + 60).unwrap().is_some());
+    assert!(world.check().unwrap().is_some());
     assert_eq!(world.check_second(&elsewhere).unwrap(), None);
 }
 
@@ -456,14 +438,14 @@ fn two_agents_of_one_session_keep_separate_acknowledgements() {
     let world = world("ack-two-agents");
     agent::register(&world.places, SESSION_ID, "a2").unwrap();
     world.acknowledge(NOON);
-    world.check(NOON + 60).unwrap();
-    let refusal = message(world.check_as("a2", NOON + 60));
+    world.check().unwrap();
+    let refusal = message(world.check_as("a2"));
     assert!(
         refusal.contains("agent a2 has not acknowledged"),
         "{refusal}"
     );
     world.acknowledge_as("a2", NOON + 60);
-    world.check_as("a2", NOON + 120).unwrap();
+    world.check_as("a2").unwrap();
 }
 
 #[test]
@@ -487,15 +469,15 @@ fn a_compaction_of_one_agent_clears_its_acknowledgement_and_leaves_the_others() 
         output["hookSpecificOutput"]["hookEventName"],
         "SessionStart"
     );
-    assert!(message(world.check_as("a2", NOON + 60)).contains("agent a2 has not acknowledged"));
-    world.check(NOON + 60).unwrap();
+    assert!(message(world.check_as("a2")).contains("agent a2 has not acknowledged"));
+    world.check().unwrap();
 }
 
 #[test]
 fn an_acknowledgement_in_one_repo_holds_in_another_repo_of_the_project() {
     let world = world("ack-two-repos");
     world.acknowledge(NOON);
-    world.check_in(&world.coven, AGENT, NOON + 60).unwrap();
+    world.check_in(&world.coven, AGENT).unwrap();
 }
 
 #[test]
@@ -512,8 +494,8 @@ fn an_edit_of_a_claude_md_leaves_every_acknowledgement_current() {
         "Global rules, edited with several ordinary words.\n",
     )
     .unwrap();
-    world.check(NOON + 60).unwrap();
-    world.check_in(&world.coven, AGENT, NOON + 60).unwrap();
+    world.check().unwrap();
+    world.check_in(&world.coven, AGENT).unwrap();
 }
 
 #[test]
@@ -521,11 +503,8 @@ fn a_compaction_clears_the_acknowledgement_in_every_repo() {
     let world = world("ack-two-repos-compacted");
     world.acknowledge(NOON);
     world.compact(Some(AGENT)).unwrap();
-    assert!(message(world.check(NOON + 60)).contains("agent a1 has not acknowledged"));
-    assert!(
-        message(world.check_in(&world.coven, AGENT, NOON + 60))
-            .contains("agent a1 has not acknowledged")
-    );
+    assert!(message(world.check()).contains("agent a1 has not acknowledged"));
+    assert!(message(world.check_in(&world.coven, AGENT)).contains("agent a1 has not acknowledged"));
 }
 
 #[test]
@@ -537,13 +516,13 @@ fn a_compaction_of_an_agent_no_hook_registered_fails_and_deletes_nothing() {
         refusal.contains("builds deleted no acknowledgement"),
         "{refusal}"
     );
-    world.check(NOON + 60).unwrap();
+    world.check().unwrap();
 }
 
 #[test]
 fn an_unregistered_agent_id_is_refused_saying_how_to_find_it() {
     let world = world("ack-unregistered");
-    let refusal = message(world.check_as("stranger", NOON));
+    let refusal = message(world.check_as("stranger"));
     assert!(
         refusal.contains("no agent stranger in session session-1"),
         "{refusal}"
@@ -571,10 +550,10 @@ fn the_main_agent_is_named_by_its_session_id_and_its_compaction_clears_it() {
     );
     world.acknowledge_as(SESSION_ID, NOON);
     world.acknowledge(NOON);
-    world.check_as(SESSION_ID, NOON + 60).unwrap();
+    world.check_as(SESSION_ID).unwrap();
     world.compact(None).unwrap();
-    assert!(message(world.check_as(SESSION_ID, NOON + 60)).contains("has not acknowledged"));
-    world.check(NOON + 60).unwrap();
+    assert!(message(world.check_as(SESSION_ID)).contains("has not acknowledged"));
+    world.check().unwrap();
 }
 
 #[test]
@@ -603,7 +582,6 @@ fn an_agent_outside_a_checkout_names_the_project_with_project() {
         &identity(AGENT),
         Some("bae"),
         &elsewhere,
-        NOON,
     ));
     assert!(
         refused.contains("agent a1 has not acknowledged"),
@@ -630,7 +608,6 @@ fn a_claim_that_names_a_project_without_the_repo_is_refused_even_with_project() 
         &identity(AGENT),
         Some("bae"),
         &world.checkout,
-        NOON,
     ));
     assert!(refusal.contains("does not hold repo bae"), "{refusal}");
 }
@@ -677,7 +654,6 @@ fn project_names_the_store_in_a_checkout_of_a_repo_two_projects_hold() {
         &identity(AGENT),
         Some("bae"),
         &world.checkout,
-        NOON + 60,
     )
     .unwrap();
 }
@@ -801,7 +777,7 @@ fn codex_compaction_clears_only_the_thread_named_in_the_event() {
     let other = "00000000-0000-4000-8000-000000000003";
     for thread in [session, worker, other] {
         let tx = db.transaction().unwrap();
-        record::acknowledge(&tx, session, thread, "v1", NOON, &[]).unwrap();
+        record::acknowledge(&tx, session, thread, "v1", &[]).unwrap();
         tx.commit().unwrap();
     }
     let event = |agent_id: Option<&str>| {
@@ -881,7 +857,7 @@ fn an_agent_with_no_role_reads_no_section_of_a_role() {
 fn an_agent_that_acknowledged_the_text_every_agent_reads_passes_the_gate_with_no_role() {
     let world = world("ack-core-passes");
     world.acknowledge(NOON);
-    assert_eq!(world.check(NOON + 1).unwrap(), None);
+    assert_eq!(world.check().unwrap(), None);
 }
 
 #[test]
@@ -900,7 +876,7 @@ fn a_role_reads_only_its_sections_and_the_commands_it_gives_carry_the_role() {
         ]
     );
     world.acknowledge_with(AGENT, &["--role", "coordinator"]);
-    assert_eq!(world.check(NOON + 1).unwrap(), None);
+    assert_eq!(world.check().unwrap(), None);
     // The agent holds the role now, so it has nothing more to read.
     let again = world.ack(&[], NOON + 2).unwrap();
     assert!(again.contains("nothing to read"), "{again}");
@@ -923,7 +899,7 @@ fn an_agent_that_starts_with_a_role_reads_the_text_every_agent_reads_and_the_rol
         ]
     );
     world.acknowledge_with(AGENT, &["--role", "design"]);
-    assert_eq!(world.check(NOON + 1).unwrap(), None);
+    assert_eq!(world.check().unwrap(), None);
 }
 
 #[test]
@@ -934,13 +910,10 @@ fn a_change_to_a_section_of_a_role_is_told_to_the_agents_that_hold_the_role() {
     let mut older = Text::for_roles(&[Role::Coordinator]);
     older.sections[2].text.push_str("\nEarlier dispatch text.");
     world.record_acknowledgement("bae", AGENT, &older);
-    let notice = world
-        .check(NOON + 60)
-        .unwrap()
-        .expect("the section changed");
+    let notice = world.check().unwrap().expect("the section changed");
     assert!(notice.contains("builds help workflow\n"), "{notice}");
-    assert_eq!(world.check(NOON + 61).unwrap(), None);
-    assert_eq!(world.check_as("a2", NOON + 62).unwrap(), None);
+    assert_eq!(world.check().unwrap(), None);
+    assert_eq!(world.check_as("a2").unwrap(), None);
 }
 
 #[test]
@@ -956,7 +929,7 @@ fn compaction_tells_the_agent_to_name_its_roles_again() {
     world.acknowledge_with(AGENT, &["--role", "judge"]);
     let output = world.compact(Some(AGENT)).unwrap();
     assert!(output.contains("--role judge"), "{output}");
-    assert!(message(world.check(NOON)).contains("has not acknowledged"));
+    assert!(message(world.check()).contains("has not acknowledged"));
 }
 
 #[test]
@@ -967,10 +940,10 @@ fn an_agent_keeps_its_role_while_other_agents_acknowledge_many_versions() {
         let store = Store::named(&world.places, "bae").unwrap();
         let db = db::open(&store.database(), Make::Never).unwrap();
         for n in 0..40 {
-            record::acknowledge(&db, "s2", "other", &format!("v{n}"), NOON + n + 1, &[]).unwrap();
+            record::acknowledge(&db, "s2", "other", &format!("v{n}"), &[]).unwrap();
         }
     }
-    assert_eq!(world.check(NOON + 60).unwrap(), None);
+    assert_eq!(world.check().unwrap(), None);
     let again = world.ack(&[], NOON + 61).unwrap();
     assert!(again.contains("nothing to read"), "{again}");
 }

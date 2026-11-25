@@ -289,13 +289,17 @@ const BEFORE_APP_BUILD_REQUESTED_COMMIT_STAMP: i64 = 1_541_859_673;
 /// The stamp before app builds recorded reused shots comparisons.
 const BEFORE_REUSED_SHOTS_STAMP: i64 = 1_189_101_032;
 
+/// The stamp before builds stopped keeping the time at which an agent last
+/// acknowledged each version of the text.
+const BEFORE_ACK_VERSION_TIME_STAMP: i64 = 1_186_140_394;
+
 /// The stamp of today's schema (`db::STAMP`). A change to the schema changes
 /// its stamp, and builds then fails to compile until the change gives it a
 /// move from this schema, since every store carries this stamp: the change
 /// adds the move, puts this stamp at the end of `STAMPS` under a name that
 /// says what the schema lacked, and sets this to the new schema's stamp, which
 /// the compiler's error names.
-const SCHEMA_STAMP: i64 = 1_186_140_394;
+const SCHEMA_STAMP: i64 = 1_913_940_341;
 
 // The compiler refuses a schema whose stamp is not SCHEMA_STAMP. A const
 // assert could not print the new stamp, so the check compares two array
@@ -305,7 +309,7 @@ const _: [(); SCHEMA_STAMP as usize] = [(); db::STAMP as usize];
 
 /// Every stamp a store can carry that `move_store` moves, oldest schema first.
 /// A new move adds the stamp of the schema before it at the end.
-const STAMPS: [i64; 42] = [
+const STAMPS: [i64; 43] = [
     BEFORE_CONDITION_ENDERS_STAMP,
     BEFORE_ITEM_EVENT_STAMP,
     BEFORE_LAND_RUN_STAMP,
@@ -348,6 +352,7 @@ const STAMPS: [i64; 42] = [
     BEFORE_LANDING_ABANDONED_STAMP,
     BEFORE_APP_BUILD_REQUESTED_COMMIT_STAMP,
     BEFORE_REUSED_SHOTS_STAMP,
+    BEFORE_ACK_VERSION_TIME_STAMP,
 ];
 
 /// Whether a store stamped <found> comes before the move that follows the
@@ -671,6 +676,13 @@ pub fn move_store(places: &Places, path: &Path, now: i64) -> Result<()> {
     }
     if before(found, BEFORE_REUSED_SHOTS_STAMP) {
         tx.execute_batch(db::APP_BUILD_REUSED_SHOTS_PART).sql()?;
+    }
+    // Every store from before builds kept only the versions that agents'
+    // acknowledgements name loses the acknowledgements of versions it kept no
+    // sections of (their agents read the text again) and the time of each
+    // version.
+    if before(found, BEFORE_ACK_VERSION_TIME_STAMP) {
+        crate::ack::record::drop_version_time(&tx)?;
     }
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     let broken: Option<String> = tx

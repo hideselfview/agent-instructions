@@ -2506,3 +2506,52 @@ fn a_store_from_before_reused_shots_keeps_its_steps_and_their_shots_details() {
         "26B131-17C529"
     );
 }
+
+#[test]
+fn the_ack_version_time_stamp_is_the_schema_before_it() {
+    assert_eq!(
+        db::stamp_of_text(&db::schema_before_ack_version_time()),
+        BEFORE_ACK_VERSION_TIME_STAMP
+    );
+}
+
+/// A store from before builds stopped keeping the time of each acknowledged
+/// version keeps the acknowledgements of versions it kept sections of, loses
+/// the others (their agents read the text again), and equals a fresh schema.
+#[test]
+fn a_store_from_before_the_version_time_keeps_the_acks_of_kept_versions_and_equals_a_fresh_schema()
+{
+    let scratch = Scratch::new("move-ack-version-time");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&db::schema_before_ack_version_time())
+            .unwrap();
+        crate::ack::record::tests::plant_before_version_time(&conn).unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_ACK_VERSION_TIME_STAMP)
+            .unwrap();
+    }
+    migrate_stores(&places, 0).unwrap();
+    let conn = db::open(&path, db::Make::Never).unwrap();
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    let agents: Vec<String> = conn
+        .prepare("SELECT agent FROM ack")
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap();
+    assert_eq!(agents, vec!["kept"]);
+    let sections: i64 = conn
+        .query_row("SELECT count(*) FROM ack_version_section", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(sections, 1);
+}
