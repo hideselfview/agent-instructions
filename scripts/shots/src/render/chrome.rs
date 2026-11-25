@@ -270,13 +270,7 @@ impl DrawPage {
             Evaluation::Expression(params) => &params.expression,
             Evaluation::Function(params) => &params.function_declaration,
         };
-        let start: String = script
-            .split_whitespace()
-            .collect::<Vec<_>>()
-            .join(" ")
-            .chars()
-            .take(60)
-            .collect();
+        let start: String = one_line(script).chars().take(60).collect();
         let method = format!("Runtime.evaluate `{start}`");
         self.tracked(&method, self.page.evaluate(evaluation)).await
     }
@@ -324,11 +318,12 @@ impl Chrome {
         self.open_page(slot).await.map_err(|e| e.to_string())
     }
 
-    /// Opens a page in a browser context of its own: pages of one browser
+    /// Opens a page in a browser context of its own. Pages of one browser
     /// context share renderer processes, and with several drawing at once the
-    /// script that redraws a board (board.rs, `REDRAW`) waited on
-    /// `requestAnimationFrame` for over 120 seconds on a page that had already
-    /// loaded. A page in a context of its own does not share its renderer.
+    /// script that redraws a board (board.rs, `REDRAW`) can wait on
+    /// `requestAnimationFrame` past the draw deadline. Turning off Chrome's
+    /// background throttling and bringing the page to the front did not stop
+    /// that; a context for each page does.
     async fn open_page(&self, slot: Slot) -> Result<DrawPage, ChromeError> {
         let context = self
             .browser
@@ -460,12 +455,8 @@ const LAUNCH_DEADLINE: Duration = Duration::from_secs(120);
 /// multi-threaded rasterization put single pixels of a gradient or an edge a
 /// level or more off from one run to the next while the machine is busy.
 /// Starting the compositor on one thread or running all its stages before each
-/// draw makes screenshots time out. Every page but the front one of a window
-/// counts as backgrounded or occluded, and Chrome stops running
-/// `requestAnimationFrame` for such a page, which hangs the script that redraws a
-/// board (board.rs, `REDRAW`) while other pages are open; the last three flags
-/// keep a page's frames, timers and renderer running whatever the other pages
-/// do. chromiumoxide puts the `--` in front of each argument itself.
+/// draw makes screenshots time out. chromiumoxide puts the `--` in front of each
+/// argument itself.
 const ARGS: [&str; 7] = [
     "force-color-profile=srgb",
     "hide-scrollbars",
