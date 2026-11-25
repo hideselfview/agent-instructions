@@ -184,7 +184,11 @@ fn history_with_deletions() -> (tempfile::TempDir, String) {
         .join(&component)
         .join("preview.html");
     std::fs::create_dir_all(preview.parent().unwrap()).unwrap();
-    std::fs::write(&preview, "<body><p>a row</p></body>").unwrap();
+    std::fs::write(
+        &preview,
+        "<html><head></head><body><p>a row</p></body></html>",
+    )
+    .unwrap();
     git(repo.path(), &["add", "-A"]);
     git(repo.path(), &["commit", "-q", "-m", "p"]);
     git(repo.path(), &["tag", "p"]);
