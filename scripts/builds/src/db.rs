@@ -760,9 +760,7 @@ fn text_before(part: &str) -> String {
 /// keeping the time of each (`with_ack_version_time`).
 #[cfg(test)]
 fn joined_before(part: &str) -> String {
-    with_ack_version_time(with_running_without_tier(with_kept_open_without_reason(
-        parts_before(part).join("\n"),
-    )))
+    with_ack_version_time(parts_before(part).join("\n"))
 }
 
 /// <schema> with the statement that starts with <start> and ends with <end>
@@ -779,12 +777,13 @@ fn with_table_as(schema: String, start: &str, end: &str, old: &str) -> String {
 
 /// <schema> as it was before builds stopped keeping the time at which an agent
 /// last acknowledged each version: with the time in the acknowledged
-/// versions' table. `joined_before` and `schema_before_ack_version_time` call
-/// it.
+/// versions' table, and with the tables that the later moves changed as they
+/// were before them (`with_running_without_tier`). `joined_before` and
+/// `schema_before_ack_version_time` call it.
 #[cfg(test)]
 pub fn with_ack_version_time(schema: String) -> String {
     with_table_as(
-        schema,
+        with_running_without_tier(schema),
         "CREATE TABLE ack_version (",
         ") STRICT, WITHOUT ROWID;",
         crate::ack::record::tests::ACK_VERSION_WITH_TIME,
@@ -795,15 +794,16 @@ pub fn with_ack_version_time(schema: String) -> String {
 /// agent last acknowledged each version.
 #[cfg(test)]
 pub fn schema_before_ack_version_time() -> String {
-    with_ack_version_time(schema_before_running_tier())
+    with_ack_version_time(schema())
 }
 
 /// <schema> as it was before running items recorded the tier of model they
-/// take. A schema with no such table is returned as it is.
+/// take, and before the later moves (`with_kept_open_without_reason`). A schema
+/// with no such table is returned as it is.
 #[cfg(test)]
 pub fn with_running_without_tier(schema: String) -> String {
     with_table_as(
-        schema,
+        with_kept_open_without_reason(schema),
         "CREATE TABLE running (",
         ") STRICT;",
         crate::lists::running::tests::RUNNING_WITHOUT_TIER,
@@ -814,7 +814,7 @@ pub fn with_running_without_tier(schema: String) -> String {
 /// take.
 #[cfg(test)]
 pub fn schema_before_running_tier() -> String {
-    with_running_without_tier(schema_before_kept_open_reason())
+    with_running_without_tier(schema())
 }
 
 /// <schema> as it was before review calls recorded the reason of each verdict
