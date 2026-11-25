@@ -96,6 +96,24 @@ fn a_checkout_with_changes_builds_nothing() {
 }
 
 #[test]
+fn a_git_lock_that_no_process_holds_stops_the_build_with_a_line_that_names_it() {
+    let scratch = Scratch::new("app-config-git-lock");
+    let top = checkout(&scratch, "demo");
+    let lock = checkout_lock(&scratch);
+    let index_lock = top.join(".git/index.lock");
+    std::fs::write(&index_lock, "").unwrap();
+    let error = check_out(&top, "origin/main", CheckoutLock::new(lock.as_fd(), None))
+        .err()
+        .expect("the lock stops the build")
+        .text();
+    assert!(
+        error.contains(&index_lock.display().to_string()) && error.contains("no process holds"),
+        "{error}"
+    );
+    assert!(index_lock.exists(), "the build deletes nothing");
+}
+
+#[test]
 fn step_lines_name_a_command_each_in_the_order_written() {
     let config = parse_config(&format!(
         "{CONFIG_TEXT}step mac first ./a.sh --x\nstep mac second b\n"
