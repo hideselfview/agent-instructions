@@ -1295,8 +1295,14 @@ colour difference, and no finding that it found no measurable glyph colour.
 It checks the element's presence, words, box and font as for any other
 element. The Android harness writes no window role into a shot's list, so on
 Android only the board's list says what covers a text. A Mac board's modal has
-no element of its own, so no list says it covers a text, and the checker
-reports the colours of a text under one.
+no element of its own, so the board reader marks each element the page draws
+something over (`obscured` in the element list): after it measures the
+element's box it asks the page which element is on top at five points of the
+visible part, and the element is obscured when one of them is an element
+inside neither the element nor around it. It marks an element a sheet clips
+partly the same way. The checker reports no colour finding for a board element
+marked obscured, on any platform. An element whose own style turns pointer
+events off is never marked, because the page cannot say what lies over it.
 
 Android's native text rounds each glyph advance to a whole pixel, so a line the
 app draws is up to half a pixel off for each glyph against the board's

@@ -263,6 +263,12 @@ pub(crate) struct Element {
     /// an element no component draws, and in every shot.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) component: Option<String>,
+    /// On a board, something the page draws over the element hides part of
+    /// it (a modal's scrim, another element above it), or a sheet's edge clips
+    /// it, so its pixels are not all its own and a glyph in them may be cut.
+    /// Absent when nothing does, and in every shot.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) obscured: bool,
 }
 
 /// Words: composed Unicode, whitespace runs collapsed to one space, trimmed.

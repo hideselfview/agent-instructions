@@ -352,6 +352,16 @@ pub(crate) fn pairs(
         // A covered element's box holds the covering view's pixels, on the
         // side that has the covering element and on the other, which draws
         // the same view there.
+        // The board reader marks an element something drawn over it hides
+        // part of, or a sheet clips, as the Mac board's modal has no element
+        // of its own to say so.
+        if board.elements[b.index].obscured {
+            crate::log::note(format_args!(
+                "colours of {:?} “{}” skipped: the board draws something over it or clips it",
+                b.kind, b.words
+            ));
+            continue;
+        }
         // The Android harness records no window in its list (it writes
         // Compose roles, never menu or dialog), so a shot's list there says
         // nothing of what covers what: the board's does.

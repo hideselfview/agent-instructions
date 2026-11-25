@@ -890,3 +890,43 @@ async fn chrome_says_whether_the_board_gave_a_name_or_computed_it_from_content()
     assert_eq!(other("menuitem", 1), None);
     assert_eq!(other("group", 0), Some("Devices"));
 }
+
+#[tokio::test]
+async fn the_reader_marks_what_a_scrim_covers_or_a_sheet_clips() {
+    let root = fixture::tree(&[(
+        "fixture.obscured",
+        r#"<x-dc><helmet><style>body{margin:0;font:16px/20px sans-serif}</style></helmet>
+<div style="position:absolute;left:0;top:0">Behind the scrim</div>
+<button style="position:absolute;left:0;top:30px">Behind too</button>
+<div style="position:absolute;left:0;top:200px">Beside the scrim</div>
+<div style="position:absolute;left:0;top:0;width:200px;height:100px;background:#000;opacity:.5"></div>
+<div style="position:absolute;left:210px;top:0;width:90px;height:110px;overflow:hidden">
+  <div style="position:absolute;top:95px">Cut by the sheet</div>
+  <div style="position:absolute;top:20px">Whole in the sheet</div>
+</div>
+</x-dc>"#,
+    )]);
+    let elements = fixture::with_browser(root.path(), async |server, chrome| {
+        let page = chrome.new_page().await.unwrap();
+        let url = server.board_url("fixture.obscured");
+        let rendered = render(
+            &page,
+            "fixture.obscured",
+            &url,
+            Frame { w: 300, h: 300 },
+            1.0,
+        )
+        .await
+        .unwrap();
+        elements(&page, rendered.frame, Platform::Mac)
+            .await
+            .unwrap()
+    })
+    .await;
+    let obscured = |role, label| find(&elements, role, label).obscured;
+    assert!(obscured(Role::Text, "Behind the scrim"));
+    assert!(obscured(Role::Button, "Behind too"));
+    assert!(obscured(Role::Text, "Cut by the sheet"));
+    assert!(!obscured(Role::Text, "Beside the scrim"));
+    assert!(!obscured(Role::Text, "Whole in the sheet"));
+}

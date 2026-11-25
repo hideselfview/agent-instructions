@@ -20,6 +20,7 @@ pub(crate) fn element(role: Role, label: Option<&str>, parent: Option<usize>) ->
         text: None,
         parent,
         component: None,
+        obscured: false,
     }
 }
 

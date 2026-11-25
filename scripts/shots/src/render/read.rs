@@ -132,6 +132,9 @@ pub(crate) struct Raw {
     pub(crate) placeholder: Option<String>,
     /// The design-system component that draws the node's DOM node.
     pub(crate) component: Option<String>,
+    /// The page draws something over part of the node's box, or a sheet clips
+    /// part of it (`Element::obscured`).
+    pub(crate) obscured: bool,
     /// A password field: what is typed shows masked, never as itself.
     pub(crate) secret: bool,
 }
@@ -352,6 +355,7 @@ fn element(
         parent,
         focused: node.focused.then_some(true),
         component: node.component.clone(),
+        obscured: node.obscured,
         placeholder: if role == Role::Field {
             nonempty(node.placeholder.as_deref())
         } else {
@@ -408,6 +412,9 @@ struct Geometry {
     /// The design-system component that draws the node: the nearest one
     /// above it in React's tree.
     component: Option<String>,
+    /// The node's box has something drawn over part of it, or a sheet clips
+    /// part of it.
+    obscured: bool,
     /// The node is a password input.
     secret: bool,
 }
@@ -473,7 +480,20 @@ const GEOMETRY: &str = r#"function({frame, bodyOverflowAppliesToViewport}) {
       }
       ancestor = clippingParent(ancestor, style);
     }
-    return left < right && top < bottom;
+    return left < right && top < bottom ? {left, top, right, bottom} : null;
+  };
+  // Whether the page draws another element over a point of the box's visible
+  // part: the topmost element there is none inside the node's own element and
+  // none that holds it.
+  const coveredAt = (element, seen) => {
+    if (!element || getComputedStyle(element).pointerEvents === 'none') return false;
+    const width = seen.right - seen.left;
+    const height = seen.bottom - seen.top;
+    for (const [fx, fy] of [[0.1, 0.5], [0.5, 0.5], [0.9, 0.5], [0.5, 0.15], [0.5, 0.85]]) {
+      const top = document.elementFromPoint(seen.left + width * fx, seen.top + height * fy);
+      if (top && !element.contains(top) && !top.contains(element)) return true;
+    }
+    return false;
   };
   const isText = this.nodeType === 3;
   let rect;
@@ -488,9 +508,12 @@ const GEOMETRY: &str = r#"function({frame, bodyOverflowAppliesToViewport}) {
   }
   const element = isText ? flatParent(this) : this;
   const style = element ? getComputedStyle(element) : null;
-  if (!visible(rect, isText ? element : clippingParent(element, style))) {
+  const seen = visible(rect, isText ? element : clippingParent(element, style));
+  if (!seen) {
     return {visibility: 'clipped'};
   }
+  const clippedPartly = rect.width - (seen.right - seen.left) > 0.5
+    || rect.height - (seen.bottom - seen.top) > 0.5;
   return {
     visibility: 'visible',
     bounds: {x: rect.x, y: rect.y, width: rect.width, height: rect.height},
@@ -507,6 +530,7 @@ const GEOMETRY: &str = r#"function({frame, bodyOverflowAppliesToViewport}) {
     in_selected: element !== null
       && element.closest('[aria-selected]')?.getAttribute('aria-selected') === 'true',
     component: componentOf(this),
+    obscured: clippedPartly || coveredAt(element, seen),
     secret: !isText && this.tagName === 'INPUT' && this.type === 'password',
   };
 }"#;
@@ -758,6 +782,7 @@ async fn gather(page: &Page, frame: Bounds) -> Result<Vec<Raw>, ReadError> {
                         };
                         raw.placeholder = geometry.placeholder;
                         raw.component = geometry.component;
+                        raw.obscured = geometry.obscured;
                         if (geometry.current || geometry.in_selected) && raw.selected.is_none() {
                             raw.selected = Some(true);
                         }
