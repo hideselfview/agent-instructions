@@ -103,11 +103,11 @@ the file and line of what the code does today.
 
 ### Building a board
 
-A plan that builds a board gives the board's link and file name, and its block
-outline copied from the markup (nesting, order, sizes), never a paraphrase. It
-lists by name every change to the existing layout, so the implementer doesn't
-keep what the board replaced. The implementer and the reviewer open the board's
-file before the plan's prose, and build and check against the markup.
+A plan that builds a board gives the board's file name and its block outline
+copied from the markup (nesting, order, sizes), never a paraphrase. It lists by
+name every change to the existing layout, so the implementer doesn't keep what
+the board replaced. The implementer and the reviewer open the board's file
+before the plan's prose, and build and check against the markup.
 
 A shot draws the code's version of a board, so don't add IDE previews
 (`#Preview`, Compose `@Preview`). There are two kinds of shot:
