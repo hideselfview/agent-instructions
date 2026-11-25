@@ -5,7 +5,6 @@ paths:
   - BaeKit/**
   - bae-android/**
   - bae-bridge/loc/catalog.toml
-  - plans/**
 blocking: true
 design: true
 ---

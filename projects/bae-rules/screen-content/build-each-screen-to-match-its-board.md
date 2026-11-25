@@ -4,7 +4,8 @@ paths:
   - bae-macos/**
   - BaeKit/**
   - bae-android/**
-  - plans/**
+  - plans/*.md
+  - plans/briefs/**
 blocking: true
 design: true
 capture: true

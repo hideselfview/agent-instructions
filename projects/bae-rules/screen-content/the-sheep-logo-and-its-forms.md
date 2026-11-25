@@ -5,7 +5,6 @@ paths:
   - bae-macos/**
   - BaeKit/**
   - bae-android/**
-  - plans/**
 blocking: true
 design: true
 ---

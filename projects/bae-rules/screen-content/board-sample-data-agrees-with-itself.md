@@ -1,7 +1,6 @@
 ---
 paths:
   - design/**
-  - plans/**
 blocking: true
 design: true
 ---
