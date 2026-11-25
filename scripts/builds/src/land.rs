@@ -1304,7 +1304,7 @@ fn forward_main_checkout(workdir: &Path, out: &mut dyn Write) {
 /// Prints an INSTALL FAILED line when the last install of the main checkout
 /// <main> failed. The post-merge hook runs install.sh after the fast-forward,
 /// and git does not report the hook's failure, so land reads the record
-/// install.sh leaves (`main_checkout::install_record`). A failure from an
+/// install.sh leaves (`main_checkout::failed_install`). A failure from an
 /// earlier landing stays until an install succeeds.
 fn report_failed_install(main: &Path, out: &mut dyn Write) {
     if let Some(words) = crate::main_checkout::failed_install_words(main) {

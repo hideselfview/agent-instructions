@@ -98,20 +98,21 @@ pub fn forward_command(main: &Path) -> String {
     )
 }
 
-/// How the last install of a main checkout ended, as install.sh records it in
-/// the file `builds-install` of the repo's git folder: `ok <commit>` or
-/// `failed <commit> <step>`. install.sh writes it, since an install that
-/// fails before it builds `builds` has no program to write it.
+/// An install that failed, as install.sh records it.
 #[derive(Debug, PartialEq, Eq)]
-pub enum Install {
-    Done,
-    Failed { commit: String, step: String },
+pub struct FailedInstall {
+    pub commit: String,
+    /// The step install.sh was running when it stopped.
+    pub step: String,
 }
 
-/// The last install recorded for the main checkout at <main>; None when none
-/// is, and Err with what git said or what the file holds when that cannot be
-/// read.
-pub fn install_record(main: &Path) -> Result<Option<Install>, String> {
+/// The failed install that the file `builds-install` of the git folder of the
+/// main checkout at <main> records. install.sh writes the file (`ok COMMIT`
+/// or `failed COMMIT STEP`), since an install that fails before it builds
+/// `builds` has no program to write it. None when the file is missing or
+/// records a successful install; Err with what git said or what the file
+/// holds when that cannot be read.
+pub fn failed_install(main: &Path) -> Result<Option<FailedInstall>, String> {
     let dir = run(main, &["rev-parse", "--git-common-dir"])?;
     let file = main.join(dir.trim()).join("builds-install");
     let text = match std::fs::read_to_string(&file) {
@@ -120,19 +121,22 @@ pub fn install_record(main: &Path) -> Result<Option<Install>, String> {
         Err(error) => return Err(format!("reading {}: {error}", file.display())),
     };
     let line = text.trim();
+    let malformed = || {
+        format!(
+            "{} holds {line:?}, which is neither `ok COMMIT` nor `failed COMMIT STEP`",
+            file.display()
+        )
+    };
     match line.split_once(' ') {
-        Some(("ok", _)) => Ok(Some(Install::Done)),
+        Some(("ok", _)) => Ok(None),
         Some(("failed", rest)) => {
-            let (commit, step) = rest.split_once(' ').unwrap_or((rest, "an unnamed step"));
-            Ok(Some(Install::Failed {
+            let (commit, step) = rest.split_once(' ').ok_or_else(malformed)?;
+            Ok(Some(FailedInstall {
                 commit: commit.to_string(),
                 step: step.to_string(),
             }))
         }
-        _ => Err(format!(
-            "{} holds {line:?}, which is neither `ok COMMIT` nor `failed COMMIT STEP`",
-            file.display()
-        )),
+        _ => Err(malformed()),
     }
 }
 
@@ -140,13 +144,13 @@ pub fn install_record(main: &Path) -> Result<Option<Install>, String> {
 /// the builds on PATH is older than origin/main until an install succeeds.
 /// None when the last install did not fail.
 pub fn failed_install_words(main: &Path) -> Option<String> {
-    match install_record(main) {
-        Ok(Some(Install::Failed { commit, step })) => Some(format!(
+    match failed_install(main) {
+        Ok(Some(FailedInstall { commit, step })) => Some(format!(
             "the install of {} in {} failed at {step}, so the builds on PATH is older than origin/main until an install succeeds",
             &commit[..commit.len().min(8)],
             main.display()
         )),
-        Ok(_) => None,
+        Ok(None) => None,
         Err(error) => Some(format!(
             "builds could not read how the last install of {} ended: {error}",
             main.display()

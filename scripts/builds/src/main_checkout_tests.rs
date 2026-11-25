@@ -155,6 +155,19 @@ fn health_lists_a_failed_install_until_an_install_succeeds() {
 
     std::fs::write(&record, format!("ok {sha}\n")).unwrap();
     assert!(found().is_empty(), "a successful install clears it");
+
+    // A record that names no step is broken, and health says so.
+    std::fs::write(&record, format!("failed {sha}\n")).unwrap();
+    let broken = found();
+    assert_eq!(broken.len(), 1, "{broken:?}");
+    assert!(
+        broken[0]
+            .advice
+            .text
+            .contains("could not read how the last install")
+            && broken[0].advice.text.contains("neither `ok COMMIT`"),
+        "{broken:?}"
+    );
 }
 
 /// A repo's main checkout is `<home>/dev/<repo>`, listed once however many
