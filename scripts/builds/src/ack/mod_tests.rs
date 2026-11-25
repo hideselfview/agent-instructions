@@ -456,7 +456,12 @@ fn a_compaction_of_one_agent_clears_its_acknowledgement_and_leaves_the_others() 
     agent::register(&world.places, SESSION_ID, "a2").unwrap();
     world.acknowledge(NOON);
     world.acknowledge_as("a2", NOON);
+    for agent in [AGENT, "a2"] {
+        agent::give_rule(&world.places, SESSION_ID, agent, "plain").unwrap();
+    }
     let told = world.compact(Some("a2")).unwrap();
+    assert!(!agent::was_given_rule(&world.places, SESSION_ID, "a2", "plain").unwrap());
+    assert!(agent::was_given_rule(&world.places, SESSION_ID, AGENT, "plain").unwrap());
     let output: serde_json::Value = serde_json::from_str(&told).unwrap();
     let context = output["hookSpecificOutput"]["additionalContext"]
         .as_str()

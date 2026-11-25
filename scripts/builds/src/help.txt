@@ -38,11 +38,13 @@ ACKNOWLEDGING THE RULES
 
 An agent runs `builds ack` to acknowledge the workflow and lists overview at
 session start and after compaction. These sections apply to every project.
-Builds tells the agent once when either section changes. Use `builds brief`
-to read the coding rules for the paths you will edit.
+Builds tells the agent once when either section changes. Builds gives the
+agent each coding rule that covers a file when the agent first edits it
+(`builds rules-on-edit`); `builds brief` prints the rules for paths the agent
+has not edited.
 
 Builds requires acknowledgement for agent commands other than `help`, `ack`,
-`agent`, `brief`, `install`, `dashboard` and `version`.
+`agent`, `brief`, `rules-on-edit`, `install`, `dashboard` and `version`.
 
   builds ack [--agent ID] [--project P]
       Start a reading. Its first line says why builds asks agents to read the
@@ -91,6 +93,16 @@ Builds requires acknowledgement for agent commands other than `help`, `ack`,
       hook's input, registers the agent's id in the session, and adds "Your
       builds agent id is ID. Pass --agent ID to every builds command ..." to
       the agent's context.
+  builds rules-on-edit
+      Claude Code's PreToolUse hook for Edit, Write, MultiEdit and
+      NotebookEdit runs this. builds reads the hook's input and finds the
+      file's repo and its project (`builds claim --project`, else the project
+      that holds the repo). builds adds to the agent's context each coding
+      rule of that project (and the shared rules) that covers the file, with
+      the rule's text, unless it gave the agent that rule before. It records
+      each rule it gives, under the agent's own id, in the agent's folder
+      (`agents/<session>/<agent>.rules/`), and forgets them when Claude Code
+      compacts the agent. It prints nothing for a file outside every repo.
 
 builds identifies Codex commands by CODEX_SESSION_ID and CODEX_THREAD_ID.
 The session id identifies the coordinator. The thread id identifies the agent
@@ -2483,7 +2495,8 @@ own.
 
 Agent registrations. `builds agent start` registers each agent in
 <the lists folder's parent>/agents/<session>/, and only a command that an
-agent of that session runs reads it. `prune` (not `setup`) deletes each
+agent of that session runs reads it. `builds rules-on-edit` keeps the rules it
+gave each agent there too. `prune` (not `setup`) deletes each
 session's folder once Claude Code's record of running sessions (~/.claude/
 sessions) no longer names the session. When builds cannot read that record, it
 deletes none and says so.

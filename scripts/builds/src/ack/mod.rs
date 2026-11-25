@@ -627,6 +627,7 @@ fn compacted(places: &Places, hook: agent::HookInput) -> Result<String> {
         );
     }
     agent::set_compacted(places, &hook.session_id, id, true)?;
+    agent::forget_rules(places, &hook.session_id, id)?;
     forget_compacted(places, &hook.session_id, id)?;
     Ok(agent::hook_output(
         "SessionStart",

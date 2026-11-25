@@ -139,6 +139,7 @@ mod readings_file;
 mod remote;
 mod remote_worktrees;
 mod review;
+mod rules_on_edit;
 mod run_end;
 mod run_tmp;
 mod rust_stable;
@@ -421,6 +422,10 @@ fn run(command: &str, args: &[String], session: ack::agent::Session) -> Result<(
         }
         "ack" => return ack::cmd_ack(&Places::from_env()?, &session, args),
         "agent" => return ack::agent::cmd_agent(&Places::from_env()?, args),
+        "rules-on-edit" => {
+            let root = review::default_rules_root()?;
+            return rules_on_edit::cmd_rules_on_edit(&Places::from_env()?, &root, args);
+        }
         "queue" => return queue::cmd_queue(&Places::from_env()?, args),
         "takeover" => return queue::cmd_takeover(&Places::from_env()?, args),
         "-h" | "--help" | "help" => {
@@ -481,7 +486,7 @@ fn run(command: &str, args: &[String], session: ack::agent::Session) -> Result<(
         "remote" => remote::cmd_remote(&tool, &host::Ssh::from_env(), args),
         "tool" => built_tools::cmd_tool(&tool.places, &host::Ssh::from_env(), args),
         other => fail!(
-            "builds has no command {other}. Its commands are ack, agent, setup, new, land, review, judge, claim, note, release, retire, app-checkout, app-clone, status, health, lists, brief, decision, design, question, item, next, area, dashboard, host, remote, prune, tool, cargo, lake, lock, app-build, shots, queue, takeover, build-app, install, checks, install-hook and version."
+            "builds has no command {other}. Its commands are ack, agent, rules-on-edit, setup, new, land, review, judge, claim, note, release, retire, app-checkout, app-clone, status, health, lists, brief, decision, design, question, item, next, area, dashboard, host, remote, prune, tool, cargo, lake, lock, app-build, shots, queue, takeover, build-app, install, checks, install-hook and version."
         ),
     }
 }

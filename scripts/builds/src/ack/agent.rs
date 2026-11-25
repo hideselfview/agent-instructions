@@ -102,6 +102,41 @@ pub fn was_compacted(places: &Places, session: &str, agent: &str) -> Result<bool
     Ok(held == COMPACTED)
 }
 
+/// The folder that holds one empty file for each rule builds gave agent
+/// <agent> of <session> (`give_rule`), beside the agent's file.
+fn rules_dir(places: &Places, session: &str, agent: &str) -> Result<PathBuf> {
+    let file = file(places, session, agent)?;
+    Ok(file.with_file_name(format!("{agent}.rules")))
+}
+
+/// Whether builds gave agent <agent> of <session> the rule <slug>.
+pub fn was_given_rule(places: &Places, session: &str, agent: &str, slug: &str) -> Result<bool> {
+    let path = rules_dir(places, session, agent)?.join(slug);
+    path.try_exists()
+        .context(|| format!("reading {}", path.display()))
+}
+
+/// Records that builds gave agent <agent> of <session> the rule <slug>.
+/// Recording it again changes nothing.
+pub fn give_rule(places: &Places, session: &str, agent: &str, slug: &str) -> Result<()> {
+    let folder = rules_dir(places, session, agent)?;
+    std::fs::create_dir_all(&folder).context(|| format!("creating {}", folder.display()))?;
+    let path = folder.join(slug);
+    std::fs::write(&path, "").context(|| format!("writing {}", path.display()))
+}
+
+/// Forgets every rule builds gave agent <agent> of <session>, because Claude
+/// Code compacted the agent's context and the agent no longer holds them.
+pub fn forget_rules(places: &Places, session: &str, agent: &str) -> Result<()> {
+    let folder = rules_dir(places, session, agent)?;
+    match std::fs::remove_dir_all(&folder) {
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+            fail!("deleting {}: {error}", folder.display())
+        }
+        _ => Ok(()),
+    }
+}
+
 /// Whether builds registered agent <agent> of <session>.
 pub fn is_registered(places: &Places, session: &str, agent: &str) -> Result<bool> {
     let path = file(places, session, agent)?;
