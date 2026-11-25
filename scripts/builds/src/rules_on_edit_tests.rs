@@ -116,6 +116,25 @@ fn the_hook_exits_with_2_on_a_failure_so_that_the_edit_does_not_run() {
 }
 
 #[test]
+fn an_agent_whose_rules_could_not_be_recorded_is_given_them_again() {
+    use std::os::unix::fs::PermissionsExt;
+    let scratch = Scratch::new("rules-on-edit-unrecorded");
+    let places = scratch.places();
+    let root = rules_root(&scratch);
+    let work = scratch.dir.join("work");
+    repo(&work, "target 1\n");
+    make_store(&places, &["work"]);
+    agent::register(&places, "s1", "s1").unwrap();
+    let folder = agent::dir(&places).unwrap().join("s1");
+    let input = edit(None, &work.join("src/lib.rs"));
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o555)).unwrap();
+    let failed = run(&places, &root, &input, &mut Vec::new());
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(failed.is_err());
+    assert!(given(&places, &root, &input).is_some());
+}
+
+#[test]
 fn a_path_with_dots_in_it_is_refused() {
     let refused = repo_path(Path::new("/repo/new/../lib.rs"))
         .unwrap_err()

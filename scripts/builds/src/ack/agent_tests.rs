@@ -212,15 +212,25 @@ fn a_claude_session_holds_the_inbox_its_shell_names_or_why_it_cannot() {
 
 #[test]
 fn a_failed_recording_of_rules_records_none_of_them() {
+    use std::os::unix::fs::PermissionsExt;
     let scratch = Scratch::new("agent-rules-failed");
     let places = scratch.places();
+    register(&places, "s1", "a1").unwrap();
     give_rules(&places, "s1", "a1", &["plain".to_string()]).unwrap();
-    // A folder where the file goes makes the replacement fail.
-    let file = rules_file(&places, "s1", "a2").unwrap();
-    std::fs::create_dir_all(&file).unwrap();
+    let folder = rules_file(&places, "s1", "a1")
+        .unwrap()
+        .parent()
+        .unwrap()
+        .to_path_buf();
     let slugs = ["one".to_string(), "two".to_string()];
-    assert!(give_rules(&places, "s1", "a2", &slugs).is_err());
-    assert!(!was_given_rule(&places, "s1", "a2", "one").unwrap_or(false));
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o555)).unwrap();
+    let failed = give_rules(&places, "s1", "a1", &slugs);
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(failed.is_err());
+    assert!(was_given_rule(&places, "s1", "a1", "plain").unwrap());
+    for slug in &slugs {
+        assert!(!was_given_rule(&places, "s1", "a1", slug).unwrap());
+    }
     give_rules(&places, "s1", "a1", &slugs).unwrap();
     for slug in ["plain", "one", "two"] {
         assert!(was_given_rule(&places, "s1", "a1", slug).unwrap());

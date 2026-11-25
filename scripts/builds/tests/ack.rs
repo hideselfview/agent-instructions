@@ -281,3 +281,20 @@ exec /usr/bin/git "$@"
     std::fs::remove_dir_all(&dir).unwrap();
     assert_eq!(inherited, "unset:unset\n");
 }
+
+#[test]
+fn the_rules_hook_exits_with_2_on_a_bad_agent_flag_and_other_commands_with_1() {
+    let dir = std::fs::canonicalize(std::env::temp_dir())
+        .unwrap()
+        .join(format!("builds-test-ack-hook-exit-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("volume")).unwrap();
+    std::fs::create_dir_all(dir.join("home")).unwrap();
+
+    let hook = builds(&dir, Some("s1"), &["rules-on-edit", "--agent"]);
+    assert_eq!(hook.status.code(), Some(2), "{hook:?}");
+    let other = builds(&dir, Some("s1"), &["du", "home", "--agent"]);
+    assert_eq!(other.status.code(), Some(1), "{other:?}");
+
+    std::fs::remove_dir_all(&dir).unwrap();
+}

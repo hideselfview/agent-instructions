@@ -228,7 +228,7 @@ fn main() -> ExitCode {
     let (args, agent) = match ack::agent::take_flag(&args) {
         Ok(args) => args,
         Err(fail) => {
-            return exit_code_after(args.first().map_or("", String::as_str), fail);
+            return exit_code_after(command_of(&args), fail);
         }
     };
     let session = ack::agent::Session::from_env(agent);
@@ -269,6 +269,15 @@ fn run_command(args: &[String], session: ack::agent::Session) -> ExitCode {
         Ok(()) => ExitCode::SUCCESS,
         Err(fail) => exit_code_after(command, fail),
     }
+}
+
+/// The command that <args> name: the first word that is not `--agent ID`, ""
+/// when there is none.
+fn command_of(args: &[String]) -> &str {
+    ack::agent::without_flag(args)
+        .first()
+        .copied()
+        .unwrap_or("")
 }
 
 /// The exit code of `builds <command>` after it failed with <fail>: the
