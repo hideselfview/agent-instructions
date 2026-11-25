@@ -1,5 +1,6 @@
 use super::*;
 use crate::lists::fixtures::make_store;
+use crate::review::frequent::Quoted;
 use crate::testing::{Scratch, repo};
 
 const RULE: &str =
@@ -106,4 +107,24 @@ fn another_event_is_no_edit() {
     )
     .unwrap();
     assert!(on_edit(&scratch.places(), &rules_root(&scratch), &input).is_err());
+}
+
+#[test]
+fn a_rule_is_followed_by_the_findings_reviews_confirmed_of_it() {
+    let rule = Rule::parse("plain", RULE);
+    let other = Rule::parse("other", RULE);
+    let confirmed = [Frequent {
+        rule: "plain".to_string(),
+        findings: 3,
+        weight: 2.0,
+        quoted: vec![Quoted {
+            text: "Name the actor and the action.".to_string(),
+            findings: 2,
+        }],
+    }];
+    let text = render("src/lib.rs", &[&rule, &other], &confirmed);
+    assert!(text.starts_with("Coding rules for `src/lib.rs`."), "{text}");
+    let beside = "Name the actor and the action.\n\nRecent first reviews confirmed 3 findings of this rule. The paragraphs they quote most:\n- 2x Name the actor and the action.\n";
+    assert!(text.contains(beside), "{text}");
+    assert_eq!(text.matches("Recent first reviews").count(), 1, "{text}");
 }

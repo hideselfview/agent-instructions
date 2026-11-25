@@ -99,7 +99,9 @@ Builds requires acknowledgement for agent commands other than `help`, `ack`,
       file's repo and its project (`builds claim --project`, else the project
       that holds the repo). builds adds to the agent's context each coding
       rule of that project (and the shared rules) that covers the file, with
-      the rule's text, unless it gave the agent that rule before. It records
+      the rule's text and, after it, the findings that recent first reviews
+      confirmed of that rule most often (two or more, with the paragraphs they
+      quote most), unless it gave the agent that rule before. It records
       each rule it gives, under the agent's own id, in the agent's folder
       (`agents/<session>/<agent>.rules/`), and forgets them when Claude Code
       compacts the agent. It prints nothing for a file outside every repo.

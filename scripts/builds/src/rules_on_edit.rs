@@ -1,6 +1,8 @@
 //! `builds rules-on-edit`: the PreToolUse hook of Claude Code's file-editing
 //! tools. When an agent edits a file, builds gives the agent each coding rule
-//! that covers the file. builds gives an agent each rule once, under the agent's own id (`ack::agent::give_rule`),
+//! that covers the file, and beside it the findings of that rule that recent
+//! first reviews confirmed most often (`review::frequent`). builds gives an
+//! agent each rule once, under the agent's own id (`ack::agent::give_rule`),
 //! and gives it again after Claude Code compacts the agent.
 //!
 //! The rules are those of the project that holds the file's repo, as `builds
@@ -15,6 +17,7 @@ use crate::fail;
 use crate::fail::{Context, Result};
 use crate::lists::store::project_of;
 use crate::places::Places;
+use crate::review::frequent::{Counted, Frequent};
 use crate::review::rules::{self, Rule};
 
 const USAGE: &str = "usage: builds rules-on-edit   (a Claude Code PreToolUse hook runs it, with the hook's input on standard input)";
@@ -95,7 +98,14 @@ fn on_edit(places: &Places, rules_root: &Path, input: &EditInput) -> Result<Opti
     if new.is_empty() {
         return Ok(None);
     }
-    let text = render(&path, &new);
+    let confirmed = match &project {
+        Some(project) => crate::review::confirmed_often(places, project, &rules)?,
+        None => Counted {
+            rules: Vec::new(),
+            left_out: Vec::new(),
+        },
+    };
+    let text = render(&path, &new, &confirmed.rules);
     for rule in &new {
         agent::give_rule(places, session, agent, &rule.slug)?;
     }
@@ -135,8 +145,9 @@ fn repo_path(file: &Path) -> Result<Option<(Checkout, String)>> {
 }
 
 /// What the agent reads for <rules>, the rules that cover <path> and that it
-/// has not read.
-fn render(path: &str, rules: &[&Rule]) -> String {
+/// has not read: each rule's text and, beside it, its entry among the
+/// <confirmed> rules.
+fn render(path: &str, rules: &[&Rule], confirmed: &[Frequent]) -> String {
     let mut text = format!(
         "Coding rules for `{path}`. builds gives you each rule once, when you first edit a file it covers. Write the edit to follow them.\n"
     );
@@ -146,6 +157,10 @@ fn render(path: &str, rules: &[&Rule]) -> String {
             rule.path,
             rule.body().trim_matches('\n')
         ));
+        if let Some(found) = confirmed.iter().find(|found| found.rule == rule.slug) {
+            text.push('\n');
+            text.push_str(&found.describe());
+        }
     }
     text
 }

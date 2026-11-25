@@ -12,15 +12,13 @@ pub const LISTS_HELP: &str = concat!(
     "\n\n",
     include_str!("lists/lists-help.txt")
 );
-/// `builds help workflow`, before the section builds adds from the reviews'
-/// records (`review::workflow_section`).
+/// `builds help workflow`.
 pub const WORKFLOW_HELP: &str = include_str!("workflow-help.txt");
 /// `builds help briefs`.
 pub const BRIEFS_HELP: &str = include_str!("briefs-help.txt");
 
-/// The page `builds help <topic>` prints, without the section `workflow`
-/// adds from the reviews' records; <topic> None is `builds help`. None when
-/// no page has the topic.
+/// The page `builds help <topic>` prints; <topic> None is `builds help`. None
+/// when no page has the topic.
 pub fn page(topic: Option<&str>) -> Option<&'static str> {
     match topic {
         None => Some(HELP),

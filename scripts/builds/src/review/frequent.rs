@@ -1,6 +1,6 @@
 //! The rules the coordinator confirms findings of most often on a branch's
-//! first review. `builds help workflow` shows them to each implementing agent
-//! before it writes its first draft. builds counts the confirmed findings of
+//! first review. `builds rules-on-edit` shows each one beside the rule when
+//! an agent first edits a file the rule covers. builds counts the confirmed findings of
 //! each rule over the first reviews of the last `BRANCHES` branches of every
 //! project's store, and weighs each finding by how new its branch is: the
 //! weight halves every `HALF_LIFE` branches back. A rule with `LEAST_FINDINGS`
@@ -77,7 +77,7 @@ pub fn frequent(reviews: &[&FirstReview], rules: &[Rule]) -> Counted {
         for finding in &review.confirmed {
             let Some(rule) = rules.iter().find(|rule| rule.slug == finding.rule) else {
                 left_out.push(format!(
-                    "WHAT REVIEWS CONFIRM MOST OFTEN leaves out finding {}, whose rule {} the rules checkout no longer holds",
+                    "the confirmed findings of the rules leave out finding {}, whose rule {} the rules checkout no longer holds",
                     finding.id, finding.rule
                 ));
                 continue;
@@ -102,7 +102,7 @@ pub fn frequent(reviews: &[&FirstReview], rules: &[Rule]) -> Counted {
                 .find(|piece| clause_in(&finding.clause, piece))
             else {
                 left_out.push(format!(
-                    "WHAT REVIEWS CONFIRM MOST OFTEN counts finding {} under rule {} but lists no paragraph for it, since no paragraph of the rule holds its clause",
+                    "the confirmed findings of the rules count finding {} under rule {} but lists no paragraph for it, since no paragraph of the rule holds its clause",
                     finding.id, finding.rule
                 ));
                 continue;
@@ -200,17 +200,12 @@ fn counted_reviews(
     all
 }
 
-/// The section of `builds help workflow` that lists the rules the
-/// coordinator confirmed findings of most often on the first reviews of the
-/// recent branches of <project> and of the other projects, whose findings of
-/// shared rules count too. <db> is the store of <project>, <others> the
-/// stores of the other projects.
-pub fn section(
-    db: &Connection,
-    others: &[&Connection],
-    project: &str,
-    rules: &[Rule],
-) -> Result<String> {
+/// The rules the coordinator confirmed findings of most often on the first
+/// reviews of the recent branches of <project> and of the other projects,
+/// whose findings of shared rules count too. <db> is the store of
+/// <project>, <others> the stores of the other projects. Prints on stderr
+/// each finding the count left out (`Counted::left_out`).
+pub fn confirmed_often(db: &Connection, others: &[&Connection], rules: &[Rule]) -> Result<Counted> {
     let own = record::first_reviews(db)?;
     let others = others
         .iter()
@@ -218,34 +213,27 @@ pub fn section(
         .collect::<Result<Vec<_>>>()?;
     let reviews = counted_reviews(own, others, rules);
     let newest: Vec<&FirstReview> = reviews.iter().rev().take(BRANCHES).collect();
-    let Counted {
-        rules: counted,
-        left_out,
-    } = frequent(&newest, rules);
-    for why in left_out {
+    let counted = frequent(&newest, rules);
+    for why in &counted.left_out {
         note(why);
     }
-    let mut out = String::from("\n\nWHAT REVIEWS CONFIRM MOST OFTEN\n\n");
-    if counted.is_empty() {
-        out.push_str(&format!(
-            "The first reviews of the last {BRANCHES} branches of project {project} and the\nother projects hold no rule with {LEAST_FINDINGS} confirmed findings, so none is listed here.\n"
-        ));
-        return Ok(out);
-    }
-    out.push_str(&format!(
-        "The coordinator confirmed findings of these rules most often on the first\nreview of the last {BRANCHES} branches of project {project} and of the other projects\n(the other projects count only the rules that every project shares). A rule\nis listed when it has {LEAST_FINDINGS} or more confirmed findings on those branches. A\nfinding on a newer branch counts more toward a rule's place in the order: its\nweight halves every {HALF_LIFE} branches back. Each rule shows its number of\nfindings, then the paragraphs of its text that those findings quote most, with\nhow many findings quote each. Reread your draft against each rule before you\ncommit.\n\n"
-    ));
-    for rule in counted {
-        out.push_str(&format!(
-            "  {}, {}:\n",
-            rule.rule,
-            crate::text::counted(rule.findings, "finding", "findings"),
-        ));
-        for quoted in rule.quoted.iter().take(QUOTED_SHOWN) {
-            out.push_str(&format!("    {}x {}\n", quoted.findings, quoted.text));
+    Ok(counted)
+}
+
+impl Frequent {
+    /// What an agent that edits a file the rule covers reads beside the rule:
+    /// how many findings the recent first reviews confirmed of it, and the
+    /// paragraphs of its text that they quote most.
+    pub fn describe(&self) -> String {
+        let mut out = format!(
+            "Recent first reviews confirmed {} of this rule. The paragraphs they quote most:\n",
+            crate::text::counted(self.findings, "finding", "findings"),
+        );
+        for quoted in self.quoted.iter().take(QUOTED_SHOWN) {
+            out.push_str(&format!("- {}x {}\n", quoted.findings, quoted.text));
         }
+        out
     }
-    Ok(out)
 }
 
 #[cfg(test)]

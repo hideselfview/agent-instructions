@@ -73,7 +73,7 @@ pub mod exchange_time;
 #[cfg(test)]
 pub mod fakes;
 mod files;
-mod frequent;
+pub mod frequent;
 pub mod groups;
 pub mod idle;
 pub mod judge;
@@ -172,27 +172,22 @@ impl Reviewer {
     }
 }
 
-/// The section `builds help workflow` ends with: the rules the coordinator
-/// confirmed findings of most often on the first reviews of the recent
-/// branches of the project that holds <cwd>'s repo and of the other projects
-/// (`frequent.rs`).
-pub fn workflow_section(places: &crate::places::Places, cwd: &Path) -> Result<String> {
-    let project = match Checkout::at(cwd)? {
-        Some(checkout) => project_of(places, &checkout, None)?,
-        None => None,
-    };
-    let Some(project) = project else {
-        return Ok("\n\nWHAT REVIEWS CONFIRM MOST OFTEN\n\nRun `builds help workflow` in a repo of a project with lists, and this\nsection lists the rules whose findings the coordinator confirms most often\non its reviews.\n".to_string());
-    };
-    let conn = Store::named(places, &project)?.open_existing()?;
+/// The rules the coordinator confirmed findings of most often on the first
+/// reviews of the recent branches of <project> and of the other projects
+/// (`frequent.rs`), counted over <rules>, the rules of <project>.
+pub fn confirmed_often(
+    places: &crate::places::Places,
+    project: &str,
+    rules: &[rules::Rule],
+) -> Result<frequent::Counted> {
+    let conn = Store::named(places, project)?.open_existing()?;
     let others = crate::lists::store::stores(places)?
         .into_iter()
         .filter(|store| store.project != project)
         .map(|store| store.open_existing())
         .collect::<Result<Vec<_>>>()?;
-    let rules = rules::load(&rules::installed_root(&places.home), Some(&project))?;
     let others: Vec<&rusqlite::Connection> = others.iter().map(|held| &**held).collect();
-    frequent::section(&conn, &others, &project, &rules)
+    frequent::confirmed_often(&conn, &others, rules)
 }
 
 /// The file a review of the commits up to <head> holds locked while it runs,

@@ -434,12 +434,6 @@ fn run(command: &str, args: &[String], session: ack::agent::Session) -> Result<(
                 _ => None,
             };
             print!("{}", help::page(topic).expect("builds help has a page"));
-            if topic == Some("workflow") {
-                print!(
-                    "{}",
-                    review::workflow_section(&Places::from_env()?, &lists::args::current_dir()?)?
-                );
-            }
             return Ok(());
         }
         _ => {}

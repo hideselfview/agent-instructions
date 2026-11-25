@@ -99,7 +99,12 @@ fn store(branches: &[Vec<Vec<&str>>]) -> rusqlite::Connection {
 }
 
 fn shown(db: &rusqlite::Connection) -> String {
-    section(db, &[], "demo", &rules()).unwrap()
+    confirmed_often(db, &[], &rules())
+        .unwrap()
+        .rules
+        .iter()
+        .map(Frequent::describe)
+        .collect()
 }
 
 #[test]
@@ -129,11 +134,11 @@ fn a_paragraph_that_comes_back_on_a_recent_first_review_is_shown_again() {
     branches.push(vec![vec!["Name the actor", "Name the actor"]]);
     let text = shown(&store(&branches));
     assert!(
-        text.contains("    2x Active. Name the actor and the action."),
+        text.contains("- 2x Active. Name the actor and the action."),
         "{text}"
     );
     assert!(
-        text.contains("    29x Literal. Use the words for what happens."),
+        text.contains("- 29x Literal. Use the words for what happens."),
         "{text}"
     );
 }
@@ -210,8 +215,8 @@ fn a_rule_counts_its_findings_across_paragraphs_and_names_the_most_quoted_first(
     assert_eq!(
         counted.left_out,
         [
-            "WHAT REVIEWS CONFIRM MOST OFTEN counts finding 5 under rule plain but lists no paragraph for it, since no paragraph of the rule holds its clause",
-            "WHAT REVIEWS CONFIRM MOST OFTEN leaves out finding 6, whose rule gone the rules checkout no longer holds",
+            "the confirmed findings of the rules count finding 5 under rule plain but lists no paragraph for it, since no paragraph of the rule holds its clause",
+            "the confirmed findings of the rules leave out finding 6, whose rule gone the rules checkout no longer holds",
         ]
     );
 }
