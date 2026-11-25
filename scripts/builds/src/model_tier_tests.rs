@@ -1,53 +1,77 @@
 use super::*;
+use crate::lists::fixtures::{NOON, db, item, read, stamp};
+use crate::lists::{Id, Running};
+use std::path::PathBuf;
 
 fn argv(words: &str) -> Vec<String> {
     words.split_whitespace().map(str::to_string).collect()
 }
 
-fn agent(pid: i32, cwd: &str, command: &str) -> Agent {
+fn agent(pid: i32, place: usize, command: &str) -> Agent {
     Agent {
         pid,
-        client: Client::Claude,
-        cwd: PathBuf::from(cwd),
+        provider: Provider::Claude,
+        place,
         argv: argv(command),
     }
 }
 
-fn worktrees() -> Vec<Worktree> {
-    vec![
-        Worktree {
-            top: PathBuf::from("/Users/x/dev/builds-worktrees/side-1"),
-            label: "builds/side-1".into(),
-            items: vec![Id(662)],
-        },
-        Worktree {
-            top: PathBuf::from("/Users/x/dev/builds-worktrees/side-2"),
-            label: "builds/side-2".into(),
-            items: Vec::new(),
-        },
-    ]
+/// side-1 (place 0) and side-2 (place 1) of repo bae.
+fn places() -> Vec<Place> {
+    ["side-1", "side-2"]
+        .map(|name| Place {
+            label: format!("bae/{name}"),
+            repo: "bae".into(),
+            top: PathBuf::from(format!("/Users/x/dev/bae-worktrees/{name}")),
+            root: PathBuf::from("/Users/x/dev/bae"),
+        })
+        .to_vec()
 }
 
-const SIDE_1: &str = "/Users/x/dev/builds-worktrees/side-1";
+/// Lists where items run in side-1: one item per entry of <count>.
+fn running_in_side_1(count: usize) -> Lists {
+    let db = db();
+    for _ in 0..count {
+        let id = item(&db, vec![]);
+        crate::lists::running::start(
+            &db,
+            &[id],
+            &[Running {
+                worktree: "/Users/x/dev/bae-worktrees/side-1".into(),
+                branch: "work".into(),
+                brief: "b.md".into(),
+                since: stamp(NOON),
+            }],
+        )
+        .unwrap();
+    }
+    read(&db)
+}
+
+fn judged(agents: &[Agent], lists: &Lists) -> Vec<Advice> {
+    findings(agents, &places(), &[lists])
+}
 
 #[test]
 fn an_implementing_agent_on_the_strongest_tier_gets_a_line() {
-    let lines = findings(
-        &[agent(7, SIDE_1, "claude --model claude-opus-5-5 -p brief")],
-        &worktrees(),
+    let lists = running_in_side_1(1);
+    let id = lists.items[0].id;
+    let lines = judged(
+        &[agent(7, 0, "claude --model claude-opus-5-5 -p brief")],
+        &lists,
     );
     assert_eq!(
         lines,
-        [Advice::said(
-            "model: the agent (pid 7) in builds/side-1 for item 662 runs claude-opus-5-5, and an implementing agent takes claude-sonnet-5-5. Stop the agent at its next clean point and continue the item with an agent that runs claude-sonnet-5-5"
-                .to_string()
-        )]
+        [Advice::said(format!(
+            "model: the agent (pid 7) in bae/side-1 for item {} runs claude-opus-5-5, and an implementing agent takes claude-sonnet-5-5. Stop the agent at its next clean point and continue the item with an agent that runs claude-sonnet-5-5",
+            id.0
+        ))]
     );
 }
 
 #[test]
 fn an_implementing_agent_that_names_no_model_gets_a_line() {
-    let lines = findings(&[agent(7, SIDE_1, "claude -p brief")], &worktrees());
+    let lines = judged(&[agent(7, 0, "claude -p brief")], &running_in_side_1(1));
     assert_eq!(lines.len(), 1);
     assert!(lines[0].text.contains("names no model"), "{lines:?}");
     assert!(lines[0].text.contains("claude-sonnet-5-5"), "{lines:?}");
@@ -59,37 +83,41 @@ fn an_implementing_agent_on_the_implementation_tier_gets_no_line() {
         "claude --model claude-sonnet-5-5 -p brief",
         "claude --model=claude-sonnet-5-5",
     ] {
-        assert!(findings(&[agent(7, SIDE_1, command)], &worktrees()).is_empty());
+        assert!(judged(&[agent(7, 0, command)], &running_in_side_1(1)).is_empty());
     }
 }
 
 #[test]
-fn a_process_outside_a_worktree_where_an_item_runs_gets_no_line() {
-    let outside = agent(8, "/Users/x/dev/builds", "claude --model claude-opus-5-5");
-    let idle = agent(
-        9,
-        "/Users/x/dev/builds-worktrees/side-2/scripts",
-        "claude --model claude-opus-5-5",
+fn a_process_in_a_worktree_where_no_item_runs_gets_no_line() {
+    let lines = judged(
+        &[agent(9, 1, "claude --model claude-opus-5-5")],
+        &running_in_side_1(1),
     );
-    assert!(findings(&[outside, idle], &worktrees()).is_empty());
+    assert!(lines.is_empty(), "{lines:?}");
 }
 
 #[test]
 fn codex_takes_its_own_implementation_model() {
     let codex = |command: &str| Agent {
-        client: Client::Codex,
-        ..agent(7, SIDE_1, command)
+        provider: Provider::Codex,
+        ..agent(7, 0, command)
     };
-    assert!(findings(&[codex("codex -m gpt-6.2-sol exec")], &worktrees()).is_empty());
-    let lines = findings(&[codex("codex --model gpt-6.2-astra exec")], &worktrees());
+    let lists = running_in_side_1(1);
+    assert!(judged(&[codex("codex -m gpt-6.2-sol exec")], &lists).is_empty());
+    let lines = judged(&[codex("codex --model gpt-6.2-astra exec")], &lists);
     assert!(lines[0].text.contains("runs gpt-6.2-astra"), "{lines:?}");
     assert!(lines[0].text.contains("takes gpt-6.2-sol"), "{lines:?}");
 }
 
 #[test]
 fn several_items_in_one_worktree_are_all_named() {
-    let mut many = worktrees();
-    many[0].items.push(Id(700));
-    let lines = findings(&[agent(7, SIDE_1, "claude")], &many);
-    assert!(lines[0].text.contains("items 662, 700"), "{lines:?}");
+    let lists = running_in_side_1(2);
+    let ids: Vec<Id> = lists.items.iter().map(|i| i.id).collect();
+    let lines = judged(&[agent(7, 0, "claude")], &lists);
+    assert!(
+        lines[0]
+            .text
+            .contains(&format!("items {}, {}", ids[0].0, ids[1].0)),
+        "{lines:?}"
+    );
 }

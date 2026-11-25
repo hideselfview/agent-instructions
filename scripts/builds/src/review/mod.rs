@@ -87,7 +87,7 @@ mod model_check;
 pub mod over_cap;
 mod prompt;
 mod propose;
-mod provider;
+pub mod provider;
 pub use provider::{Program, Selection, Tier};
 pub mod record;
 mod render;

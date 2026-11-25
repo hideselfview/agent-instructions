@@ -17,7 +17,8 @@ pub struct Running {
 
 /// The sessions of <dir> whose process is alive. A pid that a later process
 /// took still counts as a running session; callers only use that to keep
-/// something. An unreadable record is an error, never skipped, so no caller
+/// something. A caller that acts on a session also checks the process's name
+/// (model_tier.rs). An unreadable record is an error, never skipped, so no caller
 /// takes a short list for all the sessions.
 pub fn running(dir: &Path) -> Result<Vec<Running>, String> {
     #[derive(serde::Deserialize)]

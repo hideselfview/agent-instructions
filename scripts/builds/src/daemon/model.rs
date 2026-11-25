@@ -1056,6 +1056,7 @@ impl Model {
                 reviews: &self.review_reads,
             },
         )?;
+        let models = crate::health::model_findings(&machine.agents, &places, &loaded);
         let mut health = assess(
             now,
             disk,
@@ -1072,6 +1073,7 @@ impl Model {
             .findings
             .extend(crate::main_checkout::findings(&self.places.home, &loaded));
         health.findings.extend(inputs.unread);
+        health.findings.extend(models);
         Ok(health)
     }
 

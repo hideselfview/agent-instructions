@@ -407,6 +407,8 @@ pub struct Machine {
     pub commits: crate::procs::GitCommits,
     pub sccache: SccacheHealth,
     pub shells: Shells,
+    /// The agent processes that work in a place (model_tier.rs).
+    pub agents: Vec<crate::model_tier::Agent>,
     pub locks: Vec<LockHealth>,
     pub queues: Vec<LaneQueue>,
 }
@@ -684,6 +686,8 @@ pub fn sample(
         &queued,
         &sessions,
     );
+    let (agents, unread_agents) = crate::model_tier::read(&processes, &sessions, places);
+    unread.extend(unread_agents);
     Ok(Machine {
         at: now,
         load: load_average(),
@@ -699,6 +703,7 @@ pub fn sample(
             waiting,
         },
         shells,
+        agents,
         locks: held,
         queues,
     })
@@ -1322,7 +1327,7 @@ fn read_health(
             Err(error) => unreadable.push(branches_unread(&main, &error.text())),
         }
     }
-    let implementing = implementing_worktrees(&places, &judged, loaded);
+    let models = model_findings(&machine.agents, &places, loaded);
     let mut health = assess(
         now,
         tool.disk_space()?,
@@ -1339,57 +1344,29 @@ fn read_health(
     // running agent or commits waiting to land.
     health.schedule_needed |= !unreadable.is_empty();
     health.findings.extend(unreadable);
-    let sessions = match crate::claude_sessions::pids(&tool.places.claude_sessions()) {
-        Ok(sessions) => sessions,
-        Err(error) => crate::fail!(
-            "reading the running Claude Code sessions failed, so health cannot tell which model an agent runs: {error}"
-        ),
-    };
-    let (agents, unread) = crate::model_tier::read(&Processes::read()?, &sessions);
-    health.findings.extend(unread.into_iter().map(|line| {
-        Finding::new(
-            FindingKind::Processes,
-            Advice::said(format!("processes: {line}")),
-        )
-    }));
-    health.findings.extend(
-        crate::model_tier::findings(&agents, &implementing)
-            .into_iter()
-            .map(|advice| Finding::new(FindingKind::Model, advice)),
-    );
+    health.findings.extend(models);
     health
         .findings
         .extend(crate::main_checkout::findings(&tool.places.home, loaded));
     Ok(health)
 }
 
-/// The claimed worktrees among <claimed>, each with the open items that run
-/// in it. A store that does not load names none: health says so elsewhere.
-fn implementing_worktrees(
+/// The findings of agents that run another model than their role takes, from
+/// the open items of <loaded> that run where each works. A store that does
+/// not load names no item: `lists_findings` says so.
+pub fn model_findings(
+    agents: &[crate::model_tier::Agent],
     places: &[Place],
-    claimed: &[Claimed],
     loaded: &std::result::Result<Vec<Loaded>, String>,
-) -> Vec<crate::model_tier::Worktree> {
+) -> Vec<Finding> {
     let lists: Vec<&crate::lists::Lists> = loaded
         .iter()
         .flatten()
         .filter_map(|project| project.lists.as_ref().ok())
         .collect();
-    claimed
-        .iter()
-        .map(|one| {
-            let place = &places[one.place];
-            let worktree = place.top.display().to_string();
-            crate::model_tier::Worktree {
-                top: place.top.clone(),
-                label: place.label.clone(),
-                items: lists
-                    .iter()
-                    .flat_map(|lists| crate::lists::running::running_in(lists, &worktree))
-                    .map(|item| item.id)
-                    .collect(),
-            }
-        })
+    crate::model_tier::findings(agents, places, &lists)
+        .into_iter()
+        .map(|advice| Finding::new(FindingKind::Model, advice))
         .collect()
 }
 
@@ -2287,6 +2264,7 @@ mod tests {
                     waiting: Vec::new(),
                 },
                 shells: Shells::default(),
+                agents: Vec::new(),
                 locks: Vec::new(),
                 queues: Vec::new(),
             },
@@ -2343,6 +2321,7 @@ mod tests {
                         waiting: Vec::new(),
                     },
                     shells: Shells::default(),
+                    agents: Vec::new(),
                     locks: Vec::new(),
                     queues: Vec::new(),
                 },
@@ -2409,6 +2388,7 @@ mod tests {
                     waiting: Vec::new(),
                 },
                 shells: Shells::default(),
+                agents: Vec::new(),
                 locks: Vec::new(),
                 queues: Vec::new(),
             };
@@ -2529,6 +2509,7 @@ mod tests {
                 waiting: Vec::new(),
             },
             shells: Shells::default(),
+            agents: Vec::new(),
             locks: Vec::new(),
             queues: Vec::new(),
         };
@@ -2612,6 +2593,7 @@ mod tests {
                     waiting: Vec::new(),
                 },
                 shells: Shells::default(),
+                agents: Vec::new(),
                 locks: Vec::new(),
                 queues: Vec::new(),
             };
@@ -2692,6 +2674,7 @@ mod tests {
                     waiting: Vec::new(),
                 },
                 shells: Shells::default(),
+                agents: Vec::new(),
                 locks: Vec::new(),
                 queues: Vec::new(),
             };
@@ -2817,6 +2800,7 @@ mod tests {
                     waiting: Vec::new(),
                 },
                 shells: Shells::default(),
+                agents: Vec::new(),
                 locks: Vec::new(),
                 queues: vec![LaneQueue {
                     repo: "demo".to_string(),
@@ -2900,6 +2884,7 @@ mod tests {
                 waiting: Vec::new(),
             },
             shells: Shells::default(),
+            agents: Vec::new(),
             locks: Vec::new(),
             queues: Vec::new(),
         };
@@ -2952,6 +2937,7 @@ mod tests {
                 }],
             },
             shells: Shells::default(),
+            agents: Vec::new(),
             locks: Vec::new(),
             queues: Vec::new(),
         };
@@ -3009,6 +2995,7 @@ mod tests {
                 waiting: Vec::new(),
             },
             shells: Shells::default(),
+            agents: Vec::new(),
             locks: Vec::new(),
             queues: Vec::new(),
         };

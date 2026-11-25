@@ -10,8 +10,8 @@ use serde_json::Value;
 use crate::fail::{Context, Result};
 use crate::review::call::{Invoked, Tokens, Usage};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Provider {
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(crate) enum Provider {
     Claude,
     Codex,
 }
