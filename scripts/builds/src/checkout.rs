@@ -17,6 +17,41 @@ use crate::lane::Lane;
 use crate::places::Places;
 use crate::text::sort_collated;
 
+/// The git dir that <path> or a folder above it has, when that git dir still
+/// exists: a `.git` folder, or the folder a `.git` file names. None when no
+/// folder from <path> up has a `.git` (a folder outside every repo, or a
+/// worktree whose removal already deleted its `.git`, or whose git dir is
+/// gone).
+fn existing_git_dir_above(path: &Path) -> Option<PathBuf> {
+    path.ancestors().find_map(|folder| {
+        let dot_git = folder.join(".git");
+        let meta = std::fs::symlink_metadata(&dot_git).ok()?;
+        if meta.is_dir() {
+            return Some(dot_git);
+        }
+        // A `.git` file that cannot be read or does not name a git dir is
+        // still a checkout git failed to read.
+        let Some(named) = std::fs::read_to_string(&dot_git).ok().and_then(|text| {
+            Some(
+                text.lines()
+                    .next()?
+                    .strip_prefix("gitdir:")?
+                    .trim()
+                    .to_string(),
+            )
+        }) else {
+            return Some(dot_git);
+        };
+        let git_dir = folder.join(named);
+        // Reading the folder's metadata fails when its parent cannot be
+        // searched, which is also a git dir git cannot read.
+        match std::fs::symlink_metadata(&git_dir) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            _ => Some(git_dir),
+        }
+    })
+}
+
 /// The variables `git rev-parse --local-env-vars` lists. A git hook runs the
 /// tool with its own repository's GIT_DIR, GIT_INDEX_FILE and the rest
 /// exported; kept, git answers for the hook's repository about every other
@@ -80,10 +115,23 @@ impl Checkout {
                 "--absolute-git-dir",
             ])
             .stdin(Stdio::null())
-            .stderr(Stdio::null())
+            .stderr(Stdio::piped())
             .output()
             .context(|| format!("running git in {}", path.display()))?;
         if !output.status.success() {
+            // git says "not a git repository" both for a folder outside any
+            // repo and for a repo whose git dir it cannot open, so the answer
+            // comes from the folders: a checkout whose git dir is still there
+            // is one git failed to read, not one that is gone.
+            if let Some(dot_git) = existing_git_dir_above(path) {
+                let said = String::from_utf8_lossy(&output.stderr);
+                fail!(
+                    "git could not read the checkout at {}, whose git dir {} exists: {}",
+                    path.display(),
+                    dot_git.display(),
+                    said.trim()
+                );
+            }
             return Ok(None);
         }
         let text = String::from_utf8_lossy(&output.stdout);

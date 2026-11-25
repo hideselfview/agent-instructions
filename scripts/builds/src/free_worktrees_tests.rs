@@ -187,6 +187,24 @@ fn a_free_worktree_is_retired_at_once_and_the_rest_stay() {
     assert!(main.exists());
 }
 
+/// A claim file health cannot read is not an absent claim: retiring fails and
+/// the worktree stays, never read as free.
+#[test]
+fn a_worktree_whose_claim_cannot_be_read_is_not_retired() {
+    let scratch = Scratch::new("free-unreadable-claim");
+    let (tool, main) = demo(&scratch);
+    for _ in 1..=2 {
+        new(&tool, &main, &["--for", "agent"]);
+    }
+    let top = side(&scratch, 2);
+    let checkout = Checkout::find(&top.display().to_string()).unwrap();
+    std::fs::write(checkout.claim_file(), "agent\tnot-a-date\n").unwrap();
+
+    let result = retire_free(&tool, &tool.roots().unwrap(), Run::Real);
+    assert!(result.is_err(), "a damaged claim read as no claim");
+    assert!(top.exists(), "a worktree with a damaged claim was retired");
+}
+
 #[test]
 fn two_concurrent_news_never_get_the_same_worktree() {
     let scratch = Scratch::new("free-race");

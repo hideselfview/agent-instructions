@@ -2317,6 +2317,46 @@ mod tests {
         );
     }
 
+    /// A claimed worktree whose git dir git cannot open (its claim lives
+    /// there) is not a gone checkout: `builds health` fails and names the
+    /// worktree, instead of printing "claimed worktrees: 0", and nothing that
+    /// reads the build roots treats the worktree as gone (floor.rs deletes the
+    /// build folders of gone ones).
+    #[test]
+    fn health_fails_when_git_cannot_read_a_claimed_worktree() {
+        use std::os::unix::fs::PermissionsExt;
+        let scratch = crate::testing::Scratch::new("health-unreadable-checkout");
+        let tool = scratch.tool(0);
+        let main = scratch.dir.join("demo");
+        crate::testing::repo(&main, "target 1G\n");
+        let origin = scratch.dir.join("origin.git");
+        let origin_path = origin.display().to_string();
+        crate::testing::git(&scratch.dir, &["init", "-q", "--bare", &origin_path]);
+        crate::testing::git(&main, &["remote", "add", "origin", &origin_path]);
+        crate::testing::git(&main, &["push", "-q", "origin", "main"]);
+        crate::worktree::cmd_new(
+            &tool,
+            &crate::testing::no_ssh(),
+            &[
+                main.display().to_string(),
+                "--for".to_string(),
+                "agent".to_string(),
+            ],
+        )
+        .unwrap();
+        let top = scratch.dir.join("demo-worktrees/side-1");
+        let git_dir = main.join(".git/worktrees/side-1");
+        std::fs::set_permissions(&git_dir, std::fs::Permissions::from_mode(0o000)).unwrap();
+
+        let roots = tool.roots();
+        std::fs::set_permissions(&git_dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let Err(error) = roots else {
+            panic!("an unreadable checkout did not fail the read");
+        };
+        let text = error.text();
+        assert!(text.contains(&top.display().to_string()), "{text}");
+    }
+
     /// A build volume whose events macOS keeps a history of is a line under
     /// "needs action", and one it keeps none of adds none.
     #[test]
