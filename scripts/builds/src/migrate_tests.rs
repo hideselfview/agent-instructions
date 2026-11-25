@@ -2640,3 +2640,33 @@ fn a_store_from_before_the_kept_open_reason_gives_its_verdicts_the_unrecorded_re
         .unwrap();
     assert_eq!(reasons, [crate::review::kept_open::UNRECORDED_REASON]);
 }
+
+#[test]
+fn the_kept_correction_stamp_is_the_schema_before_it() {
+    assert_eq!(
+        db::stamp_of_text(&db::schema_before_kept_correction()),
+        BEFORE_KEPT_CORRECTION_STAMP
+    );
+}
+
+#[test]
+fn a_store_from_before_kept_corrections_gains_the_empty_table() {
+    let scratch = Scratch::new("move-kept-correction");
+    let places = scratch.places();
+    let path = scratch.dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&db::schema_before_kept_correction())
+            .unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_KEPT_CORRECTION_STAMP)
+            .unwrap();
+    }
+    move_store(&places, &path, 0).unwrap();
+    let conn = db::open(&path, db::Make::Never).unwrap();
+    let rows: i64 = conn
+        .query_row("SELECT COUNT(*) FROM review_kept_correction", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(rows, 0);
+}

@@ -503,7 +503,16 @@ pub(super) fn dispute_of(db: &Connection, id: i64) -> Result<Option<Dispute>> {
         },
     )
     .optional()
-    .sql()
+    .sql()?
+    .map(|mut dispute| {
+        if dispute.kept.is_some()
+            && let Some(correction) = super::kept_correction::latest(db, id)?
+        {
+            dispute.kept = Some(correction);
+        }
+        Ok(dispute)
+    })
+    .transpose()
 }
 
 /// The review landing of <finding>. Every review run belongs to a landing,
@@ -562,10 +571,13 @@ pub fn keep(db: &Connection, id: i64, why: &str, stamp: &Stamp) -> Result<()> {
     let Some(dispute) = dispute_of(db, id)? else {
         fail!("nobody disputed finding {id}, so there is no dispute to answer");
     };
-    if !waits_for_answer(&finding, &dispute) {
+    if dispute.kept.is_some() {
         fail!(
-            "the dispute of finding {id} needs no answer: the finding was kept already, or it is no open confirmed finding"
+            "you kept finding {id} already: to correct the reason you gave, run `builds review keep {id} --again --why TEXT`"
         );
+    }
+    if !waits_for_answer(&finding, &dispute) {
+        fail!("the dispute of finding {id} needs no answer: it is no open confirmed finding");
     }
     db.execute(
         "INSERT INTO review_kept (finding_id, why, at, by) VALUES (?1, ?2, ?3, ?4)",
@@ -573,6 +585,18 @@ pub fn keep(db: &Connection, id: i64, why: &str, stamp: &Stamp) -> Result<()> {
     )
     .sql()?;
     Ok(())
+}
+
+/// Records <stamp>'s correction of the reason for which the judge kept
+/// finding <id>, with <why>. The keep stays as recorded, and the correction is
+/// the reason builds shows from then on. Refuses a finding the judge has not
+/// kept.
+pub fn correct_keep(db: &Connection, id: i64, why: &str, stamp: &Stamp) -> Result<()> {
+    record::finding_of(db, id)?;
+    if dispute_of(db, id)?.is_none_or(|dispute| dispute.kept.is_none()) {
+        fail!("you kept no finding {id}, so there is no reason to correct");
+    }
+    super::kept_correction::record(db, id, why, stamp)
 }
 
 /// How long `builds review wait` waits for the settles before it fails.

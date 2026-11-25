@@ -3868,6 +3868,10 @@ run `review replay --rules-root` on it.
                               the judge's answer to a dispute that keeps the
                               finding confirmed, with why; builds takes it
                               from whoever may give a verdict on the finding
+  builds review keep <finding> --again --why <text>
+                              the judge's correction of the reason it gave
+                              when it kept the finding; the record keeps both
+                              reasons and shows the correction
   builds review show <landing>
                               the review of a landing under review: its last
                               review, each run's net change, the earlier run

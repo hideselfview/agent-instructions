@@ -300,13 +300,16 @@ const BEFORE_RUNNING_TIER_STAMP: i64 = 1_913_940_341;
 /// a finding open.
 const BEFORE_KEPT_OPEN_REASON_STAMP: i64 = 871_098_240;
 
+/// The stamp before the judge could correct the reason it kept a finding.
+const BEFORE_KEPT_CORRECTION_STAMP: i64 = 881_234_274;
+
 /// The stamp of today's schema (`db::STAMP`). A change to the schema changes
 /// its stamp, and builds then fails to compile until the change gives it a
 /// move from this schema, since every store carries this stamp: the change
 /// adds the move, puts this stamp at the end of `STAMPS` under a name that
 /// says what the schema lacked, and sets this to the new schema's stamp, which
 /// the compiler's error names.
-const SCHEMA_STAMP: i64 = 881_234_274;
+const SCHEMA_STAMP: i64 = 285_608_548;
 
 // The compiler refuses a schema whose stamp is not SCHEMA_STAMP. A const
 // assert could not print the new stamp, so the check compares two array
@@ -316,7 +319,7 @@ const _: [(); SCHEMA_STAMP as usize] = [(); db::STAMP as usize];
 
 /// Every stamp a store can carry that `move_store` moves, oldest schema first.
 /// A new move adds the stamp of the schema before it at the end.
-const STAMPS: [i64; 45] = [
+const STAMPS: [i64; 46] = [
     BEFORE_CONDITION_ENDERS_STAMP,
     BEFORE_ITEM_EVENT_STAMP,
     BEFORE_LAND_RUN_STAMP,
@@ -362,6 +365,7 @@ const STAMPS: [i64; 45] = [
     BEFORE_ACK_VERSION_TIME_STAMP,
     BEFORE_RUNNING_TIER_STAMP,
     BEFORE_KEPT_OPEN_REASON_STAMP,
+    BEFORE_KEPT_CORRECTION_STAMP,
 ];
 
 /// Whether a store stamped <found> comes before the move that follows the
@@ -702,6 +706,11 @@ pub fn move_store(places: &Places, path: &Path, now: i64) -> Result<()> {
     // verdict that kept a finding open has none for the verdicts it holds.
     if before(found, BEFORE_KEPT_OPEN_REASON_STAMP) {
         crate::review::kept_open::add_reason(&tx)?;
+    }
+    // Every store from before the judge could correct the reason it kept a
+    // finding gets the empty table of corrections.
+    if before(found, BEFORE_KEPT_CORRECTION_STAMP) {
+        tx.execute_batch(db::REVIEW_KEPT_CORRECTION_PART).sql()?;
     }
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     let broken: Option<String> = tx

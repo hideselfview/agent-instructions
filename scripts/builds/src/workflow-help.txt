@@ -408,7 +408,9 @@ design-only change or a change of capture files only.
 
 An agent that thinks a confirmed finding is wrong disputes it once, with why
 (`builds review dispute N --why TEXT`). The judge settles the finding again as
-dropped, or keeps it (`builds review keep N --why TEXT`). builds tells the
+dropped, or keeps it (`builds review keep N --why TEXT`); a judge that gave a
+wrong reason for a keep corrects it with `builds review keep N --again --why
+TEXT`. builds tells the
 coordinator nothing of a second disagreement: the agent reports it, and the
 coordinator asks the person whether to allow the finding to land, or tells the
 agent to fix it.

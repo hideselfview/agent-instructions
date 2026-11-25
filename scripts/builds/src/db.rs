@@ -160,6 +160,9 @@ pub const APP_BUILD_STEP_SHOTS_PART: &str = include_str!("app_build_step_shots.s
 /// The review calls that found an earlier finding still open.
 pub const REVIEW_KEPT_OPEN_PART: &str = include_str!("review/kept_open.sql");
 
+/// The judge's corrections of the reasons it kept disputed findings.
+pub const REVIEW_KEPT_CORRECTION_PART: &str = include_str!("review/kept_correction.sql");
+
 /// The side where builds verified the finding's quote.
 pub const REVIEW_FINDING_SITE_PART: &str = include_str!("review/finding_site.sql");
 
@@ -185,7 +188,7 @@ pub const APP_BUILD_REUSED_SHOTS_PART: &str = include_str!("app_build_reused_sho
 /// cap. A table points at ones earlier or
 /// later (SQLite resolves foreign keys when rows are written), but the order is
 /// the one to read the schema in. A part that joins the schema goes at the end.
-const SCHEMA_PARTS: [&str; 46] = [
+const SCHEMA_PARTS: [&str; 47] = [
     include_str!("lists/project.sql"),
     include_str!("lists/area.sql"),
     include_str!("lists/record.sql"),
@@ -232,6 +235,7 @@ const SCHEMA_PARTS: [&str; 46] = [
     REVIEW_FINDING_SITE_PART,
     APP_BUILD_REQUESTED_COMMIT_PART,
     APP_BUILD_REUSED_SHOTS_PART,
+    REVIEW_KEPT_CORRECTION_PART,
 ];
 
 /// The length of <parts> joined with a newline between each two.
@@ -822,11 +826,25 @@ pub fn schema_before_running_tier() -> String {
 #[cfg(test)]
 pub fn with_kept_open_without_reason(schema: String) -> String {
     with_table_as(
-        schema,
+        without_kept_correction(schema),
         "CREATE TABLE review_kept_open (",
         ") STRICT, WITHOUT ROWID;",
         crate::review::kept_open::tests::KEPT_OPEN_WITHOUT_REASON,
     )
+}
+
+/// <schema> as it was before the judge could correct the reason it kept a
+/// finding: without the corrections' table, the last part of the schema.
+#[cfg(test)]
+pub fn without_kept_correction(schema: String) -> String {
+    schema.replacen(&format!("\n{REVIEW_KEPT_CORRECTION_PART}"), "", 1)
+}
+
+/// The schema as it was before the judge could correct the reason it kept a
+/// finding.
+#[cfg(test)]
+pub fn schema_before_kept_correction() -> String {
+    without_kept_correction(schema())
 }
 
 /// The schema as it was before review calls recorded the reason of each

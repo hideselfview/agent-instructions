@@ -741,6 +741,59 @@ fn a_dispute_names_the_verified_path_of_a_removed_quote() {
     assert!(told.contains("old.rs:7"), "{told}");
 }
 
+/// Runs `builds review keep <finding> --again --why <why>` as <caller>.
+fn keep_again(r: &Reviewed, caller: &Caller, why: &str) -> Result<()> {
+    let args: Vec<String> = [
+        &r.finding.to_string(),
+        "--again",
+        "--why",
+        why,
+        "--project",
+        "demo",
+        "--by",
+        "judge",
+    ]
+    .map(String::from)
+    .to_vec();
+    crate::review::keep_command(&r.demo.tool, &args, Some(caller))
+}
+
+#[test]
+fn the_judge_corrects_the_reason_it_kept_a_finding() {
+    let (r, agent) = confirmed("judge-keep-again");
+    let judge = caller("s-judge", "s-judge");
+    r.answer_as("dispute", Some(&agent), "the rule allows it here", "agent")
+        .unwrap();
+    let early = keep_again(&r, &judge, "too early").unwrap_err().text();
+    assert!(early.contains("kept no finding"), "{early}");
+    r.answer_as(
+        "keep",
+        Some(&judge),
+        "the dispute says the code is gone",
+        "judge",
+    )
+    .unwrap();
+    let plain = r
+        .answer_as("keep", Some(&judge), "again", "judge")
+        .unwrap_err()
+        .text();
+    assert!(plain.contains("--again"), "{plain}");
+    let stranger = keep_again(&r, &caller("s1", "s1"), "mine")
+        .unwrap_err()
+        .text();
+    assert!(
+        stranger.contains("only the judge settles a finding"),
+        "{stranger}"
+    );
+    keep_again(&r, &judge, "the code is still there").unwrap();
+    let conn = r.demo.store.open_existing().unwrap();
+    let dispute = dispute_of(&conn, r.finding).unwrap().unwrap();
+    assert_eq!(
+        dispute.kept,
+        Some(("the code is still there".to_string(), "judge".to_string()))
+    );
+}
+
 #[test]
 fn a_finding_has_one_dispute_and_a_second_disagreement_goes_to_the_coordinator() {
     let (r, agent) = confirmed("judge-dispute-once");

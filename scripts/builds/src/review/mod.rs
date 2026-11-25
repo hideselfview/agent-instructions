@@ -11,6 +11,7 @@
 //! builds review settle FINDING allowed --by-person --why TEXT
 //! builds review dispute FINDING --why TEXT
 //! builds review keep FINDING --why TEXT
+//! builds review keep FINDING --again --why TEXT
 //! builds review show LANDING
 //! builds review check-landing | landed DIR --project P SHA... [--landing KEY]
 //! builds review groups [--rules-root DIR] [--project P --repo R --changed PATH...]
@@ -79,6 +80,7 @@ pub mod idle;
 pub mod judge;
 pub mod judge_ack;
 pub mod judge_told;
+mod kept_correction;
 pub mod kept_open;
 pub mod landing;
 pub mod marked_mechanical;
@@ -117,7 +119,7 @@ use rusqlite::Connection;
 
 use record::Kind;
 
-const USAGE: &str = "usage: builds review [run] WORKTREE [BASE] --kind code|mechanical [--checked-by TEXT] [--landing KEY] [--item N]... [--head SHA] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review copy WORKTREE [BASE] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review wait LANDING\n       builds review settle FINDING confirmed|dropped --why TEXT\n       builds review settle FINDING --again --why TEXT\n       builds review settle FINDING allowed --by-person --why TEXT\n       builds review dispute FINDING --why TEXT\n       builds review keep FINDING --why TEXT\n       builds review show LANDING\n       builds review check-landing DIR --project P SHA... [--landing KEY] [--squashed] [--rules-root DIR]\n       builds review landed DIR --project P SHA... [--landing KEY] [--more-to-land] [--rules-root DIR]\n       builds review groups [--rules-root DIR] [--project P --repo R --changed PATH...]\n       builds review replay [--case NAME]... [--source REPO] [--model MODEL] [--rules-root DIR] [--compare] [--reviewer PROGRAM]\n       builds review replay --landing N... --repo-dir DIR [--group NAME]... [--model MODEL] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review audit LANDING --repo-dir DIR [--rules-root DIR] [--reviewer PROGRAM]\n       builds review misses [--check [--model MODEL] [--rules-root DIR] [--reviewer PROGRAM]]\n       builds review rates [--rules-root DIR]\n       builds review scores\n       builds review case propose --repo-dir DIR --rules-root DIR [--per-group N] [--model MODEL] [--reviewer PROGRAM]\n       builds review case add LANDING FINDING --repo-dir DIR --rules-root DIR [--name NAME]\n       builds review case add --rule SLUG --file PATH --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR\n       builds review case add --clean-for SLUG --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR";
+const USAGE: &str = "usage: builds review [run] WORKTREE [BASE] --kind code|mechanical [--checked-by TEXT] [--landing KEY] [--item N]... [--head SHA] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review copy WORKTREE [BASE] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review wait LANDING\n       builds review settle FINDING confirmed|dropped --why TEXT\n       builds review settle FINDING --again --why TEXT\n       builds review settle FINDING allowed --by-person --why TEXT\n       builds review dispute FINDING --why TEXT\n       builds review keep FINDING --why TEXT\n       builds review keep FINDING --again --why TEXT\n       builds review show LANDING\n       builds review check-landing DIR --project P SHA... [--landing KEY] [--squashed] [--rules-root DIR]\n       builds review landed DIR --project P SHA... [--landing KEY] [--more-to-land] [--rules-root DIR]\n       builds review groups [--rules-root DIR] [--project P --repo R --changed PATH...]\n       builds review replay [--case NAME]... [--source REPO] [--model MODEL] [--rules-root DIR] [--compare] [--reviewer PROGRAM]\n       builds review replay --landing N... --repo-dir DIR [--group NAME]... [--model MODEL] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review audit LANDING --repo-dir DIR [--rules-root DIR] [--reviewer PROGRAM]\n       builds review misses [--check [--model MODEL] [--rules-root DIR] [--reviewer PROGRAM]]\n       builds review rates [--rules-root DIR]\n       builds review scores\n       builds review case propose --repo-dir DIR --rules-root DIR [--per-group N] [--model MODEL] [--reviewer PROGRAM]\n       builds review case add LANDING FINDING --repo-dir DIR --rules-root DIR [--name NAME]\n       builds review case add --rule SLUG --file PATH --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR\n       builds review case add --clean-for SLUG --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR";
 
 /// The checkout the rules and groups are read from: `--rules-root`, else the
 /// one `install.sh` links at ~/.codex/agent-instructions.
@@ -1555,10 +1557,12 @@ fn dispute_command(
 }
 
 /// `builds review keep FINDING --why TEXT`, run by <caller>: the judge's
-/// answer to a dispute that keeps the finding confirmed. Only whoever may
-/// give a verdict on the finding answers (judge.rs).
+/// answer to a dispute that keeps the finding confirmed. With `--again`, the
+/// judge corrects the reason it gave when it kept the finding. Only whoever
+/// may give a verdict on the finding answers (judge.rs).
 fn keep_command(tool: &Tool, args: &[String], caller: Option<&Caller>) -> Result<()> {
-    let args = Args::parse(args, &["why"], &[])?;
+    let args = Args::parse(args, &["why"], &["again"])?;
+    let again = args.switch("again");
     let id = finding_named(&args)?;
     let why = args.why()?;
     let (store, _) = store_of(tool, &args)?;
@@ -1567,10 +1571,18 @@ fn keep_command(tool: &Tool, args: &[String], caller: Option<&Caller>) -> Result
     let running = judge::running_claude(&sessions)?;
     store.write(&stamp, &format!("review keep {id}"), |db| {
         judge::may_judge(db, &sessions, &running, id, caller)?;
-        judge::keep(db, id, why, &stamp)
+        if again {
+            judge::correct_keep(db, id, why, &stamp)
+        } else {
+            judge::keep(db, id, why, &stamp)
+        }
     })?;
     judge::tell_waits(&store.dir)?;
-    println!("finding {id} stays confirmed: you kept it after its dispute");
+    if again {
+        println!("finding {id} stays confirmed: you corrected the reason you kept it");
+    } else {
+        println!("finding {id} stays confirmed: you kept it after its dispute");
+    }
     tell_judge_waiting(&store, &stamp, &sessions, &running)
 }
 
