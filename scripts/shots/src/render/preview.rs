@@ -146,7 +146,7 @@ pub(crate) async fn capture(
 /// device pixel from where the same row paints when it starts on a whole
 /// point, and the app's shot of a row starts at the shot's own origin. The next
 /// whole device pixel, a half point, paints differently from the whole point.
-async fn start_on_whole_point(page: &Page, row: &str, cell: &str) -> Result<(), BoardError> {
+async fn start_on_whole_point(page: &DrawPage, row: &str, cell: &str) -> Result<(), BoardError> {
     page.evaluate(format!(
         "(() => {{ const row = {row}; const top = {cell}.getBoundingClientRect().y; \
          const shift = Math.ceil(top - 1e-6) - top; \
