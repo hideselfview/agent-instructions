@@ -12,10 +12,9 @@ use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 
 /// The slots a host of <cores> cores offers: half of them, and at least one. A
-/// page draws on several threads (the compositor, the renderer and the
-/// browser process, besides the one raster thread), so a slot for each core
-/// let two runs use 13.5 of a host's 14 cores and leave no room for its other
-/// work.
+/// page draws on several threads (the compositor, the renderer and the browser
+/// process, besides the one raster thread), so half the cores leaves room for
+/// the host's other work.
 fn chrome_slots(cores: NonZeroUsize) -> NonZeroUsize {
     NonZeroUsize::new(cores.get() / 2).unwrap_or(NonZeroUsize::MIN)
 }
