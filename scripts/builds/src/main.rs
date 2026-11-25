@@ -123,6 +123,7 @@ mod lock_wake;
 mod main_checkout;
 mod manifest;
 mod migrate;
+mod model_tier;
 mod orphans;
 mod output_excerpt;
 mod places;

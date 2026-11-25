@@ -83,6 +83,9 @@ pub enum FindingKind {
     /// A repo's cached shots runs that branches waiting to land need take
     /// more than the cache's cap (shots_cache.rs).
     ShotsCache,
+    /// An implementing agent that runs another model than the implementation
+    /// tier's (model_tier.rs).
+    Model,
 }
 
 /// What a finding says, and the command it suggests running, if any. The
@@ -1319,6 +1322,7 @@ fn read_health(
             Err(error) => unreadable.push(branches_unread(&main, &error.text())),
         }
     }
+    let implementing = implementing_worktrees(&places, &judged, loaded);
     let mut health = assess(
         now,
         tool.disk_space()?,
@@ -1335,10 +1339,58 @@ fn read_health(
     // running agent or commits waiting to land.
     health.schedule_needed |= !unreadable.is_empty();
     health.findings.extend(unreadable);
+    let sessions = match crate::claude_sessions::pids(&tool.places.claude_sessions()) {
+        Ok(sessions) => sessions,
+        Err(error) => crate::fail!(
+            "reading the running Claude Code sessions failed, so health cannot tell which model an agent runs: {error}"
+        ),
+    };
+    let (agents, unread) = crate::model_tier::read(&Processes::read()?, &sessions);
+    health.findings.extend(unread.into_iter().map(|line| {
+        Finding::new(
+            FindingKind::Processes,
+            Advice::said(format!("processes: {line}")),
+        )
+    }));
+    health.findings.extend(
+        crate::model_tier::findings(&agents, &implementing)
+            .into_iter()
+            .map(|advice| Finding::new(FindingKind::Model, advice)),
+    );
     health
         .findings
         .extend(crate::main_checkout::findings(&tool.places.home, loaded));
     Ok(health)
+}
+
+/// The claimed worktrees among <claimed>, each with the open items that run
+/// in it. A store that does not load names none: health says so elsewhere.
+fn implementing_worktrees(
+    places: &[Place],
+    claimed: &[Claimed],
+    loaded: &std::result::Result<Vec<Loaded>, String>,
+) -> Vec<crate::model_tier::Worktree> {
+    let lists: Vec<&crate::lists::Lists> = loaded
+        .iter()
+        .flatten()
+        .filter_map(|project| project.lists.as_ref().ok())
+        .collect();
+    claimed
+        .iter()
+        .map(|one| {
+            let place = &places[one.place];
+            let worktree = place.top.display().to_string();
+            crate::model_tier::Worktree {
+                top: place.top.clone(),
+                label: place.label.clone(),
+                items: lists
+                    .iter()
+                    .flat_map(|lists| crate::lists::running::running_in(lists, &worktree))
+                    .map(|item| item.id)
+                    .collect(),
+            }
+        })
+        .collect()
 }
 
 fn root_repo(root: &Root) -> String {

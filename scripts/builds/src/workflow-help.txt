@@ -185,10 +185,13 @@ PLAN, BRIEF, EXECUTE
     another brief without its citation. `builds help briefs` is the
     instructions for a planner agent that writes briefs.
   - For implementation, the brief specifies the behavior and how to test it.
-    Use the implementation tier and name the model on each dispatch.
-    In Codex, use GPT-6.2 Sol for this work.
-  - Use the strongest tier for coordination, planning and review. In Codex,
-    use GPT-6.2 Astra for these roles. When a brief leaves a design decision
+    Use the implementation tier and name the model on each dispatch. In
+    Claude, use claude-sonnet-5-5 for this work; in Codex, GPT-6.2 Sol
+    (gpt-6.2-sol). `builds health` lists an implementing agent that runs
+    another model, or names none.
+  - Use the strongest tier for coordination, planning and review. In Claude,
+    use claude-opus-5-5 for these roles; in Codex, GPT-6.2 Astra
+    (gpt-6.2-astra). When a brief leaves a design decision
     open, the coordinator settles it or assigns a planner. A planner's brief
     says what the coordinator read and what stays unknown. Document edits and surveys that require judgment use this tier too.
   - Review: each agent reviews its branch against the rules, the judge
@@ -877,6 +880,11 @@ whose caller is gone. The lines below are what remains to act on.
   - A branch with commits origin/main lacks that no worktree checks out and
     no item names: check it out in a worktree (`builds new <repo> --resume
     <branch>`) and land it or take an item there, or ask the person whether to drop it.
+  - An implementing agent that runs another model than its role takes: the
+    line names the worktree, the items, the model the agent runs and the
+    model the role takes (PLAN, BRIEF, EXECUTE). Stop the agent at its next
+    clean point and continue the item with an agent of the implementation
+    tier.
   - Disk under the floor: hold the queue.
   - A host under its band while items are ready: start agents on the next
     ready items (`builds next`).
