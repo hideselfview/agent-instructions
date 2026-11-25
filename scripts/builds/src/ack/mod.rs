@@ -17,8 +17,9 @@
 //! them: an agent reads the sections it has not acknowledged in any project's
 //! store (`Agent::known`). When the text changed since the agent acknowledged it, the
 //! gate prints one line that gives `builds ack`, passes the command, and
-//! acknowledges nothing: only the parts of `builds ack` acknowledge text, so a
-//! command whose output nobody reads (a pipe, a hook) leaves the text unread.
+//! acknowledges nothing it must read: only `builds ack` acknowledges sections
+//! that changed, so a command whose output nobody reads (a pipe, a hook) leaves
+//! them unread.
 
 pub mod agent;
 pub mod record;
@@ -50,8 +51,8 @@ pub const PASSED: &str = "BUILDS_ACKNOWLEDGED";
 const USAGE: &str = "usage: builds ack [--agent ID] [--project P] [--role coordinator|design|judge]...\n       builds ack part PART TOKEN [--agent ID] [--project P] [--role ROLE]...\n       builds ack VERSION TOKEN [--agent ID] [--project P] [--role ROLE]...\n       builds ack --compacted\n       builds ack --codex-compacted";
 
 /// Refuses `builds <command> <args>` when an agent runs it with no
-/// acknowledgement, and prints the notice of a change of the text once
-/// (`check`). Passes the person's commands, `ack`, which records the
+/// acknowledgement, and prints the notice of a change of the text on each
+/// command until the agent has read it with `builds ack` (`check`). Passes the person's commands, `ack`, which records the
 /// acknowledgement, read-only `brief`, `rules-on-edit` (a hook that must run before an agent
 /// acknowledges), `status --json --no-folders` (`lists_checkouts`), and the commands a builds command that passed runs. The
 /// gate also passes the commands that do not use the stores
