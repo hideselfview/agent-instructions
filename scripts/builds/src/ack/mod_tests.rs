@@ -966,7 +966,7 @@ fn an_agent_keeps_its_role_while_other_agents_acknowledge_many_versions() {
     {
         let store = Store::named(&world.places, "bae").unwrap();
         let db = db::open(&store.database(), Make::Never).unwrap();
-        for n in 0..record::KEPT_VERSIONS * 2 {
+        for n in 0..40 {
             record::acknowledge(&db, "s2", "other", &format!("v{n}"), NOON + n + 1, &[]).unwrap();
         }
     }

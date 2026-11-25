@@ -64,11 +64,9 @@ Builds requires acknowledgement for agent commands other than `help`, `ack`,
       session, in any project, and names the ones it leaves out. When the
       agent has acknowledged every section, builds records the
       acknowledgement and the reading holds nothing. builds keeps the
-      sections of the 20 versions of the text that agents acknowledged most
-      recently, to name the sections that changed since an agent's
-      acknowledgement. When it no longer keeps that version, the notice of a
-      change lists each section the agent has not acknowledged at its
-      current text.
+      sections of the version each agent acknowledged, to name the sections
+      that changed since that acknowledgement and to tell which roles the
+      agent holds.
   builds ack part PART TOKEN [--agent ID] [--project P] [--role ROLE]...
       Print part PART of the reading, with no word added to the text. The
       part's first line says which part it is, and its last line gives the command for the next part, with a token that

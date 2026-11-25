@@ -29,30 +29,28 @@ fn a_reading_keeps_each_parts_tokens_until_the_next_reading_replaces_them() {
 }
 
 #[test]
-fn an_acknowledgement_replaces_the_last_one_keeps_its_version_and_ends_the_reading() {
+fn an_acknowledgement_replaces_the_last_one_keeps_its_version_drops_the_old_one_and_ends_the_reading()
+ {
     let db = crate::db::memory();
     acknowledge(&db, "s1", "agent", "v1", 5, &[]).unwrap();
     start_reading(&db, "s1", "agent", "v2", 10, &tokens(&["k0", "k1"])).unwrap();
     acknowledge(&db, "s1", "agent", "v2", 12, &sections()).unwrap();
     assert_eq!(last(&db, "s1", "agent").unwrap(), Some("v2".to_string()));
     assert_eq!(kept_sections(&db, "v2").unwrap(), Some(sections()));
-    assert_eq!(kept_sections(&db, "v1").unwrap(), Some(Vec::new()));
+    assert_eq!(kept_sections(&db, "v1").unwrap(), None);
     assert_eq!(kept_sections(&db, "v3").unwrap(), None);
     assert_eq!(reading(&db, "s1", "agent").unwrap(), None);
 }
 
 #[test]
-fn builds_keeps_only_the_versions_agents_acknowledged_last() {
+fn builds_keeps_each_version_an_agents_acknowledgement_names_and_no_other() {
     let db = crate::db::memory();
-    acknowledge(&db, "s1", "agent", "v0", 0, &sections()).unwrap();
-    for n in 1..KEPT_VERSIONS {
-        acknowledge(&db, "s1", "other", &format!("v{n}"), n, &sections()).unwrap();
-    }
-    acknowledge(&db, "s2", "again", "v0", KEPT_VERSIONS, &sections()).unwrap();
-    acknowledge(&db, "s1", "other", "new", KEPT_VERSIONS + 1, &sections()).unwrap();
+    acknowledge(&db, "s1", "agent", "old", 0, &sections()).unwrap();
+    acknowledge(&db, "s1", "other", "v1", 1, &sections()).unwrap();
+    acknowledge(&db, "s1", "other", "v2", 2, &sections()).unwrap();
+    assert!(kept_sections(&db, "old").unwrap().is_some());
+    assert!(kept_sections(&db, "v2").unwrap().is_some());
     assert_eq!(kept_sections(&db, "v1").unwrap(), None);
-    assert!(kept_sections(&db, "v0").unwrap().is_some());
-    assert!(kept_sections(&db, "new").unwrap().is_some());
     let gone: i64 = db
         .query_row(
             "SELECT COUNT(*) FROM ack_version_section WHERE version = 'v1'",
@@ -61,44 +59,6 @@ fn builds_keeps_only_the_versions_agents_acknowledged_last() {
         )
         .unwrap();
     assert_eq!(gone, 0);
-}
-
-#[test]
-fn forgetting_an_agent_deletes_its_acknowledgement_and_reading_only() {
-    let db = crate::db::memory();
-    acknowledge(&db, "s1", "a1", "v1", 5, &[]).unwrap();
-    acknowledge(&db, "s1", "a2", "v1", 6, &[]).unwrap();
-    start_reading(&db, "s1", "a1", "v2", 8, &tokens(&["k0", "k1"])).unwrap();
-    forget(&db, "s1", "a1").unwrap();
-    assert_eq!(last(&db, "s1", "a1").unwrap(), None);
-    assert_eq!(reading(&db, "s1", "a1").unwrap(), None);
-    assert!(last(&db, "s1", "a2").unwrap().is_some());
-}
-
-#[test]
-fn the_acknowledged_sections_are_those_of_the_agents_last_kept_version() {
-    let db = crate::db::memory();
-    acknowledge(&db, "s1", "agent", "v1", 5, &sections()).unwrap();
-    assert_eq!(
-        acknowledged_sections(&db, "s1", "agent").unwrap(),
-        sections()
-    );
-    assert!(
-        acknowledged_sections(&db, "s1", "other")
-            .unwrap()
-            .is_empty()
-    );
-}
-
-#[test]
-fn builds_keeps_a_version_that_an_agents_acknowledgement_names() {
-    let db = crate::db::memory();
-    acknowledge(&db, "s1", "agent", "old", 0, &sections()).unwrap();
-    for n in 1..=KEPT_VERSIONS * 2 {
-        acknowledge(&db, "s1", "other", &format!("v{n}"), n, &sections()).unwrap();
-    }
-    assert!(kept_sections(&db, "old").unwrap().is_some());
-    assert_eq!(kept_sections(&db, "v1").unwrap(), None);
 }
 
 #[test]

@@ -13,13 +13,10 @@ CREATE TABLE ack (
     PRIMARY KEY (session, agent)
 ) STRICT, WITHOUT ROWID;
 
--- The versions of the text that agents acknowledged most recently, so that
--- the notice to an agent whose last acknowledged version is here names only
--- the sections that changed since, and holds the roles of an agent (the
--- roles whose sections its version holds). builds keeps `KEPT_VERSIONS` of
--- them and every version an `ack` row names (record.rs), and deletes the rest.
--- A store from before that keeps every named version may have an `ack` row
--- that names a version this table no longer holds.
+-- The versions of the text that agents acknowledged: each version an `ack`
+-- row names, which builds keeps and deletes the rest of (record.rs). The
+-- notice to an agent names only the sections that changed since its version,
+-- and the roles of an agent are the ones whose sections its version holds.
 CREATE TABLE ack_version (
     version TEXT PRIMARY KEY CONSTRAINT ack_version_version_is_named CHECK (version <> ''),
     -- When an agent last acknowledged this version.

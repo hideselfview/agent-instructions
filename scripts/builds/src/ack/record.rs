@@ -6,10 +6,6 @@ use rusqlite::{Connection, OptionalExtension, params};
 use crate::db::Sql;
 use crate::fail::Result;
 
-/// How many versions of the text builds keeps: the ones agents acknowledged
-/// most recently.
-pub const KEPT_VERSIONS: i64 = 20;
-
 /// The reading an agent started with `builds ack`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Reading {
@@ -128,10 +124,9 @@ pub fn reading(db: &Connection, session: &str, agent: &str) -> Result<Option<Rea
 /// Records that <agent> in <session> acknowledged version <version> at <at>
 /// of the text, whose sections had <sections> (name and hash), in place of
 /// its last acknowledgement, and ends its reading. builds keeps the version
-/// with its sections and the time, and deletes each version that is no longer
-/// among the `KEPT_VERSIONS` versions that agents acknowledged most recently
-/// and that no agent's acknowledgement names: an agent's roles are the ones
-/// whose sections its version holds, so builds keeps that version.
+/// with its sections and the time, and deletes each version that no agent's
+/// acknowledgement names: an agent's roles are the ones whose sections its
+/// version holds, so builds keeps that version.
 pub fn acknowledge(
     db: &Connection,
     session: &str,
@@ -165,10 +160,8 @@ pub fn acknowledge(
         .sql()?;
     }
     db.execute(
-        "DELETE FROM ack_version WHERE version NOT IN (
-             SELECT version FROM ack_version ORDER BY acknowledged_at DESC, version LIMIT ?1
-         ) AND version NOT IN (SELECT version FROM ack)",
-        params![KEPT_VERSIONS],
+        "DELETE FROM ack_version WHERE version NOT IN (SELECT version FROM ack)",
+        [],
     )
     .sql()?;
     db.execute(
