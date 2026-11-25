@@ -104,7 +104,7 @@ pub fn read(
         // builds starts model calls of its own, such as the reviewers
         // (review/provider.rs), which run the strongest tier in the worktree
         // they read: they are no implementing agent.
-        if crate::queue::is_builds(processes, process.ppid) {
+        if processes.is_builds(process.ppid) {
             continue;
         }
         let provider = if claude.contains(&process.pid) {

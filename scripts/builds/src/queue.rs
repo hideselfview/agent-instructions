@@ -686,19 +686,11 @@ impl Queue {
     }
 }
 
-/// Whether <pid> is a `builds` process: a signal goes only to one, since the
-/// pid in a ticket may be a stranger's by now.
-pub(crate) fn is_builds(processes: &Processes, pid: i32) -> bool {
-    processes
-        .get(pid)
-        .is_some_and(|process| process.name == "builds")
-}
-
 /// Sends <signal> to each of <pids> that is a `builds` process, not this one.
 fn signal_all(pids: &[i32], signal: libc::c_int) -> Result<()> {
     let processes = Processes::read()?;
     for pid in pids {
-        if *pid != std::process::id() as i32 && is_builds(&processes, *pid) {
+        if *pid != std::process::id() as i32 && processes.is_builds(*pid) {
             unsafe { libc::kill(*pid, signal) };
         }
     }
@@ -818,7 +810,7 @@ pub fn takeover(places: &Places, repo: &str, pid: Option<i32>, lane: Option<Lane
                 );
             };
             let processes = Processes::read()?;
-            let Some(holder_pid) = pid_of(&holder).filter(|pid| is_builds(&processes, *pid)) else {
+            let Some(holder_pid) = pid_of(&holder).filter(|pid| processes.is_builds(*pid)) else {
                 fail!(
                     "the holder's `builds` is gone, so its build can't be told to stop; kill its processes by pid"
                 );

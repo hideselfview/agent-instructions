@@ -93,6 +93,13 @@ impl Processes {
         Processes::of(Vec::new())
     }
 
+    /// Whether <pid> is a `builds` process: a signal goes only to one, since
+    /// a pid recorded earlier may be a stranger's by now.
+    pub fn is_builds(&self, pid: i32) -> bool {
+        self.get(pid)
+            .is_some_and(|process| process.name == "builds")
+    }
+
     pub fn get(&self, pid: i32) -> Option<&Process> {
         self.by_pid.get(&pid).map(|at| &self.list[*at])
     }
