@@ -198,9 +198,9 @@ fn run_script(dir: &std::path::Path, script: &str) -> std::process::Child {
         .unwrap()
 }
 
-/// Waits for the kernel to report that <pid> exited, for up to ten seconds.
-fn exits(pid: i32) -> bool {
-    crate::procs::exit_after(pid, || Ok(())).is_ok()
+/// Waits for the kernel to report that <pid> exited; fails after ten seconds.
+fn exits(pid: i32) -> std::io::Result<()> {
+    crate::procs::exit_after(pid, || Ok(()))
 }
 
 /// The pid that the file <name> of <dir> holds.
@@ -231,7 +231,7 @@ fn the_wait_ends_once_the_screen_reads_unlocked_without_the_notification() {
             panic!("the wait never ended");
         };
         assert!(status.success());
-        assert!(exits(notifyutil));
+        exits(notifyutil).unwrap();
     }
 }
 
@@ -246,7 +246,7 @@ fn a_signal_to_the_wait_stops_its_notifyutil() {
         let notifyutil = pid_in(dir, "notifyutil.pid");
         unsafe { libc::kill(waiter.id() as i32, libc::SIGTERM) };
         assert_eq!(waiter.wait().unwrap().code(), Some(143));
-        assert!(exits(notifyutil));
+        exits(notifyutil).unwrap();
     }
 }
 
@@ -289,7 +289,7 @@ fn a_wait_whose_parent_is_gone_ends_with_its_notifyutil() {
             d = dir.display()
         );
         run_script(dir, &outer).wait().unwrap();
-        assert!(exits(pid_in(dir, "waiter.pid")));
-        assert!(exits(pid_in(dir, "notifyutil.txt")));
+        exits(pid_in(dir, "waiter.pid")).unwrap();
+        exits(pid_in(dir, "notifyutil.txt")).unwrap();
     }
 }
