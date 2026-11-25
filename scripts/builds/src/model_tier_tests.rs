@@ -184,17 +184,23 @@ fn process(pid: i32, ppid: i32, name: &str) -> crate::procs::Process {
 
 #[test]
 fn a_model_call_that_builds_started_is_no_agent() {
-    // `builds review` (pid 10) runs a reviewer (pid 11); a coordinator's
-    // Claude Code session (pid 20) runs an implementing agent (pid 21).
-    let processes = Processes::of(vec![
-        process(10, 1, "builds"),
-        process(11, 10, "2.1.332"),
-        process(20, 1, "2.1.332"),
-        process(21, 20, "2.1.332"),
-    ]);
-    let by_pid = |pid| processes.get(pid).unwrap();
-    assert!(started_by_builds(&processes, by_pid(11)));
-    assert!(!started_by_builds(&processes, by_pid(21)));
-    // A process whose parent is gone or unlisted was started by no builds.
-    assert!(!started_by_builds(&processes, by_pid(10)));
+    let here = std::env::current_dir().unwrap();
+    let place = Place {
+        label: "bae/side-1".into(),
+        repo: "bae".into(),
+        top: here.clone(),
+        root: here,
+    };
+    let own = std::process::id() as i32;
+    let sessions = HashSet::from([own]);
+    // `builds review` (pid 10) runs this process as a reviewer.
+    let reviewer = Processes::of(vec![process(10, 1, "builds"), process(own, 10, "2.1.332")]);
+    assert!(
+        super::read(&reviewer, &sessions, std::slice::from_ref(&place))
+            .0
+            .is_empty()
+    );
+    // A coordinator's Claude Code session (pid 20) runs it as an agent.
+    let agent = Processes::of(vec![process(20, 1, "2.1.332"), process(own, 20, "2.1.332")]);
+    assert_eq!(super::read(&agent, &sessions, &[place]).0.len(), 1);
 }

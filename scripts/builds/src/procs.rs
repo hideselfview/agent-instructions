@@ -78,13 +78,10 @@ impl Processes {
     /// kernel would not list the processes, so no caller takes a short list
     /// for the whole machine.
     pub fn read() -> Result<Processes> {
-        let list = os::list()?;
-        let by_pid = list.iter().enumerate().map(|(at, p)| (p.pid, at)).collect();
-        Ok(Processes { list, by_pid })
+        Ok(Processes::of(os::list()?))
     }
 
-    /// A listing of <list>, for tests of what a process list means.
-    #[cfg(test)]
+    /// A listing of <list>.
     pub fn of(list: Vec<Process>) -> Processes {
         let by_pid = list.iter().enumerate().map(|(at, p)| (p.pid, at)).collect();
         Processes { list, by_pid }

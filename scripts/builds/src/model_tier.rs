@@ -88,15 +88,6 @@ pub fn findings(agents: &[Agent], places: &[Place], lists: &[&Lists]) -> Vec<Adv
     lines
 }
 
-/// Did a `builds` process start <process>? builds starts model calls of its
-/// own, such as the reviewers (review/provider.rs), which run the strongest
-/// tier in the worktree they read: they are no implementing agent.
-fn started_by_builds(processes: &Processes, process: &crate::procs::Process) -> bool {
-    processes
-        .get(process.ppid)
-        .is_some_and(|parent| parent.name == "builds")
-}
-
 /// The agent processes among <processes> that work in one of <places>: each
 /// Claude Code session (a process whose pid is in <claude>, the pids of
 /// `claude_sessions`) and each `codex` process, except those `builds`
@@ -110,7 +101,10 @@ pub fn read(
     let mut agents = Vec::new();
     let mut unread = Vec::new();
     for process in &processes.list {
-        if started_by_builds(processes, process) {
+        // builds starts model calls of its own, such as the reviewers
+        // (review/provider.rs), which run the strongest tier in the worktree
+        // they read: they are no implementing agent.
+        if crate::queue::is_builds(processes, process.ppid) {
             continue;
         }
         let provider = if claude.contains(&process.pid) {

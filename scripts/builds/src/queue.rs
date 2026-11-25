@@ -688,7 +688,7 @@ impl Queue {
 
 /// Whether <pid> is a `builds` process: a signal goes only to one, since the
 /// pid in a ticket may be a stranger's by now.
-fn is_builds(processes: &Processes, pid: i32) -> bool {
+pub(crate) fn is_builds(processes: &Processes, pid: i32) -> bool {
     processes
         .get(pid)
         .is_some_and(|process| process.name == "builds")
