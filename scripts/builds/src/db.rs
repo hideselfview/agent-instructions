@@ -850,25 +850,29 @@ CREATE TABLE design_board (
 
 /// <schema> as it was before a design change stopped keeping the canvas link
 /// of each board: with the links' table before the review page's table, and
-/// the comments of the schema that the move reworded as they were.
+/// the comments of the schema that the move reworded as they were. A schema
+/// that lacks the design or project part fails: every caller holds both.
 #[cfg(test)]
 pub fn with_board_links(schema: String) -> String {
     const NEXT: &str = "-- The review page's heading: one per design change.";
-    let schema = schema
-        .replacen(
-            "It needs no answer or place on the\n-- review page,",
-            "It needs no answer, canvas link or\n-- place on the review page,",
-            1,
-        )
-        .replacen(
-            "canvas: the\n    -- dashboard's Publish to claude.ai form takes its designs. 0",
-            "canvas: each of\n    -- its design changes gives every board's canvas link. 0",
-            1,
-        );
-    match schema.find(NEXT) {
-        Some(at) => format!("{}{DESIGN_BOARD_TABLE}{}", &schema[..at], &schema[at..]),
-        None => schema,
-    }
+    let replaced = |schema: String, new: &str, old: &str| {
+        assert!(schema.contains(new), "the schema holds no {new:?}");
+        schema.replacen(new, old, 1)
+    };
+    let schema = replaced(
+        schema,
+        "It needs no answer or place on the\n-- review page,",
+        "It needs no answer, canvas link or\n-- place on the review page,",
+    );
+    let schema = replaced(
+        schema,
+        "canvas: the\n    -- dashboard's Publish to claude.ai form takes its designs. 0",
+        "canvas: each of\n    -- its design changes gives every board's canvas link. 0",
+    );
+    let at = schema
+        .find(NEXT)
+        .unwrap_or_else(|| panic!("the schema holds no {NEXT:?}"));
+    format!("{}{DESIGN_BOARD_TABLE}{}", &schema[..at], &schema[at..])
 }
 
 /// The schema as it was before a design change stopped keeping the canvas
