@@ -164,7 +164,7 @@ fn review_of(dir: &Path, tip: &str) -> (DesignChange, DesignView) {
     let id = design_drawn(
         &db,
         &dir.display().to_string(),
-        &[("design/mocks/A.dc.html", "https://canvas.example/#A")],
+        &["design/mocks/A.dc.html"],
         Some(ReviewSection {
             heading: "A heading".into(),
             boards: vec![
@@ -246,10 +246,8 @@ fn a_review_page_has_each_board_now_and_proposed_sized_from_the_canvas() {
             "{side}"
         );
     }
-    assert_eq!(
-        (&boards[0]["theme"], &boards[0]["link"]),
-        (&json!("dark"), &json!("https://canvas.example/#A"))
-    );
+    assert_eq!(boards[0]["theme"], json!("dark"));
+    assert!(boards[0].get("link").is_none());
     for side in ["now", "proposed"] {
         let error = boards[1][side]["error"].as_str().unwrap();
         assert!(
@@ -515,9 +513,9 @@ fn a_review_page_shows_the_proposal_and_lists_the_other_boards_of_the_change() {
         &db,
         &dir.display().to_string(),
         &[
-            ("design/mocks/A.dc.html", "https://canvas.example/#A"),
-            ("design/mocks/C.dc.html", "https://canvas.example/#C"),
-            ("design/mocks/B.dc.html", "https://canvas.example/#B"),
+            "design/mocks/A.dc.html",
+            "design/mocks/C.dc.html",
+            "design/mocks/B.dc.html",
         ],
         Some(ReviewSection {
             heading: "A heading".into(),

@@ -833,11 +833,57 @@ pub fn with_kept_open_without_reason(schema: String) -> String {
     )
 }
 
+/// The design changes' table of board links as every schema held it until a
+/// design change stopped keeping the canvas link of each board (decision
+/// #702).
+#[cfg(test)]
+const DESIGN_BOARD_TABLE: &str = "-- A board place's link on the published canvas.
+CREATE TABLE design_board (
+    design_id INTEGER NOT NULL,
+    path TEXT NOT NULL CONSTRAINT design_board_path_is_a_board_file CHECK (path NOT GLOB '*#*' AND path NOT GLOB '*/'),
+    link TEXT NOT NULL CONSTRAINT design_board_link_says_something CHECK (trim(link) <> ''),
+    PRIMARY KEY (design_id, path),
+    CONSTRAINT design_board_is_a_place FOREIGN KEY (design_id, path) REFERENCES design_place (design_id, path) ON DELETE CASCADE
+) STRICT, WITHOUT ROWID;
+
+";
+
+/// <schema> as it was before a design change stopped keeping the canvas link
+/// of each board: with the links' table before the review page's table, and
+/// the comments of the schema that the move reworded as they were.
+#[cfg(test)]
+pub fn with_board_links(schema: String) -> String {
+    const NEXT: &str = "-- The review page's heading: one per design change.";
+    let schema = schema
+        .replacen(
+            "It needs no answer or place on the\n-- review page,",
+            "It needs no answer, canvas link or\n-- place on the review page,",
+            1,
+        )
+        .replacen(
+            "canvas: the\n    -- dashboard's Publish to claude.ai form takes its designs. 0",
+            "canvas: each of\n    -- its design changes gives every board's canvas link. 0",
+            1,
+        );
+    match schema.find(NEXT) {
+        Some(at) => format!("{}{DESIGN_BOARD_TABLE}{}", &schema[..at], &schema[at..]),
+        None => schema,
+    }
+}
+
+/// The schema as it was before a design change stopped keeping the canvas
+/// link of each board.
+#[cfg(test)]
+pub fn schema_before_no_board_link() -> String {
+    with_board_links(schema())
+}
+
 /// <schema> as it was before the judge could correct the reason it kept a
-/// finding: without the corrections' table, the last part of the schema.
+/// finding: without the corrections' table, the last part of the schema, and
+/// with the board links' table every schema then held.
 #[cfg(test)]
 pub fn without_kept_correction(schema: String) -> String {
-    schema.replacen(&format!("\n{REVIEW_KEPT_CORRECTION_PART}"), "", 1)
+    with_board_links(schema.replacen(&format!("\n{REVIEW_KEPT_CORRECTION_PART}"), "", 1))
 }
 
 /// The schema as it was before the judge could correct the reason it kept a

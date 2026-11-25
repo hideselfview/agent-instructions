@@ -185,8 +185,8 @@ pub enum PlaceKind {
     /// A board file.
     Board,
     /// The canvas index, `canvas.json`: it places the boards on the canvas
-    /// and is no board itself, so it has no canvas link and no place on the
-    /// review page.
+    /// and is no board itself, so it has no place on the review
+    /// page.
     CanvasIndex,
     /// A component folder, `path/`.
     Component,

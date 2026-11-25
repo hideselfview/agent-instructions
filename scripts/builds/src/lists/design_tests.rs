@@ -173,23 +173,18 @@ fn review_of(boards: &[&str]) -> serde_json::Value {
     json!({ "heading": "What changed", "boards": boards })
 }
 
-/// A request for `base..HEAD` answering <places>, with a canvas link and a place on the review page for each board among them.
+/// A request for `base..HEAD` answering <places>, with a place on the review page for each board among them.
 fn base_request(world: &World, places: serde_json::Value) -> serde_json::Value {
-    let boards: serde_json::Map<String, serde_json::Value> = places
+    let boards: Vec<&str> = places
         .as_object()
         .unwrap()
         .keys()
         .filter(|path| PlaceKind::of(path) == PlaceKind::Board)
-        .map(|path| {
-            (
-                path.clone(),
-                json!({ "link": format!("https://canvas.example/#{path}") }),
-            )
-        })
+        .map(String::as_str)
         .collect();
-    let review = review_of(&boards.keys().map(String::as_str).collect::<Vec<_>>());
+    let review = review_of(&boards);
     json!({ "title": "New cover grid", "details": "the boards", "worktree": world.worktree(), "range": "base..HEAD",
-            "places": places, "boards": boards, "review": review })
+            "places": places, "review": review })
 }
 
 /// Commits boards <paths>, tags the commit `base` where `world` tagged the
@@ -234,7 +229,6 @@ fn a_deleted_board_needs_no_answer_no_link_and_no_place_on_the_review_page() {
     let design = state.design(Id(1)).unwrap();
     assert_eq!(design.deleted, BTreeSet::from([a.to_string()]));
     assert_eq!(design.places.keys().collect::<Vec<_>>(), vec![b]);
-    assert_eq!(design.boards.keys().collect::<Vec<_>>(), vec![b]);
     let shown = w.run("show 1").unwrap();
     assert!(shown.contains(&format!("deleted {a}")), "{shown}");
     w.approve(1);
@@ -296,7 +290,7 @@ fn a_range_that_only_deletes_boards_records_with_a_review_page_of_words() {
         design.deleted,
         BTreeSet::from([a.to_string(), b.to_string()])
     );
-    assert!(design.places.is_empty() && design.boards.is_empty());
+    assert!(design.places.is_empty());
     // An amend over a range that draws one of them again takes it back as a place.
     let back = w.commit(&[a]);
     let mut request = base_request(&w, json!({ a: { "matches": "drawn again" } }));
@@ -738,7 +732,6 @@ fn amend_holds_a_change_to_what_its_new_range_changes_so_a_board_renamed_before_
     let design = &w.state().designs[0];
     let places: Vec<&str> = design.places.keys().map(String::as_str).collect();
     assert_eq!(places, [new, other], "the renamed-away place is gone");
-    assert!(!design.boards.contains_key(old), "with its board");
     assert!(
         design
             .review
@@ -746,17 +739,6 @@ fn amend_holds_a_change_to_what_its_new_range_changes_so_a_board_renamed_before_
             .flat_map(|s| &s.boards)
             .all(|b| b.named() != old),
         "and its place on the page"
-    );
-
-    // A board the range does change still needs its canvas link.
-    w.commit(&["design/mocks/third.dc.html"]);
-    let refused = message(w.amend(
-        1,
-        json!({ "worktree": w.worktree(), "range": "base..HEAD", "places": {} }),
-    ));
-    assert!(
-        refused.contains("canvas link") && refused.contains("third.dc.html"),
-        "{refused}"
     );
 }
 
@@ -776,25 +758,19 @@ fn amend_answers_the_places_of_a_new_range_and_drops_those_it_no_longer_changes(
     ]);
     let mut request = json!({ "worktree": w.worktree(), "range": format!("{first}..HEAD"),
                               "places": { "design/mocks/B.dc.html": { "new": draft("Build the grid the board shows") } },
-                              "boards": { "design/mocks/B.dc.html": { "link": "https://canvas.example/#B" } },
                               "review": review_of(&["design/mocks/A.dc.html", "design/mocks/B.dc.html"]) });
     request["places"]["design/system/components/Sym/"] = json!({ "matches": "y" });
     let out = w.amend(1, request).unwrap();
     let design = &w.state().designs[0];
     assert_eq!(design.places.len(), 2, "A is not in the range first..HEAD");
-    assert!(
-        !design.places.contains_key("design/mocks/A.dc.html")
-            && !design.boards.contains_key("design/mocks/A.dc.html")
-    );
+    assert!(!design.places.contains_key("design/mocks/A.dc.html"));
     assert!(out.contains("wait on it"), "{out}");
     assert_eq!(w.state().items[0].waits, [Wait::Design(design.id)]);
     // A range that changes A again holds A with no app work: its earlier answer went with it.
-    let stale = json!({ "worktree": w.worktree(), "range": "base..HEAD", "places": {},
-                        "boards": { "design/mocks/A.dc.html": { "link": "https://canvas.example/#A" } } });
+    let stale = json!({ "worktree": w.worktree(), "range": "base..HEAD", "places": {} });
     w.amend(1, stale).unwrap();
     assert_eq!(w.state().designs[0].places["design/mocks/A.dc.html"], None);
-    let again = json!({ "worktree": w.worktree(), "range": "base..HEAD", "places": { "design/mocks/A.dc.html": { "matches": "again" } },
-                        "boards": { "design/mocks/A.dc.html": { "link": "https://canvas.example/#A" } } });
+    let again = json!({ "worktree": w.worktree(), "range": "base..HEAD", "places": { "design/mocks/A.dc.html": { "matches": "again" } } });
     w.amend(1, again).unwrap();
 }
 
@@ -1805,10 +1781,9 @@ fn an_amend_clears_the_approval_and_says_so() {
     assert!(!again.contains("approval is cleared"), "{again}");
 }
 
-/// A project that publishes no canvas records a change with no canvas
-/// links, refuses one that gives a link, and lands it.
+/// A project that publishes no canvas records and lands a change too.
 #[test]
-fn a_project_with_no_canvas_records_and_lands_a_change_with_no_links() {
+fn a_project_with_no_canvas_records_and_lands_a_change() {
     let w = world("design-no-canvas");
     w.store
         .write(&stamp(NOON), "lists design-globs demo", |db| {
@@ -1817,19 +1792,9 @@ fn a_project_with_no_canvas_records_and_lands_a_change_with_no_links() {
         .unwrap();
     let sha = w.commit(&["design/mocks/A.dc.html"]);
     let board = "design/mocks/A.dc.html";
-    let linked = base_request(&w, json!({ board: { "matches": "x" } }));
-    let before = w.bytes();
-    let refused = message(w.request(linked.clone()));
-    assert!(
-        refused.contains("project demo publishes no canvas") && refused.contains("`boards`"),
-        "{refused}"
-    );
-    assert_eq!(w.bytes(), before, "a refused record writes nothing");
-    let mut request = linked;
-    request.as_object_mut().unwrap().remove("boards");
-    w.request(request).unwrap();
+    w.request(base_request(&w, json!({ board: { "matches": "x" } })))
+        .unwrap();
     let state = w.state();
-    assert!(state.designs[0].boards.is_empty());
     assert_eq!(
         state.designs[0].review.as_ref().unwrap().boards[0].named(),
         board
@@ -1843,7 +1808,7 @@ fn a_project_with_no_canvas_records_and_lands_a_change_with_no_links() {
 }
 
 #[test]
-fn the_canvas_index_changed_beside_a_new_board_needs_no_link_and_no_place_on_the_review_page() {
+fn the_canvas_index_changed_beside_a_new_board_has_no_place_on_the_review_page() {
     let w = world("design-canvas-index");
     let (board, index) = ("design/mocks/A.dc.html", "design/mocks/canvas.json");
     w.commit(&[board, index]);
@@ -1851,7 +1816,6 @@ fn the_canvas_index_changed_beside_a_new_board_needs_no_link_and_no_place_on_the
     w.request(base_request(&w, places)).unwrap();
     let design = &w.state().designs[0];
     assert!(design.places.contains_key(index));
-    assert!(!design.boards.contains_key(index));
     let on_page: Vec<&str> = design
         .review
         .iter()
@@ -1859,49 +1823,25 @@ fn the_canvas_index_changed_beside_a_new_board_needs_no_link_and_no_place_on_the
         .map(|b| b.named())
         .collect();
     assert_eq!(on_page, [board]);
-    // The index is still a place to answer, and it is no board to link.
-    let mut request = base_request(
-        &w,
-        json!({ board: { "matches": "x" }, index: { "matches": "y" } }),
-    );
-    request["boards"][index] = json!({ "link": "https://c/#index" });
-    assert!(message(w.request(request)).contains("is no board file"));
 }
 
+/// A record of a board change needs no canvas link, even in a project that
+/// publishes a canvas (decision #702): claude.ai is only for publishing.
 #[test]
-fn every_board_needs_a_canvas_link() {
-    let w = world("design-boards");
-    w.commit(&["design/mocks/A.dc.html"]);
-    let before = w.bytes();
+fn a_board_change_records_with_no_canvas_link() {
+    let w = world("design-no-link");
     let board = "design/mocks/A.dc.html";
-    let mut request = base_request(&w, json!({ board: { "matches": "x" } }));
-    request["boards"] = json!({});
+    w.commit(&[board]);
+    let before = w.bytes();
+    let mut request = base_request(&w, json!({ board: null }));
+    request["boards"] = json!({ board: { "link": "https://canvas.example/#A" } });
     let refused = message(w.request(request));
-    assert!(
-        refused.contains("boards without a canvas link") && refused.contains(board),
-        "{refused}"
-    );
-    let mut request = base_request(&w, json!({ board: { "matches": "x" } }));
-    request["boards"] = json!({ board: { "link": "  " } });
-    assert!(message(w.request(request)).contains("empty canvas link"));
-    let mut request = base_request(&w, json!({ board: { "matches": "x" } }));
-    request["boards"] = json!({ board: { "link": "https://c/#A" }, "design/mocks/Z.dc.html": { "link": "https://c/#Z" } });
-    assert!(message(w.request(request)).contains("is no place of this design change"));
-    let mut request = base_request(&w, json!({ board: { "matches": "x" } }));
-    request["boards"] = json!({ board: { "link": "https://c/#A" }, "design/system/components/MacRow/": { "link": "https://c/#R" } });
-    assert!(message(w.request(request)).contains("is no board file"));
-    // A render, an image of the board, is gone: the board is drawn from the worktree.
-    let mut request = base_request(&w, json!({ board: { "matches": "x" } }));
-    request["boards"] = json!({ board: { "link": "https://c/#A", "render": "/tmp/A.png" } });
-    assert!(message(w.request(request)).contains("unknown field `render`"));
+    assert!(refused.contains("unknown field `boards`"), "{refused}");
     assert_eq!(w.bytes(), before);
-
-    w.request(base_request(&w, json!({ board: { "matches": "x" } })))
-        .unwrap();
-    assert_eq!(
-        w.state().designs[0].boards[board].link,
-        "https://canvas.example/#design/mocks/A.dc.html"
-    );
+    w.request(base_request(&w, json!({ board: null }))).unwrap();
+    assert!(w.state().designs[0].places.contains_key(board));
+    let shown = w.run("show 1").unwrap();
+    assert!(!shown.contains("canvas"), "{shown}");
 }
 
 /// The recorder picks the boards that show the proposal (decision #369): the
@@ -2584,17 +2524,6 @@ fn every_named_constraint_of_the_design_tables_refuses_its_row() {
         plant(&db, "design_place", &row(&place, &[("matches", v("m"))])),
     );
     plant(&db, "design_place", &place).unwrap();
-    let board = [
-        ("design_id", v(good.0)),
-        ("path", v("design/mocks/A.dc.html")),
-        ("link", v("https://x/#A")),
-    ];
-    for path in ["design/system/components/B/", "spec/x.md#Heading"] {
-        refused.check(
-            "design_board_path_is_a_board_file",
-            plant(&db, "design_board", &row(&board, &[("path", v(path))])),
-        );
-    }
     let deleted = [
         ("design_id", v(good.0)),
         ("path", v("design/mocks/Old.dc.html")),
@@ -2617,20 +2546,6 @@ fn every_named_constraint_of_the_design_tables_refuses_its_row() {
             ),
         );
     }
-    refused.check(
-        "design_board_link_says_something",
-        plant(&db, "design_board", &row(&board, &[("link", v(" "))])),
-    );
-    refused.check_as(
-        "design_board_is_a_place",
-        "FOREIGN KEY",
-        plant(
-            &db,
-            "design_board",
-            &row(&board, &[("path", v("design/mocks/Other.dc.html"))]),
-        ),
-    );
-    plant(&db, "design_board", &board).unwrap();
     let section = [("design_id", v(good.0)), ("heading", v("H"))];
     refused.check(
         "review_section_heading_says_something",
@@ -2755,7 +2670,7 @@ fn dropping_a_place_takes_its_board_with_it_and_a_section_its_review_boards_and_
     let id = design_drawn(
         &db,
         "/d/bae-worktrees/side-2",
-        &[("design/mocks/A.dc.html", "https://x/#A")],
+        &["design/mocks/A.dc.html"],
         Some(ReviewSection {
             heading: "H".into(),
             boards: vec![ReviewEntry {
@@ -2777,7 +2692,7 @@ fn dropping_a_place_takes_its_board_with_it_and_a_section_its_review_boards_and_
     db.execute("DELETE FROM review_section WHERE design_id = ?1", [id])
         .unwrap();
     let change = read(&db).design(id).unwrap().clone();
-    assert!(change.places.is_empty() && change.boards.is_empty() && change.review.is_none());
+    assert!(change.places.is_empty() && change.review.is_none());
     let circles: i64 = db
         .query_row("SELECT count(*) FROM review_circle", [], |r| r.get(0))
         .unwrap();

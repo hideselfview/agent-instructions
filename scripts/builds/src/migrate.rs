@@ -303,13 +303,17 @@ const BEFORE_KEPT_OPEN_REASON_STAMP: i64 = 871_098_240;
 /// The stamp before the judge could correct the reason it kept a finding.
 const BEFORE_KEPT_CORRECTION_STAMP: i64 = 881_234_274;
 
+/// The stamp of the schema before a design change stopped keeping the canvas
+/// link of each board (decision #702).
+const BEFORE_NO_BOARD_LINK_STAMP: i64 = 285_608_548;
+
 /// The stamp of today's schema (`db::STAMP`). A change to the schema changes
 /// its stamp, and builds then fails to compile until the change gives it a
 /// move from this schema, since every store carries this stamp: the change
 /// adds the move, puts this stamp at the end of `STAMPS` under a name that
 /// says what the schema lacked, and sets this to the new schema's stamp, which
 /// the compiler's error names.
-const SCHEMA_STAMP: i64 = 285_608_548;
+const SCHEMA_STAMP: i64 = 204_057_206;
 
 // The compiler refuses a schema whose stamp is not SCHEMA_STAMP. A const
 // assert could not print the new stamp, so the check compares two array
@@ -319,7 +323,7 @@ const _: [(); SCHEMA_STAMP as usize] = [(); db::STAMP as usize];
 
 /// Every stamp a store can carry that `move_store` moves, oldest schema first.
 /// A new move adds the stamp of the schema before it at the end.
-const STAMPS: [i64; 46] = [
+const STAMPS: [i64; 47] = [
     BEFORE_CONDITION_ENDERS_STAMP,
     BEFORE_ITEM_EVENT_STAMP,
     BEFORE_LAND_RUN_STAMP,
@@ -366,6 +370,7 @@ const STAMPS: [i64; 46] = [
     BEFORE_RUNNING_TIER_STAMP,
     BEFORE_KEPT_OPEN_REASON_STAMP,
     BEFORE_KEPT_CORRECTION_STAMP,
+    BEFORE_NO_BOARD_LINK_STAMP,
 ];
 
 /// Whether a store stamped <found> comes before the move that follows the
@@ -711,6 +716,12 @@ pub fn move_store(places: &Places, path: &Path, now: i64) -> Result<()> {
     // finding gets the empty table of corrections.
     if before(found, BEFORE_KEPT_CORRECTION_STAMP) {
         tx.execute_batch(db::REVIEW_KEPT_CORRECTION_PART).sql()?;
+    }
+    // Every store from before a design change stopped keeping the canvas link
+    // of each board loses the links' table: claude.ai is only for publishing,
+    // and nothing reads the links.
+    if before(found, BEFORE_NO_BOARD_LINK_STAMP) {
+        tx.execute_batch("DROP TABLE design_board;").sql()?;
     }
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     let broken: Option<String> = tx

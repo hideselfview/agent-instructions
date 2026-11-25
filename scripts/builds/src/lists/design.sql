@@ -56,15 +56,6 @@ CREATE TABLE design_place (
 ) STRICT, WITHOUT ROWID;
 CREATE INDEX design_place_item ON design_place (item_id);
 
--- A board place's link on the published canvas.
-CREATE TABLE design_board (
-    design_id INTEGER NOT NULL,
-    path TEXT NOT NULL CONSTRAINT design_board_path_is_a_board_file CHECK (path NOT GLOB '*#*' AND path NOT GLOB '*/'),
-    link TEXT NOT NULL CONSTRAINT design_board_link_says_something CHECK (trim(link) <> ''),
-    PRIMARY KEY (design_id, path),
-    CONSTRAINT design_board_is_a_place FOREIGN KEY (design_id, path) REFERENCES design_place (design_id, path) ON DELETE CASCADE
-) STRICT, WITHOUT ROWID;
-
 -- The review page's heading: one per design change.
 CREATE TABLE review_section (
     design_id INTEGER PRIMARY KEY REFERENCES design (id) ON DELETE CASCADE,
@@ -105,8 +96,8 @@ CREATE TABLE review_circle (
 ) STRICT, WITHOUT ROWID;
 
 -- A board or component the change deletes: a place of its range that is no file
--- or folder at the range's last commit. It needs no answer, canvas link or
--- place on the review page, which names a deleted board as deleted.
+-- or folder at the range's last commit. It needs no answer or place on the
+-- review page, which names a deleted board as deleted.
 CREATE TABLE design_deleted (
     design_id INTEGER NOT NULL REFERENCES design (id) ON DELETE CASCADE,
     path TEXT NOT NULL CONSTRAINT design_deleted_path_is_a_place CHECK (path NOT GLOB '*#*'),

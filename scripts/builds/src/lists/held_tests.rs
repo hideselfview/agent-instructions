@@ -253,7 +253,7 @@ fn design_branch(name: &str, recorded: bool) -> (Demo, Worktree, Lists) {
         design_drawn(
             &db,
             &top.display().to_string(),
-            &[("design/mocks/a.dc.html", "https://canvas/a")],
+            &["design/mocks/a.dc.html"],
             None,
         );
     }
@@ -282,20 +282,12 @@ fn health_counts_a_commit_covered_by_any_change_whose_range_holds_it() {
     let c = demo.commit(&top, "design/mocks/c.dc.html");
     let db = db();
     let path = top.display().to_string();
-    let first = design_drawn(
-        &db,
-        &path,
-        &[("design/mocks/a.dc.html", "https://canvas/a")],
-        None,
-    );
+    let first = design_drawn(&db, &path, &["design/mocks/a.dc.html"], None);
     design_tipped(&db, first, &a);
     let second = design_drawn(
         &db,
         &path,
-        &[
-            ("design/mocks/b.dc.html", "https://canvas/b"),
-            ("design/mocks/c.dc.html", "https://canvas/c"),
-        ],
+        &["design/mocks/b.dc.html", "design/mocks/c.dc.html"],
         None,
     );
     design_tipped(&db, second, &b);

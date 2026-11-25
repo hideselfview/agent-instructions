@@ -313,7 +313,7 @@ fn design_store(scratch: &Scratch, places: &crate::places::Places) {
             let id = design_drawn(
                 db,
                 &wt.display().to_string(),
-                &[("design/mocks/B.dc.html", "https://canvas.example/#B")],
+                &["design/mocks/B.dc.html"],
                 Some(ReviewSection {
                     heading: "The change".into(),
                     boards: vec![

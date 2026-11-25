@@ -449,7 +449,6 @@ pub fn review_page(
                         json!({
                             "path": path,
                             "theme": theme.word(),
-                            "link": design.boards.get(path).map(|b| b.link.clone()),
                         }),
                         Box::new(|side| drawing(design, side, path, &src)),
                     ),

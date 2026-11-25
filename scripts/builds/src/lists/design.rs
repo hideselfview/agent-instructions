@@ -47,14 +47,6 @@ pub struct DesignLanding {
     pub at: i64,
 }
 
-/// A board place's link on the published canvas.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Board {
-    /// The board's link on the canvas.
-    pub link: String,
-}
-
 /// The theme a board is drawn in.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -336,10 +328,7 @@ pub struct DesignChange {
     /// after the person approves the change; landing needs every place
     /// resolved (`check_changes`).
     pub places: BTreeMap<String, Option<Resolution>>,
-    /// Each board place's canvas link, by the board's path; none in a
-    /// project that publishes no canvas.
-    pub boards: BTreeMap<String, Board>,
-    /// The board files the change deletes: they need no answer or link, and
+    /// The board files the change deletes: they need no answer, and
     /// the review page names them without a drawing.
     pub deleted: BTreeSet<String>,
     /// How the review page reads: its heading and boards. None for a
@@ -435,7 +424,6 @@ pub struct DesignRequest {
     pub worktree: String,
     pub range: String,
     pub places: BTreeMap<String, Option<PlaceAnswer>>,
-    pub boards: BTreeMap<String, Board>,
     pub review: Option<ReviewSection>,
     pub no_app_place: Option<String>,
     /// What settles the change: the person's review when the request gives
@@ -459,10 +447,6 @@ struct RequestFields {
     /// each its answer after the person approves the change.
     #[serde(default)]
     pub places: BTreeMap<String, Option<PlaceAnswer>>,
-    /// Each board place's canvas link, which a project that publishes a
-    /// canvas gives for every board and any other project leaves out.
-    #[serde(default)]
-    pub boards: BTreeMap<String, Board>,
     /// How the review page reads: its heading and the boards that show the
     /// proposal, which the dashboard draws from the range's last commit and
     /// which need not be every board the change changes (decision #369).
@@ -510,7 +494,6 @@ impl TryFrom<RequestFields> for DesignRequest {
             worktree: fields.worktree,
             range: fields.range,
             places: fields.places,
-            boards: fields.boards,
             review: fields.review,
             no_app_place: fields.no_app_place,
             settlement,
@@ -623,24 +606,9 @@ fn resolve(
         resolutions.insert(path.clone(), resolution);
     }
     let mut held = store::read(db)?;
-    if !held.canvas && !request.boards.is_empty() {
-        fail!(
-            "project {} publishes no canvas, so its design changes take no canvas links; leave out `boards`",
-            held.project
-        );
-    }
-    for (path, board) in &request.boards {
-        if PlaceKind::of(path) != PlaceKind::Board {
-            fail!("`boards` names {path}, which is no board file");
-        }
-        if board.link.trim().is_empty() {
-            fail!("board {path} has an empty canvas link");
-        }
-    }
     if let Some(review) = &request.review {
         check_review(review)?;
     }
-    let canvas = held.canvas;
     let Some(at) = held.designs.iter().position(|d| d.id == id) else {
         fail!("{id} is not an open design change")
     };
@@ -657,7 +625,6 @@ fn resolve(
         .cloned()
         .collect();
     design.places.retain(|path, _| !dropped.contains(path));
-    design.boards.retain(|path, _| !dropped.contains(path));
     if let Some(section) = &mut design.review {
         section.boards.retain(|entry| match &entry.shown {
             Shown::Board { path, .. } => !dropped.contains(path),
@@ -671,28 +638,8 @@ fn resolve(
     for path in changed.iter().copied().chain(request.places.keys()) {
         design.places.entry(path.clone()).or_insert(None);
     }
-    design.boards.extend(request.boards.clone());
     if let Some(review) = &request.review {
         design.review = Some(review.clone());
-    }
-    let unlinked: Vec<&str> = design
-        .places
-        .keys()
-        .filter(|p| PlaceKind::of(p) == PlaceKind::Board && !design.boards.contains_key(*p))
-        .map(String::as_str)
-        .collect();
-    if canvas && !unlinked.is_empty() {
-        fail!(
-            "boards without a canvas link: {}; give each under `boards` as {{\"link\": CANVAS_URL}}",
-            unlinked.join(", ")
-        );
-    }
-    if let Some(path) = design
-        .boards
-        .keys()
-        .find(|p| !design.places.contains_key(*p))
-    {
-        fail!("`boards` names {path}, which is no place of this design change");
     }
     if let Some(why) = &request.no_app_place {
         if why.trim().is_empty() {
@@ -910,13 +857,6 @@ pub fn save(db: &Connection, design: &DesignChange) -> Result<()> {
         db.execute(
             "INSERT INTO design_deleted (design_id, path) VALUES (?1, ?2)",
             params![design.id, path],
-        )
-        .sql()?;
-    }
-    for (path, board) in &design.boards {
-        db.execute(
-            "INSERT INTO design_board (design_id, path, link) VALUES (?1, ?2, ?3)",
-            params![design.id, path, board.link],
         )
         .sql()?;
     }
@@ -1694,9 +1634,6 @@ fn describe(lists: &Lists, design: &DesignChange, closed: Option<&Closed>) -> Re
     for path in &design.deleted {
         let _ = writeln!(out, "  deleted {path}");
     }
-    for (path, board) in &design.boards {
-        let _ = writeln!(out, "  board {path}  {}", board.link);
-    }
     let _ = writeln!(out, "  worktree {}", design.worktree);
     if let Some(tip) = &design.tip {
         let _ = writeln!(out, "  drawn at {tip}");
@@ -1840,26 +1777,6 @@ pub fn read(
             (None, how) => how.map(Resolution::Matches),
         };
         places.entry(design).or_default().insert(path, resolution);
-    }
-    let mut boards: BTreeMap<Id, BTreeMap<String, Board>> = BTreeMap::new();
-    let mut statement = db
-        .prepare("SELECT design_id, path, link FROM design_board")
-        .sql()?;
-    for row in statement
-        .query_map([], |row| {
-            Ok((
-                row.get::<_, Id>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-            ))
-        })
-        .sql()?
-    {
-        let (design, path, link) = row.sql()?;
-        boards
-            .entry(design)
-            .or_default()
-            .insert(path, Board { link });
     }
     let mut deleted: BTreeMap<Id, BTreeSet<String>> = BTreeMap::new();
     let mut statement = db
@@ -2052,7 +1969,6 @@ pub fn read(
             worktree,
             tip: tips.remove(&id),
             places: places.remove(&id).unwrap_or_default(),
-            boards: boards.remove(&id).unwrap_or_default(),
             deleted: deleted.remove(&id).unwrap_or_default(),
             review: review.remove(&id),
             no_app_place,
@@ -2190,7 +2106,7 @@ pub fn add_review_component(db: &Connection) -> Result<()> {
 
 /// The tables design.rs owns.
 #[cfg(test)]
-const TABLES: [&str; 12] = [
+const TABLES: [&str; 11] = [
     "design",
     "design_session",
     "design_tip",
@@ -2198,7 +2114,6 @@ const TABLES: [&str; 12] = [
     "design_fix",
     "design_decision",
     "design_place",
-    "design_board",
     "design_deleted",
     "review_section",
     "review_board",

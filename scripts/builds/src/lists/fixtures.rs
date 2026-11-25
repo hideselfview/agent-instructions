@@ -2,7 +2,7 @@
 //! made through the owners' own writes.
 
 use crate::lists::area::add_area;
-use crate::lists::design::{Board, NewDesign, Resolution, ReviewSection, open_change, save};
+use crate::lists::design::{NewDesign, Resolution, ReviewSection, open_change, save};
 use crate::lists::item::{ItemDraft, ItemEdit, add_item, add_wait};
 use crate::lists::project::{self, NewProject};
 use crate::lists::question::{NewQuestion, ask, clear_blocks_nothing, edit};
@@ -210,28 +210,21 @@ pub fn design(db: &Connection) -> Id {
     open_change(db, new, &stamp(NOON)).unwrap()
 }
 
-/// A design change drawn in <worktree>: each of <boards> (a board path and
-/// its canvas link) is a place of it, checked by hand, with that link, and
-/// <review> is its review page.
+/// A design change drawn in <worktree>: each of <boards> (a board path) is a
+/// place of it, checked by hand, and <review> is its review page.
 pub fn design_drawn(
     db: &Connection,
     worktree: &str,
-    boards: &[(&str, &str)],
+    boards: &[&str],
     review: Option<ReviewSection>,
 ) -> Id {
     let id = design(db);
     let mut change = read(db).design(id).unwrap().clone();
     change.worktree = worktree.to_string();
-    for (path, link) in boards {
+    for path in boards {
         change.places.insert(
             path.to_string(),
             Some(Resolution::Matches("checked".into())),
-        );
-        change.boards.insert(
-            path.to_string(),
-            Board {
-                link: link.to_string(),
-            },
         );
     }
     change.review = review;

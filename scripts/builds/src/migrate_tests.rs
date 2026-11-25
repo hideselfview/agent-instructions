@@ -2670,3 +2670,41 @@ fn a_store_from_before_kept_corrections_gains_the_empty_table() {
         .unwrap();
     assert_eq!(rows, 0);
 }
+
+#[test]
+fn the_no_board_link_stamp_is_the_schema_before_it() {
+    assert_eq!(
+        db::stamp_of_text(&db::schema_before_no_board_link()),
+        BEFORE_NO_BOARD_LINK_STAMP
+    );
+}
+
+/// A store from before a design change stopped keeping the canvas link of
+/// each board loses the links' table and equals a fresh schema.
+#[test]
+fn a_store_from_before_board_links_left_loses_their_table() {
+    let scratch = Scratch::new("move-no-board-link");
+    let places = scratch.places();
+    let path = scratch.dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&db::schema_before_no_board_link())
+            .unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_NO_BOARD_LINK_STAMP)
+            .unwrap();
+    }
+    move_store(&places, &path, 0).unwrap();
+    let conn = db::open(&path, db::Make::Never).unwrap();
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    let left: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE name = 'design_board'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(left, 0);
+}

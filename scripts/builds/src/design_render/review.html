@@ -253,8 +253,7 @@ function settle(pair) {
 }
 function board(b) {
   const caption = h("figcaption", {}, b.caption,
-    h("span", {class: "meta"}, b.component ? b.component + ", component preview" : b.theme),
-    b.link ? h("a", {href: b.link, target: "_blank", rel: "noopener"}, "on the canvas") : null);
+    h("span", {class: "meta"}, b.component ? b.component + ", component preview" : b.theme));
   const problems = h("div", {class: "status"});
   const pair = {problems, circles: b.circles};
   const withNow = "now" in b;
