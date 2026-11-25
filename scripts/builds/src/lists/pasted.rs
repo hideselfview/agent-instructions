@@ -35,7 +35,7 @@ pub struct Pasted {
 }
 
 /// The texts builds supplies to agents: each coding rule of the checkout at
-/// <rules_root>, then each section that `builds ack` prints.
+/// <rules_root>, then each section that `builds ack` prints for any role.
 pub fn sources(rules_root: &Path) -> Result<Vec<Source>> {
     let mut sources: Vec<Source> = crate::review::rules::load(rules_root, None)?
         .into_iter()
@@ -45,7 +45,7 @@ pub fn sources(rules_root: &Path) -> Result<Vec<Source>> {
         })
         .collect();
     sources.extend(
-        crate::ack::text::Text::read()
+        crate::ack::text::Text::for_roles(&crate::ack::text::Role::ALL)
             .sections
             .into_iter()
             .map(|section| Source {
