@@ -312,3 +312,34 @@ async fn a_row_reports_only_the_preview_slots_inside_its_cell() {
     .await;
     assert_eq!((typing, plain), (0, 1));
 }
+
+/// The whole page's picture holds the page's pixels, not the flat picture of
+/// the browser window that a capture from the page returns.
+#[tokio::test]
+async fn a_page_capture_holds_the_previews_pixels() {
+    let root = fixture::tree(&[]);
+    fixture::write(
+        root.path(),
+        "design/system/components/MacSwatch/preview.html",
+        "<!doctype html><html><head><meta charset=\"utf-8\"></head>\
+<body style=\"margin:0\"><div style=\"width:60px;height:40px;background:#f00\"></div></body></html>",
+    );
+    let rendered = fixture::with_browser(root.path(), async |server, chrome| {
+        let page = chrome.new_page().await.unwrap();
+        board::load(
+            &page,
+            "MacSwatch",
+            &server.preview_url("MacSwatch"),
+            PREVIEW_FRAME,
+            2.0,
+            PREVIEW_LOADED,
+            None,
+        )
+        .await
+        .unwrap();
+        capture(&page, CaptureArea::Page).await.unwrap()
+    })
+    .await;
+    let image = image::load_from_memory(&rendered.png).unwrap().to_rgb8();
+    assert_eq!(image.get_pixel(20, 20).0, [255, 0, 0]);
+}

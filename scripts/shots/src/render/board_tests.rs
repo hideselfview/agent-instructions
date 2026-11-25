@@ -25,6 +25,11 @@ transition:opacity 1s !important}}#fade.on{opacity:0}</style></helmet>\
 <x-dc><helmet><style>body{margin:0;font:700 20px Roboto}</style></helmet><div>Roboto</div></x-dc>",
         ),
         (
+            "fixture.half",
+            "<x-dc><div style=\"position:absolute;left:0;top:0;width:100px;height:80px;background:#000\"></div>\
+<div style=\"position:absolute;left:20px;top:10px;width:40px;height:30px;background:#fff\"></div></x-dc>",
+        ),
+        (
             "fixture.broken",
             "<x-dc><div>broken</div></x-dc>\
 <script type=\"text/x-dc\" data-dc-script>class Component extends DCLogic { renderVals( { }</script>",
@@ -281,4 +286,28 @@ async fn a_link_to_a_web_font_the_checker_holds_no_copy_of_fails_the_board() {
         imported.iter().any(|e| e.contains("Lobster")),
         "{imported:?}"
     );
+}
+
+/// The picture holds the page: a white box on black, not the flat picture of
+/// the browser window that a capture from the page returns.
+#[tokio::test]
+async fn a_board_picture_holds_the_boards_pixels() {
+    let root = tree();
+    let rendered = fixture::with_browser(root.path(), async |server, chrome| {
+        let page = chrome.new_page().await.unwrap();
+        render(
+            &page,
+            "fixture.half",
+            &server.board_url("fixture.half"),
+            Frame { w: 100, h: 80 },
+            2.0,
+        )
+        .await
+        .unwrap()
+    })
+    .await;
+    let image = image::load_from_memory(&rendered.png).unwrap().to_rgb8();
+    assert_eq!((image.width(), image.height()), (200, 160));
+    assert_eq!(image.get_pixel(80, 50).0, [255, 255, 255]);
+    assert_eq!(image.get_pixel(10, 10).0, [0, 0, 0]);
 }
