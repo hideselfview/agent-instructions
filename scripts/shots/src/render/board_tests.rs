@@ -30,6 +30,11 @@ transition:opacity 1s !important}}#fade.on{opacity:0}</style></helmet>\
 <div style=\"position:absolute;left:20px;top:10px;width:40px;height:30px;background:#fff\"></div></x-dc>",
         ),
         (
+            "fixture.halfpoint",
+            "<x-dc><div style=\"position:absolute;left:0;top:0;width:100px;height:80px;background:#000\"></div>\
+<div id=\"half\" style=\"position:absolute;left:20.5px;top:10.5px;width:40px;height:30px;background:#fff\"></div></x-dc>",
+        ),
+        (
             "fixture.broken",
             "<x-dc><div>broken</div></x-dc>\
 <script type=\"text/x-dc\" data-dc-script>class Component extends DCLogic { renderVals( { }</script>",
@@ -310,4 +315,57 @@ async fn a_board_picture_holds_the_boards_pixels() {
     assert_eq!((image.width(), image.height()), (200, 160));
     assert_eq!(image.get_pixel(80, 50).0, [255, 255, 255]);
     assert_eq!(image.get_pixel(10, 10).0, [0, 0, 0]);
+}
+
+/// The first and last device pixel of the white box along pixel row `row` and
+/// pixel column `column`, in the order left, right, top, bottom; each last
+/// pixel is inclusive.
+fn white_box_edges(png: &[u8], row: u32, column: u32) -> [u32; 4] {
+    let image = image::load_from_memory(png).unwrap().to_rgb8();
+    let white = |x: u32, y: u32| image.get_pixel(x, y).0 == [255, 255, 255];
+    let across = |length: u32, at: &dyn Fn(u32) -> bool| {
+        let first = (0..length)
+            .find(|&i| at(i))
+            .expect("the box is in the picture");
+        let last = (0..length).rev().find(|&i| at(i)).unwrap();
+        (first, last)
+    };
+    let (left, right) = across(image.width(), &|x| white(x, row));
+    let (top, bottom) = across(image.height(), &|y| white(column, y));
+    [left, right, top, bottom]
+}
+
+/// Under the per-page scale, Chrome paints a box whose layout edge is at a
+/// half point on the next whole point, while the element's box keeps the half
+/// point (`builds help`, the `shots draws` entry). The box is at 20.5 pt across
+/// and 10.5 pt down, 40 by 30 pt; at two pixels to a point, the half points are
+/// pixels 41 and 21, and the picture's edges are on pixels 42 and 22.
+#[tokio::test]
+async fn a_box_at_a_half_point_is_painted_on_the_next_whole_point_and_read_at_the_half_point() {
+    let root = tree();
+    let (rendered, box_at) = fixture::with_browser(root.path(), async |server, chrome| {
+        let page = chrome.new_page().await.unwrap();
+        let rendered = render(
+            &page,
+            "fixture.halfpoint",
+            &server.board_url("fixture.halfpoint"),
+            Frame { w: 100, h: 80 },
+            2.0,
+        )
+        .await
+        .unwrap();
+        let box_at: Vec<f64> = page
+            .evaluate(
+                "(() => { const r = document.querySelector('#half').getBoundingClientRect(); \
+                 return [r.x, r.y, r.width, r.height]; })()",
+            )
+            .await
+            .unwrap()
+            .into_value()
+            .unwrap();
+        (rendered, box_at)
+    })
+    .await;
+    assert_eq!(box_at, [20.5, 10.5, 40.0, 30.0]);
+    assert_eq!(white_box_edges(&rendered.png, 60, 80), [42, 121, 22, 81]);
 }
