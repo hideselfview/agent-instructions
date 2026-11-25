@@ -2616,10 +2616,10 @@ fn the_kept_open_reason_stamp_is_the_schema_before_it() {
 }
 
 /// A store from before review calls recorded the reason of each verdict that
-/// kept a finding open keeps its verdicts with no reason, and equals a fresh
-/// schema.
+/// kept a finding open gives each verdict it keeps the reason that says builds
+/// recorded none, and equals a fresh schema.
 #[test]
-fn a_store_from_before_the_kept_open_reason_keeps_its_verdicts_with_no_reason() {
+fn a_store_from_before_the_kept_open_reason_gives_its_verdicts_the_unrecorded_reason() {
     let scratch = Scratch::new("move-kept-open-reason");
     let places = scratch.places();
     let dir = places.lists.join("bae");
@@ -2639,7 +2639,12 @@ fn a_store_from_before_the_kept_open_reason_keeps_its_verdicts_with_no_reason() 
         db::schema_rows(&conn).unwrap(),
         db::schema_rows(&db::memory()).unwrap()
     );
-    let kept = crate::review::kept_open::of_run(&conn, 1).unwrap();
-    assert_eq!(kept.len(), 1);
-    assert_eq!(kept[0].reason, None);
+    let reasons: Vec<String> = conn
+        .prepare("SELECT reason FROM review_kept_open")
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap();
+    assert_eq!(reasons, [crate::review::kept_open::UNRECORDED_REASON]);
 }

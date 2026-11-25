@@ -306,7 +306,7 @@ const BEFORE_KEPT_OPEN_REASON_STAMP: i64 = 871_098_240;
 /// adds the move, puts this stamp at the end of `STAMPS` under a name that
 /// says what the schema lacked, and sets this to the new schema's stamp, which
 /// the compiler's error names.
-const SCHEMA_STAMP: i64 = 2_043_784_959;
+const SCHEMA_STAMP: i64 = 881_234_274;
 
 // The compiler refuses a schema whose stamp is not SCHEMA_STAMP. A const
 // assert could not print the new stamp, so the check compares two array

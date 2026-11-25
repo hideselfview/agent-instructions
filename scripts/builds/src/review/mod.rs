@@ -551,7 +551,7 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
                         text.push_str(&render::closed_text(*run_id, *id));
                     }
                     call::FollowUp::StillOpen(reason) => {
-                        text.push_str(&kept_open::text(&call.group, *id, Some(reason)));
+                        text.push_str(&kept_open::text(&call.group, *id, reason));
                     }
                 }
             }
@@ -1591,6 +1591,7 @@ fn show(tool: &Tool, args: &[String]) -> Result<()> {
 /// What `builds review show` prints for landing <id>.
 fn show_text(conn: &Connection, id: i64) -> Result<String> {
     let landing = record::landing(conn, id)?;
+    let kept = kept_open::of_landing(conn, id)?;
     let mut text = format!(
         "landing {id}: {} ({}), last review: {}, {}\n",
         landing.key,
@@ -1630,12 +1631,8 @@ fn show_text(conn: &Connection, id: i64) -> Result<String> {
             &record::calls_of_run(conn, run)?,
             &record::findings_of_run(conn, run)?,
         ));
-        for kept in kept_open::of_run(conn, run)? {
-            text.push_str(&kept_open::text(
-                &kept.group,
-                kept.finding,
-                kept.reason.as_deref(),
-            ));
+        for kept in kept.iter().filter(|kept| kept.run == run) {
+            text.push_str(&kept_open::text(&kept.group, kept.finding, &kept.reason));
         }
     }
     Ok(text)

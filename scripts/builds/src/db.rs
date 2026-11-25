@@ -795,9 +795,7 @@ pub fn with_ack_version_time(schema: String) -> String {
 /// agent last acknowledged each version.
 #[cfg(test)]
 pub fn schema_before_ack_version_time() -> String {
-    with_ack_version_time(with_running_without_tier(with_kept_open_without_reason(
-        schema(),
-    )))
+    with_ack_version_time(schema_before_running_tier())
 }
 
 /// <schema> as it was before running items recorded the tier of model they
@@ -816,7 +814,7 @@ pub fn with_running_without_tier(schema: String) -> String {
 /// take.
 #[cfg(test)]
 pub fn schema_before_running_tier() -> String {
-    with_running_without_tier(with_kept_open_without_reason(schema()))
+    with_running_without_tier(schema_before_kept_open_reason())
 }
 
 /// <schema> as it was before review calls recorded the reason of each verdict
