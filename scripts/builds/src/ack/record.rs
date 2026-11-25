@@ -57,16 +57,17 @@ pub fn kept_sections(db: &Connection, version: &str) -> Result<Option<Vec<(Strin
 }
 
 /// The sections, each by name and hash, of the version that <agent> in
-/// <session> last acknowledged in this store, or none when the agent has no
-/// acknowledgement here or builds no longer keeps that version.
+/// <session> last acknowledged in this store: none when the agent has no
+/// acknowledgement here, and None when it has one but builds no longer keeps
+/// that version.
 pub fn acknowledged_sections(
     db: &Connection,
     session: &str,
     agent: &str,
-) -> Result<Vec<(String, String)>> {
+) -> Result<Option<Vec<(String, String)>>> {
     match last(db, session, agent)? {
-        Some(version) => Ok(kept_sections(db, &version)?.unwrap_or_default()),
-        None => Ok(Vec::new()),
+        Some(version) => kept_sections(db, &version),
+        None => Ok(Some(Vec::new())),
     }
 }
 

@@ -114,16 +114,33 @@ impl World {
     /// last line of the output before gives, and returns the version and the
     /// token the acknowledging command holds.
     fn read_all_in(&self, cwd: &Path, agent: &str, now: i64) -> (String, String) {
-        let mut shown = self.ack_in(cwd, agent, &[], now).unwrap();
+        let (_, version, token) = self.read_with(cwd, agent, &[], now);
+        (version, token)
+    }
+
+    /// Reads every part as <agent> does in <cwd>, adding <flags> to each
+    /// command, and returns each output, the version and the token the
+    /// acknowledging command holds.
+    fn read_with(
+        &self,
+        cwd: &Path,
+        agent: &str,
+        flags: &[&str],
+        now: i64,
+    ) -> (Vec<String>, String, String) {
+        let mut shown = self.ack_in(cwd, agent, flags, now).unwrap();
         let version = next_command_version(&shown);
+        let mut outputs = vec![shown.clone()];
         loop {
             let command = next_command(&shown);
             if command[0] != "part" {
                 assert_eq!(command[0], version);
-                return (version, command[1].clone());
+                return (outputs, version, command[1].clone());
             }
-            let args: Vec<&str> = command.iter().map(String::as_str).collect();
+            let mut args: Vec<&str> = command.iter().map(String::as_str).collect();
+            args.extend(flags);
             shown = self.ack_in(cwd, agent, &args, now).unwrap();
+            outputs.push(shown.clone());
         }
     }
 
@@ -825,41 +842,24 @@ fn the_gate_refuses_a_claude_agent_that_names_no_id() {
 /// The names of the sections in the output of a whole reading by <agent>,
 /// parts and all, as the part headings give them.
 fn read_headings(world: &World, agent: &str, args: &[&str]) -> Vec<String> {
-    let mut shown = world.ack_as(agent, args, NOON).unwrap();
-    let mut headings = Vec::new();
-    loop {
-        for line in shown.lines() {
-            if let Some(name) = line.strip_prefix("===== ")
-                && let Some((name, _)) = name.split_once(" (section ")
-            {
-                headings.push(name.to_string());
-            }
-        }
-        let command = next_command(&shown);
-        if command[0] != "part" {
-            return headings;
-        }
-        let mut next: Vec<&str> = command.iter().map(String::as_str).collect();
-        next.extend(args);
-        shown = world.ack_as(agent, &next, NOON).unwrap();
-    }
+    let (outputs, _, _) = world.read_with(&world.checkout, agent, args, NOON);
+    outputs
+        .iter()
+        .flat_map(|shown| shown.lines())
+        .filter_map(|line| line.strip_prefix("===== "))
+        .filter_map(|name| name.split_once(" (section "))
+        .map(|(name, _)| name.to_string())
+        .collect()
 }
 
 impl World {
     /// Reads and acknowledges the text with <flags> after `builds ack` as
     /// <agent> does, following the commands each output gives.
     fn acknowledge_with(&self, agent: &str, flags: &[&str]) {
-        let mut shown = self.ack_as(agent, flags, NOON).unwrap();
-        loop {
-            let command = next_command(&shown);
-            let mut args: Vec<&str> = command.iter().map(String::as_str).collect();
-            let last = args[0] != "part";
-            args.extend(flags);
-            shown = self.ack_as(agent, &args, NOON).unwrap();
-            if last {
-                return;
-            }
-        }
+        let (_, version, token) = self.read_with(&self.checkout, agent, flags, NOON);
+        let mut args = vec![version.as_str(), token.as_str()];
+        args.extend(flags);
+        self.ack_as(agent, &args, NOON).unwrap();
     }
 }
 
@@ -958,4 +958,20 @@ fn compaction_tells_the_agent_to_name_its_roles_again() {
     let output = world.compact(Some(AGENT)).unwrap();
     assert!(output.contains("--role judge"), "{output}");
     assert!(message(world.check(NOON)).contains("has not acknowledged"));
+}
+
+#[test]
+fn a_gate_that_cannot_tell_the_roles_an_agent_held_says_so_once() {
+    let world = world("ack-role-unkept");
+    world.acknowledge_with(AGENT, &["--role", "coordinator"]);
+    {
+        let store = Store::named(&world.places, "bae").unwrap();
+        let db = db::open(&store.database(), Make::Never).unwrap();
+        for n in 0..record::KEPT_VERSIONS {
+            record::acknowledge(&db, "s2", "other", &format!("v{n}"), NOON + n + 1, &[]).unwrap();
+        }
+    }
+    let notice = world.check(NOON + 60).unwrap().expect("a notice");
+    assert!(notice.contains("`--role coordinator`"), "{notice}");
+    assert_eq!(world.check(NOON + 120).unwrap(), None);
 }

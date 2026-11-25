@@ -81,12 +81,11 @@ fn the_acknowledged_sections_are_those_of_the_agents_last_kept_version() {
     acknowledge(&db, "s1", "agent", "v1", 5, &sections()).unwrap();
     assert_eq!(
         acknowledged_sections(&db, "s1", "agent").unwrap(),
-        sections()
+        Some(sections())
     );
-    assert!(
-        acknowledged_sections(&db, "s1", "other")
-            .unwrap()
-            .is_empty()
+    assert_eq!(
+        acknowledged_sections(&db, "s1", "other").unwrap(),
+        Some(Vec::new())
     );
 }
 

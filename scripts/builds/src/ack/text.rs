@@ -51,8 +51,12 @@ impl Role {
 
     /// The name of the section of the workflow help that holds this role's
     /// sections: an agent holds the role once it acknowledged that section.
-    fn marker(self) -> String {
-        format!("builds help workflow, {}", self.name())
+    fn marker(self) -> &'static str {
+        GROUPS
+            .iter()
+            .find(|group| group.roles == [self])
+            .map(|group| group.name)
+            .expect("each role has a group of its own")
     }
 }
 
@@ -141,14 +145,20 @@ pub struct Text {
 impl Text {
     /// The sections that every agent reads, then those of each of <roles>.
     pub fn for_roles(roles: &[Role]) -> Text {
-        let page_without_groups = |page: Page, name: &str, how_to_read: &str| Section {
-            name: name.to_string(),
-            text: chunks(page.text())
-                .into_iter()
-                .filter(|(heading, _)| !GROUPS.iter().any(|group| group.headings.contains(heading)))
-                .map(|(_, text)| text)
-                .collect(),
-            how_to_read: how_to_read.to_string(),
+        let section =
+            |page: Page, name: &str, how_to_read: &str, wanted: &dyn Fn(&str) -> bool| Section {
+                name: name.to_string(),
+                text: chunks(page.text())
+                    .into_iter()
+                    .filter(|(heading, _)| wanted(heading))
+                    .map(|(_, text)| text)
+                    .collect(),
+                how_to_read: how_to_read.to_string(),
+            };
+        let page_without_groups = |page: Page, name: &str, how_to_read: &str| {
+            section(page, name, how_to_read, &|heading| {
+                !GROUPS.iter().any(|group| group.headings.contains(&heading))
+            })
         };
         let mut sections = vec![
             page_without_groups(
@@ -164,15 +174,12 @@ impl Text {
         ];
         for group in &GROUPS {
             if group.roles.iter().any(|role| roles.contains(role)) {
-                sections.push(Section {
-                    name: group.name.to_string(),
-                    text: chunks(group.page.text())
-                        .into_iter()
-                        .filter(|(heading, _)| group.headings.contains(heading))
-                        .map(|(_, text)| text)
-                        .collect(),
-                    how_to_read: group.how_to_read.to_string(),
-                });
+                sections.push(section(
+                    group.page,
+                    group.name,
+                    group.how_to_read,
+                    &|heading| group.headings.contains(&heading),
+                ));
             }
         }
         Text { sections }
@@ -182,7 +189,7 @@ impl Text {
     pub fn roles_held(known: &[(String, String)]) -> Vec<Role> {
         Role::ALL
             .into_iter()
-            .filter(|role| known.iter().any(|(name, _)| *name == role.marker()))
+            .filter(|role| known.iter().any(|(name, _)| name == role.marker()))
             .collect()
     }
 

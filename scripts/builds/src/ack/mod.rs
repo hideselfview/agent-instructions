@@ -203,11 +203,7 @@ impl Agent {
     /// acknowledged and the <requested> ones.
     fn text(&self, places: &Places, requested: &[Role]) -> Result<Text> {
         let mut roles = Text::roles_held(&self.known(places)?);
-        for role in requested {
-            if !roles.contains(role) {
-                roles.push(*role);
-            }
-        }
+        roles.extend(requested);
         Ok(Text::for_roles(&roles))
     }
 
@@ -215,7 +211,15 @@ impl Agent {
     /// this session in any project's store: a section that several
     /// projects' texts share is read once.
     fn known(&self, places: &Places) -> Result<Vec<(String, String)>> {
+        Ok(self.sections_held(places)?.0)
+    }
+
+    /// The sections `known` gives, and whether a store holds an
+    /// acknowledgement of the agent whose version builds no longer keeps: the
+    /// sections of that version, and so the roles it held, are then unknown.
+    fn sections_held(&self, places: &Places) -> Result<(Vec<(String, String)>, bool)> {
         let mut known = Vec::new();
+        let mut unkept = false;
         let mut of_stores = vec![self.store.clone()];
         for store in stores(places)? {
             if store.project != self.store.project {
@@ -224,14 +228,13 @@ impl Agent {
         }
         for store in of_stores {
             if let Some(db) = db::open_reader(&store.database())? {
-                known.extend(record::acknowledged_sections(
-                    &db,
-                    &self.caller.session,
-                    &self.caller.id,
-                )?);
+                match record::acknowledged_sections(&db, &self.caller.session, &self.caller.id)? {
+                    Some(sections) => known.extend(sections),
+                    None => unkept = true,
+                }
             }
         }
-        Ok(known)
+        Ok((known, unkept))
     }
 
     /// Where the agent stands with <text>: not acknowledged, up to date, or
@@ -280,6 +283,10 @@ impl Agent {
         Ok(standing)
     }
 }
+
+/// The line that follows a notice when builds no longer keeps a version the
+/// agent acknowledged, so builds cannot tell which roles the agent holds.
+const ROLES_UNKNOWN: &str = "builds can no longer tell which roles you hold. If you work as a coordinator, a design session or a judge, run `builds ack` with `--role coordinator`, `--role design` or `--role judge` to read the sections of your role.\n";
 
 /// Where an agent stands with the current text.
 enum Standing {
@@ -351,9 +358,16 @@ fn check(
 ) -> Result<Option<String>> {
     let agent = Agent::resolve(places, identity, project, cwd)?;
     let text = agent.text(places, &[])?;
+    let roles_unknown = agent.sections_held(places)?.1;
     match agent.standing(places, &text, now)? {
         Standing::Current => Ok(None),
-        Standing::Changed(changes) => Ok(changes.notice(&text)),
+        Standing::Changed(changes) => {
+            let notice = changes.notice(&text);
+            Ok(match (notice, roles_unknown) {
+                (notice, false) => notice,
+                (notice, true) => Some(notice.unwrap_or_default() + ROLES_UNKNOWN),
+            })
+        }
         Standing::NotAcknowledged => fail!(
             "builds refuses this command until you read the text every agent reads before it works, and acknowledge it: {} has not acknowledged it in this session. Run `builds ack{}`, read every part it lists, and acknowledge them; then run this command again. A coordinator, a design session or a judge adds `--role coordinator`, `--role design` or `--role judge` to read the sections of its role.",
             agent.name(),
