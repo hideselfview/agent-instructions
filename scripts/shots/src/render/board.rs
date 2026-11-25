@@ -180,7 +180,10 @@ fn watch_script(mounted: &str, body_class: Option<&str>) -> String {
 pub(crate) const BOARD_MOUNTED: &str = "#dc-root";
 
 /// Draws the board at `url` in a frame of `frame` points at `scale` pixels per
-/// point, in dark mode.
+/// point, in dark mode. The picture comes from the page itself and not from a
+/// copy of the compositor's latest frame, which holds the antialiased edge of a
+/// rounded clip blended once or twice by how much the frames before it
+/// damaged (`preview::capture`).
 pub(crate) async fn render(
     page: &Page,
     board: &str,
@@ -193,6 +196,7 @@ pub(crate) async fn render(
         .screenshot(
             ScreenshotParams::builder()
                 .format(CaptureScreenshotFormat::Png)
+                .from_surface(false)
                 .build(),
         )
         .await

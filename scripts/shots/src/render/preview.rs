@@ -103,6 +103,11 @@ pub(crate) enum CaptureArea {
 }
 
 /// Captures the whole preview page or one cell without resizing the viewport.
+/// The picture comes from the page itself, not from a copy of the compositor's
+/// latest frame (`from_surface`): that frame holds each antialiased edge of a
+/// rounded clip blended once or twice, by how much of the page the frames
+/// before it damaged, so two captures of one page differed at the corners of
+/// the playlist covers.
 pub(crate) async fn capture(page: &Page, area: CaptureArea) -> Result<board::Rendered, BoardError> {
     let metrics = page.layout_metrics().await.map_err(board::protocol)?;
     let viewport = metrics.css_visual_viewport;
@@ -127,6 +132,7 @@ pub(crate) async fn capture(page: &Page, area: CaptureArea) -> Result<board::Ren
                     scale: 1.0,
                 })
                 .capture_beyond_viewport(true)
+                .from_surface(false)
                 .build(),
         )
         .await
