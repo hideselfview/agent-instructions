@@ -156,6 +156,13 @@ one for these:
 - Give each sentence one idea, but don't split by rule: one sentence with a list
   of parallel items reads better than four sentences in a row that start
   "Don't".
+- Put the sentence's point in its main clause, and its details in subordinate
+  clauses, modifiers and parentheses. "The hook must finish within 45 seconds,
+  because it runs on every commit" states the rule in the main clause and the
+  reason after it; "Because the hook runs on every commit, which every agent
+  makes, it is limited" buries the rule.
+- Put what matters most at the end of the sentence or at the start of the
+  paragraph, where the reader weighs it, never in the middle.
 - Don't announce what comes next ("I'll make three points", "Here's what you
   need to know", "There are two exceptions."): say it. This is the sentence form
   of the section list the overview leaves out.
