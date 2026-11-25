@@ -2,8 +2,8 @@
 //! canvas's routes (`boards::routes`): the boards and their parts as
 //! siblings, the runtime copy and the design system under
 //! `/ds/<namespace>/`, each also under `/storage/`. It also serves React at
-//! `/react.js` and `/react-dom.js`, the Roboto stylesheet and files under
-//! `/web-fonts/` (`web_fonts`), the SF Mono files of Terminal.app under
+//! `/react.js` and `/react-dom.js`, the stylesheets and files of the web fonts
+//! under `/web-fonts/` (`web_fonts`), the SF Mono files of Terminal.app under
 //! `/fonts/sf-mono/`, and each component's preview page at
 //! `/components/<Name>.html` with the design system loaded ahead of its
 //! script.
@@ -46,21 +46,11 @@ async fn read(file: &Path) -> Result<Option<Vec<u8>>, String> {
     }
 }
 
-/// What <url_path> names, with each Google Fonts link in a page pointing at
-/// the server's own copy (`web_fonts`); none when it names nothing, and an
-/// error that says why when it names something the server cannot give.
+/// What <url_path> names, with each Google Fonts link in a page or stylesheet
+/// pointing at the server's own copy (`web_fonts`); none when it names
+/// nothing, and an error that says why when it names something the server
+/// cannot give.
 async fn answer(tree: Tree<'_>, url_path: &str) -> Result<Option<Found>, String> {
-    Ok(match find(tree, url_path).await? {
-        Some((kind, body)) if kind.starts_with("text/html") => {
-            let html = String::from_utf8(body)
-                .map_err(|error| format!("{url_path} is not text: {error}"))?;
-            Some((kind, web_fonts::relink(&html).into_bytes()))
-        }
-        found => found,
-    })
-}
-
-async fn find(tree: Tree<'_>, url_path: &str) -> Result<Option<Found>, String> {
     let path = url_path.split(['?', '#']).next().unwrap_or_default();
     let javascript = "text/javascript; charset=utf-8";
     match path {
@@ -70,8 +60,8 @@ async fn find(tree: Tree<'_>, url_path: &str) -> Result<Option<Found>, String> {
         }
         _ => {}
     }
-    if path.starts_with(web_fonts::URL_PREFIX) {
-        return web_fonts::answer(url_path);
+    if let Some(rest) = url_path.strip_prefix(web_fonts::URL_PREFIX) {
+        return web_fonts::answer(rest);
     }
     if let Some(component) = preview_component(path) {
         let file = tree.root.join(boards::preview::preview_path(component));
@@ -82,6 +72,7 @@ async fn find(tree: Tree<'_>, url_path: &str) -> Result<Option<Found>, String> {
             .map_err(|error| format!("{} is not text: {error}", file.display()))?;
         let page = preview::assemble(component, &html, &tree.design.namespace)
             .map_err(|error| error.to_string())?;
+        let page = web_fonts::relink(&page)?;
         return Ok(Some(("text/html; charset=utf-8", page.into_bytes())));
     }
     let Some(route) = route(url_path) else {
@@ -102,11 +93,26 @@ async fn find(tree: Tree<'_>, url_path: &str) -> Result<Option<Found>, String> {
                 DesignFile::BundleCss => ("text/css; charset=utf-8", &tree.design.bundle_css),
                 DesignFile::BundleJs => (javascript, &tree.design.bundle_js),
             };
-            Some((kind, text.as_bytes().to_vec()))
+            let text = if kind == javascript {
+                text.clone()
+            } else {
+                web_fonts::relink(text)?
+            };
+            Some((kind, text.into_bytes()))
         }
         Route::Mocks(relative) => {
             let file = tree.root.join(boards::MOCKS).join(relative);
-            read(&file).await?.map(|bytes| (content_type(&file), bytes))
+            let Some(bytes) = read(&file).await? else {
+                return Ok(None);
+            };
+            let kind = content_type(&file);
+            if kind.starts_with("text/html") || kind.starts_with("text/css") {
+                let text = String::from_utf8(bytes)
+                    .map_err(|error| format!("{} is not text: {error}", file.display()))?;
+                Some((kind, web_fonts::relink(&text)?.into_bytes()))
+            } else {
+                Some((kind, bytes))
+            }
         }
     })
 }

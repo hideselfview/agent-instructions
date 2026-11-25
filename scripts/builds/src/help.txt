@@ -1298,7 +1298,9 @@ shots renderer and the dashboard's board and preview pages add `@font-face`
 rules for each SF Mono file there to the design system's tokens.css, and serve
 the files under /fonts/sf-mono/ (the dashboard with
 Access-Control-Allow-Origin, since its frames have no origin), reading them
-from the Mac when a page asks. The repo keeps no copy of a font, and the
+from the Mac when a page asks. The repo keeps no copy of the SF Mono files
+(it keeps the Roboto, Inter and JetBrains Mono files that the shots checker
+serves in place of Google Fonts), and the
 tokens.css that builds writes and publishes has no such rule. A host that is
 not a Mac has no such folder, adds no rule and draws the next family of the
 stack; on a Mac, a folder that is gone, or lacks or cannot read one of the
@@ -1706,10 +1708,12 @@ built again.
                               either revision. The checker stops CSS animations
                               and transitions before it captures the pictures
                               and element boxes, and starts Chrome with software
-                              rasterization on one thread. A page's Google Fonts
-                              link loads the checker's own copy of Roboto, never
-                              Google's answer, which differs from one request
-                              to the next. Two pictures are
+                              rasterization on one thread. Each Google Fonts link
+                              in a page or stylesheet loads the checker's own
+                              copy of the family (Roboto, Inter or JetBrains
+                              Mono), since Google's answer differs from one
+                              request to the next, and a link to another family
+                              fails the page. Two pictures are
                               alike when they have one size and no colour
                               channel of any pixel differs by more than 2 of
                               255, the noise that remains while the machine is

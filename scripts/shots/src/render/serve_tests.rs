@@ -191,9 +191,18 @@ async fn a_page_that_links_google_fonts_links_the_pinned_copy_instead() {
 }
 
 #[tokio::test]
-async fn the_pinned_roboto_is_served_for_any_weights_and_other_families_are_refused() {
+async fn the_pinned_fonts_are_served_and_a_link_to_another_font_fails_the_page_that_has_it() {
     let root = tree();
-    let design = system("tokens", "css", "js");
+    write(
+        root.path(),
+        "design/mocks/android.other.font.dc.html",
+        "<link href=\"https://fonts.googleapis.com/css2?family=Oswald:wght@400\">",
+    );
+    let design = system(
+        "@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400&display=swap');",
+        "css",
+        "js",
+    );
     let tree = Tree {
         root: root.path(),
         design: &design,
@@ -214,11 +223,16 @@ async fn the_pinned_roboto_is_served_for_any_weights_and_other_families_are_refu
             font.contains("font/woff2") && font.contains("wOF2"),
             "{font}"
         );
-        let other = get(server, "/web-fonts/css2?family=Oswald:wght@400").await;
-        assert!(other.starts_with("HTTP/1.1 500"), "{other}");
-        assert!(other.contains("Oswald"), "{other}");
         let missing = get(server, "/web-fonts/roboto/no-such.woff2").await;
         assert!(missing.starts_with("HTTP/1.1 404"), "{missing}");
+        let tokens = get(server, "/ds/demo/tokens.css").await;
+        assert!(
+            tokens.contains("@import url('/web-fonts/css2?family=Inter"),
+            "{tokens}"
+        );
+        let other = get(server, "/android.other.font.dc.html").await;
+        assert!(other.starts_with("HTTP/1.1 500"), "{other}");
+        assert!(other.contains("Oswald"), "{other}");
     })
     .await
     .unwrap();
