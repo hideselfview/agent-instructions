@@ -28,8 +28,14 @@ pub fn stamp(at: i64) -> Stamp {
 /// (`lists init demo`, version 1). No records.
 pub fn db() -> Connection {
     let db = crate::db::memory();
+    fill(&db);
+    db
+}
+
+/// What `db` puts in an empty store <db>, of any schema version.
+pub fn fill(db: &Connection) {
     project::init(
-        &db,
+        db,
         &NewProject {
             name: "demo".into(),
             canvas: true,
@@ -40,10 +46,9 @@ pub fn db() -> Connection {
         },
     )
     .unwrap();
-    add_area(&db, "Alpha", None).unwrap();
-    add_area(&db, "Beta", None).unwrap();
-    log_write(&db, &stamp(NOON), "lists init demo").unwrap();
-    db
+    add_area(db, "Alpha", None).unwrap();
+    add_area(db, "Beta", None).unwrap();
+    log_write(db, &stamp(NOON), "lists init demo").unwrap();
 }
 
 /// The state <db> holds.

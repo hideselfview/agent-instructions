@@ -8,6 +8,22 @@ pub const RUNNING_WITHOUT_TIER: &str = "CREATE TABLE running (
     since_at INTEGER NOT NULL,
     since_by TEXT NOT NULL CONSTRAINT running_since_by_says_something CHECK (trim(since_by) <> '')
 ) STRICT;";
+
+/// Writes the running of item <item> with one place into the schema from
+/// before running items recorded their tier: the state migrate.rs's move of
+/// that table starts from.
+pub fn plant_running_before_tier(db: &rusqlite::Connection, item: crate::lists::Id) {
+    db.execute(
+        "INSERT INTO running (item_id, brief, since_at, since_by) VALUES (?1, 'b.md', 2, 'c')",
+        [item],
+    )
+    .unwrap();
+    db.execute(
+        "INSERT INTO running_place (item_id, repo, parent, checkout, branch) VALUES (?1, 'bae', '/d', 'side-1', 'work')",
+        [item],
+    )
+    .unwrap();
+}
 use crate::checkout::Checkout;
 use crate::lists::fixtures::{NOON, db, item, read, stamp};
 use crate::lists::{Running, Wait};
