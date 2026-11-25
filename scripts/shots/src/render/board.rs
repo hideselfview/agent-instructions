@@ -335,13 +335,10 @@ pub(crate) async fn load(
             state,
         });
     }
-    // Two draws of the playlist header preview differed at its rounded cover
-    // corners by up to 12 levels. Hiding the body and showing it again makes
-    // Chrome draw the whole page again before the picture: of 100 draws in two
-    // processes, 71 gave one picture and 29 another without it, and all 100
-    // gave one with it. Unlike `display: none`, hiding with `visibility` leaves
-    // the page's animations running, so the promises it tracks them with stay
-    // as they are.
+    // Hiding the body and showing it again makes Chrome draw the whole page
+    // again before the picture, so a page draws the same picture each time.
+    // Unlike `display: none`, hiding with `visibility` leaves the page's
+    // animations running, so the promises it tracks them with stay as they are.
     page.evaluate(
         "document.body.style.visibility = 'hidden'; document.body.offsetHeight; \
          document.body.style.visibility = ''; document.body.offsetHeight",
