@@ -343,3 +343,74 @@ async fn a_page_capture_holds_the_previews_pixels() {
     let image = image::load_from_memory(&rendered.png).unwrap().to_rgb8();
     assert_eq!(image.get_pixel(20, 20).0, [255, 0, 0]);
 }
+
+/// A preview page of two rows: the first is <first_height> points tall, the
+/// second holds a white box on a black cell, its top at 65.5 points, 247.33 tall.
+fn two_rows(first_height: &str) -> String {
+    format!(
+        r#"<!doctype html><html><head><meta charset="utf-8">
+<style>body{{margin:0}}.row{{display:flex}}.row-cell{{width:100px;position:relative;background:#000}}
+.first .row-cell{{height:{first_height}}}.second .row-cell{{height:330px}}
+.box{{position:absolute;left:20px;top:65.5px;width:40px;height:247.33px;background:#fff}}</style></head>
+<body><div id="root"></div><script>
+const h = React.createElement;
+const R = (cls, name, child) => h('div', {{className: 'row ' + cls}},
+  h('span', {{className: 'row-name'}}, name), h('div', {{className: 'row-cell'}}, child));
+ReactDOM.createRoot(document.getElementById('root')).render(h('div', null,
+  R('first', 'First', null), R('second', 'Second', h('div', {{className: 'box'}}))));
+</script></body></html>"#
+    )
+}
+
+/// A row draws the same picture whatever the rows above it measure: the box in
+/// the second row paints on the same device pixels when the first row is 376
+/// points tall and when it is 376.33.
+#[tokio::test]
+async fn a_row_draws_the_same_picture_below_a_row_of_a_fractional_height() {
+    let root = fixture::tree(&[]);
+    fixture::write(
+        root.path(),
+        "design/system/components/Whole/preview.html",
+        &two_rows("376px"),
+    );
+    fixture::write(
+        root.path(),
+        "design/system/components/Fraction/preview.html",
+        &two_rows("376.33px"),
+    );
+    let pictures = fixture::with_browser(root.path(), async |server, chrome| {
+        let mut pictures = Vec::new();
+        for component in ["Whole", "Fraction"] {
+            let page = chrome.new_page().await.unwrap();
+            let row = render_row(
+                &page,
+                component,
+                "second",
+                &server.preview_url(component),
+                2.0,
+                Platform::Mac,
+                marks(&[]),
+            )
+            .await
+            .unwrap();
+            pictures.push(row.png);
+        }
+        pictures
+    })
+    .await;
+    let decoded: Vec<_> = pictures
+        .iter()
+        .map(|png| image::load_from_memory(png).unwrap().to_rgb8())
+        .collect();
+    let edges: Vec<_> = decoded
+        .iter()
+        .map(|image| {
+            let white = |y: u32| image.get_pixel(80, y).0 == [255, 255, 255];
+            let top = (0..image.height()).find(|&y| white(y)).unwrap();
+            let bottom = (0..image.height()).rev().find(|&y| white(y)).unwrap();
+            (image.width(), image.height(), top, bottom)
+        })
+        .collect();
+    assert_eq!(edges[0], edges[1], "{edges:?}");
+    assert_eq!(decoded[0], decoded[1]);
+}

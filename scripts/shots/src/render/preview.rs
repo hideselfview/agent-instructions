@@ -137,6 +137,24 @@ pub(crate) async fn capture(page: &Page, area: CaptureArea) -> Result<board::Ren
     Ok(board::Rendered { png, frame })
 }
 
+/// Moves the row <row> down to the next whole point when its cell <cell> starts
+/// between two, and moves the rows below it with it; the row's own layout does
+/// not change. A row that starts on a third of a point paints its edges a
+/// device pixel from where the same row paints when it starts on a whole
+/// point, and the app's shot of a row starts at the shot's own origin. The next
+/// whole device pixel, a half point, paints differently from the whole point.
+async fn start_on_whole_point(page: &Page, row: &str, cell: &str) -> Result<(), BoardError> {
+    page.evaluate(format!(
+        "(() => {{ const row = {row}; const top = {cell}.getBoundingClientRect().y; \
+         const shift = Math.ceil(top - 1e-6) - top; \
+         if (shift > 0) row.style.marginTop = \
+           (parseFloat(getComputedStyle(row).marginTop) || 0) + shift + 'px'; }})()"
+    ))
+    .await
+    .map_err(board::protocol)?;
+    Ok(())
+}
+
 /// Loads the preview at `url` and draws the row of `state`, at `scale` pixels
 /// per point: the picture of its cell and the elements inside it, measured
 /// from the cell's top-left, read as `platform`'s boards are. `marks` are the
@@ -173,8 +191,8 @@ pub(crate) async fn render_row(
         .map_err(board::protocol)?
         .into_value()
         .map_err(board::protocol)?;
-    let cell = if names.is_empty() && state == "default" {
-        "document.body".to_string()
+    let (row, cell) = if names.is_empty() && state == "default" {
+        (None, "document.body".to_string())
     } else {
         let index = names
             .iter()
@@ -184,12 +202,13 @@ pub(crate) async fn render_row(
                 state: state.to_string(),
                 rows: names.iter().map(|n| state_id(n)).collect(),
             })?;
-        format!(
-            "document.querySelectorAll({})[{index}].querySelector({})",
-            js(&marks.row),
-            js(&marks.cell)
-        )
+        let row = format!("document.querySelectorAll({})[{index}]", js(&marks.row));
+        let cell = format!("{row}.querySelector({})", js(&marks.cell));
+        (Some(row), cell)
     };
+    if let Some(row) = row {
+        start_on_whole_point(page, &row, &cell).await?;
+    }
     let rect: Bounds = page
         .evaluate(format!(
             "(() => {{ const r = {cell}.getBoundingClientRect(); \
