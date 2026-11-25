@@ -12,6 +12,23 @@ set -euo pipefail
 # points there, so nothing in a side worktree goes live before it lands.
 repo="$(git -C "$(dirname "${BASH_SOURCE[0]}")" worktree list --porcelain | sed -n '1s/^worktree //p')"
 
+# How this install ends goes into the repo's git folder, where `builds land`
+# and `builds health` read it: `ok <commit>`, or `failed <commit> <step>` for
+# the step that was running when the script stopped. The post-merge hook runs
+# this script, and git does not report a hook's failure, so without the record
+# nothing says that the builds on PATH is older than main. The record is
+# written by this script, not by builds: an install that fails before the
+# builds program is built has no program to write it.
+commit="$(git -C "$repo" rev-parse HEAD)"
+record="$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir)/builds-install"
+step="starting"
+record_end() {
+  local status=$?
+  [[ $status -eq 0 ]] || echo "failed $commit $step" > "$record"
+}
+trap record_end EXIT
+
+step="installing mdformat"
 # mdformat, which the commit checks run on markdown (.checks).
 if ! command -v mdformat >/dev/null 2>&1; then
   echo "Installing mdformat via pipx..."
@@ -22,6 +39,7 @@ if ! mdformat --version 2>/dev/null | grep -q mdformat_frontmatter; then
   echo "Injecting mdformat-frontmatter plugin..."
   pipx inject mdformat mdformat-frontmatter
 fi
+step="linking instructions and skills"
 git -C "$repo" config core.hooksPath .githooks
 echo "Configured $repo git hooks -> .githooks"
 
@@ -104,6 +122,7 @@ done
 # files that changed, so cargo rebuilds only when the committed source did.
 # builds depends on the shots checker and the boards library by their paths,
 # ../shots and ../boards, so the libraries are synced beside it.
+step="syncing the builds sources"
 head="$repo/scripts/builds/target/head"
 rm -rf "$head/export"
 mkdir -p "$head/export" "$head/src" "$head/boards" "$head/shots"
@@ -112,8 +131,11 @@ rsync -rc --delete "$head/export/scripts/builds/" "$head/src/"
 rsync -rc --delete "$head/export/scripts/boards/" "$head/boards/"
 rsync -rc --delete "$head/export/scripts/shots/" "$head/shots/"
 rm -rf "$head/export"
+step="building builds with cargo"
 cargo build --release --quiet --locked --manifest-path "$head/src/Cargo.toml" --target-dir "$head/target"
+step="running builds install"
 "$head/target/release/builds" install
+step="linking the instructions files and rules"
 
 for file in "$HOME/.claude/CLAUDE.md" "$HOME/.codex/AGENTS.md"; do
   ln -sf "$repo/instructions-agent.md" "$file"
@@ -144,3 +166,5 @@ for rules_dir in "$repo/projects/"*-rules; do
     remove_rule_links "$checkout/.claude/rules" "$rules_dir"
   done <<< "$checkouts"
 done
+
+echo "ok $commit" > "$record"
