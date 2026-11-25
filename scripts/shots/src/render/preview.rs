@@ -147,8 +147,10 @@ async fn start_on_whole_point(page: &Page, row: &str, cell: &str) -> Result<(), 
     page.evaluate(format!(
         "(() => {{ const row = {row}; const top = {cell}.getBoundingClientRect().y; \
          const shift = Math.ceil(top - 1e-6) - top; \
-         if (shift > 0) row.style.marginTop = \
-           (parseFloat(getComputedStyle(row).marginTop) || 0) + shift + 'px'; }})()"
+         if (shift > 0) {{ \
+           const margin = parseFloat(getComputedStyle(row).marginTop); \
+           if (Number.isNaN(margin)) throw new Error('the row has no top margin in points'); \
+           row.style.marginTop = (margin + shift) + 'px'; }} }})()"
     ))
     .await
     .map_err(board::protocol)?;
