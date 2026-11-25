@@ -492,3 +492,26 @@ fn a_build_that_draws_takes_a_host_with_its_lid_open_or_another_display() {
         held.release();
     }
 }
+
+#[test]
+fn a_command_that_passes_its_limit_leaves_no_git_lock_when_its_git_gets_time_to_remove_it() {
+    let scratch = Scratch::new("lock-limit-git");
+    let index_lock = scratch.dir.join("index.lock");
+    // The step's leader ends on SIGTERM at once. Its child, which holds the
+    // lock as git does, removes the lock on SIGTERM after a moment.
+    let mut step = Command::new("sh");
+    step.args([
+        "-c",
+        r#"touch "$1"
+(trap 'sleep 1; rm -f "$1"; exit 1' TERM; while :; do sleep 0.1; done) &
+wait"#,
+        "step",
+    ])
+    .arg(&index_lock);
+    let within = run_in_group_within(step, "step", Some(Duration::from_millis(500))).unwrap();
+    assert_eq!(within, Within::TimedOut);
+    assert!(
+        !index_lock.exists(),
+        "the lock stayed: git was killed before it removed it"
+    );
+}

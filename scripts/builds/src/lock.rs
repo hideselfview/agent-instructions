@@ -39,8 +39,8 @@
 //!
 //! A command run with a time limit (`run_in_group_within`) is stopped when the
 //! limit passes: its whole group gets SIGTERM, SIGKILL after `KILL_GRACE` if
-//! the leader still runs, and SIGKILL once more for what the leader left
-//! behind. It says `Within::TimedOut` and the caller fails the build, so the lock
+//! the leader still runs, and SIGKILL once more, after the same grace, for
+//! what the leader left behind. It says `Within::TimedOut` and the caller fails the build, so the lock
 //! goes to the next in line instead of staying with a build that hangs.
 //!
 //! The holder keeps a record of its run beside the lock (holder_run.rs): when
@@ -69,7 +69,7 @@ use std::process::Command;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::mpsc::{RecvTimeoutError, channel};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::app_lock_guard::CheckoutLock;
 use crate::app_remote::host_of;
@@ -830,8 +830,8 @@ impl Drop for TerminalReturn {
     }
 }
 
-/// How long a command that ignores SIGTERM gets, past its time limit, before
-/// SIGKILL.
+/// How long a command that ignores SIGTERM, and what its leader leaves behind
+/// after SIGTERM, get past the time limit before SIGKILL.
 const KILL_GRACE: Duration = Duration::from_secs(10);
 
 /// How a command run by `run_in_group` ended, when it didn't fail.
@@ -1101,8 +1101,16 @@ fn run_group(
         let _ = watcher.join();
     }
     if timed_out.load(Ordering::SeqCst) {
-        // What the leader left behind. The group id is its pid, which stays
-        // in use while any member of the group does.
+        // What the leader left behind got the SIGTERM too: a git among it
+        // removes its lock files on SIGTERM, and SIGKILL before it has done
+        // so leaves an index.lock that fails every later build in the
+        // checkout. So the rest of the group gets `KILL_GRACE` to end, then
+        // SIGKILL. The group id is the leader's pid, which stays in use while
+        // any member of the group does.
+        let until = Instant::now() + KILL_GRACE;
+        while unsafe { libc::kill(-group, 0) } == 0 && Instant::now() < until {
+            std::thread::sleep(Duration::from_millis(20));
+        }
         unsafe { libc::kill(-group, libc::SIGKILL) };
     }
     let status = waited.context(|| format!("waiting for {command}"))?;
