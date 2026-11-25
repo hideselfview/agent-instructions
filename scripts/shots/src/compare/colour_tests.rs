@@ -677,14 +677,14 @@ fn an_android_shot_s_own_list_never_covers_a_text() {
 }
 
 #[test]
-fn a_board_element_the_reader_marked_obscured_has_no_colour_findings() {
+fn a_board_element_the_reader_marked_covered_or_untested_has_no_colour_findings() {
     // The reader records a text a scrim covers or a sheet clips, which no
     // element list shows on a Mac, where the modal has no element.
     let draw = |ink: Rgb| picture(8, 8, move |x, _| if x < 3 { ink } else { [40, 40, 48] });
     let (board, shot) = (draw([255, 255, 255]), draw([224, 224, 224]));
-    let on = |obscured: bool| {
+    let on = |cover: Cover| {
         let mut b = [labelled(Role::Text, "Word", None)];
-        b[0].obscured = obscured;
+        b[0].cover = cover;
         let s = [labelled(Role::Text, "Word", None)];
         let found = crate::compare::compare(&b, &s, crate::compare::Slots::NONE);
         pairs(
@@ -695,6 +695,7 @@ fn a_board_element_the_reader_marked_obscured_has_no_colour_findings() {
         )
         .len()
     };
-    assert_eq!(on(false), 1);
-    assert_eq!(on(true), 0);
+    assert_eq!(on(Cover::Clear), 1);
+    assert_eq!(on(Cover::Covered), 0);
+    assert_eq!(on(Cover::Untested), 0);
 }

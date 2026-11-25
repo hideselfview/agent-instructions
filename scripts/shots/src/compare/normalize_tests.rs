@@ -1,5 +1,5 @@
 use super::*;
-use crate::shots::{Bounds, Element, Role};
+use crate::shots::{Bounds, Cover, Element, Role};
 
 pub(crate) fn element(role: Role, label: Option<&str>, parent: Option<usize>) -> Element {
     Element {
@@ -20,7 +20,7 @@ pub(crate) fn element(role: Role, label: Option<&str>, parent: Option<usize>) ->
         text: None,
         parent,
         component: None,
-        obscured: false,
+        cover: Cover::Clear,
     }
 }
 

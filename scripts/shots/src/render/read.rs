@@ -11,7 +11,7 @@
 //! of the box is visible, and for text its computed font.
 
 use crate::names::Platform;
-use crate::shots::{Bounds, Element, Role, TextStyle, words};
+use crate::shots::{Bounds, Cover, Element, Role, TextStyle, words};
 use chromiumoxide::Page;
 use chromiumoxide::cdp::browser_protocol::accessibility::{
     AxNode, AxNodeId, AxPropertyName, AxValue, AxValueSourceType, EnableParams, GetFullAxTreeParams,
@@ -125,15 +125,11 @@ pub(crate) struct Raw {
     pub(crate) focused: bool,
     /// The control opens a menu or list (`aria-haspopup`).
     pub(crate) has_popup: bool,
-    pub(crate) bounds: Option<Bounds>,
+    /// What the page reports of the node's box, relative to the frame, once
+    /// measured.
+    pub(crate) geometry: Option<Geometry>,
     /// Why the node has no bounds, when it is one the board's elements read.
     pub(crate) no_box: Option<&'static str>,
-    pub(crate) text: Option<TextStyle>,
-    pub(crate) placeholder: Option<String>,
-    /// The design-system component that draws the node's DOM node.
-    pub(crate) component: Option<String>,
-    /// What the page draws over the node's box, once measured.
-    pub(crate) cover: Option<Cover>,
     /// A password field: what is typed shows masked, never as itself.
     pub(crate) secret: bool,
 }
@@ -282,7 +278,7 @@ fn read<'a>(
         let mut next_parent = parent;
         let mut next_folded = folded;
         if kept && !(role == Role::Text && inside_control) {
-            let Some(bounds) = node.bounds else {
+            let Some(bounds) = node.geometry.as_ref().map(|geometry| geometry.bounds) else {
                 return Err(ReadError::NoBox {
                     role: node.chrome_role.clone(),
                     name: node
@@ -347,20 +343,42 @@ fn element(
         enabled: !node.disabled,
         selected,
         text: if role == Role::Text {
-            node.text.clone()
+            node.geometry.as_ref().and_then(text_style)
         } else {
             None
         },
         parent,
         focused: node.focused.then_some(true),
-        component: node.component.clone(),
-        obscured: node.cover == Some(Cover::Covered),
+        component: node
+            .geometry
+            .as_ref()
+            .and_then(|geometry| geometry.component.clone()),
+        cover: node
+            .geometry
+            .as_ref()
+            .map(|geometry| geometry.cover)
+            .unwrap_or_default(),
         placeholder: if role == Role::Field {
-            nonempty(node.placeholder.as_deref())
+            nonempty(
+                node.geometry
+                    .as_ref()
+                    .and_then(|g| g.placeholder.as_deref()),
+            )
         } else {
             None
         },
     }
+}
+
+/// The style of a visible text: its size, weight and colour, when the page
+/// gave all three.
+fn text_style(geometry: &Geometry) -> Option<TextStyle> {
+    let (size, weight, color) = (geometry.size?, geometry.weight?, geometry.color.as_deref()?);
+    srgb(color).map(|color| TextStyle {
+        size: Some(size),
+        weight: Some(weight),
+        color: Some(color),
+    })
 }
 
 /// The masked value a board writes for a password field. Mac comparisons
@@ -388,21 +406,9 @@ enum Measurement {
     Visible(Geometry),
 }
 
-/// What the page draws over a node's box.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum Cover {
-    /// Nothing, at the points asked.
-    Clear,
-    /// Another element is on top of part of it, or a sheet clips part of it.
-    Covered,
-    /// The page could not say what is on top at some point.
-    Untested,
-}
-
 /// What a visible DOM node reports about its box and its font.
-#[derive(Debug, Deserialize)]
-struct Geometry {
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+pub(crate) struct Geometry {
     bounds: Bounds,
     size: Option<f64>,
     weight: Option<u32>,
@@ -798,7 +804,6 @@ async fn gather(page: &Page, frame: Bounds) -> Result<Vec<Raw>, ReadError> {
     ))
     .await
     .map_err(protocol)?;
-    let mut untested: Vec<String> = Vec::new();
     let measured: Result<Vec<Raw>, ReadError> = async {
         let mut nodes = Vec::new();
         for node in &tree.result.nodes {
@@ -806,42 +811,20 @@ async fn gather(page: &Page, frame: Bounds) -> Result<Vec<Raw>, ReadError> {
             if !raw.ignored && !STRUCTURE.contains(&raw.chrome_role.as_str()) {
                 match measure(page, node, &clipping_argument).await? {
                     Ok(Measurement::Clipped) => raw.ignored = true,
-                    Ok(Measurement::Visible(geometry)) => {
-                        raw.bounds = Some(relative_to(geometry.bounds, (frame.x, frame.y)));
-                        raw.text = match (geometry.size, geometry.weight, geometry.color) {
-                            (Some(size), Some(weight), Some(color)) => {
-                                srgb(&color).map(|color| TextStyle {
-                                    size: Some(size),
-                                    weight: Some(weight),
-                                    color: Some(color),
-                                })
-                            }
-                            _ => None,
-                        };
-                        raw.placeholder = geometry.placeholder;
-                        raw.component = geometry.component;
-                        raw.cover = Some(geometry.cover);
-                        if geometry.cover == Cover::Untested {
-                            untested.push(format!(
-                                "{} {:?}",
-                                raw.chrome_role,
-                                raw.name
-                                    .as_ref()
-                                    .map(|name| name.text.as_str())
-                                    .unwrap_or("")
-                            ));
-                        }
+                    Ok(Measurement::Visible(mut geometry)) => {
+                        geometry.bounds = relative_to(geometry.bounds, (frame.x, frame.y));
                         if (geometry.current || geometry.in_selected) && raw.selected.is_none() {
                             raw.selected = Some(true);
                         }
                         // Chrome gives an empty field its placeholder as its
                         // accessibility value; the DOM holds what is typed.
                         if matches!(raw.chrome_role.as_str(), "textbox" | "searchbox") {
-                            if let Some(value) = geometry.field_value {
+                            if let Some(value) = geometry.field_value.clone() {
                                 raw.value = Some(value);
                             }
                             raw.secret = geometry.secret;
                         }
+                        raw.geometry = Some(geometry);
                     }
                     Err(why) => raw.no_box = Some(why),
                 }
@@ -856,19 +839,6 @@ async fn gather(page: &Page, frame: Bounds) -> Result<Vec<Raw>, ReadError> {
     ))
     .await
     .map_err(protocol)?;
-    if !untested.is_empty() {
-        crate::log::note(format_args!(
-            "whether something covers {} elements is not tested, because the page cannot say what is on top of them ({}{})",
-            untested.len(),
-            untested
-                .iter()
-                .take(8)
-                .cloned()
-                .collect::<Vec<_>>()
-                .join(", "),
-            if untested.len() > 8 { ", and more" } else { "" }
-        ));
-    }
     measured
 }
 

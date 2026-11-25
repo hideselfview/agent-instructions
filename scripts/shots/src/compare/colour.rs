@@ -5,7 +5,7 @@ use super::normalize::Entry;
 use super::{DELTA_E_TOLERANCE, EDGE_TOLERANCE, Part, PictureSide, Side, Warning, rgba};
 use crate::names::Platform;
 use crate::render::read::is_window_role;
-use crate::shots::{Bounds, Element, Picture, Role};
+use crate::shots::{Bounds, Cover, Element, Picture, Role};
 use std::collections::HashMap;
 
 pub(crate) type Rgb = [u8; 3];
@@ -354,11 +354,19 @@ pub(crate) fn pairs(
         // the same view there.
         // The board reader marks an element something drawn over it hides
         // part of, or a sheet clips, as the Mac board's modal has no element
-        // of its own to say so.
-        if board.elements[b.index].obscured {
+        // of its own to say so; an element the page could not be asked about
+        // is not compared either, and the note says so.
+        let cover = board.elements[b.index].cover;
+        if cover != Cover::Clear {
             crate::log::note(format_args!(
-                "colours of {:?} “{}” skipped: the board draws something over it or clips it",
-                b.kind, b.words
+                "colours of {:?} “{}” skipped: {}",
+                b.kind,
+                b.words,
+                if cover == Cover::Covered {
+                    "the board draws something over it or clips it"
+                } else {
+                    "the page could not say whether the board draws something over it"
+                }
             ));
             continue;
         }

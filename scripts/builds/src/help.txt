@@ -1295,29 +1295,19 @@ colour difference, and no finding that it found no measurable glyph colour.
 It checks the element's presence, words, box and font as for any other
 element. The Android harness writes no window role into a shot's list, so on
 Android only the board's list says what covers a text. A Mac board's modal has
-no element of its own, so the board reader marks each element the page draws
-something over (`obscured` in the element list): after it measures the
-element's box it asks the page which element is on top at five points of the
-visible part, and the element is obscured when one of them is an element
-inside neither the element nor around it. It marks an element a sheet clips
-partly the same way. The checker reports no colour finding for a board element
-marked obscured, on any platform. An element whose own style turns pointer
-events off is asked with them on for the moment. The page answers only for
-points inside its viewport, so the reader scrolls a point beyond it to the
-middle of the viewport, asks, and scrolls back; an element none of whose
-points the page answers for (a page that cannot scroll) is not marked, and a
-note names it and how many more there are.
-
-Android's native text rounds each glyph advance to a whole pixel, so a line the
-app draws is up to half a pixel off for each glyph against the board's
-fractional advances (167.66 px against 169.0 for "Your music, everywhere" at 16
-px), and the error adds up along a line and across the chips of a row. On the
-android lane the checker lets each glyph set a width and a place off by half a
-pixel: the width of an element with a label (a text, or a chip a label sizes)
-may differ by that for the glyphs of its label, and its left edge may sit off by that for the
-glyphs of the labels before it on its line and its own, besides the box-edge
-tolerance. A text whose width differs by that much compares its left edge as a
-text of the same width does. The mac lane keeps the box-edge tolerance alone.
+no element of its own, so the board reader records what the page draws over
+each element (`cover` in the element list, absent when nothing): after it
+measures the element's box it asks the page which element is on top at five
+points of the visible part, and the element is covered when one of them is an
+element inside neither the element nor around it. It marks an element a sheet
+clips partly the same way. The page answers only for points inside its
+viewport, so the reader scrolls a point beyond it to the middle of the
+viewport, asks, and scrolls back; an element none of whose points the page
+answers for (a page that cannot scroll) is recorded untested. An element
+whose own style turns pointer events off is asked with them on for the moment.
+The checker reports no colour finding for a board element recorded covered or
+untested, on any platform, and writes a note naming the element and which of
+the two it was.
 
 The checker measures a text's glyph colour from the brightest pixels it
 draws, and thin glyphs (the Mac's 11.5 pt years) have strokes under a pixel

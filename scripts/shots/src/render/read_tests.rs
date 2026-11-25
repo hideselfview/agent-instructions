@@ -15,7 +15,10 @@ fn node(id: &str, role: &str, children: &[&str]) -> Raw {
         id: id.to_string(),
         chrome_role: role.to_string(),
         children: children.iter().map(|c| c.to_string()).collect(),
-        bounds: Some(BOX),
+        geometry: Some(Geometry {
+            bounds: BOX,
+            ..Geometry::default()
+        }),
         ..Raw::default()
     }
 }
@@ -777,10 +780,10 @@ async fn the_reader_leaves_out_a_clipped_node_without_reading_its_component() {
 #[test]
 fn a_kept_node_with_no_box_fails_the_read_and_says_why() {
     let mut button = named(node("2", "button", &[]), "Add");
-    button.bounds = None;
+    button.geometry = None;
     button.no_box = Some("its DOM node has no box to measure");
     let mut hidden = node("3", "button", &[]);
-    hidden.bounds = None;
+    hidden.geometry = None;
     hidden.ignored = true;
     let root = node("1", "generic", &["3"]);
     assert!(build(&[root, hidden.clone()], Platform::Mac).is_ok());
@@ -923,7 +926,7 @@ async fn the_reader_marks_what_a_scrim_covers_or_a_sheet_clips() {
             .unwrap()
     })
     .await;
-    let obscured = |role, label| find(&elements, role, label).obscured;
+    let obscured = |role, label| find(&elements, role, label).cover == Cover::Covered;
     assert!(obscured(Role::Text, "Behind the scrim"));
     assert!(obscured(Role::Button, "Behind too"));
     assert!(obscured(Role::Text, "Cut by the sheet"));
@@ -956,6 +959,9 @@ async fn an_element_beyond_the_viewport_is_asked_after_scrolling_to_it() {
         elements(&page, taller, Platform::Mac).await.unwrap()
     })
     .await;
-    assert!(find(&elements, Role::Text, "Far below the scrim").obscured);
-    assert!(!find(&elements, Role::Text, "Far below, uncovered").obscured);
+    assert!(find(&elements, Role::Text, "Far below the scrim").cover == Cover::Covered);
+    assert_eq!(
+        find(&elements, Role::Text, "Far below, uncovered").cover,
+        Cover::Clear
+    );
 }
