@@ -544,6 +544,37 @@ const GEOMETRY: &str = r#"function({frame, bodyOverflowAppliesToViewport}) {
   } else {
     return null;
   }
+  // A button or link that holds a glyph is boxed as the Mac boxes it: by the
+  // glyph's ink, not its room. A glyph's svg is its ink and its margins are
+  // the rest of its room, so each side of the control's box that its room
+  // reaches moves in to the ink.
+  let bounds = {x: rect.x, y: rect.y, width: rect.width, height: rect.height};
+  if (!isText && this.matches('button, a, [role=button], [role=link]')) {
+    const sides = {left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom};
+    for (const glyph of this.querySelectorAll('svg.bae-glyph')) {
+      const ink = glyph.getBoundingClientRect();
+      const margin = getComputedStyle(glyph);
+      const room = {
+        left: ink.left - parseFloat(margin.marginLeft),
+        top: ink.top - parseFloat(margin.marginTop),
+        right: ink.right + parseFloat(margin.marginRight),
+        bottom: ink.bottom + parseFloat(margin.marginBottom),
+      };
+      const reaches = (side) => Math.abs(room[side] - sides[side]) <= 0.01;
+      for (const side of ['left', 'top']) {
+        if (reaches(side)) sides[side] = Math.max(sides[side], ink[side]);
+      }
+      for (const side of ['right', 'bottom']) {
+        if (reaches(side)) sides[side] = Math.min(sides[side], ink[side]);
+      }
+    }
+    bounds = {
+      x: sides.left,
+      y: sides.top,
+      width: sides.right - sides.left,
+      height: sides.bottom - sides.top,
+    };
+  }
   const element = isText ? flatParent(this) : this;
   const style = element ? getComputedStyle(element) : null;
   const seen = visible(rect, isText ? element : clippingParent(element, style));
@@ -555,7 +586,7 @@ const GEOMETRY: &str = r#"function({frame, bodyOverflowAppliesToViewport}) {
   const cover = clippedPartly ? 'covered' : coverOf(element, seen);
   return {
     visibility: 'visible',
-    bounds: {x: rect.x, y: rect.y, width: rect.width, height: rect.height},
+    bounds,
     size: style ? parseFloat(style.fontSize) : null,
     weight: style ? parseInt(style.fontWeight, 10) : null,
     color: style ? style.color : null,

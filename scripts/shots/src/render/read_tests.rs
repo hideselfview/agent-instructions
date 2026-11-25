@@ -693,6 +693,62 @@ async fn a_board_element_is_read_where_layout_puts_it_before_any_transform() {
 }
 
 #[tokio::test]
+async fn a_button_or_link_that_wraps_a_glyph_is_boxed_by_the_glyphs_ink_not_its_room() {
+    // A glyph's svg is its ink, and its margins are the rest of its room.
+    let root = fixture::tree(&[(
+        "fixture.glyph-room",
+        r##"<x-dc><helmet><style>body{margin:0;font:16px/20px sans-serif}
+.bae-glyph{display:block}
+.only{position:absolute;left:10px;top:10px;padding:0;border:0;display:block}
+.only svg{width:10px;height:11px;margin:1px 2px 1.5px 1px}
+.link{position:absolute;left:10px;top:60px;display:inline-flex;align-items:center;gap:4px;height:20px}
+.link svg{width:6px;height:6px;margin:3px 3px 3px 3px}</style></helmet>
+<button class="only" aria-label="Play"><svg class="bae-glyph" viewBox="0 0 10 11"><path d="M0 0h10v11z"/></svg></button>
+<a class="link" href="#">Words<svg class="bae-glyph" viewBox="0 0 6 6"><path d="M0 0h6v6z"/></svg></a>
+<div style="position:absolute;left:10px;top:100px">Words</div>
+</x-dc>"##,
+    )]);
+    let elements = fixture::with_browser(root.path(), async |server, chrome| {
+        let page = chrome.new_page().await.unwrap();
+        let url = server.board_url("fixture.glyph-room");
+        let rendered = render(
+            &page,
+            "fixture.glyph-room",
+            &url,
+            Frame { w: 300, h: 150 },
+            1.0,
+        )
+        .await
+        .unwrap();
+        elements(&page, rendered.frame, Platform::Mac)
+            .await
+            .unwrap()
+    })
+    .await;
+    // The button's room is 13 by 13.5; its ink is the svg's 10 by 11.
+    let play = find(&elements, Role::Button, "Play");
+    assert_eq!(
+        (play.bounds.width, play.bounds.height),
+        (10.0, 11.0),
+        "{:?}",
+        play.bounds
+    );
+    // The link's words are as wide as the span beside it, then the 4 pt gap
+    // and the arrow's 6 pt of ink: its room's 3 pt margin on the right is
+    // not the link's. Its line's 20 pt height stays, which the room does not
+    // reach.
+    let words = find(&elements, Role::Text, "Words");
+    let link = find(&elements, Role::Link, "Words");
+    assert!(
+        (link.bounds.width - (words.bounds.width + 4.0 + 6.0 + 3.0)).abs() < 0.01,
+        "{:?} {:?}",
+        link.bounds,
+        words.bounds
+    );
+    assert_eq!(link.bounds.height, 20.0, "{:?}", link.bounds);
+}
+
+#[tokio::test]
 async fn a_texts_box_is_its_words_not_its_container() {
     let elements = read_fixture().await;
     let short = find(&elements, Role::Text, "Short");
