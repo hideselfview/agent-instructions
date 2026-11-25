@@ -1511,6 +1511,33 @@ fn an_ambiguous_legacy_quote_cannot_look_like_a_different_site() {
 }
 
 #[test]
+fn review_show_prints_why_a_run_kept_a_finding_open() {
+    let demo = demo("review-show-kept-reason");
+    let fake = fake(&demo.scratch.dir);
+    let side = demo.add_side(1, "agent", "work");
+    demo.commit(&side, "a.rs");
+    fake.answer("alpha", &[("rule-a", Some(BAD))]);
+    let landing = run_review(&demo, &fake, &side, "k").landing.unwrap();
+    let finding = findings_of(&demo, landing)[0].id;
+    settle_as(&demo, finding, "confirmed", "real");
+
+    demo.commit(&side, "b.rs");
+    fake.answer_task(
+        "alpha",
+        serde_json::json!({
+            "rules": [{"rule": "rule-a", "verdict": "none", "findings": []}],
+            "follow_up": [{"id": finding, "verdict": {"still_open": "The bad line remains in a.rs."}}],
+        }),
+    );
+    let reported = run_review(&demo, &fake, &side, "k");
+    let kept = format!("alpha kept finding {finding} open. The bad line remains in a.rs.");
+    assert!(reported.text.contains(&kept), "{}", reported.text);
+    let conn = demo.store.open_existing().unwrap();
+    let shown = show_text(&conn, landing).unwrap();
+    assert!(shown.contains(&kept), "{shown}");
+}
+
+#[test]
 fn a_dropped_report_at_the_same_line_keeps_its_validation_error() {
     let demo = demo("review-dropped-repeat");
     let fake = fake(&demo.scratch.dir);

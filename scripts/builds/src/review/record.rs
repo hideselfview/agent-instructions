@@ -619,8 +619,8 @@ pub fn add_calls(
         for (finding, verdict) in &call.follow_up {
             match verdict {
                 super::call::FollowUp::Fixed => close(db, *finding, run_id, landing)?,
-                super::call::FollowUp::StillOpen(_) => {
-                    super::kept_open::record(db, call_id, *finding)?;
+                super::call::FollowUp::StillOpen(reason) => {
+                    super::kept_open::record(db, call_id, *finding, reason)?;
                 }
             }
         }

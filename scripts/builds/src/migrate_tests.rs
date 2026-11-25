@@ -2606,3 +2606,40 @@ fn a_store_from_before_the_tier_gives_each_running_item_the_implementation_tier(
         .unwrap();
     assert_eq!(places, 1);
 }
+
+#[test]
+fn the_kept_open_reason_stamp_is_the_schema_before_it() {
+    assert_eq!(
+        db::stamp_of_text(&db::schema_before_kept_open_reason()),
+        BEFORE_KEPT_OPEN_REASON_STAMP
+    );
+}
+
+/// A store from before review calls recorded the reason of each verdict that
+/// kept a finding open keeps its verdicts with no reason, and equals a fresh
+/// schema.
+#[test]
+fn a_store_from_before_the_kept_open_reason_keeps_its_verdicts_with_no_reason() {
+    let scratch = Scratch::new("move-kept-open-reason");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&db::schema_before_kept_open_reason())
+            .unwrap();
+        crate::review::kept_open::tests::plant_before_reason(&conn);
+        conn.pragma_update(None, "user_version", BEFORE_KEPT_OPEN_REASON_STAMP)
+            .unwrap();
+    }
+    migrate_stores(&places, 0).unwrap();
+    let conn = db::open(&path, db::Make::Never).unwrap();
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    let kept = crate::review::kept_open::of_run(&conn, 1).unwrap();
+    assert_eq!(kept.len(), 1);
+    assert_eq!(kept[0].reason, None);
+}

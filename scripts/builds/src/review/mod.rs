@@ -79,7 +79,7 @@ pub mod idle;
 pub mod judge;
 pub mod judge_ack;
 pub mod judge_told;
-mod kept_open;
+pub mod kept_open;
 pub mod landing;
 pub mod marked_mechanical;
 pub mod mechanical;
@@ -550,11 +550,9 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
                     call::FollowUp::Fixed => {
                         text.push_str(&render::closed_text(*run_id, *id));
                     }
-                    call::FollowUp::StillOpen(reason) => text.push_str(&format!(
-                        "{} kept finding {id} open. {}\n",
-                        call.group,
-                        crate::text::one_line(reason)
-                    )),
+                    call::FollowUp::StillOpen(reason) => {
+                        text.push_str(&kept_open::text(&call.group, *id, Some(reason)));
+                    }
                 }
             }
         }
@@ -1586,16 +1584,22 @@ fn show(tool: &Tool, args: &[String]) -> Result<()> {
         .parse()
         .map_err(|_| Fail::Message(format!("'{landing}' is not a landing number")))?;
     let (_, conn) = store_of(tool, &args)?;
-    let landing = record::landing(&conn, id)?;
-    println!(
-        "landing {id}: {} ({}), last review: {}, {}",
+    print!("{}", show_text(&conn, id)?);
+    Ok(())
+}
+
+/// What `builds review show` prints for landing <id>.
+fn show_text(conn: &Connection, id: i64) -> Result<String> {
+    let landing = record::landing(conn, id)?;
+    let mut text = format!(
+        "landing {id}: {} ({}), last review: {}, {}\n",
         landing.key,
         landing.repo,
         match landing.reviewed_run {
             Some(run) => format!("run {run}"),
             None => "none".to_string(),
         },
-        match (landing.landed_run(), record::abandoned_why(&conn, id)?) {
+        match (landing.landed_run(), record::abandoned_why(conn, id)?) {
             (Some(run), _) => format!("landed with run {run}"),
             (None, Some(why)) => format!("abandoned: {why}"),
             (None, None) => "not landed".to_string(),
@@ -1608,25 +1612,33 @@ fn show(tool: &Tool, args: &[String]) -> Result<()> {
         head,
         since,
         ..
-    } in record::runs_of_landing(&conn, id)?
+    } in record::runs_of_landing(conn, id)?
     {
         match since {
-            Some(since) => println!(
-                "{kind} {run} over {}...{}, read as the changes since the last review, run {since}",
+            Some(since) => text.push_str(&format!(
+                "{kind} {run} over {}...{}, read as the changes since the last review, run {since}\n",
                 short(&base),
                 short(&head)
-            ),
-            None => println!("{kind} {run} over {}...{}", short(&base), short(&head)),
+            )),
+            None => text.push_str(&format!(
+                "{kind} {run} over {}...{}\n",
+                short(&base),
+                short(&head)
+            )),
         }
-        print!(
-            "{}",
-            render::run_report(
-                &record::calls_of_run(&conn, run)?,
-                &record::findings_of_run(&conn, run)?
-            )
-        );
+        text.push_str(&render::run_report(
+            &record::calls_of_run(conn, run)?,
+            &record::findings_of_run(conn, run)?,
+        ));
+        for kept in kept_open::of_run(conn, run)? {
+            text.push_str(&kept_open::text(
+                &kept.group,
+                kept.finding,
+                kept.reason.as_deref(),
+            ));
+        }
     }
-    Ok(())
+    Ok(text)
 }
 
 /// `builds review replay`: runs a grouping over every case of the checkout's

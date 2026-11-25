@@ -3875,7 +3875,8 @@ run `review replay --rules-root` on it.
                               groups,
                               findings, how each was settled (both settles of
                               one settled again) and the run that closed it,
-                              and the run it landed with
+                              the reason each group gave for keeping a finding
+                              open in each run, and the run it landed with
   builds review check-landing <worktree> --project P <sha>... [--landing KEY] [--squashed] [--rules-root DIR]
                               what `builds land` asks before it fetches: says
                               that the commits need no review, or that the

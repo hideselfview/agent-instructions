@@ -760,7 +760,9 @@ fn text_before(part: &str) -> String {
 /// keeping the time of each (`with_ack_version_time`).
 #[cfg(test)]
 fn joined_before(part: &str) -> String {
-    with_ack_version_time(with_running_without_tier(parts_before(part).join("\n")))
+    with_ack_version_time(with_running_without_tier(with_kept_open_without_reason(
+        parts_before(part).join("\n"),
+    )))
 }
 
 /// <schema> with the statement that starts with <start> and ends with <end>
@@ -793,7 +795,9 @@ pub fn with_ack_version_time(schema: String) -> String {
 /// agent last acknowledged each version.
 #[cfg(test)]
 pub fn schema_before_ack_version_time() -> String {
-    with_ack_version_time(with_running_without_tier(schema()))
+    with_ack_version_time(with_running_without_tier(with_kept_open_without_reason(
+        schema(),
+    )))
 }
 
 /// <schema> as it was before running items recorded the tier of model they
@@ -812,7 +816,26 @@ pub fn with_running_without_tier(schema: String) -> String {
 /// take.
 #[cfg(test)]
 pub fn schema_before_running_tier() -> String {
-    with_running_without_tier(schema())
+    with_running_without_tier(with_kept_open_without_reason(schema()))
+}
+
+/// <schema> as it was before review calls recorded the reason of each verdict
+/// that kept a finding open. A schema with no such table is returned as it is.
+#[cfg(test)]
+pub fn with_kept_open_without_reason(schema: String) -> String {
+    with_table_as(
+        schema,
+        "CREATE TABLE review_kept_open (",
+        ") STRICT, WITHOUT ROWID;",
+        crate::review::kept_open::tests::KEPT_OPEN_WITHOUT_REASON,
+    )
+}
+
+/// The schema as it was before review calls recorded the reason of each
+/// verdict that kept a finding open.
+#[cfg(test)]
+pub fn schema_before_kept_open_reason() -> String {
+    with_kept_open_without_reason(schema())
 }
 
 #[cfg(test)]
