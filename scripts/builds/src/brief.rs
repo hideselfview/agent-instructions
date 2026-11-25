@@ -52,11 +52,8 @@ fn paths(args: &Args) -> Result<Vec<String>> {
 fn render(paths: &[String], rules: &[rules::Rule]) -> String {
     let mut text = String::from("## Coding rules\n");
     for rule in rules.iter().filter(|rule| rule.matches_paths(paths)) {
-        text.push_str("\n### `");
-        text.push_str(&rule.path);
-        text.push_str("`\n\n");
-        text.push_str(rule.body().trim_matches('\n'));
         text.push('\n');
+        text.push_str(&rule.printed());
     }
     text
 }

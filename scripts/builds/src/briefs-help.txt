@@ -93,9 +93,9 @@ WRITE ONE BRIEF PER ITEM
     behavior the spec states: ask the person whether the behavior stays, and
     quote the spec's text.
 
-A brief carries no coding rules and no workflow text. builds gives the agent
-each rule when it first edits a file the rule covers, and the workflow when it
-runs `builds ack`, and `builds item take` refuses a brief that holds three
+A brief carries no coding rules and no workflow text. builds gives a Claude
+Code agent each rule when it first edits a file the rule covers, and every
+agent the workflow when it runs `builds ack`, and `builds item take` refuses a brief that holds three
 lines in a row of a rule, of `builds help workflow` or of `builds help lists`.
 Name the rule files that matter to the work, never copy them.
 

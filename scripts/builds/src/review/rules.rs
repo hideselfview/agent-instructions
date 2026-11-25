@@ -87,6 +87,16 @@ impl Rule {
         }
     }
 
+    /// The rule as an agent reads it: a heading with the rule's path, then its
+    /// text.
+    pub fn printed(&self) -> String {
+        format!(
+            "### `{}`\n\n{}\n",
+            self.path,
+            self.body().trim_matches('\n')
+        )
+    }
+
     /// Whether the rule covers at least one of <changed>, in a repo whose
     /// design and capture files <files> names: a path its globs match, which
     /// is neither unless the rule judges files of that kind.

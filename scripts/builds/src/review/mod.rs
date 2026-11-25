@@ -179,7 +179,7 @@ pub fn confirmed_often(
     places: &crate::places::Places,
     project: &str,
     rules: &[rules::Rule],
-) -> Result<frequent::Counted> {
+) -> Result<Vec<frequent::Frequent>> {
     let conn = Store::named(places, project)?.open_existing()?;
     let others = crate::lists::store::stores(places)?
         .into_iter()

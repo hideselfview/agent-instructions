@@ -213,14 +213,14 @@ WHAT AN IMPLEMENTING AGENT DOES
      never into a guess.
   2. Branch from origin/main in its claimed worktree.
   3. Implement to the brief. A bug fix starts with its failing test. The
-     first time you edit a file, builds adds to your context each coding rule
-     that covers it, and after a rule the findings that recent first reviews
-     confirmed of it most often (`builds rules-on-edit`): builds counts them
-     in the project's records and, for the rules every project shares, in the
-     other projects' records, and lists a rule's findings when it has two or
-     more, with the paragraphs they quote most. Write the draft so it has none
-     of those findings. `builds brief` prints the rules for paths you have not
-     edited.
+     first time you edit a file in Claude Code, builds adds to your context
+     each coding rule that covers it, and after a rule the findings that
+     recent first reviews confirmed of it most often (`builds rules-on-edit`):
+     builds counts them in the project's records and, for the rules every
+     project shares, in the other projects' records, and lists a rule's
+     findings when it has two or more, with the paragraphs they quote most.
+     Write the draft so it has none of those findings. In Codex, and for
+     paths you have not edited, `builds brief` prints the rules.
   4. Review its own diff once, against the brief and the matching rules.
   5. Check only what the change touches: the hook, the tests of the changed
      code and, for app changes, the app build, which runs last (step 9).
@@ -305,9 +305,9 @@ DISPATCH
     cargo through the wrapper, no `git add -A` or stash, no --no-verify), and
     "review and land through builds; don't push main". Send the worker the
     brief's path. A brief carries no coding rules and no workflow text:
-    builds gives the agent each rule when it first edits a file the rule
-    covers (`builds rules-on-edit`) and the workflow when it runs `builds
-    ack`, and `builds item take` refuses a brief that pastes either. Each
+    builds gives a Claude Code agent each rule when it first edits a file
+    the rule covers (`builds rules-on-edit`) and every agent the workflow
+    when it runs `builds ack`, and `builds item take` refuses a brief that pastes either. Each
     worker credits its own model in the commit trailer.
   - Critical work starts first. Critical work is what the person sees in the
     apps (a screen, a bug, a feature the person asked for), builds work that

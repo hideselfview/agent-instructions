@@ -101,7 +101,6 @@ fn store(branches: &[Vec<Vec<&str>>]) -> rusqlite::Connection {
 fn shown(db: &rusqlite::Connection) -> String {
     confirmed_often(db, &[], &rules())
         .unwrap()
-        .rules
         .iter()
         .map(Frequent::describe)
         .collect()
@@ -226,25 +225,6 @@ fn a_rule_with_one_finding_is_not_listed() {
     let reviews = [review(&[("plain", "Name the actor")])];
     let counted = frequent(&reviews.iter().collect::<Vec<_>>(), &rules());
     assert_eq!(counted.rules, []);
-}
-
-#[test]
-fn a_rule_with_newer_findings_comes_first() {
-    let other = RULE.replace("Write plainly", "Other");
-    let rules = vec![Rule::parse("plain", RULE), Rule::parse("other", &other)];
-    let mut reviews = vec![review(&[("other", "Name the actor"); 2])];
-    reviews.extend(vec![review(&[]); HALF_LIFE as usize]);
-    reviews.push(review(&[("plain", "Name the actor"); 2]));
-    reviews.reverse();
-    let counted = frequent(&reviews.iter().collect::<Vec<_>>(), &rules);
-    assert_eq!(
-        counted
-            .rules
-            .iter()
-            .map(|r| r.rule.as_str())
-            .collect::<Vec<_>>(),
-        ["plain", "other"]
-    );
 }
 
 #[test]

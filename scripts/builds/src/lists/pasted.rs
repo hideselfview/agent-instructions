@@ -35,8 +35,7 @@ pub struct Pasted {
 }
 
 /// The texts builds supplies to agents: each coding rule of the checkout at
-/// <rules_root>, then the workflow page and the lists overview that `builds
-/// ack` prints.
+/// <rules_root>, then each section that `builds ack` prints.
 pub fn sources(rules_root: &Path) -> Result<Vec<Source>> {
     let mut sources: Vec<Source> = crate::review::rules::load(rules_root, None)?
         .into_iter()
@@ -45,14 +44,15 @@ pub fn sources(rules_root: &Path) -> Result<Vec<Source>> {
             text: rule.body().to_string(),
         })
         .collect();
-    sources.push(Source {
-        name: "builds help workflow".to_string(),
-        text: crate::help::WORKFLOW_HELP.to_string(),
-    });
-    sources.push(Source {
-        name: "builds help lists".to_string(),
-        text: crate::help::LISTS_OVERVIEW.to_string(),
-    });
+    sources.extend(
+        crate::ack::text::Text::read()
+            .sections
+            .into_iter()
+            .map(|section| Source {
+                name: section.name,
+                text: section.text,
+            }),
+    );
     Ok(sources)
 }
 

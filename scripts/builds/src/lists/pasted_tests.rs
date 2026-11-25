@@ -65,7 +65,7 @@ fn the_workflow_page_and_every_rule_of_the_checkout_are_sources() {
         [
             "rules/text/plain.md",
             "builds help workflow",
-            "builds help lists"
+            "builds help lists overview"
         ]
     );
 }

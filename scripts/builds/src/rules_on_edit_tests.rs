@@ -27,6 +27,14 @@ fn edit(agent: Option<&str>, file: &Path) -> EditInput {
     .unwrap()
 }
 
+/// What the hook prints for <input>, None when it prints nothing; the hook
+/// records the rules it printed.
+fn given(places: &Places, root: &Path, input: &EditInput) -> Option<String> {
+    let mut out = Vec::new();
+    run(places, root, input, &mut out).unwrap();
+    (!out.is_empty()).then(|| String::from_utf8(out).unwrap())
+}
+
 fn context(output: &str) -> String {
     let output: serde_json::Value = serde_json::from_str(output).unwrap();
     assert_eq!(output["hookSpecificOutput"]["hookEventName"], "PreToolUse");
@@ -44,24 +52,21 @@ fn an_agent_gets_each_rule_that_covers_a_file_once_on_its_first_edit() {
     let work = scratch.dir.join("work");
     repo(&work, "target 1\n");
     make_store(&places, &["work"]);
-    let first = on_edit(&places, &root, &edit(Some("a1"), &work.join("src/lib.rs")))
-        .unwrap()
+    let first = given(&places, &root, &edit(Some("a1"), &work.join("src/lib.rs")))
         .expect("the first edit gets the rule");
     let text = context(&first);
     assert!(text.contains("### `rules/text/plain.md`"), "{text}");
     assert!(text.contains("Name the actor and the action."), "{text}");
     assert!(!text.contains("Swift only."), "{text}");
-    let again = on_edit(
+    let again = given(
         &places,
         &root,
         &edit(Some("a1"), &work.join("src/other.rs")),
-    )
-    .unwrap();
+    );
     assert_eq!(again, None);
-    let other_agent = on_edit(&places, &root, &edit(Some("a2"), &work.join("src/lib.rs"))).unwrap();
+    let other_agent = given(&places, &root, &edit(Some("a2"), &work.join("src/lib.rs")));
     assert!(other_agent.is_some());
-    let swift = on_edit(&places, &root, &edit(Some("a1"), &work.join("App.swift")))
-        .unwrap()
+    let swift = given(&places, &root, &edit(Some("a1"), &work.join("App.swift")))
         .expect("a file another rule covers gets that rule");
     assert!(context(&swift).contains("Swift only."));
 }
@@ -75,10 +80,10 @@ fn a_compacted_agent_gets_its_rules_again() {
     repo(&work, "target 1\n");
     make_store(&places, &["work"]);
     let input = edit(None, &work.join("src/lib.rs"));
-    assert!(on_edit(&places, &root, &input).unwrap().is_some());
-    assert_eq!(on_edit(&places, &root, &input).unwrap(), None);
+    assert!(given(&places, &root, &input).is_some());
+    assert_eq!(given(&places, &root, &input), None);
     agent::forget_rules(&places, "s1", "s1").unwrap();
-    assert!(on_edit(&places, &root, &input).unwrap().is_some());
+    assert!(given(&places, &root, &input).is_some());
 }
 
 #[test]
@@ -89,24 +94,75 @@ fn an_edit_of_a_file_in_no_repo_or_of_no_file_gets_nothing() {
     let loose = scratch.dir.join("loose");
     std::fs::create_dir_all(&loose).unwrap();
     assert_eq!(
-        on_edit(&places, &root, &edit(None, &loose.join("a.rs"))).unwrap(),
+        given(&places, &root, &edit(None, &loose.join("a.rs"))),
         None
     );
-    let no_file: EditInput = serde_json::from_str(
-        r#"{"session_id": "s1", "hook_event_name": "PreToolUse", "tool_input": {}}"#,
+}
+
+#[test]
+fn a_tool_call_that_names_no_file_is_refused() {
+    let scratch = Scratch::new("rules-on-edit-no-file");
+    let input: EditInput = serde_json::from_str(
+        r#"{"session_id": "s1", "hook_event_name": "PreToolUse", "tool_name": "Edit", "tool_input": {"notebook_path": "/x/a.ipynb"}}"#,
     )
     .unwrap();
-    assert_eq!(on_edit(&places, &root, &no_file).unwrap(), None);
+    let refused = run(
+        &scratch.places(),
+        &rules_root(&scratch),
+        &input,
+        &mut Vec::new(),
+    )
+    .unwrap_err()
+    .text();
+    assert!(refused.contains("names no file_path"), "{refused}");
+}
+
+#[test]
+fn a_path_with_dots_in_it_is_refused() {
+    let refused = repo_path(Path::new("/repo/new/../lib.rs"))
+        .unwrap_err()
+        .text();
+    assert!(refused.contains("no . or .. in it"), "{refused}");
+}
+
+#[test]
+fn an_agent_that_the_text_never_reached_is_given_the_rules_again() {
+    struct Broken;
+    impl std::io::Write for Broken {
+        fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::other("closed"))
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let scratch = Scratch::new("rules-on-edit-unwritten");
+    let places = scratch.places();
+    let root = rules_root(&scratch);
+    let work = scratch.dir.join("work");
+    repo(&work, "target 1\n");
+    make_store(&places, &["work"]);
+    let input = edit(None, &work.join("src/lib.rs"));
+    assert!(run(&places, &root, &input, &mut Broken).is_err());
+    assert!(given(&places, &root, &input).is_some());
 }
 
 #[test]
 fn another_event_is_no_edit() {
     let scratch = Scratch::new("rules-on-edit-event");
     let input: EditInput = serde_json::from_str(
-        r#"{"session_id": "s1", "hook_event_name": "PostToolUse", "tool_input": {"file_path": "/x/a.rs"}}"#,
+        r#"{"session_id": "s1", "hook_event_name": "PostToolUse", "tool_name": "Edit", "tool_input": {"file_path": "/x/a.rs"}}"#,
     )
     .unwrap();
-    assert!(on_edit(&scratch.places(), &rules_root(&scratch), &input).is_err());
+    assert!(
+        run(
+            &scratch.places(),
+            &rules_root(&scratch),
+            &input,
+            &mut Vec::new()
+        )
+        .is_err()
+    );
 }
 
 #[test]
@@ -116,15 +172,16 @@ fn a_rule_is_followed_by_the_findings_reviews_confirmed_of_it() {
     let confirmed = [Frequent {
         rule: "plain".to_string(),
         findings: 3,
-        weight: 2.0,
         quoted: vec![Quoted {
             text: "Name the actor and the action.".to_string(),
             findings: 2,
         }],
     }];
-    let text = render("src/lib.rs", &[&rule, &other], &confirmed);
+    let text = render("src/lib.rs", &[&rule, &other], Some(&confirmed));
     assert!(text.starts_with("Coding rules for `src/lib.rs`."), "{text}");
     let beside = "Name the actor and the action.\n\nRecent first reviews confirmed 3 findings of this rule. The paragraphs they quote most:\n- 2x Name the actor and the action.\n";
     assert!(text.contains(beside), "{text}");
     assert_eq!(text.matches("Recent first reviews").count(), 1, "{text}");
+    let uncounted = render("src/lib.rs", &[&rule], None);
+    assert!(!uncounted.contains("Recent first reviews"), "{uncounted}");
 }

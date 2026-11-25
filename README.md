@@ -122,10 +122,11 @@ check out main or commit, push or discard those changes.
 
 ## Rules and workflow stay out of briefs
 
-Send the worker the brief's path. builds gives the worker each coding rule when
-it first edits a file the rule covers, and the workflow when it runs
-`builds ack`. `builds item take` refuses a brief that pastes either.
-`builds brief [--project P] PATH...` prints the rules for repo-relative paths.
+Send the worker the brief's path. In Claude Code, builds gives the worker each
+coding rule when it first edits a file the rule covers; a Codex worker runs
+`builds brief [--project P] PATH...`, which prints the rules for repo-relative
+paths. builds gives every worker the workflow when it runs `builds ack`.
+`builds item take` refuses a brief that pastes rules or the workflow.
 
 ## Code review
 

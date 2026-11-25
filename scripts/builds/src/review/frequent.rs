@@ -1,10 +1,9 @@
 //! The rules the coordinator confirms findings of most often on a branch's
 //! first review. `builds rules-on-edit` shows each one beside the rule when
-//! an agent first edits a file the rule covers. builds counts the confirmed findings of
-//! each rule over the first reviews of the last `BRANCHES` branches of every
-//! project's store, and weighs each finding by how new its branch is: the
-//! weight halves every `HALF_LIFE` branches back. A rule with `LEAST_FINDINGS`
-//! findings in that window is listed, with the paragraphs or list items of its
+//! an agent first edits a file the rule covers. builds counts the confirmed
+//! findings of each rule over the first reviews of the last `BRANCHES`
+//! branches of every project's store. A rule with `LEAST_FINDINGS` findings
+//! in that window is listed, the rule with the most findings first, with the paragraphs or list items of its
 //! text that its findings quote most (`check::clause_in`). A rule that no
 //! recent first review confirms leaves the list, and comes back when agents
 //! break it again.
@@ -19,8 +18,6 @@ use crate::text::note;
 
 /// How many of the branches opened last the list counts.
 pub const BRANCHES: usize = 30;
-/// How many branches back a finding's weight halves.
-pub const HALF_LIFE: f64 = 10.0;
 /// The fewest findings a rule needs on the counted branches to be listed.
 const LEAST_FINDINGS: usize = 2;
 /// The most quoted paragraphs the list shows under a rule.
@@ -36,8 +33,6 @@ pub struct Frequent {
     /// How many confirmed findings of this rule the counted first reviews
     /// hold.
     pub findings: usize,
-    /// The findings, each weighed by how new its branch is.
-    pub weight: f64,
     /// The paragraphs or list items of the rule that its findings quote, the
     /// most quoted first. A finding whose clause no paragraph holds any more
     /// counts in `findings` and appears here under no paragraph (`frequent`
@@ -56,7 +51,7 @@ pub struct Quoted {
 }
 
 /// What `frequent` counted: the rules with at least `LEAST_FINDINGS`
-/// findings, heaviest first, and a line for each finding it left out of the
+/// findings, most findings first, and a line for each finding it left out of the
 /// counts or of the paragraphs, saying why.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Counted {
@@ -72,8 +67,7 @@ pub struct Counted {
 pub fn frequent(reviews: &[&FirstReview], rules: &[Rule]) -> Counted {
     let mut found: Vec<Frequent> = Vec::new();
     let mut left_out = Vec::new();
-    for (age, review) in reviews.iter().enumerate() {
-        let weight = 0.5_f64.powf(age as f64 / HALF_LIFE);
+    for review in reviews {
         for finding in &review.confirmed {
             let Some(rule) = rules.iter().find(|rule| rule.slug == finding.rule) else {
                 left_out.push(format!(
@@ -88,7 +82,6 @@ pub fn frequent(reviews: &[&FirstReview], rules: &[Rule]) -> Counted {
                     found.push(Frequent {
                         rule: finding.rule.clone(),
                         findings: 0,
-                        weight: 0.0,
                         quoted: Vec::new(),
                     });
                     found.len() - 1
@@ -96,7 +89,6 @@ pub fn frequent(reviews: &[&FirstReview], rules: &[Rule]) -> Counted {
             };
             let frequent = &mut found[at];
             frequent.findings += 1;
-            frequent.weight += weight;
             let Some(piece) = pieces(rule.body())
                 .into_iter()
                 .find(|piece| clause_in(&finding.clause, piece))
@@ -122,7 +114,7 @@ pub fn frequent(reviews: &[&FirstReview], rules: &[Rule]) -> Counted {
         rule.quoted
             .sort_by_key(|quoted| std::cmp::Reverse(quoted.findings));
     }
-    rules.sort_by(|a, b| b.weight.total_cmp(&a.weight));
+    rules.sort_by_key(|rule| std::cmp::Reverse(rule.findings));
     Counted { rules, left_out }
 }
 
@@ -205,7 +197,11 @@ fn counted_reviews(
 /// whose findings of shared rules count too. <db> is the store of
 /// <project>, <others> the stores of the other projects. Prints on stderr
 /// each finding the count left out (`Counted::left_out`).
-pub fn confirmed_often(db: &Connection, others: &[&Connection], rules: &[Rule]) -> Result<Counted> {
+pub fn confirmed_often(
+    db: &Connection,
+    others: &[&Connection],
+    rules: &[Rule],
+) -> Result<Vec<Frequent>> {
     let own = record::first_reviews(db)?;
     let others = others
         .iter()
@@ -217,7 +213,7 @@ pub fn confirmed_often(db: &Connection, others: &[&Connection], rules: &[Rule]) 
     for why in &counted.left_out {
         note(why);
     }
-    Ok(counted)
+    Ok(counted.rules)
 }
 
 impl Frequent {

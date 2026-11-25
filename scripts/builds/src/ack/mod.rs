@@ -51,7 +51,8 @@ const USAGE: &str = "usage: builds ack [--agent ID] [--project P]\n       builds
 /// Refuses `builds <command> <args>` when an agent runs it with no
 /// acknowledgement, and prints the notice of a change of the text once
 /// (`check`). Passes the person's commands, `ack`, which records the
-/// acknowledgement, read-only `brief`, `status --json --no-folders` (`lists_checkouts`), and the commands a builds command that passed runs. The
+/// acknowledgement, read-only `brief`, `rules-on-edit` (a hook that must run before an agent
+/// acknowledges), `status --json --no-folders` (`lists_checkouts`), and the commands a builds command that passed runs. The
 /// gate also passes the commands that do not use the stores
 /// (`install_gate::STORELESS`): the gate reads a store, and install must run
 /// while the stores still have an older schema, because install migrates them
@@ -64,6 +65,7 @@ pub fn gate(
     args: &[String],
 ) -> Result<()> {
     if command == "ack"
+        || command == "rules-on-edit"
         || install_gate::STORELESS.contains(&command)
         || std::env::var_os(PASSED).is_some()
         || lists_checkouts(command, args)

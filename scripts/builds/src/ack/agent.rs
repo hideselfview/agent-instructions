@@ -129,12 +129,7 @@ pub fn give_rule(places: &Places, session: &str, agent: &str, slug: &str) -> Res
 /// Code compacted the agent's context and the agent no longer holds them.
 pub fn forget_rules(places: &Places, session: &str, agent: &str) -> Result<()> {
     let folder = rules_dir(places, session, agent)?;
-    match std::fs::remove_dir_all(&folder) {
-        Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
-            fail!("deleting {}: {error}", folder.display())
-        }
-        _ => Ok(()),
-    }
+    crate::capped_store::remove_all(&folder)
 }
 
 /// Whether builds registered agent <agent> of <session>.
@@ -485,6 +480,23 @@ impl Caller {
     }
 }
 
+/// Reads the input Claude Code passes a hook on standard input as a <T>.
+pub fn hook_input_from_stdin<T: serde::de::DeserializeOwned>() -> Result<T> {
+    let mut input = String::new();
+    std::io::Read::read_to_string(&mut std::io::stdin(), &mut input)
+        .context(|| "reading the hook's input".to_string())?;
+    parse_hook_input(&input)
+}
+
+/// Parses a hook's standard input <input> as a <T>.
+pub fn parse_hook_input<T: serde::de::DeserializeOwned>(input: &str) -> Result<T> {
+    serde_json::from_str(input).map_err(|error| {
+        fail::Fail::Message(format!(
+            "the input is not the input of a Claude Code hook: {error}"
+        ))
+    })
+}
+
 /// What Claude Code's hooks pass on standard input, as builds reads it.
 #[derive(serde::Deserialize)]
 pub struct HookInput {
@@ -500,19 +512,13 @@ impl HookInput {
     /// Reads and parses the input Claude Code passes a hook on standard
     /// input.
     pub fn from_stdin() -> Result<HookInput> {
-        let mut input = String::new();
-        std::io::Read::read_to_string(&mut std::io::stdin(), &mut input)
-            .context(|| "reading the hook's input".to_string())?;
-        HookInput::parse(&input)
+        hook_input_from_stdin()
     }
 
     /// Parses a hook's standard input <input>.
+    #[cfg(test)]
     pub fn parse(input: &str) -> Result<HookInput> {
-        serde_json::from_str(input).map_err(|error| {
-            fail::Fail::Message(format!(
-                "the input is not the input of a Claude Code hook: {error}"
-            ))
-        })
+        parse_hook_input(input)
     }
 
     /// The agent the hook ran for: the subagent's id, else the session id,
