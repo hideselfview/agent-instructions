@@ -102,34 +102,49 @@ pub fn was_compacted(places: &Places, session: &str, agent: &str) -> Result<bool
     Ok(held == COMPACTED)
 }
 
-/// The folder that holds one empty file for each rule builds gave agent
-/// <agent> of <session> (`give_rule`), beside the agent's file.
-fn rules_dir(places: &Places, session: &str, agent: &str) -> Result<PathBuf> {
+/// The file that lists the rules builds gave agent <agent> of <session>, one
+/// slug on each line, beside the agent's file.
+fn rules_file(places: &Places, session: &str, agent: &str) -> Result<PathBuf> {
     let file = file(places, session, agent)?;
     Ok(file.with_file_name(format!("{agent}.rules")))
 }
 
 /// Whether builds gave agent <agent> of <session> the rule <slug>.
 pub fn was_given_rule(places: &Places, session: &str, agent: &str, slug: &str) -> Result<bool> {
-    let path = rules_dir(places, session, agent)?.join(slug);
-    path.try_exists()
-        .context(|| format!("reading {}", path.display()))
+    let path = rules_file(places, session, agent)?;
+    match std::fs::read_to_string(&path) {
+        Ok(held) => Ok(held.lines().any(|line| line == slug)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => fail!("reading {}: {error}", path.display()),
+    }
 }
 
-/// Records that builds gave agent <agent> of <session> the rule <slug>.
-/// Recording it again changes nothing.
-pub fn give_rule(places: &Places, session: &str, agent: &str, slug: &str) -> Result<()> {
-    let folder = rules_dir(places, session, agent)?;
-    std::fs::create_dir_all(&folder).context(|| format!("creating {}", folder.display()))?;
-    let path = folder.join(slug);
-    std::fs::write(&path, "").context(|| format!("writing {}", path.display()))
+/// Records that builds gave agent <agent> of <session> the rules <slugs>, in
+/// one write, so that a failure records all of them or none.
+pub fn give_rules(places: &Places, session: &str, agent: &str, slugs: &[String]) -> Result<()> {
+    use std::io::Write;
+    let path = rules_file(places, session, agent)?;
+    let lines: String = slugs.iter().map(|slug| format!("{slug}\n")).collect();
+    let folder = path.parent().expect("an agent's file has a folder");
+    std::fs::create_dir_all(folder).context(|| format!("creating {}", folder.display()))?;
+    std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .and_then(|mut file| file.write_all(lines.as_bytes()))
+        .context(|| format!("writing {}", path.display()))
 }
 
 /// Forgets every rule builds gave agent <agent> of <session>, because Claude
 /// Code compacted the agent's context and the agent no longer holds them.
 pub fn forget_rules(places: &Places, session: &str, agent: &str) -> Result<()> {
-    let folder = rules_dir(places, session, agent)?;
-    crate::capped_store::remove_all(&folder)
+    let path = rules_file(places, session, agent)?;
+    match std::fs::remove_file(&path) {
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+            fail!("deleting {}: {error}", path.display())
+        }
+        _ => Ok(()),
+    }
 }
 
 /// Whether builds registered agent <agent> of <session>.

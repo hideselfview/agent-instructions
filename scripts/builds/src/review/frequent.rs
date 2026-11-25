@@ -3,7 +3,7 @@
 //! an agent first edits a file the rule covers. builds counts the confirmed
 //! findings of each rule over the first reviews of the last `BRANCHES`
 //! branches of every project's store. A rule with `LEAST_FINDINGS` findings
-//! in that window is listed, the rule with the most findings first, with the paragraphs or list items of its
+//! in that window is listed, with the paragraphs or list items of its
 //! text that its findings quote most (`check::clause_in`). A rule that no
 //! recent first review confirms leaves the list, and comes back when agents
 //! break it again.
@@ -51,7 +51,7 @@ pub struct Quoted {
 }
 
 /// What `frequent` counted: the rules with at least `LEAST_FINDINGS`
-/// findings, most findings first, and a line for each finding it left out of the
+/// findings, and a line for each finding it left out of the
 /// counts or of the paragraphs, saying why.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Counted {
@@ -114,7 +114,6 @@ pub fn frequent(reviews: &[&FirstReview], rules: &[Rule]) -> Counted {
         rule.quoted
             .sort_by_key(|quoted| std::cmp::Reverse(quoted.findings));
     }
-    rules.sort_by_key(|rule| std::cmp::Reverse(rule.findings));
     Counted { rules, left_out }
 }
 

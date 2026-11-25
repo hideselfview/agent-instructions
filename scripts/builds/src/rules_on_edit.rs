@@ -2,7 +2,7 @@
 //! tools. When an agent edits a file, builds gives the agent each coding rule
 //! that covers the file, and beside it the findings of that rule that recent
 //! first reviews confirmed most often (`review::frequent`). builds gives an
-//! agent each rule once, under the agent's own id (`ack::agent::give_rule`),
+//! agent each rule once, under the agent's own id (`ack::agent::give_rules`),
 //! and gives it again after Claude Code compacts the agent.
 //!
 //! The rules are those of the project that holds the file's repo, as `builds
@@ -22,37 +22,34 @@ use crate::review::rules::{self, Rule};
 
 const USAGE: &str = "usage: builds rules-on-edit   (a Claude Code PreToolUse hook runs it, with the hook's input on standard input)";
 
-/// What Claude Code's PreToolUse hook passes for an editing tool.
+/// What Claude Code's PreToolUse hook passes for an editing tool: the tool
+/// and its input, which names the file the tool edits. `Edit`, `Write` and
+/// `MultiEdit` name it `file_path`, `NotebookEdit` `notebook_path`.
 #[derive(serde::Deserialize)]
 struct EditInput {
     #[serde(flatten)]
     hook: HookInput,
-    tool_name: String,
-    tool_input: ToolInput,
+    #[serde(flatten)]
+    tool: Tool,
 }
 
-/// The arguments of the editing tools that name the file they change: `Edit`,
-/// `Write` and `MultiEdit` name it `file_path`, `NotebookEdit` `notebook_path`.
 #[derive(serde::Deserialize)]
-struct ToolInput {
-    file_path: Option<String>,
-    notebook_path: Option<String>,
+#[serde(tag = "tool_name", content = "tool_input")]
+enum Tool {
+    Edit { file_path: String },
+    Write { file_path: String },
+    MultiEdit { file_path: String },
+    NotebookEdit { notebook_path: String },
 }
 
 impl EditInput {
-    /// The file the tool edits. Fails for a tool the hook does not match, and
-    /// for a tool call that does not name its file.
-    fn file(&self) -> Result<&str> {
-        let (field, named) = match self.tool_name.as_str() {
-            "Edit" | "Write" | "MultiEdit" => ("file_path", &self.tool_input.file_path),
-            "NotebookEdit" => ("notebook_path", &self.tool_input.notebook_path),
-            other => fail!(
-                "`builds rules-on-edit` runs for Edit, Write, MultiEdit and NotebookEdit, not {other}"
-            ),
-        };
-        match named {
-            Some(file) => Ok(file),
-            None => fail!("the {} call names no {field}", self.tool_name),
+    /// The file the tool edits.
+    fn file(&self) -> &str {
+        match &self.tool {
+            Tool::Edit { file_path }
+            | Tool::Write { file_path }
+            | Tool::MultiEdit { file_path } => file_path,
+            Tool::NotebookEdit { notebook_path } => notebook_path,
         }
     }
 }
@@ -63,21 +60,14 @@ struct Delivery {
     slugs: Vec<String>,
 }
 
-/// Runs the hook. A failure exits with code 2, which blocks the edit and
-/// shows the agent the error: with code 1 the edit would go ahead and the
-/// agent would not learn that its rules are missing.
+/// Runs the hook. A failure exits with code 2 (`failure_code` in main.rs),
+/// which stops the edit and shows the agent the failure.
 pub fn cmd_rules_on_edit(places: &Places, rules_root: &Path, args: &[String]) -> Result<()> {
     if !args.is_empty() {
         fail!("{USAGE}");
     }
     let input = agent::hook_input_from_stdin()?;
-    run(places, rules_root, &input, &mut std::io::stdout()).map_err(|error| {
-        crate::text::note(format!(
-            "builds could not give you the coding rules for this edit, so the edit did not run: {}",
-            error.text()
-        ));
-        fail::Fail::Exit(2)
-    })
+    run(places, rules_root, &input, &mut std::io::stdout())
 }
 
 /// Writes the hook's output for <input> to <out>, then records that the agent
@@ -96,10 +86,7 @@ fn run(
         .and_then(|()| out.flush())
         .context(|| "writing the hook's output".to_string())?;
     let hook = &input.hook;
-    for slug in &delivery.slugs {
-        agent::give_rule(places, &hook.session_id, hook.agent(), slug)?;
-    }
-    Ok(())
+    agent::give_rules(places, &hook.session_id, hook.agent(), &delivery.slugs)
 }
 
 /// What the hook gives <input>'s agent: the rules that cover the file the tool
@@ -114,7 +101,7 @@ fn on_edit(places: &Places, rules_root: &Path, input: &EditInput) -> Result<Opti
             hook.hook_event_name
         );
     }
-    let Some((checkout, path)) = repo_path(Path::new(input.file()?))? else {
+    let Some((checkout, path)) = repo_path(Path::new(input.file()))? else {
         return Ok(None);
     };
     let project = project_of(places, &checkout, None)?;
@@ -149,13 +136,9 @@ fn on_edit(places: &Places, rules_root: &Path, input: &EditInput) -> Result<Opti
 /// or None when it is in no checkout. <file> may not exist yet: its nearest
 /// folder that does decides the checkout.
 fn repo_path(file: &Path) -> Result<Option<(Checkout, String)>> {
-    if !file.is_absolute()
-        || file
-            .components()
-            .any(|part| matches!(part, Component::CurDir | Component::ParentDir))
-    {
+    if !file.is_absolute() || file.components().any(|part| part == Component::ParentDir) {
         fail!(
-            "{} is not an absolute path with no . or .. in it",
+            "{} is not an absolute path with no .. in it",
             file.display()
         );
     }

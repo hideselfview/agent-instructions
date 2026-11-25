@@ -457,7 +457,7 @@ fn a_compaction_of_one_agent_clears_its_acknowledgement_and_leaves_the_others() 
     world.acknowledge(NOON);
     world.acknowledge_as("a2", NOON);
     for agent in [AGENT, "a2"] {
-        agent::give_rule(&world.places, SESSION_ID, agent, "plain").unwrap();
+        agent::give_rules(&world.places, SESSION_ID, agent, &["plain".to_string()]).unwrap();
     }
     let told = world.compact(Some("a2")).unwrap();
     assert!(!agent::was_given_rule(&world.places, SESSION_ID, "a2", "plain").unwrap());
@@ -797,6 +797,17 @@ fn codex_compaction_clears_only_the_thread_named_in_the_event() {
     codex_compacted(&world.places, event(None)).unwrap();
     assert_eq!(record::last(&db, session, session).unwrap(), None);
     assert!(record::last(&db, session, other).unwrap().is_some());
+}
+
+#[test]
+fn the_gate_passes_the_rules_hook_of_an_agent_that_has_not_acknowledged() {
+    let world = world("ack-gate-rules-hook");
+    // SAFETY: each test of this suite runs in a process of its own, and this
+    // one starts no thread that reads the environment.
+    unsafe { std::env::remove_var(PASSED) };
+    let session = agent::Session::of(Some(SESSION_ID.into()), None, None, Some(AGENT.into()));
+    gate(&world.places, &session, "rules-on-edit", &[]).unwrap();
+    assert!(gate(&world.places, &session, "du", &[]).is_err());
 }
 
 #[test]

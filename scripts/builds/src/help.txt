@@ -103,7 +103,7 @@ Builds requires acknowledgement for agent commands other than `help`, `ack`,
       confirmed of that rule most often (two or more, with the paragraphs they
       quote most), unless it gave the agent that rule before. It records
       each rule it gives, under the agent's own id, in the agent's folder
-      (`agents/<session>/<agent>.rules/`), and forgets them when Claude Code
+      (`agents/<session>/<agent>.rules`), and forgets them when Claude Code
       compacts the agent. It prints nothing for a file outside every repo.
 
 builds identifies Codex commands by CODEX_SESSION_ID and CODEX_THREAD_ID.

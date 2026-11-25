@@ -241,21 +241,21 @@ fn run_command(args: &[String], session: ack::agent::Session) -> ExitCode {
     let nested = std::env::var_os(ack::PASSED).is_some();
     let _use = match enter_stores(command, args) {
         Ok(held) => held,
-        Err(fail) => return exit_code(fail),
+        Err(fail) => return exit_code_after(command, fail),
     };
     if let Err(fail) =
         Places::from_env().and_then(|places| ack::gate(&places, &session, command, rest))
     {
-        return exit_code(fail);
+        return exit_code_after(command, fail);
     }
     if let Err(fail) = claimed_branch::gate(command, nested, &session) {
-        return exit_code(fail);
+        return exit_code_after(command, fail);
     }
     // Held until the command ends: dropping it deletes the run's temporary
     // folder.
     let _tmp = match Places::from_env().and_then(|places| run_tmp::enter(&places, command, rest)) {
         Ok(held) => held,
-        Err(fail) => return exit_code(fail),
+        Err(fail) => return exit_code_after(command, fail),
     };
     let result = run(command, rest, session);
     // The command's folders are measured whether it succeeded or not: a
@@ -265,20 +265,34 @@ fn run_command(args: &[String], session: ack::agent::Session) -> ExitCode {
     }
     match result {
         Ok(()) => ExitCode::SUCCESS,
-        Err(fail) => exit_code(fail),
+        Err(fail) => exit_code_after(command, fail),
     }
 }
 
 /// The exit code of a command that failed with <fail>, after saying its
 /// message on stderr.
 fn exit_code(fail: Fail) -> ExitCode {
+    exit_code_after("", fail)
+}
+
+/// The exit code of `builds <command>` after it failed with <fail>: the
+/// code the failure names, else `failure_code` of the command.
+fn exit_code_after(command: &str, fail: Fail) -> ExitCode {
     match fail {
         Fail::Exit(code) => ExitCode::from(code.clamp(0, 255) as u8),
         failure => {
             text::note(failure.text());
-            ExitCode::from(1)
+            ExitCode::from(failure_code(command))
         }
     }
+}
+
+/// The exit code of a command that fails with a message. The hook that gives
+/// an agent its rules exits with 2, which Claude Code answers by stopping the
+/// edit and showing the agent the message; any other code lets the edit go
+/// ahead, and the agent never learns that its rules are missing.
+fn failure_code(command: &str) -> u8 {
+    if command == "rules-on-edit" { 2 } else { 1 }
 }
 
 /// Whether `builds <command> <rest>` holds a use of the stores for its life

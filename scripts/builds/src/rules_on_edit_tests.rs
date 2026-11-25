@@ -87,7 +87,7 @@ fn a_compacted_agent_gets_its_rules_again() {
 }
 
 #[test]
-fn an_edit_of_a_file_in_no_repo_or_of_no_file_gets_nothing() {
+fn an_edit_of_a_file_in_no_repo_gets_nothing() {
     let scratch = Scratch::new("rules-on-edit-none");
     let places = scratch.places();
     let root = rules_root(&scratch);
@@ -100,21 +100,19 @@ fn an_edit_of_a_file_in_no_repo_or_of_no_file_gets_nothing() {
 }
 
 #[test]
-fn a_tool_call_that_names_no_file_is_refused() {
-    let scratch = Scratch::new("rules-on-edit-no-file");
-    let input: EditInput = serde_json::from_str(
+fn a_tool_call_that_names_no_file_or_another_tool_is_refused() {
+    for input in [
         r#"{"session_id": "s1", "hook_event_name": "PreToolUse", "tool_name": "Edit", "tool_input": {"notebook_path": "/x/a.ipynb"}}"#,
-    )
-    .unwrap();
-    let refused = run(
-        &scratch.places(),
-        &rules_root(&scratch),
-        &input,
-        &mut Vec::new(),
-    )
-    .unwrap_err()
-    .text();
-    assert!(refused.contains("names no file_path"), "{refused}");
+        r#"{"session_id": "s1", "hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": {"command": "ls"}}"#,
+    ] {
+        assert!(serde_json::from_str::<EditInput>(input).is_err(), "{input}");
+    }
+}
+
+#[test]
+fn the_hook_exits_with_2_on_a_failure_so_that_the_edit_does_not_run() {
+    assert_eq!(crate::failure_code("rules-on-edit"), 2);
+    assert_eq!(crate::failure_code("brief"), 1);
 }
 
 #[test]
@@ -122,7 +120,7 @@ fn a_path_with_dots_in_it_is_refused() {
     let refused = repo_path(Path::new("/repo/new/../lib.rs"))
         .unwrap_err()
         .text();
-    assert!(refused.contains("no . or .. in it"), "{refused}");
+    assert!(refused.contains("no .. in it"), "{refused}");
 }
 
 #[test]
