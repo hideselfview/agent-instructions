@@ -107,21 +107,21 @@ fn last(db: &Connection) -> Result<Option<Judge>> {
     .transpose()
 }
 
-/// The project's registered judge, while its Claude Code session runs or
-/// its Codex thread can be resumed.
-pub fn listening(db: &Connection, sessions: &crate::inbox::Sessions) -> Result<Option<Judge>> {
+/// The project's registered judge, while its Claude Code session is among
+/// <running> (`claude_sessions::running_now`) or its Codex thread can be
+/// resumed.
+pub fn listening(
+    db: &Connection,
+    sessions: &crate::inbox::Sessions,
+    running: &[crate::claude_sessions::Running],
+) -> Result<Option<Judge>> {
     let Some(judge) = last(db)? else {
         return Ok(None);
     };
     let available = match &judge.inbox {
-        Messaging::Claude(_) => {
-            let running = sessions.running_claude().map_err(|why| {
-                Fail::Message(format!("reading which Claude Code sessions run: {why}"))
-            })?;
-            running
-                .iter()
-                .any(|session| session.session_id == judge.session)
-        }
+        Messaging::Claude(_) => running
+            .iter()
+            .any(|session| session.session_id == judge.session),
         Messaging::Codex(thread) => sessions.codex_can_resume(thread)?,
     };
     Ok(available.then_some(judge))
@@ -194,11 +194,12 @@ pub fn may_record(db: &Connection, id: i64, caller: Option<&Caller>) -> Result<(
 
 /// Refuses <caller> a verdict on finding <id> (confirmed, dropped, or dropped
 /// on a second settle) as `may_record` does, and, while a judge listens
-/// (`listening`, with Claude Code's running sessions in <sessions>), unless
+/// (`listening`, with Claude Code's <running> sessions), unless
 /// <caller> is the judge. The person (no caller) is never refused.
 pub fn may_judge(
     db: &Connection,
     sessions: &crate::inbox::Sessions,
+    running: &[crate::claude_sessions::Running],
     id: i64,
     caller: Option<&Caller>,
 ) -> Result<()> {
@@ -206,7 +207,7 @@ pub fn may_judge(
     let Some(caller) = caller else {
         return Ok(());
     };
-    match listening(db, sessions)? {
+    match listening(db, sessions, running)? {
         Some(judge) if !judge.is(caller) => fail!(
             "{} judges this project's reviews while its session runs, and only the judge settles a finding: leave finding {id} to it",
             judge.by
@@ -370,6 +371,7 @@ pub fn tell(
     store: &Store,
     stamp: &Stamp,
     sessions: &crate::inbox::Sessions,
+    running: &[crate::claude_sessions::Running],
     notice: &Notice,
     caller: Option<&Caller>,
     own: Option<&Messaging>,
@@ -382,7 +384,7 @@ pub fn tell(
         notice.wait_ends
     );
     let asked = &notice.asked;
-    if let Some(judge) = listening(&db, sessions)? {
+    if let Some(judge) = listening(&db, sessions, running)? {
         if has_owner(&db, notice, |owner| would_settle(Some(&judge), owner))? {
             return Ok(format!(
                 "{} ran the review and cannot settle its findings. Ask an independent session to register as judge. {waits}",
@@ -819,7 +821,10 @@ pub fn listen_command(
     let mut said = format!(
         "This session judges project {project}. Builds sends it each review finding to settle.\n"
     );
-    for line in judge_told::tell_waiting(&store, &stamp, &tool.places.sessions())? {
+    let sessions = tool.places.sessions();
+    let running = crate::claude_sessions::running_now(&sessions.claude)
+        .map_err(|why| Fail::Message(format!("reading which Claude Code sessions run: {why}")))?;
+    for line in judge_told::tell_waiting(&store, &stamp, &sessions, &running)? {
         said.push_str(&line);
         said.push('\n');
     }
@@ -835,9 +840,13 @@ pub fn forget(db: &Connection) -> Result<()> {
 
 /// The judge that last listened, when its session no longer runs (`last`,
 /// `listening`).
-pub(super) fn ended(db: &Connection, sessions: &crate::inbox::Sessions) -> Result<Option<Judge>> {
+pub(super) fn ended(
+    db: &Connection,
+    sessions: &crate::inbox::Sessions,
+    running: &[crate::claude_sessions::Running],
+) -> Result<Option<Judge>> {
     Ok(match last(db)? {
-        Some(judge) if listening(db, sessions)?.is_none() => Some(judge),
+        Some(judge) if listening(db, sessions, running)?.is_none() => Some(judge),
         _ => None,
     })
 }

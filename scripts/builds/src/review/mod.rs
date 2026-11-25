@@ -1216,11 +1216,13 @@ fn tell_settlers(
     own: Option<&crate::inbox::Messaging>,
 ) -> Result<String> {
     let sessions = tool.places.sessions();
+    let running = crate::claude_sessions::running_now(&sessions.claude)
+        .map_err(|why| Fail::Message(format!("reading which Claude Code sessions run: {why}")))?;
     let mut text = match to_settle.notice() {
-        Some(notice) => judge::tell(store, stamp, &sessions, &notice, caller, own)?,
+        Some(notice) => judge::tell(store, stamp, &sessions, &running, &notice, caller, own)?,
         None => String::new(),
     };
-    for line in judge_told::tell_waiting(store, stamp, &sessions)? {
+    for line in judge_told::tell_waiting(store, stamp, &sessions, &running)? {
         text.push_str(&format!("{line}\n"));
     }
     Ok(text)
@@ -1231,7 +1233,10 @@ fn tell_settlers(
 /// dispute or answer can put a finding there that no review run told of
 /// (judge_told.rs).
 fn tell_judge_waiting(tool: &Tool, store: &Store, stamp: &Stamp) -> Result<()> {
-    for line in judge_told::tell_waiting(store, stamp, &tool.places.sessions())? {
+    let sessions = tool.places.sessions();
+    let running = crate::claude_sessions::running_now(&sessions.claude)
+        .map_err(|why| Fail::Message(format!("reading which Claude Code sessions run: {why}")))?;
+    for line in judge_told::tell_waiting(store, stamp, &sessions, &running)? {
         println!("{line}");
     }
     Ok(())
@@ -1478,9 +1483,11 @@ fn settle(tool: &Tool, args: &[String], caller: Option<&Caller>) -> Result<()> {
     let (store, _) = store_of(tool, &args)?;
     let stamp = Stamp::resolve(tool.now, &args, &tool.dir)?;
     let sessions = tool.places.sessions();
+    let running = crate::claude_sessions::running_now(&sessions.claude)
+        .map_err(|why| Fail::Message(format!("reading which Claude Code sessions run: {why}")))?;
     if again {
         store.write(&stamp, &format!("review settle {id} again"), |db| {
-            judge::may_judge(db, &sessions, id, caller)?;
+            judge::may_judge(db, &sessions, &running, id, caller)?;
             record::settle_again(db, id, why, stamp.at, &stamp.by)
         })?;
         judge::tell_waits(&store.dir)?;
@@ -1501,7 +1508,7 @@ fn settle(tool: &Tool, args: &[String], caller: Option<&Caller>) -> Result<()> {
         return tell_judge_waiting(tool, &store, &stamp);
     }
     store.write(&stamp, &format!("review settle {id}"), |db| {
-        judge::may_judge(db, &sessions, id, caller)?;
+        judge::may_judge(db, &sessions, &running, id, caller)?;
         record::settle(db, id, how, why, stamp.at, &stamp.by)
     })?;
     judge::tell_waits(&store.dir)?;
@@ -1537,12 +1544,16 @@ fn dispute_command(
     let finding = store.write(&stamp, &format!("review dispute {id}"), |db| {
         judge::dispute(db, id, why, &stamp)
     })?;
+    let sessions = tool.places.sessions();
+    let running = crate::claude_sessions::running_now(&sessions.claude)
+        .map_err(|why| Fail::Message(format!("reading which Claude Code sessions run: {why}")))?;
     print!(
         "{}",
         judge::tell(
             &store,
             &stamp,
-            &tool.places.sessions(),
+            &sessions,
+            &running,
             &judge::dispute_notice(&conn, &store.project, &finding)?,
             caller,
             own,
@@ -1561,8 +1572,10 @@ fn keep_command(tool: &Tool, args: &[String], caller: Option<&Caller>) -> Result
     let (store, _) = store_of(tool, &args)?;
     let stamp = Stamp::resolve(tool.now, &args, &tool.dir)?;
     let sessions = tool.places.sessions();
+    let running = crate::claude_sessions::running_now(&sessions.claude)
+        .map_err(|why| Fail::Message(format!("reading which Claude Code sessions run: {why}")))?;
     store.write(&stamp, &format!("review keep {id}"), |db| {
-        judge::may_judge(db, &sessions, id, caller)?;
+        judge::may_judge(db, &sessions, &running, id, caller)?;
         judge::keep(db, id, why, &stamp)
     })?;
     judge::tell_waits(&store.dir)?;

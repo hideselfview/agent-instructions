@@ -316,6 +316,14 @@ pub fn release_stalled_claims(tool: &Tool, health: &crate::health::Health) -> Re
 /// read or send for.
 pub fn tell_judges(tool: &Tool, stores: &[Store]) -> Vec<String> {
     let sessions = tool.places.sessions();
+    let running = match crate::claude_sessions::running_now(&sessions.claude) {
+        Ok(running) => running,
+        Err(error) => {
+            return vec![format!(
+                "could not tell which Claude Code sessions run, so builds told no judge of the findings that wait: {error}"
+            )];
+        }
+    };
     let stamp = crate::lists::Stamp {
         at: tool.now,
         by: "health".to_string(),
@@ -323,13 +331,15 @@ pub fn tell_judges(tool: &Tool, stores: &[Store]) -> Vec<String> {
     let mut lines = Vec::new();
     for store in stores {
         let project = &store.project;
-        let done = crate::review::judge_told::forget_ended(store, &stamp, &sessions)
+        let done = crate::review::judge_told::forget_ended(store, &stamp, &sessions, &running)
             .and_then(|forgot| {
                 lines.extend(forgot);
-                crate::review::judge_told::tell_waiting(store, &stamp, &sessions)
+                crate::review::judge_told::tell_waiting(store, &stamp, &sessions, &running)
             })
             .and_then(|mut told| {
-                told.extend(crate::review::judge_ack::tell_outdated(store, &sessions)?);
+                told.extend(crate::review::judge_ack::tell_outdated(
+                    store, &sessions, &running,
+                )?);
                 Ok(told)
             });
         match done {

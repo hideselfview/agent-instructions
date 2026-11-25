@@ -15,9 +15,13 @@ pub const ACKNOWLEDGE: &str = "acknowledge the text";
 /// (`judge::listening`, the fact that `review settle` reads too), that it has
 /// no acknowledgement and how to acknowledge. Returns the line to print, or
 /// None when no judge listens or it has acknowledged the text.
-pub fn tell_outdated(store: &Store, sessions: &crate::inbox::Sessions) -> Result<Option<String>> {
+pub fn tell_outdated(
+    store: &Store,
+    sessions: &crate::inbox::Sessions,
+    running: &[crate::claude_sessions::Running],
+) -> Result<Option<String>> {
     let conn = store.open_existing()?;
-    let Some(judge) = judge::listening(&conn, sessions)? else {
+    let Some(judge) = judge::listening(&conn, sessions, running)? else {
         return Ok(None);
     };
     let Some(why) = crate::ack::outdated(store, &judge.session)? else {

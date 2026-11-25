@@ -12,9 +12,13 @@ fn a_listening_judge_with_no_acknowledgement_is_told_to_acknowledge() {
     running_session(&r.demo.tool.places, "s-judge");
     let received = FakeInbox::listen(Path::new(inbox.stored().1));
     let sessions = r.demo.tool.places.sessions();
-    let line = tell_outdated(&r.demo.store, &sessions)
-        .unwrap()
-        .expect("the judge is told");
+    let line = tell_outdated(
+        &r.demo.store,
+        &sessions,
+        &crate::testing::running_claude(&r.demo.tool.places),
+    )
+    .unwrap()
+    .expect("the judge is told");
     let lines = received.received();
     assert!(lines[0].contains(TOKEN));
     let told = message(&lines);
@@ -29,5 +33,13 @@ fn a_listening_judge_with_no_acknowledgement_is_told_to_acknowledge() {
 fn nobody_is_told_when_no_judge_listens() {
     let r = reviewed("judge-ack-none", None);
     let sessions = r.demo.tool.places.sessions();
-    assert_eq!(tell_outdated(&r.demo.store, &sessions).unwrap(), None);
+    assert_eq!(
+        tell_outdated(
+            &r.demo.store,
+            &sessions,
+            &crate::testing::running_claude(&r.demo.tool.places),
+        )
+        .unwrap(),
+        None
+    );
 }

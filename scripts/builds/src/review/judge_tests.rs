@@ -157,7 +157,10 @@ fn the_judges_token_is_kept_and_not_logged() {
 fn the_judge_listens_while_its_session_runs() {
     let h = held("judge-runs");
     let sessions = h.tool.places.sessions();
-    let listening = || listening(&h.store.open_existing().unwrap(), &sessions).unwrap();
+    let listening = || {
+        let running = crate::testing::running_claude(&h.tool.places);
+        listening(&h.store.open_existing().unwrap(), &sessions, &running).unwrap()
+    };
     assert_eq!(listening(), None, "no session has listened");
     h.listen(Some(&caller("s-old", "s-old")), Some(&h.inbox()))
         .unwrap();
@@ -255,6 +258,7 @@ impl Reviewed {
             &self.demo.store,
             &stamp("tester"),
             &self.demo.tool.places.sessions(),
+            &crate::testing::running_claude(&self.demo.tool.places),
             &self.to_settle().notice().unwrap(),
             caller,
             own,
@@ -392,6 +396,7 @@ fn a_judge_whose_session_runs_but_whose_inbox_is_gone_is_still_the_judge() {
     let refused = may_judge(
         &conn,
         &r.demo.tool.places.sessions(),
+        &crate::testing::running_claude(&r.demo.tool.places),
         r.finding,
         Some(&caller("s1", "s1")),
     )
@@ -613,6 +618,7 @@ impl Reviewed {
             &self.demo.store,
             &stamp("tester"),
             &self.demo.tool.places.sessions(),
+            &crate::testing::running_claude(&self.demo.tool.places),
             &dispute_notice(&conn, "demo", &finding).unwrap(),
             caller,
             own,
@@ -825,9 +831,15 @@ fn a_codex_main_thread_cannot_settle_a_finding_on_its_own_branch() {
     let main = caller(thread, thread);
     let r = reviewed("judge-main-thread", Some(&main));
     let db = r.demo.store.open_existing().unwrap();
-    let refusal = may_judge(&db, &r.demo.tool.places.sessions(), r.finding, Some(&main))
-        .unwrap_err()
-        .text();
+    let refusal = may_judge(
+        &db,
+        &r.demo.tool.places.sessions(),
+        &crate::testing::running_claude(&r.demo.tool.places),
+        r.finding,
+        Some(&main),
+    )
+    .unwrap_err()
+    .text();
     assert!(refusal.contains("on your branch"), "{refusal}");
     let said = r.tell(Some(&main), None);
     assert!(said.contains("independent session"), "{said}");
@@ -848,7 +860,8 @@ fn the_judge_does_not_receive_findings_from_its_own_review() {
         crate::review::judge_told::tell_waiting(
             &r.demo.store,
             &stamp("tester"),
-            &r.demo.tool.places.sessions()
+            &r.demo.tool.places.sessions(),
+            &crate::testing::running_claude(&r.demo.tool.places)
         )
         .unwrap()
         .is_empty()

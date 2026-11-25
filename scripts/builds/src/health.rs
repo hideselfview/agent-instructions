@@ -409,6 +409,8 @@ pub struct Machine {
     pub shells: Shells,
     /// The agent processes that work in a place (model_tier.rs).
     pub agents: Vec<crate::model_tier::Agent>,
+    /// The Claude Code sessions that run (claude_sessions.rs).
+    pub claude_sessions: Vec<crate::claude_sessions::Running>,
     pub locks: Vec<LockHealth>,
     pub queues: Vec<LaneQueue>,
 }
@@ -672,12 +674,16 @@ pub fn sample(
         .iter()
         .flat_map(|q| q.queue.iter().map(|w| w.pid))
         .collect();
-    let sessions = match crate::claude_sessions::pids(&machine.claude_sessions(), &processes) {
+    let claude_sessions = match crate::claude_sessions::running(
+        &machine.claude_sessions(),
+        &processes,
+    ) {
         Ok(sessions) => sessions,
         Err(error) => crate::fail!(
             "reading the running Claude Code sessions failed, so health cannot tell which shells a session waits on: {error}"
         ),
     };
+    let sessions: std::collections::HashSet<i32> = claude_sessions.iter().map(|s| s.pid).collect();
     let shells = crate::shells::judge(
         &crate::shells::gather(&processes, machine.uid),
         now,
@@ -704,6 +710,7 @@ pub fn sample(
         },
         shells,
         agents,
+        claude_sessions,
         locks: held,
         queues,
     })
@@ -1760,10 +1767,22 @@ impl HostProcesses {
 /// What health says of each project whose findings wait for a missing judge.
 fn judge_findings(tool: &Tool, stores: &[Store]) -> Vec<Finding> {
     let sessions = tool.places.sessions();
+    let running = match crate::claude_sessions::running_now(&sessions.claude) {
+        Ok(running) => running,
+        Err(error) => {
+            return vec![Finding::new(
+                FindingKind::Judge,
+                Advice::said(format!(
+                    "Builds could not check whether any project needs a judge, because it could not tell which Claude Code sessions run. {error}"
+                )),
+            )];
+        }
+    };
     let mut findings = Vec::new();
     for store in stores {
         let project = &store.project;
-        let oldest = crate::review::judge_told::oldest_unsettled_without_judge(store, &sessions);
+        let oldest =
+            crate::review::judge_told::oldest_unsettled_without_judge(store, &sessions, &running);
         let advice = match oldest {
             Ok(Some(at)) => {
                 let age = crate::health_stillness::elapsed(tool.now, at);
@@ -2265,6 +2284,7 @@ mod tests {
                 },
                 shells: Shells::default(),
                 agents: Vec::new(),
+                claude_sessions: Vec::new(),
                 locks: Vec::new(),
                 queues: Vec::new(),
             },
@@ -2322,6 +2342,7 @@ mod tests {
                     },
                     shells: Shells::default(),
                     agents: Vec::new(),
+                    claude_sessions: Vec::new(),
                     locks: Vec::new(),
                     queues: Vec::new(),
                 },
@@ -2389,6 +2410,7 @@ mod tests {
                 },
                 shells: Shells::default(),
                 agents: Vec::new(),
+                claude_sessions: Vec::new(),
                 locks: Vec::new(),
                 queues: Vec::new(),
             };
@@ -2510,6 +2532,7 @@ mod tests {
             },
             shells: Shells::default(),
             agents: Vec::new(),
+            claude_sessions: Vec::new(),
             locks: Vec::new(),
             queues: Vec::new(),
         };
@@ -2594,6 +2617,7 @@ mod tests {
                 },
                 shells: Shells::default(),
                 agents: Vec::new(),
+                claude_sessions: Vec::new(),
                 locks: Vec::new(),
                 queues: Vec::new(),
             };
@@ -2675,6 +2699,7 @@ mod tests {
                 },
                 shells: Shells::default(),
                 agents: Vec::new(),
+                claude_sessions: Vec::new(),
                 locks: Vec::new(),
                 queues: Vec::new(),
             };
@@ -2801,6 +2826,7 @@ mod tests {
                 },
                 shells: Shells::default(),
                 agents: Vec::new(),
+                claude_sessions: Vec::new(),
                 locks: Vec::new(),
                 queues: vec![LaneQueue {
                     repo: "demo".to_string(),
@@ -2885,6 +2911,7 @@ mod tests {
             },
             shells: Shells::default(),
             agents: Vec::new(),
+            claude_sessions: Vec::new(),
             locks: Vec::new(),
             queues: Vec::new(),
         };
@@ -2938,6 +2965,7 @@ mod tests {
             },
             shells: Shells::default(),
             agents: Vec::new(),
+            claude_sessions: Vec::new(),
             locks: Vec::new(),
             queues: Vec::new(),
         };
@@ -2996,6 +3024,7 @@ mod tests {
             },
             shells: Shells::default(),
             agents: Vec::new(),
+            claude_sessions: Vec::new(),
             locks: Vec::new(),
             queues: Vec::new(),
         };

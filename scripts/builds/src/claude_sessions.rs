@@ -5,13 +5,12 @@
 //! command ends or the session stops it. A shell whose parent has a record
 //! here is therefore one a live session waits on.
 
-use std::collections::HashSet;
 use std::path::Path;
 
 use crate::procs::Processes;
 
 /// A Claude Code process that is still running.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Running {
     pub pid: i32,
     pub session_id: String,
@@ -68,12 +67,10 @@ pub fn running(dir: &Path, processes: &Processes) -> Result<Vec<Running>, String
     Ok(live)
 }
 
-/// The pids of <dir>'s running sessions.
-pub fn pids(dir: &Path, processes: &Processes) -> Result<HashSet<i32>, String> {
-    Ok(running(dir, processes)?
-        .into_iter()
-        .map(|r| r.pid)
-        .collect())
+/// The sessions of <dir> that run now, from one reading of the processes.
+pub fn running_now(dir: &Path) -> Result<Vec<Running>, String> {
+    let processes = Processes::read().map_err(|error| error.text())?;
+    running(dir, &processes)
 }
 
 #[cfg(test)]

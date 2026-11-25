@@ -65,6 +65,7 @@ fn standing_at(
     super::standing(
         &demo.store,
         &demo.tool.places.sessions(),
+        &crate::testing::running_claude(&demo.tool.places),
         &git.ahead.first().unwrap().full,
         &verdict,
     )

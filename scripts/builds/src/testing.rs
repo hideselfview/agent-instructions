@@ -328,6 +328,11 @@ pub fn session_started(places: &crate::places::Places, session: &str, started_at
     .expect("writable");
 }
 
+/// The Claude Code sessions that run in <places>' home now.
+pub fn running_claude(places: &crate::places::Places) -> Vec<crate::claude_sessions::Running> {
+    crate::claude_sessions::running_now(&places.claude_sessions()).expect("readable")
+}
+
 /// A session's inbox socket at <path> for a test, served by a thread: it takes
 /// one connection, reads it to its end and keeps its lines. Never a real
 /// session's socket.

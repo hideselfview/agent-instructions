@@ -113,6 +113,7 @@ fn telling_the_judge_of_findings_records_each_one() {
         &r.demo.store,
         &stamp("tester"),
         &r.demo.tool.places.sessions(),
+        &crate::testing::running_claude(&r.demo.tool.places),
         &notice,
         Some(&agent),
         None,

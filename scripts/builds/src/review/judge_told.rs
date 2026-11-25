@@ -157,10 +157,11 @@ fn waiting_in(db: &Connection) -> Result<Vec<Waiting>> {
 pub fn oldest_unsettled_without_judge(
     store: &Store,
     sessions: &crate::inbox::Sessions,
+    running: &[crate::claude_sessions::Running],
 ) -> Result<Option<i64>> {
     let conn = store.open_existing()?;
     let read = conn.unchecked_transaction().sql()?;
-    if judge::listening(&read, sessions)?.is_some() {
+    if judge::listening(&read, sessions, running)?.is_some() {
         return Ok(None);
     }
     let runs: BTreeSet<_> = waiting_in(&read)?
@@ -213,9 +214,10 @@ pub fn tell_waiting(
     store: &Store,
     stamp: &Stamp,
     sessions: &crate::inbox::Sessions,
+    running: &[crate::claude_sessions::Running],
 ) -> Result<Vec<String>> {
     let conn = store.open_existing()?;
-    let Some(judge) = judge::listening(&conn, sessions)? else {
+    let Some(judge) = judge::listening(&conn, sessions, running)? else {
         return Ok(Vec::new());
     };
     let waiting = untold(&conn, &judge)?;
@@ -288,9 +290,10 @@ pub fn forget_ended(
     store: &Store,
     stamp: &Stamp,
     sessions: &crate::inbox::Sessions,
+    running: &[crate::claude_sessions::Running],
 ) -> Result<Option<String>> {
     let conn = store.open_existing()?;
-    let Some(judge) = judge::ended(&conn, sessions)? else {
+    let Some(judge) = judge::ended(&conn, sessions, running)? else {
         return Ok(None);
     };
     let waiting: Vec<String> = waiting_in(&conn)?

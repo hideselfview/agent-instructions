@@ -62,6 +62,7 @@ impl<'a> Judgment<'a> {
 pub fn standing(
     store: &Store,
     sessions: &crate::inbox::Sessions,
+    running: &[crate::claude_sessions::Running],
     newest: &str,
     verdict: &Verdict,
 ) -> Result<Option<ItemWait>, String> {
@@ -72,7 +73,8 @@ pub fn standing(
         Judgment::NotRun => ReviewWait::NotRun,
         Judgment::ToSettle(findings) => {
             let conn = store.open_existing().map_err(Fail::text)?;
-            let judge = crate::review::judge::listening(&conn, sessions).map_err(Fail::text)?;
+            let judge =
+                crate::review::judge::listening(&conn, sessions, running).map_err(Fail::text)?;
             let mut settler = if judge.is_some() {
                 Settler::Judge
             } else {

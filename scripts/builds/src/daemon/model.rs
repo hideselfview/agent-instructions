@@ -1630,9 +1630,23 @@ impl Model {
         else {
             return Ok(Some(ItemWait::RulesReview(ReviewWait::Checking)));
         };
+        // The daemon never reads the processes to answer: it takes the
+        // sessions from its last sample.
+        let Some(running) = self
+            .state
+            .lock()
+            .expect("no panic holding it")
+            .page
+            .sample
+            .as_ref()
+            .map(|sample| sample.machine.claude_sessions.clone())
+        else {
+            return Ok(Some(ItemWait::RulesReview(ReviewWait::Checking)));
+        };
         super::review_cards::standing(
             &store,
             &self.places.sessions(),
+            &running,
             &newest.full,
             verdict?.as_ref(),
         )

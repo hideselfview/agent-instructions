@@ -648,7 +648,7 @@ struct Candidate {
 /// <queued> holds the pids of `builds` processes waiting in an app queue
 /// (`Queue::waiting`): a shell with one in its tree waits on purpose.
 /// <sessions> holds the pids of the running Claude Code processes
-/// (`claude_sessions::pids`): a session waits on every shell it started, so a
+/// (`claude_sessions::running`): a session waits on every shell it started, so a
 /// shell whose parent is one is never idle.
 pub fn judge(
     entries: &[Entry],
