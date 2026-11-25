@@ -38,7 +38,12 @@ ACKNOWLEDGING THE RULES
 
 An agent runs `builds ack` to acknowledge the workflow and lists overview at
 session start and after compaction. These sections apply to every project.
-Builds tells the agent once when either section changes. Builds gives the
+When either section changes, each builds command an agent runs prints one
+line that says so and gives `builds ack`, and runs as usual; builds counts
+the change as read only after `builds ack` shows the changed sections and the
+agent acknowledges them, so a command whose output nobody reads leaves the
+change unread. The hook that checks `builds ack` refuses a pipe, a redirect
+and a script around it. Builds gives the
 agent each coding rule that covers a file when the agent first edits it
 (`builds rules-on-edit`); `builds brief` prints the rules for paths the agent
 has not edited. The reading holds the sections that every agent uses. A
@@ -61,9 +66,11 @@ Builds requires acknowledgement for agent commands other than `help`, `ack`,
       in, and give the command for part 1, which holds
       a token that only this output shows. The reading holds only the
       sections whose current text the agent has not acknowledged in this
-      session, in any project, and names the ones it leaves out. When the
+      session, in any project, and names the ones it leaves out. After the
+      text changed, the reading holds the changed sections. When the
       agent has acknowledged every section, builds records the
-      acknowledgement and the reading holds nothing. builds keeps the
+      acknowledgement, names the sections that left the text, and the reading
+      holds nothing. builds keeps the
       sections of the version each agent acknowledged, to name the sections
       that changed since that acknowledgement and to tell which roles the
       agent holds.

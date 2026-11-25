@@ -129,7 +129,6 @@ fn a_section_the_text_lost_is_removed_and_not_changed() {
 fn long_text() -> Text {
     let section = |name: &str, lines: usize| Section {
         name: name.to_string(),
-        how_to_read: name.to_string(),
         text: (0..lines)
             .map(|n| format!("{name} line {n} {}", "x".repeat(60)))
             .collect::<Vec<_>>()

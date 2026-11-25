@@ -16,8 +16,9 @@
 //! hash, and a section that several projects' texts share counts for all of
 //! them: an agent reads the sections it has not acknowledged in any project's
 //! store (`Agent::known`). When the text changed since the agent acknowledged it, the
-//! gate prints a notice of the changed sections once, records the agent as
-//! having had it, and passes the command (`catch_up`).
+//! gate prints one line that gives `builds ack`, passes the command, and
+//! acknowledges nothing: only the parts of `builds ack` acknowledge text, so a
+//! command whose output nobody reads (a pipe, a hook) leaves the text unread.
 
 pub mod agent;
 pub mod record;
@@ -225,11 +226,11 @@ impl Agent {
     }
 
     /// Where the agent stands with <text>: not acknowledged, up to date, or
-    /// acknowledged an older version, which this call replaces with the
-    /// current one so that the change is told once. An agent with no
-    /// acknowledgement here has acknowledged the text all the same when it
-    /// acknowledged every section of it in another project: this call records
-    /// that.
+    /// acknowledged an older version, which this call leaves as it is: only
+    /// `builds ack` records an acknowledgement of changed sections. A text
+    /// whose sections the agent acknowledged all the same (another project's
+    /// store holds them, or only their order changed) has nothing to read, and
+    /// this call records the agent's acknowledgement of it.
     fn standing(&self, places: &Places, text: &Text) -> Result<Standing> {
         let version = text.version();
         if self.last()?.as_deref() == Some(version.as_str()) {
@@ -244,19 +245,17 @@ impl Agent {
         if last.as_deref() == Some(version.as_str()) {
             return Ok(Standing::Current);
         }
-        let standing = match last {
+        match last {
             None if !unread.sections.is_empty() => return Ok(Standing::NotAcknowledged),
-            None => Standing::Current,
+            None => {}
             Some(_) => {
-                let names: Vec<String> = unread.sections.iter().map(|s| s.name.clone()).collect();
                 let kept =
                     record::acknowledged_sections(&tx, &self.caller.session, &self.caller.id)?;
-                Standing::Changed(Changes {
-                    changed: names,
-                    removed: text.removed_since(&kept),
-                })
+                if !unread.sections.is_empty() || !text.removed_since(&kept).is_empty() {
+                    return Ok(Standing::Changed);
+                }
             }
-        };
+        }
         record::acknowledge(
             &tx,
             &self.caller.session,
@@ -265,7 +264,7 @@ impl Agent {
             &text.hashes(),
         )?;
         tx.commit().sql()?;
-        Ok(standing)
+        Ok(Standing::Current)
     }
 }
 
@@ -275,45 +274,14 @@ enum Standing {
     NotAcknowledged,
     /// The agent acknowledged the current version.
     Current,
-    /// The text changed since the agent acknowledged it, and builds has now
-    /// recorded the agent as told.
-    Changed(Changes),
-}
-
-/// What changed in the text since an agent acknowledged it: the sections
-/// whose text differs, and the sections that left the text.
-struct Changes {
-    changed: Vec<String>,
-    removed: Vec<String>,
-}
-
-impl Changes {
-    /// The notice that tells the agent what changed and how to read it, or
-    /// None when only the order of the sections changed.
-    fn notice(&self, text: &Text) -> Option<String> {
-        let Changes { changed, removed } = self;
-        let intro = "builds: the text every agent reads changed since you acknowledged it. This command runs as usual.";
-        if changed.is_empty() && removed.is_empty() {
-            return None;
-        }
-        let mut out = format!("{intro}\n");
-        if !changed.is_empty() {
-            out += "Read these sections:\n";
-            for name in changed {
-                let how = text.how_to_read(name);
-                out += &format!("  {how}\n");
-            }
-        }
-        if !removed.is_empty() {
-            out += &format!("Sections removed: {}\n", removed.join(", "));
-        }
-        Some(out)
-    }
+    /// The text changed since the agent acknowledged it, and the agent has
+    /// not read the change.
+    Changed,
 }
 
 /// Refuses the agent of <session> that runs a command in <cwd> with
 /// `--project` <project> when it has no acknowledgement of the text.
-/// Returns the notice to print once when the text changed since the agent
+/// Returns the notice to print when the text changed since the agent
 /// acknowledged it (`Agent::standing`).
 fn check(
     places: &Places,
@@ -325,7 +293,10 @@ fn check(
     let text = agent.text(places, &[])?;
     match agent.standing(places, &text)? {
         Standing::Current => Ok(None),
-        Standing::Changed(changes) => Ok(changes.notice(&text)),
+        Standing::Changed => Ok(Some(format!(
+            "builds: the text every agent reads changed since you acknowledged it. This command runs as usual. Run `builds ack{}` to read the changed sections.\n",
+            agent.flags
+        ))),
         Standing::NotAcknowledged => fail!(
             "builds refuses this command until you read the text every agent reads before it works, and acknowledge it: {} has not acknowledged it in this session. Run `builds ack{}`, read every part it lists, and acknowledge them; then run this command again. A coordinator, a design session or a judge adds `--role coordinator`, `--role design` or `--role judge` to read the sections of its role.",
             agent.name(),
@@ -421,6 +392,11 @@ fn start(places: &Places, agent: &Agent, text: &Text, now: i64) -> Result<String
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .sql()?;
     if unread.sections.is_empty() {
+        let removed = text.removed_since(&record::acknowledged_sections(
+            &tx,
+            &agent.caller.session,
+            &agent.caller.id,
+        )?);
         record::acknowledge(
             &tx,
             &agent.caller.session,
@@ -430,8 +406,13 @@ fn start(places: &Places, agent: &Agent, text: &Text, now: i64) -> Result<String
         )?;
         tx.commit().sql()?;
         agent.acknowledged(places)?;
+        let removed = if removed.is_empty() {
+            String::new()
+        } else {
+            format!("Sections removed: {}\n", removed.join(", "))
+        };
         return Ok(format!(
-            "builds: {} has acknowledged every section of version {version} in this session, so there is nothing to read.\n",
+            "builds: {} has acknowledged every section of version {version} in this session, so there is nothing to read.\n{removed}",
             agent.name()
         ));
     }
@@ -594,7 +575,7 @@ fn acknowledge(
     tx.commit().sql()?;
     agent.acknowledged(places)?;
     Ok(format!(
-        "builds: {} acknowledged version {version}. The acknowledgement holds until the session reports a compaction. When the text changes, builds prints the changed sections once before a command's output, and the command runs.\n",
+        "builds: {} acknowledged version {version}. The acknowledgement holds until the session reports a compaction. When the text changes, builds prints one line before a command's output that gives `builds ack`, and the command runs.\n",
         agent.name()
     ))
 }

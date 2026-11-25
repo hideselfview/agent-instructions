@@ -81,7 +81,6 @@ impl Page {
 /// agents.
 struct Group {
     name: &'static str,
-    how_to_read: &'static str,
     page: Page,
     headings: &'static [&'static str],
     roles: &'static [Role],
@@ -90,28 +89,24 @@ struct Group {
 const GROUPS: [Group; 4] = [
     Group {
         name: "builds help workflow, coordinator",
-        how_to_read: "builds help workflow",
         page: Page::Workflow,
         headings: &["PLAN, BRIEF, EXECUTE", "DISPATCH", "HEALTH CHECK"],
         roles: &[Role::Coordinator],
     },
     Group {
         name: "builds help workflow, design",
-        how_to_read: "builds help workflow",
         page: Page::Workflow,
         headings: &["DESIGN CHANGES", "PUBLISHING DESIGNS"],
         roles: &[Role::Design],
     },
     Group {
         name: "builds help workflow, judge",
-        how_to_read: "builds help workflow",
         page: Page::Workflow,
         headings: &["JUDGING"],
         roles: &[Role::Judge],
     },
     Group {
         name: "builds help lists overview, the order of the stack",
-        how_to_read: "builds help lists",
         page: Page::ListsOverview,
         headings: &["EFFECTS AND ORDER OF THE STACK"],
         roles: &[Role::Coordinator, Role::Design, Role::Judge],
@@ -123,8 +118,6 @@ const GROUPS: [Group; 4] = [
 pub struct Section {
     pub name: String,
     pub text: String,
-    /// The command or file path that prints the section.
-    pub how_to_read: String,
 }
 
 impl Section {
@@ -145,41 +138,28 @@ pub struct Text {
 impl Text {
     /// The sections that every agent reads, then those of each of <roles>.
     pub fn for_roles(roles: &[Role]) -> Text {
-        let section =
-            |page: Page, name: &str, how_to_read: &str, wanted: &dyn Fn(&str) -> bool| Section {
-                name: name.to_string(),
-                text: chunks(page.text())
-                    .into_iter()
-                    .filter(|(heading, _)| wanted(heading))
-                    .map(|(_, text)| text)
-                    .collect(),
-                how_to_read: how_to_read.to_string(),
-            };
-        let page_without_groups = |page: Page, name: &str, how_to_read: &str| {
-            section(page, name, how_to_read, &|heading| {
+        let section = |page: Page, name: &str, wanted: &dyn Fn(&str) -> bool| Section {
+            name: name.to_string(),
+            text: chunks(page.text())
+                .into_iter()
+                .filter(|(heading, _)| wanted(heading))
+                .map(|(_, text)| text)
+                .collect(),
+        };
+        let page_without_groups = |page: Page, name: &str| {
+            section(page, name, &|heading| {
                 !GROUPS.iter().any(|group| group.headings.contains(&heading))
             })
         };
         let mut sections = vec![
-            page_without_groups(
-                Page::Workflow,
-                "builds help workflow",
-                "builds help workflow",
-            ),
-            page_without_groups(
-                Page::ListsOverview,
-                "builds help lists overview",
-                "builds help lists",
-            ),
+            page_without_groups(Page::Workflow, "builds help workflow"),
+            page_without_groups(Page::ListsOverview, "builds help lists overview"),
         ];
         for group in &GROUPS {
             if group.roles.iter().any(|role| roles.contains(role)) {
-                sections.push(section(
-                    group.page,
-                    group.name,
-                    group.how_to_read,
-                    &|heading| group.headings.contains(&heading),
-                ));
+                sections.push(section(group.page, group.name, &|heading| {
+                    group.headings.contains(&heading)
+                }));
             }
         }
         Text { sections }
@@ -252,15 +232,6 @@ impl Text {
             .filter(|(name, _)| !self.sections.iter().any(|section| section.name == *name))
             .map(|(name, _)| name.clone())
             .collect()
-    }
-
-    /// How to read the section named <name>, which this text holds.
-    pub fn how_to_read(&self, name: &str) -> &str {
-        self.sections
-            .iter()
-            .find(|section| section.name == name)
-            .map(|section| section.how_to_read.as_str())
-            .unwrap_or_else(|| panic!("the text has no section named {name}"))
     }
 
     /// Splits the lines of every section, in the text's order,

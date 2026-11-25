@@ -298,10 +298,11 @@ fn older_lists_overview() -> Text {
     text
 }
 
-/// The notice for an agent whose text changed: the check passes and returns it
-/// once.
+/// The notice for an agent whose text changed: the check passes and returns
+/// one line that gives `builds ack`, and every later check returns it again
+/// until the agent has read the text with `builds ack`.
 #[test]
-fn an_edit_of_the_lists_overview_passes_the_command_with_one_notice_naming_the_changed_section() {
+fn a_command_that_finds_the_text_changed_passes_with_one_line_and_leaves_the_text_unacknowledged() {
     let world = world("ack-edited");
     world.record_acknowledgement("bae", AGENT, &older_lists_overview());
     let notice = world.check().unwrap().expect("the text changed");
@@ -309,22 +310,18 @@ fn an_edit_of_the_lists_overview_passes_the_command_with_one_notice_naming_the_c
         notice.contains("changed since you acknowledged it. This command runs as usual."),
         "{notice}"
     );
-    assert!(notice.contains("  builds help lists\n"), "{notice}");
-    assert!(!notice.contains("builds help workflow"), "{notice}");
+    assert!(
+        notice.contains(&format!("Run `builds ack --agent {AGENT}`")),
+        "{notice}"
+    );
+    assert_eq!(notice.lines().count(), 1, "{notice}");
+    assert!(!notice.contains("builds help lists"), "{notice}");
+    // Nobody read the output, and the next command says the same.
+    assert_eq!(world.check().unwrap().as_deref(), Some(notice.as_str()));
+    let started = world.ack(&[], NOON + 60).unwrap();
+    assert!(started.contains("in 1 parts"), "{started}");
+    world.acknowledge(NOON + 60);
     assert_eq!(world.check().unwrap(), None);
-}
-
-#[test]
-fn each_section_says_how_to_read_it() {
-    let text = Text::for_roles(&[]);
-    assert_eq!(
-        text.how_to_read("builds help workflow"),
-        "builds help workflow"
-    );
-    assert_eq!(
-        text.how_to_read("builds help lists overview"),
-        "builds help lists"
-    );
 }
 
 #[test]
@@ -350,15 +347,16 @@ fn a_section_that_left_the_text_is_named_as_removed() {
     older.sections.push(text::Section {
         name: "rules/text/plain.md".to_string(),
         text: "Write plain sentences.".to_string(),
-        how_to_read: "rules/text/plain.md".to_string(),
     });
     world.record_acknowledgement("bae", AGENT, &older);
     let notice = world.check().unwrap().expect("a section left");
+    assert!(!notice.contains("rules/text/plain.md"), "{notice}");
+    let shown = world.ack(&[], NOON + 60).unwrap();
+    assert!(shown.contains("nothing to read"), "{shown}");
     assert!(
-        notice.contains("Sections removed: rules/text/plain.md"),
-        "{notice}"
+        shown.contains("Sections removed: rules/text/plain.md"),
+        "{shown}"
     );
-    assert!(!notice.contains("Read these sections"), "{notice}");
     assert_eq!(world.check().unwrap(), None);
 }
 
@@ -366,8 +364,6 @@ fn a_section_that_left_the_text_is_named_as_removed() {
 fn a_reading_after_a_change_holds_only_the_changed_sections() {
     let world = world("ack-changed-only");
     world.record_acknowledgement("bae", AGENT, &older_lists_overview());
-    // A command the agent runs first passes with a notice and records the
-    // change, so the agent reads the change again only by starting here.
     let started = world.ack(&[], NOON + 60).unwrap();
     assert!(started.contains("in 1 parts"), "{started}");
     assert!(
@@ -416,13 +412,16 @@ fn a_project_whose_sections_the_agent_acknowledged_elsewhere_needs_no_reading() 
 }
 
 #[test]
-fn a_change_of_a_shared_section_is_told_once_across_projects() {
+fn a_reading_in_one_project_ends_the_notice_of_a_shared_section_in_every_project() {
     let world = world("ack-shared-notice");
     let elsewhere = world.with_second_project();
     let older = older_lists_overview();
     world.record_acknowledgement("bae", AGENT, &older);
     world.record_acknowledgement("second", AGENT, &older);
     assert!(world.check().unwrap().is_some());
+    assert!(world.check_second(&elsewhere).unwrap().is_some());
+    world.acknowledge(NOON + 60);
+    assert_eq!(world.check().unwrap(), None);
     assert_eq!(world.check_second(&elsewhere).unwrap(), None);
 }
 
@@ -904,8 +903,10 @@ fn a_change_to_a_section_of_a_role_is_told_to_the_agents_that_hold_the_role() {
     older.sections[2].text.push_str("\nEarlier dispatch text.");
     world.record_acknowledgement("bae", AGENT, &older);
     let notice = world.check().unwrap().expect("the section changed");
-    assert!(notice.contains("builds help workflow\n"), "{notice}");
-    assert_eq!(world.check().unwrap(), None);
+    assert!(
+        notice.contains("changed since you acknowledged it"),
+        "{notice}"
+    );
     assert_eq!(world.check_as("a2").unwrap(), None);
 }
 
