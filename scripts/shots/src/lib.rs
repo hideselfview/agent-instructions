@@ -62,6 +62,13 @@ pub fn declared_scenes(
     declared::read(root, folders).map_err(|e| e.to_string())
 }
 
+/// The variable that names the build volume, which holds everything a run
+/// writes (`builds help`, BUILD VOLUME).
+pub const BUILD_ROOT_VARIABLE: &str = "BUILDS_ROOT";
+
+/// The build volume when `BUILD_ROOT_VARIABLE` is not set.
+pub const DEFAULT_BUILD_ROOT: &str = "/Volumes/Builds";
+
 /// What builds runs the checker with.
 pub struct Checker<'a> {
     /// The checker's versions, which builds computes (builds' build.rs).

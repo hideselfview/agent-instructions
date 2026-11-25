@@ -11,9 +11,17 @@ use std::fs::File;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 
-/// The folder the host's slot files are in. Every checkout and every cache
-/// folder on the host shares it, so the limit holds across all of them.
-const HOST_FOLDER: &str = "/tmp/builds-chrome-slots";
+/// The folder of the slot files, in the build volume's root. A name that starts
+/// with a dot is one of the volume's own, and `builds status` leaves it out.
+/// Every checkout and every cache folder on the host shares it, so the limit
+/// holds across all of them.
+const FOLDER: &str = ".chrome-slots";
+
+/// The folder of the host's slot files in the build volume <setting> names, the
+/// value of `BUILD_ROOT_VARIABLE`, or in the default volume when it is not set.
+fn host_folder(setting: Option<&std::ffi::OsStr>) -> PathBuf {
+    Path::new(setting.unwrap_or(crate::DEFAULT_BUILD_ROOT.as_ref())).join(FOLDER)
+}
 
 /// The slots one host offers for pages.
 #[derive(Clone, Debug)]
@@ -32,11 +40,28 @@ impl Slots {
     /// The host's slots: one for each core, as many as the pages that can
     /// rasterize at once without queueing (the cargo bands follow the cores
     /// the same way, `builds host band`). Fails when the host does not say how
-    /// many cores it has.
+    /// many cores it has, or when the build volume is not mounted: a run writes
+    /// nothing outside the volume (`builds help`, BUILD VOLUME).
     pub(crate) fn of_host() -> Result<Self, String> {
         let cores = std::thread::available_parallelism()
             .map_err(|e| format!("cannot read the host's core count: {e}"))?;
-        Ok(Self::new(Path::new(HOST_FOLDER), cores))
+        Self::in_volume(
+            std::env::var_os(crate::BUILD_ROOT_VARIABLE).as_deref(),
+            cores,
+        )
+    }
+
+    /// <count> slots in the build volume <setting> names (`host_folder`).
+    fn in_volume(setting: Option<&std::ffi::OsStr>, count: NonZeroUsize) -> Result<Self, String> {
+        let folder = host_folder(setting);
+        let volume = folder.parent().expect("the slot folder is in the volume");
+        if !volume.is_dir() {
+            return Err(format!(
+                "the build volume {} is not mounted",
+                volume.display()
+            ));
+        }
+        Ok(Self::new(&folder, count))
     }
 
     /// <count> slots in <folder>.

@@ -139,6 +139,26 @@ fn a_host_draws_no_more_pages_than_it_has_slots_however_many_processes_start_pag
     }
 }
 
+#[test]
+fn the_host_keeps_its_slots_in_the_build_volume() {
+    let volume = tempfile::tempdir().unwrap();
+    let slots = Slots::in_volume(Some(volume.path().as_os_str()), NonZeroUsize::MIN).unwrap();
+    assert_eq!(slots.folder, volume.path().join(".chrome-slots"));
+    assert_eq!(
+        host_folder(None),
+        Path::new("/Volumes/Builds/.chrome-slots")
+    );
+}
+
+#[test]
+fn a_host_with_no_build_volume_has_no_slots() {
+    let volume = tempfile::tempdir().unwrap();
+    let missing = volume.path().join("not-mounted");
+    let error = Slots::in_volume(Some(missing.as_os_str()), NonZeroUsize::MIN).unwrap_err();
+    assert!(error.contains("not mounted"), "{error}");
+    assert!(error.contains(&missing.display().to_string()), "{error}");
+}
+
 #[tokio::test]
 async fn a_slot_is_free_again_once_its_holder_drops_it() {
     let folder = tempfile::tempdir().unwrap();

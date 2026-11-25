@@ -178,6 +178,8 @@ on it:
   review-texts/<project>/<run>/
                         the texts of each review run (DISK), one file per
                         text, named for the text's hash
+  .chrome-slots/        the slot files that limit the pages Chromes draw at once
+                        on the host (APP BUILDS); `builds status` leaves it out
   .trash/               folders being deleted in the background
   .trash.lock           taken shared by each deletion into .trash, and
                         exclusive only by the floor and prune, to rename
@@ -1208,10 +1210,12 @@ Each host draws no more pages at once than it has cores, however many Chromes
 run there. Every program that starts the pinned Chrome (a shots run, `builds
 shots draws`, the shots crate's tests) takes a slot before it opens a page and
 gives it back when the page closes. A slot is an exclusive flock on one of the
-files in /tmp/builds-chrome-slots, so the kernel frees the slots of a process
-that dies. A page that finds every slot held prints "waiting for one of the
-host's N Chrome slots" once on stderr and waits. The 120 seconds a page has to
-draw start once it holds a slot.
+files in <build volume>/.chrome-slots, the volume that BUILDS_ROOT names, so a
+test and a builds run on one host share the slots, and the kernel frees the
+slots of a process that dies. With no build volume mounted, a program that
+starts Chrome fails and writes nothing. A page that finds every slot held
+prints "waiting for one of the host's N Chrome slots" once on stderr and waits.
+The 120 seconds a page has to draw start once it holds a slot.
 
 When a host's Xcode cannot start, every xcodebuild run there fails, whatever
 code it builds: xcodebuild prints "A required plugin failed to load" and names

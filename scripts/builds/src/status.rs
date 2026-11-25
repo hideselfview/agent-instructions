@@ -26,7 +26,10 @@ use crate::trees::{Tree, trees_in, unused};
 /// What status leaves out at the volume's root: macOS's own entries and
 /// the daemon's folder.
 fn left_out(name: &str) -> bool {
-    MACOS_ENTRIES.contains(&name) || name == ".builds-daemon" || name == ".trash.lock"
+    MACOS_ENTRIES.contains(&name)
+        || name == ".builds-daemon"
+        || name == ".trash.lock"
+        || name == ".chrome-slots"
 }
 
 /// Is <path> a folder the trash is being emptied through?
