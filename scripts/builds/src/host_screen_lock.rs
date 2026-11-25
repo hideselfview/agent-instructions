@@ -7,10 +7,11 @@
 //!   under "needs action" (`findings`), from the scan's `screen_locked` line.
 //! - The mac lane holds a window step for the host until its screen unlocks
 //!   (`wait_until_unlocked`), and says so in the build's output, naming the
-//!   host. The wait blocks on the host's own unlock notification
-//!   (`wait_script`) and reads the lock again every 15 seconds. The step itself holds a display assertion on the host
-//!   while it runs (app_remote.rs `keeping_display_on`), so the screen does
-//!   not lock during it.
+//!   host. The wait runs a script on the host (`wait_script`) that reads the
+//!   lock every 15 seconds and listens for the host's unlock notification,
+//!   which does not always reach it. The step itself holds a display
+//!   assertion on the host while it runs (app_remote.rs `keeping_display_on`),
+//!   so the screen does not lock during it.
 
 use crate::fail;
 use crate::fail::{Fail, Result};
@@ -27,15 +28,16 @@ use crate::lock::Ran;
 pub const SCRIPT_LINE: &str = r#"if said=$(ioreg -n Root -d1 2>&1); then echo "screen_locked=$(printf '%s\n' "$said" | tr ',' '\n' | grep -E 'IOConsoleLocked|CGSSessionScreenIsLocked' | tr '\n' ' ')"; else echo "screen_locked=ioreg failed: $(printf '%s\n' "$said" | head -n 1)"; fi"#;
 
 /// The script the lane runs on a Mac whose screen is locked: it returns once
-/// the screen reads unlocked. It listens for `com.apple.screenIsUnlocked`,
-/// which it registers for before it reads the lock, so an unlock between the
-/// two is not missed, and it reads the lock again every <poll_seconds>,
-/// because the notification does not always reach it. It returns when the
-/// listener ends too, whether the notification came or something killed the
-/// listener; the lane's next reading (`read`) says which. A failed ioreg
-/// reads as unlocked here, and that reading fails on it. It leaves no
-/// process behind: a signal to it kills the listener and the sleep, and it
-/// returns once its parent is gone, as when its ssh connection ends.
+/// the screen reads unlocked. It reads the lock every <poll_seconds>, and
+/// listens for `com.apple.screenIsUnlocked`, which it registers for before it
+/// reads the lock, so an unlock between the two is not missed; the listener
+/// does not always get the notification, so the reading is what ends the wait
+/// when it does not. When the listener ends, the script ends with its exit
+/// status (0 after the notification, 143 when something killed it, another
+/// status when it failed). A failed ioreg reads as unlocked here, and the
+/// lane's next reading (`read`) fails on it. The script leaves no process
+/// behind: a signal to it kills the listener and the sleep, and it returns
+/// once its parent is gone, as when its ssh connection ends.
 pub fn wait_script(poll_seconds: u32) -> String {
     format!(
         r#"parent=$PPID
@@ -45,14 +47,17 @@ sleeper=
 trap 'kill $waiter $sleeper 2>/dev/null' EXIT
 trap 'exit 143' HUP INT TERM
 while ioreg -n Root -d1 2>/dev/null | tr ',' '\n' | grep -Eq 'IOConsoleLocked" = Yes|CGSSessionScreenIsLocked"=Yes'; do
-  kill -0 $waiter 2>/dev/null || break
-  kill -0 $parent 2>/dev/null || break
+  kill -0 $parent 2>/dev/null || exit 0
+  kill -0 $waiter 2>/dev/null || {{ wait $waiter; exit $?; }}
   sleep {poll_seconds} &
   sleeper=$!
   wait $sleeper
 done"#
     )
 }
+
+/// The exit status of a waiter that a signal ended: 128 and SIGTERM.
+const WAITER_KILLED: i32 = 143;
 
 /// How often the wait script reads the lock.
 const POLL_SECONDS: u32 = 15;
@@ -124,9 +129,8 @@ pub fn wait(ssh: &Ssh, host: &Host) -> Result<Ran> {
 
 /// Waits while <read> says the screen of host <name> is locked, and returns
 /// true once it is not. Between readings it blocks in <wait>, which returns
-/// when the host says its screen unlocked or the waiter ended in any other
-/// way (a signal, a dropped connection: the next reading says whether the
-/// screen is unlocked, and fails when the host cannot say), and returns false as soon as
+/// when the host says its screen unlocked or a signal ended the waiter (the next
+/// reading says whether the screen is unlocked), and returns false as soon as
 /// <wait> says a takeover stopped the build. The first locked reading gives
 /// <announce> the words that name the host, and the end of the wait gives it
 /// one line more.
@@ -150,7 +154,7 @@ pub fn wait_until_unlocked(
         &|| Ok(()),
         &format!("{}'s screen is unlocked", place(name)),
         &|| match wait() {
-            Err(Fail::Exit(_)) => Ok(Ran::Finished),
+            Err(Fail::Exit(WAITER_KILLED)) => Ok(Ran::Finished),
             ended => ended,
         },
     )
