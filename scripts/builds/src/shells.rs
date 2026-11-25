@@ -635,6 +635,9 @@ struct Candidate {
     /// command that waits for outside work, such as `gh run watch`, uses no
     /// CPU on purpose, so its CPU use says nothing.
     awaited: bool,
+    /// The shell runs a live Claude Code session (a `claude -p` it started):
+    /// the session works under it, and its CPU is not the shell's.
+    runs_session: bool,
     /// A compiler runs under it: the compile may be in the sccache server's
     /// tree, so the shell's own CPU says nothing.
     compiling: bool,
@@ -674,7 +677,12 @@ pub fn judge(
         let mut pending = vec![*top];
         while let Some(entry) = pending.pop() {
             tree.push(entry);
-            pending.extend(children.get(&entry.pid).into_iter().flatten());
+            // A live Claude Code session is another agent's: what runs
+            // under it is judged as that agent's own shells, and stopping
+            // this shell must not take it down.
+            if !sessions.contains(&entry.pid) {
+                pending.extend(children.get(&entry.pid).into_iter().flatten());
+            }
         }
         let command = command_of(&top.argv);
         let (dir, rest) = strip_cd(&command);
@@ -737,6 +745,7 @@ pub fn judge(
             cpu_seconds: tree.iter().map(|e| e.cpu_seconds).sum(),
             queued: tree.iter().any(|e| queued.contains(&e.pid)),
             awaited: sessions.contains(&top.ppid),
+            runs_session: tree.iter().any(|e| sessions.contains(&e.pid)),
             building: members.iter().any(|e| {
                 e.argv.first().is_some_and(|a| basename(a) == "builds") && runs_a_build(&e.argv)
             }),
@@ -764,6 +773,7 @@ pub fn judge(
         } else if age >= IDLE_MINUTES * 60
             && !this.queued
             && !this.awaited
+            && !this.runs_session
             && !this.compiling
             && !this.building
             && this.cpu_seconds / (age as f64) < IDLE_SHARE

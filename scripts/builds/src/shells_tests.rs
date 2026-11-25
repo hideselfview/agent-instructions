@@ -752,3 +752,52 @@ fn a_sleeping_shell_is_stopped_by_its_own_reason_not_as_a_duplicate() {
     let found = judge_all(&[old, new, sleeper]);
     assert_eq!(reasons(&found), vec![(2, waits("perl select"))]);
 }
+
+/// <entries> judged while the Claude Code processes <sessions> run.
+fn judge_with_sessions(entries: &[Entry], sessions: &[i32]) -> Shells {
+    judge(
+        entries,
+        NOW,
+        Path::new(HOME),
+        &places(),
+        &HashSet::new(),
+        &sessions.iter().copied().collect(),
+    )
+}
+
+/// A coordinator's shell (pid 1) that runs `claude -p`, the live agent session
+/// (pid 2), the agent's own shell (pid 3, running <agent_command>) and, when
+/// <search> is set, a `find /` under the agent's shell (pid 4).
+fn coordinator_over_agent(minutes: i64, agent_command: &str, search: bool) -> Vec<Entry> {
+    let outer = shell(
+        1,
+        minutes,
+        &side(2),
+        "claude -p --resume SID \"Find the cause of each group\"",
+    );
+    let session = child(2, &outer, 0.0, &["claude", "-p", "--resume", "SID"]);
+    let mut inner = shell(3, minutes, &side(1), agent_command);
+    inner.ppid = 2;
+    let mut entries = vec![outer, session, inner.clone()];
+    if search {
+        entries.push(child(4, &inner, 0.0, &["find", "/", "-name", "a"]));
+    }
+    entries
+}
+
+#[test]
+fn a_search_by_the_agent_a_shell_runs_is_not_the_search_of_that_shell() {
+    let entries = coordinator_over_agent(3, "scripts/search.sh", true);
+    let found = judge_with_sessions(&entries, &[2]);
+    assert_eq!(
+        reasons(&found),
+        vec![(3, Reason::WholeDisk("find /".into()))]
+    );
+}
+
+#[test]
+fn a_shell_that_runs_a_live_session_is_not_idle() {
+    let entries = coordinator_over_agent(30, "cargo test", false);
+    let found = judge_with_sessions(&entries, &[2]);
+    assert!(found.junk.is_empty(), "{:?}", reasons(&found));
+}
