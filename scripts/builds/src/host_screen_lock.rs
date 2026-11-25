@@ -8,8 +8,7 @@
 //! - The mac lane holds a window step for the host until its screen unlocks
 //!   (`wait_until_unlocked`), and says so in the build's output, naming the
 //!   host. The wait runs a script on the host (`wait_script`) that reads the
-//!   lock every 15 seconds and listens for the host's unlock notification,
-//!   which does not always reach it. The step itself holds a display
+//!   lock every 15 seconds. The step itself holds a display
 //!   assertion on the host while it runs (app_remote.rs `keeping_display_on`),
 //!   so the screen does not lock during it.
 
@@ -28,27 +27,22 @@ use crate::lock::Ran;
 pub const SCRIPT_LINE: &str = r#"if said=$(ioreg -n Root -d1 2>&1); then echo "screen_locked=$(printf '%s\n' "$said" | tr ',' '\n' | grep -E 'IOConsoleLocked|CGSSessionScreenIsLocked' | tr '\n' ' ')"; else echo "screen_locked=ioreg failed: $(printf '%s\n' "$said" | head -n 1)"; fi"#;
 
 /// The script the lane runs on a Mac whose screen is locked: it returns once
-/// the screen reads unlocked. It reads the lock every <poll_seconds>, and
-/// listens for `com.apple.screenIsUnlocked`, which it registers for before it
-/// reads the lock, so an unlock between the two is not missed; the listener
-/// does not always get the notification, so the reading is what ends the wait
-/// when it does not. When the listener ends, the script ends with its exit
-/// status (0 after the notification, 143 when something killed it, another
-/// status when it failed). A failed ioreg reads as unlocked here, and the
-/// lane's next reading (`read`) fails on it. The script leaves no process
-/// behind: a signal to it kills the listener and the sleep, and it returns
-/// once its parent is gone, as when its ssh connection ends.
+/// the screen reads unlocked, reading the lock every <poll_seconds>. The host
+/// sends a process started over ssh no event for the lock (the
+/// `com.apple.screenIsUnlocked` notification did not reach waiters there), so
+/// the reading is how the script learns the state. A failed ioreg reads as
+/// unlocked here, and the lane's next reading (`read`) fails on it. The
+/// script leaves no process behind: a signal to it kills its sleep and it
+/// exits 143, and it returns once its parent is gone, as when its ssh
+/// connection ends.
 pub fn wait_script(poll_seconds: u32) -> String {
     format!(
         r#"parent=$PPID
-notifyutil -1 com.apple.screenIsUnlocked >/dev/null 2>&1 &
-waiter=$!
 sleeper=
-trap 'kill $waiter $sleeper 2>/dev/null' EXIT
+trap 'kill $sleeper 2>/dev/null' EXIT
 trap 'exit 143' HUP INT TERM
 while ioreg -n Root -d1 2>/dev/null | tr ',' '\n' | grep -Eq 'IOConsoleLocked" = Yes|CGSSessionScreenIsLocked"=Yes'; do
   kill -0 $parent 2>/dev/null || exit 0
-  kill -0 $waiter 2>/dev/null || {{ wait $waiter; exit $?; }}
   sleep {poll_seconds} &
   sleeper=$!
   wait $sleeper

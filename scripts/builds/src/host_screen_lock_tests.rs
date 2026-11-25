@@ -164,18 +164,18 @@ fn a_waiter_that_a_signal_ended_makes_the_lane_read_the_lock_again() {
     assert!(matches!(error, Fail::Exit(255)));
 }
 
-/// A folder with stand-ins for the programs the wait script runs:
-/// `notifyutil` writes its pid to the FIFO `notifyutil.pid` and then waits for
-/// a notification that never comes, and `ioreg` reports the screen locked for
-/// its first <locked_readings> calls and unlocked after.
+/// A folder with stand-ins for the programs the wait script runs: `sleep`
+/// writes the pid of its first run to the FIFO `sleep.pid` and then sleeps,
+/// and `ioreg` reports the screen locked for its first <locked_readings>
+/// calls and unlocked after.
 fn host_programs(scratch: &crate::testing::Scratch, locked_readings: u32) {
     let dir = scratch.dir.as_path();
-    crate::testing::fifo(&dir.join("notifyutil.pid"));
+    crate::testing::fifo(&dir.join("sleep.pid"));
     scratch.script(
-        "notifyutil",
+        "sleep",
         &format!(
-            "echo $$ > {}/notifyutil.pid\nexec sleep 1000",
-            dir.display()
+            "[ -e {d}/slept ] || {{ touch {d}/slept; echo $$ > {d}/sleep.pid; }}\nexec /bin/sleep \"$@\"",
+            d = dir.display()
         ),
     );
     scratch.script(
@@ -212,84 +212,55 @@ fn pid_in(dir: &std::path::Path, name: &str) -> i32 {
         .unwrap()
 }
 
-/// The wait reads the lock again while it waits, so it returns once the screen
-/// reads unlocked although the notification never comes, and leaves its
-/// `notifyutil` behind to no one.
+/// The wait reads the lock while it waits, so it returns once the screen
+/// reads unlocked with no notification of any kind.
 #[test]
-fn the_wait_ends_once_the_screen_reads_unlocked_without_the_notification() {
+fn the_wait_ends_once_the_screen_reads_unlocked() {
     let scratch = crate::testing::Scratch::new("unlock-wait");
     let dir = scratch.dir.as_path();
-    {
-        host_programs(&scratch, 3);
-        let mut waiter = run_script(dir, &wait_script(1));
-        let notifyutil = pid_in(dir, "notifyutil.pid");
-        let status =
-            wait_timeout::ChildExt::wait_timeout(&mut waiter, std::time::Duration::from_secs(30))
-                .unwrap();
-        let Some(status) = status else {
-            waiter.kill().unwrap();
-            panic!("the wait never ended");
-        };
-        assert!(status.success());
-        exits(notifyutil).unwrap();
-    }
+    host_programs(&scratch, 3);
+    let mut waiter = run_script(dir, &wait_script(1));
+    pid_in(dir, "sleep.pid");
+    let status =
+        wait_timeout::ChildExt::wait_timeout(&mut waiter, std::time::Duration::from_secs(30))
+            .unwrap();
+    let Some(status) = status else {
+        waiter.kill().unwrap();
+        panic!("the wait never ended");
+    };
+    assert!(status.success());
 }
 
-/// A signal to the script takes its `notifyutil` with it.
+/// A signal to the script ends it with exit 143 and takes its sleep with it.
 #[test]
-fn a_signal_to_the_wait_stops_its_notifyutil() {
+fn a_signal_to_the_wait_stops_its_sleep() {
     let scratch = crate::testing::Scratch::new("unlock-wait");
     let dir = scratch.dir.as_path();
-    {
-        host_programs(&scratch, u32::MAX);
-        let mut waiter = run_script(dir, &wait_script(1));
-        let notifyutil = pid_in(dir, "notifyutil.pid");
-        unsafe { libc::kill(waiter.id() as i32, libc::SIGTERM) };
-        assert_eq!(waiter.wait().unwrap().code(), Some(143));
-        exits(notifyutil).unwrap();
-    }
+    host_programs(&scratch, u32::MAX);
+    let mut waiter = run_script(dir, &wait_script(1000));
+    let sleeper = pid_in(dir, "sleep.pid");
+    unsafe { libc::kill(waiter.id() as i32, libc::SIGTERM) };
+    assert_eq!(waiter.wait().unwrap().code(), Some(143));
+    exits(sleeper).unwrap();
 }
 
-/// A listener that fails ends the wait with its exit status, which the lane
-/// reports, instead of a wait that looks finished.
+/// A wait whose connection ended, so its parent is gone, ends with its sleep
+/// instead of waiting for an unlock for days.
 #[test]
-fn a_listener_that_fails_ends_the_wait_with_its_status() {
+fn a_wait_whose_parent_is_gone_ends_with_its_sleep() {
     let scratch = crate::testing::Scratch::new("unlock-wait");
     let dir = scratch.dir.as_path();
-    {
-        host_programs(&scratch, u32::MAX);
-        scratch.script("notifyutil", "exit 3");
-        let mut waiter = run_script(dir, &wait_script(1));
-        let status =
-            wait_timeout::ChildExt::wait_timeout(&mut waiter, std::time::Duration::from_secs(30))
-                .unwrap();
-        let Some(status) = status else {
-            waiter.kill().unwrap();
-            panic!("the wait never ended");
-        };
-        assert_eq!(status.code(), Some(3));
-    }
-}
-
-/// A wait whose connection ended, so its parent is gone, ends with its
-/// `notifyutil` instead of waiting for an unlock for days.
-#[test]
-fn a_wait_whose_parent_is_gone_ends_with_its_notifyutil() {
-    let scratch = crate::testing::Scratch::new("unlock-wait");
-    let dir = scratch.dir.as_path();
-    {
-        host_programs(&scratch, u32::MAX);
-        let script_file = dir.join("wait.sh");
-        std::fs::write(&script_file, wait_script(1)).unwrap();
-        // The outer shell starts the wait, learns from the FIFO that its
-        // notifyutil runs, and exits.
-        let outer = format!(
-            "sh {f} & echo $! > {d}/waiter.pid; cat {d}/notifyutil.pid > {d}/notifyutil.txt",
-            f = script_file.display(),
-            d = dir.display()
-        );
-        run_script(dir, &outer).wait().unwrap();
-        exits(pid_in(dir, "waiter.pid")).unwrap();
-        exits(pid_in(dir, "notifyutil.txt")).unwrap();
-    }
+    host_programs(&scratch, u32::MAX);
+    let script_file = dir.join("wait.sh");
+    std::fs::write(&script_file, wait_script(3)).unwrap();
+    // The outer shell starts the wait, learns from the FIFO that its sleep
+    // runs, and exits.
+    let outer = format!(
+        "sh {f} & echo $! > {d}/waiter.pid; cat {d}/sleep.pid > {d}/sleep.txt",
+        f = script_file.display(),
+        d = dir.display()
+    );
+    run_script(dir, &outer).wait().unwrap();
+    exits(pid_in(dir, "waiter.pid")).unwrap();
+    exits(pid_in(dir, "sleep.txt")).unwrap();
 }
