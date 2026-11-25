@@ -81,12 +81,24 @@ fn the_acknowledged_sections_are_those_of_the_agents_last_kept_version() {
     acknowledge(&db, "s1", "agent", "v1", 5, &sections()).unwrap();
     assert_eq!(
         acknowledged_sections(&db, "s1", "agent").unwrap(),
-        Some(sections())
+        sections()
     );
-    assert_eq!(
-        acknowledged_sections(&db, "s1", "other").unwrap(),
-        Some(Vec::new())
+    assert!(
+        acknowledged_sections(&db, "s1", "other")
+            .unwrap()
+            .is_empty()
     );
+}
+
+#[test]
+fn builds_keeps_a_version_that_an_agents_acknowledgement_names() {
+    let db = crate::db::memory();
+    acknowledge(&db, "s1", "agent", "old", 0, &sections()).unwrap();
+    for n in 1..=KEPT_VERSIONS * 2 {
+        acknowledge(&db, "s1", "other", &format!("v{n}"), n, &sections()).unwrap();
+    }
+    assert!(kept_sections(&db, "old").unwrap().is_some());
+    assert_eq!(kept_sections(&db, "v1").unwrap(), None);
 }
 
 #[test]

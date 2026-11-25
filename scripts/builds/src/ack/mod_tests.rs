@@ -348,9 +348,8 @@ fn an_agent_whose_version_builds_no_longer_keeps_gets_a_notice_listing_every_sec
             Make::Never,
         )
         .unwrap();
-        for n in 0..record::KEPT_VERSIONS {
-            record::acknowledge(&db, "s2", "other", &format!("v{n}"), NOON + n + 1, &[]).unwrap();
-        }
+        // A store from before builds kept every acknowledged version.
+        db.execute("DELETE FROM ack_version", []).unwrap();
     }
     let notice = world.check(NOON + 60).unwrap().expect("the text changed");
     assert!(
@@ -961,17 +960,17 @@ fn compaction_tells_the_agent_to_name_its_roles_again() {
 }
 
 #[test]
-fn a_gate_that_cannot_tell_the_roles_an_agent_held_says_so_once() {
-    let world = world("ack-role-unkept");
+fn an_agent_keeps_its_role_while_other_agents_acknowledge_many_versions() {
+    let world = world("ack-role-kept");
     world.acknowledge_with(AGENT, &["--role", "coordinator"]);
     {
         let store = Store::named(&world.places, "bae").unwrap();
         let db = db::open(&store.database(), Make::Never).unwrap();
-        for n in 0..record::KEPT_VERSIONS {
+        for n in 0..record::KEPT_VERSIONS * 2 {
             record::acknowledge(&db, "s2", "other", &format!("v{n}"), NOON + n + 1, &[]).unwrap();
         }
     }
-    let notice = world.check(NOON + 60).unwrap().expect("a notice");
-    assert!(notice.contains("`--role coordinator`"), "{notice}");
-    assert_eq!(world.check(NOON + 120).unwrap(), None);
+    assert_eq!(world.check(NOON + 60).unwrap(), None);
+    let again = world.ack(&[], NOON + 61).unwrap();
+    assert!(again.contains("nothing to read"), "{again}");
 }

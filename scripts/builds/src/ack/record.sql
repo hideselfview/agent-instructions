@@ -15,9 +15,11 @@ CREATE TABLE ack (
 
 -- The versions of the text that agents acknowledged most recently, so that
 -- the notice to an agent whose last acknowledged version is here names only
--- the sections that changed since. builds keeps `KEPT_VERSIONS` of them
--- (record.rs) and deletes the rest, so an `ack` row may name a version this
--- table no longer holds.
+-- the sections that changed since, and holds the roles of an agent (the
+-- roles whose sections its version holds). builds keeps `KEPT_VERSIONS` of
+-- them and every version an `ack` row names (record.rs), and deletes the rest.
+-- A store from before that keeps every named version may have an `ack` row
+-- that names a version this table no longer holds.
 CREATE TABLE ack_version (
     version TEXT PRIMARY KEY CONSTRAINT ack_version_version_is_named CHECK (version <> ''),
     -- When an agent last acknowledged this version.

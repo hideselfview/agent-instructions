@@ -57,17 +57,17 @@ pub fn kept_sections(db: &Connection, version: &str) -> Result<Option<Vec<(Strin
 }
 
 /// The sections, each by name and hash, of the version that <agent> in
-/// <session> last acknowledged in this store: none when the agent has no
-/// acknowledgement here, and None when it has one but builds no longer keeps
-/// that version.
+/// <session> last acknowledged in this store, or none when the agent has no
+/// acknowledgement here or builds no longer keeps that version (a store from
+/// before `acknowledge` kept every acknowledged version).
 pub fn acknowledged_sections(
     db: &Connection,
     session: &str,
     agent: &str,
-) -> Result<Option<Vec<(String, String)>>> {
+) -> Result<Vec<(String, String)>> {
     match last(db, session, agent)? {
-        Some(version) => kept_sections(db, &version),
-        None => Ok(Some(Vec::new())),
+        Some(version) => Ok(kept_sections(db, &version)?.unwrap_or_default()),
+        None => Ok(Vec::new()),
     }
 }
 
@@ -128,8 +128,10 @@ pub fn reading(db: &Connection, session: &str, agent: &str) -> Result<Option<Rea
 /// Records that <agent> in <session> acknowledged version <version> at <at>
 /// of the text, whose sections had <sections> (name and hash), in place of
 /// its last acknowledgement, and ends its reading. builds keeps the version
-/// with its sections and the time, and deletes each version that is no longer among the
-/// `KEPT_VERSIONS` versions that agents acknowledged most recently.
+/// with its sections and the time, and deletes each version that is no longer
+/// among the `KEPT_VERSIONS` versions that agents acknowledged most recently
+/// and that no agent's acknowledgement names: an agent's roles are the ones
+/// whose sections its version holds, so builds keeps that version.
 pub fn acknowledge(
     db: &Connection,
     session: &str,
@@ -165,7 +167,7 @@ pub fn acknowledge(
     db.execute(
         "DELETE FROM ack_version WHERE version NOT IN (
              SELECT version FROM ack_version ORDER BY acknowledged_at DESC, version LIMIT ?1
-         )",
+         ) AND version NOT IN (SELECT version FROM ack)",
         params![KEPT_VERSIONS],
     )
     .sql()?;
