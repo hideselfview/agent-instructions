@@ -103,6 +103,13 @@ pub fn plant_before_unread(db: &Connection) -> rusqlite::Result<()> {
     )
 }
 
+/// The acknowledged versions' table with the time that builds kept of each
+/// version until it kept only the versions that agents' acknowledgements name.
+pub const ACK_VERSION_WITH_TIME: &str = "CREATE TABLE ack_version (
+    version TEXT PRIMARY KEY CONSTRAINT ack_version_version_is_named CHECK (version <> ''),
+    acknowledged_at INTEGER NOT NULL
+) STRICT, WITHOUT ROWID;";
+
 /// Deletes every kept version, which no write of this file's does: the state
 /// that a store from before builds kept every version an acknowledgement
 /// names starts from.

@@ -628,12 +628,12 @@ pub fn schema_before_deleted_place() -> String {
 #[cfg(test)]
 pub fn with_review_boards_only(schema: String) -> String {
     let schema = with_deleted_boards_only(schema);
-    const START: &str = "CREATE TABLE review_board (";
-    if !schema.contains(START) {
-        return schema;
-    }
-    let table = statement(&schema, START, ") STRICT, WITHOUT ROWID;").to_string();
-    schema.replacen(&table, REVIEW_BOARD_ONLY_BOARDS, 1)
+    with_table_as(
+        schema,
+        "CREATE TABLE review_board (",
+        ") STRICT, WITHOUT ROWID;",
+        REVIEW_BOARD_ONLY_BOARDS,
+    )
 }
 
 /// The schema as it was before a review page's entry could be a component's
@@ -695,12 +695,12 @@ const ACK_WORD_TABLE: &str = "CREATE TABLE ack_word (
 #[cfg(test)]
 pub fn with_ack_words(schema: String) -> String {
     let schema = with_ack_unread(schema);
-    const START: &str = "CREATE TABLE ack_token (";
-    if !schema.contains(START) {
-        return schema;
-    }
-    let table = statement(&schema, START, ") STRICT, WITHOUT ROWID;").to_string();
-    schema.replacen(&table, ACK_WORD_TABLE, 1)
+    with_table_as(
+        schema,
+        "CREATE TABLE ack_token (",
+        ") STRICT, WITHOUT ROWID;",
+        ACK_WORD_TABLE,
+    )
 }
 
 /// The schema as it was before a reading's parts were chained by tokens.
@@ -729,12 +729,12 @@ CREATE UNIQUE INDEX ack_of_no_repo ON ack (session, agent) WHERE repo IS NULL;";
 #[cfg(test)]
 pub fn with_ack_repo(schema: String) -> String {
     let schema = with_ack_words(schema);
-    const START: &str = "CREATE TABLE ack (";
-    if !schema.contains(START) {
-        return schema;
-    }
-    let table = statement(&schema, START, ") STRICT, WITHOUT ROWID;").to_string();
-    schema.replacen(&table, ACK_TABLE_WITH_REPO, 1)
+    with_table_as(
+        schema,
+        "CREATE TABLE ack (",
+        ") STRICT, WITHOUT ROWID;",
+        ACK_TABLE_WITH_REPO,
+    )
 }
 
 /// The schema as it was before the text left out the CLAUDE.md files: every
@@ -771,26 +771,30 @@ fn joined_before(part: &str) -> String {
     with_ack_version_time(parts_before(part).join("\n"))
 }
 
-/// The acknowledged versions' table with the time that builds kept of each
-/// version until it kept only the versions that agents' acknowledgements name.
+/// <schema> with the table that starts with <start> and ends with <end>
+/// replaced by <old>, its text as an older schema had it. A schema with no
+/// such table is returned as it is.
 #[cfg(test)]
-const ACK_VERSION_WITH_TIME: &str = "CREATE TABLE ack_version (
-    version TEXT PRIMARY KEY CONSTRAINT ack_version_version_is_named CHECK (version <> ''),
-    acknowledged_at INTEGER NOT NULL
-) STRICT, WITHOUT ROWID;";
+fn with_table_as(schema: String, start: &str, end: &str, old: &str) -> String {
+    if !schema.contains(start) {
+        return schema;
+    }
+    let table = statement(&schema, start, end).to_string();
+    schema.replacen(&table, old, 1)
+}
 
 /// <schema> as it was before builds stopped keeping the time at which an agent
 /// last acknowledged each version: with the time in the acknowledged
-/// versions' table. A schema with no such table is returned as it is. Every
-/// older schema than today's goes through this function.
+/// versions' table. Every schema of an earlier stamp than today's goes
+/// through this function when it is built from the parts (`joined_before`).
 #[cfg(test)]
 pub fn with_ack_version_time(schema: String) -> String {
-    const START: &str = "CREATE TABLE ack_version (";
-    if !schema.contains(START) {
-        return schema;
-    }
-    let table = statement(&schema, START, ") STRICT, WITHOUT ROWID;").to_string();
-    schema.replacen(&table, ACK_VERSION_WITH_TIME, 1)
+    with_table_as(
+        schema,
+        "CREATE TABLE ack_version (",
+        ") STRICT, WITHOUT ROWID;",
+        crate::ack::record::tests::ACK_VERSION_WITH_TIME,
+    )
 }
 
 /// The schema as it was before builds stopped keeping the time at which an

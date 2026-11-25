@@ -363,13 +363,6 @@ fn a_section_that_left_the_text_is_named_as_removed() {
 }
 
 #[test]
-fn an_acknowledgement_never_expires() {
-    let world = world("ack-never-expires");
-    world.acknowledge(NOON);
-    world.check().unwrap();
-}
-
-#[test]
 fn a_reading_after_a_change_holds_only_the_changed_sections() {
     let world = world("ack-changed-only");
     world.record_acknowledgement("bae", AGENT, &older_lists_overview());

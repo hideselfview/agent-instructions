@@ -247,14 +247,10 @@ impl Agent {
         let standing = match last {
             None if !unread.sections.is_empty() => return Ok(Standing::NotAcknowledged),
             None => Standing::Current,
-            Some(last) => {
+            Some(_) => {
                 let names: Vec<String> = unread.sections.iter().map(|s| s.name.clone()).collect();
-                let Some(kept) = record::kept_sections(&tx, &last)? else {
-                    fail!(
-                        "builds keeps no sections of version {last}, which the acknowledgement of {} names",
-                        self.name()
-                    );
-                };
+                let kept =
+                    record::acknowledged_sections(&tx, &self.caller.session, &self.caller.id)?;
                 Standing::Changed(Changes {
                     changed: names,
                     removed: text.removed_since(&kept),
