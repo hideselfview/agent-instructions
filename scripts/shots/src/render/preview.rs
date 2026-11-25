@@ -14,11 +14,11 @@ use crate::design::Frame;
 use crate::names::{Platform, state_id};
 use crate::render::Drawn;
 use crate::render::board::{self, BoardError};
+use crate::render::chrome::DrawPage;
 use crate::render::read;
 use crate::settings::Preview;
 use crate::shots::Bounds;
 use crate::shots::Size;
-use chromiumoxide::Page;
 use chromiumoxide::cdp::browser_protocol::dom::DescribeNodeParams;
 use chromiumoxide::cdp::browser_protocol::page::{CaptureScreenshotFormat, Viewport};
 use chromiumoxide::cdp::js_protocol::runtime::EvaluateParams;
@@ -106,7 +106,10 @@ pub(crate) enum CaptureArea {
 /// The picture is the compositor's latest frame: a capture from the page
 /// (`from_surface(false)`) returns a flat dark picture of the browser window
 /// with none of the page in it.
-pub(crate) async fn capture(page: &Page, area: CaptureArea) -> Result<board::Rendered, BoardError> {
+pub(crate) async fn capture(
+    page: &DrawPage,
+    area: CaptureArea,
+) -> Result<board::Rendered, BoardError> {
     let metrics = page.layout_metrics().await.map_err(board::protocol)?;
     let viewport = metrics.css_visual_viewport;
     let frame = match area {
@@ -165,7 +168,7 @@ async fn start_on_whole_point(page: &Page, row: &str, cell: &str) -> Result<(), 
 /// while the page loads, and a row both lanes shoot draws on each platform's
 /// own surface.
 pub(crate) async fn render_row(
-    page: &Page,
+    page: &DrawPage,
     component: &str,
     state: &str,
     url: &str,
@@ -221,7 +224,7 @@ pub(crate) async fn render_row(
         .into_value()
         .map_err(board::protocol)?;
     let object = page
-        .execute(
+        .run(
             EvaluateParams::builder()
                 .expression(cell.clone())
                 .build()
@@ -234,7 +237,7 @@ pub(crate) async fn render_row(
         .object_id
         .ok_or_else(|| board::protocol("the row's cell is not an object"))?;
     let described = page
-        .execute(DescribeNodeParams::builder().object_id(object).build())
+        .run(DescribeNodeParams::builder().object_id(object).build())
         .await
         .map_err(board::protocol)?;
     let rendered = capture(page, CaptureArea::Cell(rect)).await?;

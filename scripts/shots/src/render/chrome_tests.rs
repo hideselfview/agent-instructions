@@ -95,6 +95,10 @@ async fn a_page_that_never_finishes_fails_its_draw_at_the_deadline_naming_the_pa
     .expect("the draw fails");
     assert!(error.contains("did not finish within 3 seconds"), "{error}");
     assert!(error.starts_with("board fixture.stuck: "), "{error}");
+    assert!(
+        error.contains("Chrome had not answered Page.navigate"),
+        "{error}"
+    );
     assert!(started.elapsed() < Duration::from_secs(40), "{error}");
 }
 
@@ -266,4 +270,13 @@ async fn a_watchdog_says_when_chrome_left_processes_and_when_its_kill_failed() {
         failed.unwrap_err().to_string().contains("pkill failed"),
         "named"
     );
+}
+
+#[test]
+fn a_command_that_times_out_names_its_method() {
+    let error = CommandError {
+        method: "Runtime.evaluate".to_string(),
+        source: chromiumoxide::error::CdpError::Timeout,
+    };
+    assert_eq!(error.to_string(), "Runtime.evaluate: Request timed out.");
 }

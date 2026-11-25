@@ -13,8 +13,8 @@
 //! wrote a runtime error to the console fails.
 
 use crate::design::Frame;
+use crate::render::chrome::DrawPage;
 use crate::shots::Bounds;
-use chromiumoxide::Page;
 use chromiumoxide::cdp::browser_protocol::emulation::{
     EventVirtualTimeBudgetExpired, MediaFeature, SetDeviceMetricsOverrideParams,
     SetEmulatedMediaParams, SetVirtualTimePolicyParams, VirtualTimePolicy,
@@ -77,11 +77,11 @@ fn is_runtime_error(kind: &ConsoleApiCalledType, message: &str) -> bool {
     }
 }
 
-async fn grant(page: &Page, budget: f64) -> Result<(), BoardError> {
+async fn grant(page: &DrawPage, budget: f64) -> Result<(), BoardError> {
     let mut policy =
         SetVirtualTimePolicyParams::new(VirtualTimePolicy::PauseIfNetworkFetchesPending);
     policy.budget = Some(budget);
-    page.execute(policy).await.map_err(protocol)?;
+    page.run(policy).await.map_err(protocol)?;
     Ok(())
 }
 
@@ -194,12 +194,12 @@ const REDRAW: &str = "(async () => {
   }
 })()";
 
-async fn redraw(page: &Page) -> Result<(), BoardError> {
+async fn redraw(page: &DrawPage) -> Result<(), BoardError> {
     let running = SetVirtualTimePolicyParams::new(VirtualTimePolicy::Advance);
-    page.execute(running).await.map_err(protocol)?;
+    page.run(running).await.map_err(protocol)?;
     page.evaluate(REDRAW).await.map_err(protocol)?;
     let paused = SetVirtualTimePolicyParams::new(VirtualTimePolicy::Pause);
-    page.execute(paused).await.map_err(protocol)?;
+    page.run(paused).await.map_err(protocol)?;
     Ok(())
 }
 
@@ -211,7 +211,7 @@ pub(crate) const BOARD_MOUNTED: &str = "#dc-root";
 /// from the page (`from_surface(false)`) returns a flat dark picture of the
 /// browser window with none of the page in it.
 pub(crate) async fn render(
-    page: &Page,
+    page: &DrawPage,
     board: &str,
     url: &str,
     frame: Frame,
@@ -242,7 +242,7 @@ pub(crate) async fn render(
 /// drawn: the element <mounted> selects is there and the fonts are loaded.
 /// The page's `<body>` gets the class <body_class>, if any, when it is created.
 pub(crate) async fn load(
-    page: &Page,
+    page: &DrawPage,
     board: &str,
     url: &str,
     frame: Frame,
@@ -250,7 +250,7 @@ pub(crate) async fn load(
     mounted: &str,
     body_class: Option<&str>,
 ) -> Result<(), BoardError> {
-    page.execute(SetDeviceMetricsOverrideParams::new(
+    page.run(SetDeviceMetricsOverrideParams::new(
         i64::from(frame.w),
         i64::from(frame.h),
         scale,
@@ -258,13 +258,13 @@ pub(crate) async fn load(
     ))
     .await
     .map_err(protocol)?;
-    page.execute(SetEmulatedMediaParams {
+    page.run(SetEmulatedMediaParams {
         media: None,
         features: Some(vec![MediaFeature::new("prefers-color-scheme", "dark")]),
     })
     .await
     .map_err(protocol)?;
-    page.execute(AddScriptToEvaluateOnNewDocumentParams::new(watch_script(
+    page.run(AddScriptToEvaluateOnNewDocumentParams::new(watch_script(
         mounted, body_class,
     )))
     .await

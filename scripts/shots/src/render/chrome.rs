@@ -3,6 +3,11 @@
 use crate::render::slots::{Slot, Slots};
 use chromiumoxide::Page;
 use chromiumoxide::browser::{Browser, BrowserConfig};
+use chromiumoxide::cdp::browser_protocol::page::GetLayoutMetricsReturns;
+use chromiumoxide::error::CdpError;
+use chromiumoxide::js::{Evaluation, EvaluationResult};
+use chromiumoxide::page::ScreenshotParams;
+use chromiumoxide::types::{Command, CommandResponse};
 use futures::StreamExt;
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
@@ -171,6 +176,15 @@ pub(crate) enum ChromeError {
     Protocol(String),
 }
 
+/// A CDP command that failed, named by its method. chromiumoxide's own
+/// timeout says only "Request timed out."
+#[derive(Debug, thiserror::Error)]
+#[error("{method}: {source}")]
+pub(crate) struct CommandError {
+    method: String,
+    source: CdpError,
+}
+
 pub(crate) struct Chrome {
     browser: Browser,
     /// The host's slots, one of which each open page holds.
@@ -179,14 +193,18 @@ pub(crate) struct Chrome {
     version: String,
 }
 
-/// A page and the slot it holds on the host. The slot goes back when the page
-/// is dropped or closed.
-pub(crate) struct SlottedPage {
+/// A page, the slot it holds on the host (given back when the page is dropped
+/// or closed) and the CDP command it waits on. Each command a page runs goes
+/// through a method here, which names the command in its error and notes it as
+/// the one in flight, so a page whose draw runs out of time says what Chrome
+/// had not answered.
+pub(crate) struct DrawPage {
     page: Page,
     _slot: Slot,
+    in_flight: std::sync::Mutex<Option<String>>,
 }
 
-impl std::ops::Deref for SlottedPage {
+impl std::ops::Deref for DrawPage {
     type Target = Page;
 
     fn deref(&self) -> &Page {
@@ -194,9 +212,94 @@ impl std::ops::Deref for SlottedPage {
     }
 }
 
-impl SlottedPage {
+impl DrawPage {
+    /// Awaits <command>, a CDP command of <method>, with <method> noted as in
+    /// flight until Chrome answers. A command that the page's deadline cancels
+    /// stays noted, which is how the deadline's error names it.
+    async fn tracked<T>(
+        &self,
+        method: &str,
+        command: impl Future<Output = Result<T, CdpError>>,
+    ) -> Result<T, CommandError> {
+        *self
+            .in_flight
+            .lock()
+            .expect("the note of a command does not panic") = Some(method.to_string());
+        let answer = command.await;
+        *self
+            .in_flight
+            .lock()
+            .expect("the note of a command does not panic") = None;
+        answer.map_err(|source| CommandError {
+            method: method.to_string(),
+            source,
+        })
+    }
+
+    /// The method of the command Chrome has not answered, if one waits.
+    fn waiting_on(&self) -> Option<String> {
+        self.in_flight
+            .lock()
+            .expect("the note of a command does not panic")
+            .clone()
+    }
+
+    /// Runs a CDP command.
+    pub(crate) async fn run<T: Command>(
+        &self,
+        command: T,
+    ) -> Result<CommandResponse<T::Response>, CommandError> {
+        let method = command.identifier().to_string();
+        self.tracked(&method, self.page.execute(command)).await
+    }
+
+    /// Evaluates <evaluation> in the page. The command's name holds the start
+    /// of its script, since a page runs many.
+    pub(crate) async fn evaluate(
+        &self,
+        evaluation: impl Into<Evaluation>,
+    ) -> Result<EvaluationResult, CommandError> {
+        let evaluation = evaluation.into();
+        let script = match &evaluation {
+            Evaluation::Expression(params) => &params.expression,
+            Evaluation::Function(params) => &params.function_declaration,
+        };
+        let start: String = script
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .chars()
+            .take(60)
+            .collect();
+        let method = format!("Runtime.evaluate `{start}`");
+        self.tracked(&method, self.page.evaluate(evaluation)).await
+    }
+
+    /// Takes the picture <params> name.
+    pub(crate) async fn screenshot(
+        &self,
+        params: impl Into<ScreenshotParams>,
+    ) -> Result<Vec<u8>, CommandError> {
+        self.tracked("Page.captureScreenshot", self.page.screenshot(params))
+            .await
+    }
+
+    /// Navigates to <url> and waits for the page to load.
+    pub(crate) async fn goto(&self, url: &str) -> Result<(), CommandError> {
+        self.tracked("Page.navigate", async {
+            self.page.goto(url).await.map(|_| ())
+        })
+        .await
+    }
+
+    /// The page's layout metrics.
+    pub(crate) async fn layout_metrics(&self) -> Result<GetLayoutMetricsReturns, CommandError> {
+        self.tracked("Page.getLayoutMetrics", self.page.layout_metrics())
+            .await
+    }
+
     /// Closes the page, then gives its slot back.
-    async fn close(self) -> Result<(), chromiumoxide::error::CdpError> {
+    async fn close(self) -> Result<(), CdpError> {
         self.page.close().await
     }
 }
@@ -204,18 +307,22 @@ impl SlottedPage {
 impl Chrome {
     /// A new page for a test, opened once the host has a free slot for it.
     #[cfg(test)]
-    pub(crate) async fn new_page(&self) -> Result<SlottedPage, String> {
+    pub(crate) async fn new_page(&self) -> Result<DrawPage, String> {
         let slot = self.slots.take("a page").await?;
         self.open_page(slot).await.map_err(|e| e.to_string())
     }
 
-    async fn open_page(&self, slot: Slot) -> Result<SlottedPage, ChromeError> {
+    async fn open_page(&self, slot: Slot) -> Result<DrawPage, ChromeError> {
         let page = self
             .browser
             .new_page("about:blank")
             .await
-            .map_err(|e| ChromeError::Protocol(e.to_string()))?;
-        Ok(SlottedPage { page, _slot: slot })
+            .map_err(|e| ChromeError::Protocol(format!("opening a page: {e}")))?;
+        Ok(DrawPage {
+            page,
+            _slot: slot,
+            in_flight: std::sync::Mutex::new(None),
+        })
     }
 
     /// Runs <work> on a new page and closes the page after it, whatever
@@ -226,7 +333,7 @@ impl Chrome {
     pub(crate) async fn with_page<T>(
         &self,
         what: &str,
-        work: impl AsyncFnOnce(&Page) -> Result<T, String>,
+        work: impl AsyncFnOnce(&DrawPage) -> Result<T, String>,
     ) -> Result<T, String> {
         self.with_page_within(what, DRAW_DEADLINE, work).await
     }
@@ -235,7 +342,7 @@ impl Chrome {
         &self,
         what: &str,
         deadline: Duration,
-        work: impl AsyncFnOnce(&Page) -> Result<T, String>,
+        work: impl AsyncFnOnce(&DrawPage) -> Result<T, String>,
     ) -> Result<T, String> {
         let slot = self
             .slots
@@ -280,8 +387,14 @@ async fn note_unless_done<T, E: std::fmt::Display>(
 
 /// What <page> still answers after its draw ran out of time: its address and
 /// how far the board's watch script got, or the error of each question that
-/// failed, or that Chrome answered none within `CLOSE_DEADLINE`.
-async fn last_said(page: &Page) -> String {
+/// failed, or that Chrome answered none within `CLOSE_DEADLINE`; with the
+/// command it had not answered, if one.
+async fn last_said(page: &DrawPage) -> String {
+    // Read before the questions below, which each note themselves as in flight.
+    let waiting = match page.waiting_on() {
+        Some(method) => format!("; Chrome had not answered {method}"),
+        None => String::new(),
+    };
     let ask = async {
         let url = match page.url().await {
             Ok(Some(url)) => url,
@@ -295,12 +408,12 @@ async fn last_said(page: &Page) -> String {
             },
             Err(error) => format!("a state that failed to read ({error})"),
         };
-        format!("; the page at {url} had {state}")
+        format!("; the page at {url} had {state}{waiting}")
     };
     match tokio::time::timeout(CLOSE_DEADLINE, ask).await {
         Ok(said) => said,
         Err(_) => format!(
-            "; Chrome answered no question about the page within {} seconds",
+            "; Chrome answered no question about the page within {} seconds{waiting}",
             CLOSE_DEADLINE.as_secs()
         ),
     }
@@ -317,7 +430,12 @@ const LAUNCH_DEADLINE: Duration = Duration::from_secs(120);
 /// multi-threaded rasterization put single pixels of a gradient or an edge a
 /// level or more off from one run to the next while the machine is busy.
 /// Starting the compositor on one thread or running all its stages before each
-/// draw makes screenshots time out. chromiumoxide puts the `--` in front of each argument itself.
+/// draw makes screenshots time out. Every page but the front one of a window
+/// counts as backgrounded or occluded, and Chrome stops running
+/// `requestAnimationFrame` for such a page, which hangs the script that redraws a
+/// board (board.rs, `REDRAW`) while other pages are open; the last three flags
+/// keep a page's frames, timers and renderer running whatever the other pages
+/// do. chromiumoxide puts the `--` in front of each argument itself.
 const ARGS: [&str; 7] = [
     "force-color-profile=srgb",
     "hide-scrollbars",
@@ -460,6 +578,7 @@ async fn with_executable<T>(
         .viewport(None)
         .args(ARGS)
         .launch_timeout(launch_deadline)
+        .request_timeout(DRAW_DEADLINE)
         .build()
         .map_err(ChromeError::Launch)?;
     let (browser, mut events) = Browser::launch(config).await.map_err(|e| {

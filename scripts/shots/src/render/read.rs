@@ -11,8 +11,8 @@
 //! of the box is visible, and for text its computed font.
 
 use crate::names::Platform;
+use crate::render::chrome::DrawPage;
 use crate::shots::{Bounds, Cover, Element, Role, TextStyle, words};
-use chromiumoxide::Page;
 use chromiumoxide::cdp::browser_protocol::accessibility::{
     AxNode, AxNodeId, AxPropertyName, AxValue, AxValueSourceType, EnableParams, GetFullAxTreeParams,
 };
@@ -703,7 +703,7 @@ fn raw(node: &AxNode) -> Raw {
 
 /// The elements visible in `frame`, in reading order.
 pub(crate) async fn elements(
-    page: &Page,
+    page: &DrawPage,
     frame: Bounds,
     platform: Platform,
 ) -> Result<Vec<Element>, ReadError> {
@@ -719,7 +719,7 @@ fn relative_to(mut bounds: Bounds, origin: (f64, f64)) -> Bounds {
 /// The boxes of the elements <selector> matches inside <scope> (a JavaScript
 /// expression for the node to search under), measured from `origin`.
 async fn boxes(
-    page: &Page,
+    page: &DrawPage,
     scope: &str,
     selector: &str,
     origin: (f64, f64),
@@ -745,7 +745,7 @@ async fn boxes(
 /// the parts inside <scope> (a JavaScript expression for a node, such as
 /// `document`) count, and the boxes are measured from `origin`.
 pub(crate) async fn unshot(
-    page: &Page,
+    page: &DrawPage,
     selectors: &[String],
     scope: &str,
     origin: (f64, f64),
@@ -764,7 +764,7 @@ const SLOT_CLASS: &str = "bae-preview-slot";
 /// a node, such as `document`), measured from `origin`. The comparison leaves
 /// out what either side draws inside them (compare.rs).
 pub(crate) async fn slots(
-    page: &Page,
+    page: &DrawPage,
     scope: &str,
     origin: (f64, f64),
 ) -> Result<Vec<Bounds>, ReadError> {
@@ -774,7 +774,7 @@ pub(crate) async fn slots(
 /// The elements under the DOM node `backend`, in reading order, with boxes
 /// measured from the top-left corner of its screenshot `frame`.
 pub(crate) async fn elements_in(
-    page: &Page,
+    page: &DrawPage,
     backend: i64,
     frame: Bounds,
     platform: Platform,
@@ -797,7 +797,7 @@ fn subtree(raw: &[Raw], backend: i64) -> Result<Vec<Raw>, ReadError> {
 /// The id of the style that turns transforms off while the reader measures.
 const UNTRANSFORMED: &str = "builds-shots-untransformed";
 
-async fn gather(page: &Page, frame: Bounds, platform: Platform) -> Result<Vec<Raw>, ReadError> {
+async fn gather(page: &DrawPage, frame: Bounds, platform: Platform) -> Result<Vec<Raw>, ReadError> {
     // The root's overflow applies to the viewport, as does the body's when
     // the root lets overflow through.
     let body_overflow_applies_to_viewport = page
@@ -816,11 +816,9 @@ async fn gather(page: &Page, frame: Bounds, platform: Platform) -> Result<Vec<Ra
     let clipping_argument = CallArgument::builder()
         .value(serde_json::to_value(clipping).map_err(protocol)?)
         .build();
-    page.execute(EnableParams::default())
-        .await
-        .map_err(protocol)?;
+    page.run(EnableParams::default()).await.map_err(protocol)?;
     let tree = page
-        .execute(GetFullAxTreeParams::default())
+        .run(GetFullAxTreeParams::default())
         .await
         .map_err(protocol)?;
     // The apps report each element's layout box, whatever transform or
@@ -883,7 +881,7 @@ fn ink_boxed(role: Role) -> bool {
 /// Whether the DOM node <node> describes is clipped, its box and style if it
 /// is visible, or why Chrome gave it no box.
 async fn measure(
-    page: &Page,
+    page: &DrawPage,
     node: &AxNode,
     clipping: &CallArgument,
     boxed_by_glyph_ink: bool,
@@ -892,7 +890,7 @@ async fn measure(
         return Ok(Err("the accessibility node describes no DOM node"));
     };
     let resolved = page
-        .execute(
+        .run(
             ResolveNodeParams::builder()
                 .backend_node_id(backend)
                 .build(),
@@ -911,7 +909,7 @@ async fn measure(
             .build(),
     ]);
     call.return_by_value = Some(true);
-    let called = page.execute(call).await.map_err(protocol)?;
+    let called = page.run(call).await.map_err(protocol)?;
     if let Some(thrown) = &called.result.exception_details {
         let detail = thrown
             .exception

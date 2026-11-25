@@ -5,7 +5,7 @@
 //! its string props it draws as words.
 
 use crate::render::board;
-use chromiumoxide::Page;
+use crate::render::chrome::DrawPage;
 use serde::Deserialize;
 use std::collections::BTreeMap;
 
@@ -175,7 +175,7 @@ fn script(rows: Option<&str>) -> String {
 /// draws them. <rows> is the selector of a preview page's rows, None on a
 /// board.
 pub(crate) async fn instances(
-    page: &Page,
+    page: &DrawPage,
     rows: Option<&str>,
 ) -> Result<Vec<Instance>, board::BoardError> {
     page.evaluate(script(rows))
