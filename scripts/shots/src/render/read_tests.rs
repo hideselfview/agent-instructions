@@ -706,6 +706,7 @@ async fn a_button_or_link_that_wraps_a_glyph_is_boxed_by_the_glyphs_ink_not_its_
 <button class="only" aria-label="Play"><svg class="bae-glyph" viewBox="0 0 10 11"><path d="M0 0h10v11z"/></svg></button>
 <a class="link" href="#">Words<svg class="bae-glyph" viewBox="0 0 6 6"><path d="M0 0h6v6z"/></svg></a>
 <div style="position:absolute;left:10px;top:100px">Words</div>
+<button class="only" role="switch" aria-checked="true" aria-label="Quiet" style="top:130px"><svg class="bae-glyph" viewBox="0 0 10 11"><path d="M0 0h10v11z"/></svg></button>
 </x-dc>"##,
     )]);
     let elements = fixture::with_browser(root.path(), async |server, chrome| {
@@ -733,7 +734,8 @@ async fn a_button_or_link_that_wraps_a_glyph_is_boxed_by_the_glyphs_ink_not_its_
         "{:?}",
         play.bounds
     );
-    // The link's words are as wide as the span beside it, then the 4 pt gap
+    // The link's words are as wide as the same words drawn alone below it,
+    // then the 4 pt gap
     // and the arrow's 6 pt of ink: its room's 3 pt margin on the right is
     // not the link's. Its line's 20 pt height stays, which the room does not
     // reach.
@@ -746,6 +748,15 @@ async fn a_button_or_link_that_wraps_a_glyph_is_boxed_by_the_glyphs_ink_not_its_
         words.bounds
     );
     assert_eq!(link.bounds.height, 20.0, "{:?}", link.bounds);
+    // A button whose role Chrome computes as a switch is no button: it keeps
+    // its room.
+    let quiet = find(&elements, Role::Toggle, "Quiet");
+    assert_eq!(
+        (quiet.bounds.width, quiet.bounds.height),
+        (13.0, 13.5),
+        "{:?}",
+        quiet.bounds
+    );
 }
 
 #[tokio::test]

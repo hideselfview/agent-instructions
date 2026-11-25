@@ -430,7 +430,7 @@ pub(crate) struct Geometry {
     secret: bool,
 }
 
-const GEOMETRY: &str = r#"function({frame, bodyOverflowAppliesToViewport}) {
+const GEOMETRY: &str = r#"function({frame, bodyOverflowAppliesToViewport}, boxedByGlyphInk) {
   // The nearest component above a DOM node in React's tree: the first fiber
   // up from the node's own (or its nearest ancestor's) whose type is one.
   const componentOf = (node) => {
@@ -544,12 +544,13 @@ const GEOMETRY: &str = r#"function({frame, bodyOverflowAppliesToViewport}) {
   } else {
     return null;
   }
-  // A button or link that holds a glyph is boxed as the Mac boxes it: by the
+  // A button or link (by the role Chrome computed: `boxedByGlyphInk`) that
+  // holds a glyph is boxed as the Mac boxes it: by the
   // glyph's ink, not its room. A glyph's svg is its ink and its margins are
   // the rest of its room, so each side of the control's box that its room
   // reaches moves in to the ink.
   let bounds = {x: rect.x, y: rect.y, width: rect.width, height: rect.height};
-  if (!isText && this.matches('button, a, [role=button], [role=link]')) {
+  if (boxedByGlyphInk) {
     const sides = {left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom};
     for (const glyph of this.querySelectorAll('svg.bae-glyph')) {
       const ink = glyph.getBoundingClientRect();
@@ -836,7 +837,7 @@ async fn gather(page: &Page, frame: Bounds) -> Result<Vec<Raw>, ReadError> {
         for node in &tree.result.nodes {
             let mut raw = raw(node);
             if !raw.ignored && !STRUCTURE.contains(&raw.chrome_role.as_str()) {
-                match measure(page, node, &clipping_argument).await? {
+                match measure(page, node, &clipping_argument, ink_boxed(&raw.chrome_role)).await? {
                     Ok(Measurement::Clipped) => raw.ignored = true,
                     Ok(Measurement::Visible(mut geometry)) => {
                         geometry.bounds = relative_to(geometry.bounds, (frame.x, frame.y));
@@ -869,12 +870,19 @@ async fn gather(page: &Page, frame: Bounds) -> Result<Vec<Raw>, ReadError> {
     measured
 }
 
+/// Whether a node of Chrome role <chrome> is boxed by the ink of the glyphs
+/// it holds, as the Mac boxes a button or link.
+fn ink_boxed(chrome: &str) -> bool {
+    matches!(Role::of(chrome), Role::Button | Role::Link)
+}
+
 /// Whether the DOM node <node> describes is clipped, its box and style if it
 /// is visible, or why Chrome gave it no box.
 async fn measure(
     page: &Page,
     node: &AxNode,
     clipping: &CallArgument,
+    boxed_by_glyph_ink: bool,
 ) -> Result<Result<Measurement, &'static str>, ReadError> {
     let Some(backend) = node.backend_dom_node_id else {
         return Ok(Err("the accessibility node describes no DOM node"));
@@ -892,7 +900,12 @@ async fn measure(
     };
     let mut call = CallFunctionOnParams::new(GEOMETRY);
     call.object_id = Some(object_id);
-    call.arguments = Some(vec![clipping.clone()]);
+    call.arguments = Some(vec![
+        clipping.clone(),
+        CallArgument::builder()
+            .value(serde_json::Value::Bool(boxed_by_glyph_ink))
+            .build(),
+    ]);
     call.return_by_value = Some(true);
     let called = page.execute(call).await.map_err(protocol)?;
     if let Some(thrown) = &called.result.exception_details {
