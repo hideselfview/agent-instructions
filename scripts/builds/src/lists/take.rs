@@ -90,6 +90,45 @@ fn places_named(args: &Args) -> Result<Vec<Place>> {
     places_of(worktrees, branches)
 }
 
+/// The side worktree <worktree> names, refused when it is not a side worktree
+/// or <earlier>, the worktrees named before it, hold another worktree of its
+/// repo: an item runs in one worktree per repo.
+fn side_checkout<'a>(
+    worktree: &str,
+    mut earlier: impl Iterator<Item = &'a Checkout>,
+) -> Result<Checkout> {
+    let checkout = Checkout::find(worktree)?;
+    if !checkout.is_side() {
+        fail!(
+            "{} is not one of the repo's side worktrees (<repo>-worktrees/side-N); items run in those",
+            checkout.top.display()
+        );
+    }
+    if let Some(same) = earlier.find(|other| other.repo() == checkout.repo()) {
+        fail!(
+            "{} and {} are both worktrees of {}; an item runs in one worktree per repo",
+            same.top.display(),
+            checkout.top.display(),
+            checkout.repo()
+        );
+    }
+    Ok(checkout)
+}
+
+/// Refuses <checkout> when a repo of <lists> does not hold it.
+fn require_project_repo(lists: &Lists, checkout: &Checkout) -> Result<()> {
+    if !lists.repos.contains(&checkout.repo()) {
+        fail!(
+            "{} is a worktree of repo {}, which is not one of project {}'s ({})",
+            checkout.top.display(),
+            checkout.repo(),
+            lists.project,
+            lists.repos.join(", ")
+        );
+    }
+    Ok(())
+}
+
 /// The places of <worktrees> and their <branches>, checked as
 /// `places_named` checks them.
 fn places_of(worktrees: Vec<String>, branches: Vec<String>) -> Result<Vec<Place>> {
@@ -102,24 +141,7 @@ fn places_of(worktrees: Vec<String>, branches: Vec<String>) -> Result<Vec<Place>
     }
     let mut places: Vec<Place> = Vec::new();
     for (worktree, branch) in worktrees.into_iter().zip(branches) {
-        let checkout = Checkout::find(&worktree)?;
-        if !checkout.is_side() {
-            fail!(
-                "{} is not one of the repo's side worktrees (<repo>-worktrees/side-N); items run in those",
-                checkout.top.display()
-            );
-        }
-        if let Some(same) = places
-            .iter()
-            .find(|place| place.checkout.repo() == checkout.repo())
-        {
-            fail!(
-                "{} and {} are both worktrees of {}; an item runs in one worktree per repo",
-                same.checkout.top.display(),
-                checkout.top.display(),
-                checkout.repo()
-            );
-        }
+        let checkout = side_checkout(&worktree, places.iter().map(|place| &place.checkout))?;
         if !branch_exists(&checkout.top, &branch)? {
             fail!("{} has no branch {branch}", checkout.top.display());
         }
@@ -156,14 +178,7 @@ fn require_places_free(lists: &Lists, places: &[Place], ids: &[Id]) -> Result<()
         ..
     } in places
     {
-        if !lists.repos.contains(&checkout.repo()) {
-            fail!(
-                "{top} is a worktree of repo {}, which is not one of project {}'s ({})",
-                checkout.repo(),
-                lists.project,
-                lists.repos.join(", ")
-            );
-        }
+        require_project_repo(lists, checkout)?;
         if let Some(other) = running_in(lists, top).into_iter().find(|i| {
             i.running
                 .iter()
@@ -331,7 +346,7 @@ impl Checks {
     }
 }
 
-/// Checks <brief> against the product spec of each of <places>' repos that
+/// Checks <brief> against the product spec of each of <checkouts>' repos that
 /// has spec files in <lists>, records each check, and fails the take when a
 /// check failed or found a conflict that `--spec-decided` does not settle.
 /// Prints what the checks found that does not stop the take.
@@ -347,14 +362,14 @@ struct Recording<'a> {
 fn check_spec(
     recording: Option<&Recording>,
     lists: &Lists,
-    places: &[Place],
+    checkouts: &[Checkout],
     brief: &Brief,
     checks: &Checks,
 ) -> Result<()> {
     let (reviewer, decided) = (&checks.reviewer, checks.decided);
-    let worktrees: Vec<(String, std::path::PathBuf)> = places
+    let worktrees: Vec<(String, std::path::PathBuf)> = checkouts
         .iter()
-        .map(|place| (place.checkout.repo(), place.checkout.top.clone()))
+        .map(|checkout| (checkout.repo(), checkout.top.clone()))
         .collect();
     let targets = spec_check::targets(lists, &worktrees)?;
     if targets.is_empty() {
@@ -411,12 +426,12 @@ fn check_spec(
 
 /// The checks of a brief that `item take` and `item check-brief` share: the
 /// pasted-text check, the rulings check and the spec check of each of
-/// <places>' repos. Records the spec checks when <recording> is given.
+/// <checkouts>' repos. Records the spec checks when <recording> is given.
 fn check_brief(
     tool: &Tool,
     recording: Option<&Recording>,
     lists: &Lists,
-    places: &[Place],
+    checkouts: &[Checkout],
     brief: &Brief,
     checks: &Checks,
 ) -> Result<()> {
@@ -430,7 +445,7 @@ fn check_brief(
     )? {
         note(line);
     }
-    check_spec(recording, lists, places, brief, checks)
+    check_spec(recording, lists, checkouts, brief, checks)
 }
 
 const CHECK_USAGE: &str = "builds item check-brief --worktree W [--worktree W2] --brief P [--spec-decided N] [--rules-root DIR] [--reviewer PROGRAM]";
@@ -460,45 +475,21 @@ pub fn check(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
             "check-brief needs --worktree: the spec check reads each worktree's repo: {CHECK_USAGE}"
         );
     }
-    let mut places: Vec<Place> = Vec::new();
+    let mut checkouts: Vec<Checkout> = Vec::new();
     for worktree in worktrees {
-        let checkout = Checkout::find(worktree)?;
-        if let Some(same) = places
-            .iter()
-            .find(|place| place.checkout.repo() == checkout.repo())
-        {
-            fail!(
-                "{} and {} are both worktrees of {}; name one worktree per repo",
-                same.checkout.top.display(),
-                checkout.top.display(),
-                checkout.repo()
-            );
-        }
-        places.push(Place {
-            top: checkout.top.display().to_string(),
-            claim: None,
-            checkout,
-            branch: String::new(),
-        });
+        let checkout = side_checkout(worktree, checkouts.iter())?;
+        checkouts.push(checkout);
     }
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let brief_path = find_brief(&tool.places, &store.repos()?, &brief)?;
     note(format!("brief {brief} is {}", brief_path.display()));
     let read_brief = Brief::read(&brief, &brief_path)?;
     let lists = store.load()?;
-    for place in &places {
-        if !lists.repos.contains(&place.checkout.repo()) {
-            fail!(
-                "{} is a worktree of repo {}, which is not one of project {}'s ({})",
-                place.top,
-                place.checkout.repo(),
-                lists.project,
-                lists.repos.join(", ")
-            );
-        }
+    for checkout in &checkouts {
+        require_project_repo(&lists, checkout)?;
     }
     let checks = Checks::of(tool, &lists, &args)?;
-    check_brief(tool, None, &lists, &places, &read_brief, &checks)?;
+    check_brief(tool, None, &lists, &checkouts, &read_brief, &checks)?;
     note(format!(
         "brief {brief} passes the checks of `builds item take`; nothing was taken or recorded"
     ));
@@ -593,11 +584,12 @@ pub fn take(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         stamp: &stamp,
         ids: &ids,
     };
+    let checkouts: Vec<Checkout> = places.iter().map(|place| place.checkout.clone()).collect();
     check_brief(
         tool,
         Some(&recording),
         &lists,
-        &places,
+        &checkouts,
         &read_brief,
         &checks,
     )?;
