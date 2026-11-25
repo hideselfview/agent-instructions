@@ -209,3 +209,22 @@ fn a_claude_session_holds_the_inbox_its_shell_names_or_why_it_cannot() {
         Session::Terminal
     );
 }
+
+#[test]
+fn a_failed_recording_of_rules_records_none_of_them() {
+    let scratch = Scratch::new("agent-rules-failed");
+    let places = scratch.places();
+    give_rules(&places, "s1", "a1", &["plain".to_string()]).unwrap();
+    // A folder where the file goes makes the replacement fail.
+    let file = rules_file(&places, "s1", "a2").unwrap();
+    std::fs::create_dir_all(&file).unwrap();
+    let slugs = ["one".to_string(), "two".to_string()];
+    assert!(give_rules(&places, "s1", "a2", &slugs).is_err());
+    assert!(!was_given_rule(&places, "s1", "a2", "one").unwrap_or(false));
+    give_rules(&places, "s1", "a1", &slugs).unwrap();
+    for slug in ["plain", "one", "two"] {
+        assert!(was_given_rule(&places, "s1", "a1", slug).unwrap());
+    }
+    forget_rules(&places, "s1", "a1").unwrap();
+    assert!(!was_given_rule(&places, "s1", "a1", "plain").unwrap());
+}

@@ -204,7 +204,7 @@ fn main() -> ExitCode {
     if args.len() == 1 && args[0] == app_lock_guard::COMMAND {
         return match app_lock_guard::watch() {
             Ok(()) => ExitCode::SUCCESS,
-            Err(error) => exit_code(error),
+            Err(error) => exit_code_after(app_lock_guard::COMMAND, error),
         };
     }
     if let Some(fail) = links::run_as(&program, &args) {
@@ -227,7 +227,9 @@ fn main() -> ExitCode {
     };
     let (args, agent) = match ack::agent::take_flag(&args) {
         Ok(args) => args,
-        Err(fail) => return exit_code(fail),
+        Err(fail) => {
+            return exit_code_after(args.first().map_or("", String::as_str), fail);
+        }
     };
     let session = ack::agent::Session::from_env(agent);
     run_command(&args, session)
@@ -267,12 +269,6 @@ fn run_command(args: &[String], session: ack::agent::Session) -> ExitCode {
         Ok(()) => ExitCode::SUCCESS,
         Err(fail) => exit_code_after(command, fail),
     }
-}
-
-/// The exit code of a command that failed with <fail>, after saying its
-/// message on stderr.
-fn exit_code(fail: Fail) -> ExitCode {
-    exit_code_after("", fail)
 }
 
 /// The exit code of `builds <command>` after it failed with <fail>: the

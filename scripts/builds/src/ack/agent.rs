@@ -119,32 +119,29 @@ pub fn was_given_rule(places: &Places, session: &str, agent: &str, slug: &str) -
     }
 }
 
-/// Records that builds gave agent <agent> of <session> the rules <slugs>, in
-/// one write, so that a failure records all of them or none.
+/// Records that builds gave agent <agent> of <session> the rules <slugs>, by
+/// replacing the agent's file whole, so that a failure records all of them or
+/// none.
 pub fn give_rules(places: &Places, session: &str, agent: &str, slugs: &[String]) -> Result<()> {
-    use std::io::Write;
     let path = rules_file(places, session, agent)?;
-    let lines: String = slugs.iter().map(|slug| format!("{slug}\n")).collect();
+    let mut held = match std::fs::read_to_string(&path) {
+        Ok(held) => held,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(error) => fail!("reading {}: {error}", path.display()),
+    };
+    for slug in slugs {
+        held.push_str(slug);
+        held.push('\n');
+    }
     let folder = path.parent().expect("an agent's file has a folder");
     std::fs::create_dir_all(folder).context(|| format!("creating {}", folder.display()))?;
-    std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)
-        .and_then(|mut file| file.write_all(lines.as_bytes()))
-        .context(|| format!("writing {}", path.display()))
+    crate::whole_file::write(&path, held)
 }
 
 /// Forgets every rule builds gave agent <agent> of <session>, because Claude
 /// Code compacted the agent's context and the agent no longer holds them.
 pub fn forget_rules(places: &Places, session: &str, agent: &str) -> Result<()> {
-    let path = rules_file(places, session, agent)?;
-    match std::fs::remove_file(&path) {
-        Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
-            fail!("deleting {}: {error}", path.display())
-        }
-        _ => Ok(()),
-    }
+    crate::whole_file::remove_if_present(&rules_file(places, session, agent)?).map(drop)
 }
 
 /// Whether builds registered agent <agent> of <session>.
