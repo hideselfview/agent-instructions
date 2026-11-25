@@ -40,8 +40,7 @@ use crate::lists::item_command::blocking_words;
 use crate::lists::kept_work::{self, kept_in, places_words};
 use crate::lists::rulings::{self, Source, Text};
 use crate::lists::running::{
-    PlaceTable, Running, SpanKind, insert_places, open_span, place_in_repo, running_in, set_tier,
-    start,
+    PlaceTable, Running, SpanKind, insert_places, open_span, place_in_repo, running_in, start,
 };
 use crate::lists::spec_check::{self, Brief, Setup};
 use crate::lists::store::{self, Store};
@@ -207,13 +206,14 @@ enum Take {
 /// items of which some run and some do not, one that keeps work elsewhere,
 /// an item meant for the other audience than <design_session> names, and
 /// one that waits on something not met, or, when <held>, one that waits on
-/// nothing open. Says whether the take starts the items or adds <places> to
-/// their runs.
+/// nothing open, and, when it names a <tier>, one that runs at another. Says
+/// whether the take starts the items or adds <places> to their runs.
 fn require_takeable(
     lists: &Lists,
     places: &[Place],
     ids: &[Id],
     brief: &str,
+    tier: Option<Tier>,
     design_session: bool,
     held: bool,
 ) -> Result<Take> {
@@ -233,7 +233,7 @@ fn require_takeable(
             _ => take = Some(this),
         }
         if this == Take::Join {
-            require_joinable(item, places, brief)?;
+            require_joinable(item, places, brief, tier)?;
         }
         let kept = item.kept.iter().map(|p| (&p.worktree, &p.branch));
         if !item.kept.is_empty() && !same_places(places, kept.clone()) {
@@ -273,7 +273,7 @@ fn require_takeable(
 /// Refuses running <item> in <places> unless each is in a repo the item
 /// does not run in yet and <brief> is the brief it runs with: an item runs
 /// in one worktree per repo, with one brief.
-fn require_joinable(item: &Item, places: &[Place], brief: &str) -> Result<()> {
+fn require_joinable(item: &Item, places: &[Place], brief: &str, tier: Option<Tier>) -> Result<()> {
     let id = item.id;
     for place in places {
         let repo = place.checkout.repo();
@@ -286,7 +286,15 @@ fn require_joinable(item: &Item, places: &[Place], brief: &str) -> Result<()> {
             );
         }
     }
-    let runs_with = &item.running.first().expect("a running item").brief;
+    let first = item.running.first().expect("a running item");
+    if let Some(tier) = tier.filter(|tier| *tier != first.tier) {
+        fail!(
+            "{id} runs at the {} tier; --tier {} would change it, and an item keeps the tier it was taken at",
+            first.tier.word(),
+            tier.word()
+        );
+    }
+    let runs_with = &first.brief;
     if runs_with != brief {
         fail!(
             "{id} runs with brief {runs_with}, and a worktree that joins its run takes that brief; name it with --brief, or give the item a new brief with `builds item handoff {} --brief P` first",
@@ -389,29 +397,6 @@ fn check_spec(
     Ok(())
 }
 
-/// Refuses a take that names a <tier> for items that run at another: an
-/// item runs at one tier, the one it was taken at.
-fn require_same_tier(lists: &Lists, ids: &[Id], tier: Option<Tier>) -> Result<()> {
-    let Some(tier) = tier else {
-        return Ok(());
-    };
-    for id in ids {
-        let running = lists
-            .items
-            .iter()
-            .find(|item| item.id == *id)
-            .and_then(|item| item.tier);
-        if let Some(running) = running.filter(|running| *running != tier) {
-            fail!(
-                "{id} runs at the {} tier; --tier {} would change it, and an item keeps the tier it was taken at",
-                running.word(),
-                tier.word()
-            );
-        }
-    }
-    Ok(())
-}
-
 pub fn take(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let args = Args::parse(
         args,
@@ -490,10 +475,10 @@ pub fn take(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         &places,
         &ids,
         &brief,
+        tier,
         design_session,
         held.is_some(),
     )?;
-    require_same_tier(&lists, &ids, tier)?;
     let checks = Checks::of(tool, &lists, &args)?;
     crate::lists::pasted::require_unpasted(&read_brief, &checks.reviewer.rules_root)?;
     for line in rulings::require_cited(
@@ -520,8 +505,15 @@ pub fn take(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         ),
         |db| {
             let lists = &store::read(db)?;
-            let take =
-                require_takeable(lists, &places, &ids, &brief, design_session, held.is_some())?;
+            let take = require_takeable(
+                lists,
+                &places,
+                &ids,
+                &brief,
+                tier,
+                design_session,
+                held.is_some(),
+            )?;
             match take {
                 Take::Start => {
                     let running: Vec<Running> = places
@@ -531,15 +523,13 @@ pub fn take(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
                             branch: place.branch.clone(),
                             brief: brief.clone(),
                             since: stamp.clone(),
+                            tier: tier.unwrap_or(Tier::Implementation),
                         })
                         .collect();
                     for id in &ids {
                         kept_work::end(db, *id)?;
                     }
                     start(db, &ids, &running)?;
-                    for id in &ids {
-                        set_tier(db, *id, tier.unwrap_or(Tier::Implementation))?;
-                    }
                 }
                 Take::Join => {
                     // An item runs in one worktree per repo: the database

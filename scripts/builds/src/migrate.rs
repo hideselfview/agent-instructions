@@ -302,7 +302,7 @@ const BEFORE_RUNNING_TIER_STAMP: i64 = 1_913_940_341;
 /// adds the move, puts this stamp at the end of `STAMPS` under a name that
 /// says what the schema lacked, and sets this to the new schema's stamp, which
 /// the compiler's error names.
-const SCHEMA_STAMP: i64 = 541_999_982;
+const SCHEMA_STAMP: i64 = 871_098_240;
 
 // The compiler refuses a schema whose stamp is not SCHEMA_STAMP. A const
 // assert could not print the new stamp, so the check compares two array

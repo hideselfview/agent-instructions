@@ -34,6 +34,7 @@ fn landed_card(scratch: &Scratch) -> (crate::lists::store::Store, Id) {
                     branch: "work".into(),
                     brief: "b.md".into(),
                     since: stamp(T0 + 60),
+                    tier: crate::model_tier::Tier::Implementation,
                 }],
             )
         })

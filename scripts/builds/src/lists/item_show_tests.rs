@@ -190,6 +190,7 @@ fn a_closed_item_prints_no_running_marker() {
         branch: "work".into(),
         brief: "plans/briefs/x.md".into(),
         since: stamp.clone(),
+        tier: crate::model_tier::Tier::Implementation,
     };
     demo.store
         .write(&stamp, "item take 1", |db| {
@@ -235,6 +236,7 @@ fn times_say_how_long_each_item_and_branch_ran_and_was_held_or_waited() {
         branch: branch.into(),
         brief: "b.md".into(),
         since: stamp(at),
+        tier: crate::model_tier::Tier::Implementation,
     };
     demo.store
         .write(&stamp(NOON + 3600), "seed", |db| {

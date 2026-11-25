@@ -422,6 +422,7 @@ fn new_refuses_a_worktree_where_an_item_runs() {
                         branch: "work".into(),
                         brief: "b.md".into(),
                         since: crate::lists::fixtures::stamp(crate::lists::fixtures::NOON),
+                        tier: crate::model_tier::Tier::Implementation,
                     }],
                 )
             },

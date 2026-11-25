@@ -116,6 +116,7 @@ fn an_items_state() {
             branch: "b".into(),
             brief: "p".into(),
             since: stamp(NOON),
+            tier: crate::model_tier::Tier::Implementation,
         }],
     )
     .unwrap();
@@ -174,6 +175,7 @@ fn a_running_last_item_has_no_priority_wait() {
             branch: "work".into(),
             brief: "brief".into(),
             since: stamp(NOON),
+            tier: crate::model_tier::Tier::Implementation,
         }],
     )
     .unwrap();
@@ -407,6 +409,7 @@ fn run_in(db: &Connection, id: Id, worktree: &str, branch: &str, at: i64) {
             branch: branch.into(),
             brief: "b.md".into(),
             since: stamp(at),
+            tier: crate::model_tier::Tier::Implementation,
         }],
     )
     .unwrap();

@@ -91,7 +91,12 @@ pub fn findings(agents: &[Agent], places: &[Place], lists: &[&Lists]) -> Vec<Adv
         let items: Vec<(u32, Tier)> = lists
             .iter()
             .flat_map(|lists| crate::lists::running::running_in(lists, &worktree))
-            .map(|item| (item.id.0, item.tier.expect("a running item has a tier")))
+            .flat_map(|item| {
+                item.running
+                    .iter()
+                    .filter(|run| run.worktree == worktree)
+                    .map(|run| (item.id.0, run.tier))
+            })
             .collect();
         if items.is_empty() {
             continue;

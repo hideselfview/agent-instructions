@@ -18,6 +18,7 @@ fn running_in_db(db: &rusqlite::Connection, id: crate::lists::Id, worktree: &str
             branch: "work".into(),
             brief: "b.md".into(),
             since: stamp(NOON),
+            tier: crate::model_tier::Tier::Implementation,
         }],
     )
     .unwrap();

@@ -169,6 +169,7 @@ fn a_health_answer_names_an_agent_on_the_wrong_model() {
                     branch: "work".into(),
                     brief: "b.md".into(),
                     since: stamp(NOON),
+                    tier: crate::model_tier::Tier::Implementation,
                 }],
             )?;
             Ok(id)

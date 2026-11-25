@@ -1,4 +1,13 @@
 use super::*;
+
+/// The running items' table as it was before it kept the tier of model each
+/// item takes.
+pub const RUNNING_WITHOUT_TIER: &str = "CREATE TABLE running (
+    item_id INTEGER PRIMARY KEY REFERENCES item (id),
+    brief TEXT NOT NULL CONSTRAINT running_brief_says_something CHECK (trim(brief) <> ''),
+    since_at INTEGER NOT NULL,
+    since_by TEXT NOT NULL CONSTRAINT running_since_by_says_something CHECK (trim(since_by) <> '')
+) STRICT;";
 use crate::checkout::Checkout;
 use crate::lists::fixtures::{NOON, db, item, read, stamp};
 use crate::lists::{Running, Wait};
@@ -46,6 +55,7 @@ fn loaded_running_in(worktree: &Path) -> Vec<Loaded> {
             branch: "work".into(),
             brief: "b.md".into(),
             since: stamp(NOON),
+            tier: crate::model_tier::Tier::Implementation,
         }],
     )
     .unwrap();
@@ -162,6 +172,7 @@ fn every_named_constraint_of_the_running_tables_refuses_its_row() {
             branch: "b".into(),
             brief: "p".into(),
             since: stamp(NOON),
+            tier: crate::model_tier::Tier::Implementation,
         }],
     )
     .unwrap();
@@ -171,6 +182,7 @@ fn every_named_constraint_of_the_running_tables_refuses_its_row() {
         ("brief", v("p")),
         ("since_at", v(1)),
         ("since_by", v("a")),
+        ("tier", v("implementation")),
     ];
     refused.check(
         "running_brief_says_something",
@@ -294,6 +306,7 @@ fn place(worktree: &str, branch: &str) -> Running {
         branch: branch.into(),
         brief: "b.md".into(),
         since: stamp(NOON),
+        tier: crate::model_tier::Tier::Implementation,
     }
 }
 
@@ -417,12 +430,14 @@ fn a_places_worktree_is_generated_from_its_parts_and_a_repo_has_one_worktree_per
                 branch: "b".into(),
                 brief: "p".into(),
                 since: stamp(NOON),
+                tier: crate::model_tier::Tier::Implementation,
             },
             Running {
                 worktree: "/e/coven-worktrees/side-10".into(),
                 branch: "c".into(),
                 brief: "p".into(),
                 since: stamp(NOON),
+                tier: crate::model_tier::Tier::Implementation,
             },
         ],
     )

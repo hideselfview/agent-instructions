@@ -12,6 +12,7 @@ fn start(db: &rusqlite::Connection, item: Id, checkout: &str) {
             branch: format!("{checkout}-branch"),
             brief: "plans/briefs/x.md".into(),
             since: stamp(NOON),
+            tier: crate::model_tier::Tier::Implementation,
         }],
     )
     .unwrap();
@@ -282,6 +283,7 @@ fn a_work_carries_the_times_of_its_branch() {
             branch: "side-4-branch".into(),
             brief: "plans/briefs/x.md".into(),
             since: stamp(NOON + 900),
+            tier: crate::model_tier::Tier::Implementation,
         }],
     )
     .unwrap();

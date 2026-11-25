@@ -128,6 +128,7 @@ fn a_running_item_carries_its_claim_facts_and_nothing_else_does() {
             branch: "import-tags".into(),
             brief: "plans/briefs/x.md".into(),
             since: stamp(NOON),
+            tier: crate::model_tier::Tier::Implementation,
         }],
     )
     .unwrap();
@@ -485,6 +486,7 @@ fn a_worktrees_running_items_come_in_list_order_with_their_numbers_and_titles() 
         branch: "b".into(),
         brief: "plans/briefs/x.md".into(),
         since: stamp(NOON),
+        tier: crate::model_tier::Tier::Implementation,
     };
     let here = "/d/bae-worktrees/side-2";
     crate::lists::running::start(&db, &[first], &[running(here)]).unwrap();
@@ -518,6 +520,7 @@ fn a_running_items_waits_come_in_the_order_it_lists_them_and_a_lost_record_fails
             branch: "b".into(),
             brief: "plans/briefs/x.md".into(),
             since: stamp(NOON),
+            tier: crate::model_tier::Tier::Implementation,
         }],
     )
     .unwrap();
@@ -571,6 +574,7 @@ fn a_running_items_condition_is_one_of_its_waits() {
             branch: "b".into(),
             brief: "plans/briefs/x.md".into(),
             since: stamp(NOON),
+            tier: crate::model_tier::Tier::Implementation,
         }],
     )
     .unwrap();
@@ -594,6 +598,7 @@ fn running_on_design(db: &rusqlite::Connection, change: crate::lists::Id) -> &'s
             branch: "b".into(),
             brief: "plans/briefs/x.md".into(),
             since: stamp(NOON),
+            tier: crate::model_tier::Tier::Implementation,
         }],
     )
     .unwrap();

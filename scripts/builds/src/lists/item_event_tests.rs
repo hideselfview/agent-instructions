@@ -82,6 +82,7 @@ fn taking_an_item_and_stopping_it_are_states_of_their_own() {
             branch: "work".into(),
             brief: "b.md".into(),
             since: stamp(NOON + 2),
+            tier: crate::model_tier::Tier::Implementation,
         }],
     )
     .unwrap();

@@ -318,6 +318,7 @@ fn ask_from_an_item_needs_waiters_or_a_reason_and_refuses_a_running_item() {
                 branch: "b".into(),
                 brief: "p".into(),
                 since: stamp(NOON),
+                tier: crate::model_tier::Tier::Implementation,
             }],
         )
         .unwrap();

@@ -29,6 +29,7 @@ fn the_json_has_the_pages_shape() {
             branch: "import-tags".into(),
             brief: "plans/briefs/x.md".into(),
             since: stamp(NOON),
+            tier: crate::model_tier::Tier::Implementation,
         }],
     )
     .unwrap();

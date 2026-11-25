@@ -463,20 +463,19 @@ fn take_records_the_tier_of_the_model_the_items_take() {
     add(&demo, "Do the second thing now", &[]).unwrap();
     let brief = demo.brief("b.md");
     let side_arg = side.display().to_string();
-    assert_eq!(
-        open(&demo).items[0].tier,
-        None,
+    assert!(
+        open(&demo).items[0].running.is_empty(),
         "an item that waits has no tier"
     );
     let mut args = take_args(&side_arg, &brief, &["1"], "work");
     args.extend(["--tier", "strongest"]);
     item(&demo, &args).unwrap();
-    assert_eq!(open(&demo).items[0].tier, Some(Tier::Strongest));
+    assert_eq!(open(&demo).items[0].running[0].tier, Tier::Strongest);
     // With no --tier, the items take the implementation tier.
     let side_2 = demo.add_side(2, "agent B", "other");
     let side_2_arg = side_2.display().to_string();
     item(&demo, &take_args(&side_2_arg, &brief, &["2"], "other")).unwrap();
-    assert_eq!(open(&demo).items[1].tier, Some(Tier::Implementation));
+    assert_eq!(open(&demo).items[1].running[0].tier, Tier::Implementation);
 }
 
 #[test]
@@ -493,7 +492,7 @@ fn take_refuses_a_tier_it_does_not_know() {
         error.contains("--tier takes implementation or strongest"),
         "{error}"
     );
-    assert_eq!(open(&demo).items[0].tier, None);
+    assert!(open(&demo).items[0].running.is_empty());
 }
 
 #[test]
@@ -1153,6 +1152,7 @@ fn release_and_health_see_an_item_of_another_project_in_the_worktree() {
                     branch: "work".into(),
                     brief: "b.md".into(),
                     since: crate::lists::fixtures::stamp(NOON),
+                    tier: crate::model_tier::Tier::Implementation,
                 }],
             )
         })
@@ -1826,6 +1826,7 @@ fn health_leaves_a_branch_an_item_of_another_project_names() {
                     branch: "loose".into(),
                     brief: "b.md".into(),
                     since: crate::lists::fixtures::stamp(NOON),
+                    tier: crate::model_tier::Tier::Implementation,
                 }],
             )
         })

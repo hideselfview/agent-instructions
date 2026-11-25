@@ -16,6 +16,7 @@ fn running(worktree: &str, branch: &str) -> Running {
         branch: branch.into(),
         brief: "plans/b.md".into(),
         since: stamp(NOON),
+        tier: crate::model_tier::Tier::Implementation,
     }
 }
 

@@ -34,6 +34,9 @@ pub struct Running {
     pub branch: String,
     pub brief: String,
     pub since: Stamp,
+    /// The tier of model the coordinator named when it took the item
+    /// (`item take --tier`).
+    pub tier: crate::model_tier::Tier,
 }
 
 /// How a run ended: someone stopped the item or closed it (the
@@ -214,8 +217,8 @@ pub fn start(db: &Connection, ids: &[Id], places: &[Running]) -> Result<()> {
     for id in ids {
         item::require_open_item(db, *id)?;
         db.execute(
-            "INSERT INTO running (item_id, brief, since_at, since_by) VALUES (?1, ?2, ?3, ?4)",
-            params![id, first.brief, first.since.at, first.since.by],
+            "INSERT INTO running (item_id, brief, since_at, since_by, tier) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![id, first.brief, first.since.at, first.since.by, first.tier.word()],
         )
         .sql()?;
         insert_places(
@@ -230,41 +233,6 @@ pub fn start(db: &Connection, ids: &[Id], places: &[Running]) -> Result<()> {
     Ok(())
 }
 
-/// Records that running item <id> takes the model of <tier>. Refused when it
-/// does not run.
-pub fn set_tier(db: &Connection, id: Id, tier: crate::model_tier::Tier) -> Result<()> {
-    item::require_open_item(db, id)?;
-    let changed = db
-        .execute(
-            "UPDATE running SET tier = ?2 WHERE item_id = ?1",
-            params![id, tier.word()],
-        )
-        .sql()?;
-    if changed == 0 {
-        fail!("{id} is not running, so it has no tier to set (`item take` starts it)");
-    }
-    Ok(())
-}
-
-/// The tier of every running item.
-pub fn read_tiers(db: &Connection) -> Result<BTreeMap<Id, crate::model_tier::Tier>> {
-    let mut statement = db.prepare("SELECT item_id, tier FROM running").sql()?;
-    let rows = statement
-        .query_map([], |row| {
-            Ok((row.get::<_, Id>(0)?, row.get::<_, String>(1)?))
-        })
-        .sql()?;
-    let mut tiers = BTreeMap::new();
-    for row in rows {
-        let (id, word) = row.sql()?;
-        let Some(tier) = crate::model_tier::Tier::from_word(&word) else {
-            fail!("{id} runs at tier {word:?}, which builds does not know");
-        };
-        tiers.insert(id, tier);
-    }
-    Ok(tiers)
-}
-
 /// Makes `running` again as running.sql writes it, with the tier of model the
 /// item takes: a store from before kept none, and each running item takes the
 /// implementation tier, as every item did.
@@ -277,7 +245,7 @@ pub fn add_tier(db: &Connection) -> Result<()> {
         statement(schema, "CREATE TABLE running (", ") STRICT;"),
         |db| {
             db.execute_batch(
-                "INSERT INTO running (item_id, brief, since_at, since_by) SELECT item_id, brief, since_at, since_by FROM running_old",
+                "INSERT INTO running (item_id, brief, since_at, since_by, tier) SELECT item_id, brief, since_at, since_by, 'implementation' FROM running_old",
             )
             .sql()
         },
@@ -399,7 +367,7 @@ pub fn follow_waits(db: &Connection, lists: &Lists, at: i64) -> Result<()> {
 pub fn read(db: &Connection) -> Result<BTreeMap<Id, Vec<Running>>> {
     let mut statement = db
         .prepare(
-            "SELECT r.item_id, p.worktree, p.branch, r.brief, r.since_at, r.since_by \
+            "SELECT r.item_id, p.worktree, p.branch, r.brief, r.since_at, r.since_by, r.tier \
              FROM running r JOIN running_place p ON p.item_id = r.item_id ORDER BY r.item_id, p.repo",
         )
         .sql()?;
@@ -407,22 +375,28 @@ pub fn read(db: &Connection) -> Result<BTreeMap<Id, Vec<Running>>> {
         .query_map([], |row| {
             Ok((
                 row.get::<_, Id>(0)?,
-                Running {
-                    worktree: row.get(1)?,
-                    branch: row.get(2)?,
-                    brief: row.get(3)?,
-                    since: Stamp {
-                        at: row.get(4)?,
-                        by: row.get(5)?,
-                    },
-                },
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, i64>(4)?,
+                row.get::<_, String>(5)?,
+                row.get::<_, String>(6)?,
             ))
         })
         .sql()?;
     let mut all: BTreeMap<Id, Vec<Running>> = BTreeMap::new();
     for row in rows {
-        let (id, running) = row.sql()?;
-        all.entry(id).or_default().push(running);
+        let (id, worktree, branch, brief, at, by, word) = row.sql()?;
+        let Some(tier) = crate::model_tier::Tier::from_word(&word) else {
+            fail!("{id} runs at tier {word:?}, which builds does not know");
+        };
+        all.entry(id).or_default().push(Running {
+            worktree,
+            branch,
+            brief,
+            since: Stamp { at, by },
+            tier,
+        });
     }
     Ok(all)
 }
@@ -705,4 +679,4 @@ pub fn plant(
 
 #[cfg(test)]
 #[path = "running_tests.rs"]
-mod tests;
+pub mod tests;

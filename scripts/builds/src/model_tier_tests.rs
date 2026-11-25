@@ -46,10 +46,10 @@ fn running_in_side_1_at(tiers: &[Tier]) -> Lists {
                 branch: "work".into(),
                 brief: "b.md".into(),
                 since: stamp(NOON),
+                tier: *tier,
             }],
         )
         .unwrap();
-        crate::lists::running::set_tier(&db, id, *tier).unwrap();
     }
     read(&db)
 }
