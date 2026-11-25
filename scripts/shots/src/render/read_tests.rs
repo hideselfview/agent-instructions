@@ -761,6 +761,49 @@ async fn a_button_or_link_that_wraps_a_glyph_is_boxed_by_the_glyphs_ink_not_its_
 }
 
 #[tokio::test]
+async fn a_mac_pop_up_is_boxed_by_its_frame_and_any_other_button_by_its_glyphs_ink() {
+    // The same button with a glyph whose ink (10 by 11) is narrower than its
+    // room (13 by 13.5), drawn as a button that opens a menu and as one that
+    // does not.
+    let root = fixture::tree(&[(
+        "fixture.popup-box",
+        r##"<x-dc><helmet><style>body{margin:0;font:16px/20px sans-serif}
+.bae-glyph{display:block}
+button{position:absolute;left:10px;padding:0;border:0;display:block}
+button svg{width:10px;height:11px;margin:1px 2px 1.5px 1px}</style></helmet>
+<button style="top:10px" aria-label="Plain"><svg class="bae-glyph" viewBox="0 0 10 11"><path d="M0 0h10v11z"/></svg></button>
+<button style="top:50px" aria-haspopup="menu" aria-label="Menu"><svg class="bae-glyph" viewBox="0 0 10 11"><path d="M0 0h10v11z"/></svg></button>
+</x-dc>"##,
+    )]);
+    let read = async |platform| {
+        fixture::with_browser(root.path(), async |server, chrome| {
+            let page = chrome.new_page().await.unwrap();
+            let url = server.board_url("fixture.popup-box");
+            let rendered = render(
+                &page,
+                "fixture.popup-box",
+                &url,
+                Frame { w: 300, h: 150 },
+                1.0,
+            )
+            .await
+            .unwrap();
+            elements(&page, rendered.frame, platform).await.unwrap()
+        })
+        .await
+    };
+    let size = |e: &Element| (e.bounds.width, e.bounds.height);
+    let mac = read(Platform::Mac).await;
+    assert_eq!(size(find(&mac, Role::Button, "Plain")), (10.0, 11.0));
+    // The Mac boxes a pop-up by its whole frame, the glyph's room.
+    assert_eq!(size(find(&mac, Role::Popup, "Menu")), (13.0, 13.5));
+    // An Android button that opens a menu is a button like the other.
+    let android = read(Platform::Android).await;
+    assert_eq!(size(find(&android, Role::Button, "Plain")), (10.0, 11.0));
+    assert_eq!(size(find(&android, Role::Button, "Menu")), (10.0, 11.0));
+}
+
+#[tokio::test]
 async fn a_texts_box_is_its_words_not_its_container() {
     let elements = read_fixture().await;
     let short = find(&elements, Role::Text, "Short");

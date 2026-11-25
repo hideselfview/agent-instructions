@@ -707,7 +707,7 @@ pub(crate) async fn elements(
     frame: Bounds,
     platform: Platform,
 ) -> Result<Vec<Element>, ReadError> {
-    build(&gather(page, frame).await?, platform)
+    build(&gather(page, frame, platform).await?, platform)
 }
 
 fn relative_to(mut bounds: Bounds, origin: (f64, f64)) -> Bounds {
@@ -779,7 +779,7 @@ pub(crate) async fn elements_in(
     frame: Bounds,
     platform: Platform,
 ) -> Result<Vec<Element>, ReadError> {
-    let raw = gather(page, frame).await?;
+    let raw = gather(page, frame, platform).await?;
     build(&subtree(&raw, backend)?, platform)
 }
 
@@ -797,7 +797,7 @@ fn subtree(raw: &[Raw], backend: i64) -> Result<Vec<Raw>, ReadError> {
 /// The id of the style that turns transforms off while the reader measures.
 const UNTRANSFORMED: &str = "builds-shots-untransformed";
 
-async fn gather(page: &Page, frame: Bounds) -> Result<Vec<Raw>, ReadError> {
+async fn gather(page: &Page, frame: Bounds, platform: Platform) -> Result<Vec<Raw>, ReadError> {
     // The root's overflow applies to the viewport, as does the body's when
     // the root lets overflow through.
     let body_overflow_applies_to_viewport = page
@@ -839,7 +839,8 @@ async fn gather(page: &Page, frame: Bounds) -> Result<Vec<Raw>, ReadError> {
         for node in &tree.result.nodes {
             let mut raw = raw(node);
             if !raw.ignored && !STRUCTURE.contains(&raw.chrome_role.as_str()) {
-                match measure(page, node, &clipping_argument, ink_boxed(&raw.chrome_role)).await? {
+                let ink = ink_boxed(Role::for_node(&raw, platform));
+                match measure(page, node, &clipping_argument, ink).await? {
                     Ok(Measurement::Clipped) => raw.ignored = true,
                     Ok(Measurement::Visible(mut geometry)) => {
                         geometry.bounds = relative_to(geometry.bounds, (frame.x, frame.y));
@@ -872,10 +873,11 @@ async fn gather(page: &Page, frame: Bounds) -> Result<Vec<Raw>, ReadError> {
     measured
 }
 
-/// Whether a node of Chrome role <chrome> is boxed by the ink of the glyphs
-/// it holds, as the Mac boxes a button or link.
-fn ink_boxed(chrome: &str) -> bool {
-    matches!(Role::of(chrome), Role::Button | Role::Link)
+/// Whether a node of <role>, its role on its platform (`Role::for_node`), is
+/// boxed by the ink of the glyphs it holds, as the Mac boxes a button or link.
+/// The Mac boxes any other role, a pop-up among them, by its whole frame.
+fn ink_boxed(role: Role) -> bool {
+    matches!(role, Role::Button | Role::Link)
 }
 
 /// Whether the DOM node <node> describes is clipped, its box and style if it
