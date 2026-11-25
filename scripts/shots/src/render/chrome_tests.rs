@@ -137,6 +137,7 @@ fn a_browser_that_takes_longer_than_chromiumoxides_default_to_start_is_waited_fo
         .block_on(with_executable(
             browser,
             Duration::from_secs(40),
+            Slots::of_host(),
             async |_chrome| (),
         ))
         .unwrap_err()
@@ -159,6 +160,7 @@ fn a_browser_that_prints_no_address_fails_naming_the_window_server() {
         .block_on(with_executable(
             browser,
             Duration::from_secs(2),
+            Slots::of_host(),
             async |_chrome| (),
         ))
         .unwrap_err()

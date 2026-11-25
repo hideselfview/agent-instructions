@@ -1204,6 +1204,15 @@ wait. A Chrome that fails to start for another reason fails the build at once.
 `builds health` lists each host that holds a build this way (HEALTH CHECK in
 `builds help workflow`).
 
+Each host draws no more pages at once than it has cores, however many Chromes
+run there. Every program that starts the pinned Chrome (a shots run, `builds
+shots draws`, the shots crate's tests) takes a slot before it opens a page and
+gives it back when the page closes. A slot is an exclusive flock on one of the
+files in /tmp/builds-chrome-slots, so the kernel frees the slots of a process
+that dies. A page that finds every slot held prints "waiting for one of the
+host's N Chrome slots" once on stderr and waits. The 120 seconds a page has to
+draw start once it holds a slot.
+
 When a host's Xcode cannot start, every xcodebuild run there fails, whatever
 code it builds: xcodebuild prints "A required plugin failed to load" and names
 the fix (as after someone updates Xcode and nobody runs its first launch, which

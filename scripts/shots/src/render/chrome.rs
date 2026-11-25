@@ -1,5 +1,6 @@
 //! The pinned Chrome for Testing build the boards render in.
 
+use crate::render::slots::{Slot, Slots};
 use chromiumoxide::Page;
 use chromiumoxide::browser::{Browser, BrowserConfig};
 use futures::StreamExt;
@@ -172,22 +173,56 @@ pub(crate) enum ChromeError {
 
 pub(crate) struct Chrome {
     browser: Browser,
+    /// The host's slots, one of which each open page holds.
+    slots: Slots,
     /// What the browser reports as its product, e.g. `Chrome/157.0.8103.78`.
     version: String,
 }
 
+/// A page and the slot it holds on the host. The slot goes back when the page
+/// is dropped or closed.
+pub(crate) struct SlottedPage {
+    page: Page,
+    _slot: Slot,
+}
+
+impl std::ops::Deref for SlottedPage {
+    type Target = Page;
+
+    fn deref(&self) -> &Page {
+        &self.page
+    }
+}
+
+impl SlottedPage {
+    /// Closes the page, then gives its slot back.
+    async fn close(self) -> Result<(), chromiumoxide::error::CdpError> {
+        self.page.close().await
+    }
+}
+
 impl Chrome {
-    pub(crate) async fn new_page(&self) -> Result<Page, ChromeError> {
-        self.browser
+    /// A new page for a test, opened once the host has a free slot for it.
+    #[cfg(test)]
+    pub(crate) async fn new_page(&self) -> Result<SlottedPage, String> {
+        let slot = self.slots.take("a page").await?;
+        self.open_page(slot).await.map_err(|e| e.to_string())
+    }
+
+    async fn open_page(&self, slot: Slot) -> Result<SlottedPage, ChromeError> {
+        let page = self
+            .browser
             .new_page("about:blank")
             .await
-            .map_err(|e| ChromeError::Protocol(e.to_string()))
+            .map_err(|e| ChromeError::Protocol(e.to_string()))?;
+        Ok(SlottedPage { page, _slot: slot })
     }
 
     /// Runs <work> on a new page and closes the page after it, whatever
     /// <work> returns; a page that fails to close is noted. Every error names
     /// <what>, the board or preview being drawn. Chrome gets `DRAW_DEADLINE`
-    /// to open the page and finish <work>.
+    /// to open the page and finish <work>, counted from when the host has a
+    /// slot for the page: waiting for the slot is not drawing.
     pub(crate) async fn with_page<T>(
         &self,
         what: &str,
@@ -202,6 +237,11 @@ impl Chrome {
         deadline: Duration,
         work: impl AsyncFnOnce(&Page) -> Result<T, String>,
     ) -> Result<T, String> {
+        let slot = self
+            .slots
+            .take(what)
+            .await
+            .map_err(|e| format!("{what}: {e}"))?;
         let end = tokio::time::Instant::now() + deadline;
         let late = |doing: &str, last: String| {
             format!(
@@ -209,7 +249,7 @@ impl Chrome {
                 deadline.as_secs()
             )
         };
-        let page = tokio::time::timeout_at(end, self.new_page())
+        let page = tokio::time::timeout_at(end, self.open_page(slot))
             .await
             .map_err(|_| late("opening its page", String::new()))?
             .map_err(|e| format!("{what}: {e}"))?;
@@ -340,7 +380,16 @@ pub(crate) async fn with_chrome<T>(
     cache: &Path,
     work: impl AsyncFnOnce(&Chrome) -> T,
 ) -> Result<T, ChromeError> {
-    with_executable(installed(cache)?, LAUNCH_DEADLINE, work).await
+    with_chrome_slots(cache, Slots::of_host(), work).await
+}
+
+/// `with_chrome` with the pages it opens taking their slots from <slots>.
+pub(crate) async fn with_chrome_slots<T>(
+    cache: &Path,
+    slots: Slots,
+    work: impl AsyncFnOnce(&Chrome) -> T,
+) -> Result<T, ChromeError> {
+    with_executable(installed(cache)?, LAUNCH_DEADLINE, slots, work).await
 }
 
 /// Ends every process of one Chrome when the program that started it ends,
@@ -393,11 +442,12 @@ impl Watchdog {
     }
 }
 
-/// `with_chrome` for the browser at <executable>, which has <launch_deadline>
-/// to print its debugging address.
+/// `with_chrome_slots` for the browser at <executable>, which has
+/// <launch_deadline> to print its debugging address.
 async fn with_executable<T>(
     executable: PathBuf,
     launch_deadline: Duration,
+    slots: Slots,
     work: impl AsyncFnOnce(&Chrome) -> T,
 ) -> Result<T, ChromeError> {
     let profile = tempfile::tempdir().map_err(|e| ChromeError::Launch(e.to_string()))?;
@@ -427,7 +477,11 @@ async fn with_executable<T>(
             .await
             .map_err(|e| ChromeError::Protocol(e.to_string()))?
             .product;
-        let mut chrome = Chrome { browser, version };
+        let mut chrome = Chrome {
+            browser,
+            slots,
+            version,
+        };
         let out = if chrome.version.contains(PINNED) {
             Ok(work(&chrome).await)
         } else {
