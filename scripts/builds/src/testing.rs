@@ -308,7 +308,11 @@ pub fn stale_socket(path: &Path) {
 /// Records <session> as a running Claude Code session in <places>' home, as
 /// Claude Code does: a record named for a live process, this test's own.
 pub fn running_session(places: &crate::places::Places, session: &str) {
-    session_started(places, session, now_millis());
+    session_started(
+        places,
+        session,
+        (crate::job_claim::now_nanos() / 1_000_000) as i64,
+    );
 }
 
 /// Like `running_session`, with the record's start time <started_at> in
@@ -322,14 +326,6 @@ pub fn session_started(places: &crate::places::Places, session: &str, started_at
         format!(r#"{{"pid":{me},"sessionId":"{session}","startedAt":{started_at}}}"#),
     )
     .expect("writable");
-}
-
-/// Milliseconds since 1970.
-pub fn now_millis() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("after 1970")
-        .as_millis() as i64
 }
 
 /// A session's inbox socket at <path> for a test, served by a thread: it takes

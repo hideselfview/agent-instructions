@@ -17,11 +17,10 @@ pub struct Running {
     pub session_id: String,
 }
 
-/// The sessions of <dir> whose process is alive among <processes>. A record
-/// whose pid a later process took, one that started after the record did,
-/// names no session. An unreadable record, and a pid that runs but that
-/// <processes> does not list, are errors, never skipped, so no caller takes a
-/// short list for all the sessions.
+/// The sessions of <dir> whose process <processes> lists. A record whose pid a
+/// later process took, one that started after the record did, names no
+/// session. An unreadable record is an error, never skipped, so no caller
+/// takes a short list for all the sessions.
 pub fn running(dir: &Path, processes: &Processes) -> Result<Vec<Running>, String> {
     #[derive(serde::Deserialize)]
     struct Registered {
@@ -53,15 +52,10 @@ pub fn running(dir: &Path, processes: &Processes) -> Result<Vec<Running>, String
         };
         let registered: Registered = serde_json::from_slice(&bytes)
             .map_err(|error| format!("{}: {error}", path.display()))?;
-        if !crate::procs::runs(registered.pid) {
-            continue;
-        }
+        // A pid that <processes> lacks has exited, started after the list was
+        // read, or belongs to another user: no session of this one.
         let Some(process) = processes.get(registered.pid) else {
-            return Err(format!(
-                "{}: process {} runs, but builds cannot list it, so builds cannot tell whether it is the session",
-                path.display(),
-                registered.pid
-            ));
+            continue;
         };
         // The record is written after the process starts.
         if process.started <= registered.started_at / 1000 {
