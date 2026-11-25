@@ -8,6 +8,7 @@
 //! so a process that dies frees its slots.
 
 use std::fs::File;
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 
 /// The folder the host's slot files are in. Every checkout and every cache
@@ -30,17 +31,19 @@ pub(crate) struct Slot {
 impl Slots {
     /// The host's slots: one for each core, as many as the pages that can
     /// rasterize at once without queueing (the cargo bands follow the cores
-    /// the same way, `builds host band`).
-    pub(crate) fn of_host() -> Self {
-        let cores = std::thread::available_parallelism().map_or(1, |cores| cores.get());
-        Self::new(Path::new(HOST_FOLDER), cores)
+    /// the same way, `builds host band`). Fails when the host does not say how
+    /// many cores it has.
+    pub(crate) fn of_host() -> Result<Self, String> {
+        let cores = std::thread::available_parallelism()
+            .map_err(|e| format!("cannot read the host's core count: {e}"))?;
+        Ok(Self::new(Path::new(HOST_FOLDER), cores))
     }
 
-    /// <count> slots in <folder>, at least one.
-    pub(crate) fn new(folder: &Path, count: usize) -> Self {
+    /// <count> slots in <folder>.
+    pub(crate) fn new(folder: &Path, count: NonZeroUsize) -> Self {
         Self {
             folder: folder.to_path_buf(),
-            count: count.max(1),
+            count: count.get(),
         }
     }
 

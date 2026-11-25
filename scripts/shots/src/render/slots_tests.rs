@@ -4,6 +4,7 @@ use std::process::{Command, Stdio};
 use std::sync::mpsc;
 
 const SLOTS: usize = 2;
+const SLOT_COUNT: NonZeroUsize = NonZeroUsize::new(SLOTS).unwrap();
 const WORKERS: usize = 5;
 
 const FOLDER: &str = "BUILDS_SHOTS_TEST_SLOT_FOLDER";
@@ -25,7 +26,7 @@ fn worker() {
     let open = folder.join("open");
     std::fs::create_dir_all(&open).unwrap();
     tokio::runtime::Runtime::new().unwrap().block_on(async {
-        let slots = Slots::new(&folder.join("slots"), SLOTS);
+        let slots = Slots::new(&folder.join("slots"), SLOT_COUNT);
         crate::render::chrome::with_chrome_slots(
             &crate::render::fixture::cache(),
             slots,
@@ -141,7 +142,7 @@ fn a_host_draws_no_more_pages_than_it_has_slots_however_many_processes_start_pag
 #[tokio::test]
 async fn a_slot_is_free_again_once_its_holder_drops_it() {
     let folder = tempfile::tempdir().unwrap();
-    let slots = Slots::new(folder.path(), 1);
+    let slots = Slots::new(folder.path(), NonZeroUsize::MIN);
     let held = slots.take("the first page").await.unwrap();
     let waiting = tokio::spawn({
         let slots = slots.clone();

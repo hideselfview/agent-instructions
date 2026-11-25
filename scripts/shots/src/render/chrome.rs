@@ -380,7 +380,7 @@ pub(crate) async fn with_chrome<T>(
     cache: &Path,
     work: impl AsyncFnOnce(&Chrome) -> T,
 ) -> Result<T, ChromeError> {
-    with_chrome_slots(cache, Slots::of_host(), work).await
+    with_chrome_slots(cache, Slots::of_host().map_err(ChromeError::Launch)?, work).await
 }
 
 /// `with_chrome` with the pages it opens taking their slots from <slots>.
