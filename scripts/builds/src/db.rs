@@ -460,17 +460,12 @@ pub fn schema_before_unreported_usage() -> String {
 #[cfg(test)]
 pub fn with_deleted_boards_only(schema: String) -> String {
     let schema = without_at_merge_base(without_step_shots(schema));
-    const START: &str = "-- A board or component the change deletes";
-    if !schema.contains(START) {
-        return schema;
-    }
-    let table = format!(
-        "{START}{}",
-        statement(&schema, START, ") STRICT, WITHOUT ROWID;")
-            .strip_prefix(START)
-            .expect("it starts with START")
-    );
-    schema.replacen(&table, DELETED_BOARDS_ONLY, 1)
+    with_table_as(
+        schema,
+        "-- A board or component the change deletes",
+        ") STRICT, WITHOUT ROWID;",
+        DELETED_BOARDS_ONLY,
+    )
 }
 
 /// <schema> as it was before the app build steps' table kept whether a step
@@ -535,10 +530,7 @@ fn with_claude_inboxes(mut schema: String) -> String {
             crate::review::judge::REVIEW_BRANCH_AGENT,
         ),
     ] {
-        if schema.contains(start) {
-            let table = statement(&schema, start, ") STRICT;").to_string();
-            schema = schema.replacen(&table, old, 1);
-        }
+        schema = with_table_as(schema, start, ") STRICT;", old);
     }
     schema
 }
@@ -631,6 +623,7 @@ pub fn with_review_boards_only(schema: String) -> String {
     with_table_as(
         schema,
         "CREATE TABLE review_board (",
+        ") STRICT, WITHOUT ROWID;",
         REVIEW_BOARD_ONLY_BOARDS,
     )
 }
@@ -694,7 +687,12 @@ const ACK_WORD_TABLE: &str = "CREATE TABLE ack_word (
 #[cfg(test)]
 pub fn with_ack_words(schema: String) -> String {
     let schema = with_ack_unread(schema);
-    with_table_as(schema, "CREATE TABLE ack_token (", ACK_WORD_TABLE)
+    with_table_as(
+        schema,
+        "CREATE TABLE ack_token (",
+        ") STRICT, WITHOUT ROWID;",
+        ACK_WORD_TABLE,
+    )
 }
 
 /// The schema as it was before a reading's parts were chained by tokens.
@@ -723,7 +721,12 @@ CREATE UNIQUE INDEX ack_of_no_repo ON ack (session, agent) WHERE repo IS NULL;";
 #[cfg(test)]
 pub fn with_ack_repo(schema: String) -> String {
     let schema = with_ack_words(schema);
-    with_table_as(schema, "CREATE TABLE ack (", ACK_TABLE_WITH_REPO)
+    with_table_as(
+        schema,
+        "CREATE TABLE ack (",
+        ") STRICT, WITHOUT ROWID;",
+        ACK_TABLE_WITH_REPO,
+    )
 }
 
 /// The schema as it was before the text left out the CLAUDE.md files: every
@@ -760,28 +763,28 @@ fn joined_before(part: &str) -> String {
     with_ack_version_time(parts_before(part).join("\n"))
 }
 
-/// <schema> with the `STRICT, WITHOUT ROWID` table that starts with <start>
+/// <schema> with the statement that starts with <start> and ends with <end>
 /// replaced by <old>, its text as an older schema had it. A schema with no
-/// such table is returned as it is.
+/// such statement is returned as it is.
 #[cfg(test)]
-fn with_table_as(schema: String, start: &str, old: &str) -> String {
+fn with_table_as(schema: String, start: &str, end: &str, old: &str) -> String {
     if !schema.contains(start) {
         return schema;
     }
-    let table = statement(&schema, start, ") STRICT, WITHOUT ROWID;").to_string();
+    let table = statement(&schema, start, end).to_string();
     schema.replacen(&table, old, 1)
 }
 
 /// <schema> as it was before builds stopped keeping the time at which an agent
 /// last acknowledged each version: with the time in the acknowledged
-/// versions' table. The schemas before that move are the ones built from
-/// `SCHEMA_PARTS` by `joined_before`, which calls this function, and today's
-/// schema with this function applied (`schema_before_ack_version_time`).
+/// versions' table. `joined_before` and `schema_before_ack_version_time` call
+/// it.
 #[cfg(test)]
 pub fn with_ack_version_time(schema: String) -> String {
     with_table_as(
         schema,
         "CREATE TABLE ack_version (",
+        ") STRICT, WITHOUT ROWID;",
         crate::ack::record::tests::ACK_VERSION_WITH_TIME,
     )
 }
