@@ -303,10 +303,12 @@ DISPATCH
   - Each brief names its worktree, its items, and the project's hard limits
     (the person's checkouts, the keychain, devices,
     cargo through the wrapper, no `git add -A` or stash, no --no-verify), and
-    "review and land through builds; don't push main". Send the worker
-    `builds brief --file FILE PATH...` output. Pass the paths it will edit
-    relative to the repo root, and `--project P` when the project has its own
-    rules. Each worker credits its own model in the commit trailer.
+    "review and land through builds; don't push main". Send the worker the
+    brief's path. A brief carries no coding rules and no workflow text:
+    builds gives the agent each rule when it first edits a file the rule
+    covers (`builds rules-on-edit`) and the workflow when it runs `builds
+    ack`, and `builds item take` refuses a brief that pastes either. Each
+    worker credits its own model in the commit trailer.
   - Critical work starts first. Critical work is what the person sees in the
     apps (a screen, a bug, a feature the person asked for), builds work that
     blocks or slows the agents, and the cleanups the person marks critical. The

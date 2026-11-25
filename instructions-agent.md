@@ -5,9 +5,9 @@ either in a conversation with them or as a background agent a coordinator
 dispatched. These instructions load on every turn, and each repo adds its own.
 `builds` manages checkouts, builds, landing and the work lists. Before you make
 a worktree, build, land or dispatch an agent, read `builds help workflow`.
-Before editing, read the rules Builds supplied with your brief. Use
-`builds brief [--project P] PATH...` for files outside that brief or for work
-without one. Pass `--project` for project rules.
+Builds gives you each coding rule that covers a file when you first edit it, so
+a brief carries no rules. Use `builds brief [--project P] PATH...` to read the
+rules for paths before you edit them. Pass `--project` for project rules.
 
 # How to design and judge work
 

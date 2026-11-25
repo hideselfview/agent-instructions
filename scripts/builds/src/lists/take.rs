@@ -12,7 +12,8 @@
 //! records them when its run ends with work left there) is taken in them,
 //! without --worktree and --branch, and nowhere else.
 //!
-//! Before the take's write, take checks that each sentence of the brief that
+//! Before the take's write, take refuses a brief that pastes a coding rule or
+//! workflow text (pasted.rs), and checks that each sentence of the brief that
 //! states a ruling of the person's or a standing prohibition cites where it
 //! is written (rulings.rs), and refuses the take when one cites nothing or
 //! names what does not exist. Then it checks the
@@ -460,6 +461,7 @@ pub fn take(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         held.is_some(),
     )?;
     let checks = Checks::of(tool, &lists, &args)?;
+    crate::lists::pasted::require_unpasted(&read_brief, &checks.reviewer.rules_root)?;
     for line in rulings::require_cited(
         &checks.reviewer,
         &tool.places.home,

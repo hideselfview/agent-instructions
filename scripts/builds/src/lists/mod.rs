@@ -52,6 +52,7 @@ pub mod item_fixtures;
 mod item_show;
 pub mod kept_work;
 pub mod landing;
+pub mod pasted;
 pub mod project;
 pub mod publish;
 mod publish_command;

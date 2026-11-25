@@ -34,7 +34,8 @@ READ FIRST
     does not exist. Never copy such a sentence from another brief: find its
     source, or leave it out.
   - The rules printed by `builds brief PATH...` for the files your items
-    touch. Pass `--project P` when the project has its own rules.
+    touch, so that the brief asks for nothing a rule forbids. Pass
+    `--project P` when the project has its own rules.
 
 READ CODE THROUGH GIT
 
@@ -53,7 +54,8 @@ numbers in an item may have moved, so find code by name.
 
 WRITE ONE BRIEF PER ITEM
 
-  - Title, and the item it implements (#N and its title).
+  - Title, and the item it implements (#N and its title). Open with one
+    sentence of what the work should do.
   - Now: what the code does, with path:line evidence. When the item is
     already done or no longer applies, say so with the evidence and write
     nothing else for it.
@@ -90,6 +92,12 @@ WRITE ONE BRIEF PER ITEM
     it. The one exception is dead code on main that is the only code doing a
     behavior the spec states: ask the person whether the behavior stays, and
     quote the spec's text.
+
+A brief carries no coding rules and no workflow text. builds gives the agent
+each rule when it first edits a file the rule covers, and the workflow when it
+runs `builds ack`, and `builds item take` refuses a brief that holds three
+lines in a row of a rule, of `builds help workflow` or of `builds help lists`.
+Name the rule files that matter to the work, never copy them.
 
 Group the briefs in commit order and write them to the file you were given. Use
 plain words, with no jargon and no size or effort words ("simple", "small",

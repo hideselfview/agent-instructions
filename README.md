@@ -120,11 +120,12 @@ check out main or commit, push or discard those changes.
 `install.sh` links `projects/<name>.md` to both `CLAUDE.md` and `AGENTS.md` in
 `~/dev/<name>` when that checkout exists. Gitignore both links in the project.
 
-## Rules in briefs
+## Rules and workflow stay out of briefs
 
-Send the output of `builds brief --file FILE PATH...` to the worker. Pass
-repo-relative paths and use `--project P` to include project rules. Omit
-`--file` to print the rules by themselves.
+Send the worker the brief's path. builds gives the worker each coding rule when
+it first edits a file the rule covers, and the workflow when it runs
+`builds ack`. `builds item take` refuses a brief that pastes either.
+`builds brief [--project P] PATH...` prints the rules for repo-relative paths.
 
 ## Code review
 

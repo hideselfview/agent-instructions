@@ -3900,11 +3900,11 @@ run `review replay --rules-root` on it.
                               an audit of a landing whose commits are design
                               files only, the commits `builds design only`
                               accepts (decision #323)
-  builds brief [--project P] [--file FILE] PATH...
-                              Print the brief followed by full coding rules for the
-                              repo-relative paths. Pass --project to include that
-                              project's rules.
-                              Omit --file to print the rules alone.
+  builds brief [--project P] PATH...
+                              Print the full coding rules for the repo-relative
+                              paths. Pass --project to include that project's
+                              rules. A brief never holds this output
+                              (`builds item take` refuses one that does).
 
   builds review groups [--rules-root DIR] [--project P --repo R --changed PATH...]
                               list the groups of rules, and fail naming every

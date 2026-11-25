@@ -5,31 +5,30 @@ use std::path::{Component, Path};
 
 use crate::fail;
 use crate::fail::{Context, Result};
-use crate::lists::args::{Args, read_input};
+use crate::lists::args::Args;
 use crate::lists::check::project_name_fault;
 use crate::review::rules;
 
 pub fn cmd_brief(root: &Path, args: &[String]) -> Result<()> {
-    let args = Args::parse_only(args, &["project", "file"])?;
+    let args = Args::parse_only(args, &["project"])?;
     let paths = paths(&args)?;
     let project = args.value("project")?;
     if let Some(fault) = project.and_then(project_name_fault) {
         fail!("{fault}");
     }
-    let brief = args.value("file")?.map(read_input).transpose()?;
     let rules = match project {
         Some(project) => rules::load_project(root, project)?,
         None => rules::load_shared(root)?,
     };
     io::stdout()
         .lock()
-        .write_all(render(brief.as_deref(), &paths, &rules).as_bytes())
+        .write_all(render(&paths, &rules).as_bytes())
         .context(|| "writing the brief".to_string())
 }
 
 fn paths(args: &Args) -> Result<Vec<String>> {
     if args.positional().is_empty() {
-        fail!("usage: builds brief [--project P] [--file FILE] PATH...");
+        fail!("usage: builds brief [--project P] PATH...");
     }
     args.positional()
         .iter()
@@ -50,13 +49,8 @@ fn paths(args: &Args) -> Result<Vec<String>> {
         .collect()
 }
 
-fn render(brief: Option<&str>, paths: &[String], rules: &[rules::Rule]) -> String {
-    let mut text = String::new();
-    if let Some(brief) = brief {
-        text.push_str(brief.trim_end_matches('\n'));
-        text.push_str("\n\n");
-    }
-    text.push_str("## Coding rules\n");
+fn render(paths: &[String], rules: &[rules::Rule]) -> String {
+    let mut text = String::from("## Coding rules\n");
     for rule in rules.iter().filter(|rule| rule.matches_paths(paths)) {
         text.push_str("\n### `");
         text.push_str(&rule.path);
@@ -76,10 +70,7 @@ mod tests {
         let scratch = crate::testing::Scratch::new("brief-flags");
         let args = ["--by".into(), "agent".into(), "src/main.rs".into()];
         let error = cmd_brief(&scratch.dir, &args).unwrap_err().text();
-        assert_eq!(
-            error,
-            "unknown flag --by; this command takes --project, --file"
-        );
+        assert_eq!(error, "unknown flag --by; this command takes --project");
     }
 
     #[test]
@@ -99,13 +90,12 @@ mod tests {
             "---\npaths: ['**/*.swift']\n---\nSwift guidance.\n",
         );
         let printed = render(
-            Some("Make the command print its input.\n"),
             &["src/main.rs".into(), "src/tests.rs".into()],
             &[shared, project, unrelated],
         );
         assert_eq!(
             printed,
-            "Make the command print its input.\n\n## Coding rules\n\n### `rules/authoring.md`\n\nAuthoring guidance.\n\nAnother paragraph.\n\n### `projects/example-rules/project.md`\n\nProject guidance.\n"
+            "## Coding rules\n\n### `rules/authoring.md`\n\nAuthoring guidance.\n\nAnother paragraph.\n\n### `projects/example-rules/project.md`\n\nProject guidance.\n"
         );
     }
 }

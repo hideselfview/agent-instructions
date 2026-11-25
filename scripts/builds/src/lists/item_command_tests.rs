@@ -397,6 +397,35 @@ fn take_args<'a>(side: &'a str, brief: &'a str, ids: &[&'a str], branch: &'a str
 }
 
 #[test]
+fn take_refuses_a_brief_that_pastes_workflow_text() {
+    let demo = demo("item-take-pasted");
+    let side = demo.add_side(1, "agent A", "work");
+    add(&demo, FIVE, &[]).unwrap();
+    let workflow: Vec<&str> = crate::help::WORKFLOW_HELP
+        .lines()
+        .skip(12)
+        .take(4)
+        .collect();
+    let brief = demo.scratch.dir.join("pasted.md");
+    std::fs::write(
+        &brief,
+        format!("Make it work.\n\n{}\n", workflow.join("\n")),
+    )
+    .unwrap();
+    let side_arg = side.display().to_string();
+    let brief_arg = brief.display().to_string();
+    let refused = refusal(item(
+        &demo,
+        &take_args(&side_arg, &brief_arg, &["1"], "work"),
+    ));
+    assert!(
+        refused.contains("pastes text of builds help workflow"),
+        "{refused}"
+    );
+    assert!(open(&demo).items[0].running.is_empty());
+}
+
+#[test]
 fn take_marks_items_running_in_the_worktree_and_stores_no_agent() {
     let demo = demo("item-take");
     let side = demo.add_side(1, "agent A", "work");
