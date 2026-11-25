@@ -1631,17 +1631,17 @@ impl Model {
             return Ok(Some(ItemWait::RulesReview(ReviewWait::Checking)));
         };
         // The daemon never reads the processes to answer: it takes the
-        // sessions from its last sample.
-        let Some(running) = self
-            .state
-            .lock()
-            .expect("no panic holding it")
-            .page
-            .sample
-            .as_ref()
-            .map(|sample| sample.machine.claude_sessions.clone())
-        else {
-            return Ok(Some(ItemWait::RulesReview(ReviewWait::Checking)));
+        // sessions from its last sample, and fails with the reading's error
+        // when that failed.
+        let running = {
+            let state = self.state.lock().expect("no panic holding it");
+            if let Some(error) = &state.page.sample_error {
+                return Err(format!("the daemon could not read processes: {error}"));
+            }
+            match &state.page.sample {
+                Some(sample) => sample.machine.claude_sessions.clone(),
+                None => return Ok(Some(ItemWait::RulesReview(ReviewWait::Checking))),
+            }
         };
         super::review_cards::standing(
             &store,

@@ -107,6 +107,14 @@ fn last(db: &Connection) -> Result<Option<Judge>> {
     .transpose()
 }
 
+/// The Claude Code sessions that run now, from one reading of the processes.
+pub fn running_claude(
+    sessions: &crate::inbox::Sessions,
+) -> Result<Vec<crate::claude_sessions::Running>> {
+    crate::claude_sessions::running_now(&sessions.claude)
+        .map_err(|why| Fail::Message(format!("reading which Claude Code sessions run: {why}")))
+}
+
 /// The project's registered judge, while its Claude Code session is among
 /// <running> (`claude_sessions::running_now`) or its Codex thread can be
 /// resumed.
@@ -815,15 +823,14 @@ pub fn listen_command(
     };
     let store = Store::named(&tool.places, project)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
+    let sessions = tool.places.sessions();
+    let running = running_claude(&sessions)?;
     store.write(&stamp, "judge listen", |db| {
         listen(db, inbox, caller, &stamp)
     })?;
     let mut said = format!(
         "This session judges project {project}. Builds sends it each review finding to settle.\n"
     );
-    let sessions = tool.places.sessions();
-    let running = crate::claude_sessions::running_now(&sessions.claude)
-        .map_err(|why| Fail::Message(format!("reading which Claude Code sessions run: {why}")))?;
     for line in judge_told::tell_waiting(&store, &stamp, &sessions, &running)? {
         said.push_str(&line);
         said.push('\n');
