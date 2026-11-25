@@ -932,12 +932,14 @@ async fn the_reader_marks_what_a_scrim_covers_or_a_sheet_clips() {
 }
 
 #[tokio::test]
-async fn an_element_beyond_the_viewport_is_not_marked_covered_because_the_page_cannot_say() {
+async fn an_element_beyond_the_viewport_is_asked_after_scrolling_to_it() {
     let root = fixture::tree(&[(
         "fixture.beyond",
         r#"<x-dc><helmet><style>body{margin:0;font:16px/20px sans-serif}</style></helmet>
 <div style="position:absolute;left:0;top:400px">Far below the scrim</div>
 <div style="position:absolute;left:0;top:380px;width:200px;height:100px;background:#000"></div>
+<div style="position:absolute;left:0;top:520px">Far below, uncovered</div>
+<div style="position:absolute;left:0;top:700px;width:1px;height:1px"></div>
 </x-dc>"#,
     )]);
     let elements = fixture::with_browser(root.path(), async |server, chrome| {
@@ -948,11 +950,12 @@ async fn an_element_beyond_the_viewport_is_not_marked_covered_because_the_page_c
             .unwrap();
         // Read a frame taller than the viewport, as a preview's row is.
         let taller = Bounds {
-            height: 600.0,
+            height: 800.0,
             ..rendered.frame
         };
         elements(&page, taller, Platform::Mac).await.unwrap()
     })
     .await;
-    assert!(!find(&elements, Role::Text, "Far below the scrim").obscured);
+    assert!(find(&elements, Role::Text, "Far below the scrim").obscured);
+    assert!(!find(&elements, Role::Text, "Far below, uncovered").obscured);
 }

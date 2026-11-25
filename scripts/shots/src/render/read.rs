@@ -132,9 +132,8 @@ pub(crate) struct Raw {
     pub(crate) placeholder: Option<String>,
     /// The design-system component that draws the node's DOM node.
     pub(crate) component: Option<String>,
-    /// The page draws something over part of the node's box, or a sheet clips
-    /// part of it (`Element::obscured`).
-    pub(crate) obscured: bool,
+    /// What the page draws over the node's box, once measured.
+    pub(crate) cover: Option<Cover>,
     /// A password field: what is typed shows masked, never as itself.
     pub(crate) secret: bool,
 }
@@ -355,7 +354,7 @@ fn element(
         parent,
         focused: node.focused.then_some(true),
         component: node.component.clone(),
-        obscured: node.obscured,
+        obscured: node.cover == Some(Cover::Covered),
         placeholder: if role == Role::Field {
             nonempty(node.placeholder.as_deref())
         } else {
@@ -389,6 +388,18 @@ enum Measurement {
     Visible(Geometry),
 }
 
+/// What the page draws over a node's box.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum Cover {
+    /// Nothing, at the points asked.
+    Clear,
+    /// Another element is on top of part of it, or a sheet clips part of it.
+    Covered,
+    /// The page could not say what is on top at some point.
+    Untested,
+}
+
 /// What a visible DOM node reports about its box and its font.
 #[derive(Debug, Deserialize)]
 struct Geometry {
@@ -412,12 +423,7 @@ struct Geometry {
     /// The design-system component that draws the node: the nearest one
     /// above it in React's tree.
     component: Option<String>,
-    /// The node's box has something drawn over part of it, or a sheet clips
-    /// part of it.
-    obscured: bool,
-    /// No point of the box could be asked what is on top of it, so `obscured`
-    /// says only what a clip shows.
-    obscured_untested: bool,
+    cover: Cover,
     /// The node is a password input.
     secret: bool,
 }
@@ -485,25 +491,45 @@ const GEOMETRY: &str = r#"function({frame, bodyOverflowAppliesToViewport}) {
     }
     return left < right && top < bottom ? {left, top, right, bottom} : null;
   };
+  // The topmost element at a point in the viewport's own coordinates: a point
+  // outside the viewport is scrolled to its middle and back, for the page
+  // answers only for points inside it. Null when it still cannot say.
+  const topAt = (x, y) => {
+    if (x >= 0 && y >= 0 && x < innerWidth && y < innerHeight) {
+      return document.elementFromPoint(x, y);
+    }
+    const [sx, sy] = [window.scrollX, window.scrollY];
+    window.scrollTo(sx + x - innerWidth / 2, sy + y - innerHeight / 2);
+    const top = document.elementFromPoint(x - (window.scrollX - sx), y - (window.scrollY - sy));
+    window.scrollTo(sx, sy);
+    return top;
+  };
   // Whether the page draws another element over a point of the box's visible
-  // part: the topmost element there is none inside the node's own element and
-  // none that holds it. `tested` is false when no point could be asked: the
-  // page answers only for points in the viewport, and a row of a preview
-  // lies beyond it.
-  const coveredAt = (element, seen) => {
-    if (!element || getComputedStyle(element).pointerEvents === 'none') {
-      return {covered: false, tested: true};
+  // part ('covered'): the topmost element there is none inside the node's own
+  // element and none that holds it. 'untested' when a point could not be
+  // asked. An element that turns pointer events off is asked with them on.
+  const coverOf = (element, seen) => {
+    if (!element) return 'untested';
+    const prior = element.style.getPropertyValue('pointer-events');
+    const priority = element.style.getPropertyPriority('pointer-events');
+    element.style.setProperty('pointer-events', 'auto', 'important');
+    try {
+      const width = seen.right - seen.left;
+      const height = seen.bottom - seen.top;
+      let untested = false;
+      for (const [fx, fy] of [[0.1, 0.5], [0.5, 0.5], [0.9, 0.5], [0.5, 0.15], [0.5, 0.85]]) {
+        const top = topAt(seen.left + width * fx, seen.top + height * fy);
+        if (!top) {
+          untested = true;
+        } else if (!element.contains(top) && !top.contains(element)) {
+          return 'covered';
+        }
+      }
+      return untested ? 'untested' : 'clear';
+    } finally {
+      if (prior) element.style.setProperty('pointer-events', prior, priority);
+      else element.style.removeProperty('pointer-events');
     }
-    const width = seen.right - seen.left;
-    const height = seen.bottom - seen.top;
-    let tested = false;
-    for (const [fx, fy] of [[0.1, 0.5], [0.5, 0.5], [0.9, 0.5], [0.5, 0.15], [0.5, 0.85]]) {
-      const top = document.elementFromPoint(seen.left + width * fx, seen.top + height * fy);
-      if (!top) continue;
-      tested = true;
-      if (!element.contains(top) && !top.contains(element)) return {covered: true, tested};
-    }
-    return {covered: false, tested};
   };
   const isText = this.nodeType === 3;
   let rect;
@@ -524,7 +550,7 @@ const GEOMETRY: &str = r#"function({frame, bodyOverflowAppliesToViewport}) {
   }
   const clippedPartly = rect.width - (seen.right - seen.left) > 0.5
     || rect.height - (seen.bottom - seen.top) > 0.5;
-  const over = coveredAt(element, seen);
+  const cover = clippedPartly ? 'covered' : coverOf(element, seen);
   return {
     visibility: 'visible',
     bounds: {x: rect.x, y: rect.y, width: rect.width, height: rect.height},
@@ -541,8 +567,7 @@ const GEOMETRY: &str = r#"function({frame, bodyOverflowAppliesToViewport}) {
     in_selected: element !== null
       && element.closest('[aria-selected]')?.getAttribute('aria-selected') === 'true',
     component: componentOf(this),
-    obscured: clippedPartly || over.covered,
-    obscured_untested: !clippedPartly && !over.tested,
+    cover,
     secret: !isText && this.tagName === 'INPUT' && this.type === 'password',
   };
 }"#;
@@ -773,7 +798,7 @@ async fn gather(page: &Page, frame: Bounds) -> Result<Vec<Raw>, ReadError> {
     ))
     .await
     .map_err(protocol)?;
-    let mut untested = 0;
+    let mut untested: Vec<String> = Vec::new();
     let measured: Result<Vec<Raw>, ReadError> = async {
         let mut nodes = Vec::new();
         for node in &tree.result.nodes {
@@ -795,8 +820,17 @@ async fn gather(page: &Page, frame: Bounds) -> Result<Vec<Raw>, ReadError> {
                         };
                         raw.placeholder = geometry.placeholder;
                         raw.component = geometry.component;
-                        raw.obscured = geometry.obscured;
-                        untested += usize::from(geometry.obscured_untested);
+                        raw.cover = Some(geometry.cover);
+                        if geometry.cover == Cover::Untested {
+                            untested.push(format!(
+                                "{} {:?}",
+                                raw.chrome_role,
+                                raw.name
+                                    .as_ref()
+                                    .map(|name| name.text.as_str())
+                                    .unwrap_or("")
+                            ));
+                        }
                         if (geometry.current || geometry.in_selected) && raw.selected.is_none() {
                             raw.selected = Some(true);
                         }
@@ -822,9 +856,17 @@ async fn gather(page: &Page, frame: Bounds) -> Result<Vec<Raw>, ReadError> {
     ))
     .await
     .map_err(protocol)?;
-    if untested > 0 {
+    if !untested.is_empty() {
         crate::log::note(format_args!(
-            "{untested} elements lie where the page cannot say what is on top (outside its viewport): whether something covers them is not tested"
+            "whether something covers {} elements is not tested, because the page cannot say what is on top of them ({}{})",
+            untested.len(),
+            untested
+                .iter()
+                .take(8)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", "),
+            if untested.len() > 8 { ", and more" } else { "" }
         ));
     }
     measured
