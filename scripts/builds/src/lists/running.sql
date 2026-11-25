@@ -8,7 +8,10 @@ CREATE TABLE running (
     item_id INTEGER PRIMARY KEY REFERENCES item (id),
     brief TEXT NOT NULL CONSTRAINT running_brief_says_something CHECK (trim(brief) <> ''),
     since_at INTEGER NOT NULL,
-    since_by TEXT NOT NULL CONSTRAINT running_since_by_says_something CHECK (trim(since_by) <> '')
+    since_by TEXT NOT NULL CONSTRAINT running_since_by_says_something CHECK (trim(since_by) <> ''),
+    -- The tier of model the coordinator named when it took the item
+    -- (`item take --tier`): builds health compares the agent's model to it.
+    tier TEXT NOT NULL DEFAULT 'implementation' CONSTRAINT running_tier_known CHECK (tier IN ('implementation', 'strongest'))
 ) STRICT;
 
 CREATE TABLE running_place (

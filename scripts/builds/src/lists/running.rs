@@ -230,6 +230,61 @@ pub fn start(db: &Connection, ids: &[Id], places: &[Running]) -> Result<()> {
     Ok(())
 }
 
+/// Records that running item <id> takes the model of <tier>. Refused when it
+/// does not run.
+pub fn set_tier(db: &Connection, id: Id, tier: crate::model_tier::Tier) -> Result<()> {
+    item::require_open_item(db, id)?;
+    let changed = db
+        .execute(
+            "UPDATE running SET tier = ?2 WHERE item_id = ?1",
+            params![id, tier.word()],
+        )
+        .sql()?;
+    if changed == 0 {
+        fail!("{id} is not running, so it has no tier to set (`item take` starts it)");
+    }
+    Ok(())
+}
+
+/// The tier of every running item.
+pub fn read_tiers(db: &Connection) -> Result<BTreeMap<Id, crate::model_tier::Tier>> {
+    let mut statement = db.prepare("SELECT item_id, tier FROM running").sql()?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((row.get::<_, Id>(0)?, row.get::<_, String>(1)?))
+        })
+        .sql()?;
+    let mut tiers = BTreeMap::new();
+    for row in rows {
+        let (id, word) = row.sql()?;
+        let Some(tier) = crate::model_tier::Tier::from_word(&word) else {
+            fail!("{id} runs at tier {word:?}, which builds does not know");
+        };
+        tiers.insert(id, tier);
+    }
+    Ok(tiers)
+}
+
+/// Makes `running` again as running.sql writes it, with the tier of model the
+/// item takes: a store from before kept none, and each running item takes the
+/// implementation tier, as every item did.
+pub fn add_tier(db: &Connection) -> Result<()> {
+    use crate::db::{remake_table, statement};
+    let schema = include_str!("running.sql");
+    remake_table(
+        db,
+        "running",
+        statement(schema, "CREATE TABLE running (", ") STRICT;"),
+        |db| {
+            db.execute_batch(
+                "INSERT INTO running (item_id, brief, since_at, since_by) SELECT item_id, brief, since_at, since_by FROM running_old",
+            )
+            .sql()
+        },
+        &[],
+    )
+}
+
 /// Gives every place open item <id> runs in <brief>. Refused when it does
 /// not run.
 pub fn handoff(db: &Connection, id: Id, brief: &str) -> Result<()> {

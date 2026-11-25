@@ -180,6 +180,10 @@ fn every_named_constraint_of_the_running_tables_refuses_its_row() {
         "running_since_by_says_something",
         plant(&db, "running", &row(&running, &[("since_by", v(" "))])),
     );
+    refused.check(
+        "running_tier_known",
+        plant(&db, "running", &row(&running, &[("tier", v("best"))])),
+    );
     plant(&db, "running", &running).unwrap();
     let place = [
         ("item_id", v(other.0)),

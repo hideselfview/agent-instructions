@@ -2555,3 +2555,54 @@ fn a_store_from_before_the_version_time_keeps_the_acks_of_kept_versions_and_equa
         .unwrap();
     assert_eq!(sections, 1);
 }
+
+#[test]
+fn the_running_tier_stamp_is_the_schema_before_it() {
+    assert_eq!(
+        db::stamp_of_text(&db::schema_before_running_tier()),
+        BEFORE_RUNNING_TIER_STAMP
+    );
+}
+
+/// A store from before running items recorded their tier gives each running
+/// item the implementation tier, keeps its places, and equals a fresh schema.
+#[test]
+fn a_store_from_before_the_tier_gives_each_running_item_the_implementation_tier() {
+    let scratch = Scratch::new("move-running-tier");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&db::schema_before_running_tier())
+            .unwrap();
+        conn.execute_batch(
+            "INSERT INTO repo (name) VALUES ('bae');
+             INSERT INTO area (name, position) VALUES ('Alpha', 0);
+             INSERT INTO record (id, kind, opened_at, opened_by) VALUES (1, 'item', 1, 'c');
+             INSERT INTO item (id, title, area, details, audience) VALUES (1, 'T', 'Alpha', 'd', 'coordinator');
+             INSERT INTO running (item_id, brief, since_at, since_by) VALUES (1, 'b.md', 2, 'c');
+             INSERT INTO running_place (item_id, repo, parent, checkout, branch) VALUES (1, 'bae', '/d', 'side-1', 'work');",
+        )
+        .unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_RUNNING_TIER_STAMP)
+            .unwrap();
+    }
+    migrate_stores(&places, 0).unwrap();
+    let conn = db::open(&path, db::Make::Never).unwrap();
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    let tier: String = conn
+        .query_row("SELECT tier FROM running WHERE item_id = 1", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(tier, "implementation");
+    let places: i64 = conn
+        .query_row("SELECT count(*) FROM running_place", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(places, 1);
+}

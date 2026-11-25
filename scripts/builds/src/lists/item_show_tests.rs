@@ -155,6 +155,32 @@ fn list_running_prints_the_marker_with_the_agent_from_the_claim() {
 }
 
 #[test]
+fn a_running_item_shows_the_tier_of_the_model_it_takes() {
+    let demo = demo("show-tier");
+    add(&demo, "Do the first thing now", "Alpha", &[]);
+    let side = demo.add_side(1, "agent A", "work");
+    let brief = demo.brief("b.md");
+    cmd_item(
+        &demo.tool,
+        &words(&[
+            "take",
+            "1",
+            "--worktree",
+            side.to_str().unwrap(),
+            "--branch",
+            "work",
+            "--brief",
+            &brief,
+            "--tier",
+            "strongest",
+        ]),
+    )
+    .unwrap();
+    let text = render_item(&demo.store.load().unwrap(), Id(1), 0).unwrap();
+    assert!(text.contains("\ntier: strongest\n"), "{text}");
+}
+
+#[test]
 fn a_closed_item_prints_no_running_marker() {
     let demo = demo("show-closed-running");
     add(&demo, "Do the first thing now", "Alpha", &[]);

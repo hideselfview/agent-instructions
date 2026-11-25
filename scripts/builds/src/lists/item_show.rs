@@ -247,6 +247,9 @@ pub fn render_item(lists: &Lists, id: Id, now: i64) -> Result<String> {
             running.since.by
         );
     }
+    if let Some(tier) = item.tier.filter(|_| open) {
+        let _ = writeln!(out, "tier: {}", tier.word());
+    }
     let kept = if open { item.kept.as_slice() } else { &[] };
     for kept in kept {
         let _ = writeln!(out, "{}", kept_words(kept));

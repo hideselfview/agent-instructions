@@ -40,16 +40,18 @@ use crate::lists::item_command::blocking_words;
 use crate::lists::kept_work::{self, kept_in, places_words};
 use crate::lists::rulings::{self, Source, Text};
 use crate::lists::running::{
-    PlaceTable, Running, SpanKind, insert_places, open_span, place_in_repo, running_in, start,
+    PlaceTable, Running, SpanKind, insert_places, open_span, place_in_repo, running_in, set_tier,
+    start,
 };
 use crate::lists::spec_check::{self, Brief, Setup};
 use crate::lists::store::{self, Store};
 use crate::lists::{Audience, Id, Kind, Lists, Stamp};
+use crate::model_tier::Tier;
 use crate::review::Reviewer;
 use crate::text::note;
 use crate::tool::Tool;
 
-const USAGE: &str = "builds item take N [M...] [--worktree W --branch B [--worktree W2 --branch B2]] --brief P [--as design-session] [--held WHY] [--spec-decided N] [--rules-root DIR] [--reviewer PROGRAM]";
+const USAGE: &str = "builds item take N [M...] [--worktree W --branch B [--worktree W2 --branch B2]] --brief P [--as design-session] [--tier implementation|strongest] [--held WHY] [--spec-decided N] [--rules-root DIR] [--reviewer PROGRAM]";
 
 /// One worktree an item runs in: checked, with its branch and the
 /// claim that holds it, if any.
@@ -387,6 +389,29 @@ fn check_spec(
     Ok(())
 }
 
+/// Refuses a take that names a <tier> for items that run at another: an
+/// item runs at one tier, the one it was taken at.
+fn require_same_tier(lists: &Lists, ids: &[Id], tier: Option<Tier>) -> Result<()> {
+    let Some(tier) = tier else {
+        return Ok(());
+    };
+    for id in ids {
+        let running = lists
+            .items
+            .iter()
+            .find(|item| item.id == *id)
+            .and_then(|item| item.tier);
+        if let Some(running) = running.filter(|running| *running != tier) {
+            fail!(
+                "{id} runs at the {} tier; --tier {} would change it, and an item keeps the tier it was taken at",
+                running.word(),
+                tier.word()
+            );
+        }
+    }
+    Ok(())
+}
+
 pub fn take(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let args = Args::parse(
         args,
@@ -395,6 +420,7 @@ pub fn take(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
             "branch",
             "brief",
             "as",
+            "tier",
             "held",
             "spec-decided",
             "rules-root",
@@ -419,6 +445,13 @@ pub fn take(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         None => false,
         Some("design-session") => true,
         Some(other) => fail!("--as takes design-session, not '{other}'"),
+    };
+    let tier = match args.value("tier")? {
+        None => None,
+        Some(word) => match Tier::from_word(word) {
+            Some(tier) => Some(tier),
+            None => fail!("--tier takes implementation or strongest, not '{word}'"),
+        },
     };
     let brief = args.require("brief")?.to_string();
     let held = args.value("held")?.map(str::to_string);
@@ -460,6 +493,7 @@ pub fn take(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         design_session,
         held.is_some(),
     )?;
+    require_same_tier(&lists, &ids, tier)?;
     let checks = Checks::of(tool, &lists, &args)?;
     crate::lists::pasted::require_unpasted(&read_brief, &checks.reviewer.rules_root)?;
     for line in rulings::require_cited(
@@ -503,6 +537,9 @@ pub fn take(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
                         kept_work::end(db, *id)?;
                     }
                     start(db, &ids, &running)?;
+                    for id in &ids {
+                        set_tier(db, *id, tier.unwrap_or(Tier::Implementation))?;
+                    }
                 }
                 Take::Join => {
                     // An item runs in one worktree per repo: the database

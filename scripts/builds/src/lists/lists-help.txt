@@ -230,7 +230,8 @@ main checkout holds or that more than one holds; an absolute path is itself.
       refuses --blocks-nothing while another open item waits on N.
 
   builds item take N [M...] [--worktree W --branch B [--worktree W2 --branch B2]]
-                    --brief P [--as design-session] [--held WHY]
+                    --brief P [--as design-session]
+                    [--tier implementation|strongest] [--held WHY]
                     [--spec-decided N] [--rules-root DIR] [--reviewer PROGRAM]
       Marks the items running. W is a claimed side worktree of a project repo
       (the claim names the agent; the item stores none) and B a branch of it.
@@ -241,7 +242,11 @@ main checkout holds or that more than one holds; an absolute path is itself.
       item runs with, and the item then lands from either worktree (`item
       check-landing`). An item that keeps worktrees (`item stop`) is taken
       without --worktree and --branch, in the worktrees it keeps, and nowhere
-      else.
+      else. --tier names the tier of model the agent of the items runs
+      (`builds help workflow`, PLAN, BRIEF, EXECUTE): implementation when
+      omitted, strongest for an item that coordinates, plans or writes a spec.
+      The items keep the tier they are taken at, `item show` prints it, and
+      `builds health` lists an agent that runs another tier's model.
       Refused for an item that waits, a running item in a repo where it runs
       already (stop it first) or with another brief than the one it runs
       with (`item handoff` changes that), running items named with items

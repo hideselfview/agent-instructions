@@ -760,7 +760,7 @@ fn text_before(part: &str) -> String {
 /// keeping the time of each (`with_ack_version_time`).
 #[cfg(test)]
 fn joined_before(part: &str) -> String {
-    with_ack_version_time(parts_before(part).join("\n"))
+    with_ack_version_time(with_running_without_tier(parts_before(part).join("\n")))
 }
 
 /// <schema> with the statement that starts with <start> and ends with <end>
@@ -793,7 +793,36 @@ pub fn with_ack_version_time(schema: String) -> String {
 /// agent last acknowledged each version.
 #[cfg(test)]
 pub fn schema_before_ack_version_time() -> String {
-    with_ack_version_time(schema())
+    with_ack_version_time(with_running_without_tier(schema()))
+}
+
+/// The running items' table as it was before it kept the tier of model each
+/// item takes.
+#[cfg(test)]
+const RUNNING_WITHOUT_TIER: &str = "CREATE TABLE running (
+    item_id INTEGER PRIMARY KEY REFERENCES item (id),
+    brief TEXT NOT NULL CONSTRAINT running_brief_says_something CHECK (trim(brief) <> ''),
+    since_at INTEGER NOT NULL,
+    since_by TEXT NOT NULL CONSTRAINT running_since_by_says_something CHECK (trim(since_by) <> '')
+) STRICT;";
+
+/// <schema> as it was before running items recorded the tier of model they
+/// take. A schema with no such table is returned as it is.
+#[cfg(test)]
+pub fn with_running_without_tier(schema: String) -> String {
+    with_table_as(
+        schema,
+        "CREATE TABLE running (",
+        ") STRICT;",
+        RUNNING_WITHOUT_TIER,
+    )
+}
+
+/// The schema as it was before running items recorded the tier of model they
+/// take.
+#[cfg(test)]
+pub fn schema_before_running_tier() -> String {
+    with_running_without_tier(schema())
 }
 
 #[cfg(test)]

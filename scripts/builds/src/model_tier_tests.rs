@@ -30,8 +30,13 @@ fn places() -> Vec<Place> {
 
 /// Lists where items run in side-1: one item per entry of <count>.
 fn running_in_side_1(count: usize) -> Lists {
+    running_in_side_1_at(&vec![Tier::Implementation; count])
+}
+
+/// Lists where one item runs in side-1 for each of <tiers>, at its tier.
+fn running_in_side_1_at(tiers: &[Tier]) -> Lists {
     let db = db();
-    for _ in 0..count {
+    for tier in tiers {
         let id = item(&db, vec![]);
         crate::lists::running::start(
             &db,
@@ -44,6 +49,7 @@ fn running_in_side_1(count: usize) -> Lists {
             }],
         )
         .unwrap();
+        crate::lists::running::set_tier(&db, id, *tier).unwrap();
     }
     read(&db)
 }
@@ -63,7 +69,7 @@ fn an_implementing_agent_on_the_strongest_tier_gets_a_line() {
     assert_eq!(
         lines,
         [Advice::said(format!(
-            "model: the agent (pid 7) in bae/side-1 for item {} runs claude-opus-5-5, and an implementing agent takes claude-sonnet-5-5. Stop the agent at its next clean point and continue the item with an agent that runs claude-sonnet-5-5",
+            "model: the agent (pid 7) in bae/side-1 for item {} runs claude-opus-5-5, and an item of the implementation tier takes claude-sonnet-5-5. Stop the agent at its next clean point and continue the item with an agent that runs claude-sonnet-5-5",
             id.0
         ))]
     );
@@ -203,4 +209,28 @@ fn a_model_call_that_builds_started_is_no_agent() {
     // A coordinator's Claude Code session (pid 20) runs it as an agent.
     let agent = Processes::of(vec![process(20, 1, "2.1.332"), process(own, 20, "2.1.332")]);
     assert_eq!(super::read(&agent, &sessions, &[place]).0.len(), 1);
+}
+
+#[test]
+fn an_agent_on_the_strongest_tier_works_an_item_that_takes_it() {
+    let lists = running_in_side_1_at(&[Tier::Strongest]);
+    assert!(judged(&[agent(7, 0, "claude --model claude-opus-5-5")], &lists).is_empty());
+    let lines = judged(&[agent(7, 0, "claude --model claude-sonnet-5-5")], &lists);
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert!(
+        lines[0]
+            .text
+            .contains("an item of the strongest tier takes claude-opus-5-5"),
+        "{lines:?}"
+    );
+}
+
+#[test]
+fn a_worktree_whose_items_name_two_tiers_is_judged_by_the_implementation_tier() {
+    let lists = running_in_side_1_at(&[Tier::Strongest, Tier::Implementation]);
+    assert!(judged(&[agent(7, 0, "claude --model claude-sonnet-5-5")], &lists).is_empty());
+    assert_eq!(
+        judged(&[agent(7, 0, "claude --model claude-opus-5-5")], &lists).len(),
+        1
+    );
 }

@@ -163,7 +163,12 @@ PLAN, BRIEF, EXECUTE
   - Implementation: the brief specifies the behavior and how to test it. Name
     the implementation tier's model on each dispatch: claude-sonnet-5-5 in
     Claude, GPT-6.2 Sol (gpt-6.2-sol) in Codex. `builds health` lists an
-    implementing agent that runs another model.
+    agent that runs another model than its item's tier, or names none.
+  - Tier: name an item's tier when taking it. `builds item take --tier
+    strongest` is for an item whose agent coordinates, plans or writes a
+    spec or another document that takes judgment; `--tier implementation`
+    (the default) is for the rest. `builds health` compares each agent's
+    model to its item's tier.
   - Use the strongest tier for coordination, planning, review, and document
     edits and surveys that require judgment: claude-opus-5-5 in Claude,
     GPT-6.2 Astra (gpt-6.2-astra) in Codex. When a brief leaves a design
@@ -701,10 +706,10 @@ processes only with `--stop-junk`. The lines below are what remains to act on.
     no item names: check it out in a worktree (`builds new <repo> --resume
     <branch>`) and land it or take an item there, or ask the person whether
     to drop it.
-  - An implementing agent that runs another model than its role takes (PLAN,
+  - An agent that runs another model than its item's tier takes (PLAN,
     BRIEF, EXECUTE), with its worktree, its items and both models: stop the
-    agent at its next clean point and continue the item with an agent of the
-    implementation tier.
+    agent at its next clean point and continue the item with an agent of
+    that tier.
   - Disk under the floor: hold the queue.
   - A host under its band while items are ready: start agents on the next
     ready items (`builds next`).

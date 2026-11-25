@@ -174,6 +174,9 @@ pub struct Item {
     /// Where an agent works on it: one worktree per repo the work spans, none
     /// when it is not running.
     pub running: Vec<Running>,
+    /// The tier of model the coordinator named when it took the item: None
+    /// when the item is not running.
+    pub tier: Option<crate::model_tier::Tier>,
     /// Its runs that ended, oldest first: the run that goes on is `running`.
     pub runs: Vec<Run>,
     /// The spans of its runs during which the worktree's claim note said
@@ -701,6 +704,7 @@ pub fn read(
         notes.entry(item).or_default().push(note);
     }
     let mut running = running::read(db)?;
+    let mut tiers = running::read_tiers(db)?;
     let mut runs = running::read_runs(db)?;
     let mut spans = running::read_spans(db)?;
     let mut kept = kept_work::read(db)?;
@@ -740,6 +744,7 @@ pub fn read(
             priority: priorities.remove(&id),
             brief,
             running: running.remove(&id).unwrap_or_default(),
+            tier: tiers.remove(&id),
             runs: runs.remove(&id).unwrap_or_default(),
             spans: spans.remove(&id).unwrap_or_default(),
             kept: kept.remove(&id).unwrap_or_default(),

@@ -14,11 +14,41 @@ use crate::lists::Lists;
 use crate::procs::{Place, Processes};
 use crate::review::provider::Provider;
 
-/// The model an implementing agent of <provider> runs.
-pub fn implementation_model(provider: Provider) -> &'static str {
-    match provider {
-        Provider::Claude => "claude-sonnet-5-5",
-        Provider::Codex => "gpt-6.2-sol",
+/// The tier of the model an agent runs for an item (builds help workflow,
+/// PLAN, BRIEF, EXECUTE). The coordinator names it when it takes the item.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Tier {
+    /// Implementing: the tier of an agent that builds to a brief.
+    Implementation,
+    /// Coordinating, planning, reviewing, and the document work that takes
+    /// judgment, such as writing a spec or a plan.
+    Strongest,
+}
+
+impl Tier {
+    /// The word `--tier` takes and the store keeps.
+    pub fn word(self) -> &'static str {
+        match self {
+            Tier::Implementation => "implementation",
+            Tier::Strongest => "strongest",
+        }
+    }
+
+    pub fn from_word(word: &str) -> Option<Tier> {
+        [Tier::Implementation, Tier::Strongest]
+            .into_iter()
+            .find(|tier| tier.word() == word)
+    }
+
+    /// The model an agent of <provider> runs at this tier.
+    pub fn model(self, provider: Provider) -> &'static str {
+        match (self, provider) {
+            (Tier::Implementation, Provider::Claude) => "claude-sonnet-5-5",
+            (Tier::Implementation, Provider::Codex) => "gpt-6.2-sol",
+            (Tier::Strongest, Provider::Claude) => "claude-opus-5-5",
+            (Tier::Strongest, Provider::Codex) => "gpt-6.2-astra",
+        }
     }
 }
 
@@ -50,39 +80,48 @@ pub fn model_of(argv: &[String]) -> Option<&str> {
 }
 
 /// One line for each of <agents> that works in a place where an item of
-/// <lists> runs and does not run the implementation model of its provider.
+/// <lists> runs and does not run its provider's model for the tier of the
+/// item. A place whose items name two tiers is judged by the implementation
+/// tier: an item that takes it runs there.
 pub fn findings(agents: &[Agent], places: &[Place], lists: &[&Lists]) -> Vec<Advice> {
     let mut lines = Vec::new();
     for agent in agents {
         let place = &places[agent.place];
         let worktree = place.top.display().to_string();
-        let items: Vec<u32> = lists
+        let items: Vec<(u32, Tier)> = lists
             .iter()
             .flat_map(|lists| crate::lists::running::running_in(lists, &worktree))
-            .map(|item| item.id.0)
+            .map(|item| (item.id.0, item.tier.expect("a running item has a tier")))
             .collect();
         if items.is_empty() {
             continue;
         }
-        let wanted = implementation_model(agent.provider);
+        let tier = if items.iter().all(|(_, tier)| *tier == Tier::Strongest) {
+            Tier::Strongest
+        } else {
+            Tier::Implementation
+        };
+        let wanted = tier.model(agent.provider);
         let runs = match model_of(&agent.argv) {
             Some(model) if model == wanted => continue,
             Some(model) => format!("runs {model}"),
             None => "names no model".to_string(),
         };
         let (noun, ids) = match items.as_slice() {
-            [one] => ("item", one.to_string()),
+            [(one, _)] => ("item", one.to_string()),
             many => (
                 "items",
                 many.iter()
-                    .map(u32::to_string)
+                    .map(|(id, _)| id.to_string())
                     .collect::<Vec<_>>()
                     .join(", "),
             ),
         };
         lines.push(Advice::said(format!(
-            "model: the agent (pid {}) in {} for {noun} {ids} {runs}, and an implementing agent takes {wanted}. Stop the agent at its next clean point and continue the {noun} with an agent that runs {wanted}",
-            agent.pid, place.label,
+            "model: the agent (pid {}) in {} for {noun} {ids} {runs}, and an item of the {} tier takes {wanted}. Stop the agent at its next clean point and continue the {noun} with an agent that runs {wanted}",
+            agent.pid,
+            place.label,
+            tier.word(),
         )));
     }
     lines
