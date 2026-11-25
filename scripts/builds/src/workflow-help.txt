@@ -568,8 +568,9 @@ DESIGN CHANGES
 The design session lands its boards through a design change, which the person
 reviews and approves first. `builds help lists` (DESIGN CHANGES) gives the
 record's fields and commands. In a project that publishes a canvas (`builds
-lists design-globs PROJECT --canvas yes|no`), such as bae, each design change
-gives each board's canvas link; builds keeps its boards in the repo only.
+lists design-globs PROJECT --canvas yes|no`), such as bae, builds keeps its
+boards in the repo only: recording, reviewing, approving and landing a design
+change need no canvas link, artifact or claude.ai account (decision #702).
 Landing a design change publishes nothing (PUBLISHING DESIGNS).
 
 The design session records a fix that changes no design with `fix`, and the fix

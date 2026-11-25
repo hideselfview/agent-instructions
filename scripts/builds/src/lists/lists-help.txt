@@ -656,7 +656,6 @@ session that recorded the change has ended. builds sends no second message.
   builds design record --request FILE       (`-` for standard input)
       FILE: {"title", "details", "worktree", "range": "origin/main..HEAD",
       "places": {PLACE: null | {"item": N} | {"new": ITEM_DRAFT} | {"matches": HOW}},
-      "boards": {BOARD: {"link": CANVAS_URL}},
       "review": {"heading": H,
                  "boards": [{"board": BOARD_PATH, "caption": C,
                              "theme": "light" | "dark",
@@ -713,9 +712,9 @@ session that recorded the change has ended. builds sends no second message.
       changes one. Shared files that are no source (a README, a build script)
       change no drawing. For these files, the request gives only
       `no_app_place`, unless `places` names a place.
-      `boards` gives every board place its canvas link in a project that
-      publishes a canvas (`lists design-globs --canvas yes`); a request of
-      any other project has no `boards`, and its change holds no links.
+      A request holds no canvas or artifact link: no step that records,
+      reviews, approves or lands a design change needs claude.ai
+      (decision #702).
       `fix` says what a change that changes no design fixes: boards made to
       follow the design system's measures, a drawing mistake corrected, a
       board deleted because the app can no longer reach the state it draws,
@@ -759,7 +758,7 @@ session that recorded the change has ended. builds sends no second message.
       now, so record and amend refuse `show_now` on it. The page lists each
       other board place of the change by name, folded, and the person opens
       any of them to its proposal. A board file the range deletes needs no
-      answer, link or place on the page: the page lists it by name as
+      answer or place on the page: the page lists it by name as
       deleted, and it opens to its now.
       `circles` on a board names what changed on it, and a board needs none
       when its proposal shows the change without one (decision #369): one
@@ -785,8 +784,7 @@ session that recorded the change has ended. builds sends no second message.
       size in design/mocks/canvas.json.
       Refused, naming each, when an answer names a place the range does not
       change, `matches` has no how,
-      an item is closed or missing, a board of a project that publishes a
-      canvas has no link, a project that publishes none gives `boards`,
+      an item is closed or missing,
       `review` is missing or has a heading with no text, a board of it is no
       file, no board place or has no caption, a component of it has no
       preview at the range's last commit, is no component name or has a
@@ -796,13 +794,13 @@ session that recorded the change has ended. builds sends no second message.
       or a box with no width or height, or gives both or neither of a
       selector and a box, or the range
       changes no design files. A canvas.json the range changes is a place
-      to answer like any other, and is no board: it takes no link and no
-      place on the review page.
+      to answer like any other, and is no board: it takes no place on the
+      review page.
 
   builds design amend N --request FILE
       The same over a new range, which N then holds to: a stored place the
       range no longer changes (a board renamed before landing) drops out with
-      its board link and its place on the review page. `places` sets the app
+      its place on the review page. `places` sets the app
       work of each place it answers, replacing any it had; a place it gives
       `null` or leaves out keeps the app work it has. `title` and
       `details` are optional;
@@ -1060,9 +1058,9 @@ PROJECTS
                     [--spec-files R:GLOB,...] [--by WHO]
       Makes the project's store. --repos names the repo folders the project
       covers, as their main checkouts' folders. --canvas yes says the
-      project publishes its boards as a claude.ai canvas, so its design
-      changes give each board's canvas link; without it the project
-      publishes none. --design-places, --design-sources and --spec-files
+      project publishes its boards as a claude.ai canvas, so the
+      dashboard's Publish to claude.ai form takes its designs; without it
+      the project publishes none. --design-places, --design-sources and --spec-files
       give each repo's design files, one REPO:GLOB each (DESIGN CHANGES,
       above). Refused when the store exists.
 
