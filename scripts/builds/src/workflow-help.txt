@@ -3,173 +3,142 @@ a coordinator runs agents. Read it before you make a worktree, build, land or
 dispatch an agent. A command refuses a step that lacks what it needs, so this
 page states only what no command checks. The project file
 (projects/<project>.md in agent-instructions) names the project's lists,
-worktrees and standing rules. The lists hold what waits on the person and what
-agents can do (`builds help lists`). Read this page and the lists overview, then
-acknowledge them with `builds ack` at session start and after compaction. Use
-`builds brief` to read the coding rules for the paths you will edit.
+worktrees and standing rules, and `builds help lists` describes the lists: what
+waits on the person and what agents can do. `builds brief` prints the coding
+rules for the paths you will edit.
 
-`builds ack` prints the sections every agent uses. A coordinator, a design
-session and a judge also read the sections of their role, with `builds ack
---role coordinator`, `--role design` or `--role judge`: PLAN, BRIEF, EXECUTE,
-DISPATCH and HEALTH CHECK for the coordinator, DESIGN CHANGES and PUBLISHING
-DESIGNS for the design session, JUDGING for the judge. An agent that takes up
-another role reads that role's sections the same way. `builds help workflow`
-prints every section.
+`builds ack`, which every agent runs at session start and after compaction,
+prints the sections every agent uses, with the lists overview. A coordinator, a
+design session and a judge also read the sections of their role, with `builds
+ack --role coordinator`, `--role design` or `--role judge`: PLAN, BRIEF,
+EXECUTE, DISPATCH and HEALTH CHECK for the coordinator, DESIGN CHANGES and
+PUBLISHING DESIGNS for the design session, JUDGING for the judge. An agent that
+takes up another role reads that role's sections the same way. `builds help
+workflow` prints every section.
 
 
 ROLES
 
-A coordinator session plans work and dispatches background agents with a brief
-each. The agents implement, review their own branches and land them. A judge
-session settles the findings of those reviews: when it starts, it runs `builds
-judge listen --project P` for each project it judges, and while it runs,
-builds tells it of each review's findings to settle, and only it and the
-person give a verdict on a finding (REVIEW). When no judge listens, the
-coordinator settles them, unless the coordinator ran the review. An
-independent session settles findings from the coordinator's own review.
-A design session
-draws the boards (pictures of screens, kept in the repo) that the apps are
-built to match: new screens, new layouts, and anything that needs a new component or
-a change to the design system. It takes its items from `builds next --for
-design-session`, from the top, in the order the coordinator takes its own. When
-it starts, it runs `builds design listen --project P` for each project it draws
-for, so that the dashboard can pass the person's publish requests to it
-(PUBLISHING DESIGNS).
-When the person decides a change to an existing screen that the design system's
-existing components can draw, such as new words or a button added to an alert, the
-implementing agent edits the board in the same commit and names the decision. "Design" alone is ambiguous: write "board" or
+A coordinator session plans work and dispatches background agents, each with a
+brief. The agents implement, review their own branches and land them.
+
+A judge session settles the findings of those reviews (REVIEW). When it starts,
+it runs `builds judge listen --project P` for each project it judges, and while
+it listens, only it and the person give a verdict on a finding. When no judge
+listens, the coordinator settles the findings, except those of a review the
+coordinator ran, which an independent session settles.
+
+A design session draws the boards (pictures of screens, kept in the repo) that
+the apps are built to match: new screens, new layouts, and anything that needs
+a new component or a change to the design system. It takes its items from
+`builds next --for design-session`, from the top, in the order the coordinator
+takes its own. When it starts, it runs `builds design listen --project P` for
+each project it draws for, so that the dashboard can pass the person's publish
+requests to it (PUBLISHING DESIGNS). When the person decides a change to an
+existing screen that the design system's existing components can draw, such as
+a button added to an alert, the implementing agent edits the board in the same
+commit and names the decision. "Design" alone is ambiguous: write "board" or
 "product design" for screens and how they look, and "software plan" for the
 shape of code and data.
 
-A question for the person goes on the stack first, with `builds question ask`.
-Then any session may ask the person, or ask another session to ask them,
-naming the entry's id. No session sends the person a question that is not on
-the stack, because the Waiting on you tab shows only the stack. A question
-leaves the stack only with the person's answer, or with a stored reason that
-names the rule, spec text, earlier decision or code that settles it
-(`builds help lists`, DECISION STACK).
+A question for the person goes on the stack first (`builds question ask`),
+because the dashboard's Waiting on you tab shows only the stack. Then any
+session may ask the person, or ask another session to ask them, naming the
+entry's id.
 
-No stack entry, work item or brief tells an agent or the person that the
-person decided something unless the sentence that says so names where that is
-written: the decision that records it (`decision #N`), a rule file such as
-rules/<group>/<rule>.md, ~/.claude/CLAUDE.md, the CLAUDE.md of repo <repo>, or
-a section of a builds help page, such as builds help workflow, DISPATCH. An
-agent's brief, its own earlier summary or a line copied between briefs records
-nothing. Before `question ask`, `question edit`, the answer, settle and done
-requests, `item add`, `item edit`, `decision add` and `design record` and
-`amend` write, builds asks a reviewer for each sentence of their text that
-says the person decided, ruled, chose, prefers, forbids or allowed something,
-checks that each one names a source that exists, and refuses the command,
-quoting the sentence, when one names none (`builds help lists`, RULINGS).
-When the person has not decided, ask them instead of stating what they want.
-`question show` and the dashboard print the title of each decision an entry
-cites.
+No stack entry, work item or brief says that the person decided something
+unless the sentence names where that is written: the decision that records it
+(`decision #N`), a rule file such as rules/<group>/<rule>.md,
+~/.claude/CLAUDE.md, the CLAUDE.md of repo <repo>, or a section of a builds help
+page, such as builds help workflow, DISPATCH. A brief, an agent's earlier
+summary or a line copied between briefs records nothing, and builds refuses a
+write whose sentence names no source (`builds help lists`, RULINGS). When the
+person has not decided, ask them instead of stating what they want.
 
 Work that waits on the person, such as a step only they can take at their Mac,
 goes on the stack as a your-step question (`builds question ask --kind
 your-step`), and each item or held worktree that waits on it waits on
-`question:N`. The dashboard shows such a wait under Waiting on you, and shows a
-wait on a condition under Paused. So a condition names who ends it (`--until
-agent|coordinator|ci`), never the person, and builds refuses one that waits on
-the person.
+`question:N`. The dashboard shows such a wait under Waiting on you, and a wait
+on a condition under Paused, so a condition names the agent, coordinator or CI
+that ends it (`--until`), never the person.
 
 
 WORKTREES
 
-Each repo keeps a main checkout and one long-lived side worktree, side-1. The
-branch, not the worktree, is the unit of work.
+Each repo keeps a main checkout and side worktrees. The branch, not the
+worktree, is the unit of work.
 
   - The main checkout stays on main, for iterative work and edits made with
     the person. No agent edits, builds or commits there, and `builds land`
     fast-forwards it after each landing (LANDING).
-  - side-1 is for background work: each feature or fix is a new branch from
-    origin/main there. It stays built, so never delete or recreate it.
+  - side-1 is the long-lived side worktree for background work: each feature
+    or fix is a new branch from origin/main there. It stays built, so never
+    delete or recreate it.
   - Extra side worktrees (side-2 and on) are for agents that work at the same
-    time. `builds new` hands one out and claims it; `builds health` and
-    `builds prune` retire free ones whose work has all landed. An agent works
-    in the worktree its brief names, or one it gets from `builds new --for`,
-    never a side-N it picked by hand.
+    time. An agent works in the worktree its brief names, or one it gets from
+    `builds new --for`, never a side-N it picked by hand.
   - A claimed side worktree takes an agent's commands only on the branch of
-    the item running in it. `builds app-build`, `review`, `land`, `cargo`,
-    `checks` and `item` refuse when an agent (`--agent` or BUILDS_AGENT) runs
-    them there on another branch or a detached HEAD, and name the claim's
-    holder and branch. A rebase or cherry-pick in progress passes. An agent
-    that finds this refusal in a worktree it used before has lost that
-    worktree to another agent: it works nothing there and gets its own from
-    `builds new --for`. A claim whose item has not started has no branch, and
-    the commands run.
-  - App checkouts keep the app builds built, and agents take turns in them
-    through `builds app-build`; every other side worktree builds host Rust
-    output only (`builds help`, APP BUILDS). Each repo's app builds have a
-    lane per platform (mac, android), with its own app checkouts and queue.
-    The builds tool adds app checkouts on a host while app builds wait in a
-    lane's queue and removes them once no build uses them, so nobody adds one
-    by hand when many app builds wait.
-  - agent-instructions, which holds builds, works the same way: agents
-    commit on a branch in a side worktree from `builds new
-    ~/dev/agent-instructions --for <who> --project builds` (`--project bae`
-    for bae's rules and project file), never in the main checkout. The main
-    checkout is the live copy that install.sh links, so a commit on a side
-    branch installs nothing (`builds help`).
+    the item running in it.
+    - `builds app-build`, `review`, `land`, `cargo`, `checks` and `item`
+      refuse when an agent (`--agent` or BUILDS_AGENT) runs them there on
+      another branch or a detached HEAD, and name the claim's holder and
+      branch. A rebase or cherry-pick in progress passes, and so does a claim
+      whose item has not started.
+    - An agent that meets this refusal in a worktree it used before has lost
+      that worktree to another agent: it works nothing there and gets its own
+      from `builds new --for`.
+  - App checkouts keep the app builds built. Each lane (mac, android) has its
+    own app checkouts and queue, and agents take turns in them through
+    `builds app-build`. builds adds and removes app checkouts as the queues
+    need, so nobody adds one by hand (`builds help`, APP BUILDS).
+  - agent-instructions, which holds builds, works the same way, in side
+    worktrees from `builds new ~/dev/agent-instructions --for <who> --project
+    builds` (the opening of `builds help`).
   - Work that origin/main lacks (commits, or files not committed) leaves a
-    worktree only by landing, or with an item that holds it: an item that
-    keeps the worktree and branch while it waits in the queue (`builds item
-    stop` records them when an item's run ends with work left there), an item
-    running there, or one taken there held on the person (`builds item take
-    --held`). `builds release` refuses every other worktree with such work,
-    on its HEAD, on a branch it left since its claim began or in its files,
-    and names the ways to keep it: land it, or take an item there, held when
-    the item waits on something open. A commit with the same patch as a
-    commit on a branch that another worktree checks out, or that an open item
-    holds, is no such work: release frees a worktree whose commits are all
-    copies of that kind, and names the branch that keeps them.
-    `builds new` hands out no such worktree, and none where an item runs.
-    Only the person throws work away, by dropping its item (`builds item
-    drop`), which records the commits and files on the closed item, deletes
-    the branch and frees the worktree. Drop refuses an item that shares its
-    worktree with other items: stop it first (`builds item stop`), which
-    leaves the work to them.
+    worktree only by landing, or with an item that holds it: one that keeps
+    the worktree while it waits in the queue (`builds item stop` records the
+    work when a run ends with work left), one running there, or one taken
+    there held on the person (`builds item take --held`). `builds release`
+    refuses every other worktree with such work, and `builds new` hands none
+    out (`builds help`, WORKTREES AND CLAIMS). Only the person throws work
+    away, by dropping its item (`builds item drop`, `builds help lists`).
 
 Land the fixes you have ready together, in one batch (decision #1391 in
-project bae). Each branch gets its own review and, for app changes, its own
-app build, and each landing runs its own compile check, so five fixes that
-land one by one take five reviews, five compile checks and five app builds. An
-agent with several fixes in hand, such as the items of its brief or a design
-session's fixes, makes them all on one branch, one commit for each fix. When
-you find a difference in a component or board you are already changing, fix
-it in its own commit on the same branch and land it with the rest of the
-batch (decision #604 in project builds). An agent that finds a series of
-cleanups one after another as it works, such as moving one kind of literal
-onto tokens and then the next kind, makes them on one branch the same way,
-with no review, record or landing between them. The branch gets one review,
-which the agent runs with `--item N` for each item,
-and the agent lands it with one `builds land` that names each item with
+project bae), since each branch takes its own review, compile check and, for
+app changes, app build. An agent with several fixes in hand, such as the items
+of its brief, makes them all on one branch, one commit for each fix. A
+difference you find in a component or board you are already changing gets its
+own commit on the same branch (decision #604 in project builds), and so does
+each cleanup of a series you find one after another as you work, with no
+review, record or landing between them. The branch gets one review, run with
+`--item N` for each item, and one `builds land` that names each item with
 `--done N` and each design change with `--design N`. Each commit still holds
 one concern. The agent compares the full set of boards, or runs the full test
 suite of the code it changed, once after the batch's last commit, and before
-then checks only what each change touches. The agent runs the branch's app
-build last, after that comparison and after the review's fixes (WHAT AN
-IMPLEMENTING AGENT DOES, step 9). A fix waits for the batch only
-while the agent still works on the other fixes it holds or the next cleanup of
-its series, and never waits for work that nobody has started.
+then checks only what each change touches. The app build runs last (WHAT AN
+IMPLEMENTING AGENT DOES, step 9). A fix waits for the batch only while the
+agent still works on its other fixes or the next cleanup of its series, never
+for work that nobody has started.
 
 
 BUILDS
 
-Every build follows three rules, which `builds help` explains (CARGO, BUILD
-FOLDERS and APP BUILDS). Run every cargo command through `builds cargo`, which
-bae's and coven's scripts/cargo.sh runs, except the subcommands it refuses,
-such as fmt (`builds help`, CARGO). Never set CARGO_TARGET_DIR or another
-CARGO_* variable, on a command or in a script: each checkout builds into its
-own folders on /Volumes/Builds, and sccache's key holds the path and every
-CARGO_* variable, so a build with another path or another CARGO_* variable gets
-no cache hits; a setting goes in a --config argument or in Cargo.toml. An app
-build (`builds app-build <repo> <branch>`) runs only the test classes and the
-shots of the screens the change touches (--test <Class>, --shots mac.welcome.),
-and CI runs the full suites. `--all-shots mac|android` runs every shot of one
-lane with the installed shots program; `builds shots check-program` runs a
-branch's shots program over such a run's cached report, to check a change to
-the shots program (`builds help`, APP BUILDS).
+Every build follows three rules (`builds help`, CARGO, BUILD FOLDERS and APP
+BUILDS):
+
+  - Run every cargo command through `builds cargo`, which bae's and coven's
+    scripts/cargo.sh runs, except the subcommands it refuses, such as fmt.
+  - Never set CARGO_TARGET_DIR or another CARGO_* variable, on a command or
+    in a script. Each checkout builds into its own folders on /Volumes/Builds,
+    and sccache's key holds the path and every CARGO_* variable, so such a
+    build gets no cache hits. A setting goes in a --config argument or in
+    Cargo.toml.
+  - An app build (`builds app-build <repo> <branch>`) runs only the test
+    classes and the shots of the screens the change touches (--test <Class>,
+    --shots mac.welcome.), and CI runs the full suites. `--all-shots
+    mac|android` runs every shot of one lane with the installed shots
+    program, only to make a run that `builds shots check-program` checks a
+    change to the shots program against.
 
 
 PLAN, BRIEF, EXECUTE
@@ -179,36 +148,34 @@ PLAN, BRIEF, EXECUTE
     open questions go on the decision stack.
   - Brief: each queued item gets a brief that states the goal, the shape, the
     facts gathered so far (measurements, logs, leads), what must hold, and the
-    checks. A brief leaves the executor no design decision, but doesn't name
-    each file and line: the executor reads the code. Before writing a brief
-    or settling a choice an agent raises, the coordinator reads the spec's
-    text on each behavior the change touches, and the brief points at it.
-    The spec is a draft that the coding rules outrank, and the person
-    decides each change to what it says. `builds item take` checks the brief
-    against the spec before the agent starts (DISPATCH). Each sentence of a
-    brief that states a ruling of the person's, or a prohibition meant to
-    hold beyond the task, names where it is written (ROLES): each hard
-    limit that DISPATCH lists names the CLAUDE.md or the builds help
-    section that states it. A brief never copies such a sentence from
-    another brief without its citation. `builds help briefs` is the
-    instructions for a planner agent that writes briefs.
-  - For implementation, the brief specifies the behavior and how to test it.
-    Use the implementation tier and name the model on each dispatch. In
-    Claude, use claude-sonnet-5-5 for this work; in Codex, GPT-6.2 Sol
-    (gpt-6.2-sol). `builds health` lists an implementing agent that runs
-    another model, or names none.
-  - Use the strongest tier for coordination, planning and review. In Claude,
-    use claude-opus-5-5 for these roles; in Codex, GPT-6.2 Astra
-    (gpt-6.2-astra). When a brief leaves a design decision
-    open, the coordinator settles it or assigns a planner. A planner's brief
-    says what the coordinator read and what stays unknown. Document edits and surveys that require judgment use this tier too.
+    checks.
+    - A brief leaves the executor no design decision, and leaves the files and
+      lines to the executor, who reads the code.
+    - Before writing a brief or settling a choice an agent raises, the
+      coordinator reads the spec's text on each behavior the change touches,
+      and the brief cites it. `builds item take` checks the brief against
+      the spec (DISPATCH).
+    - Each sentence of a brief that states a ruling of the person's, or a
+      prohibition meant to hold beyond the task, names where it is written
+      (ROLES), and so does each hard limit that DISPATCH lists.
+    - `builds help briefs` is the instructions for a planner agent that
+      writes briefs.
+  - Implementation: the brief specifies the behavior and how to test it. Name
+    the implementation tier's model on each dispatch: claude-sonnet-5-5 in
+    Claude, GPT-6.2 Sol (gpt-6.2-sol) in Codex. `builds health` lists an
+    implementing agent that runs another model.
+  - Use the strongest tier for coordination, planning, review, and document
+    edits and surveys that require judgment: claude-opus-5-5 in Claude,
+    GPT-6.2 Astra (gpt-6.2-astra) in Codex. When a brief leaves a design
+    decision open, the coordinator settles it or assigns a planner, whose
+    brief says what the coordinator read and what stays unknown.
   - Review: each agent reviews its branch against the rules, the judge
     settles the findings, and the agent lands the branch once no confirmed
     finding is open (REVIEW, LANDING).
   - At every step, check the shape against the project's standing rules,
-    which a plan's author never loads by touching files; the project file
-    names them. A plan that proposes a shape they forbid is rewritten before
-    dispatch, and a review refuses a commit that brings one in.
+    which the project file names and which a plan's author never loads by
+    touching files. A plan that proposes a shape they forbid is rewritten
+    before dispatch, and a review refuses a commit that brings one in.
   - For work that builds an app screen to match its board, follow the rule
     the project file names for it.
 
@@ -222,72 +189,64 @@ WHAT AN IMPLEMENTING AGENT DOES
   2. Branch from origin/main in its claimed worktree.
   3. Implement to the brief. A bug fix starts with its failing test. The
      first time you edit a file in Claude Code, builds adds to your context
-     each coding rule that covers it, and after a rule the findings that
-     recent first reviews confirmed of it most often (`builds rules-on-edit`):
-     builds counts them in the project's records and, for the rules every
-     project shares, in the other projects' records, and lists a rule's
-     findings when it has two or more, with the paragraphs they quote most.
-     Write the draft so it has none of those findings. In Codex, and for
-     paths you have not edited, `builds brief` prints the rules.
+     each coding rule that covers it, and after each rule the findings that
+     recent first reviews confirmed of it most often (`builds help`,
+     ACKNOWLEDGING THE RULES). builds counts them in the project's records
+     and, for the rules every project shares, in every project's. Write the
+     draft so it has none of those findings. In Codex, and for paths you have
+     not edited, `builds brief` prints the rules.
   4. Review its own diff once, against the brief and the matching rules.
   5. Check only what the change touches: the hook, the tests of the changed
      code and, for app changes, the app build, which runs last (step 9).
      Nobody runs a full test suite or the full CI script locally: CI runs
      them, and a whole app test suite also opens the app on the person's
-     screen. To run the hook's checks over every file the branch changed,
-     run `builds checks run --since origin/main`, which leaves HEAD, the
-     index and the files on the branch. Never move HEAD to check a branch:
-     an app build started meanwhile builds what HEAD points at.
+     screen. `builds checks run --since origin/main` runs the hook's checks
+     over every file the branch changed and leaves HEAD, the index and the
+     files as they are. Never move HEAD to check a branch: an app build
+     started meanwhile builds the commit HEAD names.
   6. Before every commit, including fix commits, reread every app string,
      error, help text, doc and spec line it adds against
-     rules/text-people-read/write-plain-literal-active-sentences.md, and
-     fix what it finds. That rule does not cover code comments or commit
-     messages: reread those for whether they are accurate. No review that an
-     agent runs or that a landing waits on checks wording: the person reviews
-     copy by hand, and only the person runs the copy review (`builds review
-     copy`), which does.
+     rules/text-people-read/write-plain-literal-active-sentences.md, and its
+     code comments and commit messages for whether they are accurate. No
+     review that an agent runs or that a landing waits on checks wording
+     (REVIEW).
   7. Commit through the hook. When the commit edits a board for a change the
      person decided (ROLES), record the edit with `builds design record` and
-     the decision's id as its `decision` (DESIGN CHANGES), and amend the
+     the decision's id as its `decision` (BOARD EDITS OF A DECIDED CHANGE),
+     and amend the
      change with the same `decision` after any later commit that changes the
      board again.
-  8. Once the work is committed, review the branch (REVIEW) with `--kind`:
-     `--kind mechanical --checked-by TEXT` when it only moves or renames
-     code, regenerates files or applies a codemod, never split into parts
-     for a review, then land it; otherwise `--kind code`: run `builds
-     review <worktree> --item N` as a background task, then, when it tells
-     the judge or the coordinator of findings, `builds review wait <landing>`
-     as a background task, which ends once no finding waits for a settle. Fix
-     each confirmed finding in a new commit and run `builds review` again,
-     until no confirmed finding is open. When a confirmed finding looks
+  8. Once the work is committed, review the branch (REVIEW). A change that
+     only moves or renames code, regenerates files or applies a codemod takes
+     `--kind mechanical --checked-by TEXT` and then lands. Any other change
+     takes `builds review <worktree> --kind code --item N` as a background
+     task, then, when it reports findings, `builds review wait <landing>` as a
+     background task. Fix each confirmed finding in a new commit and review
+     again, until no confirmed finding is open. When a confirmed finding looks
      wrong, dispute it once (`builds review dispute`) instead of fixing it.
   9. Run the branch's app build last, so that no later commit makes it run
      again (decision #634 in project builds): after the full comparison of
-     boards on a design branch, and after the fixes of the review's
-     confirmed findings. The review may run while the agent compares the
-     boards.
-     `builds app-build <repo> <branch>` picks the steps, lane and host
-     (BUILDS). builds refuses a whole lane's shots in --shots (mac. or
-     android.) and the steps a `ci-only` line of `.app-build` names. Run a
-     whole lane's shots with `--all-shots` only to make a run that `builds
-     shots check-program` compares a change to the shots program with.
-     A shots check compares against the findings of the commit the branch
-     started from: read them with `builds shots findings`, never by building
-     that commit, and open the report path it prints, never a checkout's
-     shots/ folder. To fix a run's shot findings, start from `builds shots
-     findings ... --by-cause`, which ranks the design-system components
-     behind the findings by the scenes they break: fix the component at the
-     top once, not each scene it breaks. A component's shots go in its
-     capture file, Components/<Component>.<extension> in the platform's
-     shots-declared folder, one shot for each row of its preview (`builds
-     help`, APP BUILDS): before you add or move them, run `builds shots
-     components <Component>`, which lists each row with the file that
-     declares its shot. Each fix is a new commit, which the review reads
-     (step 8) before the app build runs again.
+     boards on a design branch, and after the fixes of the review's confirmed
+     findings. The review may run while the agent compares the boards.
+     - `builds app-build <repo> <branch>` picks the steps, lane and host
+       (BUILDS).
+     - A shots check compares against the findings of the commit the branch
+       started from: read them with `builds shots findings`, never by building
+       that commit, and open the report path it prints, never a checkout's
+       shots/ folder.
+     - To fix a run's shot findings, start from `builds shots findings ...
+       --by-cause`, which ranks the design-system components behind the
+       findings by the scenes they break: fix the component at the top once,
+       not each scene it breaks.
+     - A component's shots go in its capture file, one shot for each row of
+       its preview (`builds help`, APP BUILDS). Before you add or move them,
+       run `builds shots components <Component>`, which lists each row with
+       the file that declares its shot.
+     - Each fix is a new commit, which the review reads (step 8) before the
+       app build runs again.
  10. Land the branch with `builds land` in this worktree, with the brief's
      items (LANDING), once nothing is unreviewed, no confirmed finding is
-     open and, for app changes, the app build has passed. Land refuses a
-     worktree with uncommitted changes.
+     open and, for app changes, the app build has passed.
  11. Report the landed commits and the checks, or what stopped the landing.
 
 Agents share their coordinator's scratchpad folder, so each keeps its scratch
@@ -302,15 +261,14 @@ HANDOFF, AUDITS AND FLAKY TESTS
     handoff`).
   - Read-only agents (planners, audits) read origin/main through `git show`
     and `git grep`, never a checkout.
-  - Flaky tests and speed work (profiling, benchmarks, timing a build) never go
-    in the work queue. They need a quiet machine: on a loaded one, load hides
-    the cause and skews every number, and repeated runs slow every other agent.
-    Open a GitHub issue for each one instead, with what you know so far, and
-    take it off the queue. Whoever works the issue does it on a quiet machine,
-    and finds a flaky test's cause from its failure output and code. Logs that
-    record the state at the failure, such as which process holds a lock, show
-    the cause; run one test alone, which you pick by name, never the whole
-    suite in a loop.
+  - Flaky tests and speed work (profiling, benchmarks, timing a build) never
+    go in the work queue, because they need a quiet machine: on a loaded one,
+    load hides the cause and skews every number, and repeated runs slow every
+    other agent. Open a GitHub issue for each one instead, with what you know
+    so far, and take it off the queue. Whoever works the issue does it on a
+    quiet machine, and finds a flaky test's cause from its failure output,
+    code and logs that record the state at the failure. Run one test alone,
+    by name, never the whole suite in a loop.
 
 
 DISPATCH
@@ -325,78 +283,70 @@ DISPATCH
     agent only when no finished agent under the handoff size knows the area,
     or the item needs a different model.
   - Each brief names its worktree, its items, and the project's hard limits
-    (the person's checkouts, the keychain, devices,
-    cargo through the wrapper, no `git add -A` or stash, no --no-verify), and
-    "review and land through builds; don't push main". Send the worker the
-    brief's path. A brief carries no coding rules and no workflow text:
-    builds gives a Claude Code agent each rule when it first edits a file
-    the rule covers (`builds rules-on-edit`) and every agent the workflow
-    when it runs `builds ack`, and `builds item take` refuses a brief that pastes either. Each
-    worker credits its own model in the commit trailer.
-  - Critical work starts first. Critical work is what the person sees in the
-    apps (a screen, a bug, a feature the person asked for), builds work that
-    blocks or slows the agents, and the cleanups the person marks critical. The
-    coordinator places each critical item first (`--priority first`). A cleanup
-    is critical only when the person says so: ask before placing one first. The
-    screen-reads cleanup is critical, because the iOS, Windows and Linux apps
-    wait on it, so that they don't copy the ways of reading data that the
-    cleanup replaces with plain live queries. Other cleanups (rewording,
-    deleting dead code, merging duplicate types) start only when no critical
-    item is ready.
-  - Take items from `builds next`, from the top: items placed first, then
-    the items that other open items wait on (most first), then the rest by
-    area and age. Claim the worktree (`builds claim`), mark
-    the items running (`builds item take`), keep the worktree's note current
-    (`builds note`) on every dispatch and handoff. When an agent stops before
-    its work lands, stop its item (`builds item stop`), which keeps the
-    worktree and branch for the item; release a worktree by hand only when it holds nothing origin/main lacks
-    (release refuses the rest). `builds item list --running` shows what runs
-    after a compact.
-  - `builds item take` refuses a brief whose sentence states a ruling of the
-    person's, or a standing prohibition, and names no source that records it,
-    and quotes the sentence: cite the decision, rule file, CLAUDE.md or
-    builds help section, or take the sentence out of the brief and ask the
-    person.
-  - `builds item take` checks the brief against the product spec before it
-    marks the items running. When the check finds a conflict, take refuses
-    and quotes the brief's sentence and the spec's text: put the conflict on
-    the decision stack with which text looks wrong and why, or fix the brief
-    when the brief is wrong. Once the person decides, take the items again
-    with --spec-decided N, the decision or question that records the choice.
-    When take prints a behavior the spec doesn't state, tell the agent to add
-    it to the spec in its commit.
+    (the person's checkouts, the keychain, devices, cargo through the
+    wrapper, no `git add -A` or stash, no --no-verify), and "review and land
+    through builds; don't push main". Send the worker the brief's path.
+    - A brief carries no coding rules and no workflow text: builds gives a
+      Claude Code agent each rule when it first edits a file the rule covers
+      (`builds rules-on-edit`) and every agent the workflow when it runs
+      `builds ack`, and `builds item take` refuses a brief that pastes
+      either.
+    - Each worker credits its own model in the commit trailer.
+  - Critical work starts first: what the person sees in the apps (a screen, a
+    bug, a feature the person asked for), builds work that blocks or slows
+    the agents, and the cleanups the person marks critical.
+    - The coordinator places each critical item first (`--priority first`).
+    - A cleanup is critical only when the person says so: ask before placing
+      one first.
+    - The screen-reads cleanup is critical: the iOS, Windows and Linux apps
+      wait on it, so that they don't copy the ways of reading data that it
+      replaces with plain live queries.
+    - Other cleanups (rewording, deleting dead code, merging duplicate types)
+      start only when no critical item is ready.
+  - Take items from `builds next`, from the top: items placed first, then the
+    items that other open items wait on (most first), then the rest by area
+    and age. Claim the worktree (`builds claim`), mark the items running
+    (`builds item take`), and keep the worktree's note current (`builds
+    note`) on every dispatch and handoff. When an agent stops before its work
+    lands, stop its item (`builds item stop`), which keeps the worktree and
+    branch for the item. Release a worktree by hand only when it holds
+    nothing origin/main lacks. `builds item list --running` shows what runs
+    after a compaction.
+  - When `builds item take` refuses a brief's sentence that states a ruling of
+    the person's, or a standing prohibition, and names no source, cite the
+    decision, rule file, CLAUDE.md or builds help section, or take the
+    sentence out of the brief and ask the person.
+  - `builds item take` checks the brief against the product spec. When it
+    refuses for a conflict, put the conflict on the decision stack with which
+    text looks wrong and why, or fix the brief when the brief is wrong. Once
+    the person decides, take the items again with --spec-decided N, the
+    decision or question that records the choice. When take prints a behavior
+    the spec doesn't state, tell the agent to add it to the spec in its
+    commit.
   - Brief a mechanical change (moved or renamed code, generated files, a
-    codemod) as one change, never in parts to fit the review cap, and tell
-    the agent to review it with `--kind mechanical --checked-by TEXT` and land
-    it on the compiler, the hook and its machine check. Judges and
-    coordinators spend review usage only on code people wrote (REVIEW).
+    codemod) as one change, and tell the agent to review it with `--kind
+    mechanical --checked-by TEXT` (REVIEW).
   - Dead code, code that nothing outside tests calls, is never a question
-    for the person. Whoever finds dead code deletes it in the work they do.
-    When the dead code is outside that work, as with an audit's findings,
-    the finder adds a queue item at once that deletes it, never a stack
-    entry. Dead code on main that is the only code doing a behavior the spec
-    states is the one exception: put a question on the stack that quotes
-    the spec's text, and the person decides whether to build the code's
-    caller or delete the code and the spec's text
-    (rules/necessary-code/write-only-what-is-needed-today.md, Dead code).
+    for the person: whoever finds it deletes it, or queues its deletion when
+    it is outside their work. The one exception, dead code that is the only
+    code doing a behavior the spec states, is in
+    rules/necessary-code/write-only-what-is-needed-today.md (Dead code).
   - Disk is a queue limit, never a question for the person: under the floor,
     start nothing new, and start the next work as agents finish and their
     build folders are pruned.
   - Keep the 5-minute load of every build host in its band while ready items
-    wait: when `builds health` says a host is under its band, start agents
-    on the next ready items. While every host that takes cargo work is over
-    its band, start nothing new, except items of project builds: they start
-    whatever the load. A host over its band holds nothing back while another
-    host that takes cargo work is under its band, since `builds cargo` sends
-    the work there. The person sets each host's band (`builds host band`);
-    a host with none has 0.75 to 1.25 times its cores. A host whose
-    kernel reports memory pressure at warning or critical is over its band
-    whatever its load, and health says its memory next to its load. A host
-    whose CPU sits under 5% idle has no room, even with its load under its
-    band, so start no agents for it; health says its CPU's idle share next
-    to its load.
-  - Another worktree may keep an app build while the work of several agents
-    needs it; clear it once those agents finish (`builds help`, APP BUILDS).
+    wait (`builds host band`; a host with none has 0.75 to 1.25 times its
+    cores).
+    - When `builds health` says a host is under its band, start agents on the
+      next ready items.
+    - While every host that takes cargo work is over its band, start nothing
+      new, except items of project builds, which start whatever the load. A
+      host over its band holds nothing back while another host that takes
+      cargo work is under its band, since `builds cargo` sends the work there.
+    - A host whose kernel reports memory pressure at warning or critical is
+      over its band whatever its load. A host whose CPU is under 5% idle has
+      no room, so start no agents for it. Health shows each host's memory and
+      CPU idle share next to its load.
   - When an agent finishes, start the next work in the same turn, before
     writing up anything else. The agent landed its own commits; land them
     yourself only when the agent ended before it could.
@@ -406,234 +356,145 @@ REVIEW
 
 In a repo of a project with lists, each implementing agent reviews its branch
 against agent-instructions' rules with `builds review` before it lands the
-branch, and `builds land` refuses the branch until the review finishes. The
-judge settles the findings, and never the agent whose branch holds them. builds
-splits the rules into groups and runs one reviewer per group that covers a
-changed path. A review shows the changes since the last review, and nothing
-else: builds sends a reviewer no diff twice, except that it asks a group again over the whole net change when nothing is unread and the group holds an open confirmed finding. The review checks code
-and whether text is accurate, never word choice, grammar or style: the person
-reviews copy by hand, and the copy review (`builds review copy`) is theirs to
-run. The review checks design files (the boards, the design system and
-canvas.json, by the project's design globs) only against the rules about how a
-screen, board or component looks, never against the rules about code (decision
-#364). Each such rule says so in its front matter (`design: true`), and no
-other rule reads a design file. The review searches screenshot capture files
-(the files below each `shots-declared` folder of the repo's .app-build) for
-new findings only under rules marked `capture: true` (decision #397,
-`builds help`, LANDING AND REVIEW). A group that holds an open confirmed
-finding also reads capture file changes to decide whether the branch fixes it.
+branch, and the judge settles the findings, never the agent whose branch holds
+them. The code-rules-review skill gives the agent's steps, and `builds help`
+(LANDING AND REVIEW) says how builds finds the changes since the last review,
+what each reviewer reads, and the review commands.
 
-Spend review usage only where a review can find something (decision #401).
-`builds review` takes a required `--kind code|mechanical`. `--kind code` runs
-the reviewers. `--kind mechanical --checked-by TEXT` starts no reviewer: the
-agent calls the change mechanical, one that only moves or renames code,
-regenerates files or applies a codemod, and names the check that covers it
-(the compiler, the hook, a shots run for capture files, the states check for
-boards). Such a change is one change: nobody splits it into parts to get under
-the review cap. `builds land` records who made the call and the check, takes
-the branch whole with no review while its net change keeps its patch id, and
-says both. A branch
-that mixes a mechanical move with code someone wrote is two branches. With no
---kind, builds refuses, except for a pure rename, a design-only change and a
-change of capture files only, which it already knows. Reviews are for code people wrote.
+builds splits the rules into groups and runs one reviewer per group that covers
+a changed path. A review reads only the committed changes since the last
+review. It checks code and whether text is accurate, never word choice, grammar
+or style: the person reviews copy by hand and runs the copy review (`builds
+review copy`). It reads design files (the boards, the design system and
+canvas.json) only under the rules about how a screen, board or component looks
+(decision #364), and screenshot capture files only under the rules about shots
+(decision #397).
 
-  1. The agent commits its work, then runs `builds review <worktree> --item N`
-     on its branch, which gives the reviewers the item's brief. A review reads
-     commits only, so `builds review` refuses a worktree with uncommitted
-     changes, as `builds land` does, naming the files, before it starts any
-     reviewer. The first review reads the
-     branch's whole net change. builds records the agent as the agent of the
-     branch, and tells the judge of the findings nobody has settled, in one
-     message that names the landing, the findings and the worktree. With no
-     judge listening, builds tells the agent's coordinator instead. When a
-     judge starts listening, and after each settle, dispute and answer,
-     builds also sends the judge each finding that waits for it, that builds
-     has not told the judge's session of, and that no running builds process
-     is telling it of.
+Spend review usage only where a review can find something (decision #401):
+reviews are for code people wrote. `builds review` takes a required `--kind
+code|mechanical`. `--kind code` runs the reviewers. `--kind mechanical
+--checked-by TEXT` starts no reviewer: the agent calls the change mechanical,
+one that only moves or renames code, regenerates files or applies a codemod,
+and names the check that covers it (the compiler, the hook, a shots run for
+capture files, the states check for boards). `builds land` then records who
+made the call and the check, and takes the branch whole with no review while
+its net change keeps its patch id. Nobody splits a mechanical change into parts
+to get under the review cap, and a branch that mixes a mechanical move with
+code someone wrote is two branches. builds needs no --kind for a pure rename, a
+design-only change or a change of capture files only.
+
+  1. The agent commits its work and runs `builds review <worktree> --item N`,
+     which gives the reviewers the item's brief. builds tells the judge of the
+     findings nobody has settled, or, with no judge listening, the agent's
+     coordinator.
   2. The agent runs `builds review wait <landing>` as a background task. No
      message reaches an agent that a session dispatched, so the wait's end
      tells it: the wait ends once no finding waits for a settle, and prints
      each settle with its reason.
-  3. The judge settles each finding as confirmed or dropped, with why. While
-     a judge listens, builds takes a verdict only from the judge and the
-     person, and it never takes a settle from the agent of the finding's
-     branch (JUDGING).
+  3. The judge settles each finding as confirmed or dropped, with why
+     (JUDGING).
   4. The agent fixes each confirmed finding in a new commit and runs `builds
-     review` again. That run reads only the changes since the last review,
-     including the fixes. Each reviewer gives a verdict for every open
-     finding it gets, even when it finds no new issues. Builds closes each
-     finding that the branch fixes and prints why the reviewer kept each
-     other finding open. The judge settles new findings as for the first run.
+     review` again. Each reviewer gives a verdict on every open finding it
+     holds: builds closes each finding the branch fixes, and prints why the
+     reviewer kept each other one open. The judge settles new findings as
+     for the first run.
   5. The agent lands the branch once nothing is unreviewed and no confirmed
      finding is open (LANDING).
 
 An agent that thinks a confirmed finding is wrong disputes it once, with why
-(`builds review dispute N --why TEXT`): builds tells the judge, and the
-agent's `builds review wait` ends once the judge answers. The judge settles the
-finding again as dropped, or keeps it (`builds review keep N --why TEXT`). A
-second disagreement goes to the coordinator, which builds tells nothing: the
-agent reports it, and the coordinator asks the person whether to allow the
-finding to land, or tells the agent to fix it.
+(`builds review dispute N --why TEXT`). The judge settles the finding again as
+dropped, or keeps it (`builds review keep N --why TEXT`). builds tells the
+coordinator nothing of a second disagreement: the agent reports it, and the
+coordinator asks the person whether to allow the finding to land, or tells the
+agent to fix it.
 
-When a group raises an open confirmed finding again with the same rule,
-clause and quoted code at the same place in the file, builds matches the
-report to the open finding. Builds follows the line as edits above it move
-it. For a removed quote in a renamed file, builds follows the line under
-the file's old name. The finding stays open, the run records no new
-finding, builds tells the judge nothing, and the run's report says the
-group still finds it.
+A group that raises an open confirmed finding again at the same place (the same
+rule, clause and quoted code, at a line that edits above it moved, or under the
+old name of a renamed file) keeps it as one open finding. builds tells the
+judge nothing, and the run's report says the group still finds it.
 
 In a later run, each group that holds open findings reads every file that
-changed since the last review, whether or not its rules cover the file,
-because the fix of a finding may be in any file. Each other group reads each
-changed file its rules cover, as on a first review, except a file where a
-group that holds open findings has one: only the groups that hold findings
-there read that file. The groups run at the same time, in the same run, and
-builds asks no group that holds no open finding and covers no changed file.
-For example, the necessary-code group (Necessary code) holds a finding in
-a.rs, the errors group (Errors and invalid state) holds none, and the fix
-changes a.rs and .land-compile, which no rule covers. The necessary-code group
-reads both files and can close its finding, and the errors group, whose rules
-cover a.rs, reads neither. The run's report names each group that did not read
-a file, with the files it did not read.
-
-A group that holds an open finding reads every change since the run that
-raised the finding, with the finding in its message. When the group has not
-read some of those changes with the finding, because a run read them before
-the judge confirmed it, for example, `builds review` asks that group alone
-over the changes since the last net change it read with the finding, even
-when nothing changed since the last review.
-
-Each reviewer that holds an open finding also reads the branch's commits,
-oldest first, each with its message and the files it changes. So a finding that
-asks for a change to go in a commit of its own closes once the branch holds
-that change in a commit of its own, although the net change did not change.
+changed since the last review, because the fix of a finding may be in any file.
+Each other group reads the changed files its rules cover, except a file where a
+group holds an open finding: only the groups that hold findings there read that
+file. The run's report names each group that did not read a file, with the
+files it did not read.
 
 The changes since the last review are the lines the branch adds or removes that
 it did not add or remove at the last review, the lines it no longer changes,
-and the commit messages it did not hold at the last review. A reviewer judges
-only those lines, and builds drops a finding on any other line, so a later run
-never flags a line that the fix did not change. Run `builds review`
-in the branch's worktree again whenever the branch changed since the last
-review: a commit the agent added after the last review, a fix, a squash that
-changed lines, a conflict's resolution or a message the agent reworded. Main's
-own commits that a rebase brings in are no part of the changes, so a rebase
-that keeps every line the branch adds and removes keeps its review, even when
-the lines around them changed, and a rebase that resolves a conflict
-differently leaves only the lines of the resolution to read. After an agent
-rewords a message and changes no file, the run reads only the changed messages
-and closes each finding on the commit messages that they fix. When the agent
-drops the commit that held a confirmed finding's code, the next review reads
-that change and closes the finding. `builds review` refuses another run when
-every group has answered, the review has read every change, and no confirmed
-finding is open.
+and the commit messages it did not hold then. A reviewer judges only those
+lines. Run `builds review` again whenever the branch changed since the last
+review: a new commit, a fix, a squash that changed lines, a conflict's
+resolution or a reworded message. Main's commits that a rebase brings in are
+not part of the changes, so a rebase that keeps every line the branch adds and
+removes keeps its review, and a rebase that resolves a conflict differently
+leaves only the resolution's lines to read. A reworded message alone leaves
+only the changed messages to read, and dropping the commit that held a
+confirmed finding's code closes the finding at the next review.
 
 A confirmed finding stays open until a later review closes it, the judge
 settles it again as dropped after a dispute, or the person allows its code to
 land as it is. Only the person allows a finding, and no agent passes
 --by-person on its own judgment (JUDGING).
 
-A branch that adds
-code that nothing outside tests calls does not land: the judge confirms the
-review's finding on that code, and the agent deletes the code or adds its
-caller. `builds help` (LANDING AND REVIEW) says how builds finds the changes
-since the last review and what each reviewer reads, and gives the review
-commands.
-
 
 JUDGING
 
-The judge judges each finding against the code and the rule, and settles it
-as confirmed or dropped, with why (`builds review settle`).
-
-Each settle, with its --why, is the record that scores the reviews. The
-settled findings stay in the project's store as the record of what reviews
-catch and miss: a confirmed finding counts as a true positive and a dropped
-one as a false positive (`builds review scores`), and `builds review replay
---landing` scores other models and prompts against them. So the judge
-settles each finding on what the code does, and its why says what makes the
-finding real or wrong. A confirmed finding stays open until one of these
-happens:
+The judge judges each finding against the code and the rule, and settles it as
+confirmed or dropped, with why (`builds review settle`). Each settle and its
+--why score the reviews: a confirmed finding counts as a true positive and a
+dropped one as a false positive (`builds review scores`). So the judge settles
+each finding on what the code does, and its why says what makes the finding
+real or wrong. A confirmed finding stays open until one of these happens:
 
   - A later review closes it.
   - The judge learns that the finding is wrong, from a dispute or otherwise,
     and settles it again as dropped (`builds review settle N --again --why
-    TEXT`). The record keeps
-    both settles, with who made each and why, and the finding counts as
-    dropped from then on.
+    TEXT`). The record keeps both settles.
   - The person allows its code to land as it is. Only the person allows a
     finding: the coordinator asks the person first, and once they say so,
     records their words (`builds review settle N allowed --by-person --why
     TEXT`). No agent passes --by-person on its own judgment. An allowed
-    finding stays confirmed and counts as a true positive.
+    finding stays confirmed.
 
 builds refuses to settle a closed or allowed finding again.
 
 
 LANDING
 
-The branch's agent runs `builds land` for its branch in its own worktree, the
-claimed side worktree it worked in, once its work is done there: land checks
-out other commits in that worktree while it checks the result. The
-coordinator lands a branch only when its agent ended before it could. The land
-help says what it checks. Review each branch first (REVIEW): land refuses the
-commits unless a finished review read the branch's net change as it is now.
+The branch's agent runs `builds land` for its branch in the claimed side
+worktree it worked in, once its work is done there, since land checks out other
+commits in that worktree while it checks the result. The coordinator lands a
+branch only when its agent ended before it could. Review each branch first
+(REVIEW). `builds help` (LANDING AND REVIEW, builds land) says what land checks,
+how landings that run at the same time push, and what land leaves in the
+worktree.
 
-Land the fixes you have ready together, in one batch (WORKTREES).
-
-  - Landings in different worktrees may run at the same time. When origin/main
-    moves while a landing runs, origin refuses that landing's push, and the
-    landing fetches again and pushes again. Two landings in one worktree run
-    one after the other. Landings that change the apps take no turn and
-    build nothing: a landing needs only that its branch has a passing app
-    build of its own files in each lane it changes, which land checks before
-    it fetches anything, and that its commits cherry-pick onto origin/main
-    and pass the whole-tree checks. What two branches that each passed alone
-    do together is for CI, which checks main as a whole.
-  - A landing that leaves nothing to land on the branch leaves the worktree
-    detached at the landed commit and releases it. A landing that leaves
-    commits on the branch checks the branch out again and keeps the claim, and
-    a landing that names a --part keeps the claim too.
   - After landing commits whose base is behind main and that touch shared
     code (schema, test stores, bridge types), build main (`check --workspace
     --all-targets --all-features`) before landing more, and send agents whose
     base changed under them back to rebase.
-  - Don't run `builds land` in a worktree while its agent or a check still runs
-    there.
+  - Don't run `builds land` in a worktree while its agent or a check still
+    runs there.
   - When `builds land` prints `LANDED, NOT RECORDED:`, run the `rerun:`
     command it prints.
   - When a landing fails its checks or its cherry-pick, the branch's agent
     fixes the branch in a new commit, reviews the fix and lands again.
-  - When land prints APP BUILDS DO NOT COVER the branch, nothing was fetched
-    or pushed, and the branch has no passing app build of its own for a lane:
-    run `builds app-build` on the branch and land again. Land never builds the
-    result, so another landing that reached main after the branch's build
-    changes nothing. A branch's passing build must also cover every shots
-    prefix that any app build of the branch ran since its merge base,
-    including prefixes of runs that failed. A passing build can cover a
-    prefix by running every shot the prefix selects with other prefixes.
-    When land names missing prefixes, run them in a passing app build, or
-    record why the branch drops one with `builds app-build --drop-shots`.
-    Land prints that reason.
+  - When land prints APP BUILDS DO NOT COVER the branch, it fetched and pushed
+    nothing. The branch needs a passing app build of its own in each lane it
+    changes, which covers every shots prefix that any app build of the branch
+    ran since its merge base, including prefixes of runs that failed. Run
+    `builds app-build` on the branch, or record why the branch drops a prefix
+    with `builds app-build --drop-shots`, and land again. Land never builds
+    the result, so a landing that reached main after the branch's build
+    changes nothing: CI checks main as a whole.
   - A CI run on main that fails or stalls is the coordinator's to run down.
-  - After each landing, `builds land` fast-forwards the repo's main checkout to
-    origin/main, so the person and the agents who read code there see what
-    landed. In agent-instructions, the main checkout's post-merge hook then
+  - After each landing, `builds land` fast-forwards the repo's main checkout
+    to origin/main. In agent-instructions, the checkout's post-merge hook then
     runs install.sh, which installs the landed builds and links the landed
-    rules and skills. Each app build finishes its steps on the programs it
-    started with, and the next build uses the installed ones. A lane waits for
-    any schema move before it records its run (`builds help`, INSTALLING).
-    When the landed builds changes a store's schema, install waits for every
-    running hook run, review and landing. Every hook run, review and landing
-    that starts meanwhile waits for install, so commits in every project wait
-    until it ends (`builds help`, INSTALLING).
-    A landing writes all its records before it fast-forwards the main
-    checkout, so the install that the fast-forward runs moves the stores only
-    after the landing has written them. An install that changes no store's
-    schema waits for none. When land prints MAIN CHECKOUT
-    BEHIND (the checkout is not on main, or the person's commits or uncommitted
-    edits there stop the fast-forward), tell the person and give them the
-    command it prints; never stash or reset their edits.
+    rules and skills (`builds help`, INSTALLING). When land prints MAIN
+    CHECKOUT BEHIND, tell the person and give them the command it prints;
+    never stash or reset their edits.
 
 
 DESIGN TERMS
@@ -645,19 +506,16 @@ briefs, review pages and commit messages, and no other word for it:
     (design/mocks/<name>.dc.html). The app is built to match it.
   - shared board: a board that draws one piece several screens show, such as a
     row or a sheet. The canvas shows it on its Shared page.
-  - scratch board: a board that no commit holds,
+  - scratch board: a board file that no commit holds,
     design/mocks/scratch.<name>.dc.html in a worktree, which each design
-    repo's .gitignore leaves out. A design session draws versions of a
-    board on it, side by side, to compare them with the person on the
-    dashboard's scratch view, then commits the version the person picks to
-    the real board (decision #349).
+    repo's .gitignore leaves out. A design session draws versions of a board
+    on it side by side to compare them with the person (decision #349).
   - canvas: the published page on claude.ai that shows every board. The
     repo's boards are its source (PUBLISHING DESIGNS).
   - design system: the tokens and the components, in design/system.
   - token: a named color, size or type style in the design system
     (design/system/tokens.json).
-  - component: a reusable piece that boards are built from, such as a row or
-    a button.
+  - component: a reusable piece that boards are built from, such as a button.
   - preview: a picture of one component on its own, drawn in each of its
     configurations.
   - design change: one concern that the person reviews and approves, recorded
@@ -681,13 +539,13 @@ for a reusable piece and "shared board" for the board that draws one.
 BOARD EDITS OF A DECIDED CHANGE
 
 An implementing agent that edits an existing board for a change the person
-decided (ROLES) records the edit with `decision`, the id of the person's
-decision in the log. builds approves the change as it records it, because the
+decided (ROLES) records the edit as a design change with `decision`, the id of
+that decision. builds approves the change as it records it, because the
 decision is the person's approval, so the change needs no review page. The
-implementing agent lands it with the item that built the change (`builds land
-<worktree> --done N --design M <sha>...`). That agent names each place's app
-work in the same request: its own item, or how it checked that the app
-already matches (`places`, `builds help lists`).
+agent names each place's app work in the same request (its own item, or how it
+checked that the app already matches; `places`, `builds help lists`) and lands
+the change with the item that built it (`builds land <worktree> --done N
+--design M <sha>...`).
 
 Nothing publishes the designs until the person asks (PUBLISHING DESIGNS).
 
@@ -695,212 +553,140 @@ Nothing publishes the designs until the person asks (PUBLISHING DESIGNS).
 DESIGN CHANGES
 
 The design session lands its boards through a design change, which the person
-reviews and approves first (`builds help lists` has the record and its
-commands). Only bae keeps its boards as a claude.ai canvas: its design
-changes give each board's canvas link. Landing a design change publishes
-nothing (PUBLISHING DESIGNS). builds keeps its boards in the repo only, so its
-design changes take no canvas links. A
-project's setting says which it does (`builds lists design-globs PROJECT
---canvas yes|no`). The design session records a fix that changes no design
-(boards it redrew to follow the design system's measures, a drawing mistake it
-corrected, a board it deleted because the app can no longer reach the state the
-board draws, a board it redrew to draw what the app draws today, where the
-person decided nothing about the difference) with `fix` instead: such a fix needs no review page or approval, and
-lands with `--design N` like any other. The design session records each fix as
-a design change of its own, in a commit of its own, and lands its ready fixes
-as one batch (WORKTREES): `builds land <worktree> --design N --design M
-<sha>...` takes every change with all its commits, and a landing that names two
-or more design changes squashes nothing, so each fix keeps its commit.
+reviews and approves first. `builds help lists` (DESIGN CHANGES) gives the
+record's fields and commands. In a project that publishes a canvas (`builds
+lists design-globs PROJECT --canvas yes|no`), such as bae, each design change
+gives each board's canvas link; builds keeps its boards in the repo only.
+Landing a design change publishes nothing (PUBLISHING DESIGNS).
+
+The design session records a fix that changes no design with `fix`, and the fix
+needs no review page or approval. Such fixes are boards it redrew to follow
+the design system's measures, a drawing mistake it corrected, a board it
+deleted because the app can no longer reach the state the board draws, and a
+board it redrew to draw what the app draws today, where the person decided
+nothing about the difference. Each fix is a design change of its own, in a
+commit of its own, and the ready fixes land as one batch (WORKTREES): `builds
+land <worktree> --design N --design M <sha>...` takes every change with all its
+commits and squashes nothing, so each fix keeps its commit.
 
   1. While drawing, look at a board with `builds design render`, which draws
-     it from the worktree as one page of HTML. It publishes nothing. To try
-     or compare versions with the person before any commit, draw them on a
-     scratch board in your worktree, such as
-     design/mocks/scratch.people-rows.dc.html: a board file in the same
-     format as every board, which can draw a component several times with
-     different props side by side. Give the person its scratch view on the
-     dashboard, http://127.0.0.1:7787/design/PROJECT/scratch/WORKTREE/BOARD,
-     with the worktree's folder name (side-4) and the board's name
-     (scratch.people-rows): the page draws the board from the worktree's
-     files, and draws it again within a second or two of each save. The
-     scratch view of a real board draws it beside the board as origin/main
-     draws it. Once the person picks a version, draw it on the real board,
-     delete the scratch board, then commit, record and amend the change
-     (decisions #341 and #349). Never commit a scratch board: git ignores
-     it, so health, release and land never count it as work.
-  2. When the boards are drawn, record the change (`builds design record`):
-     its title, which names the part of the app the change draws in a few
-     plain words, such as "People rows" or "AirPlay wait", and not a sentence
-     that starts with a verb (decision #297); what changed; each board's
-     canvas link (in a project that publishes a canvas); and the review
-     page's heading and boards, with the
-     circles of each board. The page shows what the person needs to judge
-     the proposed design: the fewest boards that show it, each in a
-     situation that fits it, and need not show every board the change
-     changes (decision #369). Each board shows the proposal alone, and the
-     board as it stands on origin/main beside it only where you ask for it
-     with `show_now`, when the before helps the person judge the proposal.
-     The page lists the change's other boards by name, folded, and the
-     person opens any of them. The shots compare every board with the app
-     later. An entry of the page can name a component (`component` in place
-     of `board`, with no theme) to show the component's preview: the page
-     draws it as it stands on origin/main beside its preview at the
-     change's last commit, with the same circles, caption and `show_now` as
-     a board, so a change to a component can be reviewed through its
-     preview. Circle one area per change (decision #299): one
-     large circle around the area that holds the change, never a circle on
-     each element in it. A circle takes the CSS selector of a containing
-     element, or a box (x, y, width, height) on the board, and a label if
-     the circle needs words. A board needs no circle when its proposal
-     shows the change without one. Keep the change short: the page
-     has one heading, so record one change per concern. The details are at
-     most 40 words, with no sentence over 15 words. The details name what changed in a few short
-     sentences, and the boards and circles show the rest. Circle what the person must look at, not every element the
-     change moves: when one heading goes and every row below it moves up,
-     circle the area that holds the heading and the rows. The rules review
-     reads the change before the person does (decision #362), and reads the
-     boards only against the rules about how they look (REVIEW). Run record
-     and amend as background tasks: when the change waits on the person's
-     review and the rules review has not read its branch, record and amend
-     run `builds review` on the branch that the worktree has checked out
-     and print the review's landing. Wait with `builds review wait
-     <landing>` as a background task, fix each confirmed finding in a new
-     commit, and run `builds design amend`, which reads the fix in a new run
-     of the review. The change shows in the dashboard's Waiting on you tab
-     as a card only once the rules review takes the branch's commits, as
-     `builds land` would, and no finding waits. A commit that changes the
-     branch takes the card off the tab until a review reads it. Until then
-     the dashboard lists the change under Design changes in review, and
-     `builds design show N` says what the review lacks. The card's Details
-     opens the review page, which shows each
-     board's proposal, and its now beside it where the recorder asked for
-     it, circles on each side the elements the selectors find there, lists
-     the change's other boards by name, and draws it again on each load. To change
-     the boards again, commit and run `builds design amend`, which clears an
-     approval unless every board and preview of the change draws the same as
-     in the commit the person approved. `builds shots draws` stops CSS
-     animations and transitions and compares the pictures and element boxes.
-     A rebase that only merges unrelated lines into a board file, canvas.json
-     or a component's source keeps the approval. A rebase
-     onto a moved main needs no amend: health and land compare what the
-     boards draw, not commit hashes. The record names no app work: no item exists for a
-     change before the person approves it (decision #304).
-     A change whose boards draw a component state that no row of the
-     component's preview shows, unless the boards before the change already
-     drew that state with no row, gets that state as a row of the component's
-     preview in the same change, so that the component's own shot covers it
-     (decision #391): record and amend run `builds shots states` on the change
-     and refuse it until each such state has its row. The new row then shows in
-     `builds shots components` as a row with no shot.
-  3. Everything the person reviews goes on that page: new boards, proposals,
-     before and after examples. Never make a page of your own (a review.html,
-     a page in the scratchpad) or open a browser tab; the person reloads the
-     review page. To compare versions during a round, draw them on a
-     scratch board in the change's worktree (step 1): the review page links
-     each scratch board in that worktree to its scratch view. Once the
-     person picks, draw the pick on the real board, delete the scratch
-     board, commit and run `builds design amend` (decision #349).
+     it from the worktree as one page of HTML and publishes nothing. To
+     compare versions with the person before any commit, draw them side by
+     side on a scratch board in your worktree, such as
+     design/mocks/scratch.people-rows.dc.html, and give the person its scratch
+     view on the dashboard,
+     http://127.0.0.1:7787/design/PROJECT/scratch/WORKTREE/BOARD, which draws
+     the worktree's files again after each save (`builds help`, STATUS,
+     HEALTH AND THE DASHBOARD). Once the person picks a version, draw it on
+     the real board, delete the scratch board, then commit, record and amend
+     the change (decisions #341 and #349). Never commit a scratch board.
+  2. When the boards are drawn, record the change with `builds design
+     record`. Run record and amend as background tasks.
+     - The title names the part of the app the change draws in a few plain
+       words, such as "People rows" (decision #297).
+     - The details name what changed in at most 40 words, with no sentence
+       over 15 words, and the boards and circles show the rest.
+     - The review page has one heading, so record one change per concern. It
+       shows the fewest boards that show the proposed design, each in a
+       situation that fits it (decision #369). Each board shows its proposal
+       alone, and the board as it stands on origin/main beside it only with
+       `show_now`, when the before helps the person judge the proposal. An
+       entry can name a component in place of a board, to review a change to
+       the component through its preview.
+     - Circle one area per change (decision #299): one circle around the
+       area that holds the change, never one on each element in it. When one
+       heading goes and every row below it moves up, circle the area that
+       holds the heading and the rows. A board whose proposal shows the
+       change without a circle needs none.
+     - The record names no app work: no item exists for a change before the
+       person approves it (decision #304).
+     - The rules review reads the change before the person does (decision
+       #362): record and amend run `builds review` on the worktree's branch
+       when the review has not read it. Wait with `builds review wait
+       <landing>` as a background task, fix each confirmed finding in a new
+       commit, and run `builds design amend`. The change reaches the Waiting
+       on you tab once the review takes the branch's commits and no finding
+       waits, and `builds design show N` says what the review lacks.
+     - Record and amend refuse a change whose boards draw a new component
+       state that no row of the component's preview shows, until the change
+       adds that row to the preview, so that the component's own shot covers
+       the state (decision #391).
+     - To change the boards again, commit and run `builds design amend`,
+       which keeps the approval only when every board and preview of the
+       change draws the same as in the commit the person approved. A rebase
+       onto a moved main needs no amend.
+  3. Everything the person reviews goes on the review page. Never make a page
+     of your own or open a browser tab; the person reloads the review page.
+     To compare versions during a round, use a scratch board in the change's
+     worktree as in step 1: the review page links to its scratch view.
   4. The person approves with the page's Approve button, which sends "Design
      change #N of project P approved: land it." to the session that recorded
-     the change. That message is the cue to name the app work and land. First
-     name the app work of each place: for each place, an open item, a new
-     item or how you checked that the app already matches, with `builds design
-     amend N` (`builds help lists`), which keeps the approval. `builds land
-     --design N` refuses until each place names its app work. Then run
-     `builds land <worktree> --design N <sha>...` with the worktree where the
-     design session drew the boards (the Approve button recorded the approval;
-     never run `builds design approve` for it). Name every commit of the change, oldest first. When they
-     are all design files, land squashes them into one commit with the
-     change's title as its message, with or without --done N
-     (decision #292), so main gets one commit for each design change. The
-     squash changes no file, so the review and the approval still hold; land
-     refuses when the squashed tree differs from the last commit's tree.
-     Landing does not publish. When that session has ended,
-     the next design session runs `builds land` for the change. `builds design
-     approve N --by-person` is for an approval the person gives in words. The
-     rules review took the branch before the person reviewed it (step 2), so
-     land needs no new review after the approval unless the branch changed
-     since, and a commit that changes a board needs an amend, which clears
-     the approval. `builds
-     land` refuses commits that a rule group covers until the rules review
-     takes them, as for any branch (REVIEW). A group covers a design file only
-     through a rule that judges how things look, so a change of design files
-     that no such rule covers needs no review.
+     the change. Then name the app work of each place with `builds design
+     amend N`, which keeps the approval: an open item, a new item, or how you
+     checked that the app already matches. Then run `builds land <worktree>
+     --design N <sha>...` in the worktree where the design session drew the
+     boards, naming every commit of the change, oldest first. Land squashes
+     the commits of a change of design files only into one commit with the
+     change's title as its message (decision #292). The button recorded the
+     approval, so never run `builds design approve` for it; `builds design
+     approve N --by-person` is for an approval the person gives in words.
+     When the session that recorded the change has ended, the next design
+     session lands it. The rules review read the branch before the person
+     reviewed it (step 2), so land needs no new review unless the branch
+     changed since.
+
 
 PUBLISHING DESIGNS
 
 The designs reach claude.ai only when the person triggers a publish: with the
 dashboard's Publish to claude.ai... button, or by asking a session to publish.
-No landing, approval, item or session publishes on its own, and no session
-queues, proposes or starts a publish because something landed. When a landing
-changes the boards, the published copies stay as they are until the person asks.
+No landing, approval, item or session starts a publish on its own, and no
+session queues or proposes a publish because something landed.
 
-In a project that publishes a canvas, the boards, design/mocks/canvas.json and
-design/system in the repo are the source of the published designs: every
-canvas that design/mocks/canvases.toml names by its title, and the Design
-System artifact it names beside them, on whichever claude.ai account Claude
-Code is signed in to. The published canvases and design system are copies that
-let anyone look at the landed boards. An edit that anyone makes on their pages
-on claude.ai is an accident: publish the repo's version over it and merge
-nothing from it. When the person asks, a session publishes the designs with the
-publish-designs skill, which sends every canvas and the design system from one
-commit: `builds design publish-files` writes the files of all of them from the
-one commit that origin/main names, or refuses and writes none, and `builds help
-lists` says what it writes.
-
-The person's other way to publish is the dashboard: the Designs page's Publish
-to claude.ai... form records a publish request for the commit the person picks
-and sends it to the design session that listens for the project. That session
-takes the request (`builds design publish take N`), publishes that commit with
-the skill, and ends the request with `builds design publish done N` after the
-last call and the runtime check, or with `builds design publish failed N --why`
-and what stopped it.
+In a project that publishes a canvas, the repo's boards,
+design/mocks/canvas.json and design/system are the source of every canvas that
+design/mocks/canvases.toml names and of its Design System artifact. An edit
+that anyone makes on those pages on claude.ai is an accident: publish the
+repo's version over it and merge nothing from it. A session publishes with
+the publish-designs skill, which sends every canvas and the design system from
+one commit. A publish request
+from the dashboard goes to the design session that listens for the project,
+which takes it (`builds design publish take N`), publishes, and ends it with
+`builds design publish done N` or `builds design publish failed N --why`
+(`builds help lists`).
 
 
 HEALTH CHECK
 
-The coordinator runs `builds health` every 5 minutes while the check has work
-to watch. Health lists each open item, claimed worktree, agent process, app
-build, review, landing and install that last moved at least 30 minutes ago.
-Set BUILDS_STILL_MINUTES to change the threshold. Each line gives the time
-since the last change and follows each recorded wait to the work at the end,
-with the time since that work last moved. Find out why each has stopped
-moving, then start it, unblock it or ask whoever can act on it.
+The coordinator runs `builds health` every 5 minutes while health has work to
+watch. Health lists each open item, claimed worktree, agent process, app build,
+review, landing and install that has not moved for 30 minutes
+(BUILDS_STILL_MINUTES sets the threshold), with the time since it last moved,
+and follows each recorded wait to the work at its end. Find out why each has
+stopped moving, then start it, unblock it or ask whoever can act on it. When
+the last line says "health schedule: can stop", delete the schedule, and create
+it again when new work opens or a hold clears. A quiet check needs no message
+to the person.
 
-The last line says "health schedule: can stop" when health has no open work
-or unheld commits waiting to land to watch. The coordinator deletes the
-schedule then and creates it again when new work opens or a hold clears.
-A quiet check needs no message to the person.
-
-Health first fixes what blocks dispatch and a command fixes with no judgment
-call, and prints one line for each fix: it prunes a host under the free-disk
-floor and probes it again, measures the core speed of a host that has none,
-stops the Gradle daemon, the Kotlin compile daemon and the booted simulators
-that no build has used for an hour on a host under memory pressure and probes
-it again, releases a claim on a worktree that nothing holds, releases a claim on a
-worktree that holds nothing origin/main lacks and has had no change and no build for
-2 hours (BUILDS_IDLE_CLAIM_HOURS) and stops an item marked running there, ends each review
-whose branch has nothing left to land (as landed when every commit is on
-origin/main, as abandoned when the branch and its commits are gone and no item
-keeps them), retires each free side worktree (no claim, a clean tree, every
-commit on origin/main by patch), sends the judge
-again each finding that waits for a settle and that no running builds
-process is telling the judge's session of, forgets a judge whose session ended,
-and stops each
-process whose caller is gone and whose only work is what it prints (a cargo
-run, a compile, a test, a job on a host whose builds command here ended). It
-lists only what is left, each with its reason: a host that does not answer, a
-host whose git fails, uncommitted work. It never runs sudo and stops a process
-only with `--stop-junk`, except those idle build daemons and those processes
-whose caller is gone. The lines below are what remains to act on.
+Before it lists anything, health makes each fix that needs no judgment call and
+prints a line for each (`builds help`, STATUS, HEALTH AND THE DASHBOARD). It
+prunes hosts under the free-disk floor, stops idle build daemons and simulators
+on hosts under memory pressure, releases claims that nothing holds, releases a
+claim whose worktree holds nothing origin/main lacks and has had no change and
+no build for 2 hours (BUILDS_IDLE_CLAIM_HOURS) and stops an item marked running
+there, ends reviews whose branch has nothing left to land, retires free side
+worktrees, sends the judge again each finding that waits for a settle, forgets
+a judge whose session ended, and stops each process whose caller is gone and
+whose only work is what it prints. It never runs sudo, and stops other
+processes only with `--stop-junk`. The lines below are what remains to act on.
 
   - sccache finished no compiles while clients wait: restart it (`launchctl
     kickstart -k gui/$(id -u)/local.sccache-server`).
   - A host whose sccache server has more than 2 clients waiting for each of
-    its cores: the host has more compile work than it can run, so start
-    nothing new for it. The line gives the share of Rust compiles its cache
-    answered lately; a low share means builds compile what the cache should
-    hold (BUILDS says what changes sccache's key).
+    its cores has more compile work than it can run: start nothing new for
+    it. When its cache answers a low share of its Rust compiles, builds
+    compile what the cache should hold (BUILDS says what changes sccache's
+    key).
   - Junk shells: run `builds health --stop-junk`. When one agent keeps
     leaving polling shells, tell it to wait for notifications instead.
   - Commits that change design files with no design change: whoever made the
@@ -908,48 +694,37 @@ whose caller is gone. The lines below are what remains to act on.
     a board edit of a change the person decided, the implementing agent.
   - A running item whose worktree is gone or unclaimed: land it, stop it
     (`builds item stop`) or hand it on.
-  - A project whose findings wait for a settle while no judge listens. Health
-    lists how long the oldest finding has waited. Start a judge session and
-    run `builds judge listen --project P --by judge` from that session.
+  - A project whose findings wait for a settle while no judge listens, with
+    how long the oldest has waited: start a judge session and run `builds
+    judge listen --project P --by judge` from it.
   - A branch with commits origin/main lacks that no worktree checks out and
     no item names: check it out in a worktree (`builds new <repo> --resume
-    <branch>`) and land it or take an item there, or ask the person whether to drop it.
-  - An implementing agent that runs another model than its role takes: the
-    line names the worktree, the items, the model the agent runs and the
-    model the role takes (PLAN, BRIEF, EXECUTE). Stop the agent at its next
-    clean point and continue the item with an agent of the implementation
-    tier.
+    <branch>`) and land it or take an item there, or ask the person whether
+    to drop it.
+  - An implementing agent that runs another model than its role takes (PLAN,
+    BRIEF, EXECUTE), with its worktree, its items and both models: stop the
+    agent at its next clean point and continue the item with an agent of the
+    implementation tier.
   - Disk under the floor: hold the queue.
   - A host under its band while items are ready: start agents on the next
     ready items (`builds next`).
   - Every host that takes cargo work over its band, under memory pressure, or
-    with no room on its CPU: start nothing new until one's 5-minute load
-    falls under the high end of its band, its memory pressure is normal and
-    its CPU sits 5% idle or more. A host over its band while another host
-    that takes cargo work is under its band needs nothing: start agents for
-    the host under its band. Load never holds back items of project builds.
-    The line gives the host's band, its CPU's idle share and its memory, so a
-    host whose load is inside its band but that is under memory pressure
-    shows up as over it, and a host whose load is under its band but whose
-    CPU sits under 5% idle shows up as having no room.
+    with no room on its CPU: start nothing new until one host is back under
+    the high end of its band, with normal memory pressure and its CPU 5% idle
+    or more (DISPATCH).
   - A process whose caller is gone that health leaves to run, such as a
-    landing whose shell ended: it does its work to its end, so check what it
-    did once it ends. One whose stop failed: stop it with the command the
-    line gives.
+    landing whose shell ended, does its work to its end: check what it did
+    once it ends. Stop one whose stop failed with the command the line gives.
   - A Mac that shows a system alert in front of every app
-    (UserNotificationCenter, SecurityAgent or CoreServicesUIAgent): the alert
-    keeps the focus from every Mac window shot there, so each one fails. The
-    line names the alert and its pid. Answer or close the alert on that Mac,
-    or end its process with the command the line gives.
-  - A Mac host whose screen is locked: a locked screen keeps every Mac window
-    shot there from rendering. The line names the host. Unlock the screen on
-    that Mac. The mac lane holds each window step for the host until it
-    unlocks, and says so in the build's output, and a step that runs holds a
-    display assertion on the host so the screen does not lock during it
-    (`builds help`, APP BUILDS).
+    (UserNotificationCenter, SecurityAgent or CoreServicesUIAgent) fails every
+    Mac window shot there, because the alert keeps the focus. The line names
+    the alert and its pid. Answer or close the alert on that Mac, or end its
+    process with the command the line gives.
+  - A Mac host whose screen is locked renders no Mac window shot, and the mac
+    lane holds each window step for the host until it unlocks: unlock the
+    screen on that Mac (`builds help`, APP BUILDS).
   - A host that holds an app build while Chrome cannot start there: a Mac
-    whose window server does not answer keeps Chrome from printing its
-    debugging address, so no shots run there can draw its boards. The line
-    names the host, the held build's checkout and how long it has built
-    nothing. Chrome starts again once the window server answers, and the held
-    build goes on (`builds help`, APP BUILDS).
+    whose window server does not answer starts no Chrome, so no shots run
+    there can draw its boards. The line names the host, the held build's
+    checkout and how long it has built nothing. The held build goes on once
+    the window server answers (`builds help`, APP BUILDS).

@@ -403,6 +403,7 @@ fn take_refuses_a_brief_that_pastes_workflow_text() {
     add(&demo, FIVE, &[]).unwrap();
     let workflow: Vec<&str> = crate::help::WORKFLOW_HELP
         .lines()
+        .filter(|line| !line.trim().is_empty())
         .skip(12)
         .take(4)
         .collect();
