@@ -368,9 +368,7 @@ impl Source<'_> {
 }
 
 /// Copies the file, link or folder <from> to <to>, keeping each symbolic
-/// link as a link. A file or link that <to> already holds is left as it is
-/// when it is the same (another build of the same design system copied it
-/// first) and fails the copy when it differs.
+/// link as a link.
 fn copy_tree(from: &Path, to: &Path) -> Result<()> {
     let meta = std::fs::symlink_metadata(from).context(|| format!("reading {}", from.display()))?;
     if let Some(parent) = to.parent() {
@@ -379,41 +377,13 @@ fn copy_tree(from: &Path, to: &Path) -> Result<()> {
     if meta.file_type().is_symlink() {
         let target =
             std::fs::read_link(from).context(|| format!("reading the link {}", from.display()))?;
-        match std::os::unix::fs::symlink(&target, to) {
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                let held = std::fs::read_link(to);
-                if !held.as_ref().is_ok_and(|held| *held == target) {
-                    fail!(
-                        "copying the link {} to {}: that path already holds {}, not a link to {}",
-                        from.display(),
-                        to.display(),
-                        match held {
-                            Ok(held) => format!("a link to {}", held.display()),
-                            Err(_) => "a file or folder".to_string(),
-                        },
-                        target.display()
-                    );
-                }
-            }
-            copied => copied.context(|| format!("copying the link {}", from.display()))?,
-        }
+        std::os::unix::fs::symlink(&target, to)
+            .context(|| format!("copying the link {}", from.display()))?;
     } else if meta.is_dir() {
         std::fs::create_dir_all(to).context(|| format!("making {}", to.display()))?;
         for entry in std::fs::read_dir(from).context(|| format!("listing {}", from.display()))? {
             let entry = entry.context(|| format!("listing {}", from.display()))?;
             copy_tree(&entry.path(), &to.join(entry.file_name()))?;
-        }
-    } else if std::fs::symlink_metadata(to).is_ok() {
-        // `fs::copy` onto a link would write through it.
-        let same = std::fs::symlink_metadata(to).is_ok_and(|held| held.is_file())
-            && std::fs::read(from).context(|| format!("reading {}", from.display()))?
-                == std::fs::read(to).context(|| format!("reading {}", to.display()))?;
-        if !same {
-            fail!(
-                "copying {} to {}: that path already holds a different file, link or folder",
-                from.display(),
-                to.display()
-            );
         }
     } else {
         std::fs::copy(from, to).context(|| format!("copying {}", from.display()))?;
@@ -421,15 +391,25 @@ fn copy_tree(from: &Path, to: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Runs <use_it> on a new scratch folder in <cache> and removes the folder
-/// after it, whatever <use_it> returns. A folder that cannot be removed fails
-/// the call: <use_it>'s own error comes first when it failed too.
+/// Runs <use_it> on a new, empty scratch folder in <cache> and removes the
+/// folder after it, whatever <use_it> returns. A folder that cannot be
+/// removed fails the call: <use_it>'s own error comes first when it failed
+/// too. A name that is taken (a killed process left its folder, and its
+/// process id came round again) is skipped, never reused.
 pub fn in_scratch<T>(cache: &Path, use_it: impl FnOnce(&Path) -> Result<T>) -> Result<T> {
-    let work = cache.join(format!(
-        ".work-{}-{}",
-        std::process::id(),
-        WORK.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-    ));
+    std::fs::create_dir_all(cache).context(|| format!("making {}", cache.display()))?;
+    let work = loop {
+        let work = cache.join(format!(
+            ".work-{}-{}",
+            std::process::id(),
+            WORK.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        match std::fs::create_dir(&work) {
+            Ok(()) => break work,
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(error) => fail!("making the scratch folder {}: {error}", work.display()),
+        }
+    };
     let result = use_it(&work);
     let removed = match std::fs::remove_dir_all(&work) {
         Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(format!(
