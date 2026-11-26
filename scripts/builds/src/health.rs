@@ -168,6 +168,13 @@ pub struct Health {
     pub schedule_needed: bool,
 }
 
+impl Health {
+    /// What this reading holds of the claimed worktree at <path>.
+    pub fn worktree(&self, path: &str) -> Option<&WorktreeHealth> {
+        self.worktrees.iter().find(|tree| tree.path == path)
+    }
+}
+
 /// One piece of work with commits waiting to land and no claim, or an
 /// unclaimed worktree whose commits git could not be read.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

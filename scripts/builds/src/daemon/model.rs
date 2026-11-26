@@ -1820,8 +1820,7 @@ impl Model {
                         git: checkout.git.as_ref(),
                         branch: checkout.branch.as_deref(),
                     };
-                    let worked = last_health
-                        .and_then(|h| h.worktrees.iter().find(|w| w.path == checkout.path));
+                    let worked = last_health.and_then(|health| health.worktree(&checkout.path));
                     let judged = self.judge_card(
                         &snapshot,
                         &seen,
@@ -1947,9 +1946,7 @@ impl Model {
                 branch: facts.branch.as_deref(),
             };
             let path = live.top.display().to_string();
-            let worked = health
-                .as_ref()
-                .and_then(|health| health.worktrees.iter().find(|w| w.path == path));
+            let worked = health.as_ref().and_then(|health| health.worktree(&path));
             let judged = self.judge_card(
                 &snapshot,
                 &seen,
