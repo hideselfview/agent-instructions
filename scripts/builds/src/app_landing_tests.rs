@@ -1,4 +1,5 @@
 use super::*;
+use crate::app_config::parse_config;
 use crate::app_timing::{PassedRun, StepKind, StepRecord, StepResult};
 use crate::run_end::RunEnd;
 

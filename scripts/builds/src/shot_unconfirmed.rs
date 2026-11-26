@@ -12,7 +12,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::app_config::{config_in, run_git};
+use crate::app_config::config_in;
 use crate::app_remote::fetched_local_source;
 use crate::app_tree;
 use crate::fail;
@@ -162,12 +162,7 @@ impl AppTrees {
         if let Some(tree) = self.known.get(commit) {
             return Ok(Some(tree.clone()));
         }
-        if run_git(
-            &self.top,
-            &["cat-file", "-e", &format!("{commit}^{{commit}}")],
-        )
-        .is_err()
-        {
+        if !crate::git::commit_exists(&self.top, commit)? {
             return Ok(None);
         }
         let config = config_in(&self.top, commit)?;

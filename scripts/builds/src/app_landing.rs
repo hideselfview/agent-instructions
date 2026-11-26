@@ -39,7 +39,7 @@
 use std::collections::HashSet;
 use std::path::Path;
 
-use crate::app_config::{CONFIG, Config, parse_config, run_git};
+use crate::app_config::{CONFIG, Config, config_in, run_git};
 use crate::app_shots_drop::Drop;
 use crate::app_timing::{self, BuildRecords, PassedRun};
 use crate::app_waiting_shots::Waiting;
@@ -90,7 +90,7 @@ fn config_of(top: &Path, rev: &str) -> Result<Option<Config>> {
     if run_git(top, &["ls-tree", "--name-only", rev, "--", CONFIG])?.is_empty() {
         return Ok(None);
     }
-    parse_config(&run_git(top, &["show", &format!("{rev}:{CONFIG}")])?).map(Some)
+    config_in(top, rev).map(Some)
 }
 
 /// The paths that the commits <shas> in the repository at <top> change, each
