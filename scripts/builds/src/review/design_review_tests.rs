@@ -83,7 +83,6 @@ fn record(demo: &Demo, side: &Path, id: Option<Id>) -> String {
     let request = json!({
         "title": "Cover grid", "details": "The grid draws wider gaps.",
         "worktree": side.display().to_string(), "range": "origin/main..HEAD",
-        "boards": { BOARD: { "link": "https://canvas.example/#a" } },
         "review": { "heading": "Cover grid", "boards": [
             { "board": BOARD, "caption": "the grid", "theme": "dark", "circles": [{ "selector": "#r" }] }
         ] }
