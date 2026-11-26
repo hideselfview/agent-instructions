@@ -13,10 +13,10 @@ private const val SETTLE_MILLIS = 100L
 private const val FOCUS_SETTLE_MILLIS = 200L
 
 /**
- * Draws [content] in [look] and stops at the same frame every run: the clock advances only by [SETTLE_MILLIS] (and by
- * [FOCUS_SETTLE_MILLIS] more while a field has focus), so a spinner, a looping animation or a progress bar is caught
- * at one moment, and an animation that never ends can't keep the test waiting for idle. The content stages its own
- * theme.
+ * Draws [content] in [look] and stops at the same frame every run: the clock advances only by [SETTLE_MILLIS], by the
+ * frames that compose the scene's windows, and by [FOCUS_SETTLE_MILLIS] while a field has focus, so a spinner, a
+ * looping animation or a progress bar is caught at one moment, and an animation that never ends can't keep the test
+ * waiting for idle. The content stages its own theme.
  */
 internal fun ComposeContentTestRule.settle(
     look: ShotLook,
@@ -36,7 +36,10 @@ internal fun ComposeContentTestRule.settle(
     windows.shown = true
     // The write is outside a composition, so the compose runtime hears of it only once it is told.
     Snapshot.sendApplyNotifications()
-    if (windows.declared) mainClock.advanceTimeBy(SETTLE_MILLIS)
+    if (windows.declared) {
+        mainClock.advanceTimeUntil { windows.composed }
+        waitForIdle()
+    }
     // A field that took focus raises its label over 150 ms, which the first step stops partway through.
     if (onAllNodes(hasSetTextAction() and isFocused()).fetchSemanticsNodes().isNotEmpty()) {
         mainClock.advanceTimeBy(FOCUS_SETTLE_MILLIS)

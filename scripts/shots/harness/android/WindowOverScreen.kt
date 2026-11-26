@@ -45,6 +45,9 @@ internal class ShotWindows {
 
     /** Whether the scene holds a window drawn through [WindowOverScreen]. */
     var declared = false
+
+    /** Whether Compose has applied a composition that draws the windows. */
+    var composed = false
 }
 
 internal val LocalShotWindows =
@@ -55,5 +58,8 @@ internal val LocalShotWindows =
 internal fun WindowOverScreen(content: @Composable () -> Unit) {
     val windows = LocalShotWindows.current
     SideEffect { windows.declared = true }
-    if (windows.shown) content()
+    if (windows.shown) {
+        content()
+        SideEffect { windows.composed = true }
+    }
 }
