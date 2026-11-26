@@ -374,14 +374,16 @@ pub fn with_closed_once(schema: String) -> String {
 /// close again.
 #[cfg(test)]
 pub fn schema_before_reopen() -> String {
-    with_closed_once(without_base_misses(without_foreign_waits(schema())))
+    with_closed_once(without_base_misses(without_foreign_waits(
+        schema_before_agent_item_given(),
+    )))
 }
 
 /// Today's schema as it was before the backlog.
 #[cfg(test)]
 pub fn schema_before_backlog() -> String {
     with_held_and_deferred(with_closed_once(without_base_misses(
-        without_foreign_waits(schema()),
+        without_foreign_waits(schema_before_agent_item_given()),
     )))
 }
 
@@ -945,6 +947,24 @@ CREATE TABLE design_board (
 
 ";
 
+/// <schema> as it was before builds recorded when each agent was given each
+/// item: without that column.
+#[cfg(test)]
+pub fn without_agent_item_given(schema: String) -> String {
+    schema.replacen(
+        "    given_at INTEGER NOT NULL CHECK (given_at > 0),\n",
+        "",
+        1,
+    )
+}
+
+/// The schema as it was before builds recorded when each agent was given each
+/// item.
+#[cfg(test)]
+pub fn schema_before_agent_item_given() -> String {
+    without_agent_item_given(schema())
+}
+
 /// <schema> as it was before builds recorded why the merge base's saved run
 /// was missing: without that table, the last part of the schema.
 #[cfg(test)]
@@ -956,7 +976,7 @@ pub fn without_base_misses(schema: String) -> String {
 /// run was missing.
 #[cfg(test)]
 pub fn schema_before_base_misses() -> String {
-    without_base_misses(without_foreign_waits(schema()))
+    without_base_misses(without_foreign_waits(schema_before_agent_item_given()))
 }
 
 /// <schema> as it was before an item could wait on an item of another
@@ -970,7 +990,7 @@ pub fn without_foreign_waits(schema: String) -> String {
 /// project.
 #[cfg(test)]
 pub fn schema_before_foreign_waits() -> String {
-    without_foreign_waits(schema())
+    without_foreign_waits(schema_before_agent_item_given())
 }
 
 /// <schema> as it was before item changes were recorded: without their
@@ -984,7 +1004,7 @@ pub fn without_item_change(schema: String) -> String {
 #[cfg(test)]
 pub fn schema_before_item_change() -> String {
     with_held_and_deferred(with_closed_once(without_item_change(without_base_misses(
-        without_foreign_waits(schema()),
+        without_foreign_waits(schema_before_agent_item_given()),
     ))))
 }
 
@@ -992,7 +1012,8 @@ pub fn schema_before_item_change() -> String {
 /// recorded: without their tables, the last part of the schema.
 #[cfg(test)]
 pub fn without_agent_record(schema: String) -> String {
-    schema.replacen(&format!("\n{AGENT_RECORD_PART}"), "", 1)
+    let part = without_agent_item_given(AGENT_RECORD_PART.to_string());
+    without_agent_item_given(schema).replacen(&format!("\n{part}"), "", 1)
 }
 
 /// The schema as it was before the agents `builds agent run` starts were

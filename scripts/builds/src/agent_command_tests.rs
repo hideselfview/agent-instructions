@@ -553,3 +553,37 @@ fn resume_finds_the_folder_of_a_finished_agent_after_the_shared_prune() {
     result.unwrap();
     assert!(folder.join("scratch/note.txt").is_file());
 }
+
+/// An agent past the handoff size hands off to a fresh agent, so resume gives
+/// it nothing: no message, whether or not its session runs, and no item.
+#[test]
+fn resume_refuses_an_agent_past_the_handoff_size() {
+    for running in [false, true] {
+        let (demo, session) = ended_agent(if running { "ar-past-run" } else { "ar-past" });
+        let conn = db::open(&demo.store.database(), db::Make::Never).unwrap();
+        agent_record::set_tokens(&conn, &session, agent_record::HANDOFF_TOKENS).unwrap();
+        let socket = demo.scratch.dir.join("s.sock");
+        let _inbox = running.then(|| crate::testing::FakeInbox::listen(&socket));
+        if running {
+            record_running(&demo, &session, &socket);
+        }
+        let message = message_file(&demo, "Go on.\n");
+        for extra in [["--message-file", message.as_str()], ["--item", "2"]] {
+            let (result, _) = resume_command(&demo, &["resume", &session, extra[0], extra[1]]);
+            let error = result.unwrap_err().text();
+            assert!(
+                error.contains("past the handoff size of 550k")
+                    && error.contains("builds agent run"),
+                "{error}"
+            );
+        }
+        assert_eq!(
+            rows(&demo, "SELECT item FROM agent_item ORDER BY item"),
+            ["Integer(1)"]
+        );
+        assert_eq!(
+            rows(&demo, "SELECT number FROM agent_process"),
+            ["Integer(1)"]
+        );
+    }
+}

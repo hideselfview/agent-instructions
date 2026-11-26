@@ -35,10 +35,12 @@ CREATE TABLE agent_place (
     PRIMARY KEY (session, worktree)
 ) STRICT, WITHOUT ROWID;
 
--- The items an agent was started or resumed for.
+-- The items an agent was started or resumed for, each with when it was last
+-- given the item, seconds since 1970.
 CREATE TABLE agent_item (
     session TEXT NOT NULL REFERENCES agent (session) ON DELETE CASCADE,
     item INTEGER NOT NULL REFERENCES item (id),
+    given_at INTEGER NOT NULL CHECK (given_at > 0),
     PRIMARY KEY (session, item)
 ) STRICT, WITHOUT ROWID;
 

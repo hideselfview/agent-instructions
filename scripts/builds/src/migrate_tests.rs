@@ -2746,6 +2746,54 @@ fn a_store_from_before_agent_records_gains_the_empty_tables() {
 }
 
 #[test]
+fn the_agent_item_given_stamp_is_the_schema_before_it() {
+    assert_eq!(
+        db::stamp_of_text(&db::schema_before_agent_item_given()),
+        BEFORE_AGENT_ITEM_GIVEN_STAMP
+    );
+}
+
+/// A store from before builds recorded when each agent was given each item
+/// keeps each agent's items, each given when its agent started.
+#[test]
+fn a_store_from_before_given_times_gives_each_item_its_agents_start() {
+    let scratch = Scratch::new("move-agent-item-given");
+    let places = scratch.places();
+    let path = scratch.dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&db::schema_before_agent_item_given())
+            .unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_AGENT_ITEM_GIVEN_STAMP)
+            .unwrap();
+        conn.pragma_update(None, "foreign_keys", false).unwrap();
+        conn.execute_batch(
+            "INSERT INTO agent (session, role, model, tier, folder, brief, started_at, started_by) \
+             VALUES ('s1', 'planner', 'm', 'strongest', '/w', 'b.md', 70, 'coordinator');
+             INSERT INTO record (id, kind, opened_at, opened_by) VALUES (1, 'item', 5, 'coordinator');
+             INSERT INTO area (name, position) VALUES ('A', 0);
+             INSERT INTO item (id, title, area, details, audience) VALUES (1, 'T', 'A', 'D', 'coordinator');
+             INSERT INTO agent_item (session, item) VALUES ('s1', 1);",
+        )
+        .unwrap();
+    }
+    move_store(&places, &path, 0).unwrap();
+    let conn = db::open(&path, db::Make::Never).unwrap();
+    let given: (String, i64, i64) = conn
+        .query_row(
+            "SELECT session, item, given_at FROM agent_item",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .unwrap();
+    assert_eq!(given, ("s1".into(), 1, 70));
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+}
+
+#[test]
 fn the_no_over_cap_stamp_is_the_schema_before_it() {
     assert_eq!(
         db::stamp_of_text(&db::schema_before_no_over_cap()),

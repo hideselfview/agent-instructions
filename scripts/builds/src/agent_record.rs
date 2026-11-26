@@ -68,6 +68,10 @@ impl Work {
     }
 }
 
+/// The context size at which an agent writes a handoff (`builds help
+/// workflow`, HANDOFF, AUDITS AND FLAKY TESTS).
+pub const HANDOFF_TOKENS: u64 = 550_000;
+
 /// An agent as the store keeps it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Agent {
@@ -90,6 +94,14 @@ pub struct Context {
     pub tokens: u64,
     /// The model's window, known once the agent's result line has named it.
     pub window: Option<u64>,
+}
+
+impl Context {
+    /// Whether the agent is past the handoff size. A fresh agent continues
+    /// the work of such an agent, so `agent resume` refuses it.
+    pub fn past_handoff(self) -> bool {
+        self.tokens >= HANDOFF_TOKENS
+    }
 }
 
 /// A process of an agent, as builds records its start.
@@ -123,7 +135,7 @@ pub fn start(db: &Connection, agent: &Agent, process: &Process) -> Result<()> {
     )
     .sql()?;
     add_places(db, &agent.session, agent.work.places())?;
-    add_items(db, &agent.session, &agent.items)?;
+    add_items(db, &agent.session, &agent.items, agent.started_at)?;
     add_process(db, &agent.session, process).map(drop)
 }
 
@@ -138,22 +150,24 @@ fn add_places(db: &Connection, session: &str, places: &[Place]) -> Result<()> {
     Ok(())
 }
 
-/// Records that <items> joined <session>'s agent, whose work is now <work>:
-/// its places replace the recorded ones. The caller's transaction makes the
-/// writes one.
-pub fn join(db: &Connection, session: &str, work: &Work, items: &[u32]) -> Result<()> {
+/// Records that <items> joined <session>'s agent at <at>, whose work is now
+/// <work>: its places replace the recorded ones. The caller's transaction
+/// makes the writes one.
+pub fn join(db: &Connection, session: &str, work: &Work, items: &[u32], at: i64) -> Result<()> {
     db.execute("DELETE FROM agent_place WHERE session = ?1", [session])
         .sql()?;
     add_places(db, session, work.places())?;
-    add_items(db, session, items)
+    add_items(db, session, items, at)
 }
 
-/// Records that <items> are among the items of <session>'s agent.
-fn add_items(db: &Connection, session: &str, items: &[u32]) -> Result<()> {
+/// Records that <session>'s agent was given <items> at <at>. An item it
+/// already had takes the later time.
+fn add_items(db: &Connection, session: &str, items: &[u32], at: i64) -> Result<()> {
     for item in items {
         db.execute(
-            "INSERT OR IGNORE INTO agent_item (session, item) VALUES (?1, ?2)",
-            params![session, item],
+            "INSERT INTO agent_item (session, item, given_at) VALUES (?1, ?2, ?3) \
+             ON CONFLICT (session, item) DO UPDATE SET given_at = excluded.given_at",
+            params![session, item, at],
         )
         .sql()?;
     }
@@ -355,6 +369,56 @@ pub fn processes(db: &Connection, session: &str) -> Result<Vec<ProcessRow>> {
         .sql()?
         .collect::<rusqlite::Result<Vec<_>>>()
         .sql()
+}
+
+/// The sessions of <db>'s agents whose folders no one needs: each is past the
+/// handoff size, and each of its items is closed or taken over. A later agent
+/// has taken an item over once an agent of the same role, given the item
+/// after this one was, has ended a process with exit status 0 since then:
+/// until that end, it may still have the handoff file to read.
+pub fn sessions_done_with(db: &Connection) -> Result<Vec<String>> {
+    let mut statement = db
+        .prepare(
+            "SELECT a.session FROM agent a WHERE a.context_tokens >= ?1 AND NOT EXISTS (\
+                 SELECT 1 FROM agent_item i WHERE i.session = a.session \
+                 AND NOT EXISTS (SELECT 1 FROM closing c WHERE c.record_id = i.item) \
+                 AND NOT EXISTS (\
+                     SELECT 1 FROM agent_item j \
+                     JOIN agent later ON later.session = j.session \
+                     JOIN agent_process p ON p.session = j.session \
+                     WHERE j.item = i.item AND j.given_at > i.given_at AND later.role = a.role \
+                     AND p.exit_status = 0 AND p.ended_at >= j.given_at))",
+        )
+        .sql()?;
+    statement
+        .query_map([HANDOFF_TOKENS as i64], |row| row.get(0))
+        .sql()?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .sql()
+}
+
+/// Makes `agent_item` again as agent_record.sql writes it, with the time each
+/// agent was given each item: a store from before kept none, and each item
+/// takes the time its agent started.
+pub fn add_given_at(db: &Connection) -> Result<()> {
+    use crate::db::{remake_table, statement};
+    let schema = include_str!("agent_record.sql");
+    remake_table(
+        db,
+        "agent_item",
+        statement(
+            schema,
+            "CREATE TABLE agent_item (",
+            ") STRICT, WITHOUT ROWID;",
+        ),
+        |db| {
+            db.execute_batch(
+                "INSERT INTO agent_item (session, item, given_at) SELECT i.session, i.item, a.started_at FROM agent_item_old i JOIN agent a ON a.session = i.session",
+            )
+            .sql()
+        },
+        &[],
+    )
 }
 
 #[cfg(test)]

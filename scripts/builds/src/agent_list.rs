@@ -7,7 +7,7 @@ use std::io::Write;
 use std::path::Path;
 
 use crate::agent_launch::LOG_FILE;
-use crate::agent_record::{self, Agent, Context};
+use crate::agent_record::{self, Agent, Context, HANDOFF_TOKENS};
 use crate::agent_stream::Line;
 use crate::db;
 use crate::fail;
@@ -17,14 +17,10 @@ use crate::lists::store::Store;
 use crate::text::local_minute;
 use crate::tool::Tool;
 
-/// The context size at which an agent writes a handoff (`builds help
-/// workflow`, HANDOFF, AUDITS AND FLAKY TESTS).
-pub const HANDOFF_TOKENS: u64 = 550_000;
-
 const LIST_USAGE: &str = "builds agent list [--running] [--project P]";
 const SHOW_USAGE: &str = "builds agent show SESSION [--project P]";
 
-fn thousands(tokens: u64) -> String {
+pub(crate) fn thousands(tokens: u64) -> String {
     format!("{}k", tokens / 1000)
 }
 
@@ -38,7 +34,7 @@ pub fn context_words(context: Option<Context>) -> String {
         Some(window) => format!("{} of {}", thousands(context.tokens), thousands(window)),
         None => thousands(context.tokens),
     };
-    if context.tokens >= HANDOFF_TOKENS {
+    if context.past_handoff() {
         words.push_str(&format!(
             ", past the handoff size of {}",
             thousands(HANDOFF_TOKENS)

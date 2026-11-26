@@ -182,7 +182,8 @@ process ends.
       the context of each turn of the agent (the input, cache-creation and
       cache-read tokens together) from the stream, and records them in the
       store with the agent's session, role, model, items and processes
-      (agent, agent_item and agent_process). builds never stores whether an
+      (agent, agent_item with the time the agent was given each item, and
+      agent_process). builds never stores whether an
       agent runs: it asks Claude Code's record of its running sessions.
   builds agent resume SESSION [--item N]... [--message-file F] [--project P]
       Gives the recorded agent SESSION a message: the words of --message-file,
@@ -192,6 +193,11 @@ process ends.
       agent runs in one of the agent's worktrees, on any branch (the
       coordinator takes it there first). A planner takes an open item that no
       agent runs. builds adds each --item to the agent's record.
+      - builds refuses to resume an agent whose last turn had 550k tokens of
+        context or more, the handoff size, with a message or an item, whether
+        or not its session runs: a fresh agent continues its work (`builds
+        help workflow`, HANDOFF, AUDITS AND FLAKY TESTS). It takes every
+        other recorded agent, whether or not the agent's items are closed.
       - The worktrees and branches that an implementing agent's --item items
         run in replace the recorded ones. Each land command names these items
         and the agent's earlier items that still run there. builds refuses the
@@ -264,10 +270,17 @@ on it:
   agents/<session>/     what `builds agent run` keeps of each agent it
                         started: log.jsonl, the stream and Claude Code's
                         standard error as JSON lines, and scratch/, the
-                        agent's folder for scratch files (AGENTS). `agent
-                        resume` takes every recorded agent, whether or not
-                        its items are closed, so builds keeps each recorded
-                        agent's folder: neither setup nor prune deletes it
+                        agent's folder for scratch files, a handoff file
+                        among them (AGENTS). Setup and prune delete the
+                        folder of a recorded agent only when all of these
+                        hold:
+                        - the agent is past the handoff size, so `agent
+                          resume` refuses it
+                        - Claude Code does not list its session as running
+                        - each item of its record is closed or taken over.
+                          An item is taken over once an agent of the same
+                          role, given the item after this agent was, has
+                          since ended a process with exit status 0
   .chrome-slots/        the slot files that limit the pages Chromes draw at once
                         on the host (APP BUILDS); `builds status` leaves it out
   .trash/               folders being deleted in the background

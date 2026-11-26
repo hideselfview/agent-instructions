@@ -527,6 +527,14 @@ fn resume(tool: &Tool, args: &[String], cwd: &Path, out: &mut dyn Write) -> Resu
     let Some(agent) = agent else {
         fail!("project {} records no agent {session}", lists.project);
     };
+    if let Some(context) = agent.context.filter(|context| context.past_handoff()) {
+        fail!(
+            "agent {session} has {} of context, past the handoff size of {}, so builds does not resume it: start a fresh agent on its items with `builds agent run`. For an item that still runs, first give it a brief that names the agent's handoff file with `builds item handoff N --brief P`; the agent keeps its scratch files in {}",
+            crate::agent_list::thousands(context.tokens),
+            crate::agent_list::thousands(agent_record::HANDOFF_TOKENS),
+            tool.places.agents().join(session).join("scratch").display()
+        );
+    }
     let joined = join(&lists, &agent, &ids)?;
     let base = match message_file {
         Some(path) => {
@@ -552,7 +560,7 @@ fn resume(tool: &Tool, args: &[String], cwd: &Path, out: &mut dyn Write) -> Resu
             let tx = conn
                 .transaction_with_behavior(TransactionBehavior::Immediate)
                 .sql()?;
-            agent_record::join(&tx, session, &joined.work, &new_ids)?;
+            agent_record::join(&tx, session, &joined.work, &new_ids, tool.now)?;
             tx.commit().sql()?;
             let _ = writeln!(out, "agent {session}: the message reached its inbox");
             return Ok(());
@@ -572,7 +580,7 @@ fn resume(tool: &Tool, args: &[String], cwd: &Path, out: &mut dyn Write) -> Resu
     );
     let started = agent_launch::start(command, &message, Log::append(&log)?)?;
     let (started, number) = record_process(&store, started, &message, tool.now, |db, process| {
-        agent_record::join(db, session, &joined.work, &new_ids)?;
+        agent_record::join(db, session, &joined.work, &new_ids, tool.now)?;
         agent_record::add_process(db, session, process)
     })?;
     let _ = writeln!(

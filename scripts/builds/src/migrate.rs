@@ -334,13 +334,17 @@ const BEFORE_BASE_MISSES_STAMP: i64 = 1_905_259_196;
 /// project.
 const BEFORE_FOREIGN_WAITS_STAMP: i64 = 1_179_704_518;
 
+/// The stamp of the schema before builds recorded when each agent was given
+/// each item.
+const BEFORE_AGENT_ITEM_GIVEN_STAMP: i64 = 377_511_477;
+
 /// The stamp of today's schema (`db::STAMP`). A change to the schema changes
 /// its stamp, and builds then fails to compile until the change gives it a
 /// move from this schema, since every store carries this stamp: the change
 /// adds the move, puts this stamp at the end of `STAMPS` under a name that
 /// says what the schema lacked, and sets this to the new schema's stamp, which
 /// the compiler's error names.
-const SCHEMA_STAMP: i64 = 377_511_477;
+const SCHEMA_STAMP: i64 = 54_534_517;
 
 // The compiler refuses a schema whose stamp is not SCHEMA_STAMP. A const
 // assert could not print the new stamp, so the check compares two array
@@ -350,7 +354,7 @@ const _: [(); SCHEMA_STAMP as usize] = [(); db::STAMP as usize];
 
 /// Every stamp a store can carry that `move_store` moves, oldest schema first.
 /// A new move adds the stamp of the schema before it at the end.
-const STAMPS: [i64; 54] = [
+const STAMPS: [i64; 55] = [
     BEFORE_CONDITION_ENDERS_STAMP,
     BEFORE_ITEM_EVENT_STAMP,
     BEFORE_LAND_RUN_STAMP,
@@ -405,6 +409,7 @@ const STAMPS: [i64; 54] = [
     BEFORE_REOPEN_STAMP,
     BEFORE_BASE_MISSES_STAMP,
     BEFORE_FOREIGN_WAITS_STAMP,
+    BEFORE_AGENT_ITEM_GIVEN_STAMP,
 ];
 
 /// Whether a store stamped <found> comes before the move that follows the
@@ -791,6 +796,12 @@ pub fn move_store(places: &Places, path: &Path, now: i64) -> Result<()> {
     // project gets the empty table.
     if before(found, BEFORE_FOREIGN_WAITS_STAMP) {
         tx.execute_batch(db::ITEM_WAIT_FOREIGN_PART).sql()?;
+    }
+    // Every store from before builds recorded when each agent was given each
+    // item gives each the time its agent started. A store from before the
+    // agents' tables got today's tables above.
+    if !before(found, BEFORE_AGENT_RECORD_STAMP) && before(found, BEFORE_AGENT_ITEM_GIVEN_STAMP) {
+        crate::agent_record::add_given_at(&tx)?;
     }
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     let broken: Option<String> = tx
