@@ -54,11 +54,8 @@ A board changes only in these cases, and the commit says which:
 - The board breaks a written rule (the words check, the design system's
   guidelines).
 
-When the person decides a change to an existing screen that the design system's
-existing components can draw, such as new words or a button added to an alert,
-the implementing agent edits the board in the same commit and names the
-decision. The design session draws new screens, new layouts, and anything that
-needs a new component or a change to the design system.
+`builds help workflow ROLES` says who edits a board for a change the person
+decided.
 
 ### Laying out a screen
 

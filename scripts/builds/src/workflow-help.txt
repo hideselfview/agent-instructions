@@ -36,14 +36,16 @@ A design session draws the boards (pictures of screens, kept in the repo) that
 the apps are built to match: new screens, new layouts, and anything that needs
 a new component or a change to the design system. It takes its items from
 `builds next --for design-session`, from the top, in the order the coordinator
-takes its own. When it starts, it runs `builds design listen --project P` for
-each project it draws for, so that the dashboard can pass the person's publish
-requests to it (PUBLISHING DESIGNS). When the person decides a change to an
-existing screen that the design system's existing components can draw, such as
-a button added to an alert, the implementing agent edits the board in the same
-commit and names the decision. "Design" alone is ambiguous: write "board" or
-"product design" for screens and how they look, and "software plan" for the
-shape of code and data.
+takes its own. The coordinator never takes or dispatches a design session's
+item, and app work that needs a board the design session draws waits until the
+board lands. When it starts, the design session runs `builds design listen
+--project P` for each project it draws for, so that the dashboard can pass the
+person's publish requests to it (PUBLISHING DESIGNS). When the person decides a
+change to an existing screen that the design system's existing components can
+draw, such as new words or a button added to an alert, the implementing agent
+edits the board in the same commit and names the decision. "Design" alone is
+ambiguous: write "board" or "product design" for screens and how they look, and
+"software plan" for the shape of code and data.
 
 A question for the person goes on the stack first (`builds question ask`),
 because the dashboard's Waiting on you tab shows only the stack. Then any
