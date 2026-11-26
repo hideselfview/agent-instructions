@@ -15,8 +15,9 @@ them into `~/.claude/` and `~/.codex/`, so both tools read the same files.
 - Both `AGENTS.md` and `CLAUDE.md` link to `instructions-agent.md`.
 - `rules/<group>/*.md` holds one code rule per file, in the folder of its review
   group. Each file's frontmatter gives `paths`, the globs of the files the rule
-  covers, and the flags that `builds help LANDING AND REVIEW` explains:
-  `blocking`, `review: false`, `design: true` and `capture: true`.
+  covers (a glob that starts with `!` leaves out the files it matches), and the
+  flags that `builds help LANDING AND REVIEW` explains: `blocking`,
+  `review: false`, `design: true` and `capture: true`.
 - `projects/<name>.md` holds a project's always-loaded instructions.
 - `projects/<name>-rules/<group>/*.md` holds a project's rules, with the same
   frontmatter as `rules/`.

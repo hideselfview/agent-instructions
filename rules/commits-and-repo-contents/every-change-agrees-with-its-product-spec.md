@@ -1,6 +1,17 @@
 ---
 paths:
   - '**/*'
+  - '!**/Cargo.lock'
+  - '!**/package-lock.json'
+  - '!**/pnpm-lock.yaml'
+  - '!**/yarn.lock'
+  - '!**/Package.resolved'
+  - '!**/Podfile.lock'
+  - '!**/*.lockfile'
+  - '!**/generated/**'
+  - '!**/Generated/**'
+  - '!**/*.generated.*'
+  - '!scripts/boards/runtime/**'
 blocking: true
 ---
 

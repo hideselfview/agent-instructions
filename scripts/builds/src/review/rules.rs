@@ -26,7 +26,9 @@ pub struct Rule {
     pub path: String,
     /// The group folder the file is in, None when it sits outside one.
     pub group_dir: Option<String>,
-    /// The globs the rule covers; None covers every path.
+    /// The globs the rule covers; None covers every path. A glob that starts
+    /// with `!` leaves out the paths it matches, whatever other globs match
+    /// them.
     pub paths: Option<Vec<String>>,
     /// Whether the reviewer's prompt and the report mark its findings blocking.
     pub blocking: bool,
@@ -118,7 +120,17 @@ impl Rule {
     fn matches_path(&self, path: &str) -> bool {
         match &self.paths {
             None => true,
-            Some(globs) => globs.iter().any(|glob| glob_matches(glob, path)),
+            Some(globs) => {
+                let mut covered = false;
+                for glob in globs {
+                    match glob.strip_prefix('!') {
+                        Some(left_out) if glob_matches(left_out, path) => return false,
+                        Some(_) => {}
+                        None => covered |= glob_matches(glob, path),
+                    }
+                }
+                covered
+            }
         }
     }
 }
