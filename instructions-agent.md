@@ -48,9 +48,9 @@ produces that could be recreated in an instant (a script, a check, a generated
 copy, a probe) stays out of the repo and its hooks
 (`rules/commits-and-repo-contents/the-repo-holds-the-product-not-development-s-ephemera.md`).
 
-**Order work bottom-up.** When you split work into a series of items, order the
-items by what each one uses, as `builds help workflow` (PLAN, BRIEF, EXECUTE)
-states.
+**Plan work in layers.** When you plan work, group its items into layers by what
+each one uses and fix one layer at a time, as `builds help workflow` (PLAN,
+BRIEF, EXECUTE) states.
 
 # Find out what is true
 

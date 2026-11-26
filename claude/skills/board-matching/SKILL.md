@@ -79,8 +79,9 @@ installed checker (`builds help APP BUILDS`).
 A shared cause is one fault that makes findings in many scenes or components.
 Shared-cause agents run before component agents, because a shared cause changes
 the files of many components, and a component agent running at the same time
-would change the same files. The coordinator orders each round's items
-bottom-up, as `builds help workflow` (PLAN, BRIEF, EXECUTE) states.
+would change the same files. The rounds are the loop of layers that
+`builds help workflow` (PLAN, BRIEF, EXECUTE) states, with a measurement as its
+scan: the shared causes are one layer, and the chunks are the next.
 
 Group the findings three ways, and count the scenes and components each group
 spans:

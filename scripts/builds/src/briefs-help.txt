@@ -85,8 +85,8 @@ WRITE ONE BRIEF PER ITEM
     resumes a brief, it credits the model that makes each new commit.
   - Order: what the item must come after: other items, the work of running
     agents (`builds item list --running`), moves of code between domains.
-    Name exactly the items whose output the item uses, in the bottom-up
-    order that `builds help workflow` (PLAN, BRIEF, EXECUTE) states.
+    Name exactly the items whose output the item uses, as the layers that
+    `builds help workflow` (PLAN, BRIEF, EXECUTE) describes set them.
   - Open question, only when the code and the rules can't settle a choice:
     the facts, and the alternatives that add no special-case UI. Such an item
     goes no further until the person answers. Dead code (code that nothing
