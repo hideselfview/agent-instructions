@@ -441,7 +441,11 @@ fn take_held(demo: &Demo, id: &str, top: &std::path::Path, extra: &[&str]) -> Re
         &brief,
     ];
     args.extend_from_slice(extra);
-    crate::lists::cmd_item(&demo.tool, &crate::lists::item_fixtures::words(&args))
+    crate::lists::cmd_item(
+        &demo.tool,
+        &crate::testing::no_ssh(),
+        &crate::lists::item_fixtures::words(&args),
+    )
 }
 
 #[test]

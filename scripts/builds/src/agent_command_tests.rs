@@ -9,6 +9,7 @@ fn add_item(demo: &Demo, title: &str) {
     let details = demo.brief("details.txt");
     cmd_item(
         &demo.tool,
+        &crate::testing::no_ssh(),
         &words(&[
             "add",
             "--title",
@@ -27,7 +28,7 @@ fn take(demo: &Demo, ids: &[&str], side: &std::path::Path, branch: &str, brief: 
     let mut args = vec!["take"];
     args.extend_from_slice(ids);
     args.extend(["--worktree", &side, "--branch", branch, "--brief", brief]);
-    cmd_item(&demo.tool, &words(&args)).unwrap();
+    cmd_item(&demo.tool, &crate::testing::no_ssh(), &words(&args)).unwrap();
 }
 
 /// A demo with the project file the run reads, two items and a brief.

@@ -14,7 +14,7 @@ fn add(demo: &crate::lists::item_fixtures::Demo, title: &str, area: &str, extra:
         &details,
     ];
     args.extend_from_slice(extra);
-    cmd_item(&demo.tool, &words(&args)).unwrap();
+    cmd_item(&demo.tool, &crate::testing::no_ssh(), &words(&args)).unwrap();
 }
 
 #[test]
@@ -40,7 +40,12 @@ fn render_item_shows_an_open_and_a_closed_item() {
             && two.contains("waits on item #1 \"Do the first thing now\" (not met)"),
         "{two}"
     );
-    cmd_item(&demo.tool, &words(&["drop", "2", "--why", "gone"])).unwrap();
+    cmd_item(
+        &demo.tool,
+        &crate::testing::no_ssh(),
+        &words(&["drop", "2", "--why", "gone"]),
+    )
+    .unwrap();
     let closed = render_item(&demo.store.load().unwrap(), Id(2), 0).unwrap();
     assert!(
         closed.contains("[closed, dropped: gone by tester"),
@@ -125,6 +130,7 @@ fn list_running_prints_the_marker_with_the_agent_from_the_claim() {
     let brief = demo.brief("b.md");
     cmd_item(
         &demo.tool,
+        &crate::testing::no_ssh(),
         &words(&[
             "take",
             "1",
@@ -143,15 +149,25 @@ fn list_running_prints_the_marker_with_the_agent_from_the_claim() {
         line,
         format!("Running: agent A, demo side-1 work, brief {brief}")
     );
-    cmd_item(&demo.tool, &words(&["list", "--running"])).unwrap();
     cmd_item(
         &demo.tool,
+        &crate::testing::no_ssh(),
+        &words(&["list", "--running"]),
+    )
+    .unwrap();
+    cmd_item(
+        &demo.tool,
+        &crate::testing::no_ssh(),
         &words(&["list", "--ready", "--area", "Alpha", "--for", "coordinator"]),
     )
     .unwrap();
     assert!(
-        refusal(cmd_item(&demo.tool, &words(&["list", "--area", "Nope"])))
-            .contains("does not exist")
+        refusal(cmd_item(
+            &demo.tool,
+            &crate::testing::no_ssh(),
+            &words(&["list", "--area", "Nope"])
+        ))
+        .contains("does not exist")
     );
 }
 
@@ -163,6 +179,7 @@ fn a_running_item_shows_the_tier_of_the_model_it_takes() {
     let brief = demo.brief("b.md");
     cmd_item(
         &demo.tool,
+        &crate::testing::no_ssh(),
         &words(&[
             "take",
             "1",
@@ -361,6 +378,7 @@ fn next_without_a_project_lists_the_ready_items_of_every_project() {
     let details = demo.brief("details.txt");
     cmd_item(
         &demo.tool,
+        &crate::testing::no_ssh(),
         &plain(&[
             "add",
             "--project",

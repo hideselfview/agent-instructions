@@ -60,6 +60,7 @@ fn bench(name: &str, spec_globs: bool) -> Bench {
     let details = demo.brief("details.txt");
     cmd_item(
         &demo.tool,
+        &crate::testing::no_ssh(),
         &words(&[
             "add",
             "--title",
@@ -115,7 +116,7 @@ impl Bench {
             &program,
         ];
         args.extend_from_slice(extra);
-        cmd_item(&self.demo.tool, &words(&args))
+        cmd_item(&self.demo.tool, &crate::testing::no_ssh(), &words(&args))
     }
 
     /// `builds item check-brief` with the brief, in side worktree 1.
@@ -134,7 +135,7 @@ impl Bench {
             &program,
         ];
         args.extend_from_slice(extra);
-        cmd_item(&self.demo.tool, &words(&args))
+        cmd_item(&self.demo.tool, &crate::testing::no_ssh(), &words(&args))
     }
 
     fn lists(&self) -> Lists {
@@ -671,6 +672,7 @@ fn check_brief_needs_a_worktree_and_names_no_items() {
     let b = bench("spec-check-brief-args", true);
     let none = refusal(cmd_item(
         &b.demo.tool,
+        &crate::testing::no_ssh(),
         &words(&["check-brief", "--brief", &b.brief]),
     ));
     assert!(none.contains("needs --worktree"), "{none}");

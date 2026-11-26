@@ -6,7 +6,7 @@ use crate::lists::item_fixtures::{Demo, demo, demo_over, refusal, words};
 use crate::lists::{Closed, Record};
 
 fn item(demo: &Demo, args: &[&str]) -> Result<()> {
-    cmd_item(&demo.tool, &words(args))
+    cmd_item(&demo.tool, &crate::testing::no_ssh(), &words(args))
 }
 
 fn add(demo: &Demo, title: &str, extra: &[&str]) -> Result<()> {

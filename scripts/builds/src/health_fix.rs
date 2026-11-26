@@ -263,6 +263,7 @@ pub fn release_stalled_claims(tool: &Tool, health: &crate::health::Health) -> Re
             );
             let said = crate::lists::cmd_item(
                 tool,
+                &crate::host::Ssh::from_env(),
                 &[
                     "stop".to_string(),
                     id.clone(),

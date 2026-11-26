@@ -9,7 +9,7 @@ use crate::lists::store::{Store, reload};
 const FIVE: &str = "Do the first thing now";
 
 fn item(demo: &Demo, args: &[&str]) -> Result<()> {
-    cmd_item(&demo.tool, &words(args))
+    cmd_item(&demo.tool, &crate::testing::no_ssh(), &words(args))
 }
 
 /// Project `other`, holding open item 1, beside the demo project, whose item

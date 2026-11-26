@@ -46,6 +46,7 @@ fn demo_with_item(name: &str) -> Demo {
     let details = demo.brief("details.txt");
     crate::lists::cmd_item(
         &demo.tool,
+        &crate::testing::no_ssh(),
         &words(&[
             "add",
             "--title",

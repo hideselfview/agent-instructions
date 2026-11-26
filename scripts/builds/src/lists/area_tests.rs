@@ -30,6 +30,7 @@ fn rename_follows_the_open_items_and_move_reorders() {
     let details = demo.brief("d");
     cmd_item(
         &demo.tool,
+        &crate::testing::no_ssh(),
         &words(&[
             "add",
             "--title",
@@ -56,6 +57,7 @@ fn remove_is_refused_while_an_item_is_in_the_area() {
     let details = demo.brief("d");
     cmd_item(
         &demo.tool,
+        &crate::testing::no_ssh(),
         &words(&[
             "add",
             "--title",
@@ -82,6 +84,7 @@ fn demo_with_a_closed_item(name: &str) -> Demo {
     let details = demo.brief("d");
     cmd_item(
         &demo.tool,
+        &crate::testing::no_ssh(),
         &words(&[
             "add",
             "--title",
@@ -93,7 +96,12 @@ fn demo_with_a_closed_item(name: &str) -> Demo {
         ]),
     )
     .unwrap();
-    cmd_item(&demo.tool, &words(&["drop", "1", "--why", "not needed"])).unwrap();
+    cmd_item(
+        &demo.tool,
+        &crate::testing::no_ssh(),
+        &words(&["drop", "1", "--why", "not needed"]),
+    )
+    .unwrap();
     demo
 }
 
