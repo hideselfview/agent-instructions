@@ -460,6 +460,26 @@ fn the_backlog_refuses_an_item_that_runs_keeps_a_worktree_or_waits_on_an_open_qu
 }
 
 #[test]
+fn the_backlog_takes_an_item_whose_questions_are_closed_and_refuses_one_with_an_open_question() {
+    let db = db();
+    let closed = question(&db);
+    let open = question(&db);
+    let item_closed = item(&db, vec![Wait::Question(closed)]);
+    let item_open = item(&db, vec![Wait::Question(closed), Wait::Question(open)]);
+    close(&db, closed, How::DoneUnrecorded, &stamp(NOON)).unwrap();
+    assert!(refusal(to_backlog(&db, &[item_open])).contains(&format!("open question {open}")));
+    to_backlog(&db, &[item_closed]).unwrap();
+    close(&db, open, How::DoneUnrecorded, &stamp(NOON)).unwrap();
+    to_backlog(&db, &[item_open]).unwrap();
+    let other = item(&db, vec![]);
+    add_wait(&db, item_closed, Wait::Question(closed)).unwrap();
+    to_backlog(&db, &[other]).unwrap();
+    assert!(
+        refusal(add_wait(&db, other, Wait::Question(question(&db)))).contains("is in the backlog")
+    );
+}
+
+#[test]
 fn the_backlog_refuses_an_item_that_an_item_outside_it_waits_on_and_takes_both_together() {
     let db = db();
     let first = item(&db, vec![]);
