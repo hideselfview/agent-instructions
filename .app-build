@@ -1,0 +1,11 @@
+# What agent-instructions' app builds run (builds help, APP BUILDS). Its one
+# app is the builds dashboard, whose boards are design/mocks.
+step web dashboard builds cargo build --manifest-path scripts/builds/Cargo.toml
+on scripts/builds/src/daemon/ dashboard
+needs web dashboard
+shots web builds shots run --app web --select {select}
+shots-declared web scripts/builds/src/daemon/shots
+# The stage is the checkout's own builds, not the installed one.
+shots-stage web scripts/builds/target/debug/builds dashboard stage --fixtures scripts/builds/src/daemon/shots {shot}
+shots-slot .dz-frame
+results web shots/web

@@ -1,0 +1,6029 @@
+{
+ "capture": {
+  "ready": "#l-body .l-section",
+  "steps": [
+   {
+    "click": "#l-tabs [data-tab=\"queue\"]",
+    "until": "#l-body[data-tab=\"queue\"] .l-section"
+   }
+  ]
+ },
+ "stage": {
+  "now": 1794696800,
+  "state": {
+   "version": 1,
+   "generated_at": 1794696800,
+   "root": "/Volumes/Builds",
+   "volume": {
+    "free_kib": 50960794,
+    "floor_kib": 31457280,
+    "hard_floor_kib": 10485760,
+    "size_kib": 1048576000
+   },
+   "load": {
+    "now": [
+     13.4,
+     14.1,
+     12.3
+    ],
+    "cores": 14,
+    "history": [
+     [
+      1794696200,
+      11.59
+     ],
+     [
+      1794696202,
+      10.94
+     ],
+     [
+      1794696204,
+      10.94
+     ],
+     [
+      1794696205,
+      10.46
+     ],
+     [
+      1794696207,
+      9.98
+     ],
+     [
+      1794696208,
+      9.49
+     ],
+     [
+      1794696210,
+      9.41
+     ],
+     [
+      1794696213,
+      10.86
+     ],
+     [
+      1794696215,
+      11.1
+     ],
+     [
+      1794696218,
+      10.7
+     ],
+     [
+      1794696219,
+      10.06
+     ],
+     [
+      1794696221,
+      10.06
+     ],
+     [
+      1794696222,
+      9.57
+     ],
+     [
+      1794696224,
+      9.33
+     ],
+     [
+      1794696226,
+      8.85
+     ],
+     [
+      1794696228,
+      8.45
+     ],
+     [
+      1794696230,
+      8.45
+     ],
+     [
+      1794696232,
+      8.21
+     ],
+     [
+      1794696233,
+      7.97
+     ],
+     [
+      1794696235,
+      7.64
+     ],
+     [
+      1794696236,
+      7.32
+     ],
+     [
+      1794696238,
+      7.32
+     ],
+     [
+      1794696240,
+      7.0
+     ],
+     [
+      1794696242,
+      8.77
+     ],
+     [
+      1794696246,
+      8.69
+     ],
+     [
+      1794696248,
+      9.57
+     ],
+     [
+      1794696250,
+      9.33
+     ],
+     [
+      1794696252,
+      9.33
+     ],
+     [
+      1794696253,
+      8.85
+     ],
+     [
+      1794696256,
+      9.01
+     ],
+     [
+      1794696258,
+      12.07
+     ],
+     [
+      1794696262,
+      12.55
+     ],
+     [
+      1794696263,
+      12.23
+     ],
+     [
+      1794696265,
+      11.51
+     ],
+     [
+      1794696267,
+      11.51
+     ],
+     [
+      1794696268,
+      11.51
+     ],
+     [
+      1794696270,
+      11.02
+     ],
+     [
+      1794696272,
+      10.7
+     ],
+     [
+      1794696274,
+      10.3
+     ],
+     [
+      1794696276,
+      9.98
+     ],
+     [
+      1794696279,
+      10.62
+     ],
+     [
+      1794696282,
+      11.26
+     ],
+     [
+      1794696284,
+      11.91
+     ],
+     [
+      1794696286,
+      11.91
+     ],
+     [
+      1794696288,
+      11.34
+     ],
+     [
+      1794696289,
+      11.1
+     ],
+     [
+      1794696291,
+      10.54
+     ],
+     [
+      1794696293,
+      10.54
+     ],
+     [
+      1794696295,
+      10.54
+     ],
+     [
+      1794696296,
+      10.14
+     ],
+     [
+      1794696299,
+      9.74
+     ],
+     [
+      1794696301,
+      9.9
+     ],
+     [
+      1794696303,
+      9.57
+     ],
+     [
+      1794696305,
+      9.49
+     ],
+     [
+      1794696306,
+      9.33
+     ],
+     [
+      1794696309,
+      9.25
+     ],
+     [
+      1794696310,
+      9.98
+     ],
+     [
+      1794696312,
+      10.14
+     ],
+     [
+      1794696315,
+      10.06
+     ],
+     [
+      1794696317,
+      10.38
+     ],
+     [
+      1794696319,
+      9.9
+     ],
+     [
+      1794696321,
+      9.9
+     ],
+     [
+      1794696324,
+      13.2
+     ],
+     [
+      1794696326,
+      13.2
+     ],
+     [
+      1794696327,
+      13.11
+     ],
+     [
+      1794696329,
+      12.55
+     ],
+     [
+      1794696330,
+      11.67
+     ],
+     [
+      1794696332,
+      11.26
+     ],
+     [
+      1794696334,
+      11.26
+     ],
+     [
+      1794696336,
+      12.79
+     ],
+     [
+      1794696339,
+      12.71
+     ],
+     [
+      1794696341,
+      12.15
+     ],
+     [
+      1794696343,
+      12.23
+     ],
+     [
+      1794696346,
+      11.75
+     ],
+     [
+      1794696348,
+      13.2
+     ],
+     [
+      1794696350,
+      12.87
+     ],
+     [
+      1794696352,
+      12.31
+     ],
+     [
+      1794696354,
+      11.51
+     ],
+     [
+      1794696356,
+      11.51
+     ],
+     [
+      1794696358,
+      10.86
+     ],
+     [
+      1794696359,
+      10.86
+     ],
+     [
+      1794696361,
+      10.38
+     ],
+     [
+      1794696362,
+      9.82
+     ],
+     [
+      1794696364,
+      9.49
+     ],
+     [
+      1794696366,
+      9.49
+     ],
+     [
+      1794696368,
+      9.25
+     ],
+     [
+      1794696370,
+      8.93
+     ],
+     [
+      1794696372,
+      8.45
+     ],
+     [
+      1794696374,
+      8.93
+     ],
+     [
+      1794696376,
+      9.09
+     ],
+     [
+      1794696379,
+      9.25
+     ],
+     [
+      1794696382,
+      10.06
+     ],
+     [
+      1794696383,
+      9.82
+     ],
+     [
+      1794696385,
+      9.25
+     ],
+     [
+      1794696386,
+      8.93
+     ],
+     [
+      1794696388,
+      8.93
+     ],
+     [
+      1794696390,
+      8.53
+     ],
+     [
+      1794696392,
+      8.21
+     ],
+     [
+      1794696394,
+      7.89
+     ],
+     [
+      1794696395,
+      7.89
+     ],
+     [
+      1794696396,
+      7.56
+     ],
+     [
+      1794696399,
+      7.64
+     ],
+     [
+      1794696402,
+      9.17
+     ],
+     [
+      1794696404,
+      9.9
+     ],
+     [
+      1794696406,
+      9.9
+     ],
+     [
+      1794696408,
+      9.49
+     ],
+     [
+      1794696410,
+      9.41
+     ],
+     [
+      1794696411,
+      9.01
+     ],
+     [
+      1794696413,
+      10.3
+     ],
+     [
+      1794696416,
+      10.14
+     ],
+     [
+      1794696417,
+      9.57
+     ],
+     [
+      1794696419,
+      9.57
+     ],
+     [
+      1794696420,
+      9.01
+     ],
+     [
+      1794696422,
+      9.09
+     ],
+     [
+      1794696424,
+      8.77
+     ],
+     [
+      1794696426,
+      8.77
+     ],
+     [
+      1794696426,
+      8.53
+     ],
+     [
+      1794696428,
+      8.77
+     ],
+     [
+      1794696430,
+      8.93
+     ],
+     [
+      1794696432,
+      8.45
+     ],
+     [
+      1794696435,
+      8.69
+     ],
+     [
+      1794696436,
+      8.69
+     ],
+     [
+      1794696438,
+      8.13
+     ],
+     [
+      1794696440,
+      7.89
+     ],
+     [
+      1794696442,
+      7.64
+     ],
+     [
+      1794696443,
+      8.61
+     ],
+     [
+      1794696445,
+      8.61
+     ],
+     [
+      1794696447,
+      9.74
+     ],
+     [
+      1794696450,
+      9.57
+     ],
+     [
+      1794696452,
+      11.1
+     ],
+     [
+      1794696454,
+      11.1
+     ],
+     [
+      1794696456,
+      10.7
+     ],
+     [
+      1794696457,
+      10.38
+     ],
+     [
+      1794696459,
+      11.67
+     ],
+     [
+      1794696460,
+      11.1
+     ],
+     [
+      1794696463,
+      12.79
+     ],
+     [
+      1794696466,
+      12.47
+     ],
+     [
+      1794696467,
+      11.75
+     ],
+     [
+      1794696469,
+      11.75
+     ],
+     [
+      1794696470,
+      11.26
+     ],
+     [
+      1794696472,
+      10.78
+     ],
+     [
+      1794696474,
+      10.3
+     ],
+     [
+      1794696476,
+      10.3
+     ],
+     [
+      1794696478,
+      10.3
+     ],
+     [
+      1794696480,
+      9.74
+     ],
+     [
+      1794696481,
+      10.22
+     ],
+     [
+      1794696484,
+      11.83
+     ],
+     [
+      1794696486,
+      12.39
+     ],
+     [
+      1794696488,
+      11.75
+     ],
+     [
+      1794696490,
+      11.43
+     ],
+     [
+      1794696492,
+      11.59
+     ],
+     [
+      1794696494,
+      11.83
+     ],
+     [
+      1794696496,
+      11.18
+     ],
+     [
+      1794696497,
+      11.18
+     ],
+     [
+      1794696499,
+      10.7
+     ],
+     [
+      1794696500,
+      10.22
+     ],
+     [
+      1794696502,
+      9.74
+     ],
+     [
+      1794696504,
+      9.74
+     ],
+     [
+      1794696506,
+      9.49
+     ],
+     [
+      1794696507,
+      10.62
+     ],
+     [
+      1794696509,
+      14.4
+     ],
+     [
+      1794696510,
+      14.08
+     ],
+     [
+      1794696512,
+      14.08
+     ],
+     [
+      1794696514,
+      13.28
+     ],
+     [
+      1794696516,
+      12.55
+     ],
+     [
+      1794696518,
+      11.75
+     ],
+     [
+      1794696520,
+      11.1
+     ],
+     [
+      1794696521,
+      11.1
+     ],
+     [
+      1794696523,
+      10.7
+     ],
+     [
+      1794696524,
+      10.22
+     ],
+     [
+      1794696526,
+      9.74
+     ],
+     [
+      1794696528,
+      9.74
+     ],
+     [
+      1794696529,
+      9.25
+     ],
+     [
+      1794696530,
+      8.77
+     ],
+     [
+      1794696532,
+      8.77
+     ],
+     [
+      1794696534,
+      8.37
+     ],
+     [
+      1794696536,
+      8.05
+     ],
+     [
+      1794696537,
+      7.56
+     ],
+     [
+      1794696538,
+      7.56
+     ],
+     [
+      1794696540,
+      7.32
+     ],
+     [
+      1794696542,
+      7.48
+     ],
+     [
+      1794696545,
+      9.17
+     ],
+     [
+      1794696548,
+      10.38
+     ],
+     [
+      1794696550,
+      10.38
+     ],
+     [
+      1794696552,
+      10.38
+     ],
+     [
+      1794696554,
+      10.06
+     ],
+     [
+      1794696555,
+      9.82
+     ],
+     [
+      1794696557,
+      9.98
+     ],
+     [
+      1794696559,
+      11.75
+     ],
+     [
+      1794696560,
+      11.75
+     ],
+     [
+      1794696562,
+      11.75
+     ],
+     [
+      1794696564,
+      12.07
+     ],
+     [
+      1794696567,
+      11.99
+     ],
+     [
+      1794696568,
+      11.83
+     ],
+     [
+      1794696570,
+      11.51
+     ],
+     [
+      1794696572,
+      11.02
+     ],
+     [
+      1794696574,
+      10.46
+     ],
+     [
+      1794696576,
+      10.46
+     ],
+     [
+      1794696578,
+      10.3
+     ],
+     [
+      1794696580,
+      11.26
+     ],
+     [
+      1794696582,
+      11.26
+     ],
+     [
+      1794696584,
+      10.7
+     ],
+     [
+      1794696586,
+      10.38
+     ],
+     [
+      1794696587,
+      10.14
+     ],
+     [
+      1794696589,
+      11.59
+     ],
+     [
+      1794696591,
+      11.67
+     ],
+     [
+      1794696594,
+      11.67
+     ],
+     [
+      1794696596,
+      11.67
+     ],
+     [
+      1794696597,
+      11.18
+     ],
+     [
+      1794696600,
+      10.94
+     ],
+     [
+      1794696602,
+      9.98
+     ],
+     [
+      1794696604,
+      9.98
+     ],
+     [
+      1794696606,
+      11.18
+     ],
+     [
+      1794696609,
+      11.99
+     ],
+     [
+      1794696611,
+      12.79
+     ],
+     [
+      1794696614,
+      13.68
+     ],
+     [
+      1794696616,
+      14.97
+     ],
+     [
+      1794696618,
+      16.09
+     ],
+     [
+      1794696621,
+      16.74
+     ],
+     [
+      1794696624,
+      16.74
+     ],
+     [
+      1794696626,
+      15.85
+     ],
+     [
+      1794696628,
+      15.21
+     ],
+     [
+      1794696630,
+      15.53
+     ],
+     [
+      1794696632,
+      15.37
+     ],
+     [
+      1794696634,
+      16.25
+     ],
+     [
+      1794696637,
+      16.01
+     ],
+     [
+      1794696639,
+      16.17
+     ],
+     [
+      1794696642,
+      16.41
+     ],
+     [
+      1794696644,
+      16.57
+     ],
+     [
+      1794696646,
+      16.82
+     ],
+     [
+      1794696649,
+      16.33
+     ],
+     [
+      1794696651,
+      15.37
+     ],
+     [
+      1794696652,
+      14.97
+     ],
+     [
+      1794696654,
+      18.91
+     ],
+     [
+      1794696658,
+      20.92
+     ],
+     [
+      1794696660,
+      19.55
+     ],
+     [
+      1794696662,
+      18.75
+     ],
+     [
+      1794696664,
+      17.94
+     ],
+     [
+      1794696666,
+      17.06
+     ],
+     [
+      1794696668,
+      16.57
+     ],
+     [
+      1794696670,
+      17.06
+     ],
+     [
+      1794696672,
+      16.74
+     ],
+     [
+      1794696676,
+      17.14
+     ],
+     [
+      1794696678,
+      19.23
+     ],
+     [
+      1794696680,
+      17.3
+     ],
+     [
+      1794696683,
+      17.22
+     ],
+     [
+      1794696686,
+      17.14
+     ],
+     [
+      1794696688,
+      16.41
+     ],
+     [
+      1794696691,
+      16.33
+     ],
+     [
+      1794696693,
+      15.85
+     ],
+     [
+      1794696695,
+      15.13
+     ],
+     [
+      1794696700,
+      16.82
+     ],
+     [
+      1794696702,
+      17.54
+     ],
+     [
+      1794696704,
+      17.54
+     ],
+     [
+      1794696707,
+      17.7
+     ],
+     [
+      1794696708,
+      16.49
+     ],
+     [
+      1794696710,
+      16.49
+     ],
+     [
+      1794696712,
+      15.45
+     ],
+     [
+      1794696714,
+      14.89
+     ],
+     [
+      1794696716,
+      14.32
+     ],
+     [
+      1794696718,
+      13.52
+     ],
+     [
+      1794696722,
+      12.07
+     ],
+     [
+      1794696724,
+      12.07
+     ],
+     [
+      1794696726,
+      13.68
+     ],
+     [
+      1794696728,
+      12.95
+     ],
+     [
+      1794696730,
+      13.28
+     ],
+     [
+      1794696732,
+      14.72
+     ],
+     [
+      1794696733,
+      13.92
+     ],
+     [
+      1794696734,
+      14.48
+     ],
+     [
+      1794696737,
+      14.48
+     ],
+     [
+      1794696738,
+      14.4
+     ],
+     [
+      1794696741,
+      13.76
+     ],
+     [
+      1794696742,
+      13.2
+     ],
+     [
+      1794696744,
+      12.71
+     ],
+     [
+      1794696746,
+      12.47
+     ],
+     [
+      1794696748,
+      13.52
+     ],
+     [
+      1794696751,
+      13.36
+     ],
+     [
+      1794696752,
+      13.76
+     ],
+     [
+      1794696754,
+      12.87
+     ],
+     [
+      1794696756,
+      12.15
+     ],
+     [
+      1794696758,
+      12.31
+     ],
+     [
+      1794696761,
+      13.84
+     ],
+     [
+      1794696763,
+      13.84
+     ],
+     [
+      1794696765,
+      13.28
+     ],
+     [
+      1794696767,
+      13.52
+     ],
+     [
+      1794696768,
+      13.2
+     ],
+     [
+      1794696772,
+      14.08
+     ],
+     [
+      1794696776,
+      15.29
+     ],
+     [
+      1794696778,
+      20.28
+     ],
+     [
+      1794696781,
+      19.15
+     ],
+     [
+      1794696783,
+      18.43
+     ],
+     [
+      1794696785,
+      17.94
+     ],
+     [
+      1794696787,
+      17.94
+     ],
+     [
+      1794696788,
+      17.06
+     ],
+     [
+      1794696790,
+      16.33
+     ],
+     [
+      1794696792,
+      15.53
+     ],
+     [
+      1794696794,
+      14.89
+     ],
+     [
+      1794696796,
+      14.08
+     ],
+     [
+      1794696798,
+      13.44
+     ],
+     [
+      1794696800,
+      13.44
+     ]
+    ]
+   },
+   "health": {
+    "generated_at": 1794696800,
+    "load": [
+     13.4,
+     14.1,
+     12.3
+    ],
+    "cores": 14,
+    "free_kib": 50960794,
+    "floor_kib": 31457280,
+    "hard_floor_kib": 10485760,
+    "sccache": {
+     "server": "Silent",
+     "waiting": []
+    },
+    "shells": {
+     "running": 0,
+     "junk": [],
+     "active": []
+    },
+    "worktrees": [],
+    "locks": [],
+    "queues": [],
+    "findings": [],
+    "leftover": [],
+    "schedule_needed": false
+   },
+   "health_error": null,
+   "hosts": [],
+   "compile_cache": [],
+   "compile_cache_error": null,
+   "repos": []
+  },
+  "lists": {
+   "projects": [
+    {
+     "project": "bae",
+     "version": 1,
+     "error": null,
+     "stack": [
+      {
+       "id": 1440,
+       "title": "Install Xcode on the M1 for Mac app builds",
+       "kind": "question",
+       "effect": "product-design",
+       "details": "",
+       "cites": [],
+       "blocks": [],
+       "blocked_count": 0,
+       "blocks_nothing": "Asked for the person to decide.",
+       "placed": null,
+       "plan": null,
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 717,
+       "title": "Where should each pending change show?",
+       "kind": "question",
+       "effect": "product-design",
+       "details": "",
+       "cites": [],
+       "blocks": [],
+       "blocked_count": 0,
+       "blocks_nothing": "Asked for the person to decide.",
+       "placed": null,
+       "plan": null,
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 1422,
+       "title": "How do non-exclusive S3 services publish uploads?",
+       "kind": "question",
+       "effect": "product-design",
+       "details": "",
+       "cites": [],
+       "blocks": [],
+       "blocked_count": 0,
+       "blocks_nothing": "Asked for the person to decide.",
+       "placed": null,
+       "plan": null,
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 718,
+       "title": "Test joining with your Dropbox and OneDrive",
+       "kind": "your-step",
+       "effect": "product-design",
+       "details": "",
+       "cites": [],
+       "blocks": [],
+       "blocked_count": 0,
+       "blocks_nothing": "Asked for the person to decide.",
+       "placed": null,
+       "plan": null,
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 1169,
+       "title": "Which development tools should leave the repo?",
+       "kind": "question",
+       "effect": "product-design",
+       "details": "",
+       "cites": [],
+       "blocks": [],
+       "blocked_count": 0,
+       "blocks_nothing": "Asked for the person to decide.",
+       "placed": null,
+       "plan": null,
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 1202,
+       "title": "Should catalog ID merges move to coven?",
+       "kind": "question",
+       "effect": "product-design",
+       "details": "",
+       "cites": [],
+       "blocks": [],
+       "blocked_count": 0,
+       "blocks_nothing": "Asked for the person to decide.",
+       "placed": null,
+       "plan": null,
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 1369,
+       "title": "Keep coven's perf harness, notes and blog drafts?",
+       "kind": "question",
+       "effect": "product-design",
+       "details": "",
+       "cites": [],
+       "blocks": [],
+       "blocked_count": 0,
+       "blocks_nothing": "Asked for the person to decide.",
+       "placed": null,
+       "plan": null,
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 1381,
+       "title": "Keep Volume and album art in now-playing?",
+       "kind": "question",
+       "effect": "product-design",
+       "details": "",
+       "cites": [],
+       "blocks": [],
+       "blocked_count": 0,
+       "blocks_nothing": "Asked for the person to decide.",
+       "placed": null,
+       "plan": null,
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 1382,
+       "title": "Keep hover Play and Remove on rows?",
+       "kind": "question",
+       "effect": "product-design",
+       "details": "",
+       "cites": [],
+       "blocks": [],
+       "blocked_count": 0,
+       "blocks_nothing": "Asked for the person to decide.",
+       "placed": null,
+       "plan": null,
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 1383,
+       "title": "Which kind is each mismatched Mac control?",
+       "kind": "question",
+       "effect": "product-design",
+       "details": "",
+       "cites": [],
+       "blocks": [],
+       "blocked_count": 0,
+       "blocks_nothing": "Asked for the person to decide.",
+       "placed": null,
+       "plan": null,
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 1384,
+       "title": "What iCloud and S3 say when the library is gone",
+       "kind": "question",
+       "effect": "product-design",
+       "details": "",
+       "cites": [],
+       "blocks": [],
+       "blocked_count": 0,
+       "blocks_nothing": "Asked for the person to decide.",
+       "placed": null,
+       "plan": null,
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 1385,
+       "title": "Reword the keychain lines without keys?",
+       "kind": "question",
+       "effect": "product-design",
+       "details": "",
+       "cites": [],
+       "blocks": [],
+       "blocked_count": 0,
+       "blocks_nothing": "Asked for the person to decide.",
+       "placed": null,
+       "plan": null,
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      }
+     ],
+     "areas": [
+      "Screenshots against the boards",
+      "Library pages: album, artist, composer, playlists",
+      "Import and identification",
+      "Sync"
+     ],
+     "items": [
+      {
+       "id": 196,
+       "title": "Make a synced insert in coven faster",
+       "area": "Screenshots against the boards",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": {
+        "level": "first",
+        "why": "The person asked for it first."
+       },
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 1452,
+       "title": "Give Mac menu buttons the pop-up role",
+       "area": "Screenshots against the boards",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 727,
+       "title": "Build the missing screens the boards show",
+       "area": "Library pages: album, artist, composer, playlists",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 747,
+       "title": "Build playlists as the boards draw them",
+       "area": "Library pages: album, artist, composer, playlists",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 748,
+       "title": "Build album page and editor as drawn",
+       "area": "Library pages: album, artist, composer, playlists",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 754,
+       "title": "Keep the folder in the import pane",
+       "area": "Import and identification",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 755,
+       "title": "Finish the Mac import screen boards",
+       "area": "Import and identification",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 756,
+       "title": "Show folders the system will not watch",
+       "area": "Import and identification",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 749,
+       "title": "Show an album's other releases",
+       "area": "Library pages: album, artist, composer, playlists",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 757,
+       "title": "Name the folder an import reads",
+       "area": "Import and identification",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2000,
+       "title": "Queued work 2000",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2001,
+       "title": "Queued work 2001",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2002,
+       "title": "Queued work 2002",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2003,
+       "title": "Queued work 2003",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2004,
+       "title": "Queued work 2004",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2005,
+       "title": "Queued work 2005",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2006,
+       "title": "Queued work 2006",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2007,
+       "title": "Queued work 2007",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2008,
+       "title": "Queued work 2008",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2009,
+       "title": "Queued work 2009",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2010,
+       "title": "Queued work 2010",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2011,
+       "title": "Queued work 2011",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2012,
+       "title": "Queued work 2012",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2013,
+       "title": "Queued work 2013",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2014,
+       "title": "Queued work 2014",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2015,
+       "title": "Queued work 2015",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2016,
+       "title": "Queued work 2016",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2017,
+       "title": "Queued work 2017",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2018,
+       "title": "Queued work 2018",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2019,
+       "title": "Queued work 2019",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2020,
+       "title": "Queued work 2020",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2021,
+       "title": "Queued work 2021",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2022,
+       "title": "Queued work 2022",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2023,
+       "title": "Queued work 2023",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2024,
+       "title": "Queued work 2024",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2025,
+       "title": "Queued work 2025",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2026,
+       "title": "Queued work 2026",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2027,
+       "title": "Queued work 2027",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2028,
+       "title": "Queued work 2028",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2029,
+       "title": "Queued work 2029",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2030,
+       "title": "Queued work 2030",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2031,
+       "title": "Queued work 2031",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2032,
+       "title": "Queued work 2032",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2033,
+       "title": "Queued work 2033",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2034,
+       "title": "Queued work 2034",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2035,
+       "title": "Queued work 2035",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2036,
+       "title": "Queued work 2036",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2037,
+       "title": "Queued work 2037",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2038,
+       "title": "Queued work 2038",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2039,
+       "title": "Queued work 2039",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2040,
+       "title": "Queued work 2040",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2041,
+       "title": "Queued work 2041",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2042,
+       "title": "Queued work 2042",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2043,
+       "title": "Queued work 2043",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2044,
+       "title": "Queued work 2044",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2045,
+       "title": "Queued work 2045",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2046,
+       "title": "Queued work 2046",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2047,
+       "title": "Queued work 2047",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2048,
+       "title": "Queued work 2048",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2049,
+       "title": "Queued work 2049",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2050,
+       "title": "Queued work 2050",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2051,
+       "title": "Queued work 2051",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2052,
+       "title": "Queued work 2052",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2053,
+       "title": "Queued work 2053",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2054,
+       "title": "Queued work 2054",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2055,
+       "title": "Queued work 2055",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2056,
+       "title": "Queued work 2056",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2057,
+       "title": "Queued work 2057",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2058,
+       "title": "Queued work 2058",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2059,
+       "title": "Queued work 2059",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2060,
+       "title": "Queued work 2060",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2061,
+       "title": "Queued work 2061",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2062,
+       "title": "Queued work 2062",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2063,
+       "title": "Queued work 2063",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2064,
+       "title": "Queued work 2064",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2065,
+       "title": "Queued work 2065",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2066,
+       "title": "Queued work 2066",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2067,
+       "title": "Queued work 2067",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2068,
+       "title": "Queued work 2068",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2069,
+       "title": "Queued work 2069",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2070,
+       "title": "Queued work 2070",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2071,
+       "title": "Queued work 2071",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2072,
+       "title": "Queued work 2072",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2073,
+       "title": "Queued work 2073",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2074,
+       "title": "Queued work 2074",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2075,
+       "title": "Queued work 2075",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2076,
+       "title": "Queued work 2076",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2077,
+       "title": "Queued work 2077",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2078,
+       "title": "Queued work 2078",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2079,
+       "title": "Queued work 2079",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2080,
+       "title": "Queued work 2080",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2081,
+       "title": "Queued work 2081",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2082,
+       "title": "Queued work 2082",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2083,
+       "title": "Queued work 2083",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2084,
+       "title": "Queued work 2084",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2085,
+       "title": "Queued work 2085",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2086,
+       "title": "Queued work 2086",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2087,
+       "title": "Queued work 2087",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2088,
+       "title": "Queued work 2088",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2089,
+       "title": "Queued work 2089",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2090,
+       "title": "Queued work 2090",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2091,
+       "title": "Queued work 2091",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2092,
+       "title": "Queued work 2092",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2093,
+       "title": "Queued work 2093",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2094,
+       "title": "Queued work 2094",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2095,
+       "title": "Queued work 2095",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2096,
+       "title": "Queued work 2096",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2097,
+       "title": "Queued work 2097",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2098,
+       "title": "Queued work 2098",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2099,
+       "title": "Queued work 2099",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2100,
+       "title": "Queued work 2100",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2101,
+       "title": "Queued work 2101",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2102,
+       "title": "Queued work 2102",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2103,
+       "title": "Queued work 2103",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2104,
+       "title": "Queued work 2104",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2105,
+       "title": "Queued work 2105",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2106,
+       "title": "Queued work 2106",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2107,
+       "title": "Queued work 2107",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2108,
+       "title": "Queued work 2108",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2109,
+       "title": "Queued work 2109",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2110,
+       "title": "Queued work 2110",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2111,
+       "title": "Queued work 2111",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2112,
+       "title": "Queued work 2112",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2113,
+       "title": "Queued work 2113",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2114,
+       "title": "Queued work 2114",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2115,
+       "title": "Queued work 2115",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2116,
+       "title": "Queued work 2116",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2117,
+       "title": "Queued work 2117",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 2118,
+       "title": "Queued work 2118",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "ready",
+       "priority": null,
+       "backlog": null,
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 3000,
+       "title": "Queued work 3000",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "backlog",
+       "priority": null,
+       "backlog": {
+        "why": "Not for now.",
+        "at": 1794610400,
+        "by": "coordinator"
+       },
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 3001,
+       "title": "Queued work 3001",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "backlog",
+       "priority": null,
+       "backlog": {
+        "why": "Not for now.",
+        "at": 1794610400,
+        "by": "coordinator"
+       },
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 3002,
+       "title": "Queued work 3002",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "backlog",
+       "priority": null,
+       "backlog": {
+        "why": "Not for now.",
+        "at": 1794610400,
+        "by": "coordinator"
+       },
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 3003,
+       "title": "Queued work 3003",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "backlog",
+       "priority": null,
+       "backlog": {
+        "why": "Not for now.",
+        "at": 1794610400,
+        "by": "coordinator"
+       },
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 3004,
+       "title": "Queued work 3004",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "backlog",
+       "priority": null,
+       "backlog": {
+        "why": "Not for now.",
+        "at": 1794610400,
+        "by": "coordinator"
+       },
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 3005,
+       "title": "Queued work 3005",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "backlog",
+       "priority": null,
+       "backlog": {
+        "why": "Not for now.",
+        "at": 1794610400,
+        "by": "coordinator"
+       },
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 3006,
+       "title": "Queued work 3006",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "backlog",
+       "priority": null,
+       "backlog": {
+        "why": "Not for now.",
+        "at": 1794610400,
+        "by": "coordinator"
+       },
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 3007,
+       "title": "Queued work 3007",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "backlog",
+       "priority": null,
+       "backlog": {
+        "why": "Not for now.",
+        "at": 1794610400,
+        "by": "coordinator"
+       },
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 3008,
+       "title": "Queued work 3008",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "backlog",
+       "priority": null,
+       "backlog": {
+        "why": "Not for now.",
+        "at": 1794610400,
+        "by": "coordinator"
+       },
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 3009,
+       "title": "Queued work 3009",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "backlog",
+       "priority": null,
+       "backlog": {
+        "why": "Not for now.",
+        "at": 1794610400,
+        "by": "coordinator"
+       },
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 3010,
+       "title": "Queued work 3010",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "backlog",
+       "priority": null,
+       "backlog": {
+        "why": "Not for now.",
+        "at": 1794610400,
+        "by": "coordinator"
+       },
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      },
+      {
+       "id": 3011,
+       "title": "Queued work 3011",
+       "area": "Sync",
+       "details": "",
+       "for": "coordinator",
+       "state": "backlog",
+       "priority": null,
+       "backlog": {
+        "why": "Not for now.",
+        "at": 1794610400,
+        "by": "coordinator"
+       },
+       "behind": 0,
+       "brief": null,
+       "waits": [],
+       "running": [],
+       "kept": [],
+       "landed": [],
+       "times": null,
+       "notes": [],
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "trail": {
+        "tags": [],
+        "earlier": []
+       }
+      }
+     ],
+     "designs": [
+      {
+       "id": 1386,
+       "title": "Small design fixes from the queue",
+       "details": "",
+       "repo": "bae",
+       "places": [],
+       "deleted": [],
+       "blocks": [],
+       "no_app_place": null,
+       "approved": null,
+       "rules_review": "read",
+       "decision": null,
+       "session": "unrecorded",
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "landed": [],
+       "closed": null
+      },
+      {
+       "id": 1390,
+       "title": "Damaged library on this device, and a removal that can't finish",
+       "details": "",
+       "repo": "bae",
+       "places": [],
+       "deleted": [],
+       "blocks": [],
+       "no_app_place": null,
+       "approved": null,
+       "rules_review": "read",
+       "decision": null,
+       "session": "unrecorded",
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "landed": [],
+       "closed": null
+      },
+      {
+       "id": 1393,
+       "title": "Board fixes from the screenshot work",
+       "details": "",
+       "repo": "bae",
+       "places": [],
+       "deleted": [],
+       "blocks": [],
+       "no_app_place": null,
+       "approved": null,
+       "rules_review": "read",
+       "decision": null,
+       "session": "unrecorded",
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "landed": [],
+       "closed": null
+      },
+      {
+       "id": 1396,
+       "title": "Empty and failed panes use the macOS empty view",
+       "details": "",
+       "repo": "bae",
+       "places": [],
+       "deleted": [],
+       "blocks": [],
+       "no_app_place": null,
+       "approved": null,
+       "rules_review": "read",
+       "decision": null,
+       "session": "unrecorded",
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "landed": [],
+       "closed": null
+      },
+      {
+       "id": 1416,
+       "title": "S3 key on the Sync page",
+       "details": "",
+       "repo": "bae",
+       "places": [],
+       "deleted": [],
+       "blocks": [],
+       "no_app_place": null,
+       "approved": null,
+       "rules_review": "read",
+       "decision": null,
+       "session": "unrecorded",
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "landed": [],
+       "closed": null
+      },
+      {
+       "id": 1419,
+       "title": "AirPlay PIN sheet",
+       "details": "",
+       "repo": "bae",
+       "places": [],
+       "deleted": [],
+       "blocks": [],
+       "no_app_place": null,
+       "approved": null,
+       "rules_review": "read",
+       "decision": null,
+       "session": "unrecorded",
+       "opened": {
+        "at": 1794437600,
+        "by": "coordinator"
+       },
+       "landed": [],
+       "closed": null
+      }
+     ],
+     "decisions": [],
+     "works": [
+      {
+       "title": "Publish S3 large uploads by copy",
+       "repo": "coven",
+       "checkout": "side-5",
+       "now": null,
+       "agent": "agent",
+       "since": {
+        "at": 1794689600,
+        "by": "coordinator"
+       },
+       "times": {
+        "first": 1794689600,
+        "runs": 1,
+        "ran": {
+         "seconds": 0,
+         "since": 1794689600
+        },
+        "held": {
+         "seconds": 0,
+         "since": null
+        },
+        "waiting": {
+         "seconds": 0,
+         "since": null
+        },
+        "landed": null,
+        "spans_from": null
+       },
+       "tab": "waiting",
+       "branch": "work-1421",
+       "plan": "plans/briefs/item-1421.md",
+       "items": [
+        {
+         "id": 1421,
+         "title": "Publish S3 large uploads by copy"
+        }
+       ],
+       "landed": []
+      },
+      {
+       "title": "Running work 1",
+       "repo": "bae",
+       "checkout": "side-1",
+       "now": null,
+       "agent": "agent",
+       "since": {
+        "at": 1794689600,
+        "by": "coordinator"
+       },
+       "times": {
+        "first": 1794689600,
+        "runs": 1,
+        "ran": {
+         "seconds": 0,
+         "since": 1794689600
+        },
+        "held": {
+         "seconds": 0,
+         "since": null
+        },
+        "waiting": {
+         "seconds": 0,
+         "since": null
+        },
+        "landed": null,
+        "spans_from": null
+       },
+       "tab": "running",
+       "branch": "work-900",
+       "plan": "plans/briefs/item-900.md",
+       "items": [
+        {
+         "id": 900,
+         "title": "Running work 1"
+        }
+       ],
+       "landed": []
+      },
+      {
+       "title": "Running work 2",
+       "repo": "bae",
+       "checkout": "side-2",
+       "now": null,
+       "agent": "agent",
+       "since": {
+        "at": 1794689600,
+        "by": "coordinator"
+       },
+       "times": {
+        "first": 1794689600,
+        "runs": 1,
+        "ran": {
+         "seconds": 0,
+         "since": 1794689600
+        },
+        "held": {
+         "seconds": 0,
+         "since": null
+        },
+        "waiting": {
+         "seconds": 0,
+         "since": null
+        },
+        "landed": null,
+        "spans_from": null
+       },
+       "tab": "running",
+       "branch": "work-901",
+       "plan": "plans/briefs/item-901.md",
+       "items": [
+        {
+         "id": 901,
+         "title": "Running work 2"
+        }
+       ],
+       "landed": []
+      },
+      {
+       "title": "Running work 3",
+       "repo": "bae",
+       "checkout": "side-3",
+       "now": null,
+       "agent": "agent",
+       "since": {
+        "at": 1794689600,
+        "by": "coordinator"
+       },
+       "times": {
+        "first": 1794689600,
+        "runs": 1,
+        "ran": {
+         "seconds": 0,
+         "since": 1794689600
+        },
+        "held": {
+         "seconds": 0,
+         "since": null
+        },
+        "waiting": {
+         "seconds": 0,
+         "since": null
+        },
+        "landed": null,
+        "spans_from": null
+       },
+       "tab": "running",
+       "branch": "work-902",
+       "plan": "plans/briefs/item-902.md",
+       "items": [
+        {
+         "id": 902,
+         "title": "Running work 3"
+        }
+       ],
+       "landed": []
+      },
+      {
+       "title": "Running work 4",
+       "repo": "bae",
+       "checkout": "side-4",
+       "now": null,
+       "agent": "agent",
+       "since": {
+        "at": 1794689600,
+        "by": "coordinator"
+       },
+       "times": {
+        "first": 1794689600,
+        "runs": 1,
+        "ran": {
+         "seconds": 0,
+         "since": 1794689600
+        },
+        "held": {
+         "seconds": 0,
+         "since": null
+        },
+        "waiting": {
+         "seconds": 0,
+         "since": null
+        },
+        "landed": null,
+        "spans_from": null
+       },
+       "tab": "running",
+       "branch": "work-903",
+       "plan": "plans/briefs/item-903.md",
+       "items": [
+        {
+         "id": 903,
+         "title": "Running work 4"
+        }
+       ],
+       "landed": []
+      },
+      {
+       "title": "Running work 5",
+       "repo": "bae",
+       "checkout": "side-5",
+       "now": null,
+       "agent": "agent",
+       "since": {
+        "at": 1794689600,
+        "by": "coordinator"
+       },
+       "times": {
+        "first": 1794689600,
+        "runs": 1,
+        "ran": {
+         "seconds": 0,
+         "since": 1794689600
+        },
+        "held": {
+         "seconds": 0,
+         "since": null
+        },
+        "waiting": {
+         "seconds": 0,
+         "since": null
+        },
+        "landed": null,
+        "spans_from": null
+       },
+       "tab": "running",
+       "branch": "work-904",
+       "plan": "plans/briefs/item-904.md",
+       "items": [
+        {
+         "id": 904,
+         "title": "Running work 5"
+        }
+       ],
+       "landed": []
+      },
+      {
+       "title": "Running work 6",
+       "repo": "bae",
+       "checkout": "side-6",
+       "now": null,
+       "agent": "agent",
+       "since": {
+        "at": 1794689600,
+        "by": "coordinator"
+       },
+       "times": {
+        "first": 1794689600,
+        "runs": 1,
+        "ran": {
+         "seconds": 0,
+         "since": 1794689600
+        },
+        "held": {
+         "seconds": 0,
+         "since": null
+        },
+        "waiting": {
+         "seconds": 0,
+         "since": null
+        },
+        "landed": null,
+        "spans_from": null
+       },
+       "tab": "running",
+       "branch": "work-905",
+       "plan": "plans/briefs/item-905.md",
+       "items": [
+        {
+         "id": 905,
+         "title": "Running work 6"
+        }
+       ],
+       "landed": []
+      },
+      {
+       "title": "Running work 7",
+       "repo": "bae",
+       "checkout": "side-7",
+       "now": null,
+       "agent": "agent",
+       "since": {
+        "at": 1794689600,
+        "by": "coordinator"
+       },
+       "times": {
+        "first": 1794689600,
+        "runs": 1,
+        "ran": {
+         "seconds": 0,
+         "since": 1794689600
+        },
+        "held": {
+         "seconds": 0,
+         "since": null
+        },
+        "waiting": {
+         "seconds": 0,
+         "since": null
+        },
+        "landed": null,
+        "spans_from": null
+       },
+       "tab": "running",
+       "branch": "work-906",
+       "plan": "plans/briefs/item-906.md",
+       "items": [
+        {
+         "id": 906,
+         "title": "Running work 7"
+        }
+       ],
+       "landed": []
+      }
+     ],
+     "board": {
+      "waiting": 19,
+      "works": [
+       {
+        "title": "Publish S3 large uploads by copy",
+        "repo": "coven",
+        "checkout": "side-5",
+        "now": null,
+        "agent": "agent",
+        "since": {
+         "at": 1794689600,
+         "by": "coordinator"
+        },
+        "times": {
+         "first": 1794689600,
+         "runs": 1,
+         "ran": {
+          "seconds": 0,
+          "since": 1794689600
+         },
+         "held": {
+          "seconds": 0,
+          "since": null
+         },
+         "waiting": {
+          "seconds": 0,
+          "since": null
+         },
+         "landed": null,
+         "spans_from": null
+        },
+        "tab": "waiting",
+        "branch": "work-1421",
+        "plan": "plans/briefs/item-1421.md",
+        "items": [
+         {
+          "id": 1421,
+          "title": "Publish S3 large uploads by copy"
+         }
+        ],
+        "landed": []
+       },
+       {
+        "title": "Running work 1",
+        "repo": "bae",
+        "checkout": "side-1",
+        "now": null,
+        "agent": "agent",
+        "since": {
+         "at": 1794689600,
+         "by": "coordinator"
+        },
+        "times": {
+         "first": 1794689600,
+         "runs": 1,
+         "ran": {
+          "seconds": 0,
+          "since": 1794689600
+         },
+         "held": {
+          "seconds": 0,
+          "since": null
+         },
+         "waiting": {
+          "seconds": 0,
+          "since": null
+         },
+         "landed": null,
+         "spans_from": null
+        },
+        "tab": "running",
+        "branch": "work-900",
+        "plan": "plans/briefs/item-900.md",
+        "items": [
+         {
+          "id": 900,
+          "title": "Running work 1"
+         }
+        ],
+        "landed": []
+       },
+       {
+        "title": "Running work 2",
+        "repo": "bae",
+        "checkout": "side-2",
+        "now": null,
+        "agent": "agent",
+        "since": {
+         "at": 1794689600,
+         "by": "coordinator"
+        },
+        "times": {
+         "first": 1794689600,
+         "runs": 1,
+         "ran": {
+          "seconds": 0,
+          "since": 1794689600
+         },
+         "held": {
+          "seconds": 0,
+          "since": null
+         },
+         "waiting": {
+          "seconds": 0,
+          "since": null
+         },
+         "landed": null,
+         "spans_from": null
+        },
+        "tab": "running",
+        "branch": "work-901",
+        "plan": "plans/briefs/item-901.md",
+        "items": [
+         {
+          "id": 901,
+          "title": "Running work 2"
+         }
+        ],
+        "landed": []
+       },
+       {
+        "title": "Running work 3",
+        "repo": "bae",
+        "checkout": "side-3",
+        "now": null,
+        "agent": "agent",
+        "since": {
+         "at": 1794689600,
+         "by": "coordinator"
+        },
+        "times": {
+         "first": 1794689600,
+         "runs": 1,
+         "ran": {
+          "seconds": 0,
+          "since": 1794689600
+         },
+         "held": {
+          "seconds": 0,
+          "since": null
+         },
+         "waiting": {
+          "seconds": 0,
+          "since": null
+         },
+         "landed": null,
+         "spans_from": null
+        },
+        "tab": "running",
+        "branch": "work-902",
+        "plan": "plans/briefs/item-902.md",
+        "items": [
+         {
+          "id": 902,
+          "title": "Running work 3"
+         }
+        ],
+        "landed": []
+       },
+       {
+        "title": "Running work 4",
+        "repo": "bae",
+        "checkout": "side-4",
+        "now": null,
+        "agent": "agent",
+        "since": {
+         "at": 1794689600,
+         "by": "coordinator"
+        },
+        "times": {
+         "first": 1794689600,
+         "runs": 1,
+         "ran": {
+          "seconds": 0,
+          "since": 1794689600
+         },
+         "held": {
+          "seconds": 0,
+          "since": null
+         },
+         "waiting": {
+          "seconds": 0,
+          "since": null
+         },
+         "landed": null,
+         "spans_from": null
+        },
+        "tab": "running",
+        "branch": "work-903",
+        "plan": "plans/briefs/item-903.md",
+        "items": [
+         {
+          "id": 903,
+          "title": "Running work 4"
+         }
+        ],
+        "landed": []
+       },
+       {
+        "title": "Running work 5",
+        "repo": "bae",
+        "checkout": "side-5",
+        "now": null,
+        "agent": "agent",
+        "since": {
+         "at": 1794689600,
+         "by": "coordinator"
+        },
+        "times": {
+         "first": 1794689600,
+         "runs": 1,
+         "ran": {
+          "seconds": 0,
+          "since": 1794689600
+         },
+         "held": {
+          "seconds": 0,
+          "since": null
+         },
+         "waiting": {
+          "seconds": 0,
+          "since": null
+         },
+         "landed": null,
+         "spans_from": null
+        },
+        "tab": "running",
+        "branch": "work-904",
+        "plan": "plans/briefs/item-904.md",
+        "items": [
+         {
+          "id": 904,
+          "title": "Running work 5"
+         }
+        ],
+        "landed": []
+       },
+       {
+        "title": "Running work 6",
+        "repo": "bae",
+        "checkout": "side-6",
+        "now": null,
+        "agent": "agent",
+        "since": {
+         "at": 1794689600,
+         "by": "coordinator"
+        },
+        "times": {
+         "first": 1794689600,
+         "runs": 1,
+         "ran": {
+          "seconds": 0,
+          "since": 1794689600
+         },
+         "held": {
+          "seconds": 0,
+          "since": null
+         },
+         "waiting": {
+          "seconds": 0,
+          "since": null
+         },
+         "landed": null,
+         "spans_from": null
+        },
+        "tab": "running",
+        "branch": "work-905",
+        "plan": "plans/briefs/item-905.md",
+        "items": [
+         {
+          "id": 905,
+          "title": "Running work 6"
+         }
+        ],
+        "landed": []
+       },
+       {
+        "title": "Running work 7",
+        "repo": "bae",
+        "checkout": "side-7",
+        "now": null,
+        "agent": "agent",
+        "since": {
+         "at": 1794689600,
+         "by": "coordinator"
+        },
+        "times": {
+         "first": 1794689600,
+         "runs": 1,
+         "ran": {
+          "seconds": 0,
+          "since": 1794689600
+         },
+         "held": {
+          "seconds": 0,
+          "since": null
+         },
+         "waiting": {
+          "seconds": 0,
+          "since": null
+         },
+         "landed": null,
+         "spans_from": null
+        },
+        "tab": "running",
+        "branch": "work-906",
+        "plan": "plans/briefs/item-906.md",
+        "items": [
+         {
+          "id": 906,
+          "title": "Running work 7"
+         }
+        ],
+        "landed": []
+       }
+      ]
+     },
+     "has_designs": true
+    },
+    {
+     "project": "builds",
+     "version": 1,
+     "error": null,
+     "stack": [],
+     "areas": [],
+     "items": [],
+     "designs": [],
+     "decisions": [],
+     "works": [],
+     "board": {
+      "waiting": 0,
+      "works": []
+     },
+     "has_designs": false
+    }
+   ]
+  },
+  "hooks": {
+   "projects": []
+  }
+ }
+}

@@ -5,3 +5,5 @@ plans/
 # Scratch boards: boards a design session draws to compare versions with the
 # person on the dashboard's scratch view. Nobody commits one.
 design/mocks/scratch.*.dc.html
+# The shots a run of builds writes in the checkout.
+/shots/

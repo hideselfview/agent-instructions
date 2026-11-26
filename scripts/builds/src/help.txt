@@ -3239,7 +3239,14 @@ STATUS, HEALTH AND THE DASHBOARD
                               a fixture of the wrong shape stops it with an
                               error before it prints an address. It reads no
                               store and no checkout, so it runs beside a
-                              dashboard.
+                              dashboard. The shots of agent-instructions'
+                              web app stage the fixtures of
+                              scripts/builds/src/daemon/shots with the
+                              checkout's own builds (its .app-build), one
+                              for each board named web.dashboard.<screen>,
+                              and a branch that changes the dashboard takes
+                              them with `builds app-build agent-instructions
+                              <branch> --shots web.dashboard.`
   builds dashboard [--port <port>] [--listen <address>]
                               run the daemon until it is killed. It follows
                               the checkouts and the lists through
