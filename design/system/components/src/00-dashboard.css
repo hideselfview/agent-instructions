@@ -226,9 +226,9 @@ h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
 .l-top { position: sticky; top: 0; z-index: 2; background: var(--pinned); padding: 12px 0 10px; display: flex; flex-direction: column; gap: 10px; }
 .l-head { display: flex; align-items: center; gap: 10px; }
 .l-head h2 { margin: 0; font-size: 16px; font-weight: 700; }
-.l-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2px; padding: 3px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+.l-tabs { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 2px; padding: 3px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
 .l-tabs[hidden] { display: none; }
-.l-tabs.l-projects { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); margin-bottom: 6px; }
+.l-tabs.l-projects { margin-bottom: 6px; }
 .l-tabs button { display: flex; flex-direction: row; justify-content: center; align-items: baseline; gap: 6px; font: 600 13px var(--font-sans); color: var(--muted); background: transparent; border: 0; border-radius: 7px; padding: 5px 4px; cursor: pointer; min-width: 0; }
 .l-tabs button[aria-selected="true"] { background: var(--on); color: var(--on-text); }
 .l-tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
