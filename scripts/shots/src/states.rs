@@ -34,11 +34,11 @@
 
 use crate::Checker;
 use crate::cli::StatesArgs;
-use crate::design::{self, Frame};
+use crate::design;
 use crate::pictures::Pictures;
-use crate::render::instances::{self, Instance};
-use crate::render::pages::{Context, Page, Store};
-use crate::render::{self, board, chrome, preview, serve};
+use crate::render;
+use crate::render::instances::Instance;
+use crate::render::pages::{self, Context, Page, Store};
 use futures::StreamExt;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -336,12 +336,9 @@ fn draw(root: &Path, folders: &boards::Folders, store: &Store) -> Result<Drawn, 
     let Some((first, _)) = context.previews.components.first() else {
         return Ok(Drawn::default());
     };
-    let rows = context
-        .settings
-        .preview(first)
-        .map_err(|e| e.to_string())?
-        .row
-        .as_str();
+    // A preview's rows are the ones the settings' marks select, which a repo
+    // with a preview must have.
+    context.settings.preview(first).map_err(|e| e.to_string())?;
     let pages: Vec<(Page, bool, String)> = context
         .frames
         .iter()
@@ -384,8 +381,16 @@ fn draw(root: &Path, folders: &boards::Folders, store: &Store) -> Result<Drawn, 
         // The components a page draws do not depend on the device scale.
         let found =
             render::with_browser(context.tree(root), folders, 1.0, async |server, chrome| {
-                let sheets = lacking.iter().map(|(page, _)| sheet(*page, server, rows));
-                read_sheets(chrome, sheets).await
+                futures::stream::iter(
+                    lacking
+                        .iter()
+                        .map(|(page, _)| pages::read_instances(*page, &context, server, chrome)),
+                )
+                .buffered(PAGES)
+                .collect::<Vec<_>>()
+                .await
+                .into_iter()
+                .collect::<Result<Vec<_>, _>>()
             })?;
         for ((_, hash), instances) in lacking.iter().zip(found) {
             if let Some(pictures) = store.pictures {
@@ -410,74 +415,6 @@ fn draw(root: &Path, folders: &boards::Folders, store: &Store) -> Result<Drawn, 
     drawn.boards.sort_by(|a, b| a.0.cmp(&b.0));
     drawn.previews.sort_by(|a, b| a.0.cmp(&b.0));
     Ok(drawn)
-}
-
-/// The sheet that draws <page>, on <server>; <rows> selects a preview's rows.
-fn sheet<'a>(page: Page<'a>, server: &serve::Server, rows: &'a str) -> Sheet<'a> {
-    match page {
-        Page::Board(name, frame) => Sheet {
-            name,
-            url: server.board_url(name),
-            frame,
-            mounted: board::BOARD_MOUNTED,
-            rows: None,
-            what: name.to_string(),
-        },
-        Page::Preview(name) => Sheet {
-            name,
-            url: server.preview_url(name),
-            frame: preview::PREVIEW_FRAME,
-            mounted: preview::PREVIEW_LOADED,
-            rows: Some(rows),
-            what: format!("the preview of {name}"),
-        },
-    }
-}
-
-/// One page to draw and read: a board, or a component's preview.
-struct Sheet<'a> {
-    /// The board's name, or the component's.
-    name: &'a str,
-    url: String,
-    frame: Frame,
-    /// The element that says the page has loaded.
-    mounted: &'a str,
-    /// The selector of a preview's rows; none for a board.
-    rows: Option<&'a str>,
-    /// What an error names the page as.
-    what: String,
-}
-
-/// Draws each of <sheets>, several at once, and reads the components each
-/// draws, in the order of <sheets>.
-async fn read_sheets(
-    chrome: &chrome::Chrome,
-    sheets: impl Iterator<Item = Sheet<'_>>,
-) -> Result<Vec<Vec<Instance>>, String> {
-    let read = futures::stream::iter(sheets.map(|sheet| async move {
-        let found = chrome
-            .with_page(&sheet.what, async |page| {
-                board::load(
-                    page,
-                    sheet.name,
-                    &sheet.url,
-                    sheet.frame,
-                    sheet.mounted,
-                    None,
-                )
-                .await
-                .map_err(|e| e.to_string())?;
-                instances::instances(page, sheet.rows)
-                    .await
-                    .map_err(|e| e.to_string())
-            })
-            .await?;
-        Ok::<_, String>(found)
-    }))
-    .buffered(PAGES)
-    .collect::<Vec<_>>()
-    .await;
-    read.into_iter().collect()
 }
 
 #[cfg(test)]

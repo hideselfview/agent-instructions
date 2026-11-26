@@ -217,14 +217,7 @@ pub(crate) async fn render(
     frame: Frame,
 ) -> Result<Rendered, BoardError> {
     load(page, board, url, frame, BOARD_MOUNTED, None).await?;
-    let png = page
-        .screenshot(
-            ScreenshotParams::builder()
-                .format(CaptureScreenshotFormat::Png)
-                .build(),
-        )
-        .await
-        .map_err(protocol)?;
+    let png = screenshot(page).await?;
     Ok(Rendered {
         png,
         frame: Bounds {
@@ -234,6 +227,17 @@ pub(crate) async fn render(
             height: f64::from(frame.h),
         },
     })
+}
+
+/// The picture of the page `load` drew: the compositor's latest frame.
+pub(crate) async fn screenshot(page: &DrawPage) -> Result<Vec<u8>, BoardError> {
+    page.screenshot(
+        ScreenshotParams::builder()
+            .format(CaptureScreenshotFormat::Png)
+            .build(),
+    )
+    .await
+    .map_err(protocol)
 }
 
 /// Loads `url` in a frame of `frame` points at the page's device scale, in

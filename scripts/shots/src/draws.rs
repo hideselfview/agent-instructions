@@ -29,6 +29,7 @@ use crate::pictures::Pictures;
 use crate::render;
 use crate::render::Drawer;
 use crate::render::pages::{self, Context, Page, SCALE, Store};
+use crate::shots::ElementList;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
@@ -360,7 +361,7 @@ fn draw_pages(
     for ((what, _, hash), page) in lacking.into_iter().zip(pages_drawn) {
         let picture = Picture::of(&page.png, &page.elements)?;
         if let Some(pictures) = store.pictures {
-            keep(pictures, &hash, &page, out.path())?;
+            keep(pictures, &hash, &what, &page, out.path())?;
         }
         drawn.insert(what, Some(picture));
     }
@@ -373,24 +374,23 @@ fn read_kept(out: &Path, hash: &str) -> Result<Picture, String> {
     let png_file = out.join(format!("{hash}.png"));
     let png =
         std::fs::read(&png_file).map_err(|e| format!("cannot read {}: {e}", png_file.display()))?;
-    let list_file = out.join(format!("{hash}.json"));
-    let text = std::fs::read_to_string(&list_file)
-        .map_err(|e| format!("cannot read {}: {e}", list_file.display()))?;
-    let list: pages::Elements =
-        serde_json::from_str(&text).map_err(|e| format!("{}: {e}", list_file.display()))?;
+    let list = ElementList::load(&out.join(format!("{hash}.json"))).map_err(|e| e.to_string())?;
     Picture::of(&png, &list.elements)
 }
 
-/// Keeps the page <page>, drawn for <hash>, in <pictures>, writing its files
-/// in <out> first.
-fn keep(pictures: &Pictures, hash: &str, page: &pages::Drawn, out: &Path) -> Result<(), String> {
+/// Keeps the page <page>, named <label> and drawn for <hash>, in <pictures>,
+/// writing its files in <out> first.
+fn keep(
+    pictures: &Pictures,
+    hash: &str,
+    label: &str,
+    page: &pages::Drawn,
+    out: &Path,
+) -> Result<(), String> {
     let png_file = out.join(format!("{hash}.png"));
     std::fs::write(&png_file, &page.png)
         .map_err(|e| format!("cannot write {}: {e}", png_file.display()))?;
-    let list = serde_json::to_vec(&pages::Elements {
-        elements: page.elements.clone(),
-    })
-    .map_err(|e| e.to_string())?;
+    let list = serde_json::to_vec_pretty(&page.list(label)).map_err(|e| e.to_string())?;
     let list_file = out.join(format!("{hash}.json"));
     std::fs::write(&list_file, list)
         .map_err(|e| format!("cannot write {}: {e}", list_file.display()))?;

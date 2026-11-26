@@ -12,7 +12,7 @@ use crate::render::runtime;
 use crate::render::serve::Tree;
 use crate::render::{board, chrome, preview, read, serve};
 use crate::settings::Settings;
-use crate::shots::Element;
+use crate::shots::{Bounds, Element, ElementList, Size};
 use boards::runtime::RuntimeCopy;
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -100,12 +100,89 @@ impl Page<'_> {
     }
 }
 
-/// What a page drew: its picture, its elements (read as the Mac's) and the
-/// components it draws.
+impl Page<'_> {
+    /// What an error names the page as.
+    fn what(&self) -> String {
+        match self {
+            Page::Board(name, _) => format!("board {name}"),
+            Page::Preview(component) => format!("the preview of {component}"),
+        }
+    }
+
+    /// Loads the page in <tab>, drawn when this returns.
+    async fn load(&self, tab: &chrome::DrawPage, server: &serve::Server) -> Result<(), String> {
+        match self {
+            Page::Board(name, frame) => {
+                board::load(
+                    tab,
+                    name,
+                    &server.board_url(name),
+                    *frame,
+                    board::BOARD_MOUNTED,
+                    None,
+                )
+                .await
+            }
+            Page::Preview(component) => {
+                board::load(
+                    tab,
+                    component,
+                    &server.preview_url(component),
+                    preview::PREVIEW_FRAME,
+                    preview::PREVIEW_LOADED,
+                    None,
+                )
+                .await
+            }
+        }
+        .map_err(|e| e.to_string())
+    }
+
+    /// The components the loaded page draws in <tab>; a preview's rows are
+    /// the ones the settings' marks select.
+    async fn instances(
+        &self,
+        tab: &chrome::DrawPage,
+        context: &Context,
+    ) -> Result<Vec<Instance>, String> {
+        let rows = match self {
+            Page::Board(..) => None,
+            Page::Preview(_) => context
+                .settings
+                .preview
+                .as_ref()
+                .map(|marks| marks.row.as_str()),
+        };
+        instances::instances(tab, rows)
+            .await
+            .map_err(|e| e.to_string())
+    }
+}
+
+/// What a page drew: its picture, its elements (read as the Mac's), its size
+/// in points and the components it draws.
 pub(crate) struct Drawn {
     pub(crate) png: Vec<u8>,
+    pub(crate) size: Size,
     pub(crate) elements: Vec<Element>,
     pub(crate) instances: Vec<Instance>,
+}
+
+impl Drawn {
+    /// The element list the picture folder keeps beside the picture, for the
+    /// page named <label>.
+    pub(crate) fn list(&self, label: &str) -> ElementList {
+        ElementList {
+            board: label.to_string(),
+            platform: Platform::Mac,
+            size: self.size,
+            scale: SCALE,
+            elements: self.elements.clone(),
+            unshot: Vec::new(),
+            slots: Vec::new(),
+            window: None,
+        }
+    }
 }
 
 /// Draws <page> in <chrome>, which has the device scale `SCALE`.
@@ -115,70 +192,53 @@ pub(crate) async fn draw(
     server: &serve::Server,
     chrome: &chrome::Chrome,
 ) -> Result<Drawn, String> {
-    match page {
-        Page::Board(name, frame) => {
-            chrome
-                .with_page(&format!("board {name}"), async |tab| {
-                    let rendered = board::render(tab, name, &server.board_url(name), frame)
-                        .await
-                        .map_err(|e| e.to_string())?;
-                    let elements = read::elements(tab, rendered.frame, Platform::Mac)
-                        .await
-                        .map_err(|e| e.to_string())?;
-                    let instances = instances::instances(tab, None)
-                        .await
-                        .map_err(|e| e.to_string())?;
-                    Ok(Drawn {
-                        png: rendered.png,
-                        elements,
-                        instances,
-                    })
-                })
-                .await
-        }
-        Page::Preview(component) => {
-            chrome
-                .with_page(&format!("the preview of {component}"), async |tab| {
-                    board::load(
-                        tab,
-                        component,
-                        &server.preview_url(component),
-                        preview::PREVIEW_FRAME,
-                        preview::PREVIEW_LOADED,
-                        None,
-                    )
-                    .await
-                    .map_err(|e| e.to_string())?;
+    chrome
+        .with_page(&page.what(), async |tab| {
+            page.load(tab, server).await?;
+            let (png, frame) = match page {
+                Page::Board(_, frame) => (
+                    board::screenshot(tab).await.map_err(|e| e.to_string())?,
+                    Bounds {
+                        x: 0.0,
+                        y: 0.0,
+                        width: f64::from(frame.w),
+                        height: f64::from(frame.h),
+                    },
+                ),
+                Page::Preview(_) => {
                     let rendered = preview::capture(tab, preview::CaptureArea::Page)
                         .await
                         .map_err(|e| e.to_string())?;
-                    let elements = read::elements(tab, rendered.frame, Platform::Mac)
-                        .await
-                        .map_err(|e| e.to_string())?;
-                    let instances = instances::instances(
-                        tab,
-                        context
-                            .settings
-                            .preview
-                            .as_ref()
-                            .map(|marks| marks.row.as_str()),
-                    )
-                    .await
-                    .map_err(|e| e.to_string())?;
-                    Ok(Drawn {
-                        png: rendered.png,
-                        elements,
-                        instances,
-                    })
-                })
+                    (rendered.png, rendered.frame)
+                }
+            };
+            let elements = read::elements(tab, frame, Platform::Mac)
                 .await
-        }
-    }
+                .map_err(|e| e.to_string())?;
+            Ok(Drawn {
+                png,
+                size: Size {
+                    width: frame.width,
+                    height: frame.height,
+                },
+                elements,
+                instances: page.instances(tab, context).await?,
+            })
+        })
+        .await
 }
 
-/// The element list file of a page's picture: the elements, as a board's
-/// element list holds them.
-#[derive(serde::Serialize, serde::Deserialize)]
-pub(crate) struct Elements {
-    pub(crate) elements: Vec<Element>,
+/// The components <page> draws, read from a drawing of it in <chrome>.
+pub(crate) async fn read_instances(
+    page: Page<'_>,
+    context: &Context,
+    server: &serve::Server,
+    chrome: &chrome::Chrome,
+) -> Result<Vec<Instance>, String> {
+    chrome
+        .with_page(&page.what(), async |tab| {
+            page.load(tab, server).await?;
+            page.instances(tab, context).await
+        })
+        .await
 }
