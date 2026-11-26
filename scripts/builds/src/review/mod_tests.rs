@@ -2626,3 +2626,233 @@ fn a_commit_split_gives_the_group_that_holds_a_finding_the_branchs_commits() {
         read.text
     );
 }
+
+/// What the reviewer of alpha answers about <finding>: still open, with
+/// <reason>.
+fn answer_still_open(fake: &Fake, finding: i64, reason: &str) {
+    fake.answer_task(
+        "alpha",
+        serde_json::json!({
+            "rules": [{"rule": "rule-a", "verdict": "none", "findings": []}],
+            "follow_up": [{"id": finding, "verdict": {"still_open": reason}}],
+        }),
+    );
+}
+
+/// Changes <file> to <text> in one commit.
+fn write_commit(side: &Path, file: &str, text: &str) {
+    std::fs::write(side.join(file), text).unwrap();
+    crate::testing::git(side, &["add", file]);
+    crate::testing::git(side, &["commit", "-q", "-m", &format!("Change {file}")]);
+}
+
+/// A branch that adds a.rs and b.rs, a confirmed finding in a.rs, and a
+/// second run that closed it on a diff that changed only b.rs. Returns the
+/// landing and the finding.
+fn closed_by_a_change_to_b(name: &str) -> (Demo, Fake, PathBuf, i64, i64) {
+    let demo = demo(name);
+    let fake = fake(&demo.scratch.dir);
+    let side = demo.add_side(1, "agent", "work");
+    demo.commit(&side, "a.rs");
+    demo.commit(&side, "b.rs");
+    fake.answer("alpha", &[("rule-a", Some(BAD))]);
+    let landing = run_review(&demo, &fake, &side, "k").landing.unwrap();
+    let finding = findings_of(&demo, landing)[0].id;
+    settle_as(&demo, finding, "confirmed", "a real break");
+    write_commit(&side, "b.rs", "b.rs fixed\n");
+    fake.closes("alpha", "rule-a", &[finding]);
+    let closed = run_review(&demo, &fake, &side, "k");
+    assert!(closed.refusal.is_none(), "{:?}", closed.refusal);
+    assert!(findings_of(&demo, landing)[0].closed_by.is_some());
+    fake.prompts();
+    (demo, fake, side, landing, finding)
+}
+
+/// Bae's landing 1104: a run closed a finding on a diff that changed b.rs,
+/// and a later commit put b.rs back. The group that holds the finding reads
+/// it again, and its still-open verdict opens the finding.
+#[test]
+fn a_commit_that_undoes_the_change_that_closed_a_finding_gives_it_back_to_its_group() {
+    let (demo, fake, side, landing, finding) = closed_by_a_change_to_b("review-reopen");
+    write_commit(&side, "b.rs", "b.rs");
+    answer_still_open(&fake, finding, "The bad line is back.");
+    let read = run_review(&demo, &fake, &side, "k");
+    let prompts = fake.prompts();
+    assert_eq!(prompts.len(), 1, "{}", read.text);
+    assert!(
+        prompts[0]
+            .1
+            .contains(&format!("Finding {finding} (rule-a), a.rs:1")),
+        "{}",
+        prompts[0].1
+    );
+    let held = &findings_of(&demo, landing)[0];
+    assert!(held.is_open(), "{}", read.text);
+    assert!(held.settled_as("confirmed"));
+    assert!(read.text.contains("The bad line is back."), "{}", read.text);
+    assert!(read.refusal.is_some());
+}
+
+/// A `fixed` verdict on a closed finding keeps it closed, and a later commit
+/// that changes no path the closing run's diff changed gives the group no
+/// closed finding.
+#[test]
+fn a_fixed_verdict_on_a_closed_finding_keeps_it_closed_until_a_fix_path_changes_again() {
+    let (demo, fake, side, landing, finding) = closed_by_a_change_to_b("review-reopen-fixed");
+    write_commit(&side, "b.rs", "b.rs");
+    fake.closes("alpha", "rule-a", &[finding]);
+    let read = run_review(&demo, &fake, &side, "k");
+    assert_eq!(fake.prompts().len(), 1, "{}", read.text);
+    assert!(findings_of(&demo, landing)[0].closed_by.is_some());
+    assert!(read.refusal.is_none(), "{:?}", read.refusal);
+    demo.commit(&side, "c.rs");
+    fake.answer("alpha", &[("rule-a", None)]);
+    let next = run_review(&demo, &fake, &side, "k");
+    let prompts = fake.prompts();
+    assert_eq!(prompts.len(), 1, "{}", next.text);
+    assert!(
+        !prompts[0].1.contains(&format!("Finding {finding} ")),
+        "{}",
+        prompts[0].1
+    );
+    assert!(next.refusal.is_none(), "{:?}", next.refusal);
+}
+
+#[test]
+fn a_later_commit_that_changes_no_fix_path_gives_the_group_no_closed_finding() {
+    let (demo, fake, side, landing, finding) = closed_by_a_change_to_b("review-reopen-other-path");
+    demo.commit(&side, "c.rs");
+    fake.answer("alpha", &[("rule-a", None)]);
+    let read = run_review(&demo, &fake, &side, "k");
+    let prompts = fake.prompts();
+    assert_eq!(prompts.len(), 1, "{}", read.text);
+    assert!(
+        !prompts[0].1.contains(&format!("Finding {finding} ")),
+        "{}",
+        prompts[0].1
+    );
+    assert!(findings_of(&demo, landing)[0].closed_by.is_some());
+    assert!(read.refusal.is_none(), "{:?}", read.refusal);
+}
+
+/// A group whose call fails writes nothing about the closed finding it was
+/// given: the finding stays closed, land refuses for the unanswered group, and
+/// the next review gives the finding to the group again.
+#[test]
+fn a_failed_call_on_a_closed_finding_leaves_it_closed_and_the_next_review_gives_it_back() {
+    let (demo, fake, side, landing, finding) = closed_by_a_change_to_b("review-reopen-failed");
+    write_commit(&side, "b.rs", "b.rs");
+    fake.fail("alpha");
+    let failed = run_review(&demo, &fake, &side, "k");
+    assert!(failed.refusal.is_some(), "{}", failed.text);
+    assert_eq!(fake.prompts().len(), 1);
+    let held = &findings_of(&demo, landing)[0];
+    assert!(held.is_closed(), "{}", failed.text);
+    std::fs::remove_file(fake.dir.join("fail-alpha")).unwrap();
+    answer_still_open(&fake, finding, "The bad line is back.");
+    let again = run_review(&demo, &fake, &side, "k");
+    let prompts = fake.prompts();
+    assert_eq!(prompts.len(), 1, "{}", again.text);
+    assert!(
+        prompts[0]
+            .1
+            .contains(&format!("Finding {finding} (rule-a)")),
+        "{}",
+        prompts[0].1
+    );
+    assert!(findings_of(&demo, landing)[0].is_open(), "{}", again.text);
+    assert!(again.refusal.is_some());
+}
+
+/// The group covers no path the later commit changes, and the finding goes
+/// back to it all the same, over the changes since it last judged the finding.
+#[test]
+fn a_closed_finding_goes_back_to_its_group_when_no_rule_of_the_group_covers_the_changed_path() {
+    let demo = demo("review-reopen-uncovered");
+    let fake = fake(&demo.scratch.dir);
+    let side = demo.add_side(1, "agent", "work");
+    demo.commit(&side, "a.rs");
+    demo.commit(&side, "b.js");
+    fake.answer("alpha", &[("rule-a", Some(BAD))]);
+    let landing = run_review(&demo, &fake, &side, "k").landing.unwrap();
+    let finding = findings_of(&demo, landing)[0].id;
+    settle_as(&demo, finding, "confirmed", "a real break");
+    write_commit(&side, "b.js", "b.js fixed\n");
+    fake.closes("alpha", "rule-a", &[finding]);
+    run_review(&demo, &fake, &side, "k");
+    assert!(findings_of(&demo, landing)[0].closed_by.is_some());
+    fake.prompts();
+    write_commit(&side, "b.js", "b.js");
+    answer_still_open(&fake, finding, "The bad line is back.");
+    let read = run_review(&demo, &fake, &side, "k");
+    let prompts = fake.prompts();
+    assert_eq!(prompts.len(), 1, "{}", read.text);
+    assert_eq!(prompts[0].0, "alpha");
+    assert!(
+        prompts[0].1.contains("diff --git a/b.js b/b.js")
+            && prompts[0]
+                .1
+                .contains(&format!("Finding {finding} (rule-a)")),
+        "{}",
+        prompts[0].1
+    );
+    assert!(findings_of(&demo, landing)[0].is_open());
+}
+
+/// A finding that a review reopened and a later review fixes again closes
+/// again, and `builds review show` lists each close and the reopen.
+#[test]
+fn a_reopened_finding_closes_again_and_review_show_lists_each_close_and_the_reopen() {
+    let (demo, fake, side, landing, finding) = closed_by_a_change_to_b("review-reopen-show");
+    write_commit(&side, "b.rs", "b.rs");
+    answer_still_open(&fake, finding, "The bad line is back.");
+    run_review(&demo, &fake, &side, "k");
+    assert!(findings_of(&demo, landing)[0].is_open());
+    write_commit(&side, "b.rs", "b.rs fixed again\n");
+    fake.closes("alpha", "rule-a", &[finding]);
+    let closed = run_review(&demo, &fake, &side, "k");
+    assert!(closed.refusal.is_none(), "{:?}", closed.refusal);
+    let held = &findings_of(&demo, landing)[0];
+    assert!(held.is_closed(), "{}", closed.text);
+    let conn = demo.store.open_existing().unwrap();
+    let shown = show_text(&conn, landing).unwrap();
+    assert!(
+        shown.contains(&format!("Run 2 closed finding {finding}.")),
+        "{shown}"
+    );
+    assert!(
+        shown.contains(&format!(
+            "alpha opened finding {finding} again, which run 2 closed. The bad line is back."
+        )),
+        "{shown}"
+    );
+    assert!(
+        shown.contains(&format!("Run 4 closed finding {finding}.")),
+        "{shown}"
+    );
+}
+
+/// A finding on a commit message that a reworded message closed goes back to
+/// its group when a later commit adds a commit message.
+#[test]
+fn a_closed_finding_on_a_commit_message_goes_back_to_its_group_when_a_commit_adds_a_message() {
+    let (demo, fake, side, finding) = found_in_a_message("review-reopen-message");
+    crate::testing::git(&side, &["commit", "-q", "--amend", "-m", "Add a"]);
+    fake.answer_task(
+        "writing",
+        serde_json::json!({"summary": "s", "sites": [], "follow_up": [{"id": finding, "verdict": "fixed"}]}),
+    );
+    run_review(&demo, &fake, &side, "k");
+    fake.prompts();
+    demo.commit(&side, "c.rs");
+    let read = run_review(&demo, &fake, &side, "k");
+    let prompts = fake.prompts();
+    let (_, prompt) = prompts
+        .iter()
+        .find(|(group, _)| group == "writing")
+        .unwrap_or_else(|| panic!("writing was not asked: {}", read.text));
+    assert!(
+        prompt.contains(&format!("Finding {finding} (rule-w)")),
+        "{prompt}"
+    );
+}

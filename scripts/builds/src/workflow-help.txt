@@ -450,8 +450,11 @@ design-only change or a change of capture files only.
   4. The agent fixes each confirmed finding in a new commit and runs `builds
      review` again. Each reviewer gives a verdict on every open finding it
      holds: builds closes each finding the branch fixes, and prints why the
-     reviewer kept each other one open. The judge settles new findings as
-     for the first run.
+     reviewer kept each other one open. A closed finding goes back to its
+     group when the branch changes a path that the closing run's diff
+     changed: the reviewer says whether the problem is back, and builds
+     opens the finding again or keeps it closed. The judge settles new
+     findings as for the first run.
   5. The agent lands the branch once nothing is unreviewed and no confirmed
      finding is open (LANDING).
 
@@ -472,7 +475,10 @@ each group reads in a later run.
 
 A confirmed finding stays open until a later review closes it, the judge
 settles it again as dropped after a dispute, or the person allows its code to
-land as it is. Only the person allows a finding, and no agent passes
+land as it is. A closed finding opens again when its group says that the
+problem is back after the branch changed a path the fix changed, and the
+judge settles no such reopening: an agent that thinks one is wrong disputes
+the finding as it does any confirmed finding. Only the person allows a finding, and no agent passes
 --by-person on its own judgment (JUDGING).
 
 
@@ -485,7 +491,9 @@ dropped one as a false positive (`builds review scores`). So the judge settles
 each finding on what the code does, and its why says what makes the finding
 real or wrong. A confirmed finding stays open until one of these happens:
 
-  - A later review closes it.
+  - A later review closes it, and no later review reopens it. A review
+    reopens a closed finding when the branch changes a path that the fix
+    changed and the finding's group says the problem is back.
   - The judge learns that the finding is wrong, from a dispute or otherwise,
     and settles it again as dropped (`builds review settle N --again --why
     TEXT`). The record keeps both settles.

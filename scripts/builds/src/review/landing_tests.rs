@@ -999,3 +999,108 @@ fn a_squash_with_the_reviewed_net_change_lands_without_a_new_review() {
     let changed = [head(&side)];
     assert!(!check_squashed(&demo, &fake, &side, &changed));
 }
+
+/// A branch whose review closed a finding in a.rs on a change to b.rs, and
+/// whose head then puts b.rs back. Returns the finding and the head commit.
+fn closed_then_undone(demo: &Demo, fake: &Fake, side: &Path) -> (i64, String) {
+    demo.commit(side, "a.rs");
+    demo.commit(side, "b.rs");
+    fake.answer("alpha", &[("rule-a", Some(BAD))]);
+    review_of(demo, fake, side);
+    let finding = findings(demo)[0].id;
+    settle(demo, finding, "confirmed");
+    commit_text(side, "b.rs", "b.rs fixed\n", "Fix b");
+    fake.closes("alpha", "rule-a", &[finding]);
+    let closed = review_of(demo, fake, side);
+    assert!(closed.refusal.is_none(), "{:?}", closed.refusal);
+    commit_text(side, "b.rs", "b.rs", "Undo the fix of b");
+    (finding, head(side))
+}
+
+/// A review from before builds gave closed findings back to their groups:
+/// reads the changes since the last review, asks alpha, and lists no finding.
+fn write_review_without_recheck(demo: &Demo, side: &Path) {
+    let conn = demo.store.open_existing().unwrap();
+    let landing = record::open_landing(&conn, WORK).unwrap().unwrap();
+    let last = record::landing(&conn, landing)
+        .unwrap()
+        .reviewed_run
+        .unwrap();
+    let net = run::diff_between(side, "main", "HEAD").unwrap();
+    let call = record::NewCall {
+        group: "alpha".to_string(),
+        model: "sonnet".to_string(),
+        prompt: "the prompt".to_string(),
+        rules: vec!["rule-a".to_string()],
+        usage: crate::review::call::Usage::ZERO,
+        sites: None,
+        failure: None,
+        verdicts: vec![("rule-a".to_string(), "none".to_string())],
+        findings: Vec::new(),
+        follow_up: Default::default(),
+        exchanges: Vec::new(),
+    };
+    let stamp = stamp();
+    demo.store
+        .write(&stamp, "review from before", |db| {
+            let (run, _) = record::add_run(
+                db,
+                &demo.store.texts,
+                &record::NewRun {
+                    landing: Some(landing),
+                    kind: record::Kind::Review { changed_lines: 1 },
+                    label: None,
+                    at: stamp.at,
+                    base: &net.base,
+                    head: &net.head,
+                    since: Some(last),
+                    rules_version: "v",
+                },
+                &[call],
+            )?;
+            record::record_reviewed(db, landing, run)
+        })
+        .unwrap();
+}
+
+/// A review that read the change to b.rs without giving the finding that a
+/// change to b.rs closed to its group leaves the commits unlandable, and
+/// land says which finding goes back and which path changed.
+#[test]
+fn land_refuses_a_branch_whose_last_review_read_a_fix_path_without_giving_the_finding_back() {
+    let demo = demo("landing-recheck");
+    let fake = fake(&demo.scratch.dir);
+    let side = demo.add_side(1, "agent", "work");
+    let (finding, undo) = closed_then_undone(&demo, &fake, &side);
+    write_review_without_recheck(&demo, &side);
+    let asked = verdict_of(&demo, &fake, &side, std::slice::from_ref(&undo));
+    let Verdict::Unfinished(_, unfinished) = &asked.0 else {
+        panic!("{asked:?}")
+    };
+    assert_eq!(unfinished.rechecked.len(), 1, "{asked:?}");
+    assert_eq!(unfinished.rechecked[0].finding.id, finding);
+    assert_eq!(unfinished.rechecked[0].paths, ["b.rs"]);
+    assert!(unfinished.open.is_empty() && unfinished.unreviewed.is_empty());
+    let words = refused(&asked);
+    assert!(
+        words.contains("closed by a review and goes back to its group")
+            && words.contains("b.rs")
+            && words.contains("Review run 2 closed the finding"),
+        "{words}"
+    );
+}
+
+/// A review that ran at the head has given the finding to its group, so land
+/// takes the commits once the group says the problem is still gone.
+#[test]
+fn land_takes_the_commits_once_a_review_gave_the_closed_finding_to_its_group() {
+    let demo = demo("landing-recheck-given");
+    let fake = fake(&demo.scratch.dir);
+    let side = demo.add_side(1, "agent", "work");
+    let (finding, undo) = closed_then_undone(&demo, &fake, &side);
+    fake.closes("alpha", "rule-a", &[finding]);
+    let reported = review_of(&demo, &fake, &side);
+    assert!(reported.refusal.is_none(), "{:?}", reported.refusal);
+    let asked = verdict_of(&demo, &fake, &side, &[undo]);
+    assert!(matches!(asked.0, Verdict::Takes(_)), "{asked:?}");
+}

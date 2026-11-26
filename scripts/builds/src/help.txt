@@ -3531,7 +3531,8 @@ asks each group that holds one again, over the whole net change at the
 branch's head, so that the group can close a finding that a commit fixed.
 A finding that a review closes still counts as a true positive.
 `builds review` refuses the run, naming the last review, when the review
-lacks nothing and no confirmed finding is open.
+lacks nothing, no confirmed finding is open and no closed finding goes back to
+its group.
 
 `builds review` checks code and whether text is accurate, never word choice,
 grammar or style: it never asks a copy group (copy, below), whose rules judge
@@ -3556,6 +3557,8 @@ the branch adds and removes keeps its review, and a rebase that resolves a
 conflict differently leaves only the resolution's lines to read. A reworded
 message alone leaves only the changed messages to read, and dropping the commit
 that held a confirmed finding's code closes the finding at the next review.
+Dropping the commit that fixed a closed finding gives the finding back to its
+group (below).
 
 In a later run, each group that holds open findings reads every file that
 changed since the last review, because the fix of a finding may be in any file.
@@ -3573,7 +3576,17 @@ confirmed finding of its group's rules, with its file, line, quoted code
 and problem. The reviewer checks whether the branch still has each problem,
 including fixes in other files, and gives each finding a verdict. Builds
 records which run closed each fixed finding and prints the reviewer's reason
-for keeping each other finding open. Builds checks open findings against the
+for keeping each other finding open. A closed finding goes back to its group
+when the changes since the run its group last judged it change a path that the
+diff of the closing run changed. For a finding on the commit messages, the
+commit messages count as a path, and a diff changes them when it holds a commit
+message that the earlier change did not hold. The group's reviewer gives the finding the
+same verdict as an open one: `fixed` keeps it closed, and the run records that
+it closed the finding again; still open opens the finding again, and the report
+names the run that closed it and the reviewer's reason. A call that fails
+writes nothing about the finding, and the next review gives it back again. A
+closed finding under check keeps no other group from its file. `builds review
+show` lists each close and each reopen. Builds checks open findings against the
 branch head under review. A retry over an older commit reads only that diff.
 Builds fails the group if an exchange omits a verdict or if its reviewers
 disagree on whether a finding is fixed. A failed group leaves its findings open.
@@ -3585,13 +3598,16 @@ a group's rules cover changed since the last review (the net change of the
 worktree's HEAD past origin/main against the net change the last review
 read), and no commit message that a group reads changed since then; every
 group asked over a diff a run read answered over it; every
-finding is settled; and no confirmed finding is open. Land finds the review
+finding is settled; no confirmed finding is open; and no closed finding is
+waiting to go back to its group. Land finds the review
 by the change's repo, the repo of the worktree it lands from, and its key: the
 branch land started on, which land reads before it starts and passes to
 `review check-landing` and `review landed` as `--landing`. When land refuses, it names what is unreviewed (the paths that
 changed since the last review, and COMMIT_MESSAGE when a message changed),
 the groups that gave no answer, the
-unsettled findings and the open ones. A landing may hold some of the
+unsettled findings, the open ones, and each closed finding that goes back to
+its group with its closing run and the paths of its fix that changed. A
+landing may hold some of the
 branch's commits and leave the rest for later, once the review takes the
 whole branch: while commits of the branch wait to land, the change stays
 under review. A landing whose changed paths no group covers needs no review,

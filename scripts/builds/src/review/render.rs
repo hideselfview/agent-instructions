@@ -87,6 +87,23 @@ pub(super) fn closed_text(run: i64, finding: i64) -> String {
     format!("Run {run} closed finding {finding}.\n")
 }
 
+/// The line that says group <group> found finding <finding>, which run
+/// <closing> closed, still fixed, and that run <run> closed it again.
+pub(super) fn rechecked_text(group: &str, finding: i64, closing: i64, run: i64) -> String {
+    format!(
+        "{group} checked finding {finding}, which run {closing} closed, and the problem is still gone. Run {run} closed it again.\n"
+    )
+}
+
+/// The line that says group <group> opened finding <finding> again, which run
+/// <closing> closed, and why.
+pub(super) fn reopened_text(group: &str, finding: i64, closing: i64, reason: &str) -> String {
+    format!(
+        "{group} opened finding {finding} again, which run {closing} closed. {}\n",
+        one_line(reason)
+    )
+}
+
 /// What a reviewer raised, after the finding's number: whether it blocks,
 /// its rule and place, then its clause, code and problem.
 fn raised(

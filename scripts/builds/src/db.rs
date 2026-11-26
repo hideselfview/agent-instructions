@@ -341,10 +341,35 @@ pub fn with_held_and_deferred(schema: String) -> String {
     .fold(schema, |schema, (new, old)| schema.replace(new, old))
 }
 
+/// <schema> as it was before a finding that a review closed could close
+/// again: `review_closed` held one row for each finding. A schema that has
+/// that already is returned as it is.
+#[cfg(test)]
+pub fn with_closed_once(schema: String) -> String {
+    schema.replace(
+        "CREATE TABLE review_closed (
+    finding_id INTEGER NOT NULL REFERENCES review_finding (id),
+    run_id INTEGER NOT NULL REFERENCES review_run (id),
+    PRIMARY KEY (finding_id, run_id)
+) STRICT, WITHOUT ROWID;",
+        "CREATE TABLE review_closed (
+    finding_id INTEGER PRIMARY KEY REFERENCES review_finding (id),
+    run_id INTEGER NOT NULL REFERENCES review_run (id)
+) STRICT;",
+    )
+}
+
+/// Today's schema as it was before a finding that a review closed could
+/// close again.
+#[cfg(test)]
+pub fn schema_before_reopen() -> String {
+    with_closed_once(schema())
+}
+
 /// Today's schema as it was before the backlog.
 #[cfg(test)]
 pub fn schema_before_backlog() -> String {
-    with_held_and_deferred(schema())
+    with_held_and_deferred(with_closed_once(schema()))
 }
 
 /// The table of the `--shots` runs' findings, which every schema held
@@ -821,7 +846,9 @@ fn text_before(part: &str) -> String {
 /// keeping the time of each (`with_ack_version_time`).
 #[cfg(test)]
 fn joined_before(part: &str) -> String {
-    with_held_and_deferred(with_ack_version_time(parts_before(part).join("\n")))
+    with_held_and_deferred(with_closed_once(with_ack_version_time(
+        parts_before(part).join("\n"),
+    )))
 }
 
 /// <schema> with the statement that starts with <start> and ends with <end>
@@ -915,7 +942,7 @@ pub fn without_item_change(schema: String) -> String {
 /// The schema as it was before item changes were recorded.
 #[cfg(test)]
 pub fn schema_before_item_change() -> String {
-    with_held_and_deferred(without_item_change(schema()))
+    with_held_and_deferred(with_closed_once(without_item_change(schema())))
 }
 
 /// <schema> as it was before the agents `builds agent run` starts were

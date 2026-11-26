@@ -25,7 +25,9 @@
 //! review still counts as unreviewed.
 //! A confirmed finding stays open until a later review closes it, because the
 //! changes that review read fix it, or the coordinator settles it again as
-//! dropped. A rebase that keeps every line the branch adds and removes leaves
+//! dropped. A closed finding goes back to its group when the changes since the
+//! group last judged it change a path the closing run's diff changed
+//! (`Coverage::rechecks`), and land refuses until a review gives it back. A rebase that keeps every line the branch adds and removes leaves
 //! nothing unreviewed, and so does a cherry-pick of the reviewed commits onto a
 //! moved main. A landing whose changed paths no group covers needs no review.
 //!
@@ -36,6 +38,8 @@
 //! a landing of design files only (`builds design only`). A key
 //! with no open landing has nothing to record, so `landed` can run again.
 
+use std::collections::BTreeMap;
+use std::collections::btree_map::Entry;
 use std::path::{Path, PathBuf};
 
 use rusqlite::Connection;
@@ -132,6 +136,9 @@ pub struct Unfinished {
     pub unsettled: Vec<record::Finding>,
     /// Confirmed findings that no review closed.
     pub open: Vec<record::Finding>,
+    /// Findings a review closed, that go back to their group because the
+    /// branch changed the paths of their fix, and that no review gave it yet.
+    pub rechecked: Vec<Recheck>,
 }
 
 impl Unfinished {
@@ -140,6 +147,7 @@ impl Unfinished {
             && self.unreviewed.is_empty()
             && self.unsettled.is_empty()
             && self.open.is_empty()
+            && self.rechecked.is_empty()
     }
 }
 
@@ -165,7 +173,7 @@ pub enum Verdict {
     /// The change's key has no open review.
     NoRun,
     /// The change's review does not take the commits yet.
-    Unfinished(Covered, Unfinished),
+    Unfinished(Covered, Box<Unfinished>),
 }
 
 fn shas(needs: &[Need]) -> String {
@@ -250,12 +258,14 @@ impl Coverage {
     }
 
     /// The run up to whose net change group <group> has read every change
-    /// with <finding> among its open findings: the run that raised the
-    /// finding, then each run that read the whole change or the changes since
-    /// the net change reached so far and recorded that the finding stayed open.
+    /// with <finding> among its findings: the run that raised the finding,
+    /// then each run that read the whole change or the changes since the net
+    /// change reached so far and recorded that the finding stayed open
+    /// (<kept>) or that the changes fix it (<closings>).
     pub(super) fn read_with(
         &self,
         kept: &[super::kept_open::Verdict],
+        closings: &[record::Closing],
         finding: &record::Finding,
         group: &str,
     ) -> Result<&record::RunRow> {
@@ -269,9 +279,11 @@ impl Coverage {
         let mut reached = raised;
         while let Some(next) = self.runs.iter().rev().find(|run| {
             run.id > reached.id
-                && kept.iter().any(|verdict| {
+                && (kept.iter().any(|verdict| {
                     verdict.finding == finding.id && verdict.group == group && verdict.run == run.id
-                })
+                }) || closings
+                    .iter()
+                    .any(|closing| closing.finding == finding.id && closing.run == run.id))
                 && run.since.is_none_or(|since| {
                     self.runs
                         .iter()
@@ -282,6 +294,107 @@ impl Coverage {
         }
         Ok(reached)
     }
+
+    /// The closed findings of <landing> that go back to their group, oldest
+    /// finding first: for each finding a review closed that no later run kept
+    /// open, the changes since the run its group last judged it
+    /// (`read_with`) up to the branch's head, read in <worktree> as the net
+    /// change of <head> past <base>, and the paths among them that the diff
+    /// of the closing run changed too. A finding on the commit messages has
+    /// the commit messages among its fix paths, and a diff changes them when
+    /// it holds a commit message the earlier change did not hold. When the
+    /// repo no longer holds a run's commits, the run's diff shows every file's
+    /// whole change (`run::diff_since`), so the finding goes back to its
+    /// group. `builds review` gives each one to its group, and `builds land`
+    /// refuses while one is listed, so that the two never disagree.
+    pub fn rechecks(
+        &self,
+        db: &Connection,
+        landing: i64,
+        scope: Scope,
+        worktree: &Path,
+        base: &str,
+        head: &str,
+    ) -> Result<Vec<Recheck>> {
+        let closed: Vec<record::Finding> = record::findings_of_landing(db, landing)?
+            .into_iter()
+            .filter(record::Finding::is_closed)
+            .collect();
+        if closed.is_empty() {
+            return Ok(Vec::new());
+        }
+        let kept = super::kept_open::of_landing(db, landing)?;
+        let closings = record::closings_of_landing(db, landing)?;
+        let read: Vec<&record::RunRow> = self.runs.iter().collect();
+        let mut fixes: BTreeMap<i64, Vec<String>> = BTreeMap::new();
+        let mut changes: BTreeMap<i64, Vec<String>> = BTreeMap::new();
+        let mut found = Vec::new();
+        for (group, findings) in scope.material.holding_groups(&closed)? {
+            for finding in findings {
+                let check = self.read_with(&kept, &closings, finding, &group)?;
+                let Some(closing) = self
+                    .runs
+                    .iter()
+                    .find(|run| Some(run.id) == finding.closed_by)
+                else {
+                    fail!(
+                        "finding {} was closed by run {:?}, which is not a review run of its landing",
+                        finding.id,
+                        finding.closed_by
+                    );
+                };
+                if let Entry::Vacant(held) = fixes.entry(closing.id) {
+                    let net = run::diff_of_run(worktree, &read, closing, |run| {
+                        Ok((run.base.clone(), run.head.clone()))
+                    })?;
+                    held.insert(net.diff.changed);
+                }
+                if let Entry::Vacant(held) = changes.entry(check.id) {
+                    let net = run::diff_since(worktree, &check.base, &check.head, base, head)?;
+                    held.insert(changed_paths(&net));
+                }
+                let mut fix = fixes[&closing.id].clone();
+                if finding.file == files::COMMIT_MESSAGE
+                    && !fix.iter().any(|path| path == files::COMMIT_MESSAGE)
+                {
+                    fix.push(files::COMMIT_MESSAGE.to_string());
+                }
+                let paths: Vec<String> = fix
+                    .into_iter()
+                    .filter(|path| changes[&check.id].contains(path))
+                    .collect();
+                if !paths.is_empty() {
+                    found.push(Recheck {
+                        finding: finding.clone(),
+                        paths,
+                    });
+                }
+            }
+        }
+        found.sort_by_key(|recheck| recheck.finding.id);
+        Ok(found)
+    }
+}
+
+/// The paths <net> changes, and `files::COMMIT_MESSAGE` when it holds commit
+/// messages.
+fn changed_paths(net: &run::NetChange) -> Vec<String> {
+    let mut paths = net.diff.changed.clone();
+    if !net.diff.messages.trim().is_empty() {
+        paths.push(files::COMMIT_MESSAGE.to_string());
+    }
+    paths
+}
+
+/// A finding that a review closed and that goes back to its group
+/// (`Coverage::rechecks`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Recheck {
+    /// The finding, whose `closed_by` is the closing run.
+    pub finding: record::Finding,
+    /// The paths of the closing run's diff that the changes since the run its
+    /// group last judged it change again: the paths of its fix.
+    pub paths: Vec<String>,
 }
 
 /// What the review of <landing> lacks, in the repo at <dir>, reading the
@@ -325,6 +438,7 @@ fn assess(
                 .unreviewed
                 .push(files::COMMIT_MESSAGE.to_string());
         }
+        unfinished.rechecked = coverage.rechecks(db, landing.id, scope, dir, BRANCH_BASE, head)?;
     }
     unfinished.unsettled = findings
         .iter()
@@ -364,12 +478,14 @@ pub fn judge(
             if unfinished.is_empty() {
                 return Ok(Verdict::Takes(covered));
             }
-            Verdict::Unfinished(covered, unfinished)
+            Verdict::Unfinished(covered, Box::new(unfinished))
         }
     };
     let findings_wait = match &verdict {
         Verdict::Unfinished(_, unfinished) => {
-            !unfinished.unsettled.is_empty() || !unfinished.open.is_empty()
+            !unfinished.unsettled.is_empty()
+                || !unfinished.open.is_empty()
+                || !unfinished.rechecked.is_empty()
         }
         _ => false,
     };
@@ -488,6 +604,27 @@ pub fn refusal(needs: &[Need], verdict: &Verdict) -> Option<String> {
             "Fix each in a new commit and run builds review in the branch's worktree: the review closes each open finding the changes fix. When a finding is wrong, settle it again: builds review settle <finding> --again --why TEXT\n",
         );
     }
+    if !unfinished.rechecked.is_empty() {
+        let count = unfinished.rechecked.len();
+        text.push_str(&format!(
+            "{} closed by a review and goes back to its group:\n",
+            if count == 1 {
+                "1 finding is".to_string()
+            } else {
+                format!("{count} findings are")
+            }
+        ));
+        for recheck in &unfinished.rechecked {
+            text.push_str(&render::finding_text(&recheck.finding));
+            text.push_str(&format!(
+                "    the branch changed {}, which the fix of that run changed too\n",
+                recheck.paths.join(", ")
+            ));
+        }
+        text.push_str(
+            "Run builds review in the branch's worktree: it gives each of these findings to the group that holds it, and the group says whether the problem is back.\n",
+        );
+    }
     Some(text)
 }
 
@@ -526,6 +663,13 @@ pub fn blockers(verdict: &Verdict) -> Vec<String> {
         found.push(format!(
             "finding {} is confirmed and open: its agent must fix it, or the person must allow it",
             finding.id
+        ));
+    }
+    for recheck in &unfinished.rechecked {
+        found.push(format!(
+            "finding {} goes back to its group, because the branch changed {}, which the fix that closed it changed: its agent must run builds review",
+            recheck.finding.id,
+            recheck.paths.join(", ")
         ));
     }
     found

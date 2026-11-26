@@ -50,7 +50,8 @@
 //! also reads capture file changes to decide whether its open findings are
 //! fixed. `landing::Coverage`
 //! says what the review read, for this run and for `builds land`. The run
-//! refuses when the review lacks nothing and no confirmed finding is open.
+//! refuses when the review lacks nothing, no confirmed finding is open and no
+//! closed finding goes back to its group (`landing::Coverage::rechecks`).
 //!
 //! `run` asks no copy group (`groups::Group::copy`), whose rules judge word
 //! choice, grammar and style. `copy` asks only those, over the worktree's net
@@ -337,14 +338,33 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
         key: inputs.key,
     };
     let open = record::open_landing(&conn, under_review)?;
-    // The confirmed findings no review closed, which each reviewer checks
-    // against the code as it is now.
+    // The confirmed findings no review closed, and the closed ones that go
+    // back to their group (`landing::Coverage::rechecks`), which each reviewer
+    // checks against the code as it is now.
     let open_findings: Vec<record::Finding> = match open {
         None => Vec::new(),
-        Some(landing) => record::findings_of_landing(&conn, landing)?
-            .into_iter()
-            .filter(record::Finding::is_open)
-            .collect(),
+        Some(landing) => {
+            let mut findings: Vec<record::Finding> = record::findings_of_landing(&conn, landing)?
+                .into_iter()
+                .filter(record::Finding::is_open)
+                .collect();
+            let coverage = landing::Coverage::of(&conn, &record::landing(&conn, landing)?)?;
+            findings.extend(
+                coverage
+                    .rechecks(
+                        &conn,
+                        landing,
+                        scope,
+                        inputs.worktree,
+                        &change.base,
+                        &change.head,
+                    )?
+                    .into_iter()
+                    .map(|recheck| recheck.finding),
+            );
+            findings.sort_by_key(|finding| finding.id);
+            findings
+        }
     };
     // A finding in a file the branch deleted needs no reviewer to say its
     // code is gone: the run closes it.
@@ -485,12 +505,22 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
         }
         for call in &asked.calls {
             for (id, verdict) in &call.follow_up {
-                match verdict {
-                    call::FollowUp::Fixed => {
+                let closed_by = open_findings
+                    .iter()
+                    .find(|finding| finding.id == *id)
+                    .and_then(|finding| finding.closed_by);
+                match (verdict, closed_by) {
+                    (call::FollowUp::Fixed, None) => {
                         text.push_str(&render::closed_text(*run_id, *id));
                     }
-                    call::FollowUp::StillOpen(reason) => {
+                    (call::FollowUp::Fixed, Some(closing)) => {
+                        text.push_str(&render::rechecked_text(&call.group, *id, closing, *run_id));
+                    }
+                    (call::FollowUp::StillOpen(reason), None) => {
                         text.push_str(&kept_open::text(&call.group, *id, reason));
+                    }
+                    (call::FollowUp::StillOpen(reason), Some(closing)) => {
+                        text.push_str(&render::reopened_text(&call.group, *id, closing, reason));
                     }
                 }
             }
@@ -746,15 +776,18 @@ fn later_asks(
     // each of its findings.
     let mut holders: Vec<(String, &record::RunRow)> = Vec::new();
     let group_findings = scope.material.holding_groups(open)?;
-    let kept = if group_findings.is_empty() {
-        Vec::new()
+    let (kept, closings) = if group_findings.is_empty() {
+        (Vec::new(), Vec::new())
     } else {
-        kept_open::of_landing(conn, landing)?
+        (
+            kept_open::of_landing(conn, landing)?,
+            record::closings_of_landing(conn, landing)?,
+        )
     };
     for (group, findings) in &group_findings {
         let mut from: Option<&record::RunRow> = None;
         for finding in findings {
-            let reached = coverage.read_with(&kept, finding, group)?;
+            let reached = coverage.read_with(&kept, &closings, finding, group)?;
             if from.is_none_or(|from| reached.id < from.id) {
                 from = Some(reached);
             }
@@ -903,7 +936,7 @@ fn later_asks(
     }
     if asks.is_empty() {
         fail!(
-            "{}\nrun {} of review landing {landing} ({}) is the last review, over {}...{}; every group answered, nothing changed since the last review on a path a group's rules cover or in a commit message a group reads, and no confirmed finding is open, so builds review does not review it again.\nbuilds review show {landing} lists the review and its findings.",
+            "{}\nrun {} of review landing {landing} ({}) is the last review, over {}...{}; every group answered, nothing changed since the last review on a path a group's rules cover or in a commit message a group reads, no confirmed finding is open and no closed finding goes back to its group, so builds review does not review it again.\nbuilds review show {landing} lists the review and its findings.",
             landing::ONE_REVIEW,
             last.id,
             inputs.key,
@@ -1573,6 +1606,7 @@ fn show(tool: &Tool, args: &[String]) -> Result<()> {
 fn show_text(conn: &Connection, id: i64) -> Result<String> {
     let landing = record::landing(conn, id)?;
     let kept = kept_open::of_landing(conn, id)?;
+    let closings = record::closings_of_landing(conn, id)?;
     let mut text = format!(
         "landing {id}: {} ({}), last review: {}, {}\n",
         landing.key,
@@ -1612,8 +1646,21 @@ fn show_text(conn: &Connection, id: i64) -> Result<String> {
             &record::calls_of_run(conn, run)?,
             &record::findings_of_run(conn, run)?,
         ));
+        for closing in closings.iter().filter(|closing| closing.run == run) {
+            text.push_str(&render::closed_text(run, closing.finding));
+        }
         for kept in kept.iter().filter(|kept| kept.run == run) {
-            text.push_str(&kept_open::text(&kept.group, kept.finding, &kept.reason));
+            let closed_before = closings
+                .iter()
+                .filter(|closing| closing.finding == kept.finding && closing.run < run)
+                .map(|closing| closing.run)
+                .max();
+            text.push_str(&match closed_before {
+                Some(closing) => {
+                    render::reopened_text(&kept.group, kept.finding, closing, &kept.reason)
+                }
+                None => kept_open::text(&kept.group, kept.finding, &kept.reason),
+            });
         }
     }
     Ok(text)

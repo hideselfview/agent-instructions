@@ -169,16 +169,21 @@ CREATE TABLE review_settle_again (
     by TEXT NOT NULL CONSTRAINT review_settle_again_by_says_something CHECK (trim(by) <> '')
 ) STRICT;
 
--- A confirmed finding that a later review run closed: the changes that run
--- read fix it. builds gives each review the open confirmed findings of the
--- groups it asks, and each reviewer names the ones the changes fix. A
--- confirmed finding that no run closed, that the coordinator did not settle
--- again as dropped and that the person did not allow to land is open, and
--- `builds land` refuses the branch while one is.
+-- A review run's `fixed` verdict on a confirmed finding, or the run's close of
+-- a finding whose file the branch deleted: the changes that run read fix it.
+-- builds gives each review the open confirmed findings of the groups it asks,
+-- and each reviewer names the ones the changes fix. A finding is closed when
+-- its latest row here comes from a run later than every run with a
+-- review_kept_open row for it (record.rs). builds gives a closed finding back
+-- to its group when later changes touch a path the closing run's diff changed,
+-- so a finding can close again. A confirmed finding that is not closed, that
+-- the coordinator did not settle again as dropped and that the person did not
+-- allow to land is open, and `builds land` refuses the branch while one is.
 CREATE TABLE review_closed (
-    finding_id INTEGER PRIMARY KEY REFERENCES review_finding (id),
-    run_id INTEGER NOT NULL REFERENCES review_run (id)
-) STRICT;
+    finding_id INTEGER NOT NULL REFERENCES review_finding (id),
+    run_id INTEGER NOT NULL REFERENCES review_run (id),
+    PRIMARY KEY (finding_id, run_id)
+) STRICT, WITHOUT ROWID;
 
 -- An open confirmed finding that the person allowed to land: the finding is
 -- true, and its code lands as it is. why holds the person's words, and by

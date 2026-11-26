@@ -3116,3 +3116,44 @@ fn a_store_whose_item_waits_on_two_open_held_entries_refuses_the_move_and_names_
         "{said}"
     );
 }
+
+#[test]
+fn the_reopen_stamp_is_the_schema_before_it() {
+    assert_eq!(
+        db::stamp_of_text(&db::schema_before_reopen()),
+        BEFORE_REOPEN_STAMP
+    );
+}
+
+/// A store from before a closed finding could close again keeps every
+/// `review_closed` row, equals a fresh schema, and takes a second close of
+/// the same finding.
+#[test]
+fn a_store_from_before_findings_could_close_again_keeps_each_close() {
+    let scratch = Scratch::new("move-reopen");
+    let places = scratch.places();
+    let path = scratch.dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&db::schema_before_reopen()).unwrap();
+        crate::review::record::tests::plant_finding_before_head_sites(&conn);
+        crate::review::record::tests::plant_close_before_reopen(&conn);
+        conn.pragma_update(None, "user_version", BEFORE_REOPEN_STAMP)
+            .unwrap();
+    }
+    move_store(&places, &path, 0).unwrap();
+    let conn = db::open(&path, db::Make::Never).unwrap();
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    let closes: Vec<(i64, i64)> = conn
+        .prepare("SELECT finding_id, run_id FROM review_closed")
+        .unwrap()
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap();
+    assert_eq!(closes, [(1, 2)]);
+    assert!(crate::review::record::tests::close_again(&conn));
+}

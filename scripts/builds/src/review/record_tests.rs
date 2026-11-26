@@ -13,6 +13,27 @@ pub fn plant_finding_before_head_sites(db: &Connection) {
     .unwrap();
 }
 
+/// Writes a close of the finding that `plant_finding_before_head_sites` wrote,
+/// by a second run, into a store from before a finding could close again.
+pub(crate) fn plant_close_before_reopen(db: &Connection) {
+    db.execute_batch(
+        "INSERT INTO review_run (id, kind, at, base, head, rules_version)
+            VALUES (2, 'replay', 2, 'base', 'head', 'rules');
+         INSERT INTO review_closed (finding_id, run_id) VALUES (1, 2);",
+    )
+    .unwrap();
+}
+
+/// Writes a second close of finding 1, by run 1, and says whether the store
+/// took it.
+pub(crate) fn close_again(db: &Connection) -> bool {
+    db.execute(
+        "INSERT INTO review_closed (finding_id, run_id) VALUES (1, 1)",
+        [],
+    )
+    .is_ok()
+}
+
 /// Writes two landings of repo `demo` into a store from before a landing
 /// could end abandoned: landing 1 open and landing 2 landed with run 7.
 pub(crate) fn plant_landings_before_abandoned(db: &Connection) {
@@ -270,7 +291,7 @@ fn a_later_run_closes_an_open_confirmed_finding_once_and_a_closed_one_stays_conf
         )
         .unwrap_err()
         .text()
-        .contains("not an open confirmed finding")
+        .contains("so no review closes it")
     );
     settle(&db, finding, "confirmed", "real", 7, "me").unwrap();
     assert!(finding_of(&db, finding).unwrap().is_open());

@@ -625,7 +625,9 @@ fn view_of<'a>(
 
 /// The files of its units, <paths>, that group <at> of <picked> does not
 /// read: none when it holds a finding of <open>, and otherwise each file
-/// where other groups of <picked> hold findings of <open>.
+/// where other groups of <picked> hold open findings of <open>. A closed
+/// finding of <open>, which its group checks against the head, keeps no other
+/// group from its file: it is not open until its group says so.
 fn not_read<'a>(
     picked: &[(&Group, Vec<&Rule>)],
     at: usize,
@@ -639,6 +641,7 @@ fn not_read<'a>(
     let held: Vec<_> = picked
         .iter()
         .flat_map(|(group, members)| held_by(group, members, open))
+        .filter(|finding| finding.is_open())
         .collect();
     paths
         .filter(|file| {

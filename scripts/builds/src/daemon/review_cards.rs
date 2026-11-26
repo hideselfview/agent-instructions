@@ -28,7 +28,8 @@ enum Judgment<'a> {
     NotRun,
     /// This many findings wait for a settle.
     ToSettle(&'a [crate::review::record::Finding]),
-    /// This many paths, or the commit messages, changed since the last review.
+    /// This many paths, or the commit messages, changed since the last review,
+    /// or since a closed finding's group last judged it.
     Unreviewed(usize),
     /// This many confirmed findings are open.
     Open(usize),
@@ -49,6 +50,18 @@ impl<'a> Judgment<'a> {
             }
             Verdict::Unfinished(_, unfinished) if !unfinished.unreviewed.is_empty() => {
                 Judgment::Unreviewed(unfinished.unreviewed.len())
+            }
+            Verdict::Unfinished(_, unfinished)
+                if unfinished.open.is_empty() && !unfinished.rechecked.is_empty() =>
+            {
+                let mut paths: Vec<&String> = unfinished
+                    .rechecked
+                    .iter()
+                    .flat_map(|recheck| &recheck.paths)
+                    .collect();
+                paths.sort();
+                paths.dedup();
+                Judgment::Unreviewed(paths.len())
             }
             Verdict::Unfinished(_, unfinished) => Judgment::Open(unfinished.open.len()),
         }

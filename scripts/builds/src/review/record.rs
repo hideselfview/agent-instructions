@@ -170,7 +170,9 @@ pub struct Finding {
     /// How the coordinator settled it, once or twice.
     pub settled: Option<Settled>,
     /// The review run that closed it, for a confirmed finding the changes that
-    /// run read fix.
+    /// run read fix: the latest run with a `review_closed` row for it, when no
+    /// run with a `review_kept_open` row for it came after. None while the
+    /// finding is open.
     pub closed_by: Option<i64>,
 }
 
@@ -255,14 +257,36 @@ impl Finding {
     }
 
     /// Whether it is an open confirmed finding of a review: settled once, as
-    /// confirmed, and no review run closed it.
+    /// confirmed, and no review run closed it, or a run that read it again
+    /// kept it open after the run that closed it.
     pub fn is_open(&self) -> bool {
         self.why_not_open().is_none()
+    }
+
+    /// Whether it is a confirmed finding of a review that a review run
+    /// closed and that no later run kept open. `builds review` gives it back
+    /// to its group when the branch changes a path its fix changed
+    /// (`landing::Coverage::rechecks`).
+    pub fn is_closed(&self) -> bool {
+        self.why_not_confirmed().is_none() && self.closed_by.is_some()
     }
 
     /// Why it is not an open confirmed finding of a review, or None when it
     /// is one.
     fn why_not_open(&self) -> Option<String> {
+        self.why_not_confirmed().or_else(|| {
+            self.closed_by.map(|run| {
+                format!(
+                    "review run {run} closed finding {}, so it stays confirmed",
+                    self.id
+                )
+            })
+        })
+    }
+
+    /// Why it is not a confirmed finding of a review that stands, whether
+    /// open or closed, or None when it is one.
+    fn why_not_confirmed(&self) -> Option<String> {
         let id = self.id;
         if let Some(reason) = &self.check_failed {
             return Some(format!("builds' own check dropped finding {id} ({reason})"));
@@ -287,9 +311,7 @@ impl Finding {
                 "the coordinator settled finding {id} as {} already",
                 settle.how
             )),
-            Some(Settled::Once(_)) => self
-                .closed_by
-                .map(|run| format!("review run {run} closed finding {id}, so it stays confirmed")),
+            Some(Settled::Once(_)) => None,
         }
     }
 }
@@ -628,16 +650,17 @@ pub fn add_calls(
     Ok(ids)
 }
 
-/// Closes open confirmed finding <id> of <landing>: run <run> read changes
-/// that fix it. close refuses a finding of another landing and one that is
-/// not open.
+/// Closes confirmed finding <id> of <landing>: run <run> read changes that
+/// fix it. The finding is open, or closed and given back to its group, which
+/// says again that the changes fix it. close refuses a finding of another
+/// landing and one that is no confirmed finding of a review.
 pub(super) fn close(db: &Connection, id: i64, run: i64, landing: Option<i64>) -> Result<()> {
     let finding = finding_of(db, id)?;
     if finding.landing_id != landing || landing.is_none() {
         fail!("finding {id} is not a finding of the landing run {run} reviews");
     }
-    if !finding.is_open() {
-        fail!("finding {id} is not an open confirmed finding, so no review closes it");
+    if let Some(why) = finding.why_not_confirmed() {
+        fail!("{why}, so no review closes it");
     }
     db.execute(
         "INSERT INTO review_closed (finding_id, run_id) VALUES (?1, ?2)",
@@ -645,6 +668,31 @@ pub(super) fn close(db: &Connection, id: i64, run: i64, landing: Option<i64>) ->
     )
     .sql()?;
     Ok(())
+}
+
+/// A run's close of a finding: `closings_of_landing` lists them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Closing {
+    pub finding: i64,
+    pub run: i64,
+}
+
+/// Every close of a finding of <landing>, oldest first.
+pub fn closings_of_landing(db: &Connection, landing: i64) -> Result<Vec<Closing>> {
+    let mut statement = db
+        .prepare(
+            "SELECT z.finding_id, z.run_id FROM review_closed z JOIN review_run r ON r.id = z.run_id WHERE r.landing_id = ?1 ORDER BY z.run_id, z.finding_id",
+        )
+        .sql()?;
+    let rows = statement
+        .query_map(params![landing], |row| {
+            Ok(Closing {
+                finding: row.get(0)?,
+                run: row.get(1)?,
+            })
+        })
+        .sql()?;
+    rows.map(|row| row.sql()).collect()
 }
 
 /// Settles finding <id> as `confirmed` or `dropped`. A finding builds dropped
@@ -724,7 +772,10 @@ pub fn allow(db: &Connection, id: i64, why: &str, now: i64, by: &str) -> Result<
     Ok(())
 }
 
-const FINDING_COLUMNS: &str = "f.id, c.run_id, r.kind, r.landing_id, c.group_name, f.rule, f.clause, f.file, f.line, f.code, f.problem, f.blocking, f.check_failed, f.settled, f.settled_why, f.settled_by, a.why, a.by, z.run_id, w.why, w.by, f.settled_at, a.at, f.site_kind, f.site_path";
+/// The columns of a finding. The one after `a.by` is the run that closed it:
+/// the latest run with a `review_closed` row for it, when every run with a
+/// `review_kept_open` row for it is earlier; NULL while the finding is open.
+const FINDING_COLUMNS: &str = "f.id, c.run_id, r.kind, r.landing_id, c.group_name, f.rule, f.clause, f.file, f.line, f.code, f.problem, f.blocking, f.check_failed, f.settled, f.settled_why, f.settled_by, a.why, a.by, (SELECT MAX(z.run_id) FROM review_closed z WHERE z.finding_id = f.id AND z.run_id > COALESCE((SELECT MAX(kc.run_id) FROM review_kept_open ko JOIN review_call kc ON kc.id = ko.call_id WHERE ko.finding_id = f.id), 0)), w.why, w.by, f.settled_at, a.at, f.site_kind, f.site_path";
 
 fn finding_from(row: &rusqlite::Row) -> rusqlite::Result<Finding> {
     let settled: Option<String> = row.get(13)?;
@@ -784,7 +835,7 @@ fn finding_from(row: &rusqlite::Row) -> rusqlite::Result<Finding> {
     })
 }
 
-const FINDING_FROM: &str = "FROM review_finding f JOIN review_call c ON c.id = f.call_id JOIN review_run r ON r.id = c.run_id LEFT JOIN review_settle_again a ON a.finding_id = f.id LEFT JOIN review_closed z ON z.finding_id = f.id LEFT JOIN review_allowed w ON w.finding_id = f.id";
+const FINDING_FROM: &str = "FROM review_finding f JOIN review_call c ON c.id = f.call_id JOIN review_run r ON r.id = c.run_id LEFT JOIN review_settle_again a ON a.finding_id = f.id LEFT JOIN review_allowed w ON w.finding_id = f.id";
 
 /// Every finding of <run>, in the order raised.
 pub fn findings_of_run(db: &Connection, run: i64) -> Result<Vec<Finding>> {
@@ -1239,6 +1290,30 @@ pub fn add_abandoned(db: &Connection) -> Result<()> {
                 ";",
             ),
         ],
+    )
+}
+
+/// Makes `review_closed` again as record.sql writes it, with the primary key
+/// `(finding_id, run_id)`: a store from before held one row for each finding.
+/// Each row stays, and no finding in such a store was kept open after its
+/// close, so each one that was closed stays closed.
+pub fn allow_reclosing(db: &Connection) -> Result<()> {
+    use crate::db::{REVIEW_PART, remake_table, statement};
+    remake_table(
+        db,
+        "review_closed",
+        statement(
+            REVIEW_PART,
+            "CREATE TABLE review_closed (",
+            ") STRICT, WITHOUT ROWID;",
+        ),
+        |db| {
+            db.execute_batch(
+                "INSERT INTO review_closed (finding_id, run_id) SELECT finding_id, run_id FROM review_closed_old",
+            )
+            .sql()
+        },
+        &[],
     )
 }
 

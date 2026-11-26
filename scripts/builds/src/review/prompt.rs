@@ -26,8 +26,9 @@ pub struct Input<'a> {
     /// The new text of the diff's file around each hunk, when the group
     /// reviews one file per call; empty otherwise.
     pub context: &'a str,
-    /// The open confirmed findings of the group's rules, which the reviewer
-    /// checks against the code as it is now.
+    /// The open confirmed findings of the group's rules, and the closed ones
+    /// that go back to the group (`landing::Coverage::rechecks`), which the
+    /// reviewer checks against the code as it is now.
     pub open: &'a [&'a Finding],
     /// Uncovered capture changes the reviewer reads to decide open findings.
     pub capture_evidence: &'a str,
@@ -172,21 +173,40 @@ fn change_part(input: &Input) -> String {
                 "\n{COMMITS_START}\n\nThis change did not come from a branch, so its commits are not available. Judge no finding that depends on how the change divides into commits.\n"
             )),
         }
-        out.push_str("\n# Open findings\n\nEarlier reviews raised these findings and the coordinator confirmed them. Check each problem against the current branch and include its verdict in `follow_up`.\n");
-        for finding in input.open {
-            let (file, line) = finding.location();
-            out.push_str(&format!(
-                "\n- Finding {} ({}), {}:{}\n  code: {}\n  problem: {}\n",
-                finding.id,
-                finding.rule,
-                file,
-                line,
-                one_line(&finding.code),
-                one_line(&finding.problem)
-            ));
+        let (open, closed): (Vec<&Finding>, Vec<&Finding>) =
+            input.open.iter().partition(|finding| finding.is_open());
+        if !open.is_empty() {
+            out.push_str("\n# Open findings\n\nEarlier reviews raised these findings and the coordinator confirmed them. Check each problem against the current branch and include its verdict in `follow_up`.\n");
+            for finding in open {
+                out.push_str(&finding_entry(finding));
+            }
+        }
+        if !closed.is_empty() {
+            out.push_str("\n# Closed findings to check again\n\nEarlier reviews raised these findings, the coordinator confirmed them, and a review closed each one. The changes since touch files that the fix of each one changed. Check whether each problem is back on the current branch and include its verdict in `follow_up`: `fixed` when the problem is still gone.\n");
+            for finding in closed {
+                out.push_str(&finding_entry(finding));
+            }
         }
     }
     out
+}
+
+/// One finding of the findings a reviewer judges, with the run that closed it
+/// when a review closed it.
+fn finding_entry(finding: &Finding) -> String {
+    let (file, line) = finding.location();
+    let closed = finding
+        .closed_by
+        .map_or_else(String::new, |run| format!(", closed by run {run}"));
+    format!(
+        "\n- Finding {} ({}), {}:{}{closed}\n  code: {}\n  problem: {}\n",
+        finding.id,
+        finding.rule,
+        file,
+        line,
+        one_line(&finding.code),
+        one_line(&finding.problem)
+    )
 }
 
 /// How the section that lists the branch's commits starts in a message.

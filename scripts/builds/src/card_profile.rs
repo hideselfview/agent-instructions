@@ -914,30 +914,21 @@ fn read_settles(db: &Connection, run: i64, card: &mut Card) -> Result<()> {
 }
 
 /// The findings of review run <run> that builds' own checks kept, with how
-/// each counts now and whether a later run closed it.
+/// each counts now and whether a review has closed it, as the review's
+/// records say (`record::Finding::closed_by`).
 fn read_findings(db: &Connection, run: i64, card: &mut Card) -> Result<()> {
-    let mut statement = db
-        .prepare(
-            "SELECT c.group_name, \
-                    CASE WHEN a.finding_id IS NOT NULL THEN 'dropped' ELSE f.settled END, \
-                    z.finding_id IS NOT NULL \
-             FROM review_finding f JOIN review_call c ON c.id = f.call_id \
-             LEFT JOIN review_settle_again a ON a.finding_id = f.id \
-             LEFT JOIN review_closed z ON z.finding_id = f.id \
-             WHERE c.run_id = ?1 AND f.check_failed IS NULL",
-        )
-        .sql()?;
-    let rows = statement
-        .query_map([run], |row| {
-            Ok(Finding {
-                group: row.get(0)?,
-                settled: row.get(1)?,
-                closed: row.get(2)?,
-            })
-        })
-        .sql()?;
-    for finding in rows {
-        card.findings.push(finding.sql()?);
+    for finding in crate::review::record::findings_of_run(db, run)? {
+        if !finding.counts() {
+            continue;
+        }
+        card.findings.push(Finding {
+            closed: finding.closed_by.is_some(),
+            settled: finding
+                .settled
+                .as_ref()
+                .map(|settled| settled.last().how.clone()),
+            group: finding.group,
+        });
     }
     Ok(())
 }

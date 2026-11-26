@@ -322,13 +322,17 @@ const BEFORE_ITEM_CHANGE_STAMP: i64 = 1_050_103_093;
 /// held kind and records could close as deferred.
 const BEFORE_BACKLOG_STAMP: i64 = 1_696_267_334;
 
+/// The stamp of the schema before a finding that a review closed could close
+/// again: `review_closed` held one row for each finding.
+const BEFORE_REOPEN_STAMP: i64 = 867_290_757;
+
 /// The stamp of today's schema (`db::STAMP`). A change to the schema changes
 /// its stamp, and builds then fails to compile until the change gives it a
 /// move from this schema, since every store carries this stamp: the change
 /// adds the move, puts this stamp at the end of `STAMPS` under a name that
 /// says what the schema lacked, and sets this to the new schema's stamp, which
 /// the compiler's error names.
-const SCHEMA_STAMP: i64 = 867_290_757;
+const SCHEMA_STAMP: i64 = 1_905_259_196;
 
 // The compiler refuses a schema whose stamp is not SCHEMA_STAMP. A const
 // assert could not print the new stamp, so the check compares two array
@@ -338,7 +342,7 @@ const _: [(); SCHEMA_STAMP as usize] = [(); db::STAMP as usize];
 
 /// Every stamp a store can carry that `move_store` moves, oldest schema first.
 /// A new move adds the stamp of the schema before it at the end.
-const STAMPS: [i64; 51] = [
+const STAMPS: [i64; 52] = [
     BEFORE_CONDITION_ENDERS_STAMP,
     BEFORE_ITEM_EVENT_STAMP,
     BEFORE_LAND_RUN_STAMP,
@@ -390,6 +394,7 @@ const STAMPS: [i64; 51] = [
     BEFORE_NO_OVER_CAP_STAMP,
     BEFORE_ITEM_CHANGE_STAMP,
     BEFORE_BACKLOG_STAMP,
+    BEFORE_REOPEN_STAMP,
 ];
 
 /// Whether a store stamped <found> comes before the move that follows the
@@ -758,6 +763,12 @@ pub fn move_store(places: &Places, path: &Path, now: i64) -> Result<()> {
     // ones.
     if before(found, BEFORE_BACKLOG_STAMP) {
         move_to_backlog(&tx, now)?;
+    }
+    // Every store from before a finding that a review closed could close again
+    // gets the closes' table again with the key that allows it; each close
+    // stays.
+    if before(found, BEFORE_REOPEN_STAMP) {
+        crate::review::record::allow_reclosing(&tx)?;
     }
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     let broken: Option<String> = tx
