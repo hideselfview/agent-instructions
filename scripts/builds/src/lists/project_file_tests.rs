@@ -52,3 +52,23 @@ fn a_file_with_a_heading_where_the_description_belongs_fails() {
     let error = load(&root, "demo").unwrap_err().text();
     assert!(error.contains("no description"), "{error}");
 }
+
+#[test]
+fn the_pasted_text_check_reads_the_limits_of_a_project_with_a_file_and_none_for_a_missing_one() {
+    let (_scratch, root) = root_with("demo", FILE);
+    assert_eq!(
+        hard_limits_if_any(&root, "demo").unwrap().unwrap(),
+        "- Never do a.\n- Never do b.\n\n### Detail\n\nMore."
+    );
+    assert_eq!(hard_limits_if_any(&root, "other").unwrap(), None);
+    std::fs::write(root.join("projects/demo.md"), "# demo\n\nText.\n").unwrap();
+    assert_eq!(hard_limits_if_any(&root, "demo").unwrap(), None);
+}
+
+#[test]
+fn a_file_that_cannot_be_read_is_an_error_not_a_project_without_limits() {
+    let (_scratch, root) = root_with("demo", FILE);
+    std::fs::write(root.join("projects/demo.md"), [0xff, 0xfe, 0xfd]).unwrap();
+    let error = hard_limits_if_any(&root, "demo").unwrap_err().text();
+    assert!(error.contains("projects/demo.md"), "{error}");
+}

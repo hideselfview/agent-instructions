@@ -12,7 +12,6 @@ fn the_init_line_gives_the_session_model_tools_servers_and_skills() {
     assert_eq!(
         parse(&line).unwrap(),
         Line::Init(Init {
-            session: "s1".into(),
             model: "claude-sonnet-5-5".into(),
             tools: vec!["Bash".into(), "Read".into()],
             mcp_servers: vec![],
@@ -46,7 +45,6 @@ fn the_result_line_gives_the_report_and_the_models_window() {
         parse(line).unwrap(),
         Line::Result(Report {
             text: "Landed.\nChecks passed.".into(),
-            is_error: false,
             window: Some(1_000_000),
         })
     );

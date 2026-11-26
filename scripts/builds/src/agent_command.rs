@@ -12,8 +12,8 @@ use std::path::{Path, PathBuf};
 use rusqlite::TransactionBehavior;
 
 use crate::agent_launch::{self, Log, Session};
-use crate::agent_prompt::{Brief, Item, Opening, Place};
-use crate::agent_record::{self, Agent, AgentRole, Process};
+use crate::agent_prompt::{Brief, Item, Opening};
+use crate::agent_record::{self, Agent, AgentRole, Place, Process, Work};
 use crate::agent_stream::{Line, Report};
 use crate::db::{self, Sql};
 use crate::fail;
@@ -55,12 +55,9 @@ pub fn cmd_agent(tool: &Tool, args: &[String]) -> Result<()> {
 /// What `run` starts an agent on, from the items' records.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Plan {
-    pub role: AgentRole,
+    pub work: Work,
     pub tier: Tier,
     pub ids: Vec<Id>,
-    /// The worktree and branch of each repo the items run in; empty for a
-    /// planner.
-    pub places: Vec<Place>,
     /// The brief's name: the items' brief, or the planner's `--brief`.
     pub brief: String,
 }
@@ -92,10 +89,9 @@ pub fn plan(lists: &Lists, role: AgentRole, ids: &[Id], brief: Option<&str>) -> 
                 }
             }
             Ok(Plan {
-                role,
+                work: Work::Planner,
                 tier: Tier::Strongest,
                 ids: ids.to_vec(),
-                places: Vec::new(),
                 brief: brief.to_string(),
             })
         }
@@ -142,10 +138,9 @@ pub fn plan(lists: &Lists, role: AgentRole, ids: &[Id], brief: Option<&str>) -> 
                 })
                 .collect();
             Ok(Plan {
-                role,
+                work: Work::Implementing { places },
                 tier,
                 ids: ids.to_vec(),
-                places,
                 brief,
             })
         }
@@ -168,13 +163,6 @@ fn new_session_id() -> Result<String> {
         &hex[16..20],
         &hex[20..]
     ))
-}
-
-fn now() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("the clock is after 1970")
-        .as_secs() as i64
 }
 
 /// The folder of the agents' worktrees for the repo whose main checkout
@@ -218,10 +206,66 @@ fn make_folder(tool: &Tool, session: &str) -> Result<Folder> {
     })
 }
 
-/// Writes <tokens> and <window> as the context of <session>'s agent.
-fn record_context(store: &Store, session: &str, tokens: u64, window: Option<u64>) -> Result<()> {
-    let conn = db::open(&store.database(), db::Make::Never)?;
-    agent_record::set_context(&conn, session, tokens, window, now())
+/// The name an agent shows in Claude Code's resume list.
+fn agent_name(project: &str, role: AgentRole, items: &[u32]) -> String {
+    let items: Vec<String> = items.iter().map(u32::to_string).collect();
+    format!("{project} {} {}", items.join(" "), role.word())
+}
+
+/// Each of <ids> as `builds item show` prints it.
+fn item_texts(lists: &Lists, ids: &[Id], now: i64) -> Result<Vec<String>> {
+    ids.iter().map(|id| render_item(lists, *id, now)).collect()
+}
+
+/// <ids> with their <texts>, for the prompt and the resume message.
+fn item_refs<'a>(ids: &[Id], texts: &'a [String]) -> Vec<Item<'a>> {
+    ids.iter()
+        .zip(texts)
+        .map(|(id, text)| Item { id: id.0, text })
+        .collect()
+}
+
+/// When the kernel says process <pid> started, None when the process list
+/// does not show it, since it had ended already. Fails when builds cannot read
+/// the process list.
+fn kernel_start(pid: i32) -> Result<Option<i64>> {
+    Ok(crate::procs::Processes::read()?
+        .get(pid)
+        .map(|process| process.started))
+}
+
+/// Records process <started> with <write>, in one transaction that also
+/// holds what <write> records of the agent: the process starts at <now> and
+/// is sent <message>. When recording fails, stops the process and fails.
+fn record_process<T>(
+    store: &Store,
+    started: agent_launch::Started,
+    message: &str,
+    now: i64,
+    write: impl FnOnce(&rusqlite::Connection, &Process) -> Result<T>,
+) -> Result<(agent_launch::Started, T)> {
+    let attempt = (|| -> Result<T> {
+        let process = Process {
+            pid: started.pid(),
+            pid_started: kernel_start(started.pid())?,
+            started_at: now,
+            message: crate::review::texts::hash(message),
+        };
+        let mut conn = db::open(&store.database(), db::Make::Never)?;
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .sql()?;
+        let written = write(&tx, &process)?;
+        tx.commit().sql()?;
+        Ok(written)
+    })();
+    match attempt {
+        Ok(written) => Ok((started, written)),
+        Err(error) => {
+            started.stop();
+            Err(error)
+        }
+    }
 }
 
 /// `builds agent run`, printing to <out>.
@@ -250,18 +294,11 @@ fn run(tool: &Tool, args: &[String], cwd: &Path, out: &mut dyn Write) -> Result<
         ),
         None => None,
     };
-    let texts = ids
-        .iter()
-        .map(|id| render_item(&lists, *id, tool.now))
-        .collect::<Result<Vec<_>>>()?;
-    let items: Vec<Item> = ids
-        .iter()
-        .zip(&texts)
-        .map(|(id, text)| Item { id: id.0, text })
-        .collect();
-    let folder = match role {
-        AgentRole::Implementing => PathBuf::from(&plan.places[0].worktree),
-        AgentRole::Planner => planner_folder(tool, &repos, &brief_path)?,
+    let texts = item_texts(&lists, &ids, tool.now)?;
+    let items = item_refs(&ids, &texts);
+    let folder = match &plan.work {
+        Work::Implementing { places } => PathBuf::from(&places[0].worktree),
+        Work::Planner => planner_folder(tool, &repos, &brief_path)?,
     };
     let session = new_session_id()?;
     let made = make_folder(tool, &session)?;
@@ -269,8 +306,7 @@ fn run(tool: &Tool, args: &[String], cwd: &Path, out: &mut dyn Write) -> Result<
     let prompt = Opening {
         project: &lists.project,
         description: &file.description,
-        role,
-        places: &plan.places,
+        work: &plan.work,
         items: &items,
         brief: &Brief {
             name: &brief.name,
@@ -279,55 +315,30 @@ fn run(tool: &Tool, args: &[String], cwd: &Path, out: &mut dyn Write) -> Result<
         message: message.as_deref(),
         hard_limits_file: &file.path,
         hard_limits: &file.hard_limits,
-        trailer: plan.tier.claude_trailer(),
+        trailer: plan.tier.trailer(Provider::Claude),
         scratch: &made.scratch.display().to_string(),
     }
     .text();
-    let item_words: Vec<String> = ids.iter().map(|id| id.0.to_string()).collect();
-    let name = format!("{} {} {}", lists.project, item_words.join(" "), role.word());
+    let item_numbers: Vec<u32> = ids.iter().map(|id| id.0).collect();
+    let name = agent_name(&lists.project, role, &item_numbers);
     let arguments = agent_launch::arguments(model, &name, Session::New(&session));
     let command = agent_launch::command(&tool.places.claude_program, &arguments, &folder);
     let started = agent_launch::start(command, &prompt, Log::append(&made.log)?)?;
-    let pid = started.pid();
-    let pid_started = crate::procs::Processes::read()
-        .ok()
-        .and_then(|processes| processes.get(pid).map(|process| process.started))
-        .unwrap_or_else(now);
     let agent = Agent {
         session: session.clone(),
-        role,
+        work: plan.work,
         model: model.to_string(),
         tier: plan.tier,
         folder: folder.display().to_string(),
-        brief: Some(plan.brief.clone()),
-        places: plan
-            .places
-            .iter()
-            .map(|place| (place.worktree.clone(), place.branch.clone()))
-            .collect(),
-        started_at: now(),
+        brief: plan.brief,
+        started_at: tool.now,
         started_by,
-        items: ids.iter().map(|id| id.0).collect(),
+        items: item_numbers,
         context: None,
     };
-    let process = Process {
-        pid,
-        pid_started,
-        started_at: now(),
-        message: crate::review::texts::hash(&prompt),
-    };
-    let recorded = (|| -> Result<()> {
-        let mut conn = db::open(&store.database(), db::Make::Never)?;
-        let tx = conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .sql()?;
-        agent_record::start(&tx, &agent, &process)?;
-        tx.commit().sql()
-    })();
-    if let Err(error) = recorded {
-        started.stop();
-        return Err(error);
-    }
+    let (started, ()) = record_process(&store, started, &prompt, tool.now, |db, process| {
+        agent_record::start(db, &agent, process)
+    })?;
     let _ = writeln!(
         out,
         "agent {session}: {} of project {}, model {model}, folder {}, log {}",
@@ -360,7 +371,9 @@ fn drive(
             Line::Init(init) => agent_launch::check_init(model, &init)?,
             Line::Turn { context: tokens } => {
                 context = Some(tokens);
-                if let Err(error) = record_context(store, session, tokens, None)
+                let recorded = db::open(&store.database(), db::Make::Never)
+                    .and_then(|conn| agent_record::set_tokens(&conn, session, tokens));
+                if let Err(error) = recorded
                     && !context_failed
                 {
                     context_failed = true;
@@ -378,10 +391,10 @@ fn drive(
     let status = started.finish()?;
     let ended = (|| -> Result<()> {
         let conn = db::open(&store.database(), db::Make::Never)?;
-        if let (Some(tokens), Some(window)) = (context, report.as_ref().and_then(|r| r.window)) {
-            agent_record::set_context(&conn, session, tokens, Some(window), now())?;
+        if let (Some(_), Some(window)) = (context, report.as_ref().and_then(|r| r.window)) {
+            agent_record::set_window(&conn, session, window)?;
         }
-        agent_record::end_process(&conn, session, number, now(), status)
+        agent_record::end_process(&conn, session, number, crate::app_timing::now(), status)
     })();
     read?;
     ended?;
@@ -409,12 +422,12 @@ const RESUME_USAGE: &str =
 fn require_joinable(lists: &Lists, agent: &Agent, ids: &[Id]) -> Result<()> {
     for id in ids {
         let item = open_item(lists, *id)?;
-        match agent.role {
-            AgentRole::Implementing => {
+        match &agent.work {
+            Work::Implementing { places } => {
                 let joins = item.running.iter().any(|run| {
-                    agent
-                        .places
-                        .contains(&(run.worktree.clone(), run.branch.clone()))
+                    places
+                        .iter()
+                        .any(|place| place.worktree == run.worktree && place.branch == run.branch)
                 });
                 if !joins {
                     fail!(
@@ -423,7 +436,7 @@ fn require_joinable(lists: &Lists, agent: &Agent, ids: &[Id]) -> Result<()> {
                     );
                 }
             }
-            AgentRole::Planner => {
+            Work::Planner => {
                 if let Some(run) = item.running.first() {
                     fail!(
                         "{id} runs in {}, and a planner takes only items no agent runs",
@@ -469,34 +482,19 @@ fn resume(tool: &Tool, args: &[String], cwd: &Path, out: &mut dyn Write) -> Resu
         }
         None => String::new(),
     };
-    let texts = ids
-        .iter()
-        .map(|id| render_item(&lists, *id, tool.now))
-        .collect::<Result<Vec<_>>>()?;
-    let new_items: Vec<Item> = ids
-        .iter()
-        .zip(&texts)
-        .map(|(id, text)| Item { id: id.0, text })
-        .collect();
+    let texts = item_texts(&lists, &ids, tool.now)?;
+    let new_items = item_refs(&ids, &texts);
     let mut all_ids: Vec<u32> = agent.items.clone();
     all_ids.extend(ids.iter().map(|id| id.0));
     all_ids.sort_unstable();
     all_ids.dedup();
-    let places: Vec<Place> = agent
-        .places
-        .iter()
-        .map(|(worktree, branch)| Place {
-            worktree: worktree.clone(),
-            branch: branch.clone(),
-        })
-        .collect();
     let message = crate::agent_prompt::resume_message(
         &lists.project,
         &base,
-        &places,
+        agent.work.places(),
         &all_ids,
         &new_items,
-        agent.tier.claude_trailer(),
+        agent.tier.trailer(Provider::Claude),
     );
     let new_ids: Vec<u32> = ids.iter().map(|id| id.0).collect();
     if let Some(socket) = running_socket(tool, session)? {
@@ -513,45 +511,18 @@ fn resume(tool: &Tool, args: &[String], cwd: &Path, out: &mut dyn Write) -> Resu
         .agents()
         .join(session)
         .join(agent_launch::LOG_FILE);
-    let arguments = agent_launch::arguments(
-        &agent.model,
-        &agent_name(&lists.project, &agent),
-        Session::Resume(session),
-    );
+    let name = agent_name(&lists.project, agent.work.role(), &agent.items);
+    let arguments = agent_launch::arguments(&agent.model, &name, Session::Resume(session));
     let command = agent_launch::command(
         &tool.places.claude_program,
         &arguments,
         Path::new(&agent.folder),
     );
     let started = agent_launch::start(command, &message, Log::append(&log)?)?;
-    let pid = started.pid();
-    let pid_started = crate::procs::Processes::read()
-        .ok()
-        .and_then(|processes| processes.get(pid).map(|process| process.started))
-        .unwrap_or_else(now);
-    let process = Process {
-        pid,
-        pid_started,
-        started_at: now(),
-        message: crate::review::texts::hash(&message),
-    };
-    let recorded = (|| -> Result<u32> {
-        let mut conn = db::open(&store.database(), db::Make::Never)?;
-        let tx = conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .sql()?;
-        agent_record::add_items(&tx, session, &new_ids)?;
-        let number = agent_record::add_process(&tx, session, &process)?;
-        tx.commit().sql()?;
-        Ok(number)
-    })();
-    let number = match recorded {
-        Ok(number) => number,
-        Err(error) => {
-            started.stop();
-            return Err(error);
-        }
-    };
+    let (started, number) = record_process(&store, started, &message, tool.now, |db, process| {
+        agent_record::add_items(db, session, &new_ids)?;
+        agent_record::add_process(db, session, process)
+    })?;
     let _ = writeln!(
         out,
         "agent {session}: resumed in {}, log {}",
@@ -571,12 +542,6 @@ fn running_socket(tool: &Tool, session: &str) -> Result<Option<String>> {
         .into_iter()
         .find(|running| running.session_id == session)
         .and_then(|running| running.messaging_socket))
-}
-
-/// The name an agent shows in Claude Code's resume list.
-fn agent_name(project: &str, agent: &Agent) -> String {
-    let items: Vec<String> = agent.items.iter().map(u32::to_string).collect();
-    format!("{project} {} {}", items.join(" "), agent.role.word())
 }
 
 #[cfg(test)]

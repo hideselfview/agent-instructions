@@ -45,11 +45,15 @@ pub fn load(rules_root: &Path, project: &str) -> Result<ProjectFile> {
 }
 
 /// The text of <project>'s Hard limits section, None when the project has no
-/// file or no such section. The pasted-text check needs neither to exist.
-pub fn hard_limits_if_any(rules_root: &Path, project: &str) -> Option<String> {
-    let text =
-        std::fs::read_to_string(rules_root.join("projects").join(format!("{project}.md"))).ok()?;
-    hard_limits(&text)
+/// file or no such section. The pasted-text check needs neither to exist; any
+/// other failure to read the file is an error.
+pub fn hard_limits_if_any(rules_root: &Path, project: &str) -> Result<Option<String>> {
+    let path = rules_root.join("projects").join(format!("{project}.md"));
+    match std::fs::read_to_string(&path) {
+        Ok(text) => Ok(hard_limits(&text)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => fail!("reading {}: {error}", path.display()),
+    }
 }
 
 /// The first paragraph after the title heading, its lines joined with

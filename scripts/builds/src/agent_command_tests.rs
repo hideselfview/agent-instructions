@@ -168,8 +168,11 @@ fn an_implementing_agent_starts_in_its_worktree_with_the_prompt_the_flags_and_re
         std::fs::canonicalize(&side).unwrap()
     );
     assert_eq!(
-        rows(&demo, "SELECT session, role, model, tier, brief, worktree, branch, context_tokens, context_window FROM agent")
-            .len(),
+        rows(
+            &demo,
+            "SELECT session, role, model, tier, brief, context_tokens, context_window FROM agent"
+        )
+        .len(),
         1
     );
     assert_eq!(
@@ -319,7 +322,7 @@ fn plan_refuses_items_that_do_not_run_together_and_flags_that_do_not_fit_the_rol
     assert!(no_brief.contains("--brief"), "{no_brief}");
     let single = plan(&lists, AgentRole::Implementing, &[Id(1)], None).unwrap();
     assert_eq!(single.tier, Tier::Implementation);
-    assert_eq!(single.places.len(), 1);
+    assert_eq!(single.work.places().len(), 1);
     assert_eq!(single.brief, brief);
 }
 

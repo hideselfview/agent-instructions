@@ -3,7 +3,7 @@
 //! from what the store and the files hold: no template file exists, and the
 //! only text the code holds is each role's opening line.
 
-use crate::agent_record::AgentRole;
+use crate::agent_record::{AgentRole, Place, Work};
 
 /// The section of `builds help workflow` that says what an implementing agent
 /// does.
@@ -37,19 +37,11 @@ impl AgentRole {
     }
 }
 
-/// A worktree where the items run, with its branch.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Place {
-    pub worktree: String,
-    pub branch: String,
-}
-
 /// What the opening prompt holds, in the order it prints it.
 pub struct Opening<'a> {
     pub project: &'a str,
     pub description: &'a str,
-    pub role: AgentRole,
-    pub places: &'a [Place],
+    pub work: &'a Work,
     pub items: &'a [Item<'a>],
     pub brief: &'a Brief<'a>,
     /// The coordinator's own words for this start, after the brief.
@@ -113,11 +105,11 @@ impl Opening<'_> {
     pub fn text(&self) -> String {
         let mut parts = vec![
             self.description.trim_end().to_string(),
-            self.role.line(self.project),
+            self.work.role().line(self.project),
         ];
-        if self.role == AgentRole::Implementing {
+        if let Work::Implementing { places: held } = self.work {
             let ids: Vec<u32> = self.items.iter().map(|item| item.id).collect();
-            parts.push(places(self.project, self.places, &ids));
+            parts.push(places(self.project, held, &ids));
         }
         parts.push(items_and_brief(self.items, self.brief));
         if let Some(message) = self.message {

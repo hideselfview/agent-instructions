@@ -1,8 +1,7 @@
 use super::*;
 
 fn opening<'a>(
-    role: AgentRole,
-    places: &'a [Place],
+    work: &'a Work,
     items: &'a [Item<'a>],
     brief: &'a Brief<'a>,
     message: Option<&'a str>,
@@ -10,8 +9,7 @@ fn opening<'a>(
     Opening {
         project: "demo",
         description: "demo is a tool.\nIt runs here.\n",
-        role,
-        places,
+        work,
         items,
         brief,
         message,
@@ -23,11 +21,13 @@ fn opening<'a>(
 }
 
 #[test]
-fn an_implementing_prompt_holds_each_part_in_the_order_of_the_plan() {
-    let places = [Place {
-        worktree: "/w/side-3".into(),
-        branch: "work".into(),
-    }];
+fn an_implementing_prompt_holds_each_part_in_the_order_the_prompt_prints_them() {
+    let work = Work::Implementing {
+        places: vec![Place {
+            worktree: "/w/side-3".into(),
+            branch: "work".into(),
+        }],
+    };
     let items = [
         Item {
             id: 7,
@@ -42,14 +42,7 @@ fn an_implementing_prompt_holds_each_part_in_the_order_of_the_plan() {
         name: "plans/briefs/a.md",
         text: "Brief line one.\nBrief line two.\n",
     };
-    let text = opening(
-        AgentRole::Implementing,
-        &places,
-        &items,
-        &brief,
-        Some("Start with item 9."),
-    )
-    .text();
+    let text = opening(&work, &items, &brief, Some("Start with item 9.")).text();
     let at = |needle: &str| {
         text.find(needle)
             .unwrap_or_else(|| panic!("no {needle:?} in {text}"))
@@ -83,7 +76,7 @@ fn a_planner_prompt_names_the_coordinator_role_and_no_worktree() {
         name: "b.md",
         text: "Plan it.\n",
     };
-    let text = opening(AgentRole::Planner, &[], &items, &brief, None).text();
+    let text = opening(&Work::Planner, &items, &brief, None).text();
     assert!(text.contains(
         "You are a planner of project demo. Run `builds ack --project demo --role coordinator` and read every part. Then do the items below as builds help workflow, WHAT A PLANNER DOES says."
     ));

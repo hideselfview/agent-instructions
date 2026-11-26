@@ -33,18 +33,50 @@ impl AgentRole {
     }
 }
 
+/// A worktree where an agent's items run, with its branch.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Place {
+    pub worktree: String,
+    pub branch: String,
+}
+
+/// What an agent was started to do, with the data only that kind of agent
+/// has.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Work {
+    /// Builds items to a brief, in the worktree and branch of each repo the
+    /// items run in. The first is the folder the agent runs in.
+    Implementing { places: Vec<Place> },
+    /// Writes a plan or briefs, and commits nothing.
+    Planner,
+}
+
+impl Work {
+    pub fn role(&self) -> AgentRole {
+        match self {
+            Work::Implementing { .. } => AgentRole::Implementing,
+            Work::Planner => AgentRole::Planner,
+        }
+    }
+
+    /// The worktrees of an implementing agent; none for a planner.
+    pub fn places(&self) -> &[Place] {
+        match self {
+            Work::Implementing { places } => places,
+            Work::Planner => &[],
+        }
+    }
+}
+
 /// An agent as the store keeps it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Agent {
     pub session: String,
-    pub role: AgentRole,
+    pub work: Work,
     pub model: String,
     pub tier: Tier,
     pub folder: String,
-    pub brief: Option<String>,
-    /// The worktrees and branches of an implementing agent's items, in the
-    /// order of the repos. The first is the folder it runs in.
-    pub places: Vec<(String, String)>,
+    pub brief: String,
     pub started_at: i64,
     pub started_by: String,
     pub items: Vec<u32>,
@@ -58,44 +90,45 @@ pub struct Context {
     pub tokens: u64,
     /// The model's window, known once the agent's result line has named it.
     pub window: Option<u64>,
-    pub read_at: i64,
 }
 
 /// A process of an agent, as builds records its start.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Process {
     pub pid: i32,
-    pub pid_started: i64,
+    /// When the kernel says the process started; None when it had ended
+    /// before the process list showed it.
+    pub pid_started: Option<i64>,
     pub started_at: i64,
     /// The hash of the message builds sent the process.
     pub message: String,
 }
 
-/// Records a new agent, its items and its first process, whole or not at
-/// all. The agent's `places` hold one pair per repo; the table keeps the
-/// first.
+/// Records a new agent, its places, its items and its first process, whole or
+/// not at all.
 pub fn start(db: &Connection, agent: &Agent, process: &Process) -> Result<()> {
-    let (worktree, branch) = match agent.places.first() {
-        Some((worktree, branch)) => (Some(worktree), Some(branch)),
-        None => (None, None),
-    };
     db.execute(
-        "INSERT INTO agent (session, role, model, tier, folder, brief, worktree, branch, started_at, started_by) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        "INSERT INTO agent (session, role, model, tier, folder, brief, started_at, started_by) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         params![
             agent.session,
-            agent.role.word(),
+            agent.work.role().word(),
             agent.model,
             agent.tier.word(),
             agent.folder,
             agent.brief,
-            worktree,
-            branch,
             agent.started_at,
             agent.started_by,
         ],
     )
     .sql()?;
+    for place in agent.work.places() {
+        db.execute(
+            "INSERT INTO agent_place (session, worktree, branch) VALUES (?1, ?2, ?3)",
+            params![agent.session, place.worktree, place.branch],
+        )
+        .sql()?;
+    }
     add_items(db, &agent.session, &agent.items)?;
     add_process(db, &agent.session, process).map(drop)
 }
@@ -156,51 +189,82 @@ pub fn end_process(
     Ok(())
 }
 
-/// Records the context of <session>'s agent as <tokens> at <at>, with the
-/// model's <window> when the stream has named it.
-pub fn set_context(
-    db: &Connection,
-    session: &str,
-    tokens: u64,
-    window: Option<u64>,
-    at: i64,
-) -> Result<()> {
+/// Records the context of <session>'s agent as <tokens>.
+pub fn set_tokens(db: &Connection, session: &str, tokens: u64) -> Result<()> {
     db.execute(
-        "UPDATE agent SET context_tokens = ?2, context_window = COALESCE(?3, context_window), context_read_at = ?4 \
-         WHERE session = ?1",
-        params![session, tokens as i64, window.map(|w| w as i64), at],
+        "UPDATE agent SET context_tokens = ?2 WHERE session = ?1",
+        params![session, tokens as i64],
     )
     .sql()?;
     Ok(())
 }
 
-fn row_agent(row: &rusqlite::Row<'_>) -> rusqlite::Result<Agent> {
+/// Records <window> as the context window of <session>'s agent, which has
+/// at least one turn.
+pub fn set_window(db: &Connection, session: &str, window: u64) -> Result<()> {
+    db.execute(
+        "UPDATE agent SET context_window = ?2 WHERE session = ?1",
+        params![session, window as i64],
+    )
+    .sql()?;
+    Ok(())
+}
+
+/// The columns of an `agent` row: the agent without its places and items.
+struct Row {
+    agent: Agent,
+    implementing: bool,
+}
+
+fn row_agent(row: &rusqlite::Row<'_>) -> rusqlite::Result<Row> {
     let role: String = row.get("role")?;
     let tier: String = row.get("tier")?;
-    let worktree: Option<String> = row.get("worktree")?;
-    let branch: Option<String> = row.get("branch")?;
-    Ok(Agent {
-        session: row.get("session")?,
-        role: AgentRole::from_word(&role).expect("agent.role is checked"),
-        model: row.get("model")?,
-        tier: Tier::from_word(&tier).expect("agent.tier is checked"),
-        folder: row.get("folder")?,
-        brief: row.get("brief")?,
-        places: worktree.zip(branch).into_iter().collect(),
-        started_at: row.get("started_at")?,
-        started_by: row.get("started_by")?,
-        items: Vec::new(),
-        context: {
-            let tokens: Option<i64> = row.get("context_tokens")?;
-            let window: Option<i64> = row.get("context_window")?;
-            let read_at: Option<i64> = row.get("context_read_at")?;
-            tokens.zip(read_at).map(|(tokens, read_at)| Context {
+    let tokens: Option<i64> = row.get("context_tokens")?;
+    let window: Option<i64> = row.get("context_window")?;
+    Ok(Row {
+        implementing: AgentRole::from_word(&role).expect("agent.role is checked")
+            == AgentRole::Implementing,
+        agent: Agent {
+            session: row.get("session")?,
+            work: Work::Planner,
+            model: row.get("model")?,
+            tier: Tier::from_word(&tier).expect("agent.tier is checked"),
+            folder: row.get("folder")?,
+            brief: row.get("brief")?,
+            started_at: row.get("started_at")?,
+            started_by: row.get("started_by")?,
+            items: Vec::new(),
+            context: tokens.map(|tokens| Context {
                 tokens: tokens as u64,
                 window: window.map(|window| window as u64),
-                read_at,
-            })
+            }),
         },
     })
+}
+
+/// <row>'s agent with its places and items.
+fn complete(db: &Connection, row: Row) -> Result<Agent> {
+    let mut agent = row.agent;
+    if row.implementing {
+        let mut statement = db
+            .prepare(
+                "SELECT worktree, branch FROM agent_place WHERE session = ?1 ORDER BY worktree",
+            )
+            .sql()?;
+        let places = statement
+            .query_map([&agent.session], |row| {
+                Ok(Place {
+                    worktree: row.get(0)?,
+                    branch: row.get(1)?,
+                })
+            })
+            .sql()?
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .sql()?;
+        agent.work = Work::Implementing { places };
+    }
+    agent.items = items_of(db, &agent.session)?;
+    Ok(agent)
 }
 
 fn items_of(db: &Connection, session: &str) -> Result<Vec<u32>> {
@@ -224,11 +288,7 @@ pub fn read(db: &Connection, session: &str) -> Result<Option<Agent>> {
         )
         .optional()
         .sql()?;
-    let Some(mut agent) = found else {
-        return Ok(None);
-    };
-    agent.items = items_of(db, session)?;
-    Ok(Some(agent))
+    found.map(|row| complete(db, row)).transpose()
 }
 
 /// Every agent of the store, oldest first, with its items.
@@ -236,15 +296,12 @@ pub fn read_all(db: &Connection) -> Result<Vec<Agent>> {
     let mut statement = db
         .prepare("SELECT * FROM agent ORDER BY started_at, session")
         .sql()?;
-    let mut agents = statement
+    let rows = statement
         .query_map([], row_agent)
         .sql()?
         .collect::<rusqlite::Result<Vec<_>>>()
         .sql()?;
-    for agent in &mut agents {
-        agent.items = items_of(db, &agent.session)?;
-    }
-    Ok(agents)
+    rows.into_iter().map(|row| complete(db, row)).collect()
 }
 
 /// A process of an agent as the store keeps it.

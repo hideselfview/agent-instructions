@@ -55,7 +55,7 @@ pub fn sources(rules_root: &Path, project: &str) -> Result<Vec<Source>> {
                 text: section.text,
             }),
     );
-    if let Some(text) = crate::lists::project_file::hard_limits_if_any(rules_root, project) {
+    if let Some(text) = crate::lists::project_file::hard_limits_if_any(rules_root, project)? {
         sources.push(Source {
             name: format!("projects/{project}.md, Hard limits"),
             text,

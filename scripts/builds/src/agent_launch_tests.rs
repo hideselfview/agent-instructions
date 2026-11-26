@@ -2,7 +2,6 @@ use super::*;
 
 fn init(model: &str, tools: &[&str], mcp: usize, skills: &[&str]) -> Init {
     Init {
-        session: "s1".into(),
         model: model.into(),
         tools: tools.iter().map(|tool| tool.to_string()).collect(),
         mcp_servers: vec![serde_json::json!({"name": "x"}); mcp],

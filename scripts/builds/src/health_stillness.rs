@@ -736,15 +736,14 @@ fn process_work(
                 .get(&pid)
                 .map(|at| scanned.at - (scan.at - at).max(0));
             let name = format!("{kind} {pid} on {place} ({command})");
-            let log = if local {
-                let started_by = by_pid
-                    .get(&row.ppid)
-                    .filter(|parent| command_kind(parent) == Some("agent"))
-                    .map(|parent| parent.pid);
-                agent_log_at(pid).max(started_by.and_then(agent_log_at))
-            } else {
-                None
+            // The builds command that starts an agent holds its log, and the
+            // agent's own process writes only to builds through a pipe.
+            let holder = match (command_kind(row), by_pid.get(&row.ppid)) {
+                (Some("agent"), _) => Some(pid),
+                (_, Some(parent)) if command_kind(parent) == Some("agent") => Some(parent.pid),
+                _ => None,
             };
+            let log = holder.filter(|_| local).and_then(agent_log_at);
             let (name, at) = match if local { output_at(pid) } else { Ok(None) } {
                 Ok(output) => (name, activity.max(output).max(log)),
                 Err(error) => (format!("{name} ({error})"), activity),

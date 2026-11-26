@@ -98,7 +98,7 @@ pub fn list(tool: &Tool, args: &[String], cwd: &Path, out: &mut dyn Write) -> Re
             out,
             "{}  {}  {}  {}  {}  {}  {}",
             agent.session,
-            agent.role.word(),
+            agent.work.role().word(),
             agent.model,
             items_words(&agent),
             agent.folder,
@@ -145,7 +145,7 @@ pub fn show(tool: &Tool, args: &[String], cwd: &Path, out: &mut dyn Write) -> Re
     };
     say(format!(
         "agent {session}: {} of project {}, {}",
-        agent.role.word(),
+        agent.work.role().word(),
         store.project,
         state_words(runs, processes.last().map(|row| row.ended))
     ));
@@ -156,11 +156,12 @@ pub fn show(tool: &Tool, args: &[String], cwd: &Path, out: &mut dyn Write) -> Re
     ));
     say(format!("items: {}", items_words(&agent)));
     say(format!("folder: {}", agent.folder));
-    if let Some(brief) = &agent.brief {
-        say(format!("brief: {brief}"));
-    }
-    for (worktree, branch) in &agent.places {
-        say(format!("worktree: {worktree} on branch {branch}"));
+    say(format!("brief: {}", agent.brief));
+    for place in agent.work.places() {
+        say(format!(
+            "worktree: {} on branch {}",
+            place.worktree, place.branch
+        ));
     }
     say(format!(
         "started: {} by {}",
@@ -174,11 +175,14 @@ pub fn show(tool: &Tool, args: &[String], cwd: &Path, out: &mut dyn Write) -> Re
             Some((at, status)) => format!("ended {} with exit status {status}", local_minute(at)),
             None => "builds saw no end".to_string(),
         };
+        let kernel_start = match row.process.pid_started {
+            Some(at) => local_minute(at),
+            None => "start unknown".to_string(),
+        };
         say(format!(
-            "process {}: pid {} (started {}), started by builds {}, message {}, {ended}",
+            "process {}: pid {} ({kernel_start}), started by builds {}, message {}, {ended}",
             row.number,
             row.process.pid,
-            local_minute(row.process.pid_started),
             local_minute(row.process.started_at),
             row.process.message
         ));

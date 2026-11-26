@@ -142,7 +142,10 @@ pub fn check_init(model: &str, init: &Init) -> Result<()> {
 /// standard error as a JSON line of type `stderr`, so that every line is
 /// JSON.
 #[derive(Clone)]
-pub struct Log(Arc<Mutex<std::fs::File>>);
+pub struct Log(
+    Arc<Mutex<std::fs::File>>,
+    Arc<std::sync::atomic::AtomicBool>,
+);
 
 impl Log {
     /// The log at <path>, which new lines are appended to.
@@ -152,13 +155,23 @@ impl Log {
             .append(true)
             .open(path)
             .context(|| format!("opening {}", path.display()))?;
-        Ok(Log(Arc::new(Mutex::new(file))))
+        Ok(Log(
+            Arc::new(Mutex::new(file)),
+            Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        ))
     }
 
     fn line(&self, line: &str) {
         let mut file = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        // A log that cannot be written must not stop the agent.
-        let _ = writeln!(file, "{line}");
+        // A log that cannot be written does not stop the agent, and builds
+        // says so once, since `agent show` and health read the log.
+        if let Err(error) = writeln!(file, "{line}")
+            && !self.1.swap(true, std::sync::atomic::Ordering::Relaxed)
+        {
+            crate::text::note(format!(
+                "builds cannot write the agent's log, so `builds agent show` and health see no more of the agent: {error}"
+            ));
+        }
     }
 }
 

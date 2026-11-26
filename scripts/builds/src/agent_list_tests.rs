@@ -1,17 +1,21 @@
 use super::*;
-use crate::agent_record::{Agent, AgentRole, Process};
+use crate::agent_record::{Agent, Place, Process, Work};
 use crate::lists::item_fixtures::{Demo, demo, words};
 use crate::model_tier::Tier;
 
 fn agent(session: &str) -> Agent {
     Agent {
         session: session.into(),
-        role: AgentRole::Implementing,
+        work: Work::Implementing {
+            places: vec![Place {
+                worktree: "/w/side-1".into(),
+                branch: "work".into(),
+            }],
+        },
         model: "claude-sonnet-5-5".into(),
         tier: Tier::Implementation,
         folder: "/w/side-1".into(),
-        brief: Some("b.md".into()),
-        places: vec![("/w/side-1".into(), "work".into())],
+        brief: "b.md".into(),
         started_at: 1_794_571_200,
         started_by: "coordinator".into(),
         items: vec![1],
@@ -23,12 +27,15 @@ fn record(demo: &Demo, session: &str, tokens: u64, window: Option<u64>, end: Opt
     let conn = db::open(&demo.store.database(), db::Make::Never).unwrap();
     let process = Process {
         pid: std::process::id() as i32,
-        pid_started: 1_794_571_200,
+        pid_started: Some(1_794_571_200),
         started_at: 1_794_571_200,
         message: "h".into(),
     };
     agent_record::start(&conn, &agent(session), &process).unwrap();
-    agent_record::set_context(&conn, session, tokens, window, 1_794_571_300).unwrap();
+    agent_record::set_tokens(&conn, session, tokens).unwrap();
+    if let Some(window) = window {
+        agent_record::set_window(&conn, session, window).unwrap();
+    }
     if let Some(status) = end {
         agent_record::end_process(&conn, session, 1, 1_794_571_400, status).unwrap();
     }
@@ -61,13 +68,7 @@ fn listed(demo: &Demo, args: &[&str]) -> String {
 
 #[test]
 fn the_context_reads_as_thousands_against_the_window_and_marks_the_handoff_size() {
-    let at = |tokens, window| {
-        Some(Context {
-            tokens,
-            window,
-            read_at: 1,
-        })
-    };
+    let at = |tokens, window| Some(Context { tokens, window });
     assert_eq!(context_words(at(292_345, Some(1_000_000))), "292k of 1000k");
     assert_eq!(context_words(at(10_000, None)), "10k");
     assert_eq!(context_words(None), "no turn read");

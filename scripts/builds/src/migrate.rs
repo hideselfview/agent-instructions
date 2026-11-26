@@ -317,7 +317,7 @@ const BEFORE_AGENT_RECORD_STAMP: i64 = 204_057_206;
 /// adds the move, puts this stamp at the end of `STAMPS` under a name that
 /// says what the schema lacked, and sets this to the new schema's stamp, which
 /// the compiler's error names.
-const SCHEMA_STAMP: i64 = 583_577_515;
+const SCHEMA_STAMP: i64 = 850_242_028;
 
 // The compiler refuses a schema whose stamp is not SCHEMA_STAMP. A const
 // assert could not print the new stamp, so the check compares two array

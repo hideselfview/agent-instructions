@@ -53,11 +53,22 @@ impl Tier {
 }
 
 impl Tier {
-    /// The commit trailer of the Claude model an agent runs at this tier.
-    pub fn claude_trailer(self) -> &'static str {
-        match self {
-            Tier::Implementation => "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>",
-            Tier::Strongest => "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>",
+    /// The commit trailer of the model an agent of <provider> runs at this
+    /// tier (`model`).
+    pub fn trailer(self, provider: Provider) -> &'static str {
+        match (self, provider) {
+            (Tier::Implementation, Provider::Claude) => {
+                "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+            }
+            (Tier::Strongest, Provider::Claude) => {
+                "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+            }
+            (Tier::Implementation, Provider::Codex) => {
+                "Co-Authored-By: GPT-6.2 Sol <noreply@openai.com>"
+            }
+            (Tier::Strongest, Provider::Codex) => {
+                "Co-Authored-By: GPT-6.2 Astra <noreply@openai.com>"
+            }
         }
     }
 }

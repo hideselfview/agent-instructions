@@ -1,5 +1,5 @@
 use super::*;
-use crate::agent_record::{Agent, AgentRole, Process};
+use crate::agent_record::{Agent, Process, Work};
 use crate::lists::item_fixtures::{Demo, demo, words};
 use crate::lists::record::{How, close};
 use crate::model_tier::Tier;
@@ -8,12 +8,11 @@ fn record(demo: &Demo, session: &str) {
     let conn = db::open(&demo.store.database(), db::Make::Never).unwrap();
     let agent = Agent {
         session: session.into(),
-        role: AgentRole::Planner,
+        work: Work::Planner,
         model: "claude-opus-5-5".into(),
         tier: Tier::Strongest,
         folder: "/w".into(),
-        brief: None,
-        places: Vec::new(),
+        brief: "b.md".into(),
         started_at: 1_794_571_200,
         started_by: "coordinator".into(),
         items: vec![1],
@@ -21,7 +20,7 @@ fn record(demo: &Demo, session: &str) {
     };
     let process = Process {
         pid: 1,
-        pid_started: 1_794_571_200,
+        pid_started: Some(1_794_571_200),
         started_at: 1_794_571_200,
         message: "h".into(),
     };

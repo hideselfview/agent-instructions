@@ -9,7 +9,6 @@ use crate::fail::Result;
 /// What Claude Code says it started, from the `system/init` line.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Init {
-    pub session: String,
     pub model: String,
     pub tools: Vec<String>,
     pub mcp_servers: Vec<serde_json::Value>,
@@ -20,7 +19,6 @@ pub struct Init {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Report {
     pub text: String,
-    pub is_error: bool,
     /// The context window of the agent's model, from `modelUsage`.
     pub window: Option<u64>,
 }
@@ -71,8 +69,8 @@ fn strings(value: &serde_json::Value, key: &str) -> Result<Vec<String>> {
 }
 
 fn init(value: &serde_json::Value) -> Result<Init> {
-    let (Some(session), Some(model)) = (str_of(value, "session_id"), str_of(value, "model")) else {
-        fail!("the init line of the agent's stream names no session_id or model");
+    let Some(model) = str_of(value, "model") else {
+        fail!("the init line of the agent's stream names no model");
     };
     let Some(mcp_servers) = value
         .get("mcp_servers")
@@ -81,7 +79,6 @@ fn init(value: &serde_json::Value) -> Result<Init> {
         fail!("the init line of the agent's stream has no list \"mcp_servers\"");
     };
     Ok(Init {
-        session: session.to_string(),
         model: model.to_string(),
         tools: strings(value, "tools")?,
         mcp_servers: mcp_servers.clone(),
@@ -132,10 +129,6 @@ fn report(value: &serde_json::Value) -> Result<Report> {
         });
     Ok(Report {
         text: text.to_string(),
-        is_error: value
-            .get("is_error")
-            .and_then(serde_json::Value::as_bool)
-            .unwrap_or(false),
         window,
     })
 }
