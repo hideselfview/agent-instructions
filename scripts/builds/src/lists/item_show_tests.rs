@@ -347,3 +347,59 @@ fn next_says_how_many_items_each_unblocks_and_takes_the_design_sessions_items() 
     );
     assert!(!design.contains("plain"), "{design}");
 }
+
+#[test]
+fn next_without_a_project_lists_the_ready_items_of_every_project() {
+    let demo = demo("show-next-every-project");
+    add(
+        &demo,
+        "Draw the demo screen now",
+        "Alpha",
+        &["--for", "design-session"],
+    );
+    crate::lists::fixtures::make_store_named(&demo.tool.places, "other", &["other"]);
+    let details = demo.brief("details.txt");
+    cmd_item(
+        &demo.tool,
+        &plain(&[
+            "add",
+            "--project",
+            "other",
+            "--by",
+            "tester",
+            "--title",
+            "Draw the other screen now",
+            "--area",
+            "Alpha",
+            "--details-file",
+            &details,
+            "--for",
+            "design-session",
+        ]),
+    )
+    .unwrap();
+    let both = next_report(&demo.tool, &plain(&["--for", "design-session"]), &demo.main).unwrap();
+    let demo_at = both.find("project demo").expect(&both);
+    let other_at = both.find("project other").expect(&both);
+    assert!(
+        both[demo_at..other_at].contains("1 Draw the demo screen now (Alpha)")
+            && both[other_at..].contains("1 Draw the other screen now (Alpha)"),
+        "{both}"
+    );
+    let one = next_report(
+        &demo.tool,
+        &plain(&["--for", "design-session", "--project", "other"]),
+        &demo.main,
+    )
+    .unwrap();
+    assert!(
+        one.contains("Draw the other screen now") && !one.contains("demo screen"),
+        "{one}"
+    );
+    let none = next_report(&demo.tool, &plain(&[]), &demo.main).unwrap();
+    assert_eq!(none, "nothing is ready to dispatch\n");
+}
+
+fn plain(args: &[&str]) -> Vec<String> {
+    args.iter().map(|a| a.to_string()).collect()
+}

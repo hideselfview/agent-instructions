@@ -7,7 +7,7 @@ use std::fmt::Write;
 use std::path::Path;
 
 use crate::fail;
-use crate::fail::Result;
+use crate::fail::{Fail, Result};
 use crate::lists::args::Args;
 use crate::lists::derive::{self, FLOW_DAYS, ItemState, Times, branch_times, item_times};
 use crate::lists::item::open_item;
@@ -414,15 +414,46 @@ pub fn list(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     Ok(())
 }
 
-/// `builds next [--for design-session]`: the ready items of the coordinator
-/// (or of the design session) in dispatch order.
+/// `builds next [--for design-session] [--project P]`: the ready items of the
+/// coordinator (or of the design session) in dispatch order.
 pub fn next(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
-    let args = Args::parse(args, &["for"], &[])?;
-    args.exactly(0, "builds next [--for coordinator|design-session]")?;
-    let audience: Audience = args.choice("for")?.unwrap_or(Audience::Coordinator);
-    let store = Store::resolve(&tool.places, &args, cwd)?;
-    print!("{}", next_text(&store.load()?, audience));
+    print!("{}", next_report(tool, args, cwd)?);
     Ok(())
+}
+
+/// What `builds next` prints: with `--project`, that project's ready items;
+/// without it, those of every project, each project's under its own line,
+/// since item numbers belong to one project.
+pub fn next_report(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
+    let args = Args::parse(args, &["for"], &[])?;
+    args.exactly(
+        0,
+        "builds next [--for coordinator|design-session] [--project P]",
+    )?;
+    let audience: Audience = args.choice("for")?.unwrap_or(Audience::Coordinator);
+    if args.value("project")?.is_some() {
+        let store = Store::resolve(&tool.places, &args, cwd)?;
+        return Ok(next_text(&store.load()?, audience));
+    }
+    let mut out = String::new();
+    for loaded in crate::lists::store::load_all(&tool.places).map_err(Fail::Message)? {
+        let project = loaded.project;
+        let lists = loaded.lists.map_err(|fault| {
+            Fail::Message(format!(
+                "the lists of project {} fail their check, so builds cannot list its items: {fault}",
+                project
+            ))
+        })?;
+        if derive::dispatch_order(&lists, audience).is_empty() {
+            continue;
+        }
+        let _ = writeln!(out, "project {project}");
+        out.push_str(&next_text(&lists, audience));
+    }
+    if out.is_empty() {
+        out.push_str("nothing is ready to dispatch\n");
+    }
+    Ok(out)
 }
 
 /// What `builds next` prints for <lists>: each ready item of <audience>, how

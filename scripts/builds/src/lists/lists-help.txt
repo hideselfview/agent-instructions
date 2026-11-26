@@ -495,8 +495,12 @@ main checkout holds or that more than one holds; an absolute path is itself.
       runs that ended from the store's write log, which names no branch, so
       those runs name none and have no held or waiting time.
 
-  builds next [--for coordinator|design-session]
-      The ready items in dispatch order: items placed first (oldest first),
+  builds next [--for coordinator|design-session] [--project P]
+      The ready items in dispatch order. Without --project, it lists the
+      ready items of every project, each project's under a line "project
+      NAME" (item numbers belong to one project), so a role that works for
+      several projects sees all of them; with --project, only that project's.
+      Each project's order: items placed first (oldest first),
       then the items that other open items wait on, most first (directly or
       through a chain of open items, as the stack counts them), then the rest
       by area order and age, and items placed last once nothing else is open.
