@@ -52,8 +52,20 @@ h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
 .fig.line .row { align-items: center; gap: 8px; }
 .fig.line .v { font-size: 16px; }
 .fig.line .h { white-space: nowrap; }
-.act { background: var(--you-bg); color: var(--you); border-radius: 10px; padding: 8px 14px; font-size: 13px; display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: baseline; overflow-wrap: anywhere; }
-.act b { font-weight: 700; }
+/* The Needs attention box: leftover work (each with its commits and age) and
+   parked work (each with what it waits on), one compact row each. */
+.attn { display: flex; flex-direction: column; gap: 12px; }
+.attn > h2 { margin: 0; font-size: 16px; font-weight: 700; }
+.attn-list { display: flex; flex-direction: column; gap: 6px; }
+.attn-list > h3 { margin: 0; font-size: 13px; font-weight: 700; color: var(--muted); }
+.attn-list.leftover > h3 { color: var(--you); }
+.attn-rows { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
+.attn-row { display: grid; gap: 16px; align-items: baseline; padding: 7px 14px; }
+.attn-row + .attn-row { border-top: 1px solid var(--line-soft); }
+.leftover .attn-row { grid-template-columns: minmax(0, 1fr) 96px 72px; }
+.parked .attn-row { grid-template-columns: minmax(0, 1fr) 200px; }
+.attn-name { font-size: 14px; color: var(--text); min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.attn-row .k { font-size: 13px; color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* A repo's commit hook details, under the figures. */
 .hook-open { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px; display: flex; flex-direction: column; gap: 10px; font-size: 13px; }
