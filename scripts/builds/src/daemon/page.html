@@ -1812,7 +1812,7 @@ function workRow(w) {
 // "design-session" reads "design session"; the person reads "you".
 function openerWord(by) { return by === "person" ? "you" : by.replace(/-/g, " "); }
 function localDay(d) { return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
-function rows(its) { return h("div", {class: "l-works"}, its.map(itemRow)); }
+function rows(its) { return h("div", {class: "l-works"}, its.map(it => itemRow(it))); }
 // A running work whose worktree has commits waiting to land is Ready to land
 // once builds land would take them, and In review while their rules review is
 // not finished; the rest are Working.
