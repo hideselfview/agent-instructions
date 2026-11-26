@@ -3223,7 +3223,9 @@ STATUS, HEALTH AND THE DASHBOARD
   builds dashboard stage --fixtures <folder> <shot>
                               serve the dashboard's page for one shot on a
                               port the system picks at 127.0.0.1. It prints
-                              the page's address as its first line, answers
+                              as its first line the address of the page the
+                              shot takes, `/designs/<project>` for a fixture
+                              that holds Designs data and else `/`, answers
                               the page's routes (`/`, `/events`, which stays
                               open, `/designs/<project>` and the Designs
                               page's frames, which are empty pages) from

@@ -135,6 +135,15 @@ const EMPTY_FRAME: &str =
     "<!doctype html><html><head><meta charset=\"utf-8\"></head><body></body></html>\n";
 
 impl Fixture {
+    /// The path of the page that the fixture's shot takes: the Designs page
+    /// of its project when it holds that page's data, else the dashboard.
+    pub fn path(&self) -> String {
+        match &self.designs {
+            Some(designs) => format!("/designs/{}", designs.project),
+            None => "/".to_string(),
+        }
+    }
+
     /// Reads fixture <name> of <folder> (`<folder>/<name>.json`). Fails when
     /// the file can't be read or an answer does not fit its type.
     pub fn load(folder: &Path, name: &str) -> Result<Fixture> {

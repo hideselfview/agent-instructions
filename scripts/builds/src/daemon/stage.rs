@@ -24,8 +24,8 @@ const USAGE: &str = "usage: builds dashboard stage --fixtures <folder> <shot>";
 pub fn cmd_stage(args: &[String]) -> Result<()> {
     let (folder, shot) = stage_args(args)?;
     let fixture = Fixture::load(&folder, &shot)?;
-    let (listener, url) = bind()?;
-    println!("{url}");
+    let listener = bind()?;
+    println!("{}", address(port_of(&listener)?, &fixture));
     std::io::stdout()
         .flush()
         .context(|| "writing the page's address".to_string())?;
@@ -64,23 +64,27 @@ fn stage_args(args: &[String]) -> Result<(PathBuf, String)> {
     }
 }
 
-/// Listens on a port the system picks, and gives the page's address.
-fn bind() -> Result<(TcpListener, String)> {
-    let listener =
-        TcpListener::bind(("127.0.0.1", 0)).context(|| "listening on 127.0.0.1".to_string())?;
-    let port = listener
+/// Listens on a port the system picks.
+fn bind() -> Result<TcpListener> {
+    TcpListener::bind(("127.0.0.1", 0)).context(|| "listening on 127.0.0.1".to_string())
+}
+
+/// The port <listener> listens on.
+fn port_of(listener: &TcpListener) -> Result<u16> {
+    Ok(listener
         .local_addr()
         .context(|| "reading the port".to_string())?
-        .port();
-    Ok((listener, format!("http://127.0.0.1:{port}/")))
+        .port())
+}
+
+/// The address of <fixture>'s page on <port>.
+fn address(port: u16, fixture: &Fixture) -> String {
+    format!("http://127.0.0.1:{port}{}", fixture.path())
 }
 
 /// The `host:port` names a request may give in its Host header.
 fn names_of(listener: &TcpListener) -> Result<Vec<String>> {
-    let port = listener
-        .local_addr()
-        .context(|| "reading the port".to_string())?
-        .port();
+    let port = port_of(listener)?;
     Ok(vec![
         format!("127.0.0.1:{port}"),
         format!("localhost:{port}"),

@@ -120,7 +120,7 @@ fn fixture(scratch: &Scratch, stage: Value) -> PathBuf {
 /// A staged page of fixture `web.demo.page` of <folder> on a port of its own.
 fn staged(folder: &Path) -> u16 {
     let fixture = Fixture::load(folder, "web.demo.page").unwrap();
-    let (listener, _) = bind().unwrap();
+    let listener = bind().unwrap();
     let names: Arc<[String]> = names_of(&listener).unwrap().into();
     let port = listener.local_addr().unwrap().port();
     let pages: Arc<dyn Pages> = Arc::new(fixture);
@@ -215,6 +215,19 @@ fn the_staged_designs_page_fills_the_fixtures_data_and_its_frames_are_empty() {
     assert_eq!(status, 200);
     assert!(frame.contains("<body></body>"), "{frame}");
     assert_eq!(answer(port, "GET", "/designs/other").0, 404);
+}
+
+#[test]
+fn the_stage_gives_the_address_of_the_page_the_fixture_answers() {
+    let scratch = Scratch::new("stage-address");
+    let load = |stage| Fixture::load(&fixture(&scratch, stage), "web.demo.page").unwrap();
+    assert_eq!(
+        address(7000, &load(answers())),
+        "http://127.0.0.1:7000/designs/demo"
+    );
+    let mut dashboard = answers();
+    dashboard.as_object_mut().unwrap().remove("designs");
+    assert_eq!(address(7000, &load(dashboard)), "http://127.0.0.1:7000/");
 }
 
 #[test]
