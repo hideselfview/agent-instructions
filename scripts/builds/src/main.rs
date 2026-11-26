@@ -162,6 +162,7 @@ mod shots_declared;
 mod shots_environment;
 mod shots_hits;
 mod shots_in_use;
+mod shots_picture;
 mod shots_program;
 mod side_git;
 mod sizes;
@@ -434,6 +435,17 @@ fn run(command: &str, args: &[String], session: ack::agent::Session) -> Result<(
                     session,
                 )?,
                 args,
+            );
+        }
+        "shots" if args.first().is_some_and(|sub| sub == "picture") => {
+            return shots_picture::cmd(
+                &Tool::new(
+                    Places::from_env()?,
+                    Rules::from_env()?,
+                    this_program()?,
+                    session,
+                )?,
+                &args[1..],
             );
         }
         "shots" => return shots_program::cmd_shots(&Places::from_env()?, args),

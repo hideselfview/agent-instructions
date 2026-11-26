@@ -246,6 +246,12 @@ WHAT AN IMPLEMENTING AGENT DOES
        started from: read them with `builds shots findings`, never by building
        that commit, and open the report path it prints, never a checkout's
        shots/ folder.
+     - An agent never draws a board or takes a shot itself, and runs no
+       `builds shots run`, `capture` or `check`. To see a board or a shot at
+       a commit, such as the branch's base, it runs `builds shots picture
+       <repo> <ref> <scene> board|shot`, which prints the path of the picture
+       from builds' store and makes it through an app build only when the
+       store lacks it.
      - To fix a run's shot findings, start from `builds shots findings ...
        --by-cause`, which ranks the design-system components behind the
        findings by the scenes they break: fix the component at the top once,

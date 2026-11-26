@@ -1,5 +1,6 @@
 //! `builds shots`: `builds shots findings` reads the cached runs
-//! (shot_findings.rs, shots_cache.rs), `builds shots check-program` runs
+//! (shot_findings.rs, shots_cache.rs), `builds shots picture` hands back a
+//! picture of one (shots_picture.rs), `builds shots check-program` runs
 //! another checkout's shots program over a cached run
 //! (shots_check_program.rs), and every other subcommand runs the
 //! shots checker, which checks an app's shots against its design boards
@@ -28,13 +29,13 @@ pub static VERSIONS: LazyLock<Versions> = LazyLock::new(|| Versions {
     comparison: env!("COMPARISON_SOURCE").to_string(),
 });
 
-const USAGE: &str = "usage: builds shots findings <repo> <ref> mac|android <prefix> [--by-cause] | builds shots check-program <repo> <ref> mac|android <prefix> [--checkout <folder>] | builds shots run|capture|check|lint|runtime|components|states|version [<argument>...] (builds shots <command> --help)";
+const USAGE: &str = "usage: builds shots findings <repo> <ref> mac|android <prefix> [--by-cause] | builds shots picture <repo> <ref> <scene> board|shot | builds shots check-program <repo> <ref> mac|android <prefix> [--checkout <folder>] | builds shots run|capture|check|lint|runtime|components|states|version [<argument>...] (builds shots <command> --help)";
 
 /// Whether `builds shots <args>` runs the checker, which uses no store:
-/// every subcommand but the two that read the cached runs.
+/// every subcommand but the three that read the cached runs.
 pub fn runs_checker(args: &[String]) -> bool {
     args.first()
-        .is_some_and(|sub| !matches!(sub.as_str(), "findings" | "check-program"))
+        .is_some_and(|sub| !matches!(sub.as_str(), "findings" | "check-program" | "picture"))
 }
 
 /// The cache folder builds gives the checker.

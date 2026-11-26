@@ -1711,6 +1711,27 @@ built again.
                               findings.json (one whose report builds could
                               not copy) fails, naming the command that runs
                               the shots again
+  builds shots picture <repo> <ref> <scene> board|shot
+                              print the path of the picture of a scene's
+                              board or shot at <ref>'s commit. This is how an
+                              agent sees a board or a shot: no agent draws a
+                              board or takes a shot itself. builds reads the
+                              picture from the report of a cached run of the
+                              commit whose prefix starts the scene (the runs
+                              `builds shots findings` prints; the report's
+                              img/<scene>.board.png or .shot.png), and marks
+                              the run used. When no cached run holds it,
+                              builds runs `builds app-build <repo> <ref>
+                              --shots <scene> --fresh`, which takes its turn
+                              in the lane's queue, draws only the boards
+                              whose board hash the picture folder lacks and
+                              takes only the shots of an app source tree it
+                              lacks (APP BUILDS), then reads the picture from
+                              the run it cached. That app build prints its
+                              findings before the path, and fails, saying
+                              so, when the commit declares no such scene or
+                              the run took no picture of it. The scene is a
+                              mac or android scene; builds takes no web shots
   builds shots check-program <repo> <ref> mac|android <prefix> [--checkout <folder>]
                               check a change to the shots program before it
                               lands, with no install and no app build. It
@@ -1768,7 +1789,11 @@ built again.
                               build volume, such as a CI runner, set
                               BUILDS_ROOT to a folder, which takes the
                               volume's place. These commands read and write
-                              no store of builds. `builds shots <command>
+                              no store of builds. `builds app-build` runs
+                              `run`, `scenes`, `capture` and `chrome` as its
+                              steps, and an agent runs none of `run`,
+                              `capture` and `check` itself: it asks for a
+                              picture with `builds shots picture`. `builds shots <command>
                               --help` lists a
                               command's arguments. `run` takes the selected
                               shots into shots/ and checks them; with
