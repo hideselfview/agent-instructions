@@ -48,6 +48,7 @@ pub mod item_event;
 #[cfg(test)]
 pub mod item_fixtures;
 pub(crate) mod item_show;
+pub mod item_wait_foreign;
 pub mod kept_work;
 pub mod landing;
 pub mod pasted;
@@ -118,6 +119,9 @@ pub struct Lists {
     pub designs: Vec<DesignChange>,
     pub decisions: Vec<Decision>,
     pub closed: Vec<Closed>,
+    /// The items of other projects that open items wait on, as those
+    /// projects' stores held them when this store loaded (item_wait_foreign.rs).
+    pub foreign: Vec<item_wait_foreign::ForeignItem>,
 }
 
 #[cfg(test)]

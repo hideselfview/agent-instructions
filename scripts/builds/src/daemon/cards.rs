@@ -31,6 +31,14 @@ pub enum ItemWait {
         /// The item's state, or how it closed without freeing this one.
         state: &'static str,
     },
+    /// An item of another project.
+    ForeignItem {
+        project: String,
+        id: u32,
+        title: String,
+        /// Where the item stands, in words.
+        state: String,
+    },
     /// A design change the person approved, which has not landed.
     Landing { id: u32, title: String },
     /// Commits of a design branch that no recorded design change covers.
@@ -167,7 +175,7 @@ impl ItemWait {
             ItemWait::Answer { .. } => 0,
             ItemWait::Review { .. } => 1,
             ItemWait::AppBuild { .. } => 2,
-            ItemWait::Item { .. } | ItemWait::Landing { .. } => 3,
+            ItemWait::Item { .. } | ItemWait::ForeignItem { .. } | ItemWait::Landing { .. } => 3,
             ItemWait::Unrecorded => 4,
             ItemWait::RulesReview(_) => 5,
             ItemWait::Condition { .. } => 6,
@@ -193,6 +201,7 @@ impl ItemWait {
             } => format!("{} build", lane_title(*lane)),
             ItemWait::AppBuild { running: false, .. } => return None,
             ItemWait::Item { id, .. } | ItemWait::Landing { id, .. } => format!("After #{id}"),
+            ItemWait::ForeignItem { project, id, .. } => format!("After {project} #{id}"),
             ItemWait::Unrecorded => "No design change".to_string(),
             ItemWait::RulesReview(review) => return review.pill(),
             ItemWait::Condition { .. } => return None,
@@ -222,6 +231,12 @@ impl ItemWait {
             ItemWait::Item { id, title, state } => {
                 format!("Waits on #{id} ({state}): {title}")
             }
+            ItemWait::ForeignItem {
+                project,
+                id,
+                title,
+                state,
+            } => format!("Waits on {project} #{id} ({state}): {title}"),
             ItemWait::Landing { id, title } => {
                 format!("Waits on design change {id} to land: {title}")
             }
@@ -394,7 +409,12 @@ fn keeps_working(state: CardState, shell: bool, wait: Option<&ItemWait>) -> bool
         && (shell
             || matches!(
                 wait,
-                Some(ItemWait::AppBuild { .. } | ItemWait::Item { .. } | ItemWait::Landing { .. })
+                Some(
+                    ItemWait::AppBuild { .. }
+                        | ItemWait::Item { .. }
+                        | ItemWait::ForeignItem { .. }
+                        | ItemWait::Landing { .. }
+                )
             ))
 }
 

@@ -182,6 +182,10 @@ pub const ITEM_CHANGE_PART: &str = include_str!("lists/item_change.sql");
 /// changes.
 pub const APP_BUILD_BASE_MISSES_PART: &str = include_str!("app_build_base_misses.sql");
 
+/// An item's waits on items of other projects (lists/item_wait_foreign.sql);
+/// the schema holds it after the shots cache's misses.
+pub const ITEM_WAIT_FOREIGN_PART: &str = include_str!("lists/item_wait_foreign.sql");
+
 /// Each part of the schema, in the order the schema holds them: the lists'
 /// tables, then the hook stats', then the app-build timings', then the design
 /// changes' recording sessions', then the review's, then the hook checks'
@@ -198,7 +202,7 @@ pub const APP_BUILD_BASE_MISSES_PART: &str = include_str!("app_build_base_misses
 /// cap. A table points at ones earlier or
 /// later (SQLite resolves foreign keys when rows are written), but the order is
 /// the one to read the schema in. A part that joins the schema goes at the end.
-const SCHEMA_PARTS: [&str; 49] = [
+const SCHEMA_PARTS: [&str; 50] = [
     include_str!("lists/project.sql"),
     include_str!("lists/area.sql"),
     include_str!("lists/record.sql"),
@@ -248,6 +252,7 @@ const SCHEMA_PARTS: [&str; 49] = [
     AGENT_RECORD_PART,
     ITEM_CHANGE_PART,
     APP_BUILD_BASE_MISSES_PART,
+    ITEM_WAIT_FOREIGN_PART,
 ];
 
 /// The length of <parts> joined with a newline between each two.
@@ -369,13 +374,15 @@ pub fn with_closed_once(schema: String) -> String {
 /// close again.
 #[cfg(test)]
 pub fn schema_before_reopen() -> String {
-    with_closed_once(without_base_misses(schema()))
+    with_closed_once(without_base_misses(without_foreign_waits(schema())))
 }
 
 /// Today's schema as it was before the backlog.
 #[cfg(test)]
 pub fn schema_before_backlog() -> String {
-    with_held_and_deferred(with_closed_once(without_base_misses(schema())))
+    with_held_and_deferred(with_closed_once(without_base_misses(
+        without_foreign_waits(schema()),
+    )))
 }
 
 /// The table of the `--shots` runs' findings, which every schema held
@@ -949,7 +956,21 @@ pub fn without_base_misses(schema: String) -> String {
 /// run was missing.
 #[cfg(test)]
 pub fn schema_before_base_misses() -> String {
-    without_base_misses(schema())
+    without_base_misses(without_foreign_waits(schema()))
+}
+
+/// <schema> as it was before an item could wait on an item of another
+/// project: without that table, the last part of the schema.
+#[cfg(test)]
+pub fn without_foreign_waits(schema: String) -> String {
+    schema.replacen(&format!("\n{ITEM_WAIT_FOREIGN_PART}"), "", 1)
+}
+
+/// The schema as it was before an item could wait on an item of another
+/// project.
+#[cfg(test)]
+pub fn schema_before_foreign_waits() -> String {
+    without_foreign_waits(schema())
 }
 
 /// <schema> as it was before item changes were recorded: without their
@@ -963,7 +984,7 @@ pub fn without_item_change(schema: String) -> String {
 #[cfg(test)]
 pub fn schema_before_item_change() -> String {
     with_held_and_deferred(with_closed_once(without_item_change(without_base_misses(
-        schema(),
+        without_foreign_waits(schema()),
     ))))
 }
 

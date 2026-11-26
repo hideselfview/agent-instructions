@@ -330,13 +330,17 @@ const BEFORE_REOPEN_STAMP: i64 = 867_290_757;
 /// run was missing for a shots step.
 const BEFORE_BASE_MISSES_STAMP: i64 = 1_905_259_196;
 
+/// The stamp of the schema before an item could wait on an item of another
+/// project.
+const BEFORE_FOREIGN_WAITS_STAMP: i64 = 1_179_704_518;
+
 /// The stamp of today's schema (`db::STAMP`). A change to the schema changes
 /// its stamp, and builds then fails to compile until the change gives it a
 /// move from this schema, since every store carries this stamp: the change
 /// adds the move, puts this stamp at the end of `STAMPS` under a name that
 /// says what the schema lacked, and sets this to the new schema's stamp, which
 /// the compiler's error names.
-const SCHEMA_STAMP: i64 = 1_179_704_518;
+const SCHEMA_STAMP: i64 = 377_511_477;
 
 // The compiler refuses a schema whose stamp is not SCHEMA_STAMP. A const
 // assert could not print the new stamp, so the check compares two array
@@ -346,7 +350,7 @@ const _: [(); SCHEMA_STAMP as usize] = [(); db::STAMP as usize];
 
 /// Every stamp a store can carry that `move_store` moves, oldest schema first.
 /// A new move adds the stamp of the schema before it at the end.
-const STAMPS: [i64; 53] = [
+const STAMPS: [i64; 54] = [
     BEFORE_CONDITION_ENDERS_STAMP,
     BEFORE_ITEM_EVENT_STAMP,
     BEFORE_LAND_RUN_STAMP,
@@ -400,6 +404,7 @@ const STAMPS: [i64; 53] = [
     BEFORE_BACKLOG_STAMP,
     BEFORE_REOPEN_STAMP,
     BEFORE_BASE_MISSES_STAMP,
+    BEFORE_FOREIGN_WAITS_STAMP,
 ];
 
 /// Whether a store stamped <found> comes before the move that follows the
@@ -781,6 +786,11 @@ pub fn move_store(places: &Places, path: &Path, now: i64) -> Result<()> {
     if before(found, BEFORE_BASE_MISSES_STAMP) {
         tx.execute_batch(db::APP_BUILD_BASE_MISSES_PART).sql()?;
         crate::app_build_base_misses::mark_old_steps_unrecorded(&tx)?;
+    }
+    // Every store from before an item could wait on an item of another
+    // project gets the empty table.
+    if before(found, BEFORE_FOREIGN_WAITS_STAMP) {
+        tx.execute_batch(db::ITEM_WAIT_FOREIGN_PART).sql()?;
     }
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     let broken: Option<String> = tx

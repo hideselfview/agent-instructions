@@ -318,6 +318,7 @@ fn blockers(lists: &Lists, item: &Item) -> Vec<Blocker> {
             Wait::Item(id) | Wait::Question(id) | Wait::Design(id) => {
                 Blocker::Work(record(&lists.project, *id))
             }
+            Wait::Foreign { project, item } => Blocker::Work(record(project, *item)),
             Wait::Condition { text, until } => Blocker::reason(format!(
                 "the {} to end the condition “{text}”",
                 until.word()
@@ -336,7 +337,7 @@ fn item_moved(lists: &Lists, item: &Item, event_at: Option<i64>) -> Result<i64> 
         .waits
         .iter()
         .filter(|wait| wait_met(lists, wait))
-        .map(|wait| crate::lists::kept_work::met_by(lists, wait).map(|closed| closed.closed.at))
+        .map(|wait| crate::lists::kept_work::met_at(lists, wait))
         .collect::<Result<Vec<_>>>()?;
     Ok(std::iter::once(item.opened.at)
         .chain(event_at)

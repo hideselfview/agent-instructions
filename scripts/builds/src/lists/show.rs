@@ -25,6 +25,14 @@ pub fn wait_words(lists: &Lists, wait: &Wait) -> String {
         Wait::Item(id) => named("item", *id),
         Wait::Question(id) => named("question", *id),
         Wait::Design(id) => named("design change", *id),
+        Wait::Foreign { project, item } => match lists.foreign_item(project, *item) {
+            Some(found) => format!(
+                "item {project}/{item} \"{}\" ({})",
+                found.title,
+                found.words()
+            ),
+            None => format!("item {project}/{item}"),
+        },
         Wait::Condition { text, until } => format!("condition for the {}: {text}", until.word()),
     }
 }

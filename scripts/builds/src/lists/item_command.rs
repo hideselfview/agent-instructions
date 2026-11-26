@@ -20,6 +20,7 @@ use crate::lists::item::{
     add_note, add_wait, move_to_backlog, open_item, remove_wait, require_open_wait, set_priority,
     start_from_backlog,
 };
+use crate::lists::item_wait_foreign;
 use crate::lists::record::close;
 use crate::lists::show::wait_words;
 use crate::lists::store::{self, Store};
@@ -31,7 +32,7 @@ use crate::lists::{item_change, item_event, project};
 use crate::text::note;
 use crate::tool::Tool;
 
-const USAGE: &str = "usage: builds item add --title T --area A --details-file F [--backlog WHY] [--for design-session] [--wait REF [--until ENDER]]... [--brief P] [--priority first|last --why WHY] [--origin N] [--tag T]...\n       builds item edit N [--title T] [--area A] [--details-file F] [--brief P] [--for F] [--origin N] [--tag T]... [--untag T]...\n       builds item note N TEXT\n       builds item changes N\n       builds item wait N (--on REF [--until ENDER] | --off REF [--blocks-nothing WHY])\n       builds item take N [M...] [--worktree W --branch B] --brief P [--as design-session] [--tier implementation|strongest]\n       builds item check-brief --worktree W [--worktree W2] --brief P\n       builds item handoff N --brief P\n       builds item stop N --why WHY\n       builds item finished N --made WHAT\n       builds item drop N --why WHY\n       builds item backlog N [M...] --why WHY\n       builds item start N [M...] --said WORDS\n       builds item place N first|last|none --why WHY\n       builds item check-landing DIR [--done N]... [--part N]... SHA...\n       builds item landed DIR [--done N]... [--part N]... SHA...\n       builds item show N\n       builds item list [--running] [--ready] [--backlog] [--area A] [--for F] [--tag T]\n       builds item times [N...]\n(REF is item:N, question:N, design:N or condition:TEXT, and a condition takes --until agent|coordinator|ci)";
+const USAGE: &str = "usage: builds item add --title T --area A --details-file F [--backlog WHY] [--for design-session] [--wait REF [--until ENDER]]... [--brief P] [--priority first|last --why WHY] [--origin N] [--tag T]...\n       builds item edit N [--title T] [--area A] [--details-file F] [--brief P] [--for F] [--origin N] [--tag T]... [--untag T]...\n       builds item note N TEXT\n       builds item changes N\n       builds item wait N (--on REF [--until ENDER] | --off REF [--blocks-nothing WHY])\n       builds item take N [M...] [--worktree W --branch B] --brief P [--as design-session] [--tier implementation|strongest]\n       builds item check-brief --worktree W [--worktree W2] --brief P\n       builds item handoff N --brief P\n       builds item stop N --why WHY\n       builds item finished N --made WHAT\n       builds item drop N --why WHY\n       builds item backlog N [M...] --why WHY\n       builds item start N [M...] --said WORDS\n       builds item place N first|last|none --why WHY\n       builds item check-landing DIR [--done N]... [--part N]... SHA...\n       builds item landed DIR [--done N]... [--part N]... SHA...\n       builds item show N\n       builds item list [--running] [--ready] [--backlog] [--area A] [--for F] [--tag T]\n       builds item times [N...]\n(REF is item:N, item:PROJECT/N, question:N, design:N or condition:TEXT, and a condition takes --until agent|coordinator|ci)";
 
 pub fn cmd_item(tool: &Tool, args: &[String]) -> Result<()> {
     let cwd = current_dir()?;
@@ -86,13 +87,21 @@ impl WaitRef {
     }
 }
 
-/// `item:N`, `question:N`, `design:N` or `condition:TEXT`.
+/// `item:N`, `item:PROJECT/N`, `question:N`, `design:N` or `condition:TEXT`.
 fn parse_ref(text: &str) -> Result<WaitRef> {
     let Some((kind, rest)) = text.split_once(':') else {
-        fail!("'{text}' is not a wait: say item:N, question:N, design:N or condition:TEXT");
+        fail!(
+            "'{text}' is not a wait: say item:N, item:PROJECT/N, question:N, design:N or condition:TEXT"
+        );
     };
     Ok(match kind {
-        "item" => WaitRef::Record(Wait::Item(Id::parse(rest)?)),
+        "item" => match rest.split_once('/') {
+            Some((project, id)) => WaitRef::Record(Wait::Foreign {
+                project: project.to_string(),
+                item: Id::parse(id)?,
+            }),
+            None => WaitRef::Record(Wait::Item(Id::parse(rest)?)),
+        },
         "question" => WaitRef::Record(Wait::Question(Id::parse(rest)?)),
         "design" => WaitRef::Record(Wait::Design(Id::parse(rest)?)),
         "condition" => WaitRef::Condition(rest.to_string()),
@@ -184,6 +193,9 @@ fn add(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         backlog: args.value("backlog")?.map(str::to_string),
     };
     let store = Store::resolve(&tool.places, &args, cwd)?;
+    for wait in &draft.waits {
+        item_wait_foreign::require_open(&tool.places.lists, &store.project, wait)?;
+    }
     require_draft_briefs(&tool.places, &store.repos()?, std::slice::from_ref(&draft))?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
     let (id, state) = store.write(&stamp, &format!("item add {}", draft.title), |db| {
@@ -351,7 +363,7 @@ fn wait(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         (Some(reference), None) => ("wait on", reference, true),
         (None, Some(reference)) => ("stop waiting on", reference, false),
         _ => fail!(
-            "give exactly one of --on REF and --off REF (REF is item:N, question:N, design:N or condition:TEXT, and a condition takes --until agent|coordinator|ci)"
+            "give exactly one of --on REF and --off REF (REF is item:N, item:PROJECT/N, question:N, design:N or condition:TEXT, and a condition takes --until agent|coordinator|ci)"
         ),
     };
     let untils = args.values("until");
@@ -377,6 +389,9 @@ fn wait(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         }
     }
     let store = Store::resolve(&tool.places, &args, cwd)?;
+    if let Some(new) = &new_wait {
+        item_wait_foreign::require_open(&tool.places.lists, &store.project, new)?;
+    }
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
     let state = store.write(
         &stamp,

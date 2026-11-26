@@ -183,9 +183,12 @@ auto` takes it out of the ranked order.
 
 WORK QUEUE
 
-An item waits on records (REF: item:N, question:N, design:N or condition:TEXT).
-A wait is met when its question was answered, settled or done, or its item or
-design change landed; a condition is met only when its ender removes it. A
+An item waits on records (REF: item:N, item:PROJECT/N, question:N, design:N or
+condition:TEXT). item:PROJECT/N is item N of another project, such as a bae
+step that waits on a builds item. A wait is met when its question was answered,
+settled or done, or its item or design change landed; a wait on an item of
+another project is met when builds reads that item as landed or finished in
+that project's store. A condition is met only when its ender removes it. A
 condition names its ender, one of agent, coordinator or ci (`--until`), and
 never the person: work that waits on the person waits on a your-step question
 (`builds question ask --kind your-step`), so that it shows under Waiting on you

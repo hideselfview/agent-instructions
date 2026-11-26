@@ -16,6 +16,7 @@ use crate::fail::Result;
 use crate::health::Advice;
 use crate::lists::derive::unmet_waits;
 use crate::lists::item::{self, Item};
+use crate::lists::item_wait_foreign::ForeignStanding;
 use crate::lists::running::{PlaceTable, insert_places};
 use crate::lists::store::Loaded;
 use crate::lists::{Closed, Id, Lists, Stamp, Wait};
@@ -140,6 +141,10 @@ pub fn kept_waits(lists: &Lists, item: &Item) -> Result<KeptWaits> {
     }
     let mut met = Vec::new();
     for wait in &item.waits {
+        if let Wait::Foreign { project, item } = wait {
+            met.push(foreign_met_words(lists, project, *item)?);
+            continue;
+        }
         let closed = met_by(lists, wait)?;
         met.push(format!(
             "{} {} {}: {}",
@@ -152,11 +157,34 @@ pub fn kept_waits(lists: &Lists, item: &Item) -> Result<KeptWaits> {
     Ok(KeptWaits::Met(met))
 }
 
+/// What met the wait on item <item> of <project>, which is met.
+fn foreign_met_words(lists: &Lists, project: &str, item: Id) -> Result<String> {
+    match lists.foreign_item(project, item) {
+        Some(found) if found.met() => Ok(format!("item {project}/{item} landed: {}", found.title)),
+        _ => fail!("a met wait names {item} of project {project}, which no store shows landed"),
+    }
+}
+
+/// When <wait>, which is met, was met: the time the record that met it
+/// closed.
+pub fn met_at(lists: &Lists, wait: &Wait) -> Result<i64> {
+    if let Wait::Foreign { project, item } = wait {
+        return match lists
+            .foreign_item(project, *item)
+            .map(|found| &found.standing)
+        {
+            Some(ForeignStanding::Met(at)) => Ok(*at),
+            _ => fail!("a met wait names {item} of project {project}, which no store shows landed"),
+        };
+    }
+    Ok(met_by(lists, wait)?.closed.at)
+}
+
 /// The record that met <wait>, which is met, so it names a closed record. A
 /// condition is never met, so it never reaches here.
 pub fn met_by<'a>(lists: &'a Lists, wait: &Wait) -> Result<&'a Closed> {
     let (Wait::Question(id) | Wait::Item(id) | Wait::Design(id)) = wait else {
-        unreachable!("only a wait on a record is met, never a condition")
+        unreachable!("only a wait on a record of this project has a closed record here")
     };
     match lists.closed_record(*id) {
         Some(closed) => Ok(closed),

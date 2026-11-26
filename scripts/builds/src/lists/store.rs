@@ -22,7 +22,9 @@ use crate::lists::args::Args;
 use crate::lists::check::{faults, project_name_fault};
 use crate::lists::project::NewProject;
 use crate::lists::record::{self, Closed, Record};
-use crate::lists::{Lists, Stamp, area, decision, design, item, project, question, tag};
+use crate::lists::{
+    Lists, Stamp, area, decision, design, item, item_wait_foreign, project, question, tag,
+};
 use crate::places::Places;
 
 /// One project's folder.
@@ -125,11 +127,19 @@ impl Store {
         };
         self.verify(&conn)?;
         conn.execute_batch("BEGIN").sql()?;
-        let lists = read(&conn)?;
+        let mut lists = read(&conn)?;
         let found = faults(&conn, &self.project)?;
         conn.execute_batch("END").sql()?;
         refuse_faults(&self.project, &found)?;
+        lists.foreign = self.foreign_items(&lists);
         Ok(lists)
+    }
+
+    /// The items of other projects that <lists>' open items wait on, read from
+    /// those projects' stores.
+    fn foreign_items(&self, lists: &Lists) -> Vec<item_wait_foreign::ForeignItem> {
+        let folder = self.dir.parent().unwrap_or(&self.dir);
+        item_wait_foreign::resolve(folder, lists)
     }
 
     /// The repos of the project, without reading the rest.
@@ -358,6 +368,7 @@ pub fn read(db: &Connection) -> Result<Lists> {
         designs: Vec::new(),
         decisions,
         closed: Vec::new(),
+        foreign: Vec::new(),
     };
     let mut closed: Vec<Closed> = Vec::new();
     for question in questions {
@@ -578,7 +589,9 @@ pub fn reload(
     for store in stores {
         let before = held.iter().find(|loaded| loaded.project == store.project);
         let kept = before.filter(|before| match (&before.lists, store.revision()) {
-            (Ok(lists), Ok(version)) => lists.version == version,
+            (Ok(lists), Ok(version)) => {
+                lists.version == version && lists.foreign == store.foreign_items(lists)
+            }
             (Err(fault), Err(now)) => *fault == now.text(),
             _ => false,
         });

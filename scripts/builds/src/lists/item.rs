@@ -79,7 +79,15 @@ pub enum Wait {
     Item(Id),
     Question(Id),
     Design(Id),
-    Condition { text: String, until: Ender },
+    /// An item of another project: its project's name and its id there.
+    Foreign {
+        project: String,
+        item: Id,
+    },
+    Condition {
+        text: String,
+        until: Ender,
+    },
 }
 
 impl Wait {
@@ -90,13 +98,14 @@ impl Wait {
         }
     }
 
-    /// The wait as `builds item wait` takes it: `item:N`, `question:N`,
-    /// `design:N` or `condition:TEXT`.
+    /// The wait as `builds item wait` takes it: `item:N`, `item:PROJECT/N`,
+    /// `question:N`, `design:N` or `condition:TEXT`.
     pub fn arg(&self) -> String {
         match self {
             Wait::Item(id) => format!("item:{}", id.0),
             Wait::Question(id) => format!("question:{}", id.0),
             Wait::Design(id) => format!("design:{}", id.0),
+            Wait::Foreign { project, item } => format!("item:{project}/{}", item.0),
             Wait::Condition { text, .. } => format!("condition:{text}"),
         }
     }
@@ -290,7 +299,9 @@ pub fn require_open_wait(db: &Connection, wait: &Wait) -> Result<()> {
         Wait::Condition { text, .. } if text.trim().is_empty() => {
             fail!("a wait on a condition needs the condition's text")
         }
-        Wait::Condition { .. } => return Ok(()),
+        // The other project's store holds the item; the command that makes the
+        // wait reads it there (`store::require_open_foreign`).
+        Wait::Condition { .. } | Wait::Foreign { .. } => return Ok(()),
     };
     match record::standing(db, id)? {
         None => fail!("a wait names {id}, which no record has"),
@@ -629,6 +640,9 @@ pub(super) fn insert_wait(db: &Connection, id: Id, wait: &Wait) -> Result<()> {
             "INSERT OR IGNORE INTO item_wait_design (item_id, on_design) VALUES (?1, ?2)",
             params![id, on],
         ),
+        Wait::Foreign { project, item } => {
+            crate::lists::item_wait_foreign::insert(db, id, project, *item)
+        }
         Wait::Condition { text, until } => db.execute(
             "INSERT OR IGNORE INTO item_wait_condition (item_id, condition, until) VALUES (?1, ?2, ?3)",
             params![id, text, until.word()],
@@ -744,6 +758,9 @@ pub fn remove_wait(db: &Connection, id: Id, wait: &Wait) -> Result<()> {
             "DELETE FROM item_wait_design WHERE item_id = ?1 AND on_design = ?2",
             params![id, on],
         ),
+        Wait::Foreign { project, item } => {
+            crate::lists::item_wait_foreign::delete(db, id, project, *item)
+        }
         Wait::Condition { text, .. } => db.execute(
             "DELETE FROM item_wait_condition WHERE item_id = ?1 AND condition = ?2",
             params![id, text],
@@ -833,8 +850,11 @@ pub fn read(
     for list in waits.values_mut() {
         list.sort_by_key(|wait| match wait {
             Wait::Item(id) | Wait::Question(id) | Wait::Design(id) => id.0,
-            Wait::Condition { .. } => u32::MAX,
+            Wait::Foreign { .. } | Wait::Condition { .. } => u32::MAX,
         });
+    }
+    for (id, wait) in crate::lists::item_wait_foreign::read(db)? {
+        waits.entry(id).or_default().push(wait);
     }
     let mut statement = db
         .prepare(
@@ -1045,13 +1065,14 @@ pub fn move_to_condition_enders(db: &Connection) -> Result<()> {
 
 /// The tables item.rs owns.
 #[cfg(test)]
-const TABLES: [&str; 8] = [
+const TABLES: [&str; 9] = [
     "item",
     "item_priority",
     "item_backlog",
     "item_wait_item",
     "item_wait_question",
     "item_wait_design",
+    "item_wait_foreign",
     "item_wait_condition",
     "item_note",
 ];

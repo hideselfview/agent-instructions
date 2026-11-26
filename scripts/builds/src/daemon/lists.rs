@@ -486,6 +486,17 @@ pub fn item_waits(
                 },
                 (None, None) => return Err(missing(*id)),
             },
+            Wait::Foreign { project, item: on } => {
+                let found = lists.foreign_item(project, *on).ok_or_else(|| {
+                    format!("{} waits on {project}/{on}, which was not read", item.id)
+                })?;
+                ItemWait::ForeignItem {
+                    project: project.clone(),
+                    id: on.0,
+                    title: found.title.clone(),
+                    state: found.words(),
+                }
+            }
             Wait::Condition { text, until } => ItemWait::Condition {
                 text: text.clone(),
                 until: *until,

@@ -77,11 +77,25 @@ pub enum WaitView {
     Item(RecordWaitView),
     Question(RecordWaitView),
     Design(RecordWaitView),
+    /// An item of another project.
+    Foreign(ForeignWaitView),
     /// A condition, which is never met until its ender removes it.
     Condition {
         text: String,
         until: Ender,
     },
+}
+
+/// A wait on an item of another project.
+#[derive(Clone, Debug, Serialize)]
+pub struct ForeignWaitView {
+    pub project: String,
+    pub id: Id,
+    /// None when that project's store could not be read.
+    pub title: Option<String>,
+    pub met: bool,
+    /// Where the item stands, in words.
+    pub standing: String,
 }
 
 /// A wait on a record.
@@ -104,7 +118,7 @@ impl WaitView {
             WaitView::Item(record) | WaitView::Question(record) | WaitView::Design(record) => {
                 record.on_person
             }
-            WaitView::Condition { .. } => false,
+            WaitView::Foreign(_) | WaitView::Condition { .. } => false,
         }
     }
 }
@@ -341,6 +355,18 @@ fn wait_view(lists: &Lists, wait: &Wait) -> Result<WaitView> {
         Wait::Item(id) => WaitView::Item(record(*id)?),
         Wait::Question(id) => WaitView::Question(record(*id)?),
         Wait::Design(id) => WaitView::Design(record(*id)?),
+        Wait::Foreign { project, item } => {
+            let found = lists.foreign_item(project, *item);
+            WaitView::Foreign(ForeignWaitView {
+                project: project.clone(),
+                id: *item,
+                title: found
+                    .filter(|found| !found.title.is_empty())
+                    .map(|found| found.title.clone()),
+                met: derive::wait_met(lists, wait),
+                standing: found.map_or_else(|| "unread".to_string(), |found| found.words()),
+            })
+        }
         Wait::Condition { text, until } => WaitView::Condition {
             text: text.clone(),
             until: *until,

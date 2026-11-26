@@ -3203,3 +3203,41 @@ fn a_store_from_before_the_miss_causes_keeps_its_built_steps_with_an_unrecorded_
         crate::app_build_step_shots::BaseRun::Built(MissCause::Unrecorded)
     );
 }
+
+#[test]
+fn the_foreign_waits_stamp_is_the_schema_before_it() {
+    assert_eq!(
+        db::stamp_of_text(&db::schema_before_foreign_waits()),
+        BEFORE_FOREIGN_WAITS_STAMP
+    );
+}
+
+/// A store from before an item could wait on an item of another project gets
+/// the empty table, keeps its items and waits, and equals a fresh schema.
+#[test]
+fn a_store_from_before_foreign_waits_gets_the_table_and_keeps_its_waits() {
+    let scratch = Scratch::new("move-foreign-waits");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&db::schema_before_foreign_waits())
+            .unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_FOREIGN_WAITS_STAMP)
+            .unwrap();
+    }
+    migrate_stores(&places, 0).unwrap();
+    let conn = db::open(&path, db::Make::Never).unwrap();
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    let waits: i64 = conn
+        .query_row("SELECT COUNT(*) FROM item_wait_foreign", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(waits, 0);
+}
