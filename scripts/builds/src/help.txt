@@ -3597,7 +3597,9 @@ ways, and the record says which. It ends as landed with the run that covered the
 commits: `builds land` records that after the push, and `builds health` records
 it when every commit of the branch is on origin/main by patch (or the branch is
 gone and the commit its last review read is on origin/main), as when someone
-landed the branch another way. A landing ends as abandoned, with what builds
+landed the branch another way. A review recorded under a detached key
+(`detached:<sha>`) has no branch: `builds health` records it as landed when the
+commit its last review read is on origin/main by patch. A landing ends as abandoned, with what builds
 found, when the branch is gone from the repo, no other branch, remote branch or
 detached worktree holds the commit its last review read, origin/main lacks that
 commit, and no open item names the branch. Each `builds health` run reads each
@@ -4032,6 +4034,13 @@ run `review replay --rules-root` on it.
                               one settled again) and the run that closed it,
                               the reason each group gave for keeping a finding
                               open in each run, and the run it landed with
+  builds review key <worktree> --project P
+                              prints the key that names the worktree's change
+                              in the review records: its branch, or, in a
+                              detached worktree, the key of the open review
+                              that read a commit the worktree holds, so that
+                              fix commits and the landing stay with the first
+                              review. `builds land` asks it first
   builds review check-landing <worktree> --project P <sha>... [--landing KEY] [--squashed] [--rules-root DIR]
                               what `builds land` asks before it fetches: says
                               that the commits need no review, or that the

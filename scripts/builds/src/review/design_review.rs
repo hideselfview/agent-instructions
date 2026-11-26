@@ -103,12 +103,12 @@ pub fn read(
         files: &design_files,
     };
     let needs = landing::needs(top, ahead, |paths| scope.group_names(paths))?;
-    let key = super::default_key(top)?;
+    let conn = store.open_existing()?;
+    let key = super::landing_key(&conn, &design.repo, top)?;
     let change = Change {
         repo: &design.repo,
         key: &key,
     };
-    let conn = store.open_existing()?;
     let verdict = landing::judge(&conn, change, top, &needs, CodeCheck::Branch("HEAD"), scope)?;
     Ok(match verdict {
         Verdict::NotNeeded | Verdict::Takes(_) | Verdict::OverCap(_) => Standing::Read,

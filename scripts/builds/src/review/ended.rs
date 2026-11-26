@@ -10,7 +10,9 @@
 //!
 //!   - landed, when every commit the branch holds is on origin/main by patch
 //!     (`side_git::waiting_to_land`), or the branch is gone and the commit
-//!     the last review read is on origin/main. The landing takes the last
+//!     the last review read is on origin/main. A review recorded under a
+//!     detached key (`key.rs`) has no branch: it ends landed when the commit
+//!     its last review read is on origin/main, and otherwise stays open. The landing takes the last
 //!     review's run as the run that covered the commits.
 //!   - abandoned, when the branch is gone, no ref and no detached worktree
 //!     holds the commit the last review read, no open item names the branch,
@@ -65,7 +67,11 @@ pub fn close(
     };
     let mut lines = Vec::new();
     for (landing, run) in open.into_iter().zip(runs) {
-        let Some(branch) = landing.key.strip_prefix("branch:") else {
+        let change = if let Some(branch) = landing.key.strip_prefix("branch:") {
+            Change::Branch(branch)
+        } else if landing.key.starts_with("detached:") {
+            Change::Detached
+        } else {
             continue;
         };
         let words = format!(
@@ -85,12 +91,9 @@ pub fn close(
             ));
             continue;
         };
-        let ended = match end_of(
-            main,
-            branch,
-            &run.head,
-            named.contains(&(landing.repo.clone(), branch.to_string())),
-        ) {
+        let ended = match end_of(main, change, &run.head, |branch| {
+            named.contains(&(landing.repo.clone(), branch.to_string()))
+        }) {
             Ok(Some(end)) => end,
             Ok(None) => continue,
             Err(error) => {
@@ -118,7 +121,10 @@ pub fn close(
 }
 
 /// The run of <landing>'s last review, else its latest review run.
-fn last_review(db: &rusqlite::Connection, landing: &LandingRow) -> Result<Option<record::RunRow>> {
+pub(super) fn last_review(
+    db: &rusqlite::Connection,
+    landing: &LandingRow,
+) -> Result<Option<record::RunRow>> {
     let runs = record::runs_of_landing(db, landing.id)?;
     Ok(match landing.reviewed_run {
         Some(reviewed) => runs.into_iter().find(|run| run.id == reviewed),
@@ -126,15 +132,38 @@ fn last_review(db: &rusqlite::Connection, landing: &LandingRow) -> Result<Option
     })
 }
 
-/// How the change of branch <branch> ends in the repo at <main>, whose last
-/// review read <head>, or None when it still holds work. <kept> says an open
-/// item names the branch.
-fn end_of(main: &Path, branch: &str, head: &str, kept: bool) -> Result<Option<End>> {
+/// What a review landing's key names.
+#[derive(Clone, Copy)]
+enum Change<'a> {
+    /// A branch of this name.
+    Branch(&'a str),
+    /// The commit its last review read, with no branch.
+    Detached,
+}
+
+/// How <change> ends in the repo at <main>, whose last review read <head>, or
+/// None when it still holds work. <kept> says whether an open item names a
+/// branch.
+fn end_of(
+    main: &Path,
+    change: Change,
+    head: &str,
+    kept: impl Fn(&str) -> bool,
+) -> Result<Option<End>> {
     let unlanded = |rev: &str| -> Result<bool> {
         Ok(!waiting_to_land(main, rev)
             .map_err(Fail::Message)?
             .is_empty())
     };
+    let branch = match change {
+        Change::Branch(branch) => branch,
+        Change::Detached => {
+            return Ok(
+                (crate::git::commit_exists(main, head)? && !unlanded(head)?).then_some(End::Landed)
+            );
+        }
+    };
+    let kept = kept(branch);
     if branch_exists(main, branch)? {
         return Ok((!unlanded(&format!("refs/heads/{branch}"))?).then_some(End::Landed));
     }

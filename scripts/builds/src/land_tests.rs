@@ -138,7 +138,7 @@ fn stub(f: &Fixture, cues: &Cues) -> (PathBuf, PathBuf) {
     let stub = f.scratch.dir.join("stub-builds");
     let log = f.scratch.dir.join("calls.log");
     let script = format!(
-        "#!/bin/bash\necho \"$*\" >> '{log}'\n[ '{refuse}' = \"$1 $2\" ] && {{ echo '{says}'; exit 1; }}\ncase \"$1 $2\" in\n  'lists project-of') echo '{project}' ;;\n  'design places') printf '%s' '{places}' ;;\n  'design title') echo '{title}' ;;\n  'app-build --landing-coverage') {coverage} ;;\nesac\nexit 0\n",
+        "#!/bin/bash\necho \"$*\" >> '{log}'\n[ '{refuse}' = \"$1 $2\" ] && {{ echo '{says}'; exit 1; }}\ncase \"$1 $2\" in\n  'lists project-of') echo '{project}' ;;\n  'review key') k=$(git -C \"$3\" symbolic-ref -q --short HEAD) && echo \"branch:$k\" || echo \"detached:$(git -C \"$3\" rev-parse --short HEAD)\" ;;\n  'design places') printf '%s' '{places}' ;;\n  'design title') echo '{title}' ;;\n  'app-build --landing-coverage') {coverage} ;;\nesac\nexit 0\n",
         log = log.display(),
         refuse = cues.refuse,
         says = if cues.says.is_empty() {
@@ -444,6 +444,7 @@ fn a_project_repo_names_its_work_item_before_anything_moves() {
         calls,
         [
             format!("lists project-of {dir}"),
+            format!("review key {dir} --project bae"),
             format!("design places {dir} {a} --project bae")
         ]
     );

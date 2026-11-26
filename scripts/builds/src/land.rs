@@ -1440,7 +1440,19 @@ impl Landing<'_> {
         }
         if !project.is_empty() {
             let by = require_claim(&self.workdir, out)?;
-            let key = crate::review::default_key(&self.workdir)?;
+            let (ok, key) = self.builds(&[
+                "review",
+                "key",
+                &self.workdir.display().to_string(),
+                "--project",
+                &project,
+            ]);
+            if !ok {
+                return Err(refuse(
+                    out,
+                    format!("refusing: builds review key failed: {key}"),
+                ));
+            }
             self.recording = Some(Recording { project, by, key });
         }
         self.squash_design(out)?;

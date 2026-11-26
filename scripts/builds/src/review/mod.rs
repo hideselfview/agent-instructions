@@ -82,6 +82,7 @@ pub mod judge_ack;
 pub mod judge_told;
 mod kept_correction;
 pub mod kept_open;
+mod key;
 pub mod landing;
 pub mod marked_mechanical;
 pub mod mechanical;
@@ -90,6 +91,7 @@ pub mod over_cap;
 mod prompt;
 mod propose;
 pub mod provider;
+pub use key::landing_key;
 pub use provider::{Program, Selection, Tier};
 pub mod record;
 mod render;
@@ -119,7 +121,9 @@ use rusqlite::Connection;
 
 use record::Kind;
 
-const USAGE: &str = "usage: builds review [run] WORKTREE [BASE] --kind code|mechanical [--checked-by TEXT] [--landing KEY] [--item N]... [--head SHA] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review copy WORKTREE [BASE] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review wait LANDING\n       builds review settle FINDING confirmed|dropped --why TEXT\n       builds review settle FINDING --again --why TEXT\n       builds review settle FINDING allowed --by-person --why TEXT\n       builds review dispute FINDING --why TEXT\n       builds review keep FINDING --why TEXT\n       builds review keep FINDING --again --why TEXT\n       builds review show LANDING\n       builds review check-landing DIR --project P SHA... [--landing KEY] [--squashed] [--rules-root DIR]\n       builds review landed DIR --project P SHA... [--landing KEY] [--more-to-land] [--rules-root DIR]\n       builds review groups [--rules-root DIR] [--project P --repo R --changed PATH...]\n       builds review replay [--case NAME]... [--source REPO] [--model MODEL] [--rules-root DIR] [--compare] [--reviewer PROGRAM]\n       builds review replay --landing N... --repo-dir DIR [--group NAME]... [--model MODEL] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review audit LANDING --repo-dir DIR [--rules-root DIR] [--reviewer PROGRAM]\n       builds review misses [--check [--model MODEL] [--rules-root DIR] [--reviewer PROGRAM]]\n       builds review rates [--rules-root DIR]\n       builds review scores\n       builds review case propose --repo-dir DIR --rules-root DIR [--per-group N] [--model MODEL] [--reviewer PROGRAM]\n       builds review case add LANDING FINDING --repo-dir DIR --rules-root DIR [--name NAME]\n       builds review case add --rule SLUG --file PATH --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR\n       builds review case add --clean-for SLUG --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR";
+const USAGE: &str = "usage: builds review [run] WORKTREE [BASE] --kind code|mechanical [--checked-by TEXT] [--landing KEY] [--item N]... [--head SHA] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review copy WORKTREE [BASE] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review wait LANDING\n       builds review settle FINDING confirmed|dropped --why TEXT\n       builds review settle FINDING --again --why TEXT\n       builds review settle FINDING allowed --by-person --why TEXT\n       builds review dispute FINDING --why TEXT\n       builds review keep FINDING --why TEXT\n       builds review keep FINDING --again --why TEXT\n       builds review show LANDING\n       builds review hold-audits --project P
+       builds review key DIR --project P
+       builds review check-landing DIR --project P SHA... [--landing KEY] [--squashed] [--rules-root DIR]\n       builds review landed DIR --project P SHA... [--landing KEY] [--more-to-land] [--rules-root DIR]\n       builds review groups [--rules-root DIR] [--project P --repo R --changed PATH...]\n       builds review replay [--case NAME]... [--source REPO] [--model MODEL] [--rules-root DIR] [--compare] [--reviewer PROGRAM]\n       builds review replay --landing N... --repo-dir DIR [--group NAME]... [--model MODEL] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review audit LANDING --repo-dir DIR [--rules-root DIR] [--reviewer PROGRAM]\n       builds review misses [--check [--model MODEL] [--rules-root DIR] [--reviewer PROGRAM]]\n       builds review rates [--rules-root DIR]\n       builds review scores\n       builds review case propose --repo-dir DIR --rules-root DIR [--per-group N] [--model MODEL] [--reviewer PROGRAM]\n       builds review case add LANDING FINDING --repo-dir DIR --rules-root DIR [--name NAME]\n       builds review case add --rule SLUG --file PATH --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR\n       builds review case add --clean-for SLUG --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR";
 
 /// The checkout the rules and groups are read from: `--rules-root`, else the
 /// one `install.sh` links at ~/.codex/agent-instructions.
@@ -246,6 +250,7 @@ pub fn cmd_review(tool: &Tool, args: &[String]) -> Result<()> {
         "show" => show(tool, rest),
         "run" => run_command(tool, rest),
         "copy" => copy_command(tool, rest),
+        "key" => key::key_command(tool, rest),
         "check-landing" => landing::check_landing_command(tool, rest),
         "landed" => landing::landed_command(tool, rest),
         "replay" => replay(tool, rest),
@@ -1065,7 +1070,10 @@ fn call_mechanical(
     let store = Store::named(&tool.places, &project)?;
     let key = match args.value("landing")? {
         Some(key) => key.to_string(),
-        None => default_key(&checkout.top)?,
+        None => {
+            let db = store.open_existing()?;
+            landing_key(&db, &checkout.repo(), &checkout.top)?
+        }
     };
     let stamp = Stamp::resolve(tool.now, args, &checkout.top)?;
     let by = runner.map_or("the person", |caller| caller.id.as_str());
@@ -1150,7 +1158,8 @@ pub fn review_branch(
     runner: Option<&Caller>,
     own: Option<&crate::inbox::Messaging>,
 ) -> Result<String> {
-    let key = default_key(worktree)?;
+    let db = store.open_existing()?;
+    let key = landing_key(&db, repo, worktree)?;
     let reported = review(&Inputs {
         store,
         project: &store.project,
@@ -1344,7 +1353,10 @@ fn run_review(
     let store = Store::named(&tool.places, &project)?;
     let key = match args.value("landing")? {
         Some(key) => key.to_string(),
-        None => default_key(&worktree)?,
+        None => {
+            let db = store.open_existing()?;
+            landing_key(&db, &checkout.repo(), &worktree)?
+        }
     };
     let stamp = Stamp::resolve(tool.now, args, &worktree)?;
     let brief = brief_of(&tool.places, &store, args)?;

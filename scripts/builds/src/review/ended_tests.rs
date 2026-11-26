@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 
 use super::*;
-use crate::review::judge::tests::{Reviewed, reviewed, stamp};
+use crate::review::judge::tests::{Reviewed, reviewed, reviewed_under, stamp};
 use crate::testing::git;
 
 /// What `close` found for review `r`'s landing when nothing names a branch.
@@ -141,4 +141,17 @@ fn a_review_whose_repo_has_no_main_checkout_says_it_could_not_be_judged() {
         "{said:?}"
     );
     assert!(landing(&r).is_open());
+}
+
+#[test]
+fn a_review_recorded_under_a_detached_key_ends_landed_when_its_commit_is_on_main() {
+    let r = reviewed_under("ended-detached", None, "detached:0a1b2c3");
+    assert_eq!(closed(&r, &[]), Vec::<String>::new());
+    assert!(landing(&r).is_open(), "its commit waits to land");
+    land_on_main(&r);
+    let said = closed(&r, &[]);
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert!(said[0].contains("as landed"), "{said:?}");
+    let row = landing(&r);
+    assert!(row.landed_run().is_some(), "{row:?}");
 }

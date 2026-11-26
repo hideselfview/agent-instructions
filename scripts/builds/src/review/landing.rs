@@ -615,7 +615,7 @@ fn ask(tool: &Tool, args: &Args) -> Result<Asked> {
     let checkout = Checkout::find(dir)?;
     let key = match args.value("landing")? {
         Some(key) => key.to_string(),
-        None => super::default_key(&checkout.top)?,
+        None => super::landing_key(&conn, &checkout.repo(), &checkout.top)?,
     };
     let root = super::rules_root(args)?;
     let material = Material::load(&root, project)?;

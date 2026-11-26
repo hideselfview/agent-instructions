@@ -250,7 +250,8 @@ impl Reads {
                 groups: scope.group_names(paths),
             })
             .collect();
-        let key = crate::review::default_key(worktree.top).map_err(Fail::text)?;
+        let key =
+            crate::review::landing_key(&conn, worktree.repo, worktree.top).map_err(Fail::text)?;
         let change = Change {
             repo: worktree.repo,
             key: &key,

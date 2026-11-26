@@ -188,6 +188,15 @@ pub(in crate::review) struct Reviewed {
 }
 
 pub(in crate::review) fn reviewed(name: &str, runner: Option<&Caller>) -> Reviewed {
+    reviewed_under(name, runner, "branch:work")
+}
+
+/// `reviewed`, with the review recorded under <key>.
+pub(in crate::review) fn reviewed_under(
+    name: &str,
+    runner: Option<&Caller>,
+    key: &str,
+) -> Reviewed {
     let demo = demo(name);
     let fake = fake(&demo.scratch.dir);
     let side = demo.add_side(1, "agent", "work");
@@ -212,7 +221,7 @@ pub(in crate::review) fn reviewed(name: &str, runner: Option<&Caller>) -> Review
         worktree: &side,
         base: "main",
         head: None,
-        key: "branch:work",
+        key,
         root: &fake.root,
         reviewer: &fake.program,
         stamp: &Stamp {
