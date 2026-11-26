@@ -541,15 +541,6 @@ const GEOMETRY: &str = r#"function({frame, bodyOverflowAppliesToViewport}, boxed
     const range = document.createRange();
     range.selectNodeContents(this);
     rect = range.getBoundingClientRect();
-    // The apps box text by its lines: each line takes the height of its
-    // style's line height, centred on the glyphs' own room, which the range
-    // measures. A line height left to the font boxes the glyphs' room.
-    const lineHeight = parseFloat(getComputedStyle(this.parentElement).lineHeight);
-    const first = range.getClientRects()[0];
-    if (first && !Number.isNaN(lineHeight)) {
-      const half = (lineHeight - first.height) / 2;
-      rect = new DOMRect(rect.x, rect.y - half, rect.width, rect.height + 2 * half);
-    }
   } else if (this.getBoundingClientRect) {
     rect = this.getBoundingClientRect();
   } else {
