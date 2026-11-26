@@ -3131,10 +3131,12 @@ STATUS, HEALTH AND THE DASHBOARD
                               The page shows the load of this Mac and of
                               each other host, the free space and each repo's
                               hook times; a Needs attention box with
-                              the findings `builds health` lists under
-                              "needs action", with the command when the
-                              finding suggests one. Only the command-line
-                              report shows process-limit findings.
+                              two lists: Leftover work, each piece of work
+                              with commits waiting to land and no claim,
+                              and Parked, each held or kept worktree with
+                              what it waits on. Only the command-line
+                              report shows the other findings, such as
+                              process-limit findings.
                               The free space figure
                               shows the disk finding and the load figures
                               show the load findings (the daemon reads

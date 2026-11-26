@@ -217,8 +217,6 @@ struct PageRead {
     /// Each host's Rust compile cache hit rates over the last hour, day and week.
     compile_cache: Vec<crate::sccache_history::HostRates>,
     compile_cache_error: Option<String>,
-    /// Findings from reading other hosts, independently of local health.
-    host_findings: Vec<crate::health::Finding>,
     host_scan: Option<Arc<crate::health::Scanned>>,
 }
 
@@ -924,24 +922,16 @@ impl Model {
                 }
                 Err(error) => crate::text::note(format!("reading the hosts: {}", error.text())),
             }
-            // When a reading fails, a finding that says so replaces the last
-            // reading's findings, so the page never shows old findings as
-            // current.
-            let (found, scan) = match self.read_host_findings(&ssh) {
-                Ok((found, scan)) => (found, Some(Arc::new(scan))),
+            // When a reading fails, the scan is dropped, so nothing judges
+            // from an old one.
+            let scan = match self.read_host_scan(&ssh) {
+                Ok(scan) => Some(Arc::new(scan)),
                 Err(error) => {
-                    let text = format!(
+                    crate::text::note(format!(
                         "hosts: the daemon could not read the hosts' busy processes or which hosts refuse jobs: {}",
                         error.text()
-                    );
-                    crate::text::note(&text);
-                    (
-                        vec![crate::health::Finding::new(
-                            crate::health::FindingKind::Host,
-                            crate::health::Advice::said(text),
-                        )],
-                        None,
-                    )
+                    ));
+                    None
                 }
             };
             // The findings' reading added this round's samples.
@@ -958,7 +948,6 @@ impl Model {
             };
             let mut state = self.state.lock().expect("no panic holding it");
             state.page.host_scan = scan;
-            state.page.host_findings = found;
             self.changes.advance();
             if state.page.compile_cache != rates || state.page.compile_cache_error != rates_error {
                 state.page.compile_cache = rates;
@@ -976,13 +965,11 @@ impl Model {
         }
     }
 
-    /// What `builds health` reads from the hosts besides the processes: each
-    /// host's busy processes, this Mac's included, the hosts that refuse
-    /// jobs, and what each host has installed.
-    fn read_host_findings(
+    /// What the daemon reads from the hosts' processes, this Mac's included.
+    fn read_host_scan(
         &self,
         ssh: &crate::host::Ssh,
-    ) -> crate::fail::Result<(Vec<crate::health::Finding>, crate::health::Scanned)> {
+    ) -> crate::fail::Result<crate::health::Scanned> {
         let hosts = crate::host::all(&self.places)?;
         // This daemon is the dashboard.
         let dashboard = std::process::id() as i32;
@@ -990,7 +977,6 @@ impl Model {
         // this reading counts as running (job_claim.rs).
         let holders = crate::job_claim::Holders::read()?;
         let mut scans = Vec::new();
-        let mut busy = Vec::new();
         for (host, processes) in hosts
             .iter()
             .zip(crate::checkout::parallel_map(&hosts, |host| {
@@ -1002,14 +988,14 @@ impl Model {
                 )
             }))
         {
-            busy.push(processes.busy);
             scans.push((host.clone(), processes.scan));
         }
-        let refusals = crate::host::refusals(&self.places)?;
-        let installed = crate::host_installed::read_all_installed(&self.places, ssh, &hosts);
-        let scanned = crate::health::Scanned::judge(&self.places, scans, &holders, now_seconds());
-        let findings = crate::health::host_findings(&scanned, &busy, &refusals, &installed);
-        Ok((findings, scanned))
+        Ok(crate::health::Scanned::judge(
+            &self.places,
+            scans,
+            &holders,
+            now_seconds(),
+        ))
     }
 
     /// Judges health now from the last reading of the processes, with each
@@ -1849,9 +1835,7 @@ impl Model {
             repo.app_builds = super::app_builds::build(repo)?;
         }
         let mut health = last_health.map(|health| health.as_ref().clone());
-        let mut host_findings = state.host_findings;
         if let Some(health) = &mut health {
-            health.findings.append(&mut host_findings);
             crate::health_stillness::append(
                 health,
                 &snapshot,
@@ -1881,7 +1865,6 @@ impl Model {
                 .as_deref()
                 .or_else(|| state.health.as_ref().and_then(HealthReading::failure))
                 .map(ToString::to_string),
-            host_findings,
             hosts: state.hosts,
             compile_cache: state.compile_cache,
             compile_cache_error: state.compile_cache_error,
@@ -2384,8 +2367,6 @@ pub struct Page {
     pub health: Option<Health>,
     /// Why the daemon could not read processes or judge health.
     pub health_error: Option<String>,
-    /// Host findings before the daemon has a successful local judgment.
-    pub host_findings: Vec<crate::health::Finding>,
     /// Every recorded host besides this Mac, with its load.
     pub hosts: Vec<super::hosts::HostPage>,
     /// Each host's hit rate of Rust compiles over the last hour, day and

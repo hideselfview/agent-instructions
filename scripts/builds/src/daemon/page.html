@@ -1319,17 +1319,16 @@ function waitsDetails() {
 // (health.leftover). Parked is each worktree held on purpose or kept by an
 // item that waits on something, with what it waits on. Other health findings
 // stay in the text of `builds health`.
-function countWords(n, one, many) { return n + " " + (n === 1 ? one : many); }
 function ageWords(epoch) {
   const s = Math.max(0, Date.now() / 1000 - epoch);
-  if (s < 3600) return countWords(Math.max(1, Math.round(s / 60)), "minute", "minutes");
-  if (s < 86400) return countWords(Math.round(s / 3600), "hour", "hours");
-  return countWords(Math.round(s / 86400), "day", "days");
+  if (s < 3600) return plural(Math.max(1, Math.round(s / 60)), "minute", "minutes");
+  if (s < 86400) return plural(Math.round(s / 3600), "hour", "hours");
+  return plural(Math.round(s / 86400), "day", "days");
 }
 function parkedRows() {
   const rows = [];
   for (const repo of state.repos) {
-    for (const c of repo.checkouts.filter(c => c.live && !c.main && !c.app_checkout && ["held", "kept-waiting"].includes(c.state))) {
+    for (const c of split(repo).sides.filter(c => ["held", "kept-waiting"].includes(c.state))) {
       const name = c.words.items.length ? c.words.items.map(i => i.title).join(", ") : (c.branch || c.name);
       rows.push({name, wait: c.words.note || "Held"});
     }
@@ -1341,9 +1340,11 @@ function attnList(cls, title, rows) {
 }
 function findingsView() {
   const box = document.getElementById("findings");
-  const leftover = ((state.health && state.health.leftover) || []).map(l =>
-    h("div", {class: "attn-row"}, h("span", {class: "attn-name", title: l.name}, l.name),
-      h("span", {class: "k"}, countWords(l.commits, "commit", "commits")), h("span", {class: "k"}, ageWords(l.since))));
+  const leftover = ((state.health && state.health.leftover) || []).map(l => l.reading === "unread"
+    ? h("div", {class: "attn-row"}, h("span", {class: "attn-name", title: l.name}, l.name),
+        h("span", {class: "k bad", title: l.error}, "git unreadable"), h("span", {class: "k"}))
+    : h("div", {class: "attn-row"}, h("span", {class: "attn-name", title: l.name}, l.name),
+        h("span", {class: "k"}, plural(l.commits, "commit", "commits")), h("span", {class: "k"}, ageWords(l.since))));
   const parked = parkedRows().map(r =>
     h("div", {class: "attn-row"}, h("span", {class: "attn-name", title: r.name}, r.name), h("span", {class: "k", title: r.wait}, r.wait)));
   const lists = [attnList("leftover", "Leftover work", leftover), attnList("parked", "Parked", parked)].filter(Boolean);

@@ -161,21 +161,29 @@ pub struct Health {
     /// The work with commits waiting to land and no claim, one entry for
     /// each: the dashboard's Leftover work list. The `Unclaimed` and
     /// `Branch` findings say the same in words.
-    #[serde(default)]
     pub leftover: Vec<Leftover>,
     /// Whether the coordinator's schedule has open work or worktree state
     /// to watch.
     pub schedule_needed: bool,
 }
 
-/// One piece of work with commits waiting to land and no claim.
+/// One piece of work with commits waiting to land and no claim, or an
+/// unclaimed worktree whose commits git could not be read.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Leftover {
-    /// The worktree's label, or the repo and branch of a loose branch.
-    pub name: String,
-    pub commits: usize,
-    /// When the oldest of its commits was made, seconds since 1970.
-    pub since: i64,
+#[serde(tag = "reading", rename_all = "kebab-case")]
+pub enum Leftover {
+    Waiting {
+        /// The worktree's label, or the repo and branch of a loose branch.
+        name: String,
+        commits: usize,
+        /// When the oldest of its commits was made, seconds since 1970.
+        since: i64,
+    },
+    Unread {
+        name: String,
+        /// What git said.
+        error: String,
+    },
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -898,12 +906,20 @@ pub fn assess(
         // could not read, may hold commits health did not see.
         schedule_needed |= git.is_err() || kept_unknown.is_some();
         let ahead = git.as_ref().map_or(0, |git| git.ahead.len());
-        if let Some(oldest) = git.as_ref().ok().and_then(|git| git.ahead.last()) {
-            leftover.push(Leftover {
+        match &git {
+            Ok(read) => {
+                if let Some(oldest) = read.ahead.last() {
+                    leftover.push(Leftover::Waiting {
+                        name: places[place].label.clone(),
+                        commits: ahead,
+                        since: oldest.time,
+                    });
+                }
+            }
+            Err(error) => leftover.push(Leftover::Unread {
                 name: places[place].label.clone(),
-                commits: ahead,
-                since: oldest.time,
-            });
+                error: error.clone(),
+            }),
         }
         if ahead > 0 {
             schedule_needed = true;
@@ -926,7 +942,7 @@ pub fn assess(
     for branch in &left.branches {
         findings.push(Finding::new(FindingKind::Branch, loose_advice(branch)));
         if let Some(oldest) = branch.commits.last() {
-            leftover.push(Leftover {
+            leftover.push(Leftover::Waiting {
                 name: format!("{} {}", branch.repo, branch.branch),
                 commits: branch.commits.len(),
                 since: oldest.time,
@@ -3131,7 +3147,7 @@ mod tests {
         );
         assert_eq!(
             health.leftover,
-            vec![Leftover {
+            vec![Leftover::Waiting {
                 name: "demo/side-1".to_string(),
                 commits: 1,
                 since: now
