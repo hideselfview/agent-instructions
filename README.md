@@ -70,8 +70,7 @@ git clone git@github.com:hideselfview/agent-instructions.git ~/dev/agent-instruc
 - links `claude/settings.json` into `~/.claude/` and `codex/config.toml` into
   `~/.codex/`
   - It first moves an existing `~/.codex/config.toml` that is not a link aside.
-- links each skill folder of `claude/skills/` into `~/.claude/skills/` and of
-  `codex/skills/` into `~/.codex/skills/`
+- links each skill folder of `claude/skills/` into `~/.claude/skills/`
 - links this repo into `~/.codex/agent-instructions` for Builds
 - links each project's files, as the next section describes
 - builds `builds` from the committed HEAD and runs `builds install`
