@@ -248,6 +248,7 @@ pub(crate) async fn render_row(
     .await?;
     let slots = read::slots(page, &cell, (rendered.frame.x, rendered.frame.y)).await?;
     let unshot = read::unshot(page, unshot, &cell, (rendered.frame.x, rendered.frame.y)).await?;
+    let window = read::window(page, &cell, rendered.frame).await?;
     Ok(Drawn {
         png: rendered.png,
         size: Size {
@@ -257,7 +258,7 @@ pub(crate) async fn render_row(
         elements,
         slots,
         unshot,
-        window: None,
+        window: Some(window),
     })
 }
 

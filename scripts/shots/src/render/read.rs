@@ -788,15 +788,20 @@ struct WindowStyle {
     corner_shape: String,
 }
 
-/// The window the page draws, measured from `origin`: the first window
-/// element's frame and corner curve. A page with no window element draws its
-/// whole `frame` with square corners. The comparison reads the corners of a
-/// native window against this shape.
-pub(crate) async fn window(page: &DrawPage, frame: Bounds) -> Result<WindowShape, ReadError> {
+/// The window drawn inside <scope> (a JavaScript expression for a node, such
+/// as `document`), measured from the top-left corner of `frame`: the first
+/// window element's frame and corner curve. A scope with no window element
+/// draws its whole `frame` with square corners. The comparison reads the
+/// corners of a native window against this shape.
+pub(crate) async fn window(
+    page: &DrawPage,
+    scope: &str,
+    frame: Bounds,
+) -> Result<WindowShape, ReadError> {
     let selector = serde_json::to_string(WINDOW_SELECTOR).expect("a string serializes");
     let styles: Vec<WindowStyle> = page
         .evaluate(format!(
-            "[...document.querySelectorAll({selector})].slice(0, 1).map(e => {{ \
+            "[...{scope}.querySelectorAll({selector})].slice(0, 1).map(e => {{ \
              const r = e.getBoundingClientRect(); const s = getComputedStyle(e); \
              return {{frame: {{x: r.x, y: r.y, width: r.width, height: r.height}}, \
              radius: parseFloat(s.borderTopLeftRadius), cornerShape: s.cornerShape}}; }})"

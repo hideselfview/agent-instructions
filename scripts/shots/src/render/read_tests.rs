@@ -1071,7 +1071,7 @@ async fn a_boards_window_reads_as_its_frame_radius_and_curve() {
             )
             .await
             .unwrap();
-            read.push(window(&page, rendered.frame).await.unwrap());
+            read.push(window(&page, "document", rendered.frame).await.unwrap());
         }
         let none = read.pop().unwrap();
         (read.pop().unwrap(), none)
