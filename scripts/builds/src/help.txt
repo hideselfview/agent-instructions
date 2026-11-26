@@ -1726,12 +1726,12 @@ built again.
                               and transitions before it captures the pictures
                               and element boxes, and starts Chrome with software
                               rasterization on one thread. Chrome draws a board
-                              under a per-page device scale (the scale of the
-                              board's shot). Under it, when layout puts a box's
-                              edge at a half point, Chrome paints the box's
-                              background on the next whole point. A shot and its
-                              board then differ by one device pixel along that
-                              edge, and the element boxes keep the half point.
+                              in a browser whose window has the device scale of
+                              the board's shot (one browser for each scale), as
+                              the apps' windows have, so Chrome rounds
+                              boxes, glyphs and text lines to device pixels: a
+                              box whose edge is at a half point paints on that
+                              half point.
                               Each Google Fonts link
                               in a page or stylesheet loads the checker's own
                               copy of the family (Roboto, Inter or JetBrains

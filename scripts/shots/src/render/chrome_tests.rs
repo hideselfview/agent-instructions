@@ -83,7 +83,7 @@ async fn a_page_that_never_finishes_fails_its_draw_at_the_deadline_naming_the_pa
                 "board fixture.stuck",
                 Duration::from_secs(3),
                 async |page| {
-                    board::render(page, "fixture.stuck", &url, Frame { w: 300, h: 200 }, 1.0)
+                    board::render(page, "fixture.stuck", &url, Frame { w: 300, h: 200 })
                         .await
                         .map_err(|e| e.to_string())
                 },
@@ -142,6 +142,7 @@ fn a_browser_that_takes_longer_than_chromiumoxides_default_to_start_is_waited_fo
             browser,
             Duration::from_secs(40),
             Slots::of_host(&crate::render::fixture::volume()).unwrap(),
+            1.0,
             async |_chrome| (),
         ))
         .unwrap_err()
@@ -165,6 +166,7 @@ fn a_browser_that_prints_no_address_fails_naming_the_window_server() {
             browser,
             Duration::from_secs(2),
             Slots::of_host(&crate::render::fixture::volume()).unwrap(),
+            1.0,
             async |_chrome| (),
         ))
         .unwrap_err()

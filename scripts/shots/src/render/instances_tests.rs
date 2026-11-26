@@ -42,7 +42,6 @@ async fn a_board_names_each_component_it_draws_with_the_props_that_can_be_state(
             "fixture.instances",
             &url,
             Frame { w: 300, h: 200 },
-            1.0,
             BOARD_MOUNTED,
             None,
         )
@@ -81,7 +80,6 @@ async fn a_preview_says_which_instances_draw_in_its_rows() {
             "Box",
             &url,
             Frame { w: 300, h: 200 },
-            1.0,
             "#root > *",
             None,
         )
@@ -123,7 +121,6 @@ async fn every_instance_of_a_preview_with_no_rows_draws_its_one_state() {
             "Box",
             &url,
             Frame { w: 300, h: 200 },
-            1.0,
             "#root > *",
             None,
         )
@@ -156,7 +153,6 @@ class Component extends DCLogic { renderVals() { return {}; } }
             "fixture.draws",
             &url,
             Frame { w: 300, h: 200 },
-            1.0,
             BOARD_MOUNTED,
             None,
         )
@@ -205,7 +201,6 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             "Frame",
             &url,
             Frame { w: 300, h: 200 },
-            1.0,
             "#root > *",
             None,
         )

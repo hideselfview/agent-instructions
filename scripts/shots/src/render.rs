@@ -59,7 +59,9 @@ pub(crate) fn hashes(
 
 /// Renders the board of each of `names` from `tree` into `out` as
 /// `<name>.png` and `<name>.json`, in the Chrome kept in the program's cache
-/// folder in <folders>; starts no browser when there is nothing to render.
+/// folder in <folders>; starts no browser when there is nothing to render. A
+/// browser has one device scale, so each scale among <scales> gets a browser of
+/// its own, one after the other.
 pub(crate) fn boards(
     tree: Tree<'_>,
     settings: &Settings,
@@ -73,18 +75,30 @@ pub(crate) fn boards(
         return Ok(());
     }
     std::fs::create_dir_all(out).map_err(|e| format!("cannot prepare {}: {e}", out.display()))?;
-    let drawn: Scales = names.iter().map(|n| (n.clone(), scales[n])).collect();
-    with_browser(tree, folders, async |server, chrome| {
-        draw_with(tree, settings, previews, &drawn, out, server, chrome).await
-    })
+    let mut by_scale: Vec<(f64, Vec<&Name>)> = Vec::new();
+    for name in names {
+        let scale = scales[name];
+        match by_scale.iter_mut().find(|(known, _)| *known == scale) {
+            Some((_, group)) => group.push(name),
+            None => by_scale.push((scale, vec![name])),
+        }
+    }
+    for (scale, drawn) in &by_scale {
+        with_browser(tree, folders, *scale, async |server, chrome| {
+            draw_with(tree, settings, previews, drawn, out, server, chrome).await
+        })?;
+    }
+    Ok(())
 }
 
 /// Runs <work> on a runtime of its own with <tree> served and the pinned
-/// Chrome, kept in the program's cache folder, started, its pages taking the
-/// slots in the build volume <folders> name.
+/// Chrome, kept in the program's cache folder, started with a device scale of
+/// <scale> pixels per point, its pages taking the slots in the build volume
+/// <folders> name.
 pub(crate) fn with_browser<T>(
     tree: Tree<'_>,
     folders: &boards::Folders,
+    scale: f64,
     work: impl AsyncFnOnce(&serve::Server, &chrome::Chrome) -> Result<T, String>,
 ) -> Result<T, String> {
     tokio::runtime::Builder::new_multi_thread()
@@ -93,7 +107,7 @@ pub(crate) fn with_browser<T>(
         .map_err(|e| e.to_string())?
         .block_on(async {
             serve::with_server(tree, async |server| {
-                chrome::with_chrome(folders, async |chrome| work(server, chrome).await)
+                chrome::with_chrome(folders, scale, async |chrome| work(server, chrome).await)
                     .await
                     .map_err(|e| e.to_string())?
             })
@@ -122,7 +136,7 @@ pub(crate) fn with_design<T>(
         design: &design,
         runtime: runtime.copy.text,
     };
-    with_browser(tree, folders, async |server, chrome| {
+    with_browser(tree, folders, 1.0, async |server, chrome| {
         work(server, chrome, &frames).await
     })
 }
@@ -142,38 +156,21 @@ async fn draw_with(
     tree: Tree<'_>,
     settings: &Settings,
     previews: &names::Previews,
-    scales: &Scales,
+    names: &[&Name],
     out: &Path,
     server: &serve::Server,
     chrome: &chrome::Chrome,
 ) -> Result<(), String> {
-    for (name, &scale) in scales {
+    for &name in names {
         let board = name.to_string();
         let drawn = chrome
             .with_page(&format!("board {board}"), async |page| match name {
                 Name::Screen(_) => {
-                    draw_screen(
-                        tree.root,
-                        settings,
-                        &board,
-                        page,
-                        server,
-                        name.platform(),
-                        scale,
-                    )
-                    .await
+                    draw_screen(tree.root, settings, &board, page, server, name.platform()).await
                 }
                 Name::Component(component) => {
-                    draw_component(
-                        settings,
-                        previews,
-                        component,
-                        page,
-                        server,
-                        name.platform(),
-                        scale,
-                    )
-                    .await
+                    draw_component(settings, previews, component, page, server, name.platform())
+                        .await
                 }
             })
             .await?;
@@ -184,7 +181,7 @@ async fn draw_with(
             board: board.clone(),
             platform: name.platform(),
             size: drawn.size,
-            scale,
+            scale: chrome.scale(),
             elements: drawn.elements,
             unshot: drawn.unshot,
             slots: drawn.slots,
@@ -207,10 +204,9 @@ async fn draw_screen(
     page: &chrome::DrawPage,
     server: &serve::Server,
     platform: names::Platform,
-    scale: f64,
 ) -> Result<Drawn, String> {
     let frame = design::frame(root, board).map_err(|e| e.to_string())?;
-    let rendered = board::render(page, board, &server.board_url(board), frame, scale)
+    let rendered = board::render(page, board, &server.board_url(board), frame)
         .await
         .map_err(|e| e.to_string())?;
     let elements = read::elements(page, rendered.frame, platform)
@@ -241,7 +237,6 @@ async fn draw_component(
     page: &chrome::DrawPage,
     server: &serve::Server,
     platform: names::Platform,
-    scale: f64,
 ) -> Result<Drawn, String> {
     let component = name.component(previews);
     let marks = settings.preview(&component).map_err(|e| e.to_string())?;
@@ -250,7 +245,6 @@ async fn draw_component(
         &component,
         name.state(),
         &server.preview_url(&component),
-        scale,
         platform,
         preview::Marks {
             rows: marks,

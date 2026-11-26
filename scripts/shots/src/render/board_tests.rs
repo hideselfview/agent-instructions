@@ -45,31 +45,31 @@ transition:opacity 1s !important}}#fade.on{opacity:0}</style></helmet>\
 #[tokio::test]
 async fn an_x_import_renders_inside_its_wrapper() {
     let root = tree();
-    let (rendered, display, inner) = fixture::with_browser(root.path(), async |server, chrome| {
-        let page = chrome.new_page().await.unwrap();
-        let rendered = render(
-            &page,
-            "fixture.wrapped",
-            &server.board_url("fixture.wrapped"),
-            Frame { w: 300, h: 200 },
-            2.0,
-        )
+    let (rendered, display, inner) =
+        fixture::with_browser_at(root.path(), 2.0, async |server, chrome| {
+            let page = chrome.new_page().await.unwrap();
+            let rendered = render(
+                &page,
+                "fixture.wrapped",
+                &server.board_url("fixture.wrapped"),
+                Frame { w: 300, h: 200 },
+            )
+            .await;
+            let display: String = page
+                .evaluate("getComputedStyle(document.querySelector('.row > .sc-host-x')).display")
+                .await
+                .unwrap()
+                .into_value()
+                .unwrap();
+            let inner: String = page
+                .evaluate("document.querySelector('.sc-host-x #inner').textContent")
+                .await
+                .unwrap()
+                .into_value()
+                .unwrap();
+            (rendered, display, inner)
+        })
         .await;
-        let display: String = page
-            .evaluate("getComputedStyle(document.querySelector('.row > .sc-host-x')).display")
-            .await
-            .unwrap()
-            .into_value()
-            .unwrap();
-        let inner: String = page
-            .evaluate("document.querySelector('.sc-host-x #inner').textContent")
-            .await
-            .unwrap()
-            .into_value()
-            .unwrap();
-        (rendered, display, inner)
-    })
-    .await;
     let rendered = rendered.unwrap();
     assert_eq!(display, "contents");
     assert_eq!(inner, "hello");
@@ -86,16 +86,7 @@ async fn a_board_renders_to_the_same_picture_twice() {
         for _ in 0..2 {
             let page = chrome.new_page().await.unwrap();
             let url = server.board_url("fixture.wrapped");
-            pictures.push(
-                render(
-                    &page,
-                    "fixture.wrapped",
-                    &url,
-                    Frame { w: 300, h: 200 },
-                    1.0,
-                )
-                .await,
-            );
+            pictures.push(render(&page, "fixture.wrapped", &url, Frame { w: 300, h: 200 }).await);
         }
         pictures
     })
@@ -114,7 +105,6 @@ async fn a_runtime_error_fails_the_board() {
             "fixture.broken",
             &server.board_url("fixture.broken"),
             Frame { w: 300, h: 200 },
-            1.0,
         )
         .await
     })
@@ -149,7 +139,6 @@ async fn a_page_the_runtime_never_mounts_is_not_drawn() {
             "fixture.plain",
             &server.board_url("fixture.plain"),
             Frame { w: 300, h: 200 },
-            1.0,
         )
         .await
     })
@@ -173,7 +162,6 @@ async fn a_spinning_element_records_its_unrotated_box() {
             "fixture.spinning",
             &server.board_url("fixture.spinning"),
             Frame { w: 300, h: 200 },
-            1.0,
         )
         .await
         .unwrap();
@@ -209,7 +197,6 @@ async fn a_google_fonts_link_loads_the_checkers_own_copy_and_reaches_no_other_se
             "fixture.roboto",
             &server.board_url("fixture.roboto"),
             Frame { w: 300, h: 200 },
-            1.0,
         )
         .await
         .unwrap();
@@ -267,7 +254,6 @@ async fn a_link_to_a_web_font_the_checker_holds_no_copy_of_fails_the_board() {
             "fixture.oswald",
             &server.board_url("fixture.oswald"),
             Frame { w: 300, h: 200 },
-            1.0,
         )
         .await
     })
@@ -279,7 +265,6 @@ async fn a_link_to_a_web_font_the_checker_holds_no_copy_of_fails_the_board() {
             "fixture.wrapped",
             &server.board_url("fixture.wrapped"),
             Frame { w: 300, h: 200 },
-            1.0,
         )
         .await
     })
@@ -298,14 +283,13 @@ async fn a_link_to_a_web_font_the_checker_holds_no_copy_of_fails_the_board() {
 #[tokio::test]
 async fn a_board_picture_holds_the_boards_pixels() {
     let root = tree();
-    let rendered = fixture::with_browser(root.path(), async |server, chrome| {
+    let rendered = fixture::with_browser_at(root.path(), 2.0, async |server, chrome| {
         let page = chrome.new_page().await.unwrap();
         render(
             &page,
             "fixture.half",
             &server.board_url("fixture.half"),
             Frame { w: 100, h: 80 },
-            2.0,
         )
         .await
         .unwrap()
@@ -335,22 +319,21 @@ fn white_box_edges(png: &[u8], row: u32, column: u32) -> [u32; 4] {
     [left, right, top, bottom]
 }
 
-/// Under the per-page scale, Chrome paints a box whose layout edge is at a
-/// half point on the next whole point, while the element's box keeps the half
-/// point (`builds help`, the `shots draws` entry). The box is at 20.5 pt across
-/// and 10.5 pt down, 40 by 30 pt; at two pixels to a point, the half points are
-/// pixels 41 and 21, and the picture's edges are on pixels 42 and 22.
+/// At a real device scale of 2, Chrome paints a box whose layout edge is at a
+/// half point on that half point, as the apps' windows do, and the element's box
+/// keeps the half point (`builds help`, the `shots draws` entry). The box is at
+/// 20.5 pt across and 10.5 pt down, 40 by 30 pt; at two pixels to a point, the
+/// half points are pixels 41 and 21, which are the picture's first white pixels.
 #[tokio::test]
-async fn a_box_at_a_half_point_is_painted_on_the_next_whole_point_and_read_at_the_half_point() {
+async fn a_box_at_a_half_point_is_painted_and_read_at_the_half_point() {
     let root = tree();
-    let (rendered, box_at) = fixture::with_browser(root.path(), async |server, chrome| {
+    let (rendered, box_at) = fixture::with_browser_at(root.path(), 2.0, async |server, chrome| {
         let page = chrome.new_page().await.unwrap();
         let rendered = render(
             &page,
             "fixture.halfpoint",
             &server.board_url("fixture.halfpoint"),
             Frame { w: 100, h: 80 },
-            2.0,
         )
         .await
         .unwrap();
@@ -367,5 +350,5 @@ async fn a_box_at_a_half_point_is_painted_on_the_next_whole_point_and_read_at_th
     })
     .await;
     assert_eq!(box_at, [20.5, 10.5, 40.0, 30.0]);
-    assert_eq!(white_box_edges(&rendered.png, 60, 80), [42, 121, 22, 81]);
+    assert_eq!(white_box_edges(&rendered.png, 60, 80), [41, 120, 21, 80]);
 }

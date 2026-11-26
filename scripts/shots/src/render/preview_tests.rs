@@ -89,7 +89,7 @@ async fn a_row_reads_as_the_state_it_names() {
         "design/system/components/MacRow/preview.html",
         PREVIEW,
     );
-    let (row, missing) = fixture::with_browser(root.path(), async |server, chrome| {
+    let (row, missing) = fixture::with_browser_at(root.path(), 2.0, async |server, chrome| {
         let page = chrome.new_page().await.unwrap();
         let url = server.preview_url("MacRow");
         let row = render_row(
@@ -97,22 +97,12 @@ async fn a_row_reads_as_the_state_it_names() {
             "MacRow",
             "nested-off",
             &url,
-            2.0,
             Platform::Mac,
             marks(&[]),
         )
         .await;
         let page = chrome.new_page().await.unwrap();
-        let missing = render_row(
-            &page,
-            "MacRow",
-            "missing",
-            &url,
-            1.0,
-            Platform::Mac,
-            marks(&[]),
-        )
-        .await;
+        let missing = render_row(&page, "MacRow", "missing", &url, Platform::Mac, marks(&[])).await;
         (row, missing)
     })
     .await;
@@ -164,7 +154,7 @@ async fn a_shared_row_gets_the_android_class_on_the_android_lane_only() {
         let mut widths = Vec::new();
         for platform in [Platform::Mac, Platform::Android] {
             let page = chrome.new_page().await.unwrap();
-            let row = render_row(&page, "MacRow", "label", &url, 1.0, platform, marks(&[]))
+            let row = render_row(&page, "MacRow", "label", &url, platform, marks(&[]))
                 .await
                 .unwrap();
             widths.push(row.size.width);
@@ -207,7 +197,6 @@ async fn an_android_row_whose_class_names_a_font_to_fetch_is_drawn() {
                         "Late",
                         "label",
                         &server.preview_url("Late"),
-                        1.0,
                         Platform::Android,
                         marks(&[]),
                     )
@@ -257,18 +246,10 @@ async fn a_row_reports_the_unshot_parts_inside_its_cell_from_the_cells_corner() 
         ] {
             let page = chrome.new_page().await.unwrap();
             rows.push(
-                render_row(
-                    &page,
-                    "MacRow",
-                    state,
-                    &url,
-                    1.0,
-                    Platform::Mac,
-                    marks(unshot),
-                )
-                .await
-                .unwrap()
-                .unshot,
+                render_row(&page, "MacRow", state, &url, Platform::Mac, marks(unshot))
+                    .await
+                    .unwrap()
+                    .unshot,
             );
         }
         (rows[0].clone(), rows[1].clone(), rows[2].clone())
@@ -301,7 +282,7 @@ async fn a_row_reports_only_the_preview_slots_inside_its_cell() {
         for state in ["typing", "plain"] {
             let page = chrome.new_page().await.unwrap();
             rows.push(
-                render_row(&page, "MacRow", state, &url, 1.0, Platform::Mac, marks(&[]))
+                render_row(&page, "MacRow", state, &url, Platform::Mac, marks(&[]))
                     .await
                     .unwrap()
                     .slots,
@@ -324,14 +305,13 @@ async fn a_page_capture_holds_the_previews_pixels() {
         "<!doctype html><html><head><meta charset=\"utf-8\"></head>\
 <body style=\"margin:0\"><div style=\"width:60px;height:40px;background:#f00\"></div></body></html>",
     );
-    let rendered = fixture::with_browser(root.path(), async |server, chrome| {
+    let rendered = fixture::with_browser_at(root.path(), 2.0, async |server, chrome| {
         let page = chrome.new_page().await.unwrap();
         board::load(
             &page,
             "MacSwatch",
             &server.preview_url("MacSwatch"),
             PREVIEW_FRAME,
-            2.0,
             PREVIEW_LOADED,
             None,
         )
@@ -378,7 +358,7 @@ async fn a_row_draws_the_same_picture_below_a_row_of_a_fractional_height() {
         "design/system/components/Fraction/preview.html",
         &two_rows("376.33px"),
     );
-    let pictures = fixture::with_browser(root.path(), async |server, chrome| {
+    let pictures = fixture::with_browser_at(root.path(), 2.0, async |server, chrome| {
         let mut pictures = Vec::new();
         for component in ["Whole", "Fraction"] {
             let page = chrome.new_page().await.unwrap();
@@ -387,7 +367,6 @@ async fn a_row_draws_the_same_picture_below_a_row_of_a_fractional_height() {
                 component,
                 "second",
                 &server.preview_url(component),
-                2.0,
                 Platform::Mac,
                 marks(&[]),
             )

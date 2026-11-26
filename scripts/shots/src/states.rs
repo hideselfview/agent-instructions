@@ -369,7 +369,6 @@ async fn read_sheets(
                     sheet.name,
                     &sheet.url,
                     sheet.frame,
-                    1.0,
                     sheet.mounted,
                     None,
                 )

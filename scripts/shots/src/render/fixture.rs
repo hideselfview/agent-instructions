@@ -75,12 +75,21 @@ pub(crate) fn folders() -> boards::Folders {
 }
 
 /// Runs `work` with the tree of `root` and the fixture's design system
-/// served, and a browser started.
+/// served, and a browser started at a device scale of 1.
 pub(crate) async fn with_browser<T>(
     root: &Path,
     work: impl AsyncFnOnce(&Server, &Chrome) -> T,
 ) -> T {
-    with_design(root, &design(), work).await
+    with_browser_at(root, 1.0, work).await
+}
+
+/// `with_browser` with a browser at a device scale of <scale>.
+pub(crate) async fn with_browser_at<T>(
+    root: &Path,
+    scale: f64,
+    work: impl AsyncFnOnce(&Server, &Chrome) -> T,
+) -> T {
+    with_design_at(root, &design(), scale, work).await
 }
 
 /// `with_browser` with <design> in place of the fixture's.
@@ -89,13 +98,23 @@ pub(crate) async fn with_design<T>(
     design: &DesignSystem,
     work: impl AsyncFnOnce(&Server, &Chrome) -> T,
 ) -> T {
+    with_design_at(root, design, 1.0, work).await
+}
+
+/// `with_design` with a browser at a device scale of <scale>.
+pub(crate) async fn with_design_at<T>(
+    root: &Path,
+    design: &DesignSystem,
+    scale: f64,
+    work: impl AsyncFnOnce(&Server, &Chrome) -> T,
+) -> T {
     let tree = Tree {
         root,
         design,
         runtime: boards::runtime::newest().text,
     };
     serve::with_server(tree, async |server| {
-        chrome::with_chrome(&folders(), async |chrome| work(server, chrome).await)
+        chrome::with_chrome(&folders(), scale, async |chrome| work(server, chrome).await)
             .await
             .unwrap()
     })

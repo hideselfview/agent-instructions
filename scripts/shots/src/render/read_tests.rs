@@ -385,7 +385,7 @@ async fn read_fixture() -> Vec<Element> {
     let elements = fixture::with_browser(root.path(), async |server, chrome| {
         let page = chrome.new_page().await.unwrap();
         let url = server.board_url("fixture.roles");
-        let rendered = render(&page, "fixture.roles", &url, Frame { w: 500, h: 600 }, 1.0)
+        let rendered = render(&page, "fixture.roles", &url, Frame { w: 500, h: 600 })
             .await
             .unwrap();
         elements(&page, rendered.frame, Platform::Mac).await
@@ -426,7 +426,7 @@ async fn a_board_reads_elements_with_area_inside_its_frame_and_overflow_clips() 
     let elements = fixture::with_browser(root.path(), async |server, chrome| {
         let page = chrome.new_page().await.unwrap();
         let url = server.board_url("fixture.clips");
-        let rendered = render(&page, "fixture.clips", &url, Frame { w: 300, h: 120 }, 1.0)
+        let rendered = render(&page, "fixture.clips", &url, Frame { w: 300, h: 120 })
             .await
             .unwrap();
         elements(&page, rendered.frame, Platform::Mac)
@@ -468,7 +468,6 @@ async fn a_clipped_fields_typed_text_is_no_element() {
             "fixture.clipped-field",
             &url,
             Frame { w: 300, h: 200 },
-            1.0,
         )
         .await
         .unwrap();
@@ -487,7 +486,7 @@ async fn a_boards_on_screen_keyboard_is_found_and_not_an_element() {
     let found = fixture::with_browser(root.path(), async |server, chrome| {
         let page = chrome.new_page().await.unwrap();
         let url = server.board_url("fixture.roles");
-        let rendered = render(&page, "fixture.roles", &url, Frame { w: 500, h: 600 }, 1.0)
+        let rendered = render(&page, "fixture.roles", &url, Frame { w: 500, h: 600 })
             .await
             .unwrap();
         (
@@ -651,15 +650,9 @@ async fn a_board_element_is_read_where_layout_puts_it_before_any_transform() {
     let elements = fixture::with_browser(root.path(), async |server, chrome| {
         let page = chrome.new_page().await.unwrap();
         let url = server.board_url("fixture.transforms");
-        let rendered = render(
-            &page,
-            "fixture.transforms",
-            &url,
-            Frame { w: 300, h: 150 },
-            1.0,
-        )
-        .await
-        .unwrap();
+        let rendered = render(&page, "fixture.transforms", &url, Frame { w: 300, h: 150 })
+            .await
+            .unwrap();
         let read = elements(&page, rendered.frame, Platform::Mac)
             .await
             .unwrap();
@@ -712,15 +705,9 @@ async fn a_button_or_link_that_wraps_a_glyph_is_boxed_by_the_glyphs_ink_not_its_
     let elements = fixture::with_browser(root.path(), async |server, chrome| {
         let page = chrome.new_page().await.unwrap();
         let url = server.board_url("fixture.glyph-room");
-        let rendered = render(
-            &page,
-            "fixture.glyph-room",
-            &url,
-            Frame { w: 300, h: 150 },
-            1.0,
-        )
-        .await
-        .unwrap();
+        let rendered = render(&page, "fixture.glyph-room", &url, Frame { w: 300, h: 150 })
+            .await
+            .unwrap();
         elements(&page, rendered.frame, Platform::Mac)
             .await
             .unwrap()
@@ -779,15 +766,9 @@ button svg{width:10px;height:11px;margin:1px 2px 1.5px 1px}</style></helmet>
         fixture::with_browser(root.path(), async |server, chrome| {
             let page = chrome.new_page().await.unwrap();
             let url = server.board_url("fixture.popup-box");
-            let rendered = render(
-                &page,
-                "fixture.popup-box",
-                &url,
-                Frame { w: 300, h: 150 },
-                1.0,
-            )
-            .await
-            .unwrap();
+            let rendered = render(&page, "fixture.popup-box", &url, Frame { w: 300, h: 150 })
+                .await
+                .unwrap();
             elements(&page, rendered.frame, platform).await.unwrap()
         })
         .await
@@ -828,15 +809,9 @@ async fn each_board_element_names_the_nearest_component_that_draws_it() {
     let elements = fixture::with_browser(root.path(), async |server, chrome| {
         let page = chrome.new_page().await.unwrap();
         let url = server.board_url("fixture.components");
-        let rendered = render(
-            &page,
-            "fixture.components",
-            &url,
-            Frame { w: 300, h: 200 },
-            1.0,
-        )
-        .await
-        .unwrap();
+        let rendered = render(&page, "fixture.components", &url, Frame { w: 300, h: 200 })
+            .await
+            .unwrap();
         elements(&page, rendered.frame, Platform::Mac).await
     })
     .await
@@ -859,7 +834,7 @@ async fn a_page_global_that_throws_when_read_fails_the_read() {
     let read = fixture::with_browser(root.path(), async |server, chrome| {
         let page = chrome.new_page().await.unwrap();
         let url = server.board_url("fixture.throws");
-        let rendered = render(&page, "fixture.throws", &url, Frame { w: 300, h: 200 }, 1.0)
+        let rendered = render(&page, "fixture.throws", &url, Frame { w: 300, h: 200 })
             .await
             .unwrap();
         elements(&page, rendered.frame, Platform::Mac).await
@@ -880,15 +855,9 @@ async fn the_reader_leaves_out_a_clipped_node_without_reading_its_component() {
     let elements = fixture::with_browser(root.path(), async |server, chrome| {
         let page = chrome.new_page().await.unwrap();
         let url = server.board_url("fixture.clipped");
-        let rendered = render(
-            &page,
-            "fixture.clipped",
-            &url,
-            Frame { w: 300, h: 200 },
-            1.0,
-        )
-        .await
-        .unwrap();
+        let rendered = render(&page, "fixture.clipped", &url, Frame { w: 300, h: 200 })
+            .await
+            .unwrap();
         elements(&page, rendered.frame, Platform::Mac)
             .await
             .unwrap()
@@ -991,7 +960,7 @@ async fn chrome_says_whether_the_board_gave_a_name_or_computed_it_from_content()
     let elements = fixture::with_browser(root.path(), async |server, chrome| {
         let page = chrome.new_page().await.unwrap();
         let url = server.board_url("fixture.names");
-        let rendered = render(&page, "fixture.names", &url, Frame { w: 300, h: 200 }, 1.0)
+        let rendered = render(&page, "fixture.names", &url, Frame { w: 300, h: 200 })
             .await
             .unwrap();
         elements(&page, rendered.frame, Platform::Android)
@@ -1032,15 +1001,9 @@ async fn the_reader_marks_what_a_scrim_covers_or_a_sheet_clips() {
     let elements = fixture::with_browser(root.path(), async |server, chrome| {
         let page = chrome.new_page().await.unwrap();
         let url = server.board_url("fixture.obscured");
-        let rendered = render(
-            &page,
-            "fixture.obscured",
-            &url,
-            Frame { w: 300, h: 300 },
-            1.0,
-        )
-        .await
-        .unwrap();
+        let rendered = render(&page, "fixture.obscured", &url, Frame { w: 300, h: 300 })
+            .await
+            .unwrap();
         elements(&page, rendered.frame, Platform::Mac)
             .await
             .unwrap()
@@ -1068,7 +1031,7 @@ async fn an_element_beyond_the_viewport_is_asked_after_scrolling_to_it() {
     let elements = fixture::with_browser(root.path(), async |server, chrome| {
         let page = chrome.new_page().await.unwrap();
         let url = server.board_url("fixture.beyond");
-        let rendered = render(&page, "fixture.beyond", &url, Frame { w: 300, h: 300 }, 1.0)
+        let rendered = render(&page, "fixture.beyond", &url, Frame { w: 300, h: 300 })
             .await
             .unwrap();
         // Read a frame taller than the viewport, as a preview's row is.

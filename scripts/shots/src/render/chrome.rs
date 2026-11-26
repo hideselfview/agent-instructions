@@ -191,6 +191,8 @@ pub(crate) struct CommandError {
 
 pub(crate) struct Chrome {
     browser: Browser,
+    /// The device scale of the browser's window, in pixels per point.
+    scale: f64,
     /// The host's slots, one of which each open page holds.
     slots: Slots,
     /// What the browser reports as its product, e.g. `Chrome/157.0.8103.78`.
@@ -311,6 +313,11 @@ impl DrawPage {
 }
 
 impl Chrome {
+    /// The device scale of the browser's window, in pixels per point.
+    pub(crate) fn scale(&self) -> f64 {
+        self.scale
+    }
+
     /// A new page for a test, opened once the host has a free slot for it.
     #[cfg(test)]
     pub(crate) async fn new_page(&self) -> Result<DrawPage, String> {
@@ -507,30 +514,36 @@ fn one_line(text: &str) -> String {
 /// Starts the pinned Chrome from the cache folder in <folders>, as a run does,
 /// and closes it.
 pub(crate) async fn start(folders: &boards::Folders) -> Start {
-    Start::of(with_chrome(folders, async |chrome| chrome.version.clone()).await)
+    Start::of(with_chrome(folders, 1.0, async |chrome| chrome.version.clone()).await)
 }
 
 /// Fetches the pinned build into the program's cache folder, in <folders>, when
 /// it does not hold it, starts it
 /// headless with `ARGS`, runs `work` with it and closes
 /// it. The browser's events are driven alongside `work` and end with it, so
-/// no task outlives the call. The pages it opens take the slots in the build
-/// volume <folders> name.
+/// no task outlives the call. The browser's window has a device scale of
+/// <scale> pixels per point, as the apps' windows have: Chrome rounds boxes and
+/// text lines to device pixels (half points at 2), where a device scale that a
+/// page emulates (`Emulation.setDeviceMetricsOverride`) rounds them to whole
+/// points. The pages it opens take the slots in the build volume <folders>
+/// name.
 pub(crate) async fn with_chrome<T>(
     folders: &boards::Folders,
+    scale: f64,
     work: impl AsyncFnOnce(&Chrome) -> T,
 ) -> Result<T, ChromeError> {
     let slots = Slots::of_host(&folders.volume).map_err(ChromeError::Launch)?;
-    with_chrome_slots(&folders.cache, slots, work).await
+    with_chrome_slots(&folders.cache, slots, scale, work).await
 }
 
 /// `with_chrome` with the pages it opens taking their slots from <slots>.
 pub(crate) async fn with_chrome_slots<T>(
     cache: &Path,
     slots: Slots,
+    scale: f64,
     work: impl AsyncFnOnce(&Chrome) -> T,
 ) -> Result<T, ChromeError> {
-    with_executable(installed(cache)?, LAUNCH_DEADLINE, slots, work).await
+    with_executable(installed(cache)?, LAUNCH_DEADLINE, slots, scale, work).await
 }
 
 /// Ends every process of one Chrome when the program that started it ends,
@@ -589,6 +602,7 @@ async fn with_executable<T>(
     executable: PathBuf,
     launch_deadline: Duration,
     slots: Slots,
+    scale: f64,
     work: impl AsyncFnOnce(&Chrome) -> T,
 ) -> Result<T, ChromeError> {
     let profile = tempfile::tempdir().map_err(|e| ChromeError::Launch(e.to_string()))?;
@@ -598,6 +612,7 @@ async fn with_executable<T>(
         .chrome_executable(executable)
         .viewport(None)
         .args(ARGS)
+        .arg(format!("force-device-scale-factor={scale}"))
         .launch_timeout(launch_deadline)
         .request_timeout(DRAW_DEADLINE)
         .build()
@@ -621,6 +636,7 @@ async fn with_executable<T>(
             .product;
         let mut chrome = Chrome {
             browser,
+            scale,
             slots,
             version,
         };

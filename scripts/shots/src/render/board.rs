@@ -206,8 +206,8 @@ async fn redraw(page: &DrawPage) -> Result<(), BoardError> {
 /// The element that says a canvas board is drawn: the runtime's root.
 pub(crate) const BOARD_MOUNTED: &str = "#dc-root";
 
-/// Draws the board at `url` in a frame of `frame` points at `scale` pixels per
-/// point, in dark mode. The picture is the compositor's latest frame. A capture
+/// Draws the board at `url` in a frame of `frame` points at the page's device
+/// scale, in dark mode. The picture is the compositor's latest frame. A capture
 /// from the page (`from_surface(false)`) returns a flat dark picture of the
 /// browser window with none of the page in it.
 pub(crate) async fn render(
@@ -215,9 +215,8 @@ pub(crate) async fn render(
     board: &str,
     url: &str,
     frame: Frame,
-    scale: f64,
 ) -> Result<Rendered, BoardError> {
-    load(page, board, url, frame, scale, BOARD_MOUNTED, None).await?;
+    load(page, board, url, frame, BOARD_MOUNTED, None).await?;
     let png = page
         .screenshot(
             ScreenshotParams::builder()
@@ -237,7 +236,7 @@ pub(crate) async fn render(
     })
 }
 
-/// Loads `url` in a frame of `frame` points at `scale` pixels per point, in
+/// Loads `url` in a frame of `frame` points at the page's device scale, in
 /// dark mode, and returns once its virtual time has run out with the page
 /// drawn: the element <mounted> selects is there and the fonts are loaded.
 /// The page's `<body>` gets the class <body_class>, if any, when it is created.
@@ -246,14 +245,15 @@ pub(crate) async fn load(
     board: &str,
     url: &str,
     frame: Frame,
-    scale: f64,
     mounted: &str,
     body_class: Option<&str>,
 ) -> Result<(), BoardError> {
+    // A device scale factor of 0 leaves the window's real one, which the browser
+    // was started with (`chrome::with_chrome`).
     page.run(SetDeviceMetricsOverrideParams::new(
         i64::from(frame.w),
         i64::from(frame.h),
-        scale,
+        0.0,
         false,
     ))
     .await

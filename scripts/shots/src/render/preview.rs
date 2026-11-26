@@ -160,8 +160,8 @@ async fn start_on_whole_point(page: &DrawPage, row: &str, cell: &str) -> Result<
     Ok(())
 }
 
-/// Loads the preview at `url` and draws the row of `state`, at `scale` pixels
-/// per point: the picture of its cell and the elements inside it, measured
+/// Loads the preview at `url` and draws the row of `state`, at the page's device
+/// scale: the picture of its cell and the elements inside it, measured
 /// from the cell's top-left, read as `platform`'s boards are. `marks` are the
 /// selectors of the page's rows and unshot parts. The android lane's page body gets the class
 /// `bae-preview-android` from its creation, so the fonts that class names load
@@ -172,7 +172,6 @@ pub(crate) async fn render_row(
     component: &str,
     state: &str,
     url: &str,
-    scale: f64,
     platform: Platform,
     marks: Marks<'_>,
 ) -> Result<Drawn, PreviewError> {
@@ -185,7 +184,6 @@ pub(crate) async fn render_row(
         component,
         url,
         PREVIEW_FRAME,
-        scale,
         PREVIEW_MOUNTED,
         (platform == Platform::Android).then_some(ANDROID_CLASS),
     )

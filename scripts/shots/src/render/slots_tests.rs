@@ -30,6 +30,7 @@ fn worker() {
         crate::render::chrome::with_chrome_slots(
             &crate::render::fixture::cache(),
             slots,
+            1.0,
             async |chrome| {
                 chrome
                     .with_page(&format!("page of {name}"), async |_page| {

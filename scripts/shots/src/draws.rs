@@ -203,7 +203,7 @@ fn draw(
                     chrome
                         .with_page(&format!("board {name}"), async |page| {
                             let rendered =
-                                board::render(page, name, &server.board_url(name), *frame, 1.0)
+                                board::render(page, name, &server.board_url(name), *frame)
                                     .await
                                     .map_err(|e| e.to_string())?;
                             let elements =
@@ -227,7 +227,6 @@ fn draw(
                                 name,
                                 &server.preview_url(name),
                                 preview::PREVIEW_FRAME,
-                                1.0,
                                 preview::PREVIEW_LOADED,
                                 None,
                             )
