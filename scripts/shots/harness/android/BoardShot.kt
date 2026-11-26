@@ -15,8 +15,8 @@ import com.github.takahirom.roborazzi.ExperimentalRoborazziApi
 import com.github.takahirom.roborazzi.RoborazziOptions
 import com.github.takahirom.roborazzi.RoborazziTaskType
 import com.github.takahirom.roborazzi.captureRoboImage
-import org.junit.Assume.assumeNotNull
 import org.junit.Assume.assumeTrue
+import org.junit.AssumptionViolatedException
 import org.junit.Rule
 import org.junit.rules.TestName
 import org.robolectric.RuntimeEnvironment
@@ -31,7 +31,8 @@ import kotlin.math.ceil
  * is skipped, and so is a board that the run's selection leaves out.
  *
  * A shot is a test function named by its board in PascalCase (`AndroidWelcomeLibraries` is
- * `android.welcome.libraries`), written as camelCase; [shot] refuses a board its function doesn't spell.
+ * `android.welcome.libraries`), written as camelCase; [shot] and [component] refuse a board their function
+ * doesn't spell.
  *
  * An app's shots extend a subclass of its own, which gives its look and names with `@RunWith` the Robolectric test
  * runner that runs them.
@@ -59,10 +60,11 @@ abstract class BoardShot(
         enterMillis: Long = 0L,
         content: @Composable () -> Unit,
     ) {
-        assumeRequested(id)
+        val directory = assumeRequested(id)
+        requireSpelledByTest(id)
         val size = ShotBoardSizes(ShotRequest.boardSizes).sizeOf(id)
         sizeWindowTo(size)
-        shot(id, enterMillis = enterMillis) {
+        draw(id, directory, enterMillis) {
             look.ComponentPage { Box(modifier = Modifier.size(size)) { content() } }
         }
     }
@@ -77,12 +79,27 @@ abstract class BoardShot(
         enterMillis: Long = 0L,
         content: @Composable () -> Unit,
     ) {
+        requireSpelledByTest(board)
+        val directory = assumeRequested(board)
+        height?.let { sizeWindowTo(DpSize(PHONE_WIDTH, it)) }
+        draw(board, directory, enterMillis, content)
+    }
+
+    /** Fails a board that the running test function's name doesn't spell. */
+    private fun requireSpelledByTest(board: String) {
         val spelled = board.split('.', '-').joinToString("") { it.replaceFirstChar(Char::uppercase) }
         require(spelled.replaceFirstChar(Char::lowercase) == test.methodName) {
             "shot '${test.methodName}' is not the camelCase of board '$board' ($spelled)"
         }
-        val directory = assumeRequested(board)
-        height?.let { sizeWindowTo(DpSize(PHONE_WIDTH, it)) }
+    }
+
+    /** Draws [content] and writes it as [board]'s into [directory], the run's folder for a board it takes. */
+    private fun draw(
+        board: String,
+        directory: File,
+        enterMillis: Long,
+        content: @Composable () -> Unit,
+    ) {
         compose.settle(look, content)
         compose.mainClock.advanceTimeBy(enterMillis)
         write(board, directory)
@@ -90,10 +107,9 @@ abstract class BoardShot(
 
     /** The folder the run writes [board] to. Skips the test when the run takes no shots or leaves [board] out. */
     private fun assumeRequested(board: String): File {
-        val directory = ShotRequest.directory
-        assumeNotNull(directory)
+        val directory = ShotRequest.directory ?: throw AssumptionViolatedException("the run takes no shots")
         assumeTrue("board '$board' is not selected", ShotRequest.selects(board))
-        return checkNotNull(directory)
+        return directory
     }
 
     /**
