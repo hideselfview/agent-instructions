@@ -1985,8 +1985,7 @@ fn every_review_command_fails_for_a_project_with_no_store() {
     }
 }
 
-/// A commit of <file> in <side> that adds three thousand lines, more than
-/// the review once took.
+/// A commit of <file> in <side> that adds three thousand lines.
 fn big_commit(side: &Path, file: &str, body: &str) -> String {
     std::fs::write(side.join(file), body.repeat(3_000)).unwrap();
     crate::testing::git(side, &["add", file]);
