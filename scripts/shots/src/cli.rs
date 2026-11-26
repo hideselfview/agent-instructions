@@ -113,6 +113,19 @@ pub(crate) enum Action {
         #[arg(long)]
         report: PathBuf,
     },
+    /// Write a platform's harness, the code that takes an app's shots inside
+    /// the app's own tests, into a folder that the app's shots test bundle
+    /// compiles. The command writes the folder whole, with a .gitignore that
+    /// keeps it out of the app's commits, and leaves a folder that already
+    /// holds this harness untouched. It refuses a folder that holds other
+    /// files.
+    Harness {
+        /// The platform whose harness to write: mac.
+        platform: String,
+        /// The folder to write, such as <app>/shots-harness.
+        #[arg(long)]
+        into: PathBuf,
+    },
     /// Fail when a declared shot has no board.
     Lint,
     /// List each design-system component state that a board draws and no row

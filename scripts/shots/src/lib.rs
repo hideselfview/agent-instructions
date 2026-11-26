@@ -15,6 +15,7 @@ mod declared;
 mod design;
 mod draws;
 mod findings_file;
+mod harness;
 mod hex;
 mod lint;
 mod lists;
@@ -496,7 +497,7 @@ fn run(checker: &Checker, action: Action) -> Result<bool, String> {
         }
         Action::States(args) => states::command(checker, &root, args),
         Action::Draws(args) => draws::command(checker, &root, args),
-        Action::Version | Action::Recheck { .. } | Action::Chrome => {
+        Action::Version | Action::Recheck { .. } | Action::Chrome | Action::Harness { .. } => {
             unreachable!("`main` runs these before it reads a repo")
         }
         Action::Runtime => {
@@ -508,6 +509,15 @@ fn run(checker: &Checker, action: Action) -> Result<bool, String> {
             Ok(true)
         }
     }
+}
+
+/// Writes the harness of the platform <platform> names into <into>
+/// (harness.rs).
+fn write_harness(platform: &str, into: &Path) -> Result<(), String> {
+    let harness = names::Platform::parse(platform)
+        .and_then(|platform| backend::of(platform).harness())
+        .ok_or_else(|| format!("the checker holds no harness for {platform}: it holds mac's"))?;
+    harness.write_bundle(into).map_err(|e| e.to_string())
 }
 
 /// Runs `builds shots <args>`: parses <args>, the words after `builds
@@ -532,6 +542,7 @@ pub fn main(checker: &Checker, args: &[String]) -> bool {
                 true
             })
         }
+        Action::Harness { platform, into } => write_harness(&platform, &into).map(|()| true),
         Action::Recheck { report } => {
             recheck::text(&report, &checker.versions.comparison).map(|text| {
                 println!("{text}");

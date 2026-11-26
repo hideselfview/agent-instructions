@@ -1425,8 +1425,9 @@ pictures, which no build asks for again.
 
 The shots checker that builds is built with has two versions, which `builds
 shots version` prints. The capture version is a hash of the files that take a
-shot and draw a board, the boards library's files, and the versions of the
-packages they use. The comparison version is a hash of the files that compare
+shot and draw a board, the harness sources the checker holds among them, the
+boards library's files, and the versions of the packages they use. The
+comparison version is a hash of the files that compare
 a shot with its board and write the findings and the report, with the boards
 library's files and the same package versions (scripts/builds/build_source.rs
 lists the files each version reads). A change to builds alone keeps both
@@ -1949,6 +1950,28 @@ built again.
                               beside the picture (`states` reads them).
                               builds passes the folder (`--pictures <folder>`
                               names another).
+  builds shots harness mac --into <folder>
+                              write the mac harness, the Swift code that
+                              takes an app's shots inside the app's own
+                              tests, into <folder>, which the app's shots
+                              test bundle compiles. An app runs it before
+                              the bundle builds, as its `shots-capture`
+                              command does, so the harness it compiles is
+                              the one of the builds that takes the shots.
+                              builds writes the folder whole, with a
+                              .gitignore that keeps it out of the app's
+                              commits, and touches no file of a folder that
+                              already holds this harness. It refuses a folder
+                              that holds other files. The app gives the
+                              harness its scenes, each a `ShotScene`, and
+                              its look, a `ShotLook`, which dresses a
+                              scene's view and window and names the panels
+                              the app puts over the window, and its shots
+                              test calls `ShotRunner.capture(<scenes>, in:
+                              <look>)`. ShotScene.swift, ShotLook.swift and
+                              ShotRunner.swift state the interface. The
+                              capture version covers the harness's sources
+                              (below).
   builds shots run|scenes|capture|check|lint|runtime|chrome|components|states|version [<argument>...]
                               run the shots checker, which checks the shots
                               of the repo it runs in against the repo's
@@ -2198,10 +2221,15 @@ built again.
                               checker renders the selected component boards
                               and writes the whole file, to a temporary file
                               that it renames) and
-                              BUILDS_SHOTS_WINDOWS=1 (take the shots shown in
-                              a window too), and on mac a copy of each with
-                              TEST_RUNNER_ in front, which Xcode passes to
-                              the test process
+                              BUILDS_SHOTS_WINDOWS=1 (take the shots that
+                              take the keyboard focus too). On mac the checker
+                              also sets BUILDS_SHOTS_DISPLAY, the path of the
+                              tool that leases the shot display for the shots
+                              shown in a window, which the mac harness runs
+                              and the checker writes before the command starts
+                              and removes after, and sets a copy of each
+                              variable with TEST_RUNNER_ in front, which
+                              Xcode passes to the test process
   builds build-app <repo> <app> [<ref>]
                               holding one of the lane's locks, check out <ref>
                               (default origin/main, after a fetch) in that app

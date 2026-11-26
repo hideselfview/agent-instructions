@@ -14,8 +14,13 @@
 //!   component scene to `{"width": <points>, "height": <points>}`, the size of
 //!   the scene's board. It is `{}` when no component scene is selected. The
 //!   checker writes the whole file before it starts the command.
-//! - `BUILDS_SHOTS_WINDOWS`: `1` when the harness also takes the shots shown
-//!   in a window, which bring the app to the front; unset otherwise.
+//! - `BUILDS_SHOTS_WINDOWS`: `1` when the harness also takes the shots that
+//!   take the keyboard focus, which bring the app to the front; unset
+//!   otherwise.
+//! - `BUILDS_SHOTS_DISPLAY`: on mac, the absolute path of the tool that leases
+//!   the shot display for the shots shown in a window, which the harness the
+//!   checker holds runs (harness.rs). The checker writes the tool before it
+//!   starts the command and removes it after.
 //!
 //! On mac each variable is also set with `TEST_RUNNER_` in front, which Xcode
 //! passes to the test process under the plain name.
@@ -57,6 +62,8 @@ pub(crate) enum CaptureError {
     Measure(String),
     #[error("cannot write {0}: {1}")]
     BoardSizes(PathBuf, std::io::Error),
+    #[error(transparent)]
+    Harness(#[from] crate::harness::HarnessError),
     #[error("cannot take shots in Chrome: {0}")]
     Chrome(String),
     #[error("the capture is incomplete:\n{}", .0.join("\n"))]
@@ -192,9 +199,10 @@ pub(crate) struct Target<'a> {
 /// `target.out`, an absolute path, with the `command` the app's `shots-capture` line
 /// gives, run from `root`; with shots to take and no `command`, it fails.
 /// Without `windows`, a shot that takes the keyboard focus is left out and
-/// said on stderr. Before the command starts, `target.measure` gives the
-/// board size of each shot the run takes, and the run writes them to
-/// `board-sizes.json` in `target.out` (the module's doc). Returns the shots taken, those the
+/// said on stderr. Before the command starts, the run writes the host tools of
+/// the platform's harness, and `target.measure` gives the board size of each
+/// shot the run takes, which the run writes to `board-sizes.json` in
+/// `target.out` (the module's doc). Returns the shots taken, those the
 /// harness wrote no usable shot of (a failed shot does not fail the capture
 /// itself) and those left out.
 #[allow(clippy::too_many_arguments)]
@@ -222,6 +230,13 @@ pub(crate) fn capture(
     let step = format!("the {} shots-capture command", app.name);
     let command = command.ok_or_else(|| CaptureError::NoCommand(app.name.clone()))?;
     let (program, args) = command.split_first().expect("the command has a program");
+    let display = backend::of(app.platform)
+        .harness()
+        .map(|harness| harness.write_display_tool())
+        .transpose()?;
+    let tool = display
+        .as_ref()
+        .map(|folder| folder.path().join(crate::harness::DISPLAY_TOOL));
     crate::log::note(command.join(" "));
     let status = Command::new(program)
         .args(args)
@@ -232,6 +247,7 @@ pub(crate) fn capture(
             &sizes,
             &harness_prefixes(app, prefixes, &taken.names),
             windows,
+            tool.as_deref(),
         ))
         .status()
         .map_err(|source| CaptureError::Start {
@@ -274,7 +290,8 @@ pub(crate) fn capture(
 
 /// The prefixes the harness is given: those of `app` that start a shot
 /// this run takes. A harness may fail on a prefix that starts none of the
-/// shots it draws, and without `--windows` it draws no window's shot.
+/// shots it draws, and without `--windows` it draws no shot that takes the
+/// focus.
 fn harness_prefixes(app: &App, prefixes: &[Prefix], taken: &[Name]) -> Vec<String> {
     prefixes
         .iter()
@@ -309,6 +326,7 @@ fn variables(
     sizes: &Path,
     prefixes: &[String],
     windows: bool,
+    display_tool: Option<&Path>,
 ) -> Vec<(String, String)> {
     let mut plain = vec![
         ("BUILDS_SHOTS_OUT", out.to_string_lossy().into_owned()),
@@ -322,6 +340,9 @@ fn variables(
     }
     if windows {
         plain.push(("BUILDS_SHOTS_WINDOWS", "1".to_string()));
+    }
+    if let Some(tool) = display_tool {
+        plain.push(("BUILDS_SHOTS_DISPLAY", tool.to_string_lossy().into_owned()));
     }
     let mut all: Vec<(String, String)> = plain
         .iter()

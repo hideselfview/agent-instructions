@@ -1,10 +1,11 @@
 //! What differs between platforms in the shots checker. Each platform has one
 //! `Backend` that holds its facts: the words and extensions of its files, how
-//! its harness source declares shots, how a board is read to compare with its
-//! shots, and what the comparison allows. No other module matches on
+//! its harness source declares shots, the harness it gives apps, how a board
+//! is read to compare with its shots, and what the comparison allows. No other module matches on
 //! `Platform`; each asks the platform's backend (`of`).
 
 use crate::declared::{Declared, DeclaredError};
+use crate::harness::Harness;
 use crate::names::{App, Platform};
 use std::path::Path;
 
@@ -61,6 +62,9 @@ pub(crate) trait Backend {
     /// as `TEST_RUNNER_BUILDS_SHOTS_*`, which `xcodebuild test` passes on to
     /// its test runner.
     fn test_runner_copies(&self) -> bool;
+    /// The harness of the platform that the checker holds, for an app's own
+    /// tests to take its shots with.
+    fn harness(&self) -> Option<&'static Harness>;
     fn reading(&self) -> Reading;
     fn allowances(&self) -> Allowances;
 }
@@ -93,6 +97,9 @@ impl Backend for Mac {
     }
     fn test_runner_copies(&self) -> bool {
         true
+    }
+    fn harness(&self) -> Option<&'static Harness> {
+        Some(&crate::harness::MAC)
     }
     fn reading(&self) -> Reading {
         Reading {
@@ -136,6 +143,9 @@ impl Backend for Android {
     fn test_runner_copies(&self) -> bool {
         false
     }
+    fn harness(&self) -> Option<&'static Harness> {
+        None
+    }
     fn reading(&self) -> Reading {
         Reading {
             window_role: |role| matches!(role, "menu" | "dialog"),
@@ -174,6 +184,9 @@ impl Backend for Web {
     }
     fn test_runner_copies(&self) -> bool {
         false
+    }
+    fn harness(&self) -> Option<&'static Harness> {
+        None
     }
     fn reading(&self) -> Reading {
         Reading {

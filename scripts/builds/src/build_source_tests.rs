@@ -115,6 +115,7 @@ fn a_file_only_the_comparison_reads_is_not_in_the_capture_version_and_the_revers
         write(&scripts, &format!("shots/src/{file}"), "// 1\n");
     }
     write(&scripts, "shots/canvas/runtime.js", "// 1\n");
+    write(&scripts, "shots/harness/mac/ShotScene.swift", "// 1\n");
     let capture = shots_names(&scripts, Side::Capture);
     let comparison = shots_names(&scripts, Side::Comparison);
     for read in [
@@ -123,6 +124,7 @@ fn a_file_only_the_comparison_reads_is_not_in_the_capture_version_and_the_revers
         "shots/src/capture/mod.rs",
         "shots/src/design.rs",
         "shots/canvas/runtime.js",
+        "shots/harness/mac/ShotScene.swift",
     ] {
         assert!(capture.contains(&read.to_string()), "{read}: {capture:?}");
         assert!(

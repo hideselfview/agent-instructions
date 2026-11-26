@@ -24,7 +24,7 @@ const PARTS: [&str; 6] = [
 /// The files and folders, relative to each crate's folder in the scripts
 /// folder, that the shots checker is built from (`shots_files`).
 const SHOTS_PARTS: [(&str, &[&str]); 2] = [
-    ("shots", &["Cargo.toml", "src", "canvas"]),
+    ("shots", &["Cargo.toml", "src", "canvas", "harness"]),
     ("boards", &["Cargo.toml", "src", "runtime"]),
 ];
 
@@ -94,9 +94,12 @@ const SHARED: [&str; 8] = [
 ];
 
 /// The files and folders of the shots crate's `src` that only the capture
-/// side reads: taking shots, drawing boards and keeping their pictures.
-const CAPTURE_ONLY: [&str; 7] = [
+/// side reads: taking shots, drawing boards and keeping their pictures. The
+/// harness sources beside `src` (`shots/harness`) take shots too, inside an
+/// app's tests.
+const CAPTURE_ONLY: [&str; 8] = [
     "capture",
+    "harness.rs",
     "capture_marks.rs",
     "render",
     "render.rs",
@@ -146,7 +149,7 @@ fn readers(shown: &str) -> Readers {
     if shown.starts_with("boards/") || shown == "shots/Cargo.toml" {
         return Readers::Both;
     }
-    if shown.starts_with("shots/canvas/") {
+    if shown.starts_with("shots/canvas/") || shown.starts_with("shots/harness/") {
         return Readers::Only(Side::Capture);
     }
     let Some(inside) = shown.strip_prefix("shots/src/") else {

@@ -394,6 +394,42 @@ fn a_capture_runs_the_apps_command_with_the_variables_and_checks_what_it_wrote()
 }
 
 #[test]
+fn a_mac_capture_gives_the_command_the_display_tool_while_it_runs() {
+    let ready = tempfile::tempdir().unwrap();
+    write_shot(ready.path(), "mac.welcome.a");
+    let out = tempfile::tempdir().unwrap();
+    let seen = tempfile::tempdir().unwrap();
+    let seen = seen.path().join("tool");
+    let command = [
+        "sh".to_string(),
+        "-c".to_string(),
+        format!(
+            "test \"$BUILDS_SHOTS_DISPLAY\" = \"$TEST_RUNNER_BUILDS_SHOTS_DISPLAY\" && test -f \"$BUILDS_SHOTS_DISPLAY\" && test -f \"$(dirname \"$BUILDS_SHOTS_DISPLAY\")/ShotDisplayKeeper.swift\" && printf %s \"$BUILDS_SHOTS_DISPLAY\" > '{}' && cp '{}'/* \"$BUILDS_SHOTS_OUT\"",
+            seen.display(),
+            ready.path().display()
+        ),
+    ];
+    capture(
+        ready.path(),
+        Some(&command),
+        &declared(&[("mac.welcome.a", false)]),
+        &App::named_for(Platform::Mac),
+        &Apps::default(),
+        &[],
+        false,
+        false,
+        &Target {
+            out: out.path(),
+            measure: &|_| Ok(BTreeMap::new()),
+        },
+    )
+    .unwrap();
+    let tool = std::fs::read_to_string(&seen).unwrap();
+    assert!(tool.ends_with("/shot-display.py"), "{tool}");
+    assert!(!Path::new(&tool).exists(), "{tool}");
+}
+
+#[test]
 fn a_capture_command_that_fails_before_any_shot_fails_the_capture() {
     let empty = tempfile::tempdir().unwrap();
     let out = tempfile::tempdir().unwrap();
