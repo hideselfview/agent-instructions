@@ -314,6 +314,8 @@ pub fn derive_and_run(places: &Places, args: &[String]) -> Result<()> {
     })?;
     app_build::require_pickers(&config, &picks)?;
     let asked_for_picks = !picks.is_empty();
+    let waiting = crate::app_waiting_shots::waiting(places, repo, &top, &commit)?;
+    let picks = crate::app_waiting_shots::leave_out(picks, &waiting, &mut declarations, &commit)?;
     let use_cache = !fresh && Pick::prefixes(&picks).next().is_some();
     let records = if use_cache {
         BuildRecords::open(places, repo)?

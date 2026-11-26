@@ -2605,9 +2605,13 @@ pub fn serve_cached(
             }
             (Some(records), None) => {
                 if !records.has_passing_run(lane, commit, |run| {
-                    covers_prefix(run, name, lane, commit, &mut |lane, commit| {
-                        declarations.names(lane, commit)
-                    })
+                    covers_prefix(
+                        run,
+                        name,
+                        (lane, commit),
+                        &mut |lane, commit| declarations.names(lane, commit),
+                        &std::collections::HashSet::new(),
+                    )
                 })? {
                     note(format!(
                         "{name} has a cached run, but no passing app build of {} ran it, so the build runs it again",

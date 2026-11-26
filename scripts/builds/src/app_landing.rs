@@ -42,6 +42,7 @@ use std::path::Path;
 use crate::app_config::{CONFIG, Config, parse_config, run_git};
 use crate::app_shots_drop::Drop;
 use crate::app_timing::{self, BuildRecords, PassedRun};
+use crate::app_waiting_shots::Waiting;
 use crate::derive::paths_between;
 use crate::fail;
 use crate::fail::Result;
@@ -142,11 +143,21 @@ type DeclaredNames<'a> = dyn FnMut(Lane, &str) -> Option<ShotNames> + 'a;
 pub fn covers_prefix(
     run: &PassedRun,
     prefix: &str,
-    lane: Lane,
-    target: &str,
+    (lane, target): (Lane, &str),
     declared: &mut DeclaredNames<'_>,
+    waiting: &HashSet<String>,
 ) -> bool {
     if run.ran_shots(prefix) {
+        return true;
+    }
+    // A scene that waits on app work needs no run: the design record covers
+    // it. A prefix that selects only such scenes needs no run at all.
+    if !waiting.is_empty()
+        && declared(lane, target).is_some_and(|names| {
+            let mut selects = names.iter().filter(|name| name.starts_with(prefix));
+            selects.clone().next().is_some() && selects.all(|name| waiting.contains(name))
+        })
+    {
         return true;
     }
     if !run.shots_prefixes().any(|ran| ran.starts_with(prefix)) {
@@ -157,7 +168,7 @@ pub fn covers_prefix(
     };
     let mut selected = names
         .iter()
-        .filter(|name| name.starts_with(prefix))
+        .filter(|name| name.starts_with(prefix) && !waiting.contains(*name))
         .peekable();
     selected.peek().is_some()
         && declared(lane, &run.commit.sha)
@@ -169,13 +180,13 @@ pub fn covers_prefix(
 fn missing_shots(
     run: &PassedRun,
     required: &[String],
-    lane: Lane,
-    target: &str,
+    at: (Lane, &str),
     declared: &mut DeclaredNames<'_>,
+    waiting: &HashSet<String>,
 ) -> Vec<String> {
     required
         .iter()
-        .filter(|prefix| !covers_prefix(run, prefix, lane, target, declared))
+        .filter(|prefix| !covers_prefix(run, prefix, at, declared, waiting))
         .cloned()
         .collect()
 }
@@ -192,7 +203,7 @@ fn search(
     runs: &[PassedRun],
     target: &str,
     differ: &mut Differ,
-    declared: &mut DeclaredNames<'_>,
+    (declared, waiting): (&mut DeclaredNames<'_>, &HashSet<String>),
 ) -> Result<Search> {
     let mut newest = None;
     for run in runs {
@@ -205,7 +216,7 @@ fn search(
             .collect();
         if paths.is_empty()
             && needed.iter().all(|step| run.steps.contains(step))
-            && missing_shots(run, required, lane, target, declared).is_empty()
+            && missing_shots(run, required, (lane, target), declared, waiting).is_empty()
         {
             return Ok(Search::Covers(run.clone()));
         }
@@ -216,7 +227,7 @@ fn search(
     let newest = newest.map(|(run, paths)| Newest {
         commit: run.commit.sha.clone(),
         paths,
-        missing_shots: missing_shots(run, required, lane, target, declared),
+        missing_shots: missing_shots(run, required, (lane, target), declared, waiting),
     });
     Ok(Search::Newest(newest))
 }
@@ -237,7 +248,7 @@ pub fn needs(
     passed: &mut dyn FnMut(Lane) -> Result<Vec<PassedRun>>,
     shots_required: &mut dyn FnMut(Lane) -> Result<Vec<String>>,
     differ: &mut Differ,
-    declared: &mut DeclaredNames<'_>,
+    (declared, waiting): (&mut DeclaredNames<'_>, &HashSet<String>),
 ) -> Result<Coverage> {
     let mut covering = Vec::new();
     let mut unbuilt = Vec::new();
@@ -253,7 +264,15 @@ pub fn needs(
         let runs = passed(lane)?;
         let required = shots_required(lane)?;
         let asked = (needed.as_slice(), required.as_slice());
-        match search(config, lane, asked, &runs, branch, differ, declared)? {
+        match search(
+            config,
+            lane,
+            asked,
+            &runs,
+            branch,
+            differ,
+            (&mut *declared, waiting),
+        )? {
             Search::Covers(run) => covering.push((lane, run)),
             Search::Newest(newest) => unbuilt.push(Unbuilt { lane, newest }),
         }
@@ -424,6 +443,14 @@ pub struct BranchBuilds<'a> {
 
 type DroppedShots = Vec<(Lane, Vec<Drop>)>;
 
+/// What a coverage check found beside the covering builds: the prefixes the
+/// landing drops, and the scenes that wait on app work, which it counts
+/// covered.
+pub struct Excused {
+    pub dropped: DroppedShots,
+    pub waiting: Vec<Waiting>,
+}
+
 pub enum ShotsToCover<'a> {
     Landing,
     Build(&'a crate::app_build::BuildPicks),
@@ -454,7 +481,7 @@ impl<'a> BranchBuilds<'a> {
         records: &BuildRecords<'_>,
         shots: ShotsToCover<'_>,
         declarations: &mut ShotDeclarations<'_>,
-    ) -> Result<(Coverage, DroppedShots)> {
+    ) -> Result<(Coverage, Excused)> {
         let BuildRecords { repo, conn, path } = records;
         let top = self.top;
         let drops: DroppedShots = match shots {
@@ -469,6 +496,18 @@ impl<'a> BranchBuilds<'a> {
                 .collect::<Result<_>>()?,
             ShotsToCover::Build(_) => Vec::new(),
         };
+        // A landing counts the scenes that wait on app work covered; a build's
+        // requested comparisons name the shots it ran, which leave them out
+        // already.
+        let waiting = match shots {
+            ShotsToCover::Landing => crate::app_waiting_shots::waiting_in(
+                &crate::lists::store::read(conn)?,
+                repo,
+                &crate::derive::changed_paths(top, self.target)?,
+            ),
+            ShotsToCover::Build(_) => Vec::new(),
+        };
+        let scenes = crate::app_waiting_shots::scenes(&waiting);
         let coverage = needs(
             config,
             changed,
@@ -508,9 +547,18 @@ impl<'a> BranchBuilds<'a> {
                 }
                 paths_between(top, commit, target).map(Some)
             },
-            &mut |lane, commit| declarations.names(lane, commit),
+            (
+                &mut |lane, commit| declarations.names(lane, commit),
+                &scenes,
+            ),
         )?;
-        Ok((coverage, drops))
+        Ok((
+            coverage,
+            Excused {
+                dropped: drops,
+                waiting,
+            },
+        ))
     }
 }
 
@@ -553,15 +601,18 @@ pub fn cmd_landing_coverage(places: &Places, args: &[String]) -> Result<()> {
         return Ok(());
     };
     let changed = paths_of_commits(top, own)?;
-    let (Coverage { covering, unbuilt }, drops) = branch_builds.coverage(
+    let (Coverage { covering, unbuilt }, Excused { dropped, waiting }) = branch_builds.coverage(
         &config,
         &changed,
         &records,
         ShotsToCover::Landing,
         &mut ShotDeclarations::new(top),
     )?;
-    for (lane, drops) in drops {
+    for (lane, drops) in dropped {
         for line in dropped_lines(lane, &drops) {
+            println!("{line}");
+        }
+        for line in crate::app_waiting_shots::landing_lines(&waiting, lane) {
             println!("{line}");
         }
     }

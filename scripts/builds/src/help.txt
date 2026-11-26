@@ -1645,7 +1645,13 @@ built again.
                               running that prefix or a broader one. The command
                               prints each dropped prefix it honors and the
                               pairs the covering runs' shots rendered and the
-                              base never did. When every lane the landing
+                              base never did, and each scene whose board the
+                              branch changes and whose place in an open design
+                              change waits on an open item (`shots waiting on
+                              app work: ...`): `builds app-build <repo> <ref>
+                              --shots` leaves those scenes out of a run, and
+                              the design record covers them here. When every
+                              lane the landing
                               changes has a covering run, it exits 0. When a
                               lane has none,
                               it prints the newest passing run it found, the

@@ -18,6 +18,7 @@ mod app_shots_drop;
 mod app_site;
 mod app_timing;
 mod app_tree;
+mod app_waiting_shots;
 mod awake;
 mod branch_end;
 mod brief;

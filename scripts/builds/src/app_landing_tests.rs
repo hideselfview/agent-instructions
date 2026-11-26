@@ -66,7 +66,10 @@ fn check_shots(
                 .find(|(known, _)| *known == commit)
                 .map(|(_, list)| paths(list)))
         },
-        &mut |_, commit| panic!("these prefixes need no declarations at {commit}"),
+        (
+            &mut |_, commit| panic!("these prefixes need no declarations at {commit}"),
+            &HashSet::new(),
+        ),
     )
     .unwrap()
     .unbuilt

@@ -1675,7 +1675,10 @@ fn a_build_that_reuses_a_cached_run_leaves_the_passing_build_that_land_counts() 
         },
         &mut |_| Ok(vec!["mac.a.".to_string()]),
         &mut |_, _| Ok(Some(Vec::new())),
-        &mut |lane, commit| declarations.names(lane, commit),
+        (
+            &mut |lane, commit| declarations.names(lane, commit),
+            &std::collections::HashSet::new(),
+        ),
     )
     .unwrap();
     assert!(coverage.unbuilt.is_empty(), "{:?}", coverage.unbuilt);
