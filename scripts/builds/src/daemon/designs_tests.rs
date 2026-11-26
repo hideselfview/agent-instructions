@@ -1,5 +1,6 @@
 use super::*;
 use crate::testing::{Scratch, design_system, git, repo, run_script};
+use serde_json::{Value, json};
 use std::path::PathBuf;
 
 /// A repo whose origin/main holds four boards on two pages, a design system
@@ -103,7 +104,7 @@ fn the_page_has_each_page_of_the_index_with_its_boards_at_their_canvas_places_at
         &dir,
         &scratch.dir.join("cache"),
         Ok(Standing::default()),
-        &Value::Null,
+        None,
     )
     .unwrap();
     assert!(!page.contains("@@"), "every marker is filled");
@@ -168,7 +169,7 @@ fn a_design_system_that_cannot_be_read_shows_its_problem_and_a_bad_index_fails_t
         &dir,
         &scratch.dir.join("cache"),
         Ok(Standing::default()),
-        &Value::Null,
+        None,
     )
     .unwrap_err()
     .text();
@@ -186,7 +187,7 @@ fn a_design_system_that_cannot_be_read_shows_its_problem_and_a_bad_index_fails_t
             &dir,
             &scratch.dir.join("cache"),
             Ok(Standing::default()),
-            &Value::Null,
+            None,
         )
         .unwrap(),
     );
@@ -275,8 +276,7 @@ fn the_page_offers_publishing_only_where_canvases_toml_names_the_artifacts() {
     let scratch = Scratch::new("designs-publishing");
     let (dir, _) = designs_repo(&scratch);
     let cache = scratch.dir.join("cache");
-    let data =
-        page_data(&page("demo", &dir, &cache, Ok(Standing::default()), &Value::Null).unwrap());
+    let data = page_data(&page("demo", &dir, &cache, Ok(Standing::default()), None).unwrap());
     assert_eq!(data["publish"], json!({ "canvas": false }));
     git(&dir, &["checkout", "-q", "origin/main"]);
     std::fs::write(
@@ -288,8 +288,7 @@ fn the_page_offers_publishing_only_where_canvases_toml_names_the_artifacts() {
     git(&dir, &["commit", "-q", "-m", "canvases"]);
     let commit = crate::lists::design_paths::full_sha(&dir, "HEAD").unwrap();
     git(&dir, &["update-ref", "refs/remotes/origin/main", &commit]);
-    let data =
-        page_data(&page("demo", &dir, &cache, Ok(Standing::default()), &Value::Null).unwrap());
+    let data = page_data(&page("demo", &dir, &cache, Ok(Standing::default()), None).unwrap());
     assert_eq!(
         data["publish"],
         json!({
@@ -302,7 +301,7 @@ fn the_page_offers_publishing_only_where_canvases_toml_names_the_artifacts() {
         &dir,
         &cache,
         Err(crate::fail::Fail::Message("the store is gone".into())),
-        &Value::Null,
+        None,
     )
     .unwrap();
     assert_eq!(
@@ -350,7 +349,7 @@ fn the_system_tab_gets_the_groups_and_subgroups_in_the_order_groups_json_lists_t
             &dir,
             &scratch.dir.join("cache"),
             Ok(Standing::default()),
-            &Value::Null,
+            None,
         )
         .unwrap(),
     );
@@ -454,7 +453,7 @@ fn the_page_carries_the_filter_script_the_tests_run() {
         &dir,
         &scratch.dir.join("cache"),
         Ok(Standing::default()),
-        &Value::Null,
+        None,
     )
     .unwrap();
     assert!(page.contains(include_str!("designs_filter.js")));
@@ -550,7 +549,7 @@ fn the_page_carries_the_contents_script_the_tests_run() {
         &dir,
         &scratch.dir.join("cache"),
         Ok(Standing::default()),
-        &Value::Null,
+        None,
     )
     .unwrap();
     assert!(page.contains(include_str!("designs_contents.js")));

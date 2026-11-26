@@ -133,7 +133,7 @@ pub struct Palette {
 }
 
 /// A switch the page draws: one button per option.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Switch {
     pub name: String,
     pub options: Vec<Choice>,
@@ -142,7 +142,7 @@ pub struct Switch {
 }
 
 /// One option of a switch.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Choice {
     pub label: String,
     /// The color of the dot on the option's button, if the table has one.

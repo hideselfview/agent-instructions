@@ -1,4 +1,19 @@
 use super::*;
+use serde_json::json;
+
+/// <found> as the JSON the page reads.
+fn shown(found: BTreeMap<String, Vec<Entry>>) -> BTreeMap<String, Vec<Value>> {
+    found
+        .into_iter()
+        .map(|(page, entries)| {
+            let entries = entries
+                .iter()
+                .map(|entry| serde_json::to_value(entry).unwrap())
+                .collect();
+            (page, entries)
+        })
+        .collect()
+}
 
 fn note(page: &str, y: i64, text: &str) -> Value {
     json!({ "page": page, "x": 0, "y": y, "kind": "title1", "w": 240, "text": text })
@@ -13,7 +28,7 @@ fn a_page_gets_the_notes_without_a_size_in_order_of_their_y() {
         "other": note("one", 40, "Elsewhere"),
         "no-page": { "x": 0, "y": 10, "text": "On the first page" },
     } });
-    let found = headings(&index, "one", &BTreeMap::new()).unwrap();
+    let found = shown(headings(&index, "one", &BTreeMap::new()).unwrap());
     assert_eq!(
         found["two"],
         vec![
@@ -51,7 +66,7 @@ fn a_heading_drawn_for_android_and_for_macos_is_one_entry_with_both_as_sub_entri
         "g": note("p", 600, "Errors"),
     } });
     assert_eq!(
-        headings(&index, "p", &BTreeMap::new()).unwrap()["p"],
+        shown(headings(&index, "p", &BTreeMap::new()).unwrap())["p"],
         vec![
             json!({ "name": "Albums → album → artist", "subs": [
                 { "name": "Android", "y": 0.0, "boards": [] }, { "name": "macOS", "y": 100.0, "boards": [] }] }),
@@ -72,7 +87,7 @@ fn a_platform_drawn_twice_under_one_name_pairs_with_nothing() {
         "c": note("p", 200, "Sync: macOS"),
     } });
     assert_eq!(
-        headings(&index, "p", &BTreeMap::new()).unwrap()["p"],
+        shown(headings(&index, "p", &BTreeMap::new()).unwrap())["p"],
         vec![
             json!({ "name": "Sync: Android", "y": 0.0, "boards": [] }),
             json!({ "name": "Sync: Android", "y": 100.0, "boards": [] }),
@@ -108,12 +123,25 @@ fn each_row_gets_the_boards_from_its_y_down_to_the_next_heading_and_the_first_al
         "b": note("p", 400, "Rows: macOS"),
         "c": note("p", 900, "Alone"),
     } });
-    let drawn = [("a", -50.0), ("b", 10.0), ("c", 400.0), ("d", 950.0)]
-        .map(|(name, y)| json!({ "name": name, "x": 0, "y": y }));
-    let nowhere = [json!({ "name": "e", "error": "no place" })];
-    let boards: BTreeMap<&str, &[Value]> = BTreeMap::from([("p", &drawn[..]), ("q", &nowhere[..])]);
+    let drawn = [("a", -50.0), ("b", 10.0), ("c", 400.0), ("d", 950.0)].map(|(name, y)| {
+        DesignsBoard::Placed {
+            name: name.to_string(),
+            title: None,
+            x: 0.0,
+            y,
+            w: 100,
+            h: 100,
+        }
+    });
+    let nowhere = [DesignsBoard::Failed {
+        name: "e".to_string(),
+        title: None,
+        error: "no place".to_string(),
+    }];
+    let boards: BTreeMap<&str, &[DesignsBoard]> =
+        BTreeMap::from([("p", &drawn[..]), ("q", &nowhere[..])]);
     assert_eq!(
-        headings(&index, "p", &boards).unwrap()["p"],
+        shown(headings(&index, "p", &boards).unwrap())["p"],
         vec![
             json!({ "name": "Rows", "subs": [
                 { "name": "Android", "y": 0.0, "boards": ["a", "b"] },

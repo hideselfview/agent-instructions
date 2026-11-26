@@ -211,22 +211,46 @@ fn start_of_yesterday(now: i64) -> Result<i64> {
     }
 }
 
-/// The dashboard's JSON for the project store at <path> as of <now>: the
-/// rows of the waits since the start of yesterday, or `{"error"}` when builds
-/// cannot read the database.
-pub fn dashboard_json(path: &Path, now: i64) -> serde_json::Value {
+/// What the dashboard's page reads of the waits: the rows since the start of
+/// yesterday, or why builds cannot read the database.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(untagged, deny_unknown_fields)]
+pub enum Waits {
+    Failed { error: String },
+    Read { rows: Vec<WaitRow> },
+}
+
+/// One row of the waits: a kind of wait on a day, in a band.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WaitRow {
+    pub kind: String,
+    pub day: String,
+    pub band: String,
+    pub count: u32,
+    pub median_ms: u64,
+    pub total_ms: u64,
+}
+
+/// The dashboard's waits for the project store at <path> as of <now>.
+pub fn dashboard_figures(path: &Path, now: i64) -> Waits {
     match start_of_yesterday(now).and_then(|since| read(path, since)) {
-        Err(error) => serde_json::json!({ "error": error.text() }),
-        Ok(waits) => serde_json::json!({
-            "rows": rows(waits, &crate::text::local_day).iter().map(|row| serde_json::json!({
-                "kind": row.kind.word(),
-                "day": row.day,
-                "band": band_text(row.band),
-                "count": row.count,
-                "median_ms": row.median_ms,
-                "total_ms": row.total_ms,
-            })).collect::<Vec<_>>(),
-        }),
+        Err(error) => Waits::Failed {
+            error: error.text(),
+        },
+        Ok(waits) => Waits::Read {
+            rows: rows(waits, &crate::text::local_day)
+                .iter()
+                .map(|row| WaitRow {
+                    kind: row.kind.word().to_string(),
+                    day: row.day.clone(),
+                    band: band_text(row.band).to_string(),
+                    count: row.count,
+                    median_ms: row.median_ms,
+                    total_ms: row.total_ms,
+                })
+                .collect(),
+        },
     }
 }
 

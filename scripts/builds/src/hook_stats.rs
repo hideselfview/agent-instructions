@@ -915,53 +915,148 @@ fn handed_of(run: &Run) -> (u32, u32) {
     )
 }
 
-pub(crate) fn run_json(run: &Run) -> serde_json::Value {
-    serde_json::json!({
-        "at": run.at,
-        "repo": run.repo,
-        "worktree": run.worktree,
-        "branch": run.branch,
-        "base": run.base,
-        "plan_ms": run.plan_ms,
-        "total_ms": run.total_ms,
-        "files": run.files.len(),
-        "added": run.added(),
-        "removed": run.removed(),
-        "kinds": kinds_of(run),
-        "crates": handed_of(run).1,
-        "checks": run.checks.iter().map(|c| serde_json::json!({
-            "name": c.name, "kind": c.kind.word(), "outcome": c.outcome.word(), "ms": c.outcome.ms(), "crates": c.outcome.handed().map(|(_, k)| k),
-            "place": c.place_text(),
-        })).collect::<Vec<_>>(),
-    })
+/// One hook run as the dashboard's page reads it.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RunFigures {
+    pub at: i64,
+    pub repo: String,
+    pub worktree: String,
+    pub branch: Option<String>,
+    pub base: Option<String>,
+    pub plan_ms: u64,
+    pub total_ms: u64,
+    pub files: usize,
+    pub added: u64,
+    pub removed: u64,
+    pub kinds: std::collections::BTreeMap<String, u32>,
+    pub crates: u32,
+    pub checks: Vec<RunCheck>,
+}
+
+/// One check of a run, as the dashboard's page reads it.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RunCheck {
+    pub name: String,
+    pub kind: String,
+    pub outcome: String,
+    pub ms: Option<u64>,
+    pub crates: Option<u32>,
+    pub place: Option<String>,
+}
+
+pub(crate) fn run_figures(run: &Run) -> RunFigures {
+    RunFigures {
+        at: run.at,
+        repo: run.repo.clone(),
+        worktree: run.worktree.clone(),
+        branch: run.branch.clone(),
+        base: run.base.clone(),
+        plan_ms: run.plan_ms,
+        total_ms: run.total_ms,
+        files: run.files.len(),
+        added: run.added(),
+        removed: run.removed(),
+        kinds: kinds_of(run),
+        crates: handed_of(run).1,
+        checks: run
+            .checks
+            .iter()
+            .map(|c| RunCheck {
+                name: c.name.clone(),
+                kind: c.kind.word().to_string(),
+                outcome: c.outcome.word().to_string(),
+                ms: c.outcome.ms(),
+                crates: c.outcome.handed().map(|(_, k)| k),
+                place: c.place_text(),
+            })
+            .collect(),
+    }
 }
 
 /// The dashboard's panels count the runs of the last 12 hours.
 pub const DASHBOARD_WINDOW_SECONDS: i64 = 12 * 60 * 60;
 
-/// The dashboard's JSON for one repo of a project: its figures and latest
+/// What the dashboard's page reads of one repo of a project: its figures and
+/// latest runs since a time, no runs, or why its database can't be read.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(untagged, deny_unknown_fields)]
+pub enum RepoHooks {
+    Failed { repo: String, error: String },
+    Figures(Box<RepoFigures>),
+    Empty { repo: String, runs: u32 },
+}
+
+/// A repo's figures and latest runs.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RepoFigures {
+    pub repo: String,
+    pub runs: u32,
+    pub median_ms: u64,
+    pub slowest_ms: u64,
+    pub checks: Vec<CheckFigures>,
+    pub trend_runs: usize,
+    pub limit_ms: u64,
+    pub over_count: u32,
+    pub over: Vec<RunFigures>,
+    pub slowest: Vec<RunFigures>,
+    pub recent: Vec<RunFigures>,
+}
+
+/// One check's figures over a repo's runs.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CheckFigures {
+    pub name: String,
+    pub kind: String,
+    pub ran: u32,
+    pub skipped: u32,
+    pub median_ms: u64,
+    pub slowest_ms: u64,
+    pub recent_ms: Option<u64>,
+    pub earlier_ms: Option<u64>,
+}
+
+/// The dashboard's hooks for one repo of a project: its figures and latest
 /// runs since <since>, or `error` when the database can't be read.
-fn repo_json(repo: &str, path: &Path, since: i64) -> serde_json::Value {
+fn repo_hooks(repo: &str, path: &Path, since: i64) -> RepoHooks {
     match stats(path, since, repo) {
-        Ok(None) => serde_json::json!({ "repo": repo, "runs": 0 }),
-        Ok(Some(stats)) => serde_json::json!({
-            "repo": repo,
-            "runs": stats.runs,
-            "median_ms": stats.median_ms,
-            "slowest_ms": stats.slowest_ms,
-            "checks": stats.checks.iter().map(|c| serde_json::json!({
-                "name": c.name, "kind": c.kind.word(), "ran": c.ran,
-                "skipped": c.skipped, "median_ms": c.median_ms, "slowest_ms": c.slowest_ms,
-                "recent_ms": c.trend.map(|t| t.recent_ms), "earlier_ms": c.trend.map(|t| t.earlier_ms),
-            })).collect::<Vec<_>>(),
-            "trend_runs": TREND_RUNS,
-            "limit_ms": LIMIT_MS,
-            "over_count": stats.over_count,
-            "over": stats.over.iter().map(run_json).collect::<Vec<_>>(),
-            "slowest": stats.slowest.iter().map(run_json).collect::<Vec<_>>(),
-            "recent": stats.recent.iter().map(run_json).collect::<Vec<_>>(),
-        }),
-        Err(error) => serde_json::json!({ "repo": repo, "error": error.text() }),
+        Ok(None) => RepoHooks::Empty {
+            repo: repo.to_string(),
+            runs: 0,
+        },
+        Ok(Some(stats)) => RepoHooks::Figures(Box::new(RepoFigures {
+            repo: repo.to_string(),
+            runs: stats.runs,
+            median_ms: stats.median_ms,
+            slowest_ms: stats.slowest_ms,
+            checks: stats
+                .checks
+                .iter()
+                .map(|c| CheckFigures {
+                    name: c.name.clone(),
+                    kind: c.kind.word().to_string(),
+                    ran: c.ran,
+                    skipped: c.skipped,
+                    median_ms: c.median_ms,
+                    slowest_ms: c.slowest_ms,
+                    recent_ms: c.trend.map(|t| t.recent_ms),
+                    earlier_ms: c.trend.map(|t| t.earlier_ms),
+                })
+                .collect(),
+            trend_runs: TREND_RUNS,
+            limit_ms: LIMIT_MS,
+            over_count: stats.over_count,
+            over: stats.over.iter().map(run_figures).collect(),
+            slowest: stats.slowest.iter().map(run_figures).collect(),
+            recent: stats.recent.iter().map(run_figures).collect(),
+        })),
+        Err(error) => RepoHooks::Failed {
+            repo: repo.to_string(),
+            error: error.text(),
+        },
     }
 }
 
@@ -969,7 +1064,7 @@ fn repo_json(repo: &str, path: &Path, since: i64) -> serde_json::Value {
 /// `/api/hooks` carry it: each project with a store, or why the stores'
 /// folder can't be listed.
 #[derive(serde::Serialize, serde::Deserialize)]
-#[serde(untagged)]
+#[serde(untagged, deny_unknown_fields)]
 pub enum Hooks {
     Read { projects: Vec<HookProject> },
     Failed { error: String },
@@ -986,12 +1081,12 @@ pub struct HookProject {
 /// What a project's database gave: each repo with runs in it, apart, with the
 /// app builds' and waits' figures, or `error`.
 #[derive(serde::Serialize, serde::Deserialize)]
-#[serde(untagged)]
+#[serde(untagged, deny_unknown_fields)]
 pub enum HookRead {
     Read {
-        repos: Vec<serde_json::Value>,
-        app_builds: serde_json::Value,
-        waits: serde_json::Value,
+        repos: Vec<RepoHooks>,
+        app_builds: crate::app_timing::AppBuilds,
+        waits: crate::waits::Waits,
     },
     Failed {
         error: String,
@@ -1005,10 +1100,10 @@ fn project_json(project: &str, path: &Path, now: i64) -> HookProject {
         Ok(repos) => HookRead::Read {
             repos: repos
                 .iter()
-                .map(|repo| repo_json(repo, path, since))
+                .map(|repo| repo_hooks(repo, path, since))
                 .collect(),
-            app_builds: crate::app_timing::dashboard_json(path, now),
-            waits: crate::waits::dashboard_json(path, now),
+            app_builds: crate::app_timing::dashboard_figures(path, now),
+            waits: crate::waits::dashboard_figures(path, now),
         },
         Err(error) => HookRead::Failed {
             error: error.text(),

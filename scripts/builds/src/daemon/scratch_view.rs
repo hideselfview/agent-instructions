@@ -360,22 +360,51 @@ pub fn scratch_files_in(top: &Path) -> Result<Vec<ScratchFile>> {
     Ok(files)
 }
 
+/// The scratch boards a page lists, or why they can't be listed.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(untagged, deny_unknown_fields)]
+pub enum Scratch {
+    Failed { error: String },
+    Boards { boards: Vec<ScratchBoard> },
+}
+
+/// One scratch board of a worktree: its name and the address of its scratch
+/// view, or its file's name and why that names no board.
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq)]
+#[serde(untagged, deny_unknown_fields)]
+pub enum ScratchBoard {
+    Unnamed {
+        worktree: String,
+        file: String,
+        error: String,
+    },
+    Named {
+        worktree: String,
+        board: String,
+        link: String,
+    },
+}
+
 /// The scratch boards of <worktrees> (`named_worktrees`), as the Designs page
 /// and a review page list them, by worktree then file: each with the
 /// worktree's name, and the board's name and the address of its scratch view
 /// in project <project> (`link`), or its file's name and why that names no
 /// board (`error`).
-fn list_of(project: &str, worktrees: &[(String, PathBuf)]) -> Result<Vec<Value>> {
+fn list_of(project: &str, worktrees: &[(String, PathBuf)]) -> Result<Vec<ScratchBoard>> {
     let mut list = Vec::new();
     for (name, top) in worktrees {
         for file in scratch_files_in(top)? {
             list.push(match file.board {
-                Ok(board) => json!({
-                    "worktree": name,
-                    "board": board,
-                    "link": format!("/design/{project}/scratch/{name}/{board}"),
-                }),
-                Err(error) => json!({ "worktree": name, "file": file.file, "error": error.text() }),
+                Ok(board) => ScratchBoard::Named {
+                    worktree: name.clone(),
+                    link: format!("/design/{project}/scratch/{name}/{board}"),
+                    board,
+                },
+                Err(error) => ScratchBoard::Unnamed {
+                    worktree: name.clone(),
+                    file: file.file,
+                    error: error.text(),
+                },
             });
         }
     }
@@ -384,7 +413,7 @@ fn list_of(project: &str, worktrees: &[(String, PathBuf)]) -> Result<Vec<Value>>
 
 /// The scratch boards of every worktree of the repo whose main checkout is
 /// <main>, as the Designs page lists them (`list_of`).
-pub fn scratch_list(project: &str, main: &Path) -> Result<Vec<Value>> {
+pub fn scratch_list(project: &str, main: &Path) -> Result<Vec<ScratchBoard>> {
     list_of(project, &named_worktrees(main)?)
 }
 
@@ -392,7 +421,7 @@ pub fn scratch_list(project: &str, main: &Path) -> Result<Vec<Value>> {
 /// page of a design change drawn there lists them (`list_of`). Fails when
 /// <top> is no worktree of the repo whose main checkout is <main> that a
 /// scratch view address names.
-pub fn scratch_list_of(project: &str, main: &Path, top: &Path) -> Result<Vec<Value>> {
+pub fn scratch_list_of(project: &str, main: &Path, top: &Path) -> Result<Vec<ScratchBoard>> {
     let at = canonical(top)?;
     let worktrees: Vec<(String, PathBuf)> = named_worktrees(main)?
         .into_iter()

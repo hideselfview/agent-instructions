@@ -298,12 +298,12 @@ pub fn tokens_css(json: &str) -> Result<String> {
 /// What a page shows of a design system's text styles without its
 /// stylesheet: each style as CSS declarations that name its font stack,
 /// with the words to draw it in.
-#[derive(Debug, PartialEq, Eq, Serialize)]
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Specimen {
     pub styles: Vec<TextSpecimen>,
 }
 
-#[derive(Debug, PartialEq, Eq, Serialize)]
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TextSpecimen {
     pub name: String,
     /// The style's declarations, as one `style` attribute's text.

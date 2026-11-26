@@ -34,12 +34,14 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use boards::colors;
+use boards::colors::Switch;
 use boards::preview::{Card, contents};
-use boards::tokens::specimen;
+use boards::tokens::{Specimen, Theme as ColorTheme, specimen};
 use boards::{BOARD_SUFFIX, CANVAS, Source, TOKENS_JSON, canvas_place, canvas_size};
-use serde_json::{Value, json};
+use serde_json::Value;
 
-use super::designs_headings::headings;
+use super::designs_headings::{Entry, headings};
+use super::scratch_view::Scratch;
 use crate::design_canvas::{CANVASES, page_of, pages_of, parse_canvases, placed};
 use crate::design_render::{FRAMES_SCRIPT, NOW, fill, preview_frame, render_board};
 use crate::fail;
@@ -84,37 +86,166 @@ pub fn page(
     repo: &Path,
     cache: &Path,
     standing: Result<Standing>,
-    scratch: &Value,
+    scratch: Option<Scratch>,
 ) -> Result<String> {
     Ok(fill_page(&data(project, repo, cache, standing, scratch)?))
 }
 
 /// What the Designs page of a project shows, as `fill_page` puts it in the
 /// page's script, and as a staged fixture gives it
-/// (`builds dashboard stage`). Its sections that the page reads one way or
-/// another, because each may hold its own error, stay JSON.
+/// (`builds dashboard stage`). Each part of the design system that can't be
+/// read shows as its own error.
 #[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DesignsData {
     pub project: String,
-    pub publish: Value,
+    pub publish: Publish,
     /// The commit every frame of the page draws.
     pub commit: String,
     /// The address the frames' pages stand under.
     pub base: String,
     pub pages: Vec<DesignsPageData>,
-    pub system: Value,
-    pub colors: Value,
-    pub components: Value,
-    pub scratch: Value,
+    pub system: System,
+    pub colors: Colors,
+    pub components: Components,
+    pub scratch: Option<Scratch>,
 }
 
 /// A page of the repo's canvas index: its boards and the headings of its rows.
 #[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DesignsPageData {
     pub id: String,
     pub name: String,
-    pub boards: Vec<Value>,
-    pub headings: Vec<Value>,
+    pub boards: Vec<DesignsBoard>,
+    pub headings: Vec<Entry>,
+}
+
+/// A board of a page: where the canvas index puts it and how large, or why
+/// it has no place or size.
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq)]
+#[serde(untagged, deny_unknown_fields)]
+pub enum DesignsBoard {
+    Failed {
+        name: String,
+        title: Option<String>,
+        error: String,
+    },
+    Placed {
+        name: String,
+        title: Option<String>,
+        x: f64,
+        y: f64,
+        w: u64,
+        h: u64,
+    },
+}
+
+impl DesignsBoard {
+    pub fn name(&self) -> &str {
+        match self {
+            DesignsBoard::Failed { name, .. } | DesignsBoard::Placed { name, .. } => name,
+        }
+    }
+
+    /// The y of the board's place; None for a board with no place.
+    pub fn y(&self) -> Option<f64> {
+        match self {
+            DesignsBoard::Failed { .. } => None,
+            DesignsBoard::Placed { y, .. } => Some(*y),
+        }
+    }
+}
+
+/// The design system's text styles, or why they can't be read.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(untagged, deny_unknown_fields)]
+pub enum System {
+    Failed { error: String },
+    Read(Specimen),
+}
+
+/// The design system's colors, or why they can't be read.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(untagged, deny_unknown_fields)]
+pub enum Colors {
+    Failed {
+        error: String,
+    },
+    Read {
+        themes: Vec<ColorTheme>,
+        switches: Vec<Switch>,
+        comparison: Option<ColorsComparison>,
+        groups: Vec<ColorsGroup>,
+    },
+}
+
+/// The scene that the colors draw once for each option of a switch.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ColorsComparison {
+    pub name: String,
+    pub about: String,
+    pub switch: String,
+}
+
+/// A group of colors: the names of the colors its swatches show.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ColorsGroup {
+    pub name: String,
+    pub about: String,
+    pub colors: Vec<String>,
+}
+
+/// The design system's components, or why they can't be listed.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(untagged, deny_unknown_fields)]
+pub enum Components {
+    Failed {
+        error: String,
+    },
+    Read {
+        groups: Vec<ComponentsGroup>,
+        problems: Vec<String>,
+    },
+}
+
+/// A group of components, with the cards it holds itself and its subgroups.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ComponentsGroup {
+    pub name: String,
+    pub about: String,
+    pub cards: Vec<ComponentCard>,
+    pub subgroups: Vec<ComponentsSubgroup>,
+}
+
+/// A subgroup of components.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ComponentsSubgroup {
+    pub name: String,
+    pub about: String,
+    pub cards: Vec<ComponentCard>,
+}
+
+/// A component's card: its height, or why it has none.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(untagged, deny_unknown_fields)]
+pub enum ComponentCard {
+    Failed { name: String, error: String },
+    Drawn { name: String, height: u64 },
+}
+
+/// What the Publish to claude.ai form shows: why the publishing can't be
+/// read, that the repo publishes nowhere yet, or the project's publishing.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(untagged, deny_unknown_fields)]
+pub enum Publish {
+    Failed { error: String },
+    Standing { canvas: bool, standing: Standing },
+    Nowhere { canvas: bool },
 }
 
 /// The data of `page`, read from the repo's origin/main.
@@ -123,7 +254,7 @@ pub fn data(
     repo: &Path,
     cache: &Path,
     standing: Result<Standing>,
-    scratch: &Value,
+    scratch: Option<Scratch>,
 ) -> Result<DesignsData> {
     let commit = Source::Commit { repo, rev: NOW }
         .check()?
@@ -155,16 +286,23 @@ pub fn data(
         };
         let title = entry["title"].as_str();
         let drawn = match (canvas_place(&index, file), canvas_size(&index, file)) {
-            (Ok((x, y)), Ok((w, h))) => {
-                json!({ "name": name, "title": title, "x": x, "y": y, "w": w, "h": h })
-            }
-            (Err(error), _) | (_, Err(error)) => {
-                json!({ "name": name, "title": title, "error": error.text() })
-            }
+            (Ok((x, y)), Ok((w, h))) => DesignsBoard::Placed {
+                name: name.to_string(),
+                title: title.map(str::to_string),
+                x,
+                y,
+                w,
+                h,
+            },
+            (Err(error), _) | (_, Err(error)) => DesignsBoard::Failed {
+                name: name.to_string(),
+                title: title.map(str::to_string),
+                error: error.text(),
+            },
         };
         boards.push(drawn);
     }
-    let drawn: BTreeMap<&str, &[Value]> = pages
+    let drawn: BTreeMap<&str, &[DesignsBoard]> = pages
         .iter()
         .map(|(id, _, boards)| (*id, boards.as_slice()))
         .collect();
@@ -191,50 +329,75 @@ pub fn data(
         .read(TOKENS_JSON, "the design system's tokens")
         .and_then(|text| specimen(&text))
     {
-        Ok(specimen) => serde_json::to_value(specimen).expect("the specimen serializes"),
-        Err(error) => json!({ "error": format!("{}: {error}", from.label(TOKENS_JSON)) }),
+        Ok(specimen) => System::Read(specimen),
+        Err(error) => System::Failed {
+            error: format!("{}: {error}", from.label(TOKENS_JSON)),
+        },
     };
     let colors = match colors::read(&from) {
-        Ok(palette) => json!({
-            "themes": palette.themes,
-            "switches": palette.switches,
-            "comparison": palette.colors.comparison.as_ref().map(|comparison| json!({
-                "name": comparison.name,
-                "about": comparison.about,
-                "switch": comparison.switch,
-            })),
-            "groups": palette.colors.groups.iter().map(|group| json!({
-                "name": group.name,
-                "about": group.about,
-                "colors": group.names().collect::<Vec<_>>(),
-            })).collect::<Vec<_>>(),
-        }),
-        Err(error) => json!({ "error": error.text() }),
+        Ok(palette) => Colors::Read {
+            themes: palette.themes.to_vec(),
+            switches: palette.switches,
+            comparison: palette
+                .colors
+                .comparison
+                .as_ref()
+                .map(|comparison| ColorsComparison {
+                    name: comparison.name.clone(),
+                    about: comparison.about.clone(),
+                    switch: comparison.switch.clone(),
+                }),
+            groups: palette
+                .colors
+                .groups
+                .iter()
+                .map(|group| ColorsGroup {
+                    name: group.name.clone(),
+                    about: group.about.clone(),
+                    colors: group.names().map(str::to_string).collect(),
+                })
+                .collect(),
+        },
+        Err(error) => Colors::Failed {
+            error: error.text(),
+        },
     };
     let components = match contents(&from, cache) {
-        Ok(contents) => json!({
-            "groups": contents.groups.into_iter().map(|group| json!({
-                "name": group.name,
-                "about": group.about,
-                "cards": cards_json(group.cards),
-                "subgroups": group.subgroups.into_iter().map(|sub| json!({
-                    "name": sub.name,
-                    "about": sub.about,
-                    "cards": cards_json(sub.cards),
-                })).collect::<Vec<_>>(),
-            })).collect::<Vec<_>>(),
-            "problems": contents.problems,
-        }),
-        Err(error) => json!({ "error": error.text() }),
+        Ok(contents) => Components::Read {
+            groups: contents
+                .groups
+                .into_iter()
+                .map(|group| ComponentsGroup {
+                    name: group.name,
+                    about: group.about,
+                    cards: cards_of(group.cards),
+                    subgroups: group
+                        .subgroups
+                        .into_iter()
+                        .map(|sub| ComponentsSubgroup {
+                            name: sub.name,
+                            about: sub.about,
+                            cards: cards_of(sub.cards),
+                        })
+                        .collect(),
+                })
+                .collect(),
+            problems: contents.problems,
+        },
+        Err(error) => Components::Failed {
+            error: error.text(),
+        },
     };
     let publish =
         match publishing(&from).and_then(|names_artifacts| Ok((names_artifacts, standing?))) {
-            Ok((false, _)) => json!({ "canvas": false }),
-            Ok((true, standing)) => json!({
-                "canvas": true,
-                "standing": standing,
-            }),
-            Err(error) => json!({ "error": error.text() }),
+            Ok((false, _)) => Publish::Nowhere { canvas: false },
+            Ok((true, standing)) => Publish::Standing {
+                canvas: true,
+                standing,
+            },
+            Err(error) => Publish::Failed {
+                error: error.text(),
+            },
         };
     Ok(DesignsData {
         project: project.to_string(),
@@ -245,7 +408,7 @@ pub fn data(
         system,
         colors,
         components,
-        scratch: scratch.clone(),
+        scratch,
     })
 }
 
@@ -271,12 +434,18 @@ pub fn fill_page(data: &DesignsData) -> String {
 
 /// <cards> as the page's data holds them: each card's name, and its
 /// height or why it has none.
-fn cards_json(cards: Vec<Card>) -> Value {
+fn cards_of(cards: Vec<Card>) -> Vec<ComponentCard> {
     cards
         .into_iter()
         .map(|card| match card.height {
-            Ok(height) => json!({ "name": card.name, "height": height }),
-            Err(error) => json!({ "name": card.name, "error": error }),
+            Ok(height) => ComponentCard::Drawn {
+                name: card.name,
+                height,
+            },
+            Err(error) => ComponentCard::Failed {
+                name: card.name,
+                error,
+            },
         })
         .collect()
 }

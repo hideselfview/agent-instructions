@@ -13,7 +13,6 @@ use std::time::{Duration, Instant};
 use crate::clock::Moment;
 
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
 
 use super::cards::{CardState, ItemWait, KeptCard, ReviewWait, RunningItem};
 use super::fsevents::{Stream, flags};
@@ -1284,11 +1283,9 @@ impl Model {
             };
             super::scratch_view::scratch_list_of(project, &main?, Path::new(&design.worktree))
         });
-        Some(
-            view.and_then(|view| {
-                crate::design_render::review_page(&design, &view, project, &scratch)
-            }),
-        )
+        Some(view.and_then(|view| {
+            crate::design_render::review_page(&design, &view, project, scratch.as_ref())
+        }))
     }
 
     /// <side> of the <n>th entry of open design change <id>'s review page,
@@ -1400,7 +1397,7 @@ impl Model {
                 &repo,
                 &self.places.design_system_cache(),
                 super::designs::standing(&self.places, project),
-                &scratch_json(here, || super::scratch_view::scratch_list(project, &repo)),
+                scratch_json(here, || super::scratch_view::scratch_list(project, &repo)),
             )
         }))
     }
@@ -2169,22 +2166,28 @@ pub struct CardNow {
     pub items: Vec<u32>,
 }
 
-/// The app checkouts' locks of repo <repo> in <machine>, as the page and the
-/// recorder of the cards' states read them.
 /// The scratch boards that <list> lists, as a page shows them: null unless
 /// <here>, since they are files that no commit holds, which the dashboard
 /// shows only on this Mac; else `boards`, or the `error` that stops the
 /// listing.
-fn scratch_json(here: bool, list: impl FnOnce() -> crate::fail::Result<Vec<Value>>) -> Value {
+fn scratch_json(
+    here: bool,
+    list: impl FnOnce() -> crate::fail::Result<Vec<super::scratch_view::ScratchBoard>>,
+) -> Option<super::scratch_view::Scratch> {
+    use super::scratch_view::Scratch;
     if !here {
-        return Value::Null;
+        return None;
     }
-    match list() {
-        Ok(boards) => json!({ "boards": boards }),
-        Err(error) => json!({ "error": error.text() }),
-    }
+    Some(match list() {
+        Ok(boards) => Scratch::Boards { boards },
+        Err(error) => Scratch::Failed {
+            error: error.text(),
+        },
+    })
 }
 
+/// The app checkouts' locks of repo <repo> in <machine>, as the page and the
+/// recorder of the cards' states read them.
 fn repo_locks(machine: &Machine, repo: &str) -> Vec<crate::health::LockHealth> {
     machine
         .locks

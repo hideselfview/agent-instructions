@@ -33,19 +33,75 @@ fn designs() -> Value {
         "publish": { "canvas": false },
         "commit": COMMIT,
         "base": format!("/designs/demo/{COMMIT}"),
-        "pages": [{ "id": "p1", "name": "Page one", "boards": [], "headings": [] }],
-        "system": {},
-        "colors": {},
-        "components": {},
-        "scratch": null,
+        "pages": [{ "id": "p1", "name": "Page one", "boards": [{ "name": "A", "title": null, "x": 0.0, "y": 0.0, "w": 10, "h": 10 }], "headings": [{ "name": "Row", "y": 0.0, "boards": ["A"] }] }],
+        "system": { "styles": [{ "name": "body", "css": "font-size: 13px", "words": "Words" }] },
+        "colors": {
+            "themes": [{ "id": "dark", "name": "Dark" }],
+            "switches": [],
+            "comparison": null,
+            "groups": [{ "name": "Text", "about": "Words.", "colors": ["text"] }],
+        },
+        "components": {
+            "groups": [{
+                "name": "Controls",
+                "about": "Buttons.",
+                "cards": [{ "name": "Button", "height": 40 }],
+                "subgroups": [{
+                    "name": "Rows",
+                    "about": "Lists.",
+                    "cards": [{ "name": "Row", "error": "no preview" }],
+                }],
+            }],
+            "problems": [],
+        },
+        "scratch": { "boards": [{ "worktree": "side-1", "board": "scratch.a", "link": "/x" }] },
     })
+}
+
+/// The hooks of one project that holds a repo with runs, app builds and waits.
+fn hooks() -> Value {
+    let run = json!({
+        "at": 1, "repo": "demo", "worktree": "side-1", "branch": null, "base": null,
+        "plan_ms": 5, "total_ms": 50, "files": 1, "added": 2, "removed": 1,
+        "kinds": { "rs": 1 }, "crates": 1,
+        "checks": [{
+            "name": "fmt", "kind": "check", "outcome": "passed", "ms": 10, "crates": 1,
+            "place": null,
+        }],
+    });
+    json!({ "projects": [{
+        "project": "demo",
+        "repos": [{
+            "repo": "demo", "runs": 1, "median_ms": 50, "slowest_ms": 50,
+            "checks": [{
+                "name": "fmt", "kind": "check", "ran": 1, "skipped": 0, "median_ms": 10,
+                "slowest_ms": 10, "recent_ms": null, "earlier_ms": null,
+            }],
+            "trend_runs": 10, "limit_ms": 45_000, "over_count": 0,
+            "over": [], "slowest": [run.clone()], "recent": [run],
+        }],
+        "app_builds": { "window_seconds": 100, "repos": [{
+            "repo": "demo",
+            "lanes": [{
+                "lane": "mac", "runs": 1, "median_wait_ms": 3, "waits_ms": [3],
+                "steps": [{
+                    "name": "build", "kind": "step", "ran": 1, "median_ms": 4,
+                    "slowest_ms": 4, "total_ms": 4,
+                }],
+            }],
+        }] },
+        "waits": { "rows": [{
+            "kind": "cargo", "day": "2026-11-26", "band": "under 1 s", "count": 1,
+            "median_ms": 5, "total_ms": 5,
+        }] },
+    }] })
 }
 
 fn answers() -> Value {
     json!({
         "state": state(),
         "lists": { "projects": [] },
-        "hooks": { "projects": [] },
+        "hooks": hooks(),
         "designs": designs(),
     })
 }
@@ -187,6 +243,62 @@ fn a_fixture_of_the_wrong_shape_fails_to_load() {
     let mut extra = answers();
     extra["views"] = json!([]);
     assert!(Fixture::load(&fixture(&scratch, extra), "web.demo.page").is_err());
+}
+
+#[test]
+fn a_fixture_with_the_wrong_shape_inside_a_section_fails_to_load() {
+    let scratch = Scratch::new("stage-sections");
+    let wrong: [(&str, Value); 17] = [
+        ("/hooks/projects/0/repos/0/runs", json!("one")),
+        ("/hooks/projects/0/repos/0/checks/0/ran", json!(-1)),
+        (
+            "/hooks/projects/0/repos/0/slowest/0/checks/0/ms",
+            json!("ten"),
+        ),
+        ("/hooks/projects/0/repos/0/limit_ms", json!("slow")),
+        (
+            "/hooks/projects/0/app_builds/repos/0/lanes/0/runs",
+            json!("one"),
+        ),
+        (
+            "/hooks/projects/0/app_builds/repos/0/lanes/0/steps/0/ran",
+            json!(null),
+        ),
+        ("/hooks/projects/0/waits/rows/0/count", json!("one")),
+        ("/hooks/projects/0/waits/rows/0/band", json!(3)),
+        ("/designs/pages/0/boards/0/w", json!("wide")),
+        ("/designs/pages/0/headings/0/boards", json!("A")),
+        ("/designs/system/styles/0/css", json!(1)),
+        ("/designs/colors/groups/0/colors", json!("text")),
+        ("/designs/components/groups/0/cards/0/height", json!("tall")),
+        ("/designs/components/problems", json!("none")),
+        ("/designs/publish", json!({ "canvas": "yes" })),
+        ("/designs/scratch/boards/0/link", json!(1)),
+        ("/designs/colors/themes/0/id", json!(1)),
+    ];
+    for (place, value) in wrong {
+        let mut stage = answers();
+        *stage.pointer_mut(place).expect(place) = value;
+        let loaded = Fixture::load(&fixture(&scratch, stage), "web.demo.page");
+        assert!(loaded.is_err(), "a wrong {place} loads");
+    }
+    // The right shapes of the same sections load.
+    Fixture::load(&fixture(&scratch, answers()), "web.demo.page").unwrap();
+    for (place, value) in [
+        ("/designs/publish", json!({ "error": "no canvas" })),
+        ("/designs/colors", json!({ "error": "unreadable" })),
+        ("/designs/scratch", json!({ "error": "no worktrees" })),
+        (
+            "/hooks/projects/0/app_builds",
+            json!({ "error": "no database" }),
+        ),
+        ("/hooks/projects/0/waits", json!({ "error": "no database" })),
+    ] {
+        let mut stage = answers();
+        *stage.pointer_mut(place).expect(place) = value;
+        Fixture::load(&fixture(&scratch, stage), "web.demo.page")
+            .unwrap_or_else(|error| panic!("a right {place} fails: {}", error.text()));
+    }
 }
 
 #[test]

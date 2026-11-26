@@ -8,8 +8,9 @@
 use std::collections::BTreeMap;
 
 use boards::CANVAS;
-use serde_json::{Value, json};
+use serde_json::Value;
 
+use super::designs::DesignsBoard;
 use crate::design_canvas::{notes_of, page_of};
 use crate::fail;
 use crate::fail::Result;
@@ -24,17 +25,35 @@ struct Heading<'a> {
     y: f64,
 }
 
+/// An entry of the contents column: a heading with the names of the boards of
+/// its row, or the two platforms' entries of a heading drawn once for each.
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq)]
+#[serde(untagged, deny_unknown_fields)]
+pub enum Entry {
+    Pair { name: String, subs: [Row; 2] },
+    Row(Row),
+}
+
+/// A heading and the names of the boards in its row.
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct Row {
+    pub name: String,
+    pub y: f64,
+    pub boards: Vec<String>,
+}
+
 /// The entries of each page of <index>, the repo's `CANVAS`, by page id:
-/// each a `{ "name", "y" }` object in order of its y, or, for a heading
-/// drawn once for each platform, a `{ "name", "subs" }` object whose `subs`
-/// are the two platforms' `{ "name", "y" }` objects in order of their y.
+/// each a `Row` in order of its y, or, for a heading drawn once for each
+/// platform, a `Pair` whose `subs` are the two platforms' rows in order of
+/// their y.
 /// <first> is the page of a note that names none. Fails
 /// when a note that is a heading has no text or no y.
 pub fn headings(
     index: &Value,
     first: &str,
-    boards: &BTreeMap<&str, &[Value]>,
-) -> Result<BTreeMap<String, Vec<Value>>> {
+    boards: &BTreeMap<&str, &[DesignsBoard]>,
+) -> Result<BTreeMap<String, Vec<Entry>>> {
     let mut by_page: BTreeMap<&str, Vec<Heading>> = BTreeMap::new();
     let Some(notes) = notes_of(index)? else {
         return Ok(BTreeMap::new());
@@ -70,12 +89,12 @@ pub fn headings(
 
 /// <found> as entries in order of their y, a platform pair as one entry. Each
 /// heading that has no sub-entries, and each sub-entry, has the names of the
-/// page's <boards> (each a `{ "name", "y", ... }` object) in its row: those
+/// page's <boards> in its row: those
 /// from its y down to the next heading's y, the first row also holding the
 /// boards above it. A board with no y is in no row.
-fn entries(mut found: Vec<Heading>, boards: &[Value]) -> Vec<Value> {
+fn entries(mut found: Vec<Heading>, boards: &[DesignsBoard]) -> Vec<Entry> {
     found.sort_by(|a, b| a.y.total_cmp(&b.y).then_with(|| a.text.cmp(b.text)));
-    let row = |n: usize| -> Value {
+    let row = |n: usize| -> Vec<String> {
         let from = if n == 0 {
             f64::NEG_INFINITY
         } else {
@@ -84,16 +103,20 @@ fn entries(mut found: Vec<Heading>, boards: &[Value]) -> Vec<Value> {
         let to = found.get(n + 1).map_or(f64::INFINITY, |next| next.y);
         boards
             .iter()
-            .filter(|b| b["y"].as_f64().is_some_and(|y| y >= from && y < to))
-            .map(|b| b["name"].clone())
+            .filter(|b| b.y().is_some_and(|y| y >= from && y < to))
+            .map(|b| b.name().to_string())
             .collect()
     };
-    let leaf = |n: usize, name: &str| json!({ "name": name, "y": found[n].y, "boards": row(n) });
+    let leaf = |n: usize, name: &str| Row {
+        name: name.to_string(),
+        y: found[n].y,
+        boards: row(n),
+    };
     let mut out = Vec::new();
     let mut paired: Vec<&str> = Vec::new();
     for (n, heading) in found.iter().enumerate() {
         let Some((stem, _)) = split(heading.text) else {
-            out.push(leaf(n, heading.text));
+            out.push(Entry::Row(leaf(n, heading.text)));
             continue;
         };
         if paired.contains(&stem) {
@@ -101,7 +124,7 @@ fn entries(mut found: Vec<Heading>, boards: &[Value]) -> Vec<Value> {
         }
         let pair = PLATFORMS.map(|platform| only(&found, stem, platform));
         let [Some(a), Some(b)] = pair else {
-            out.push(leaf(n, heading.text));
+            out.push(Entry::Row(leaf(n, heading.text)));
             continue;
         };
         paired.push(stem);
@@ -109,7 +132,10 @@ fn entries(mut found: Vec<Heading>, boards: &[Value]) -> Vec<Value> {
         // order of `found`.
         let (first, second) = if a < b { (a, b) } else { (b, a) };
         let sub = |at: usize| leaf(at, split(found[at].text).expect("a platform heading").1);
-        out.push(json!({ "name": stem, "subs": [sub(first), sub(second)] }));
+        out.push(Entry::Pair {
+            name: stem.to_string(),
+            subs: [sub(first), sub(second)],
+        });
     }
     out
 }

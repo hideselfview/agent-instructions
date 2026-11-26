@@ -532,7 +532,7 @@ fn the_dashboard_json_names_the_window_and_each_repos_figures() {
         ),
     )
     .unwrap();
-    let json = dashboard_json(&path, NOW);
+    let json = serde_json::to_value(dashboard_figures(&path, NOW)).unwrap();
     assert_eq!(json["window_seconds"], WINDOW_SECONDS);
     let repo = &json["repos"][0];
     assert_eq!(repo["repo"], "bae");

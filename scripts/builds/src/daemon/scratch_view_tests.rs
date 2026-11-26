@@ -199,12 +199,10 @@ fn the_scratch_list_names_each_scratch_board_of_each_worktree_of_the_repo() {
     ] {
         std::fs::write(mocks.join(file), "<x-dc></x-dc>").unwrap();
     }
-    let entry = |worktree: &str, board: &str| {
-        json!({
-            "worktree": worktree,
-            "board": board,
-            "link": format!("/design/bae/scratch/{worktree}/{board}"),
-        })
+    let entry = |worktree: &str, board: &str| ScratchBoard::Named {
+        worktree: worktree.to_string(),
+        board: board.to_string(),
+        link: format!("/design/bae/scratch/{worktree}/{board}"),
     };
     let list = scratch_list("bae", &main).unwrap();
     assert_eq!(list.len(), 4, "{list:?}");
@@ -212,14 +210,11 @@ fn the_scratch_list_names_each_scratch_board_of_each_worktree_of_the_repo() {
         list[..2],
         [entry("main", "scratch.a"), entry("main", "scratch.b")]
     );
-    assert_eq!(list[2]["file"], json!("scratch.x y.dc.html"));
-    assert!(
-        list[2]["error"]
-            .as_str()
-            .unwrap()
-            .contains("\"scratch.x y\" is no board"),
-        "{list:?}"
-    );
+    let ScratchBoard::Unnamed { file, error, .. } = &list[2] else {
+        panic!("{list:?}");
+    };
+    assert_eq!(file, "scratch.x y.dc.html");
+    assert!(error.contains("\"scratch.x y\" is no board"), "{list:?}");
     assert_eq!(list[3], entry("side-1", "scratch.rows"));
     // A review page lists its change's worktree alone, named by its folder
     // through any link, and refuses a folder that is no worktree of the repo.

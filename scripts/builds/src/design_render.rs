@@ -435,7 +435,7 @@ pub fn review_page(
     design: &DesignChange,
     view: &DesignView,
     project: &str,
-    scratch: &Value,
+    scratch: Option<&crate::daemon::scratch_view::Scratch>,
 ) -> Result<String> {
     let section = design.review.as_ref().map(|section| {
         let boards: Vec<Value> = section
@@ -487,7 +487,7 @@ pub fn review_page(
     data["section"] = section.unwrap_or(Value::Null);
     data["others"] = Value::Array(others);
     data["deleted"] = Value::Array(deleted);
-    data["scratch"] = scratch.clone();
+    data["scratch"] = serde_json::to_value(scratch).expect("the scratch boards serialize");
     Ok(fill(
         REVIEW_PAGE,
         &[

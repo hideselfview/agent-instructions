@@ -1032,29 +1032,89 @@ fn repo_stats(conn: &Connection, repo: &str, since: i64, path: &Path) -> Result<
     })
 }
 
-/// The dashboard's JSON for the project store at <path>, over the
-/// `WINDOW_SECONDS` before <now>: `{"window_seconds", "repos": [...]}`, or
-/// `{"error"}` when the database can't be read.
-pub fn dashboard_json(path: &Path, now: i64) -> serde_json::Value {
+/// What the dashboard's page reads of the app builds' timing: the window and
+/// each repo's figures, or why the database can't be read.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(untagged, deny_unknown_fields)]
+pub enum AppBuilds {
+    Failed {
+        error: String,
+    },
+    Read {
+        window_seconds: i64,
+        repos: Vec<RepoFigures>,
+    },
+}
+
+/// One repo's app builds, lane by lane.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RepoFigures {
+    pub repo: String,
+    pub lanes: Vec<LaneFigures>,
+}
+
+/// One lane's waits and steps.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LaneFigures {
+    pub lane: String,
+    pub runs: u32,
+    pub median_wait_ms: u64,
+    pub waits_ms: Vec<u64>,
+    pub steps: Vec<StepFigures>,
+}
+
+/// One step's figures.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StepFigures {
+    pub name: String,
+    pub kind: String,
+    pub ran: u32,
+    pub median_ms: u64,
+    pub slowest_ms: u64,
+    pub total_ms: u64,
+}
+
+/// The dashboard's app builds figures for the project store at <path>, over
+/// the `WINDOW_SECONDS` before <now>.
+pub fn dashboard_figures(path: &Path, now: i64) -> AppBuilds {
     match stats(path, now - WINDOW_SECONDS) {
-        Err(error) => serde_json::json!({ "error": error.text() }),
-        Ok(repos) => serde_json::json!({
-            "window_seconds": WINDOW_SECONDS,
-            "repos": repos.iter().map(|repo| serde_json::json!({
-                "repo": repo.repo,
-                "lanes": repo.lanes.iter().map(|l| serde_json::json!({
-                    "lane": l.lane.word(),
-                    "runs": l.runs,
-                    "median_wait_ms": l.median_wait_ms,
-                    "waits_ms": l.waits_ms,
-                    "steps": l.steps.iter().map(|s| serde_json::json!({
-                        "name": s.name, "kind": s.kind.word(), "ran": s.ran,
-                        "median_ms": s.median_ms, "slowest_ms": s.slowest_ms,
-                        "total_ms": s.total_ms,
-                    })).collect::<Vec<_>>(),
-                })).collect::<Vec<_>>(),
-            })).collect::<Vec<_>>(),
-        }),
+        Err(error) => AppBuilds::Failed {
+            error: error.text(),
+        },
+        Ok(repos) => AppBuilds::Read {
+            window_seconds: WINDOW_SECONDS,
+            repos: repos
+                .iter()
+                .map(|repo| RepoFigures {
+                    repo: repo.repo.clone(),
+                    lanes: repo
+                        .lanes
+                        .iter()
+                        .map(|l| LaneFigures {
+                            lane: l.lane.word().to_string(),
+                            runs: l.runs,
+                            median_wait_ms: l.median_wait_ms,
+                            waits_ms: l.waits_ms.clone(),
+                            steps: l
+                                .steps
+                                .iter()
+                                .map(|s| StepFigures {
+                                    name: s.name.clone(),
+                                    kind: s.kind.word().to_string(),
+                                    ran: s.ran,
+                                    median_ms: s.median_ms,
+                                    slowest_ms: s.slowest_ms,
+                                    total_ms: s.total_ms,
+                                })
+                                .collect(),
+                        })
+                        .collect(),
+                })
+                .collect(),
+        },
     }
 }
 

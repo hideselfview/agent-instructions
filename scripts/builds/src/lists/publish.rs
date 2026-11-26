@@ -12,7 +12,7 @@
 //! writes them. The listener's token is a per-session secret (inbox.rs).
 
 use rusqlite::{Connection, OptionalExtension, params};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::db::Sql;
 use crate::fail;
@@ -23,7 +23,7 @@ use crate::lists::store::Store;
 
 /// A request to publish the project's designs from one commit, as the
 /// dashboard shows it.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Request {
     pub id: i64,
     /// The full id of the commit to publish.
@@ -36,7 +36,7 @@ pub struct Request {
 }
 
 /// What builds knows about the notification while a request awaits pickup.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Delivery {
     Unconfirmed,
@@ -68,7 +68,7 @@ impl rusqlite::types::FromSql for Delivery {
 }
 
 /// One artifact a request published to.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Link {
     pub title: String,
     pub url: String,
@@ -91,7 +91,7 @@ impl Link {
 }
 
 /// How a request ended.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "lowercase")]
 pub enum Ended {
     /// The session published the commit to these artifacts, in the order it
@@ -202,7 +202,7 @@ fn request(db: &Connection, id: i64) -> Result<Request> {
 }
 
 /// What the dashboard shows of the project's publishing: the newest request.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Standing {
     pub latest: Option<Request>,
 }
