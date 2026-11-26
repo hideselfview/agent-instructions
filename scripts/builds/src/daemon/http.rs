@@ -485,7 +485,7 @@ fn pages_route(
             &mut stream,
             "200 OK",
             "text/html; charset=utf-8",
-            PAGE.as_bytes(),
+            pages.page().as_bytes(),
         ),
         "/api/state" => json(
             &mut stream,

@@ -3229,8 +3229,12 @@ STATUS, HEALTH AND THE DASHBOARD
                               page's frames, which are empty pages) from
                               the `stage` part of <folder>/<shot>.json in
                               place of the daemon's data, answers a POST
-                              with 405, and ends when its stdin closes. It
-                              reads the state, the lists, the hooks and the
+                              with 405, and ends when its stdin closes. The
+                              part also gives `now`, in seconds since 1970:
+                              the clock of the staged page and of its
+                              Designs page stands at that time and reads in
+                              UTC, so every shot of a fixture words each age
+                              and time of day the same. It reads the state, the lists, the hooks and the
                               Designs data as the types the daemon sends, so
                               a fixture of the wrong shape stops it with an
                               error before it prints an address. It reads no

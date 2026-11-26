@@ -6,6 +6,10 @@
 //!   and the Designs data of one shot. `builds dashboard stage` serves it
 //!   (stage.rs).
 //!
+//! A fixture also states the time its page shows (`now`), which stands still
+//! in the staged page (stage_clock.js), so the ages and times it words do not
+//! change from one shot to the next.
+//!
 //! A fixture reads each answer into the type the daemon sends, so a fixture
 //! that no longer fits its type fails when it loads, not as a page the daemon
 //! would never send.
@@ -16,7 +20,7 @@ use std::sync::Arc;
 use serde::Deserialize;
 
 use super::designs::{DesignsData, fill_page};
-use super::http::DesignsRoute;
+use super::http::{DesignsRoute, PAGE};
 use super::lists::Served;
 use super::model::{Model, Page};
 use crate::fail::{Context, Result};
@@ -25,6 +29,8 @@ use crate::hook_stats::Hooks;
 /// The data behind the routes `/`, `/api/state`, `/api/lists`, `/api/hooks`,
 /// `/events` and `/designs/...`.
 pub trait Pages: Send + Sync {
+    /// The dashboard's page, which `/` answers.
+    fn page(&self) -> &str;
     /// The state the page shows, with the version that `wait_change` waits
     /// past.
     fn state(&self) -> Result<Page>;
@@ -43,6 +49,10 @@ pub trait Pages: Send + Sync {
 }
 
 impl Pages for Model {
+    fn page(&self) -> &str {
+        &PAGE
+    }
+
     fn state(&self) -> Result<Page> {
         self.page()
     }
@@ -94,6 +104,8 @@ struct FixtureFile {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Answers {
+    /// The time the page shows, in seconds since 1970.
+    now: i64,
     state: Page,
     lists: Served,
     hooks: Hooks,
@@ -106,11 +118,16 @@ struct Answers {
 /// answers, held as the text the page gets, because the routes send them
 /// again on every request.
 pub struct Fixture {
+    now: i64,
+    page: String,
     state: String,
     lists: Arc<String>,
     hooks: Arc<String>,
     designs: Option<DesignsData>,
 }
+
+/// The script that holds a staged page's clock.
+const STAGE_CLOCK: &str = include_str!("stage_clock.js");
 
 /// The page that a frame of the Designs page loads: nothing, so that what a
 /// board or a component draws never differs between a shot and its board.
@@ -131,12 +148,15 @@ impl Fixture {
             )
         })?;
         let Answers {
+            now,
             state,
             lists,
             hooks,
             designs,
         } = file.stage;
         Ok(Fixture {
+            now,
+            page: at_time(&PAGE, now),
             state: serde_json::to_string(&state).expect("the state serializes"),
             lists: Arc::new(serde_json::to_string(&lists).expect("the lists serialize")),
             hooks: Arc::new(serde_json::to_string(&hooks).expect("the hooks serialize")),
@@ -145,7 +165,21 @@ impl Fixture {
     }
 }
 
+/// <page> with its clock standing at <now>, from before its first script.
+fn at_time(page: &str, now: i64) -> String {
+    const CHARSET: &str = "<meta charset=\"utf-8\">\n";
+    let (head, rest) = page
+        .split_once(CHARSET)
+        .expect("each page of the dashboard names its charset");
+    let clock = crate::design_render::fill(STAGE_CLOCK, &[("NOW", &now.to_string())]);
+    format!("{head}{CHARSET}<script>\n{clock}</script>\n{rest}")
+}
+
 impl Pages for Fixture {
+    fn page(&self) -> &str {
+        &self.page
+    }
+
     fn state(&self) -> Result<Page> {
         Ok(serde_json::from_str(&self.state).expect("the state read back as it was written"))
     }
@@ -162,7 +196,7 @@ impl Pages for Fixture {
         let designs = self.designs.as_ref()?;
         match *route {
             DesignsRoute::Page(project) if project == designs.project => {
-                Some(Ok(fill_page(designs)))
+                Some(Ok(at_time(&fill_page(designs), self.now)))
             }
             DesignsRoute::Board(project, ..)
             | DesignsRoute::Component(project, ..)

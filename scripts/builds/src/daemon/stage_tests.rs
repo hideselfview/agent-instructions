@@ -99,6 +99,7 @@ fn hooks() -> Value {
 
 fn answers() -> Value {
     json!({
+        "now": 1_700_000_100,
         "state": state(),
         "lists": { "projects": [] },
         "hooks": hooks(),
@@ -154,13 +155,18 @@ fn answer(port: u16, method: &str, path: &str) -> (u16, String) {
 }
 
 #[test]
-fn the_staged_page_is_the_page_the_daemon_serves() {
+fn the_staged_page_is_the_daemons_page_with_its_clock_at_the_fixtures_time() {
     let scratch = Scratch::new("stage-page");
     let port = staged(&fixture(&scratch, answers()));
     let (status, body) = answer(port, "GET", "/");
     assert_eq!(status, 200);
     assert!(body.contains("<title>"), "{body}");
-    assert_eq!(body, **crate::daemon::http::PAGE);
+    let (before, from_clock) = body
+        .split_once("<script>\n// A staged page's clock")
+        .unwrap();
+    let (clock, after) = from_clock.split_once("</script>\n").unwrap();
+    assert_eq!(format!("{before}{after}"), **crate::daemon::http::PAGE);
+    assert!(clock.contains("const now = 1700000100 * 1000;"), "{clock}");
 }
 
 #[test]
@@ -204,6 +210,7 @@ fn the_staged_designs_page_fills_the_fixtures_data_and_its_frames_are_empty() {
     assert_eq!(status, 200);
     assert!(body.contains("Page one"), "{body}");
     assert!(body.contains(COMMIT), "{body}");
+    assert!(body.contains("const now = 1700000100 * 1000;"), "{body}");
     let (status, frame) = answer(port, "GET", &format!("/designs/demo/{COMMIT}/board/A"));
     assert_eq!(status, 200);
     assert!(frame.contains("<body></body>"), "{frame}");
@@ -240,6 +247,9 @@ fn a_fixture_of_the_wrong_shape_fails_to_load() {
             "{answer} of the wrong shape loads"
         );
     }
+    let mut timeless = answers();
+    timeless.as_object_mut().unwrap().remove("now");
+    assert!(Fixture::load(&fixture(&scratch, timeless), "web.demo.page").is_err());
     let mut extra = answers();
     extra["views"] = json!([]);
     assert!(Fixture::load(&fixture(&scratch, extra), "web.demo.page").is_err());
