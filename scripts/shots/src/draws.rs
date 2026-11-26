@@ -24,10 +24,10 @@
 use crate::design::{self, DesignSystem};
 use crate::names::{Name, Platform, Previews};
 use crate::pictures::Pictures;
+use crate::render::Drawer;
 use crate::render::serve::Tree;
 use crate::render::{self, board, preview, runtime};
 use crate::settings::Settings;
-use crate::verify::Drawer;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 

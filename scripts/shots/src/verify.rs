@@ -252,7 +252,7 @@ pub(crate) fn verify(job: &Verification) -> Result<Outcome, String> {
         &job.checker.versions.capture,
         job.settings,
     )?;
-    Drawer {
+    render::Drawer {
         tree,
         settings: job.settings,
         previews: &previews,
@@ -297,74 +297,6 @@ pub(crate) fn verify(job: &Verification) -> Result<Outcome, String> {
         failed: job.failed.to_vec(),
         components,
     })
-}
-
-/// What draws a board: the design tree it is served from, the repo's settings
-/// and previews, and the folders of the browser that draws it.
-pub(crate) struct Drawer<'a> {
-    pub(crate) tree: Tree<'a>,
-    pub(crate) settings: &'a Settings,
-    pub(crate) previews: &'a Previews,
-    pub(crate) folders: &'a boards::Folders,
-}
-
-impl Drawer<'_> {
-    /// Puts into <out> the picture and element list of each board of
-    /// <hashes>: the ones <pictures> keeps for its hash, and a drawing of
-    /// each other board at its scale in <scales>, which it keeps there. With
-    /// no picture folder, it draws every board.
-    pub(crate) fn boards_into(
-        &self,
-        pictures: Option<&Pictures>,
-        hashes: &BTreeMap<Name, String>,
-        scales: &render::Scales,
-        out: &Path,
-    ) -> Result<(), String> {
-        let names: Vec<Name> = hashes.keys().cloned().collect();
-        let to_draw = take_pictures(pictures, hashes, &names, out)?;
-        render::boards(
-            self.tree,
-            self.settings,
-            self.previews,
-            self.folders,
-            &to_draw,
-            scales,
-            out,
-        )?;
-        if let Some(pictures) = pictures {
-            for name in &to_draw {
-                pictures.keep_board(&hashes[name], &name.to_string(), out)?;
-            }
-        }
-        Ok(())
-    }
-}
-
-/// Copies into <boards> the picture <pictures> keeps for the hash of each
-/// of <names>, and returns the names whose board it keeps none of, which the
-/// run draws. With no picture folder, the run draws every board.
-pub(crate) fn take_pictures(
-    pictures: Option<&Pictures>,
-    hashes: &BTreeMap<Name, String>,
-    names: &[Name],
-    boards: &Path,
-) -> Result<Vec<Name>, String> {
-    let Some(pictures) = pictures else {
-        return Ok(names.to_vec());
-    };
-    let mut to_draw = Vec::new();
-    for name in names {
-        if !pictures.take_board(&hashes[name], &name.to_string(), boards)? {
-            to_draw.push(name.clone());
-        }
-    }
-    crate::log::note(format_args!(
-        "took {} of {} boards from the picture folder; drawing {}",
-        names.len() - to_draw.len(),
-        names.len(),
-        to_draw.len()
-    ));
-    Ok(to_draw)
 }
 
 fn hashed_all(declared: &[Declared]) -> Vec<Name> {

@@ -13,10 +13,12 @@ pub(crate) mod slots;
 pub(crate) mod web_fonts;
 
 use crate::design::{self, DesignSystem};
-use crate::names::{self, Name};
+use crate::names::{self, Name, Previews};
+use crate::pictures::Pictures;
 use crate::settings::Settings;
 use crate::shots::{ElementList, Size};
 use serve::Tree;
+use std::collections::BTreeMap;
 use std::path::Path;
 
 /// The pixels per point each board is drawn at: the scale of the shot it is
@@ -143,6 +145,74 @@ pub(crate) fn with_design<T>(
     })
 }
 
+/// What draws a board: the design tree it is served from, the repo's settings
+/// and previews, and the folders of the browser that draws it.
+pub(crate) struct Drawer<'a> {
+    pub(crate) tree: Tree<'a>,
+    pub(crate) settings: &'a Settings,
+    pub(crate) previews: &'a Previews,
+    pub(crate) folders: &'a boards::Folders,
+}
+
+impl Drawer<'_> {
+    /// Puts into <out> the picture and element list of each board of
+    /// <hashes>: the ones <pictures> keeps for its hash, and a drawing of
+    /// each other board at its scale in <scales>, which it keeps there. With
+    /// no picture folder, it draws every board.
+    pub(crate) fn boards_into(
+        &self,
+        pictures: Option<&Pictures>,
+        hashes: &BTreeMap<Name, String>,
+        scales: &Scales,
+        out: &Path,
+    ) -> Result<(), String> {
+        let names: Vec<Name> = hashes.keys().cloned().collect();
+        let to_draw = take_pictures(pictures, hashes, &names, out)?;
+        boards(
+            self.tree,
+            self.settings,
+            self.previews,
+            self.folders,
+            &to_draw,
+            scales,
+            out,
+        )?;
+        if let Some(pictures) = pictures {
+            for name in &to_draw {
+                pictures.keep_board(&hashes[name], &name.to_string(), out)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Copies into <boards> the picture <pictures> keeps for the hash of each
+/// of <names>, and returns the names whose board it keeps none of, which the
+/// run draws. With no picture folder, the run draws every board.
+pub(crate) fn take_pictures(
+    pictures: Option<&Pictures>,
+    hashes: &BTreeMap<Name, String>,
+    names: &[Name],
+    boards: &Path,
+) -> Result<Vec<Name>, String> {
+    let Some(pictures) = pictures else {
+        return Ok(names.to_vec());
+    };
+    let mut to_draw = Vec::new();
+    for name in names {
+        if !pictures.take_board(&hashes[name], &name.to_string(), boards)? {
+            to_draw.push(name.clone());
+        }
+    }
+    crate::log::note(format_args!(
+        "took {} of {} boards from the picture folder; drawing {}",
+        names.len() - to_draw.len(),
+        names.len(),
+        to_draw.len()
+    ));
+    Ok(to_draw)
+}
+
 /// One board drawn: its picture, size and elements.
 pub(crate) struct Drawn {
     pub(crate) png: Vec<u8>,
@@ -263,3 +333,7 @@ async fn draw_component(
     .await
     .map_err(|e| e.to_string())
 }
+
+#[cfg(test)]
+#[path = "render_tests.rs"]
+mod tests;
