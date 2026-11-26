@@ -65,6 +65,14 @@
    "y": 4500,
    "w": 1440,
    "h": 1000
+  },
+  "dashboard.designs-scratch.dc.html": {
+   "page": "dashboard",
+   "title": "A project's scratch boards",
+   "x": 0,
+   "y": 5700,
+   "w": 1440,
+   "h": 480
   }
  }
 }
