@@ -284,9 +284,7 @@ building it.
 bae's pre-commit hook runs coven's typed lints in clippy. Their read-rule lints
 (`clippy::read_sort`, `clippy::read_filter`, `clippy::read_query_per_row`,
 `clippy::read_kept_state` and the rest, one for each shape) refuse the shapes
-they can see in Rust read code. The `read_shapes` table of
-`owner-construction-check.toml` tells the lints which types are reads, live
-queries and kept state. Each finding bae keeps today carries an
+they can see in Rust read code. Each finding bae keeps today carries an
 `#[expect(clippy::read_<shape>, reason = "...")]` on the narrowest item that
 takes one, a statement where it can. A mark whose reason starts with "kept
 finding" is a violation not yet fixed, never permission: a change to that code
