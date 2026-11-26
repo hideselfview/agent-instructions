@@ -12,7 +12,7 @@ use crate::render::runtime;
 use crate::render::serve::Tree;
 use crate::render::{board, chrome, preview, read, serve};
 use crate::settings::Settings;
-use crate::shots::{Bounds, Element, ElementList, Size};
+use crate::shots::{Element, ElementList, Size};
 use boards::runtime::RuntimeCopy;
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -198,12 +198,7 @@ pub(crate) async fn draw(
             let (png, frame) = match page {
                 Page::Board(_, frame) => (
                     board::screenshot(tab).await.map_err(|e| e.to_string())?,
-                    Bounds {
-                        x: 0.0,
-                        y: 0.0,
-                        width: f64::from(frame.w),
-                        height: f64::from(frame.h),
-                    },
+                    board::frame_bounds(frame),
                 ),
                 Page::Preview(_) => {
                     let rendered = preview::capture(tab, preview::CaptureArea::Page)

@@ -220,13 +220,18 @@ pub(crate) async fn render(
     let png = screenshot(page).await?;
     Ok(Rendered {
         png,
-        frame: Bounds {
-            x: 0.0,
-            y: 0.0,
-            width: f64::from(frame.w),
-            height: f64::from(frame.h),
-        },
+        frame: frame_bounds(frame),
     })
+}
+
+/// The rectangle a board of <frame> points covers, from its top-left corner.
+pub(crate) fn frame_bounds(frame: Frame) -> Bounds {
+    Bounds {
+        x: 0.0,
+        y: 0.0,
+        width: f64::from(frame.w),
+        height: f64::from(frame.h),
+    }
 }
 
 /// The picture of the page `load` drew: the compositor's latest frame.
