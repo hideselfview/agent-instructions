@@ -158,7 +158,7 @@ pub fn shell_line(command: &[String]) -> String {
 /// host's display neither sleeps nor locks during a step that opens windows
 /// (host_screen_lock.rs). Another lane's <command> stays as it is.
 pub fn keeping_display_on(lane: Lane, command: &[String]) -> Vec<String> {
-    if !lane.uses_xcode() {
+    if !crate::app_platform::of(lane.platform()).opens_windows() {
         return command.to_vec();
     }
     ["/usr/bin/caffeinate", "-d", "-u"]

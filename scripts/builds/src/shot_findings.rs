@@ -6,7 +6,7 @@
 //! commit's findings reads what an earlier run printed.
 //!
 //! A run is cached under the repo, the full commit id, the platform, the
-//! environment it was made in (shots_environment.rs), the prefix the run was
+//! environment it was made in (app_platform.rs), the prefix the run was
 //! given and the two versions of the shots checker (`VERSIONS` in
 //! shots_program.rs: hashes of its capture and comparison sources, which each
 //! run's findings.json names). A run by another capture version has another

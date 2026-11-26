@@ -56,7 +56,7 @@
 //!
 //! A lane reads the environment that draws its shots (the macOS and Xcode
 //! builds on a Mac, the OS and architecture for android) from the host of the
-//! checkout it holds (shots_environment.rs). That environment keys the runs it
+//! checkout it holds (app_platform.rs). That environment keys the runs it
 //! caches and the pictures it takes, and a shots run compares only with a run
 //! made in the same environment.
 //!
@@ -284,7 +284,7 @@ pub const ALL_SHOTS: &str = "--all-shots";
 /// The pick of <lane>'s full set of shots: the run of the lane's `shots` line
 /// with the prefix every shot of the lane starts with.
 pub fn all_shots(lane: Lane) -> Pick {
-    Pick::Shots(lane, shots::Prefix::all_of(lane.shots_platform()))
+    Pick::Shots(lane, shots::Prefix::all_of(lane.platform()))
 }
 
 /// The pick of the `--all-shots <lane>` flag whose words after the flag are
@@ -1287,7 +1287,7 @@ struct ShotsCache {
     versions: crate::shots_program::Versions,
     /// What each shots prefix of the lane compares with, by its prefix.
     befores: Vec<(String, Compared)>,
-    /// The host software that draws the lane's shots (shots_environment.rs),
+    /// The host software that draws the lane's shots (app_platform.rs),
     /// which keys the runs this store caches and compares with.
     environment: String,
     /// The id that keys the shots the app takes in the picture folder: the
@@ -2332,7 +2332,7 @@ impl<'a> LaneBuild<'a> {
             results,
             shots,
             programs: self.programs,
-            watch: self.lane.uses_xcode(),
+            watch: crate::app_platform::of(self.lane.platform()).builds_with_xcode(),
         };
         let results = config.results_of(self.lane);
         let ran = (|| {

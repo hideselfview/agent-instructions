@@ -86,7 +86,7 @@ impl Pictures {
 /// its run finished.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ShotsUse {
-    /// The host software that drew the step's shots (shots_environment.rs).
+    /// The host software that drew the step's shots (app_platform.rs).
     pub environment: String,
     pub base_run: BaseRun,
     pub pictures: Option<Pictures>,

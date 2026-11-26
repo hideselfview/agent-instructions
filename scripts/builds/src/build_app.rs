@@ -25,6 +25,7 @@ use std::time::Duration;
 use crate::app_build::{config_at, place_of};
 use crate::app_config::{CONFIG, Config, MacApp, Step, run_command};
 use crate::app_lock_guard::CheckoutLock;
+use crate::app_platform::{self, Install};
 use crate::app_site::Site;
 use crate::fail;
 use crate::fail::{Context, Result};
@@ -39,26 +40,31 @@ const USAGE: &str = "usage: builds build-app <repo> mac|android [<ref>]";
 const QUIT_CHECKS: u32 = 60;
 const QUIT_CHECK_EVERY: Duration = Duration::from_millis(500);
 
+/// The lane `build-app` builds and what it does with the built app, which
+/// the lane's platform names (app_platform.rs).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Platform {
-    Mac,
-    Android,
+struct Target {
+    lane: Lane,
+    install: Install,
 }
 
-impl Platform {
-    fn parse(word: &str) -> Result<Platform> {
-        match word {
-            "mac" => Ok(Platform::Mac),
-            "android" => Ok(Platform::Android),
-            _ => fail!("{USAGE}"),
+impl Target {
+    fn parse(word: &str) -> Result<Target> {
+        match Lane::parse(word) {
+            Some(lane) => Target::of(lane),
+            None => fail!("{USAGE}"),
+        }
+    }
+
+    fn of(lane: Lane) -> Result<Target> {
+        match app_platform::of(lane.platform()).install() {
+            Some(install) => Ok(Target { lane, install }),
+            None => fail!("{} has no build-app", lane.word()),
         }
     }
 
     fn lane(self) -> Lane {
-        match self {
-            Platform::Mac => Lane::Mac,
-            Platform::Android => Lane::Android,
-        }
+        self.lane
     }
 
     /// Which of the lane's checkouts the build may take: the Mac build, on
@@ -67,8 +73,8 @@ impl Platform {
     /// as the signed app); the Android build installs the app on the device
     /// of the Mac it runs on.
     fn allowed(self, config: &Config) -> Result<Where> {
-        match self {
-            Platform::Mac => {
+        match self.install {
+            Install::CopiedApp => {
                 let build = self.build(config)?;
                 let named: Vec<Step> = config
                     .steps
@@ -78,21 +84,18 @@ impl Platform {
                     .collect();
                 Ok(place_of(&named))
             }
-            Platform::Android => Ok(Where::Here),
+            Install::OnDevice => Ok(Where::Here),
         }
     }
 
     fn word(self) -> &'static str {
-        match self {
-            Platform::Mac => "mac",
-            Platform::Android => "android",
-        }
+        self.lane.word()
     }
 
     fn build(self, config: &Config) -> Result<&[String]> {
-        let build = match self {
-            Platform::Mac => config.mac.as_ref().map(|mac| &mac.build[..]),
-            Platform::Android => config.android.as_ref().map(|android| &android.build[..]),
+        let build = match self.install {
+            Install::CopiedApp => config.mac.as_ref().map(|mac| &mac.build[..]),
+            Install::OnDevice => config.android.as_ref().map(|android| &android.build[..]),
         };
         match build {
             Some(build) => Ok(build),
@@ -200,11 +203,11 @@ fn quit(bundle: &str, app: &Path) -> Result<()> {
 /// app checkout's own `main` can lag behind it.
 const DEFAULT_REF: &str = "origin/main";
 
-fn parse_args(args: &[String]) -> Result<(&String, Platform, &str)> {
+fn parse_args(args: &[String]) -> Result<(&String, Target, &str)> {
     match args {
-        [repo, platform] => Ok((repo, Platform::parse(platform)?, DEFAULT_REF)),
+        [repo, platform] => Ok((repo, Target::parse(platform)?, DEFAULT_REF)),
         [repo, platform, commit] if !commit.starts_with('-') => {
-            Ok((repo, Platform::parse(platform)?, commit.as_str()))
+            Ok((repo, Target::parse(platform)?, commit.as_str()))
         }
         _ => fail!("{USAGE}"),
     }
@@ -295,7 +298,10 @@ fn build_app(tool: &Tool, args: &[String]) -> Result<()> {
         lock::refuse_when_stopped(&format!("built {commit}'s {} app", platform.word()))?;
         match ran? {
             Within::Ran(lock::Ran::Finished) => {
-                let Some(mac) = config.mac.filter(|_| platform == Platform::Mac) else {
+                let Some(mac) = config
+                    .mac
+                    .filter(|_| platform.install == Install::CopiedApp)
+                else {
                     drop(site);
                     held.release();
                     return Ok(());

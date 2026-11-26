@@ -5,7 +5,7 @@
 -- kept these facts, has no row.
 
 -- One row per shots step. `environment` is the host software that drew the
--- step's shots (shots_environment.rs). `base_run` says whether the run of the
+-- step's shots (app_platform.rs). `base_run` says whether the run of the
 -- merge base that the step compares with was already saved when the build
 -- looked for it (`saved`), had to be built in the build's turn (`built`), or
 -- was not needed: the commit is on origin/main, or the step's prefix starts

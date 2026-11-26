@@ -108,7 +108,7 @@ fn is_at(path: &str, input: &str) -> bool {
 }
 
 /// The id that keys <tree>'s shots in the picture folder for a shots run made
-/// in <environment> (shots_environment.rs): 16 hex digits of the two together.
+/// in <environment> (app_platform.rs): 16 hex digits of the two together.
 /// builds passes it to the shots program as the app tree, so the one id means
 /// everything that draws the shots, the app's source and the host software,
 /// and a shot cached in one environment is never reused in another.

@@ -61,24 +61,15 @@ impl Lane {
         }
     }
 
-    /// Whether the lane builds with Xcode, so a host whose Xcode cannot start
-    /// (xcode.rs), or whose UI tests time out turning on automation mode
-    /// (ui_test_settings.rs), cannot build it.
-    pub fn uses_xcode(self) -> bool {
-        match self {
-            Lane::Mac => true,
-            Lane::Android => false,
-        }
-    }
-
     /// The shots prefix that every shot name of the lane starts with
     /// (`mac.`): the prefix of a run of the lane's full set of shots.
     pub fn all_shots_prefix(self) -> String {
         format!("{}.", self.word())
     }
 
-    /// The platform whose shots this lane builds.
-    pub fn shots_platform(self) -> boards::app_build::Platform {
+    /// The platform whose shots this lane builds, and whose row of the
+    /// platform table (app_platform.rs) holds the lane's facts about its host.
+    pub fn platform(self) -> boards::app_build::Platform {
         use boards::app_build::Platform;
         match self {
             Lane::Mac => Platform::Mac,

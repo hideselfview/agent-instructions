@@ -12,7 +12,7 @@
 //!                  pictures that page shows and findings.json
 //!
 //! <commit> is the full commit id the run built, <environment> the host
-//! software that drew the shots (shots_environment.rs), <prefix> the shot-name
+//! software that drew the shots (app_platform.rs), <prefix> the shot-name
 //! prefix it was given (`mac.` for a lane's every shot), <capture> the capture
 //! version of the shots program that took the shots and drew the boards, and
 //! <comparison> the comparison version of the program that compared them
@@ -115,7 +115,7 @@ pub struct Key {
     /// The full commit id.
     pub commit: String,
     pub lane: Lane,
-    /// The host software that drew the run's shots (shots_environment.rs).
+    /// The host software that drew the run's shots (app_platform.rs).
     pub environment: String,
     pub prefix: String,
     /// The versions of the shots program that made the run's shots and board
@@ -311,7 +311,7 @@ pub struct CaptureQuery {
 }
 
 pub(super) fn app_picture_tree(places: &Places, repo: &str, lane: Lane, tree: &str) -> PathBuf {
-    shots::app_picture_tree(&pictures(places, repo), lane.shots_platform(), tree)
+    shots::app_picture_tree(&pictures(places, repo), lane.platform(), tree)
 }
 
 /// A new folder in the picture folder <pictures> for the pictures a run on a

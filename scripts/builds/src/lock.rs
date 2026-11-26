@@ -319,7 +319,9 @@ impl Held {
         else {
             return Ok(None);
         };
-        if !self.lane.uses_xcode() || host_name == host::LOCAL {
+        if !crate::app_platform::of(self.lane.platform()).opens_windows()
+            || host_name == host::LOCAL
+        {
             return Ok(Some(window));
         }
         let host = host::remote_named(&self.places, &self.checkout, host_name)?;
@@ -570,7 +572,7 @@ fn take_free_lock(
                 allowed.checkouts()
             );
         }
-        let broken = if lane.uses_xcode() {
+        let broken = if crate::app_platform::of(lane.platform()).builds_with_xcode() {
             host::refusing_mac_builds(places)?
         } else {
             Vec::new()

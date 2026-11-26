@@ -71,9 +71,10 @@ impl<'a> Site<'a> {
     }
 
     /// The environment <lane>'s shots are drawn in on the checkout's host
-    /// (shots_environment.rs), read from the host now.
+    /// (app_platform.rs), read from the host now.
     pub fn environment(&self, lane: Lane) -> Result<String> {
-        crate::shots_environment::read(lane, &mut |script, what| self.print_of(script, what))
+        crate::app_platform::of(lane.platform())
+            .environment(&mut |script, what| self.print_of(script, what))
     }
 
     /// Starts Chrome on the checkout's host with the build's programs

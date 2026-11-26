@@ -167,7 +167,7 @@ fn declared_at(top: &Path, commit: &str, lane: Option<Lane>) -> Result<Vec<shots
     let config = run_git(top, &["show", &format!("{commit}:{CONFIG}")])?;
     let folders = match lane {
         Some(lane) => {
-            let platform = lane.shots_platform();
+            let platform = lane.platform();
             let folder = boards::app_build::declared_folder(&config, platform)
                 .map_err(|error| Fail::Message(error.text()))?;
             let Some(folder) = folder else {
