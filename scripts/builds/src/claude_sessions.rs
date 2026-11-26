@@ -14,6 +14,9 @@ use crate::procs::Processes;
 pub struct Running {
     pub pid: i32,
     pub session_id: String,
+    /// The inbox socket the session binds, when it has one.
+    #[serde(default)]
+    pub messaging_socket: Option<String>,
 }
 
 /// The sessions of <dir> whose process <processes> lists. A record whose pid a
@@ -29,6 +32,8 @@ pub fn running(dir: &Path, processes: &Processes) -> Result<Vec<Running>, String
         /// Milliseconds since 1970.
         #[serde(rename = "startedAt")]
         started_at: i64,
+        #[serde(rename = "messagingSocketPath")]
+        messaging_socket_path: Option<String>,
     }
     let mut live = Vec::new();
     let entries = match std::fs::read_dir(dir) {
@@ -61,6 +66,7 @@ pub fn running(dir: &Path, processes: &Processes) -> Result<Vec<Running>, String
             live.push(Running {
                 pid: registered.pid,
                 session_id: registered.session_id,
+                messaging_socket: registered.messaging_socket_path,
             });
         }
     }

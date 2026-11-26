@@ -98,3 +98,31 @@ fn every_section_a_role_line_names_is_a_heading_of_the_workflow_page() {
         assert!(role.line("demo").contains(role.section()));
     }
 }
+
+#[test]
+fn a_resume_message_adds_the_new_items_the_land_command_and_the_trailer() {
+    let places = [Place {
+        worktree: "/w/side-3".into(),
+        branch: "work".into(),
+    }];
+    let new = [Item {
+        id: 9,
+        text: "#9 New item\n",
+    }];
+    let text = resume_message(
+        "demo",
+        "Take this next.\n",
+        &places,
+        &[7, 9],
+        &new,
+        "Co-Authored-By: X",
+    );
+    assert_eq!(
+        text,
+        "Take this next.\n\nYour worktree is /w/side-3, on branch work. Land it with `builds land /w/side-3 --done 7 --done 9 --project demo`.\n\n#9 New item\n\nEnd every commit message with this line:\nCo-Authored-By: X\n"
+    );
+    assert_eq!(
+        resume_message("demo", "Go on.", &places, &[7], &[], "T"),
+        "Go on.\n"
+    );
+}

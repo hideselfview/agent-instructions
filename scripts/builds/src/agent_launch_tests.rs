@@ -13,7 +13,11 @@ fn init(model: &str, tools: &[&str], mcp: usize, skills: &[&str]) -> Init {
 #[test]
 fn a_new_agent_gets_the_trimmed_flags_the_model_the_name_and_a_session_id() {
     assert_eq!(
-        arguments("claude-sonnet-5-5", "demo 7 implementing", "s1"),
+        arguments(
+            "claude-sonnet-5-5",
+            "demo 7 implementing",
+            Session::New("s1")
+        ),
         [
             "-p",
             "--strict-mcp-config",
@@ -32,6 +36,14 @@ fn a_new_agent_gets_the_trimmed_flags_the_model_the_name_and_a_session_id() {
             "s1",
         ]
     );
+}
+
+#[test]
+fn a_resumed_agent_gets_the_same_flags_and_resume_in_place_of_a_session_id() {
+    let new = arguments("m", "n", Session::New("s1"));
+    let resumed = arguments("m", "n", Session::Resume("s1"));
+    assert_eq!(new[..new.len() - 2], resumed[..resumed.len() - 2]);
+    assert_eq!(resumed[resumed.len() - 2..], ["--resume", "s1"]);
 }
 
 #[test]

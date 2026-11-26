@@ -25,12 +25,19 @@ pub const TOOLS: [&str; 8] = [
     "Write",
 ];
 
-/// The argument list of `claude` for a new agent of session <session> that runs
-/// <model>, named <name> in Claude Code's resume list. A planner and an implementing agent take the
+/// Whether the process is a new session or a session resumed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Session<'a> {
+    New(&'a str),
+    Resume(&'a str),
+}
+
+/// The argument list of `claude` for an agent that runs <model>, named <name>
+/// in Claude Code's resume list. A planner and an implementing agent take the
 /// same flags: no MCP server, no skill, the eight tools, no permission
 /// prompts, and the stream-json output builds reads. The prompt goes on
 /// standard input, so no `ps` line holds it.
-pub fn arguments(model: &str, name: &str, session: &str) -> Vec<String> {
+pub fn arguments(model: &str, name: &str, session: Session) -> Vec<String> {
     let mut arguments: Vec<String> = [
         "-p",
         "--strict-mcp-config",
@@ -54,7 +61,10 @@ pub fn arguments(model: &str, name: &str, session: &str) -> Vec<String> {
     );
     arguments.push(model.to_string());
     arguments.extend(["--name".to_string(), name.to_string()]);
-    arguments.extend(["--session-id".to_string(), session.to_string()]);
+    match session {
+        Session::New(id) => arguments.extend(["--session-id".to_string(), id.to_string()]),
+        Session::Resume(id) => arguments.extend(["--resume".to_string(), id.to_string()]),
+    }
     arguments
 }
 

@@ -322,3 +322,153 @@ fn plan_refuses_items_that_do_not_run_together_and_flags_that_do_not_fit_the_rol
     assert_eq!(single.places.len(), 1);
     assert_eq!(single.brief, brief);
 }
+
+/// Runs an agent on item 1 in a demo whose item 2 also runs in its worktree,
+/// and returns the demo with the agent's session id.
+fn ended_agent(name: &str) -> (Demo, String) {
+    let mut demo = project_demo(name);
+    let side = demo.add_side(1, "agent A", "work");
+    let brief = demo.brief("b.md");
+    take(&demo, &["1", "2"], &side, "work", &brief);
+    let init = init_line(TOOLS_JSON, "[]", "[]", "claude-sonnet-5-5");
+    fake_claude(&mut demo, &[&init, &turn(2, 100, 1000), RESULT], 0);
+    let (result, out) = run_command(&demo, &["--role", "implementing", "1"]);
+    result.unwrap();
+    let session = out
+        .split(':')
+        .next()
+        .unwrap()
+        .trim_start_matches("agent ")
+        .to_string();
+    (demo, session)
+}
+
+fn resume_command(demo: &Demo, args: &[&str]) -> (Result<()>, String) {
+    let mut out = Vec::new();
+    let result = resume(&demo.tool, &words(&args[1..]), &demo.scratch.dir, &mut out);
+    (result, String::from_utf8(out).unwrap())
+}
+
+fn record_running(demo: &Demo, session: &str, socket: &std::path::Path) {
+    let sessions = demo.tool.places.claude_sessions();
+    std::fs::create_dir_all(&sessions).unwrap();
+    let me = std::process::id();
+    std::fs::write(
+        sessions.join(format!("{me}.json")),
+        format!(
+            r#"{{"pid":{me},"sessionId":"{session}","startedAt":{},"messagingSocketPath":"{}"}}"#,
+            crate::job_claim::now_nanos() / 1_000_000,
+            socket.display()
+        ),
+    )
+    .unwrap();
+}
+
+fn message_file(demo: &Demo, text: &str) -> String {
+    let path = demo.scratch.dir.join("message.txt");
+    std::fs::write(&path, text).unwrap();
+    path.display().to_string()
+}
+
+#[test]
+fn resume_sends_the_message_and_the_new_items_to_the_inbox_of_a_running_session() {
+    let (demo, session) = ended_agent("ar-inbox");
+    let socket = demo.scratch.dir.join("s.sock");
+    let inbox = crate::testing::FakeInbox::listen(&socket);
+    record_running(&demo, &session, &socket);
+    let message = message_file(&demo, "Take item 2 next.\n");
+    let (result, out) = resume_command(
+        &demo,
+        &[
+            "resume",
+            &session,
+            "--item",
+            "2",
+            "--message-file",
+            &message,
+        ],
+    );
+    result.unwrap();
+    assert!(out.contains("reached its inbox"), "{out}");
+    let lines = inbox.received();
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    for part in [
+        "Take item 2 next.",
+        "#2 Do the second thing now",
+        "--done 1 --done 2",
+        "Co-Authored-By: Claude Sonnet 5.5",
+    ] {
+        assert!(lines[0].contains(part), "{part}: {}", lines[0]);
+    }
+    assert_eq!(
+        rows(&demo, "SELECT item FROM agent_item ORDER BY item"),
+        ["Integer(1)", "Integer(2)"]
+    );
+    assert_eq!(
+        rows(&demo, "SELECT number FROM agent_process"),
+        ["Integer(1)"]
+    );
+}
+
+#[test]
+fn resume_runs_claude_with_resume_when_no_session_runs_or_the_inbox_is_gone() {
+    for gone in [false, true] {
+        let (mut demo, session) = ended_agent(if gone { "ar-gone" } else { "ar-ended" });
+        if gone {
+            let socket = demo.scratch.dir.join("s.sock");
+            crate::testing::stale_socket(&socket);
+            record_running(&demo, &session, &socket);
+        }
+        let init = init_line(TOOLS_JSON, "[]", "[]", "claude-sonnet-5-5");
+        let dir = fake_claude(&mut demo, &[&init, RESULT], 0);
+        let message = message_file(&demo, "Go on.\n");
+        let (result, out) =
+            resume_command(&demo, &["resume", &session, "--message-file", &message]);
+        result.unwrap();
+        assert!(out.contains("Landed abc."), "{out}");
+        let args = std::fs::read_to_string(dir.join("args.txt")).unwrap();
+        let args: Vec<&str> = args.lines().collect();
+        assert_eq!(args[args.len() - 2..], ["--resume", session.as_str()]);
+        assert!(!args.contains(&"--session-id"));
+        assert!(
+            std::fs::read_to_string(dir.join("prompt.txt"))
+                .unwrap()
+                .contains("Go on.")
+        );
+        assert_eq!(
+            rows(
+                &demo,
+                "SELECT number, exit_status FROM agent_process ORDER BY number"
+            ),
+            ["Integer(1)|Integer(0)", "Integer(2)|Integer(0)"]
+        );
+    }
+}
+
+#[test]
+fn resume_refuses_nothing_to_say_an_unknown_agent_and_an_item_outside_the_worktree() {
+    let (demo, session) = ended_agent("ar-refuse");
+    let (nothing, _) = resume_command(&demo, &["resume", &session]);
+    assert!(
+        nothing
+            .unwrap_err()
+            .text()
+            .contains("--item N or --message-file F")
+    );
+    let message = message_file(&demo, "x");
+    let (unknown, _) = resume_command(&demo, &["resume", "nope", "--message-file", &message]);
+    assert!(
+        unknown
+            .unwrap_err()
+            .text()
+            .contains("records no agent nope")
+    );
+    add_item(&demo, "Do the third thing now");
+    let (outside, _) = resume_command(&demo, &["resume", &session, "--item", "3"]);
+    assert!(
+        outside
+            .unwrap_err()
+            .text()
+            .contains("does not run in the worktree")
+    );
+}

@@ -185,6 +185,19 @@ process ends.
       store with the agent's session, role, model, items and processes
       (agent, agent_item and agent_process). builds never stores whether an
       agent runs: it asks Claude Code's record of its running sessions.
+  builds agent resume SESSION [--item N]... [--message-file F] [--project P]
+      Gives the recorded agent SESSION a message: the words of --message-file,
+      then, for each --item, the worktree and land command, the item as
+      `builds item show` prints it and the commit trailer again. It needs at
+      least one of --item and --message-file. Each --item runs in the agent's
+      worktree (the coordinator takes it there first), or for a planner is an
+      open item no agent runs; builds adds it to the agent's record.
+      - When Claude Code's record of running sessions names SESSION, builds
+        sends the message to the session's inbox and exits at once.
+      - Otherwise, or when nothing listens at the inbox, builds runs `claude
+        -p --resume SESSION` with the flags of the agent's role and the
+        recorded model, in the agent's folder, appends to the agent's log,
+        records a new process, and runs until it ends, as `agent run` does.
 
 
 BUILD VOLUME

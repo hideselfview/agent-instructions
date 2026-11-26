@@ -1,7 +1,7 @@
 //! The agents `builds agent run` starts, in the project's store
 //! (agent_record.sql). This is the only code that writes those tables.
 
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::db::Sql;
 use crate::fail;
@@ -86,7 +86,7 @@ pub fn start(db: &Connection, agent: &Agent, process: &Process) -> Result<()> {
     )
     .sql()?;
     add_items(db, &agent.session, &agent.items)?;
-    add_process(db, &agent.session, process)
+    add_process(db, &agent.session, process).map(drop)
 }
 
 /// Records that <items> are among the items of <session>'s agent.
@@ -101,9 +101,9 @@ pub fn add_items(db: &Connection, session: &str, items: &[u32]) -> Result<()> {
     Ok(())
 }
 
-/// Records <process> as the next process of <session>'s agent. Its number is
-/// the one after the last.
-pub fn add_process(db: &Connection, session: &str, process: &Process) -> Result<()> {
+/// Records <process> as the next process of <session>'s agent and returns its
+/// number: the one after the last.
+pub fn add_process(db: &Connection, session: &str, process: &Process) -> Result<u32> {
     db.execute(
         "INSERT INTO agent_process (session, number, pid, pid_started, started_at, message) \
          VALUES (?1, (SELECT COALESCE(MAX(number), 0) + 1 FROM agent_process WHERE session = ?1), ?2, ?3, ?4, ?5)",
@@ -116,7 +116,12 @@ pub fn add_process(db: &Connection, session: &str, process: &Process) -> Result<
         ],
     )
     .sql()?;
-    Ok(())
+    db.query_row(
+        "SELECT MAX(number) FROM agent_process WHERE session = ?1",
+        [session],
+        |row| row.get(0),
+    )
+    .sql()
 }
 
 /// Records that process <number> of <session> ended at <at> with <status>.
@@ -156,6 +161,49 @@ pub fn set_context(
     )
     .sql()?;
     Ok(())
+}
+
+fn row_agent(row: &rusqlite::Row<'_>) -> rusqlite::Result<Agent> {
+    let role: String = row.get("role")?;
+    let tier: String = row.get("tier")?;
+    let worktree: Option<String> = row.get("worktree")?;
+    let branch: Option<String> = row.get("branch")?;
+    Ok(Agent {
+        session: row.get("session")?,
+        role: AgentRole::from_word(&role).expect("agent.role is checked"),
+        model: row.get("model")?,
+        tier: Tier::from_word(&tier).expect("agent.tier is checked"),
+        folder: row.get("folder")?,
+        brief: row.get("brief")?,
+        places: worktree.zip(branch).into_iter().collect(),
+        started_at: row.get("started_at")?,
+        started_by: row.get("started_by")?,
+        items: Vec::new(),
+    })
+}
+
+/// The agent of <session>, with its items, None when the store has none.
+pub fn read(db: &Connection, session: &str) -> Result<Option<Agent>> {
+    let found = db
+        .query_row(
+            "SELECT * FROM agent WHERE session = ?1",
+            [session],
+            row_agent,
+        )
+        .optional()
+        .sql()?;
+    let Some(mut agent) = found else {
+        return Ok(None);
+    };
+    let mut statement = db
+        .prepare("SELECT item FROM agent_item WHERE session = ?1 ORDER BY item")
+        .sql()?;
+    agent.items = statement
+        .query_map([session], |row| row.get(0))
+        .sql()?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .sql()?;
+    Ok(Some(agent))
 }
 
 #[cfg(test)]

@@ -1,6 +1,7 @@
-//! The opening prompt of an agent that `builds agent run` starts. builds
-//! writes it from what the store and the files hold: no template file
-//! exists, and the only text the code holds is each role's opening line.
+//! The opening prompt of an agent that `builds agent run` starts, and the
+//! message that `builds agent resume` adds items with. builds writes both
+//! from what the store and the files hold: no template file exists, and the
+//! only text the code holds is each role's opening line.
 
 use crate::agent_record::AgentRole;
 
@@ -132,6 +133,35 @@ impl Opening<'_> {
         parts.push(format!("Keep your scratch files in {}.", self.scratch));
         parts.join("\n\n") + "\n"
     }
+}
+
+/// The message that gives a resumed agent <message>, then, for each of the
+/// <new_items>, the worktrees with the land command for <all_ids>, the item
+/// text and the commit trailer again.
+pub fn resume_message(
+    project: &str,
+    message: &str,
+    place_list: &[Place],
+    all_ids: &[u32],
+    new_items: &[Item],
+    trailer_line: &str,
+) -> String {
+    let mut parts = vec![message.trim_end().to_string()];
+    if !new_items.is_empty() {
+        if !place_list.is_empty() {
+            parts.push(places(project, place_list, all_ids));
+        }
+        parts.push(
+            new_items
+                .iter()
+                .map(|item| item.text.trim_end().to_string())
+                .collect::<Vec<_>>()
+                .join("\n\n"),
+        );
+        parts.push(trailer(trailer_line));
+    }
+    parts.retain(|part| !part.is_empty());
+    parts.join("\n\n") + "\n"
 }
 
 #[cfg(test)]

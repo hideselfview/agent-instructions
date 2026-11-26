@@ -318,9 +318,10 @@ DISPATCH
     take their items together (`builds item take N M ...`) with one brief.
   - Give work to the agent that already knows the area: a finding goes back
     to the agent that reported it, and an item goes to the agent that last
-    finished work there. Send that agent a message to resume it. Start a new
-    agent only when no finished agent under the handoff size knows the area,
-    or the item needs a different model.
+    finished work there. Resume that agent with `builds agent resume`, which
+    sends the message or starts the agent again (`builds help`, AGENTS). Start
+    a new agent only when no finished agent under the handoff size knows the
+    area, or the item needs a different model.
   - Start each agent with `builds agent run`, which gives it the items, the
     brief whole, the project's hard limits (the `## Hard limits` section of
     projects/<project>.md) and the commit trailer of its model (`builds help`,

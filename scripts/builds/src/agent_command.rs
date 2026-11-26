@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 
 use rusqlite::TransactionBehavior;
 
-use crate::agent_launch::{self, Log};
+use crate::agent_launch::{self, Log, Session};
 use crate::agent_prompt::{Brief, Item, Opening, Place};
 use crate::agent_record::{self, Agent, AgentRole, Process};
 use crate::agent_stream::{Line, Report};
@@ -31,13 +31,16 @@ use crate::review::provider::Provider;
 use crate::text::note;
 use crate::tool::Tool;
 
-const USAGE: &str = "builds agent run --role implementing|planner N [M...] [--brief P] [--message-file F] [--project P] [--by WHO]";
+const USAGE: &str = "builds agent run --role implementing|planner N [M...] [--brief P] [--message-file F] [--project P] [--by WHO]\n       builds agent resume SESSION [--item N]... [--message-file F] [--project P]";
 
 /// `builds agent <command>`; `agent start`, the hook, is `ack::agent`'s.
 pub fn cmd_agent(tool: &Tool, args: &[String]) -> Result<()> {
     let cwd = current_dir()?;
     match args.split_first() {
         Some((command, rest)) if command == "run" => run(tool, rest, &cwd, &mut std::io::stdout()),
+        Some((command, rest)) if command == "resume" => {
+            resume(tool, rest, &cwd, &mut std::io::stdout())
+        }
         Some((command, _)) => fail!("builds agent has no command {command}\nusage: {USAGE}"),
         None => fail!("usage: {USAGE}"),
     }
@@ -276,9 +279,9 @@ fn run(tool: &Tool, args: &[String], cwd: &Path, out: &mut dyn Write) -> Result<
     .text();
     let item_words: Vec<String> = ids.iter().map(|id| id.0.to_string()).collect();
     let name = format!("{} {} {}", lists.project, item_words.join(" "), role.word());
-    let arguments = agent_launch::arguments(model, &name, &session);
+    let arguments = agent_launch::arguments(model, &name, Session::New(&session));
     let command = agent_launch::command(&tool.places.claude_program, &arguments, &folder);
-    let mut started = agent_launch::start(command, &prompt, Log::append(&made.log)?)?;
+    let started = agent_launch::start(command, &prompt, Log::append(&made.log)?)?;
     let pid = started.pid();
     let pid_started = crate::procs::Processes::read()
         .ok()
@@ -327,6 +330,21 @@ fn run(tool: &Tool, args: &[String], cwd: &Path, out: &mut dyn Write) -> Result<
         made.log.display()
     );
     let _ = out.flush();
+    drive(&store, &session, 1, model, started, out)
+}
+
+/// Reads the agent's stream until its process ends: checks what Claude Code
+/// started against <model>, records the context of each turn, then records
+/// the end of process <number>, prints the agent's last result whole and
+/// the exit status, and fails with the status when it is not 0.
+fn drive(
+    store: &Store,
+    session: &str,
+    number: u32,
+    model: &str,
+    mut started: agent_launch::Started,
+    out: &mut dyn Write,
+) -> Result<()> {
     let mut report: Option<Report> = None;
     let mut context: Option<u64> = None;
     let mut context_failed = false;
@@ -335,7 +353,7 @@ fn run(tool: &Tool, args: &[String], cwd: &Path, out: &mut dyn Write) -> Result<
             Line::Init(init) => agent_launch::check_init(model, &init)?,
             Line::Turn { context: tokens } => {
                 context = Some(tokens);
-                if let Err(error) = record_context(&store, &session, tokens, None)
+                if let Err(error) = record_context(store, session, tokens, None)
                     && !context_failed
                 {
                     context_failed = true;
@@ -354,9 +372,9 @@ fn run(tool: &Tool, args: &[String], cwd: &Path, out: &mut dyn Write) -> Result<
     let ended = (|| -> Result<()> {
         let conn = db::open(&store.database(), db::Make::Never)?;
         if let (Some(tokens), Some(window)) = (context, report.as_ref().and_then(|r| r.window)) {
-            agent_record::set_context(&conn, &session, tokens, Some(window), now())?;
+            agent_record::set_context(&conn, session, tokens, Some(window), now())?;
         }
-        agent_record::end_process(&conn, &session, 1, now(), status)
+        agent_record::end_process(&conn, session, number, now(), status)
     })();
     read?;
     ended?;
@@ -373,6 +391,181 @@ fn run(tool: &Tool, args: &[String], cwd: &Path, out: &mut dyn Write) -> Result<
         return Err(Fail::Exit(status));
     }
     Ok(())
+}
+
+const RESUME_USAGE: &str =
+    "builds agent resume SESSION [--item N]... [--message-file F] [--project P]";
+
+/// Fails unless each of <ids> may join the agent <agent>: an implementing
+/// agent takes items that run in its worktree, a planner open items no agent
+/// runs.
+fn require_joinable(lists: &Lists, agent: &Agent, ids: &[Id]) -> Result<()> {
+    for id in ids {
+        let item = open_item(lists, *id)?;
+        match agent.role {
+            AgentRole::Implementing => {
+                let joins = item.running.iter().any(|run| {
+                    agent
+                        .places
+                        .contains(&(run.worktree.clone(), run.branch.clone()))
+                });
+                if !joins {
+                    fail!(
+                        "{id} does not run in the worktree of agent {}: take it there with `builds item take` first",
+                        agent.session
+                    );
+                }
+            }
+            AgentRole::Planner => {
+                if let Some(run) = item.running.first() {
+                    fail!(
+                        "{id} runs in {}, and a planner takes only items no agent runs",
+                        run.worktree
+                    );
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// `builds agent resume`, printing to <out>.
+fn resume(tool: &Tool, args: &[String], cwd: &Path, out: &mut dyn Write) -> Result<()> {
+    let args = Args::parse(args, &["item", "message-file"], &[])?;
+    let [session] = args.exactly(1, RESUME_USAGE)? else {
+        unreachable!("exactly one")
+    };
+    let ids = args
+        .values("item")
+        .into_iter()
+        .map(Id::parse)
+        .collect::<Result<Vec<_>>>()?;
+    let message_file = args.value("message-file")?;
+    if ids.is_empty() && message_file.is_none() {
+        fail!(
+            "give the agent something to read: --item N or --message-file F\nusage: {RESUME_USAGE}"
+        );
+    }
+    let store = Store::resolve(&tool.places, &args, cwd)?;
+    let lists = store.load()?;
+    let agent = {
+        let conn = db::open(&store.database(), db::Make::Never)?;
+        agent_record::read(&conn, session)?
+    };
+    let Some(agent) = agent else {
+        fail!("project {} records no agent {session}", lists.project);
+    };
+    require_joinable(&lists, &agent, &ids)?;
+    let base = match message_file {
+        Some(path) => {
+            std::fs::read_to_string(path).context(|| format!("reading the message file {path}"))?
+        }
+        None => String::new(),
+    };
+    let texts = ids
+        .iter()
+        .map(|id| render_item(&lists, *id, tool.now))
+        .collect::<Result<Vec<_>>>()?;
+    let new_items: Vec<Item> = ids
+        .iter()
+        .zip(&texts)
+        .map(|(id, text)| Item { id: id.0, text })
+        .collect();
+    let mut all_ids: Vec<u32> = agent.items.clone();
+    all_ids.extend(ids.iter().map(|id| id.0));
+    all_ids.sort_unstable();
+    all_ids.dedup();
+    let places: Vec<Place> = agent
+        .places
+        .iter()
+        .map(|(worktree, branch)| Place {
+            worktree: worktree.clone(),
+            branch: branch.clone(),
+        })
+        .collect();
+    let message = crate::agent_prompt::resume_message(
+        &lists.project,
+        &base,
+        &places,
+        &all_ids,
+        &new_items,
+        agent.tier.claude_trailer(),
+    );
+    let new_ids: Vec<u32> = ids.iter().map(|id| id.0).collect();
+    if let Some(socket) = running_socket(tool, session)? {
+        let inbox = crate::inbox::Messaging::new(&socket, None)?;
+        if tool.places.sessions().send(&inbox, &message)? == crate::inbox::Sent::Delivered {
+            let conn = db::open(&store.database(), db::Make::Never)?;
+            agent_record::add_items(&conn, session, &new_ids)?;
+            let _ = writeln!(out, "agent {session}: the message reached its inbox");
+            return Ok(());
+        }
+    }
+    let log = tool.places.agents().join(session).join("log.jsonl");
+    let arguments = agent_launch::arguments(
+        &agent.model,
+        &agent_name(&lists.project, &agent),
+        Session::Resume(session),
+    );
+    let command = agent_launch::command(
+        &tool.places.claude_program,
+        &arguments,
+        Path::new(&agent.folder),
+    );
+    let started = agent_launch::start(command, &message, Log::append(&log)?)?;
+    let pid = started.pid();
+    let pid_started = crate::procs::Processes::read()
+        .ok()
+        .and_then(|processes| processes.get(pid).map(|process| process.started))
+        .unwrap_or_else(now);
+    let process = Process {
+        pid,
+        pid_started,
+        started_at: now(),
+        message: crate::review::texts::hash(&message),
+    };
+    let recorded = (|| -> Result<u32> {
+        let mut conn = db::open(&store.database(), db::Make::Never)?;
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .sql()?;
+        agent_record::add_items(&tx, session, &new_ids)?;
+        let number = agent_record::add_process(&tx, session, &process)?;
+        tx.commit().sql()?;
+        Ok(number)
+    })();
+    let number = match recorded {
+        Ok(number) => number,
+        Err(error) => {
+            started.stop();
+            return Err(error);
+        }
+    };
+    let _ = writeln!(
+        out,
+        "agent {session}: resumed in {}, log {}",
+        agent.folder,
+        log.display()
+    );
+    let _ = out.flush();
+    drive(&store, session, number, &agent.model, started, out)
+}
+
+/// The inbox socket of the running Claude Code session <session>, None when
+/// no record names it as running or the record names no socket.
+fn running_socket(tool: &Tool, session: &str) -> Result<Option<String>> {
+    let running = crate::claude_sessions::running_now(&tool.places.claude_sessions())
+        .map_err(|why| Fail::Message(format!("reading the running Claude Code sessions: {why}")))?;
+    Ok(running
+        .into_iter()
+        .find(|running| running.session_id == session)
+        .and_then(|running| running.messaging_socket))
+}
+
+/// The name an agent shows in Claude Code's resume list.
+fn agent_name(project: &str, agent: &Agent) -> String {
+    let items: Vec<String> = agent.items.iter().map(u32::to_string).collect();
+    format!("{project} {} {}", items.join(" "), agent.role.word())
 }
 
 #[cfg(test)]
