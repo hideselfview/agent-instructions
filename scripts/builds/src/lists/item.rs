@@ -450,7 +450,7 @@ pub fn add_item(
     Ok(id)
 }
 
-fn insert_backlog(db: &Connection, id: Id, why: &str, stamp: &Stamp) -> Result<()> {
+pub(super) fn insert_backlog(db: &Connection, id: Id, why: &str, stamp: &Stamp) -> Result<()> {
     db.execute(
         "INSERT INTO item_backlog (item_id, why, at, by) VALUES (?1, ?2, ?3, ?4)",
         params![id, why, stamp.at, stamp.by],
@@ -612,7 +612,7 @@ fn insert_priority(db: &Connection, id: Id, priority: &Priority) -> Result<()> {
 /// Writes the wait of item <id>, once. A wait on a question clears the
 /// reason the question blocks nothing in the same write, because the
 /// question now blocks the item.
-fn insert_wait(db: &Connection, id: Id, wait: &Wait) -> Result<()> {
+pub(super) fn insert_wait(db: &Connection, id: Id, wait: &Wait) -> Result<()> {
     match wait {
         Wait::Item(on) => db.execute(
             "INSERT OR IGNORE INTO item_wait_item (item_id, on_item) VALUES (?1, ?2)",

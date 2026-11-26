@@ -262,7 +262,14 @@ fn every_table_is_written_only_by_the_file_that_owns_it() {
             }
         }
     }
-    let found = foreign_writes(&rust_sources(&src), &owners);
+    // A move rewrites rows of tables in the shape of an older schema, which
+    // the owner files' functions cannot write, so migrate.rs and its tests
+    // write any table.
+    let sources: Vec<_> = rust_sources(&src)
+        .into_iter()
+        .filter(|(path, _)| path != "migrate.rs" && path != "migrate_tests.rs")
+        .collect();
+    let found = foreign_writes(&sources, &owners);
     assert!(found.is_empty(), "{}", found.join("\n"));
 }
 

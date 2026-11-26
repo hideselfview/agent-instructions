@@ -423,11 +423,7 @@ fn an_item_in_the_backlog_that_waits_on_an_open_question_is_a_fault() {
     backlog(&db, &[id]);
     crate::lists::fixtures::blocks_nothing_because(&db, q, "asked anyway");
     assert_eq!(faults_of(&db), Vec::<String>::new());
-    db.execute(
-        "INSERT INTO item_wait_question (item_id, on_question) VALUES (?1, ?2)",
-        rusqlite::params![id, q],
-    )
-    .unwrap();
+    crate::lists::item::insert_wait(&db, id, &Wait::Question(q)).unwrap();
     let found = faults_of(&db);
     assert!(
         found
@@ -443,11 +439,7 @@ fn an_open_item_outside_the_backlog_that_waits_on_a_backlog_item_is_a_fault() {
     let db = db();
     let later = item(&db, vec![]);
     let waiter = item(&db, vec![Wait::Item(later)]);
-    db.execute(
-        "INSERT INTO item_backlog (item_id, why, at, by) VALUES (?1, 'later', 1, 'tester')",
-        [later],
-    )
-    .unwrap();
+    crate::lists::item::insert_backlog(&db, later, "later", &stamp(1)).unwrap();
     assert_eq!(
         faults_of(&db),
         [format!(

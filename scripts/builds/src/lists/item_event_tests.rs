@@ -184,8 +184,7 @@ fn an_item_in_the_backlog_records_the_backlog_event_with_its_why_and_ready_on_st
         2,
         "a write that changes nothing adds nothing"
     );
-    db.execute("DELETE FROM item_backlog WHERE item_id = ?1", [id])
-        .unwrap();
+    crate::lists::item::start_from_backlog(&db, &[id], "now", &stamp(NOON + 15)).unwrap();
     follow_at(&db, NOON + 20);
     assert_eq!(kinds(&db, id)[2..], [(NOON + 20, Kind::Ready, None)]);
 }
