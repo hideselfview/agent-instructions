@@ -12,21 +12,21 @@
 //! name is kept the same way, and `boards/<hash>.instances.json` holds the
 //! components it draws once `states` has read them (a hash with no picture
 //! can hold it alone). An app's shot is
-//! `<platform>/<app tree>/<name>@<platform>.png` with its element list. Once
+//! `<app>/<app tree>/<name>@<file word>.png` with its element list. Once
 //! a run has kept every shot a prefix selects, it marks the prefix taken in
-//! `<platform>/<app tree>/.taken/<prefix>@windows` (or `@no-windows` for a
+//! `<app>/<app tree>/.taken/<prefix>@windows` (or `@no-windows` for a
 //! run without `--windows`), so builds knows without the harness sources
 //! which runs need no app built. A run writes each file under a hidden temporary name
 //! and renames it into place, the element list before the picture, so a
 //! picture whose element list is missing is never there.
 
-use crate::names::{Name, Platform, Prefix};
+use crate::names::{App, Name, Prefix};
 use crate::{CaptureMarkError, CaptureMarks};
 use std::path::{Path, PathBuf};
 
-/// The folder that holds screenshots captured for one app tree and platform.
-pub fn app_picture_tree(root: &Path, platform: Platform, tree: &str) -> PathBuf {
-    root.join(platform.word()).join(tree)
+/// The folder that holds screenshots captured for one app tree of <app>.
+pub fn app_picture_tree(root: &Path, app: &App, tree: &str) -> PathBuf {
+    root.join(&app.name).join(tree)
 }
 
 /// A picture folder.
@@ -155,17 +155,17 @@ impl Pictures {
 }
 
 impl Pictures {
-    /// Copies the shots <names> of <platform> kept for the app source tree
+    /// Copies the shots <names> of <app> kept for the app source tree
     /// <tree> into <out>, and marks them used, when the folder keeps every
     /// one; false, copying nothing, when it lacks one.
     pub(crate) fn take_shots(
         &self,
-        platform: Platform,
+        app: &App,
         tree: &str,
         names: &[Name],
         out: &Path,
     ) -> Result<bool, String> {
-        let dir = app_picture_tree(&self.dir, platform, tree);
+        let dir = app_picture_tree(&self.dir, app, tree);
         let files: Vec<String> = names
             .iter()
             .flat_map(|name| [name.file_name("json"), name.file_name("png")])
@@ -184,29 +184,29 @@ impl Pictures {
         Ok(true)
     }
 
-    /// Marks each of <prefixes> taken for <platform>'s app source tree
+    /// Marks each of <prefixes> taken for <app>'s source tree
     /// <tree>, by a run with or without the shots that take the keyboard focus
     /// (<windows>): the folder keeps every shot each selects.
     pub(crate) fn mark_taken(
         &self,
-        platform: Platform,
+        app: &App,
         tree: &str,
         prefixes: &[Prefix],
         windows: bool,
     ) -> Result<(), CaptureMarkError> {
-        CaptureMarks::of(&app_picture_tree(&self.dir, platform, tree)).write(prefixes, windows)
+        CaptureMarks::of(&app_picture_tree(&self.dir, app, tree)).write(prefixes, windows)
     }
 
-    /// Keeps the shots <names> of <platform> taken into <out> for the app
+    /// Keeps the shots <names> of <app> taken into <out> for the app
     /// source tree <tree>.
     pub(crate) fn keep_shots(
         &self,
-        platform: Platform,
+        app: &App,
         tree: &str,
         names: &[Name],
         out: &Path,
     ) -> Result<(), String> {
-        let dir = app_picture_tree(&self.dir, platform, tree);
+        let dir = app_picture_tree(&self.dir, app, tree);
         std::fs::create_dir_all(&dir)
             .map_err(|e| format!("cannot prepare {}: {e}", dir.display()))?;
         for name in names {

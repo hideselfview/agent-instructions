@@ -32,7 +32,7 @@ mod verify;
 pub use crate::capture_marks::{CAPTURE_MARKS_DIR, CaptureMarkError, CaptureMarks};
 use crate::cli::{Action, Cli, Selection};
 pub use crate::declared::Declared;
-use crate::names::Platform;
+use crate::names::App;
 pub use crate::names::{ComponentName, Name, NameError, Prefix, ScreenName};
 pub use crate::pictures::app_picture_tree;
 pub use crate::report::{board_picture, shot_picture};
@@ -53,16 +53,13 @@ pub struct Versions {
     pub comparison: String,
 }
 
-/// The platforms and declare folders in the shots checker's settings.
-pub fn declared_folders(config: &str) -> Result<Vec<(Platform, String)>, String> {
+/// The apps and declare folders in the shots checker's settings.
+pub fn declared_folders(config: &str) -> Result<Vec<(App, String)>, String> {
     Ok(Settings::parse(config).map_err(|e| e.to_string())?.declared)
 }
 
 /// Each shot the harnesses in <folders> declare under <root>, in name order.
-pub fn declared_scenes(
-    root: &Path,
-    folders: &[(Platform, String)],
-) -> Result<Vec<Declared>, String> {
+pub fn declared_scenes(root: &Path, folders: &[(App, String)]) -> Result<Vec<Declared>, String> {
     declared::read(root, folders).map_err(|e| e.to_string())
 }
 
@@ -85,38 +82,53 @@ impl Selection {
     fn mark_taken(
         &self,
         pictures: &pictures::Pictures,
-        platform: Platform,
+        app: &App,
         tree: &str,
     ) -> Result<(), String> {
         pictures
             .mark_taken(
-                platform,
+                app,
                 tree,
-                &taken_prefixes(platform, &self.prefixes),
+                &taken_prefixes(app, &self.prefixes),
                 self.windows,
             )
             .map_err(|error| error.to_string())
     }
 
-    fn platforms(&self, settings: &Settings) -> Vec<Platform> {
-        let mut platforms = if !self.platforms.is_empty() {
-            self.platforms.clone()
-        } else if !self.prefixes.is_empty() {
-            self.prefixes.iter().map(Prefix::platform).collect()
+    /// The apps the run takes shots of: those named with `--app`, else those
+    /// the `--select` prefixes start with, else every app the settings give a
+    /// capture command. Fails for a name that is no app of the settings.
+    fn apps(&self, settings: &Settings) -> Result<Vec<App>, String> {
+        let names: Vec<&str> = if !self.apps.is_empty() {
+            self.apps.iter().map(String::as_str).collect()
         } else {
-            settings.platforms()
+            self.prefixes.iter().map(Prefix::app).collect()
         };
-        platforms.sort();
-        platforms.dedup();
-        platforms
+        let mut apps = if names.is_empty() {
+            settings.capturing_apps()
+        } else {
+            names
+                .into_iter()
+                .map(|name| {
+                    settings.app(name).ok_or_else(|| {
+                        format!(
+                            "{name} is no app: .app-build names an app with an `app` line, and mac, android and web need none"
+                        )
+                    })
+                })
+                .collect::<Result<Vec<App>, String>>()?
+        };
+        apps.sort();
+        apps.dedup();
+        Ok(apps)
     }
 }
 
-/// Takes the shots `selection` selects, each platform's into the folder
+/// Takes the shots `selection` selects, each app's into the folder
 /// `out_for` gives, with the repo's capture commands. With a picture folder
-/// and an app source tree (<kept>), a platform whose every selected shot the
-/// folder keeps for the tree takes none and gets those, and each shot a
-/// platform takes is kept there. Returns the declared shots the selection
+/// and an app source tree (<kept>), an app whose every selected shot the
+/// folder keeps for the tree takes none and gets those, and each shot an
+/// app takes is kept there. Returns the declared shots the selection
 /// takes and those it leaves out because they take the focus and the run was
 /// not given `--windows`.
 fn capture(
@@ -126,15 +138,15 @@ fn capture(
     declared: &[Declared],
     selection: &Selection,
     kept: Option<Kept>,
-    out_for: impl Fn(Platform) -> PathBuf,
+    out_for: impl Fn(&App) -> PathBuf,
 ) -> Result<capture::Taken, String> {
     let mut all = capture::Taken {
         names: Vec::new(),
         not_taken: Vec::new(),
         failed: Vec::new(),
     };
-    for platform in selection.platforms(settings) {
-        let out = std::path::absolute(out_for(platform)).map_err(|e| e.to_string())?;
+    for app in &selection.apps(settings)? {
+        let out = std::path::absolute(out_for(app)).map_err(|e| e.to_string())?;
         if let Some(Kept {
             pictures,
             tree,
@@ -144,20 +156,20 @@ fn capture(
         {
             let taken = capture::taken(
                 declared,
-                platform,
+                app,
                 &selection.prefixes,
                 selection.windows,
                 selection.base,
             )
             .map_err(|e| e.to_string())?;
-            capture::clear(&out, platform).map_err(|e| e.to_string())?;
-            if !retake && pictures.take_shots(platform, tree, &taken.names, &out)? {
+            capture::clear(&out, app).map_err(|e| e.to_string())?;
+            if !retake && pictures.take_shots(app, tree, &taken.names, &out)? {
                 crate::log::note(format_args!(
                     "took the {} {} shots of app tree {tree} from the picture folder; capturing none",
                     taken.names.len(),
-                    platform.word()
+                    app.name
                 ));
-                selection.mark_taken(pictures, platform, tree)?;
+                selection.mark_taken(pictures, app, tree)?;
                 all.names.extend(taken.names);
                 all.not_taken.extend(taken.not_taken);
                 continue;
@@ -165,21 +177,21 @@ fn capture(
             if no_capture {
                 return Err(format!(
                     "the picture folder keeps not every selected {} shot of app tree {tree}, and the run may capture none (--no-capture)",
-                    platform.word()
+                    app.name
                 ));
             }
         }
         let command = settings
             .capture
             .iter()
-            .find(|(p, _)| *p == platform)
+            .find(|(a, _)| a == app)
             .map(|(_, command)| command.as_slice())
             .unwrap_or_default();
         let taken = capture::capture(
             root,
             command,
             declared,
-            platform,
+            app,
             &selection.prefixes,
             selection.windows,
             selection.base,
@@ -190,11 +202,11 @@ fn capture(
         )
         .map_err(|e| e.to_string())?;
         if let Some(Kept { pictures, tree, .. }) = kept {
-            pictures.keep_shots(platform, tree, &taken.names, &out)?;
+            pictures.keep_shots(app, tree, &taken.names, &out)?;
             // The mark says the folder keeps every shot the prefixes select,
             // which a failed shot makes untrue.
             if taken.failed.is_empty() {
-                selection.mark_taken(pictures, platform, tree)?;
+                selection.mark_taken(pictures, app, tree)?;
             }
         }
         all.names.extend(taken.names);
@@ -226,15 +238,15 @@ struct Kept<'a> {
     retake: bool,
 }
 
-/// The prefixes of <platform> a run of <prefixes> takes every shot of: those
-/// of the platform, or the platform's every shot when none is given.
-fn taken_prefixes(platform: Platform, prefixes: &[Prefix]) -> Vec<Prefix> {
+/// The prefixes of <app> a run of <prefixes> takes every shot of: those of the
+/// app, or the app's every shot when none is given.
+fn taken_prefixes(app: &App, prefixes: &[Prefix]) -> Vec<Prefix> {
     if prefixes.is_empty() {
-        return vec![Prefix::all_of(platform)];
+        return vec![Prefix::all_of(app)];
     }
     prefixes
         .iter()
-        .filter(|prefix| prefix.platform() == platform)
+        .filter(|prefix| prefix.app() == app.name)
         .cloned()
         .collect()
 }
@@ -357,7 +369,7 @@ fn run(checker: &Checker, action: Action) -> Result<bool, String> {
                 &declared,
                 &selection,
                 kept,
-                |p| shots.join(p.word()),
+                |app| shots.join(&app.name),
             )?;
             if capture_only {
                 return Ok(capture_only_outcome(&taken));
@@ -370,7 +382,7 @@ fn run(checker: &Checker, action: Action) -> Result<bool, String> {
                 not_taken: &taken.not_taken,
                 failed: &taken.failed,
                 declared: &declared,
-                shots_for: &|p| shots.join(p.word()),
+                shots_for: &|app| shots.join(&app.name),
                 out: &shots,
                 comparison: match (&before, selection.base) {
                     (Some(_), true) => unreachable!("clap refuses --base with --before"),
@@ -387,10 +399,10 @@ fn run(checker: &Checker, action: Action) -> Result<bool, String> {
         Action::Scenes { selection } => {
             let declared = read_declared()?;
             let mut count = 0;
-            for platform in selection.platforms(&settings) {
+            for app in &selection.apps(&settings)? {
                 let taken = capture::taken(
                     &declared,
-                    platform,
+                    app,
                     &selection.prefixes,
                     selection.windows,
                     selection.base,
@@ -418,14 +430,9 @@ fn run(checker: &Checker, action: Action) -> Result<bool, String> {
         Action::Check { shots, out, sha } => {
             let declared = read_declared()?;
             let names: Vec<Name> = declared.iter().map(|d| d.name.clone()).collect();
-            for platform in settings.platforms() {
-                let wanted: Vec<Name> = names
-                    .iter()
-                    .filter(|n| n.platform() == platform)
-                    .cloned()
-                    .collect();
-                capture::check_complete(&shots, platform, &wanted, &names)
-                    .map_err(|e| e.to_string())?;
+            for app in &settings.capturing_apps() {
+                let wanted: Vec<Name> = names.iter().filter(|n| n.app() == app).cloned().collect();
+                capture::check_complete(&shots, app, &wanted, &names).map_err(|e| e.to_string())?;
             }
             let outcome = verify::verify(&verify::Verification {
                 root: &root,
@@ -521,6 +528,7 @@ pub fn main(checker: &Checker, args: &[String]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::names::Apps;
 
     fn parse(args: &[&str]) -> Result<Cli, clap::Error> {
         Cli::try_parse_from(std::iter::once("builds shots").chain(args.iter().copied()))
@@ -581,7 +589,7 @@ mod tests {
 
     /// A shot's element list and picture, as a harness writes them.
     fn write_shot(dir: &Path, name: &str) {
-        let name = Name::parse(name).unwrap();
+        let name = Name::parse(name, &Apps::default()).unwrap();
         let list = crate::shots::tests::LIST.replace("mac.welcome.a", &name.to_string());
         crate::shots::tests::write_pair(dir, &name, &list, 800, 380);
     }
@@ -590,7 +598,7 @@ mod tests {
         names
             .iter()
             .map(|name| Declared {
-                name: Name::parse(name).unwrap(),
+                name: Name::parse(name, &Apps::default()).unwrap(),
                 file: PathBuf::from("Scenes.swift"),
                 marks: crate::declared::Marks::default(),
             })
@@ -630,7 +638,7 @@ mod tests {
         let pictures =
             pictures::Pictures::new(dir.path().join("pictures"), std::time::SystemTime::now());
         let selection = |prefixes: &[&str]| Selection {
-            platforms: Vec::new(),
+            apps: Vec::new(),
             prefixes: prefixes.iter().map(|p| Prefix::parse(p).unwrap()).collect(),
             windows: false,
             base: false,
@@ -643,7 +651,7 @@ mod tests {
                 retake: false,
             })
         };
-        let out = |_| dir.path().join("out");
+        let out = |_: &App| dir.path().join("out");
         let first = capture(
             dir.path(),
             &checker,
@@ -673,6 +681,41 @@ mod tests {
             out,
         )
         .unwrap();
-        assert_eq!(second.names, vec![Name::parse("mac.settings.b").unwrap()]);
+        assert_eq!(
+            second.names,
+            vec![Name::parse("mac.settings.b", &Apps::default()).unwrap()]
+        );
+    }
+
+    #[test]
+    fn a_run_takes_the_apps_it_names_or_its_prefixes_start_or_its_capture_lines_give() {
+        let settings = Settings::parse(
+            "app windows web\nshots-capture mac ./a.sh\nshots-capture windows ./b.sh\n",
+        )
+        .unwrap();
+        let selection = |apps: &[&str], prefixes: &[&str]| Selection {
+            apps: apps.iter().map(|a| a.to_string()).collect(),
+            prefixes: prefixes.iter().map(|p| Prefix::parse(p).unwrap()).collect(),
+            windows: false,
+            base: false,
+        };
+        let names = |selection: &Selection| -> Result<Vec<String>, String> {
+            Ok(selection
+                .apps(&settings)?
+                .into_iter()
+                .map(|app| app.name)
+                .collect())
+        };
+        assert_eq!(names(&selection(&[], &[])).unwrap(), ["mac", "windows"]);
+        assert_eq!(
+            names(&selection(&[], &["windows.main."])).unwrap(),
+            ["windows"]
+        );
+        assert_eq!(
+            names(&selection(&["windows", "mac"], &["mac.a."])).unwrap(),
+            ["mac", "windows"]
+        );
+        let error = names(&selection(&[], &["ios.main."])).unwrap_err();
+        assert!(error.contains("ios is no app"), "{error}");
     }
 }

@@ -3,6 +3,7 @@ use crate::compare::normalize::{Entry, enabled_state};
 use crate::component_files::{self, Listing, Place};
 use crate::lint::Problem;
 use crate::lists::Lists;
+use crate::names::Apps;
 use crate::names::Name;
 use crate::shots::tests::{LIST, png};
 use crate::shots::{ElementList, Role};
@@ -36,11 +37,11 @@ fn component_gaps() -> Listing {
     Listing {
         components: vec![component_files::Component {
             name: "MacRow".to_string(),
-            platform: crate::names::Platform::Mac,
+            app: crate::names::App::named_for(crate::names::Platform::Mac),
             file: "app/Shots/Components/MacRow.swift".into(),
             file_exists: false,
             rows: vec![component_files::Row {
-                shot: Name::parse("mac.component.row.label").unwrap(),
+                shot: Name::parse("mac.component.row.label", &Apps::default()).unwrap(),
                 place: Place::Elsewhere("app/Shots/ShotScenes.swift".into()),
             }],
         }],
@@ -58,8 +59,8 @@ fn component_gaps() -> Listing {
 /// A run of one failing pair new against the base and one with a warning, with its
 /// pictures written under `dir`.
 fn outcome(dir: &Path, words: &str) -> Outcome {
-    let name = Name::parse("mac.welcome.a").unwrap();
-    let other = Name::parse("mac.welcome.b").unwrap();
+    let name = Name::parse("mac.welcome.a", &Apps::default()).unwrap();
+    let other = Name::parse("mac.welcome.b", &Apps::default()).unwrap();
     let pictures = dir.join("in");
     std::fs::create_dir_all(&pictures).unwrap();
     std::fs::write(pictures.join("board.png"), png(400, 190)).unwrap();
@@ -108,7 +109,7 @@ fn outcome(dir: &Path, words: &str) -> Outcome {
             to_build: vec!["mac.welcome.todo".to_string()],
             to_delete: vec!["mac.welcome.gone".to_string()],
         },
-        not_taken: vec![Name::parse("mac.settings.toolbar").unwrap()],
+        not_taken: vec![Name::parse("mac.settings.toolbar", &Apps::default()).unwrap()],
         failed: Vec::new(),
         components: component_gaps(),
     }

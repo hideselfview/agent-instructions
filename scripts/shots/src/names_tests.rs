@@ -1,4 +1,5 @@
 use super::*;
+use crate::names::Apps;
 
 #[test]
 fn a_screen_name_has_an_area_a_screen_and_maybe_a_state() {
@@ -7,7 +8,7 @@ fn a_screen_name_has_an_area_a_screen_and_maybe_a_state() {
         "mac.welcome.libraries.none",
         "android.welcome.libraries",
     ] {
-        let name = Name::parse(text).unwrap();
+        let name = Name::parse(text, &Apps::default()).unwrap();
         assert!(matches!(name, Name::Screen(_)), "{text}");
         assert_eq!(name.to_string(), text);
     }
@@ -20,7 +21,7 @@ fn preview(root: &std::path::Path, component: &str) {
 }
 
 fn component_of(text: &str) -> ComponentName {
-    let Name::Component(c) = Name::parse(text).unwrap() else {
+    let Name::Component(c) = Name::parse(text, &Apps::default()).unwrap() else {
         panic!("not a component");
     };
     c
@@ -54,8 +55,8 @@ fn a_shared_component_is_named_without_a_platform_on_both_platforms() {
             "StatusChip"
         );
     }
-    let mac = Name::parse("mac.component.status-chip.done").unwrap();
-    let android = Name::parse("android.component.status-chip.done").unwrap();
+    let mac = Name::parse("mac.component.status-chip.done", &Apps::default()).unwrap();
+    let android = Name::parse("android.component.status-chip.done", &Apps::default()).unwrap();
     assert_eq!(
         mac.file_name("png"),
         "mac.component.status-chip.done@macos.png"
@@ -95,7 +96,7 @@ fn a_component_with_no_preview_is_named_for_its_platform() {
 fn a_component_s_row_names_its_shot_by_the_component_s_thing() {
     let key = ComponentKey::of("MacQRScanner").unwrap();
     assert_eq!(
-        component_shot(&key, Platform::Mac, "scanning")
+        component_shot(&key, &App::named_for(Platform::Mac), "scanning")
             .unwrap()
             .to_string(),
         "mac.component.qr-scanner.scanning"
@@ -135,7 +136,10 @@ fn names_that_are_not_boards_are_refused() {
         "mac.component.row",
         "mac.component.row.a.b",
     ] {
-        assert!(Name::parse(text).is_err(), "{text:?} was accepted");
+        assert!(
+            Name::parse(text, &Apps::default()).is_err(),
+            "{text:?} was accepted"
+        );
     }
 }
 
@@ -149,9 +153,9 @@ fn a_preview_row_name_becomes_its_state_id() {
 
 #[test]
 fn a_shot_writes_files_named_after_its_board_and_platform() {
-    let mac = Name::parse("mac.welcome.libraries.none").unwrap();
+    let mac = Name::parse("mac.welcome.libraries.none", &Apps::default()).unwrap();
     assert_eq!(mac.file_name("png"), "mac.welcome.libraries.none@macos.png");
-    let android = Name::parse("android.component.button.filled").unwrap();
+    let android = Name::parse("android.component.button.filled", &Apps::default()).unwrap();
     assert_eq!(
         android.file_name("json"),
         "android.component.button.filled@android.json"
@@ -160,15 +164,18 @@ fn a_shot_writes_files_named_after_its_board_and_platform() {
 
 #[test]
 fn a_shot_file_is_read_back_to_its_name() {
-    let name = Name::from_file_name(Platform::Mac, "mac.welcome.libraries@macos.json");
+    let name = Name::from_file_name(
+        &App::named_for(Platform::Mac),
+        "mac.welcome.libraries@macos.json",
+    );
     assert_eq!(
         name.unwrap().unwrap(),
-        Name::parse("mac.welcome.libraries").unwrap()
+        Name::parse("mac.welcome.libraries", &Apps::default()).unwrap()
     );
-    assert!(Name::from_file_name(Platform::Mac, "notes.txt").is_none());
-    assert!(Name::from_file_name(Platform::Mac, "a@android.png").is_none());
+    assert!(Name::from_file_name(&App::named_for(Platform::Mac), "notes.txt").is_none());
+    assert!(Name::from_file_name(&App::named_for(Platform::Mac), "a@android.png").is_none());
     assert!(
-        Name::from_file_name(Platform::Mac, "Bad Name@macos.png")
+        Name::from_file_name(&App::named_for(Platform::Mac), "Bad Name@macos.png")
             .unwrap()
             .is_err()
     );
@@ -177,14 +184,19 @@ fn a_shot_file_is_read_back_to_its_name() {
 #[test]
 fn a_prefix_selects_the_names_it_starts() {
     let prefix = Prefix::parse("mac.welcome.").unwrap();
-    assert_eq!(prefix.platform(), Platform::Mac);
-    assert!(prefix.matches(&Name::parse("mac.welcome.libraries").unwrap()));
-    assert!(!prefix.matches(&Name::parse("mac.settings.library").unwrap()));
-    assert!(!prefix.matches(&Name::parse("android.welcome.libraries").unwrap()));
+    assert_eq!(prefix.app(), "mac");
+    assert!(prefix.matches(&Name::parse("mac.welcome.libraries", &Apps::default()).unwrap()));
+    assert!(!prefix.matches(&Name::parse("mac.settings.library", &Apps::default()).unwrap()));
+    assert!(!prefix.matches(&Name::parse("android.welcome.libraries", &Apps::default()).unwrap()));
     let component = Prefix::parse("android.component.row.").unwrap();
-    assert!(component.matches(&Name::parse("android.component.row.title").unwrap()));
-    assert!(!component.matches(&Name::parse("android.component.row-x.title").unwrap()));
-    for text in ["mac", "ios.welcome.", "mac.Welcome", "mac.welcome "] {
+    assert!(
+        component.matches(&Name::parse("android.component.row.title", &Apps::default()).unwrap())
+    );
+    assert!(
+        !component
+            .matches(&Name::parse("android.component.row-x.title", &Apps::default()).unwrap())
+    );
+    for text in ["mac", "Mac.welcome.", "mac.Welcome", "mac.welcome "] {
         assert!(Prefix::parse(text).is_err(), "{text:?}");
     }
 }
@@ -208,4 +220,45 @@ fn previews_hold_each_folder_with_a_preview_and_name_the_folders_that_are_no_com
     let none = tempfile::tempdir().unwrap();
     let previews = Previews::of(none.path()).unwrap();
     assert!(previews.components.is_empty() && previews.unnamed.is_empty());
+}
+
+#[test]
+fn a_name_starts_with_an_app_that_an_app_line_or_a_platforms_word_gives() {
+    let apps = Apps::read("app windows web\napp linux web\n").unwrap();
+    let windows = Name::parse("windows.main.home", &apps).unwrap();
+    let linux = Name::parse("linux.main.home", &apps).unwrap();
+    assert_eq!(windows.platform(), Platform::Web);
+    assert_eq!(linux.platform(), Platform::Web);
+    assert_ne!(windows.app(), linux.app());
+    assert_eq!(windows.to_string(), "windows.main.home");
+    assert_eq!(
+        Name::parse("mac.main.home", &apps).unwrap().platform(),
+        Platform::Mac
+    );
+    let error = Name::parse("ios.main.home", &apps).unwrap_err().to_string();
+    assert!(error.contains("starts with no app"), "{error}");
+    assert!(Name::parse("windows.main.home", &Apps::default()).is_err());
+}
+
+#[test]
+fn the_shot_file_of_an_app_is_told_from_that_of_another_app_on_its_platform() {
+    let apps = Apps::read("app windows web\napp linux web\n").unwrap();
+    let windows = apps.get("windows").unwrap();
+    assert_eq!(
+        Name::from_file_name(&windows, "windows.main.home@web.png")
+            .unwrap()
+            .unwrap()
+            .to_string(),
+        "windows.main.home"
+    );
+    assert!(Name::from_file_name(&windows, "linux.main.home@web.png").is_none());
+}
+
+#[test]
+fn a_prefix_names_its_app_by_its_first_segment() {
+    assert_eq!(Prefix::parse("windows.main.").unwrap().app(), "windows");
+    assert_eq!(
+        Prefix::all_of(&App::named_for(Platform::Android)).as_str(),
+        "android."
+    );
 }

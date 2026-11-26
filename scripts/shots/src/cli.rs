@@ -4,7 +4,7 @@
 //! (builds' build_source.rs lists this file as unversioned): the pictures and
 //! runs builds stores stay valid.
 
-use crate::names::{Platform, Prefix};
+use crate::names::Prefix;
 use clap::{Args, Parser, Subcommand};
 use std::path::PathBuf;
 
@@ -27,7 +27,7 @@ pub(crate) enum Action {
     /// Print the checker's capture version and comparison version, which each
     /// run's findings.json names.
     Version,
-    /// Take the shots into shots/, a folder for each platform, and check them.
+    /// Take the shots into shots/, a folder for each app, and check them.
     /// With --before, only pairs worse against that run fail the run,
     /// and the rest are listed; without it, every pair with a finding fails.
     Run {
@@ -50,7 +50,7 @@ pub(crate) enum Action {
         #[arg(long)]
         pictures: Option<PathBuf>,
         /// The app source tree the shots are taken of, which builds names:
-        /// when the picture folder keeps every selected shot of a platform
+        /// when the picture folder keeps every selected shot of an app
         /// for it, the run takes none and uses those, and otherwise it keeps
         /// the shots it takes there.
         #[arg(long, requires = "pictures")]
@@ -92,7 +92,7 @@ pub(crate) enum Action {
     },
     /// Check shots already taken against their boards.
     Check {
-        /// The directory holding every platform's PNGs and element lists.
+        /// The directory holding every app's PNGs and element lists.
         #[arg(long)]
         shots: PathBuf,
         /// The directory the report is written to, with the rendered boards.
@@ -130,10 +130,10 @@ pub(crate) enum Action {
     /// component preview from either revision.
     Draws(DrawsArgs),
     /// List each design-system component's preview rows whose shot its
-    /// capture file (Components/<Component>.<extension> under the platform's
+    /// capture file (Components/<Component>.<extension> under the app's
     /// declare folder) does not declare, and each capture file with no
     /// preview. A component, or a row (`Component.row`), that
-    /// `shots-design-only` names for a platform is left out there and counted.
+    /// `shots-design-only` names for an app is left out there and counted.
     /// The listing fails nothing.
     Components {
         /// A component to show with every row, such as MacRow; repeat for
@@ -145,14 +145,15 @@ pub(crate) enum Action {
 
 #[derive(Args)]
 pub(crate) struct Selection {
-    /// A platform to take shots on (mac, android, web); repeat for several.
-    /// With none, the platforms of the --select prefixes, or every platform
-    /// the repo's .app-build gives a shots-capture line.
-    #[arg(long = "platform", value_parser = parse_platform)]
-    pub(crate) platforms: Vec<Platform>,
+    /// An app to take shots of; repeat for several. With none, the apps of
+    /// the --select prefixes, or every app the repo's .app-build gives a
+    /// shots-capture line. The old name `--platform` still works, because the
+    /// `.app-build` of a commit that predates `--app` passes it.
+    #[arg(long = "app", alias = "platform")]
+    pub(crate) apps: Vec<String>,
     /// A board-name prefix: `mac.welcome.` is the Mac welcome boards,
     /// `mac.component.row.` one component's states. Repeat for several. With
-    /// none, every shot the platform declares.
+    /// none, every shot the app declares.
     #[arg(long = "select", value_parser = Prefix::parse)]
     pub(crate) prefixes: Vec<Prefix>,
     /// Also take the shots that take the keyboard focus, which bring the app to
@@ -165,10 +166,6 @@ pub(crate) struct Selection {
     /// fails the run.
     #[arg(long)]
     pub(crate) base: bool,
-}
-
-fn parse_platform(text: &str) -> Result<Platform, String> {
-    Platform::parse(text).ok_or_else(|| "a platform is mac, android or web".to_string())
 }
 
 /// The arguments of `states`.

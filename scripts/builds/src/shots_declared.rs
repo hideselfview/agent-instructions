@@ -75,7 +75,7 @@ pub fn windowed_prefixes(
         let Pick::Shots(lane, prefix) = pick else {
             continue;
         };
-        if adds_display && prefix.platform() == boards::app_build::Platform::Mac {
+        if adds_display && prefix.app() == Lane::Mac.app().name {
             windowed.push((prefix.as_str().to_string(), Access::Exclusive));
             continue;
         }
@@ -167,13 +167,13 @@ fn declared_at(top: &Path, commit: &str, lane: Option<Lane>) -> Result<Vec<shots
     let config = run_git(top, &["show", &format!("{commit}:{CONFIG}")])?;
     let folders = match lane {
         Some(lane) => {
-            let platform = lane.platform();
-            let folder = boards::app_build::declared_folder(&config, platform)
+            let app = lane.app();
+            let folder = boards::app_build::declared_folder(&config, &app.name)
                 .map_err(|error| Fail::Message(error.text()))?;
             let Some(folder) = folder else {
                 return Ok(Vec::new());
             };
-            vec![(platform, folder)]
+            vec![(app, folder)]
         }
         None => {
             let folders = shots::declared_folders(&config).map_err(Fail::Message)?;

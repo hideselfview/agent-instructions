@@ -1,4 +1,5 @@
 use super::*;
+use crate::names::Platform;
 
 const MAC: &str = "app/Shots";
 const ANDROID: &str = "app/shots";
@@ -87,35 +88,35 @@ fn listing(root: &Path) -> Listing {
 fn each_component_with_a_preview_has_a_capture_file_on_each_platform_that_draws_it() {
     let root = repo();
     let found = listing(root.path());
-    let summary: Vec<(String, Platform, PathBuf, bool)> = found
+    let summary: Vec<(String, App, PathBuf, bool)> = found
         .components
         .iter()
-        .map(|c| (c.name.clone(), c.platform, c.file.clone(), c.file_exists))
+        .map(|c| (c.name.clone(), c.app.clone(), c.file.clone(), c.file_exists))
         .collect();
     assert_eq!(
         summary,
         [
             (
                 "AndroidRow".to_string(),
-                Platform::Android,
+                App::named_for(Platform::Android),
                 PathBuf::from("app/shots/Components/AndroidRow.kt"),
                 true
             ),
             (
                 "Artwork".to_string(),
-                Platform::Mac,
+                App::named_for(Platform::Mac),
                 PathBuf::from("app/Shots/Components/Artwork.swift"),
                 false
             ),
             (
                 "Artwork".to_string(),
-                Platform::Android,
+                App::named_for(Platform::Android),
                 PathBuf::from("app/shots/Components/Artwork.kt"),
                 false
             ),
             (
                 "MacRow".to_string(),
-                Platform::Mac,
+                App::named_for(Platform::Mac),
                 PathBuf::from("app/Shots/Components/MacRow.swift"),
                 true
             ),
@@ -131,7 +132,7 @@ fn a_preview_row_counts_as_shot_only_when_its_components_capture_file_declares_i
         found
             .components
             .iter()
-            .find(|c| c.name == name && c.platform == platform)
+            .find(|c| c.name == name && c.app == platform)
             .unwrap()
             .rows
             .iter()
@@ -139,7 +140,7 @@ fn a_preview_row_counts_as_shot_only_when_its_components_capture_file_declares_i
             .collect()
     };
     assert_eq!(
-        rows("MacRow", Platform::Mac),
+        rows("MacRow", App::named_for(Platform::Mac)),
         [
             ("mac.component.row.label".to_string(), Place::File),
             (
@@ -149,11 +150,11 @@ fn a_preview_row_counts_as_shot_only_when_its_components_capture_file_declares_i
         ]
     );
     assert_eq!(
-        rows("AndroidRow", Platform::Android),
+        rows("AndroidRow", App::named_for(Platform::Android)),
         [("android.component.row.default".to_string(), Place::File)]
     );
     assert_eq!(
-        rows("Artwork", Platform::Android),
+        rows("Artwork", App::named_for(Platform::Android)),
         [(
             "android.component.artwork.square".to_string(),
             Place::Nowhere
@@ -245,7 +246,7 @@ fn a_design_only_component_is_left_out_of_the_listing_and_counted() {
     assert!(
         one.components
             .iter()
-            .any(|c| c.name == "Artwork" && c.platform == Platform::Mac)
+            .any(|c| c.name == "Artwork" && c.app == App::named_for(Platform::Mac))
     );
 }
 

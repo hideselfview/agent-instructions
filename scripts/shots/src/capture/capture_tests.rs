@@ -1,8 +1,13 @@
 use super::*;
 use crate::declared::Marks;
+use crate::names::Apps;
+use crate::names::Platform;
 
 fn names(texts: &[&str]) -> Vec<Name> {
-    texts.iter().map(|t| Name::parse(t).unwrap()).collect()
+    texts
+        .iter()
+        .map(|t| Name::parse(t, &Apps::default()).unwrap())
+        .collect()
 }
 
 fn prefix(text: &str) -> Prefix {
@@ -12,32 +17,50 @@ fn prefix(text: &str) -> Prefix {
 #[test]
 fn no_prefix_selects_every_shot_of_the_platform() {
     let declared = names(&["mac.welcome.a", "mac.settings.b", "android.welcome.a"]);
-    let chosen = selected(&declared, Platform::Mac, &[], false).unwrap();
+    let chosen = selected(&declared, &App::named_for(Platform::Mac), &[], false).unwrap();
     assert_eq!(chosen, names(&["mac.welcome.a", "mac.settings.b"]));
 }
 
 #[test]
 fn a_prefix_selects_the_shots_it_starts() {
     let declared = names(&["mac.welcome.a", "mac.settings.b", "android.welcome.a"]);
-    let chosen = selected(&declared, Platform::Mac, &[prefix("mac.welcome.")], false).unwrap();
+    let chosen = selected(
+        &declared,
+        &App::named_for(Platform::Mac),
+        &[prefix("mac.welcome.")],
+        false,
+    )
+    .unwrap();
     assert_eq!(chosen, names(&["mac.welcome.a"]));
 }
 
 #[test]
 fn a_prefix_that_starts_no_declared_shot_fails() {
     let declared = names(&["mac.welcome.a"]);
-    let error = selected(&declared, Platform::Mac, &[prefix("mac.welcom.")], false).unwrap_err();
+    let error = selected(
+        &declared,
+        &App::named_for(Platform::Mac),
+        &[prefix("mac.welcom.")],
+        false,
+    )
+    .unwrap_err();
     assert!(matches!(error, CaptureError::UnknownPrefix(p) if p == "mac.welcom."));
 }
 
 #[test]
 fn the_run_of_a_merge_base_takes_no_shot_for_a_prefix_that_starts_none() {
     let declared = names(&["mac.welcome.a"]);
-    let none = selected(&declared, Platform::Mac, &[prefix("mac.stepper.")], true).unwrap();
+    let none = selected(
+        &declared,
+        &App::named_for(Platform::Mac),
+        &[prefix("mac.stepper.")],
+        true,
+    )
+    .unwrap();
     assert!(none.is_empty());
     let some = selected(
         &declared,
-        Platform::Mac,
+        &App::named_for(Platform::Mac),
         &[prefix("mac.stepper."), prefix("mac.welcome.")],
         true,
     )
@@ -50,20 +73,17 @@ fn a_platform_with_no_selected_shot_fails() {
     let declared = names(&["mac.welcome.a", "android.welcome.a"]);
     let error = selected(
         &declared,
-        Platform::Android,
+        &App::named_for(Platform::Android),
         &[prefix("mac.welcome.")],
         false,
     )
     .unwrap_err();
-    assert!(matches!(
-        error,
-        CaptureError::NothingSelected(Platform::Android)
-    ));
+    assert!(matches!(&error, CaptureError::NothingSelected(app) if app == "android"));
 }
 
 /// A shot's valid pair of files, drawn at 2 pixels to the point.
 fn write_shot(dir: &Path, name: &str) {
-    let name = Name::parse(name).unwrap();
+    let name = Name::parse(name, &Apps::default()).unwrap();
     let list = crate::shots::tests::LIST.replace("mac.welcome.a", &name.to_string());
     crate::shots::tests::write_pair(dir, &name, &list, 800, 380);
 }
@@ -79,7 +99,13 @@ fn a_capture_is_complete_when_every_selected_shot_wrote_both_files() {
     let out = tempfile::tempdir().unwrap();
     write_shot(out.path(), "mac.welcome.a");
     let declared = names(&["mac.welcome.a", "mac.welcome.b"]);
-    check_complete(out.path(), Platform::Mac, &declared[..1], &declared).unwrap();
+    check_complete(
+        out.path(),
+        &App::named_for(Platform::Mac),
+        &declared[..1],
+        &declared,
+    )
+    .unwrap();
 }
 
 #[test]
@@ -87,9 +113,13 @@ fn a_selected_shot_with_a_file_missing_fails() {
     let out = tempfile::tempdir().unwrap();
     write(out.path(), &["mac.welcome.a@macos.png"]);
     let declared = names(&["mac.welcome.a"]);
-    let CaptureError::Incomplete(problems) =
-        check_complete(out.path(), Platform::Mac, &declared, &declared).unwrap_err()
-    else {
+    let CaptureError::Incomplete(problems) = check_complete(
+        out.path(),
+        &App::named_for(Platform::Mac),
+        &declared,
+        &declared,
+    )
+    .unwrap_err() else {
         panic!("not incomplete");
     };
     assert_eq!(
@@ -112,9 +142,13 @@ fn a_shot_file_no_harness_declares_fails() {
         ],
     );
     let declared = names(&["mac.welcome.a"]);
-    let CaptureError::Incomplete(problems) =
-        check_complete(out.path(), Platform::Mac, &declared, &declared).unwrap_err()
-    else {
+    let CaptureError::Incomplete(problems) = check_complete(
+        out.path(),
+        &App::named_for(Platform::Mac),
+        &declared,
+        &declared,
+    )
+    .unwrap_err() else {
         panic!("not incomplete");
     };
     assert_eq!(
@@ -140,7 +174,7 @@ fn clearing_empties_the_platforms_shot_files_and_leaves_other_files() {
             "notes.txt",
         ],
     );
-    clear(out.path(), Platform::Mac).unwrap();
+    clear(out.path(), &App::named_for(Platform::Mac)).unwrap();
     let mut left: Vec<String> = std::fs::read_dir(out.path())
         .unwrap()
         .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
@@ -153,10 +187,16 @@ fn clearing_empties_the_platforms_shot_files_and_leaves_other_files() {
 fn a_shot_another_branch_left_behind_is_not_undeclared_after_clearing() {
     let out = tempfile::tempdir().unwrap();
     write_shot(out.path(), "mac.welcome.old");
-    clear(out.path(), Platform::Mac).unwrap();
+    clear(out.path(), &App::named_for(Platform::Mac)).unwrap();
     write_shot(out.path(), "mac.welcome.a");
     let declared = names(&["mac.welcome.a"]);
-    check_complete(out.path(), Platform::Mac, &declared, &declared).unwrap();
+    check_complete(
+        out.path(),
+        &App::named_for(Platform::Mac),
+        &declared,
+        &declared,
+    )
+    .unwrap();
 }
 
 #[test]
@@ -166,9 +206,13 @@ fn a_shot_that_does_not_read_back_fails() {
     write_shot(out.path(), "mac.welcome.b");
     std::fs::write(out.path().join("mac.welcome.b@macos.json"), "{").unwrap();
     let declared = names(&["mac.welcome.a", "mac.welcome.b"]);
-    let CaptureError::Incomplete(problems) =
-        check_complete(out.path(), Platform::Mac, &declared, &declared).unwrap_err()
-    else {
+    let CaptureError::Incomplete(problems) = check_complete(
+        out.path(),
+        &App::named_for(Platform::Mac),
+        &declared,
+        &declared,
+    )
+    .unwrap_err() else {
         panic!("not incomplete");
     };
     assert_eq!(problems.len(), 1, "{problems:?}");
@@ -179,16 +223,20 @@ fn a_shot_that_does_not_read_back_fails() {
 fn a_shot_whose_files_disagree_fails() {
     let out = tempfile::tempdir().unwrap();
     write_shot(out.path(), "mac.welcome.a");
-    let name = Name::parse("mac.welcome.a").unwrap();
+    let name = Name::parse("mac.welcome.a", &Apps::default()).unwrap();
     std::fs::write(
         out.path().join(name.file_name("png")),
         crate::shots::tests::png(100, 100),
     )
     .unwrap();
     let declared = names(&["mac.welcome.a"]);
-    let CaptureError::Incomplete(problems) =
-        check_complete(out.path(), Platform::Mac, &declared, &declared).unwrap_err()
-    else {
+    let CaptureError::Incomplete(problems) = check_complete(
+        out.path(),
+        &App::named_for(Platform::Mac),
+        &declared,
+        &declared,
+    )
+    .unwrap_err() else {
         panic!("not incomplete");
     };
     assert_eq!(problems.len(), 1, "{problems:?}");
@@ -199,7 +247,7 @@ fn declared(texts: &[(&str, bool)]) -> Vec<Declared> {
     texts
         .iter()
         .map(|(t, takes_focus)| Declared {
-            name: Name::parse(t).unwrap(),
+            name: Name::parse(t, &Apps::default()).unwrap(),
             file: PathBuf::from("Scenes.swift"),
             marks: Marks {
                 in_window: *takes_focus,
@@ -212,10 +260,10 @@ fn declared(texts: &[(&str, bool)]) -> Vec<Declared> {
 #[test]
 fn a_window_shot_is_not_taken_without_windows_and_taken_with_them() {
     let all = declared(&[("mac.welcome.a", false), ("mac.settings.toolbar", true)]);
-    let without = taken(&all, Platform::Mac, &[], false, false).unwrap();
+    let without = taken(&all, &App::named_for(Platform::Mac), &[], false, false).unwrap();
     assert_eq!(without.names, names(&["mac.welcome.a"]));
     assert_eq!(without.not_taken, names(&["mac.settings.toolbar"]));
-    let with = taken(&all, Platform::Mac, &[], true, false).unwrap();
+    let with = taken(&all, &App::named_for(Platform::Mac), &[], true, false).unwrap();
     assert_eq!(
         with.names,
         names(&["mac.welcome.a", "mac.settings.toolbar"])
@@ -228,7 +276,7 @@ fn a_selection_of_only_window_shots_is_all_not_taken_without_windows() {
     let all = declared(&[("mac.welcome.a", false), ("mac.settings.toolbar", true)]);
     let chosen = taken(
         &all,
-        Platform::Mac,
+        &App::named_for(Platform::Mac),
         &[prefix("mac.settings.")],
         false,
         false,
@@ -243,9 +291,15 @@ fn the_completeness_check_passes_without_a_window_shot_when_it_was_not_taken() {
     let out = tempfile::tempdir().unwrap();
     write_shot(out.path(), "mac.welcome.a");
     let all = declared(&[("mac.welcome.a", false), ("mac.settings.toolbar", true)]);
-    let chosen = taken(&all, Platform::Mac, &[], false, false).unwrap();
+    let chosen = taken(&all, &App::named_for(Platform::Mac), &[], false, false).unwrap();
     let declared: Vec<Name> = all.iter().map(|d| d.name.clone()).collect();
-    check_complete(out.path(), Platform::Mac, &chosen.names, &declared).unwrap();
+    check_complete(
+        out.path(),
+        &App::named_for(Platform::Mac),
+        &chosen.names,
+        &declared,
+    )
+    .unwrap();
 }
 
 #[test]
@@ -253,11 +307,15 @@ fn the_completeness_check_reports_a_window_shot_missing_when_windows_were_given(
     let out = tempfile::tempdir().unwrap();
     write_shot(out.path(), "mac.welcome.a");
     let all = declared(&[("mac.welcome.a", false), ("mac.settings.toolbar", true)]);
-    let chosen = taken(&all, Platform::Mac, &[], true, false).unwrap();
+    let chosen = taken(&all, &App::named_for(Platform::Mac), &[], true, false).unwrap();
     let declared: Vec<Name> = all.iter().map(|d| d.name.clone()).collect();
-    let CaptureError::Incomplete(problems) =
-        check_complete(out.path(), Platform::Mac, &chosen.names, &declared).unwrap_err()
-    else {
+    let CaptureError::Incomplete(problems) = check_complete(
+        out.path(),
+        &App::named_for(Platform::Mac),
+        &chosen.names,
+        &declared,
+    )
+    .unwrap_err() else {
         panic!("not incomplete");
     };
     assert_eq!(
@@ -296,7 +354,7 @@ fn a_capture_runs_the_apps_command_with_the_variables_and_checks_what_it_wrote()
         ready.path(),
         &copying_command(ready.path(), &seen),
         &shots,
-        Platform::Mac,
+        &App::named_for(Platform::Mac),
         &[prefix("mac.welcome.")],
         false,
         false,
@@ -337,7 +395,7 @@ fn a_capture_command_that_fails_before_any_shot_fails_the_capture() {
             empty.path(),
             &command,
             &shots,
-            Platform::Android,
+            &App::named_for(Platform::Android),
             &[],
             true,
             false,
@@ -352,7 +410,7 @@ fn a_capture_command_that_fails_before_any_shot_fails_the_capture() {
     let wrote_nothing = run(&["true"]).unwrap();
     assert!(wrote_nothing.names.is_empty());
     assert_eq!(wrote_nothing.failed.len(), 1);
-    assert!(matches!(run(&[]), Err(CaptureError::NoCommand("android"))));
+    assert!(matches!(run(&[]), Err(CaptureError::NoCommand(app)) if app == "android"));
 }
 
 #[test]
@@ -383,7 +441,7 @@ fn the_board_sizes_file_is_written_whole_before_the_command_starts() {
         ready.path(),
         &command,
         &declared(&[("mac.checkbox.default", false)]),
-        Platform::Mac,
+        &App::named_for(Platform::Mac),
         &[],
         false,
         false,
@@ -412,7 +470,7 @@ fn a_run_that_cannot_measure_the_boards_does_not_start_the_command() {
         out.path(),
         &["false".to_string()],
         &declared(&[("mac.checkbox.default", false)]),
-        Platform::Mac,
+        &App::named_for(Platform::Mac),
         &[],
         false,
         false,
@@ -448,7 +506,7 @@ fn one_failed_scene_among_several_leaves_the_others_taken_and_names_it() {
         ready.path(),
         &command,
         &shots,
-        Platform::Mac,
+        &App::named_for(Platform::Mac),
         &[],
         false,
         false,
@@ -463,4 +521,47 @@ fn one_failed_scene_among_several_leaves_the_others_taken_and_names_it() {
     assert_eq!(taken.failed[0].name, names(&["mac.welcome.b"])[0]);
     assert!(taken.failed[0].why.contains("failed"));
     assert!(taken.failed[0].why.contains("mac.welcome.b@macos.png"));
+}
+
+#[test]
+fn two_apps_on_one_platform_select_and_clear_their_own_shots() {
+    let apps = Apps::read("app windows web\napp linux web\n").unwrap();
+    let windows = apps.get("windows").unwrap();
+    let parse = |text: &str| Name::parse(text, &apps).unwrap();
+    let declared = vec![
+        parse("windows.main.home"),
+        parse("linux.main.home"),
+        parse("linux.main.about"),
+    ];
+    assert_eq!(
+        selected(&declared, &windows, &[], false).unwrap(),
+        [parse("windows.main.home")]
+    );
+    assert_eq!(
+        selected(
+            &declared,
+            &apps.get("linux").unwrap(),
+            &[prefix("linux.main.a")],
+            false
+        )
+        .unwrap(),
+        [parse("linux.main.about")]
+    );
+    let out = tempfile::tempdir().unwrap();
+    write(
+        out.path(),
+        &[
+            "windows.main.home@web.png",
+            "windows.main.home@web.json",
+            "linux.main.home@web.png",
+        ],
+    );
+    assert!(
+        undeclared_problems(out.path(), &windows, &[parse("windows.main.home")])
+            .unwrap()
+            .is_empty()
+    );
+    clear(out.path(), &windows).unwrap();
+    assert!(!out.path().join("windows.main.home@web.png").exists());
+    assert!(out.path().join("linux.main.home@web.png").exists());
 }

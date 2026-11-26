@@ -1,4 +1,5 @@
 use super::*;
+use crate::names::Apps;
 use std::path::Path;
 
 /// A list in the shape both harnesses write: a field with its placeholder, a
@@ -158,7 +159,7 @@ fn an_unknown_role_or_platform_is_refused() {
 #[test]
 fn a_shot_loads_its_list_and_its_picture() {
     let dir = tempfile::tempdir().unwrap();
-    let name = Name::parse("mac.welcome.a").unwrap();
+    let name = Name::parse("mac.welcome.a", &Apps::default()).unwrap();
     write_pair(dir.path(), &name, LIST, 800, 380);
     let shot = Shot::load(dir.path(), &name).unwrap();
     assert_eq!((shot.picture.width, shot.picture.height), (800, 380));
@@ -174,7 +175,7 @@ fn a_shot_loads_its_list_and_its_picture() {
 #[test]
 fn a_shot_whose_files_disagree_is_inconsistent() {
     let dir = tempfile::tempdir().unwrap();
-    let name = Name::parse("mac.welcome.b").unwrap();
+    let name = Name::parse("mac.welcome.b", &Apps::default()).unwrap();
     let list = LIST.replacen("\"parent\": 1", "\"parent\": 2", 1);
     write_pair(dir.path(), &name, &list, 640, 380);
     let problems = Shot::load(dir.path(), &name).unwrap().problems(&name);
@@ -187,7 +188,7 @@ fn a_shot_whose_files_disagree_is_inconsistent() {
 #[test]
 fn a_picture_within_a_pixel_of_the_list_size_agrees() {
     let dir = tempfile::tempdir().unwrap();
-    let name = Name::parse("mac.welcome.a").unwrap();
+    let name = Name::parse("mac.welcome.a", &Apps::default()).unwrap();
     write_pair(dir.path(), &name, LIST, 799, 381);
     assert!(
         Shot::load(dir.path(), &name)
@@ -200,7 +201,7 @@ fn a_picture_within_a_pixel_of_the_list_size_agrees() {
 #[test]
 fn unreadable_files_fail_to_load() {
     let dir = tempfile::tempdir().unwrap();
-    let name = Name::parse("mac.welcome.a").unwrap();
+    let name = Name::parse("mac.welcome.a", &Apps::default()).unwrap();
     assert!(matches!(
         Shot::load(dir.path(), &name),
         Err(ShotError::Read(..))

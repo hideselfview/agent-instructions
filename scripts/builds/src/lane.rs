@@ -77,6 +77,12 @@ impl Lane {
         }
     }
 
+    /// The app the lane builds: the app named for the lane's platform, which
+    /// needs no `app` line in `.app-build`.
+    pub fn app(self) -> boards::app_build::App {
+        boards::app_build::App::named_for(self.platform())
+    }
+
     /// What the lane's file names carry between `app` and the extension: the
     /// mac lane's carry nothing.
     fn tag(self) -> &'static str {

@@ -1,8 +1,8 @@
 //! Each design-system component's capture file. A component that has a
 //! preview keeps the code that captures it on a platform in one file,
-//! `Components/<Component>.<extension>` under the platform's declare folder
+//! `Components/<Component>.<extension>` under the app's declare folder
 //! (the `shots-declared` line), which declares one shot for each row of the
-//! component's preview, named `<platform>.component.<thing>.<state>`. A
+//! component's preview, named `<app>.component.<thing>.<state>`. A
 //! component whose name starts with a platform (`MacRow`) is that platform's;
 //! one whose name starts with none (`Artwork`) is every platform's.
 //!
@@ -14,15 +14,15 @@
 
 use crate::backend;
 use crate::declared::{self, COMPONENTS, Declared};
-use crate::names::{Name, Platform, Previews};
+use crate::names::{App, Name, Previews};
 use crate::settings::{Settings, split_design_only};
 use std::path::{Path, PathBuf};
 
 /// Every component's capture file and every capture file with no preview.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub(crate) struct Listing {
-    /// Each component with a preview, once for each platform that draws it,
-    /// by name and then platform.
+    /// Each component with a preview, once for each app that draws it, by
+    /// name and then app.
     pub(crate) components: Vec<Component>,
     /// The capture files whose component has no preview on their platform,
     /// by path.
@@ -31,22 +31,22 @@ pub(crate) struct Listing {
     /// name, relative to the repo's top: no capture file can be named for
     /// them.
     pub(crate) unnamed: Vec<String>,
-    /// How many components, counted once for each platform, the listing
-    /// leaves out because the platform draws them for the design only
+    /// How many components, counted once for each app, the listing
+    /// leaves out because the app draws them for the design only
     /// (`shots-design-only`): its app has no view their shots could draw.
     pub(crate) design_only: usize,
-    /// How many preview rows, counted once for each platform, the listing
-    /// leaves out because the platform draws them for the design only
+    /// How many preview rows, counted once for each app, the listing
+    /// leaves out because the app draws them for the design only
     /// (`shots-design-only Component.row`) while it draws the component's
     /// other rows.
     pub(crate) design_only_rows: usize,
 }
 
-/// A component on one platform: its capture file and its preview's rows.
+/// A component of one app: its capture file and its preview's rows.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Component {
     pub(crate) name: String,
-    pub(crate) platform: Platform,
+    pub(crate) app: App,
     /// The capture file, relative to the repo's top.
     pub(crate) file: PathBuf,
     pub(crate) file_exists: bool,
@@ -119,16 +119,16 @@ pub(crate) fn list(
     settings: &Settings,
     declared: &[Declared],
 ) -> Result<Listing, String> {
-    // Each platform whose harness declares shots in source, with the
-    // extension of its files and its declare folder.
-    let platforms: Vec<(Platform, &str, &Path)> = settings
+    // Each app whose harness declares shots in source, with the extension of
+    // its files and its declare folder.
+    let apps: Vec<(&App, &str, &Path)> = settings
         .declared
         .iter()
-        .filter_map(|(platform, folder)| {
-            let backend = backend::of(*platform);
+        .filter_map(|(app, folder)| {
+            let backend = backend::of(app.platform);
             backend
                 .holds_capture_code()
-                .then(|| (*platform, backend.declaring_extension(), Path::new(folder)))
+                .then(|| (app, backend.declaring_extension(), Path::new(folder)))
         })
         .collect();
     let relative = |path: &Path| path.strip_prefix(root).unwrap_or(path).to_path_buf();
@@ -145,13 +145,13 @@ pub(crate) fn list(
     for (name, key) in &previews.components {
         let states = preview_rows(root, name, settings)?;
         let preview = root.join(boards::preview::preview_path(name));
-        for (platform, extension, folder) in &platforms {
-            if key.platform.is_some_and(|p| p != platform.word()) {
+        for (app, extension, folder) in &apps {
+            if key.platform.is_some_and(|p| p != app.platform.word()) {
                 continue;
             }
             let marked = |row: Option<&str>| {
                 settings.design_only.iter().any(|(only, spec)| {
-                    only == platform && split_design_only(spec) == (name.as_str(), row)
+                    only == *app && split_design_only(spec) == (name.as_str(), row)
                 })
             };
             if marked(None) {
@@ -166,7 +166,7 @@ pub(crate) fn list(
                     design_only_rows += 1;
                     continue;
                 }
-                let shot = crate::names::component_shot(key, *platform, state)
+                let shot = crate::names::component_shot(key, app, state)
                     .map_err(|e| format!("{}: {e}", preview.display()))?;
                 let place = match declared.iter().find(|d| d.name == shot) {
                     Some(d) if d.file == path => Place::File,
@@ -177,26 +177,26 @@ pub(crate) fn list(
             }
             components.push(Component {
                 name: name.clone(),
-                platform: *platform,
+                app: (*app).clone(),
                 file_exists: path.is_file(),
                 file,
                 rows,
             });
         }
     }
-    components.sort_by(|a, b| a.name.cmp(&b.name).then(a.platform.cmp(&b.platform)));
+    components.sort_by(|a, b| a.name.cmp(&b.name).then(a.app.cmp(&b.app)));
 
     let mut strays = Vec::new();
-    for (platform, _, folder) in &platforms {
+    for (app, _, folder) in &apps {
         for file in
-            declared::capture_files(&root.join(folder), *platform).map_err(|e| e.to_string())?
+            declared::capture_files(&root.join(folder), app.platform).map_err(|e| e.to_string())?
         {
             let stem = file.stem;
             let why = match previews.components.iter().find(|(name, _)| *name == stem) {
                 Some((_, key)) => match key.platform {
-                    Some(owner) if owner != platform.word() => format!(
+                    Some(owner) if owner != app.platform.word() => format!(
                         "{stem} is a component of {owner}, not of {}",
-                        platform.word()
+                        app.platform.word()
                     ),
                     _ => continue,
                 },
@@ -235,15 +235,15 @@ pub(crate) fn design_only_problems(
     settings: &Settings,
 ) -> Result<Vec<String>, String> {
     let mut problems = Vec::new();
-    for (platform, spec) in &settings.design_only {
+    for (app, spec) in &settings.design_only {
         let (name, row) = split_design_only(spec);
         let drawn = previews.components.iter().find(|(known, key)| {
-            known == name && key.platform.is_none_or(|p| p == platform.word())
+            known == name && key.platform.is_none_or(|p| p == app.platform.word())
         });
         let Some((name, _)) = drawn else {
             problems.push(format!(
                 "shots-design-only names {name} on {}, which has no preview there",
-                platform.word()
+                app.name
             ));
             continue;
         };
@@ -252,7 +252,7 @@ pub(crate) fn design_only_problems(
         {
             problems.push(format!(
                 "shots-design-only names {name}.{row} on {}, which is no row of {name}'s preview",
-                platform.word()
+                app.name
             ));
         }
     }
@@ -316,14 +316,12 @@ pub(crate) fn lines(listing: &Listing, only: &[String]) -> Vec<String> {
         if component.file_exists {
             lines.push(format!(
                 "{} on {}: {file}",
-                component.name,
-                component.platform.word()
+                component.name, component.app.name
             ));
         } else {
             lines.push(format!(
                 "{} on {}: {file} does not exist",
-                component.name,
-                component.platform.word()
+                component.name, component.app.name
             ));
         }
         // The declare folder, which holds the capture file's Components

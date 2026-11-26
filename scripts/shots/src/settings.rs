@@ -4,6 +4,7 @@
 //! does not know.
 //!
 //! ```text
+//! app windows avalonia
 //! shots-capture mac ./app-macos/shots-capture.sh
 //! shots-capture android ./app-android/shots-capture.sh
 //! shots-declared mac app-macos/Shots
@@ -15,10 +16,13 @@
 //! shots-design-only android Logo.inline Logo.sheep
 //! ```
 //!
-//! - `shots-capture <platform> <command>...`: the command that takes the
-//!   platform's shots, run from the repo's top (capture.rs).
-//! - `shots-declared <platform> <folder>`: the folder of the harness source
-//!   that declares the platform's shots (declared.rs), whose `Components`
+//! - `app <name> <platform>`: an app and the platform whose backend takes its
+//!   shots (`boards::app_build`). An app named for a platform (`mac`) needs
+//!   no line. Every other line below names an app by its name.
+//! - `shots-capture <app> <command>...`: the command that takes the app's
+//!   shots, run from the repo's top (capture.rs).
+//! - `shots-declared <app> <folder>`: the folder of the harness source
+//!   that declares the app's shots (declared.rs), whose `Components`
 //!   folder holds each design-system component's capture file
 //!   (component_files.rs).
 //! - `shots-preview <row> <name> <cell>`: the CSS selectors of a component
@@ -27,13 +31,13 @@
 //! - `shots-preview-calls <function>...`: the functions a preview page calls
 //!   with a row's name as the first string argument, which the lint reads to
 //!   find a preview's states without a browser (lint.rs).
-//! - `shots-design-only <platform> <Component>...`: the components the
-//!   design draws and the platform's app has no view for (an app icon's
+//! - `shots-design-only <app> <Component>...`: the components the
+//!   design draws and the app has no view for (an app icon's
 //!   artwork, a glyph library), whose preview rows have no shot and never
 //!   will, so the listing of component capture files leaves them out and
 //!   says how many (component_files.rs). `Component.row` marks one row of
 //!   the component's preview, named by its id (`Nested, off` is
-//!   `nested-off`), for a platform that draws the component's other rows
+//!   `nested-off`), for an app that draws the component's other rows
 //!   and not that one; the other rows keep their shots.
 //! - `shots-unshot <selector>...`: the parts of a board the app draws no
 //!   counterpart for, such as an on-screen keyboard, which the picture
@@ -43,7 +47,7 @@
 //! preview draws one as a stand-in for its content, and the comparison leaves
 //! out what either side holds inside its box (render/read.rs, compare.rs).
 
-use crate::names::Platform;
+use crate::names::{App, Apps};
 use std::path::{Path, PathBuf};
 
 /// A `shots-design-only` name split into its component and, for the form
@@ -68,6 +72,9 @@ pub(crate) enum SettingsError {
     NoPreview(String),
 }
 
+/// What a line says when its app is no app of the file.
+const NO_APP: &str = "names no app (an app line or a platform's word gives one)";
+
 /// How a component preview's rows are marked.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Preview {
@@ -78,16 +85,17 @@ pub(crate) struct Preview {
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub(crate) struct Settings {
-    /// Each platform's capture command, in the order written.
-    pub(crate) capture: Vec<(Platform, Vec<String>)>,
-    /// Each platform's declare folder, relative to the repo's top.
-    pub(crate) declared: Vec<(Platform, String)>,
+    /// The apps the `app` lines name.
+    pub(crate) apps: Apps,
+    /// Each app's capture command, in the order written.
+    pub(crate) capture: Vec<(App, Vec<String>)>,
+    /// Each app's declare folder, relative to the repo's top.
+    pub(crate) declared: Vec<(App, String)>,
     pub(crate) preview: Option<Preview>,
     pub(crate) preview_calls: Vec<String>,
     pub(crate) unshot: Vec<String>,
-    /// Each component a platform draws for the design only, in the order
-    /// written.
-    pub(crate) design_only: Vec<(Platform, String)>,
+    /// Each component an app draws for the design only, in the order written.
+    pub(crate) design_only: Vec<(App, String)>,
 }
 
 impl Settings {
@@ -103,9 +111,9 @@ impl Settings {
 
     pub(crate) fn parse(text: &str) -> Result<Self, SettingsError> {
         let mut settings = Self::default();
-        let declared =
-            boards::app_build::declared(text).map_err(|e| SettingsError::Line(e.line, e.why))?;
-        settings.declared = declared;
+        let line_error = |e: boards::app_build::LineError| SettingsError::Line(e.line, e.why);
+        settings.apps = Apps::read(text).map_err(line_error)?;
+        settings.declared = boards::app_build::declared(text).map_err(line_error)?;
         for line in text.lines().map(str::trim) {
             let mut words = line.split_whitespace();
             let Some(keyword) = words.next() else {
@@ -118,18 +126,17 @@ impl Settings {
             let rest: Vec<String> = words.map(str::to_string).collect();
             match keyword {
                 "shots-capture" => {
-                    let [platform, value @ ..] = rest.as_slice() else {
-                        return Err(bad("names no platform"));
+                    let [app, value @ ..] = rest.as_slice() else {
+                        return Err(bad("names no app"));
                     };
-                    let platform = Platform::parse(platform)
-                        .ok_or_else(|| bad("names a platform other than mac, android or web"))?;
+                    let app = settings.app(app).ok_or_else(|| bad(NO_APP))?;
                     if value.is_empty() {
-                        return Err(bad("names its platform and nothing else"));
+                        return Err(bad("names its app and nothing else"));
                     }
-                    if settings.capture.iter().any(|(p, _)| *p == platform) {
-                        return Err(bad("gives a platform a second capture command"));
+                    if settings.capture.iter().any(|(a, _)| *a == app) {
+                        return Err(bad("gives an app a second capture command"));
                     }
-                    settings.capture.push((platform, value.to_vec()));
+                    settings.capture.push((app, value.to_vec()));
                 }
                 // boards::app_build reads these lines, as builds does.
                 "shots-declared" => {}
@@ -147,11 +154,10 @@ impl Settings {
                     }
                 }
                 "shots-design-only" => {
-                    let [platform, components @ ..] = rest.as_slice() else {
-                        return Err(bad("names no platform"));
+                    let [app, components @ ..] = rest.as_slice() else {
+                        return Err(bad("names no app"));
                     };
-                    let platform = Platform::parse(platform)
-                        .ok_or_else(|| bad("names a platform other than mac, android or web"))?;
+                    let app = settings.app(app).ok_or_else(|| bad(NO_APP))?;
                     if components.is_empty() {
                         return Err(bad("names no component"));
                     }
@@ -159,7 +165,7 @@ impl Settings {
                         match split_design_only(component) {
                             ("", _) => return Err(bad("names no component")),
                             (_, Some("")) => return Err(bad("names no row")),
-                            _ => settings.design_only.push((platform, component.clone())),
+                            _ => settings.design_only.push((app.clone(), component.clone())),
                         }
                     }
                 }
@@ -179,11 +185,16 @@ impl Settings {
         Ok(settings)
     }
 
-    /// The platforms that have a capture command, in name order.
-    pub(crate) fn platforms(&self) -> Vec<Platform> {
-        let mut platforms: Vec<Platform> = self.capture.iter().map(|(p, _)| *p).collect();
-        platforms.sort();
-        platforms
+    /// The app called <name>, when an `app` line or a platform's word gives it.
+    pub(crate) fn app(&self, name: &str) -> Option<App> {
+        self.apps.get(name)
+    }
+
+    /// The apps that have a capture command, in name order.
+    pub(crate) fn capturing_apps(&self) -> Vec<App> {
+        let mut apps: Vec<App> = self.capture.iter().map(|(a, _)| a.clone()).collect();
+        apps.sort();
+        apps
     }
 
     /// The preview markers, which drawing component <component> needs.

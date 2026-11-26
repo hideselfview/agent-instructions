@@ -13,7 +13,7 @@ use crate::design::{self, DesignSystem};
 use crate::findings_file::What;
 use crate::lint::{self, Problem};
 use crate::lists::{self, Lists};
-use crate::names::{Name, Platform, Previews};
+use crate::names::{App, Name, Previews};
 use crate::pictures::Pictures;
 use crate::render::serve::Tree;
 use crate::render::{self, runtime};
@@ -52,8 +52,8 @@ pub(crate) struct Verification<'a> {
     pub(crate) failed: &'a [Failed],
     /// Every shot the harnesses declare.
     pub(crate) declared: &'a [Declared],
-    /// Where each platform's captured files are.
-    pub(crate) shots_for: &'a dyn Fn(Platform) -> PathBuf,
+    /// Where each app's captured files are.
+    pub(crate) shots_for: &'a dyn Fn(&App) -> PathBuf,
     /// Where the boards are rendered, in `boards/`.
     pub(crate) out: &'a Path,
     /// What the pairs are compared with.
@@ -236,8 +236,7 @@ pub(crate) fn verify(job: &Verification) -> Result<Outcome, String> {
 
     let mut shots = BTreeMap::new();
     for name in &names {
-        let shot =
-            Shot::load(&(job.shots_for)(name.platform()), name).map_err(|e| e.to_string())?;
+        let shot = Shot::load(&(job.shots_for)(name.app()), name).map_err(|e| e.to_string())?;
         shots.insert(name.clone(), shot);
     }
 
@@ -288,7 +287,7 @@ pub(crate) fn verify(job: &Verification) -> Result<Outcome, String> {
                 hash: hash_text,
             },
             &shots[name],
-            (job.shots_for)(name.platform()).join(name.file_name("png")),
+            (job.shots_for)(name.app()).join(name.file_name("png")),
         );
         pair.against = match job.comparison {
             Comparison::Nothing => None,

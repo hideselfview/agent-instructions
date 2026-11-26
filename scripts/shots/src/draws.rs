@@ -232,7 +232,11 @@ fn draw(
         Selection::Named { components, .. } => components.iter().collect(),
     };
     let (screens, others): (Vec<&String>, Vec<&String>) = wanted.into_iter().partition(|name| {
-        context.frames.contains_key(*name) && matches!(Name::parse(name), Ok(Name::Screen(_)))
+        context.frames.contains_key(*name)
+            && matches!(
+                Name::parse(name, &context.settings.apps),
+                Ok(Name::Screen(_))
+            )
     });
     let mut drawn = Drawings::new();
     if !screens.is_empty() {
@@ -274,7 +278,7 @@ fn draw_screens(
 ) -> Result<Drawings, String> {
     let names: Vec<Name> = names
         .iter()
-        .map(|name| Name::parse(name).map_err(|e| e.to_string()))
+        .map(|name| Name::parse(name, &context.settings.apps).map_err(|e| e.to_string()))
         .collect::<Result<_, _>>()?;
     let scales: render::Scales = names.iter().map(|name| (name.clone(), SCALE)).collect();
     let hashes = render::hashes(

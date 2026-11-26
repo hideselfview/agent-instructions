@@ -1,8 +1,9 @@
 use super::*;
+use crate::names::Platform;
 
 const APP_BUILD: &str = "\
 mac build ./run.sh
-shots mac builds shots run --platform mac --select {select}
+shots mac builds shots run --app mac --select {select}
 shots-capture mac ./mac/shots-capture.sh --quiet
 shots-capture android ./android/shots-capture.sh
 shots-declared mac mac/Shots
@@ -19,21 +20,30 @@ fn the_shots_lines_are_read_and_the_others_skipped() {
         settings.capture,
         [
             (
-                Platform::Mac,
+                App::named_for(Platform::Mac),
                 vec!["./mac/shots-capture.sh".to_string(), "--quiet".to_string()]
             ),
             (
-                Platform::Android,
+                App::named_for(Platform::Android),
                 vec!["./android/shots-capture.sh".to_string()]
             ),
         ]
     );
-    assert_eq!(settings.platforms(), [Platform::Mac, Platform::Android]);
+    assert_eq!(
+        settings.capturing_apps(),
+        [
+            App::named_for(Platform::Mac),
+            App::named_for(Platform::Android)
+        ]
+    );
     assert_eq!(
         settings.declared,
         [
-            (Platform::Mac, "mac/Shots".to_string()),
-            (Platform::Android, "android/shots".to_string())
+            (App::named_for(Platform::Mac), "mac/Shots".to_string()),
+            (
+                App::named_for(Platform::Android),
+                "android/shots".to_string()
+            )
         ]
     );
     let preview = settings.preview("MacRow").unwrap();
@@ -68,10 +78,10 @@ fn a_design_only_line_names_the_components_a_platform_draws_for_the_design_alone
     assert_eq!(
         settings.design_only,
         [
-            (Platform::Mac, "AppIcon".to_string()),
-            (Platform::Mac, "Sym".to_string()),
-            (Platform::Android, "AppIcon".to_string()),
-            (Platform::Android, "ImportSheep".to_string()),
+            (App::named_for(Platform::Mac), "AppIcon".to_string()),
+            (App::named_for(Platform::Mac), "Sym".to_string()),
+            (App::named_for(Platform::Android), "AppIcon".to_string()),
+            (App::named_for(Platform::Android), "ImportSheep".to_string()),
         ]
     );
 }
@@ -83,9 +93,9 @@ fn a_design_only_line_names_single_rows_as_component_dot_row() {
     assert_eq!(
         settings.design_only,
         [
-            (Platform::Android, "Logo.inline".to_string()),
-            (Platform::Android, "Logo.sheep".to_string()),
-            (Platform::Android, "Sym".to_string()),
+            (App::named_for(Platform::Android), "Logo.inline".to_string()),
+            (App::named_for(Platform::Android), "Logo.sheep".to_string()),
+            (App::named_for(Platform::Android), "Sym".to_string()),
         ]
     );
 }
@@ -93,16 +103,16 @@ fn a_design_only_line_names_single_rows_as_component_dot_row() {
 #[test]
 fn a_shots_line_it_cannot_read_is_refused() {
     for (line, why) in [
-        ("shots-capture", "names no platform"),
-        ("shots-capture ios ./x.sh", "mac, android or web"),
+        ("shots-capture", "names no app"),
+        ("shots-capture ios ./x.sh", "names no app"),
         ("shots-capture mac", "nothing else"),
         ("shots-declared mac a b", "more than one declare folder"),
         ("shots-declared mac ../out", "outside the repo"),
         ("shots-preview .row .name", "selectors"),
         ("shots-unshot", "names nothing"),
-        ("shots-design-only", "names no platform"),
+        ("shots-design-only", "names no app"),
         ("shots-design-only mac", "names no component"),
-        ("shots-design-only ios Sym", "mac, android or web"),
+        ("shots-design-only ios Sym", "names no app"),
         ("shots-design-only android Logo.", "names no row"),
         ("shots-design-only android .inline", "names no component"),
         ("shots-guess x", "no line builds shots knows"),
@@ -118,4 +128,43 @@ fn a_shots_line_it_cannot_read_is_refused() {
             .to_string()
             .contains("second capture command")
     );
+}
+
+#[test]
+fn app_lines_name_the_apps_the_other_lines_are_keyed_by() {
+    let settings = Settings::parse(
+        "app windows web\napp linux web\n\
+         shots-capture windows ./windows.sh\nshots-capture linux ./linux.sh\n\
+         shots-declared windows app/windows\nshots-declared linux app/linux\n\
+         shots-design-only linux Sym\n",
+    )
+    .unwrap();
+    let windows = settings.app("windows").unwrap();
+    let linux = settings.app("linux").unwrap();
+    assert_eq!(
+        (windows.platform, linux.platform),
+        (Platform::Web, Platform::Web)
+    );
+    assert_eq!(settings.capturing_apps(), [linux.clone(), windows.clone()]);
+    assert_eq!(
+        settings.declared,
+        [
+            (windows, "app/windows".to_string()),
+            (linux.clone(), "app/linux".to_string())
+        ]
+    );
+    assert_eq!(settings.design_only, [(linux, "Sym".to_string())]);
+}
+
+#[test]
+fn a_line_that_names_an_app_no_line_gives_is_refused() {
+    for line in [
+        "shots-capture windows ./x.sh",
+        "shots-declared windows app/x",
+        "shots-design-only windows Sym",
+    ] {
+        let error = Settings::parse(line).unwrap_err().to_string();
+        assert!(error.contains("names no app"), "{line}: {error}");
+    }
+    assert!(Settings::parse("app windows ios\n").is_err());
 }

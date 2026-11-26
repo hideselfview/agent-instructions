@@ -1,12 +1,16 @@
 use super::*;
+use crate::names::Platform;
 
 const KOTLIN_DIRECTORY: &str = "android/shots";
 const SWIFT_DIRECTORY: &str = "mac/Shots";
 
-fn folders() -> Vec<(Platform, String)> {
+fn folders() -> Vec<(App, String)> {
     vec![
-        (Platform::Android, KOTLIN_DIRECTORY.to_string()),
-        (Platform::Mac, SWIFT_DIRECTORY.to_string()),
+        (
+            App::named_for(Platform::Android),
+            KOTLIN_DIRECTORY.to_string(),
+        ),
+        (App::named_for(Platform::Mac), SWIFT_DIRECTORY.to_string()),
     ]
 }
 
@@ -41,7 +45,10 @@ fn swift_reads_string_literals_of_board_form() {
         ShotScene(id: "appearance", size: size)
         let key = "macOS.version"
     "#;
-    let names: Vec<String> = swift(source).into_iter().map(|(n, _)| n).collect();
+    let names: Vec<String> = swift(source, &App::named_for(Platform::Mac))
+        .into_iter()
+        .map(|(n, _)| n)
+        .collect();
     assert_eq!(
         names,
         ["mac.welcome.libraries.none", "mac.welcome.create-name"]
@@ -81,7 +88,7 @@ fn swift_marks_the_scenes_shown_in_a_window_and_those_that_take_the_focus() {
         ShotScene(id: "mac.welcome.after", size: size) { ShotStage(Text("c")) },
     "#;
     assert_eq!(
-        swift(source),
+        swift(source, &App::named_for(Platform::Mac)),
         [
             ("mac.welcome.create-name".to_string(), marks(false, false)),
             ("mac.settings.toolbar".to_string(), marks(true, false)),
@@ -221,12 +228,19 @@ fn a_web_shot_is_declared_by_its_fixture_file() {
     let root = tempfile::tempdir().unwrap();
     write(root.path(), "web/shots/web.dashboard.page.json", "{}");
     write(root.path(), "web/shots/notes.txt", "");
-    let found = read(root.path(), &[(Platform::Web, "web/shots".to_string())]).unwrap();
+    let found = read(
+        root.path(),
+        &[(App::named_for(Platform::Web), "web/shots".to_string())],
+    )
+    .unwrap();
     let names: Vec<String> = found.iter().map(|d| d.name.to_string()).collect();
     assert_eq!(names, ["web.dashboard.page"]);
     write(root.path(), "web/shots/Not A Name.json", "{}");
     assert!(matches!(
-        read(root.path(), &[(Platform::Web, "web/shots".to_string())]),
+        read(
+            root.path(),
+            &[(App::named_for(Platform::Web), "web/shots".to_string())]
+        ),
         Err(DeclaredError::Name(..))
     ));
 }
@@ -248,7 +262,11 @@ fn a_harness_with_a_scene_and_no_board_is_declared_for_the_lint_to_find() {
         "app/Shots/Scenes.swift",
         "ShotScene(id: \"mac.album.credits\", frame: .sheet) { }",
     );
-    let found = read(root.path(), &[(Platform::Mac, "app/Shots".to_string())]).unwrap();
+    let found = read(
+        root.path(),
+        &[(App::named_for(Platform::Mac), "app/Shots".to_string())],
+    )
+    .unwrap();
     assert_eq!(found.len(), 1);
     assert_eq!(found[0].name.to_string(), "mac.album.credits");
 }
@@ -307,7 +325,10 @@ fn a_component_capture_file_declares_its_shots_from_the_components_folder() {
     );
     assert_eq!(
         crate::backend::of(Platform::Mac)
-            .declared_in(&in_components(SWIFT_DIRECTORY, "MacRow.swift"))
+            .declared_in(
+                &in_components(SWIFT_DIRECTORY, "MacRow.swift"),
+                &App::named_for(Platform::Mac),
+            )
             .unwrap()
             .iter()
             .map(|d| d.name.to_string())

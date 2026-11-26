@@ -543,8 +543,7 @@ fn a_lanes_full_set_of_shots_runs_through_its_shots_line_and_is_cached_as_a_shot
 #[test]
 fn a_lanes_full_run_of_the_checker_counts_its_scenes_for_its_limit() {
     let config =
-        parse_config("shots mac builds shots run --platform mac --windows --select {select}\n")
-            .unwrap();
+        parse_config("shots mac builds shots run --app mac --windows --select {select}\n").unwrap();
     let steps = lane_steps(
         &config,
         Lane::Mac,
@@ -561,7 +560,7 @@ fn a_lanes_full_run_of_the_checker_counts_its_scenes_for_its_limit() {
             "builds",
             "shots",
             "scenes",
-            "--platform",
+            "--app",
             "mac",
             "--windows",
             "--select",
@@ -675,7 +674,7 @@ fn a_lane_with_one_shots_prefix_runs_it_in_one_step_that_captures() {
 #[test]
 fn a_lane_with_several_shots_prefixes_captures_them_once_and_then_runs_each_without_capturing() {
     let config = parse_config(
-        "step mac one ./one\ntest mac ./t {class}\nshots mac builds shots run --platform mac --windows --select {select}\n",
+        "step mac one ./one\ntest mac ./t {class}\nshots mac builds shots run --app mac --windows --select {select}\n",
     )
     .unwrap();
     let picks = [
@@ -706,7 +705,7 @@ fn a_lane_with_several_shots_prefixes_captures_them_once_and_then_runs_each_with
             "builds",
             "shots",
             "run",
-            "--platform",
+            "--app",
             "mac",
             "--windows",
             "--select",
@@ -731,7 +730,7 @@ fn a_lane_with_several_shots_prefixes_captures_them_once_and_then_runs_each_with
             "builds",
             "shots",
             "scenes",
-            "--platform",
+            "--app",
             "mac",
             "--windows",
             "--select",
@@ -754,7 +753,7 @@ fn a_lane_with_several_shots_prefixes_captures_them_once_and_then_runs_each_with
                 "builds",
                 "shots",
                 "run",
-                "--platform",
+                "--app",
                 "mac",
                 "--windows",
                 "--select",
@@ -768,7 +767,7 @@ fn a_lane_with_several_shots_prefixes_captures_them_once_and_then_runs_each_with
                 "builds",
                 "shots",
                 "scenes",
-                "--platform",
+                "--app",
                 "mac",
                 "--windows",
                 "--select",

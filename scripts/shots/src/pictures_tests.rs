@@ -1,4 +1,6 @@
 use super::*;
+use crate::names::Apps;
+use crate::names::{App, Platform};
 
 #[test]
 fn a_kept_board_picture_is_taken_by_its_hash_under_any_shots_name() {
@@ -67,7 +69,7 @@ fn taking_a_picture_marks_it_used_at_the_runs_time() {
 }
 
 fn shot(text: &str) -> Name {
-    Name::parse(text).unwrap()
+    Name::parse(text, &Apps::default()).unwrap()
 }
 
 #[test]
@@ -82,25 +84,25 @@ fn an_app_trees_shots_are_taken_only_when_the_folder_keeps_every_selected_one() 
         std::fs::write(taken.join(name.file_name("json")), "{}").unwrap();
     }
     pictures
-        .keep_shots(Platform::Mac, "tree1", &names[..1], &taken)
+        .keep_shots(&App::named_for(Platform::Mac), "tree1", &names[..1], &taken)
         .unwrap();
     let out = dir.path().join("out");
     assert!(
         !pictures
-            .take_shots(Platform::Mac, "tree1", &names, &out)
+            .take_shots(&App::named_for(Platform::Mac), "tree1", &names, &out)
             .unwrap(),
         "the folder lacks mac.a.c"
     );
     assert!(!out.exists(), "nothing is copied when one shot is missing");
     assert!(
         pictures
-            .take_shots(Platform::Mac, "tree1", &names[..1], &out)
+            .take_shots(&App::named_for(Platform::Mac), "tree1", &names[..1], &out)
             .unwrap()
     );
     assert!(out.join(names[0].file_name("png")).is_file());
     assert!(
         !pictures
-            .take_shots(Platform::Mac, "tree2", &names[..1], &out)
+            .take_shots(&App::named_for(Platform::Mac), "tree2", &names[..1], &out)
             .unwrap(),
         "another app tree's shots never stand in"
     );
@@ -117,12 +119,12 @@ fn keeping_a_shot_again_replaces_its_kept_picture_and_element_list_whole() {
     std::fs::write(file("png"), "early").unwrap();
     std::fs::write(file("json"), "[1]").unwrap();
     pictures
-        .keep_shots(Platform::Mac, "tree1", &names, &taken)
+        .keep_shots(&App::named_for(Platform::Mac), "tree1", &names, &taken)
         .unwrap();
     std::fs::write(file("png"), "loaded").unwrap();
     std::fs::write(file("json"), "[2]").unwrap();
     pictures
-        .keep_shots(Platform::Mac, "tree1", &names, &taken)
+        .keep_shots(&App::named_for(Platform::Mac), "tree1", &names, &taken)
         .unwrap();
     let kept = dir.path().join("pictures/mac/tree1");
     assert_eq!(
@@ -146,7 +148,7 @@ fn a_taken_prefix_is_marked_with_whether_the_run_took_the_window_shots() {
     let pictures = Pictures::new(dir.path().to_path_buf(), std::time::SystemTime::now());
     pictures
         .mark_taken(
-            Platform::Mac,
+            &App::named_for(Platform::Mac),
             "tree1",
             &[Prefix::parse("mac.a.").unwrap()],
             true,
@@ -154,7 +156,7 @@ fn a_taken_prefix_is_marked_with_whether_the_run_took_the_window_shots() {
         .unwrap();
     pictures
         .mark_taken(
-            Platform::Mac,
+            &App::named_for(Platform::Mac),
             "tree1",
             &[Prefix::parse("mac.b.").unwrap()],
             false,

@@ -5,7 +5,7 @@
 //! `Platform`; each asks the platform's backend (`of`).
 
 use crate::declared::{Declared, DeclaredError};
-use crate::names::Platform;
+use crate::names::{App, Platform};
 use std::path::Path;
 
 /// How the board reader reads a board for a platform.
@@ -50,9 +50,9 @@ pub(crate) trait Backend {
     /// its shots, rather than a fixture file that declares each shot by its
     /// name.
     fn holds_capture_code(&self) -> bool;
-    /// The shots one harness file or fixture declares, read from its source
-    /// with no build.
-    fn declared_in(&self, file: &Path) -> Result<Vec<Declared>, DeclaredError>;
+    /// The shots of <app> that one harness file or fixture declares, read
+    /// from its source with no build.
+    fn declared_in(&self, file: &Path, app: &App) -> Result<Vec<Declared>, DeclaredError>;
     /// The extension of the files that declare shots: a harness's source
     /// files, or a fixture's.
     fn declaring_extension(&self) -> &'static str;
@@ -90,8 +90,8 @@ impl Backend for Mac {
     fn declaring_extension(&self) -> &'static str {
         "swift"
     }
-    fn declared_in(&self, file: &Path) -> Result<Vec<Declared>, DeclaredError> {
-        crate::declared::declared_in_swift(file)
+    fn declared_in(&self, file: &Path, app: &App) -> Result<Vec<Declared>, DeclaredError> {
+        crate::declared::declared_in_swift(file, app)
     }
     fn test_runner_copies(&self) -> bool {
         true
@@ -135,8 +135,8 @@ impl Backend for Android {
     fn declaring_extension(&self) -> &'static str {
         "kt"
     }
-    fn declared_in(&self, file: &Path) -> Result<Vec<Declared>, DeclaredError> {
-        crate::declared::declared_in_kotlin(file)
+    fn declared_in(&self, file: &Path, app: &App) -> Result<Vec<Declared>, DeclaredError> {
+        crate::declared::declared_in_kotlin(file, app)
     }
     fn test_runner_copies(&self) -> bool {
         false
@@ -177,8 +177,8 @@ impl Backend for Web {
     fn declaring_extension(&self) -> &'static str {
         "json"
     }
-    fn declared_in(&self, file: &Path) -> Result<Vec<Declared>, DeclaredError> {
-        crate::declared::declared_by_name(file)
+    fn declared_in(&self, file: &Path, app: &App) -> Result<Vec<Declared>, DeclaredError> {
+        crate::declared::declared_by_name(file, app)
     }
     fn test_runner_copies(&self) -> bool {
         false

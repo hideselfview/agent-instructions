@@ -1,7 +1,9 @@
-//! Board and shot names: `<platform>.<area>.<screen>[.<state>]` for a screen
-//! and `<platform>.component.<thing>.<state>` for a design-system component's
-//! state. A component both platforms share (`Artwork`) has the same form, with
-//! the platform of the shot it draws. Each segment is lower-case words joined by `-`.
+//! Board and shot names: `<app>.<area>.<screen>[.<state>]` for a screen and
+//! `<app>.component.<thing>.<state>` for a design-system component's state.
+//! The first segment names an app, whose platform picks the backend that
+//! takes the shot (`boards::app_build`). A component every platform shares
+//! (`Artwork`) has the same form, with the app of the shot it draws. Each
+//! segment is lower-case words joined by `-`.
 
 use boards::component_key::ComponentKey;
 use std::fmt;
@@ -12,7 +14,7 @@ pub enum NameError {
     Invalid(String, &'static str),
 }
 
-pub(crate) use boards::app_build::Platform;
+pub(crate) use boards::app_build::{App, Apps, Platform};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Name {
@@ -22,7 +24,7 @@ pub enum Name {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ScreenName {
-    platform: Platform,
+    app: App,
     area: String,
     screen: String,
     state: Option<String>,
@@ -30,35 +32,46 @@ pub struct ScreenName {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ComponentName {
-    platform: Platform,
+    app: App,
     thing: String,
     state: String,
 }
 
 impl Name {
-    pub(crate) fn parse(text: &str) -> Result<Self, NameError> {
+    /// The name <text> gives, whose first segment is an app of <apps>.
+    pub(crate) fn parse(text: &str, apps: &Apps) -> Result<Self, NameError> {
+        Self::parse_with(text, |word| apps.get(word))
+    }
+
+    /// The name <text> gives, whose first segment is <app>'s name.
+    pub(crate) fn parse_in(text: &str, app: &App) -> Result<Self, NameError> {
+        Self::parse_with(text, |word| (word == app.name).then(|| app.clone()))
+    }
+
+    fn parse_with(text: &str, find: impl Fn(&str) -> Option<App>) -> Result<Self, NameError> {
         let invalid = |why| NameError::Invalid(text.to_string(), why);
         let segments: Vec<&str> = text.split('.').collect();
         if !segments.iter().all(|s| is_segment(s)) {
             return Err(invalid("every segment is lower-case words joined by '-'"));
         }
-        let platform = Platform::parse(segments[0])
-            .ok_or_else(|| invalid("it starts with no platform (mac, android, web)"))?;
+        let app = find(segments[0]).ok_or_else(|| {
+            invalid("it starts with no app (an app line of .app-build, or mac, android, web)")
+        })?;
         match segments[1..] {
             ["component", thing, state] => Ok(Self::Component(ComponentName {
-                platform,
+                app,
                 thing: thing.to_string(),
                 state: state.to_string(),
             })),
             ["component", ..] => Err(invalid("a component is component.<thing>.<state>")),
             [area, screen] => Ok(Self::Screen(ScreenName {
-                platform,
+                app,
                 area: area.to_string(),
                 screen: screen.to_string(),
                 state: None,
             })),
             [area, screen, state] => Ok(Self::Screen(ScreenName {
-                platform,
+                app,
                 area: area.to_string(),
                 screen: screen.to_string(),
                 state: Some(state.to_string()),
@@ -69,15 +82,19 @@ impl Name {
 }
 
 impl Name {
-    pub(crate) fn platform(&self) -> Platform {
+    pub(crate) fn app(&self) -> &App {
         match self {
-            Self::Screen(s) => s.platform,
-            Self::Component(c) => c.platform,
+            Self::Screen(s) => &s.app,
+            Self::Component(c) => &c.app,
         }
     }
 
+    pub(crate) fn platform(&self) -> Platform {
+        self.app().platform
+    }
+
     /// The file a shot writes with `extension` (`png` or `json`):
-    /// `<name>@<platform>.<extension>`.
+    /// `<name>@<file word>.<extension>`.
     pub(crate) fn file_name(&self, extension: &str) -> String {
         format!(
             "{self}@{}.{extension}",
@@ -85,38 +102,44 @@ impl Name {
         )
     }
 
-    /// The shot a file in a capture directory belongs to, when its name has the
-    /// form of a shot file of `platform`.
-    pub(crate) fn from_file_name(
-        platform: Platform,
-        file_name: &str,
-    ) -> Option<Result<Self, NameError>> {
-        let word = crate::backend::of(platform).file_word();
+    /// The shot of <app> a file in a capture directory belongs to, when its
+    /// name has the form of a shot file of the app: its suffix is its
+    /// platform's file word, and its stem starts with the app's name or with
+    /// no app's name at all.
+    pub(crate) fn from_file_name(app: &App, file_name: &str) -> Option<Result<Self, NameError>> {
+        let word = crate::backend::of(app.platform).file_word();
         let suffix_png = format!("@{word}.png");
         let suffix_json = format!("@{word}.json");
         let stem = file_name
             .strip_suffix(&suffix_png)
             .or_else(|| file_name.strip_suffix(&suffix_json))?;
-        Some(Self::parse(stem))
+        // A file of another app that shares the platform's file word is no
+        // file of this app.
+        let first = stem.split('.').next().unwrap_or_default();
+        if first != app.name && stem.contains('.') && boards::app_build::is_app_name(first) {
+            return None;
+        }
+        Some(Self::parse_in(stem, app))
     }
 }
 
 /// The start of board names a run is limited to: `mac.welcome.` is the Mac
-/// welcome boards, `mac.component.row.` one component's states.
+/// welcome boards, `mac.component.row.` one component's states. A prefix names
+/// its app by the first segment, which the run's `.app-build` says is an app.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Prefix {
-    platform: Platform,
     text: String,
 }
 
 impl Prefix {
     pub fn parse(text: &str) -> Result<Self, NameError> {
         let invalid = |why| NameError::Invalid(text.to_string(), why);
-        let (platform, rest) = text
+        let (app, rest) = text
             .split_once('.')
-            .ok_or_else(|| invalid("a prefix is a platform and a dot at least"))?;
-        let platform = Platform::parse(platform)
-            .ok_or_else(|| invalid("it starts with no platform (mac, android, web)"))?;
+            .ok_or_else(|| invalid("a prefix is an app and a dot at least"))?;
+        if !boards::app_build::is_app_name(app) {
+            return Err(invalid("it starts with no app name"));
+        }
         if !rest
             .chars()
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '.')
@@ -126,20 +149,20 @@ impl Prefix {
             ));
         }
         Ok(Self {
-            platform,
             text: text.to_string(),
         })
     }
 
-    pub fn all_of(platform: Platform) -> Self {
+    /// The prefix of every shot of <app>.
+    pub fn all_of(app: &App) -> Self {
         Self {
-            platform,
-            text: format!("{}.", platform.word()),
+            text: format!("{}.", app.name),
         }
     }
 
-    pub fn platform(&self) -> Platform {
-        self.platform
+    /// The name of the app the prefix starts with.
+    pub fn app(&self) -> &str {
+        self.text.split('.').next().unwrap_or_default()
     }
 
     pub fn matches(&self, name: &Name) -> bool {
@@ -170,12 +193,12 @@ impl ComponentName {
                 })
                 .map(|(name, _)| name.clone())
         };
-        find(Some(self.platform))
+        find(Some(self.app.platform))
             .or_else(|| find(None))
             .unwrap_or_else(|| {
                 format!(
                     "{}{}",
-                    self.platform.component_prefix(),
+                    self.app.platform.component_prefix(),
                     pascal_case(&self.thing)
                 )
             })
@@ -187,13 +210,13 @@ impl ComponentName {
 }
 
 /// The name of the shot of the preview row <state> of the component <key>
-/// names (`boards::component_key`) on <platform>.
+/// names (`boards::component_key`) of <app>.
 pub(crate) fn component_shot(
     key: &ComponentKey,
-    platform: Platform,
+    app: &App,
     state: &str,
 ) -> Result<Name, NameError> {
-    Name::parse(&format!("{}{state}", key.prefix(platform.word())))
+    Name::parse_in(&format!("{}{state}", key.prefix(&app.name)), app)
 }
 
 /// The design-system components of a repo that have a preview: each folder
@@ -252,14 +275,14 @@ impl fmt::Display for Name {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Screen(s) => {
-                write!(f, "{}.{}.{}", s.platform.word(), s.area, s.screen)?;
+                write!(f, "{}.{}.{}", s.app.name, s.area, s.screen)?;
                 match &s.state {
                     Some(state) => write!(f, ".{state}"),
                     None => Ok(()),
                 }
             }
             Self::Component(c) => {
-                write!(f, "{}.component.{}.{}", c.platform.word(), c.thing, c.state)
+                write!(f, "{}.component.{}.{}", c.app.name, c.thing, c.state)
             }
         }
     }

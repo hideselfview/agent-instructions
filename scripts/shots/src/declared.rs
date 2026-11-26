@@ -1,5 +1,5 @@
 //! The shots the harnesses declare, read from their source in the folder the
-//! app's `shots-declared` line gives each platform: on android, the first
+//! app's `shots-declared` line gives each app: on android, the first
 //! argument of each Kotlin `shot("…")` and `component("…")` call; on mac,
 //! each Swift string literal of board form; on web, the name of each fixture
 //! file `<name>.json`. The folder's `Components` folder holds each
@@ -8,7 +8,7 @@
 //! commit hook can run it.
 
 use crate::backend;
-use crate::names::{Name, NameError, Platform};
+use crate::names::{App, Name, NameError, Platform};
 use regex::Regex;
 use std::path::{Path, PathBuf};
 
@@ -121,25 +121,22 @@ fn harness_among(
     Ok(harness)
 }
 
-/// Every shot the harnesses in <folders> (each platform's declare folder,
+/// Every shot the harnesses in <folders> (each app's declare folder,
 /// relative to <root>) declare, in name order. A declare folder's files and
 /// those of its `Components` folder declare shots. A file may write a shot's
 /// name more than once; two files that declare one shot fail the read, since
 /// both would write its picture.
-pub(crate) fn read(
-    root: &Path,
-    folders: &[(Platform, String)],
-) -> Result<Vec<Declared>, DeclaredError> {
+pub(crate) fn read(root: &Path, folders: &[(App, String)]) -> Result<Vec<Declared>, DeclaredError> {
     if folders.is_empty() {
         return Err(DeclaredError::NoHarness);
     }
     let mut all = Vec::new();
-    for (platform, directory) in folders {
+    for (app, directory) in folders {
         let directory = root.join(directory);
-        let mut harness = harness_files(&directory, *platform)?;
-        harness.extend(capture_files(&directory, *platform)?);
+        let mut harness = harness_files(&directory, app.platform)?;
+        harness.extend(capture_files(&directory, app.platform)?);
         for file in harness {
-            all.extend(backend::of(*platform).declared_in(&file.path)?);
+            all.extend(backend::of(app.platform).declared_in(&file.path, app)?);
         }
     }
     all.sort_by(|a, b| a.name.cmp(&b.name).then(a.file.cmp(&b.file)));
@@ -161,9 +158,10 @@ fn files(directory: &Path) -> Result<Vec<PathBuf>, DeclaredError> {
         .map_err(|e| DeclaredError::Read(directory.to_path_buf(), e))
 }
 
-/// The one shot the fixture file <path> declares by its name.
-pub(crate) fn declared_by_name(path: &Path) -> Result<Vec<Declared>, DeclaredError> {
-    let name = Name::parse(stem(path)?).map_err(|e| DeclaredError::Name(path.to_path_buf(), e))?;
+/// The one shot of <app> the fixture file <path> declares by its name.
+pub(crate) fn declared_by_name(path: &Path, app: &App) -> Result<Vec<Declared>, DeclaredError> {
+    let name =
+        Name::parse_in(stem(path)?, app).map_err(|e| DeclaredError::Name(path.to_path_buf(), e))?;
     Ok(vec![Declared {
         name,
         file: path.to_path_buf(),
@@ -171,10 +169,11 @@ pub(crate) fn declared_by_name(path: &Path) -> Result<Vec<Declared>, DeclaredErr
     }])
 }
 
-/// The shots the Swift source <path> declares, in the order it writes them.
-pub(crate) fn declared_in_swift(path: &Path) -> Result<Vec<Declared>, DeclaredError> {
+/// The shots of <app> the Swift source <path> declares, in the order it writes
+/// them.
+pub(crate) fn declared_in_swift(path: &Path, app: &App) -> Result<Vec<Declared>, DeclaredError> {
     let source = without_line_comments(&read_source(path)?);
-    let found = swift(&source);
+    let found = swift(&source, app);
     let count = |mark: fn(&Marks) -> bool| found.iter().filter(|f| mark(&f.1)).count();
     if window_frames(&source) != count(|m| m.in_window) {
         return Err(DeclaredError::WindowScene(path.to_path_buf()));
@@ -182,24 +181,30 @@ pub(crate) fn declared_in_swift(path: &Path) -> Result<Vec<Declared>, DeclaredEr
     if focus_markers(&source) != count(|m| m.takes_focus) {
         return Err(DeclaredError::FocusScene(path.to_path_buf()));
     }
-    named(path, found)
+    named(path, app, found)
 }
 
-/// The shots the Kotlin source <path> declares, in the order it writes them.
-pub(crate) fn declared_in_kotlin(path: &Path) -> Result<Vec<Declared>, DeclaredError> {
-    named(path, kotlin(&read_source(path)?))
+/// The shots of <app> the Kotlin source <path> declares, in the order it
+/// writes them.
+pub(crate) fn declared_in_kotlin(path: &Path, app: &App) -> Result<Vec<Declared>, DeclaredError> {
+    named(path, app, kotlin(&read_source(path)?))
 }
 
 fn read_source(path: &Path) -> Result<String, DeclaredError> {
     std::fs::read_to_string(path).map_err(|e| DeclaredError::Read(path.to_path_buf(), e))
 }
 
-fn named(path: &Path, found: Vec<(String, Marks)>) -> Result<Vec<Declared>, DeclaredError> {
+fn named(
+    path: &Path,
+    app: &App,
+    found: Vec<(String, Marks)>,
+) -> Result<Vec<Declared>, DeclaredError> {
     found
         .into_iter()
         .map(|(text, marks)| {
             Ok(Declared {
-                name: Name::parse(&text).map_err(|e| DeclaredError::Name(path.to_path_buf(), e))?,
+                name: Name::parse_in(&text, app)
+                    .map_err(|e| DeclaredError::Name(path.to_path_buf(), e))?,
                 file: path.to_path_buf(),
                 marks,
             })
@@ -215,12 +220,16 @@ fn kotlin(source: &str) -> Vec<(String, Marks)> {
         .collect()
 }
 
-/// Each string literal that begins like a Mac board name, with whether it is
+/// Each string literal that begins like a board name of <app>, with whether it is
 /// the id of a `ShotScene(…)` call whose arguments give `frame: .window(` and
 /// `takesFocus: true`.
-fn swift(source: &str) -> Vec<(String, Marks)> {
-    let literal = Regex::new(r#""(mac\.[^"\s]*)""#).unwrap();
-    let scene = Regex::new(r#"ShotScene\(\s*id:\s*"(mac\.[^"\s]*)"[^{}]*?\)\s*\{"#).unwrap();
+fn swift(source: &str, app: &App) -> Vec<(String, Marks)> {
+    let app = regex::escape(&app.name);
+    let literal = Regex::new(&format!(r#""({app}\.[^"\s]*)""#)).unwrap();
+    let scene = Regex::new(&format!(
+        r#"ShotScene\(\s*id:\s*"({app}\.[^"\s]*)"[^{{}}]*?\)\s*\{{"#
+    ))
+    .unwrap();
     let calls: Vec<(&str, Marks)> = scene
         .captures_iter(source)
         .map(|c| {

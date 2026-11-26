@@ -1,5 +1,6 @@
 use super::*;
 use crate::lists::Lists;
+use crate::names::Apps;
 use crate::report::{Header, write};
 use crate::shots::tests::{LIST, png};
 use crate::verify::Outcome;
@@ -13,7 +14,7 @@ fn report_of_a_pair_missing_a_button(dir: &Path) -> std::path::PathBuf {
 /// A report of one pair whose shot lacks the board's button when <missing>,
 /// and is the board's own list otherwise.
 fn report_of_a_pair(dir: &Path, missing: bool) -> std::path::PathBuf {
-    let name = Name::parse("mac.welcome.a").unwrap();
+    let name = Name::parse("mac.welcome.a", &Apps::default()).unwrap();
     let pictures = dir.join("in");
     std::fs::create_dir_all(&pictures).unwrap();
     let board_list = ElementList::parse(LIST).unwrap();

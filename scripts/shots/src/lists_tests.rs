@@ -1,7 +1,8 @@
 use super::*;
+use crate::names::Apps;
 
 fn name(text: &str) -> Name {
-    Name::parse(text).unwrap()
+    Name::parse(text, &Apps::default()).unwrap()
 }
 
 #[test]

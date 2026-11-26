@@ -1,11 +1,12 @@
 use super::*;
+use crate::names::Apps;
 
 #[test]
 fn the_run_draws_only_the_boards_the_picture_folder_lacks() {
     let dir = tempfile::tempdir().unwrap();
     let names = [
-        Name::parse("mac.a.b").unwrap(),
-        Name::parse("mac.a.c").unwrap(),
+        Name::parse("mac.a.b", &Apps::default()).unwrap(),
+        Name::parse("mac.a.c", &Apps::default()).unwrap(),
     ];
     let hashes: BTreeMap<Name, String> = [
         (names[0].clone(), "kept".to_string()),

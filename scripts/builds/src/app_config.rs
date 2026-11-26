@@ -13,10 +13,14 @@
 //! limit macos 90m
 //! test mac ./bae-macos/test.sh --run-only {class}
 //! test android ./bae-android/test-class.sh {class}
-//! shots mac builds shots run --platform mac --select {select}
+//! shots mac builds shots run --app mac --select {select}
 //! ```
 //!
 //! A line starting with `#` is a comment.
+//!
+//! An `app <name> <platform>` line names an app and its platform, which the
+//! shots checker reads (`boards::app_build`): builds checks the line and
+//! otherwise skips it. An app named for a platform needs no line.
 //!
 //! A `test <lane> <command>` line, at most one per lane, is the command that
 //! runs test classes, `{class}` in a word standing for a class:
@@ -511,6 +515,8 @@ pub fn config_in(top: &Path, commit: &str) -> Result<Config> {
 }
 
 pub fn parse_config(text: &str) -> Result<Config> {
+    boards::app_build::Apps::read(text)
+        .map_err(|error| crate::fail::Fail::Message(error.text()))?;
     let (mut mac_build, mut mac_app, mut bundle) = (None, None, None);
     let mut android = None;
     let mut steps: Vec<Step> = Vec::new();
@@ -619,6 +625,7 @@ pub fn parse_config(text: &str) -> Result<Config> {
                 fail!("{CONFIG}: use one `shared-shot-display mac` line")
             }
             (keyword, _) if keyword.starts_with("shots-") => {}
+            ("app", _) => {}
             ("on", _) => {
                 let mut named = words(field);
                 if named.len() < 2 {

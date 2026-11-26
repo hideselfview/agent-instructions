@@ -8,7 +8,7 @@
 
 use crate::capture::Failed;
 use crate::findings_file::{self, FILE, FailedScene};
-use crate::names::Name;
+use crate::names::{App, Apps, Name, NameError, Platform};
 use crate::report::{board_list, board_picture, shot_list, shot_picture};
 use crate::shots::{ElementList, Picture, Shot};
 use crate::verify::{self, Drawn, Outcome};
@@ -43,7 +43,6 @@ pub(crate) fn text(report: &Path, version: &str) -> Result<String, String> {
     .map_err(|e| format!("{}: {e}", file.display()))?;
     let mut checked = Vec::new();
     for scene in &named.scenes {
-        let name = Name::parse(scene).map_err(|e| format!("{}: {e}", file.display()))?;
         let board_png = report.join(board_picture(scene));
         let shot_png = report.join(shot_picture(scene));
         let board = Drawn {
@@ -60,11 +59,16 @@ pub(crate) fn text(report: &Path, version: &str) -> Result<String, String> {
             list: ElementList::load(&report.join(shot_list(scene))).map_err(|e| e.to_string())?,
             picture: decode(&shot_png)?,
         };
+        // The report reads no repo, so the shot's own list gives the platform
+        // of the app the scene's first segment names.
+        let name = scene_name(scene, shot.list.platform)
+            .map_err(|e| format!("{}: {e}", file.display()))?;
         checked.push(verify::compare_pair(&name, board, &shot, shot_png));
     }
     let mut failed = Vec::new();
     for scene in &named.failed {
-        let name = Name::parse(&scene.scene).map_err(|e| format!("{}: {e}", file.display()))?;
+        let name = failed_scene_name(&scene.scene, &checked)
+            .map_err(|e| format!("{}: {e}", file.display()))?;
         failed.push(Failed {
             name,
             why: scene.error.clone(),
@@ -89,6 +93,30 @@ pub(crate) fn text(report: &Path, version: &str) -> Result<String, String> {
         &outcome.checked,
         named.problems == 0 && outcome.passed(),
     ))
+}
+
+/// The name of the scene <scene>, of the app its first segment names, which
+/// runs on <platform>.
+fn scene_name(scene: &str, platform: Platform) -> Result<Name, NameError> {
+    let app = scene.split('.').next().unwrap_or_default();
+    Name::parse_in(
+        scene,
+        &App {
+            name: app.to_string(),
+            platform,
+        },
+    )
+}
+
+/// The name of the scene <scene> whose capture failed, which has no element
+/// list: its app runs on the platform of the <checked> pairs of that app, or
+/// else on the platform its name is the word of.
+fn failed_scene_name(scene: &str, checked: &[verify::Checked]) -> Result<Name, NameError> {
+    let app = scene.split('.').next().unwrap_or_default();
+    match checked.iter().find(|pair| pair.name.app().name == app) {
+        Some(pair) => scene_name(scene, pair.name.platform()),
+        None => Name::parse(scene, &Apps::default()),
+    }
 }
 
 fn decode(path: &Path) -> Result<Picture, String> {

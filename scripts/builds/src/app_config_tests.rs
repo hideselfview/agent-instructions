@@ -569,11 +569,11 @@ fn the_lane_and_program_word_reads_back_as_its_lane_and_program() {
 
 #[test]
 fn a_run_of_the_checker_is_counted_by_the_same_command_with_scenes_for_run() {
-    let run = words("builds shots run --platform mac --windows --select mac.welcome.");
+    let run = words("builds shots run --app mac --windows --select mac.welcome.");
     assert_eq!(
         counting(&run),
         Some(words(
-            "builds shots scenes --platform mac --windows --select mac.welcome."
+            "builds shots scenes --app mac --windows --select mac.welcome."
         ))
     );
     assert_eq!(counting(&words("./other.sh --select mac.")), None);
@@ -600,4 +600,13 @@ fn a_run_has_its_base_limit_and_the_time_of_one_scene_for_each_scene() {
 fn the_number_a_counting_command_prints_is_the_scene_count() {
     assert_eq!(parse_scene_count("467\n").unwrap(), 467);
     assert!(parse_scene_count("many").is_err());
+}
+
+#[test]
+fn app_lines_are_accepted_and_a_wrong_one_is_refused() {
+    let wrong = parse_config("app windows avalonia\n").unwrap_err().text();
+    assert!(wrong.contains("names a platform other than"), "{wrong}");
+    parse_config("app windows web\napp linux web\n").unwrap();
+    let twice = parse_config("app a web\napp a web\n").unwrap_err().text();
+    assert!(twice.contains("an earlier line named"), "{twice}");
 }

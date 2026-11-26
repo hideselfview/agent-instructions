@@ -1961,7 +1961,7 @@ built again.
                               --base), `run` takes every selected shot into
                               the folder, marks each prefix taken and ends,
                               drawing and comparing nothing; `scenes` prints the
-                              number of shots a `run` of the same --platform,
+                              number of shots a `run` of the same --app,
                               --select and --windows takes, which builds uses
                               for the run's time limit (APP BUILDS); `capture` takes the
                               shots into a folder; `check` checks shots
@@ -2081,20 +2081,25 @@ built again.
                               of the sources each was built from (APP
                               BUILDS). The program
                               reads the
-                              .app-build lines that start with shots-:
-                              `shots-capture <platform>
-                              <command>...` takes a platform's shots,
-                              `shots-declared <platform> <folder>` holds the
+                              .app-build `app <name> <platform>` lines,
+                              which name an app and the platform whose
+                              backend takes its shots (an app named for a
+                              platform, such as mac, needs no line; the first
+                              segment of every shot's name is its app), and
+                              the lines that start with shots-, which name
+                              an app: `shots-capture <app>
+                              <command>...` takes an app's shots,
+                              `shots-declared <app> <folder>` holds the
                               source that declares them, `shots-preview
                               <row> <name> <cell>` gives the selectors of a
                               component preview's rows, `shots-preview-calls
                               <function>...` the functions that name a
                               preview's rows, `shots-design-only
-                              <platform> <Component>...` the components the
-                              platform's app has no view for, and
+                              <app> <Component>...` the components the
+                              app has no view for, and
                               `<Component>.<row>` one row of a component's
                               preview (the row's id, as in `Logo.inline`)
-                              that the platform does not draw while it draws
+                              that the app does not draw while it draws
                               the component's other rows: `components` leaves
                               them out and counts them, and a name that is no
                               component with a preview there, or no row of its

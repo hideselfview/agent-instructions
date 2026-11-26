@@ -1,13 +1,14 @@
-//! Running a platform's harness and collecting the shots it writes.
+//! Running an app's harness and collecting the shots it writes.
 //!
-//! The app's `shots-capture <platform> <command>` line names the command that
-//! takes the platform's shots. The checker runs it from the repo's top with
+//! The app's `shots-capture <app> <command>` line names the command that
+//! takes the app's shots. The checker runs it from the repo's top with
 //! these variables, and the command passes them to its harness:
 //!
 //! - `BUILDS_SHOTS_OUT`: the absolute folder the harness writes each shot to,
-//!   as `<name>@<platform>.png` and `<name>@<platform>.json`.
+//!   as `<name>@<file word>.png` and `<name>@<file word>.json`, the file
+//!   word being the platform's.
 //! - `BUILDS_SHOTS_SELECT`: the name prefixes of the shots to take, comma
-//!   separated; unset for every shot of the platform.
+//!   separated; unset for every shot of the app.
 //! - `BUILDS_SHOTS_BOARD_SIZES`: the absolute path of `board-sizes.json` in
 //!   the out folder: one JSON object that maps the name of each selected
 //!   component scene to `{"width": <points>, "height": <points>}`, the size of
@@ -21,7 +22,7 @@
 
 use crate::backend;
 use crate::declared::Declared;
-use crate::names::{Name, Platform, Prefix};
+use crate::names::{App, Name, Platform, Prefix};
 use crate::shots::{Shot, Size};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -39,14 +40,14 @@ pub(crate) enum CaptureError {
         step: String,
         status: std::process::ExitStatus,
     },
-    #[error("the repo's .app-build has no shots-capture line for {0}")]
-    NoCommand(&'static str),
+    #[error("the repo's .app-build has no shots-capture line for the app {0}")]
+    NoCommand(String),
     #[error("cannot prepare {0}: {1}")]
     Directory(PathBuf, std::io::Error),
     #[error("the prefix '{0}' selects no declared shot")]
     UnknownPrefix(String),
-    #[error("no declared {0:?} shot is selected")]
-    NothingSelected(Platform),
+    #[error("no declared {0} shot is selected")]
+    NothingSelected(String),
     #[error("cannot measure the boards: {0}")]
     Measure(String),
     #[error("cannot write {0}: {1}")]
@@ -55,14 +56,14 @@ pub(crate) enum CaptureError {
     Incomplete(Vec<String>),
 }
 
-/// The declared shots of `platform` a run takes: all of them when no prefix is
-/// given, else those a prefix of that platform starts. A prefix that starts no
+/// The declared shots of `app` a run takes: all of them when no prefix is
+/// given, else those a prefix of that app starts. A prefix that starts no
 /// declared shot fails the run, except in the run of a merge base (<base>),
 /// where the branch may add the shots the prefix names: there it selects
 /// none, and the run has no pairs.
 pub(crate) fn selected(
     declared: &[Name],
-    platform: Platform,
+    app: &App,
     prefixes: &[Prefix],
     base: bool,
 ) -> Result<Vec<Name>, CaptureError> {
@@ -79,17 +80,17 @@ pub(crate) fn selected(
     }
     let selected: Vec<Name> = declared
         .iter()
-        .filter(|name| name.platform() == platform)
+        .filter(|name| name.app() == app)
         .filter(|name| prefixes.is_empty() || prefixes.iter().any(|p| p.matches(name)))
         .cloned()
         .collect();
     if selected.is_empty() {
         if !base {
-            return Err(CaptureError::NothingSelected(platform));
+            return Err(CaptureError::NothingSelected(app.name.clone()));
         }
         crate::log::note(format_args!(
             "no declared {} shot is selected at the merge base, so the run has no pairs",
-            platform.word()
+            app.name
         ));
     }
     Ok(selected)
@@ -98,7 +99,7 @@ pub(crate) fn selected(
 /// Why a shot is left out of a run given no `--windows`.
 pub(crate) const TAKES_FOCUS: &str = "not taken here (takes the keyboard focus)";
 
-/// The shots of `platform` that `prefixes` select, split into those this run
+/// The shots of `app` that `prefixes` select, split into those this run
 /// takes and those it leaves out because they take the keyboard focus and the
 /// run was not given `--windows`.
 #[derive(Debug)]
@@ -127,13 +128,13 @@ pub(crate) struct Failed {
 
 pub(crate) fn taken(
     declared: &[Declared],
-    platform: Platform,
+    app: &App,
     prefixes: &[Prefix],
     windows: bool,
     base: bool,
 ) -> Result<Taken, CaptureError> {
     let all: Vec<Name> = declared.iter().map(|d| d.name.clone()).collect();
-    let (names, not_taken) = selected(&all, platform, prefixes, base)?
+    let (names, not_taken) = selected(&all, app, prefixes, base)?
         .into_iter()
         .partition(|name| {
             windows
@@ -150,18 +151,18 @@ pub(crate) fn taken(
 
 const EXTENSIONS: [&str; 2] = ["png", "json"];
 
-/// Empties `out` of `platform`'s shot files, so a capture starts from nothing
+/// Empties `out` of `app`'s shot files, so a capture starts from nothing
 /// and the completeness check sees only what this run wrote. The folder is
 /// shared by every branch built in a checkout; what another branch left behind
 /// would otherwise read as undeclared.
-pub(crate) fn clear(out: &Path, platform: Platform) -> Result<(), CaptureError> {
+pub(crate) fn clear(out: &Path, app: &App) -> Result<(), CaptureError> {
     std::fs::create_dir_all(out).map_err(|e| CaptureError::Directory(out.to_path_buf(), e))?;
     let entries =
         std::fs::read_dir(out).map_err(|e| CaptureError::Directory(out.to_path_buf(), e))?;
     for entry in entries {
         let entry = entry.map_err(|e| CaptureError::Directory(out.to_path_buf(), e))?;
         let file = entry.file_name().to_string_lossy().into_owned();
-        if Name::from_file_name(platform, &file).is_some() {
+        if Name::from_file_name(app, &file).is_some() {
             std::fs::remove_file(entry.path())
                 .map_err(|e| CaptureError::Directory(entry.path(), e))?;
         }
@@ -180,7 +181,7 @@ pub(crate) struct Target<'a> {
     pub(crate) measure: &'a dyn Fn(&[Name]) -> Result<Sizes, String>,
 }
 
-/// Takes the shots of `platform` that `prefixes` select (all when empty) into
+/// Takes the shots of `app` that `prefixes` select (all when empty) into
 /// `target.out`, an absolute path, with the `command` the app's `shots-capture` line
 /// gives, run from `root`. Without `windows`, a shot that takes the keyboard
 /// focus is left out and said on stderr. Before the command starts, `target.measure`
@@ -193,35 +194,35 @@ pub(crate) fn capture(
     root: &Path,
     command: &[String],
     declared: &[Declared],
-    platform: Platform,
+    app: &App,
     prefixes: &[Prefix],
     windows: bool,
     base: bool,
     target: &Target,
 ) -> Result<Taken, CaptureError> {
     let Target { out, measure } = *target;
-    let taken = taken(declared, platform, prefixes, windows, base)?;
+    let taken = taken(declared, app, prefixes, windows, base)?;
     for name in &taken.not_taken {
         crate::log::note(format_args!("{name}: {TAKES_FOCUS}"));
     }
-    clear(out, platform)?;
+    clear(out, app)?;
     if taken.names.is_empty() {
         return Ok(taken);
     }
     let sizes = write_board_sizes(out, &measure(&taken.names).map_err(CaptureError::Measure)?)?;
-    let step = format!("the {} shots-capture command", platform.word());
+    let step = format!("the {} shots-capture command", app.name);
     let (program, args) = command
         .split_first()
-        .ok_or(CaptureError::NoCommand(platform.word()))?;
+        .ok_or_else(|| CaptureError::NoCommand(app.name.clone()))?;
     crate::log::note(command.join(" "));
     let status = Command::new(program)
         .args(args)
         .current_dir(root)
         .envs(variables(
-            platform,
+            app.platform,
             out,
             &sizes,
-            &harness_prefixes(platform, prefixes, &taken.names),
+            &harness_prefixes(app, prefixes, &taken.names),
             windows,
         ))
         .status()
@@ -232,9 +233,9 @@ pub(crate) fn capture(
     let declared_here: Vec<Name> = declared
         .iter()
         .map(|d| d.name.clone())
-        .filter(|n| n.platform() == platform)
+        .filter(|n| n.app() == app)
         .collect();
-    let stray = undeclared_problems(out, platform, &declared_here)?;
+    let stray = undeclared_problems(out, app, &declared_here)?;
     if !stray.is_empty() {
         return Err(CaptureError::Incomplete(stray));
     }
@@ -263,13 +264,13 @@ pub(crate) fn capture(
     })
 }
 
-/// The prefixes the harness is given: those of `platform` that start a shot
+/// The prefixes the harness is given: those of `app` that start a shot
 /// this run takes. A harness may fail on a prefix that starts none of the
 /// shots it draws, and without `--windows` it draws no window's shot.
-fn harness_prefixes(platform: Platform, prefixes: &[Prefix], taken: &[Name]) -> Vec<String> {
+fn harness_prefixes(app: &App, prefixes: &[Prefix], taken: &[Name]) -> Vec<String> {
     prefixes
         .iter()
-        .filter(|p| p.platform() == platform && taken.iter().any(|n| p.matches(n)))
+        .filter(|p| p.app() == app.name && taken.iter().any(|n| p.matches(n)))
         .map(|p| p.as_str().to_string())
         .collect()
 }
@@ -330,11 +331,11 @@ fn variables(
 
 /// Compares what a capture wrote with what it was to write, both ways: every
 /// selected shot wrote its PNG and its element list, which read back and agree
-/// with each other, and `out` holds no shot file of `platform` that no harness
+/// with each other, and `out` holds no shot file of `app` that no harness
 /// declares.
 pub(crate) fn check_complete(
     out: &Path,
-    platform: Platform,
+    app: &App,
     selected: &[Name],
     declared: &[Name],
 ) -> Result<(), CaptureError> {
@@ -342,7 +343,7 @@ pub(crate) fn check_complete(
         .iter()
         .flat_map(|name| scene_problems(out, name))
         .collect();
-    problems.extend(undeclared_problems(out, platform, declared)?);
+    problems.extend(undeclared_problems(out, app, declared)?);
     problems.sort();
     if problems.is_empty() {
         Ok(())
@@ -375,10 +376,10 @@ fn scene_problems(out: &Path, name: &Name) -> Vec<String> {
     problems
 }
 
-/// The shot files of `platform` in `out` that no harness declares.
+/// The shot files of `app` in `out` that no harness declares.
 fn undeclared_problems(
     out: &Path,
-    platform: Platform,
+    app: &App,
     declared: &[Name],
 ) -> Result<Vec<String>, CaptureError> {
     let mut problems = Vec::new();
@@ -387,7 +388,7 @@ fn undeclared_problems(
     for entry in entries {
         let entry = entry.map_err(|e| CaptureError::Directory(out.to_path_buf(), e))?;
         let file = entry.file_name().to_string_lossy().into_owned();
-        match Name::from_file_name(platform, &file) {
+        match Name::from_file_name(app, &file) {
             None => {}
             Some(Ok(name)) if declared.contains(&name) => {}
             Some(_) => problems.push(format!("undeclared: {file} is no declared shot")),

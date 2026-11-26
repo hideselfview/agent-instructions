@@ -2,7 +2,8 @@ use super::*;
 use crate::compare::normalize::{Entry, enabled_state};
 use crate::compare::{Aspect, Finding, Part, Warning};
 use crate::component_files::{Component, Listing, Place, Row};
-use crate::names::{Name, Platform};
+use crate::names::Apps;
+use crate::names::{App, Name, Platform};
 use crate::shots::tests::LIST;
 use crate::shots::{Bounds, ElementList, Role};
 use crate::verify::Checked;
@@ -29,7 +30,7 @@ fn checked(name: &str, findings: Vec<Finding>, warnings: Vec<Warning>) -> Checke
     let mut board = ElementList::parse(LIST).unwrap();
     board.elements[2].component = Some("MacRow".to_string());
     Checked {
-        name: Name::parse(name).unwrap(),
+        name: Name::parse(name, &Apps::default()).unwrap(),
         findings,
         warnings,
         against: None,
@@ -239,13 +240,13 @@ fn a_later_run_compares_with_the_file_as_its_before_run() {
 #[test]
 fn the_file_names_each_component_s_preview_rows_by_their_shots_in_the_preview_s_order() {
     let row = |name: &str, place| Row {
-        shot: Name::parse(name).unwrap(),
+        shot: Name::parse(name, &Apps::default()).unwrap(),
         place,
     };
     let listing = Listing {
         components: vec![Component {
             name: "MacCheckbox".to_string(),
-            platform: Platform::Mac,
+            app: App::named_for(Platform::Mac),
             file: "baeShots/Components/MacCheckbox.swift".into(),
             file_exists: false,
             rows: vec![
@@ -302,7 +303,7 @@ fn the_file_gives_each_pair_s_board_and_shot_sizes_in_points() {
 #[test]
 fn a_pair_the_base_failed_to_capture_is_unrendered_against_it_and_one_it_never_selected_is_new() {
     let failed = vec![crate::capture::Failed {
-        name: Name::parse("mac.welcome.crashed").unwrap(),
+        name: Name::parse("mac.welcome.crashed", &Apps::default()).unwrap(),
         why: "the capture crashed".to_string(),
     }];
     let before = crate::before::Before::parse(

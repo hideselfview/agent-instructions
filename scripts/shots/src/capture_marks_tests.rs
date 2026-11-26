@@ -23,7 +23,12 @@ fn a_mark_covers_its_prefix_and_its_children_and_names_whether_windows_were_capt
             .unwrap()
     );
     marks
-        .write(&[Prefix::all_of(crate::names::Platform::Mac)], true)
+        .write(
+            &[Prefix::all_of(&crate::names::App::named_for(
+                crate::names::Platform::Mac,
+            ))],
+            true,
+        )
         .unwrap();
     assert!(
         marks
@@ -77,7 +82,12 @@ fn writing_a_mark_rejects_a_symlink_and_keeps_its_target() {
     std::fs::write(&target, "keep").unwrap();
     std::os::unix::fs::symlink(&target, marks.directory().join("mac.@windows")).unwrap();
     let error = marks
-        .write(&[Prefix::all_of(crate::names::Platform::Mac)], true)
+        .write(
+            &[Prefix::all_of(&crate::names::App::named_for(
+                crate::names::Platform::Mac,
+            ))],
+            true,
+        )
         .unwrap_err()
         .to_string();
     assert!(error.contains("expected a capture mark file"), "{error}");

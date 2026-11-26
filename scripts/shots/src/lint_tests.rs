@@ -1,10 +1,11 @@
 use super::*;
 use crate::declared::Marks;
+use crate::names::Apps;
 use std::path::PathBuf;
 
 fn declared(name: &str) -> Declared {
     Declared {
-        name: Name::parse(name).unwrap(),
+        name: Name::parse(name, &Apps::default()).unwrap(),
         file: PathBuf::from("Shots.kt"),
         marks: Marks::default(),
     }
@@ -137,7 +138,10 @@ fn a_scene_the_harness_declares_with_no_board_is_a_problem() {
         "design/mocks/mac.welcome.libraries.dc.html",
         "<x-dc></x-dc>",
     );
-    let folders = [(crate::names::Platform::Mac, "app/Shots".to_string())];
+    let folders = [(
+        crate::names::App::named_for(crate::names::Platform::Mac),
+        "app/Shots".to_string(),
+    )];
     let declared = crate::declared::read(root.path(), &folders).unwrap();
     let found = sentences(root.path(), &declared);
     assert_eq!(found.len(), 1, "{found:?}");

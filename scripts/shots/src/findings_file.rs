@@ -13,7 +13,7 @@
 //! capture wrote no usable shot of, with its `error`; `sizes`, each pair's board and shot
 //! sizes in points, by scene, at which a reader shows the report's pictures
 //! side by side; `components`, each design-system
-//! component with a preview, once for each platform that draws it, with the
+//! component with a preview, once for each app that draws it, with the
 //! shots of its preview's rows in the preview's order, whether or not the run
 //! checked them, so that a reader shows a component's rows and which of them
 //! the run has a pair for (the dashboard's component page); and `findings`,
@@ -71,11 +71,13 @@ struct Sizes {
     shot: Size,
 }
 
-/// A component on one platform, and the shot of each row of its preview.
+/// A component of one app, and the shot of each row of its preview.
 #[derive(Serialize)]
 struct Component {
     name: String,
-    platform: &'static str,
+    /// The app's name, which builds reads as the name of the lane that took
+    /// the shots (daemon/component_shots.rs).
+    platform: String,
     rows: Vec<String>,
 }
 
@@ -463,7 +465,7 @@ pub(crate) fn text(
             .iter()
             .map(|component| Component {
                 name: component.name.clone(),
-                platform: component.platform.word(),
+                platform: component.app.name.clone(),
                 rows: component
                     .rows
                     .iter()

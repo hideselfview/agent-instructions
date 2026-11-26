@@ -311,7 +311,7 @@ pub struct CaptureQuery {
 }
 
 pub(super) fn app_picture_tree(places: &Places, repo: &str, lane: Lane, tree: &str) -> PathBuf {
-    shots::app_picture_tree(&pictures(places, repo), lane.platform(), tree)
+    shots::app_picture_tree(&pictures(places, repo), &lane.app(), tree)
 }
 
 /// A new folder in the picture folder <pictures> for the pictures a run on a
