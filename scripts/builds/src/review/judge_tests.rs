@@ -198,9 +198,26 @@ pub(in crate::review) fn reviewed_under(
     key: &str,
 ) -> Reviewed {
     let demo = demo(name);
-    let fake = fake(&demo.scratch.dir);
     let side = demo.add_side(1, "agent", "work");
     demo.commit(&side, "a.rs");
+    let (landing, finding) = review_under(&demo, &side, runner, key);
+    Reviewed {
+        demo,
+        landing,
+        finding,
+        side,
+    }
+}
+
+/// Reviews <side>'s change in <demo> under <key>, with the reviewer
+/// finding one thing in a.rs: the landing it opens and that finding's id.
+pub(in crate::review) fn review_under(
+    demo: &Demo,
+    side: &Path,
+    runner: Option<&Caller>,
+    key: &str,
+) -> (i64, i64) {
+    let fake = fake(&demo.scratch.dir);
     fake.answer(
         "alpha",
         &[(
@@ -218,7 +235,7 @@ pub(in crate::review) fn reviewed_under(
         store: &demo.store,
         project: "demo",
         repo: "demo",
-        worktree: &side,
+        worktree: side,
         base: "main",
         head: None,
         key,
@@ -235,12 +252,7 @@ pub(in crate::review) fn reviewed_under(
     let landing = reported.landing.unwrap();
     let conn = demo.store.open_existing().unwrap();
     let finding = waiting(&conn, landing).unwrap()[0].id;
-    Reviewed {
-        demo,
-        landing,
-        finding,
-        side,
-    }
+    (landing, finding)
 }
 
 impl Reviewed {

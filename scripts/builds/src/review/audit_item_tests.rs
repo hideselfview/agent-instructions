@@ -1,20 +1,28 @@
 use super::*;
-use crate::review::judge::tests::{Reviewed, reviewed_under, stamp};
+use crate::review::judge::tests::{Reviewed, review_under, reviewed_under, stamp};
 
 fn settle(r: &Reviewed, how: &str) {
+    settle_finding(r, r.finding, how);
+}
+
+fn settle_finding(r: &Reviewed, finding: i64, how: &str) {
     r.demo
         .store
         .write(&stamp("judge"), "settle", |db| {
-            record::settle(db, r.finding, how, "because", 1, "judge")
+            record::settle(db, finding, how, "because", 1, "judge")
         })
         .unwrap();
 }
 
 fn held(r: &Reviewed) -> Option<Held> {
+    held_landing(r, r.landing)
+}
+
+fn held_landing(r: &Reviewed, landing: i64) -> Option<Held> {
     r.demo
         .store
         .write(&stamp("judge"), "hold", |db| {
-            match Ready::of(db, r.landing)? {
+            match Ready::of(db, landing)? {
                 Some(ready) => hold(db, &ready, &stamp("judge")).map(Some),
                 None => Ok(None),
             }
@@ -82,18 +90,9 @@ fn the_landings_of_one_audit_share_one_entry_and_one_item() {
         panic!("the first landing makes the item");
     };
     // The audit's next landing: the same finding stands for its findings.
-    r.demo
-        .store
-        .write(&stamp("judge"), "reopen", |db| {
-            db.execute(
-                "UPDATE review_landing SET abandoned_at = NULL, abandoned_why = NULL, key = 'audit:nov14-2' WHERE id = ?1",
-                [r.landing],
-            )
-            .map(|_| ())
-            .map_err(|error| crate::fail::Fail::Message(error.to_string()))
-        })
-        .unwrap();
-    assert_eq!(held(&r), Some(Held::Joined { item }));
+    let (next, next_finding) = review_under(&r.demo, &r.side, None, "audit:nov14-2");
+    settle_finding(&r, next_finding, "confirmed");
+    assert_eq!(held_landing(&r, next), Some(Held::Joined { item }));
     let lists = crate::lists::store::load_all(&r.demo.tool.places).unwrap();
     let lists = lists[0].lists.as_ref().unwrap();
     assert_eq!(lists.questions.len(), 1, "one held entry");
