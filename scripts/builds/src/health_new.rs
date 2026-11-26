@@ -24,14 +24,10 @@ pub fn caller_name(session: &crate::ack::agent::Session) -> Result<String> {
         .map_or_else(|| "person".to_string(), |caller| caller.id))
 }
 
-/// The keys of the lines <caller>'s last run printed, or None when it ran no
-/// text run before.
-pub fn read(home: &Path, caller: &str) -> Result<Option<Vec<String>>> {
-    let path = file(home, caller);
-    if !path.exists() {
-        return Ok(None);
-    }
-    crate::readings_file::read_value(&path).map(Some)
+/// The keys of the lines <caller>'s last run printed; none when it ran no
+/// text run before. Fails when the record exists and cannot be read.
+pub fn read(home: &Path, caller: &str) -> Result<Vec<String>> {
+    crate::readings_file::read_value(&file(home, caller))
 }
 
 /// Records <findings>' keys as what <caller>'s last run printed.
@@ -44,14 +40,10 @@ pub fn write(home: &Path, caller: &str, findings: &[Finding]) -> Result<()> {
 }
 
 /// Marks in <out>, the lines of the report, each line of <findings> whose key
-/// is not among <earlier>, the keys of the caller's last run. With no earlier
-/// run, marks none and says so in the header.
-pub fn mark(out: &mut [String], findings: &[Finding], earlier: Option<&[String]>) {
+/// is not among <earlier>, the keys of the caller's last run. A caller with
+/// no earlier run has every line marked.
+pub fn mark(out: &mut [String], findings: &[Finding], earlier: &[String]) {
     let Some(header) = out.iter().position(|line| line == "needs action:") else {
-        return;
-    };
-    let Some(earlier) = earlier else {
-        out[header] = "needs action (no earlier run of yours to compare with):".to_string();
         return;
     };
     for (finding, line) in findings.iter().zip(&mut out[header + 1..]) {

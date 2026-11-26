@@ -89,6 +89,9 @@ pub enum FindingKind {
     /// An implementing agent that runs another model than the implementation
     /// tier's (model_tier.rs).
     Model,
+    /// The record of the lines the caller's last run printed cannot be read
+    /// (health_new.rs).
+    LastRun,
 }
 
 /// What a finding says, and the command it suggests running, if any. The
@@ -2152,11 +2155,17 @@ fn report(tool: &Tool, json: bool, stop_junk: bool, release_failures: Vec<Advice
         .findings
         .extend(host_findings(&scanned, &busy, &refusals, &installed));
     let caller = crate::health_new::caller_name(&tool.session)?;
-    // Read before this run writes its own, and a record that cannot be read
-    // counts as no earlier run: this run writes a whole one over it.
+    // Read before this run writes its own. A record that cannot be read is a
+    // finding, and every line counts as new, since none can be compared.
     let earlier = crate::health_new::read(&tool.places.home, &caller).unwrap_or_else(|error| {
-        crate::text::note(error.text());
-        None
+        health.findings.push(Finding::new(
+            FindingKind::LastRun,
+            Advice::said(format!(
+                "health: builds cannot read what your last run printed, so it marks every line new: {}",
+                error.text()
+            )),
+        ));
+        Vec::new()
     });
     if json {
         println!("{}", health_json(&health, &busy));
@@ -2164,7 +2173,7 @@ fn report(tool: &Tool, json: bool, stop_junk: bool, release_failures: Vec<Advice
         // The dashboard, prune and the busy processes come before "needs
         // action", which is last.
         let mut out = lines(&health);
-        crate::health_new::mark(&mut out, &health.findings, earlier.as_deref());
+        crate::health_new::mark(&mut out, &health.findings, &earlier);
         let at = out
             .iter()
             .position(|line| line.starts_with("needs action"))

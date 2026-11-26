@@ -695,8 +695,8 @@ to the person.
 
 Health puts `new:` before each needs-action line that the same caller's last
 `builds health` run did not print. It compares lines with their times, process
-ids, loads, CPU shares and sizes removed, and with no earlier run of the caller
-it marks none and says so in the header. The record of a caller's last run is a
+ids, loads, CPU shares and sizes removed. A caller with no earlier run gets
+every line marked. The record of a caller's last run is a
 file in builds' caches folder (`health-seen`), written by text runs only.
 
 Before it lists anything, health makes each fix that needs no judgment call and

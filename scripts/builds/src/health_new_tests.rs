@@ -38,37 +38,41 @@ fn a_run_marks_the_lines_the_earlier_run_lacked() {
         "    item #2 last moved 9m ago".to_string(),
     ];
     let earlier = vec![key("item #1 last moved 1h2m ago")];
-    mark(&mut out, &findings, Some(&earlier));
+    mark(&mut out, &findings, &earlier);
     assert_eq!(out[1], "    item #1 last moved 5m ago");
     assert_eq!(out[2], "    new: item #2 last moved 9m ago");
 }
 
+/// A caller with no earlier run has every line marked new.
 #[test]
-fn a_first_run_marks_nothing_and_says_so() {
+fn a_first_run_marks_every_line() {
     let findings = [finding("item #1 last moved 5m ago")];
     let mut out = vec![
         "needs action:".to_string(),
         "    item #1 last moved 5m ago".to_string(),
     ];
-    mark(&mut out, &findings, None);
-    assert_eq!(
-        out,
-        [
-            "needs action (no earlier run of yours to compare with):",
-            "    item #1 last moved 5m ago"
-        ]
-    );
+    mark(&mut out, &findings, &[]);
+    assert_eq!(out[1], "    new: item #1 last moved 5m ago");
 }
 
-/// A caller's record holds what its last run printed; another caller has none.
+/// A caller's record holds what its last run printed; another caller has none,
+/// and a record that is not a list of keys fails to read.
 #[test]
 fn each_caller_keeps_its_own_record() {
     let scratch = crate::testing::Scratch::new("health-new");
-    assert_eq!(read(&scratch.dir, "a1").unwrap(), None);
+    assert!(read(&scratch.dir, "a1").unwrap().is_empty());
     write(&scratch.dir, "a1", &[finding("item #1 last moved 5m ago")]).unwrap();
     assert_eq!(
         read(&scratch.dir, "a1").unwrap(),
-        Some(vec![key("item #1 last moved 9m ago")])
+        vec![key("item #1 last moved 9m ago")]
     );
-    assert_eq!(read(&scratch.dir, "a2").unwrap(), None);
+    assert!(read(&scratch.dir, "a2").unwrap().is_empty());
+    std::fs::write(
+        scratch
+            .dir
+            .join("Library/Caches/builds/health-seen/a1.json"),
+        "not json",
+    )
+    .unwrap();
+    assert!(read(&scratch.dir, "a1").is_err());
 }
