@@ -199,8 +199,8 @@ pub(crate) struct Target<'a> {
 /// `target.out`, an absolute path, with the `command` the app's `shots-capture` line
 /// gives, run from `root`; with shots to take and no `command`, it fails.
 /// Without `windows`, a shot that takes the keyboard focus is left out and
-/// said on stderr. Before the command starts, the run writes the host tools of
-/// the platform's harness, and `target.measure` gives the board size of each
+/// said on stderr. Before the command starts, the run writes the host tools
+/// that the platform's harness has, and `target.measure` gives the board size of each
 /// shot the run takes, which the run writes to `board-sizes.json` in
 /// `target.out` (the module's doc). Returns the shots taken, those the
 /// harness wrote no usable shot of (a failed shot does not fail the capture
@@ -232,7 +232,8 @@ pub(crate) fn capture(
     let (program, args) = command.split_first().expect("the command has a program");
     let display = backend::of(app.platform)
         .harness()
-        .map(|harness| harness.write_display_tool())
+        .and_then(|harness| harness.display)
+        .map(crate::harness::write_display_tool)
         .transpose()?;
     let tool = display
         .as_ref()

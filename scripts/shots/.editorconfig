@@ -1,0 +1,7 @@
+root = true
+
+# The Kotlin of the shots checker's harness (harness/android).
+# Compose names a @Composable function in PascalCase, which the standard
+# function-naming rule would flag.
+[*.{kt,kts}]
+ktlint_function_naming_ignore_when_annotated_with = Composable

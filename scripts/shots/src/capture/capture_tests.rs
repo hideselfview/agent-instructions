@@ -430,6 +430,41 @@ fn a_mac_capture_gives_the_command_the_display_tool_while_it_runs() {
 }
 
 #[test]
+fn an_android_capture_gives_the_command_no_display_tool() {
+    let ready = tempfile::tempdir().unwrap();
+    let name = Name::parse("android.welcome.a", &Apps::default()).unwrap();
+    let list = crate::shots::tests::LIST
+        .replace("mac.welcome.a", &name.to_string())
+        .replace("\"macos\"", "\"android\"");
+    crate::shots::tests::write_pair(ready.path(), &name, &list, 800, 380);
+    let out = tempfile::tempdir().unwrap();
+    let command = [
+        "sh".to_string(),
+        "-c".to_string(),
+        format!(
+            "test -z \"${{BUILDS_SHOTS_DISPLAY+set}}\" && cp '{}'/* \"$BUILDS_SHOTS_OUT\"",
+            ready.path().display()
+        ),
+    ];
+    let taken = capture(
+        ready.path(),
+        Some(&command),
+        &declared(&[("android.welcome.a", false)]),
+        &App::named_for(Platform::Android),
+        &Apps::default(),
+        &[],
+        false,
+        false,
+        &Target {
+            out: out.path(),
+            measure: &|_| Ok(BTreeMap::new()),
+        },
+    )
+    .unwrap();
+    assert_eq!(taken.names, names(&["android.welcome.a"]));
+}
+
+#[test]
 fn a_capture_command_that_fails_before_any_shot_fails_the_capture() {
     let empty = tempfile::tempdir().unwrap();
     let out = tempfile::tempdir().unwrap();

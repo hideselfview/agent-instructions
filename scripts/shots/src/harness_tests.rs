@@ -16,10 +16,16 @@ fn carried(files: &[File]) -> BTreeSet<String> {
 }
 
 #[test]
+fn the_program_carries_every_file_of_the_android_harness() {
+    let harness = Path::new(env!("CARGO_MANIFEST_DIR")).join("harness/android");
+    assert_eq!(carried(ANDROID.bundle), names(&harness));
+}
+
+#[test]
 fn the_program_carries_every_file_of_the_mac_harness() {
     let harness = Path::new(env!("CARGO_MANIFEST_DIR")).join("harness/mac");
     assert_eq!(carried(MAC.bundle), names(&harness));
-    let display = carried(MAC.display);
+    let display = carried(MAC.display.unwrap());
     for name in names(&harness.join("display")) {
         assert!(display.contains(&name), "{name}");
     }

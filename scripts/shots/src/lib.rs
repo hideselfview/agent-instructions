@@ -511,7 +511,9 @@ fn run(checker: &Checker, action: Action) -> Result<bool, String> {
 fn write_harness(platform: &str, into: &Path) -> Result<(), String> {
     let harness = names::Platform::parse(platform)
         .and_then(|platform| backend::of(platform).harness())
-        .ok_or_else(|| format!("the checker holds no harness for {platform}: it holds mac's"))?;
+        .ok_or_else(|| {
+            format!("the checker holds no harness for {platform}: it holds mac's and android's")
+        })?;
     harness.write_bundle(into).map_err(|e| e.to_string())
 }
 

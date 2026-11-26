@@ -13,11 +13,13 @@ pub(crate) type File = (&'static str, &'static str);
 
 /// One platform's harness.
 pub(crate) struct Harness {
-    /// The sources the app's shots test bundle compiles.
+    /// The sources the app's tests compile: mac's in its shots test bundle,
+    /// android's in its test source set.
     pub(crate) bundle: &'static [File],
     /// The tool that leases the shot display, `DISPLAY_TOOL`, with the
-    /// sources it builds the display's keeper from.
-    pub(crate) display: &'static [File],
+    /// sources it builds the display's keeper from; none for a platform
+    /// whose shots need no display.
+    pub(crate) display: Option<&'static [File]>,
 }
 
 /// The file of `Harness::display` that a shot's test runs.
@@ -57,7 +59,7 @@ pub(crate) static MAC: Harness = Harness {
         file!("mac", "Wait.swift"),
         file!("mac", "WindowBackdrop.swift"),
     ],
-    display: &[
+    display: Some(&[
         file!("mac/display", "shot-display.py"),
         file!("mac/display", "ShotDisplayKeeper.swift"),
         file!("mac", "HangGuard.swift"),
@@ -66,7 +68,23 @@ pub(crate) static MAC: Harness = Harness {
         file!("mac", "ShotDisplaySerial.swift"),
         file!("mac", "ShotLog.swift"),
         file!("mac", "Wait.swift"),
+    ]),
+};
+
+pub(crate) static ANDROID: Harness = Harness {
+    bundle: &[
+        file!("android", "BoardShot.kt"),
+        file!("android", "ElementList.kt"),
+        file!("android", "EmbeddedViews.kt"),
+        file!("android", "ReadingOrder.kt"),
+        file!("android", "ShotBoardSizes.kt"),
+        file!("android", "ShotLook.kt"),
+        file!("android", "ShotRequest.kt"),
+        file!("android", "ShotSettle.kt"),
+        file!("android", "TestAnimatorScale.kt"),
+        file!("android", "WindowOverScreen.kt"),
     ],
+    display: None,
 };
 
 /// The `.gitignore` a written bundle folder holds: it keeps the folder out of
@@ -141,17 +159,17 @@ impl Harness {
         }
         std::fs::rename(&fresh, &into).map_err(write_error(&into))
     }
+}
 
-    /// The display tool and its keeper's sources in a new temporary folder,
-    /// which goes away when the value is dropped.
-    pub(crate) fn write_display_tool(&self) -> Result<tempfile::TempDir, HarnessError> {
-        let folder = tempfile::Builder::new()
-            .prefix("builds-shot-display-tool-")
-            .tempdir()
-            .map_err(write_error(&std::env::temp_dir()))?;
-        write_files(folder.path(), self.display)?;
-        Ok(folder)
-    }
+/// A display tool and its keeper's sources in a new temporary folder, which
+/// goes away when the value is dropped.
+pub(crate) fn write_display_tool(files: &[File]) -> Result<tempfile::TempDir, HarnessError> {
+    let folder = tempfile::Builder::new()
+        .prefix("builds-shot-display-tool-")
+        .tempdir()
+        .map_err(write_error(&std::env::temp_dir()))?;
+    write_files(folder.path(), files)?;
+    Ok(folder)
 }
 
 /// Writes <files> into the folder <folder>, which it makes.

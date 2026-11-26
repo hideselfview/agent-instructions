@@ -1999,6 +1999,35 @@ built again.
                               ShotRunner.swift state the interface. The
                               capture version covers the harness's sources
                               (below).
+  builds shots harness android --into <folder>
+                              write the android harness, the Kotlin code
+                              that takes an app's shots inside the app's
+                              Robolectric tests, into <folder>, which the
+                              app's test source set compiles, as `harness
+                              mac` writes the mac one. Every run of those
+                              tests compiles the shots, so an app runs it
+                              before any of them builds. The app gives the
+                              harness its shots: test functions of a
+                              subclass of its own of `BoardShot`, which
+                              names the app's Robolectric test runner with
+                              `@RunWith` and gives its look, a `ShotLook`:
+                              the composition locals around every shot, the
+                              page behind a design-system component, and the
+                              box that its boards draw for an embedded view.
+                              The files in the app's `shots-declared`
+                              folder declare each shot with a `shot("<board
+                              name>")` or `component("<board name>")` call.
+                              The app's build gives the test
+                              JVM the system properties builds.shotsDir,
+                              builds.shotsSelect and builds.shotsBoardSizes,
+                              from the BUILDS_SHOTS_OUT, BUILDS_SHOTS_SELECT
+                              and BUILDS_SHOTS_BOARD_SIZES that its
+                              `shots-capture` command gets, as Gradle
+                              properties of the same names. The test source
+                              set needs JUnit 4, Robolectric, Roborazzi,
+                              activity-compose and Compose's ui-test-junit4.
+                              BoardShot.kt and ShotLook.kt state the
+                              interface.
   builds shots run|scenes|capture|check|lint|runtime|chrome|components|states|version [<argument>...]
                               run the shots checker, which checks the shots
                               of the repo it runs in against the repo's

@@ -1,8 +1,8 @@
 //! What differs between platforms in the shots checker. Each platform has one
 //! `Backend` that holds its facts: the words and extensions of its files, how
 //! its harness source declares shots, the harness it gives apps, how a board
-//! is read to compare with its shots, and what the comparison allows. No other module matches on
-//! `Platform`; each asks the platform's backend (`of`).
+//! is read to compare with its shots, and what the comparison allows. No other
+//! module matches on `Platform`; each asks the platform's backend (`of`).
 
 use crate::declared::{Declared, DeclaredError};
 use crate::harness::Harness;
@@ -144,7 +144,7 @@ impl Backend for Android {
         false
     }
     fn harness(&self) -> Option<&'static Harness> {
-        None
+        Some(&crate::harness::ANDROID)
     }
     fn reading(&self) -> Reading {
         Reading {
