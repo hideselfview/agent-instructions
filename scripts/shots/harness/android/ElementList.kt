@@ -3,6 +3,7 @@ package builds.shots
 import android.graphics.Paint
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.isSpecified
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.semantics.Role
@@ -30,7 +31,7 @@ internal object ElementList {
     /** A line-break mark that a screen puts in its words, which the board has no word for. */
     private const val ZERO_WIDTH_SPACE = "\u200B"
 
-    private const val SLACK = 0.6
+    private const val SLACK = 0.6f
     private const val FIELD_LABEL_RISE_DP = 8f
     private const val OUTLINE_HEIGHT_DP = 56f
 
@@ -123,7 +124,7 @@ internal object ElementList {
                     while (next < listed.size && listed[next] in placed) next++
                     next
                 } else {
-                    (from until listed.size).firstOrNull { startsAfter(listed[it].json, view) } ?: listed.size
+                    (from until listed.size).firstOrNull { startsAfter(box(listed[it].json), box(view)) } ?: listed.size
                 }
             listed.add(at, here)
             placed.add(here)
@@ -171,13 +172,26 @@ internal object ElementList {
         density: Float,
     ): Boolean {
         if (node.children.isNotEmpty() || node.config.getOrNull(SemanticsProperties.Text) != null) return false
-        val box = node.wholeBox()
-        val mine = getJSONObject("bounds")
-        val slack = SLACK * density
-        return box.left - mine.getDouble("x") * density <= slack &&
-            box.top - mine.getDouble("y") * density <= slack &&
-            (mine.getDouble("x") + mine.getDouble("width")) * density - box.right <= slack &&
-            (mine.getDouble("y") + mine.getDouble("height")) * density - box.bottom <= slack
+        val mine = box(this)
+        val pixels = Rect(mine.left * density, mine.top * density, mine.right * density, mine.bottom * density)
+        return node.wholeBox().holds(pixels, SLACK * density)
+    }
+
+    /** Whether [inner] lies inside this box, or reaches past it by no more than [slack]. */
+    private fun Rect.holds(
+        inner: Rect,
+        slack: Float,
+    ): Boolean =
+        left - inner.left <= slack &&
+            top - inner.top <= slack &&
+            inner.right - right <= slack &&
+            inner.bottom - bottom <= slack
+
+    /** The box of a listed element, in dp. */
+    private fun box(element: JSONObject): Rect {
+        val bounds = element.getJSONObject("bounds")
+        val at = Offset(bounds.getDouble("x").toFloat(), bounds.getDouble("y").toFloat())
+        return Rect(at, Size(bounds.getDouble("width").toFloat(), bounds.getDouble("height").toFloat()))
     }
 
     /** Whether the box [other] starts lower than [view], or in its row and further right. */
@@ -193,32 +207,9 @@ internal object ElementList {
     private fun holds(
         element: JSONObject,
         view: JSONObject,
-    ): Boolean {
-        if (element.getString("role") != "other" || !element.isNull("label")) return false
-        val box = element.getJSONObject("bounds")
-        val mine = view.getJSONObject("bounds")
-        return box.getDouble("x") - mine.getDouble("x") <= SLACK &&
-            box.getDouble("y") - mine.getDouble("y") <= SLACK &&
-            mine.getDouble("x") + mine.getDouble("width") - (box.getDouble("x") + box.getDouble("width")) <= SLACK &&
-            mine.getDouble("y") + mine.getDouble("height") - (box.getDouble("y") + box.getDouble("height")) <= SLACK
-    }
+    ): Boolean = element.getString("role") == "other" && element.isNull("label") && box(element).holds(box(view), SLACK)
 
-    private fun area(element: JSONObject): Double {
-        val box = element.getJSONObject("bounds")
-        return box.getDouble("width") * box.getDouble("height")
-    }
-
-    /** Whether [element] starts lower than [view]'s box, or in its row and further right. */
-    private fun startsAfter(
-        element: JSONObject,
-        view: JSONObject,
-    ): Boolean {
-        val box = element.getJSONObject("bounds")
-        val mine = view.getJSONObject("bounds")
-        val lower = box.getDouble("y") - mine.getDouble("y")
-        return lower > mine.getDouble("height") / 2 ||
-            (Math.abs(lower) <= mine.getDouble("height") / 2 && box.getDouble("x") > mine.getDouble("x"))
-    }
+    private fun area(element: JSONObject): Float = box(element).let { it.width * it.height }
 
     private fun element(
         node: SemanticsNode,
