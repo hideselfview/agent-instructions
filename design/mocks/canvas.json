@@ -18,7 +18,7 @@
   "view": "canvas"
  },
  "boards": {
-  "dashboard.page.dc.html": {
+  "web.dashboard.page.dc.html": {
    "page": "dashboard",
    "title": "Dashboard",
    "x": 0,
@@ -26,7 +26,7 @@
    "w": 1800,
    "h": 3100
   },
-  "dashboard.lists-queue.dc.html": {
+  "web.dashboard.lists-queue.dc.html": {
    "page": "dashboard",
    "title": "Queue tab",
    "x": 2000,
@@ -34,7 +34,7 @@
    "w": 760,
    "h": 1000
   },
-  "dashboard.lane-modals.dc.html": {
+  "web.dashboard.lane-modals.dc.html": {
    "page": "dashboard",
    "title": "A lane's modals",
    "x": 2960,
@@ -42,7 +42,7 @@
    "w": 760,
    "h": 1300
   },
-  "dashboard.designs.dc.html": {
+  "web.dashboard.designs.dc.html": {
    "page": "dashboard",
    "title": "A project's designs",
    "x": 0,
@@ -50,7 +50,7 @@
    "w": 1440,
    "h": 1000
   },
-  "dashboard.designs-publish.dc.html": {
+  "web.dashboard.designs-publish.dc.html": {
    "page": "dashboard",
    "title": "Publish designs to claude.ai",
    "x": 1640,
@@ -58,7 +58,7 @@
    "w": 760,
    "h": 1300
   },
-  "dashboard.designs-system.dc.html": {
+  "web.dashboard.designs-system.dc.html": {
    "page": "dashboard",
    "title": "A project's design system",
    "x": 0,
@@ -66,7 +66,7 @@
    "w": 1440,
    "h": 1000
   },
-  "dashboard.designs-scratch.dc.html": {
+  "web.dashboard.designs-scratch.dc.html": {
    "page": "dashboard",
    "title": "A project's scratch boards",
    "x": 0,

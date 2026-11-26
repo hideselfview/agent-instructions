@@ -37,12 +37,21 @@ fn folders() -> boards::Folders {
     }
 }
 
-const BOARD: &str = "dashboard.designs-publish";
+const BOARD: &str = "web.dashboard.designs-publish";
+
+/// A shared board's name, which starts with no platform.
+const SHARED_BOARD: &str = "dashboard.publish-dialog";
 
 /// The repo's own design files as commit `a`, then `b`, which changes bytes
 /// only (a board position in canvas.json and a comment in a board's file), and
 /// `c`, which changes the board's padding.
 fn history() -> tempfile::TempDir {
+    history_of(BOARD)
+}
+
+/// `history()` with its changes made to the board <name>, a copy of `BOARD`
+/// under that name in each commit when it is another name.
+fn history_of(name: &str) -> tempfile::TempDir {
     let here = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../design");
     let repo = tempfile::tempdir().unwrap();
     copy_tree(&here, &repo.path().join("design"));
@@ -56,15 +65,27 @@ fn history() -> tempfile::TempDir {
         1,
     );
     std::fs::write(&canvas, text).unwrap();
+    let entry = |board: &str| format!("{board}{}", boards::BOARD_SUFFIX);
+    if name != BOARD {
+        let mut index: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&canvas).unwrap()).unwrap();
+        index["boards"][entry(name)] = index["boards"][entry(BOARD)].clone();
+        std::fs::write(&canvas, serde_json::to_vec(&index).unwrap()).unwrap();
+        std::fs::copy(
+            repo.path().join(boards::board_path(BOARD)),
+            repo.path().join(boards::board_path(name)),
+        )
+        .unwrap();
+    }
     git(repo.path(), &["init", "-q", "-b", "main"]);
     git(repo.path(), &["add", "-A"]);
     git(repo.path(), &["commit", "-q", "-m", "a"]);
     git(repo.path(), &["tag", "a"]);
     let mut index: serde_json::Value =
         serde_json::from_slice(&std::fs::read(&canvas).unwrap()).unwrap();
-    index["boards"][format!("{BOARD}{}", boards::BOARD_SUFFIX)]["x"] = 9000.into();
+    index["boards"][entry(name)]["x"] = 9000.into();
     std::fs::write(&canvas, serde_json::to_vec(&index).unwrap()).unwrap();
-    let board = repo.path().join(boards::board_path(BOARD));
+    let board = repo.path().join(boards::board_path(name));
     let html = std::fs::read_to_string(&board).unwrap();
     std::fs::write(&board, format!("{html}\n<!-- merged from main -->\n")).unwrap();
     git(repo.path(), &["commit", "-q", "-am", "b"]);
@@ -509,16 +530,16 @@ fn empty_elements(list: &Path) {
 
 #[test]
 fn a_shared_board_is_drawn_once_and_kept_with_its_instances() {
-    let repo = history();
+    let repo = history_of(SHARED_BOARD);
     let folder = tempfile::tempdir().unwrap();
     let pictures = Pictures::new(folder.path().to_path_buf(), std::time::SystemTime::now());
     let store = Store {
         pictures: Some(&pictures),
         capture_version: VERSION,
     };
-    let boards = vec![BOARD.to_string()];
+    let boards = vec![SHARED_BOARD.to_string()];
     let first = lines(repo.path(), "a", "a", &boards, &[], &folders(), &store).unwrap();
-    assert_eq!(first, vec![format!("alike board {BOARD}")]);
+    assert_eq!(first, vec![format!("alike board {SHARED_BOARD}")]);
     let lists: Vec<_> = kept_files(folder.path(), ".json")
         .into_iter()
         .filter(|path| !path.to_string_lossy().ends_with(".instances.json"))
@@ -532,9 +553,9 @@ fn a_shared_board_is_drawn_once_and_kept_with_its_instances() {
     // The revision `b` draws the board again (another hash), `a` does not.
     empty_elements(&lists[0]);
     let second = lines(repo.path(), "a", "b", &boards, &[], &folders(), &store).unwrap();
-    assert_eq!(second, vec![format!("differs board {BOARD}")]);
+    assert_eq!(second, vec![format!("differs board {SHARED_BOARD}")]);
     let unkept = lines(repo.path(), "a", "b", &boards, &[], &folders(), &no_store()).unwrap();
-    assert_eq!(unkept, vec![format!("alike board {BOARD}")]);
+    assert_eq!(unkept, vec![format!("alike board {SHARED_BOARD}")]);
 }
 
 #[test]
