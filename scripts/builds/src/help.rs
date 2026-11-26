@@ -29,6 +29,15 @@ pub fn page(topic: Option<&str>) -> Option<&'static str> {
     }
 }
 
+/// The command that prints the page of <topic>: `builds help`, or `builds
+/// help <topic>`.
+pub fn name(topic: Option<&str>) -> String {
+    match topic {
+        Some(topic) => format!("builds help {topic}"),
+        None => "builds help".to_string(),
+    }
+}
+
 /// What `builds help <args>` prints: with no <args>, `builds help`; with a
 /// page's topic, that page; and with the words of a section's heading after
 /// the topic, or alone for a section of `builds help`, that section only, so
@@ -50,11 +59,9 @@ pub fn lookup(args: &[String]) -> Result<&'static str, String> {
         .find(|(name, _)| !name.is_empty() && name.eq_ignore_ascii_case(&heading))
         .map(|(_, section)| section)
         .ok_or_else(|| {
-            let name = topic.map_or("builds help".to_string(), |topic| {
-                format!("builds help {topic}")
-            });
             format!(
-                "{name} has no section {heading}. Its sections are {}.",
+                "{} has no section {heading}. Its sections are {}.",
+                name(topic),
                 sections(text).join("; ")
             )
         })

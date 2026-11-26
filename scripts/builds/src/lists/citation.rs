@@ -71,20 +71,16 @@ impl Cite {
             }
             Cite::Rule(path) => Some(format!("rule {path}")),
             Cite::Instructions(name) => Some(name.clone()),
-            Cite::Help { topic, section } => Some(format!("{}, {section}", help_name(topic))),
+            Cite::Help { topic, section } => Some(format!(
+                "{}, {section}",
+                crate::help::name(topic.as_deref())
+            )),
             Cite::Decision(CitedDecision::Missing { .. }) | Cite::Missing(_) => None,
         }
     }
 }
 
 /// `builds help <topic>`, or `builds help` for None.
-fn help_name(topic: &Option<String>) -> String {
-    match topic {
-        Some(topic) => format!("builds help {topic}"),
-        None => "builds help".to_string(),
-    }
-}
-
 /// Where the citations of a sentence are looked up: the decision log, the
 /// rules checkout and the home folder that holds ~/.claude and the repos'
 /// checkouts in ~/dev.
@@ -353,7 +349,7 @@ fn help_cites(text: &str) -> Vec<Cite> {
             None => Cite::Missing(format!(
                 "it cites the section {} of {}, which has no such section",
                 words.trim_end_matches([' ', ',']),
-                help_name(&topic)
+                crate::help::name(topic.as_deref())
             )),
         });
     }
