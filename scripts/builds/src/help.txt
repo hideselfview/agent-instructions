@@ -264,10 +264,10 @@ on it:
   agents/<session>/     what `builds agent run` keeps of each agent it
                         started: log.jsonl, the stream and Claude Code's
                         standard error as JSON lines, and scratch/, the
-                        agent's folder for scratch files (AGENTS). Prune
-                        deletes a session's folder once every item of the
-                        agent's record is closed and Claude Code no longer
-                        lists the session as running
+                        agent's folder for scratch files (AGENTS). `agent
+                        resume` takes every recorded agent, whether or not
+                        its items are closed, so builds keeps each recorded
+                        agent's folder: neither setup nor prune deletes it
   .chrome-slots/        the slot files that limit the pages Chromes draw at once
                         on the host (APP BUILDS); `builds status` leaves it out
   .trash/               folders being deleted in the background

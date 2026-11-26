@@ -357,22 +357,6 @@ pub fn processes(db: &Connection, session: &str) -> Result<Vec<ProcessRow>> {
         .sql()
 }
 
-/// The sessions of <db>'s agents whose every item is closed.
-pub fn sessions_with_closed_items(db: &Connection) -> Result<Vec<String>> {
-    let mut statement = db
-        .prepare(
-            "SELECT a.session FROM agent a WHERE NOT EXISTS (\
-                 SELECT 1 FROM agent_item i WHERE i.session = a.session \
-                 AND NOT EXISTS (SELECT 1 FROM closing c WHERE c.record_id = i.item))",
-        )
-        .sql()?;
-    statement
-        .query_map([], |row| row.get(0))
-        .sql()?
-        .collect::<rusqlite::Result<Vec<_>>>()
-        .sql()
-}
-
 #[cfg(test)]
 #[path = "agent_record_tests.rs"]
 mod tests;

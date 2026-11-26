@@ -524,3 +524,32 @@ fn resume_refuses_nothing_to_say_an_unknown_agent_and_an_item_outside_the_worktr
             .contains("does not run in a worktree")
     );
 }
+
+/// An ended agent whose items are all closed can still take a message and its
+/// area's next item, so the cleanup that setup and prune run keeps its folder.
+#[test]
+fn resume_finds_the_folder_of_a_finished_agent_after_the_shared_prune() {
+    let (mut demo, session) = ended_agent("ar-pruned");
+    for id in ["1", "2"] {
+        cmd_item(
+            &demo.tool,
+            &crate::testing::no_ssh(),
+            &words(&["finished", id, "--made", "the work"]),
+        )
+        .unwrap();
+    }
+    let folder = demo.tool.places.agents().join(&session);
+    std::fs::write(folder.join("scratch/note.txt"), "kept\n").unwrap();
+    crate::prune::prune_shared(
+        &demo.tool,
+        crate::prune::Run::Real,
+        crate::prune::Pruner::Prune,
+    )
+    .unwrap();
+    let init = init_line(TOOLS_JSON, "[]", "[]", "claude-sonnet-5-5");
+    fake_claude(&mut demo, &[&init, RESULT], 0);
+    let message = message_file(&demo, "Go on.\n");
+    let (result, _) = resume_command(&demo, &["resume", &session, "--message-file", &message]);
+    result.unwrap();
+    assert!(folder.join("scratch/note.txt").is_file());
+}
