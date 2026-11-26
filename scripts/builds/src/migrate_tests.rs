@@ -3157,3 +3157,49 @@ fn a_store_from_before_findings_could_close_again_keeps_each_close() {
     assert_eq!(closes, [(1, 2)]);
     assert!(crate::review::record::tests::close_again(&conn));
 }
+
+#[test]
+fn the_base_misses_stamp_is_the_schema_before_it() {
+    assert_eq!(
+        db::stamp_of_text(&db::schema_before_base_misses()),
+        BEFORE_BASE_MISSES_STAMP
+    );
+}
+
+/// A store from before builds recorded why the merge base's saved run was
+/// missing keeps its built steps, which read as having no recorded cause, and
+/// equals a fresh schema.
+#[test]
+fn a_store_from_before_the_miss_causes_keeps_its_built_steps_with_no_cause() {
+    use crate::shots_cache::MissCause;
+
+    let scratch = Scratch::new("move-base-misses");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&db::schema_before_base_misses())
+            .unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_BASE_MISSES_STAMP)
+            .unwrap();
+        conn.execute_batch(
+            "INSERT INTO app_build_runs (id, started_at, repo, lane, checkout, built_ref, wait_ms, outcome) VALUES (1, 5, 'bae', 'mac', 'side-1', 'b', 0, 'passed');
+             INSERT INTO app_build_steps (run_id, position, name, kind, started_at, wall_ms, cpu_ms, result) VALUES (1, 0, 'shots mac.a.', 'shots', 5, 1, 1, 'passed');
+             INSERT INTO app_build_step_shots (run_id, position, environment, base_run) VALUES (1, 0, 'E', 'built');",
+        )
+        .unwrap();
+    }
+    migrate_stores(&places, 0).unwrap();
+    let conn = db::open(&path, db::Make::Never).unwrap();
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    let run = crate::app_timing::read_run(&path).unwrap();
+    assert_eq!(
+        run.steps[0].shots.as_ref().unwrap().base_run,
+        crate::app_build_step_shots::BaseRun::Built(MissCause::Unrecorded)
+    );
+}

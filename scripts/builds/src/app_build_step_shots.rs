@@ -18,6 +18,7 @@ use crate::db::Sql;
 use crate::fail;
 use crate::fail::Result;
 use crate::lock::EachLine;
+use crate::shots_cache::MissCause;
 
 /// Whether the run of the merge base that a shots step compares with was
 /// there for the build to use.
@@ -30,7 +31,7 @@ pub enum BaseRun {
     Saved,
     /// The run was missing, so the build made it in its own turn, or waited
     /// for the build that was making it.
-    Built,
+    Built(MissCause),
 }
 
 impl BaseRun {
@@ -38,15 +39,17 @@ impl BaseRun {
         match self {
             BaseRun::NotNeeded => "not needed",
             BaseRun::Saved => "saved",
-            BaseRun::Built => "built",
+            BaseRun::Built(_) => "built",
         }
     }
 
-    pub fn from_word(word: &str) -> Result<BaseRun> {
+    /// The base run a stored <word> says, with <miss> the stored cause of a
+    /// built one: none for a step of a build that kept no cause.
+    pub fn from_word(word: &str, miss: Option<MissCause>) -> Result<BaseRun> {
         Ok(match word {
             "not needed" => BaseRun::NotNeeded,
             "saved" => BaseRun::Saved,
-            "built" => BaseRun::Built,
+            "built" => BaseRun::Built(miss.unwrap_or(MissCause::Unrecorded)),
             other => fail!("a shots step's base run is {other:?}"),
         })
     }
@@ -98,12 +101,13 @@ impl ShotsUse {
     pub fn stored(
         environment: String,
         base_run: &str,
+        miss: Option<&str>,
         reused: Option<i64>,
         captured: Option<i64>,
     ) -> Result<ShotsUse> {
         Ok(ShotsUse {
             environment,
-            base_run: BaseRun::from_word(base_run)?,
+            base_run: BaseRun::from_word(base_run, miss.map(MissCause::from_word).transpose()?)?,
             pictures: match reused.zip(captured) {
                 Some((reused, captured)) => Some(Pictures {
                     reused: u64::try_from(reused).map_err(|_| {
@@ -214,19 +218,33 @@ pub fn record(tx: &Transaction, run_id: i64, steps: &[StepRecord]) -> Result<()>
                 pictures.map(|(_, captured)| captured),
             ])
             .sql()?;
+        if let BaseRun::Built(cause) = used.base_run {
+            crate::app_build_base_misses::record(tx, run_id, position as i64, cause)?;
+        }
     }
     Ok(())
 }
 
-/// A stored row: position, environment, base run, reused and captured.
-type StoredUse = (u32, String, String, Option<i64>, Option<i64>);
+/// A stored row: position, environment, base run, the cause of a miss,
+/// reused and captured.
+type StoredUse = (
+    u32,
+    String,
+    String,
+    Option<String>,
+    Option<i64>,
+    Option<i64>,
+);
 
 /// What each shots step of run <run_id> used, by its position, when builds
 /// kept it.
 pub fn read(db: &Connection, run_id: i64) -> Result<HashMap<u32, ShotsUse>> {
     let rows: Vec<StoredUse> = db
         .prepare(
-            "SELECT position, environment, base_run, reused, captured FROM app_build_step_shots WHERE run_id = ?1",
+            "SELECT s.position, s.environment, s.base_run, m.cause, s.reused, s.captured
+             FROM app_build_step_shots s
+             LEFT JOIN app_build_base_misses m ON m.run_id = s.run_id AND m.position = s.position
+             WHERE s.run_id = ?1",
         )
         .sql()?
         .query_map([run_id], |row| {
@@ -236,18 +254,21 @@ pub fn read(db: &Connection, run_id: i64) -> Result<HashMap<u32, ShotsUse>> {
                 row.get(2)?,
                 row.get(3)?,
                 row.get(4)?,
+                row.get(5)?,
             ))
         })
         .sql()?
         .collect::<std::result::Result<_, _>>()
         .sql()?;
     rows.into_iter()
-        .map(|(position, environment, base_run, reused, captured)| {
-            Ok((
-                position,
-                ShotsUse::stored(environment, &base_run, reused, captured)?,
-            ))
-        })
+        .map(
+            |(position, environment, base_run, miss, reused, captured)| {
+                Ok((
+                    position,
+                    ShotsUse::stored(environment, &base_run, miss.as_deref(), reused, captured)?,
+                ))
+            },
+        )
         .collect()
 }
 

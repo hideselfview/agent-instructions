@@ -113,7 +113,14 @@ esac"#,
         )
         .unwrap();
     assert_eq!(result, Ended::Finished);
-    assert_eq!(ran, prefixes);
+    assert_eq!(
+        ran,
+        prefixes
+            .iter()
+            .map(|prefix| (prefix.clone(), crate::shots_cache::MissCause::NoneSaved))
+            .collect::<Vec<_>>(),
+        "an empty cache says no run was saved"
+    );
     assert_eq!(timing.steps.len(), 2);
     assert!(
         timing

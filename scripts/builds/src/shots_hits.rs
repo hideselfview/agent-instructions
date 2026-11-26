@@ -45,14 +45,15 @@ pub fn read(places: &Places, now: i64) -> Result<Vec<Row>> {
     Ok(rows)
 }
 
-/// A stored row: repo, lane, environment, start, base run, reused and
-/// captured.
+/// A stored row: repo, lane, environment, start, base run, the cause of a
+/// miss, reused and captured.
 type Stored = (
     String,
     String,
     String,
     i64,
     String,
+    Option<String>,
     Option<i64>,
     Option<i64>,
 );
@@ -62,8 +63,9 @@ fn read_from(conn: &rusqlite::Connection, now: i64, path: &std::path::Path) -> R
     let what = || format!("reading {}", path.display());
     let raw: Vec<Stored> = conn
         .prepare(
-            "SELECT r.repo, r.lane, s.environment, st.started_at, s.base_run, s.reused, s.captured
+            "SELECT r.repo, r.lane, s.environment, st.started_at, s.base_run, m.cause, s.reused, s.captured
              FROM app_build_step_shots s
+             LEFT JOIN app_build_base_misses m ON m.run_id = s.run_id AND m.position = s.position
              JOIN app_build_steps st ON st.run_id = s.run_id AND st.position = s.position
              JOIN app_build_runs r ON r.id = s.run_id
              WHERE st.started_at > ?1",
@@ -78,6 +80,7 @@ fn read_from(conn: &rusqlite::Connection, now: i64, path: &std::path::Path) -> R
                 row.get(4)?,
                 row.get(5)?,
                 row.get(6)?,
+                row.get(7)?,
             ))
         })
         .context(what)?
@@ -85,12 +88,18 @@ fn read_from(conn: &rusqlite::Connection, now: i64, path: &std::path::Path) -> R
         .context(what)?;
     raw.into_iter()
         .map(
-            |(repo, lane, environment, at, base_run, reused, captured)| {
+            |(repo, lane, environment, at, base_run, miss, reused, captured)| {
                 Ok(Row {
                     repo,
                     lane,
                     at,
-                    used: ShotsUse::stored(environment, &base_run, reused, captured)?,
+                    used: ShotsUse::stored(
+                        environment,
+                        &base_run,
+                        miss.as_deref(),
+                        reused,
+                        captured,
+                    )?,
                 })
             },
         )
@@ -126,11 +135,34 @@ fn base_rate(rows: &[&Row], now: i64, window: i64) -> Rate {
     for row in rows.iter().filter(|row| row.at > now - window) {
         match row.used.base_run {
             BaseRun::Saved => rate.hits += 1,
-            BaseRun::Built => rate.misses += 1,
+            BaseRun::Built(_) => rate.misses += 1,
             BaseRun::NotNeeded => {}
         }
     }
     rate
+}
+
+/// The misses of <rows> that started in the <window> seconds before <now>,
+/// counted by what the cache held when the build looked, as "3 because the
+/// shots program changed, 1 because no run was saved"; "none" when no build
+/// missed.
+fn miss_causes(rows: &[&Row], now: i64, window: i64) -> String {
+    let mut counts: BTreeMap<&'static str, u64> = BTreeMap::new();
+    for row in rows.iter().filter(|row| row.at > now - window) {
+        if let BaseRun::Built(cause) = row.used.base_run {
+            *counts.entry(cause.text()).or_default() += 1;
+        }
+    }
+    if counts.is_empty() {
+        return "none".to_string();
+    }
+    let mut counts: Vec<_> = counts.into_iter().collect();
+    counts.sort_by_key(|(text, count)| (std::cmp::Reverse(*count), *text));
+    counts
+        .iter()
+        .map(|(text, count)| format!("{count} because {text}"))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// The screenshots of <rows> that started in the window: those taken from
@@ -170,8 +202,9 @@ pub fn lines(rows: &[Row], now: i64) -> Vec<String> {
         .into_iter()
         .map(|((repo, lane, environment), rows)| {
             format!(
-                "shots cache of {repo}'s {lane} lane in environment {environment}: base runs saved when a build looked for them: {}; screenshots taken from the picture folder: {}",
+                "shots cache of {repo}'s {lane} lane in environment {environment}: base runs saved when a build looked for them: {}; the misses of the last day: {}; screenshots taken from the picture folder: {}",
                 windows_text(|window| base_rate(&rows, now, window)),
+                miss_causes(&rows, now, DAY),
                 windows_text(|window| shots_rate(&rows, now, window)),
             )
         })
@@ -191,8 +224,9 @@ pub fn findings(rows: &[Row], now: i64) -> Vec<Advice> {
                 return None;
             }
             Some(Advice::said(format!(
-                "shots cache: in the last day, builds found the saved run of the merge base for {} of the {all} comparisons of {repo}'s {lane} lane in environment {environment}, so they built the merge base again for the rest; check that the environment stays the same from one build to the next",
-                day.hits
+                "shots cache: in the last day, builds found the saved run of the merge base for {} of the {all} comparisons of {repo}'s {lane} lane in environment {environment}, so they built the merge base again for the rest ({})",
+                day.hits,
+                miss_causes(&rows, now, DAY)
             )))
         })
         .collect()

@@ -177,6 +177,11 @@ pub const AGENT_RECORD_PART: &str = include_str!("agent_record.sql");
 /// tables.
 pub const ITEM_CHANGE_PART: &str = include_str!("lists/item_change.sql");
 
+/// Why the merge base's saved run was missing for each shots step that built
+/// it (app_build_base_misses.sql); the schema holds it after the item
+/// changes.
+pub const APP_BUILD_BASE_MISSES_PART: &str = include_str!("app_build_base_misses.sql");
+
 /// Each part of the schema, in the order the schema holds them: the lists'
 /// tables, then the hook stats', then the app-build timings', then the design
 /// changes' recording sessions', then the review's, then the hook checks'
@@ -193,7 +198,7 @@ pub const ITEM_CHANGE_PART: &str = include_str!("lists/item_change.sql");
 /// cap. A table points at ones earlier or
 /// later (SQLite resolves foreign keys when rows are written), but the order is
 /// the one to read the schema in. A part that joins the schema goes at the end.
-const SCHEMA_PARTS: [&str; 48] = [
+const SCHEMA_PARTS: [&str; 49] = [
     include_str!("lists/project.sql"),
     include_str!("lists/area.sql"),
     include_str!("lists/record.sql"),
@@ -242,6 +247,7 @@ const SCHEMA_PARTS: [&str; 48] = [
     REVIEW_KEPT_CORRECTION_PART,
     AGENT_RECORD_PART,
     ITEM_CHANGE_PART,
+    APP_BUILD_BASE_MISSES_PART,
 ];
 
 /// The length of <parts> joined with a newline between each two.
@@ -363,13 +369,13 @@ pub fn with_closed_once(schema: String) -> String {
 /// close again.
 #[cfg(test)]
 pub fn schema_before_reopen() -> String {
-    with_closed_once(schema())
+    with_closed_once(without_base_misses(schema()))
 }
 
 /// Today's schema as it was before the backlog.
 #[cfg(test)]
 pub fn schema_before_backlog() -> String {
-    with_held_and_deferred(with_closed_once(schema()))
+    with_held_and_deferred(with_closed_once(without_base_misses(schema())))
 }
 
 /// The table of the `--shots` runs' findings, which every schema held
@@ -932,6 +938,20 @@ CREATE TABLE design_board (
 
 ";
 
+/// <schema> as it was before builds recorded why the merge base's saved run
+/// was missing: without that table, the last part of the schema.
+#[cfg(test)]
+pub fn without_base_misses(schema: String) -> String {
+    schema.replacen(&format!("\n{APP_BUILD_BASE_MISSES_PART}"), "", 1)
+}
+
+/// The schema as it was before builds recorded why the merge base's saved
+/// run was missing.
+#[cfg(test)]
+pub fn schema_before_base_misses() -> String {
+    without_base_misses(schema())
+}
+
 /// <schema> as it was before item changes were recorded: without their
 /// tables, the last part of the schema.
 #[cfg(test)]
@@ -942,7 +962,9 @@ pub fn without_item_change(schema: String) -> String {
 /// The schema as it was before item changes were recorded.
 #[cfg(test)]
 pub fn schema_before_item_change() -> String {
-    with_held_and_deferred(with_closed_once(without_item_change(schema())))
+    with_held_and_deferred(with_closed_once(without_item_change(without_base_misses(
+        schema(),
+    ))))
 }
 
 /// <schema> as it was before the agents `builds agent run` starts were

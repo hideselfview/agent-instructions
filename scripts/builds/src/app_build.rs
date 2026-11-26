@@ -136,6 +136,7 @@ use crate::programs::Pinned;
 use crate::run_end::RunEnd;
 use crate::shot_findings;
 use crate::shots_cache;
+use crate::shots_cache::MissCause;
 use crate::shots_declared::ShotDeclarations;
 use crate::text::note;
 use crate::tool::Tool;
@@ -1348,7 +1349,7 @@ impl ShotsCache {
         no_capture: bool,
         retake: bool,
         base_run: bool,
-        built: &[shots::Prefix],
+        built: &[(shots::Prefix, MissCause)],
         program: &Path,
     ) -> Result<ShotsCache> {
         let versions = &crate::shots_program::VERSIONS;
@@ -1372,10 +1373,9 @@ impl ShotsCache {
                 program,
             )? {
                 Some(before) => {
-                    let how = if built.contains(selected) {
-                        BaseRun::Built
-                    } else {
-                        BaseRun::Saved
+                    let how = match built.iter().find(|(prefix, _)| prefix == selected) {
+                        Some((_, cause)) => BaseRun::Built(*cause),
+                        None => BaseRun::Saved,
                     };
                     bases.push((prefix.to_string(), how));
                     befores.push((prefix.to_string(), Compared::With(before.findings_json())))
@@ -2099,7 +2099,7 @@ struct CommitRun<'a> {
     /// `--base`.
     base_run: bool,
     /// The prefixes whose merge-base run this build made in its own turn.
-    built: &'a [shots::Prefix],
+    built: &'a [(shots::Prefix, MissCause)],
 }
 
 impl<'a> LaneBuild<'a> {
@@ -2374,7 +2374,7 @@ impl<'a> LaneBuild<'a> {
         held: &lock::Held,
         built_file: &Path,
         timing: &mut Timing,
-    ) -> LaneResult<(Ended, Vec<shots::Prefix>)> {
+    ) -> LaneResult<(Ended, Vec<(shots::Prefix, MissCause)>)> {
         let LaneBuild {
             places,
             repo,
@@ -2421,6 +2421,23 @@ impl<'a> LaneBuild<'a> {
         if asked.is_empty() {
             return Ok((Ended::Finished, Vec::new()));
         }
+        // The cause is what the cache holds before this build, or one it
+        // waits for, adds a run.
+        let causes = asked
+            .iter()
+            .map(|prefix| {
+                let cause = shots_cache::why_missed(
+                    places,
+                    repo,
+                    &base.commit,
+                    lane,
+                    environment,
+                    prefix.as_str(),
+                    &crate::shots_program::VERSIONS,
+                )?;
+                Ok((prefix.clone(), cause))
+            })
+            .collect::<Result<Vec<_>>>()?;
         let Some(_lock) = lock_base_run(places, repo, lane, &base.commit, environment)? else {
             return Ok((Ended::Stopped, Vec::new()));
         };
@@ -2430,7 +2447,7 @@ impl<'a> LaneBuild<'a> {
                 "another build cached the runs at the merge base {} that these runs compare with",
                 short(&base.commit)
             ));
-            return Ok((Ended::Finished, asked));
+            return Ok((Ended::Finished, causes));
         }
         let versions = &crate::shots_program::VERSIONS;
         note(format!(
@@ -2488,7 +2505,7 @@ impl<'a> LaneBuild<'a> {
                 short(commit)
             ));
         }
-        Ok((Ended::Finished, asked))
+        Ok((Ended::Finished, causes))
     }
 }
 

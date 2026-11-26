@@ -818,3 +818,69 @@ fn the_runs_of_an_environment_are_those_of_every_commit_and_prefix_with_records(
         ]
     );
 }
+
+/// The cause <prefix> misses with at the commit of `key`, for a build in
+/// ENVIRONMENT with the versions of `key`.
+fn cause(places: &Places, prefix: &str) -> MissCause {
+    let wanted = key(prefix);
+    why_missed(
+        places,
+        "demo",
+        &wanted.commit,
+        Lane::Mac,
+        ENVIRONMENT,
+        prefix,
+        &wanted.versions,
+    )
+    .unwrap()
+}
+
+#[test]
+fn a_miss_is_blamed_on_what_the_cache_holds_for_the_merge_base() {
+    let scratch = Scratch::new("shot-store-miss-cause");
+    let places = scratch.places();
+    assert_eq!(cause(&places, "mac.a."), MissCause::NoneSaved);
+
+    cache_run(&places, &key("mac.other."), 0, "x\n", true);
+    assert_eq!(
+        cause(&places, "mac.a."),
+        MissCause::BoardChanged,
+        "a run of another board is no run of this one"
+    );
+
+    let elsewhere = Key {
+        environment: "25G241-27B52".to_string(),
+        ..key("mac.")
+    };
+    cache_run(&places, &elsewhere, 0, "x\n", true);
+    assert_eq!(cause(&places, "mac.a."), MissCause::EnvironmentChanged);
+
+    let older = Key {
+        versions: Versions {
+            capture: "0d0d0d0d0d0d0d0d".to_string(),
+            comparison: "0123456789abcdef".to_string(),
+        },
+        ..key("mac.")
+    };
+    cache_run(&places, &older, 0, "x\n", true);
+    assert_eq!(
+        cause(&places, "mac.a."),
+        MissCause::ProgramChanged,
+        "a covering run of another program in this environment"
+    );
+}
+
+#[test]
+fn a_run_with_no_findings_is_not_a_saved_run_in_a_miss_cause() {
+    let scratch = Scratch::new("shot-store-miss-no-findings");
+    let places = scratch.places();
+    let older = Key {
+        versions: Versions {
+            capture: "0d0d0d0d0d0d0d0d".to_string(),
+            comparison: "0123456789abcdef".to_string(),
+        },
+        ..key("mac.")
+    };
+    cache_run(&places, &older, 0, "x\n", false);
+    assert_eq!(cause(&places, "mac.a."), MissCause::NoneSaved);
+}

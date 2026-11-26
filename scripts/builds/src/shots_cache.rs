@@ -651,6 +651,121 @@ pub fn lookup_older_program(
     Ok(newest)
 }
 
+/// What the cache held for the merge base's commit and lane when a build
+/// looked for the run of a shots prefix and found none.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MissCause {
+    /// A run of a prefix that covers the step's, made in the step's
+    /// environment, by another version of the shots program.
+    ProgramChanged,
+    /// A run of a prefix that covers the step's, made in another
+    /// environment.
+    EnvironmentChanged,
+    /// Runs of other prefixes only: the merge base's runs cover other boards.
+    BoardChanged,
+    /// No run of the merge base on the lane.
+    NoneSaved,
+    /// The step is from a build that kept no cause.
+    Unrecorded,
+}
+
+impl MissCause {
+    /// The word the store keeps, None for a cause the store keeps no row of.
+    pub fn word(self) -> Option<&'static str> {
+        match self {
+            MissCause::ProgramChanged => Some("program"),
+            MissCause::EnvironmentChanged => Some("environment"),
+            MissCause::BoardChanged => Some("board"),
+            MissCause::NoneSaved => Some("none"),
+            MissCause::Unrecorded => None,
+        }
+    }
+
+    pub fn from_word(word: &str) -> Result<MissCause> {
+        Ok(match word {
+            "program" => MissCause::ProgramChanged,
+            "environment" => MissCause::EnvironmentChanged,
+            "board" => MissCause::BoardChanged,
+            "none" => MissCause::NoneSaved,
+            other => fail!("a shots step's base run miss is {other:?}"),
+        })
+    }
+
+    /// The cause as `builds health` says it.
+    pub fn text(self) -> &'static str {
+        match self {
+            MissCause::ProgramChanged => "the shots program changed",
+            MissCause::EnvironmentChanged => "the environment changed",
+            MissCause::BoardChanged => "the merge base's runs cover other boards",
+            MissCause::NoneSaved => "no run was saved",
+            MissCause::Unrecorded => "the build kept no cause",
+        }
+    }
+}
+
+/// Why the cache holds no run of <repo>'s <commit> on <lane> that a build in
+/// <environment> with shots program <versions> can compare <prefix> with:
+/// what the cache holds for that commit and lane. A run of another program
+/// version counts only when it holds findings. Reading marks nothing used.
+pub fn why_missed(
+    places: &Places,
+    repo: &str,
+    commit: &str,
+    lane: Lane,
+    environment: &str,
+    prefix: &str,
+    versions: &Versions,
+) -> Result<MissCause> {
+    let (mut program, mut other_environment, mut other_board) = (false, false, false);
+    for held in environments(places, repo, commit, lane)? {
+        let folder = prefixes_folder(places, repo, commit, lane, &held);
+        for (name, _) in folders_in(&folder)? {
+            if name.starts_with('.') {
+                continue;
+            }
+            if !prefix.starts_with(&name) {
+                other_board |= held == environment;
+                other_environment |= held != environment;
+                continue;
+            }
+            if held != environment {
+                other_environment = true;
+                continue;
+            }
+            let captures = folder.join(&name);
+            for (capture, comparisons) in folders_in(&captures)? {
+                for (comparison, run) in folders_in(&comparisons)? {
+                    let key = Key::new(
+                        repo,
+                        commit,
+                        lane,
+                        &held,
+                        &name,
+                        &Versions {
+                            capture: capture.clone(),
+                            comparison,
+                        },
+                    );
+                    if read(&run, &key)?.is_some_and(|cached| cached.findings_json().is_file())
+                        && key.versions != *versions
+                    {
+                        program = true;
+                    }
+                }
+            }
+        }
+    }
+    Ok(if program {
+        MissCause::ProgramChanged
+    } else if other_environment {
+        MissCause::EnvironmentChanged
+    } else if other_board {
+        MissCause::BoardChanged
+    } else {
+        MissCause::NoneSaved
+    })
+}
+
 /// The run cached under <key>, if any; reading it marks it used.
 pub fn lookup(places: &Places, key: &Key) -> Result<Option<Cached>> {
     check_key(key)?;

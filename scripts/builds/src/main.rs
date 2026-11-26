@@ -10,6 +10,7 @@ mod agent_prune;
 mod agent_record;
 mod agent_stream;
 mod app_build;
+mod app_build_base_misses;
 mod app_build_commit;
 mod app_build_requested_commit;
 mod app_build_reused_shots;

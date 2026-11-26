@@ -2,6 +2,7 @@ use super::*;
 use crate::app_timing::{DATABASE, RunRecord, StepKind, StepResult, read_run};
 use crate::lane::Lane;
 use crate::run_end::RunEnd;
+use crate::shots_cache::MissCause;
 use crate::testing::Scratch;
 
 const TOOK: &str = "builds shots: took the 12 mac shots of app tree 0123abcd from the picture folder; capturing none";
@@ -103,7 +104,7 @@ fn steps() -> Vec<StepRecord> {
             "shots mac.b.",
             StepKind::Shots,
             used(
-                BaseRun::Built,
+                BaseRun::Built(MissCause::BoardChanged),
                 Some(Pictures {
                     reused: 0,
                     captured: 7,
@@ -181,6 +182,6 @@ fn a_run_read_back_holds_the_steps_with_what_they_used() {
 
 #[test]
 fn a_base_run_word_the_store_does_not_know_is_refused() {
-    assert!(BaseRun::from_word("saved").is_ok());
-    assert!(BaseRun::from_word("missing").is_err());
+    assert!(BaseRun::from_word("saved", None).is_ok());
+    assert!(BaseRun::from_word("missing", None).is_err());
 }
