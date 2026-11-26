@@ -19,6 +19,7 @@
 //! On mac each variable is also set with `TEST_RUNNER_` in front, which Xcode
 //! passes to the test process under the plain name.
 
+use crate::backend;
 use crate::declared::Declared;
 use crate::names::{Name, Platform, Prefix};
 use crate::shots::{Shot, Size};
@@ -317,7 +318,7 @@ fn variables(
         .iter()
         .map(|(k, v)| (k.to_string(), v.clone()))
         .collect();
-    if platform == Platform::Mac {
+    if backend::of(platform).test_runner_copies() {
         all.extend(
             plain
                 .iter()

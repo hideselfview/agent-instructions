@@ -3,6 +3,7 @@
 //! reads the repo it runs in, its design files and the `shots-` lines of its
 //! `.app-build` (settings.rs), and names no app.
 
+mod backend;
 mod before;
 mod board_sizes;
 mod capture;

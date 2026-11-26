@@ -80,8 +80,10 @@ pub enum Side {
 
 /// The files of the shots crate's `src` that both sides read: the command
 /// line, the shot and element-list types, and the names, settings and
-/// declarations that say which shots exist.
-const SHARED: [&str; 7] = [
+/// declarations that say which shots exist, and the backends that hold each
+/// platform's facts.
+const SHARED: [&str; 8] = [
+    "backend.rs",
     "lib.rs",
     "shots.rs",
     "names.rs",

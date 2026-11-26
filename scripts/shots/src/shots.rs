@@ -167,12 +167,12 @@ fn platform_word<S: serde::Serializer>(
     platform: &Platform,
     serializer: S,
 ) -> Result<S::Ok, S::Error> {
-    serializer.serialize_str(platform.file_word())
+    serializer.serialize_str(crate::backend::of(*platform).file_word())
 }
 
 fn platform<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Platform, D::Error> {
     let word = String::deserialize(deserializer)?;
-    Platform::from_file_word(&word).ok_or_else(|| {
+    crate::backend::from_file_word(&word).ok_or_else(|| {
         serde::de::Error::custom(format!("'{word}' is no platform (macos, android, web)"))
     })
 }

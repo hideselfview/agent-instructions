@@ -79,7 +79,10 @@ impl Name {
     /// The file a shot writes with `extension` (`png` or `json`):
     /// `<name>@<platform>.<extension>`.
     pub(crate) fn file_name(&self, extension: &str) -> String {
-        format!("{self}@{}.{extension}", self.platform().file_word())
+        format!(
+            "{self}@{}.{extension}",
+            crate::backend::of(self.platform()).file_word()
+        )
     }
 
     /// The shot a file in a capture directory belongs to, when its name has the
@@ -88,8 +91,9 @@ impl Name {
         platform: Platform,
         file_name: &str,
     ) -> Option<Result<Self, NameError>> {
-        let suffix_png = format!("@{}.png", platform.file_word());
-        let suffix_json = format!("@{}.json", platform.file_word());
+        let word = crate::backend::of(platform).file_word();
+        let suffix_png = format!("@{word}.png");
+        let suffix_json = format!("@{word}.json");
         let stem = file_name
             .strip_suffix(&suffix_png)
             .or_else(|| file_name.strip_suffix(&suffix_json))?;
@@ -171,7 +175,7 @@ impl ComponentName {
             .unwrap_or_else(|| {
                 format!(
                     "{}{}",
-                    self.platform.component_prefix(),
+                    crate::backend::of(self.platform).component_prefix(),
                     pascal_case(&self.thing)
                 )
             })

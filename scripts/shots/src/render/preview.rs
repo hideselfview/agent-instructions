@@ -10,6 +10,7 @@
 //! element that holds the drawing (settings.rs). A preview with no rows is
 //! one state, `default`, drawn by the whole page.
 
+use crate::backend;
 use crate::design::Frame;
 use crate::names::{Platform, state_id};
 use crate::render::Drawn;
@@ -41,10 +42,6 @@ const PREVIEW_MOUNTED: &str = "#root > *";
 /// which draws no row: the reader waits for the page's body and not for a
 /// drawn row.
 pub(crate) const PREVIEW_LOADED: &str = "body";
-
-/// The class the page's `<body>` carries on the android lane, which the design
-/// system's preview styles key Android drawings on.
-const ANDROID_CLASS: &str = "bae-preview-android";
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum PreviewError {
@@ -185,7 +182,7 @@ pub(crate) async fn render_row(
         url,
         PREVIEW_FRAME,
         PREVIEW_MOUNTED,
-        (platform == Platform::Android).then_some(ANDROID_CLASS),
+        backend::of(platform).preview_body_class(),
     )
     .await?;
     let names: Vec<String> = page

@@ -10,6 +10,7 @@
 //! node's box is the range of its words, not its parent's), whether any part
 //! of the box is visible, and for text its computed font.
 
+use crate::backend;
 use crate::names::Platform;
 use crate::render::chrome::DrawPage;
 use crate::shots::{Bounds, Cover, Element, Role, TextStyle, WindowShape, words};
@@ -71,7 +72,11 @@ impl Role {
     /// Android board's stays a button.
     fn for_node(node: &Raw, platform: Platform) -> Self {
         match Self::of(&node.chrome_role) {
-            Self::Button if node.has_popup && platform == Platform::Mac => Self::Popup,
+            Self::Button
+                if node.has_popup && backend::of(platform).reading().menu_button_is_popup =>
+            {
+                Self::Popup
+            }
             role => role,
         }
     }
@@ -155,11 +160,7 @@ fn is_window(node: &Raw, platform: Platform) -> bool {
 /// Whether a node of Chrome role <role> is a window on <platform>, the role
 /// an element keeps as its `native` (`element`).
 pub(crate) fn is_window_role(platform: Platform, role: &str) -> bool {
-    match platform {
-        Platform::Mac => role == "menu",
-        Platform::Android => matches!(role, "menu" | "dialog"),
-        Platform::Web => false,
-    }
+    (backend::of(platform).reading().window_role)(role)
 }
 
 /// The elements of `raw`, in reading order (the tree's order from its first
@@ -181,36 +182,33 @@ pub(crate) fn build(raw: &[Raw], platform: Platform) -> Result<Vec<Element>, Rea
     };
     let mut elements = Vec::new();
     let mut windows = VecDeque::new();
-    match platform {
-        Platform::Android => {
-            for window in windows_in_tree_order(first, &by_id, platform)? {
-                read(
-                    &mut elements,
-                    &by_id,
-                    platform,
-                    (window, None, false),
-                    &mut windows,
-                )?;
-            }
+    if backend::of(platform).reading().windows_before_page {
+        for window in windows_in_tree_order(first, &by_id, platform)? {
             read(
                 &mut elements,
                 &by_id,
                 platform,
-                (first, None, false),
+                (window, None, false),
                 &mut windows,
             )?;
         }
-        Platform::Mac | Platform::Web => {
-            read(
-                &mut elements,
-                &by_id,
-                platform,
-                (first, None, false),
-                &mut windows,
-            )?;
-            while let Some(window) = windows.pop_front() {
-                read(&mut elements, &by_id, platform, window, &mut windows)?;
-            }
+        read(
+            &mut elements,
+            &by_id,
+            platform,
+            (first, None, false),
+            &mut windows,
+        )?;
+    } else {
+        read(
+            &mut elements,
+            &by_id,
+            platform,
+            (first, None, false),
+            &mut windows,
+        )?;
+        while let Some(window) = windows.pop_front() {
+            read(&mut elements, &by_id, platform, window, &mut windows)?;
         }
     }
     Ok(elements)
@@ -383,11 +381,7 @@ fn text_style(geometry: &Geometry) -> Option<TextStyle> {
 /// keep whether the field is filled because native secure controls report
 /// different numbers of bullets. Compose and Chrome use one per character.
 fn masked(typed: &str, platform: Platform) -> String {
-    match platform {
-        Platform::Mac if typed.is_empty() => String::new(),
-        Platform::Mac => "\u{F79A}".to_string(),
-        Platform::Android | Platform::Web => typed.chars().map(|_| '\u{2022}').collect(),
-    }
+    (backend::of(platform).reading().secure_value)(typed)
 }
 
 #[derive(Serialize)]
@@ -926,7 +920,7 @@ async fn gather(page: &DrawPage, frame: Bounds, platform: Platform) -> Result<Ve
                     node,
                     &clipping_argument,
                     ink,
-                    platform == Platform::Mac,
+                    backend::of(platform).allowances().spanning_title_box,
                 )
                 .await?
                 {

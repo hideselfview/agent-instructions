@@ -3,8 +3,8 @@
 
 use super::normalize::Entry;
 use super::{DELTA_E_TOLERANCE, EDGE_TOLERANCE, Part, PictureSide, Side, Warning, rgba};
+use crate::backend;
 use crate::names::Platform;
-use crate::render::read::is_window_role;
 use crate::shots::{Bounds, Cover, Element, Picture, Role};
 use std::collections::HashMap;
 
@@ -413,7 +413,7 @@ pub(crate) fn pairs(
         // The Android harness records no window in its list (it writes
         // Compose roles, never menu or dialog), so a shot's list there says
         // nothing of what covers what: the board's does.
-        let shot_covers = platform != Platform::Android;
+        let shot_covers = backend::of(platform).reading().shot_lists_windows;
         let hidden = [
             (PictureSide::Board, board.elements, b),
             (PictureSide::Shot, shot.elements, s),
@@ -504,6 +504,7 @@ fn is_partial_coverage(partial: &Palette, thin: Rgb, whole: &Palette, full: Rgb)
 /// texts wherever it is listed, a later window covers an earlier one, and the
 /// page, lying under every window, covers none of theirs.
 fn covering(platform: Platform, list: &[Element], entry: &Entry) -> Option<usize> {
+    let reading = backend::of(platform).reading();
     let at = entry.bounds(list);
     let own = |index: usize| index == entry.index || entry.folded.contains(&index);
     let last = entry
@@ -529,7 +530,7 @@ fn covering(platform: Platform, list: &[Element], entry: &Entry) -> Option<usize
         top
     };
     let is_window =
-        |top: usize| platform == Platform::Android && is_window_role(platform, &list[top].native);
+        |top: usize| !reading.shot_lists_windows && (reading.window_role)(&list[top].native);
     let tree = root(entry.index);
     let drawn_over = |index: usize| {
         if index > last {

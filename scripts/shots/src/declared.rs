@@ -7,6 +7,7 @@
 //! are read the same way. Reading source needs no build of the app, so the
 //! commit hook can run it.
 
+use crate::backend;
 use crate::names::{Name, NameError, Platform};
 use regex::Regex;
 use std::path::{Path, PathBuf};
@@ -60,33 +61,15 @@ pub struct Marks {
     pub takes_focus: bool,
 }
 
-/// A reader of a harness's source: each shot name it declares, and how the
-/// source says the shot is drawn.
-type Reader = fn(&str) -> Vec<(String, Marks)>;
-
 /// The folder under a declare folder that holds each design-system
 /// component's capture file (component_files.rs). Its files declare shots as
 /// the declare folder's own do.
 pub(crate) const COMPONENTS: &str = "Components";
 
-/// How <platform>'s harness declares its shots: the extension of its files,
-/// and the reader of its source. A web shot's fixture declares it by its
-/// name, so web has no reader.
-fn harness(platform: Platform) -> (&'static str, Option<Reader>) {
-    match platform {
-        Platform::Android => ("kt", Some(kotlin)),
-        Platform::Mac => ("swift", Some(swift)),
-        Platform::Web => ("json", None),
-    }
-}
-
 /// The extension of <platform>'s harness source, none for a platform whose
 /// shots are declared by their fixture files, which hold no capture code.
 pub(crate) fn source_extension(platform: Platform) -> Option<&'static str> {
-    match harness(platform) {
-        (extension, Some(_)) => Some(extension),
-        (_, None) => None,
-    }
+    backend::of(platform).capture_extension()
 }
 
 /// The name of the file at <path> without its extension.
@@ -130,7 +113,7 @@ fn harness_among(
     paths: Vec<PathBuf>,
     platform: Platform,
 ) -> Result<Vec<HarnessFile>, DeclaredError> {
-    let (extension, _) = harness(platform);
+    let extension = backend::of(platform).declaring_extension();
     let mut harness = Vec::new();
     for path in paths {
         if path.extension().and_then(|e| e.to_str()) != Some(extension) {
@@ -188,33 +171,43 @@ fn files(directory: &Path) -> Result<Vec<PathBuf>, DeclaredError> {
 /// it writes them: a source file's shots, or the one shot a web fixture
 /// file declares by its name.
 pub(crate) fn declared_in(platform: Platform, path: &Path) -> Result<Vec<Declared>, DeclaredError> {
-    let (extension, find) = harness(platform);
-    let Some(find) = find else {
-        let name =
-            Name::parse(stem(path)?).map_err(|e| DeclaredError::Name(path.to_path_buf(), e))?;
-        return Ok(vec![Declared {
-            name,
-            file: path.to_path_buf(),
-            marks: Marks::default(),
-        }]);
-    };
-    let source =
-        std::fs::read_to_string(path).map_err(|e| DeclaredError::Read(path.to_path_buf(), e))?;
-    let source = if extension == "swift" {
-        without_line_comments(&source)
-    } else {
-        source
-    };
-    let found = find(&source);
-    if extension == "swift" {
-        let count = |mark: fn(&Marks) -> bool| found.iter().filter(|f| mark(&f.1)).count();
-        if window_frames(&source) != count(|m| m.in_window) {
-            return Err(DeclaredError::WindowScene(path.to_path_buf()));
-        }
-        if focus_markers(&source) != count(|m| m.takes_focus) {
-            return Err(DeclaredError::FocusScene(path.to_path_buf()));
-        }
+    backend::of(platform).declared_in(path)
+}
+
+/// The one shot the fixture file <path> declares by its name.
+pub(crate) fn declared_by_name(path: &Path) -> Result<Vec<Declared>, DeclaredError> {
+    let name = Name::parse(stem(path)?).map_err(|e| DeclaredError::Name(path.to_path_buf(), e))?;
+    Ok(vec![Declared {
+        name,
+        file: path.to_path_buf(),
+        marks: Marks::default(),
+    }])
+}
+
+/// The shots the Swift source <path> declares, in the order it writes them.
+pub(crate) fn declared_in_swift(path: &Path) -> Result<Vec<Declared>, DeclaredError> {
+    let source = without_line_comments(&read_source(path)?);
+    let found = swift(&source);
+    let count = |mark: fn(&Marks) -> bool| found.iter().filter(|f| mark(&f.1)).count();
+    if window_frames(&source) != count(|m| m.in_window) {
+        return Err(DeclaredError::WindowScene(path.to_path_buf()));
     }
+    if focus_markers(&source) != count(|m| m.takes_focus) {
+        return Err(DeclaredError::FocusScene(path.to_path_buf()));
+    }
+    named(path, found)
+}
+
+/// The shots the Kotlin source <path> declares, in the order it writes them.
+pub(crate) fn declared_in_kotlin(path: &Path) -> Result<Vec<Declared>, DeclaredError> {
+    named(path, kotlin(&read_source(path)?))
+}
+
+fn read_source(path: &Path) -> Result<String, DeclaredError> {
+    std::fs::read_to_string(path).map_err(|e| DeclaredError::Read(path.to_path_buf(), e))
+}
+
+fn named(path: &Path, found: Vec<(String, Marks)>) -> Result<Vec<Declared>, DeclaredError> {
     found
         .into_iter()
         .map(|(text, marks)| {

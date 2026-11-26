@@ -12,6 +12,7 @@ pub(crate) mod normalize;
 pub(crate) mod regions;
 mod window;
 
+use crate::backend;
 use crate::names::Platform;
 use crate::shots::{Bounds, Element, Picture, Size, WindowShape};
 use align::Step;
@@ -497,13 +498,10 @@ pub(crate) fn warnings(
             dy: offset.1,
         });
     }
-    // Android's native text rounds each glyph advance to a whole pixel, so
-    // each glyph sets a width or a place off by up to half a pixel.
-    let glyph_slack = if platform == Platform::Android {
-        0.5 / shot.scale
-    } else {
-        0.0
-    };
+    let allowances = backend::of(platform).allowances();
+    let glyph_slack = allowances
+        .glyph_advance_pixels
+        .map_or(0.0, |pixels| pixels / shot.scale);
     found.extend(geometry::boxes(
         board.elements,
         shot.elements,
@@ -513,7 +511,8 @@ pub(crate) fn warnings(
     ));
     found.extend(geometry::fonts(board.elements, shot.elements, pairs));
     found.extend(colour::pairs(platform, board, shot, pairs));
-    let window = (platform == Platform::Mac)
+    let window = allowances
+        .window_corners
         .then(|| window::Window::of(board, shot, window, offset))
         .flatten();
     if window.as_ref().is_some_and(window::Window::corners_differ) {
