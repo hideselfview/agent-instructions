@@ -66,7 +66,10 @@ internal object EmbeddedViews {
     ): JSONObject? {
         val label = view.contentDescription?.toString()
         // The role is what the view tells TalkBack it is, so a view that reports a progress bar is listed as one.
-        val reported = view.createAccessibilityNodeInfo().className?.toString() ?: return null
+        val reported =
+            checkNotNull(view.createAccessibilityNodeInfo().className) {
+                "${view.javaClass.name} reports no accessibility class name"
+            }.toString()
         val reportedClass = Class.forName(reported)
         val native = reported.substringAfterLast('.')
         val (kind, words) =

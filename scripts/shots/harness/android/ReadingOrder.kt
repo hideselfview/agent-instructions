@@ -55,7 +55,10 @@ internal fun interface ReadingOrder {
 
             fun read(id: Int) {
                 if (id in children) return
-                val node = provider.createAccessibilityNodeInfo(id) ?: return
+                val node =
+                    checkNotNull(provider.createAccessibilityNodeInfo(id)) {
+                        "Compose's node provider gives no node for $id, which it lists as a child"
+                    }
                 // A child that is an Android view, not a node, has the host's id.
                 children[id] = (0 until node.childCount).map { virtual(childId.invoke(node, it) as Long) }.filter { it != HOST }
                 children.getValue(id).forEach(::read)
