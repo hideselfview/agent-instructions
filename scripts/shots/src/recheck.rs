@@ -8,7 +8,7 @@
 
 use crate::capture::Failed;
 use crate::findings_file::{self, FILE, FailedScene};
-use crate::names::{App, Apps, Name, NameError, Platform};
+use crate::names::{App, Name, NameError, Platform};
 use crate::report::{board_list, board_picture, shot_list, shot_picture};
 use crate::shots::{ElementList, Picture, Shot};
 use crate::verify::{self, Drawn, Outcome};
@@ -67,8 +67,16 @@ pub(crate) fn text(report: &Path, version: &str) -> Result<String, String> {
     }
     let mut failed = Vec::new();
     for scene in &named.failed {
-        let name = failed_scene_name(&scene.scene, &checked)
-            .map_err(|e| format!("{}: {e}", file.display()))?;
+        let platform = crate::backend::from_file_word(&scene.platform).ok_or_else(|| {
+            format!(
+                "{}: {} names the platform word {:?}, which is no platform's",
+                file.display(),
+                scene.scene,
+                scene.platform
+            )
+        })?;
+        let name =
+            scene_name(&scene.scene, platform).map_err(|e| format!("{}: {e}", file.display()))?;
         failed.push(Failed {
             name,
             why: scene.error.clone(),
@@ -106,17 +114,6 @@ fn scene_name(scene: &str, platform: Platform) -> Result<Name, NameError> {
             platform,
         },
     )
-}
-
-/// The name of the scene <scene> whose capture failed, which has no element
-/// list: its app runs on the platform of the <checked> pairs of that app, or
-/// else on the platform its name is the word of.
-fn failed_scene_name(scene: &str, checked: &[verify::Checked]) -> Result<Name, NameError> {
-    let app = scene.split('.').next().unwrap_or_default();
-    match checked.iter().find(|pair| pair.name.app().name == app) {
-        Some(pair) => scene_name(scene, pair.name.platform()),
-        None => Name::parse(scene, &Apps::default()),
-    }
 }
 
 fn decode(path: &Path) -> Result<Picture, String> {

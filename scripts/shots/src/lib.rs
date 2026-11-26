@@ -162,7 +162,7 @@ fn capture(
                 selection.base,
             )
             .map_err(|e| e.to_string())?;
-            capture::clear(&out, app).map_err(|e| e.to_string())?;
+            capture::clear(&out, app, &settings.apps).map_err(|e| e.to_string())?;
             if !retake && pictures.take_shots(app, tree, &taken.names, &out)? {
                 crate::log::note(format_args!(
                     "took the {} {} shots of app tree {tree} from the picture folder; capturing none",
@@ -192,6 +192,7 @@ fn capture(
             command,
             declared,
             app,
+            &settings.apps,
             &selection.prefixes,
             selection.windows,
             selection.base,
@@ -432,7 +433,8 @@ fn run(checker: &Checker, action: Action) -> Result<bool, String> {
             let names: Vec<Name> = declared.iter().map(|d| d.name.clone()).collect();
             for app in &settings.capturing_apps() {
                 let wanted: Vec<Name> = names.iter().filter(|n| n.app() == app).cloned().collect();
-                capture::check_complete(&shots, app, &wanted, &names).map_err(|e| e.to_string())?;
+                capture::check_complete(&shots, app, &settings.apps, &wanted, &names)
+                    .map_err(|e| e.to_string())?;
             }
             let outcome = verify::verify(&verify::Verification {
                 root: &root,

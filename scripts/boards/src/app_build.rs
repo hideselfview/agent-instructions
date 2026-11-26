@@ -165,21 +165,29 @@ impl LineError {
 /// no platform's word names, no folder or more than one, a folder outside the
 /// repo, or an app that an earlier line declared.
 pub fn declared(text: &str) -> Result<Vec<(App, String)>, LineError> {
-    read_declarations(text, None)
+    declared_in(text, &Apps::read(text)?)
+}
+
+/// `declared`, for a caller that has read the apps of <text> already.
+pub fn declared_in(text: &str, apps: &Apps) -> Result<Vec<(App, String)>, LineError> {
+    read_declarations(text, apps, None)
 }
 
 /// The declare folder for the app called <app>, if the file names one. Every
 /// declaration must name a known app. Only the selected app's folders are
 /// read and checked.
 pub fn declared_folder(text: &str, app: &str) -> Result<Option<String>, LineError> {
-    Ok(read_declarations(text, Some(app))?
+    Ok(read_declarations(text, &Apps::read(text)?, Some(app))?
         .into_iter()
         .next()
         .map(|(_, folder)| folder))
 }
 
-fn read_declarations(text: &str, only: Option<&str>) -> Result<Vec<(App, String)>, LineError> {
-    let apps = Apps::read(text)?;
+fn read_declarations(
+    text: &str,
+    apps: &Apps,
+    only: Option<&str>,
+) -> Result<Vec<(App, String)>, LineError> {
     let mut declared: Vec<(App, String)> = Vec::new();
     for line in text.lines().map(str::trim) {
         let mut words = line.split_whitespace();

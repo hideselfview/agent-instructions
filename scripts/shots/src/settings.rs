@@ -4,7 +4,7 @@
 //! does not know.
 //!
 //! ```text
-//! app windows avalonia
+//! app windows web
 //! shots-capture mac ./app-macos/shots-capture.sh
 //! shots-capture android ./app-android/shots-capture.sh
 //! shots-declared mac app-macos/Shots
@@ -113,7 +113,8 @@ impl Settings {
         let mut settings = Self::default();
         let line_error = |e: boards::app_build::LineError| SettingsError::Line(e.line, e.why);
         settings.apps = Apps::read(text).map_err(line_error)?;
-        settings.declared = boards::app_build::declared(text).map_err(line_error)?;
+        settings.declared =
+            boards::app_build::declared_in(text, &settings.apps).map_err(line_error)?;
         for line in text.lines().map(str::trim) {
             let mut words = line.split_whitespace();
             let Some(keyword) = words.next() else {

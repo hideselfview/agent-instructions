@@ -22,7 +22,7 @@
 
 use crate::backend;
 use crate::declared::Declared;
-use crate::names::{App, Name, Platform, Prefix};
+use crate::names::{App, Apps, Name, Platform, Prefix};
 use crate::shots::{Shot, Size};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -155,14 +155,14 @@ const EXTENSIONS: [&str; 2] = ["png", "json"];
 /// and the completeness check sees only what this run wrote. The folder is
 /// shared by every branch built in a checkout; what another branch left behind
 /// would otherwise read as undeclared.
-pub(crate) fn clear(out: &Path, app: &App) -> Result<(), CaptureError> {
+pub(crate) fn clear(out: &Path, app: &App, apps: &Apps) -> Result<(), CaptureError> {
     std::fs::create_dir_all(out).map_err(|e| CaptureError::Directory(out.to_path_buf(), e))?;
     let entries =
         std::fs::read_dir(out).map_err(|e| CaptureError::Directory(out.to_path_buf(), e))?;
     for entry in entries {
         let entry = entry.map_err(|e| CaptureError::Directory(out.to_path_buf(), e))?;
         let file = entry.file_name().to_string_lossy().into_owned();
-        if Name::from_file_name(app, &file).is_some() {
+        if Name::from_file_name(app, apps, &file).is_some() {
             std::fs::remove_file(entry.path())
                 .map_err(|e| CaptureError::Directory(entry.path(), e))?;
         }
@@ -195,6 +195,7 @@ pub(crate) fn capture(
     command: &[String],
     declared: &[Declared],
     app: &App,
+    apps: &Apps,
     prefixes: &[Prefix],
     windows: bool,
     base: bool,
@@ -205,7 +206,7 @@ pub(crate) fn capture(
     for name in &taken.not_taken {
         crate::log::note(format_args!("{name}: {TAKES_FOCUS}"));
     }
-    clear(out, app)?;
+    clear(out, app, apps)?;
     if taken.names.is_empty() {
         return Ok(taken);
     }
@@ -235,7 +236,7 @@ pub(crate) fn capture(
         .map(|d| d.name.clone())
         .filter(|n| n.app() == app)
         .collect();
-    let stray = undeclared_problems(out, app, &declared_here)?;
+    let stray = undeclared_problems(out, app, apps, &declared_here)?;
     if !stray.is_empty() {
         return Err(CaptureError::Incomplete(stray));
     }
@@ -336,6 +337,7 @@ fn variables(
 pub(crate) fn check_complete(
     out: &Path,
     app: &App,
+    apps: &Apps,
     selected: &[Name],
     declared: &[Name],
 ) -> Result<(), CaptureError> {
@@ -343,7 +345,7 @@ pub(crate) fn check_complete(
         .iter()
         .flat_map(|name| scene_problems(out, name))
         .collect();
-    problems.extend(undeclared_problems(out, app, declared)?);
+    problems.extend(undeclared_problems(out, app, apps, declared)?);
     problems.sort();
     if problems.is_empty() {
         Ok(())
@@ -380,6 +382,7 @@ fn scene_problems(out: &Path, name: &Name) -> Vec<String> {
 fn undeclared_problems(
     out: &Path,
     app: &App,
+    apps: &Apps,
     declared: &[Name],
 ) -> Result<Vec<String>, CaptureError> {
     let mut problems = Vec::new();
@@ -388,7 +391,7 @@ fn undeclared_problems(
     for entry in entries {
         let entry = entry.map_err(|e| CaptureError::Directory(out.to_path_buf(), e))?;
         let file = entry.file_name().to_string_lossy().into_owned();
-        match Name::from_file_name(app, &file) {
+        match Name::from_file_name(app, apps, &file) {
             None => {}
             Some(Ok(name)) if declared.contains(&name) => {}
             Some(_) => problems.push(format!("undeclared: {file} is no declared shot")),

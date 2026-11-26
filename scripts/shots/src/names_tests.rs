@@ -166,18 +166,37 @@ fn a_shot_writes_files_named_after_its_board_and_platform() {
 fn a_shot_file_is_read_back_to_its_name() {
     let name = Name::from_file_name(
         &App::named_for(Platform::Mac),
+        &Apps::default(),
         "mac.welcome.libraries@macos.json",
     );
     assert_eq!(
         name.unwrap().unwrap(),
         Name::parse("mac.welcome.libraries", &Apps::default()).unwrap()
     );
-    assert!(Name::from_file_name(&App::named_for(Platform::Mac), "notes.txt").is_none());
-    assert!(Name::from_file_name(&App::named_for(Platform::Mac), "a@android.png").is_none());
     assert!(
-        Name::from_file_name(&App::named_for(Platform::Mac), "Bad Name@macos.png")
-            .unwrap()
-            .is_err()
+        Name::from_file_name(
+            &App::named_for(Platform::Mac),
+            &Apps::default(),
+            "notes.txt"
+        )
+        .is_none()
+    );
+    assert!(
+        Name::from_file_name(
+            &App::named_for(Platform::Mac),
+            &Apps::default(),
+            "a@android.png"
+        )
+        .is_none()
+    );
+    assert!(
+        Name::from_file_name(
+            &App::named_for(Platform::Mac),
+            &Apps::default(),
+            "Bad Name@macos.png"
+        )
+        .unwrap()
+        .is_err()
     );
 }
 
@@ -245,13 +264,13 @@ fn the_shot_file_of_an_app_is_told_from_that_of_another_app_on_its_platform() {
     let apps = Apps::read("app windows web\napp linux web\n").unwrap();
     let windows = apps.get("windows").unwrap();
     assert_eq!(
-        Name::from_file_name(&windows, "windows.main.home@web.png")
+        Name::from_file_name(&windows, &apps, "windows.main.home@web.png")
             .unwrap()
             .unwrap()
             .to_string(),
         "windows.main.home"
     );
-    assert!(Name::from_file_name(&windows, "linux.main.home@web.png").is_none());
+    assert!(Name::from_file_name(&windows, &apps, "linux.main.home@web.png").is_none());
 }
 
 #[test]
@@ -261,4 +280,11 @@ fn a_prefix_names_its_app_by_its_first_segment() {
         Prefix::all_of(&App::named_for(Platform::Android)).as_str(),
         "android."
     );
+}
+
+#[test]
+fn a_shot_file_of_no_known_app_is_still_a_candidate_of_the_app() {
+    let mac = App::named_for(Platform::Mac);
+    let stray = Name::from_file_name(&mac, &Apps::default(), "macc.welcome.a@macos.png");
+    assert!(stray.unwrap().is_err());
 }

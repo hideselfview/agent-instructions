@@ -61,6 +61,9 @@ struct File<'a> {
 #[derive(Serialize, Deserialize)]
 pub(crate) struct FailedScene {
     pub(crate) scene: String,
+    /// The file word of the platform of the scene's app, which a recheck
+    /// reads because a failed scene has no element list to give it.
+    pub(crate) platform: String,
     pub(crate) error: String,
 }
 
@@ -447,6 +450,9 @@ pub(crate) fn text(
             .iter()
             .map(|f| FailedScene {
                 scene: f.name.to_string(),
+                platform: crate::backend::of(f.name.platform())
+                    .file_word()
+                    .to_string(),
                 error: f.why.clone(),
             })
             .collect(),

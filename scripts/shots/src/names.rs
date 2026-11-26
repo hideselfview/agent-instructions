@@ -105,18 +105,22 @@ impl Name {
     /// The shot of <app> a file in a capture directory belongs to, when its
     /// name has the form of a shot file of the app: its suffix is its
     /// platform's file word, and its stem starts with the app's name or with
-    /// no app's name at all.
-    pub(crate) fn from_file_name(app: &App, file_name: &str) -> Option<Result<Self, NameError>> {
+    /// no name of an app of <apps>.
+    pub(crate) fn from_file_name(
+        app: &App,
+        apps: &Apps,
+        file_name: &str,
+    ) -> Option<Result<Self, NameError>> {
         let word = crate::backend::of(app.platform).file_word();
         let suffix_png = format!("@{word}.png");
         let suffix_json = format!("@{word}.json");
         let stem = file_name
             .strip_suffix(&suffix_png)
             .or_else(|| file_name.strip_suffix(&suffix_json))?;
-        // A file of another app that shares the platform's file word is no
-        // file of this app.
+        // A file of another app of <apps> that shares the platform's file
+        // word is no file of this app.
         let first = stem.split('.').next().unwrap_or_default();
-        if first != app.name && stem.contains('.') && boards::app_build::is_app_name(first) {
+        if first != app.name && stem.contains('.') && apps.get(first).is_some() {
             return None;
         }
         Some(Self::parse_in(stem, app))
@@ -262,13 +266,7 @@ fn pascal_case(thing: &str) -> String {
 }
 
 fn is_segment(segment: &str) -> bool {
-    !segment.is_empty()
-        && segment.split('-').all(|word| {
-            !word.is_empty()
-                && word
-                    .chars()
-                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
-        })
+    boards::app_build::is_app_name(segment)
 }
 
 impl fmt::Display for Name {

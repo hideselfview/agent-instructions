@@ -102,6 +102,7 @@ fn a_capture_is_complete_when_every_selected_shot_wrote_both_files() {
     check_complete(
         out.path(),
         &App::named_for(Platform::Mac),
+        &Apps::default(),
         &declared[..1],
         &declared,
     )
@@ -116,6 +117,7 @@ fn a_selected_shot_with_a_file_missing_fails() {
     let CaptureError::Incomplete(problems) = check_complete(
         out.path(),
         &App::named_for(Platform::Mac),
+        &Apps::default(),
         &declared,
         &declared,
     )
@@ -145,6 +147,7 @@ fn a_shot_file_no_harness_declares_fails() {
     let CaptureError::Incomplete(problems) = check_complete(
         out.path(),
         &App::named_for(Platform::Mac),
+        &Apps::default(),
         &declared,
         &declared,
     )
@@ -174,7 +177,7 @@ fn clearing_empties_the_platforms_shot_files_and_leaves_other_files() {
             "notes.txt",
         ],
     );
-    clear(out.path(), &App::named_for(Platform::Mac)).unwrap();
+    clear(out.path(), &App::named_for(Platform::Mac), &Apps::default()).unwrap();
     let mut left: Vec<String> = std::fs::read_dir(out.path())
         .unwrap()
         .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
@@ -187,12 +190,13 @@ fn clearing_empties_the_platforms_shot_files_and_leaves_other_files() {
 fn a_shot_another_branch_left_behind_is_not_undeclared_after_clearing() {
     let out = tempfile::tempdir().unwrap();
     write_shot(out.path(), "mac.welcome.old");
-    clear(out.path(), &App::named_for(Platform::Mac)).unwrap();
+    clear(out.path(), &App::named_for(Platform::Mac), &Apps::default()).unwrap();
     write_shot(out.path(), "mac.welcome.a");
     let declared = names(&["mac.welcome.a"]);
     check_complete(
         out.path(),
         &App::named_for(Platform::Mac),
+        &Apps::default(),
         &declared,
         &declared,
     )
@@ -209,6 +213,7 @@ fn a_shot_that_does_not_read_back_fails() {
     let CaptureError::Incomplete(problems) = check_complete(
         out.path(),
         &App::named_for(Platform::Mac),
+        &Apps::default(),
         &declared,
         &declared,
     )
@@ -233,6 +238,7 @@ fn a_shot_whose_files_disagree_fails() {
     let CaptureError::Incomplete(problems) = check_complete(
         out.path(),
         &App::named_for(Platform::Mac),
+        &Apps::default(),
         &declared,
         &declared,
     )
@@ -296,6 +302,7 @@ fn the_completeness_check_passes_without_a_window_shot_when_it_was_not_taken() {
     check_complete(
         out.path(),
         &App::named_for(Platform::Mac),
+        &Apps::default(),
         &chosen.names,
         &declared,
     )
@@ -312,6 +319,7 @@ fn the_completeness_check_reports_a_window_shot_missing_when_windows_were_given(
     let CaptureError::Incomplete(problems) = check_complete(
         out.path(),
         &App::named_for(Platform::Mac),
+        &Apps::default(),
         &chosen.names,
         &declared,
     )
@@ -355,6 +363,7 @@ fn a_capture_runs_the_apps_command_with_the_variables_and_checks_what_it_wrote()
         &copying_command(ready.path(), &seen),
         &shots,
         &App::named_for(Platform::Mac),
+        &Apps::default(),
         &[prefix("mac.welcome.")],
         false,
         false,
@@ -396,6 +405,7 @@ fn a_capture_command_that_fails_before_any_shot_fails_the_capture() {
             &command,
             &shots,
             &App::named_for(Platform::Android),
+            &Apps::default(),
             &[],
             true,
             false,
@@ -442,6 +452,7 @@ fn the_board_sizes_file_is_written_whole_before_the_command_starts() {
         &command,
         &declared(&[("mac.checkbox.default", false)]),
         &App::named_for(Platform::Mac),
+        &Apps::default(),
         &[],
         false,
         false,
@@ -471,6 +482,7 @@ fn a_run_that_cannot_measure_the_boards_does_not_start_the_command() {
         &["false".to_string()],
         &declared(&[("mac.checkbox.default", false)]),
         &App::named_for(Platform::Mac),
+        &Apps::default(),
         &[],
         false,
         false,
@@ -507,6 +519,7 @@ fn one_failed_scene_among_several_leaves_the_others_taken_and_names_it() {
         &command,
         &shots,
         &App::named_for(Platform::Mac),
+        &Apps::default(),
         &[],
         false,
         false,
@@ -557,11 +570,11 @@ fn two_apps_on_one_platform_select_and_clear_their_own_shots() {
         ],
     );
     assert!(
-        undeclared_problems(out.path(), &windows, &[parse("windows.main.home")])
+        undeclared_problems(out.path(), &windows, &apps, &[parse("windows.main.home")])
             .unwrap()
             .is_empty()
     );
-    clear(out.path(), &windows).unwrap();
+    clear(out.path(), &windows, &apps).unwrap();
     assert!(!out.path().join("windows.main.home@web.png").exists());
     assert!(out.path().join("linux.main.home@web.png").exists());
 }

@@ -134,8 +134,7 @@ fn a_run_whose_report_names_problems_or_failed_captures_fails_though_its_pairs_h
         "a problem fails the run"
     );
     let mut file: serde_json::Value = serde_json::from_str(&original).unwrap();
-    file["failed"] =
-        serde_json::json!([{"scene": "mac.welcome.b", "error": "the capture crashed"}]);
+    file["failed"] = serde_json::json!([{"scene": "mac.welcome.b", "platform": "macos", "error": "the capture crashed"}]);
     std::fs::write(&path, file.to_string()).unwrap();
     assert!(
         !passed(&text(&report, "new").unwrap()),
