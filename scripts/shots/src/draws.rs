@@ -11,10 +11,22 @@
 //! base holds it; a name that no revision holds is an error. The files'
 //! bytes never decide: a rebase that merges unrelated lines into a board
 //! file, `canvas.json` or a component's source changes bytes and no drawing.
+//!
+//! A screen board takes its drawing from the picture folder (`--pictures`)
+//! by its board hash (design.rs) when the folder keeps one, and draws only the
+//! boards it lacks and keeps them there, as a shots run does (verify.rs). The
+//! folder holds the boards of the other revision, and of every run, so a
+//! comparison of a branch with its base draws only the boards whose files, or
+//! whose design system, the branch changed. A board with no shot name (a
+//! shared board) and a component preview are drawn every time: the folder
+//! keeps no picture of either.
 
-use crate::design;
-use crate::names::{Platform, Previews};
-use crate::render::{self, board, preview};
+use crate::design::{self, DesignSystem};
+use crate::names::{Name, Platform, Previews};
+use crate::pictures::Pictures;
+use crate::render::serve::Tree;
+use crate::render::{self, board, preview, runtime};
+use crate::settings::Settings;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
@@ -29,6 +41,13 @@ const NOISE_LEVELS: u8 = 2;
 /// a Mac shot: Chrome rounds boxes and lines to the device's pixels, so a
 /// board that draws alike at this scale draws alike in a shots run.
 const DEVICE_SCALE: f64 = 2.0;
+
+/// The picture folder a comparison takes board pictures from and keeps the
+/// ones it draws in, with the capture version of the checker that keys them.
+pub(crate) struct Store<'a> {
+    pub(crate) pictures: &'a Pictures,
+    pub(crate) capture_version: &'a str,
+}
 
 /// What a board or a preview draws: its picture, as the PNG Chrome made, and
 /// its element list.
@@ -94,14 +113,15 @@ pub(crate) fn lines(
     boards: &[String],
     components: &[String],
     folders: &boards::Folders,
+    store: Option<&Store>,
 ) -> Result<Vec<String>, String> {
     let selection = if boards.is_empty() && components.is_empty() {
         Selection::All
     } else {
         Selection::Named { boards, components }
     };
-    let before = read(root, at, folders, selection)?;
-    let after = read(root, against, folders, selection)?;
+    let before = read(root, at, folders, selection, store)?;
+    let after = read(root, against, folders, selection, store)?;
     let names: BTreeSet<_> = before.keys().chain(after.keys()).collect();
     let mut base = None;
     names
@@ -163,13 +183,122 @@ fn read(
     rev: &str,
     folders: &boards::Folders,
     selection: Selection<'_>,
+    store: Option<&Store>,
 ) -> Result<Drawings, String> {
     design::at_revision(root, rev, &folders.cache, |work| {
-        draw(work, folders, selection)
+        draw(work, folders, selection, store)
     })
 }
 
+/// Draws the selection at <work>: the screen boards from the picture folder
+/// and, for those it lacks, the same drawing a shots run makes; every other
+/// board and the previews in the browser (`draw_in_browser`).
 fn draw(
+    work: &Path,
+    folders: &boards::Folders,
+    selection: Selection<'_>,
+    store: Option<&Store>,
+) -> Result<Drawings, String> {
+    let frames = design::frames(work).map_err(|e| e.to_string())?;
+    let wanted: Vec<&String> = match selection {
+        Selection::All => frames.keys().collect(),
+        Selection::Named { boards, .. } => boards.iter().collect(),
+    };
+    let (screens, others): (Vec<&String>, Vec<&String>) = wanted.into_iter().partition(|name| {
+        frames.contains_key(*name) && matches!(Name::parse(name), Ok(Name::Screen(_)))
+    });
+    let mut drawn = Drawings::new();
+    if !screens.is_empty() {
+        drawn.extend(draw_screens(work, folders, &screens, store)?);
+    }
+    let components: Vec<String> = match selection {
+        Selection::All => Previews::of(work)?
+            .components
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect(),
+        Selection::Named { components, .. } => components.to_vec(),
+    };
+    let others: Vec<String> = others.into_iter().cloned().collect();
+    if others.is_empty() && components.is_empty() {
+        return Ok(drawn);
+    }
+    let in_browser = Selection::Named {
+        boards: &others,
+        components: &components,
+    };
+    drawn.extend(draw_in_browser(work, folders, in_browser)?);
+    Ok(drawn)
+}
+
+/// The drawings of the screen boards <names> of the repo at <work>, each
+/// taken from the picture folder by its board hash when it keeps one.
+fn draw_screens(
+    work: &Path,
+    folders: &boards::Folders,
+    names: &[&String],
+    store: Option<&Store>,
+) -> Result<Drawings, String> {
+    let previews = Previews::of(work)?;
+    let settings = Settings::load(work).map_err(|e| e.to_string())?;
+    let runtime = runtime::check(work).map_err(|e| e.to_string())?;
+    let design = DesignSystem::of(work, folders).map_err(|e| e.to_string())?;
+    let tree = Tree {
+        root: work,
+        design: &design,
+        runtime: runtime.copy.text,
+    };
+    let names: Vec<Name> = names
+        .iter()
+        .map(|name| Name::parse(name).map_err(|e| e.to_string()))
+        .collect::<Result<_, _>>()?;
+    let scales: render::Scales = names
+        .iter()
+        .map(|name| (name.clone(), DEVICE_SCALE))
+        .collect();
+    let version = store.map_or("", |store| store.capture_version);
+    let hashes = render::hashes(
+        work,
+        &scales,
+        &previews,
+        &design,
+        runtime.copy.sha256,
+        version,
+        &settings,
+    )?;
+    let out = tempfile::tempdir_in(&folders.cache).map_err(|e| e.to_string())?;
+    let pictures = store.map(|store| store.pictures);
+    let to_draw = crate::verify::take_pictures(pictures, &hashes, &names, out.path())?;
+    render::boards(
+        tree,
+        &settings,
+        &previews,
+        folders,
+        &to_draw,
+        &scales,
+        out.path(),
+    )?;
+    if let Some(pictures) = pictures {
+        for name in &to_draw {
+            pictures.keep_board(&hashes[name], &name.to_string(), out.path())?;
+        }
+    }
+    let mut drawn = Drawings::new();
+    for name in &names {
+        let list = crate::shots::ElementList::load(&out.path().join(format!("{name}.json")))
+            .map_err(|e| e.to_string())?;
+        let file = out.path().join(format!("{name}.png"));
+        let png =
+            std::fs::read(&file).map_err(|e| format!("cannot read {}: {e}", file.display()))?;
+        drawn.insert(
+            format!("board {name}"),
+            Some(Picture::of(&png, &list.elements)?),
+        );
+    }
+    Ok(drawn)
+}
+
+fn draw_in_browser(
     work: &Path,
     folders: &boards::Folders,
     selection: Selection<'_>,

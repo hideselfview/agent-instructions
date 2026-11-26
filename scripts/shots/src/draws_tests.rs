@@ -80,9 +80,9 @@ fn history() -> tempfile::TempDir {
 fn a_board_whose_bytes_change_and_drawing_does_not_draws_alike_and_a_redrawn_one_differs() {
     let repo = history();
     let boards = vec![BOARD.to_string()];
-    let same = lines(repo.path(), "a", "b", &boards, &[], &folders()).unwrap();
+    let same = lines(repo.path(), "a", "b", &boards, &[], &folders(), None).unwrap();
     assert_eq!(same, vec![format!("alike board {BOARD}")]);
-    let moved = lines(repo.path(), "b", "c", &boards, &[], &folders()).unwrap();
+    let moved = lines(repo.path(), "b", "c", &boards, &[], &folders(), None).unwrap();
     assert_eq!(moved, vec![format!("differs board {BOARD}")]);
 }
 
@@ -97,6 +97,7 @@ fn a_board_draws_at_the_device_scale_of_a_shot() {
             boards: &[BOARD.to_string()],
             components: &[],
         },
+        None,
     )
     .unwrap();
     let picture = decode(&drawn[&format!("board {BOARD}")].as_ref().unwrap().png).unwrap();
@@ -157,6 +158,7 @@ fn a_preview_draws_at_rest_even_when_a_rule_marks_an_animation_important() {
             &[],
             &[component.to_string()],
             &folders(),
+            None,
         )
         .unwrap();
         assert_eq!(drawings, ["alike component Welcome"], "{revision}");
@@ -190,6 +192,7 @@ fn a_label_below_the_viewport_changes_the_full_preview_drawing() {
         &[],
         &[component.to_string()],
         &folders(),
+        None,
     )
     .unwrap();
     assert_eq!(drawings, ["differs component MacRow"]);
@@ -248,7 +251,16 @@ fn a_board_or_component_that_neither_revision_draws_draws_alike_when_their_merge
     let (repo, component) = history_with_deletions();
     let boards = vec![BOARD.to_string()];
     let components = vec![component.clone()];
-    let both_gone = lines(repo.path(), "d", "e", &boards, &components, &folders()).unwrap();
+    let both_gone = lines(
+        repo.path(),
+        "d",
+        "e",
+        &boards,
+        &components,
+        &folders(),
+        None,
+    )
+    .unwrap();
     assert_eq!(
         both_gone,
         vec![
@@ -262,13 +274,13 @@ fn a_board_or_component_that_neither_revision_draws_draws_alike_when_their_merge
 fn a_board_or_component_that_no_revision_holds_is_an_error() {
     let (repo, _) = history_with_deletions();
     let missing = vec!["no-such-board".to_string()];
-    let error = lines(repo.path(), "d", "e", &missing, &[], &folders()).unwrap_err();
+    let error = lines(repo.path(), "d", "e", &missing, &[], &folders(), None).unwrap_err();
     assert!(
         error.contains("board no-such-board exists at neither"),
         "{error}"
     );
     let missing = vec!["NoSuchComponent".to_string()];
-    let error = lines(repo.path(), "d", "e", &[], &missing, &folders()).unwrap_err();
+    let error = lines(repo.path(), "d", "e", &[], &missing, &folders(), None).unwrap_err();
     assert!(
         error.contains("component NoSuchComponent exists at neither"),
         "{error}"
@@ -281,7 +293,16 @@ fn a_board_or_component_that_exists_at_one_revision_only_differs() {
     let boards = vec![BOARD.to_string()];
     let components = vec![component.clone()];
     for (at, against) in [("p", "d"), ("d", "p")] {
-        let changed = lines(repo.path(), at, against, &boards, &components, &folders()).unwrap();
+        let changed = lines(
+            repo.path(),
+            at,
+            against,
+            &boards,
+            &components,
+            &folders(),
+            None,
+        )
+        .unwrap();
         assert_eq!(
             changed,
             vec![
@@ -297,7 +318,7 @@ fn a_board_or_component_that_exists_at_one_revision_only_differs() {
 fn without_selectors_draws_compares_the_boards_and_previews_of_both_revisions() {
     let (repo, component) = history_with_deletions();
     for (at, against) in [("p", "d"), ("d", "p")] {
-        let drawings = lines(repo.path(), at, against, &[], &[], &folders()).unwrap();
+        let drawings = lines(repo.path(), at, against, &[], &[], &folders(), None).unwrap();
         assert!(
             drawings.contains(&format!("differs board {BOARD}")),
             "{drawings:?}"
@@ -318,7 +339,7 @@ fn without_selectors_draws_reports_a_canvas_entry_whose_file_is_missing() {
     let repo = history();
     std::fs::remove_file(repo.path().join(boards::board_path(BOARD))).unwrap();
     git(repo.path(), &["commit", "-q", "-am", "missing board"]);
-    let error = lines(repo.path(), "HEAD", "c", &[], &[], &folders()).unwrap_err();
+    let error = lines(repo.path(), "HEAD", "c", &[], &[], &folders(), None).unwrap_err();
     assert!(
         error.starts_with("HEAD:") && error.contains(&boards::board_path(BOARD)),
         "{error}"
@@ -370,4 +391,76 @@ fn drawings_with_other_element_lists_differ_whatever_their_pictures() {
         elements: "[{\"label\":\"Pause\"}]".to_string(),
     };
     assert!(!one.draws_like(&two).unwrap());
+}
+
+const SHOT_BOARD: &str = "mac.dash.board";
+
+/// `history()`'s repo with the board also under a shot name: commit `s1`, then
+/// `s2`, which adds a comment to the file and so changes the board hash.
+fn history_with_shot_board() -> tempfile::TempDir {
+    let repo = history();
+    let canvas = repo.path().join("design/mocks/canvas.json");
+    let mut index: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&canvas).unwrap()).unwrap();
+    index["boards"][format!("{SHOT_BOARD}{}", boards::BOARD_SUFFIX)] =
+        index["boards"][format!("{BOARD}{}", boards::BOARD_SUFFIX)].clone();
+    std::fs::write(&canvas, serde_json::to_vec(&index).unwrap()).unwrap();
+    let board = repo.path().join(boards::board_path(SHOT_BOARD));
+    std::fs::copy(repo.path().join(boards::board_path(BOARD)), &board).unwrap();
+    git(repo.path(), &["add", "-A"]);
+    git(repo.path(), &["commit", "-q", "-m", "s1"]);
+    git(repo.path(), &["tag", "s1"]);
+    let html = std::fs::read_to_string(&board).unwrap();
+    std::fs::write(&board, format!("{html}\n<!-- a comment -->\n")).unwrap();
+    git(repo.path(), &["commit", "-q", "-am", "s2"]);
+    git(repo.path(), &["tag", "s2"]);
+    repo
+}
+
+#[test]
+fn a_screen_board_is_drawn_once_and_then_taken_from_the_picture_folder_by_its_hash() {
+    let repo = history_with_shot_board();
+    let folder = tempfile::tempdir().unwrap();
+    let pictures = Pictures::new(folder.path().to_path_buf(), std::time::SystemTime::now());
+    let store = Store {
+        pictures: &pictures,
+        capture_version: "c0c0c0c0c0c0c0c0",
+    };
+    let boards = vec![SHOT_BOARD.to_string()];
+    let first = lines(
+        repo.path(),
+        "s1",
+        "s1",
+        &boards,
+        &[],
+        &folders(),
+        Some(&store),
+    )
+    .unwrap();
+    assert_eq!(first, vec![format!("alike board {SHOT_BOARD}")]);
+    let kept: Vec<_> = std::fs::read_dir(folder.path().join("boards"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "json"))
+        .collect();
+    assert_eq!(kept.len(), 1, "the one drawing of the one hash is kept");
+    // A kept list that differs from a fresh drawing shows which one the
+    // comparison used: s1 comes from the folder, s2 (another hash) is drawn.
+    let mut list: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&kept[0]).unwrap()).unwrap();
+    list["elements"].as_array_mut().unwrap().pop();
+    std::fs::write(&kept[0], serde_json::to_vec(&list).unwrap()).unwrap();
+    let second = lines(
+        repo.path(),
+        "s1",
+        "s2",
+        &boards,
+        &[],
+        &folders(),
+        Some(&store),
+    )
+    .unwrap();
+    assert_eq!(second, vec![format!("differs board {SHOT_BOARD}")]);
+    let unkept = lines(repo.path(), "s1", "s2", &boards, &[], &folders(), None).unwrap();
+    assert_eq!(unkept, vec![format!("alike board {SHOT_BOARD}")]);
 }

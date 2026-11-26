@@ -1780,6 +1780,16 @@ built again.
                               command prints `alike` or `differs` for each
                               name, and a second run of the same comparison
                               prints the same.
+                              A screen board (a shot's name) takes its
+                              drawing from the repo's picture folder by its
+                              board hash (APP BUILDS) when the folder keeps
+                              one, and the command draws only the boards the
+                              folder lacks and keeps them there, so a design
+                              branch's full comparison draws the boards the
+                              branch changed. builds passes the folder
+                              (`--pictures <folder>` names another). A shared
+                              board and a component preview are drawn each
+                              time: the folder keeps no picture of either.
   builds shots run|scenes|capture|check|lint|runtime|chrome|components|states|version [<argument>...]
                               run the shots checker, which checks the shots
                               of the repo it runs in against the repo's

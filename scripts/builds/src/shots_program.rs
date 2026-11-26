@@ -64,6 +64,31 @@ pub fn require_states_shown(tool: &Tool, top: &Path, tip: &str, base: &str) -> R
     Ok(())
 }
 
+/// The picture folder of the repo that the working directory is in, where the
+/// shots checker takes board pictures from and keeps the ones it draws; none
+/// outside a git checkout.
+fn board_store(places: &Places) -> Result<Option<PathBuf>> {
+    let dir = crate::lists::args::current_dir()?;
+    Ok(crate::checkout::Checkout::at(&dir)?
+        .map(|checkout| crate::shots_cache::pictures(places, &checkout.repo())))
+}
+
+/// <args> of a `builds shots` command, with `--pictures <store>` added to
+/// `draws` when <store> is known and the command names no folder, so that no
+/// agent draws a board that builds' picture folder holds (`builds help`).
+fn with_board_store(args: &[String], store: Option<PathBuf>) -> Vec<String> {
+    let mut args = args.to_vec();
+    if let Some(store) = store
+        && args.first().is_some_and(|sub| sub == "draws")
+        && !args
+            .iter()
+            .any(|arg| arg == "--pictures" || arg.starts_with("--pictures="))
+    {
+        args.extend(["--pictures".to_string(), store.display().to_string()]);
+    }
+    args
+}
+
 pub fn cmd_shots(places: &Places, args: &[String]) -> Result<()> {
     match args.first().map(String::as_str) {
         None => fail!("{USAGE}"),
@@ -79,7 +104,8 @@ pub fn cmd_shots(places: &Places, args: &[String]) -> Result<()> {
                     volume: places.root.clone(),
                 },
             };
-            if shots::main(&checker, args) {
+            let args = with_board_store(args, board_store(places)?);
+            if shots::main(&checker, &args) {
                 Ok(())
             } else {
                 Err(crate::fail::Fail::Exit(1))
@@ -87,3 +113,7 @@ pub fn cmd_shots(places: &Places, args: &[String]) -> Result<()> {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "shots_program_tests.rs"]
+mod tests;

@@ -226,6 +226,12 @@ enum Action {
         /// A component's name, whose preview page is drawn; repeat for several.
         #[arg(long = "component")]
         components: Vec<String>,
+        /// The folder of the board pictures earlier runs drew, which builds
+        /// keeps and passes: a screen board takes its drawing from it by its
+        /// board hash when it keeps one, and a board it lacks is drawn and
+        /// kept there.
+        #[arg(long)]
+        pictures: Option<PathBuf>,
     },
     Components {
         /// A component to show with every row, such as MacRow; repeat for
@@ -664,8 +670,23 @@ fn run(checker: &Checker, action: Action) -> Result<bool, String> {
             against,
             boards,
             components,
+            pictures,
         } => {
-            let lines = draws::lines(&root, &at, &against, &boards, &components, checker.folders)?;
+            let pictures =
+                pictures.map(|dir| pictures::Pictures::new(dir, std::time::SystemTime::now()));
+            let store = pictures.as_ref().map(|pictures| draws::Store {
+                pictures,
+                capture_version: &checker.versions.capture,
+            });
+            let lines = draws::lines(
+                &root,
+                &at,
+                &against,
+                &boards,
+                &components,
+                checker.folders,
+                store.as_ref(),
+            )?;
             for line in lines {
                 println!("{line}");
             }
