@@ -487,13 +487,7 @@ pub fn item_waits(
                 (None, None) => return Err(missing(*id)),
             },
             Wait::Foreign { project, item: on } => {
-                let found = lists.foreign_item_read(project, *on);
-                ItemWait::ForeignItem {
-                    project: project.clone(),
-                    id: on.0,
-                    title: found.title().map(str::to_string),
-                    state: found.words(),
-                }
+                ItemWait::ForeignItem(lists.foreign_item_read(project, *on).clone())
             }
             Wait::Condition { text, until } => ItemWait::Condition {
                 text: text.clone(),

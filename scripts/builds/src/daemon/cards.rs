@@ -32,14 +32,7 @@ pub enum ItemWait {
         state: &'static str,
     },
     /// An item of another project.
-    ForeignItem {
-        project: String,
-        id: u32,
-        /// None when that project's store could not be read.
-        title: Option<String>,
-        /// Where the item stands, in words.
-        state: String,
-    },
+    ForeignItem(crate::lists::item_wait_foreign::ForeignItem),
     /// A design change the person approved, which has not landed.
     Landing { id: u32, title: String },
     /// Commits of a design branch that no recorded design change covers.
@@ -176,7 +169,7 @@ impl ItemWait {
             ItemWait::Answer { .. } => 0,
             ItemWait::Review { .. } => 1,
             ItemWait::AppBuild { .. } => 2,
-            ItemWait::Item { .. } | ItemWait::ForeignItem { .. } | ItemWait::Landing { .. } => 3,
+            ItemWait::Item { .. } | ItemWait::ForeignItem(_) | ItemWait::Landing { .. } => 3,
             ItemWait::Unrecorded => 4,
             ItemWait::RulesReview(_) => 5,
             ItemWait::Condition { .. } => 6,
@@ -202,7 +195,7 @@ impl ItemWait {
             } => format!("{} build", lane_title(*lane)),
             ItemWait::AppBuild { running: false, .. } => return None,
             ItemWait::Item { id, .. } | ItemWait::Landing { id, .. } => format!("After #{id}"),
-            ItemWait::ForeignItem { project, id, .. } => format!("After {project} #{id}"),
+            ItemWait::ForeignItem(found) => format!("After {} #{}", found.project, found.id),
             ItemWait::Unrecorded => "No design change".to_string(),
             ItemWait::RulesReview(review) => return review.pill(),
             ItemWait::Condition { .. } => return None,
@@ -232,14 +225,19 @@ impl ItemWait {
             ItemWait::Item { id, title, state } => {
                 format!("Waits on #{id} ({state}): {title}")
             }
-            ItemWait::ForeignItem {
-                project,
-                id,
-                title,
-                state,
-            } => match title {
-                Some(title) => format!("Waits on {project} #{id} ({state}): {title}"),
-                None => format!("Waits on {project} #{id} ({state})"),
+            ItemWait::ForeignItem(found) => match found.title() {
+                Some(title) => format!(
+                    "Waits on {} #{} ({}): {title}",
+                    found.project,
+                    found.id,
+                    found.words()
+                ),
+                None => format!(
+                    "Waits on {} #{} ({})",
+                    found.project,
+                    found.id,
+                    found.words()
+                ),
             },
             ItemWait::Landing { id, title } => {
                 format!("Waits on design change {id} to land: {title}")
@@ -416,7 +414,7 @@ fn keeps_working(state: CardState, shell: bool, wait: Option<&ItemWait>) -> bool
                 Some(
                     ItemWait::AppBuild { .. }
                         | ItemWait::Item { .. }
-                        | ItemWait::ForeignItem { .. }
+                        | ItemWait::ForeignItem(_)
                         | ItemWait::Landing { .. }
                 )
             ))
