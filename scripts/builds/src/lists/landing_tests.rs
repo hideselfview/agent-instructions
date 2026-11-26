@@ -13,7 +13,13 @@ struct Landing {
 }
 
 fn setup(name: &str) -> Landing {
-    let demo = demo(name);
+    setup_after_adding(name, |_| {})
+}
+
+/// `setup`, with <before_take> run once the items exist and before the take,
+/// which happens ten seconds later.
+fn setup_after_adding(name: &str, before_take: impl FnOnce(&Demo)) -> Landing {
+    let mut demo = demo(name);
     let agent = demo.add_side(1, "agent A", "work");
     let details = demo.brief("details.txt");
     let brief = demo.brief("b.md");
@@ -32,6 +38,8 @@ fn setup(name: &str) -> Landing {
         )
         .unwrap();
     }
+    before_take(&demo);
+    demo.tool.now += 10;
     cmd_item(
         &demo.tool,
         &words(&[
@@ -706,4 +714,69 @@ fn a_part_or_a_commit_still_waiting_keeps_the_claim() {
     other.demo.commit(&other.agent, "b.txt");
     landed(&other, &["--done", "1", "--done", "2", &other.commit]).unwrap();
     assert!(claimed(&other), "a commit waits to land");
+}
+
+fn edit_details(l: &mut Landing, item: &str, text: &str) {
+    l.demo.tool.now += 10;
+    let file = l.demo.scratch.dir.join("edited-details.txt");
+    std::fs::write(&file, text).unwrap();
+    cmd_item(
+        &l.demo.tool,
+        &words(&["edit", item, "--details-file", file.to_str().unwrap()]),
+    )
+    .unwrap();
+}
+
+#[test]
+fn check_landing_refuses_done_after_an_edit_since_the_take_and_prints_it() {
+    let mut l = setup("land-edited-after-take");
+    edit_details(&mut l, "1", "Cite the new decision.\nSecond line.");
+    let said = refusal(check(&l, &["--done", "1", &l.commit]));
+    assert!(said.contains("changed after its take"), "{said}");
+    assert!(said.contains("--- details before ---\nbrief"), "{said}");
+    assert!(
+        said.contains("--- details after ---\nCite the new decision.\nSecond line."),
+        "{said}"
+    );
+    assert!(said.contains("builds item changes 1"), "{said}");
+    check(&l, &["--part", "1", &l.commit]).unwrap();
+    check(&l, &["--done", "2", &l.commit]).unwrap();
+}
+
+#[test]
+fn check_landing_passes_once_the_agent_read_the_changes() {
+    let mut l = setup("land-edited-read");
+    edit_details(&mut l, "1", "Cite the new decision.");
+    refusal(check(&l, &["--done", "1", &l.commit]));
+    cmd_item(&l.demo.tool, &words(&["changes", "1"])).unwrap();
+    check(&l, &["--done", "1", &l.commit]).unwrap();
+    edit_details(&mut l, "1", "Cite another decision.");
+    let said = refusal(check(&l, &["--done", "1", &l.commit]));
+    assert!(
+        said.contains("--- details before ---\nCite the new decision."),
+        "{said}"
+    );
+}
+
+#[test]
+fn an_edit_before_the_take_leaves_the_landing_alone() {
+    let l = setup_after_adding("land-edited-before-take", |demo| {
+        let file = demo.scratch.dir.join("early-details.txt");
+        std::fs::write(&file, "Edited before the take.").unwrap();
+        cmd_item(
+            &demo.tool,
+            &words(&["edit", "1", "--details-file", file.to_str().unwrap()]),
+        )
+        .unwrap();
+    });
+    check(&l, &["--done", "1", &l.commit]).unwrap();
+}
+
+#[test]
+fn changes_names_an_item_that_does_not_run_and_says_when_nothing_is_unread() {
+    let l = setup("land-changes-none");
+    cmd_item(&l.demo.tool, &words(&["changes", "1"])).unwrap();
+    cmd_item(&l.demo.tool, &words(&["stop", "2", "--why", "paused"])).unwrap();
+    let said = refusal(cmd_item(&l.demo.tool, &words(&["changes", "2"])));
+    assert!(said.contains("does not run"), "{said}");
 }

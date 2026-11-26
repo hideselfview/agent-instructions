@@ -212,10 +212,21 @@ main checkout holds or that more than one holds; an absolute path is itself.
 
   builds item edit N [--title T] [--area A] [--details-file F] [--brief P]
                      [--for F] [--origin N] [--tag T]... [--untag T]...
+      An edit that changes the details keeps the details before and after,
+      and --origin N for a decision keeps that decision as a change of the
+      item. Land refuses --done for such a change made after the item's take
+      until the agent reads it (`item changes`).
       An item draft in a request (an answer's `work`) may carry "tags" too.
 
   builds item note N TEXT
       A lasting progress line on the item (`builds note` is the claim's).
+
+  builds item changes N
+      Prints each change of running item N that someone made after its take
+      and no agent read yet: the details before and after an edit, or the
+      title and body of a decision made its origin. Then records that the
+      caller read them, which lets `builds land --done N` pass (`item
+      check-landing`). Refused for an item that does not run.
 
   builds item wait N --on REF [--until ENDER] | --off REF [--blocks-nothing WHY]
       Refused when it would make items wait on each other in a circle, or on
@@ -256,6 +267,9 @@ main checkout holds or that more than one holds; an absolute path is itself.
       an item that waits on an open question, item, design change or
       condition (and only such an item), and notes each worktree held with WHY
       in the same write: work kept for an answer, with no agent running.
+      A change to an item's details or origin made before the take is no
+      change to read: only changes made at or after a take count, and a later
+      take of the item starts again from that moment.
       Before the items start, take runs the rulings check over brief P
       (RULINGS), which also lists each sentence of P that states a
       prohibition meant to hold beyond the task, and refuses the items when a
@@ -352,7 +366,9 @@ main checkout holds or that more than one holds; an absolute path is itself.
       accepts a landing from either), and each SHA is on the branch of one of
       them. check-landing refuses --done N while N's branch in another
       worktree it runs in holds commits origin/main lacks, and names that
-      worktree: land it first, or land this repo with --part N. landed, after
+      worktree: land it first, or land this repo with --part N. It also refuses --done N
+      while N has a change made after its take that no agent read (`item
+      changes`), and prints each such change whole. landed, after
       the push: each SHA is on origin/main; --part records
       a landed part and leaves the item running, and --done closes the item as
       landed and ends its running everywhere, so an item that spans two repos

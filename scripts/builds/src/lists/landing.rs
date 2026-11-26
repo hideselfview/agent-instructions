@@ -37,7 +37,7 @@ use crate::lists::item::{self, open_item};
 use crate::lists::record::close;
 use crate::lists::running::{Ended, Running, end, place_in_repo};
 use crate::lists::store::{self, Store};
-use crate::lists::{Closed, How, Id, Kind, Located, Stamp, Standing};
+use crate::lists::{Closed, How, Id, Item, Kind, Lists, Located, Stamp, Standing, item_change};
 use crate::text::note;
 use crate::tool::Tool;
 use boards::git;
@@ -250,6 +250,28 @@ fn require_landed_elsewhere(id: Id, running: &[Running], here: &Running) -> Resu
     Ok(())
 }
 
+/// Refuses to close <item> while someone changed it since its take and no
+/// agent read the change: the refusal prints each such change whole.
+fn require_changes_read(lists: &Lists, item: &Item) -> Result<()> {
+    let unread = item.unread_changes();
+    if unread.is_empty() {
+        return Ok(());
+    }
+    let mut said = format!(
+        "{} changed after its take, and nobody read the change(s):\n",
+        item.id
+    );
+    for change in unread {
+        said.push('\n');
+        said.push_str(&item_change::words(lists, change));
+    }
+    said.push_str(&format!(
+        "\nCheck the work against them and change what they change. Then run `builds item changes {}`, which records that you read them, and land again.",
+        item.id.0
+    ));
+    fail!("{said}")
+}
+
 pub fn check_landing(tool: &Tool, args: &[String]) -> Result<()> {
     let landing = parse(args)?;
     let store = Store::resolve(&tool.places, &landing.args, &landing.checkout.top)?;
@@ -274,6 +296,7 @@ pub fn check_landing(tool: &Tool, args: &[String]) -> Result<()> {
         }
         if named.finishes {
             require_landed_elsewhere(named.id, &item.running, running)?;
+            require_changes_read(&lists, item)?;
         }
         branches.push((
             named.id,

@@ -31,7 +31,7 @@ use crate::lists::{item_change, item_event, project};
 use crate::text::note;
 use crate::tool::Tool;
 
-const USAGE: &str = "usage: builds item add --title T --area A --details-file F [--for design-session] [--wait REF [--until ENDER]]... [--brief P] [--priority first|last --why WHY] [--origin N] [--tag T]...\n       builds item edit N [--title T] [--area A] [--details-file F] [--brief P] [--for F] [--origin N] [--tag T]... [--untag T]...\n       builds item note N TEXT\n       builds item wait N (--on REF [--until ENDER] | --off REF [--blocks-nothing WHY])\n       builds item take N [M...] [--worktree W --branch B] --brief P [--as design-session] [--tier implementation|strongest]\n       builds item check-brief --worktree W [--worktree W2] --brief P\n       builds item handoff N --brief P\n       builds item stop N --why WHY\n       builds item finished N --made WHAT\n       builds item drop N --why WHY\n       builds item defer N --issue URL\n       builds item place N first|last|none --why WHY\n       builds item check-landing DIR [--done N]... [--part N]... SHA...\n       builds item landed DIR [--done N]... [--part N]... SHA...\n       builds item show N\n       builds item list [--running] [--ready] [--area A] [--for F] [--tag T]\n       builds item times [N...]\n(REF is item:N, question:N, design:N or condition:TEXT, and a condition takes --until agent|coordinator|ci)";
+const USAGE: &str = "usage: builds item add --title T --area A --details-file F [--for design-session] [--wait REF [--until ENDER]]... [--brief P] [--priority first|last --why WHY] [--origin N] [--tag T]...\n       builds item edit N [--title T] [--area A] [--details-file F] [--brief P] [--for F] [--origin N] [--tag T]... [--untag T]...\n       builds item note N TEXT\n       builds item changes N\n       builds item wait N (--on REF [--until ENDER] | --off REF [--blocks-nothing WHY])\n       builds item take N [M...] [--worktree W --branch B] --brief P [--as design-session] [--tier implementation|strongest]\n       builds item check-brief --worktree W [--worktree W2] --brief P\n       builds item handoff N --brief P\n       builds item stop N --why WHY\n       builds item finished N --made WHAT\n       builds item drop N --why WHY\n       builds item defer N --issue URL\n       builds item place N first|last|none --why WHY\n       builds item check-landing DIR [--done N]... [--part N]... SHA...\n       builds item landed DIR [--done N]... [--part N]... SHA...\n       builds item show N\n       builds item list [--running] [--ready] [--area A] [--for F] [--tag T]\n       builds item times [N...]\n(REF is item:N, question:N, design:N or condition:TEXT, and a condition takes --until agent|coordinator|ci)";
 
 pub fn cmd_item(tool: &Tool, args: &[String]) -> Result<()> {
     let cwd = current_dir()?;
@@ -42,6 +42,7 @@ pub fn cmd_item(tool: &Tool, args: &[String]) -> Result<()> {
         "add" => add(tool, rest, &cwd),
         "edit" => edit(tool, rest, &cwd),
         "note" => note_item(tool, rest, &cwd),
+        "changes" => changes(tool, rest, &cwd),
         "wait" => wait(tool, rest, &cwd),
         "take" => take::take(tool, rest, &cwd),
         "check-brief" => take::check(tool, rest, &cwd),
@@ -279,6 +280,38 @@ fn edit(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     })?;
     note(format!("edited {id}"));
     cited.into_iter().for_each(note);
+    Ok(())
+}
+
+/// `item changes N`: prints each change of running item N made since its
+/// take that nobody read, whole, and records that the caller read them.
+fn changes(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
+    let args = Args::parse(args, &[], &[])?;
+    let id = one_id(&args, "builds item changes N")?;
+    let store = Store::resolve(&tool.places, &args, cwd)?;
+    let stamp = Stamp::resolve(tool.now, &args, cwd)?;
+    let text = store.write(&stamp, &format!("item changes {id}"), |db| {
+        let lists = store::read(db)?;
+        let item = open_item(&lists, id)?;
+        if item.running.is_empty() {
+            fail!("{id} does not run, so no change of it is unread");
+        }
+        let unread = item.unread_changes();
+        let mut text = String::new();
+        for change in &unread {
+            text.push_str(&item_change::words(&lists, change));
+            text.push('\n');
+        }
+        let ids: Vec<i64> = unread.iter().map(|change| change.id).collect();
+        item_change::mark_read(db, &ids, &stamp)?;
+        Ok(text)
+    })?;
+    if text.is_empty() {
+        note(format!("{id} has no unread change since its take"));
+    } else {
+        print!("{text}");
+        note(format!("recorded that you read the changes of {id}"));
+    }
     Ok(())
 }
 

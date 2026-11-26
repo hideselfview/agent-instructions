@@ -3835,7 +3835,18 @@ run `review replay --rules-root` on it.
                               that this landing does not put on origin/main:
                               the item must stay open for that commit, so land
                               the earlier commits with --part N and pass
-                              --done N with the last. Commits that change design places
+                              --done N with the last. Land also refuses
+                              --done N, before it fetches anything, when
+                              someone edited item N's details, or made a
+                              decision its origin, after the agent took the
+                              item and no agent read the change. The refusal
+                              prints each such change whole: the details
+                              before and after, or the decision's title and
+                              body. The agent checks its work against them and
+                              runs `builds item changes N`, which prints them
+                              again and records that it read them, then lands
+                              again. --part N never refuses for a change.
+                              Commits that change design places
                               need --design N for an approved design change.
                               When several approved design changes resolve
                               those places, pass --design once for each change:

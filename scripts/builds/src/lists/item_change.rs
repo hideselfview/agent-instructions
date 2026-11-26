@@ -1,9 +1,13 @@
 //! What someone changed in an open item that its agent has to read before the
 //! work lands (item_change.sql): an edit of the item's details, and a decision
 //! that became its origin. `builds item edit` records a change in the same
-//! write as the edit.
+//! write as the edit. A landing that finishes the item refuses while a change
+//! made since the item's take is unread (landing.rs), and `builds item
+//! changes N` prints those changes whole and records that the agent read
+//! them.
 
 use std::collections::BTreeMap;
+use std::fmt::Write;
 
 use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
@@ -11,7 +15,8 @@ use serde::{Deserialize, Serialize};
 use crate::db::Sql;
 use crate::fail;
 use crate::fail::Result;
-use crate::lists::{Id, Stamp};
+use crate::lists::{Id, Item, Lists, Stamp};
+use crate::text::local_minute;
 
 /// What a change did to the item.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -57,6 +62,18 @@ pub fn record_decision(db: &Connection, id: Id, decision: Id, stamp: &Stamp) -> 
         params![id, stamp.at, stamp.by, decision],
     )
     .sql()?;
+    Ok(())
+}
+
+/// Records that <stamp> read each change of <ids>.
+pub fn mark_read(db: &Connection, ids: &[i64], stamp: &Stamp) -> Result<()> {
+    for id in ids {
+        db.execute(
+            "INSERT INTO item_change_read (change_id, at, by) VALUES (?1, ?2, ?3)",
+            params![id, stamp.at, stamp.by],
+        )
+        .sql()?;
+    }
     Ok(())
 }
 
@@ -107,6 +124,51 @@ pub fn read_all(db: &Connection) -> Result<BTreeMap<Id, Vec<Change>>> {
         });
     }
     Ok(all)
+}
+
+impl Item {
+    /// The changes made since the run that goes on began that no agent read:
+    /// none when the item does not run.
+    pub fn unread_changes(&self) -> Vec<&Change> {
+        let Some(since) = self.running.iter().map(|place| place.since.at).min() else {
+            return Vec::new();
+        };
+        self.changes
+            .iter()
+            .filter(|change| change.made.at >= since && change.read.is_none())
+            .collect()
+    }
+}
+
+/// <change> whole, as an agent reads it: who made it and when, then the old
+/// and new details, or the decision's title and body.
+pub fn words(lists: &Lists, change: &Change) -> String {
+    let mut out = String::new();
+    let when = format!("{} by {}", local_minute(change.made.at), change.made.by);
+    match &change.what {
+        What::Details { old, new } => {
+            let _ = write!(
+                out,
+                "details edited {when}\n--- details before ---\n{}\n--- details after ---\n{}\n",
+                old.trim_end(),
+                new.trim_end()
+            );
+        }
+        What::Decision(id) => match lists.decision(*id) {
+            Some(decision) => {
+                let _ = write!(
+                    out,
+                    "decision {id} made the item's origin {when}\n{}\n{}\n",
+                    decision.title,
+                    decision.body.trim_end()
+                );
+            }
+            None => {
+                let _ = writeln!(out, "decision {id} made the item's origin {when}");
+            }
+        },
+    }
+    out
 }
 
 #[cfg(test)]
