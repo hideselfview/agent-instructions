@@ -6,7 +6,7 @@
 
 use std::path::Path;
 
-use crate::app_config::{CONFIG, config_in, resolve};
+use crate::app_config::{CONFIG, config_in};
 use crate::app_remote::local_source;
 use crate::fail::Result;
 use crate::lane::{Lane, app_of_file};
@@ -21,9 +21,6 @@ pub fn of(places: &Places, repo: &str) -> Result<Vec<Lane>> {
 /// The lanes at origin/main of the repo whose checkout or clone is at
 /// <source>; none when origin/main has no `.app-build`, so no app builds.
 pub fn in_source(source: &Path) -> Result<Vec<Lane>> {
-    // `exists_in` answers false for a ref or a repo that git cannot read, so
-    // origin/main must resolve first.
-    resolve(source, "origin/main")?;
     if !boards::exists_in(source, "origin/main", CONFIG)
         .map_err(|error| crate::fail::Fail::Message(error.to_string()))?
     {

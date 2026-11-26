@@ -93,6 +93,7 @@ fn exists_in_tells_a_folder_a_file_and_a_missing_path_apart() {
     assert!(exists_in(&dir, "HEAD", "design/mocks").unwrap());
     assert!(exists_in(&dir, "HEAD", "design/mocks/A.dc.html").unwrap());
     assert!(!exists_in(&dir, "HEAD", "design/mocks/Gone.dc.html").unwrap());
+    assert!(exists_in(&dir, "origin/gone", "design/mocks").is_err());
 }
 
 #[test]

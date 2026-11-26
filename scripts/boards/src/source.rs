@@ -61,6 +61,7 @@ pub fn git_text(command: &mut Command, what: &str) -> Result<String> {
 }
 
 /// Whether <path> is a file or folder at <rev> of the repo <top> is in.
+/// Fails when git cannot read <rev> there.
 pub fn exists_in(top: &Path, rev: &str, path: &str) -> Result<bool> {
     let output = git(top)
         .args(["cat-file", "-e", &format!("{rev}:{path}")])
@@ -69,7 +70,15 @@ pub fn exists_in(top: &Path, rev: &str, path: &str) -> Result<bool> {
         .context(|| format!("running git to look for {path} in {rev}"))?;
     match output.status.code() {
         Some(0) => Ok(true),
-        Some(128) => Ok(false),
+        // git exits 128 for a path <rev> lacks, and also for a <rev> or a
+        // repo it cannot read.
+        Some(128) => {
+            git_text(
+                git(top).args(["rev-parse", "--verify", &format!("{rev}^{{tree}}")]),
+                &format!("read {rev}"),
+            )?;
+            Ok(false)
+        }
         _ => fail!(
             "git failed to look for {path} in {rev}: {}",
             String::from_utf8_lossy(&output.stderr).trim()
