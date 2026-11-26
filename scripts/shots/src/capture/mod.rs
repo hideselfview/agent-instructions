@@ -190,9 +190,10 @@ pub(crate) struct Target<'a> {
 
 /// Takes the shots of `app` that `prefixes` select (all when empty) into
 /// `target.out`, an absolute path, with the `command` the app's `shots-capture` line
-/// gives, run from `root`; with shots to take and no `command`, it fails. Without `windows`, a shot that takes the keyboard
-/// focus is left out and said on stderr. Before the command starts, `target.measure`
-/// gives the board size of each shot the run takes, and the run writes them to
+/// gives, run from `root`; with shots to take and no `command`, it fails.
+/// Without `windows`, a shot that takes the keyboard focus is left out and
+/// said on stderr. Before the command starts, `target.measure` gives the
+/// board size of each shot the run takes, and the run writes them to
 /// `board-sizes.json` in `target.out` (the module's doc). Returns the shots taken, those the
 /// harness wrote no usable shot of (a failed shot does not fail the capture
 /// itself) and those left out.
