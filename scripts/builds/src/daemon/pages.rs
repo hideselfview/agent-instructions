@@ -69,8 +69,7 @@ impl Pages for Model {
             DesignsRoute::ComponentShots(project, name) => {
                 self.component_shots_page(project, name, here)
             }
-            // The cached pictures come from the model alone (http.rs).
-            DesignsRoute::Picture(..) => None,
+            DesignsRoute::Picture(..) => unreachable!("the live routes answer pictures first"),
         }
     }
 

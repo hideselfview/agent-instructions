@@ -142,3 +142,10 @@ fn reading_the_files_again_changes_only_the_uncommitted_files() {
     );
     assert_eq!(after, read(&main).unwrap());
 }
+
+/// A side read that no longer fits its type is no main checkout's head.
+#[test]
+fn a_malformed_side_read_fails_to_read_back() {
+    let bad = serde_json::json!({ "head": null, "ahead": "none" });
+    assert!(serde_json::from_value::<SideGit>(bad).is_err());
+}

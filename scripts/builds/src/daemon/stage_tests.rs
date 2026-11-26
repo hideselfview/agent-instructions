@@ -112,31 +112,31 @@ fn the_staged_event_stream_sends_the_fixtures_answers_and_stays_open() {
     let scratch = Scratch::new("stage-events");
     let port = staged(&fixture(&scratch, answers()));
     let mut stream = request(port, "GET", "/events");
-    stream
-        .set_read_timeout(Some(Duration::from_millis(500)))
-        .unwrap();
     let mut text = String::new();
     let mut buffer = [0u8; 4096];
-    // Reads until the read times out: a stream that ended would read 0 bytes
-    // first.
-    loop {
-        match stream.read(&mut buffer) {
-            Ok(0) => panic!("the stream ended after: {text}"),
-            Ok(n) => text.push_str(&String::from_utf8_lossy(&buffer[..n])),
-            Err(error)
-                if matches!(
-                    error.kind(),
-                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-                ) =>
-            {
-                break;
-            }
-            Err(error) => panic!("{error}"),
+    // Reads until all three events came. A stream that ended first reads 0
+    // bytes, and a stream that sends nothing fails on the 10 s timeout.
+    while !["event: state\n", "event: lists\n", "event: hooks\n"]
+        .iter()
+        .all(|event| text.contains(event))
+    {
+        match stream.read(&mut buffer).unwrap() {
+            0 => panic!("the stream ended after: {text}"),
+            n => text.push_str(&String::from_utf8_lossy(&buffer[..n])),
         }
     }
-    for event in ["event: state\n", "event: lists\n", "event: hooks\n"] {
-        assert!(text.contains(event), "no {event:?} in {text}");
-    }
+    // Nothing more comes, and the stream stays open.
+    stream
+        .set_read_timeout(Some(Duration::from_millis(300)))
+        .unwrap();
+    let kind = stream.read(&mut buffer).unwrap_err().kind();
+    assert!(
+        matches!(
+            kind,
+            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+        ),
+        "{kind:?}"
+    );
     assert!(text.contains("\"generated_at\":1700000000"), "{text}");
 }
 

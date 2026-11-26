@@ -60,11 +60,18 @@ impl<'de> serde::Deserialize<'de> for SideGit {
         enum Page {
             Side(SideRead),
             Failed { error: String },
-            Main { head: Option<Commit> },
+            Main(MainHead),
+        }
+        /// Only `head`: any other field means the object is a side read that
+        /// does not fit its type.
+        #[derive(serde::Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct MainHead {
+            head: Option<Commit>,
         }
         Ok(match Page::deserialize(deserializer)? {
             Page::Side(read) => SideGit::Side(Ok(read)),
-            Page::Main { head } => SideGit::Main(Ok(head)),
+            Page::Main(MainHead { head }) => SideGit::Main(Ok(head)),
             Page::Failed { error } => SideGit::Side(Err(error)),
         })
     }

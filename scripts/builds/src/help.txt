@@ -3080,6 +3080,22 @@ STATUS, HEALTH AND THE DASHBOARD
                               load;
                               this Mac or a host that did not
                               say its load, with what went wrong
+  builds dashboard stage --fixtures <folder> <shot>
+                              serve the dashboard's page for one shot on a
+                              port the system picks at 127.0.0.1. It prints
+                              the page's address as its first line, answers
+                              the page's routes (`/`, `/events`, which stays
+                              open, `/designs/<project>` and the Designs
+                              page's frames, which are empty pages) from
+                              the `stage` part of <folder>/<shot>.json in
+                              place of the daemon's data, answers a POST
+                              with 405, and ends when its stdin closes. It
+                              reads the state, the lists, the hooks and the
+                              Designs data as the types the daemon sends, so
+                              a fixture of the wrong shape stops it with an
+                              error before it prints an address. It reads no
+                              store and no checkout, so it runs beside a
+                              dashboard.
   builds dashboard [--port <port>] [--listen <address>]
                               run the daemon until it is killed. It follows
                               the checkouts and the lists through

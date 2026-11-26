@@ -131,12 +131,21 @@ const EVENT_GAP: Duration = Duration::from_millis(250);
 /// names a request may give in its Host header, and the page's own origins:
 /// this machine's names, and any address the daemon also listens on.
 pub fn serve(listener: TcpListener, names: Arc<[String]>, model: Arc<Model>) {
+    accept_loop(listener, move |stream| handle(stream, &names, &model));
+}
+
+/// Answers each connection of <listener> on a thread of its own with
+/// <handler>, and logs the errors that are not a page that went away.
+fn accept_loop(
+    listener: TcpListener,
+    handler: impl Fn(TcpStream) -> std::io::Result<()> + Send + Sync + 'static,
+) {
+    let handler = Arc::new(handler);
     for stream in listener.incoming() {
         let Ok(stream) = stream else { continue };
-        let model = model.clone();
-        let names = names.clone();
+        let handler = handler.clone();
         std::thread::spawn(move || {
-            if let Err(error) = handle(stream, &names, &model)
+            if let Err(error) = handler(stream)
                 && !matches!(
                     error.kind(),
                     std::io::ErrorKind::BrokenPipe | std::io::ErrorKind::ConnectionReset
@@ -250,32 +259,65 @@ fn read_head(reader: &mut BufReader<TcpStream>) -> std::io::Result<Head> {
     })
 }
 
-/// Is <host> one of <names>, the `host:port` names this server answers to?
-fn is_own_host(host: Option<&str>, names: &[String]) -> bool {
-    host.is_some_and(|host| names.iter().any(|name| name == host))
+/// A request that came to one of the server's own names.
+struct Request {
+    method: String,
+    /// The target without its query.
+    path: String,
+    host: String,
+    origin: Option<String>,
+    length: usize,
+    body: Vec<u8>,
+}
+
+/// Reads the request on <stream>, whose Host must be one of <names>: answers
+/// 403 and gives None otherwise.
+fn read_request(stream: &mut TcpStream, names: &[String]) -> std::io::Result<Option<Request>> {
+    stream.set_read_timeout(Some(Duration::from_secs(10)))?;
+    let mut reader = BufReader::new(stream.try_clone()?);
+    let head = read_head(&mut reader)?;
+    // Read the body before any answer, so a refusal isn't a reset connection.
+    let mut body = vec![
+        0;
+        if head.length <= MAX_BODY {
+            head.length
+        } else {
+            0
+        }
+    ];
+    reader.read_exact(&mut body)?;
+    let mut parts = head.request.split_whitespace();
+    let (method, target) = (parts.next().unwrap_or(""), parts.next().unwrap_or(""));
+    let Some(host) = head.host.filter(|host| names.contains(host)) else {
+        refuse_host(stream)?;
+        return Ok(None);
+    };
+    Ok(Some(Request {
+        method: method.to_string(),
+        path: target.split('?').next().unwrap_or("").to_string(),
+        host,
+        origin: head.origin,
+        length: head.length,
+        body,
+    }))
 }
 
 fn handle(mut stream: TcpStream, names: &[String], model: &Model) -> std::io::Result<()> {
-    stream.set_read_timeout(Some(Duration::from_secs(10)))?;
-    let mut reader = BufReader::new(stream.try_clone()?);
-    let Head {
-        request,
+    let Some(Request {
+        method,
+        path,
         host,
         origin,
         length,
-    } = read_head(&mut reader)?;
-    // Read the body before any answer, so a refusal isn't a reset connection.
-    let mut body = vec![0; if length <= MAX_BODY { length } else { 0 }];
-    reader.read_exact(&mut body)?;
-    let mut parts = request.split_whitespace();
-    let (method, target) = (parts.next().unwrap_or(""), parts.next().unwrap_or(""));
-    if !is_own_host(host.as_deref(), names) {
-        return refuse_host(&mut stream);
-    }
-    let path = target.split('?').next().unwrap_or("");
+        body,
+    }) = read_request(&mut stream, names)?
+    else {
+        return Ok(());
+    };
+    let (method, path) = (method.as_str(), path.as_str());
     let asker = Asker {
         here: stream.peer_addr().is_ok_and(|peer| peer.ip().is_loopback()),
-        host: host.as_deref(),
+        host: Some(host.as_str()),
         origin: origin.as_deref(),
         names,
     };
@@ -494,20 +536,9 @@ fn refuse_host(stream: &mut TcpStream) -> std::io::Result<()> {
 /// (`builds dashboard stage`), as `serve` answers them from the daemon's
 /// data. Only GET answers: the page's POSTs have nothing to change.
 pub fn serve_staged(listener: TcpListener, names: Arc<[String]>, pages: Arc<dyn Pages>) {
-    for stream in listener.incoming() {
-        let Ok(stream) = stream else { continue };
-        let (names, pages) = (names.clone(), pages.clone());
-        std::thread::spawn(move || {
-            if let Err(error) = handle_staged(stream, &names, &*pages)
-                && !matches!(
-                    error.kind(),
-                    std::io::ErrorKind::BrokenPipe | std::io::ErrorKind::ConnectionReset
-                )
-            {
-                eprintln!("builds: serving a request: {error}");
-            }
-        });
-    }
+    accept_loop(listener, move |stream| {
+        handle_staged(stream, &names, &*pages)
+    });
 }
 
 fn handle_staged(
@@ -515,15 +546,10 @@ fn handle_staged(
     names: &[String],
     pages: &dyn Pages,
 ) -> std::io::Result<()> {
-    stream.set_read_timeout(Some(Duration::from_secs(10)))?;
-    let mut reader = BufReader::new(stream.try_clone()?);
-    let head = read_head(&mut reader)?;
-    let mut parts = head.request.split_whitespace();
-    let (method, target) = (parts.next().unwrap_or(""), parts.next().unwrap_or(""));
-    if !is_own_host(head.host.as_deref(), names) {
-        return refuse_host(&mut stream);
-    }
-    if method != "GET" {
+    let Some(request) = read_request(&mut stream, names)? else {
+        return Ok(());
+    };
+    if request.method != "GET" {
         return respond(
             &mut stream,
             "405 Method Not Allowed",
@@ -531,8 +557,7 @@ fn handle_staged(
             b"a staged page answers GET only\n",
         );
     }
-    let path = target.split('?').next().unwrap_or("");
-    pages_route(stream, path, false, pages)
+    pages_route(stream, &request.path, false, pages)
 }
 
 /// Answers with <drawn>, a page drawn now: the page, the error that stopped
