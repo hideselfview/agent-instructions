@@ -295,9 +295,10 @@ impl Palette {
 
 /// The dominant background and the foreground colours in `bounds`, in points
 /// from the picture's top-left. With `ink`, the foreground leaves out each
-/// row at the top or bottom edge of the box that is one colour from end to
-/// end and far from the background, with the rows inside it that are the same
-/// kind of line: a border of a neighbouring control, never a glyph's.
+/// row at the top or bottom edge of the box in which one colour far from the
+/// background fills more than half of the row, and the rows inside it of the
+/// same kind: a border of a neighbouring control, which a corner or a
+/// neighbour's edge can leave short of the box's whole width.
 fn palette(picture: &Picture, scale: f64, bounds: Bounds, ink: bool) -> Option<Palette> {
     let (left, top) = (
         (bounds.x * scale).round() as i64,
@@ -318,13 +319,16 @@ fn palette(picture: &Picture, scale: f64, bounds: Bounds, ink: bool) -> Option<P
     let is_foreground = |colour: Rgb| delta_e(lab, Lab::of(colour)) > FAR_FROM_BACKGROUND;
     let mut ink_counts = counts.clone();
     if ink {
-        // The colour of a row that has one colour from end to end.
-        let line = |y: i64| -> Option<Rgb> {
-            let first = pixel(picture, left, y)?;
-            (left..right)
-                .all(|x| pixel(picture, x, y) == Some(first))
-                .then_some(first)
-                .filter(|colour| is_foreground(*colour))
+        // Whether one foreground colour fills more than half of the row.
+        let line = |y: i64| -> bool {
+            let mut row: HashMap<Rgb, usize> = HashMap::new();
+            for x in left..right {
+                if let Some(colour) = pixel(picture, x, y) {
+                    *row.entry(colour).or_default() += 1;
+                }
+            }
+            row.into_iter()
+                .any(|(colour, count)| count * 2 > (right - left) as usize && is_foreground(colour))
         };
         let mut drop_row = |y: i64| {
             for x in left..right {
@@ -340,7 +344,7 @@ fn palette(picture: &Picture, scale: f64, bounds: Bounds, ink: bool) -> Option<P
             Box::new((top..bottom).rev()),
         ] {
             for y in rows {
-                if line(y).is_none() {
+                if !line(y) {
                     break;
                 }
                 drop_row(y);

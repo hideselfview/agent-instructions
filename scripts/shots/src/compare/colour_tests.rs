@@ -394,9 +394,11 @@ fn text_ignores_a_border_line_that_crosses_its_box() {
     let border = [74, 74, 85];
     let board = picture(8, 8, |x, y| if x == 1 && y > 0 { ink } else { background });
     // The shot's box also holds the row of a border above the text, a line
-    // with more pixels than any one colour of the glyphs.
+    // with more pixels than any one colour of the glyphs, which a corner of
+    // the menu leaves short of the box's whole width.
     let shot = picture(8, 8, |x, y| match (x, y) {
-        (_, 0) => border,
+        (0..=5, 0) => border,
+        (_, 0) => [24, 24, 35],
         (1, 1..=4) => ink,
         _ => background,
     });
