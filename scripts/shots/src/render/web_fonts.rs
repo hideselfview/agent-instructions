@@ -190,6 +190,31 @@ pub(crate) fn answer(rest: &str) -> Result<Option<(&'static str, Vec<u8>)>, Stri
         .map(|(_, bytes)| ("font/woff2", bytes.to_vec())))
 }
 
+/// The host a page's Google Fonts links name.
+const GOOGLE_HOST: &str = "https://fonts.googleapis.com/";
+
+/// The match pattern for the requests of a page that no server of the
+/// checker's answers (`live`): the page's Google Fonts links, and the files
+/// those links' stylesheets name, which resolve against the same host.
+pub(crate) const GOOGLE_PATTERN: &str = "https://fonts.googleapis.com/*";
+
+/// What a request to <url>, under `GOOGLE_PATTERN`, is answered with: the
+/// stylesheet a link asks for or one of the pinned files its rules name.
+/// None for a name the checker holds nothing under; an error for a
+/// stylesheet of what it holds no copy of.
+pub(crate) fn answer_google(url: &str) -> Result<Option<(&'static str, Vec<u8>)>, String> {
+    let Some(rest) = url.strip_prefix(GOOGLE_HOST) else {
+        return Ok(None);
+    };
+    if rest.starts_with("css2?") {
+        return answer(rest);
+    }
+    match rest.strip_prefix(URL_PREFIX.trim_start_matches('/')) {
+        Some(file) => answer(file),
+        None => Ok(None),
+    }
+}
+
 #[cfg(test)]
 #[path = "web_fonts_tests.rs"]
 mod tests;

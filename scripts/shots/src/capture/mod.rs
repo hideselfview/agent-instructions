@@ -19,6 +19,11 @@
 //!
 //! On mac each variable is also set with `TEST_RUNNER_` in front, which Xcode
 //! passes to the test process under the plain name.
+//!
+//! A web app has no harness: its `shots-stage` line names the command that
+//! serves each shot's page, and the checker takes the shot itself (web.rs).
+
+pub(crate) mod web;
 
 use crate::backend;
 use crate::declared::Declared;
@@ -40,7 +45,7 @@ pub(crate) enum CaptureError {
         step: String,
         status: std::process::ExitStatus,
     },
-    #[error("the repo's .app-build has no shots-capture line for the app {0}")]
+    #[error("the repo's .app-build has no shots-capture or shots-stage line for the app {0}")]
     NoCommand(String),
     #[error("cannot prepare {0}: {1}")]
     Directory(PathBuf, std::io::Error),
@@ -52,6 +57,8 @@ pub(crate) enum CaptureError {
     Measure(String),
     #[error("cannot write {0}: {1}")]
     BoardSizes(PathBuf, std::io::Error),
+    #[error("cannot take shots in Chrome: {0}")]
+    Chrome(String),
     #[error("the capture is incomplete:\n{}", .0.join("\n"))]
     Incomplete(Vec<String>),
 }

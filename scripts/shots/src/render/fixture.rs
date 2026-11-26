@@ -121,3 +121,29 @@ pub(crate) async fn with_design_at<T>(
     .await
     .unwrap()
 }
+
+/// Serves <html> at every path on 127.0.0.1 from threads of the test, and
+/// returns the page's URL.
+pub(crate) fn serve_page(html: &'static str) -> String {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}/", listener.local_addr().unwrap());
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { return };
+            std::thread::spawn(move || {
+                let mut request = [0u8; 4096];
+                if stream.read(&mut request).is_ok() {
+                    let _ = stream.write_all(
+                        format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{html}",
+                            html.len()
+                        )
+                        .as_bytes(),
+                    );
+                }
+            });
+        }
+    });
+    url
+}

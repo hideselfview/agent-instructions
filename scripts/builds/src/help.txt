@@ -2088,7 +2088,22 @@ built again.
                               segment of every shot's name is its app), and
                               the lines that start with shots-, which name
                               an app: `shots-capture <app>
-                              <command>...` takes an app's shots,
+                              <command>...` takes the shots of an app on
+                              the mac or android platform, `shots-stage
+                              <app> <command>...` serves the page of one
+                              shot of an app on the web platform (`{shot}`
+                              stands for the shot's name; the command prints
+                              the page's URL as its first line, serves the
+                              page on 127.0.0.1 and exits when its input
+                              closes), and the checker opens that page in
+                              Chrome, waits for the `ready` selector that
+                              the shot's fixture `<name>.json` gives in the
+                              `shots-declared` folder, runs the fixture's
+                              `steps` (each `{"click": <selector>}`) and
+                              takes the shot, which fails when the stage
+                              prints no URL, the selector matches nothing
+                              within two minutes, or a step's selector
+                              matches nothing,
                               `shots-declared <app> <folder>` holds the
                               source that declares them, `shots-preview
                               <row> <name> <cell>` gives the selectors of a

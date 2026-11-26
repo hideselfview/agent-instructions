@@ -47,8 +47,9 @@ pub(crate) trait Backend {
     /// The word in a shot's file name: `<name>@<file word>.png`.
     fn file_word(&self) -> &'static str;
     /// Whether the platform's harness source holds capture code that declares
-    /// its shots, rather than a fixture file that declares each shot by its
-    /// name.
+    /// its shots and takes them with the app's `shots-capture` command,
+    /// rather than a fixture file that declares each shot by its name and a
+    /// `shots-stage` command that serves its page.
     fn holds_capture_code(&self) -> bool;
     /// The shots of <app> that one harness file or fixture declares, read
     /// from its source with no build.

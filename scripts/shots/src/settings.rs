@@ -7,6 +7,7 @@
 //! app windows web
 //! shots-capture mac ./app-macos/shots-capture.sh
 //! shots-capture android ./app-android/shots-capture.sh
+//! shots-stage windows builds dashboard stage {shot}
 //! shots-declared mac app-macos/Shots
 //! shots-declared android app-android/src/test/java/app/shots
 //! shots-preview .preview-row .preview-name .preview-cell
@@ -21,6 +22,10 @@
 //!   no line. Every other line below names an app by its name.
 //! - `shots-capture <app> <command>...`: the command that takes the app's
 //!   shots, run from the repo's top (capture.rs).
+//! - `shots-stage <app> <command>...`: for an app of the web platform, in
+//!   place of `shots-capture`: the command that serves the page of one shot
+//!   (`{shot}` stands for the shot's name), run from the repo's top
+//!   (capture/web.rs).
 //! - `shots-declared <app> <folder>`: the folder of the harness source
 //!   that declares the app's shots (declared.rs), whose `Components`
 //!   folder holds each design-system component's capture file
@@ -47,6 +52,7 @@
 //! preview draws one as a stand-in for its content, and the comparison leaves
 //! out what either side holds inside its box (render/read.rs, compare.rs).
 
+use crate::backend;
 use crate::names::{App, Apps};
 use std::path::{Path, PathBuf};
 
@@ -89,6 +95,8 @@ pub(crate) struct Settings {
     pub(crate) apps: Apps,
     /// Each app's capture command, in the order written.
     pub(crate) capture: Vec<(App, Vec<String>)>,
+    /// Each web app's stage command, in the order written.
+    pub(crate) stage: Vec<(App, Vec<String>)>,
     /// Each app's declare folder, relative to the repo's top.
     pub(crate) declared: Vec<(App, String)>,
     pub(crate) preview: Option<Preview>,
@@ -126,7 +134,7 @@ impl Settings {
             let bad = |why| SettingsError::Line(line.to_string(), why);
             let rest: Vec<String> = words.map(str::to_string).collect();
             match keyword {
-                "shots-capture" => {
+                "shots-capture" | "shots-stage" => {
                     let [app, value @ ..] = rest.as_slice() else {
                         return Err(bad("names no app"));
                     };
@@ -134,10 +142,28 @@ impl Settings {
                     if value.is_empty() {
                         return Err(bad("names its app and nothing else"));
                     }
-                    if settings.capture.iter().any(|(a, _)| *a == app) {
-                        return Err(bad("gives an app a second capture command"));
+                    let (commands, own) = if keyword == "shots-capture" {
+                        (
+                            &mut settings.capture,
+                            backend::of(app.platform).holds_capture_code(),
+                        )
+                    } else {
+                        (
+                            &mut settings.stage,
+                            !backend::of(app.platform).holds_capture_code(),
+                        )
+                    };
+                    if !own {
+                        return Err(bad(if keyword == "shots-capture" {
+                            "names an app whose pages a stage serves (shots-stage)"
+                        } else {
+                            "names an app whose harness captures its shots (shots-capture)"
+                        }));
                     }
-                    settings.capture.push((app, value.to_vec()));
+                    if commands.iter().any(|(a, _)| *a == app) {
+                        return Err(bad("gives an app a second command"));
+                    }
+                    commands.push((app, value.to_vec()));
                 }
                 // boards::app_build reads these lines, as builds does.
                 "shots-declared" => {}
@@ -191,9 +217,14 @@ impl Settings {
         self.apps.get(name)
     }
 
-    /// The apps that have a capture command, in name order.
+    /// The apps that have a capture or a stage command, in name order.
     pub(crate) fn capturing_apps(&self) -> Vec<App> {
-        let mut apps: Vec<App> = self.capture.iter().map(|(a, _)| a.clone()).collect();
+        let mut apps: Vec<App> = self
+            .capture
+            .iter()
+            .chain(&self.stage)
+            .map(|(a, _)| a.clone())
+            .collect();
         apps.sort();
         apps
     }

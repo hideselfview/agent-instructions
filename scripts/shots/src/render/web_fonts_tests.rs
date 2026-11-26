@@ -67,3 +67,28 @@ fn the_stylesheet_of_two_families_holds_both() {
     assert!(sheet.contains("font-family: 'JetBrains Mono'"));
     assert!(!sheet.contains("font-family: 'Roboto'"));
 }
+
+#[test]
+fn a_page_s_request_to_google_fonts_is_answered_from_the_pinned_copies() {
+    let (kind, sheet) =
+        answer_google("https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap")
+            .unwrap()
+            .unwrap();
+    assert_eq!(kind, "text/css; charset=utf-8");
+    // The stylesheet's file links are paths, which resolve against the host
+    // the page asked.
+    let sheet = String::from_utf8(sheet).unwrap();
+    assert!(sheet.contains("url(/web-fonts/inter/latin.woff2)"));
+    let (kind, file) = answer_google("https://fonts.googleapis.com/web-fonts/inter/latin.woff2")
+        .unwrap()
+        .unwrap();
+    assert_eq!(kind, "font/woff2");
+    assert_eq!(&file[..4], b"wOF2");
+    assert!(
+        answer_google("https://fonts.googleapis.com/other")
+            .unwrap()
+            .is_none()
+    );
+    let error = answer_google("https://fonts.googleapis.com/css2?family=Lato").unwrap_err();
+    assert!(error.contains("Lato"), "{error}");
+}

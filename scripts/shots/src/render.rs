@@ -5,6 +5,7 @@ pub(crate) mod chrome;
 #[cfg(test)]
 pub(crate) mod fixture;
 pub(crate) mod instances;
+pub(crate) mod live;
 pub(crate) mod pages;
 pub(crate) mod preview;
 pub(crate) mod read;
@@ -270,24 +271,49 @@ async fn draw_screen(
     let rendered = board::render(page, board, &server.board_url(board), frame)
         .await
         .map_err(|e| e.to_string())?;
-    let elements = read::elements(page, rendered.frame, platform)
-        .await
-        .map_err(|e| e.to_string())?;
-    let unshot = read::unshot(page, &settings.unshot, "document", (0.0, 0.0))
-        .await
-        .map_err(|e| e.to_string())?;
-    let slots = read::slots(page, "document", (rendered.frame.x, rendered.frame.y))
-        .await
-        .map_err(|e| e.to_string())?;
-    let window = read::window(page, "document", rendered.frame)
-        .await
-        .map_err(|e| e.to_string())?;
+    let read = read_page(page, settings, rendered.frame, platform).await?;
     Ok(Drawn {
         png: rendered.png,
         size: Size {
             width: rendered.frame.width,
             height: rendered.frame.height,
         },
+        elements: read.elements,
+        unshot: read.unshot,
+        slots: read.slots,
+        window: read.window,
+    })
+}
+
+/// What the reader finds on a drawn page.
+pub(crate) struct Read {
+    pub(crate) elements: Vec<crate::shots::Element>,
+    pub(crate) unshot: Vec<crate::shots::Bounds>,
+    pub(crate) slots: Vec<crate::shots::Bounds>,
+    pub(crate) window: crate::shots::WindowShape,
+}
+
+/// Reads the elements, the parts the app draws no counterpart for, the slots
+/// and the window of <page>, drawn in <frame> for <platform>.
+pub(crate) async fn read_page(
+    page: &chrome::DrawPage,
+    settings: &Settings,
+    frame: crate::shots::Bounds,
+    platform: names::Platform,
+) -> Result<Read, String> {
+    let elements = read::elements(page, frame, platform)
+        .await
+        .map_err(|e| e.to_string())?;
+    let unshot = read::unshot(page, &settings.unshot, "document", (0.0, 0.0))
+        .await
+        .map_err(|e| e.to_string())?;
+    let slots = read::slots(page, "document", (frame.x, frame.y))
+        .await
+        .map_err(|e| e.to_string())?;
+    let window = read::window(page, "document", frame)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(Read {
         elements,
         unshot,
         slots,

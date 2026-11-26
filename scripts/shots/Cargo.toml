@@ -6,6 +6,7 @@ publish = false
 description = "Checks an app's screenshots against its design boards; builds runs it as `builds shots`."
 
 [dependencies]
+base64 = "0.22"
 boards = { path = "../boards" }
 chromiumoxide = "0.9"
 clap = { version = "4", features = ["derive"] }

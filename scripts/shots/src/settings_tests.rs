@@ -126,7 +126,7 @@ fn a_shots_line_it_cannot_read_is_refused() {
         Settings::parse(twice)
             .unwrap_err()
             .to_string()
-            .contains("second capture command")
+            .contains("second command")
     );
 }
 
@@ -134,7 +134,7 @@ fn a_shots_line_it_cannot_read_is_refused() {
 fn app_lines_name_the_apps_the_other_lines_are_keyed_by() {
     let settings = Settings::parse(
         "app windows web\napp linux web\n\
-         shots-capture windows ./windows.sh\nshots-capture linux ./linux.sh\n\
+         shots-stage windows ./windows.sh {shot}\nshots-stage linux ./linux.sh {shot}\n\
          shots-declared windows app/windows\nshots-declared linux app/linux\n\
          shots-design-only linux Sym\n",
     )
@@ -154,6 +154,28 @@ fn app_lines_name_the_apps_the_other_lines_are_keyed_by() {
         ]
     );
     assert_eq!(settings.design_only, [(linux, "Sym".to_string())]);
+}
+
+#[test]
+fn an_app_is_shot_by_the_command_its_platform_takes() {
+    let settings =
+        Settings::parse("shots-capture mac ./mac.sh\nshots-stage web ./serve.sh {shot}\n").unwrap();
+    assert_eq!(
+        settings.stage,
+        [(
+            settings.app("web").unwrap(),
+            vec!["./serve.sh".to_string(), "{shot}".to_string()]
+        )]
+    );
+    assert_eq!(settings.capturing_apps().len(), 2);
+    for (line, why) in [
+        ("shots-stage mac ./x.sh", "shots-capture"),
+        ("shots-capture web ./x.sh", "shots-stage"),
+        ("shots-stage web a\nshots-stage web b\n", "second command"),
+    ] {
+        let error = Settings::parse(line).unwrap_err().to_string();
+        assert!(error.contains(why), "{line}: {error}");
+    }
 }
 
 #[test]

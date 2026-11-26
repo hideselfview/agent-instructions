@@ -156,7 +156,9 @@ fn watch_script(mounted: &str, body_class: Option<&str>) -> String {
       return true;
     }});
   }}
-  new Promise((resolve) => {{
+  // Settles once the page is drawn, which a page that loads in real time
+  // waits on.
+  watch.ready = new Promise((resolve) => {{
     const look = () => {{
       if (!document.querySelector({selector})) return;
       observer.disconnect();
@@ -194,7 +196,7 @@ const REDRAW: &str = "(async () => {
   }
 })()";
 
-async fn redraw(page: &DrawPage) -> Result<(), BoardError> {
+pub(crate) async fn redraw(page: &DrawPage) -> Result<(), BoardError> {
     let running = SetVirtualTimePolicyParams::new(VirtualTimePolicy::Advance);
     page.run(running).await.map_err(protocol)?;
     page.evaluate(REDRAW).await.map_err(protocol)?;
@@ -245,14 +247,12 @@ pub(crate) async fn screenshot(page: &DrawPage) -> Result<Vec<u8>, BoardError> {
     .map_err(protocol)
 }
 
-/// Loads `url` in a frame of `frame` points at the page's device scale, in
-/// dark mode, and returns once its virtual time has run out with the page
-/// drawn: the element <mounted> selects is there and the fonts are loaded.
-/// The page's `<body>` gets the class <body_class>, if any, when it is created.
-pub(crate) async fn load(
+/// Sets <page> up for a page to load in a frame of `frame` points at the
+/// page's device scale, in dark mode, with the script that watches for the
+/// element <mounted> selects and for the fonts; the page's `<body>` gets the
+/// class <body_class>, if any, when it is created.
+pub(crate) async fn prepare(
     page: &DrawPage,
-    board: &str,
-    url: &str,
     frame: Frame,
     mounted: &str,
     body_class: Option<&str>,
@@ -278,6 +278,22 @@ pub(crate) async fn load(
     )))
     .await
     .map_err(protocol)?;
+    Ok(())
+}
+
+/// Loads `url` in a frame of `frame` points at the page's device scale, in
+/// dark mode, and returns once its virtual time has run out with the page
+/// drawn: the element <mounted> selects is there and the fonts are loaded.
+/// The page's `<body>` gets the class <body_class>, if any, when it is created.
+pub(crate) async fn load(
+    page: &DrawPage,
+    board: &str,
+    url: &str,
+    frame: Frame,
+    mounted: &str,
+    body_class: Option<&str>,
+) -> Result<(), BoardError> {
+    prepare(page, frame, mounted, body_class).await?;
     let mut console = page
         .event_listener::<EventConsoleApiCalled>()
         .await

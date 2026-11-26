@@ -181,26 +181,48 @@ fn capture(
                 ));
             }
         }
-        let command = settings
-            .capture
-            .iter()
-            .find(|(a, _)| a == app)
-            .map(|(_, command)| command.as_slice())
-            .unwrap_or_default();
-        let taken = capture::capture(
-            root,
-            command,
-            declared,
-            app,
-            &settings.apps,
-            &selection.prefixes,
-            selection.windows,
-            selection.base,
-            &capture::Target {
+        let taken = if backend::of(app.platform).holds_capture_code() {
+            let command = settings
+                .capture
+                .iter()
+                .find(|(a, _)| a == app)
+                .map(|(_, command)| command.as_slice())
+                .unwrap_or_default();
+            capture::capture(
+                root,
+                command,
+                declared,
+                app,
+                &settings.apps,
+                &selection.prefixes,
+                selection.windows,
+                selection.base,
+                &capture::Target {
+                    out: &out,
+                    measure: &|names| board_sizes::measure(root, checker, settings, names),
+                },
+            )
+        } else {
+            let command = settings
+                .stage
+                .iter()
+                .find(|(a, _)| a == app)
+                .map(|(_, command)| command.as_slice())
+                .unwrap_or_default();
+            capture::web::capture(&capture::web::Job {
+                root,
+                command,
+                declared,
+                app,
+                apps: &settings.apps,
+                prefixes: &selection.prefixes,
+                base: selection.base,
                 out: &out,
-                measure: &|names| board_sizes::measure(root, checker, settings, names),
-            },
-        )
+                settings,
+                folders: checker.folders,
+                deadline: render::chrome::DRAW_DEADLINE,
+            })
+        }
         .map_err(|e| e.to_string())?;
         if let Some(Kept { pictures, tree, .. }) = kept {
             pictures.keep_shots(app, tree, &taken.names, &out)?;
@@ -692,7 +714,7 @@ mod tests {
     #[test]
     fn a_run_takes_the_apps_it_names_or_its_prefixes_start_or_its_capture_lines_give() {
         let settings = Settings::parse(
-            "app windows web\nshots-capture mac ./a.sh\nshots-capture windows ./b.sh\n",
+            "app windows web\nshots-capture mac ./a.sh\nshots-stage windows ./b.sh {shot}\n",
         )
         .unwrap();
         let selection = |apps: &[&str], prefixes: &[&str]| Selection {
