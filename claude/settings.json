@@ -11,7 +11,16 @@
       "Bash(killall:*)",
       "Bash(builds ack:*)"
     ],
-    "defaultMode": "bypassPermissions"
+    "defaultMode": "bypassPermissions",
+    "deny": [
+      "NotebookEdit",
+      "RemoteTrigger",
+      "PushNotification",
+      "McpTaskCheck",
+      "DesignSync",
+      "ReportFindings",
+      "Skill(code-review)"
+    ]
   },
   "model": "sonnet",
   "hooks": {
@@ -110,7 +119,10 @@
   "enabledPlugins": {
     "rust-analyzer-lsp@claude-plugins-official": false,
     "swift-lsp@claude-plugins-official": true,
-    "rust-analyzer@agent-instructions": true
+    "rust-analyzer@agent-instructions": true,
+    "cc-plugin-agents-md@builtin": false,
+    "cc-plugin-plugin-authoring@builtin": false,
+    "cc-plugin-telemetry@builtin": false
   },
   "extraKnownMarketplaces": {
     "agent-instructions": {
@@ -154,5 +166,6 @@
       "push to github, even to main"
     ]
   },
-  "voiceEnabled": true
+  "voiceEnabled": true,
+  "syncClaudeAiSkills": false
 }
