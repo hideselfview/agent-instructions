@@ -9,6 +9,17 @@ use super::window::Window;
 use super::{DELTA_E_TOLERANCE, PictureSide, REGION_CELL, Side};
 use crate::shots::{Bounds, Element, Picture};
 
+/// A marked region is alike when no pixel of it differs by more than this
+/// many levels in a channel (a channel's level is 0 to 255) and its pixels
+/// differ by [`RESIDUAL_LEVELS`] or fewer on average: ink in the same places
+/// on both sides, differing by the antialiasing of its edges or a colour
+/// rounded by a level, which neither the board nor the app can change. The
+/// edges of the residuals measured in bae's runs on 35f6ab0d24 differ by up to
+/// 43 levels; ink moved half a point differs by the ink's whole contrast.
+pub(super) const EDGE_LEVELS: u8 = 48;
+/// The mean difference, in levels, of a region that is alike.
+pub(super) const RESIDUAL_LEVELS: f64 = 2.0;
+
 /// A marked area of the board's frame, in points.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Region {
@@ -79,6 +90,55 @@ fn cell_delta(
     (count > 0).then(|| total / f64::from(count))
 }
 
+/// Whether the pictures of the cells (columns and rows of the grid) differ
+/// only by a residual ([`EDGE_LEVELS`], [`RESIDUAL_LEVELS`]). Compares every
+/// pixel of the board's picture in the cells.
+fn residual(
+    board: &Side,
+    shot: &Side,
+    offset: (f64, f64),
+    cells: &[(usize, usize)],
+    window: Option<&Window>,
+) -> bool {
+    let (mut levels, mut count) = (0.0, 0_u32);
+    let steps = (REGION_CELL * board.scale) as i64;
+    for &(column, row) in cells {
+        for dy in 0..steps {
+            for dx in 0..steps {
+                let x = (column as f64 * REGION_CELL * board.scale).floor() as i64 + dx;
+                let y = (row as f64 * REGION_CELL * board.scale).floor() as i64 + dy;
+                let (px, py) = (
+                    (x as f64 + 0.5) / board.scale,
+                    (y as f64 + 0.5) / board.scale,
+                );
+                if window.is_some_and(|window| {
+                    !window.compares(PictureSide::Board, board, px, py)
+                        || !window.compares(PictureSide::Shot, shot, px + offset.0, py + offset.1)
+                }) {
+                    continue;
+                }
+                let (Some(a), Some(b)) = (
+                    pixel(board.picture, x, y),
+                    pixel(
+                        shot.picture,
+                        ((px + offset.0) * shot.scale).floor() as i64,
+                        ((py + offset.1) * shot.scale).floor() as i64,
+                    ),
+                ) else {
+                    continue;
+                };
+                let differences = a.iter().zip(b).map(|(&a, b)| a.abs_diff(b));
+                if differences.clone().any(|d| d > EDGE_LEVELS) {
+                    return false;
+                }
+                levels += differences.map(f64::from).sum::<f64>() / 3.0;
+                count += 1;
+            }
+        }
+    }
+    count > 0 && levels / f64::from(count) <= RESIDUAL_LEVELS
+}
+
 /// The regions where the pictures differ outside the covered boxes.
 pub(super) fn regions(
     board: &Side,
@@ -114,6 +174,7 @@ pub(super) fn regions(
     // Neighbouring marked cells (sharing an edge) are one region.
     components(columns, rows, |column, row| marked[row][column].is_some())
         .into_iter()
+        .filter(|component| !residual(board, shot, offset, &component.cells, window))
         .map(|component| {
             let (left, top, right, bottom) = component.extent();
             let delta = component

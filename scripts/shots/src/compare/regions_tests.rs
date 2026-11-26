@@ -34,6 +34,52 @@ fn side<'a>(elements: &'a [Element], picture: &'a Picture, scale: f64) -> Side<'
     }
 }
 
+/// Like `picture`, with the given grey in place of the usual one.
+fn picture_on(grey: [u8; 3], width: u32, height: u32, squares: &[(u32, u32, u32)]) -> Picture {
+    let mut picture = picture(width, height, squares);
+    for pixel in picture.pixels.chunks_exact_mut(4) {
+        if pixel[..3] == GREY {
+            pixel[..3].copy_from_slice(&grey);
+        }
+    }
+    picture
+}
+
+/// A shade of the grey that differs from it by a few levels and draws a
+/// colour difference past the tolerance.
+const SLIGHTLY_OFF: [u8; 3] = [40, 40, 54];
+
+#[test]
+fn a_colour_off_by_a_few_levels_under_the_same_ink_marks_no_region() {
+    let board = picture(64, 64, &[(20, 20, 8)]);
+    let shot = picture_on(SLIGHTLY_OFF, 64, 64, &[(20, 20, 8)]);
+    let colour = crate::compare::colour::rgb_delta(GREY, SLIGHTLY_OFF);
+    assert!(colour > 3.0, "the test needs a difference past 3: {colour}");
+    let found = regions(
+        &side(&[], &board, 1.0),
+        &side(&[], &shot, 1.0),
+        (0.0, 0.0),
+        None,
+    );
+    assert!(found.is_empty(), "{found:?}");
+}
+
+#[test]
+fn a_half_point_move_marks_its_region_whatever_else_differs() {
+    // At 2 pixels to the point, one pixel is half a point.
+    let board = picture(128, 128, &[(41, 40, 16)]);
+    for grey in [GREY, SLIGHTLY_OFF] {
+        let shot = picture_on(grey, 128, 128, &[(42, 40, 16)]);
+        let found = regions(
+            &side(&[], &board, 2.0),
+            &side(&[], &shot, 2.0),
+            (0.0, 0.0),
+            None,
+        );
+        assert_eq!(found.len(), 1, "{grey:?}: {found:?}");
+    }
+}
+
 #[test]
 fn equal_pictures_have_no_regions() {
     let p = picture(64, 64, &[(20, 20, 8)]);
