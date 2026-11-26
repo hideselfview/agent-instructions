@@ -34,9 +34,9 @@ open it, and a database doesn't check a row you just committed. A library that
 wraps a resource adds checks only where its own promise differs from the
 resource's, and says which promise each check protects.
 
-Example: a store hashed a whole file on every open, so playback read the entire
-file first, though the upload, the one step where the bytes matter, checks each
-chunk it sends.
+Example: a store that hashes a whole file on every open makes playback read the
+entire file first, though the upload, the one step where the bytes matter,
+checks each chunk it sends.
 
 Checks stay where a fact enters from outside the code's control: bytes from
 storage or the network, a file the user can change, input from another process.
