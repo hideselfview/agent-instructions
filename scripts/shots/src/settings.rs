@@ -87,12 +87,13 @@ fn after<'a>(line: &'a str, word: &str) -> &'a str {
     line[word.len()..].trim_start()
 }
 
-/// The marker <markers> gives <app>, if any.
-fn of_app<'a>(markers: &'a [(App, String)], app: &App) -> Option<&'a str> {
-    markers
+/// What <entries>, which give each of their apps one value, give <app>, if
+/// anything.
+pub(crate) fn of_app<'a, T>(entries: &'a [(App, T)], app: &App) -> Option<&'a T> {
+    entries
         .iter()
         .find(|(a, _)| a == app)
-        .map(|(_, marker)| marker.as_str())
+        .map(|(_, value)| value)
 }
 
 /// The file the settings are read from, at the repo's top.
@@ -207,7 +208,7 @@ impl Settings {
                             "names an app whose harness captures its shots (shots-capture)"
                         }));
                     }
-                    if commands.iter().any(|(a, _)| *a == app) {
+                    if of_app(commands, &app).is_some() {
                         return Err(bad("gives an app a second command"));
                     }
                     commands.push((app, value.to_vec()));
@@ -248,7 +249,7 @@ impl Settings {
                         }
                         (&mut settings.body_class, class.clone())
                     };
-                    if markers.iter().any(|(a, _)| *a == app) {
+                    if of_app(markers, &app).is_some() {
                         return Err(bad(if keyword == "shots-window" {
                             "gives an app a second window selector"
                         } else {
@@ -327,18 +328,9 @@ impl Settings {
             unshot: &self.unshot,
             slot: self.slot.as_deref(),
             glyph: self.glyph.as_deref(),
-            window: of_app(&self.window, app),
-            body_class: of_app(&self.body_class, app),
+            window: of_app(&self.window, app).map(String::as_str),
+            body_class: of_app(&self.body_class, app).map(String::as_str),
         }
-    }
-
-    /// The command <commands> gives <app>; empty when it gives none.
-    pub(crate) fn command_of<'a>(commands: &'a [(App, Vec<String>)], app: &App) -> &'a [String] {
-        commands
-            .iter()
-            .find(|(a, _)| a == app)
-            .map(|(_, command)| command.as_slice())
-            .unwrap_or_default()
     }
 
     /// The preview markers, which drawing component <component> needs.

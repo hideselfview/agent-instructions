@@ -182,7 +182,11 @@ fn capture(
             }
         }
         let taken = if backend::of(app.platform).holds_capture_code() {
-            let command = Settings::command_of(&settings.capture, app);
+            // An app with no line has an empty command, which the capture
+            // refuses.
+            let command = settings::of_app(&settings.capture, app)
+                .map(Vec::as_slice)
+                .unwrap_or_default();
             capture::capture(
                 root,
                 command,
@@ -198,7 +202,9 @@ fn capture(
                 },
             )
         } else {
-            let command = Settings::command_of(&settings.stage, app);
+            let command = settings::of_app(&settings.stage, app)
+                .map(Vec::as_slice)
+                .unwrap_or_default();
             capture::web::capture(&capture::web::Job {
                 root,
                 command,
