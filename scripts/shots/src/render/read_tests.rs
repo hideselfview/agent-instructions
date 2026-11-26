@@ -1114,3 +1114,46 @@ fn a_corner_shape_reads_as_the_exponent_of_its_curve() {
         Err(ReadError::CornerShape(shape)) if shape == "scoop"
     ));
 }
+
+const LINES_BOARD: &str = r##"<x-dc><helmet><style>body{margin:0;font:13px sans-serif}p{margin:0;width:60px}</style></helmet>
+<p style="line-height:21px;position:absolute;left:0;top:10px">One line</p>
+<p style="line-height:21px;position:absolute;left:100px;top:10px">Two lines of words</p>
+<p style="line-height:normal;position:absolute;left:200px;top:10px">Normal</p>
+</x-dc>"##;
+
+async fn read_lines(platform: Platform) -> Vec<Element> {
+    let root = fixture::tree(&[("fixture.lines", LINES_BOARD)]);
+    fixture::with_browser(root.path(), async |server, chrome| {
+        let page = chrome.new_page().await.unwrap();
+        let rendered = render(
+            &page,
+            "fixture.lines",
+            &server.board_url("fixture.lines"),
+            Frame { w: 300, h: 100 },
+        )
+        .await
+        .unwrap();
+        elements(&page, rendered.frame, platform).await
+    })
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn a_mac_texts_box_is_its_lines_by_the_style_line_height() {
+    let elements = read_lines(Platform::Mac).await;
+    let one = find(&elements, Role::Text, "One line");
+    assert_eq!((one.bounds.y, one.bounds.height), (10.0, 21.0));
+    let two = find(&elements, Role::Text, "Two lines of words");
+    assert_eq!((two.bounds.y, two.bounds.height), (10.0, 42.0));
+    // A style that leaves the line height to the font boxes the glyphs' room.
+    let normal = find(&elements, Role::Text, "Normal");
+    assert!(normal.bounds.height < 21.0, "{}", normal.bounds.height);
+}
+
+#[tokio::test]
+async fn an_android_texts_box_is_the_glyphs_room() {
+    let elements = read_lines(Platform::Android).await;
+    let one = find(&elements, Role::Text, "One line");
+    assert!(one.bounds.height < 21.0, "{}", one.bounds.height);
+}

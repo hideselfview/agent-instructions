@@ -432,7 +432,7 @@ pub(crate) struct Geometry {
     secret: bool,
 }
 
-const GEOMETRY: &str = r#"function({frame, bodyOverflowAppliesToViewport}, boxedByGlyphInk) {
+const GEOMETRY: &str = r#"function({frame, bodyOverflowAppliesToViewport}, boxedByGlyphInk, boxedByLine) {
   // The nearest component above a DOM node in React's tree: the first fiber
   // up from the node's own (or its nearest ancestor's) whose type is one.
   const componentOf = (node) => {
@@ -541,6 +541,15 @@ const GEOMETRY: &str = r#"function({frame, bodyOverflowAppliesToViewport}, boxed
     const range = document.createRange();
     range.selectNodeContents(this);
     rect = range.getBoundingClientRect();
+    // The Mac boxes a text by its lines: each line is as high as its style's
+    // line height, with the glyphs centred in it. The range measures the
+    // glyphs' own room, which a line height left to the font boxes as it is.
+    const lineHeight = parseFloat(getComputedStyle(this.parentElement).lineHeight);
+    const first = range.getClientRects()[0];
+    if (boxedByLine && first && !Number.isNaN(lineHeight)) {
+      const half = (lineHeight - first.height) / 2;
+      rect = new DOMRect(rect.x, rect.y - half, rect.width, rect.height + 2 * half);
+    }
   } else if (this.getBoundingClientRect) {
     rect = this.getBoundingClientRect();
   } else {
@@ -912,7 +921,15 @@ async fn gather(page: &DrawPage, frame: Bounds, platform: Platform) -> Result<Ve
             let mut raw = raw(node);
             if !raw.ignored && !STRUCTURE.contains(&raw.chrome_role.as_str()) {
                 let ink = ink_boxed(Role::for_node(&raw, platform));
-                match measure(page, node, &clipping_argument, ink).await? {
+                match measure(
+                    page,
+                    node,
+                    &clipping_argument,
+                    ink,
+                    platform == Platform::Mac,
+                )
+                .await?
+                {
                     Ok(Measurement::Clipped) => raw.ignored = true,
                     Ok(Measurement::Visible(mut geometry)) => {
                         geometry.bounds = relative_to(geometry.bounds, (frame.x, frame.y));
@@ -959,6 +976,7 @@ async fn measure(
     node: &AxNode,
     clipping: &CallArgument,
     boxed_by_glyph_ink: bool,
+    boxed_by_line: bool,
 ) -> Result<Result<Measurement, &'static str>, ReadError> {
     let Some(backend) = node.backend_dom_node_id else {
         return Ok(Err("the accessibility node describes no DOM node"));
@@ -980,6 +998,9 @@ async fn measure(
         clipping.clone(),
         CallArgument::builder()
             .value(serde_json::Value::Bool(boxed_by_glyph_ink))
+            .build(),
+        CallArgument::builder()
+            .value(serde_json::Value::Bool(boxed_by_line))
             .build(),
     ]);
     call.return_by_value = Some(true);
