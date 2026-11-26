@@ -26,5 +26,4 @@ design: true
   (`MacSpinner`), Material's ring (`AndroidSpinner`). A spinner is a signal
   people already read as busy and carries nothing of bae's, so it is not made
   the same across platforms.
-- An empty list is one sentence in its box: "No shared folders yet". No glyph
-  sits above it.
+- An empty list is one sentence in its box: "No shared folders yet".
