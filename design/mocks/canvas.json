@@ -2,6 +2,11 @@
  "v": 3,
  "title": "Boards for the builds dashboard",
  "attachments": {},
+ "designSystems": [
+  {
+   "namespace": "builds"
+  }
+ ],
  "pages": [
   {
    "id": "dashboard",
