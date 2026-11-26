@@ -267,11 +267,10 @@ fn run_command(args: &[String], session: ack::agent::Session) -> ExitCode {
         Err(fail) => return exit_code_after(command, fail),
     };
     if let Err(fail) = Places::from_env().and_then(|places| {
-        let project = split.project.as_deref();
-        ack::gate(&places, &session, command, rest, project)?;
-        match project {
-            Some(project) => project_flag::require_exists(&places, project),
-            None => Ok(()),
+        ack::gate(&places, &session, command, rest, split.flag.project())?;
+        match &split.flag {
+            project_flag::Flag::Unread(project) => project_flag::require_exists(&places, project),
+            project_flag::Flag::Absent | project_flag::Flag::Read(_) => Ok(()),
         }
     }) {
         return exit_code_after(command, fail);

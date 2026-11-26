@@ -18,10 +18,30 @@ pub const PROJECT: &str = "--project";
 /// A command's arguments as `split` reads them.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Split {
-    /// The project the flag names, for the acknowledgement check.
-    pub project: Option<String>,
+    pub flag: Flag,
     /// The arguments the command reads.
     pub args: Vec<String>,
+}
+
+/// The `--project` of a command.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Flag {
+    Absent,
+    /// The command reads it, so its arguments hold it, and the command checks
+    /// the project it names.
+    Read(String),
+    /// The command does not read it, so its arguments lack it.
+    Unread(String),
+}
+
+impl Flag {
+    /// The project the flag names, for the acknowledgement check.
+    pub fn project(&self) -> Option<&str> {
+        match self {
+            Flag::Absent => None,
+            Flag::Read(project) | Flag::Unread(project) => Some(project),
+        }
+    }
 }
 
 /// <args> of `builds <command>`: without `--project` for a command that does
@@ -31,23 +51,21 @@ pub struct Split {
 pub fn split(command: &str, args: &[String]) -> Result<Split> {
     let (own, passed) = args.split_at(own_words(command, args));
     if reads_project(command, args) {
-        let project = own
+        let flag = own
             .iter()
             .position(|arg| arg == PROJECT)
             .and_then(|at| own.get(at + 1))
-            .cloned();
+            .map_or(Flag::Absent, |project| Flag::Read(project.clone()));
         return Ok(Split {
-            project,
+            flag,
             args: args.to_vec(),
         });
     }
     let usage = format!("usage: builds {command} ... [{PROJECT} P]");
     let (project, mut kept) = take(own, &usage)?;
     kept.extend_from_slice(passed);
-    Ok(Split {
-        project: project.map(str::to_string),
-        args: kept,
-    })
+    let flag = project.map_or(Flag::Absent, |project| Flag::Unread(project.to_string()));
+    Ok(Split { flag, args: kept })
 }
 
 /// Fails when no project is named <project>, so that a command that does not
