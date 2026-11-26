@@ -61,9 +61,6 @@ pub(crate) trait Backend {
     /// as `TEST_RUNNER_BUILDS_SHOTS_*`, which `xcodebuild test` passes on to
     /// its test runner.
     fn test_runner_copies(&self) -> bool;
-    /// The class the body of a component preview's page gets on this
-    /// platform, if any.
-    fn preview_body_class(&self) -> Option<&'static str>;
     fn reading(&self) -> Reading;
     fn allowances(&self) -> Allowances;
 }
@@ -96,9 +93,6 @@ impl Backend for Mac {
     }
     fn test_runner_copies(&self) -> bool {
         true
-    }
-    fn preview_body_class(&self) -> Option<&'static str> {
-        None
     }
     fn reading(&self) -> Reading {
         Reading {
@@ -142,9 +136,6 @@ impl Backend for Android {
     fn test_runner_copies(&self) -> bool {
         false
     }
-    fn preview_body_class(&self) -> Option<&'static str> {
-        Some("bae-preview-android")
-    }
     fn reading(&self) -> Reading {
         Reading {
             window_role: |role| matches!(role, "menu" | "dialog"),
@@ -183,9 +174,6 @@ impl Backend for Web {
     }
     fn test_runner_copies(&self) -> bool {
         false
-    }
-    fn preview_body_class(&self) -> Option<&'static str> {
-        None
     }
     fn reading(&self) -> Reading {
         Reading {

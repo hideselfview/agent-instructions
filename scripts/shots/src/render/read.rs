@@ -426,7 +426,7 @@ pub(crate) struct Geometry {
     secret: bool,
 }
 
-const GEOMETRY: &str = r#"function({frame, bodyOverflowAppliesToViewport}, boxedByGlyphInk, boxedByLine) {
+const GEOMETRY: &str = r#"function({frame, bodyOverflowAppliesToViewport}, boxingGlyphs, boxedByLine) {
   // The nearest component above a DOM node in React's tree: the first fiber
   // up from the node's own (or its nearest ancestor's) whose type is one.
   const componentOf = (node) => {
@@ -550,14 +550,14 @@ const GEOMETRY: &str = r#"function({frame, bodyOverflowAppliesToViewport}, boxed
     return null;
   }
   // A button or link (by the node's role on its platform, which sets
-  // `boxedByGlyphInk`) that holds a glyph is boxed as the Mac boxes it: by
-  // the glyph's ink, not its room. A glyph's svg is its ink and its margins are
-  // the rest of its room, so each side of the control's box that its room
-  // reaches moves in to the ink.
+  // `boxingGlyphs`, the glyph selector) that holds a glyph is boxed as the
+  // Mac boxes it: by the glyph's ink, not its room. A glyph's element is its
+  // ink and its margins are the rest of its room, so each side of the
+  // control's box that its room reaches moves in to the ink.
   let bounds = {x: rect.x, y: rect.y, width: rect.width, height: rect.height};
-  if (boxedByGlyphInk) {
+  if (boxingGlyphs !== null) {
     const sides = {left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom};
-    for (const glyph of this.querySelectorAll('svg.bae-glyph')) {
+    for (const glyph of this.querySelectorAll(boxingGlyphs)) {
       const ink = glyph.getBoundingClientRect();
       const margin = getComputedStyle(glyph);
       const room = {
@@ -706,13 +706,15 @@ fn raw(node: &AxNode) -> Raw {
     }
 }
 
-/// The elements visible in `frame`, in reading order.
+/// The elements visible in `frame`, in reading order. <glyph> selects the
+/// glyphs whose ink boxes a button or link (`shots-glyph`).
 pub(crate) async fn elements(
     page: &DrawPage,
     frame: Bounds,
+    glyph: Option<&str>,
     platform: Platform,
 ) -> Result<Vec<Element>, ReadError> {
-    build(&gather(page, frame, platform).await?, platform)
+    build(&gather(page, frame, glyph, platform).await?, platform)
 }
 
 fn relative_to(mut bounds: Bounds, origin: (f64, f64)) -> Bounds {
@@ -761,25 +763,21 @@ pub(crate) async fn unshot(
     boxes(page, scope, &selectors.join(", "), origin).await
 }
 
-/// The class of the dashed stand-in a container's preview holds for its
-/// content.
-const SLOT_CLASS: &str = "bae-preview-slot";
-
-/// The boxes of the preview slots inside <scope> (a JavaScript expression for
-/// a node, such as `document`), measured from `origin`. The comparison leaves
-/// out what either side draws inside them (compare.rs).
+/// The boxes of the preview slots, the elements <slot> selects
+/// (`shots-slot`), inside <scope> (a JavaScript expression for a node, such
+/// as `document`), measured from `origin`; none with no selector. The
+/// comparison leaves out what either side draws inside them (compare.rs).
 pub(crate) async fn slots(
     page: &DrawPage,
+    slot: Option<&str>,
     scope: &str,
     origin: (f64, f64),
 ) -> Result<Vec<Bounds>, ReadError> {
-    boxes(page, scope, &format!(".{SLOT_CLASS}"), origin).await
+    match slot {
+        Some(slot) => boxes(page, scope, slot, origin).await,
+        None => Ok(Vec::new()),
+    }
 }
-
-/// The elements of the design system that draw a Mac window: the window of
-/// a settings or import screen, the main window, the storage window and a
-/// sheet, which macOS draws as a window of its own.
-const WINDOW_SELECTOR: &str = ".bae-m-window, .bae-m-mainwin, .bae-m-storewin, .bae-m-face-sheet";
 
 /// What Chrome reports of a window element.
 #[derive(Deserialize)]
@@ -793,27 +791,33 @@ struct WindowStyle {
 }
 
 /// The window drawn inside <scope> (a JavaScript expression for a node, such
-/// as `document`), measured from the top-left corner of `frame`: the first
-/// window element's frame and corner curve. A scope with no window element
-/// draws its whole `frame` with square corners. The comparison reads the
-/// corners of a native window against this shape.
+/// as `document`), measured from the top-left corner of `frame`: the frame and
+/// corner curve of the first window element, one that <window> selects
+/// (`shots-window`). A scope with no window element, or no selector, draws its
+/// whole `frame` with square corners. The comparison reads the corners of a
+/// native window against this shape.
 pub(crate) async fn window(
     page: &DrawPage,
+    window: Option<&str>,
     scope: &str,
     frame: Bounds,
 ) -> Result<WindowShape, ReadError> {
-    let selector = serde_json::to_string(WINDOW_SELECTOR).expect("a string serializes");
-    let styles: Vec<WindowStyle> = page
-        .evaluate(format!(
-            "[...{scope}.querySelectorAll({selector})].slice(0, 1).map(e => {{ \
+    let styles: Vec<WindowStyle> = match window {
+        None => Vec::new(),
+        Some(selector) => {
+            let selector = serde_json::to_string(selector).expect("a string serializes");
+            page.evaluate(format!(
+                "[...{scope}.querySelectorAll({selector})].slice(0, 1).map(e => {{ \
              const r = e.getBoundingClientRect(); const s = getComputedStyle(e); \
              return {{frame: {{x: r.x, y: r.y, width: r.width, height: r.height}}, \
              radius: parseFloat(s.borderTopLeftRadius), cornerShape: s.cornerShape}}; }})"
-        ))
-        .await
-        .map_err(protocol)?
-        .into_value()
-        .map_err(protocol)?;
+            ))
+            .await
+            .map_err(protocol)?
+            .into_value()
+            .map_err(protocol)?
+        }
+    };
     let Some(style) = styles.into_iter().next() else {
         return Ok(WindowShape {
             frame: Bounds {
@@ -854,9 +858,10 @@ pub(crate) async fn elements_in(
     page: &DrawPage,
     backend: i64,
     frame: Bounds,
+    glyph: Option<&str>,
     platform: Platform,
 ) -> Result<Vec<Element>, ReadError> {
-    let raw = gather(page, frame, platform).await?;
+    let raw = gather(page, frame, glyph, platform).await?;
     build(&subtree(&raw, backend)?, platform)
 }
 
@@ -874,7 +879,12 @@ fn subtree(raw: &[Raw], backend: i64) -> Result<Vec<Raw>, ReadError> {
 /// The id of the style that turns transforms off while the reader measures.
 const UNTRANSFORMED: &str = "builds-shots-untransformed";
 
-async fn gather(page: &DrawPage, frame: Bounds, platform: Platform) -> Result<Vec<Raw>, ReadError> {
+async fn gather(
+    page: &DrawPage,
+    frame: Bounds,
+    glyph: Option<&str>,
+    platform: Platform,
+) -> Result<Vec<Raw>, ReadError> {
     // The root's overflow applies to the viewport, as does the body's when
     // the root lets overflow through.
     let body_overflow_applies_to_viewport = page
@@ -914,12 +924,12 @@ async fn gather(page: &DrawPage, frame: Bounds, platform: Platform) -> Result<Ve
         for node in &tree.result.nodes {
             let mut raw = raw(node);
             if !raw.ignored && !STRUCTURE.contains(&raw.chrome_role.as_str()) {
-                let ink = ink_boxed(Role::for_node(&raw, platform));
+                let boxing = glyph.filter(|_| ink_boxed(Role::for_node(&raw, platform)));
                 match measure(
                     page,
                     node,
                     &clipping_argument,
-                    ink,
+                    boxing,
                     backend::of(platform).allowances().spanning_title_box,
                 )
                 .await?
@@ -969,7 +979,7 @@ async fn measure(
     page: &DrawPage,
     node: &AxNode,
     clipping: &CallArgument,
-    boxed_by_glyph_ink: bool,
+    boxing_glyphs: Option<&str>,
     boxed_by_line: bool,
 ) -> Result<Result<Measurement, &'static str>, ReadError> {
     let Some(backend) = node.backend_dom_node_id else {
@@ -991,7 +1001,7 @@ async fn measure(
     call.arguments = Some(vec![
         clipping.clone(),
         CallArgument::builder()
-            .value(serde_json::Value::Bool(boxed_by_glyph_ink))
+            .value(boxing_glyphs.map_or(serde_json::Value::Null, serde_json::Value::from))
             .build(),
         CallArgument::builder()
             .value(serde_json::Value::Bool(boxed_by_line))

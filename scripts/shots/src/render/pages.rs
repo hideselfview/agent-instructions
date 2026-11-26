@@ -207,7 +207,8 @@ pub(crate) async fn draw(
                     (rendered.png, rendered.frame)
                 }
             };
-            let elements = read::elements(tab, frame, Platform::Mac)
+            let glyph = context.settings.glyph.as_deref();
+            let elements = read::elements(tab, frame, glyph, Platform::Mac)
                 .await
                 .map_err(|e| e.to_string())?;
             Ok(Drawn {

@@ -57,6 +57,46 @@ fn the_shots_lines_are_read_and_the_others_skipped() {
 }
 
 #[test]
+fn a_marker_lines_selector_is_the_rest_of_the_line() {
+    let settings = Settings::parse(
+        "shots-slot  .pane .slot \n\
+         shots-glyph svg.glyph\n\
+         shots-window mac .window, .main > .sheet\n\
+         shots-window android .dialog\n\
+         shots-body-class android preview-android\n",
+    )
+    .unwrap();
+    let mac = settings.markers(&App::named_for(Platform::Mac));
+    assert_eq!(
+        (mac.slot, mac.glyph, mac.window, mac.body_class),
+        (
+            Some(".pane .slot"),
+            Some("svg.glyph"),
+            Some(".window, .main > .sheet"),
+            None
+        )
+    );
+    let android = settings.markers(&App::named_for(Platform::Android));
+    assert_eq!(
+        (android.slot, android.window, android.body_class),
+        (
+            Some(".pane .slot"),
+            Some(".dialog"),
+            Some("preview-android")
+        )
+    );
+}
+
+#[test]
+fn a_window_selector_may_hold_its_apps_name() {
+    let settings = Settings::parse("shots-window mac mac-window, .mac\n").unwrap();
+    assert_eq!(
+        settings.markers(&App::named_for(Platform::Mac)).window,
+        Some("mac-window, .mac")
+    );
+}
+
+#[test]
 fn a_repo_with_no_shots_lines_has_no_settings() {
     let settings = Settings::parse("mac build ./run.sh\n").unwrap();
     assert_eq!(settings, Settings::default());
@@ -110,6 +150,28 @@ fn a_shots_line_it_cannot_read_is_refused() {
         ("shots-declared mac ../out", "outside the repo"),
         ("shots-preview .row .name", "selectors"),
         ("shots-unshot", "names nothing"),
+        ("shots-slot", "names nothing"),
+        ("shots-glyph  ", "names nothing"),
+        ("shots-slot .a\nshots-slot .b", "repeats shots-slot"),
+        ("shots-glyph .a\nshots-glyph .b", "repeats shots-glyph"),
+        ("shots-window", "names no app"),
+        ("shots-window .window", "names no app"),
+        ("shots-window mac", "nothing else"),
+        (
+            "shots-window mac .a\nshots-window mac .b",
+            "second window selector",
+        ),
+        ("shots-body-class ios a", "names no app"),
+        ("shots-body-class android", "nothing else"),
+        ("shots-body-class android a b", "more than one class"),
+        (
+            "shots-body-class android .a",
+            "a selector where a class's name goes",
+        ),
+        (
+            "shots-body-class android a\nshots-body-class android b",
+            "second body class",
+        ),
         ("shots-design-only", "names no app"),
         ("shots-design-only mac", "names no component"),
         ("shots-design-only ios Sym", "names no app"),

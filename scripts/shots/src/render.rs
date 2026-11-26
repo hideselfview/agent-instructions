@@ -17,7 +17,7 @@ pub(crate) mod web_fonts;
 use crate::design::{self, DesignSystem};
 use crate::names::{self, Name, Previews};
 use crate::pictures::Pictures;
-use crate::settings::Settings;
+use crate::settings::{Markers, Settings};
 use crate::shots::{ElementList, Size};
 use serve::Tree;
 use std::collections::BTreeMap;
@@ -221,11 +221,11 @@ async fn draw_with(
         let drawn = chrome
             .with_page(&format!("board {board}"), async |page| match name {
                 Name::Screen(_) => {
-                    draw_screen(tree.root, settings, &board, page, server, name.platform()).await
+                    let markers = settings.markers(name.app());
+                    draw_screen(tree.root, markers, &board, page, server, name.platform()).await
                 }
                 Name::Component(component) => {
-                    draw_component(settings, previews, component, page, server, name.platform())
-                        .await
+                    draw_component(settings, previews, component, page, server, name.app()).await
                 }
             })
             .await?;
@@ -255,7 +255,7 @@ async fn draw_with(
 
 async fn draw_screen(
     root: &Path,
-    settings: &Settings,
+    markers: Markers<'_>,
     board: &str,
     page: &chrome::DrawPage,
     server: &serve::Server,
@@ -265,7 +265,7 @@ async fn draw_screen(
     let rendered = board::render(page, board, &server.board_url(board), frame)
         .await
         .map_err(|e| e.to_string())?;
-    let read = read_page(page, settings, rendered.frame, platform).await?;
+    let read = read_page(page, markers, rendered.frame, platform).await?;
     Ok(Drawn {
         png: rendered.png,
         size: Size {
@@ -288,23 +288,24 @@ pub(crate) struct Read {
 }
 
 /// Reads the elements, the parts the app draws no counterpart for, the slots
-/// and the window of <page>, drawn in <frame> for <platform>.
+/// and the window of <page>, drawn in <frame> for <platform>, as <markers>
+/// mark them.
 pub(crate) async fn read_page(
     page: &chrome::DrawPage,
-    settings: &Settings,
+    markers: Markers<'_>,
     frame: crate::shots::Bounds,
     platform: names::Platform,
 ) -> Result<Read, String> {
-    let elements = read::elements(page, frame, platform)
+    let elements = read::elements(page, frame, markers.glyph, platform)
         .await
         .map_err(|e| e.to_string())?;
-    let unshot = read::unshot(page, &settings.unshot, "document", (0.0, 0.0))
+    let unshot = read::unshot(page, markers.unshot, "document", (0.0, 0.0))
         .await
         .map_err(|e| e.to_string())?;
-    let slots = read::slots(page, "document", (frame.x, frame.y))
+    let slots = read::slots(page, markers.slot, "document", (frame.x, frame.y))
         .await
         .map_err(|e| e.to_string())?;
-    let window = read::window(page, "document", frame)
+    let window = read::window(page, markers.window, "document", frame)
         .await
         .map_err(|e| e.to_string())?;
     Ok(Read {
@@ -321,19 +322,19 @@ async fn draw_component(
     name: &names::ComponentName,
     page: &chrome::DrawPage,
     server: &serve::Server,
-    platform: names::Platform,
+    app: &names::App,
 ) -> Result<Drawn, String> {
     let component = name.component(previews);
-    let marks = settings.preview(&component).map_err(|e| e.to_string())?;
+    let rows = settings.preview(&component).map_err(|e| e.to_string())?;
     preview::render_row(
         page,
         &component,
         name.state(),
         &server.preview_url(&component),
-        platform,
+        app.platform,
         preview::Marks {
-            rows: marks,
-            unshot: &settings.unshot,
+            rows,
+            board: settings.markers(app),
         },
     )
     .await

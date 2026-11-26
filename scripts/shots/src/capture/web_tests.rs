@@ -236,6 +236,7 @@ fn a_staged_page_waits_for_its_ready_selector_runs_a_click_and_compares_with_its
         .collect();
     assert!(texts.iter().any(|t| t == "Done"), "{texts:?}");
 
+    let (settings, app) = (Settings::default(), App::named_for(Platform::Web));
     let board = tokio::runtime::Runtime::new()
         .unwrap()
         .block_on(fixture::with_browser_at(
@@ -248,7 +249,7 @@ fn a_staged_page_waits_for_its_ready_selector_runs_a_click_and_compares_with_its
                     .await
                     .unwrap();
                 let read =
-                    render::read_page(&page, &Settings::default(), rendered.frame, Platform::Web)
+                    render::read_page(&page, settings.markers(&app), rendered.frame, Platform::Web)
                         .await
                         .unwrap();
                 (rendered, read)

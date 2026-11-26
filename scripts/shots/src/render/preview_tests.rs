@@ -1,5 +1,7 @@
 use super::*;
+use crate::names::App;
 use crate::render::fixture;
+use crate::settings::{Markers, Settings};
 use crate::shots::Role;
 use sha2::{Digest, Sha256};
 use std::time::Duration;
@@ -20,10 +22,17 @@ fn rows() -> &'static Preview {
     })
 }
 
-fn marks(unshot: &[String]) -> Marks<'_> {
+/// The rows' marks with the fixtures' markers for the app named for
+/// <platform>, and <unshot> as the unshot parts.
+fn marks(platform: Platform, unshot: &[String]) -> Marks<'_> {
+    static MARKED: std::sync::OnceLock<Settings> = std::sync::OnceLock::new();
+    let settings = MARKED.get_or_init(fixture::marked);
     Marks {
         rows: rows(),
-        unshot,
+        board: Markers {
+            unshot,
+            ..settings.markers(&App::named_for(platform))
+        },
     }
 }
 
@@ -98,11 +107,19 @@ async fn a_row_reads_as_the_state_it_names() {
             "nested-off",
             &url,
             Platform::Mac,
-            marks(&[]),
+            marks(Platform::Mac, &[]),
         )
         .await;
         let page = chrome.new_page().await.unwrap();
-        let missing = render_row(&page, "MacRow", "missing", &url, Platform::Mac, marks(&[])).await;
+        let missing = render_row(
+            &page,
+            "MacRow",
+            "missing",
+            &url,
+            Platform::Mac,
+            marks(Platform::Mac, &[]),
+        )
+        .await;
         (row, missing)
     })
     .await;
@@ -146,7 +163,7 @@ async fn a_shared_row_gets_the_android_class_on_the_android_lane_only() {
     let root = fixture::tree(&[]);
     let page_html = PREVIEW.replace(
         "</style>",
-        "body.bae-preview-android .row-cell{width:400px}</style>",
+        "body.demo-preview-android .row-cell{width:400px}</style>",
     );
     fixture::write(
         root.path(),
@@ -158,9 +175,16 @@ async fn a_shared_row_gets_the_android_class_on_the_android_lane_only() {
         let mut widths = Vec::new();
         for platform in [Platform::Mac, Platform::Android] {
             let page = chrome.new_page().await.unwrap();
-            let row = render_row(&page, "MacRow", "label", &url, platform, marks(&[]))
-                .await
-                .unwrap();
+            let row = render_row(
+                &page,
+                "MacRow",
+                "label",
+                &url,
+                platform,
+                marks(platform, &[]),
+            )
+            .await
+            .unwrap();
             widths.push(row.size.width);
         }
         (widths[0], widths[1])
@@ -173,7 +197,7 @@ async fn a_shared_row_gets_the_android_class_on_the_android_lane_only() {
 /// tree gives, so the page fetches the font once it carries the class.
 const ANDROID_FONT_PREVIEW: &str = r#"<!doctype html><html><head><meta charset="utf-8">
 <style>@font-face{font-family:Late;src:url(/late.woff2)}
-body{margin:0;font:13px sans-serif}.bae-preview-android .row-cell{font-family:Late}
+body{margin:0;font:13px sans-serif}.demo-preview-android .row-cell{font-family:Late}
 .row{display:flex}.row-cell{width:300px}</style></head>
 <body><div id="root"></div><script>
 const h = React.createElement;
@@ -202,7 +226,7 @@ async fn an_android_row_whose_class_names_a_font_to_fetch_is_drawn() {
                         "label",
                         &server.preview_url("Late"),
                         Platform::Android,
-                        marks(&[]),
+                        marks(Platform::Android, &[]),
                     )
                     .await
                     .map_err(|e| e.to_string())
@@ -227,7 +251,7 @@ const W = (name, child) => h('div', {className: 'row'},
   h('span', {className: 'row-name'}, name), h('div', {className: 'row-cell'}, child));
 ReactDOM.createRoot(document.getElementById('root')).render(h('div', null,
   W('Plain', h('div', {className: 'kb', style: {top: '250px', height: '100px'}},
-    h('div', {className: 'bae-preview-slot'}, 'slot'))),
+    h('div', {className: 'demo-slot'}, 'slot'))),
   W('Typing', h('div', {className: 'kb'}, 'keys'))));
 </script></body></html>"#;
 
@@ -250,11 +274,18 @@ async fn a_row_reports_the_unshot_parts_inside_its_cell_from_the_cells_corner() 
         ] {
             let page = chrome.new_page().await.unwrap();
             rows.push(
-                render_row(&page, "MacRow", state, &url, Platform::Mac, marks(unshot))
-                    .await
-                    .unwrap()
-                    .read
-                    .unshot,
+                render_row(
+                    &page,
+                    "MacRow",
+                    state,
+                    &url,
+                    Platform::Mac,
+                    marks(Platform::Mac, unshot),
+                )
+                .await
+                .unwrap()
+                .read
+                .unshot,
             );
         }
         (rows[0].clone(), rows[1].clone(), rows[2].clone())
@@ -287,11 +318,18 @@ async fn a_row_reports_only_the_preview_slots_inside_its_cell() {
         for state in ["typing", "plain"] {
             let page = chrome.new_page().await.unwrap();
             rows.push(
-                render_row(&page, "MacRow", state, &url, Platform::Mac, marks(&[]))
-                    .await
-                    .unwrap()
-                    .read
-                    .slots,
+                render_row(
+                    &page,
+                    "MacRow",
+                    state,
+                    &url,
+                    Platform::Mac,
+                    marks(Platform::Mac, &[]),
+                )
+                .await
+                .unwrap()
+                .read
+                .slots,
             );
         }
         (rows[0].len(), rows[1].len())
@@ -374,7 +412,7 @@ async fn a_row_draws_the_same_picture_below_a_row_of_a_fractional_height() {
                 "second",
                 &server.preview_url(component),
                 Platform::Mac,
-                marks(&[]),
+                marks(Platform::Mac, &[]),
             )
             .await
             .unwrap();
@@ -406,15 +444,15 @@ async fn a_row_draws_the_same_picture_below_a_row_of_a_fractional_height() {
 const WINDOW_PREVIEW: &str = r#"<!doctype html><html><head><meta charset="utf-8">
 <style>body{margin:0;font:13px sans-serif}.row{display:flex;height:100px}
 .row-cell{width:200px;position:relative}
-.bae-m-window{width:100px;height:60px;border-radius:12px;corner-shape:round}
-.bae-m-face-sheet{width:80px;height:40px;border-radius:8px}</style></head>
+.demo-window{width:100px;height:60px;border-radius:12px;corner-shape:round}
+.demo-sheet{width:80px;height:40px;border-radius:8px}</style></head>
 <body><div id="root"></div><script>
 const h = React.createElement;
 const W = (name, child) => h('div', {className: 'row'},
   h('span', {className: 'row-name'}, name), h('div', {className: 'row-cell'}, child));
 ReactDOM.createRoot(document.getElementById('root')).render(h('div', null,
-  W('Window', h('div', {className: 'bae-m-window'})),
-  W('Sheet', h('div', {className: 'bae-m-face-sheet'})),
+  W('Window', h('div', {className: 'demo-window'})),
+  W('Sheet', h('div', {className: 'demo-sheet'})),
   W('Plain', h('div', null, 'text'))));
 </script></body></html>"#;
 
@@ -432,11 +470,18 @@ async fn a_row_reports_the_window_or_sheet_its_cell_draws_from_the_cells_corner(
         for state in ["window", "sheet", "plain"] {
             let page = chrome.new_page().await.unwrap();
             rows.push(
-                render_row(&page, "MacRow", state, &url, Platform::Mac, marks(&[]))
-                    .await
-                    .unwrap()
-                    .read
-                    .window,
+                render_row(
+                    &page,
+                    "MacRow",
+                    state,
+                    &url,
+                    Platform::Mac,
+                    marks(Platform::Mac, &[]),
+                )
+                .await
+                .unwrap()
+                .read
+                .window,
             );
         }
         (rows[0], rows[1], rows[2])

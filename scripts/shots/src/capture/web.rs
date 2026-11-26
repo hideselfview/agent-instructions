@@ -153,7 +153,8 @@ async fn shot(chrome: &chrome::Chrome, job: &Job<'_>, name: &Name) -> Result<(),
             .await?;
             let png = board::screenshot(page).await.map_err(|e| e.to_string())?;
             let bounds = board::frame_bounds(frame);
-            let read = render::read_page(page, job.settings, bounds, Platform::Web).await?;
+            let markers = job.settings.markers(job.app);
+            let read = render::read_page(page, markers, bounds, Platform::Web).await?;
             Ok((png, bounds, read))
         })
         .await;

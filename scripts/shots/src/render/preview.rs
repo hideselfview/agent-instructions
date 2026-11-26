@@ -10,14 +10,13 @@
 //! element that holds the drawing (settings.rs). A preview with no rows is
 //! one state, `default`, drawn by the whole page.
 
-use crate::backend;
 use crate::design::Frame;
 use crate::names::{Platform, state_id};
 use crate::render::Drawn;
 use crate::render::board::{self, BoardError};
 use crate::render::chrome::DrawPage;
 use crate::render::read;
-use crate::settings::Preview;
+use crate::settings::{Markers, Preview};
 use crate::shots::Bounds;
 use crate::shots::Size;
 use chromiumoxide::cdp::browser_protocol::dom::DescribeNodeParams;
@@ -87,11 +86,11 @@ fn js(text: &str) -> String {
     serde_json::to_string(text).expect("a string serializes")
 }
 
-/// The selectors a row is read with: those of the page's rows (`shots-preview`)
-/// and those of the parts the app draws no counterpart for (`shots-unshot`).
+/// What a row is drawn and read with: the selectors of the page's rows
+/// (`shots-preview`) and the markers of the app it is drawn for.
 pub(crate) struct Marks<'a> {
     pub(crate) rows: &'a Preview,
-    pub(crate) unshot: &'a [String],
+    pub(crate) board: Markers<'a>,
 }
 
 pub(crate) enum CaptureArea {
@@ -159,11 +158,11 @@ async fn start_on_whole_point(page: &DrawPage, row: &str, cell: &str) -> Result<
 
 /// Loads the preview at `url` and draws the row of `state`, at the page's device
 /// scale: the picture of its cell and the elements inside it, measured
-/// from the cell's top-left, read as `platform`'s boards are. `marks` are the
-/// selectors of the page's rows and unshot parts. The android lane's page body gets the class
-/// `bae-preview-android` from its creation, so the fonts that class names load
-/// while the page loads, and a row both lanes shoot draws on each platform's
-/// own surface.
+/// from the cell's top-left, read as `platform`'s boards are. `marks` are what
+/// marks the page's rows and the app's boards. The page's body gets the app's
+/// class (`shots-body-class`), if any, from its creation, so the fonts that
+/// class names load while the page loads, and a row that several apps shoot
+/// draws on each one's own surface.
 pub(crate) async fn render_row(
     page: &DrawPage,
     component: &str,
@@ -174,7 +173,7 @@ pub(crate) async fn render_row(
 ) -> Result<Drawn, PreviewError> {
     let Marks {
         rows: marks,
-        unshot,
+        board: markers,
     } = marks;
     board::load(
         page,
@@ -182,7 +181,7 @@ pub(crate) async fn render_row(
         url,
         PREVIEW_FRAME,
         PREVIEW_MOUNTED,
-        backend::of(platform).preview_body_class(),
+        markers.body_class,
     )
     .await?;
     let names: Vec<String> = page
@@ -240,12 +239,14 @@ pub(crate) async fn render_row(
         page,
         *described.result.node.backend_node_id.inner(),
         rendered.frame,
+        markers.glyph,
         platform,
     )
     .await?;
-    let slots = read::slots(page, &cell, (rendered.frame.x, rendered.frame.y)).await?;
-    let unshot = read::unshot(page, unshot, &cell, (rendered.frame.x, rendered.frame.y)).await?;
-    let window = read::window(page, &cell, rendered.frame).await?;
+    let origin = (rendered.frame.x, rendered.frame.y);
+    let slots = read::slots(page, markers.slot, &cell, origin).await?;
+    let unshot = read::unshot(page, markers.unshot, &cell, origin).await?;
+    let window = read::window(page, markers.window, &cell, rendered.frame).await?;
     Ok(Drawn {
         png: rendered.png,
         size: Size {

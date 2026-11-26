@@ -15,6 +15,10 @@
 //! shots-unshot .keyboard
 //! shots-design-only mac AppIcon Sym
 //! shots-design-only android Logo.inline Logo.sheep
+//! shots-slot .preview-slot
+//! shots-glyph svg.glyph
+//! shots-window mac .window, .sheet
+//! shots-body-class android preview-android
 //! ```
 //!
 //! - `app <name> <platform>`: an app and the platform whose backend takes its
@@ -48,9 +52,22 @@
 //!   counterpart for, such as an on-screen keyboard, which the picture
 //!   comparison leaves out (render/read.rs).
 //!
-//! A board's elements of the class `bae-preview-slot` need no line: a container's
-//! preview draws one as a stand-in for its content, and the comparison leaves
-//! out what either side holds inside its box (render/read.rs, compare.rs).
+//! Four lines mark what the repo's design system draws that the checker must
+//! tell apart. A selector is the rest of its line, one CSS selector or a
+//! selector list. A repo with no such line has none of what the line marks.
+//!
+//! - `shots-slot <selector>`: a container's stand-in for its content, which
+//!   its preview draws; the comparison leaves out what either side holds
+//!   inside its box (render/read.rs, compare.rs).
+//! - `shots-glyph <selector>`: a glyph, drawn as its ink with margins for the
+//!   rest of its room, whose ink boxes the button or link that holds it
+//!   (render/read.rs).
+//! - `shots-window <app> <selector>`: the elements of the app's boards that
+//!   draw a window, whose shape the comparison reads the corners of the
+//!   app's native window against (render/read.rs).
+//! - `shots-body-class <app> <class>`: the class the body of a component
+//!   preview's page gets when it is drawn for the app, so that a preview that
+//!   several apps shoot draws on each one's own surface (render/preview.rs).
 
 use crate::backend;
 use crate::names::{App, Apps};
@@ -63,6 +80,19 @@ pub(crate) fn split_design_only(name: &str) -> (&str, Option<&str>) {
         Some((component, row)) => (component, Some(row)),
         None => (name, None),
     }
+}
+
+/// What <line>, which starts with the word <word>, holds after it.
+fn after<'a>(line: &'a str, word: &str) -> &'a str {
+    line[word.len()..].trim_start()
+}
+
+/// The marker <markers> gives <app>, if any.
+fn of_app<'a>(markers: &'a [(App, String)], app: &App) -> Option<&'a str> {
+    markers
+        .iter()
+        .find(|(a, _)| a == app)
+        .map(|(_, marker)| marker.as_str())
 }
 
 /// The file the settings are read from, at the repo's top.
@@ -104,6 +134,23 @@ pub(crate) struct Settings {
     pub(crate) unshot: Vec<String>,
     /// Each component an app draws for the design only, in the order written.
     pub(crate) design_only: Vec<(App, String)>,
+    pub(crate) slot: Option<String>,
+    pub(crate) glyph: Option<String>,
+    /// Each app's window selector, in the order written.
+    pub(crate) window: Vec<(App, String)>,
+    /// Each app's preview body class, in the order written.
+    pub(crate) body_class: Vec<(App, String)>,
+}
+
+/// The selectors and the class that one app's boards are drawn and read with.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Markers<'a> {
+    /// The parts the app draws no counterpart for (`shots-unshot`).
+    pub(crate) unshot: &'a [String],
+    pub(crate) slot: Option<&'a str>,
+    pub(crate) glyph: Option<&'a str>,
+    pub(crate) window: Option<&'a str>,
+    pub(crate) body_class: Option<&'a str>,
 }
 
 impl Settings {
@@ -164,6 +211,51 @@ impl Settings {
                         return Err(bad("gives an app a second command"));
                     }
                     commands.push((app, value.to_vec()));
+                }
+                "shots-slot" | "shots-glyph" => {
+                    let selector = after(line, keyword);
+                    if selector.is_empty() {
+                        return Err(bad("names nothing"));
+                    }
+                    let (marker, repeats) = if keyword == "shots-slot" {
+                        (&mut settings.slot, "repeats shots-slot")
+                    } else {
+                        (&mut settings.glyph, "repeats shots-glyph")
+                    };
+                    if marker.replace(selector.to_string()).is_some() {
+                        return Err(bad(repeats));
+                    }
+                }
+                "shots-window" | "shots-body-class" => {
+                    let [name, value @ ..] = rest.as_slice() else {
+                        return Err(bad("names no app"));
+                    };
+                    let app = settings.app(name).ok_or_else(|| bad(NO_APP))?;
+                    if value.is_empty() {
+                        return Err(bad("names its app and nothing else"));
+                    }
+                    let (markers, marker) = if keyword == "shots-window" {
+                        (
+                            &mut settings.window,
+                            after(after(line, keyword), name).to_string(),
+                        )
+                    } else {
+                        let [class] = value else {
+                            return Err(bad("gives more than one class"));
+                        };
+                        if class.starts_with('.') {
+                            return Err(bad("gives a selector where a class's name goes"));
+                        }
+                        (&mut settings.body_class, class.clone())
+                    };
+                    if markers.iter().any(|(a, _)| *a == app) {
+                        return Err(bad(if keyword == "shots-window" {
+                            "gives an app a second window selector"
+                        } else {
+                            "gives an app a second body class"
+                        }));
+                    }
+                    markers.push((app, marker));
                 }
                 // boards::app_build reads these lines, as builds does.
                 "shots-declared" => {}
@@ -227,6 +319,17 @@ impl Settings {
             .collect();
         apps.sort();
         apps
+    }
+
+    /// What <app>'s boards are drawn and read with.
+    pub(crate) fn markers(&self, app: &App) -> Markers<'_> {
+        Markers {
+            unshot: &self.unshot,
+            slot: self.slot.as_deref(),
+            glyph: self.glyph.as_deref(),
+            window: of_app(&self.window, app),
+            body_class: of_app(&self.body_class, app),
+        }
     }
 
     /// The command <commands> gives <app>; empty when it gives none.

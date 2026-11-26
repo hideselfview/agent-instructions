@@ -255,7 +255,21 @@ impl Common<'_> {
         }
         feed(hasher, "browser", self.browser_version.as_bytes());
         feed(hasher, "program", self.program_version.as_bytes());
-        feed(hasher, "unshot", self.settings.unshot.join("\n").as_bytes());
+        let settings = self.settings;
+        feed(hasher, "unshot", settings.unshot.join("\n").as_bytes());
+        for (label, selector) in [("slot", &settings.slot), ("glyph", &settings.glyph)] {
+            if let Some(selector) = selector {
+                feed(hasher, label, selector.as_bytes());
+            }
+        }
+        for (label, markers) in [
+            ("window", &settings.window),
+            ("body class", &settings.body_class),
+        ] {
+            for (app, marker) in markers {
+                feed(hasher, &format!("{label} {}", app.name), marker.as_bytes());
+            }
+        }
         feed(hasher, "scale", self.scale.to_string().as_bytes());
     }
 }

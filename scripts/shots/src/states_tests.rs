@@ -255,7 +255,7 @@ fn a_class_name_and_an_icon_name_are_no_state() {
         "mac.one",
         vec![instance(
             "Button",
-            json!({"kind": "primary", "className": "bae-accent", "icon": "copy", "leadingIcon": "add", "name": "check"}),
+            json!({"kind": "primary", "className": "demo-accent", "icon": "copy", "leadingIcon": "add", "name": "check"}),
         )],
     )];
     assert_eq!(listed(&drawn(boards, previews)), Vec::<String>::new());

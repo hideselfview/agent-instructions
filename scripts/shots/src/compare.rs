@@ -102,7 +102,7 @@ pub(crate) struct Comparison {
     pub(crate) findings: Vec<Finding>,
 }
 
-/// The board's preview slots: the boxes of its `bae-preview-slot` stand-ins,
+/// The board's preview slots: the boxes of its stand-ins (`shots-slot`),
 /// where the app draws its real content, and the board's frame. The real view
 /// can run past the frame (a pane that scrolls) and the shot lists what runs
 /// past, so a slot that reaches the frame's right or bottom edge goes on past

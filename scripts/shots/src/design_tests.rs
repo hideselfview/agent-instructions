@@ -217,6 +217,34 @@ fn the_board_hash_changes_with_the_frame_each_built_file_the_runtime_the_browser
 }
 
 #[test]
+fn the_board_hash_changes_with_each_marker_line() {
+    let root = tree();
+    let of = |lines: &str| {
+        hash_with(
+            root.path(),
+            &system("tokens", "css", "js"),
+            "runtime",
+            "chrome-1",
+            "program-1",
+            &Settings::parse(lines).unwrap(),
+        )
+    };
+    let hashes: std::collections::BTreeSet<String> = [
+        "",
+        "shots-slot .a",
+        "shots-slot .b",
+        "shots-glyph .a",
+        "shots-window mac .a",
+        "shots-window android .a",
+        "shots-body-class mac a",
+    ]
+    .into_iter()
+    .map(of)
+    .collect();
+    assert_eq!(hashes.len(), 7);
+}
+
+#[test]
 fn a_preview_hash_names_its_shot_so_each_row_of_a_preview_has_its_own() {
     let root = tree();
     let r = root.path();

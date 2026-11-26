@@ -1547,7 +1547,8 @@ board's picture depends on: the board's file and the parts it mounts (for a
 component shot, the preview page and the shot's name), its frame on the
 canvas, the design system's built files, the canvas runtime copy, the copies
 of React, the pinned Chrome, the capture version of the shots checker, and the
-shots-unshot and shots-preview lines. app-build passes the folder to each shots run
+shots-unshot, shots-preview, shots-slot, shots-glyph, shots-window and
+shots-body-class lines. app-build passes the folder to each shots run
 on this Mac (`run --pictures`), and the run draws only the boards whose hash
 the folder lacks and adds each new drawing to it, so builds draws a board
 once for its inputs. Beside each board's picture in a run's boards folder,
@@ -2148,12 +2149,29 @@ built again.
                               preview, is an error, which `lint` reports too
                               so that the commit hook refuses it. `shots-unshot
                               <selector>...` the parts of a board that the
-                              app draws nothing for. A board's elements with
-                              the class `bae-preview-slot` are a container's
-                              stand-in for its content: the checker records
-                              their boxes and leaves out, on both sides of
-                              the comparison, every element and picture area
-                              inside them. The checker runs a
+                              app draws nothing for. Four lines mark what
+                              the repo's design system draws that the checker
+                              must tell apart, and a repo with no such line
+                              has none of what the line marks. A <selector>
+                              is the rest of its line: one CSS selector or a
+                              selector list. `shots-slot <selector>` marks a
+                              container's stand-in for its content: the
+                              checker records the boxes of the elements it
+                              selects and leaves out, on both sides of the
+                              comparison, every element and picture area
+                              inside them. `shots-glyph <selector>` marks a
+                              glyph, drawn as its ink with margins for the
+                              rest of its room: on a board, the ink of the
+                              glyphs a button or link holds boxes it.
+                              `shots-window <app> <selector>` marks the
+                              elements of the app's boards that draw a
+                              window, whose frame and corners the checker
+                              reads from the first of them on a board; a
+                              board with none draws its whole frame with
+                              square corners. `shots-body-class <app>
+                              <class>` gives the class that the body of a
+                              component preview's page gets when the checker
+                              draws it for the app. The checker runs a
                               capture command from the repo's top with
                               BUILDS_SHOTS_OUT (the folder to write each
                               <name>@<platform>.png and .json into),

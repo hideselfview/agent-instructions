@@ -1,7 +1,9 @@
 use super::*;
 use crate::design::Frame;
+use crate::names::App;
 use crate::render::board::render;
 use crate::render::fixture;
+use crate::settings::Settings;
 
 const BOX: Bounds = Bounds {
     x: 0.0,
@@ -388,7 +390,7 @@ async fn read_fixture() -> Vec<Element> {
         let rendered = render(&page, "fixture.roles", &url, Frame { w: 500, h: 600 })
             .await
             .unwrap();
-        elements(&page, rendered.frame, Platform::Mac).await
+        elements(&page, rendered.frame, None, Platform::Mac).await
     })
     .await;
     elements.unwrap()
@@ -429,7 +431,7 @@ async fn a_board_reads_elements_with_area_inside_its_frame_and_overflow_clips() 
         let rendered = render(&page, "fixture.clips", &url, Frame { w: 300, h: 120 })
             .await
             .unwrap();
-        elements(&page, rendered.frame, Platform::Mac)
+        elements(&page, rendered.frame, None, Platform::Mac)
             .await
             .unwrap()
     })
@@ -471,7 +473,7 @@ async fn a_clipped_fields_typed_text_is_no_element() {
         )
         .await
         .unwrap();
-        elements(&page, rendered.frame, Platform::Mac)
+        elements(&page, rendered.frame, None, Platform::Mac)
             .await
             .unwrap()
     })
@@ -498,7 +500,7 @@ async fn a_boards_on_screen_keyboard_is_found_and_not_an_element() {
             )
             .await
             .unwrap(),
-            elements(&page, rendered.frame, Platform::Android)
+            elements(&page, rendered.frame, None, Platform::Android)
                 .await
                 .unwrap(),
         )
@@ -653,7 +655,7 @@ async fn a_board_element_is_read_where_layout_puts_it_before_any_transform() {
         let rendered = render(&page, "fixture.transforms", &url, Frame { w: 300, h: 150 })
             .await
             .unwrap();
-        let read = elements(&page, rendered.frame, Platform::Mac)
+        let read = elements(&page, rendered.frame, None, Platform::Mac)
             .await
             .unwrap();
         // Reading leaves the page as it drew it.
@@ -691,24 +693,26 @@ async fn a_button_or_link_that_wraps_a_glyph_is_boxed_by_the_glyphs_ink_not_its_
     let root = fixture::tree(&[(
         "fixture.glyph-room",
         r##"<x-dc><helmet><style>body{margin:0;font:16px/20px sans-serif}
-.bae-glyph{display:block}
+.demo-glyph{display:block}
 .only{position:absolute;left:10px;top:10px;padding:0;border:0;display:block}
 .only svg{width:10px;height:11px;margin:1px 2px 1.5px 1px}
 .link{position:absolute;left:10px;top:60px;display:inline-flex;align-items:center;gap:4px;height:20px}
 .link svg{width:6.208px;height:6.19px;margin:2.86px 2.905px 2.95px 2.888px}</style></helmet>
-<button class="only" aria-label="Play"><svg class="bae-glyph" viewBox="0 0 10 11"><path d="M0 0h10v11z"/></svg></button>
-<a class="link" href="#">Words<svg class="bae-glyph" viewBox="0 0 6 6"><path d="M0 0h6v6z"/></svg></a>
+<button class="only" aria-label="Play"><svg class="demo-glyph" viewBox="0 0 10 11"><path d="M0 0h10v11z"/></svg></button>
+<a class="link" href="#">Words<svg class="demo-glyph" viewBox="0 0 6 6"><path d="M0 0h6v6z"/></svg></a>
 <div style="position:absolute;left:10px;top:100px">Words</div>
-<button class="only" role="switch" aria-checked="true" aria-label="Quiet" style="top:130px"><svg class="bae-glyph" viewBox="0 0 10 11"><path d="M0 0h10v11z"/></svg></button>
+<button class="only" role="switch" aria-checked="true" aria-label="Quiet" style="top:130px"><svg class="demo-glyph" viewBox="0 0 10 11"><path d="M0 0h10v11z"/></svg></button>
 </x-dc>"##,
     )]);
+    let settings = fixture::marked();
+    let glyph = settings.glyph.as_deref();
     let elements = fixture::with_browser(root.path(), async |server, chrome| {
         let page = chrome.new_page().await.unwrap();
         let url = server.board_url("fixture.glyph-room");
         let rendered = render(&page, "fixture.glyph-room", &url, Frame { w: 300, h: 150 })
             .await
             .unwrap();
-        elements(&page, rendered.frame, Platform::Mac)
+        elements(&page, rendered.frame, glyph, Platform::Mac)
             .await
             .unwrap()
     })
@@ -755,13 +759,15 @@ async fn a_mac_pop_up_is_boxed_by_its_frame_and_any_other_button_by_its_glyphs_i
     let root = fixture::tree(&[(
         "fixture.popup-box",
         r##"<x-dc><helmet><style>body{margin:0;font:16px/20px sans-serif}
-.bae-glyph{display:block}
+.demo-glyph{display:block}
 button{position:absolute;left:10px;padding:0;border:0;display:block}
 button svg{width:10px;height:11px;margin:1px 2px 1.5px 1px}</style></helmet>
-<button style="top:10px" aria-label="Plain"><svg class="bae-glyph" viewBox="0 0 10 11"><path d="M0 0h10v11z"/></svg></button>
-<button style="top:50px" aria-haspopup="menu" aria-label="Menu"><svg class="bae-glyph" viewBox="0 0 10 11"><path d="M0 0h10v11z"/></svg></button>
+<button style="top:10px" aria-label="Plain"><svg class="demo-glyph" viewBox="0 0 10 11"><path d="M0 0h10v11z"/></svg></button>
+<button style="top:50px" aria-haspopup="menu" aria-label="Menu"><svg class="demo-glyph" viewBox="0 0 10 11"><path d="M0 0h10v11z"/></svg></button>
 </x-dc>"##,
     )]);
+    let settings = fixture::marked();
+    let glyph = settings.glyph.as_deref();
     let read = async |platform| {
         fixture::with_browser(root.path(), async |server, chrome| {
             let page = chrome.new_page().await.unwrap();
@@ -769,7 +775,9 @@ button svg{width:10px;height:11px;margin:1px 2px 1.5px 1px}</style></helmet>
             let rendered = render(&page, "fixture.popup-box", &url, Frame { w: 300, h: 150 })
                 .await
                 .unwrap();
-            elements(&page, rendered.frame, platform).await.unwrap()
+            elements(&page, rendered.frame, glyph, platform)
+                .await
+                .unwrap()
         })
         .await
     };
@@ -812,7 +820,7 @@ async fn each_board_element_names_the_nearest_component_that_draws_it() {
         let rendered = render(&page, "fixture.components", &url, Frame { w: 300, h: 200 })
             .await
             .unwrap();
-        elements(&page, rendered.frame, Platform::Mac).await
+        elements(&page, rendered.frame, None, Platform::Mac).await
     })
     .await
     .unwrap();
@@ -837,7 +845,7 @@ async fn a_page_global_that_throws_when_read_fails_the_read() {
         let rendered = render(&page, "fixture.throws", &url, Frame { w: 300, h: 200 })
             .await
             .unwrap();
-        elements(&page, rendered.frame, Platform::Mac).await
+        elements(&page, rendered.frame, None, Platform::Mac).await
     })
     .await;
     let error = read.expect_err("the read fails").to_string();
@@ -858,7 +866,7 @@ async fn the_reader_leaves_out_a_clipped_node_without_reading_its_component() {
         let rendered = render(&page, "fixture.clipped", &url, Frame { w: 300, h: 200 })
             .await
             .unwrap();
-        elements(&page, rendered.frame, Platform::Mac)
+        elements(&page, rendered.frame, None, Platform::Mac)
             .await
             .unwrap()
     })
@@ -963,7 +971,7 @@ async fn chrome_says_whether_the_board_gave_a_name_or_computed_it_from_content()
         let rendered = render(&page, "fixture.names", &url, Frame { w: 300, h: 200 })
             .await
             .unwrap();
-        elements(&page, rendered.frame, Platform::Android)
+        elements(&page, rendered.frame, None, Platform::Android)
             .await
             .unwrap()
     })
@@ -1004,7 +1012,7 @@ async fn the_reader_marks_what_a_scrim_covers_or_a_sheet_clips() {
         let rendered = render(&page, "fixture.obscured", &url, Frame { w: 300, h: 300 })
             .await
             .unwrap();
-        elements(&page, rendered.frame, Platform::Mac)
+        elements(&page, rendered.frame, None, Platform::Mac)
             .await
             .unwrap()
     })
@@ -1039,7 +1047,7 @@ async fn an_element_beyond_the_viewport_is_asked_after_scrolling_to_it() {
             height: 800.0,
             ..rendered.frame
         };
-        elements(&page, taller, Platform::Mac).await.unwrap()
+        elements(&page, taller, None, Platform::Mac).await.unwrap()
     })
     .await;
     assert!(find(&elements, Role::Text, "Far below the scrim").cover == Cover::Covered);
@@ -1050,7 +1058,7 @@ async fn an_element_beyond_the_viewport_is_asked_after_scrolling_to_it() {
 }
 
 const WINDOW_BOARD: &str = r##"<x-dc><helmet><style>body{margin:0}</style></helmet>
-<div class="bae-m-window" style="position:absolute;left:10px;top:20px;width:200px;height:100px;border-radius:24px;corner-shape:superellipse(1.585)"></div>
+<div class="demo-window" style="position:absolute;left:10px;top:20px;width:200px;height:100px;border-radius:24px;corner-shape:superellipse(1.585)"></div>
 </x-dc>"##;
 
 #[tokio::test]
@@ -1059,6 +1067,8 @@ async fn a_boards_window_reads_as_its_frame_radius_and_curve() {
         ("fixture.window", WINDOW_BOARD),
         ("fixture.none", "<x-dc><div>no window</div></x-dc>"),
     ]);
+    let settings = fixture::marked();
+    let selector = settings.window[0].1.as_str();
     let (window, none) = fixture::with_browser(root.path(), async |server, chrome| {
         let mut read = Vec::new();
         for board in ["fixture.window", "fixture.none"] {
@@ -1071,7 +1081,8 @@ async fn a_boards_window_reads_as_its_frame_radius_and_curve() {
             )
             .await
             .unwrap();
-            read.push(window(&page, "document", rendered.frame).await.unwrap());
+            let read_window = window(&page, Some(selector), "document", rendered.frame);
+            read.push(read_window.await.unwrap());
         }
         let none = read.pop().unwrap();
         (read.pop().unwrap(), none)
@@ -1104,6 +1115,59 @@ async fn a_boards_window_reads_as_its_frame_radius_and_curve() {
     );
 }
 
+/// A board with a slot, a window and a button that holds a glyph in more
+/// room than its ink.
+const MARKED_BOARD: &str = r##"<x-dc><helmet><style>body{margin:0}.demo-glyph{display:block}
+button{position:absolute;left:10px;top:150px;padding:0;border:0;display:block}
+button svg{width:10px;height:11px;margin:1px 2px 1.5px 1px}</style></helmet>
+<div class="demo-sheet" style="position:absolute;left:10px;top:20px;width:200px;height:100px;border-radius:8px"></div>
+<div class="demo-slot" style="position:absolute;left:30px;top:40px;width:50px;height:30px"></div>
+<button aria-label="Play"><svg class="demo-glyph" viewBox="0 0 10 11"><path d="M0 0h10v11z"/></svg></button>
+</x-dc>"##;
+
+#[tokio::test]
+async fn a_board_has_only_the_slots_glyph_boxes_and_window_that_the_apps_lines_mark() {
+    let root = fixture::tree(&[("fixture.marked", MARKED_BOARD)]);
+    let marked = fixture::marked();
+    let unmarked = Settings::default();
+    let app = |platform| App::named_for(platform);
+    let read = fixture::with_browser(root.path(), async |server, chrome| {
+        let mut read = Vec::new();
+        for (settings, platform) in [
+            (&marked, Platform::Mac),
+            (&marked, Platform::Android),
+            (&unmarked, Platform::Mac),
+        ] {
+            let page = chrome.new_page().await.unwrap();
+            let url = server.board_url("fixture.marked");
+            let rendered = render(&page, "fixture.marked", &url, Frame { w: 300, h: 200 })
+                .await
+                .unwrap();
+            let markers = settings.markers(&app(platform));
+            let page_read =
+                crate::render::read_page(&page, markers, rendered.frame, platform).await;
+            let page_read = page_read.unwrap();
+            let play = find(&page_read.elements, Role::Button, "Play").bounds;
+            read.push((
+                page_read.slots.len(),
+                (play.width, play.height),
+                (page_read.window.frame.width, page_read.window.radius),
+            ));
+        }
+        read
+    })
+    .await;
+    assert_eq!(
+        read,
+        [
+            (1, (10.0, 11.0), (200.0, 8.0)),
+            // The window line names the Mac app only.
+            (1, (10.0, 11.0), (300.0, 0.0)),
+            (0, (13.0, 13.5), (300.0, 0.0)),
+        ]
+    );
+}
+
 #[test]
 fn a_corner_shape_reads_as_the_exponent_of_its_curve() {
     assert_eq!(curve_exponent("round").unwrap(), 2.0);
@@ -1133,7 +1197,7 @@ async fn read_lines(platform: Platform) -> Vec<Element> {
         )
         .await
         .unwrap();
-        elements(&page, rendered.frame, platform).await
+        elements(&page, rendered.frame, None, platform).await
     })
     .await
     .unwrap()

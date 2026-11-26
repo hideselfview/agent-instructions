@@ -112,7 +112,7 @@ pub(crate) struct ElementList {
     /// for: a board's on-screen keyboard. Only boards write it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) unshot: Vec<Bounds>,
-    /// The boxes of the board's preview slots (`bae-preview-slot`), the
+    /// The boxes of the board's preview slots (`shots-slot`), the
     /// dashed stand-ins a container's preview holds for its content. The
     /// comparison leaves out what each side draws inside them. Only boards
     /// write it.

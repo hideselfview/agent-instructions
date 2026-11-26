@@ -4,6 +4,7 @@
 use crate::design::DesignSystem;
 use crate::render::chrome::{self, Chrome};
 use crate::render::serve::{self, Server, Tree};
+use crate::settings::Settings;
 use std::path::{Path, PathBuf};
 
 pub(crate) const HEAD: &str = r#"<!doctype html><html><head><meta charset="utf-8">
@@ -11,6 +12,20 @@ pub(crate) const HEAD: &str = r#"<!doctype html><html><head><meta charset="utf-8
 <link rel="stylesheet" href="ds/demo/tokens.css">
 <link rel="stylesheet" href="ds/demo/components/bundle.css">
 <script src="ds/demo/components/bundle.js"></script></head><body>"#;
+
+/// The lines that mark the fixtures' slots, glyphs, windows and Android
+/// preview pages.
+pub(crate) const MARKER_LINES: &str = "\
+shots-slot .demo-slot
+shots-glyph svg.demo-glyph
+shots-window mac .demo-window, .demo-sheet
+shots-body-class android demo-preview-android
+";
+
+/// The settings of `MARKER_LINES`.
+pub(crate) fn marked() -> Settings {
+    Settings::parse(MARKER_LINES).unwrap()
+}
 
 pub(crate) fn write(root: &Path, path: &str, text: &str) {
     let path = root.join(path);
