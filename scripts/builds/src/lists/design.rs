@@ -1317,7 +1317,7 @@ pub fn check_changes(designs: &[DrawnChange], changes: &Changes) -> Result<()> {
         let id = design.id;
         if design.approved.is_none() {
             fail!(
-                "design change {id} waits on the person's review; once they have said to land it, `builds design approve {} --by-person` records that",
+                "design change {id} waits on approval: the design session records it with `builds design approve {}`, or once the person, who asked to see the change first, has said to land it",
                 id.0
             );
         }
@@ -1466,7 +1466,7 @@ pub fn open_designs<'a>(lists: &'a Lists, repo: &str) -> impl Iterator<Item = &'
     })
 }
 
-/// Records the person's approval of open design change <id>. The same
+/// Records the approval of open design change <id>. The same
 /// approval again is recorded once.
 pub fn approve(db: &Connection, id: Id, stamp: &Stamp) -> Result<()> {
     open_design(&store::read(db)?, id)?;

@@ -136,7 +136,7 @@ impl World {
     }
 
     fn approve(&self, id: u32) {
-        self.run(&format!("approve {id} --by-person")).unwrap();
+        self.run(&format!("approve {id}")).unwrap();
     }
 
     fn state(&self) -> Lists {
@@ -389,7 +389,7 @@ fn record_stores_each_changed_place_with_no_app_work() {
     let out = w
         .request(base_request(&w, json!({ a: null, b: null, row: null })))
         .unwrap();
-    assert!(out.contains("waits on the person's review"), "{out}");
+    assert!(out.contains("waits on approval"), "{out}");
     let design = &w.state().designs[0];
     assert_eq!(
         design.places.iter().collect::<Vec<_>>(),
@@ -484,10 +484,7 @@ fn landing_is_refused_until_each_place_names_its_app_work_and_naming_it_keeps_th
         .unwrap();
     let wt = w.worktree();
     let refused = message(w.run(&format!("check 1 {wt} {sha}")));
-    assert!(
-        refused.contains("waits on the person's review"),
-        "{refused}"
-    );
+    assert!(refused.contains("waits on approval"), "{refused}");
     w.approve(1);
     let approved = w.state().designs[0].approved.clone();
     assert!(approved.is_some());
@@ -986,7 +983,7 @@ fn an_amend_whose_boards_come_out_the_same_keeps_the_approval() {
     let request = json!({ "worktree": w.worktree(), "range": "moved..HEAD", "places": {} });
     let amended = w.amend(1, request.clone()).unwrap();
     assert!(
-        amended.contains("approval stays") && !amended.contains("waits on the person's review"),
+        amended.contains("approval stays") && !amended.contains("waits on approval"),
         "{amended}"
     );
     let design = &w.state().designs[0];
@@ -1023,7 +1020,7 @@ fn an_amend_keeps_the_approval_when_the_board_files_differ_and_draw_alike() {
     w.commit(&[a]);
     let amended = w.amend(1, request.clone()).unwrap();
     assert!(
-        amended.contains("approval stays") && !amended.contains("waits on the person's review"),
+        amended.contains("approval stays") && !amended.contains("waits on approval"),
         "{amended}"
     );
     assert_eq!(w.state().designs[0].approved, approved);
@@ -1184,7 +1181,7 @@ fn check_of_several_changes_needs_each_approved_and_every_place_in_one_of_them()
     let both = format!("{wt} base..HEAD");
     let refused = message(w.run(&format!("check 1,2 {both}")));
     assert!(
-        refused.contains("design change #2 waits on the person's review"),
+        refused.contains("design change #2 waits on approval"),
         "{refused}"
     );
     w.approve(2);
@@ -1341,7 +1338,7 @@ fn drop_closes_an_open_change_keeps_why_and_leaves_the_open_lists() {
 
     let once = w.bytes();
     assert!(message(drop_change(&w, 1, why)).contains("tester dropped design change #1"));
-    assert!(message(w.run("approve 1 --by-person")).contains("tester dropped design change #1"));
+    assert!(message(w.run("approve 1")).contains("tester dropped design change #1"));
     let sha = w.sha("HEAD");
     git(&w.dir, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
     assert!(
@@ -1443,22 +1440,20 @@ fn a_recorded_change_waits_on_review_and_landing_checks_refuse_until_the_person_
             json!({ "design/mocks/A.dc.html": { "matches": "x" } }),
         ))
         .unwrap();
-    assert!(out.contains("waits on the person's review"), "{out}");
+    assert!(out.contains("waits on approval"), "{out}");
     assert!(w.state().designs[0].approved.is_none());
     assert!(w.run("list").unwrap().contains("waiting on review"));
     let wt = w.worktree();
     let refused = message(w.run(&format!("check 1 {wt} {sha}")));
     assert!(
-        refused.contains("waits on the person's review")
-            && refused.contains("approve 1 --by-person"),
+        refused.contains("waits on approval") && refused.contains("approve 1"),
         "{refused}"
     );
 
     let before = w.bytes();
-    assert!(message(w.run("approve 1")).contains("--by-person"));
+    assert!(message(w.run("approve 9")).contains("not a record"));
     assert_eq!(w.bytes(), before);
-    assert!(message(w.run("approve 9 --by-person")).contains("not a record"));
-    assert!(w.run("approve 1 --by-person").unwrap().contains("approved"));
+    assert!(w.run("approve 1").unwrap().contains("approved"));
     assert!(w.state().designs[0].approved.is_some());
     assert!(
         w.run(&format!("check 1 {wt} {sha}"))
@@ -1470,11 +1465,7 @@ fn a_recorded_change_waits_on_review_and_landing_checks_refuse_until_the_person_
 
     // The same approval again writes nothing.
     let once = w.bytes();
-    assert!(
-        w.run("approve 1 --by-person")
-            .unwrap()
-            .contains("already approved")
-    );
+    assert!(w.run("approve 1").unwrap().contains("already approved"));
     assert_eq!(w.bytes(), once);
 }
 
@@ -1530,10 +1521,7 @@ fn an_amend_without_the_fix_makes_the_change_wait_on_review_again() {
             json!({ "worktree": w.worktree(), "range": "base..HEAD", "places": {} }),
         )
         .unwrap();
-    assert!(
-        amended.contains("waits on the person's review"),
-        "{amended}"
-    );
+    assert!(amended.contains("waits on approval"), "{amended}");
     let design = &w.state().designs[0];
     assert!(design.approved.is_none() && design.settlement == Settlement::Review);
 }
@@ -1743,10 +1731,7 @@ fn an_amend_without_the_decision_makes_the_change_wait_on_review_again() {
                     "review": review_of(&[board]) }),
         )
         .unwrap();
-    assert!(
-        amended.contains("waits on the person's review"),
-        "{amended}"
-    );
+    assert!(amended.contains("waits on approval"), "{amended}");
     let design = &w.state().designs[0];
     assert!(design.approved.is_none() && design.settlement == Settlement::Review);
 }

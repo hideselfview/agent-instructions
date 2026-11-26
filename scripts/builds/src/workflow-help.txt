@@ -524,14 +524,17 @@ briefs, review pages and commit messages, and no other word for it:
   - component: a reusable piece that boards are built from, such as a button.
   - preview: a picture of one component on its own, drawn in each of its
     configurations.
-  - design change: one concern that the person reviews and approves, recorded
-    with `builds design record` (DESIGN CHANGES).
+  - design change: one concern that the design session approves and lands,
+    and that the person reviews when they choose, recorded with `builds design
+    record` (DESIGN CHANGES).
   - review page: the page where the person reviews a design change. The page
     shows the boards that the recorder picks to show the proposed design, and
     lists the change's other boards by name (decision #369).
   - round: one redraw of the boards on a review page, after the person asks
     for a change.
-  - approve: the person's approval of a design change, which lets it land.
+  - approve: the design session's approval of a design change it recorded,
+    which lets it land (decision #1422 in project bae). A change the person
+    asked to see first waits for their approval.
   - land: put a design change's commits on main with `builds land`, as for
     any branch.
   - shot: a test's screenshot of the real app view, which a program compares
@@ -558,8 +561,9 @@ Nothing publishes the designs until the person asks (PUBLISHING DESIGNS).
 
 DESIGN CHANGES
 
-The design session lands its boards through a design change, which the person
-reviews and approves first. `builds help lists` (DESIGN CHANGES) gives the
+The design session lands its boards through a design change, which it approves
+itself (decision #1422 in project bae). The person reviews the boards when
+they choose, and a change they asked to see first waits for their approval. `builds help lists` (DESIGN CHANGES) gives the
 record's fields and commands. In a project that publishes a canvas (`builds
 lists design-globs PROJECT --canvas yes|no`), such as bae, builds keeps its
 boards in the repo only: recording, reviewing, approving and landing a design
@@ -608,8 +612,8 @@ nothing, so each fix keeps its commit.
        heading goes and every row below it moves up, circle the area that
        holds the heading and the rows. A board whose proposal shows the
        change without a circle needs none.
-     - The record names no app work: no item exists for a change before the
-       person approves it (decision #304).
+     - The record names no app work: no item exists for a change before it is
+       approved (decision #304).
      - The rules review reads the change before the person does (decision
        #362): record and amend run `builds review` on the worktree's branch
        when the review has not read it. Wait with `builds review wait
@@ -623,23 +627,26 @@ nothing, so each fix keeps its commit.
        the state (decision #391).
      - To change the boards again, commit and run `builds design amend`,
        which keeps the approval only when every board and preview of the
-       change draws the same as in the commit the person approved. A rebase
+       change draws the same as in the commit that was approved. A rebase
        onto a moved main needs no amend.
   3. Everything the person reviews goes on the review page. Never make a page
      of your own or open a browser tab; the person reloads the review page.
      To compare versions during a round, use a scratch board in the change's
      worktree as in step 1: the review page links to its scratch view.
-  4. The person approves with the page's Approve button, which sends "Design
-     change #N of project P approved: land it." to the session that recorded
-     the change. Then name the app work of each place with `builds design
-     amend N`, which keeps the approval: an open item, a new item, or how you
-     checked that the app already matches. Then run `builds land <worktree>
-     --design N <sha>...` in the worktree where the design session drew the
-     boards, naming every commit of the change, oldest first. Land squashes
-     the commits of a change of design files only into one commit with the
-     change's title as its message (decision #292). The button recorded the
-     approval, so never run `builds design approve` for it; `builds design
-     approve N --by-person` is for an approval the person gives in words.
+  4. The design session approves the change with `builds design approve N`,
+     unless the person asked to see it first. A change the person asked to see
+     waits for their approval: they approve it with the review page's Approve
+     button, which sends "Design change #N of project P approved: land it." to
+     the session that recorded the change, or they say to land it and the
+     session runs `builds design approve N`. The button records the approval,
+     so the session never runs `builds design approve` for it. Then name the
+     app work of each place with `builds design amend N`, which keeps the
+     approval: an open item, a new item, or how you checked that the app
+     already matches. Then run `builds land <worktree> --design N <sha>...` in
+     the worktree where the design session drew the boards, naming every
+     commit of the change, oldest first. Land squashes the commits of a change
+     of design files only into one commit with the change's title as its
+     message (decision #292).
      When the session that recorded the change has ended, the next design
      session lands it. The rules review read the branch before the person
      reviewed it (step 2), so land needs no new review unless the branch

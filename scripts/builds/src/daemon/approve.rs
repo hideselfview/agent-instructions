@@ -1,5 +1,5 @@
 //! The dashboard's Approve button: records the person's approval of an open
-//! design change as `builds design approve N --by-person` does, and tells the
+//! design change as `builds design approve N` does, and tells the
 //! session that recorded it to land it (lists/design_session.rs).
 //!
 //! The button is the person's, from this Mac only: the route that calls this

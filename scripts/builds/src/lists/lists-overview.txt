@@ -53,8 +53,9 @@ write ("say who you are with --by").
     numbered, in the plan's Decisions section.
   - The design session records each design change it draws, and an
     implementing agent records the board edit of a change the person
-    decided. Only the person approves a design change, in its review or in
-    the decision that settled the edit.
+    decided. The design session approves each design change it records, and
+    the person approves one they asked to see first, in its review. The
+    decision that settled a board edit is its approval.
 
 A record's origin is the record it came from, and its trail is its chain of
 origins from the first record to it. When you make an entry from another

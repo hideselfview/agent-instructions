@@ -122,7 +122,7 @@ pub fn approved_words(project: &str, id: Id) -> String {
 }
 
 /// Records the person's approval of design change <id> in <store> as
-/// `builds design approve N --by-person` does, then tells the session that
+/// `builds design approve N` does, then tells the session that
 /// recorded it, once. The approval is written first and stands whatever the
 /// send finds. The card reports unconfirmed delivery until builds records
 /// a known outcome. The approval stands if notification fails.

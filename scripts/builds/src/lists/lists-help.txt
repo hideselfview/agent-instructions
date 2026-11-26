@@ -190,8 +190,8 @@ condition names its ender, one of agent, coordinator or ci (`--until`), and
 never the person: work that waits on the person waits on a your-step question
 (`builds question ask --kind your-step`), so that it shows under Waiting on you
 and not under Paused. A wait on a question waits on the person until the
-question closes as answered, settled or done. A wait on a design change waits on the person until they
-approve the change, and then only on its landing. The dashboard lists a
+question closes as answered, settled or done. A wait on a design change waits until the change is
+approved, and then only on its landing. The dashboard lists a
 running item's work under Waiting on you while a wait of the item waits on the
 person. An open item is then, in order: running; the design session's (shown
 apart, never dispatched); waiting (on a wait not met, or placed last while any
@@ -559,8 +559,10 @@ place of that checkout and the session reviewer.
 DESIGN CHANGES
 
 The design session records a design change when its boards are drawn, and the
-change waits on its rules review and then on the person's review until they
-approve it; `builds help workflow` says how the session and the person work
+change waits on its rules review and then on approval. The design session
+approves each change it records with `builds design approve N`, and a change
+the person asked to see first waits for their approval (decision #1422 in
+project bae); `builds help workflow` says how the session and the person work
 through one. builds land
 --design N refuses the change before approval, and landing closes it. When the
 commits hold several changes, builds land takes --design once for each and
@@ -619,8 +621,8 @@ the change's card in the Waiting on you tab opens it, and the page draws each bo
 every request from the files at those commits, read with git, so a worktree
 with another branch checked out does not change what it shows.
 
-The page's Approve button records the approval as `builds design approve N
---by-person` does, and the card then says "approved, waiting to land". The
+The page's Approve button records the approval as `builds design approve N`
+does, and the card then says "approved, waiting to land". The
 button works only from the page served at 127.0.0.1 or localhost on this Mac:
 the daemon refuses an approval from another address. The approval then sends
 "Design change #N of project P approved: land it." once to the inbox of the
@@ -824,11 +826,14 @@ session that recorded the change has ended. builds sends no second message.
       decision and the approval when the change keeps all of the above, and
       otherwise clears the approval and the fix or decision.
 
-  builds design approve N --by-person
-      Records the person's approval, which only they give: pass --by-person
-      once they have said to land the change, never on your own judgment. The
-      same approval again writes nothing, and the command sends nothing to
-      any session.
+  builds design approve N
+      Records the approval of open design change N, by the design session
+      that recorded it (decision #1422 in project bae), or by the session on
+      the person's word that they approve it. A change the person asked to
+      see first stays unapproved until they approve it, so the session never
+      approves it on its own judgment. The log names who approved. The same
+      approval again writes nothing, and the command sends nothing to any
+      session.
 
   builds design check N[,N...] DIR REV...
       Succeeds when one of the open changes N resolves each place the

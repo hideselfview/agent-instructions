@@ -26,7 +26,7 @@ use crate::lists::{Id, Lists, Stamp};
 use crate::text::local_minute;
 use crate::tool::Tool;
 
-const USAGE: &str = "usage: builds design places DIR REV...\n       builds design only DIR REV...\n       builds design record --request FILE\n       builds design amend N --request FILE\n       builds design approve N --by-person\n       builds design check N[,N...] DIR REV...\n       builds design landed N DIR SHA...\n       builds design drop N --why WHY\n       builds design show N\n       builds design title N\n       builds design list\n       builds design render DIR BOARD [--theme light|dark] [--now | --at REV]\n       builds design tokens-css DIR\n       builds design publish-find DIR --artifacts FILE [--at REV]\n       builds design publish-files DIR OUT --artifacts FILE (--index FILE | --no-index) [--at REV]\n       builds design publish-last FOLDER --listing FILE [(--index FILE | --no-index) --by WHO [--uploaded FILE]]\n       builds design listen --project P\n       builds design publish take N [--project P] [--by WHO]\n       builds design publish done N --link TITLE=URL... [--project P] [--by WHO]\n       builds design publish failed N --why WHY [--project P] [--by WHO]";
+const USAGE: &str = "usage: builds design places DIR REV...\n       builds design only DIR REV...\n       builds design record --request FILE\n       builds design amend N --request FILE\n       builds design approve N\n       builds design check N[,N...] DIR REV...\n       builds design landed N DIR SHA...\n       builds design drop N --why WHY\n       builds design show N\n       builds design title N\n       builds design list\n       builds design render DIR BOARD [--theme light|dark] [--now | --at REV]\n       builds design tokens-css DIR\n       builds design publish-find DIR --artifacts FILE [--at REV]\n       builds design publish-files DIR OUT --artifacts FILE (--index FILE | --no-index) [--at REV]\n       builds design publish-last FOLDER --listing FILE [(--index FILE | --no-index) --by WHO [--uploaded FILE]]\n       builds design listen --project P\n       builds design publish take N [--project P] [--by WHO]\n       builds design publish done N --link TITLE=URL... [--project P] [--by WHO]\n       builds design publish failed N --why WHY [--project P] [--by WHO]";
 
 pub fn cmd_design(tool: &Tool, args: &[String]) -> Result<()> {
     print!("{}", run_to_text(tool, args)?);
@@ -442,7 +442,7 @@ fn recorded_words(verb: &str, recorded: &design::Recorded, title: &str, review: 
     let id = recorded.design;
     let mut out = format!("{verb} design change {id} \"{title}\"\n");
     let waits = format!(
-        "design change {id} waits on the person's approval, which builds land --design needs (`builds design approve --by-person` records it); the person reviews it once its rules review takes its branch\n"
+        "design change {id} waits on approval, which builds land --design needs: the design session records it with `builds design approve {id}`, unless the person asked to see the change first, and then it waits for their review once its rules review takes its branch\n"
     );
     match review {
         Review::Fix => out.push_str(&format!(
@@ -663,19 +663,15 @@ fn drawn_the_same(scope: &Scope, id: Id, renders: &dyn Renders) -> Result<Option
         .then(|| tip.clone()))
 }
 
-/// `approve N --by-person`: the person's review of the boards, said by
-/// them. The same approval again writes nothing.
+/// `approve N`: the design session's approval of its own change, or the
+/// person's, said in words to the session. The stamp names who approved. The
+/// same approval again writes nothing.
 fn approve(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
-    let args = Args::parse(args, &[], &["by-person"])?;
+    let args = Args::parse(args, &[], &[])?;
     let [id] = args.exactly(1, USAGE)? else {
         unreachable!("exactly one")
     };
     let id = Id::parse(id)?;
-    if !args.switch("by-person") {
-        fail!(
-            "approving a design change is the person's: pass --by-person once they have said to land design change {id}, never on your own judgment"
-        );
-    }
     let store = Store::resolve(&tool.places, &args, cwd)?;
     if let Some(approved) = store.load()?.design(id).and_then(|d| d.approved.as_ref()) {
         return Ok(format!(
