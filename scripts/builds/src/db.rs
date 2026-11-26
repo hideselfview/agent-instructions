@@ -139,13 +139,9 @@ pub const JUDGE_TOLD_PART: &str = include_str!("review/judge_told.sql");
 /// the judge.
 pub const DESIGN_CIRCLE_BOX_PART: &str = include_str!("lists/design_circle_box.sql");
 
-/// The branches over the review's cap (review/over_cap.sql); the schema holds
-/// it after the circles of a review board that surround a box.
-pub const OVER_CAP_PART: &str = include_str!("review/over_cap.sql");
-
 /// The branches the coordinator marked as mechanical work
-/// (review/marked_mechanical.sql); the schema holds it after the branches over
-/// the review's cap.
+/// (review/marked_mechanical.sql); the schema holds it after the circles of a
+/// review board that surround a box.
 pub const MARKED_MECHANICAL_PART: &str = include_str!("review/marked_mechanical.sql");
 
 /// The shots prefixes an agent dropped from a branch's landing
@@ -192,7 +188,7 @@ pub const AGENT_RECORD_PART: &str = include_str!("agent_record.sql");
 /// cap. A table points at ones earlier or
 /// later (SQLite resolves foreign keys when rows are written), but the order is
 /// the one to read the schema in. A part that joins the schema goes at the end.
-const SCHEMA_PARTS: [&str; 48] = [
+const SCHEMA_PARTS: [&str; 47] = [
     include_str!("lists/project.sql"),
     include_str!("lists/area.sql"),
     include_str!("lists/record.sql"),
@@ -231,7 +227,6 @@ const SCHEMA_PARTS: [&str; 48] = [
     APP_BUILD_STEP_FAILURE_PART,
     JUDGE_TOLD_PART,
     DESIGN_CIRCLE_BOX_PART,
-    OVER_CAP_PART,
     MARKED_MECHANICAL_PART,
     APP_SHOTS_DROP_PART,
     APP_BUILD_STEP_SHOTS_PART,
@@ -864,7 +859,7 @@ pub fn without_agent_record(schema: String) -> String {
 /// recorded.
 #[cfg(test)]
 pub fn schema_before_agent_record() -> String {
-    without_agent_record(schema())
+    with_over_cap(without_agent_record(schema()))
 }
 
 /// <schema> as it was before a design change stopped keeping the canvas link
@@ -898,7 +893,7 @@ pub fn with_board_links(schema: String) -> String {
 /// link of each board.
 #[cfg(test)]
 pub fn schema_before_no_board_link() -> String {
-    with_board_links(without_agent_record(schema()))
+    with_over_cap(with_board_links(without_agent_record(schema())))
 }
 
 /// <schema> as it was before the judge could correct the reason it kept a
@@ -906,11 +901,11 @@ pub fn schema_before_no_board_link() -> String {
 /// with the board links' table every schema then held.
 #[cfg(test)]
 pub fn without_kept_correction(schema: String) -> String {
-    with_board_links(without_agent_record(schema).replacen(
+    with_over_cap(with_board_links(without_agent_record(schema).replacen(
         &format!("\n{REVIEW_KEPT_CORRECTION_PART}"),
         "",
         1,
-    ))
+    )))
 }
 
 /// The schema as it was before the judge could correct the reason it kept a
@@ -955,7 +950,56 @@ pub fn schema_before_app_shots_drop() -> String {
 /// keyed by repo.
 #[cfg(test)]
 pub fn schema_before_marked_mechanical() -> String {
-    with_ack_repo(with_claude_inboxes(text_before(MARKED_MECHANICAL_PART)))
+    with_ack_repo(with_claude_inboxes(format!(
+        "{}\n{OVER_CAP_TABLE}",
+        text_before(MARKED_MECHANICAL_PART)
+    )))
+}
+
+/// The table of the branches over the review's cap as every schema held it
+/// until the review lost its cap (decision #746): the part stood after the
+/// circles of a review board that surround a box, before the branches marked
+/// as mechanical work.
+#[cfg(test)]
+pub(crate) const OVER_CAP_TABLE: &str = "-- A branch whose diff adds more lines than a review sends its reviewers
+-- (`builds review`, review/over_cap.rs owns this table and is the only code
+-- that writes it). The branch's net change is named by its patch id, so a
+-- rebase that keeps its lines keeps the row. A change of design files or of
+-- renamed identifiers needs no review (mechanical). Any other change waits on
+-- a question to the person, which holds the branch's name and size.
+CREATE TABLE review_over_cap (
+    id INTEGER PRIMARY KEY,
+    repo TEXT NOT NULL REFERENCES repo (name),
+    key TEXT NOT NULL CONSTRAINT review_over_cap_key_says_something CHECK (trim(key) <> ''),
+    patch_id TEXT NOT NULL CONSTRAINT review_over_cap_patch_id_is_a_hash CHECK (length(patch_id) = 40 AND patch_id NOT GLOB '*[^0-9a-f]*'),
+    at INTEGER NOT NULL,
+    mechanical TEXT CONSTRAINT review_over_cap_mechanical_known CHECK (mechanical IN ('design', 'rename')),
+    question_id INTEGER REFERENCES question (id),
+    CONSTRAINT review_over_cap_needs_no_review_or_asks CHECK ((mechanical IS NULL) <> (question_id IS NULL)),
+    CONSTRAINT review_over_cap_once UNIQUE (repo, key, patch_id)
+) STRICT;
+";
+
+/// <schema> as it was before the review lost its cap: with the table of the
+/// branches over it before the branches marked as mechanical work, if the
+/// schema holds those. A schema that holds the table already is returned as
+/// it is.
+#[cfg(test)]
+pub fn with_over_cap(schema: String) -> String {
+    if schema.contains(OVER_CAP_TABLE) {
+        return schema;
+    }
+    schema.replacen(
+        MARKED_MECHANICAL_PART,
+        &format!("{OVER_CAP_TABLE}\n{MARKED_MECHANICAL_PART}"),
+        1,
+    )
+}
+
+/// The schema as it was before the review lost its cap.
+#[cfg(test)]
+pub fn schema_before_no_over_cap() -> String {
+    with_over_cap(schema())
 }
 
 /// The schema as it was before the branches over the review's cap joined it,
@@ -966,7 +1010,7 @@ pub fn schema_before_marked_mechanical() -> String {
 /// which migrate.rs's tests put back.
 #[cfg(test)]
 pub fn schema_before_over_cap() -> String {
-    schema_before(OVER_CAP_PART)
+    schema_before(MARKED_MECHANICAL_PART)
 }
 
 /// The schema as it was before the variants of a design change joined it:
@@ -974,7 +1018,7 @@ pub fn schema_before_over_cap() -> String {
 /// the variants.
 #[cfg(test)]
 pub fn schema_before_design_variants() -> String {
-    schema_before(OVER_CAP_PART)
+    schema_before(MARKED_MECHANICAL_PART)
 }
 
 /// The schema as it was before the boxes' circles joined it.

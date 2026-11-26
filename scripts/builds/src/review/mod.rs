@@ -88,7 +88,6 @@ pub mod landing;
 pub mod marked_mechanical;
 pub mod mechanical;
 mod model_check;
-pub mod over_cap;
 mod prompt;
 mod propose;
 pub mod provider;
@@ -296,61 +295,6 @@ pub struct Reported {
     pub refusal: Option<String>,
 }
 
-/// What a review of a branch over the cap says, or None when the person
-/// approved a review of this branch as it is. The first review of such a
-/// branch records it: as needing no review when it changes design files only
-/// or only renames identifiers, else with a question to the person.
-fn over_the_cap(
-    inputs: &Inputs,
-    conn: &Connection,
-    branch: over_cap::Branch,
-    added: i64,
-    net: &str,
-    shas: &[String],
-) -> Result<Option<Reported>> {
-    let name = inputs.key;
-    let waiting = match over_cap::standing(conn, branch)? {
-        Some(over_cap::Standing::Approved(_)) => return Ok(None),
-        Some(over_cap::Standing::Waiting(waiting)) => waiting,
-        None => {
-            let mechanical = if crate::lists::change_is_design_only(
-                inputs.store,
-                inputs.worktree,
-                inputs.repo,
-                shas,
-            )? {
-                Some(mechanical::Mechanical::Design)
-            } else if mechanical::only_renames(net) {
-                Some(mechanical::Mechanical::Rename)
-            } else {
-                None
-            };
-            let stamp = inputs.stamp;
-            inputs.store.write(
-                stamp,
-                &format!("review over the cap {name}"),
-                |db| match mechanical {
-                    Some(why) => {
-                        over_cap::record_mechanical(db, branch, why, stamp)?;
-                        Ok(over_cap::Waiting::Mechanical(why))
-                    }
-                    None => over_cap::record_asked(db, branch, added, stamp)
-                        .map(over_cap::Waiting::Asked),
-                },
-            )?
-        }
-    };
-    let refusal = match waiting {
-        over_cap::Waiting::Mechanical(_) => None,
-        _ => Some(over_cap::waiting_text(name, added, waiting)),
-    };
-    Ok(Some(Reported {
-        landing: None,
-        text: over_cap::waiting_text(name, added, waiting),
-        refusal,
-    }))
-}
-
 /// Reviews the worktree's net change past the base and records it. A change
 /// gets one review: when the change, its repo and key, has one already, this
 /// asks only what the review lacks (`later_asks`), and, when it lacks nothing, asks the groups that hold open confirmed findings
@@ -430,19 +374,6 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
             deleted,
         )?,
     };
-    if let Some(added) = check::over_the_cap(asks.iter().map(|ask| ask.change.diff.patch.text())) {
-        let net = run::diff_between(inputs.worktree, inputs.base, inputs.head.unwrap_or("HEAD"))?;
-        let patch_id = over_cap::patch_id(net.diff.patch.text())?;
-        let branch = over_cap::Branch {
-            change: under_review,
-            patch_id: &patch_id,
-        };
-        if let Some(reported) =
-            over_the_cap(inputs, &conn, branch, added, net.diff.patch.text(), &shas)?
-        {
-            return Ok(reported);
-        }
-    }
     let mut running: Vec<(String, Running)> = Vec::new();
     let mut answers = Vec::new();
     for ask in &asks {

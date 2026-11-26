@@ -16,10 +16,9 @@
 //! (`run::diff_since`, which `builds review` reads as its next run), every
 //! group asked over a diff a run read answered over it (`Coverage`, which
 //! `builds review` uses too), and the coordinator settled every finding. It
-//! also takes a branch that adds more lines than the review's cap when
-//! `builds review` recorded it as needing no review (`over_cap.rs`) and no
-//! finding waits; `judge` decides that too, so land, the dashboard's cards
-//! and health agree on such a branch. `--squashed`, which only land passes
+//! also takes a branch that an agent called mechanical work
+//! (`marked_mechanical.rs`) when no finding waits; `judge` decides that too,
+//! so land, the dashboard's cards and health agree on such a branch. `--squashed`, which only land passes
 //! after it squashed a design change's commits into one commit with the
 //! change's title as its message, leaves out the commit message check: land
 //! wrote that message, and every path whose content changed since the last
@@ -53,7 +52,6 @@ use crate::review::check;
 use crate::review::commits;
 use crate::review::files;
 use crate::review::marked_mechanical;
-use crate::review::over_cap;
 use crate::review::record::{self, Change, LandingRow};
 use crate::review::render;
 use crate::review::run::{self, Material, Scope};
@@ -145,13 +143,12 @@ impl Unfinished {
     }
 }
 
-/// A branch over the review's cap that needs no review: how many lines it
-/// adds, why it needs none, and the patch id of its net change, which
-/// `builds review` recorded.
+/// A branch that an agent called mechanical work: how many lines it adds,
+/// the call, and the patch id of its net change, which the call named.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct OverCap {
+pub struct Mechanical {
     pub added: i64,
-    pub why: over_cap::Needs,
+    pub call: marked_mechanical::Call,
     pub patch_id: String,
 }
 
@@ -162,9 +159,9 @@ pub enum Verdict {
     NotNeeded,
     /// A finished review covers the commits.
     Takes(Covered),
-    /// The branch adds more lines than the review's cap and needs no review,
-    /// and no finding of an earlier review waits.
-    OverCap(OverCap),
+    /// An agent called the branch mechanical work, and no finding of an
+    /// earlier review waits.
+    Mechanical(Mechanical),
     /// The change's key has no open review.
     NoRun,
     /// The change's review does not take the commits yet.
@@ -344,8 +341,8 @@ fn assess(
 
 /// Whether the review lets the commits of <needs>, read from the checkout at
 /// <dir>, land: the open review of <change> must take them, or, when <check>
-/// reads the branch, the branch is over the review's cap and needs no review
-/// while no finding waits (`over_cap_needs_none`). <check> says whether to
+/// reads the branch, an agent called the branch mechanical work and no
+/// finding waits (`called_mechanical`). <check> says whether to
 /// read the branch's net change, and <scope> holds the groups, the rules and
 /// the design files that say which group reads a path or a commit message.
 pub fn judge(
@@ -378,18 +375,11 @@ pub fn judge(
     };
     if let CodeCheck::Branch(head) | CodeCheck::Squashed(head) = check
         && !findings_wait
-        && let Some(over) = over_cap_needs_none(db, change, dir, head)?
+        && let Some(over) = called_mechanical(db, change, dir, head)?
     {
-        return Ok(Verdict::OverCap(over));
+        return Ok(Verdict::Mechanical(over));
     }
     Ok(verdict)
-}
-
-/// A branch over the review's cap as `builds review` recorded it: how many
-/// lines its net change adds and where the branch stands (`over_cap::standing`).
-struct OverTheCap {
-    added: i64,
-    standing: Option<over_cap::Standing>,
 }
 
 /// The lines the net change of the branch at <head> adds past origin/main,
@@ -398,67 +388,37 @@ fn net_of(dir: &Path, head: &str) -> Result<(i64, String)> {
     let net = run::diff_between(dir, BRANCH_BASE, head)?;
     Ok((
         check::added_lines(net.diff.patch.text()),
-        over_cap::patch_id(net.diff.patch.text())?,
+        marked_mechanical::patch_id(net.diff.patch.text())?,
     ))
 }
 
-/// The branch <change> at <head> in the checkout at <dir>, when its net change
-/// past origin/main adds more lines than the review's cap; None when it adds
-/// no more.
-fn over_the_cap(
+/// The branch <change> at <head> when an agent called its net change
+/// mechanical work; None otherwise.
+fn called_mechanical(
     db: &Connection,
     change: Change,
     dir: &Path,
     head: &str,
-) -> Result<Option<OverTheCap>> {
+) -> Result<Option<Mechanical>> {
     let (added, patch_id) = net_of(dir, head)?;
-    if added <= check::MAX_ADDED_LINES {
-        return Ok(None);
-    }
-    let branch = over_cap::Branch {
+    let branch = marked_mechanical::Branch {
         change,
         patch_id: &patch_id,
     };
-    let standing = over_cap::standing(db, branch)?;
-    Ok(Some(OverTheCap { added, standing }))
-}
-
-/// The branch <change> at <head> when its net change is over the review's cap
-/// and `builds review` recorded it as needing no review; None otherwise.
-fn over_cap_needs_none(
-    db: &Connection,
-    change: Change,
-    dir: &Path,
-    head: &str,
-) -> Result<Option<OverCap>> {
-    let (added, patch_id) = net_of(dir, head)?;
-    let branch = over_cap::Branch {
-        change,
-        patch_id: &patch_id,
-    };
-    // An agent's call of mechanical work holds at any size.
-    let why = if let Some(call) = marked_mechanical::call_of(db, branch)? {
-        over_cap::Needs::Called(call)
-    } else if added > check::MAX_ADDED_LINES
-        && let Some(over_cap::Standing::Waiting(over_cap::Waiting::Mechanical(why))) =
-            over_cap::standing(db, branch)?
-    {
-        over_cap::Needs::Mechanical(why)
-    } else {
-        return Ok(None);
-    };
-    Ok(Some(OverCap {
-        added,
-        why,
-        patch_id,
-    }))
+    Ok(
+        marked_mechanical::call_of(db, branch)?.map(|call| Mechanical {
+            added,
+            call,
+            patch_id,
+        }),
+    )
 }
 
 /// Why <verdict> does not let the commits of <needs> land, in words; None
 /// when it does.
 pub fn refusal(needs: &[Need], verdict: &Verdict) -> Option<String> {
     let (covered, unfinished) = match verdict {
-        Verdict::NotNeeded | Verdict::Takes(_) | Verdict::OverCap(_) => return None,
+        Verdict::NotNeeded | Verdict::Takes(_) | Verdict::Mechanical(_) => return None,
         Verdict::NoRun => {
             return Some(format!(
                 "no review of this change is open, so no review read the commits this lands ({}).\n{ONE_REVIEW}\nReview them as a change (builds review <worktree> [<base>] in the branch's worktree), settle every finding, and land them once no confirmed finding is open.\n",
@@ -536,7 +496,7 @@ pub fn refusal(needs: &[Need], verdict: &Verdict) -> Option<String> {
 /// idle worktree, from the same records `refusal` reads.
 pub fn blockers(verdict: &Verdict) -> Vec<String> {
     let unfinished = match verdict {
-        Verdict::NotNeeded | Verdict::Takes(_) | Verdict::OverCap(_) => return Vec::new(),
+        Verdict::NotNeeded | Verdict::Takes(_) | Verdict::Mechanical(_) => return Vec::new(),
         Verdict::NoRun => {
             return vec![
                 "no review of the branch is open: its agent must run builds review".to_string(),
@@ -662,27 +622,8 @@ pub fn check_landing_command(tool: &Tool, args: &[String]) -> Result<()> {
         println!("{}", taken(&verdict));
         return Ok(());
     };
-    print!("{}", waits_over_cap(&asked)?.unwrap_or(why));
+    print!("{why}");
     Err(Fail::Exit(1))
-}
-
-/// What a branch that the review refuses says when it is over the review's
-/// cap and waits on the person's answer to whether it is reviewed, or was
-/// refused one; None when it is under the cap or needs no review.
-fn waits_over_cap(asked: &Asked) -> Result<Option<String>> {
-    Ok(
-        match over_the_cap(&asked.conn, asked.change(), &asked.dir, "HEAD")? {
-            Some(OverTheCap {
-                added,
-                standing:
-                    Some(over_cap::Standing::Waiting(
-                        waiting @ (over_cap::Waiting::Asked(_) | over_cap::Waiting::Declined(_)),
-                    )),
-                ..
-            }) => Some(over_cap::waiting_text(&asked.key, added, waiting)),
-            _ => None,
-        },
-    )
 }
 
 /// What a verdict that lets the commits land says of them.
@@ -692,7 +633,9 @@ pub fn taken(verdict: &Verdict) -> String {
             "review landing {} ({}), last reviewed by run {}, takes these commits: nothing changed since the last review, and no confirmed finding is open",
             covered.landing.id, covered.landing.key, covered.run
         ),
-        Verdict::OverCap(over) => over_cap::taken_text(over.added, &over.why, &over.patch_id),
+        Verdict::Mechanical(over) => {
+            marked_mechanical::taken_text(over.added, &over.call, &over.patch_id)
+        }
         _ => "no group's rules cover the changed paths: the landing needs no review".to_string(),
     }
 }
@@ -714,7 +657,7 @@ fn record_landed(asked: &Asked, stamp: &Stamp, more: bool) -> Result<Option<i64>
         asked.scope(),
     )?;
     let covered = match &verdict {
-        Verdict::NotNeeded | Verdict::OverCap(_) => return Ok(None),
+        Verdict::NotNeeded | Verdict::Mechanical(_) => return Ok(None),
         Verdict::NoRun => {
             // A rerun after review landed recorded the landing finds no open
             // review, and so does a key other than the one check-landing

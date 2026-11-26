@@ -179,21 +179,9 @@ pub fn reviewers_map<T: Sync, R: Send>(items: &[T], f: impl Fn(&T) -> R + Sync) 
     crate::checkout::parallel_map_at_most(REVIEWERS_AT_ONCE, items, f)
 }
 
-/// The most added lines of diff text a branch's review sends its reviewers.
-/// In the last 200 commits of bae's main, a commit added a median of 27
-/// lines, 351 at the 90th percentile and 1,843 at the 99th, and the one
-/// design landing among them added 5,306.
-pub const MAX_ADDED_LINES: i64 = 2_000;
-
 /// How many lines the hunks of <diff> add.
 pub fn added_lines(diff: &str) -> i64 {
     hunk_lines(diff, |line| line.starts_with('+'))
-}
-
-/// The lines <diffs> add in all, when that is over `MAX_ADDED_LINES`.
-pub fn over_the_cap<'a>(diffs: impl IntoIterator<Item = &'a str>) -> Option<i64> {
-    let lines: i64 = diffs.into_iter().map(added_lines).sum();
-    (lines > MAX_ADDED_LINES).then_some(lines)
 }
 
 /// How many lines the hunks of <diff> add and remove, leaving out each file's

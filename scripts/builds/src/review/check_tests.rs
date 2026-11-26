@@ -248,14 +248,8 @@ fn diff_of_lines(lines: usize) -> String {
 }
 
 #[test]
-fn a_branch_over_the_cap_of_added_lines_is_over_and_one_at_it_is_not() {
-    let at_the_cap = diff_of_lines(MAX_ADDED_LINES as usize);
-    assert_eq!(over_the_cap([at_the_cap.as_str()]), None);
-    let one_more = diff_of_lines(1);
-    assert_eq!(
-        over_the_cap([at_the_cap.as_str(), one_more.as_str()]),
-        Some(MAX_ADDED_LINES + 1)
-    );
+fn added_lines_counts_the_lines_a_diff_adds_and_not_those_it_removes() {
+    assert_eq!(added_lines(&diff_of_lines(3)), 3);
 }
 
 #[test]

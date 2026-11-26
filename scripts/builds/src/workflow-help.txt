@@ -420,8 +420,7 @@ one that only moves or renames code, regenerates files or applies a codemod,
 and names the check that covers it (the compiler, the hook, a shots run for
 capture files, the states check for boards). `builds land` then records who
 made the call and the check, and takes the branch whole with no review while
-its net change keeps its patch id. Nobody splits a mechanical change into parts
-to get under the review cap, and a branch that mixes a mechanical move with
+its net change keeps its patch id. A branch that mixes a mechanical move with
 code someone wrote is two branches. builds needs no --kind for a pure rename, a
 design-only change or a change of capture files only.
 

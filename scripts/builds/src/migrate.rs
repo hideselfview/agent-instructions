@@ -311,13 +311,17 @@ const BEFORE_NO_BOARD_LINK_STAMP: i64 = 285_608_548;
 /// starts.
 const BEFORE_AGENT_RECORD_STAMP: i64 = 204_057_206;
 
+/// The stamp of the schema before the review lost its cap on added lines
+/// (decision #746).
+const BEFORE_NO_OVER_CAP_STAMP: i64 = 850_242_028;
+
 /// The stamp of today's schema (`db::STAMP`). A change to the schema changes
 /// its stamp, and builds then fails to compile until the change gives it a
 /// move from this schema, since every store carries this stamp: the change
 /// adds the move, puts this stamp at the end of `STAMPS` under a name that
 /// says what the schema lacked, and sets this to the new schema's stamp, which
 /// the compiler's error names.
-const SCHEMA_STAMP: i64 = 850_242_028;
+const SCHEMA_STAMP: i64 = 1_050_103_093;
 
 // The compiler refuses a schema whose stamp is not SCHEMA_STAMP. A const
 // assert could not print the new stamp, so the check compares two array
@@ -327,7 +331,7 @@ const _: [(); SCHEMA_STAMP as usize] = [(); db::STAMP as usize];
 
 /// Every stamp a store can carry that `move_store` moves, oldest schema first.
 /// A new move adds the stamp of the schema before it at the end.
-const STAMPS: [i64; 48] = [
+const STAMPS: [i64; 49] = [
     BEFORE_CONDITION_ENDERS_STAMP,
     BEFORE_ITEM_EVENT_STAMP,
     BEFORE_LAND_RUN_STAMP,
@@ -376,6 +380,7 @@ const STAMPS: [i64; 48] = [
     BEFORE_KEPT_CORRECTION_STAMP,
     BEFORE_NO_BOARD_LINK_STAMP,
     BEFORE_AGENT_RECORD_STAMP,
+    BEFORE_NO_OVER_CAP_STAMP,
 ];
 
 /// Whether a store stamped <found> comes before the move that follows the
@@ -556,11 +561,6 @@ pub fn move_store(places: &Places, path: &Path, now: i64) -> Result<()> {
     if before(found, BEFORE_DESIGN_PLACE_NAMING_STAMP) {
         crate::lists::design::allow_places_with_no_app_work(&tx)?;
     }
-    // Every store from before the branches over the review's cap gets the
-    // empty table: no branch has been over it yet.
-    if before(found, BEFORE_OVER_CAP_STAMP) {
-        tx.execute_batch(db::OVER_CAP_PART).sql()?;
-    }
     // Every store from before the review section kept only its heading gets
     // the table again without the words; each change keeps its heading.
     if before(found, BEFORE_REVIEW_SECTION_HEADING_ONLY_STAMP) {
@@ -733,6 +733,12 @@ pub fn move_store(places: &Places, path: &Path, now: i64) -> Result<()> {
     if before(found, BEFORE_AGENT_RECORD_STAMP) {
         tx.execute_batch(db::AGENT_RECORD_PART).sql()?;
     }
+    // Every store whose schema held the branches over the review's cap loses
+    // their table and closes the questions that still waited on the person
+    // about one: the review has no cap now (decision #746).
+    if !before(found, BEFORE_OVER_CAP_STAMP) && before(found, BEFORE_NO_OVER_CAP_STAMP) {
+        drop_over_cap(&tx, now)?;
+    }
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     let broken: Option<String> = tx
         .query_row("PRAGMA foreign_key_check", [], |row| row.get(0))
@@ -762,6 +768,40 @@ pub fn move_store(places: &Places, path: &Path, now: i64) -> Result<()> {
         remove_kept_reports(path)?;
     }
     crate::text::note(format!("moved {} to today's schema", path.display()));
+    Ok(())
+}
+
+/// Drops the table of the branches over the review's cap, after it settles
+/// each question in it that the person has not answered or closed.
+fn drop_over_cap(tx: &Connection, now: i64) -> Result<()> {
+    let stamp = crate::lists::Stamp {
+        at: now,
+        by: "builds install".to_string(),
+    };
+    let mut statement = tx
+        .prepare("SELECT DISTINCT question_id FROM review_over_cap WHERE question_id IS NOT NULL")
+        .sql()?;
+    let asked: Vec<crate::lists::Id> = statement
+        .query_map([], |row| row.get(0))
+        .sql()?
+        .collect::<std::result::Result<_, _>>()
+        .sql()?;
+    drop(statement);
+    for id in asked {
+        if let Some((crate::lists::record::Kind::Question, None)) =
+            crate::lists::record::standing(tx, id)?
+        {
+            crate::lists::record::close(
+                tx,
+                id,
+                crate::lists::record::How::Settled(
+                    "the review has no cap on added lines now (decision #746), so no branch waits on this question".to_string(),
+                ),
+                &stamp,
+            )?;
+        }
+    }
+    tx.execute_batch("DROP TABLE review_over_cap;").sql()?;
     Ok(())
 }
 

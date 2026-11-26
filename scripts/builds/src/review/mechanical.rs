@@ -1,43 +1,7 @@
-//! Whether a change over the review's size cap (`check::MAX_ADDED_LINES`)
-//! is mechanical work that the compiler and the hook check, so that `builds
-//! land` takes it with no review: commits that change design files only, or
-//! a rename that changes identifiers and nothing else.
+//! Whether a change is a rename: `builds review` needs no `--kind` for a
+//! change that changes identifiers and nothing else.
 
 use std::collections::HashMap;
-/// Why a change over the cap needs no review.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Mechanical {
-    /// Every changed file is a design file (`builds design only`).
-    Design,
-    /// Once git pairs the renamed files, the lines that differ differ by
-    /// renamed identifiers only.
-    Rename,
-}
-
-impl Mechanical {
-    pub fn word(self) -> &'static str {
-        match self {
-            Mechanical::Design => "design",
-            Mechanical::Rename => "rename",
-        }
-    }
-
-    pub fn parse(word: &str) -> Option<Mechanical> {
-        match word {
-            "design" => Some(Mechanical::Design),
-            "rename" => Some(Mechanical::Rename),
-            _ => None,
-        }
-    }
-
-    /// What `builds review` and `builds land` say of the change.
-    pub fn says(self) -> &'static str {
-        match self {
-            Mechanical::Design => "changes design files only",
-            Mechanical::Rename => "changes only identifiers it renames",
-        }
-    }
-}
 
 /// Does <diff>, a net change that git wrote with rename detection (-M), change nothing but file names and
 /// identifiers? Each run of changed lines must hold as many removed as added

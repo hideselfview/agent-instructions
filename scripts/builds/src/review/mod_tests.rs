@@ -1985,189 +1985,25 @@ fn every_review_command_fails_for_a_project_with_no_store() {
     }
 }
 
-/// A commit of <file> in <side> that adds more lines than the review cap.
+/// A commit of <file> in <side> that adds three thousand lines, more than
+/// the review once took.
 fn big_commit(side: &Path, file: &str, body: &str) -> String {
-    let lines = check::MAX_ADDED_LINES as usize + 1;
-    std::fs::write(side.join(file), body.repeat(lines)).unwrap();
+    std::fs::write(side.join(file), body.repeat(3_000)).unwrap();
     crate::testing::git(side, &["add", file]);
     crate::testing::git(side, &["commit", "-q", "-m", file]);
     crate::testing::git_out(side, &["rev-parse", "HEAD"])
 }
 
-fn over_cap_standing(demo: &Demo, side: &Path) -> Option<over_cap::Standing> {
-    let net = run::diff_of(side, "main").unwrap();
-    let id = over_cap::patch_id(net.diff.patch.text()).unwrap();
-    let conn = demo.store.open_existing().unwrap();
-    over_cap::standing(
-        &conn,
-        over_cap::Branch {
-            change: record::Change {
-                repo: "demo",
-                key: "k",
-            },
-            patch_id: &id,
-        },
-    )
-    .unwrap()
-}
-
 #[test]
-fn a_branch_over_the_cap_starts_no_reviewer_and_asks_the_person_until_they_answer() {
-    let demo = demo("review-over-cap");
+fn a_branch_of_any_size_is_reviewed_and_asks_no_one() {
+    let demo = demo("review-big");
     let fake = fake(&demo.scratch.dir);
     let side = demo.add_side(1, "agent", "work");
     big_commit(&side, "big.rs", "let x = 1;\n");
-    let asked = run_review(&demo, &fake, &side, "k");
-    assert!(asked.refusal.is_some());
-    assert!(asked.text.contains("adds 2001 lines"), "{}", asked.text);
-    assert!(fake.prompts().is_empty());
-    assert!(asked.landing.is_none());
-    let Some(over_cap::Standing::Waiting(over_cap::Waiting::Asked(question))) =
-        over_cap_standing(&demo, &side)
-    else {
-        panic!("{:?}", over_cap_standing(&demo, &side))
-    };
-    let lists = demo.store.load().unwrap();
-    assert!(lists.question(question).unwrap().title.contains("2001"));
-    // A second run asks nothing again and starts no reviewer.
-    let again = run_review(&demo, &fake, &side, "k");
-    assert!(
-        again.text.contains(&format!("Question {question}")),
-        "{}",
-        again.text
-    );
-    assert!(fake.prompts().is_empty());
-    assert_eq!(
-        demo.store.load().unwrap().questions.len(),
-        lists.questions.len()
-    );
-    // The person answers, and the next run reviews the branch.
-    demo.store
-        .write(&stamp(), "answer", |db| {
-            let decision = crate::lists::fixtures::decision_answering(db, question);
-            crate::lists::record::close(
-                db,
-                question,
-                crate::lists::How::Answered(decision),
-                &stamp(),
-            )
-        })
-        .unwrap();
-    let approved = run_review(&demo, &fake, &side, "k");
-    assert!(approved.landing.is_some(), "{}", approved.text);
-    assert!(!fake.prompts().is_empty());
-}
-
-#[test]
-fn the_persons_answer_holds_for_the_branch_after_more_commits_change_its_net_change() {
-    let demo = demo("review-over-cap-holds");
-    let fake = fake(&demo.scratch.dir);
-    let side = demo.add_side(1, "agent", "work");
-    big_commit(&side, "big.rs", "let x = 1;\n");
-    run_review(&demo, &fake, &side, "k");
-    let Some(over_cap::Standing::Waiting(over_cap::Waiting::Asked(question))) =
-        over_cap_standing(&demo, &side)
-    else {
-        panic!("asked")
-    };
-    demo.store
-        .write(&stamp(), "answer", |db| {
-            let decision = crate::lists::fixtures::decision_answering(db, question);
-            crate::lists::record::close(
-                db,
-                question,
-                crate::lists::How::Answered(decision),
-                &stamp(),
-            )
-        })
-        .unwrap();
-    // The agent adds work before the review runs, which changes the patch id.
-    std::fs::write(side.join("more.rs"), "fn more() {}\n").unwrap();
-    crate::testing::git(&side, &["add", "more.rs"]);
-    crate::testing::git(&side, &["commit", "-q", "-m", "more"]);
-    let questions = demo.store.load().unwrap().questions.len();
     let reviewed = run_review(&demo, &fake, &side, "k");
     assert!(reviewed.landing.is_some(), "{}", reviewed.text);
     assert!(!fake.prompts().is_empty());
-    assert_eq!(demo.store.load().unwrap().questions.len(), questions);
-}
-
-#[test]
-fn a_branch_over_the_cap_that_the_person_closed_without_answering_is_not_reviewed() {
-    let demo = demo("review-over-cap-declined");
-    let fake = fake(&demo.scratch.dir);
-    let side = demo.add_side(1, "agent", "work");
-    big_commit(&side, "big.rs", "let x = 1;\n");
-    run_review(&demo, &fake, &side, "k");
-    let Some(over_cap::Standing::Waiting(over_cap::Waiting::Asked(question))) =
-        over_cap_standing(&demo, &side)
-    else {
-        panic!("asked")
-    };
-    demo.store
-        .write(&stamp(), "drop", |db| {
-            crate::lists::record::close(
-                db,
-                question,
-                crate::lists::How::Dropped("no".into()),
-                &stamp(),
-            )
-        })
-        .unwrap();
-    let declined = run_review(&demo, &fake, &side, "k");
-    assert!(
-        declined.text.contains("closed question"),
-        "{}",
-        declined.text
-    );
-    assert!(declined.refusal.is_some());
-    assert!(fake.prompts().is_empty());
-}
-
-#[test]
-fn a_branch_over_the_cap_that_only_renames_needs_no_review_and_asks_no_one() {
-    let demo = demo("review-over-cap-rename");
-    let fake = fake(&demo.scratch.dir);
-    let side = demo.add_side(1, "agent", "work");
-    let body: String = (0..2100)
-        .map(|n| format!("let total{n} = count(total);\n"))
-        .collect();
-    std::fs::write(side.join("old.rs"), &body).unwrap();
-    crate::testing::git(&side, &["add", "old.rs"]);
-    crate::testing::git(&side, &["commit", "-q", "-m", "old"]);
-    // The branch under review starts at the commit that adds old.rs.
-    crate::testing::git(&side, &["branch", "base"]);
-    std::fs::write(side.join("old.rs"), body.replace("total", "sum")).unwrap();
-    crate::testing::git(&side, &["add", "old.rs"]);
-    crate::testing::git(&side, &["commit", "-q", "-m", "rename"]);
-    let reported = review_past_base(&demo, &fake, &side, "k", "base");
-    assert!(reported.refusal.is_none(), "{}", reported.text);
-    assert!(
-        reported.text.contains("only identifiers it renames"),
-        "{}",
-        reported.text
-    );
-    assert!(fake.prompts().is_empty());
     assert!(demo.store.load().unwrap().questions.is_empty());
-}
-
-/// The review of <side> under <key> past <base>.
-fn review_past_base(demo: &Demo, fake: &Fake, side: &Path, key: &str, base: &str) -> Reported {
-    review(&Inputs {
-        store: &demo.store,
-        project: "demo",
-        repo: "demo",
-        worktree: side,
-        base,
-        head: None,
-        key,
-        root: &fake.root,
-        reviewer: &fake.program,
-        stamp: &stamp(),
-        brief: None,
-        runner: None,
-    })
-    .unwrap()
 }
 
 #[test]
@@ -2619,7 +2455,7 @@ fn a_finding_on_a_capture_file_of_a_rule_that_judges_none_is_dropped() {
 
 #[test]
 fn a_branch_called_mechanical_starts_no_reviewer_and_asks_no_one() {
-    let demo = demo("review-over-cap-called");
+    let demo = demo("review-called");
     let fake = fake(&demo.scratch.dir);
     let side = demo.add_side(1, "agent", "work");
     big_commit(&side, "big.rs", "let x = 1;\n");
@@ -2627,43 +2463,6 @@ fn a_branch_called_mechanical_starts_no_reviewer_and_asks_no_one() {
     assert!(said.contains("checked by the compiler"), "{said}");
     assert!(fake.prompts().is_empty());
     assert!(demo.store.load().unwrap().questions.is_empty());
-}
-
-#[test]
-fn a_call_of_mechanical_work_does_not_replace_a_question_to_the_person() {
-    let demo = demo("review-over-cap-call-refused");
-    let fake = fake(&demo.scratch.dir);
-    let side = demo.add_side(1, "agent", "work");
-    big_commit(&side, "big.rs", "let x = 1;\n");
-    assert!(run_review(&demo, &fake, &side, "k").refusal.is_some());
-    let failed = call(&demo, &side).unwrap_err().text();
-    assert!(failed.contains("question"), "{failed}");
-}
-
-#[test]
-fn a_call_of_mechanical_work_replaces_a_question_the_person_dropped() {
-    let demo = demo("review-over-cap-call-after-drop");
-    let fake = fake(&demo.scratch.dir);
-    let side = demo.add_side(1, "agent", "work");
-    big_commit(&side, "big.rs", "let x = 1;\n");
-    run_review(&demo, &fake, &side, "k");
-    let Some(over_cap::Standing::Waiting(over_cap::Waiting::Asked(question))) =
-        over_cap_standing(&demo, &side)
-    else {
-        panic!("asked")
-    };
-    demo.store
-        .write(&stamp(), "drop", |db| {
-            crate::lists::record::close(
-                db,
-                question,
-                crate::lists::How::Dropped("no".into()),
-                &stamp(),
-            )
-        })
-        .unwrap();
-    let said = call(&demo, &side).unwrap();
-    assert!(said.contains("checked by the compiler"), "{said}");
 }
 
 fn call(demo: &Demo, side: &Path) -> Result<String> {

@@ -111,7 +111,7 @@ pub fn read(
     };
     let verdict = landing::judge(&conn, change, top, &needs, CodeCheck::Branch("HEAD"), scope)?;
     Ok(match verdict {
-        Verdict::NotNeeded | Verdict::Takes(_) | Verdict::OverCap(_) => Standing::Read,
+        Verdict::NotNeeded | Verdict::Takes(_) | Verdict::Mechanical(_) => Standing::Read,
         verdict => Standing::InReview(verdict),
     })
 }

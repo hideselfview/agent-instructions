@@ -6,18 +6,15 @@
 use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::db::Sql;
-use crate::fail;
 use crate::fail::Result;
 use crate::lists::Stamp;
-use crate::review::over_cap::{Branch, Standing, Waiting, patch_id, standing};
 use crate::review::record::Change;
 
 /// Records that <by> called the net change of <worktree> past <base>
 /// mechanical work (`builds review --kind mechanical`): moved or renamed
 /// code, regenerated files or a codemod, covered by <checked_by>, such as the
 /// compiler, the hook or a shots run. `builds land` takes the change with no
-/// review. Refuses a change with an open or approved question to the person
-/// about reviewing it. Returns what to say.
+/// review. Returns what to say.
 pub fn call_mechanical(
     store: &crate::lists::store::Store,
     repo: &str,
@@ -39,18 +36,6 @@ pub fn call_mechanical(
     if call_of(&db, branch)?.is_some() {
         return Ok(format!("{key} is called mechanical work already\n"));
     }
-    match standing(&db, branch)? {
-        Some(Standing::Waiting(Waiting::Mechanical(why))) => {
-            return Ok(format!("{key} {}\n", why.says()));
-        }
-        Some(Standing::Waiting(Waiting::Asked(id)) | Standing::Approved(id)) => {
-            fail!(
-                "{key} already has question {id} about reviewing it, so the person decides it, and a call of mechanical work does not replace it"
-            )
-        }
-        // A question the person closed without approving leaves nothing to decide.
-        Some(Standing::Waiting(Waiting::Declined(_))) | None => {}
-    }
     store.write(stamp, &format!("call mechanical {key}"), |db| {
         db.execute(
             "INSERT INTO review_marked_mechanical (repo, key, patch_id, at, by, checked_by) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
@@ -62,6 +47,52 @@ pub fn call_mechanical(
     Ok(format!(
         "{key} adds {added} lines and is called mechanical work checked by {checked_by}, so no reviewer started and builds land takes it with no review while its patch id stays {patch_id}\n"
     ))
+}
+
+/// A branch's net change, named by its patch id: a rebase that keeps its
+/// lines keeps the patch id.
+#[derive(Clone, Copy, Debug)]
+pub struct Branch<'a> {
+    pub change: Change<'a>,
+    pub patch_id: &'a str,
+}
+
+/// The patch id git gives <diff>, the same for a rebase that keeps its lines.
+pub fn patch_id(diff: &str) -> Result<String> {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    let mut child = Command::new("git")
+        .args(["patch-id", "--stable"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .map_err(|error| crate::fail::Fail::Message(format!("running git patch-id: {error}")))?;
+    child
+        .stdin
+        .take()
+        .expect("stdin is piped")
+        .write_all(diff.as_bytes())
+        .map_err(|error| crate::fail::Fail::Message(format!("writing to git patch-id: {error}")))?;
+    let output = child
+        .wait_with_output()
+        .map_err(|error| crate::fail::Fail::Message(format!("running git patch-id: {error}")))?;
+    let text = String::from_utf8_lossy(&output.stdout);
+    match text.split_whitespace().next() {
+        Some(id) if output.status.success() => Ok(id.to_string()),
+        _ => crate::fail!("git patch-id gave no id for a diff that adds lines"),
+    }
+}
+
+/// What `builds review check-landing` says when a branch is called mechanical
+/// work, and what land prints then.
+pub const TAKEN: &str = "mechanical work:";
+
+/// What the call lets `builds land` do with a branch of <added> lines.
+pub fn taken_text(added: i64, call: &Call, patch_id: &str) -> String {
+    format!(
+        "{TAKEN} the branch adds {added} lines, {} called it mechanical, and {} covers it, so builds land takes it with no review while its patch id stays {patch_id}",
+        call.by, call.checked_by
+    )
 }
 
 /// An agent's call that a branch is mechanical work.

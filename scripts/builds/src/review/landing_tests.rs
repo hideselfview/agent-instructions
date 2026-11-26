@@ -936,78 +936,9 @@ fn a_landing_of_design_files_only_starts_no_audit() {
     assert!(start_audit(&mixed, 1, 0.0).is_err());
 }
 
-/// <body> repeated past the review cap, committed as <file> in <side>.
-fn big_commit(side: &Path, file: &str, body: &str) -> String {
-    let path = side.join(file);
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    let lines = check::MAX_ADDED_LINES as usize + 1;
-    std::fs::write(&path, body.repeat(lines)).unwrap();
-    crate::testing::git(side, &["add", file]);
-    crate::testing::git(side, &["commit", "-q", "-m", file]);
-    crate::testing::git_out(side, &["rev-parse", "HEAD"])
-}
-
-fn waits_over_cap_of(demo: &Demo, fake: &Fake, side: &Path, sha: &str) -> Option<String> {
-    let asked = asked(demo, fake, side, &[sha.to_string()]);
-    super::waits_over_cap(&asked).unwrap()
-}
-
 #[test]
-fn a_branch_over_the_cap_that_needs_no_review_lands_with_land_saying_why() {
-    let demo = demo("landing-over-cap-design");
-    let fake = fake(&demo.scratch.dir);
-    // A rule that judges design files covers the board, so the branch needs
-    // a review.
-    crate::review::fakes::looks_group(&fake);
-    let side = demo.add_side(1, "agent", "work");
-    let stamp = stamp();
-    demo.store
-        .write(&stamp, "design-globs", |db| {
-            crate::lists::project::set_design_globs(
-                db,
-                crate::lists::project::GlobKind::Place,
-                &[("demo".to_string(), vec!["design/*.rs".to_string()])].into(),
-            )
-        })
-        .unwrap();
-    let board = big_commit(&side, "design/board.rs", "let x = 1;\n");
-    let reported = review_of(&demo, &fake, &side);
-    assert!(reported.refusal.is_none(), "{}", reported.text);
-    assert!(fake.prompts().is_empty());
-    // The review's verdict takes the branch, so land, the dashboard's card
-    // and health all say it lands.
-    let (verdict, refusal) = verdict_of(&demo, &fake, &side, std::slice::from_ref(&board));
-    assert!(matches!(verdict, Verdict::OverCap(_)), "{verdict:?}");
-    assert_eq!(refusal, None);
-    assert!(blockers(&verdict).is_empty());
-    let said = taken(&verdict);
-    assert!(said.starts_with(over_cap::TAKEN), "{said}");
-    assert!(said.contains("design files only"), "{said}");
-    assert!(said.contains("patch id"), "{said}");
-    // A rebase that keeps the lines keeps the answer: another commit that
-    // changes a line makes it another branch.
-    let code = big_commit(&side, "a.rs", "let x = 1;\n");
-    let (verdict, _) = verdict_of(&demo, &fake, &side, &[board, code]);
-    assert_eq!(verdict, Verdict::NoRun);
-}
-
-#[test]
-fn a_branch_over_the_cap_that_waits_on_the_person_does_not_land() {
-    let demo = demo("landing-over-cap-asked");
-    let fake = fake(&demo.scratch.dir);
-    let side = demo.add_side(1, "agent", "work");
-    let code = big_commit(&side, "a.rs", "let x = 1;\n");
-    let reported = review_of(&demo, &fake, &side);
-    assert!(reported.refusal.is_some());
-    let Some(said) = waits_over_cap_of(&demo, &fake, &side, &code) else {
-        panic!("a branch of code over the cap waits on the person")
-    };
-    assert!(said.contains("Question"), "{said}");
-}
-
-#[test]
-fn a_branch_called_mechanical_lands_under_the_cap_with_land_saying_who_and_why() {
-    let demo = demo("landing-over-cap-marked");
+fn a_branch_called_mechanical_lands_with_land_saying_who_and_why() {
+    let demo = demo("landing-called-mechanical");
     let fake = fake(&demo.scratch.dir);
     let side = demo.add_side(1, "agent", "work");
     std::fs::write(side.join("a.rs"), "let x = 1;\n").unwrap();
@@ -1026,7 +957,7 @@ fn a_branch_called_mechanical_lands_under_the_cap_with_land_saying_who_and_why()
     )
     .unwrap();
     let (verdict, refusal) = verdict_of(&demo, &fake, &side, std::slice::from_ref(&code));
-    assert!(matches!(verdict, Verdict::OverCap(_)), "{verdict:?}");
+    assert!(matches!(verdict, Verdict::Mechanical(_)), "{verdict:?}");
     assert_eq!(refusal, None);
     let said = taken(&verdict);
     assert!(

@@ -271,13 +271,6 @@ pub fn audit(inputs: &Inputs) -> Result<String> {
         );
     };
     let diff = run::diff_between(inputs.repo_dir, &last.base, &last.head)?.diff;
-    if let Some(added) = check::over_the_cap([diff.patch.text()]) {
-        return Ok(format!(
-            "not audited: landing {} ({key}) adds {added} lines, over the review cap of {}, so an audit starts no reviewer\n",
-            inputs.landing,
-            check::MAX_ADDED_LINES
-        ));
-    }
     let material = Material::load(inputs.root, inputs.project)?;
     let ran = groups_ran(&conn, inputs.landing)?;
     let reviewed = material.groups.named(&material.rules, &ran);

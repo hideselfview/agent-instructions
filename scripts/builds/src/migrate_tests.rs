@@ -166,7 +166,7 @@ CREATE TABLE design_variant (
 /// it until they left: their tables stood after those circles, before the
 /// branches over the review's cap if <schema> holds them.
 fn with_design_variants(schema: String) -> String {
-    match schema.find(db::OVER_CAP_PART) {
+    match schema.find(db::OVER_CAP_TABLE) {
         Some(at) => format!(
             "{}{DESIGN_VARIANTS_TABLES}\n{}",
             &schema[..at],
@@ -2742,5 +2742,94 @@ fn a_store_from_before_agent_records_gains_the_empty_tables() {
     assert_eq!(
         db::schema_rows(&conn).unwrap(),
         db::schema_rows(&db::memory()).unwrap()
+    );
+}
+
+#[test]
+fn the_no_over_cap_stamp_is_the_schema_before_it() {
+    assert_eq!(
+        db::stamp_of_text(&db::schema_before_no_over_cap()),
+        BEFORE_NO_OVER_CAP_STAMP
+    );
+}
+
+/// A store from before the review lost its cap loses the table of branches
+/// over it, settles a question about one that still waits on the person,
+/// leaves a question the person dropped as it is, and equals a fresh schema.
+#[test]
+fn a_store_from_before_the_review_lost_its_cap_loses_the_table_and_settles_open_questions() {
+    let scratch = Scratch::new("move-no-over-cap");
+    let places = scratch.places();
+    let path = scratch.dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&db::schema_before_no_over_cap())
+            .unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_NO_OVER_CAP_STAMP)
+            .unwrap();
+        let stamp = crate::lists::Stamp {
+            at: 1,
+            by: "a".to_string(),
+        };
+        crate::lists::project::init(
+            &conn,
+            &crate::lists::project::NewProject {
+                name: "demo".to_string(),
+                canvas: false,
+                repos: vec!["demo".to_string()],
+                places: Default::default(),
+                sources: Default::default(),
+                specs: Default::default(),
+            },
+        )
+        .unwrap();
+        for key in ["one", "two"] {
+            let id = crate::lists::question::ask(
+                &conn,
+                crate::lists::question::NewQuestion {
+                    title: format!("Review {key}?"),
+                    details: "d".to_string(),
+                    kind: crate::lists::question::QuestionKind::Question,
+                    effect: crate::lists::question::Effect::SlowsAgents,
+                    blocks_nothing: Some("x".to_string()),
+                    first: None,
+                    plan: None,
+                    origin: None,
+                },
+                &stamp,
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO review_over_cap (repo, key, patch_id, at, question_id) VALUES ('demo', ?1, '0123456789012345678901234567890123456789', 1, ?2)",
+                rusqlite::params![key, id],
+            )
+            .unwrap();
+            if key == "two" {
+                crate::lists::record::close(
+                    &conn,
+                    id,
+                    crate::lists::How::Dropped("no".into()),
+                    &stamp,
+                )
+                .unwrap();
+            }
+        }
+    }
+    move_store(&places, &path, 5).unwrap();
+    let conn = db::open(&path, db::Make::Never).unwrap();
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    let closed: Vec<(i64, String)> = conn
+        .prepare("SELECT record_id, how FROM closing ORDER BY record_id")
+        .unwrap()
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap();
+    assert_eq!(
+        closed,
+        [(1, "settled".to_string()), (2, "dropped".to_string())]
     );
 }
