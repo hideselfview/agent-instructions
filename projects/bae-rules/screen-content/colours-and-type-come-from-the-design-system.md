@@ -21,21 +21,9 @@ the pink accent, the ones a new installation starts with, in Dark and Light;
   Mac's accent, Material's dynamic colour) beside them; a part the platform
   colours with no way to change it is drawn by the app, and when the app can't
   draw it, ask the person.
-- The accents are measured in OKLCH, a colour space where equal steps in the
-  numbers look equal. Each fill has the sheep's pink lightness, 0.75, and its
-  saturation, 0.17, or the most the screen can show at that hue. The six hues
-  are blue 268°, orchid 313°, pink 353° (the sheep's pink), lime 123°, mint 166°
-  and sky 213°. Going round the hue circle, the gaps are 45° from blue to
-  orchid, 40° to pink, 130° to lime, 43° to mint, 47° to sky and 55° back to
-  blue. The spacing is not equal: the gap from pink to lime is wider than the
-  others, because the picker has no coral or gold and leaves the red-orange and
-  amber hues to the danger and warning colours.
-- Text on an accent fill is the same hue at lightness 0.28 and saturation 0.09.
-- An accent as text and glyphs (`accent-blue` and the like) is the hue at
-  lightness 0.78 and saturation 0.11 in Dark, and at lightness 0.53 and
-  saturation 0.16 in Light, made darker where needed to reach 4.5:1 on
-  background, surface and elevated. A selected row is the Light text colour in
-  both modes, with white text, quieter than the button.
+- The design system measures the accents in OKLCH
+  (`the-accents-are-measured-in-oklch.md`, for `design/**`), and
+  `design/system/tokens.json` holds each value.
 - How the colour names read: a bare name (`accent`, `accent-blue`, `danger`,
   `info`) is text and glyphs on background, surface and elevated. `-fill` is a
   filled shape, and `on-…-fill` is what sits on it. `-selection` is a selected
