@@ -79,25 +79,9 @@ Never mention a reset to the person, even when a change that needs one lands.
 
 Rust turns the rows of a screen's SQL query into bridge types, and the app draws
 them, with no cache, enrichment or other step between the query and the screen.
-There are two exceptions:
-
-- A value that changes many times a second travels on a keyed latest-value
-  stream, as a channel would carry it inside Rust. Some such values live in
-  Rust's memory, such as playback position or a transfer's bytes. A Rust watcher
-  in the value's domain computes others from an in-memory value and a live
-  query's latest result: an upload bar is the release's stored bytes, from the
-  query, plus the bytes of its files that bae has sent so far. Core never writes
-  such a value to a table for a query to read, and never puts a plain query
-  result on a fast stream.
-- State that exists only on screen (hover, focus, the selected rows, an open
-  popover or menu, a drag in progress, the text typed in an input field) stays
-  in the view that controls it. A drag or click that writes stays in progress
-  until its write returns, so the view draws the moved row or new value until
-  then and the screen never jumps back. When a query's parameters change, such
-  as a search's text, the view keeps drawing the last rows until the query
-  returns its first rows for the new parameters.
-
-The full rules are
+Only a value that changes many times a second travels another way, on a keyed
+latest-value stream, and state that exists only on screen, such as hover or a
+drag in progress, stays in the view that controls it. The full rules are
 `projects/bae-rules/screen-reads/reactive-screens-read-plain-live-queries.md`
 and `projects/bae-rules/ui-views/native-views-draw-fast-changing-values.md`.
 Every plan, brief and review checks a change's reads and fast values against
