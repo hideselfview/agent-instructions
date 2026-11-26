@@ -154,3 +154,35 @@ fn a_waiting_branchs_builds_name_their_covering_runs_and_their_base_runs() {
     assert_eq!(named.get(&other_prefix), None);
     assert_eq!(named.get(&landed_run), None);
 }
+
+/// A repo two projects hold keeps one folder of cached runs, and a branch
+/// waiting to land names runs through the app builds of either project.
+#[test]
+fn a_repo_two_projects_hold_names_the_runs_of_each_projects_builds() {
+    let scratch = Scratch::new("in-use-two-projects");
+    let places = scratch.places();
+    let source = scratch.repo_path(BAE);
+    repo(&source, "");
+    git(&source, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    git(&source, &["switch", "-q", "-c", "waiting"]);
+    std::fs::write(source.join("waits"), "w").unwrap();
+    git(&source, &["add", "waits"]);
+    git(&source, &["commit", "-q", "-m", "Waits"]);
+    let waiting = git_out(&source, &["rev-parse", "HEAD"]);
+    let version = crate::shots_program::VERSIONS.comparison.as_str();
+    let covering = cache(&places, &waiting, "mac.", version);
+
+    make_store_named(&places, "first", &[BAE]);
+    let second = make_store_named(&places, "second", &[BAE]);
+    record(
+        &second.database(),
+        &build("waiting", &waiting, "mac.welcome."),
+    )
+    .unwrap();
+
+    let named = named(&places, BAE).unwrap();
+    assert_eq!(
+        named.get(&covering),
+        Some(&BTreeSet::from(["waiting".to_string()]))
+    );
+}

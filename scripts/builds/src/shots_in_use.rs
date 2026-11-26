@@ -25,17 +25,26 @@ use crate::side_git::MainCopies;
 /// name it.
 pub type Named = BTreeMap<PathBuf, BTreeSet<String>>;
 
-/// The runs of <repo> that a branch waiting to land names; nothing when no
-/// project's store holds <repo>, which records no app builds.
+/// The runs of <repo> that a branch waiting to land names, through the app
+/// builds of every project that holds <repo>, since the repo has one folder
+/// of cached runs; nothing when no project's store holds <repo>, which
+/// records no app builds.
 pub fn named(places: &Places, repo: &str) -> Result<Named> {
-    let Some(path) = crate::app_timing::database_of(places, repo)? else {
-        return Ok(Named::new());
-    };
-    let Some(conn) = crate::db::open_reader(&path)? else {
-        return Ok(Named::new());
-    };
-    let source = crate::app_remote::local_source(places, repo)?;
-    named_in(places, repo, &source, &conn, &path)
+    let mut named = Named::new();
+    let mut source = None;
+    for path in crate::lists::store::databases_holding(places, repo)? {
+        let Some(conn) = crate::db::open_reader(&path)? else {
+            continue;
+        };
+        let source = match &source {
+            Some(source) => source,
+            None => source.insert(crate::app_remote::local_source(places, repo)?),
+        };
+        for (folder, branches) in named_in(places, repo, source, &conn, &path)? {
+            named.entry(folder).or_default().extend(branches);
+        }
+    }
+    Ok(named)
 }
 
 /// `named`, reading the branches from the checkout <source> and the app
