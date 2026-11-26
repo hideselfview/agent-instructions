@@ -208,30 +208,9 @@ round's landings.
 
 ### Decision stack and work queue
 
-bae and coven keep two lists in the `builds` store, never in a file or a commit
-(`builds help lists` has the commands):
-
-- The decision stack holds what waits on the person: questions, work only they
-  can do, and work held until they start it.
-- The work queue is the task list for the coordinator and its agents: only what
-  they can do.
-
-Nothing to do is kept anywhere else (not in a brief, a handoff, a plan, the
-decision log or a chat message) unless an item points at it. Commits, code and
-repo files never name list ids or the lists. Neither list holds what is not
-relevant now, such as a release-time task: open a GitHub issue for it and take
-it off the list.
-
-Work the stack from the top, one question at a time: ask the top question, say
-what it blocks, and while it is open, talk about that question only. A question
-that existing rules or code settle is not the person's decision and is not
-recorded as one. An answer about a software plan also goes, numbered, in that
-plan's Decisions section.
-
-A finding that needs no decision becomes a queue item without being raised. A
-finding that needs a decision goes on the stack and is mentioned in one line at
-most. When it is unclear whether something needs the person, or the work is a
-new tool or product rather than a fix, it goes on top of the stack.
+bae and coven share the lists of project bae in the `builds` store.
+`builds help lists` says what each list holds, who writes what, and the order in
+which the person answers the stack.
 
 Work on the builds tool goes first in the queue (add it with
 `--priority first`): every agent works through builds, so what it lacks slows
@@ -239,13 +218,8 @@ every agent.
 
 ### Items and briefs
 
-Each item's title is for the person to read. An agent's brief names the item ids
-it takes, and its work lands (is rebased onto `main` and pushed) through
-`builds land` with those ids. An item with an implementation brief names its
-file, `plans/briefs/<area>.md` in the main checkout (git ignores `plans/`). The
-branch's agent reviews its branch, waits for the judge session to settle the
-review's findings, and runs `builds land` in the side worktree it worked in once
-no confirmed finding is open.
+An item with an implementation brief names its file, `plans/briefs/<area>.md` in
+the main checkout (git ignores `plans/`).
 
 ### Design-session items
 

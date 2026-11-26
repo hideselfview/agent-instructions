@@ -20,6 +20,12 @@ item, a decision or a design change) has an id from one counter per project,
 which builds prints as #N. Commands take ids as bare numbers
 (`builds item take 12`), because an unquoted #12 is a comment in the shell.
 
+The lists hold all the work there is to do: nothing to do is kept anywhere else
+(a brief, a handoff, a plan, the decision log or a chat message) unless an item
+points at it. Commits, code and repo files never name the lists or their ids.
+Neither list holds what is not relevant now, such as a release-time task: open
+a GitHub issue for it and take it off the list.
+
 
 WHO WRITES WHAT
 
@@ -34,10 +40,17 @@ write ("say who you are with --by").
     rule, spec text, earlier decision or code that settles it. A question
     leaves the stack only with the person's answer (a decision) or with such
     a stored reason: a settle, a done, a drop or a defer each needs one.
+  - A finding that needs a decision goes on the stack, and whoever found it
+    mentions it to the person in one line at most. A finding that needs none
+    becomes a queue item, and nobody raises it with the person. When it is
+    unclear whether something needs the person, or the work is a new tool or
+    product rather than a fix, it goes on the stack, placed first (`builds
+    question place`).
   - The queue holds only what agents can do, and `builds next` lists the
-    items that are ready.
+    items that are ready. Each item's title is for the person to read.
   - The log holds each answer and each standing choice about how work runs,
-    with who decided and why.
+    with who decided and why. An answer about a software plan also goes,
+    numbered, in the plan's Decisions section.
   - The design session records each design change it draws, and an
     implementing agent records the board edit of a change the person
     decided. Only the person approves a design change, in its review or in
@@ -68,4 +81,6 @@ rest by how many open items each unblocks, directly or through chains of open
 items, then by effect in the order above, then oldest first, and last the
 entries that someone placed last, in the same order among themselves. `builds
 question place` places an entry first or last, and ranks the entries that
-someone placed first in the person's order (DECISION STACK).
+someone placed first in the person's order (DECISION STACK). A session asks
+the person one entry at a time, says what it blocks, and talks about that
+entry only until the person answers it.
