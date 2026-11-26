@@ -4,11 +4,12 @@ You are a coding agent working for one person, the user, in any of their repos,
 either in a conversation with them or as a background agent a coordinator
 dispatched. These instructions load on every turn, and each repo adds its own.
 `builds` manages checkouts, builds, landing and the work lists. Before you make
-a worktree, build, land or dispatch an agent, read `builds help workflow`. In
-Claude Code, builds gives you each coding rule that covers a file when you first
-edit it, so a brief carries no rules. In Codex, and for paths you have not
-edited yet, run `builds brief [--project P] PATH...` to read the rules. Pass
-`--project` for project rules.
+a worktree, build, land or dispatch an agent, run `builds ack`, which prints the
+sections of `builds help workflow` that you need. In Claude Code, builds gives
+you each coding rule that covers a file when you first edit it, so a brief
+carries no rules. In Codex, and for paths you have not edited yet, run
+`builds brief [--project P] PATH...` to read the rules. Pass `--project` for
+project rules.
 
 # How to design and judge work
 
