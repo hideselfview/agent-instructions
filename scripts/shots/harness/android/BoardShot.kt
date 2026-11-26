@@ -100,9 +100,9 @@ abstract class BoardShot(
         enterMillis: Long,
         content: @Composable () -> Unit,
     ) {
-        compose.settle(look, content)
+        val screenOrder = compose.settle(look, content)
         compose.mainClock.advanceTimeBy(enterMillis)
-        write(board, directory)
+        write(board, directory, screenOrder)
     }
 
     /** The folder the run writes [board] to. Skips the test when the run takes no shots or leaves [board] out. */
@@ -126,11 +126,15 @@ abstract class BoardShot(
         compose.activityRule.scenario.recreate()
     }
 
-    /** Writes the settled screen's picture and element list as [board]'s into [directory]. */
+    /**
+     * Writes the settled screen's picture and element list as [board]'s into [directory], with [screenOrder] as
+     * [settle] returned it.
+     */
     @OptIn(ExperimentalRoborazziApi::class)
     private fun write(
         board: String,
         directory: File,
+        screenOrder: ReadingOrder?,
     ) {
         val root = compose.onRoot()
         // The run asks for shots, so Roborazzi records, whatever the build's own Roborazzi properties say.
@@ -141,10 +145,11 @@ abstract class BoardShot(
         val window = compose.activity.window.decorView
         val embedded = EmbeddedViews.of(window, compose.activity.resources.displayMetrics.density, look::drawnBox)
         val unmerged = compose.onRoot(useUnmergedTree = true).fetchSemanticsNode()
+        val reading = ReadingOrder.of(window, screenOrder)
         File(directory, "$board@android.json")
             .writeText(
                 ElementList
-                    .of(board, root.fetchSemanticsNode(), embedded, unmerged, ReadingOrder.of(window))
+                    .of(board, root.fetchSemanticsNode(), embedded, unmerged, reading)
                     .toString(JSON_INDENT) + "\n",
             )
     }

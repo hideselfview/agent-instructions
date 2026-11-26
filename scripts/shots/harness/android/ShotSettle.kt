@@ -17,11 +17,14 @@ private const val FOCUS_SETTLE_MILLIS = 200L
  * frames that compose the scene's windows, and by [FOCUS_SETTLE_MILLIS] while a field has focus, so a spinner, a
  * looping animation or a progress bar is caught at one moment, and an animation that never ends can't keep the test
  * waiting for idle. The content stages its own theme.
+ *
+ * Returns the reading order of the screen drawn without the windows the scene opens over it, which
+ * [ReadingOrder.of] takes, or null for a scene that opens none.
  */
 internal fun ComposeContentTestRule.settle(
     look: ShotLook,
     content: @Composable () -> Unit,
-) {
+): ReadingOrder? {
     mainClock.autoAdvance = false
     setTestAnimatorScale(0f)
     val windows = ShotWindows()
@@ -29,10 +32,8 @@ internal fun ComposeContentTestRule.settle(
     ReadingOrder.enableTalkBack(onRoot().fetchSemanticsNode())
     mainClock.advanceTimeBy(SETTLE_MILLIS)
     // The windows a scene opens over its screen come after the screen's reading order, read with no window up.
-    if (windows.declared) {
-        val screen = onRoot().fetchSemanticsNode().root as View
-        screen.tag = ScreenOrder(ReadingOrder.of(screen))
-    }
+    val screenOrder =
+        if (windows.declared) ReadingOrder.of(onRoot().fetchSemanticsNode().root as View, screen = null) else null
     windows.shown = true
     // The write is outside a composition, so the compose runtime hears of it only once it is told.
     Snapshot.sendApplyNotifications()
@@ -44,4 +45,5 @@ internal fun ComposeContentTestRule.settle(
     if (onAllNodes(hasSetTextAction() and isFocused()).fetchSemanticsNodes().isNotEmpty()) {
         mainClock.advanceTimeBy(FOCUS_SETTLE_MILLIS)
     }
+    return screenOrder
 }

@@ -37,7 +37,7 @@ private class WindowMarkNode : Modifier.Node()
  * The windows that one shot's scene opens over its screen, which [settle] gives the scene. A window in the app has a
  * reading order of its own, apart from the screen's, but a scene draws it inside the screen, where Compose sorts its
  * nodes together with the screen's by place and moves the screen's nodes. So [settle] draws the screen alone first and
- * keeps its reading order ([ScreenOrder]), then draws the windows.
+ * returns its reading order, then draws the windows.
  */
 internal class ShotWindows {
     /** Whether the scene draws its windows; [settle] turns them on after it reads the screen's own reading order. */

@@ -10,14 +10,6 @@ import androidx.test.core.app.ApplicationProvider
 import org.robolectric.Shadows
 
 /**
- * The reading order of a screen drawn without the windows its scene opens over it, which [settle] keeps as the tag of
- * the shot's Compose view.
- */
-internal class ScreenOrder(
-    val order: ReadingOrder,
-)
-
-/**
  * The order TalkBack reads a Compose screen's nodes in, from Compose's own accessibility delegate. The node provider
  * gives TalkBack no sorted child list: the delegate sorts all nodes by place on screen and traversal index into one
  * chain, and tells each node the node that follows it. [ElementList] lists each node's children by their place in
@@ -52,10 +44,14 @@ internal fun interface ReadingOrder {
         }
 
         /**
-         * The reading order of the Compose view below [window], after [enableTalkBack]. A view that has a
-         * [ScreenOrder] gives its screen's nodes that order.
+         * The reading order of the Compose view below [window], after [enableTalkBack]. With windows over its
+         * screen, [screen] is the order [settle] read of the screen without them, which the screen's nodes take;
+         * it is null for a screen with none.
          */
-        fun of(window: View): ReadingOrder {
+        fun of(
+            window: View,
+            screen: ReadingOrder?,
+        ): ReadingOrder {
             val view = window.composeView()
             val provider = view.accessibilityNodeProvider
             val childId = AccessibilityNodeInfo::class.java.getMethod("getChildId", Int::class.java)
@@ -106,7 +102,7 @@ internal fun interface ReadingOrder {
                 }
             val full = ReadingOrder { parent -> children[parent]?.sortedBy(::earliest) }
             // A node of the screen keeps the order it has with no window up: a window is read apart from the screen.
-            val screen = (view.tag as ScreenOrder?)?.order ?: return full
+            if (screen == null) return full
             val windows = windowNodes((view as ViewRootForTest).semanticsOwner.unmergedRootSemanticsNode)
             return ReadingOrder { parent -> if (parent in windows) full.childrenOf(parent) else screen.childrenOf(parent) }
         }
