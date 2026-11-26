@@ -905,6 +905,14 @@ also refuses, before the build joins a lane's queue, a --shots prefix that
 starts no shot the harnesses declare at the branch's commit, and names the
 nearest declared prefixes.
 
+A design branch passes `--design-shots` in place of listing prefixes: builds
+picks the shots of each board the branch changes (named for the board) and the
+rows of each component it changes (`mac.component.row.` for MacRow), keeps
+those that the harnesses declare, and says which change picked no shot and
+why. A changed README picks nothing, and a changed shared design-system source
+picks no component: name those shots with --shots. The picks join any --shots
+and --test picks, and leave out the scenes that wait on app work.
+
 To run every shot of one lane, pass `--all-shots mac` or `--all-shots android`.
 A full run has two uses: board matching's measurement of a lane on a commit of
 origin/main, which the coordinator runs (`builds help workflow`, BUILDS), and
@@ -1527,7 +1535,7 @@ it builds no merge base: it fails, naming the command that makes the run it
 lacks. A shots check's "before" side is read from the cached runs, never
 built again.
 
-  builds app-build <repo> <ref> [--test <Class>]... [--shots <prefix>]... [--all-shots mac|android]... [--fresh]
+  builds app-build <repo> <ref> [--test <Class>]... [--shots <prefix>]... [--design-shots] [--all-shots mac|android]... [--fresh]
                               build <ref> where it is needed; builds picks the
                               steps, lanes and hosts, and no caller names them.
                               The paths <ref> changes since its merge-base

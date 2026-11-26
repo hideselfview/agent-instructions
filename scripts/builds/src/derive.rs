@@ -44,7 +44,11 @@ use crate::shots_declared::ShotDeclarations;
 use crate::text::note;
 use boards::git;
 
-const USAGE: &str = "usage: builds app-build <repo> <ref> [--test <Class>]... [--shots <prefix>]... [--all-shots mac|android]... [--fresh]";
+const USAGE: &str = "usage: builds app-build <repo> <ref> [--test <Class>]... [--shots <prefix>]... [--design-shots] [--all-shots mac|android]... [--fresh]";
+
+/// The flag that adds the shots of the boards and components the branch
+/// changes (`app_design_shots`).
+const DESIGN_SHOTS: &str = "--design-shots";
 
 /// The steps each lane builds: the steps of every `on` line that matches a
 /// path of <changed>, in the order the steps are written, and for a lane with
@@ -308,16 +312,52 @@ pub fn derive_and_run(places: &Places, args: &[String]) -> Result<()> {
     let (top, commit, mut config) = app_build::commit_and_config(places, repo, git_ref)?;
     let mut declarations = ShotDeclarations::new(&top);
     adopt_main_rules(&top, &mut config)?;
-    let (picks, fresh) = parse_picks(tail, |kind, arg| match kind {
+    let design_shots = tail.iter().any(|arg| arg == DESIGN_SHOTS);
+    let tail: Vec<String> = tail
+        .iter()
+        .filter(|arg| *arg != DESIGN_SHOTS)
+        .cloned()
+        .collect();
+    let (mut picks, fresh) = parse_picks(&tail, |kind, arg| match kind {
         PickKind::Shots => lane_of_prefix(arg),
         PickKind::Class => lane_of_class(&lanes_declaring(&top, &config, &commit, arg)?, arg),
     })?;
-    app_build::require_pickers(&config, &picks)?;
-    let asked_for_picks = !picks.is_empty();
     let changed = changed_paths(&top, &commit)?;
     let store = BuildRecords::open(places, repo)?;
-    let waiting = match &store {
-        Some(store) => crate::app_waiting_shots::waiting(&store.conn, repo, &changed)?,
+    let lists = store
+        .as_ref()
+        .map(|store| crate::lists::store::read(&store.conn))
+        .transpose()?;
+    if design_shots {
+        let Some(lists) = &lists else {
+            fail!(
+                "{DESIGN_SHOTS} reads the project's design places, and repo {repo} is in no project"
+            );
+        };
+        let globs = crate::lists::design_paths::Globs::of(lists, repo);
+        let found = crate::app_design_shots::picked(&globs, &changed, &mut |lane| {
+            declarations.names(lane, &commit)
+        });
+        for line in &found.left_out {
+            note(format!("{DESIGN_SHOTS} picks no shot for this: {line}"));
+        }
+        for prefix in &found.prefixes {
+            picks.push(Pick::from_flag(
+                lane_of_prefix(prefix)?,
+                PickKind::Shots,
+                prefix,
+            )?);
+        }
+        note(format!(
+            "{DESIGN_SHOTS} picked {} shots prefixes: {}",
+            found.prefixes.len(),
+            found.prefixes.join(", ")
+        ));
+    }
+    app_build::require_pickers(&config, &picks)?;
+    let asked_for_picks = !picks.is_empty();
+    let waiting = match &lists {
+        Some(lists) => crate::app_waiting_shots::waiting_in(lists, repo, &changed),
         None => Vec::new(),
     };
     let picks = crate::app_waiting_shots::leave_out(picks, &waiting, &mut declarations, &commit)?;

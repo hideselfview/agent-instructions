@@ -10,6 +10,7 @@ mod app_build_step_failure;
 mod app_build_step_shots;
 mod app_clone;
 mod app_config;
+mod app_design_shots;
 mod app_landing;
 mod app_lock_guard;
 mod app_remote;
