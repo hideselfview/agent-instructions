@@ -35,12 +35,15 @@
     for (const [row, minHeight] of leveled) row.style.minHeight = minHeight;
     leveled.clear();
   }
-  // Each row with its key: the text of its name (`.bae-preview-name`), else
-  // its place, and a number after a key a row before it already has.
+  // The selector of a row's name that the repo's `shots-preview` line gives,
+  // which builds writes in here; null when the repo gives none.
+  const NAME_SELECTOR = @@NAME_SELECTOR@@;
+  // Each row with its key: the text of its name, else its place, and a number
+  // after a key a row before it already has.
   function keyed(all) {
     const seen = new Map();
     return all.map((row, place) => {
-      const name = row.querySelector(".bae-preview-name");
+      const name = NAME_SELECTOR === null ? null : row.querySelector(NAME_SELECTOR);
       const base = name && name.textContent.trim() ? name.textContent.trim() : "#" + place;
       const n = seen.get(base) || 0;
       seen.set(base, n + 1);

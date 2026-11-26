@@ -44,6 +44,7 @@ use boards::{
 };
 use serde_json::{Value, json};
 
+use crate::app_config::CONFIG;
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::lists::design::Circle;
@@ -267,13 +268,33 @@ pub fn render_preview(from: Source, name: &str, dirs: &Folders) -> Result<String
     }
 }
 
+/// The selector of a preview row's name that <from>'s `.app-build` gives
+/// (`shots-preview`); None when <from> has no `.app-build` or the file has
+/// no such line, so its previews' rows have no names to read.
+fn preview_name_selector(from: &Source) -> Result<Option<String>> {
+    if !from.has(CONFIG)? {
+        return Ok(None);
+    }
+    shots::preview_name_selector(&from.read(CONFIG, "the app's settings")?)
+        .or_else(|error| fail!("reading {}: {error}", from.label(CONFIG)))
+}
+
 /// Component <name>'s preview of <from> as a frame loads it: the preview
 /// page (`render_preview`) with `PREVIEW_FIT`, which draws it at its own size
-/// and tells the page that size. A frame of a review page (<for_review>) also
-/// answers the page's question for the boxes of the elements a selector finds.
+/// and tells the page that size, and which reads a row's name with the
+/// selector of <from>'s `shots-preview` line. A frame of a review page
+/// (<for_review>) also answers the page's question for the boxes of the
+/// elements a selector finds.
 pub fn preview_frame(from: Source, name: &str, dirs: &Folders, for_review: bool) -> Result<String> {
     let page = render_preview(from, name, dirs)?;
-    let mut loads = format!("<script>{PREVIEW_FIT}</script>");
+    let fit = fill(
+        PREVIEW_FIT,
+        &[(
+            "NAME_SELECTOR",
+            &script_json(&json!(preview_name_selector(&from)?)),
+        )],
+    );
+    let mut loads = format!("<script>{fit}</script>");
     if for_review {
         loads.push_str(&format!(
             "<script>{CIRCLE_ANSWERS}</script><script>{PREVIEW_CIRCLES}</script>"

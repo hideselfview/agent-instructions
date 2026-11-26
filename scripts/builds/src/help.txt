@@ -2135,7 +2135,12 @@ built again.
                               `shots-declared <app> <folder>` holds the
                               source that declares them, `shots-preview
                               <row> <name> <cell>` gives the selectors of a
-                              component preview's rows, `shots-preview-calls
+                              component preview's rows, of a row's state name
+                              and of the part of a row that draws the state
+                              (the review page lines up the rows of a
+                              preview's now and its proposal by that name,
+                              and by place where a commit's `.app-build` has
+                              no such line), `shots-preview-calls
                               <function>...` the functions that name a
                               preview's rows, `shots-design-only
                               <app> <Component>...` the components the

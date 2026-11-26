@@ -263,6 +263,43 @@ fn a_review_frame_draws_the_preview_and_answers_the_pages_circles() {
     assert!(!plain.contains("designCircles"));
 }
 
+/// A preview's frame reads a row's name with the selector that the
+/// `shots-preview` line gives at the commit the frame draws, and with none
+/// where that commit has no `.app-build`.
+#[test]
+fn a_preview_frame_reads_row_names_with_the_selector_of_its_commits_app_build() {
+    let scratch = Scratch::new("designs-preview-names");
+    let (dir, without) = designs_repo(&scratch);
+    let dirs = scratch.places().design_dirs();
+    let commit = |config: &str| {
+        std::fs::write(dir.join(".app-build"), config).unwrap();
+        git(&dir, &["add", ".app-build"]);
+        git(&dir, &["commit", "-q", "-m", "app-build"]);
+        crate::lists::design_paths::full_sha(&dir, "HEAD").unwrap()
+    };
+    let named = commit("shots-preview .row .row-title .row-cell\n");
+    let unmarked = commit("shots-preview-calls N\n");
+    let broken = commit("shots-preview .row\n");
+    std::fs::write(
+        dir.join(".app-build"),
+        "shots-preview a .in-the-worktree b\n",
+    )
+    .unwrap();
+    let selector = |commit: &str| {
+        let frame = preview(&dir, commit, "Row", &dirs).unwrap();
+        let (_, rest) = frame.split_once("const NAME_SELECTOR = ").unwrap();
+        rest.split_once(';').unwrap().0.to_string()
+    };
+    assert_eq!(selector(&named), "\".row-title\"");
+    assert_eq!(selector(&without), "null");
+    assert_eq!(selector(&unmarked), "null");
+    let error = preview(&dir, &broken, "Row", &dirs).unwrap_err().text();
+    assert!(
+        error.contains(&format!("{broken}:.app-build")) && error.contains("needs the selectors"),
+        "{error}"
+    );
+}
+
 #[test]
 fn a_commit_is_forty_hex_digits() {
     assert!(is_commit(&"a1".repeat(20)));
