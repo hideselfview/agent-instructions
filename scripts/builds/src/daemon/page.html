@@ -796,7 +796,7 @@ function checkoutNow(ab) {
     return [
       h("div", {class: "who"}, now.who + " is building"),
       run && run.step ? h("div", {class: "step"}, run.step.name + ", " + run.step.minutes + "m") : null,
-      h("div", {class: "procs"}, run ? [icon("build", 0, run.building_minutes + "m"), " · "] : null, programs(now.programs)),
+      h("div", {class: "procs"}, run ? [icon("build", 0, run.building_minutes + "m"), " · " + programs(now.programs)] : programs(now.programs)),
       run ? h("div", {class: "waited"}, "Waited " + run.waited_minutes + "m for a checkout") : null,
       ab.remote ? null : h("div", {class: "use"}, Math.round(now.cpu) + "% CPU · " + bytes(now.memory))];
   }
