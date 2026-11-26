@@ -1878,7 +1878,10 @@ built again.
                               words in PascalCase, where a word may be all
                               capitals (`mac.component.row.label` draws
                               MacRow, and `mac.component.qr-scanner.on`
-                              draws MacQRScanner). When the
+                              draws MacQRScanner). <state> is the id of the
+                              preview's row, in lower-case words joined by
+                              `-`: MacRow's row "Nested, off" is
+                              `mac.component.row.nested-off`. When the
                               repo's design system has no preview for
                               <Platform><Thing> but has one for <Thing>, the
                               shot draws that component, which both platforms

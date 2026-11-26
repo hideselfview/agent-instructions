@@ -118,14 +118,8 @@ A shot draws the code's version of a board, so don't add IDE previews
     and its preview is one folder of the design system with that name.
   - The view that draws it has exactly that name and takes values the way the
     component takes props.
-  - Each named preview state is a shot named
-    `<platform>.component.<thing>.<state>`, in lower-case words joined by `-`:
-    `MacRow`'s "Nested, off" is `mac.component.row.nested-off`.
-  - A shared component's shot names the platform that draws it:
-    `android.component.artwork.default` and `mac.component.artwork.default` both
-    draw the `Artwork` preview. The shot tool draws `<Platform><Thing>`'s
-    preview when the design system has one, and otherwise the shared `<Thing>`
-    preview.
+  - Each named preview state is a shot, which `builds help APP BUILDS` names
+    (`builds shots`, components).
 - A screen shot draws a whole screen, made of components, as its board does.
   - A board is named `<platform>.<area>.<screen>[.<state>]`
     (`mac.settings.subsonic.port-taken`).
