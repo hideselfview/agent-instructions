@@ -353,11 +353,8 @@ DISPATCH
   - Brief a mechanical change (moved or renamed code, generated files, a
     codemod) as one change, and tell the agent to review it with `--kind
     mechanical --checked-by TEXT` (REVIEW).
-  - Dead code, code that nothing outside tests calls, is never a question
-    for the person: whoever finds it deletes it, or queues its deletion when
-    it is outside their work. The one exception, dead code that is the only
-    code doing a behavior the spec states, is in
-    rules/necessary-code/write-only-what-is-needed-today.md (Dead code).
+  - Dead code is never a question for the person, except where
+    rules/necessary-code/write-only-what-is-needed-today.md (Dead code) says.
   - Disk is a queue limit, never a question for the person: under the floor,
     start nothing new, and start the next work as agents finish and their
     build folders are pruned.

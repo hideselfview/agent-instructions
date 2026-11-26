@@ -35,9 +35,7 @@ it, and never asks the person whether to keep it:
   deletes it.
 
 A commit must not add code that nothing outside tests calls: the code lands with
-its caller, or not at all. Review raises a finding on such code, and
-`builds land` refuses the branch while the finding is open. Only the person can
-let such code land.
+its caller, or not at all.
 
 When dead code on main is the only code that does a behavior the spec states,
 ask the person whether the behavior stays, and quote the spec's text. When it
