@@ -2,7 +2,6 @@ package builds.shots
 
 import android.content.Context
 import android.view.View
-import android.view.ViewGroup
 import android.view.accessibility.AccessibilityManager
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.compose.ui.platform.ViewRootForTest
@@ -21,7 +20,6 @@ internal fun interface ReadingOrder {
     fun childrenOf(parent: Int): List<Int>?
 
     companion object {
-        private const val COMPOSE_VIEW = "androidx.compose.ui.platform.AndroidComposeView"
         private const val ID_SHIFT = 32
         private const val NONE = -1
         private const val BEFORE_KEY = "android.view.accessibility.extra.EXTRA_DATA_TEST_TRAVERSALBEFORE_VAL"
@@ -47,7 +45,8 @@ internal fun interface ReadingOrder {
 
         /** The reading order of the Compose view below [window], after [enableTalkBack]. */
         fun of(window: View): ReadingOrder {
-            val provider = checkNotNull(find(window)) { "no Compose view below the window" }.accessibilityNodeProvider
+            val view = window.composeView()
+            val provider = view.accessibilityNodeProvider
             val childId = AccessibilityNodeInfo::class.java.getMethod("getChildId", Int::class.java)
 
             fun virtual(id: Long) = (id ushr ID_SHIFT).toInt()
@@ -62,7 +61,6 @@ internal fun interface ReadingOrder {
                 children.getValue(id).forEach(::read)
             }
             read(HOST)
-            val view = checkNotNull(find(window))
             val delegate =
                 view.javaClass
                     .getDeclaredField("composeAccessibilityDelegate")
@@ -97,12 +95,5 @@ internal fun interface ReadingOrder {
             val screen = ShotWindows.pageOrder ?: return full
             return ReadingOrder { parent -> screen.childrenOf(parent) ?: full.childrenOf(parent) }
         }
-
-        private fun find(view: View): View? =
-            if (view.javaClass.name == COMPOSE_VIEW) {
-                view
-            } else {
-                (view as? ViewGroup)?.let { group -> (0 until group.childCount).firstNotNullOfOrNull { find(group.getChildAt(it)) } }
-            }
     }
 }

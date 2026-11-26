@@ -19,7 +19,6 @@ internal object EmbeddedViews {
     private const val PERCENT = 100.0
     private const val HEX_RADIX = 16
     private const val RGB_DIGITS = 8
-    private const val COMPOSE_VIEW = "androidx.compose.ui.platform.AndroidComposeView"
     private const val HOLDER_SUFFIX = "ViewFactoryHolder"
 
     /**
@@ -31,23 +30,11 @@ internal object EmbeddedViews {
         density: Float,
         drawnBox: (View) -> Rect,
     ): List<JSONObject> {
-        val compose = find(window) { it.javaClass.name == COMPOSE_VIEW } ?: return emptyList()
+        val compose = window.composeView()
         val origin = IntArray(2).also { compose.getLocationInWindow(it) }
         val out = mutableListOf<JSONObject>()
         holders(compose).forEach { holder -> leaves(holder, origin, density, drawnBox, out) }
         return out
-    }
-
-    private fun find(
-        view: View,
-        match: (View) -> Boolean,
-    ): View? {
-        if (match(view)) return view
-        if (view !is ViewGroup) return null
-        for (index in 0 until view.childCount) {
-            find(view.getChildAt(index), match)?.let { return it }
-        }
-        return null
     }
 
     /** The embedded views' holders below [view], outermost first, in the order Compose places them. */

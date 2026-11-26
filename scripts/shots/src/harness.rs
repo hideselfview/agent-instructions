@@ -74,6 +74,7 @@ pub(crate) static MAC: Harness = Harness {
 pub(crate) static ANDROID: Harness = Harness {
     bundle: &[
         file!("android", "BoardShot.kt"),
+        file!("android", "ComposeView.kt"),
         file!("android", "ElementList.kt"),
         file!("android", "EmbeddedViews.kt"),
         file!("android", "ReadingOrder.kt"),
