@@ -722,8 +722,8 @@ session that recorded the change has ended. builds sends no second message.
       decided nothing about the difference, or a board redrawn where neither
       it nor the app drew the screen as it should be and the person's
       decisions, the spec or the platform's conventions settle what it
-      should be (the board rule in
-      projects/bae-rules/screen-content/build-each-screen-to-match-its-board.md).
+      should be (bae's rule
+      projects/bae-rules/screen-content/the-design-session-settles-board-and-app-differences.md).
       Such a change needs no `review` and is approved when recorded. An amend
       without `fix` makes the change wait on the person's review again, unless
       it changes no drawing (`builds design amend`).
