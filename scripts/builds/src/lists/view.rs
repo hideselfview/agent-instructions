@@ -87,7 +87,7 @@ pub enum WaitView {
 }
 
 /// A wait on an item of another project.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, serde::Deserialize)]
 pub struct ForeignWaitView {
     pub project: String,
     pub id: Id,
