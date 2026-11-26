@@ -5,7 +5,7 @@ fn each_page_lists_its_section_headings() {
     assert!(sections(WORKFLOW_HELP).contains(&"DISPATCH"));
     assert!(sections(WORKFLOW_HELP).contains(&"PLAN, BRIEF, EXECUTE"));
     assert!(sections(HELP).contains(&"LANDING AND REVIEW"));
-    assert!(sections(LISTS_HELP).contains(&"RULINGS"));
+    assert!(sections(LISTS_HELP).contains(&"DECISION LOG"));
     assert!(sections(BRIEFS_HELP).contains(&"READ FIRST"));
     assert_eq!(page(Some("nothing")), None);
 }
@@ -30,9 +30,9 @@ fn lookup_prints_a_page_or_one_of_its_sections() {
             .starts_with("APP BUILDS\n")
     );
     assert!(
-        lookup(&words(&["lists", "RULINGS"]))
+        lookup(&words(&["lists", "DECISION LOG"]))
             .unwrap()
-            .starts_with("RULINGS\n")
+            .starts_with("DECISION LOG\n")
     );
 }
 

@@ -14,9 +14,8 @@ More help:
                         writes implementation briefs
 
 A section's heading after the page prints that section alone: `builds help
-lists RULINGS`, or `builds help APP BUILDS` for a section of this page. So a
-citation such as (`builds help lists`, RULINGS) is a command that prints what
-it names.
+lists DECISION LOG`, or `builds help APP BUILDS` for a section of this
+page.
 
 builds is a Rust program in agent-instructions (scripts/builds).
 agent-instructions' install.sh builds it from the main checkout's committed
@@ -3695,11 +3694,7 @@ choice; take prints each unstated behavior and takes the items. take records
 every check in the project's store: the brief's text, the spec files and the
 commit the reviewer read them at, the model, prompt, answer, each finding,
 and the --spec-decided record. Builds keeps the same token counts as a branch
-review and records the price when the reviewer reports one (`builds help lists`, item take). Before the spec check, take runs the
-rulings check over
-the brief with a reviewer that has no tools, and refuses a brief whose
-sentence states a ruling of the person's or a standing prohibition and names
-no source that records it (`builds help lists`, RULINGS).
+review and records the price when the reviewer reports one (`builds help lists`, item take).
 
 Every review command but `review groups` without --changed reads or writes a
 project's store:

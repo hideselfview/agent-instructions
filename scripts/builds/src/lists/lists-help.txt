@@ -256,14 +256,12 @@ main checkout holds or that more than one holds; an absolute path is itself.
       question (the refusal names it and `question answer`, whose `blocked`
       entry may be {"backlog": WHY}), and an item that an open item outside
       the backlog and outside the command's list waits on (the refusal names
-      each and the command that moves both). The why says why the work waits;
-      the rulings check reads it (RULINGS).
+      each and the command that moves both). The why says why the work waits.
 
   builds item start N [M...] --said WORDS
       Moves items from the backlog to the queue in one write. Each waits on
       what it waited on before and keeps its priority. WORDS are the words of
-      the person that start it, stored as the note "started: WORDS"; the
-      rulings check reads them no more than it reads done's `shown_by`.
+      the person that start it, stored as the note "started: WORDS".
       Refused for an item not in the backlog, and for an item that waits on a
       backlog item the command does not start too (the refusal names it). A
       session runs start only on the person's word; the dashboard's Start
@@ -302,10 +300,7 @@ main checkout holds or that more than one holds; an absolute path is itself.
       A change to an item's details or origin made before the take is no
       change to read: only changes made at or after a take count, and a later
       take of the item starts again from that moment.
-      Before the items start, take runs the rulings check over brief P
-      (RULINGS), which also lists each sentence of P that states a
-      prohibition meant to hold beyond the task, and refuses the items when a
-      sentence names no source that records it. Then take checks brief P against
+      Before the items start, take checks brief P against
       the product spec of each W whose repo has spec files (`lists
       design-globs --spec-files`),
       with a reviewer that runs in W with read-only tools, as `builds review`
@@ -327,12 +322,12 @@ main checkout holds or that more than one holds; an absolute path is itself.
       runs no spec check and refuses --spec-decided. --rules-root names the
       agent-instructions checkout that holds the spec rule and the rules a
       brief cites (default ~/.codex/agent-instructions), and --reviewer the
-      program both checks run in place of the session reviewer.
+      program the spec check runs in place of the session reviewer.
 
   builds item check-brief --worktree W [--worktree W2] --brief P
                     [--spec-decided N] [--rules-root DIR] [--reviewer PROGRAM]
       Runs the checks that `item take` runs on brief P (the pasted-text
-      check, the rulings check and the spec check of each W's repo) with the
+      check and the spec check of each W's repo) with the
       same code, prints what take would print, and takes no item. It records
       nothing in the store, not even the spec check. A session that writes a
       brief runs it before it starts an agent, and fixes each sentence it
@@ -550,62 +545,6 @@ replaces it.
   builds decision list [--plan PATH] [--since YYYY-MM-DD]
       The log, newest first, one line each; --plan keeps the decisions
       recorded against that plan, with their plan numbers.
-
-
-RULINGS
-
-No text that builds keeps for the person or an agent says the person decided
-something unless the sentence names the record of it. Before each command
-below writes, builds asks a reviewer with no tools to quote each
-sentence of the command's text that says the person decided, ruled, chose,
-prefers, forbids or allowed something:
-
-  question ask        the title and details, and the reasons of --first and
-                      --blocks-nothing
-  question edit       the new title, details and --blocks-nothing reason
-  question answer,    the request's `by_rule`, its item drafts, and each
-  settle, done        blocked item's edit and drop reason; an answer's
-                      `decision` is the record a citation names, and done's
-                      `shown_by` records the person's words, so the check
-                      reads neither
-  item add, item edit the title and details, and the why of --backlog
-  item backlog        the why
-  decision add        the item drafts; the decision is the record
-  design record,      the item drafts of the request's places
-  amend
-  item take           the brief, where the reviewer also quotes each
-                      sentence that states a prohibition meant to hold
-                      beyond the task
-
-builds finds each quote in the text and sets aside one it does not find,
-printing it. In each quoted sentence, builds reads every citation, and each
-must name a source that exists:
-
-  decision #N         a decision of the log
-  a rule file         a path that ends in .md and names a rule of the rules
-                      checkout (rules/<group>/<rule>.md or
-                      projects/<project>-rules/<group>/<rule>.md), a
-                      project file (projects/<project>.md) or
-                      instructions-agent.md, written as that path or as a
-                      longer path that ends with it
-  ~/.claude/CLAUDE.md the instructions every agent loads, which must exist
-  a repo's CLAUDE.md  `CLAUDE.md of repo <repo>`, or the file's path at the
-                      top of the repo's checkout ~/dev/<repo>, which must
-                      exist; no other CLAUDE.md counts
-  a builds help       `builds help`, the page's topic (lists, workflow or
-  section             briefs) when the section is on one of those pages, and
-                      the section's heading in capitals, such as `builds
-                      help workflow, DISPATCH` or `builds help`, CARGO; the
-                      page must hold a section of that heading. A mention of
-                      builds help that no heading follows cites nothing.
-
-builds refuses the command, writes nothing and quotes each sentence that
-names no citation or names one that does not exist. Otherwise builds prints
-each quoted sentence with what it cites, with the title of each decision, and
-writes. When the reviewer gives no usable answer, builds refuses the command.
-The check records nothing in the store. The rules checkout is
-~/.codex/agent-instructions; `item take` takes --rules-root and --reviewer in
-place of that checkout and the session reviewer.
 
 
 DESIGN CHANGES

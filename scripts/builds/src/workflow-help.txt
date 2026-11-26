@@ -52,15 +52,6 @@ because the dashboard's Waiting on you tab shows only the stack. Then any
 session may ask the person, or ask another session to ask them, naming the
 entry's id.
 
-No stack entry, work item or brief says that the person decided something
-unless the sentence names where that is written: the decision that records it
-(`decision #N`), a rule file such as rules/<group>/<rule>.md,
-~/.claude/CLAUDE.md, the CLAUDE.md of repo <repo>, or a section of a builds help
-page, such as builds help workflow, DISPATCH. A brief, an agent's earlier
-summary or a line copied between briefs records nothing, and builds refuses a
-write whose sentence names no source (`builds help lists`, RULINGS). When the
-person has not decided, ask them instead of stating what they want.
-
 Work that waits on the person, such as a step only they can take at their Mac,
 goes on the stack as a your-step question (`builds question ask --kind
 your-step`), and each item or held worktree that waits on it waits on
@@ -166,9 +157,6 @@ PLAN, BRIEF, EXECUTE
       and the brief cites it
       (rules/commits-and-repo-contents/every-change-agrees-with-its-product-spec.md).
       `builds item take` checks the brief against the spec (DISPATCH).
-    - Each sentence of a brief that states a ruling of the person's, or a
-      prohibition meant to hold beyond the task, names where it is written
-      (ROLES).
     - `builds help briefs` is the instructions for a planner agent that
       writes briefs.
   - Implementation: the brief specifies the behavior and how to test it.
@@ -356,13 +344,9 @@ DISPATCH
     branch for the item. Release a worktree by hand only when it holds
     nothing origin/main lacks. `builds item list --running` shows what runs
     after a compaction.
-  - When `builds item take` refuses a brief's sentence that states a ruling of
-    the person's, or a standing prohibition, and names no source, cite the
-    decision, rule file, CLAUDE.md or builds help section, or take the
-    sentence out of the brief and ask the person.
   - Before you start an agent, run `builds item check-brief --worktree W
     --brief P`: it runs the checks of `builds item take` (pasted text,
-    rulings, spec) on the brief and takes nothing, so you fix a refused
+    spec) on the brief and takes nothing, so you fix a refused
     sentence before an agent starts and reads the brief.
   - `builds item take` checks the brief against the product spec. When it
     refuses for a conflict, put the conflict on the decision stack with which

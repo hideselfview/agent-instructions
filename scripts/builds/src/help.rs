@@ -1,6 +1,5 @@
 //! The pages `builds help [TOPIC]` prints and the sections they hold, which
-//! main prints, `builds ack` asks agents to read and a ruling may cite
-//! (`lists::rulings`).
+//! main prints and `builds ack` asks agents to read.
 
 /// `builds help`.
 pub const HELP: &str = include_str!("help.txt");
@@ -41,8 +40,8 @@ pub fn name(topic: Option<&str>) -> String {
 /// What `builds help <args>` prints: with no <args>, `builds help`; with a
 /// page's topic, that page; and with the words of a section's heading after
 /// the topic, or alone for a section of `builds help`, that section only, so
-/// that a citation such as (`builds help lists`, RULINGS) is the command
-/// `builds help lists RULINGS`. The heading's words match in any case. Err
+/// that a citation such as (`builds help lists`, DECISION LOG) is the command
+/// `builds help lists DECISION LOG`. The heading's words match in any case. Err
 /// names the page's headings when none matches.
 pub fn lookup(args: &[String]) -> Result<&'static str, String> {
     let (topic, words) = match args.split_first() {
