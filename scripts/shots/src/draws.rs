@@ -25,6 +25,11 @@ use std::path::Path;
 /// below what anyone sees as a change.
 const NOISE_LEVELS: u8 = 2;
 
+/// The pixels per point that boards and previews draw at, the device scale of
+/// a Mac shot: Chrome rounds boxes and lines to the device's pixels, so a
+/// board that draws alike at this scale draws alike in a shots run.
+const DEVICE_SCALE: f64 = 2.0;
+
 /// What a board or a preview draws: its picture, as the PNG Chrome made, and
 /// its element list.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -170,86 +175,91 @@ fn draw(
     selection: Selection<'_>,
 ) -> Result<Drawings, String> {
     let previews = Previews::of(work)?;
-    render::with_design(work, folders, async |server, chrome, frames| {
-        let (boards, components): (Vec<_>, Vec<_>) = match selection {
-            Selection::All => (
-                frames
-                    .iter()
-                    .map(|(name, frame)| (name, Some(frame)))
-                    .collect(),
-                previews
-                    .components
-                    .iter()
-                    .map(|(name, _)| (name, true))
-                    .collect(),
-            ),
-            Selection::Named { boards, components } => {
-                let known_components: BTreeSet<_> =
-                    previews.components.iter().map(|(name, _)| name).collect();
-                (
-                    boards.iter().map(|name| (name, frames.get(name))).collect(),
-                    components
+    render::with_design(
+        work,
+        folders,
+        DEVICE_SCALE,
+        async |server, chrome, frames| {
+            let (boards, components): (Vec<_>, Vec<_>) = match selection {
+                Selection::All => (
+                    frames
                         .iter()
-                        .map(|name| (name, known_components.contains(name)))
+                        .map(|(name, frame)| (name, Some(frame)))
                         .collect(),
-                )
-            }
-        };
-        let mut drawn = Drawings::new();
-        for (name, frame) in boards {
-            let picture = match frame {
-                None => None,
-                Some(frame) => Some(
-                    chrome
-                        .with_page(&format!("board {name}"), async |page| {
-                            let rendered =
-                                board::render(page, name, &server.board_url(name), *frame)
-                                    .await
-                                    .map_err(|e| e.to_string())?;
-                            let elements =
-                                render::read::elements(page, rendered.frame, Platform::Mac)
-                                    .await
-                                    .map_err(|e| e.to_string())?;
-                            Picture::of(&rendered.png, &elements)
-                        })
-                        .await?,
+                    previews
+                        .components
+                        .iter()
+                        .map(|(name, _)| (name, true))
+                        .collect(),
                 ),
+                Selection::Named { boards, components } => {
+                    let known_components: BTreeSet<_> =
+                        previews.components.iter().map(|(name, _)| name).collect();
+                    (
+                        boards.iter().map(|name| (name, frames.get(name))).collect(),
+                        components
+                            .iter()
+                            .map(|name| (name, known_components.contains(name)))
+                            .collect(),
+                    )
+                }
             };
-            drawn.insert(format!("board {name}"), picture);
-        }
-        for (name, exists) in components {
-            let picture = if exists {
-                Some(
-                    chrome
-                        .with_page(&format!("the preview of {name}"), async |page| {
-                            board::load(
-                                page,
-                                name,
-                                &server.preview_url(name),
-                                preview::PREVIEW_FRAME,
-                                preview::PREVIEW_LOADED,
-                                None,
-                            )
-                            .await
-                            .map_err(|e| e.to_string())?;
-                            let rendered = preview::capture(page, preview::CaptureArea::Page)
+            let mut drawn = Drawings::new();
+            for (name, frame) in boards {
+                let picture = match frame {
+                    None => None,
+                    Some(frame) => Some(
+                        chrome
+                            .with_page(&format!("board {name}"), async |page| {
+                                let rendered =
+                                    board::render(page, name, &server.board_url(name), *frame)
+                                        .await
+                                        .map_err(|e| e.to_string())?;
+                                let elements =
+                                    render::read::elements(page, rendered.frame, Platform::Mac)
+                                        .await
+                                        .map_err(|e| e.to_string())?;
+                                Picture::of(&rendered.png, &elements)
+                            })
+                            .await?,
+                    ),
+                };
+                drawn.insert(format!("board {name}"), picture);
+            }
+            for (name, exists) in components {
+                let picture = if exists {
+                    Some(
+                        chrome
+                            .with_page(&format!("the preview of {name}"), async |page| {
+                                board::load(
+                                    page,
+                                    name,
+                                    &server.preview_url(name),
+                                    preview::PREVIEW_FRAME,
+                                    preview::PREVIEW_LOADED,
+                                    None,
+                                )
                                 .await
                                 .map_err(|e| e.to_string())?;
-                            let elements =
-                                render::read::elements(page, rendered.frame, Platform::Mac)
+                                let rendered = preview::capture(page, preview::CaptureArea::Page)
                                     .await
                                     .map_err(|e| e.to_string())?;
-                            Picture::of(&rendered.png, &elements)
-                        })
-                        .await?,
-                )
-            } else {
-                None
-            };
-            drawn.insert(format!("component {name}"), picture);
-        }
-        Ok(drawn)
-    })
+                                let elements =
+                                    render::read::elements(page, rendered.frame, Platform::Mac)
+                                        .await
+                                        .map_err(|e| e.to_string())?;
+                                Picture::of(&rendered.png, &elements)
+                            })
+                            .await?,
+                    )
+                } else {
+                    None
+                };
+                drawn.insert(format!("component {name}"), picture);
+            }
+            Ok(drawn)
+        },
+    )
 }
 
 #[cfg(test)]

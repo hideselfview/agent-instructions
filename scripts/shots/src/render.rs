@@ -118,10 +118,12 @@ pub(crate) fn with_browser<T>(
 
 /// Runs <work> with the design tree at <root> served and the pinned Chrome
 /// started, given every board's frame from `canvas.json`: checks the canvas
-/// runtime copy and builds the design system the boards load first.
+/// runtime copy and builds the design system the boards load first. The
+/// browser has a device scale of <scale> pixels per point.
 pub(crate) fn with_design<T>(
     root: &Path,
     folders: &boards::Folders,
+    scale: f64,
     work: impl AsyncFnOnce(
         &serve::Server,
         &chrome::Chrome,
@@ -136,7 +138,7 @@ pub(crate) fn with_design<T>(
         design: &design,
         runtime: runtime.copy.text,
     };
-    with_browser(tree, folders, 1.0, async |server, chrome| {
+    with_browser(tree, folders, scale, async |server, chrome| {
         work(server, chrome, &frames).await
     })
 }

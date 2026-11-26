@@ -317,7 +317,8 @@ fn draw(root: &Path, settings: &Settings, folders: &boards::Folders) -> Result<D
         .map_err(|e| e.to_string())?
         .row
         .as_str();
-    render::with_design(root, folders, async |server, chrome, frames| {
+    // The components a board draws do not depend on the device scale.
+    render::with_design(root, folders, 1.0, async |server, chrome, frames| {
         let boards = frames.iter().map(|(name, frame)| Sheet {
             name,
             url: server.board_url(name),

@@ -87,6 +87,28 @@ fn a_board_whose_bytes_change_and_drawing_does_not_draws_alike_and_a_redrawn_one
 }
 
 #[test]
+fn a_board_draws_at_the_device_scale_of_a_shot() {
+    let repo = history();
+    let drawn = read(
+        repo.path(),
+        "a",
+        &folders(),
+        Selection::Named {
+            boards: &[BOARD.to_string()],
+            components: &[],
+        },
+    )
+    .unwrap();
+    let picture = decode(&drawn[&format!("board {BOARD}")].as_ref().unwrap().png).unwrap();
+    let frame = design::frames(repo.path()).unwrap()[BOARD];
+    assert_eq!(
+        (picture.width, picture.height),
+        (frame.w * 2, frame.h * 2),
+        "the picture holds 2 pixels to the point"
+    );
+}
+
+#[test]
 fn a_preview_draws_at_rest_even_when_a_rule_marks_an_animation_important() {
     let repo = history();
     let component = "Welcome";
