@@ -806,6 +806,63 @@ fn the_effect_control_works_only_from_the_page_at_this_mac() {
 }
 
 #[test]
+fn the_start_button_works_only_from_the_page_at_this_mac_and_records_the_dashboard_as_its_author() {
+    use crate::lists::fixtures::{NOON, make_store, stamp};
+    let s = server_with("http-start", |_, places| {
+        make_store(places, &["bae"])
+            .write(&stamp(NOON), "item add", |db| {
+                let id = crate::lists::fixtures::item(db, vec![]);
+                crate::lists::item::move_to_backlog(db, &[(id, "later".to_string())], &stamp(NOON))
+            })
+            .unwrap();
+    });
+    let in_backlog = || {
+        let store = crate::lists::store::Store::named(&s.model.places, "demo").unwrap();
+        store
+            .load()
+            .unwrap()
+            .item(crate::lists::Id(1))
+            .unwrap()
+            .backlog
+            .is_some()
+    };
+    let local = format!("127.0.0.1:{}", s.port);
+    let this_mac = format!("http://{local}");
+    let also = format!("{ALSO}:{}", s.port);
+    let body = r#"{"project": "demo", "id": 1}"#;
+    let (status, reply) = s.post_to(
+        "/api/item-start",
+        &also,
+        Some(&format!("http://{also}")),
+        body,
+    );
+    assert_eq!(status, 403, "{reply}");
+    assert!(in_backlog());
+    let (status, reply) = s.post_to("/api/item-start", &local, Some(&this_mac), body);
+    assert_eq!((status, reply.as_str()), (200, "{}"));
+    assert!(!in_backlog());
+    let store = crate::lists::store::Store::named(&s.model.places, "demo").unwrap();
+    let db = crate::db::open_reader(&store.database()).unwrap().unwrap();
+    let logged = crate::lists::store::read_log(&db).unwrap().pop().unwrap();
+    assert_eq!(
+        (logged.2.as_str(), logged.3.as_str()),
+        ("person (dashboard)", "item start 1")
+    );
+    let item = store
+        .load()
+        .unwrap()
+        .item(crate::lists::Id(1))
+        .unwrap()
+        .clone();
+    assert_eq!(
+        item.notes
+            .last()
+            .map(|note| (note.by.as_str(), note.text.as_str())),
+        Some(("person (dashboard)", "started: started on the dashboard"))
+    );
+}
+
+#[test]
 fn a_designs_path_is_the_page_or_a_board_or_component_at_a_full_commit() {
     let commit = "0123456789abcdef0123456789abcdef01234567";
     assert_eq!(designs_route("bae"), Some(DesignsRoute::Page("bae")));

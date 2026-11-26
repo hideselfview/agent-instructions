@@ -30,6 +30,7 @@ pub mod restart;
 pub mod review_cards;
 pub mod runs;
 pub mod scratch_view;
+pub mod start;
 #[cfg(target_os = "macos")]
 pub mod vnode;
 #[cfg(target_os = "linux")]

@@ -146,6 +146,9 @@ pub struct ItemView {
     pub r#for: Audience,
     pub state: derive::ItemState,
     pub priority: Option<Priority>,
+    /// Why the item waits in the backlog, who moved it there and when; None
+    /// when it is not in the backlog.
+    pub backlog: Option<crate::lists::item::Backlog>,
     /// How many open items wait on it directly or through a chain of open
     /// items.
     pub behind: usize,
@@ -360,6 +363,7 @@ fn item_view(
         r#for: item.r#for,
         state: derive::item_state(lists, item),
         priority: item.priority.clone(),
+        backlog: item.backlog.clone(),
         behind: derive::behind(lists, item.id),
         brief: item.brief.clone(),
         waits: item

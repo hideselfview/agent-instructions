@@ -331,6 +331,10 @@ a.l-ref:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; b
 .l-empty { font-size: 13px; color: var(--muted); padding: 4px 2px; }
 .l-sep { border: 0; border-top: 1px solid var(--line-soft); margin: 2px 0; width: 100%; }
 @keyframes l-flash { from { box-shadow: 0 0 0 3px var(--accent); } to { box-shadow: 0 0 0 3px transparent; } }
+.l-start { font: 13px var(--sans); color: var(--text); background: transparent; border: 1px solid var(--line); border-radius: 6px; padding: 2px 10px; cursor: pointer; flex: none; margin-left: 8px; }
+.l-start:disabled { opacity: .5; cursor: default; }
+.l-start:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.l-note { font: 12px var(--sans); color: var(--muted); flex: none; margin-left: 8px; }
 .l-details { align-self: flex-start; font: 13px var(--sans); color: var(--muted); background: transparent; border: 0; padding: 0; cursor: pointer; display: flex; align-items: baseline; gap: 8px; }
 .l-details::before { content: "▸"; color: var(--muted-2); font-size: 11px; width: 10px; flex: none; }
 .l-details:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
@@ -372,6 +376,7 @@ a.l-ref:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; b
       <button type="button" role="tab" data-tab="stack"><span class="l-name">Waiting on you</span><span class="l-count"></span></button>
       <button type="button" role="tab" data-tab="running"><span class="l-name">Running</span><span class="l-count"></span></button>
       <button type="button" role="tab" data-tab="queue"><span class="l-name">Queue</span><span class="l-count"></span></button>
+      <button type="button" role="tab" data-tab="backlog"><span class="l-name">Backlog</span><span class="l-count"></span></button>
     </div>
     <div class="l-tagbar" id="l-tags" role="group" aria-label="Show the entries of one tag" hidden></div>
     <div class="l-controls" id="l-controls" role="group" aria-label="Sort and filter the list" hidden></div>
@@ -1372,7 +1377,7 @@ const TAB_KEY = "builds-dashboard-lists-tab";
 const PROJECT_KEY = "builds-dashboard-lists-project";
 const OPEN_KEY = "builds-dashboard-lists-open";
 const TAG_KEY = "builds-dashboard-lists-tag";
-const TABS = ["stack", "running", "queue"];
+const TABS = ["stack", "running", "queue", "backlog"];
 let allLists = [];             // the last lists JSON of each project
 let lists = null;              // the chosen project's lists JSON
 let project = "";              // the chosen project's name
@@ -1395,7 +1400,7 @@ function saveOpen() { try { sessionStorage.setItem(OPEN_KEY, JSON.stringify([...
 // nothing about them.
 const STACK_SORTS = [["", "Stack order"], ["blocks", "Most items blocked first"], ["age", "Oldest first"], ["kind", "Kind"]];
 const QUEUE_SORTS = [["", "Queue order"], ["blocks", "Most items blocked first"], ["age", "Oldest first"], ["area", "Area"]];
-const KINDS = [["question", "Questions"], ["your-step", "For you to do"], ["held", "Held until you start it"]];
+const KINDS = [["question", "Questions"], ["your-step", "For you to do"]];
 const STATES = [["ready", "Ready"], ["waiting", "Waiting"], ["design-session", "For the design session"]];
 const VIEW_KEYS = ["stack-sort", "stack-kind", "queue-sort", "queue-area", "queue-state"];
 const view = {};
@@ -1511,6 +1516,7 @@ function tabTags() {
     return [...own.map(q => q.trail.tags), ...held.map(workTags)];
   }
   if (tab === "running") return runningWorks().map(workTags);
+  if (tab === "backlog") return backlogEntries().map(it => it.trail.tags);
   return queueEntries().map(it => it.trail.tags);
 }
 // Every tag on the chosen tab's entries, with how many of them carry it, so
@@ -1699,6 +1705,7 @@ function itemFacts(it) {
 }
 function itemBody(it) {
   const facts = [];
+  if (it.backlog) facts.push(fact("In the backlog", "since " + stamp(it.backlog.at) + " by " + openerWord(it.backlog.by) + ": " + it.backlog.why));
   if (it.waits.length) facts.push(h("div", {class: "l-fact"}, h("span", {class: "k"}, "Waits"),
     h("ul", {class: "l-list"}, it.waits.map(w => h("li", {}, waitLink(w), w.met ? " (met)" : "", w.closing ? " (" + w.closing + ")" : "")))));
   if (it.priority) facts.push(fact("Priority " + it.priority.level + ":", it.priority.why));
@@ -1808,7 +1815,42 @@ function runningItems() {
   return out.length ? out : [empty(tagFilter ? "Nothing tagged " + tagFilter + " is running." : "Nothing is running.")];
 }
 // The items Queue shows while the reader has chosen no tag.
-function queueEntries() { return lists.items.filter(it => !isRunning(it)); }
+function queueEntries() { return lists.items.filter(it => !isRunning(it) && it.state !== "backlog"); }
+// The items Backlog shows while the reader has chosen no tag: the items that wait
+// until the reader starts them.
+function backlogEntries() { return lists.items.filter(it => it.state === "backlog"); }
+function backlogShown() { return backlogEntries().filter(it => tagged(it.trail.tags)); }
+// Starts the backlog item <it>, as `builds item start` does: the page sends the
+// item to the daemon, which takes it only from the page served at this Mac.
+async function startItem(it, button) {
+  button.disabled = true;
+  try {
+    const reply = await fetch("/api/item-start", {method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({project: lists.project, id: it.id})});
+    if (!reply.ok) {
+      const body = await reply.json().catch(() => ({}));
+      throw new Error(body.error || reply.status);
+    }
+    streamError = "";
+  } catch (e) {
+    button.disabled = false;
+    streamError = "start: " + e.message;
+  }
+  render();
+}
+// A backlog item's row: the queue's row for an item, with the Start button at
+// its right and, opened, why the item waits, who moved it there and when. The
+// page served at another address shows no button and says where work starts.
+function backlogRow(it) {
+  const start = here
+    ? h("button", {type: "button", class: "l-start", "aria-label": "Start #" + it.id}, "Start")
+    : h("span", {class: "l-note"}, "Work starts only from this Mac.");
+  if (here) start.addEventListener("click", e => { e.preventDefault(); e.stopPropagation(); startItem(it, start); });
+  return fold("i:" + it.id, it.id,
+    [h("div", {class: "l-rowmain"}, h("span", {class: "l-title"}, idChip(it.id), it.title, trailRow(it.trail)), itemFacts(it)), start],
+    () => itemBody(it),
+    "l-work");
+}
 // With a tag, an area or a state chosen, only the items that match each.
 function queueShown() {
   const area = chosen("queue-area", lists.areas.map(a => [a, a]));
@@ -1841,6 +1883,20 @@ function queueItems() {
     out.push(empty(chosen("queue-area", lists.areas.map(a => [a, a])) || chosen("queue-state", STATES)
       ? "No item in the queue matches the chosen area and state."
       : tagFilter ? "No item in the queue is tagged " + tagFilter + "." : "The work queue is empty."));
+  }
+  return out;
+}
+
+// The backlog in the queue's order of area and age, one section for each area.
+function backlogItems() {
+  const all = backlogShown();
+  const out = [];
+  for (const area of lists.areas) {
+    const its = all.filter(it => it.area === area).sort((a, b) => a.opened.at - b.opened.at || a.id - b.id);
+    if (its.length) out.push({key: "area:" + area, data: its, make: () => section(area, its.length, h("div", {class: "l-works"}, its.map(backlogRow)))});
+  }
+  if (out.length === 0) {
+    out.push(empty(tagFilter ? "No item in the backlog is tagged " + tagFilter + "." : "The backlog is empty."));
   }
   return out;
 }
@@ -1891,7 +1947,7 @@ reviewDialog.addEventListener("close", () => { reviewFrame.src = "about:blank"; 
 function indexLists() {
   index = new Map();
   for (const q of lists.stack) index.set(q.id, {tab: "stack", key: "q:" + q.id, title: q.title});
-  for (const it of lists.items) index.set(it.id, {tab: "queue", key: "i:" + it.id, title: it.title});
+  for (const it of lists.items) index.set(it.id, {tab: it.state === "backlog" ? "backlog" : "queue", key: "i:" + it.id, title: it.title});
   for (const w of lists.board.works) for (const i of w.items) index.set(i.id, {tab: w.tab === "waiting" ? "stack" : "running", key: "i:" + w.items[0].id, title: i.title});
   for (const g of lists.designs) if (!g.closed) index.set(g.id, {tab: toReview(g) ? "stack" : "running", key: "g:" + g.id, title: g.title});
 }
@@ -1954,7 +2010,8 @@ function filtered() {
 function tabCounts() {
   const stack = stackShown(), running = runningShown();
   return {stack: String(stack.own.length + stack.review.length + stack.held.length),
-    running: String(running.works.length + running.drawn.length), queue: String(queueShown().length)};
+    running: String(running.works.length + running.drawn.length), queue: String(queueShown().length),
+    backlog: String(backlogShown().length)};
 }
 function renderLists() {
   const tabs = document.getElementById("l-tabs"), body = document.getElementById("l-body");
@@ -1983,7 +2040,7 @@ function renderListBody() {
   const body = document.getElementById("l-body");
   if (body.dataset.tab !== tab) { body.replaceChildren(); body.dataset.tab = tab; }
   try {
-    patch(body, {stack: stackItems, running: runningItems, queue: queueItems}[tab]());
+    patch(body, {stack: stackItems, running: runningItems, queue: queueItems, backlog: backlogItems}[tab]());
   } catch (e) {
     // The tab says why it draws no cards, never an empty list under a count.
     body.replaceChildren(h("div", {class: "error"}, "The " + tab + " tab failed to draw: " + e.message));

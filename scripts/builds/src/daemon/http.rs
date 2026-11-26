@@ -25,6 +25,10 @@
 //!                   `builds question edit <id> --effect <effect>` in that
 //!                   project, and the daemon records the edit as the
 //!                   person's; only from this Mac (effect.rs)
+//!     POST /api/item-start  `{"project", "id"}`: the same as `builds item
+//!                   start <id> --said "started on the dashboard"` in that
+//!                   project, and the daemon records the start as the
+//!                   person's; only from this Mac (start.rs)
 //!     POST /design/<project>/<design id>/approve  records the person's approval of that
 //!                   design change and tells the session that recorded it;
 //!                   only from this Mac (see `approve`)
@@ -252,7 +256,10 @@ fn handle(mut stream: TcpStream, names: &[String], model: &Model) -> std::io::Re
         return refuse_not_here(&mut stream);
     }
     if method == "POST"
-        && (path == "/api/queue" || path == "/api/build-app" || path == "/api/question-effect")
+        && (path == "/api/queue"
+            || path == "/api/build-app"
+            || path == "/api/question-effect"
+            || path == "/api/item-start")
     {
         if length > MAX_BODY {
             return respond(
@@ -264,6 +271,12 @@ fn handle(mut stream: TcpStream, names: &[String], model: &Model) -> std::io::Re
         }
         if path == "/api/build-app" {
             return build_app(&mut stream, model, &body);
+        }
+        if path == "/api/item-start" {
+            return json(
+                &mut stream,
+                item_start(model, &body).map(|()| b"{}".to_vec()),
+            );
         }
         if path == "/api/question-effect" {
             return json(
@@ -330,7 +343,7 @@ fn handle(mut stream: TcpStream, names: &[String], model: &Model) -> std::io::Re
             &mut stream,
             "405 Method Not Allowed",
             "text/plain; charset=utf-8",
-            b"GET only, and POST /api/queue, /api/build-app, /api/question-effect, /design/PROJECT/N/approve, /designs/PROJECT/publish and /designs/PROJECT/COMMIT/shots/COMPONENT/capture\n",
+            b"GET only, and POST /api/queue, /api/build-app, /api/question-effect, /api/item-start, /design/PROJECT/N/approve, /designs/PROJECT/publish and /designs/PROJECT/COMMIT/shots/COMPONENT/capture\n",
         );
     }
     if let Some(route) = super::scratch_view::route(path) {
@@ -915,6 +928,27 @@ fn question_effect(model: &Model, body: &[u8]) -> crate::fail::Result<()> {
         &request.project,
         request.id,
         &request.effect,
+    )
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StartRequest {
+    project: String,
+    id: u32,
+}
+
+/// Starts a backlog item the person chose on the page (start.rs).
+fn item_start(model: &Model, body: &[u8]) -> crate::fail::Result<()> {
+    let request: StartRequest = match serde_json::from_slice(body) {
+        Ok(request) => request,
+        Err(error) => crate::fail!("the request: {error}"),
+    };
+    super::start::start_item(
+        &model.places,
+        super::model::now_seconds(),
+        &request.project,
+        request.id,
     )
 }
 
