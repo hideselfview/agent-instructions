@@ -101,17 +101,19 @@ fn a_rule_covers_a_design_file_only_when_its_front_matter_says_it_judges_design_
 }
 
 #[test]
-fn a_glob_that_starts_with_a_bang_leaves_out_the_paths_it_matches() {
-    let rule = Rule::parse(
-        "r",
-        "---\npaths:\n  - '**/*'\n  - '!**/Cargo.lock'\n  - '!gen/**'\n---\nbody\n",
-    );
-    let covers = |path: &str| rule.matches(&[path.to_string()], &Globs::default());
-    assert!(covers("a.rs"));
-    assert!(!covers("Cargo.lock"));
-    assert!(!covers("scripts/builds/Cargo.lock"));
-    assert!(!covers("gen/a/b.rs"));
-    assert!(covers("src/gen/a.rs"));
+fn no_rule_covers_a_lockfile_or_a_generated_file() {
+    let every_path = Rule::parse("r", "---\npaths:\n  - '**/*'\n---\nbody\n");
+    let no_paths = Rule::parse("r", "body\n");
+    for rule in [&every_path, &no_paths] {
+        let covers = |path: &str| rule.matches(&[path.to_string()], &Globs::default());
+        assert!(covers("a.rs"));
+        assert!(covers("src/gen/a.rs"));
+        assert!(!covers("Cargo.lock"));
+        assert!(!covers("scripts/builds/Cargo.lock"));
+        assert!(!covers("app/generated/a.rs"));
+        assert!(!covers("a/b.generated.swift"));
+        assert!(!covers("scripts/boards/runtime/x.js"));
+    }
 }
 
 #[test]

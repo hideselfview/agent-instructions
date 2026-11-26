@@ -26,9 +26,7 @@ pub struct Rule {
     pub path: String,
     /// The group folder the file is in, None when it sits outside one.
     pub group_dir: Option<String>,
-    /// The globs the rule covers; None covers every path. A glob that starts
-    /// with `!` leaves out the paths it matches, whatever other globs match
-    /// them.
+    /// The globs the rule covers; None covers every path.
     pub paths: Option<Vec<String>>,
     /// Whether the reviewer's prompt and the report mark its findings blocking.
     pub blocking: bool,
@@ -112,27 +110,41 @@ impl Rule {
     }
 
     /// Whether the rule covers <path>, in a repo whose design and capture
-    /// files <files> names.
+    /// files <files> names. No rule covers a path of `LEFT_OUT_OF_REVIEW`.
     fn covers(&self, path: &str, files: &Globs) -> bool {
-        self.matches_path(path) && files.kind_of(path).is_none_or(|kind| self.judges(kind))
+        !left_out_of_review(path)
+            && self.matches_path(path)
+            && files.kind_of(path).is_none_or(|kind| self.judges(kind))
     }
 
     fn matches_path(&self, path: &str) -> bool {
         match &self.paths {
             None => true,
-            Some(globs) => {
-                let mut covered = false;
-                for glob in globs {
-                    match glob.strip_prefix('!') {
-                        Some(left_out) if glob_matches(left_out, path) => return false,
-                        Some(_) => {}
-                        None => covered |= glob_matches(glob, path),
-                    }
-                }
-                covered
-            }
+            Some(globs) => globs.iter().any(|glob| glob_matches(glob, path)),
         }
     }
+}
+
+/// The files no review group reads, in any repo: lockfiles and generated
+/// files, which no sentence of a rule is about (decision #746).
+const LEFT_OUT_OF_REVIEW: &[&str] = &[
+    "**/Cargo.lock",
+    "**/package-lock.json",
+    "**/pnpm-lock.yaml",
+    "**/yarn.lock",
+    "**/Package.resolved",
+    "**/Podfile.lock",
+    "**/*.lockfile",
+    "**/generated/**",
+    "**/Generated/**",
+    "**/*.generated.*",
+    "scripts/boards/runtime/**",
+];
+
+fn left_out_of_review(path: &str) -> bool {
+    LEFT_OUT_OF_REVIEW
+        .iter()
+        .any(|glob| glob_matches(glob, path))
 }
 
 /// The front matter block between the first two `---` lines.
