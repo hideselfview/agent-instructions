@@ -356,3 +356,17 @@ fn bind_replaces_a_stale_socket() {
     let (_listener, _claim) = bind(&tool).unwrap();
     assert!(UnixStream::connect(tool.places.daemon_socket()).is_ok());
 }
+
+/// A `dashboard stage` serves one page for a shot and ends with it, so the
+/// installer's restart and the shell checks never take it for the dashboard.
+#[test]
+fn a_stage_is_no_dashboard() {
+    assert_eq!(
+        dashboard_args(["/bin/builds", "dashboard", "--port", "0"]),
+        Some(vec!["--port", "0"])
+    );
+    assert_eq!(
+        dashboard_args(["/bin/builds", "dashboard", "stage", "--fixtures", "f", "s"]),
+        None
+    );
+}

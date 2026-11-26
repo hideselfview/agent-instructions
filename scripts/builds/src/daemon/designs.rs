@@ -86,6 +86,45 @@ pub fn page(
     standing: Result<Standing>,
     scratch: &Value,
 ) -> Result<String> {
+    Ok(fill_page(&data(project, repo, cache, standing, scratch)?))
+}
+
+/// What the Designs page of a project shows, as `fill_page` puts it in the
+/// page's script, and as a staged fixture gives it
+/// (`builds dashboard stage`). Its sections that the page reads one way or
+/// another, because each may hold its own error, stay JSON.
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct DesignsData {
+    pub project: String,
+    pub publish: Value,
+    /// The commit every frame of the page draws.
+    pub commit: String,
+    /// The address the frames' pages stand under.
+    pub base: String,
+    pub pages: Vec<DesignsPageData>,
+    pub system: Value,
+    pub colors: Value,
+    pub components: Value,
+    pub scratch: Value,
+}
+
+/// A page of the repo's canvas index: its boards and the headings of its rows.
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct DesignsPageData {
+    pub id: String,
+    pub name: String,
+    pub boards: Vec<Value>,
+    pub headings: Vec<Value>,
+}
+
+/// The data of `page`, read from the repo's origin/main.
+pub fn data(
+    project: &str,
+    repo: &Path,
+    cache: &Path,
+    standing: Result<Standing>,
+    scratch: &Value,
+) -> Result<DesignsData> {
     let commit = Source::Commit { repo, rev: NOW }
         .check()?
         .expect("a commit source names a commit");
@@ -130,11 +169,16 @@ pub fn page(
         .map(|(id, _, boards)| (*id, boards.as_slice()))
         .collect();
     let mut headings = headings(&index, first, &drawn)?;
-    let pages: Vec<Value> = pages
+    let pages: Vec<DesignsPageData> = pages
         .into_iter()
         .map(|(id, name, boards)| {
             let rows = headings.remove(id).unwrap_or_default();
-            json!({ "id": id, "name": name, "boards": boards, "headings": rows })
+            DesignsPageData {
+                id: id.to_string(),
+                name: name.to_string(),
+                boards,
+                headings: rows,
+            }
         })
         .collect();
     if let Some(page) = headings.keys().next() {
@@ -192,20 +236,26 @@ pub fn page(
             }),
             Err(error) => json!({ "error": error.text() }),
         };
-    let data = json!({
-        "project": project,
-        "publish": publish,
-        "commit": commit,
-        "base": format!("/designs/{project}/{commit}"),
-        "pages": pages,
-        "system": system,
-        "colors": colors,
-        "components": components,
-        "scratch": scratch,
-    });
+    Ok(DesignsData {
+        project: project.to_string(),
+        publish,
+        base: format!("/designs/{project}/{commit}"),
+        commit,
+        pages,
+        system,
+        colors,
+        components,
+        scratch: scratch.clone(),
+    })
+}
+
+/// The Designs page that shows <data>.
+pub fn fill_page(data: &DesignsData) -> String {
     // `<` never appears in the JSON as itself, so no text can end the script.
-    let data = data.to_string().replace('<', "\\u003c");
-    Ok(fill(
+    let data = serde_json::to_string(data)
+        .expect("the Designs data serializes")
+        .replace('<', "\\u003c");
+    fill(
         DESIGNS_PAGE,
         &[
             ("PALETTE", PALETTE),
@@ -216,7 +266,7 @@ pub fn page(
             ("FILTER", FILTER),
             ("CONTENTS", CONTENTS),
         ],
-    ))
+    )
 }
 
 /// <cards> as the page's data holds them: each card's name, and its

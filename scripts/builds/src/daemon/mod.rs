@@ -25,11 +25,13 @@ pub mod http;
 pub mod lists;
 pub mod live;
 pub mod model;
+pub mod pages;
 #[cfg(target_os = "macos")]
 pub mod restart;
 pub mod review_cards;
 pub mod runs;
 pub mod scratch_view;
+pub mod stage;
 pub mod start;
 #[cfg(target_os = "macos")]
 pub mod vnode;
@@ -52,11 +54,15 @@ use crate::tool::Tool;
 use model::Model;
 use runs::Runs;
 
-/// The dashboard's own options, after builds' global agent option.
+/// The dashboard's own options, after builds' global agent option. A
+/// `dashboard stage` is no dashboard: it serves one page for a shot and ends
+/// with it (stage.rs).
 pub fn dashboard_args<'a>(words: impl IntoIterator<Item = &'a str>) -> Option<Vec<&'a str>> {
     let words = crate::ack::agent::without_flag_of(words);
     match words.as_slice() {
-        [program, "dashboard", args @ ..] if crate::shells::basename(program) == "builds" => {
+        [program, "dashboard", args @ ..]
+            if crate::shells::basename(program) == "builds" && args.first() != Some(&"stage") =>
+        {
             Some(args.to_vec())
         }
         _ => None,
@@ -173,8 +179,12 @@ fn answer(model: &Model, stream: UnixStream) -> std::io::Result<()> {
     stream.write_all(b"\n")
 }
 
-/// `builds dashboard [--port <port>] [--listen <address>]`.
+/// `builds dashboard [--port <port>] [--listen <address>]`, or `builds
+/// dashboard stage` (stage.rs).
 pub fn cmd_dashboard(tool: &Tool, args: &[String]) -> Result<()> {
+    if let Some((_, stage_args)) = args.split_first().filter(|(first, _)| *first == "stage") {
+        return stage::cmd_stage(stage_args);
+    }
     if !cfg!(target_os = "macos") {
         fail!(
             "the dashboard follows the checkouts through macOS's FSEvents, so it runs only on a Mac"

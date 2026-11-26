@@ -10,6 +10,11 @@
 //! Host and Origin (`from_this_mac`): the dashboard may listen on the Wi-Fi's
 //! address, where the page is only to look at.
 //!
+//! The routes that read the page's data (`/`, `/api/state`, `/api/lists`,
+//! `/api/hooks`, `/events` and `/designs/...`) read it through `Pages`
+//! (pages.rs), so `builds dashboard stage` serves them from a fixture
+//! (`serve_staged`, GET only).
+//!
 //!     /             the page (page.html, built into the binary)
 //!     /api/state    the whole state as JSON
 //!     /api/health   health, judged now
@@ -102,11 +107,12 @@ use std::time::{Duration, Instant};
 
 use super::component_shots::Side as PictureSide;
 use super::model::Model;
+use super::pages::Pages;
 use crate::design_render::Side;
 use crate::lane::Lane;
 
 /// The page, with the colors and fonts it shares with the Designs page.
-static PAGE: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+pub(super) static PAGE: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
     crate::design_render::fill(
         include_str!("page.html"),
         &[
@@ -207,9 +213,16 @@ fn serve_font(stream: &mut TcpStream, model: &Model, name: &str) -> std::io::Res
     }
 }
 
-fn handle(mut stream: TcpStream, names: &[String], model: &Model) -> std::io::Result<()> {
-    stream.set_read_timeout(Some(Duration::from_secs(10)))?;
-    let mut reader = BufReader::new(stream.try_clone()?);
+/// A request's first line and the headers the server reads.
+struct Head {
+    request: String,
+    host: Option<String>,
+    origin: Option<String>,
+    length: usize,
+}
+
+/// Reads the request line and the headers from <reader>, up to the blank line.
+fn read_head(reader: &mut BufReader<TcpStream>) -> std::io::Result<Head> {
     let mut request = String::new();
     reader.read_line(&mut request)?;
     let (mut host, mut origin, mut length) = (None, None, 0usize);
@@ -229,21 +242,35 @@ fn handle(mut stream: TcpStream, names: &[String], model: &Model) -> std::io::Re
             }
         }
     }
+    Ok(Head {
+        request,
+        host,
+        origin,
+        length,
+    })
+}
+
+/// Is <host> one of <names>, the `host:port` names this server answers to?
+fn is_own_host(host: Option<&str>, names: &[String]) -> bool {
+    host.is_some_and(|host| names.iter().any(|name| name == host))
+}
+
+fn handle(mut stream: TcpStream, names: &[String], model: &Model) -> std::io::Result<()> {
+    stream.set_read_timeout(Some(Duration::from_secs(10)))?;
+    let mut reader = BufReader::new(stream.try_clone()?);
+    let Head {
+        request,
+        host,
+        origin,
+        length,
+    } = read_head(&mut reader)?;
     // Read the body before any answer, so a refusal isn't a reset connection.
     let mut body = vec![0; if length <= MAX_BODY { length } else { 0 }];
     reader.read_exact(&mut body)?;
     let mut parts = request.split_whitespace();
     let (method, target) = (parts.next().unwrap_or(""), parts.next().unwrap_or(""));
-    if !host
-        .as_deref()
-        .is_some_and(|host| names.iter().any(|name| name == host))
-    {
-        return respond(
-            &mut stream,
-            "403 Forbidden",
-            "text/plain; charset=utf-8",
-            b"only at the addresses the dashboard listens on\n",
-        );
+    if !is_own_host(host.as_deref(), names) {
+        return refuse_host(&mut stream);
     }
     let path = target.split('?').next().unwrap_or("");
     let asker = Asker {
@@ -356,6 +383,62 @@ fn handle(mut stream: TcpStream, names: &[String], model: &Model) -> std::io::Re
     if let Some(boards::routes::Route::Font(name)) = boards::routes::route(path) {
         return serve_font(&mut stream, model, &name);
     }
+    if path == "/api/health" {
+        return json(
+            &mut stream,
+            match model.health_now() {
+                Ok(Some(health)) => Ok(serde_json::to_vec(&health).expect("health serializes")),
+                Ok(None) => Err(crate::fail::Fail::Message(
+                    "the daemon has not read the processes yet".into(),
+                )),
+                Err(error) => Err(error),
+            },
+        );
+    }
+    if let Some(rest) = path.strip_prefix("/designs/")
+        && let Some(DesignsRoute::Picture(project, commit, lane, shot, side)) = designs_route(rest)
+    {
+        return match model.shot_picture(project, commit, lane, shot, side) {
+            Some(Ok(Some(picture))) => respond(&mut stream, "200 OK", "image/png", &picture),
+            Some(Err(error)) => {
+                let message = error.text();
+                crate::text::note(&message);
+                respond(
+                    &mut stream,
+                    "500 Internal Server Error",
+                    "text/plain; charset=utf-8",
+                    format!("{message}\n").as_bytes(),
+                )
+            }
+            None | Some(Ok(None)) => respond(
+                &mut stream,
+                "404 Not Found",
+                "text/plain; charset=utf-8",
+                b"builds has no cached picture of that commit\n",
+            ),
+        };
+    }
+    if let Some(rest) = path.strip_prefix("/design/") {
+        let drawn = design_route(rest).and_then(|route| match route {
+            DesignRoute::Page(project, id) => model.design_page(project, id, here),
+            DesignRoute::Board(project, id, n, side) => model.design_board(project, id, n, side),
+            DesignRoute::Changed(project, id, k) => model.design_changed_board(project, id, k),
+            DesignRoute::Deleted(project, id, k) => model.design_deleted_board(project, id, k),
+        });
+        return drawn_page(&mut stream, drawn, b"no such open design change or board\n");
+    }
+    pages_route(stream, path, here, model)
+}
+
+/// Answers a GET of the routes that read their data from <pages>: the page,
+/// its state, lists and hooks, its event stream, and the Designs page with
+/// its frames. <here> says whether the asker is on this Mac.
+fn pages_route(
+    mut stream: TcpStream,
+    path: &str,
+    here: bool,
+    pages: &dyn Pages,
+) -> std::io::Result<()> {
     match path {
         "/" => respond(
             &mut stream,
@@ -365,21 +448,11 @@ fn handle(mut stream: TcpStream, names: &[String], model: &Model) -> std::io::Re
         ),
         "/api/state" => json(
             &mut stream,
-            model
-                .page()
+            pages
+                .state()
                 .map(|page| serde_json::to_vec(&page).expect("the state serializes")),
         ),
-        "/api/health" => json(
-            &mut stream,
-            match model.health_now() {
-                Ok(Some(health)) => Ok(serde_json::to_vec(&health).expect("health serializes")),
-                Ok(None) => Err(crate::fail::Fail::Message(
-                    "the daemon has not read the processes yet".into(),
-                )),
-                Err(error) => Err(error),
-            },
-        ),
-        "/api/lists" => match model.lists_json() {
+        "/api/lists" => match pages.lists() {
             Ok(lists) => respond(&mut stream, "200 OK", "application/json", lists.as_bytes()),
             Err(error) => json(&mut stream, Err(error)),
         },
@@ -387,69 +460,17 @@ fn handle(mut stream: TcpStream, names: &[String], model: &Model) -> std::io::Re
             &mut stream,
             "200 OK",
             "application/json",
-            model.hooks_json().as_bytes(),
+            pages.hooks().as_bytes(),
         ),
-        "/events" => events(stream, model),
+        "/events" => events(stream, pages),
         _ if path.starts_with("/designs/") => {
-            let route = designs_route(&path["/designs/".len()..]);
-            if let Some(DesignsRoute::Picture(project, commit, lane, shot, side)) = route {
-                return match model.shot_picture(project, commit, lane, shot, side) {
-                    Some(Ok(Some(picture))) => {
-                        respond(&mut stream, "200 OK", "image/png", &picture)
-                    }
-                    Some(Err(error)) => {
-                        let message = error.text();
-                        crate::text::note(&message);
-                        respond(
-                            &mut stream,
-                            "500 Internal Server Error",
-                            "text/plain; charset=utf-8",
-                            format!("{message}\n").as_bytes(),
-                        )
-                    }
-                    None | Some(Ok(None)) => respond(
-                        &mut stream,
-                        "404 Not Found",
-                        "text/plain; charset=utf-8",
-                        b"builds has no cached picture of that commit\n",
-                    ),
-                };
-            }
-            let drawn = route.and_then(|route| match route {
-                DesignsRoute::Page(project) => model.designs_page(project, here),
-                DesignsRoute::Board(project, commit, name) => {
-                    model.designs_board(project, commit, name)
-                }
-                DesignsRoute::Component(project, commit, name) => {
-                    model.designs_preview(project, commit, name)
-                }
-                DesignsRoute::Colors(project, commit, n) => {
-                    model.designs_colors(project, commit, n)
-                }
-                DesignsRoute::ColorsComparison(project, commit) => {
-                    model.designs_colors_comparison(project, commit)
-                }
-                DesignsRoute::ComponentShots(project, name) => {
-                    model.component_shots_page(project, name, here)
-                }
-                DesignsRoute::Picture(..) => unreachable!("answered above"),
-            });
+            let drawn = designs_route(&path["/designs/".len()..])
+                .and_then(|route| pages.designs(&route, here));
             drawn_page(
                 &mut stream,
                 drawn,
                 b"no such project with design files, or no such page of its designs\n",
             )
-        }
-        _ if path.starts_with("/design/") => {
-            let drawn = design_route(&path["/design/".len()..]).and_then(|route| match route {
-                DesignRoute::Page(project, id) => model.design_page(project, id, here),
-                DesignRoute::Board(project, id, n, side) => {
-                    model.design_board(project, id, n, side)
-                }
-                DesignRoute::Changed(project, id, k) => model.design_changed_board(project, id, k),
-                DesignRoute::Deleted(project, id, k) => model.design_deleted_board(project, id, k),
-            });
-            drawn_page(&mut stream, drawn, b"no such open design change or board\n")
         }
         _ => respond(
             &mut stream,
@@ -458,6 +479,60 @@ fn handle(mut stream: TcpStream, names: &[String], model: &Model) -> std::io::Re
             b"not found\n",
         ),
     }
+}
+
+fn refuse_host(stream: &mut TcpStream) -> std::io::Result<()> {
+    respond(
+        stream,
+        "403 Forbidden",
+        "text/plain; charset=utf-8",
+        b"only at the addresses the dashboard listens on\n",
+    )
+}
+
+/// Answers the page's requests on <listener> from <pages>, a fixture
+/// (`builds dashboard stage`), as `serve` answers them from the daemon's
+/// data. Only GET answers: the page's POSTs have nothing to change.
+pub fn serve_staged(listener: TcpListener, names: Arc<[String]>, pages: Arc<dyn Pages>) {
+    for stream in listener.incoming() {
+        let Ok(stream) = stream else { continue };
+        let (names, pages) = (names.clone(), pages.clone());
+        std::thread::spawn(move || {
+            if let Err(error) = handle_staged(stream, &names, &*pages)
+                && !matches!(
+                    error.kind(),
+                    std::io::ErrorKind::BrokenPipe | std::io::ErrorKind::ConnectionReset
+                )
+            {
+                eprintln!("builds: serving a request: {error}");
+            }
+        });
+    }
+}
+
+fn handle_staged(
+    mut stream: TcpStream,
+    names: &[String],
+    pages: &dyn Pages,
+) -> std::io::Result<()> {
+    stream.set_read_timeout(Some(Duration::from_secs(10)))?;
+    let mut reader = BufReader::new(stream.try_clone()?);
+    let head = read_head(&mut reader)?;
+    let mut parts = head.request.split_whitespace();
+    let (method, target) = (parts.next().unwrap_or(""), parts.next().unwrap_or(""));
+    if !is_own_host(head.host.as_deref(), names) {
+        return refuse_host(&mut stream);
+    }
+    if method != "GET" {
+        return respond(
+            &mut stream,
+            "405 Method Not Allowed",
+            "text/plain; charset=utf-8",
+            b"a staged page answers GET only\n",
+        );
+    }
+    let path = target.split('?').next().unwrap_or("");
+    pages_route(stream, path, false, pages)
 }
 
 /// Answers with <drawn>, a page drawn now: the page, the error that stopped
@@ -491,7 +566,7 @@ pub(super) fn drawn_page(
 
 /// What a `/designs/...` path asks for.
 #[derive(Debug, PartialEq, Eq)]
-enum DesignsRoute<'a> {
+pub enum DesignsRoute<'a> {
     /// The Designs page of the project.
     Page(&'a str),
     /// Board <name> of the project's design files at the commit.
@@ -515,7 +590,7 @@ enum DesignsRoute<'a> {
 /// `<project>/<commit>/colors/comparison` or
 /// `<project>/<commit>/shot/<lane>/<shot>/board.png` (or `shot.png`), where
 /// the commit is a full commit id, as the page names it.
-fn designs_route(rest: &str) -> Option<DesignsRoute<'_>> {
+pub(super) fn designs_route(rest: &str) -> Option<DesignsRoute<'_>> {
     let parts: Vec<&str> = rest.split('/').collect();
     match parts.as_slice() {
         [project] if !project.is_empty() => Some(DesignsRoute::Page(project)),
@@ -978,7 +1053,7 @@ fn json_error_body(message: &str) -> String {
 
 /// Sends the dashboard's state, lists and hook figures until the page goes.
 /// The daemon samples processes more often while the page watches.
-fn events(mut stream: TcpStream, model: &Model) -> std::io::Result<()> {
+fn events(mut stream: TcpStream, model: &dyn Pages) -> std::io::Result<()> {
     write!(
         stream,
         "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-store\r\nConnection: keep-alive\r\n\r\n"
@@ -991,7 +1066,7 @@ fn events(mut stream: TcpStream, model: &Model) -> std::io::Result<()> {
         let mut sent_hooks: Option<Arc<String>> = None;
         loop {
             let started = Instant::now();
-            match model.page() {
+            match model.state() {
                 Ok(page) => {
                     seen = page.version;
                     let data = serde_json::to_string(&page).expect("the state serializes");
@@ -1005,7 +1080,7 @@ fn events(mut stream: TcpStream, model: &Model) -> std::io::Result<()> {
                     )?;
                 }
             }
-            match model.lists_json() {
+            match model.lists() {
                 Ok(lists) => send_if_changed(&mut stream, "lists", lists, &mut sent_lists)?,
                 Err(error) => {
                     write!(
@@ -1015,7 +1090,7 @@ fn events(mut stream: TcpStream, model: &Model) -> std::io::Result<()> {
                     )?;
                 }
             }
-            send_if_changed(&mut stream, "hooks", model.hooks_json(), &mut sent_hooks)?;
+            send_if_changed(&mut stream, "hooks", model.hooks(), &mut sent_hooks)?;
             stream.flush()?;
             if let Some(left) = EVENT_GAP.checked_sub(started.elapsed()) {
                 std::thread::sleep(left);
