@@ -258,7 +258,7 @@ pub(crate) async fn render_row(
         elements,
         slots,
         unshot,
-        window: Some(window),
+        window,
     })
 }
 

@@ -432,11 +432,9 @@ async fn a_row_reports_the_window_its_cell_draws_from_the_cells_corner() {
         (rows[0], rows[1])
     })
     .await;
-    let window = window.unwrap();
     assert_eq!((window.frame.x, window.frame.y), (0.0, 0.0));
     assert_eq!((window.frame.width, window.frame.height), (100.0, 60.0));
     assert_eq!((window.radius, window.exponent), (12.0, 2.0));
-    let plain = plain.unwrap();
     assert_eq!(plain.radius, 0.0);
     assert!(plain.frame.width > 0.0);
 }
