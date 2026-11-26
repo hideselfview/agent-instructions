@@ -301,16 +301,26 @@ fn each_page_has_a_browser_context_of_its_own_and_gives_it_back() {
                             .browser_context_ids
                             .len()
                     };
+                    // Each page counts the contexts once both pages are open.
+                    let (opened_first, first_open) = futures::channel::oneshot::channel::<()>();
+                    let (opened_second, second_open) = futures::channel::oneshot::channel::<()>();
                     let (first, second) = futures::future::join(
-                        chrome.with_page("first", async |_page| Ok(contexts().await)),
-                        chrome.with_page("second", async |_page| Ok(contexts().await)),
+                        chrome.with_page("first", async |_page| {
+                            opened_first.send(()).unwrap();
+                            second_open.await.unwrap();
+                            Ok(contexts().await)
+                        }),
+                        chrome.with_page("second", async |_page| {
+                            opened_second.send(()).unwrap();
+                            first_open.await.unwrap();
+                            Ok(contexts().await)
+                        }),
                     )
                     .await;
                     ((first.unwrap(), second.unwrap()), contexts().await)
                 },
             ));
-    // Each page sees its own context and, once both are open, the other's.
-    assert!(while_open.0 >= 1 && while_open.1 >= 1);
-    assert_eq!(while_open.0.max(while_open.1), 2);
+    // Both pages are open when each counts, and each has a context of its own.
+    assert_eq!(while_open, (2, 2));
     assert_eq!(after, 0);
 }
