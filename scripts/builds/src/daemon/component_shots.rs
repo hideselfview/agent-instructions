@@ -51,7 +51,7 @@ pub struct Shots {
 /// The component's shots on one lane.
 #[derive(Debug, Serialize)]
 pub struct Platform {
-    pub lane: &'static str,
+    pub lane: String,
     /// The start of the names of the component's shots on the lane.
     pub prefix: String,
     /// The cached run that holds them; none when builds has none cached.
@@ -207,7 +207,7 @@ pub fn shots(
                 || matches!(run.phase, Phase::Queued | Phase::Running | Phase::Detached)
         });
         platforms.push(Platform {
-            lane: lane.word(),
+            lane: lane.word().to_string(),
             prefix,
             run,
             capture,

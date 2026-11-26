@@ -270,13 +270,15 @@ fn parse(top: &Path) -> Result<Manifest> {
         while let Some(field) = fields.next() {
             match (field, fields.next()) {
                 ("app", Some(cap)) if app_cap.is_none() => app_cap = Some(cap),
-                ("lane", Some(word)) if lane.is_none() => match Lane::parse(word) {
-                    Some(parsed) => lane = Some(parsed),
-                    None => fail!(
-                        "{}: '{line}' names the lane '{word}', which no .app-build app names",
-                        file.display()
-                    ),
-                },
+                ("lane", Some(word)) if lane.is_none() => {
+                    match Lane::parse_in(&apps_beside(&file)?, word) {
+                        Some(parsed) => lane = Some(parsed),
+                        None => fail!(
+                            "{}: '{line}' names the lane '{word}', which no .app-build app names",
+                            file.display()
+                        ),
+                    }
+                }
                 _ => fail!(
                     "{}: '{line}' takes a path, a cap and at most 'app <cap>' and 'lane <lane>'",
                     file.display()
@@ -399,6 +401,18 @@ pub const SHARED_CACHES: &[SharedCache] = &[
         settings: &[],
     },
 ];
+
+/// The apps of the `.app-build` beside the manifest <file>, in the same
+/// checkout; a checkout with none names only the apps named for platforms.
+fn apps_beside(file: &Path) -> Result<boards::app_build::Apps> {
+    let config = file.with_file_name(crate::app_config::CONFIG);
+    match std::fs::read_to_string(&config) {
+        Ok(text) => boards::app_build::Apps::read(&text)
+            .map_err(|error| crate::fail::Fail::Message(error.text())),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Default::default()),
+        Err(error) => fail!("reading {}: {error}", config.display()),
+    }
+}
 
 #[cfg(test)]
 mod tests {

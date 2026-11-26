@@ -1,19 +1,16 @@
 use super::*;
 use crate::db::DATABASE;
+use crate::lane::Lane;
 use crate::review::record::{Change, add_landing};
 use crate::testing::Scratch;
 use rusqlite::Connection;
 use std::os::unix::fs::MetadataExt;
 
-/// A volume with an old-layout android lane for repo `demo`, its lock file and
-/// an empty queue.
-fn old_volume(scratch: &Scratch) -> Places {
-    let places = scratch.places();
-    let dir = places.root.join("demo");
-    std::fs::create_dir_all(dir.join("app-android.queue")).unwrap();
-    std::fs::write(dir.join("app-android-checkout"), "side-3\n").unwrap();
-    std::fs::write(dir.join("app-android.lock"), "").unwrap();
-    places
+/// `read_run` for a run of an app named for its platform.
+fn read_named_run(path: &std::path::Path) -> crate::fail::Result<crate::app_timing::RunRecord> {
+    crate::app_timing::read_run(path, |_, word| {
+        Ok(crate::lane::Lane::named_for(word).expect("a platform's app"))
+    })
 }
 
 /// Waits until nothing holds the lock on <path>. A process another test forks
@@ -29,94 +26,6 @@ fn until_free(path: &std::path::Path) {
         );
         std::thread::sleep(std::time::Duration::from_millis(5));
     }
-}
-
-#[test]
-fn the_old_files_become_the_new_ones_with_the_lock_keeping_its_inode() {
-    let scratch = Scratch::new("migrate");
-    let places = old_volume(&scratch);
-    let dir = places.root.join("demo");
-    let inode = std::fs::metadata(dir.join("app-android.lock"))
-        .unwrap()
-        .ino();
-    migrate_app_files(&places).unwrap();
-    assert_eq!(
-        places.app_checkouts_of("demo", Lane::ANDROID).unwrap(),
-        vec!["side-3"]
-    );
-    assert!(!dir.join("app-android-checkout").exists() && !dir.join("app-android.lock").exists());
-    let lock = places.app_lock_file("demo", Lane::ANDROID, "side-3");
-    assert_eq!(
-        std::fs::metadata(lock).unwrap().ino(),
-        inode,
-        "the lock a holder has open is the new lock"
-    );
-    // Again: nothing left to move.
-    migrate_app_files(&places).unwrap();
-}
-
-#[test]
-fn builds_from_before_keep_their_lock_and_queue_and_the_old_names_go_when_they_end() {
-    let scratch = Scratch::new("migrate-busy");
-    let places = old_volume(&scratch);
-    let dir = places.root.join("demo");
-    // An old build holds the old lock.
-    let held = crate::queue::open_with(&dir.join("app-android.lock"), 0).unwrap();
-    migrate_app_files(&places).unwrap();
-    let new_lock = places.app_lock_file("demo", Lane::ANDROID, "side-3");
-    assert_eq!(
-        places.app_checkouts_of("demo", Lane::ANDROID).unwrap(),
-        vec!["side-3"]
-    );
-    assert!(
-        dir.join("app-android-checkout").is_file() && dir.join("app-android.lock").is_file(),
-        "the old names stay"
-    );
-    assert!(
-        crate::queue::try_lock(&new_lock).unwrap().is_none(),
-        "the new path is the lock the old build holds"
-    );
-    unsafe { libc::close(held) };
-    until_free(&dir.join("app-android.lock"));
-
-    // A ticket of an old waiter keeps them too.
-    let ticket =
-        crate::queue::open_with(&dir.join("app-android.queue/123-1"), libc::O_CREAT).unwrap();
-    migrate_app_files(&places).unwrap();
-    assert!(dir.join("app-android.lock").is_file());
-    unsafe { libc::close(ticket) };
-    until_free(&dir.join("app-android.queue/123-1"));
-
-    migrate_app_files(&places).unwrap();
-    assert!(!dir.join("app-android-checkout").exists() && !dir.join("app-android.lock").exists());
-    assert_eq!(
-        places.app_checkouts_of("demo", Lane::ANDROID).unwrap(),
-        vec!["side-3"]
-    );
-    let fd = crate::queue::try_lock(&new_lock)
-        .unwrap()
-        .expect("free once the old build ended");
-    unsafe { libc::close(fd) };
-}
-
-#[test]
-fn a_lane_never_locked_gets_its_old_lock_made_before_it_is_linked() {
-    let scratch = Scratch::new("migrate-fresh");
-    let places = scratch.places();
-    let dir = places.root.join("demo");
-    std::fs::create_dir_all(dir.join("app.queue")).unwrap();
-    std::fs::write(dir.join("app-checkout"), "side-1\n").unwrap();
-    // A waiter of an older `builds` holds a ticket, so the old name stays and
-    // must be the file the new path is.
-    let ticket = crate::queue::open_with(&dir.join("app.queue/9-1"), libc::O_CREAT).unwrap();
-    migrate_app_files(&places).unwrap();
-    assert_eq!(
-        std::fs::metadata(dir.join("app.lock")).unwrap().ino(),
-        std::fs::metadata(places.app_lock_file("demo", Lane::MAC, "side-1"))
-            .unwrap()
-            .ino()
-    );
-    unsafe { libc::close(ticket) };
 }
 
 /// A volume whose mac lane has the files that every lane had before its files
@@ -176,16 +85,24 @@ fn the_mac_lanes_files_take_the_app_named_form_and_keep_their_locks() {
 }
 
 #[test]
-fn a_mac_lane_with_a_build_under_the_old_names_keeps_them_until_it_ends() {
+fn a_build_under_the_old_mac_names_fails_the_move_which_renames_nothing() {
     let scratch = Scratch::new("migrate-mac-names-busy");
     let places = mac_volume_before_app_names(&scratch);
     let dir = places.root.join("demo");
     let held = crate::queue::open_with(&dir.join("app.locks/side-1"), 0).unwrap();
-    migrate_app_files(&places).unwrap();
+    let error = migrate_app_files(&places).unwrap_err().text();
+    assert!(error.contains("a build running or waiting"), "{error}");
     assert!(dir.join("app-checkouts").is_file() && dir.join("app.locks").is_dir());
     assert!(!dir.join("app-mac-checkouts").exists());
     unsafe { libc::close(held) };
     until_free(&dir.join("app.locks/side-1"));
+
+    let ticket = crate::queue::open_with(&dir.join("app.queue/9-1"), libc::O_CREAT).unwrap();
+    assert!(migrate_app_files(&places).is_err());
+    assert!(dir.join("app-checkouts").is_file());
+    unsafe { libc::close(ticket) };
+    until_free(&dir.join("app.queue/9-1"));
+
     migrate_app_files(&places).unwrap();
     assert!(dir.join("app-mac-checkouts").is_file() && !dir.join("app.locks").exists());
 }
@@ -2470,7 +2387,7 @@ fn an_app_build_run_keeps_its_checkout_when_the_store_adds_requested_commits() {
         .unwrap();
     }
     move_store(&places, &path, 0).unwrap();
-    let run = crate::app_timing::read_run(&path).unwrap();
+    let run = read_named_run(&path).unwrap();
     assert_eq!(
         run.built_commit.map(|built| built.sha).as_deref(),
         Some(commit.as_str())
@@ -2580,7 +2497,7 @@ fn a_store_from_before_reused_shots_keeps_its_steps_and_their_shots_details() {
         tx.commit().unwrap();
     }
     migrate_stores(&places, 0).unwrap();
-    let run = crate::app_timing::read_run(&path).unwrap();
+    let run = read_named_run(&path).unwrap();
     assert_eq!(run.steps[0].at_merge_base, Some(true));
     assert!(run.built_commit.unwrap().reused_shots.is_empty());
     assert_eq!(
@@ -3327,7 +3244,7 @@ fn a_store_from_before_the_miss_causes_keeps_its_built_steps_with_an_unrecorded_
         db::schema_rows(&conn).unwrap(),
         db::schema_rows(&db::memory()).unwrap()
     );
-    let run = crate::app_timing::read_run(&path).unwrap();
+    let run = read_named_run(&path).unwrap();
     assert_eq!(
         run.steps[0].shots.as_ref().unwrap().base_run,
         crate::app_build_step_shots::BaseRun::Built(MissCause::Unrecorded)

@@ -1,6 +1,13 @@
 use super::*;
 use crate::testing::Scratch;
 
+/// `read_run` for a run of an app named for its platform.
+fn read_named_run(path: &std::path::Path) -> crate::fail::Result<crate::app_timing::RunRecord> {
+    crate::app_timing::read_run(path, |_, word| {
+        Ok(crate::lane::Lane::named_for(word).expect("a platform's app"))
+    })
+}
+
 /// A store file with the whole schema, in a scratch folder.
 fn store(scratch: &Scratch) -> std::path::PathBuf {
     let path = scratch.dir.join(DATABASE);
@@ -55,7 +62,7 @@ fn cached_comparisons_do_not_change_when_a_build_without_steps_ended() {
         reused_shots: vec![shots::Prefix::parse("mac.a.").unwrap()],
     });
     record(&path, &built).unwrap();
-    assert_eq!(read_run(&path).unwrap(), built);
+    assert_eq!(read_named_run(&path).unwrap(), built);
     assert_eq!(
         last_ends(&path, Lane::MAC).unwrap(),
         [("side-1".into(), NOW + 3)]
@@ -611,11 +618,11 @@ fn a_recorded_run_reads_back_whole() {
     });
     let bare = run(NOW + 60, Lane::MAC, 0, RunEnd::Stopped, Vec::new());
     record(&path, &built).unwrap();
-    assert_eq!(read_run(&path).unwrap(), built);
+    assert_eq!(read_named_run(&path).unwrap(), built);
     let other = scratch.dir.join("other.sqlite");
     drop(crate::db::open(&other, crate::db::Make::Allowed).unwrap());
     record(&other, &bare).unwrap();
-    assert_eq!(read_run(&other).unwrap(), bare);
+    assert_eq!(read_named_run(&other).unwrap(), bare);
 }
 
 /// A failed step whose failure row the store lacks is a damaged store: reading
@@ -640,7 +647,7 @@ fn a_failed_step_with_no_failure_row_fails_the_read() {
     )
     .unwrap();
     crate::app_build_step_failure::remove_every_failure(&path).unwrap();
-    let said = read_run(&path).unwrap_err().text();
+    let said = read_named_run(&path).unwrap_err().text();
     assert!(said.contains("step android"), "{said}");
     assert!(said.contains("no failure row"), "{said}");
 }
@@ -783,5 +790,5 @@ fn a_step_keeps_whether_it_ran_at_the_merge_base_or_at_the_commit() {
     };
     let recorded = run(NOW, Lane::MAC, 0, RunEnd::Passed, vec![at(true), at(false)]);
     record(&path, &recorded).unwrap();
-    assert_eq!(read_run(&path).unwrap(), recorded);
+    assert_eq!(read_named_run(&path).unwrap(), recorded);
 }

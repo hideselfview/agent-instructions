@@ -26,7 +26,7 @@ fn paths(list: &[&str]) -> Vec<String> {
     list.iter().map(|path| path.to_string()).collect()
 }
 
-fn names(plan: &[(Lane, Vec<String>)]) -> Vec<(&'static str, Vec<&str>)> {
+fn names(plan: &[(Lane, Vec<String>)]) -> Vec<(&str, Vec<&str>)> {
     plan.iter()
         .map(|(lane, steps)| (lane.word(), steps.iter().map(String::as_str).collect()))
         .collect()

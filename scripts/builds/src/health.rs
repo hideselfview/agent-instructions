@@ -250,7 +250,6 @@ pub struct WorktreeHealth {
 pub struct LockHealth {
     pub repo: String,
     /// The app lane the lock is for.
-    #[serde(with = "crate::lane::as_word")]
     pub lane: Lane,
     /// The app checkout (side-N) the lock is for.
     pub checkout: String,
@@ -263,7 +262,6 @@ pub struct LockHealth {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct LaneQueue {
     pub repo: String,
-    #[serde(with = "crate::lane::as_word")]
     pub lane: Lane,
     pub queue: Vec<Queued>,
 }
@@ -286,7 +284,6 @@ pub struct Queued {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct InLine {
     pub repo: String,
-    #[serde(with = "crate::lane::as_word")]
     pub lane: Lane,
     pub pid: i32,
     /// 1 for the next to take a lock.

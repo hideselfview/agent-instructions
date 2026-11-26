@@ -14,7 +14,7 @@ use crate::fail;
 use crate::fail::Result;
 use crate::host::{Host, Ssh};
 use crate::install::sccache_config_holds;
-use crate::lane::{AddedBy, Lane, is_lane_file};
+use crate::lane::{AddedBy, is_lane_file};
 use crate::manifest::{SHARED_CACHES, build_dirs, kept_builds};
 use crate::places::{DERIVED_DATA_CAP_KIB, DiskSpace, FLOOR_IDLE_MINUTES, MACOS_ENTRIES, Places};
 use crate::prune::derived_data;
@@ -59,13 +59,6 @@ fn is_repo_dir(dir: &Path) -> Result<bool> {
     if !dir.is_dir() || dir.is_symlink() {
         return Ok(false);
     }
-    if std::fs::read_dir(dir).is_ok_and(|entries| {
-        entries
-            .filter_map(|entry| entry.ok())
-            .any(|entry| crate::lane::is_lane_file(&entry.file_name().to_string_lossy()))
-    }) {
-        return Ok(true);
-    }
     let names = match glob_names(dir) {
         Ok(names) => names,
         // A folder this user can't list holds no roots of theirs.
@@ -78,6 +71,9 @@ fn is_repo_dir(dir: &Path) -> Result<bool> {
         Err(error) => return Err(error),
     };
     for name in names {
+        if crate::lane::is_lane_file(&name.to_string_lossy()) {
+            return Ok(true);
+        }
         if name.as_encoded_bytes().first() != Some(&b'.')
             && dir.join(&name).join(".checkout").is_file()
         {
@@ -714,7 +710,7 @@ pub enum CheckoutJson {
         branch: Option<String>,
         app_checkout: bool,
         /// The lane it is the app checkout of.
-        app_lane: Option<&'static str>,
+        app_lane: Option<String>,
         claim: Option<Claim>,
         folders: Option<Vec<FolderJson>>,
         total_kib: Option<u64>,
@@ -842,7 +838,9 @@ fn checkout_json(tool: &Tool, root: &Root, with_folders: bool) -> Result<Checkou
         main: name == "main",
         branch: checkout.branch()?,
         app_checkout: root.is_app_checkout(&tool.places)?,
-        app_lane: root.app_lane(&tool.places)?.map(Lane::word),
+        app_lane: root
+            .app_lane(&tool.places)?
+            .map(|lane| lane.word().to_string()),
         claim: Claim::read(&checkout.claim_file())?,
         folders,
         total_kib,

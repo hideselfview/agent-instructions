@@ -114,30 +114,25 @@ pub fn name_in(path: &str) -> Result<(String, String)> {
 /// when that is a checkout of <repo>, else the first of <repo>'s app
 /// checkouts here, else the clone `~/dev/<repo>`.
 pub fn local_source(places: &Places, repo: &str) -> Result<PathBuf> {
-    match find_local_source(places, repo)? {
-        Some(source) => Ok(source),
-        None => fail!(
-            "{repo} has no app checkout here and no clone at {} to read commits from",
-            places.home.join(clone_path(repo)).display()
-        ),
-    }
-}
-
-/// `local_source`, or None when <repo> has no checkout or clone here.
-pub fn find_local_source(places: &Places, repo: &str) -> Result<Option<PathBuf>> {
     let here = std::env::current_dir().context(|| "reading the working directory".to_string())?;
     if let Some(checkout) = Checkout::at(&here)?
         && checkout.repo() == repo
     {
-        return Ok(Some(checkout.top));
+        return Ok(checkout.top);
     }
     for entry in places.app_checkout_entries(repo)? {
         if split(&entry).is_none() {
-            return Ok(Some(app_checkout_top(places, repo, &entry)?));
+            return app_checkout_top(places, repo, &entry);
         }
     }
     let clone = places.home.join(clone_path(repo));
-    Ok(clone.join(".git").exists().then_some(clone))
+    if !clone.join(".git").exists() {
+        fail!(
+            "{repo} has no app checkout here and no clone at {} to read commits from",
+            clone.display()
+        );
+    }
+    Ok(clone)
 }
 
 /// `local_source`, after a fetch from origin there, so that it holds the

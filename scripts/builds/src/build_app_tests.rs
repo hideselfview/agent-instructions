@@ -8,7 +8,13 @@ fn the_copy_replaces_the_test_app() {
     let scratch = Scratch::new("build-app-copy");
     let places = scratch.places();
     let config = parse_config("mac build b\nmac app out/out.app\nmac bundle demo.test\n").unwrap();
-    let app = copy_path(&places, "demo", &CopiedApp::of(&config, Lane::MAC).unwrap()).unwrap();
+    let app = copy_path(
+        &places,
+        "demo",
+        Lane::MAC,
+        copied_app(&config, Lane::MAC).unwrap(),
+    )
+    .unwrap();
     assert_eq!(app, places.home.join("Applications/demo-test/out.app"));
     std::fs::create_dir_all(app.join("old")).unwrap();
 

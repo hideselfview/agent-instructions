@@ -109,7 +109,6 @@ use super::component_shots::Side as PictureSide;
 use super::model::Model;
 use super::pages::Pages;
 use crate::design_render::Side;
-use crate::lane::Lane;
 
 /// The page, with the colors and fonts it shares with the Designs page.
 pub(super) static PAGE: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
@@ -606,7 +605,7 @@ pub enum DesignsRoute<'a> {
     ComponentShots(&'a str, &'a str),
     /// A picture of the pair <shot> on the lane, in the cached run of
     /// the commit.
-    Picture(&'a str, &'a str, Lane, &'a str, PictureSide),
+    Picture(&'a str, &'a str, &'a str, &'a str, PictureSide),
 }
 
 /// <rest> is the path after `/designs/`: `<project>`,
@@ -626,7 +625,7 @@ pub(super) fn designs_route(rest: &str) -> Option<DesignsRoute<'_>> {
             Some(DesignsRoute::Picture(
                 project,
                 commit,
-                Lane::parse(lane)?,
+                lane,
                 shot,
                 PictureSide::parse(file.strip_suffix(".png")?)?,
             ))

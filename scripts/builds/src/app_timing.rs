@@ -350,7 +350,10 @@ type StepRow = (String, String, i64, i64, i64, Option<bool>, String);
 /// lane's run hands the installed builds when an install moved the stores
 /// while the run built (handed_runs.rs). Fails when the store holds none or
 /// more than one.
-pub fn read_run(path: &Path) -> Result<RunRecord> {
+pub fn read_run(
+    path: &Path,
+    lane_of: impl FnOnce(&str, &str) -> Result<Lane>,
+) -> Result<RunRecord> {
     let Some(conn) = crate::db::open_reader(path)? else {
         fail!("{} does not exist", path.display());
     };
@@ -402,10 +405,11 @@ pub fn read_run(path: &Path) -> Result<RunRecord> {
         (Some(one), true) => one,
         _ => fail!("{} does not hold exactly one run", path.display()),
     };
+    let lane = lane_of(&repo, &lane)?;
     let mut run = RunRecord {
         started_at,
         repo,
-        lane: Lane::parse_or_fail(&lane)?,
+        lane,
         checkout,
         built_ref,
         requested_commit,
@@ -739,7 +743,8 @@ fn shots_prefix<'a>(name: &'a str, path: &Path) -> Result<&'a str> {
 pub struct ShotsBuild {
     pub branch: String,
     pub commit: String,
-    pub lane: Lane,
+    /// The app's name.
+    pub lane: String,
     pub prefix: String,
     /// When the app build joined the lane's queue, seconds since 1970.
     pub started_at: i64,
@@ -787,7 +792,7 @@ pub fn shots_builds(
             Ok(ShotsBuild {
                 branch,
                 commit,
-                lane: Lane::parse_or_fail(&lane)?,
+                lane,
                 prefix: shots_prefix(&name, path)?.to_string(),
                 started_at,
             })
@@ -967,9 +972,7 @@ fn repo_stats(conn: &Connection, repo: &str, since: i64, path: &Path) -> Result<
             words.push(row.context(what)?);
         }
     }
-    // The platforms' order, as `Lane` orders its apps; an app this process
-    // has not read from a `.app-build` goes last.
-    words.sort_by_key(|word| (Lane::parse(word).is_none(), Lane::parse(word), word.clone()));
+    words.sort_by(|a, b| Lane::word_order(a).cmp(&Lane::word_order(b)));
     for lane in &words {
         // Oldest first.
         let mut statement = conn

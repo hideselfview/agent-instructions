@@ -13,96 +13,104 @@
 
 use crate::fail;
 use crate::fail::Result;
-use boards::app_build::{App, Apps, Platform};
-use std::collections::BTreeSet;
-use std::sync::Mutex;
+use boards::app_build::{APP_NAME_BYTES, App, Apps, Platform};
 
-/// A lane as its word (the app's name: `mac`, `android`, `web`) in JSON, for a
-/// field the page and the daemon's answers carry:
-/// `#[serde(with = "crate::lane::as_word")]`. A word reads back as the app
-/// named for the platform whose word it is, or as an app of a name that this
-/// process read from a repo's `.app-build` (`Lane::of`).
-pub mod as_word {
-    use super::Lane;
+/// An app's name held in place, so that a lane is `Copy`: the name's bytes,
+/// then zeros. Names order as their text does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+struct Name {
+    bytes: [u8; APP_NAME_BYTES],
+    len: u8,
+}
 
-    pub fn serialize<S: serde::Serializer>(
-        lane: &Lane,
-        to: S,
-    ) -> std::result::Result<S::Ok, S::Error> {
-        to.serialize_str(lane.word())
+impl Name {
+    /// <text>, which fits: `boards::app_build` refuses a longer app's name.
+    const fn of(text: &str) -> Name {
+        let source = text.as_bytes();
+        let mut bytes = [0; APP_NAME_BYTES];
+        let mut at = 0;
+        while at < source.len() {
+            bytes[at] = source[at];
+            at += 1;
+        }
+        Name {
+            bytes,
+            len: source.len() as u8,
+        }
     }
 
-    pub fn deserialize<'de, D: serde::Deserializer<'de>>(from: D) -> Result<Lane, D::Error> {
-        let word = <String as serde::Deserialize>::deserialize(from)?;
-        Lane::parse(&word)
-            .ok_or_else(|| serde::de::Error::custom(format!("{word:?} is not a lane")))
+    fn text(&self) -> &str {
+        std::str::from_utf8(&self.bytes[..usize::from(self.len)])
+            .expect("a name holds the text it was made from")
     }
 }
 
+/// One lane: an app of a repo, by its name and its platform. Lanes order by
+/// platform, then name, as an `App` does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Lane {
+    platform: Platform,
+    name: Name,
+}
+
+/// A lane keeps its app's name and platform in JSON, as one word: the name
+/// alone for an app named for its platform (`mac`), else
+/// `<name>:<platform>`. What a page shows is `Lane::word`.
 impl serde::Serialize for Lane {
     fn serialize<S: serde::Serializer>(&self, to: S) -> std::result::Result<S::Ok, S::Error> {
-        as_word::serialize(self, to)
+        if Lane::named_for(self.word()) == Some(*self) {
+            to.serialize_str(self.word())
+        } else {
+            to.serialize_str(&format!("{}:{}", self.word(), self.platform.word()))
+        }
     }
 }
 
 impl<'de> serde::Deserialize<'de> for Lane {
     fn deserialize<D: serde::Deserializer<'de>>(from: D) -> std::result::Result<Self, D::Error> {
-        as_word::deserialize(from)
+        let text = <String as serde::Deserialize>::deserialize(from)?;
+        let lane = match text.split_once(':') {
+            None => Lane::named_for(&text),
+            Some((name, platform)) => Platform::parse(platform)
+                .filter(|_| boards::app_build::is_app_name(name))
+                .map(|platform| Lane {
+                    platform,
+                    name: Name::of(name),
+                }),
+        };
+        lane.ok_or_else(|| serde::de::Error::custom(format!("{text:?} is not a lane")))
     }
 }
-
-/// One lane: an app of a repo, by its name and its platform. The name is
-/// interned, so a lane is `Copy`, and orders by platform, then name, as an
-/// `App` does.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Lane {
-    platform: Platform,
-    name: &'static str,
-}
-
-/// The apps named by a repo's `.app-build` that this process has read, which
-/// `Lane::parse` finds by name.
-static KNOWN: Mutex<BTreeSet<(&'static str, Platform)>> = Mutex::new(BTreeSet::new());
 
 impl Lane {
     /// The app named `mac`, which runs on the mac platform.
     pub const MAC: Lane = Lane {
         platform: Platform::Mac,
-        name: "mac",
+        name: Name::of("mac"),
     };
     /// The app named `android`, which runs on the android platform.
     pub const ANDROID: Lane = Lane {
         platform: Platform::Android,
-        name: "android",
+        name: Name::of("android"),
     };
     /// The app named `web`, which runs on the web platform.
     pub const WEB: Lane = Lane {
         platform: Platform::Web,
-        name: "web",
+        name: Name::of("web"),
     };
 
     /// The lane that builds <app>.
     pub fn of(app: &App) -> Lane {
-        if let Some(lane) = Lane::named_for(&app.name).filter(|lane| lane.platform == app.platform)
-        {
-            return lane;
-        }
-        let mut known = KNOWN
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let name = match known.iter().find(|(name, _)| *name == app.name) {
-            Some((name, _)) => *name,
-            None => Box::leak(app.name.clone().into_boxed_str()),
-        };
-        known.insert((name, app.platform));
         Lane {
             platform: app.platform,
-            name,
+            name: Name::of(&app.name),
         }
     }
 
-    /// The lane named for a platform, when <word> is a platform's word.
-    fn named_for(word: &str) -> Option<Lane> {
+    /// The app named for a platform, when <word> is a platform's word. Such
+    /// an app needs no `.app-build` line, and no line gives its name to an
+    /// app on another platform.
+    pub fn named_for(word: &str) -> Option<Lane> {
         match Platform::parse(word)? {
             Platform::Mac => Some(Lane::MAC),
             Platform::Android => Some(Lane::ANDROID),
@@ -115,31 +123,12 @@ impl Lane {
         apps.get(word).map(|app| Lane::of(&app))
     }
 
-    /// The lane called <word> when it needs no `.app-build` line to say what
-    /// it is: the app named for a platform, or an app that this process read
-    /// from a repo's `.app-build`. A command that has the repo's apps at hand
-    /// reads with `parse_in`.
-    pub fn parse(word: &str) -> Option<Lane> {
-        Lane::named_for(word).or_else(|| {
-            let known = KNOWN
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            known
-                .iter()
-                .find(|(name, _)| *name == word)
-                .map(|(name, platform)| Lane {
-                    platform: *platform,
-                    name,
-                })
-        })
-    }
-
-    /// `parse`, failing with the word.
-    pub fn parse_or_fail(word: &str) -> Result<Lane> {
-        match Lane::parse(word) {
-            Some(lane) => Ok(lane),
-            None => fail!("{word:?} is no app of this repo's .app-build"),
-        }
+    /// Where the app word <word> goes in a list of words that a store holds
+    /// with no platform: the apps named for platforms first, in the
+    /// platforms' order, then every other app by name.
+    pub fn word_order(word: &str) -> (bool, Option<Lane>, &str) {
+        let named = Lane::named_for(word);
+        (named.is_none(), named, word)
     }
 
     /// `parse_in`, failing with the apps there are.
@@ -157,8 +146,8 @@ impl Lane {
     }
 
     /// The app's name.
-    pub fn word(self) -> &'static str {
-        self.name
+    pub fn word(&self) -> &str {
+        self.name.text()
     }
 
     /// The shots prefix that every shot name of the lane starts with
@@ -177,31 +166,31 @@ impl Lane {
     pub fn app(self) -> App {
         App {
             platform: self.platform,
-            name: self.name.to_string(),
+            name: self.word().to_string(),
         }
     }
 
     /// The file naming the lane's app checkouts, one per line, in the repo's
     /// folder.
     pub fn checkouts_file_name(self) -> String {
-        format!("app-{}-checkouts", self.name)
+        format!("app-{}-checkouts", self.word())
     }
 
     /// The file of the checkouts builds removed from the lane lately, one
     /// per line, in the repo's folder.
     pub fn removed_file_name(self) -> String {
-        format!("app-{}-checkouts-removed", self.name)
+        format!("app-{}-checkouts-removed", self.word())
     }
 
     /// The folder of the lane's locks, one file per app checkout, in the
     /// repo's folder.
     pub fn locks_dir_name(self) -> String {
-        format!("app-{}.locks", self.name)
+        format!("app-{}.locks", self.word())
     }
 
     /// The queue folder, in the repo's folder.
     pub fn queue_dir_name(self) -> String {
-        format!("app-{}.queue", self.name)
+        format!("app-{}.queue", self.word())
     }
 }
 
@@ -355,16 +344,21 @@ mod tests {
         assert_eq!(ios.word(), "zeta-shell");
         assert_eq!(ios.platform(), Platform::Mac);
         assert_eq!(ios.checkouts_file_name(), "app-zeta-shell-checkouts");
-        assert_eq!(Lane::parse("zeta-shell"), Some(ios));
+        assert_eq!(Lane::named_for("zeta-shell"), None);
+        for lane in [ios, Lane::MAC] {
+            let said = serde_json::to_string(&lane).unwrap();
+            assert_eq!(serde_json::from_str::<Lane>(&said).unwrap(), lane);
+        }
+        assert_eq!(serde_json::to_string(&Lane::MAC).unwrap(), "\"mac\"");
         assert_eq!(Lane::of(&ios.app()), ios);
-        assert_eq!(Lane::parse("web"), Some(Lane::WEB));
+        assert_eq!(Lane::named_for("web"), Some(Lane::WEB));
         assert!(Lane::MAC < ios && ios < Lane::ANDROID);
     }
 
     #[test]
     fn a_lane_is_found_by_its_word() {
-        assert_eq!(Lane::parse("android"), Some(Lane::ANDROID));
-        assert_eq!(Lane::parse("ios"), None);
+        assert_eq!(Lane::named_for("android"), Some(Lane::ANDROID));
+        assert_eq!(Lane::named_for("ios"), None);
         assert!(is_lane_file("app-android.locks") && is_lane_file("app-mac-checkouts"));
         assert!(
             !is_lane_file("app.queue")

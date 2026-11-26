@@ -1,11 +1,16 @@
 use super::*;
-use crate::app_timing::{
-    BuiltCommit, DATABASE, RunRecord, StepKind, StepRecord, StepResult, read_run,
-};
+use crate::app_timing::{BuiltCommit, DATABASE, RunRecord, StepKind, StepRecord, StepResult};
 use crate::install_gate::{self, PerConnection};
 use crate::lane::Lane;
 use crate::run_end::RunEnd;
 use crate::testing::Scratch;
+
+/// `read_run` for a run of an app named for its platform.
+fn read_named_run(path: &std::path::Path) -> crate::fail::Result<crate::app_timing::RunRecord> {
+    crate::app_timing::read_run(path, |_, word| {
+        Ok(crate::lane::Lane::named_for(word).expect("a platform's app"))
+    })
+}
 
 fn run() -> RunRecord {
     RunRecord {
@@ -66,7 +71,7 @@ fn a_passing_run_reaches_the_installed_builds_after_its_project_schema_moves() {
     let completed = run();
     let mut handed = None;
     write(&places, &completed, install_gate::install_ran, |store| {
-        handed = Some((store.to_path_buf(), read_run(store)?));
+        handed = Some((store.to_path_buf(), read_named_run(store)?));
         Ok(())
     })
     .unwrap();
@@ -111,7 +116,7 @@ fn the_lane_records_its_run_directly_if_no_install_moved_the_stores() {
         |_| panic!("no install moved the stores, so the lane hands nothing"),
     )
     .unwrap();
-    assert_eq!(read_run(&project.dir.join(DATABASE)).unwrap(), run());
+    assert_eq!(read_named_run(&project.dir.join(DATABASE)).unwrap(), run());
 }
 
 /// When the installed builds cannot record the handed run, the record fails
@@ -149,7 +154,7 @@ fn the_installed_builds_records_the_run_of_a_handed_store() {
     drop(crate::db::open(&handed, crate::db::Make::Allowed).unwrap());
     crate::app_timing::record(&handed, &run()).unwrap();
     receive(&places, "bae", &handed, 1_000_100).unwrap();
-    assert_eq!(read_run(&project.dir.join(DATABASE)).unwrap(), run());
+    assert_eq!(read_named_run(&project.dir.join(DATABASE)).unwrap(), run());
 }
 
 #[test]

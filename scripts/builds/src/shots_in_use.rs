@@ -73,12 +73,13 @@ pub fn named_in(
             bases.insert(build.commit.clone(), base);
         }
         let base = bases[&build.commit].as_ref();
+        let lane = crate::repo_lanes::parse(places, repo, &build.lane)?;
         for commit in std::iter::once(&build.commit).chain(base) {
             for folder in crate::shots_cache::covering_folders(
                 places,
                 repo,
                 commit,
-                build.lane,
+                lane,
                 &build.prefix,
                 versions,
             )? {

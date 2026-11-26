@@ -505,11 +505,7 @@ fn all_shots_asks_a_lanes_process_for_every_shot_of_the_lane_and_reads_back_the_
             Pick::Shots(Lane::MAC, shots::Prefix::parse("mac.import.").unwrap()),
         ]
     );
-    let words: Vec<String> = picks
-        .iter()
-        .flat_map(pick_words)
-        .map(str::to_string)
-        .collect();
+    let words: Vec<String> = picks.iter().flat_map(pick_words).collect();
     assert_eq!(
         words,
         args(&["--all-shots", "android", "--shots", "mac", "mac.import."])

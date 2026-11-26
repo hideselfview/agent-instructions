@@ -97,7 +97,9 @@ fn hand_to(
 fn receive(places: &Places, repo: &str, store: &Path, now: i64) -> Result<()> {
     let _using_stores = install_gate::for_connection()?;
     crate::migrate::move_store(places, store, now)?;
-    let run = app_timing::read_run(store)?;
+    let run = app_timing::read_run(store, |repo, word| {
+        crate::repo_lanes::parse(places, repo, word)
+    })?;
     if run.repo != repo {
         fail!(
             "The handed run names repo {}, and the caller names {repo}.",

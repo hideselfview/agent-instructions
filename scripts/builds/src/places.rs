@@ -303,23 +303,39 @@ impl Places {
             .collect())
     }
 
+    /// The names of the entries of <repo>'s folder on the volume, sorted;
+    /// none when the volume has no folder for the repo.
+    pub fn repo_entry_names(&self, repo: &str) -> Result<Vec<String>> {
+        let dir = self.root.join(repo);
+        let what = || format!("listing {}", dir.display());
+        let entries = match std::fs::read_dir(&dir) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) => fail!("listing {}: {error}", dir.display()),
+        };
+        let mut names = Vec::new();
+        for entry in entries {
+            names.push(
+                entry
+                    .context(what)?
+                    .file_name()
+                    .to_string_lossy()
+                    .into_owned(),
+            );
+        }
+        names.sort();
+        Ok(names)
+    }
+
     /// The entries of every app checkout set in <repo>'s folder, whatever the
     /// lane: the files `app-<app>-checkouts`, in the order of their names.
     pub fn app_checkout_entries(&self, repo: &str) -> Result<Vec<String>> {
-        let dir = self.root.join(repo);
-        let mut files: Vec<String> = match std::fs::read_dir(&dir) {
-            Ok(entries) => entries
-                .filter_map(|entry| entry.ok())
-                .map(|entry| entry.file_name().to_string_lossy().into_owned())
-                .filter(|name| crate::lane::is_lane_file(name) && name.ends_with("-checkouts"))
-                .collect(),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
-            Err(error) => fail!("listing {}: {error}", dir.display()),
-        };
-        files.sort();
         let mut entries = Vec::new();
-        for name in files {
-            let file = dir.join(&name);
+        for name in self.repo_entry_names(repo)? {
+            if !(crate::lane::is_lane_file(&name) && name.ends_with("-checkouts")) {
+                continue;
+            }
+            let file = self.root.join(repo).join(&name);
             let text =
                 std::fs::read_to_string(&file).context(|| format!("reading {}", file.display()))?;
             entries.extend(crate::lane::parse_set(&text)?.into_iter().map(|c| c.entry));

@@ -394,12 +394,55 @@ pub struct TestApp {
     /// and its arguments. For an app on the android platform, the program
     /// also installs the app wherever it should go.
     pub build: Vec<String>,
-    /// The built app, relative to the checkout, for an app on the mac
-    /// platform.
-    pub app: Option<String>,
-    /// The app's bundle id, to quit the one running, for an app on the mac
-    /// platform.
-    pub bundle: Option<String>,
+    /// The `app` and `bundle` lines, which an app on the mac platform has and
+    /// an app on the android platform does not.
+    pub copied: Option<CopiedApp>,
+}
+
+/// The app that a build copies out of its checkout.
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct CopiedApp {
+    /// The built app, relative to the checkout.
+    pub app: String,
+    /// The app's bundle id, to quit the one running.
+    pub bundle: String,
+}
+
+/// The build lines of one app as they are read, before the app is whole.
+struct TestAppLines {
+    lane: Lane,
+    build: Vec<String>,
+    app: Option<String>,
+    bundle: Option<String>,
+}
+
+impl TestAppLines {
+    /// The test app the lines make, or an error that names the lines the
+    /// app's platform needs.
+    fn whole(self) -> Result<TestApp> {
+        let needs = match self.lane.platform() {
+            boards::app_build::Platform::Mac => "build, app and bundle lines",
+            boards::app_build::Platform::Android => "a build line, and no more",
+            boards::app_build::Platform::Web => {
+                "no build, app or bundle line: a web app has no build-app"
+            }
+        };
+        let copied = match (self.lane.platform(), self.app, self.bundle) {
+            (boards::app_build::Platform::Mac, Some(app), Some(bundle)) => {
+                Some(CopiedApp { app, bundle })
+            }
+            (boards::app_build::Platform::Android, None, None) => None,
+            _ => fail!("{CONFIG}: {} needs {needs}", self.lane.word()),
+        };
+        if self.build.is_empty() {
+            fail!("{CONFIG}: {} needs {needs}", self.lane.word());
+        }
+        Ok(TestApp {
+            lane: self.lane,
+            build: self.build,
+            copied,
+        })
+    }
 }
 
 /// A `step <lane> <name> <program> [<args>...]` line: a program, relative to
@@ -525,7 +568,7 @@ pub fn config_in(top: &Path, commit: &str) -> Result<Config> {
 pub fn parse_config(text: &str) -> Result<Config> {
     let apps = Apps::read(text).map_err(|error| crate::fail::Fail::Message(error.text()))?;
     let mut lanes: Vec<Lane> = apps.named().map(|app| Lane::of(&app)).collect();
-    let mut installs: Vec<TestApp> = Vec::new();
+    let mut installs: Vec<TestAppLines> = Vec::new();
     let mut steps: Vec<Step> = Vec::new();
     let mut pickers: Vec<Picker> = Vec::new();
     let mut limits: Vec<(String, Duration)> = Vec::new();
@@ -551,7 +594,7 @@ pub fn parse_config(text: &str) -> Result<Config> {
                 let at = match installs.iter().position(|install| install.lane == lane) {
                     Some(at) => at,
                     None => {
-                        installs.push(TestApp {
+                        installs.push(TestAppLines {
                             lane,
                             build: Vec::new(),
                             app: None,
@@ -818,29 +861,10 @@ pub fn parse_config(text: &str) -> Result<Config> {
             fail!("{CONFIG}: sources for {named}, which has no `test {named}` line");
         }
     }
-    for install in &installs {
-        let name = install.lane.word();
-        let complete = match install.lane.platform() {
-            boards::app_build::Platform::Mac => {
-                !install.build.is_empty() && install.app.is_some() && install.bundle.is_some()
-            }
-            boards::app_build::Platform::Android => {
-                !install.build.is_empty() && install.app.is_none() && install.bundle.is_none()
-            }
-            boards::app_build::Platform::Web => false,
-        };
-        if !complete {
-            fail!(
-                "{CONFIG}: {name} needs {} lines",
-                match install.lane.platform() {
-                    boards::app_build::Platform::Mac => "build, app and bundle",
-                    boards::app_build::Platform::Android => "a build line, and no more",
-                    boards::app_build::Platform::Web =>
-                        "no build, app or bundle line: a web app has no build-app",
-                }
-            );
-        }
-    }
+    let installs = installs
+        .into_iter()
+        .map(TestAppLines::whole)
+        .collect::<Result<Vec<_>>>()?;
     let mut mentioned: Vec<Lane> = steps.iter().map(|step| step.lane).collect();
     mentioned.extend(pickers.iter().map(|picker| picker.lane));
     mentioned.extend(results.iter().map(|(lane, _)| *lane));

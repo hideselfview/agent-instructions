@@ -1,25 +1,14 @@
 //! Moves from an older shape of what the tool stores, done in place by
 //! `builds install`.
 //!
-//! The first is the move from a lane's one app checkout to a set of them: each
-//! repo's `app-checkout` file becomes the set and its `app.lock` becomes
-//! `app.locks/<checkout>` (a hard link to the same file, so the new path and
-//! the old are one lock), likewise for the android lane's `app-android-*`. The
-//! queue keeps its folder and format.
-//!
-//! The second is the move of the mac lane's files to the app-named form that
-//! every lane has (`lane.rs`): `app-checkouts`, `app-checkouts-removed`,
+//! The first renames the mac lane's files to the app-named form that every
+//! lane has (`lane.rs`): `app-checkouts`, `app-checkouts-removed`,
 //! `app.locks` and `app.queue` become `app-mac-checkouts`,
-//! `app-mac-checkouts-removed`, `app-mac.locks` and `app-mac.queue`. Folders
-//! keep their files, and so keep the locks that running builds hold.
-//!
-//! A `builds` from before a move reads the old names, and a build running
-//! under it holds the old lock or waits in the old queue. A move does not
-//! interrupt those builds: a lane with a build running or waiting under the
-//! old names keeps them, and the next `builds install` moves it (`builds
-//! install` runs each move each time).
+//! `app-mac-checkouts-removed`, `app-mac.locks` and `app-mac.queue`. A
+//! `builds` from before the move reads the old names, and a build running under
+//! it holds an old lock or waits in the old queue, so the move fails the
+//! install while such a build runs or waits, and renames nothing.
 
-use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 
 use rusqlite::{Connection, OptionalExtension};
@@ -28,100 +17,26 @@ use crate::db::{self, Sql};
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::flock::is_held;
-use crate::lane::Lane;
 use crate::places::Places;
 
-/// Moves every repo's old-layout lane files to the new layout; does nothing
-/// for a lane already moved.
+/// Moves every repo's old-named lane files to their new names; does nothing
+/// for files already moved.
 pub fn migrate_app_files(places: &Places) -> Result<()> {
     let repos = match std::fs::read_dir(&places.root) {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
         Err(error) => fail!("listing {}: {error}", places.root.display()),
     };
+    let mut names = Vec::new();
     for repo in repos {
         let repo = repo.context(|| format!("listing {}", places.root.display()))?;
         let name = repo.file_name().to_string_lossy().into_owned();
         if name.starts_with('.') || !repo.path().is_dir() {
             continue;
         }
-        for lane in [Lane::MAC, Lane::ANDROID] {
-            migrate_lane(places, &name, lane)?;
-        }
-        move_mac_files(places, &name)?;
+        names.push(name);
     }
-    Ok(())
-}
-
-fn migrate_lane(places: &Places, repo: &str, lane: Lane) -> Result<()> {
-    let dir = places.root.join(repo);
-    let tag = if lane == Lane::MAC { "" } else { "-android" };
-    let old_file = dir.join(format!("app{tag}-checkout"));
-    let old_lock = dir.join(format!("app{tag}.lock"));
-    if !old_file.exists() && !old_lock.exists() {
-        return Ok(());
-    }
-    if old_file.is_file() {
-        let text = std::fs::read_to_string(&old_file)
-            .context(|| format!("reading {}", old_file.display()))?;
-        let checkout = text.trim().to_string();
-        if checkout.is_empty() || checkout.contains('/') {
-            fail!("{} names no side worktree ({text:?})", old_file.display());
-        }
-        // The old lock must exist before it is linked: a build from before
-        // may be waiting to create it, and would make a second file.
-        if !old_lock.exists() {
-            crate::queue::open_with(&old_lock, libc::O_CREAT)
-                .map(|fd| unsafe { libc::close(fd) })
-                .context(|| format!("creating {}", old_lock.display()))?;
-        }
-        let locks = places.app_locks_dir(repo, lane);
-        std::fs::create_dir_all(&locks).context(|| format!("creating {}", locks.display()))?;
-        let new_lock = locks.join(&checkout);
-        if new_lock.exists() {
-            let (old, new) = (std::fs::metadata(&old_lock), std::fs::metadata(&new_lock));
-            let same = matches!((old, new), (Ok(old), Ok(new)) if old.ino() == new.ino() && old.dev() == new.dev());
-            if !same {
-                fail!(
-                    "{} and {} are different files; remove the old one",
-                    old_lock.display(),
-                    new_lock.display()
-                );
-            }
-        } else {
-            std::fs::hard_link(&old_lock, &new_lock)
-                .context(|| format!("linking {} to {}", new_lock.display(), old_lock.display()))?;
-        }
-        if !places.app_checkouts_file(repo, lane).exists() {
-            places.write_app_checkouts(
-                repo,
-                lane,
-                &[crate::lane::AppCheckout::by_person(&checkout)],
-            )?;
-        }
-    }
-    let queue = dir.join(format!("app{tag}.queue"));
-    if (old_lock.exists() && is_held(&old_lock)?) || waiting_in(&queue)? {
-        crate::text::note(format!(
-            "{repo}'s {} lane has builds from before the move running or waiting; its old file names go the next time install runs with none",
-            lane.word()
-        ));
-        return Ok(());
-    }
-    for old in [&old_lock, &old_file] {
-        match std::fs::remove_file(old) {
-            Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
-                fail!("removing {}: {error}", old.display())
-            }
-            _ => {}
-        }
-    }
-    crate::text::note(format!(
-        "moved {repo}'s {} app checkout to {}",
-        lane.word(),
-        places.app_checkouts_file(repo, lane).display()
-    ));
-    Ok(())
+    move_mac_files(places, &names)
 }
 
 /// The mac lane's files before they took the app-named form, and after.
@@ -132,45 +47,78 @@ const MAC_FILES: [(&str, &str); 4] = [
     ("app.queue", "app-mac.queue"),
 ];
 
-/// Renames <repo>'s mac lane files to the app-named form. A lane whose old
-/// lock or old queue is in use keeps its old names until a later run.
-fn move_mac_files(places: &Places, repo: &str) -> Result<()> {
+/// Locks held while the files they stand for move; dropping them lets go.
+#[derive(Default)]
+struct HeldLocks(Vec<std::os::fd::OwnedFd>);
+
+/// Takes every lock of <repo>'s mac lane under its old names, so no build
+/// from before starts one while the files move. Fails when a build runs or
+/// waits there.
+fn take_old_mac_locks(places: &Places, repo: &str) -> Result<HeldLocks> {
+    use std::os::fd::FromRawFd;
     let dir = places.root.join(repo);
-    if !MAC_FILES.iter().any(|(old, _)| dir.join(old).exists()) {
-        return Ok(());
+    let busy = || {
+        crate::fail::Fail::Message(format!(
+            "{repo}'s mac app has a build running or waiting under the file names this install renames; run builds install again once it ends"
+        ))
+    };
+    if waiting_in(&dir.join("app.queue"))? {
+        return Err(busy());
     }
+    let mut held = HeldLocks::default();
     let locks = dir.join("app.locks");
-    let mut in_use = waiting_in(&dir.join("app.queue"))?;
     if locks.is_dir() {
-        for entry in std::fs::read_dir(&locks).context(|| format!("listing {}", locks.display()))? {
-            let entry = entry.context(|| format!("listing {}", locks.display()))?;
-            in_use |= is_held(&entry.path())?;
+        let what = || format!("listing {}", locks.display());
+        for entry in std::fs::read_dir(&locks).context(what)? {
+            let path = entry.context(what)?.path();
+            if path.extension().is_some() {
+                continue;
+            }
+            let Some(fd) = crate::queue::try_lock(&path)? else {
+                return Err(busy());
+            };
+            // try_lock opened the descriptor for this caller alone.
+            held.0
+                .push(unsafe { std::os::fd::OwnedFd::from_raw_fd(fd) });
         }
     }
-    if in_use {
-        crate::text::note(format!(
-            "{repo}'s mac app has builds running or waiting under its old file names; install moves the files the next time it runs with none"
-        ));
-        return Ok(());
-    }
-    for (old, new) in MAC_FILES {
-        let (old, new) = (dir.join(old), dir.join(new));
-        if !old.exists() {
+    Ok(held)
+}
+
+/// Renames each repo's mac lane files to the app-named form. It renames none
+/// when a build of any repo uses the old names or a repo holds both forms of
+/// a file.
+fn move_mac_files(places: &Places, repos: &[String]) -> Result<()> {
+    let mut moving = Vec::new();
+    for repo in repos {
+        let dir = places.root.join(repo);
+        let present: Vec<_> = MAC_FILES
+            .iter()
+            .map(|(old, new)| (dir.join(old), dir.join(new)))
+            .filter(|(old, _)| old.exists())
+            .collect();
+        if present.is_empty() {
             continue;
         }
-        if new.exists() {
+        if let Some((old, new)) = present.iter().find(|(_, new)| new.exists()) {
             fail!(
                 "{} and {} both exist; remove the one that holds nothing",
                 old.display(),
                 new.display()
             );
         }
-        std::fs::rename(&old, &new)
-            .context(|| format!("renaming {} to {}", old.display(), new.display()))?;
+        let held = take_old_mac_locks(places, repo)?;
+        moving.push((repo, present, held));
     }
-    crate::text::note(format!(
-        "moved {repo}'s mac app files to their app-named form"
-    ));
+    for (repo, files, _held) in moving {
+        for (old, new) in files {
+            std::fs::rename(&old, &new)
+                .context(|| format!("renaming {} to {}", old.display(), new.display()))?;
+        }
+        crate::text::note(format!(
+            "moved {repo}'s mac app files to their app-named form"
+        ));
+    }
     Ok(())
 }
 

@@ -40,14 +40,15 @@ fn a_config_names_each_platforms_build() {
                 TestApp {
                     lane: Lane::MAC,
                     build: words("mkdir out.app"),
-                    app: Some("out.app".to_string()),
-                    bundle: Some("demo.test".to_string()),
+                    copied: Some(CopiedApp {
+                        app: "out.app".to_string(),
+                        bundle: "demo.test".to_string(),
+                    }),
                 },
                 TestApp {
                     lane: Lane::ANDROID,
                     build: words("./a.sh --x"),
-                    app: None,
-                    bundle: None,
+                    copied: None,
                 },
             ],
             steps: Vec::new(),
@@ -645,7 +646,7 @@ fn an_app_line_makes_a_lane_that_every_line_may_name() {
     let names: Vec<&str> = config.lanes.iter().map(|lane| lane.word()).collect();
     assert_eq!(names, ["desktop", "dashboard"], "mac apps first, then web");
     let desktop = config.test_app_of(config.lanes[0]).unwrap();
-    assert_eq!(desktop.app.as_deref(), Some("out/desktop.app"));
+    assert_eq!(desktop.copied.as_ref().unwrap().app, "out/desktop.app");
     assert_eq!(config.lanes[1].platform(), boards::app_build::Platform::Web);
     assert_eq!(config.steps[0].lane, config.lanes[1]);
     assert_eq!(config.shared_shot_display, vec![config.lanes[0]]);

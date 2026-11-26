@@ -68,9 +68,13 @@ impl App {
     }
 }
 
+/// The most bytes an app's name has.
+pub const APP_NAME_BYTES: usize = 32;
+
 /// Whether <name> is an app's name: lower-case words joined by `-`.
 pub fn is_app_name(name: &str) -> bool {
     !name.is_empty()
+        && name.len() <= APP_NAME_BYTES
         && name.split('-').all(|word| {
             !word.is_empty()
                 && word
@@ -109,6 +113,9 @@ impl Apps {
                 return Err(bad(
                     "names an app that is not lower-case words joined by '-'",
                 ));
+            }
+            if name.len() > APP_NAME_BYTES {
+                return Err(bad("names an app in more than 32 bytes"));
             }
             let Some(platform) = words.next() else {
                 return Err(bad("names its app and nothing else"));

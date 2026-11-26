@@ -428,13 +428,7 @@ pub fn build(repo: &RepoPage) -> Result<Vec<AppLane>> {
                 .filter_map(|c| c.app_lane.as_deref()),
         )
         .collect();
-    words.sort_by_key(|word| {
-        (
-            crate::lane::Lane::parse(word).is_none(),
-            crate::lane::Lane::parse(word),
-            *word,
-        )
-    });
+    words.sort_by(|a, b| crate::lane::Lane::word_order(a).cmp(&crate::lane::Lane::word_order(b)));
     words.dedup();
     for word in words {
         let mut checkouts: Vec<AppBuild> = repo

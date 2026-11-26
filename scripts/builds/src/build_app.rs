@@ -23,7 +23,7 @@ use std::thread::sleep;
 use std::time::Duration;
 
 use crate::app_build::{config_at, place_of};
-use crate::app_config::{CONFIG, Config, Step, run_command};
+use crate::app_config::{CONFIG, Config, CopiedApp, Step, run_command};
 use crate::app_lock_guard::CheckoutLock;
 use crate::app_platform::{self, Install};
 use crate::app_site::Site;
@@ -90,7 +90,7 @@ impl Target {
         }
     }
 
-    fn word(self) -> &'static str {
+    fn word(&self) -> &str {
         self.lane.word()
     }
 
@@ -102,33 +102,25 @@ impl Target {
     }
 }
 
-/// The `app` and `bundle` lines of a lane that builds a copied `.app`.
-struct CopiedApp<'a> {
-    lane: Lane,
-    app: &'a str,
-    bundle: &'a str,
-}
-
-impl<'a> CopiedApp<'a> {
-    fn of(config: &'a Config, lane: Lane) -> Result<CopiedApp<'a>> {
-        match config.test_app_of(lane) {
-            Some(crate::app_config::TestApp {
-                app: Some(app),
-                bundle: Some(bundle),
-                ..
-            }) => Ok(CopiedApp { lane, app, bundle }),
-            _ => fail!(
-                "{CONFIG} has no build, app and bundle lines for {}",
-                lane.word()
-            ),
-        }
+/// The `app` and `bundle` lines of <lane>, which a build that copies its app
+/// out has.
+fn copied_app(config: &Config, lane: Lane) -> Result<&CopiedApp> {
+    match config
+        .test_app_of(lane)
+        .and_then(|test| test.copied.as_ref())
+    {
+        Some(copied) => Ok(copied),
+        None => fail!(
+            "{CONFIG} has no build, app and bundle lines for {}",
+            lane.word()
+        ),
     }
 }
 
 /// Where the test app lives: outside the checkout, under the home folder.
-fn copy_path(places: &Places, repo: &str, built: &CopiedApp) -> Result<PathBuf> {
+fn copy_path(places: &Places, repo: &str, lane: Lane, built: &CopiedApp) -> Result<PathBuf> {
     let Some(name) = Path::new(&built.app).file_name() else {
-        fail!("{CONFIG}: {} app names no file", built.lane.word());
+        fail!("{CONFIG}: {} app names no file", lane.word());
     };
     Ok(places
         .home
@@ -246,10 +238,10 @@ fn run_build(site: &mut Site, command: &[String]) -> Result<Within> {
 /// copied to.
 fn built_app(site: &mut Site, built: &CopiedApp) -> Result<PathBuf> {
     match site {
-        Site::Local(top, ..) => Ok(top.join(built.app)),
+        Site::Local(top, ..) => Ok(top.join(&built.app)),
         Site::Remote(remote) => {
-            remote.pull_bundle(built.app)?;
-            Ok(remote.local_folder().join(built.app))
+            remote.pull_bundle(&built.app)?;
+            Ok(remote.local_folder().join(&built.app))
         }
     }
 }
@@ -324,10 +316,10 @@ fn build_app(tool: &Tool, args: &[String]) -> Result<()> {
                     held.release();
                     return Ok(());
                 }
-                let built = CopiedApp::of(&config, platform.lane())?;
-                let app = copy_path(places, repo, &built)?;
-                copy_out(&built_app(&mut site, &built)?, &app, held.checkout_lock())?;
-                break (built.bundle.to_string(), app);
+                let built = copied_app(&config, platform.lane())?;
+                let app = copy_path(places, repo, platform.lane(), built)?;
+                copy_out(&built_app(&mut site, built)?, &app, held.checkout_lock())?;
+                break (built.bundle.clone(), app);
             }
             // Only a takeover stops it: it holds no use of the stores, so
             // install never stops it.

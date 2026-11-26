@@ -305,13 +305,14 @@ pub fn all_shots_flag<'a>(
 /// The command-line words that ask for <pick> in a lane's process, or in a
 /// request that names steps: `--all-shots <lane>` for a lane's full set of
 /// shots, else the kind's flag, the lane and the argument.
-pub fn pick_words(pick: &Pick) -> Vec<&str> {
+pub fn pick_words(pick: &Pick) -> Vec<String> {
     let lane = pick.lane();
-    if pick.is_all_shots() {
+    let words = if pick.is_all_shots() {
         vec![ALL_SHOTS, lane.word()]
     } else {
         vec![pick.kind().flag(), lane.word(), pick.argument()]
-    }
+    };
+    words.into_iter().map(str::to_string).collect()
 }
 
 /// The kind of step <name> is, when it is the run of a pick.
@@ -2718,7 +2719,7 @@ impl Tail {
 fn copy_lines(
     from: impl Read,
     mut to: impl Write,
-    lane: &'static str,
+    lane: String,
     prefix: Arc<Mutex<String>>,
     tail: Arc<Mutex<Tail>>,
     done: std::sync::mpsc::Sender<()>,
@@ -2729,7 +2730,7 @@ fn copy_lines(
         if read == 0 {
             break;
         }
-        if let Some(named) = prefix_from_marker(lane, &line) {
+        if let Some(named) = prefix_from_marker(&lane, &line) {
             *prefix.lock().expect("no panic holding it") = named;
             line.clear();
             continue;
@@ -2790,8 +2791,7 @@ fn lane_words(
         picks
             .iter()
             .filter(|pick| pick.lane() == lane)
-            .flat_map(pick_words)
-            .map(str::to_string),
+            .flat_map(pick_words),
     );
     words
 }
@@ -2848,7 +2848,8 @@ pub fn run_lanes(
         let stdout = child.stdout.take().expect("piped");
         let stderr = child.stderr.take().expect("piped");
         let (out_done, err_done) = (done.clone(), done);
-        let (word, out_prefix) = (lane.word(), prefix.clone());
+        let (word, out_prefix) = (lane.word().to_string(), prefix.clone());
+        let err_word = word.clone();
         let tail = Arc::new(Mutex::new(Tail::default()));
         let (out_tail, err_tail) = (tail.clone(), tail.clone());
         std::thread::spawn(move || {
@@ -2862,7 +2863,14 @@ pub fn run_lanes(
             )
         });
         std::thread::spawn(move || {
-            copy_lines(stderr, std::io::stderr(), word, prefix, err_tail, err_done)
+            copy_lines(
+                stderr,
+                std::io::stderr(),
+                err_word,
+                prefix,
+                err_tail,
+                err_done,
+            )
         });
         running.push((*lane, child, ended, tail));
     }

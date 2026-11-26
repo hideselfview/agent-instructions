@@ -1,9 +1,16 @@
 use super::*;
-use crate::app_timing::{DATABASE, RunRecord, StepKind, StepResult, read_run};
+use crate::app_timing::{DATABASE, RunRecord, StepKind, StepResult};
 use crate::lane::Lane;
 use crate::run_end::RunEnd;
 use crate::shots_cache::MissCause;
 use crate::testing::Scratch;
+
+/// `read_run` for a run of an app named for its platform.
+fn read_named_run(path: &std::path::Path) -> crate::fail::Result<crate::app_timing::RunRecord> {
+    crate::app_timing::read_run(path, |_, word| {
+        Ok(crate::lane::Lane::named_for(word).expect("a platform's app"))
+    })
+}
 
 const TOOK: &str = "builds shots: took the 12 mac shots of app tree 0123abcd from the picture folder; capturing none";
 
@@ -177,7 +184,7 @@ fn a_run_read_back_holds_the_steps_with_what_they_used() {
         steps: steps(),
     };
     crate::app_timing::record(&path, &run).unwrap();
-    assert_eq!(read_run(&path).unwrap(), run);
+    assert_eq!(read_named_run(&path).unwrap(), run);
 }
 
 #[test]

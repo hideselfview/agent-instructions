@@ -889,7 +889,7 @@ fn a_designs_path_is_the_page_or_a_board_or_component_at_a_full_commit() {
         Some(DesignsRoute::Picture(
             "bae",
             commit,
-            Lane::MAC,
+            "mac",
             "mac.component.checkbox.on",
             PictureSide::Board
         ))
@@ -898,7 +898,6 @@ fn a_designs_path_is_the_page_or_a_board_or_component_at_a_full_commit() {
         "".to_string(),
         "bae/".to_string(),
         "bae/component/".to_string(),
-        format!("bae/{commit}/shot/ios/mac.a.b/board.png"),
         format!("bae/{commit}/shot/mac/mac.a.b/front.png"),
         format!("bae/{commit}/shot/mac/mac.a.b/board"),
         "bae/HEAD/board/A".to_string(),

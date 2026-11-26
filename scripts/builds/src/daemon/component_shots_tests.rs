@@ -129,7 +129,7 @@ fn a_component_both_platforms_share_has_a_platform_for_each_lane() {
     let lanes: Vec<(&str, &str)> = shots
         .platforms
         .iter()
-        .map(|p| (p.lane, p.prefix.as_str()))
+        .map(|p| (p.lane.as_str(), p.prefix.as_str()))
         .collect();
     assert_eq!(
         lanes,

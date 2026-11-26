@@ -1537,11 +1537,12 @@ impl Model {
         &self,
         project: &str,
         commit: &str,
-        lane: crate::lane::Lane,
+        lane: &str,
         shot: &str,
         side: super::component_shots::Side,
     ) -> Option<crate::fail::Result<Option<Vec<u8>>>> {
         Some(self.design_repo_named(project)?.and_then(|(repo, _)| {
+            let lane = crate::repo_lanes::parse(&self.places, &repo, lane)?;
             super::component_shots::picture(&self.places, &repo, commit, lane, shot, side)
         }))
     }
