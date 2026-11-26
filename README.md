@@ -80,44 +80,21 @@ It always links the main checkout, whichever worktree runs it.
 
 ## Making a change
 
-Agents change this repo the way they change bae and coven
-(`builds help workflow`): each change is a branch in a side worktree that
-`builds new ~/dev/agent-instructions --for <who> --project builds` hands out
-(`--project bae` for bae's rules and project file), reviewed with
-`builds review` and landed with `builds land`. No agent commits in the main
-checkout, which is the person's.
-
-The main checkout is also the live copy that `install.sh` links, so nothing goes
-live until it is on main there. After each landing, `builds land` moves the main
-checkout's main to the landed commits with
-`git -C ~/dev/agent-instructions merge --ff-only origin/main`, as it does for
-every repo's main checkout, and the checkout's post-merge hook runs
-`install.sh`, which installs the new `builds` and links the shared instructions
-and skills. When the main checkout is not on main, or the person's commits or
-uncommitted edits there stop the fast-forward, `builds land` prints a
-`MAIN CHECKOUT BEHIND` line with the command that the person runs after they
-check out main or commit, push or discard those changes.
+Agents change this repo the way they change bae and coven: on a branch in a side
+worktree, reviewed and landed through `builds`. The main checkout is the
+person's, and it is the live copy that `install.sh` links, so a change goes live
+once `builds land` moves the main checkout to it. The opening of `builds help`
+says how, and `builds help workflow` gives the steps.
 
 ## Per-project setup
 
 `install.sh` links `projects/<name>.md` to both `CLAUDE.md` and `AGENTS.md` in
 `~/dev/<name>` when that checkout exists. Gitignore both links in the project.
 
-## Rules and workflow stay out of briefs
+## Briefs and code review
 
-Send the worker the brief's path. In Claude Code, builds gives the worker each
-coding rule when it first edits a file the rule covers; a Codex worker runs
-`builds brief [--project P] PATH...`, which prints the rules for repo-relative
-paths. builds gives every worker the workflow when it runs `builds ack`.
-`builds item take` refuses a brief that pastes rules or the workflow.
-
-## Code review
-
-Every branch is reviewed against the rules before it lands, with one reviewer
-per group of rules, one folder of `rules/` each. No diff is reviewed more than
-once. Each change gets one review, whose later runs read the fixes. The branch's
-agent runs the review and lands the branch, and a judge session settles the
-findings. `builds land` refuses a branch until its review has read the branch as
-it is and no confirmed finding is open. `builds help workflow` (REVIEW and
-LANDING) says how to run the review, wait for the settles and land, and
-`builds help` describes each review command.
+`builds help workflow DISPATCH` says what a brief carries: builds gives each
+agent the coding rules and the workflow itself. Every branch is reviewed against
+the rules before it lands, with one reviewer per group of rules
+(`builds help workflow REVIEW`, and `builds help LANDING AND REVIEW` for each
+review command).
