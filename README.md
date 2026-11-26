@@ -48,8 +48,6 @@ them into `~/.claude/` and `~/.codex/`, so both tools read the same files.
   - Its rust-analyzer plugin builds into each repo's `target-ra` and checks
     nothing on save.
 - `codex/config.toml` holds the Codex settings.
-- `codex/skills/` holds Codex's skills.
-  - Its `code-rules-review` is a symlink to the Claude Code copy.
 - `scripts/builds/` is the `builds` tool, a Rust program (`builds help`).
 - `scripts/hooks/` holds the Claude Code hooks that `claude/settings.json` runs
   before each Bash command.
@@ -135,6 +133,6 @@ per group of rules, one folder of `rules/` each. No diff is reviewed more than
 once. Each change gets one review, whose later runs read the fixes. The branch's
 agent runs the review and lands the branch, and a judge session settles the
 findings. `builds land` refuses a branch until its review has read the branch as
-it is and no confirmed finding is open. The `code-rules-review` skill says how
-to run the review, wait for the settles and land, and `builds help` describes
-each review command.
+it is and no confirmed finding is open. `builds help workflow` (REVIEW and
+LANDING) says how to run the review, wait for the settles and land, and
+`builds help` describes each review command.

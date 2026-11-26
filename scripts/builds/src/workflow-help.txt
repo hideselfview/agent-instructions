@@ -379,9 +379,9 @@ REVIEW
 In a repo of a project with lists, each implementing agent reviews its branch
 against agent-instructions' rules with `builds review` before it lands the
 branch, and the judge settles the findings, never the agent whose branch holds
-them. The code-rules-review skill gives the agent's steps, and `builds help`
-(LANDING AND REVIEW) says how builds finds the changes since the last review,
-what each reviewer reads, and the review commands.
+them. The steps below are the agent's, and `builds help` (LANDING AND REVIEW)
+says how builds finds the changes since the last review, what each reviewer
+reads, and the review commands.
 
 builds splits the rules into groups and runs one reviewer per group that covers
 a changed path. A review reads only the committed changes since the last
