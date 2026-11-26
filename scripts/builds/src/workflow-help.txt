@@ -73,8 +73,9 @@ Each repo keeps a main checkout and side worktrees. The branch, not the
 worktree, is the unit of work.
 
   - The main checkout stays on main, for iterative work and edits made with
-    the person. No agent edits, builds or commits there, and `builds land`
-    fast-forwards it after each landing (LANDING).
+    the person. No agent edits, builds, commits or cherry-picks there, the
+    coordinator included, and `builds land` fast-forwards it after each
+    landing (LANDING).
   - side-1 is the long-lived side worktree for background work: each feature
     or fix is a new branch from origin/main there. It stays built, so never
     delete or recreate it.

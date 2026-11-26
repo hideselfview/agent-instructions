@@ -859,7 +859,11 @@ restart the server.
                               cargo starts.
                               BUILDS_CARGO_HOST=<name> picks the host for one
                               command (local is this Mac); a command that must
-                              stay here runs here, with a note on stderr.
+                              stay here runs here, with a note on stderr. A
+                              test that needs this Mac's keychain, a local
+                              server or a file outside the checkout fails on
+                              another host: run it with
+                              BUILDS_CARGO_HOST=local.
                               When cargo exits, builds records the run in the
                               project's store: its worktree, when it started,
                               cargo's subcommand (`test`, `nextest run`), the
@@ -904,6 +908,8 @@ APP BUILDS
 An app build runs only the test classes and the shots of the screens a change
 touches: name each class with --test, and each screen's shots with --shots and
 a prefix (mac.welcome. for the Mac welcome screens). CI runs the full suites.
+An app build waits in its lane's queue and then runs for minutes, so run
+`builds app-build` as a background task.
 `builds app-build` refuses a --shots prefix that selects every shot of a lane
 (mac. or android.) and a step that a `ci-only` line names, and says why. It
 also refuses, before the build joins a lane's queue, a --shots prefix that

@@ -111,24 +111,14 @@ The `builds` tool manages checkouts, build folders and app builds
 
 ### Checkouts
 
-`~/dev/bae` and `~/dev/coven` are the person's checkouts. No agent edits,
-builds, commits or cherry-picks there, the coordinator included. Agents work in
-side worktrees, and the dashboard (http://127.0.0.1:7787/) shows who has each
-one.
+`~/dev/bae` and `~/dev/coven` are the person's main checkouts, where no agent
+works (`builds help workflow WORKTREES`).
 
 ### Rust builds
 
-Run every cargo command through `scripts/cargo.sh`, never bare `cargo`, except
-the subcommands that builds refuses, such as `fmt` (`builds help`, CARGO).
-`scripts/cargo.sh test`, `clippy`, `check`, `doc` and `nextest` run on this Mac
-or one of builds' other hosts, whichever has the most free cores. The hosts are
-the M1, a second Mac, and any Linux machine the person adds; a job that builds a
-crate with code only macOS compiles runs only on a Mac (`builds help`, HOSTS). A
-test that needs this Mac's keychain, a local server or a file outside the
-checkout fails on another host: run it with `BUILDS_CARGO_HOST=local`.
-
-Don't delete build folders yourself: `builds` deletes the ones no build has used
-for days and keeps the rest under their size caps.
+Run every cargo command through `scripts/cargo.sh`, which runs `builds cargo`.
+`builds help CARGO` says which subcommands builds refuses, which host runs each
+command, and how to keep a test on this Mac.
 
 ### App builds
 
@@ -139,30 +129,17 @@ an app build. Commit on your branch, then run this as a background task:
 builds app-build bae <branch> [--test <Class>]... [--shots <prefix>]...
 ```
 
-`--shots <prefix>` runs the shots (pictures of app views, each checked against
-its board) whose names start with the prefix. Name the screens the change
-touches, such as `mac.welcome.`: builds refuses `mac.` and `android.`, which
-select every Mac shot or every Android shot. `builds help` (APP BUILDS) says how
-builds picks what to build and where.
+Name with `--shots` the screens the change touches, such as `mac.welcome.`.
+`builds help APP BUILDS` says which prefixes builds refuses and how it picks
+what to build and where, and `builds help workflow BUILDS` says who runs every
+shot of a platform. CI takes no shots: only app builds run them.
 
-CI takes no shots. A full run of one platform's shots has two uses: board
-matching's measurement of each platform, which the coordinator runs, and the
-check of a change to the shot tooling (`builds help workflow`, BUILDS). Run one
-with `builds app-build bae <branch> --all-shots mac` (or `android`) as a
-background task. builds runs the `shots` line of `.app-build` with every shot of
-the platform selected and keeps the findings and the report, which
-`builds shots findings bae <branch> mac mac.` prints again. The run fails only
-on the pairs that are worse than in the run of the branch's merge base with
-origin/main, which builds keeps and makes first when it has none. A scene that
-run did not check lists its findings and fails nothing. The Mac harness leases
-one virtual display across window shots on the same Mac. Each capture uses its
-own area of 1600 by 1200 points at two pixels per point. The renderer fails a
-scene whose window exceeds the free area.
+The Mac shots take each window in an area of 1600 by 1200 points at two pixels
+per point, and the renderer fails a scene whose window is larger
+(`bae-macos/bae/baeShots/ShotDisplay.swift`).
 
-The `ci-only` line of `.app-build` names steps that only CI runs, such as the
-whole test suites (`macos-tests-run`, `macos-tests-all`, `android-tests`), and
-builds refuses them. To build something else in an app checkout, add a `step`
-line and an `on` line to `.app-build`.
+The `ci-only` line of `.app-build` names the whole test suites
+(`macos-tests-run`, `macos-tests-all`, `android-tests`), which only CI runs.
 
 Notarized macOS releases come only from `main`, and `scripts/release-macos.sh`
 builds them on CI.
