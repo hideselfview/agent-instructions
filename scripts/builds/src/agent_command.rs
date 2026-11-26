@@ -213,7 +213,7 @@ fn make_folder(tool: &Tool, session: &str) -> Result<Folder> {
     let scratch = dir.join("scratch");
     std::fs::create_dir_all(&scratch).context(|| format!("creating {}", scratch.display()))?;
     Ok(Folder {
-        log: dir.join("log.jsonl"),
+        log: dir.join(agent_launch::LOG_FILE),
         scratch,
     })
 }
@@ -508,7 +508,11 @@ fn resume(tool: &Tool, args: &[String], cwd: &Path, out: &mut dyn Write) -> Resu
             return Ok(());
         }
     }
-    let log = tool.places.agents().join(session).join("log.jsonl");
+    let log = tool
+        .places
+        .agents()
+        .join(session)
+        .join(agent_launch::LOG_FILE);
     let arguments = agent_launch::arguments(
         &agent.model,
         &agent_name(&lists.project, &agent),

@@ -6,6 +6,7 @@
 use std::io::Write;
 use std::path::Path;
 
+use crate::agent_launch::LOG_FILE;
 use crate::agent_record::{self, Agent, Context};
 use crate::agent_stream::Line;
 use crate::db;
@@ -138,7 +139,7 @@ pub fn show(tool: &Tool, args: &[String], cwd: &Path, out: &mut dyn Write) -> Re
     };
     let processes = agent_record::processes(&conn, session)?;
     let runs = running_sessions(tool)?.contains(session);
-    let log = tool.places.agents().join(session).join("log.jsonl");
+    let log = tool.places.agents().join(session).join(LOG_FILE);
     let mut say = |line: String| {
         let _ = writeln!(out, "{line}");
     };

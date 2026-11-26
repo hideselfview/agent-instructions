@@ -142,6 +142,19 @@ pub fn findings(agents: &[Agent], places: &[Place], lists: &[&Lists]) -> Vec<Adv
     lines
 }
 
+/// Whether process <pid> is a `builds agent run` or `resume`.
+fn starts_agent(pid: i32) -> bool {
+    match crate::procs::live_args(pid) {
+        Ok(Some(argv)) => {
+            let words = crate::ack::agent::without_flag(&argv);
+            words
+                .split_first()
+                .is_some_and(|(_, rest)| crate::agent_launch::starts_agent(rest))
+        }
+        _ => false,
+    }
+}
+
 /// The agent processes among <processes> that work in one of <places>: each
 /// Claude Code session (a process whose pid is in <claude>, the pids of
 /// `claude_sessions`) and each `codex` process, except those `builds`
@@ -157,8 +170,9 @@ pub fn read(
     for process in &processes.list {
         // builds starts model calls of its own, such as the reviewers
         // (review/provider.rs), which run the strongest tier in the worktree
-        // they read: they are no implementing agent.
-        if processes.is_builds(process.ppid) {
+        // they read: they are no implementing agent. `builds agent run` and
+        // `resume` start agents, which health judges like any other.
+        if processes.is_builds(process.ppid) && !starts_agent(process.ppid) {
             continue;
         }
         let provider = if claude.contains(&process.pid) {

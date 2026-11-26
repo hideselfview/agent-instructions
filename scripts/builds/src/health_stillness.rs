@@ -610,8 +610,22 @@ fn command_kind(row: &Row) -> Option<&'static str> {
             Some("review")
         }
         ["cargo" | "lake" | "remote" | "checks", ..] => Some("process"),
+        words if crate::agent_launch::starts_agent(words) => Some("agent"),
         _ => None,
     }
+}
+
+/// When the newest write to an agent's log happened, for <pid> when it is a
+/// `builds agent run` or `resume`, which holds the log open. A claude process
+/// that builds started writes nothing there itself: its output goes to builds
+/// through a pipe, so its movement is builds' write to the log.
+fn agent_log_at(pid: i32) -> Option<i64> {
+    crate::procs::open_files(pid)
+        .iter()
+        .filter(|path| crate::agent_launch::is_log(path))
+        .filter_map(|path| std::fs::metadata(path).ok())
+        .map(|meta| meta.mtime())
+        .max()
 }
 
 fn output_at(pid: i32) -> std::result::Result<Option<i64>, String> {
@@ -711,6 +725,7 @@ fn process_work(
         for row in rows.iter().filter(|row| !row.zombie) {
             children.entry(row.ppid).or_default().push(row.pid);
         }
+        let by_pid: BTreeMap<i32, &Row> = rows.iter().map(|row| (row.pid, *row)).collect();
         for row in rows.into_iter().filter(|row| !row.zombie) {
             let pid = row.pid;
             let kind = command_kind(row).unwrap_or("process");
@@ -721,8 +736,17 @@ fn process_work(
                 .get(&pid)
                 .map(|at| scanned.at - (scan.at - at).max(0));
             let name = format!("{kind} {pid} on {place} ({command})");
+            let log = if local {
+                let started_by = by_pid
+                    .get(&row.ppid)
+                    .filter(|parent| command_kind(parent) == Some("agent"))
+                    .map(|parent| parent.pid);
+                agent_log_at(pid).max(started_by.and_then(agent_log_at))
+            } else {
+                None
+            };
             let (name, at) = match if local { output_at(pid) } else { Ok(None) } {
-                Ok(output) => (name, activity.max(output)),
+                Ok(output) => (name, activity.max(output).max(log)),
                 Err(error) => (format!("{name} ({error})"), activity),
             };
             let mut work = Work::new(name, at, "Health found no recorded wait.");

@@ -12,6 +12,26 @@ use crate::agent_stream::{self, Init, Line};
 use crate::fail;
 use crate::fail::{Context, Result};
 
+/// The name of an agent's log in its folder on the build volume.
+pub const LOG_FILE: &str = "log.jsonl";
+
+/// Whether <path> is the log of an agent that `builds agent run` or `resume`
+/// started: `<build volume>/agents/<session>/log.jsonl`.
+pub fn is_log(path: &Path) -> bool {
+    path.file_name().is_some_and(|name| name == LOG_FILE)
+        && path
+            .parent()
+            .and_then(Path::parent)
+            .and_then(Path::file_name)
+            .is_some_and(|name| name == crate::places::AGENTS_FOLDER)
+}
+
+/// Whether <words>, a builds command line without the program, start or
+/// resume an agent.
+pub fn starts_agent(words: &[&str]) -> bool {
+    matches!(words, ["agent", "run" | "resume", ..])
+}
+
 /// The eight tools of a dispatched agent. Claude Code starts no Skill tool
 /// under `--disable-slash-commands`, so the list names none.
 pub const TOOLS: [&str; 8] = [

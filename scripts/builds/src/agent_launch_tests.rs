@@ -97,3 +97,22 @@ fn the_launch_check_fails_for_an_mcp_server_a_skill_a_ninth_tool_or_another_mode
         assert!(error.contains("builds stopped the agent"), "{error}");
     }
 }
+
+#[test]
+fn an_agents_log_is_the_log_file_of_a_session_folder_of_the_agents_folder() {
+    assert!(is_log(Path::new("/Volumes/Builds/agents/s1/log.jsonl")));
+    assert!(!is_log(Path::new(
+        "/Volumes/Builds/agents/s1/scratch/log.jsonl"
+    )));
+    assert!(!is_log(Path::new("/Volumes/Builds/other/s1/log.jsonl")));
+    assert!(!is_log(Path::new("/Volumes/Builds/agents/s1/other.jsonl")));
+}
+
+#[test]
+fn run_and_resume_start_an_agent_and_nothing_else_does() {
+    assert!(starts_agent(&["agent", "run", "--role", "planner"]));
+    assert!(starts_agent(&["agent", "resume", "s1"]));
+    assert!(!starts_agent(&["agent", "list"]));
+    assert!(!starts_agent(&["agent", "start"]));
+    assert!(!starts_agent(&["item", "take"]));
+}
