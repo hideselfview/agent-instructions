@@ -660,6 +660,22 @@ fn resolve(
         design.no_app_place = Some(why.clone());
     }
     needs_answer(&[&*design], changes, "the range")?;
+    // A decided change is approved as it is recorded, and no later step
+    // names its app work, so the request names it for every place.
+    if matches!(request.settlement, Settlement::Decision(_)) {
+        let lacking: Vec<&str> = design
+            .places
+            .iter()
+            .filter(|(_, resolution)| resolution.is_none())
+            .map(|(path, _)| path.as_str())
+            .collect();
+        if !lacking.is_empty() {
+            fail!(
+                "a change settled by a `decision` is approved as recorded, so each place needs its app work in this request; these places name none: {}; give each under `places` as `item` (an open item), `new` (an item draft) or `matches` (how it was checked)",
+                lacking.join(", ")
+            );
+        }
+    }
     save(db, design)?;
     Ok(new_items)
 }

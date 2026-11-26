@@ -783,7 +783,10 @@ session that recorded the change has ended. builds sends no second message.
       a button added to an alert. The implementing agent edits the board in
       the commit that builds the change and records the edit with
       `decision`. The decision is the person's approval, so the change needs
-      no `review` and is approved when recorded. An amend without `decision`
+      no `review` and is approved when recorded, so no later step names its
+      app work: record and amend refuse a request with `decision` that leaves
+      any place without app work, and one refusal names every such place. An
+      amend without `decision`
       makes the change wait on the person's review again, unless it changes no
       drawing (`builds design amend`). Record refuses an
       id that is no decision of the log, and a request that gives both `fix`

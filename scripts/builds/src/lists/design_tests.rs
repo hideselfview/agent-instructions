@@ -1652,6 +1652,50 @@ fn a_board_edit_for_a_decided_change_is_approved_when_recorded_and_lands() {
     assert_eq!(card_of(&w, "base..HEAD"), None);
 }
 
+/// A decided change is approved as it is recorded, so nothing later names its
+/// app work: record and amend refuse it with every place that lacks app work
+/// named at once, and store nothing.
+#[test]
+fn record_and_amend_of_a_decided_change_name_every_place_that_lacks_app_work() {
+    let w = world("design-decided-lacking");
+    let (a, b, c) = (
+        "design/mocks/A.dc.html",
+        "design/mocks/B.dc.html",
+        "design/mocks/C.dc.html",
+    );
+    let work = w
+        .store
+        .write(&stamp(NOON), "seed", |db| {
+            Ok(crate::lists::fixtures::item(db, vec![]))
+        })
+        .unwrap();
+    let decision = decide(&w);
+    w.commit(&[a, b, c]);
+    let before = w.bytes();
+    let mut request = decided_request(&w, a, work, decision);
+    request["places"] = json!({ a: { "item": work.0 }, b: null, c: null });
+    let refused = message(w.request(request.clone()));
+    assert!(
+        refused.contains(b) && refused.contains(c) && !refused.contains(&format!("{a},")),
+        "{refused}"
+    );
+    assert_eq!(w.bytes(), before);
+
+    request["places"] =
+        json!({ a: { "item": work.0 }, b: { "item": work.0 }, c: { "item": work.0 } });
+    w.request(request.clone()).unwrap();
+    let id = w.state().designs[0].id.0;
+    let (d, e) = ("design/mocks/D.dc.html", "design/mocks/E.dc.html");
+    w.commit(&[d, e]);
+    let mut again = request;
+    again["places"] = json!({});
+    let refused = message(w.amend(id, again));
+    assert!(
+        refused.contains(d) && refused.contains(e) && !refused.contains(b),
+        "{refused}"
+    );
+}
+
 /// Lists that hold a decided change without its decision come from a
 /// broken store: `design show` and the change's view in the lists JSON fail
 /// on them and name the decision, instead of leaving its title out.
