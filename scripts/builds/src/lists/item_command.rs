@@ -35,6 +35,11 @@ use crate::tool::Tool;
 const USAGE: &str = "usage: builds item add --title T --area A --details-file F [--backlog WHY] [--for design-session] [--wait REF [--until ENDER]]... [--brief P] [--priority first|last --why WHY] [--origin N] [--tag T]...\n       builds item edit N [--title T] [--area A] [--details-file F] [--brief P] [--for F] [--origin N] [--tag T]... [--untag T]...\n       builds item note N TEXT\n       builds item changes N\n       builds item wait N (--on REF [--until ENDER] | --off REF [--blocks-nothing WHY])\n       builds item take N [M...] [--worktree W --branch B | --repo R --branch B] --brief P [--as design-session] [--tier implementation|strongest]\n       builds item check-brief --worktree W [--worktree W2] --brief P\n       builds item handoff N --brief P\n       builds item stop N --why WHY\n       builds item finished N --made WHAT\n       builds item drop N --why WHY\n       builds item backlog N [M...] --why WHY\n       builds item start N [M...] --said WORDS\n       builds item place N first|last|none --why WHY\n       builds item check-landing DIR [--done N]... [--part N]... SHA...\n       builds item landed DIR [--done N]... [--part N]... SHA...\n       builds item show N\n       builds item list [--running] [--ready] [--backlog] [--area A] [--for F] [--tag T]\n       builds item times [N...]\n(REF is item:N, item:PROJECT/N, question:N, design:N or condition:TEXT, and a condition takes --until agent|coordinator|ci)";
 
 pub fn cmd_item(tool: &Tool, args: &[String]) -> Result<()> {
+    cmd_item_over(tool, &crate::host::Ssh::from_env(), args)
+}
+
+/// `builds item`, with <ssh> for the commands that set a worktree up.
+pub fn cmd_item_over(tool: &Tool, ssh: &crate::host::Ssh, args: &[String]) -> Result<()> {
     let cwd = current_dir()?;
     let Some((command, rest)) = args.split_first() else {
         fail!("{USAGE}")
@@ -45,7 +50,7 @@ pub fn cmd_item(tool: &Tool, args: &[String]) -> Result<()> {
         "note" => note_item(tool, rest, &cwd),
         "changes" => changes(tool, rest, &cwd),
         "wait" => wait(tool, rest, &cwd),
-        "take" => take::take(tool, rest, &cwd),
+        "take" => take::take(tool, ssh, rest, &cwd),
         "check-brief" => take::check(tool, rest, &cwd),
         "handoff" => handoff(tool, rest, &cwd),
         "stop" => stop(tool, rest, &cwd),

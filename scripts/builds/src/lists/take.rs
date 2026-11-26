@@ -33,6 +33,7 @@ use crate::claim::{Claim, Note};
 use crate::fail;
 use crate::fail::{Fail, Result};
 use crate::git::branch_exists;
+use crate::host::Ssh;
 use crate::lists::args::Args;
 use crate::lists::draft::find_brief;
 use crate::lists::held::waits_on_open;
@@ -494,7 +495,7 @@ pub fn check(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     Ok(())
 }
 
-pub fn take(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
+pub fn take(tool: &Tool, ssh: &Ssh, args: &[String], cwd: &Path) -> Result<()> {
     let args = Args::parse(
         args,
         &[
@@ -556,7 +557,7 @@ pub fn take(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     if !args.values("worktree").is_empty() {
         fail!("--repo hands out a worktree and --worktree names one; give one of them: {USAGE}");
     }
-    let handed = hand_out_places(tool, &store.load()?, &stamp, &args)?;
+    let handed = hand_out_places(tool, ssh, &store.load()?, &stamp, &args)?;
     let places: Vec<Place> = handed.iter().map(|(place, _)| place.clone()).collect();
     match request.run(&places) {
         Ok(()) => Ok(()),
@@ -592,6 +593,7 @@ struct Request<'a> {
 /// worktrees of the repos before it go back as they were.
 fn hand_out_places(
     tool: &Tool,
+    ssh: &Ssh,
     lists: &Lists,
     stamp: &Stamp,
     args: &Args,
@@ -630,13 +632,12 @@ fn hand_out_places(
             );
         }
     }
-    let ssh = crate::host::Ssh::from_env();
     let mut handed: Vec<(Place, Handed)> = Vec::new();
     for (main, branch) in mains.iter().zip(branches) {
         let start = Start::Fresh(Some(branch.to_string()));
         let made = hand_out(
             tool,
-            &ssh,
+            ssh,
             &main.display().to_string(),
             start,
             &stamp.by,

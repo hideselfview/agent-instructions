@@ -517,7 +517,7 @@ fn run(command: &str, args: &[String], session: ack::agent::Session) -> Result<(
         "design" => lists::cmd_design(&tool, args),
         "question" => lists::question_command::cmd_question(&tool, args),
         "agent" => agent_command::cmd_agent(&tool, args),
-        "item" => lists::cmd_item(&tool, args),
+        "item" => lists::cmd_item_over(&tool, &host::Ssh::from_env(), args),
         "next" => lists::cmd_next(&tool, args),
         "area" => lists::cmd_area(&tool, args),
         "dashboard" => daemon::cmd_dashboard(&tool, args),
