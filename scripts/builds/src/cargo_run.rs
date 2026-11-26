@@ -1090,6 +1090,7 @@ mod tests {
         }
         let side_1 = scratch.dir.join("demo-worktrees/side-1");
         std::fs::create_dir_all(side_1.join("crate/src")).unwrap();
+        std::fs::create_dir_all(main.join("crate")).unwrap();
         std::fs::create_dir_all(places.root.join("demo")).unwrap();
         std::fs::write(places.app_checkouts_file("demo", Lane::Mac), "side-1\n").unwrap();
         let none: &[&str] = &[];
