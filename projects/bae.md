@@ -144,14 +144,6 @@ The `ci-only` line of `.app-build` names the whole test suites
 Notarized macOS releases come only from `main`, and `scripts/release-macos.sh`
 builds them on CI.
 
-### iOS simulators
-
-Keep at most one iOS simulator runtime and one simulator device installed. When
-you install a new runtime, delete the old runtime and its devices
-(`xcrun simctl runtime list`, `xcrun simctl runtime delete`,
-`xcrun simctl delete`). Each runtime takes 8 to 20 GB of the disk the builds
-share.
-
 ## Making a change
 
 ### Every commit keeps the spec current

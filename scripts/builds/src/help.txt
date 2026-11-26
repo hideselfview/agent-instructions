@@ -2585,6 +2585,11 @@ resolves packages and every script that builds after it must pass the same
 xcodebuild flags, -derivedDataPath above all, or the packages land where the
 later build can't find them.
 
+iOS simulators. Keep at most one iOS simulator runtime and one simulator device
+installed, since each runtime takes 8 to 20 GB of the disk the builds share.
+When you install a new runtime, delete the old runtime and its devices (`xcrun
+simctl runtime list`, `xcrun simctl runtime delete`, `xcrun simctl delete`).
+
 Cargo's git checkouts. `setup` and `prune` delete each checkout in
 ~/.cargo/git/checkouts that no live checkout's Cargo.lock pins, holding cargo's
 package cache locks. The git databases in ~/.cargo/git/db stay.
