@@ -76,7 +76,12 @@ worktree, is the unit of work.
     delete or recreate it.
   - Extra side worktrees (side-2 and on) are for agents that work at the same
     time. An agent works in the worktree its brief names, or one it gets from
-    `builds new --for`, never a side-N it picked by hand.
+    `builds item take N --repo R --branch B` (for an item) or `builds new
+    --for` (for work with no item), never a side-N it picked by hand. `item
+    take --repo` claims the worktree, makes the branch and starts the item in
+    one step, and when the take is refused it leaves no claimed worktree and
+    no branch, so a session never runs `builds new`, `git switch -c` and
+    `item take` in turn.
   - A claimed side worktree takes an agent's commands only on the branch of
     the item running in it.
     - `builds app-build`, `review`, `land`, `cargo`, `checks` and `item`
@@ -86,7 +91,7 @@ worktree, is the unit of work.
       whose item has not started.
     - An agent that meets this refusal in a worktree it used before has lost
       that worktree to another agent: it works nothing there and gets its own
-      from `builds new --for`.
+      from `builds item take --repo` or `builds new --for`.
   - App checkouts keep the app builds built. Each lane (mac, android) has its
     own app checkouts and queue, and agents take turns in them through
     `builds app-build`. builds adds and removes app checkouts as the queues
@@ -363,8 +368,10 @@ DISPATCH
     have landed.
   - Take items from `builds next`, from the top: items placed first, then the
     items that other open items wait on (most first), then the rest by area
-    and age. Claim the worktree (`builds claim`), mark the items running
-    (`builds item take`), and keep the worktree's note current (`builds
+    and age. Mark the items running with `builds item take N --repo R --branch B
+    --by WHO`, which hands out and claims the worktree for WHO (or claim a
+    worktree you chose with `builds claim` and name it with `--worktree W
+    --branch B`), and keep the worktree's note current (`builds
     note`) on every dispatch and handoff. When an agent stops before its work
     lands, stop its item (`builds item stop`), which keeps the worktree and
     branch for the item. Release a worktree by hand only when it holds

@@ -75,8 +75,55 @@ pub fn cmd_new(tool: &Tool, ssh: &crate::host::Ssh, args: &[String]) -> Result<(
         (None, Some(branch)) => Start::Resume(branch),
         (None, None) => Start::Fresh(None),
     };
+    let who = who.unwrap_or_else(|| "builds new".to_string());
+    let handed = hand_out(tool, ssh, &repo_path, start, &who, project.as_deref())?;
+    println!("{}", handed.checkout.top.display());
+    Ok(())
+}
+
+/// A side worktree that `hand_out` claimed and set up, with what it needs to
+/// undo that.
+pub struct Handed {
+    pub checkout: Checkout,
+    start: Start,
+    /// The worktree was added for this call, not a free one handed out again.
+    added: bool,
+}
+
+impl Handed {
+    /// Undoes `hand_out` after <error>, the failure of a later step: drops the
+    /// claim, and removes the worktree it added or checks the free one out at
+    /// origin/main again. Returns <error>, with the failure of the undo when
+    /// that failed too. It holds the picking lock, so no `builds new` picks the
+    /// worktree while it goes back.
+    pub fn undo(self, tool: &Tool, error: Fail) -> Fail {
+        let main = &self.checkout.main;
+        let undone = lock_picking(main).and_then(|_picking| {
+            if self.added {
+                undo_add(tool, main, &self.checkout.top, &self.start)
+            } else {
+                undo_reuse(main, &self.checkout, &self.start, true)
+            }
+        });
+        undo(error, undone)
+    }
+}
+
+/// Claims a side worktree of the repo at <repo_path> for <who>, set up with
+/// <start> checked out, and records <project> as the project of its work:
+/// a free worktree (`find_free`) checked out afresh from origin/main, or the
+/// next side-N when none is free. When a step after the claim fails, it
+/// undoes what it made and returns that step's error.
+pub(crate) fn hand_out(
+    tool: &Tool,
+    ssh: &crate::host::Ssh,
+    repo_path: &str,
+    start: Start,
+    who: &str,
+    project: Option<&str>,
+) -> Result<Handed> {
     tool.places.require_volume()?;
-    let main = Checkout::find(&repo_path)?.main;
+    let main = Checkout::find(repo_path)?.main;
     if let Start::Resume(branch) = &start {
         require_resumable(&main, branch)?;
     }
@@ -85,18 +132,19 @@ pub fn cmd_new(tool: &Tool, ssh: &crate::host::Ssh, args: &[String]) -> Result<(
     let _picking = lock_picking(&main)?;
     run_checked(git(&main).args(["fetch", "-q", "origin"]), "git fetch")?;
     let repo = Checkout::find(&main.display().to_string())?.repo();
-    if let Some(project) = &project
-        && !crate::lists::store::projects_holding(&tool.places, &repo)?.contains(project)
+    if let Some(project) = project
+        && !crate::lists::store::projects_holding(&tool.places, &repo)?
+            .iter()
+            .any(|held| held == project)
     {
         fail!("new: project {project} holds no repo {repo}");
     }
-    require_project_named(&tool.places, &repo, project.as_deref())?;
-    let who = who.unwrap_or_else(|| "builds new".to_string());
-    let checkout = match find_free(tool, &main)? {
+    require_project_named(&tool.places, &repo, project)?;
+    let (checkout, added) = match find_free(tool, &main)? {
         Some(free) => {
             let mut switched = false;
-            let started = write_claim(&free, &who, tool.now, Some(Note::Starting))
-                .and_then(|()| set_project(&tool.places, &free, project.as_deref()))
+            let started = write_claim(&free, who, tool.now, Some(Note::Starting))
+                .and_then(|()| set_project(&tool.places, &free, project))
                 .and_then(|()| reuse(&free, &start))
                 .and_then(|()| {
                     switched = true;
@@ -105,27 +153,29 @@ pub fn cmd_new(tool: &Tool, ssh: &crate::host::Ssh, args: &[String]) -> Result<(
             if let Err(error) = started {
                 return Err(undo(error, undo_reuse(&main, &free, &start, switched)));
             }
-            free
+            (free, false)
         }
         None => {
             let dir = add_new(tool, &main, &start)?;
             let started = Checkout::find(&dir.display().to_string()).and_then(|checkout| {
-                write_claim(&checkout, &who, tool.now, Some(Note::Starting))?;
-                set_project(&tool.places, &checkout, project.as_deref())?;
+                write_claim(&checkout, who, tool.now, Some(Note::Starting))?;
+                set_project(&tool.places, &checkout, project)?;
                 prepare(tool, ssh, &checkout)?;
                 Ok(checkout)
             });
             match started {
-                Ok(checkout) => checkout,
+                Ok(checkout) => (checkout, true),
                 Err(error) => {
                     return Err(undo(error, undo_add(tool, &main, &dir, &start)));
                 }
             }
         }
     };
-    let dir = &checkout.top;
-    println!("{}", dir.display());
-    Ok(())
+    Ok(Handed {
+        checkout,
+        start,
+        added,
+    })
 }
 
 /// <error>, the failure of a step of `builds new`, with the failure of the
@@ -199,7 +249,7 @@ fn undo_add(tool: &Tool, main: &Path, dir: &Path, start: &Start) -> Result<()> {
 }
 
 /// What a handed-out worktree checks out.
-enum Start {
+pub(crate) enum Start {
     /// origin/main, on a new branch of this name or detached.
     Fresh(Option<String>),
     /// An existing branch no worktree checks out.

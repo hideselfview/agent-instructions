@@ -12,6 +12,11 @@
 //! records them when its run ends with work left there) is taken in them,
 //! without --worktree and --branch, and nowhere else.
 //!
+//! `--repo R --branch B` in place of `--worktree W --branch B` hands out a
+//! worktree of repo R (`worktree::hand_out`, which `builds new` uses) on the
+//! new branch B, and a take that then fails gives each worktree back
+//! (`Handed::undo`), so a refused take leaves no claim.
+//!
 //! Before the take's write, take refuses a brief that pastes a coding rule or
 //! workflow text (pasted.rs). Then it checks the brief against the product spec of each named worktree's repo that has
 //! spec files (spec_check.rs) and records each check in its own write. A
@@ -44,11 +49,13 @@ use crate::model_tier::Tier;
 use crate::review::Reviewer;
 use crate::text::note;
 use crate::tool::Tool;
+use crate::worktree::{Handed, Start, hand_out};
 
-const USAGE: &str = "builds item take N [M...] [--worktree W --branch B [--worktree W2 --branch B2]] --brief P [--as design-session] [--tier implementation|strongest] [--held WHY] [--spec-decided N] [--rules-root DIR] [--reviewer PROGRAM]";
+const USAGE: &str = "builds item take N [M...] [--worktree W --branch B [--worktree W2 --branch B2] | --repo R --branch B [--repo R2 --branch B2]] --brief P [--as design-session] [--tier implementation|strongest] [--held WHY] [--spec-decided N] [--rules-root DIR] [--reviewer PROGRAM]";
 
 /// One worktree an item runs in: checked, with its branch and the
 /// claim that holds it, if any.
+#[derive(Clone)]
 struct Place {
     top: String,
     checkout: Checkout,
@@ -492,6 +499,7 @@ pub fn take(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         args,
         &[
             "worktree",
+            "repo",
             "branch",
             "brief",
             "as",
@@ -524,135 +532,266 @@ pub fn take(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         }
         crate::claim::require_one_line("--held", why)?;
     }
-    let places = if args.values("worktree").is_empty() {
-        kept_places(&Store::resolve(&tool.places, &args, cwd)?.load()?, &ids)?
-    } else {
-        places_named(&args)?
-    };
-    let mut agents = Vec::new();
-    for place in &places {
-        match &place.claim {
-            Some(claim) if !claim.who.is_empty() => agents.push(claim.who.clone()),
-            _ => fail!(
-                "{} has no claim, and the claim is what names the agent: run `builds claim {} WHO` first",
-                place.top,
-                place.top
-            ),
-        }
-    }
     let store = Store::resolve(&tool.places, &args, cwd)?;
-    let brief_path = find_brief(&tool.places, &store.repos()?, &brief)?;
-    note(format!("brief {brief} is {}", brief_path.display()));
-    let read_brief = Brief::read(&brief, &brief_path)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
-    // The spec check runs a reviewer for minutes, so take refuses what the
-    // store refuses before the check, and again under the store's lock.
-    let lists = store.load()?;
-    require_takeable(
-        &lists,
-        &places,
-        &ids,
-        &brief,
-        tier,
-        design_session,
-        held.is_some(),
-    )?;
-    let checks = Checks::of(tool, &lists, &args)?;
-    let recording = Recording {
+    let request = Request {
+        tool,
+        args: &args,
         store: &store,
         stamp: &stamp,
         ids: &ids,
+        brief: &brief,
+        tier,
+        design_session,
+        held: held.as_deref(),
     };
-    let checkouts: Vec<Checkout> = places.iter().map(|place| place.checkout.clone()).collect();
-    check_brief(Some(&recording), &lists, &checkouts, &read_brief, &checks)?;
-    let take = store.write(
-        &stamp,
-        &format!(
-            "item take {}",
-            ids.iter()
-                .map(|i| i.0.to_string())
-                .collect::<Vec<_>>()
-                .join(" ")
-        ),
-        |db| {
-            let lists = &store::read(db)?;
-            let take = require_takeable(
-                lists,
-                &places,
-                &ids,
-                &brief,
-                tier,
-                design_session,
-                held.is_some(),
-            )?;
-            match take {
-                Take::Start => {
-                    let running: Vec<Running> = places
-                        .iter()
-                        .map(|place| Running {
-                            worktree: place.top.clone(),
-                            branch: place.branch.clone(),
-                            brief: brief.clone(),
-                            since: stamp.clone(),
-                            tier: tier.unwrap_or(Tier::Implementation),
-                        })
-                        .collect();
-                    for id in &ids {
-                        kept_work::end(db, *id)?;
-                    }
-                    start(db, &ids, &running)?;
-                }
-                Take::Join => {
-                    // An item runs in one worktree per repo: the database
-                    // refuses a second place in a repo where it runs.
-                    for id in &ids {
-                        insert_places(
-                            db,
-                            PlaceTable::Running,
-                            *id,
-                            places
-                                .iter()
-                                .map(|place| (place.top.as_str(), place.branch.as_str())),
-                        )?;
-                    }
-                }
-            }
-            // Last, so a refusal above leaves the claims as they were. A
-            // held take notes why the work waits, and any take ends a claim's
-            // wait for its item.
-            if held.is_some() {
-                for id in &ids {
-                    open_span(db, *id, SpanKind::Held, stamp.at)?;
-                }
-            }
-            for place in &places {
-                let claim = place.claim_now()?;
-                let note = match &held {
-                    Some(why) => Some(Note::Held(why.clone())),
-                    None if claim.is_starting() => None,
-                    None => continue,
-                };
-                Claim { note, ..claim }.write(&place.checkout.claim_file())?;
-            }
-            Ok(take)
-        },
-    )?;
-    let named: Vec<String> = ids.iter().map(|id| id.to_string()).collect();
-    let wheres: Vec<String> = places
+    if args.values("repo").is_empty() {
+        let places = if args.values("worktree").is_empty() {
+            kept_places(&store.load()?, &ids)?
+        } else {
+            places_named(&args)?
+        };
+        return request.run(&places);
+    }
+    if !args.values("worktree").is_empty() {
+        fail!("--repo hands out a worktree and --worktree names one; give one of them: {USAGE}");
+    }
+    let handed = hand_out_places(tool, &store.load()?, &stamp, &args)?;
+    let places: Vec<Place> = handed.iter().map(|(place, _)| place.clone()).collect();
+    match request.run(&places) {
+        Ok(()) => Ok(()),
+        Err(error) => Err(handed
+            .into_iter()
+            .rev()
+            .fold(error, |error, (_, made)| made.undo(tool, error))),
+    }
+}
+
+/// What `take` runs with, once it has its worktrees.
+struct Request<'a> {
+    tool: &'a Tool,
+    args: &'a Args,
+    store: &'a Store,
+    stamp: &'a Stamp,
+    ids: &'a [Id],
+    brief: &'a str,
+    tier: Option<Tier>,
+    design_session: bool,
+    held: Option<&'a str>,
+}
+
+/// A worktree for each `--repo` of <args>, claimed for the agent <stamp>
+/// names, on a new branch from origin/main named by the nth `--branch`, with
+/// the `Handed` that undoes it. When one repo cannot give its worktree, the
+/// worktrees of the repos before it go back as they were.
+fn hand_out_places(
+    tool: &Tool,
+    lists: &Lists,
+    stamp: &Stamp,
+    args: &Args,
+) -> Result<Vec<(Place, Handed)>> {
+    let repos = args.values("repo");
+    let branches = args.values("branch");
+    if repos.len() != branches.len() {
+        fail!(
+            "{} --repo and {} --branch given; each repo takes the new branch of its work, in the same order",
+            repos.len(),
+            branches.len()
+        );
+    }
+    let mains: Vec<std::path::PathBuf> = repos
         .iter()
-        .zip(&agents)
-        .map(|(p, agent)| format!("{} on {} for {agent}", p.top, p.branch))
-        .collect();
-    let also = match take {
-        Take::Start => "",
-        Take::Join => "also ",
-    };
-    note(format!(
-        "{} {also}run in {}",
-        named.join(", "),
-        wheres.join(" and ")
-    ));
-    Ok(())
+        .map(|repo| {
+            if !lists.repos.iter().any(|held| held == repo) {
+                fail!(
+                    "{repo} is not one of project {}'s repos ({})",
+                    lists.project,
+                    lists.repos.join(", ")
+                );
+            }
+            Ok(tool.places.home.join(crate::host::clone_path(repo)))
+        })
+        .collect::<Result<_>>()?;
+    for (i, repo) in repos.iter().enumerate() {
+        if repos[..i].contains(repo) {
+            fail!("--repo {repo} twice: an item runs in one worktree per repo");
+        }
+        if branch_exists(&mains[i], branches[i])? {
+            fail!(
+                "{repo} has the branch {} already; --worktree W --branch {} takes it in a worktree, or name a new branch",
+                branches[i],
+                branches[i]
+            );
+        }
+    }
+    let ssh = crate::host::Ssh::from_env();
+    let mut handed: Vec<(Place, Handed)> = Vec::new();
+    for (main, branch) in mains.iter().zip(branches) {
+        let start = Start::Fresh(Some(branch.to_string()));
+        let made = hand_out(
+            tool,
+            &ssh,
+            &main.display().to_string(),
+            start,
+            &stamp.by,
+            Some(&lists.project),
+        );
+        match made {
+            Ok(made) => handed.push((
+                Place {
+                    top: made.checkout.top.display().to_string(),
+                    claim: Claim::read(&made.checkout.claim_file())?,
+                    checkout: made.checkout.clone(),
+                    branch: branch.to_string(),
+                },
+                made,
+            )),
+            Err(error) => {
+                return Err(handed
+                    .into_iter()
+                    .rev()
+                    .fold(error, |error, (_, made)| made.undo(tool, error)));
+            }
+        }
+    }
+    Ok(handed)
+}
+
+impl Request<'_> {
+    /// Takes the items in <places>, claimed worktrees with their branches.
+    fn run(&self, places: &[Place]) -> Result<()> {
+        let Request {
+            tool,
+            args,
+            store,
+            stamp,
+            ids,
+            brief,
+            tier,
+            design_session,
+            held,
+        } = *self;
+        let held = held.map(str::to_string);
+        let brief = brief.to_string();
+        let mut agents = Vec::new();
+        for place in places {
+            match &place.claim {
+                Some(claim) if !claim.who.is_empty() => agents.push(claim.who.clone()),
+                _ => fail!(
+                    "{} has no claim, and the claim is what names the agent: run `builds claim {} WHO` first",
+                    place.top,
+                    place.top
+                ),
+            }
+        }
+        let brief_path = find_brief(&tool.places, &store.repos()?, &brief)?;
+        note(format!("brief {brief} is {}", brief_path.display()));
+        let read_brief = Brief::read(&brief, &brief_path)?;
+        // The spec check runs a reviewer for minutes, so take refuses what the
+        // store refuses before the check, and again under the store's lock.
+        let lists = store.load()?;
+        require_takeable(
+            &lists,
+            places,
+            ids,
+            &brief,
+            tier,
+            design_session,
+            held.is_some(),
+        )?;
+        let checks = Checks::of(tool, &lists, args)?;
+        let recording = Recording { store, stamp, ids };
+        let checkouts: Vec<Checkout> = places.iter().map(|place| place.checkout.clone()).collect();
+        check_brief(Some(&recording), &lists, &checkouts, &read_brief, &checks)?;
+        let take = store.write(
+            stamp,
+            &format!(
+                "item take {}",
+                ids.iter()
+                    .map(|i| i.0.to_string())
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            ),
+            |db| {
+                let lists = &store::read(db)?;
+                let take = require_takeable(
+                    lists,
+                    places,
+                    ids,
+                    &brief,
+                    tier,
+                    design_session,
+                    held.is_some(),
+                )?;
+                match take {
+                    Take::Start => {
+                        let running: Vec<Running> = places
+                            .iter()
+                            .map(|place| Running {
+                                worktree: place.top.clone(),
+                                branch: place.branch.clone(),
+                                brief: brief.clone(),
+                                since: stamp.clone(),
+                                tier: tier.unwrap_or(Tier::Implementation),
+                            })
+                            .collect();
+                        for id in ids {
+                            kept_work::end(db, *id)?;
+                        }
+                        start(db, ids, &running)?;
+                    }
+                    Take::Join => {
+                        // An item runs in one worktree per repo: the database
+                        // refuses a second place in a repo where it runs.
+                        for id in ids {
+                            insert_places(
+                                db,
+                                PlaceTable::Running,
+                                *id,
+                                places
+                                    .iter()
+                                    .map(|place| (place.top.as_str(), place.branch.as_str())),
+                            )?;
+                        }
+                    }
+                }
+                // Last, so a refusal above leaves the claims as they were. A
+                // held take notes why the work waits, and any take ends a claim's
+                // wait for its item.
+                if held.is_some() {
+                    for id in ids {
+                        open_span(db, *id, SpanKind::Held, stamp.at)?;
+                    }
+                }
+                for place in places {
+                    let claim = place.claim_now()?;
+                    let note = match &held {
+                        Some(why) => Some(Note::Held(why.clone())),
+                        None if claim.is_starting() => None,
+                        None => continue,
+                    };
+                    Claim { note, ..claim }.write(&place.checkout.claim_file())?;
+                }
+                Ok(take)
+            },
+        )?;
+        let named: Vec<String> = ids.iter().map(|id| id.to_string()).collect();
+        let wheres: Vec<String> = places
+            .iter()
+            .zip(&agents)
+            .map(|(p, agent)| format!("{} on {} for {agent}", p.top, p.branch))
+            .collect();
+        let also = match take {
+            Take::Start => "",
+            Take::Join => "also ",
+        };
+        note(format!(
+            "{} {also}run in {}",
+            named.join(", "),
+            wheres.join(" and ")
+        ));
+        Ok(())
+    }
 }
 
 /// The places of the items <ids> keep, for a take that names no worktree: the

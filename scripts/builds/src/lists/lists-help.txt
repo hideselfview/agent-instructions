@@ -273,12 +273,21 @@ main checkout holds or that more than one holds; an absolute path is itself.
       `item show` prints "in the backlog since T by WHO: WHY", and `lists
       show` prints the backlog after the queue.
 
-  builds item take N [M...] [--worktree W --branch B [--worktree W2 --branch B2]]
+  builds item take N [M...] [--worktree W --branch B [--worktree W2 --branch B2]
+                    | --repo R --branch B [--repo R2 --branch B2]]
                     --brief P [--as design-session]
                     [--tier implementation|strongest] [--held WHY]
                     [--spec-decided N] [--rules-root DIR] [--reviewer PROGRAM]
       Marks the items running. W is a claimed side worktree of a project repo
       (the claim names the agent; the item stores none) and B a branch of it.
+      --repo R in place of --worktree W hands out a side worktree of repo R as
+      `builds new` does (a free one, else the next side-N), claims it for the
+      agent --by names (or the claim of the worktree the command runs in),
+      makes the new branch B in it from origin/main, and starts the items
+      there. B must not exist yet. When the take is refused or fails, take
+      gives back each worktree it handed out: the claim and the branch go,
+      and the worktree is free or removed again. A take that the person
+      interrupts is not undone, and `builds release` frees the worktree.
       Work that spans repos names one worktree and branch per repo, the nth
       --branch for the nth --worktree, and the item runs in all of them. When
       a running item's work grows into another repo of its project, take

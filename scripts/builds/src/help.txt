@@ -670,7 +670,10 @@ times` reads these records.
                               existing branch that no worktree checks out,
                               instead of a fresh one from origin/main: work
                               left on a branch goes back into a worktree this
-                              way
+                              way. An agent that takes an item gets its worktree
+                              from `builds item take N --repo R --branch B`
+                              instead, which claims the worktree as new does
+                              and gives it back when the take is refused
   builds claim <checkout> <who> [--project P]
                               record that <who> works in the side worktree
                               (--project as for `new`; a claim renewed without

@@ -2055,3 +2055,79 @@ fn an_answer_may_send_a_blocked_item_to_the_backlog() {
         Some("the person starts it later")
     );
 }
+
+fn repo_take<'a>(brief: &'a str, id: &'a str, branch: &'a str) -> Vec<&'a str> {
+    vec![
+        "take", id, "--repo", "demo", "--branch", branch, "--brief", brief,
+    ]
+}
+
+#[test]
+fn take_with_a_repo_gets_a_worktree_on_a_new_branch_and_runs_the_item_there() {
+    let demo = demo("item-take-repo");
+    add(&demo, FIVE, &[]).unwrap();
+    let brief = demo.brief("b.md");
+    item(&demo, &repo_take(&brief, "1", "work")).unwrap();
+    let side = demo.scratch.dir.join("home/dev/demo-worktrees/side-1");
+    let side = side.canonicalize().unwrap_or(side);
+    let lists = open(&demo);
+    let running = lists.items[0].running.first().unwrap();
+    assert_eq!(running.branch, "work");
+    assert_eq!(
+        std::fs::canonicalize(&running.worktree).unwrap(),
+        side.canonicalize().unwrap()
+    );
+    let checkout = Checkout::find(&running.worktree).unwrap();
+    let claim = crate::claim::Claim::read(&checkout.claim_file())
+        .unwrap()
+        .unwrap();
+    assert_eq!(claim.who, "tester");
+    assert!(claim.note.is_none(), "take clears the starting note");
+}
+
+#[test]
+fn a_refused_take_with_a_repo_leaves_no_claimed_worktree_or_branch() {
+    let demo = demo("item-take-repo-refused");
+    add(&demo, FIVE, &[]).unwrap();
+    add(&demo, "Do the second thing now", &[]).unwrap();
+    item(&demo, &["wait", "2", "--on", "item:1"]).unwrap();
+    let brief = demo.brief("b.md");
+    let worktrees = demo.scratch.dir.join("home/dev/demo-worktrees");
+    let before = demo.state();
+
+    // No free worktree: the take adds one, and the refusal removes it again.
+    let said = refusal(item(&demo, &repo_take(&brief, "2", "work")));
+    assert!(said.contains("waits on"), "{said}");
+    assert!(!worktrees.join("side-1").exists());
+    assert!(!crate::git::branch_exists(&demo.main, "work").unwrap());
+    assert_eq!(demo.state(), before);
+
+    // A free worktree: the take claims it, and the refusal frees it again.
+    let side = demo.add_side(1, "agent A", "old");
+    cmd_release(&demo.scratch.places(), &[side.display().to_string()]).unwrap();
+    let said = refusal(item(&demo, &repo_take(&brief, "2", "work")));
+    assert!(said.contains("waits on"), "{said}");
+    let checkout = Checkout::find(&side.display().to_string()).unwrap();
+    assert!(
+        crate::claim::Claim::read(&checkout.claim_file())
+            .unwrap()
+            .is_none()
+    );
+    assert!(!crate::git::branch_exists(&demo.main, "work").unwrap());
+    assert_eq!(demo.state(), before);
+}
+
+#[test]
+fn take_with_a_repo_refuses_a_branch_that_exists_and_a_worktree_named_too() {
+    let demo = demo("item-take-repo-args");
+    add(&demo, FIVE, &[]).unwrap();
+    let brief = demo.brief("b.md");
+    let said = refusal(item(&demo, &repo_take(&brief, "1", "main")));
+    assert!(said.contains("has the branch main already"), "{said}");
+    let mut both = repo_take(&brief, "1", "work");
+    both.extend(["--worktree", "/x"]);
+    assert!(refusal(item(&demo, &both)).contains("give one of them"));
+    let mut unknown = repo_take(&brief, "1", "work");
+    unknown[3] = "other";
+    assert!(refusal(item(&demo, &unknown)).contains("not one of project"));
+}
