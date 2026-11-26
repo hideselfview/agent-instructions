@@ -110,22 +110,22 @@ worktree, is the unit of work.
     out (`builds help`, WORKTREES AND CLAIMS). Only the person throws work
     away, by dropping its item (`builds item drop`, `builds help lists`).
 
-Land the fixes you have ready together, in one batch (decision #1391 in
-project bae), since each branch takes its own review, compile check and, for
-app changes, app build. An agent with several fixes in hand, such as the items
-of its brief, makes them all on one branch, one commit for each fix. A
-difference you find in a component or board you are already changing gets its
-own commit on the same branch (decision #604 in project builds), and so does
-each cleanup of a series you find one after another as you work, with no
-review, record or landing between them. The branch gets one review, run with
-`--item N` for each item, and one `builds land` that names each item with
-`--done N` and each design change with `--design N`. Each commit still holds
-one concern. The agent compares the full set of boards, or runs the full test
-suite of the code it changed, once after the batch's last commit, and before
-then checks only what each change touches. The app build runs last (WHAT AN
-IMPLEMENTING AGENT DOES, step 9). A fix waits for the batch only while the
-agent still works on its other fixes or the next cleanup of its series, never
-for work that nobody has started.
+Land the fixes you have ready together, in one batch (decision #1391 in project
+bae), since each branch takes its own review, compile check and, for app
+changes, app build. An agent with several fixes in hand, such as the items of
+its brief, makes them all on one branch, one commit for each fix. A difference
+you find in a component or board you are already changing gets its own commit
+on the same branch (decision #604 in project builds), and so does each cleanup
+of a series you find one after another as you work, with no review, record or
+landing between them. The branch gets one review, run with `--item N` for each
+item, and one `builds land` that names each item with `--done N` and each
+design change with `--design N`. Each commit still holds one concern
+(~/.claude/CLAUDE.md, Commits). The agent compares the full set of boards, or
+runs the full test suite of the code it changed, once after the batch's last
+commit, and before then checks only what each change touches. The app build
+runs last (WHAT AN IMPLEMENTING AGENT DOES, step 9). A fix waits for the batch
+only while the agent still works on its other fixes or the next cleanup of its
+series, never for work that nobody has started.
 
 
 BUILDS
@@ -165,8 +165,9 @@ PLAN, BRIEF, EXECUTE
       lines to the executor, who reads the code.
     - Before writing a brief or settling a choice an agent raises, the
       coordinator reads the spec's text on each behavior the change touches,
-      and the brief cites it. `builds item take` checks the brief against
-      the spec (DISPATCH).
+      and the brief cites it
+      (rules/commits-and-repo-contents/every-change-agrees-with-its-product-spec.md).
+      `builds item take` checks the brief against the spec (DISPATCH).
     - Each sentence of a brief that states a ruling of the person's, or a
       prohibition meant to hold beyond the task, names where it is written
       (ROLES), and so does each hard limit that DISPATCH lists.
@@ -199,10 +200,11 @@ PLAN, BRIEF, EXECUTE
 
 WHAT AN IMPLEMENTING AGENT DOES
 
-  1. Read the code paths its brief names, and the spec's text on each
-     behavior it changes. A choice the brief didn't settle, or a brief that
-     disagrees with the spec, goes back to the coordinator with both texts,
-     never into a guess.
+  1. Read the code paths its brief names, and the spec's text on each behavior
+     it changes
+     (rules/commits-and-repo-contents/every-change-agrees-with-its-product-spec.md).
+     A choice the brief didn't settle, or a brief that disagrees with the spec,
+     goes back to the coordinator with both texts, never into a guess.
   2. Branch from origin/main in its claimed worktree.
   3. Implement to the brief. A bug fix starts with its failing test. The
      first time you edit a file in Claude Code, builds adds to your context
@@ -221,12 +223,10 @@ WHAT AN IMPLEMENTING AGENT DOES
      over every file the branch changed and leaves HEAD, the index and the
      files as they are. Never move HEAD to check a branch: an app build
      started meanwhile builds the commit HEAD names.
-  6. Before every commit, including fix commits, reread every app string,
-     error, help text, doc and spec line it adds against
-     rules/text-people-read/write-plain-literal-active-sentences.md, and its
-     code comments and commit messages for whether they are accurate. No
-     review that an agent runs or that a landing waits on checks wording
-     (REVIEW).
+  6. Before every commit, including fix commits, reread the text it adds or
+     moves as ~/.claude/CLAUDE.md says (Talking with the user, "Write plain,
+     literal, active sentences"). No review that an agent runs or that a
+     landing waits on checks wording (REVIEW).
   7. Commit through the hook. When the commit edits a board for a change the
      person decided (ROLES), record the edit with `builds design record` and
      the decision's id as its `decision` (BOARD EDITS OF A DECIDED CHANGE),
@@ -492,9 +492,11 @@ The branch's agent runs `builds land` for its branch in the claimed side
 worktree it worked in, once its work is done there, since land checks out other
 commits in that worktree while it checks the result. The coordinator lands a
 branch only when its agent ended before it could. Review each branch first
-(REVIEW). `builds help` (LANDING AND REVIEW, builds land) says what land checks,
-how landings that run at the same time push, and what land leaves in the
-worktree.
+(REVIEW). `builds land` is how an agent pushes reviewed work to main, the
+routine landing that ~/.claude/CLAUDE.md names, and no agent pushes main any
+other way. `builds help` (LANDING AND REVIEW, builds land) says what land
+checks, how landings that run at the same time push, and what land leaves in
+the worktree.
 
   - After landing commits whose base is behind main and that touch shared
     code (schema, test stores, bridge types), build main (`check --workspace
@@ -514,7 +516,9 @@ worktree.
     with `builds app-build --drop-shots`, and land again. Land never builds
     the result, so a landing that reached main after the branch's build
     changes nothing: CI checks main as a whole.
-  - A CI run on main that fails or stalls is the coordinator's to run down.
+  - CI checks main as a whole (~/.claude/CLAUDE.md, Commits). In a project
+    with a coordinator, a CI run on main that fails or stalls is the
+    coordinator's to run down and fix.
   - After each landing, `builds land` fast-forwards the repo's main checkout
     to origin/main. In agent-instructions, the checkout's post-merge hook then
     runs install.sh, which installs the landed builds and links the landed
