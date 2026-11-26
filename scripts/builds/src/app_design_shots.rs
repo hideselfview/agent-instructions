@@ -9,8 +9,9 @@
 //! declares them for a component every platform shares. A change that names no
 //! declared shot gets no pick, and the build says which and why.
 
+use crate::fail::Result;
 use crate::lane::Lane;
-use crate::lists::design_paths::{Globs, PlaceKind, classify};
+use crate::lists::design_paths::{Globs, PlaceKind, board_scene, changes_no_drawing, classify};
 use crate::shots_declared::ShotNames;
 use boards::component_key::ComponentKey;
 
@@ -24,34 +25,30 @@ pub struct Picked {
 }
 
 /// The prefixes the design files among <changed>, by <globs>, pick, given
-/// the shot names each lane declares.
+/// the shot names each lane declares; fails when <declared> cannot read them.
 pub fn picked(
     globs: &Globs,
     changed: &[String],
-    declared: &mut dyn FnMut(Lane) -> Option<ShotNames>,
-) -> Picked {
-    // A README changes no drawing (`builds help lists`, design record).
+    declared: &mut dyn FnMut(Lane) -> Result<ShotNames>,
+) -> Result<Picked> {
     let drawn: Vec<String> = changed
         .iter()
-        .filter(|path| path.rsplit('/').next() != Some("README.md"))
+        .filter(|path| !changes_no_drawing(path))
         .cloned()
         .collect();
     let changes = classify(globs, &drawn);
     let mut prefixes = Vec::new();
     let mut left_out = Vec::new();
-    let mut declares = |lane: Lane, start: &str| {
-        declared(lane).is_some_and(|names| names.iter().any(|name| name.starts_with(start)))
+    let mut declares = |lane: Lane, start: &str| -> Result<bool> {
+        Ok(declared(lane)?.iter().any(|name| name.starts_with(start)))
     };
     for place in &changes.places {
         match PlaceKind::of(place) {
             PlaceKind::Board => {
-                let scene = place
-                    .rsplit('/')
-                    .next()
-                    .and_then(|file| file.strip_suffix(".dc.html"));
+                let scene = board_scene(place);
                 let lane = scene.and_then(|scene| Lane::parse(scene.split('.').next()?));
                 match (scene, lane) {
-                    (Some(scene), Some(lane)) if declares(lane, scene) => {
+                    (Some(scene), Some(lane)) if declares(lane, scene)? => {
                         prefixes.push(scene.to_string());
                     }
                     _ => left_out.push(format!("the board {place} has no declared shot")),
@@ -70,7 +67,7 @@ pub fn picked(
                 let before = prefixes.len();
                 for lane in lanes {
                     let prefix = key.prefix(lane.word());
-                    if declares(lane, &prefix) {
+                    if declares(lane, &prefix)? {
                         prefixes.push(prefix);
                     }
                 }
@@ -89,7 +86,7 @@ pub fn picked(
     }
     prefixes.sort();
     prefixes.dedup();
-    Picked { prefixes, left_out }
+    Ok(Picked { prefixes, left_out })
 }
 
 #[cfg(test)]

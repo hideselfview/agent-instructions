@@ -1,4 +1,5 @@
 use super::*;
+use crate::fail::Fail;
 use crate::lists::design_paths::Globs;
 use std::rc::Rc;
 
@@ -21,7 +22,7 @@ fn changed(list: &[&str]) -> Vec<String> {
     list.iter().map(|path| path.to_string()).collect()
 }
 
-fn declared(lane: Lane) -> Option<ShotNames> {
+fn declared(lane: Lane) -> Result<ShotNames> {
     let names: &[&str] = match lane {
         Lane::Mac => &[
             "mac.welcome.add-code",
@@ -32,7 +33,7 @@ fn declared(lane: Lane) -> Option<ShotNames> {
         ],
         Lane::Android => &["android.component.status-chip.ok"],
     };
-    Some(Rc::new(names.iter().map(|name| name.to_string()).collect()))
+    Ok(Rc::new(names.iter().map(|name| name.to_string()).collect()))
 }
 
 #[test]
@@ -45,7 +46,8 @@ fn a_changed_board_picks_its_shot_and_a_changed_component_its_rows() {
             "design/system/components/MacRow/README.md",
         ]),
         &mut |lane| declared(lane),
-    );
+    )
+    .unwrap();
     assert_eq!(
         found.prefixes,
         ["mac.component.row.", "mac.welcome.add-code"]
@@ -59,7 +61,8 @@ fn a_component_every_platform_shares_picks_each_platform_that_declares_its_rows(
         &globs(),
         &changed(&["design/system/components/StatusChip/preview.html"]),
         &mut |lane| declared(lane),
-    );
+    )
+    .unwrap();
     assert_eq!(
         found.prefixes,
         [
@@ -81,7 +84,8 @@ fn a_change_with_no_declared_shot_is_named_and_left_out() {
             "src/main.rs",
         ]),
         &mut |lane| declared(lane),
-    );
+    )
+    .unwrap();
     assert_eq!(found.prefixes, Vec::<String>::new());
     assert_eq!(found.left_out.len(), 3, "{:?}", found.left_out);
     let said = found.left_out.join("\n");
@@ -96,7 +100,18 @@ fn a_changed_readme_picks_nothing() {
         &globs(),
         &changed(&["design/system/components/MacRow/README.md"]),
         &mut |lane| declared(lane),
-    );
+    )
+    .unwrap();
     assert_eq!(found.prefixes, Vec::<String>::new());
     assert_eq!(found.left_out, Vec::<String>::new());
+}
+
+#[test]
+fn shots_that_cannot_be_read_fail_the_pick() {
+    let refused = picked(
+        &globs(),
+        &changed(&["design/mocks/mac.welcome.add-code.dc.html"]),
+        &mut |_| Err(Fail::Message("no declared shots".into())),
+    );
+    assert_eq!(refused.unwrap_err().text(), "no declared shots");
 }

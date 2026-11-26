@@ -336,8 +336,13 @@ pub fn derive_and_run(places: &Places, args: &[String]) -> Result<()> {
         };
         let globs = crate::lists::design_paths::Globs::of(lists, repo);
         let found = crate::app_design_shots::picked(&globs, &changed, &mut |lane| {
-            declarations.names(lane, &commit)
-        });
+            declarations.names(lane, &commit).ok_or_else(|| {
+                crate::fail::Fail::Message(format!(
+                    "{DESIGN_SHOTS} could not read the {} shots declared at {commit}",
+                    lane.word()
+                ))
+            })
+        })?;
         for line in &found.left_out {
             note(format!("{DESIGN_SHOTS} picks no shot for this: {line}"));
         }
