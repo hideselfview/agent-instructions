@@ -6,6 +6,7 @@ mod agent_command;
 mod agent_launch;
 mod agent_list;
 mod agent_prompt;
+mod agent_prune;
 mod agent_record;
 mod agent_stream;
 mod app_build;
