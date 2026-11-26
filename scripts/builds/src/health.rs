@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 use crate::cargo_place::RemoteRun;
 use crate::checkout::{Root, parallel_map};
 use crate::claim::Claim;
+use crate::design_run::{DesignCommand, DesignRun};
 use crate::fail::{Context, Fail, Result};
 use crate::holder_run::{HolderRun, RunTimes};
 use crate::host::Host;
@@ -239,6 +240,8 @@ pub struct WorktreeHealth {
     /// The `builds land` processes that land in it, running or waiting for
     /// another landing.
     pub landings: Vec<LandingRun>,
+    /// The design records and board comparisons that run in it.
+    pub design_runs: Vec<DesignRun>,
     /// The holder of an app lock building for this worktree in the app
     /// checkout (`Holder::builds_for`).
     pub app_build: Option<i32>,
@@ -351,6 +354,9 @@ pub struct LandingRun {
     #[serde(skip)]
     pub place: usize,
     pub waits: LandingWait,
+    /// The branch that the landing holding the worktree's turn started on
+    /// (`land_turns::WorktreeTurn::branch`).
+    pub branch: Option<String>,
 }
 
 /// Whether a landing waits for another, from the turn files (land_turns.rs).
@@ -364,9 +370,54 @@ pub enum LandingWait {
     Unread,
 }
 
+/// The branch a worktree works on: the one its landing lands, which stays
+/// the worktree's while the landing checks out other commits there, else the
+/// one <checked_out> there.
+fn branch_at_work<'a>(landings: &'a [LandingRun], checked_out: Option<&'a str>) -> Option<&'a str> {
+    landings
+        .iter()
+        .find_map(|landing| landing.branch.as_deref())
+        .or(checked_out)
+}
+
+/// A command that a worktree's agent runs, or waits on, to take its branch
+/// to main.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BranchRun {
+    Landing,
+    AppBuild,
+    Design(DesignCommand),
+}
+
+impl WorktreeHealth {
+    /// The branch the worktree works on (`branch_at_work`).
+    pub fn branch_at_work(&self) -> Option<&str> {
+        branch_at_work(&self.landings, self.branch.as_deref())
+    }
+
+    /// Its landings, app build requests, design records and board
+    /// comparisons, each with its process id.
+    pub fn branch_runs(&self) -> impl Iterator<Item = (BranchRun, i32)> + '_ {
+        self.landings
+            .iter()
+            .map(|run| (BranchRun::Landing, run.pid))
+            .chain(
+                self.app_builds
+                    .iter()
+                    .map(|run| (BranchRun::AppBuild, run.pid)),
+            )
+            .chain(
+                self.design_runs
+                    .iter()
+                    .map(|run| (BranchRun::Design(run.command), run.pid)),
+            )
+    }
+}
+
 impl AppBuildRun {
-    /// Does it build for the worktree <label> of <repo>, which has <branch>
-    /// checked out? When it builds that branch, or it was run from there.
+    /// Does it build for the worktree <label> of <repo>, which works on
+    /// <branch> (`branch_at_work`)? When it builds that branch, or it was run
+    /// from there.
     fn builds_for(&self, label: &str, repo: &str, branch: Option<&str>) -> bool {
         self.started_from.as_deref() == Some(label)
             || (self.repo == repo && Some(self.reference.as_str()) == branch)
@@ -427,6 +478,8 @@ pub struct Machine {
     /// The `builds land` processes that run, including those that wait for
     /// another landing.
     pub landings: Vec<LandingRun>,
+    /// The design commands that run in a place (design_run.rs).
+    pub design_runs: Vec<DesignRun>,
     /// What builds could not read of the processes it needed, one line each.
     pub unread: Vec<String>,
     /// The `git commit`s that run, which keep their worktree from being free.
@@ -488,13 +541,14 @@ pub fn sample(
     let (remote_runs, mut unread) = crate::cargo_place::remote_runs(&processes, places, hosts);
     let mut app_builds = Vec::new();
     let mut landings = Vec::new();
+    let mut design_runs = Vec::new();
     for process in processes.list.iter().filter(|p| p.name == "builds") {
         let argv = match live_args(process.pid) {
             Ok(Some(argv)) => argv,
             Ok(None) => continue,
             Err(error) => {
                 unread.push(format!(
-                    "{error}, so health cannot tell whether it is a `builds app-build` request or a landing"
+                    "{error}, so health cannot tell whether it is a `builds app-build` request, a landing or a design command"
                 ));
                 continue;
             }
@@ -506,6 +560,18 @@ pub fn sample(
                 reference: reference.to_string(),
                 started_from: started_from(places, process.pid),
             });
+        } else if let Some(command) = DesignCommand::of(&argv) {
+            let started_by_builds = processes
+                .list
+                .iter()
+                .any(|parent| parent.pid == process.ppid && parent.name == "builds");
+            if !started_by_builds && let Some(place) = place_of_process(places, process.pid) {
+                design_runs.push(DesignRun {
+                    pid: process.pid,
+                    place,
+                    command,
+                });
+            }
         } else if let Some(worktree) = crate::land_turns::landing_worktree(process.pid, &argv) {
             let worktree = match worktree {
                 Ok(worktree) => worktree,
@@ -515,22 +581,25 @@ pub fn sample(
                 }
             };
             if let Some(place) = crate::procs::place_of(places, &worktree) {
-                let waits = match crate::land_turns::waits_for(&worktree, process.pid) {
-                    Ok(None) => LandingWait::Nothing,
-                    Ok(Some(whose)) => LandingWait::For(whose),
+                let (waits, branch) = match crate::land_turns::read_turn(&worktree, process.pid) {
+                    Ok(turn) => (
+                        turn.waits.map_or(LandingWait::Nothing, LandingWait::For),
+                        turn.branch,
+                    ),
                     Err(error) => {
                         unread.push(format!(
-                            "{}, so health cannot tell whether the landing of process {} waits for another",
+                            "{}, so health cannot tell which branch the landing of process {} lands, or whether it waits for another",
                             error.text(),
                             process.pid
                         ));
-                        LandingWait::Unread
+                        (LandingWait::Unread, None)
                     }
                 };
                 landings.push(LandingRun {
                     pid: process.pid,
                     place,
                     waits,
+                    branch,
                 });
             }
         }
@@ -728,6 +797,7 @@ pub fn sample(
         remote_runs,
         app_builds,
         landings,
+        design_runs,
         unread,
         commits: crate::procs::git_commits(&processes),
         sccache: SccacheHealth {
@@ -838,6 +908,14 @@ pub fn assess(
     lists: Vec<Advice>,
 ) -> Health {
     let mut findings = Vec::new();
+    let mut left = left;
+    // While a landing runs, its worktree has other commits checked out.
+    left.branches.retain(|branch| {
+        !machine.landings.iter().any(|landing| {
+            places[landing.place].repo == branch.repo
+                && landing.branch.as_ref() == Some(&branch.branch)
+        })
+    });
     if disk.free_kib < disk.floor_kib {
         findings.push(Finding::new(
             FindingKind::Disk,
@@ -970,14 +1048,21 @@ pub fn assess(
             .cloned()
             .collect();
         let label = places[place].label.clone();
+        let landings: Vec<LandingRun> = machine
+            .landings
+            .iter()
+            .filter(|run| run.place == place)
+            .cloned()
+            .collect();
+        let at_work = branch_at_work(&landings, branch.as_deref());
         let app_builds: Vec<AppBuildRun> = machine
             .app_builds
             .iter()
-            .filter(|run| run.builds_for(&label, &places[place].repo, branch.as_deref()))
+            .filter(|run| run.builds_for(&label, &places[place].repo, at_work))
             .cloned()
             .collect();
-        let landings: Vec<LandingRun> = machine
-            .landings
+        let design_runs: Vec<DesignRun> = machine
+            .design_runs
             .iter()
             .filter(|run| run.place == place)
             .cloned()
@@ -1023,6 +1108,7 @@ pub fn assess(
             && remote_runs.is_empty()
             && app_builds.is_empty()
             && landings.is_empty()
+            && design_runs.is_empty()
             && app_build.is_none()
             && in_line.is_empty();
         worktrees.push(WorktreeHealth {
@@ -1042,6 +1128,7 @@ pub fn assess(
             remote_runs,
             app_builds,
             landings,
+            design_runs,
             app_build,
             in_line,
         });
@@ -1490,6 +1577,9 @@ fn builds_line(w: &WorktreeHealth) -> String {
             ),
         });
     }
+    for run in &w.design_runs {
+        parts.push(format!("{} runs (pid {})", run.command.word(), run.pid));
+    }
     if let Some(pid) = w.app_build {
         parts.push(format!("building in the app checkout (pid {pid})"));
     }
@@ -1579,7 +1669,7 @@ pub fn lines(health: &Health) -> Vec<String> {
         out.push(format!(
             "    {}  [{}]  {} since {}{}",
             w.checkout,
-            w.branch.as_deref().unwrap_or("detached"),
+            w.branch_at_work().unwrap_or("detached"),
             w.claim.who,
             local_minute(w.claim.since),
             match (w.claim.state(), w.claim.note_text()) {
@@ -2347,6 +2437,7 @@ mod tests {
                 remote_runs: Vec::new(),
                 app_builds: Vec::new(),
                 landings: Vec::new(),
+                design_runs: Vec::new(),
                 unread: Vec::new(),
                 commits: Default::default(),
                 sccache: SccacheHealth {
@@ -2405,6 +2496,7 @@ mod tests {
                     remote_runs: Vec::new(),
                     app_builds: Vec::new(),
                     landings: Vec::new(),
+                    design_runs: Vec::new(),
                     unread: Vec::new(),
                     commits: Default::default(),
                     sccache: SccacheHealth {
@@ -2473,6 +2565,7 @@ mod tests {
                 remote_runs: Vec::new(),
                 app_builds: Vec::new(),
                 landings: Vec::new(),
+                design_runs: Vec::new(),
                 unread: Vec::new(),
                 commits: Default::default(),
                 sccache: SccacheHealth {
@@ -2595,6 +2688,7 @@ mod tests {
             }],
             app_builds: Vec::new(),
             landings: Vec::new(),
+            design_runs: Vec::new(),
             unread: Vec::new(),
             commits: Default::default(),
             sccache: SccacheHealth {
@@ -2680,6 +2774,7 @@ mod tests {
                 remote_runs: Vec::new(),
                 app_builds,
                 landings: Vec::new(),
+                design_runs: Vec::new(),
                 unread: Vec::new(),
                 commits: Default::default(),
                 sccache: SccacheHealth {
@@ -2762,6 +2857,7 @@ mod tests {
                 remote_runs: Vec::new(),
                 app_builds: Vec::new(),
                 landings,
+                design_runs: Vec::new(),
                 unread: Vec::new(),
                 commits: Default::default(),
                 sccache: SccacheHealth {
@@ -2824,6 +2920,7 @@ mod tests {
         let waiting = judge(vec![LandingRun {
             pid: 5151,
             place: 0,
+            branch: None,
             waits: LandingWait::For(crate::land_turns::TurnWait {
                 turn: "the landing that changes the apps".into(),
                 holder: "process 36208 landing --done 1276 abc".into(),
@@ -2845,6 +2942,7 @@ mod tests {
         let running = judge(vec![LandingRun {
             pid: 5151,
             place: 0,
+            branch: None,
             waits: LandingWait::Nothing,
         }]);
         assert!(running.findings.is_empty(), "{:?}", running.findings);
@@ -2889,6 +2987,7 @@ mod tests {
                 remote_runs: Vec::new(),
                 app_builds: Vec::new(),
                 landings: Vec::new(),
+                design_runs: Vec::new(),
                 unread: Vec::new(),
                 commits: Default::default(),
                 sccache: SccacheHealth {
@@ -2974,6 +3073,7 @@ mod tests {
             remote_runs: Vec::new(),
             app_builds: Vec::new(),
             landings: Vec::new(),
+            design_runs: Vec::new(),
             unread: vec![line.to_string()],
             commits: Default::default(),
             sccache: SccacheHealth {
@@ -3026,6 +3126,7 @@ mod tests {
             remote_runs: Vec::new(),
             app_builds: Vec::new(),
             landings: Vec::new(),
+            design_runs: Vec::new(),
             unread: Vec::new(),
             commits: Default::default(),
             sccache: SccacheHealth {
@@ -3087,6 +3188,7 @@ mod tests {
             remote_runs: Vec::new(),
             app_builds: Vec::new(),
             landings: Vec::new(),
+            design_runs: Vec::new(),
             unread: Vec::new(),
             commits: Default::default(),
             sccache: SccacheHealth {

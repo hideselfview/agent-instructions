@@ -1820,16 +1820,17 @@ impl Model {
                         git: checkout.git.as_ref(),
                         branch: checkout.branch.as_deref(),
                     };
+                    let worked = last_health
+                        .and_then(|h| h.worktrees.iter().find(|w| w.path == checkout.path));
                     let judged = self.judge_card(
                         &snapshot,
                         &seen,
+                        worked,
                         &repo.locks,
                         &repo.queues,
                         machine.map(|machine| &machine.shells),
                     );
-                    checkout.landings = last_health
-                        .and_then(|h| h.worktrees.iter().find(|w| w.path == checkout.path))
-                        .map(|w| w.landings.clone());
+                    checkout.landings = worked.map(|w| w.landings.clone());
                     checkout.errors.extend(judged.errors);
                     checkout.state = Some(judged.state.word().to_string());
                     checkout.words = match &judged.kept {
@@ -1900,7 +1901,7 @@ impl Model {
     /// reads them.
     pub fn cards(&self) -> crate::fail::Result<Option<Vec<CardNow>>> {
         let (_, snapshot) = self.lists.current();
-        let (roots, facts, machine) = {
+        let (roots, facts, machine, health) = {
             let state = self.state.lock().expect("no panic holding it");
             let Some(sample) = &state.page.sample else {
                 return Ok(None);
@@ -1909,6 +1910,12 @@ impl Model {
                 state.page.roots.clone(),
                 state.page.facts.clone(),
                 sample.machine.clone(),
+                state
+                    .page
+                    .health
+                    .as_ref()
+                    .and_then(HealthReading::last)
+                    .cloned(),
             )
         };
         let mut cards = Vec::new();
@@ -1939,7 +1946,18 @@ impl Model {
                 git: facts.git.as_ref(),
                 branch: facts.branch.as_deref(),
             };
-            let judged = self.judge_card(&snapshot, &seen, &locks, &queues, Some(&machine.shells));
+            let path = live.top.display().to_string();
+            let worked = health
+                .as_ref()
+                .and_then(|health| health.worktrees.iter().find(|w| w.path == path));
+            let judged = self.judge_card(
+                &snapshot,
+                &seen,
+                worked,
+                &locks,
+                &queues,
+                Some(&machine.shells),
+            );
             cards.push(CardNow {
                 worktree: live.top.display().to_string(),
                 lists: judged.lists,
@@ -1953,7 +1971,8 @@ impl Model {
         Ok(Some(cards))
     }
 
-    /// Judges the card of the live side worktree <seen>, whose repo's app
+    /// Judges the card of the live side worktree <seen>, whose runs <worked>
+    /// holds as the last health reading placed them and whose repo's app
     /// build lanes have <locks> and <queues>, from the lists in <snapshot>
     /// and the last process reading's <shells>. The dashboard draws its card
     /// from what this returns, and the recorder of the cards' states records
@@ -1962,6 +1981,7 @@ impl Model {
         &self,
         snapshot: &std::result::Result<Vec<crate::lists::store::Loaded>, String>,
         seen: &Seen,
+        worked: Option<&crate::health::WorktreeHealth>,
         locks: &[crate::health::LockHealth],
         queues: &[crate::health::LaneQueue],
         shells: Option<&crate::shells::Shells>,
@@ -1984,9 +2004,14 @@ impl Model {
         let items = project
             .map(|lists| super::lists::running_items(lists, &path))
             .unwrap_or_default();
+        // While a landing runs, git shows the commits that the landing
+        // checked out, so the card judges no design coverage and no rules
+        // review from them.
+        let landing = worked.is_some_and(|worked| !worked.landings.is_empty());
+        let judged_git = seen.git.filter(|_| !landing);
         let mut coverage_wait = None;
         let mut coverage_unread = false;
-        let design = match (project, seen.git) {
+        let design = match (project, judged_git) {
             (Some(lists), Some(SideGit::Side(Ok(git)))) => {
                 match self.design_reads.completed(lists, seen.repo, top, git) {
                     Some(Ok(commits)) => super::design_cards::of_commits(lists, &commits),
@@ -2016,7 +2041,7 @@ impl Model {
         // and Ready to land. A design change that waits on the person's
         // approval waits on their review only once the review takes the
         // commits, so its worktree's review is read whatever the card's state.
-        let rules = match (project, seen.git) {
+        let rules = match (project, judged_git) {
             (Some(lists), Some(SideGit::Side(Ok(git)))) if ready || awaits_approval => {
                 let reviewed = crate::review::verdicts::Worktree {
                     repo: seen.repo,
@@ -2044,9 +2069,19 @@ impl Model {
             }
             _ => None,
         };
-        let build = seen
-            .branch
+        let build = worked
+            .and_then(crate::health::WorktreeHealth::branch_at_work)
+            .or(seen.branch)
             .and_then(|branch| super::app_builds::build_for(locks, queues, branch));
+        // An app build that a lane's lock or queue shows says more than the
+        // request that waits on it.
+        let runs: Vec<ItemWait> = worked
+            .into_iter()
+            .flat_map(crate::health::WorktreeHealth::branch_runs)
+            .map(|(run, _)| run)
+            .filter(|run| build.is_none() || *run != crate::health::BranchRun::AppBuild)
+            .map(ItemWait::Run)
+            .collect();
         let shell = shells.is_some_and(|shells| {
             shells
                 .active
@@ -2062,6 +2097,7 @@ impl Model {
                     .into_iter()
                     .chain(design)
                     .chain(build)
+                    .chain(runs)
                     .chain(review)
                     .chain(coverage_wait.map(ItemWait::RulesReview)),
             )),

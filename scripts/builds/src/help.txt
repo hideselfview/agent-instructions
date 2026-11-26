@@ -638,7 +638,13 @@ change the person has not approved whose rules review takes them), Paused (the c
 held: the card says what its running items wait on), Ready to land (commits
 waiting to land, claimed or not: an unclaimed worktree with such commits holds
 work an agent left behind; a claimed one waits for its agent to land it),
-Winding down, Working (claimed) and Free. Commits
+Winding down, Working (claimed) and Free. While a `builds land`, `builds
+app-build`, `builds design record` or `amend`, or `builds shots draws` runs for
+a worktree's branch, the card with commits waiting to land stays Working and
+names it: Landing, App build, Design record or Board comparison (an app build
+that waits in a lane's queue or holds a lane's lock shows the lane instead).
+While a landing runs, the card judges no design coverage and no rules review,
+since git then shows the commits the landing checked out. Commits
 waiting to land show as Ready to land only when `builds land` would take them
 as far as the rules review goes; until then the card shows the review's
 progress instead: Needs review (no review read these commits, or a group still
@@ -2942,7 +2948,8 @@ STATUS, HEALTH AND THE DASHBOARD
                                 shells. The flag stops each junk shell and
                                 everything under it, and prints each pid and
                                 why it stopped it.
-                              - each claimed worktree: claim, branch,
+                              - each claimed worktree: claim, branch (while
+                                a landing runs there, the branch it lands),
                                 uncommitted files, commits waiting to land,
                                 minutes since a change, and builds there,
                                 its `builds cargo` runs whose cargo runs on
@@ -2951,7 +2958,10 @@ STATUS, HEALTH AND THE DASHBOARD
                                 under an app lock for it, and its app builds
                                 waiting in a lane's queue (run from it, or of
                                 one of its commits), each with its place in
-                                line
+                                line, its landings, and the `builds design
+                                record` or `amend` and `builds shots draws`
+                                runs started in it (one that another builds
+                                command started is a step of that command)
                               - each lane's checkout locks and the processes
                                 that hold them
                               - each host's compile cache, this Mac's
@@ -3026,7 +3036,13 @@ STATUS, HEALTH AND THE DASHBOARD
                                 CPU use or a write to a local output file.
                                 Each line gives the time since the last
                                 change and follows its waits to the work at
-                                the end, with the age of that work.
+                                the end, with the age of that work. A review
+                                with no finding to settle or fix, whose
+                                branch has a landing, an app build, a design
+                                record or a board comparison running, waits on
+                                that command: it has a line only once the
+                                command last moved that long ago, and the line
+                                names the command.
                               - last, whether the coordinator's health
                                 schedule has work to watch. Health keeps
                                 the schedule needed while it sees open work

@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::db::Sql;
+use crate::design_run::DesignCommand;
 use crate::fail::{Fail, Result};
 use crate::places::Places;
 
@@ -35,12 +36,24 @@ impl Key {
 #[derive(Clone)]
 enum Blocker {
     Work(Key),
+    /// A command that a branch's agent waits on
+    /// (`WorktreeHealth::branch_runs`): a process that the trace of a record
+    /// names, with what it waits on.
+    Run(Key),
     Reason(String),
 }
 
 impl Blocker {
     fn reason(text: impl Into<String>) -> Self {
         Self::Reason(text.into())
+    }
+
+    /// The record or process waited on.
+    fn key(&self) -> Option<&Key> {
+        match self {
+            Self::Work(key) | Self::Run(key) => Some(key),
+            Self::Reason(_) => None,
+        }
     }
 }
 
@@ -119,53 +132,55 @@ impl WorkGraph {
     ) -> Vec<String> {
         work.waits
             .iter()
-            .filter_map(|blocker| match blocker {
-                Blocker::Reason(reason) => Some(reason.clone()),
-                Blocker::Work(key)
-                    if hide_processes && self.0.contains_key(key) && is_process(key) =>
-                {
-                    None
+            .filter_map(|blocker| {
+                let (key, run) = match blocker {
+                    Blocker::Reason(reason) => return Some(reason.clone()),
+                    Blocker::Work(key) => (key, false),
+                    Blocker::Run(key) => (key, true),
+                };
+                if hide_processes && !run && self.0.contains_key(key) && is_process(key) {
+                    return None;
                 }
-                Blocker::Work(key) if path.contains(key) => {
-                    Some(format!("{} again", self.0[key].name))
+                if path.contains(key) {
+                    return Some(format!("{} again", self.0[key].name));
                 }
-                Blocker::Work(key) if seen.insert(key.clone()) => {
-                    let Some(waited) = self.0.get(key) else {
-                        return Some(match key {
-                            Key::Process(host, pid) => {
-                                format!("pid {pid} on {host} (health could not read it)")
-                            }
-                            Key::Worktree(path) => format!("{path} (health found no claim there)"),
-                            Key::Review(project, id) => {
-                                format!("review {id} of {project} (health could not read it)")
-                            }
-                            Key::Record(project, id) => {
-                                format!("{id} of {project} (health could not read it)")
-                            }
-                        });
-                    };
-                    let age = match times[key] {
-                        Some(at) => format!("last moved {} ago", elapsed(now, at)),
-                        None => "health has no time for its last movement".to_string(),
-                    };
-                    path.insert(key.clone());
-                    let next = self.waits(waited, now, times, seen, path, hide_processes);
-                    path.remove(key);
-                    if next.is_empty() {
-                        Some(format!(
-                            "{} ({age}. {})",
-                            waited.name,
-                            waited.otherwise.text.trim_end_matches('.')
-                        ))
-                    } else {
-                        Some(format!(
-                            "{} ({age}), which waits on {}",
-                            waited.name,
-                            next.join(waited.wait_join)
-                        ))
-                    }
+                if !seen.insert(key.clone()) {
+                    return None;
                 }
-                Blocker::Work(_) => None,
+                let Some(waited) = self.0.get(key) else {
+                    return Some(match key {
+                        Key::Process(host, pid) => {
+                            format!("pid {pid} on {host} (health could not read it)")
+                        }
+                        Key::Worktree(path) => format!("{path} (health found no claim there)"),
+                        Key::Review(project, id) => {
+                            format!("review {id} of {project} (health could not read it)")
+                        }
+                        Key::Record(project, id) => {
+                            format!("{id} of {project} (health could not read it)")
+                        }
+                    });
+                };
+                let age = match times[key] {
+                    Some(at) => format!("last moved {} ago", elapsed(now, at)),
+                    None => "health has no time for its last movement".to_string(),
+                };
+                path.insert(key.clone());
+                let next = self.waits(waited, now, times, seen, path, hide_processes && !run);
+                path.remove(key);
+                if next.is_empty() {
+                    Some(format!(
+                        "{} ({age}. {})",
+                        waited.name,
+                        waited.otherwise.text.trim_end_matches('.')
+                    ))
+                } else {
+                    Some(format!(
+                        "{} ({age}), which waits on {}",
+                        waited.name,
+                        next.join(waited.wait_join)
+                    ))
+                }
             })
             .collect()
     }
@@ -184,10 +199,7 @@ impl WorkGraph {
         let named = |work: &'_ Work| -> Vec<&Key> {
             work.doing
                 .iter()
-                .chain(work.waits.iter().filter_map(|wait| match wait {
-                    Blocker::Work(key) => Some(key),
-                    Blocker::Reason(_) => None,
-                }))
+                .chain(work.waits.iter().filter_map(Blocker::key))
                 .filter_map(|key| self.0.get_key_value(key).map(|(key, _)| key))
                 .filter(|key| is_process(key))
                 .collect()
@@ -482,6 +494,7 @@ fn worktree_pids(tree: &WorktreeHealth) -> impl Iterator<Item = i32> + '_ {
         .chain(tree.remote_runs.iter().map(|run| run.pid))
         .chain(tree.app_builds.iter().map(|run| run.pid))
         .chain(tree.landings.iter().map(|run| run.pid))
+        .chain(tree.design_runs.iter().map(|run| run.pid))
         .chain(tree.app_build)
         .chain(tree.in_line.iter().map(|run| run.pid))
 }
@@ -508,6 +521,11 @@ fn worktrees(
         }
 
         let mut running_item = false;
+        let runs: Vec<Key> = tree
+            .branch_runs()
+            .map(|(_, pid)| Key::local(pid))
+            .filter(|key| graph.0.contains_key(key))
+            .collect();
         let (repo, _) = tree
             .checkout
             .split_once('/')
@@ -522,7 +540,7 @@ fn worktrees(
                 ));
                 work.waits.extend(blockers(lists, item));
             }
-            if let Some(branch) = &tree.branch {
+            if let Some(branch) = tree.branch_at_work() {
                 for review in progress
                     .and_then(|progress| progress.project(&lists.project))
                     .into_iter()
@@ -533,7 +551,18 @@ fn worktrees(
                     {
                         work.moved_at = work.moved_at.max(Some(review.at));
                         let key = Key::Review(lists.project.clone(), review.landing.id);
-                        if !review.unsettled.is_empty() || !review.confirmed.is_empty() {
+                        let findings_wait =
+                            !review.unsettled.is_empty() || !review.confirmed.is_empty();
+                        // With no finding to answer, the branch waits on what
+                        // its agent runs, and not yet to land.
+                        if !findings_wait
+                            && !runs.is_empty()
+                            && let Some(ready) = graph.get_mut(&key)
+                        {
+                            ready.waits = runs.iter().cloned().map(Blocker::Run).collect();
+                            ready.doing.extend(runs.iter().cloned());
+                        }
+                        if findings_wait || !runs.is_empty() {
                             work.waits.push(Blocker::Work(key.clone()));
                         }
                         held_reviews.insert((key, tree.checkout.clone()));
@@ -615,7 +644,7 @@ fn command_kind(row: &Row) -> Option<&'static str> {
         }
         ["cargo" | "lake" | "remote" | "checks", ..] => Some("process"),
         words if crate::agent_launch::starts_agent(words) => Some("agent"),
-        _ => None,
+        words => DesignCommand::of_words(words).map(DesignCommand::word),
     }
 }
 
@@ -967,7 +996,7 @@ impl Progress {
             .flat_map(|project| &project.ends)
             .filter(|end| {
                 end.repo == repo
-                    && (tree.branch.as_ref() == Some(&end.reference)
+                    && (tree.branch_at_work() == Some(end.reference.as_str())
                         || tree.git.as_ref().is_ok_and(|git| git.owns(&end.reference)))
             })
             .map(|end| end.at)
@@ -1307,5 +1336,91 @@ mod tests {
             "{blocked}"
         );
         assert_eq!(found.len(), 5, "{found:?}");
+    }
+
+    /// A landing checks out other commits in its worktree. Health still reads
+    /// the worktree as working on the landing's branch, so the branch's review
+    /// waits on the landing: it has no row while the landing moves, and a
+    /// landing that stops moving has one row, which names it.
+    #[test]
+    fn a_review_whose_branch_a_landing_lands_waits_on_the_landing() {
+        let demo = crate::lists::item_fixtures::demo("health-landing-review");
+        let side = demo.add_side(1, "agent", "work");
+        demo.commit(&side, "a.rs");
+        let checkout = crate::checkout::Checkout::find(&side.display().to_string()).unwrap();
+        crate::setup::setup(&demo.tool, &crate::testing::no_ssh(), &checkout).unwrap();
+        let conn = crate::db::open(&demo.store.database(), crate::db::Make::Never).unwrap();
+        let change = crate::review::record::Change {
+            repo: "demo",
+            key: "branch:work",
+        };
+        let at = crate::lists::fixtures::NOON;
+        crate::review::record::add_landing(&conn, change, at).unwrap();
+        // The landing holds the worktree's turn and has HEAD elsewhere.
+        crate::testing::git(&side, &["checkout", "-q", "--detach", "HEAD"]);
+        let git_dir = crate::git::text(&side, &["rev-parse", "--absolute-git-dir"]).unwrap();
+        let path = Path::new(git_dir.trim()).join(crate::land::WORKTREE_TURN_FILE);
+        let mut file = crate::flock::open_creating(&path).unwrap();
+        crate::flock::lock(&file, libc::LOCK_EX, &path).unwrap();
+        let record = crate::land::turn_record(999901, Some("work"), "--done 1 abc");
+        std::io::Write::write_all(&mut file, record.as_bytes()).unwrap();
+        let turn = crate::land_turns::read_turn(&side, 999901).unwrap();
+
+        let rows_after = |minutes: i64| {
+            let mut tool = demo.scratch.tool(0);
+            tool.now = at + 90 * 60;
+            let mut health = crate::health::health(&tool).unwrap();
+            let tree = &mut health.worktrees[0];
+            assert_eq!(tree.branch, None);
+            tree.landings.push(crate::health::LandingRun {
+                pid: 999901,
+                place: 0,
+                waits: LandingWait::Nothing,
+                branch: turn.branch.clone(),
+            });
+            // The landing's process last used the CPU <minutes> ago.
+            let scan = crate::host_scan::parse(
+                &format!(
+                    "uid=501\nnow={}\ncpu_idle=90\nps_follows=1\n\
+                     999901 0 501 0 0:00 {minutes}:00 S builds land {} --done 1 abc\n",
+                    tool.now,
+                    side.display()
+                ),
+                &[],
+            )
+            .unwrap();
+            let scanned = Scanned {
+                scans: vec![(Host::local(), Ok(scan))],
+                install: Ok(InstallRead::Idle),
+                holders: crate::job_claim::Holders::read().unwrap(),
+                orphans: Vec::new(),
+                caches: Ok(Vec::new()),
+                at: tool.now,
+            };
+            let loaded = crate::lists::store::load_all(&tool.places);
+            append(
+                &mut health,
+                &loaded,
+                &Progress::read(&tool.places, &loaded),
+                Some(&scanned),
+                &tool.places,
+                tool.now,
+                tool.rules.still_minutes,
+            );
+            health
+                .findings
+                .into_iter()
+                .filter(|finding| finding.kind == FindingKind::Still)
+                .map(|finding| finding.advice.text)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(rows_after(1), Vec::<String>::new());
+        let rows = rows_after(45);
+        assert_eq!(rows.len(), 1, "{rows:?}");
+        assert!(
+            rows[0].starts_with("review 1 of demo (demo, branch:work) in worktree demo/side-1")
+                && rows[0].contains("and waits on landing 999901 on this Mac"),
+            "{rows:?}"
+        );
     }
 }

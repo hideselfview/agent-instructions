@@ -1508,6 +1508,28 @@ fn two_landings_started_together_in_one_worktree_run_one_after_the_other() {
     assert_eq!(git_out(&f.origin, &["show", "main:b.txt"]), "b");
 }
 
+/// While a landing has other commits checked out in its worktree, the turn it
+/// holds names the branch it started on, which health reads.
+#[test]
+fn a_running_landing_names_its_branch_while_it_checks_out_other_commits() {
+    // The check runs on the landing's result.
+    let f = fixture(
+        "land-turn-names-branch",
+        r#"cp "$(git rev-parse --absolute-git-dir)/land.lock" {root}/turn
+git branch --show-current > {root}/checked-out
+"#,
+        None,
+    );
+    let (one, a, two, b) = two_branches(&f);
+    // Main moves, so the second landing cherry-picks onto it.
+    assert_eq!(run_land(&f, &one, &[&a], Cues::default()).0, 0);
+    let (code, said, _) = run_land(&f, &two, &[&b], Cues::default());
+    assert_eq!(code, 0, "{said}");
+    let read = |name: &str| std::fs::read_to_string(f.scratch.dir.join(name)).unwrap();
+    assert_eq!(read("checked-out").trim(), "");
+    assert_eq!(record_branch(&read("turn")), Some("b"), "{}", read("turn"));
+}
+
 #[test]
 fn a_waiting_landing_names_the_landing_it_waits_behind() {
     let f = fixture("land-lock-names", "true\n", None);

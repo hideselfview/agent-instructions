@@ -72,6 +72,7 @@ mod design_artifacts;
 mod design_canvas;
 mod design_publish;
 mod design_render;
+mod design_run;
 mod design_system_artifact;
 mod design_system_assets;
 mod download;

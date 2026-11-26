@@ -5,6 +5,8 @@
 //! checkout's own facts.
 
 use super::model::CheckoutPage;
+use crate::design_run::DesignCommand;
+use crate::health::BranchRun;
 use crate::lane::Lane;
 use crate::lists::Ender;
 
@@ -37,6 +39,9 @@ pub enum ItemWait {
     Landing { id: u32, title: String },
     /// Commits of a design branch that no recorded design change covers.
     Unrecorded,
+    /// A landing, app build request, design record or board comparison that
+    /// runs for the worktree's branch.
+    Run(BranchRun),
     /// Commits that wait on rules review or design coverage.
     RulesReview(ReviewWait),
     /// A condition in words, which holds until its ender removes it from the
@@ -139,6 +144,16 @@ impl ReviewWait {
     }
 }
 
+/// <run>'s name as a card's pill writes it.
+fn run_title(run: BranchRun) -> &'static str {
+    match run {
+        BranchRun::Landing => "Landing",
+        BranchRun::AppBuild => "App build",
+        BranchRun::Design(DesignCommand::Record) => "Design record",
+        BranchRun::Design(DesignCommand::Comparison) => "Board comparison",
+    }
+}
+
 /// <lane>'s name as a card writes it.
 fn lane_title(lane: Lane) -> String {
     match lane {
@@ -170,7 +185,7 @@ impl ItemWait {
         match self {
             ItemWait::Answer { .. } => 0,
             ItemWait::Review { .. } => 1,
-            ItemWait::AppBuild { .. } => 2,
+            ItemWait::AppBuild { .. } | ItemWait::Run(_) => 2,
             ItemWait::Item { .. } | ItemWait::ForeignItem(_) | ItemWait::Landing { .. } => 3,
             ItemWait::Unrecorded => 4,
             ItemWait::RulesReview(_) => 5,
@@ -200,6 +215,7 @@ impl ItemWait {
             ItemWait::ForeignItem(found) => format!("After {} #{}", found.project, found.id),
             ItemWait::Unrecorded => "No design change".to_string(),
             ItemWait::RulesReview(review) => return review.pill(),
+            ItemWait::Run(run) => run_title(*run).to_string(),
             ItemWait::Condition { .. } => return None,
         };
         Some(Pill {
@@ -249,6 +265,11 @@ impl ItemWait {
                     .to_string()
             }
             ItemWait::RulesReview(review) => review.sentence(),
+            ItemWait::Run(BranchRun::Landing) => "builds land lands its branch.".to_string(),
+            ItemWait::Run(BranchRun::AppBuild) => "Waits on its app build.".to_string(),
+            ItemWait::Run(BranchRun::Design(command)) => {
+                format!("Waits on its {}.", command.word())
+            }
             ItemWait::Condition { text, until } => {
                 format!("Waits until {text}; the {} ends this wait", until.word())
             }
@@ -403,9 +424,9 @@ pub fn card_state(
 
 /// Does a card in <state> stay Working instead of Ready to land? Ready to
 /// land means commits past origin/main and nothing else going on: no agent
-/// shell active in the worktree (<shell>), no app build of its branch and no
-/// running item that waits on another item or on a design change to land
-/// (<wait>).
+/// shell active in the worktree (<shell>), no landing, app build, design
+/// record or board comparison of its branch and no running item that waits on
+/// another item or on a design change to land (<wait>).
 fn keeps_working(state: CardState, shell: bool, wait: Option<&ItemWait>) -> bool {
     state == CardState::ReadyToLand
         && (shell
@@ -413,6 +434,7 @@ fn keeps_working(state: CardState, shell: bool, wait: Option<&ItemWait>) -> bool
                 wait,
                 Some(
                     ItemWait::AppBuild { .. }
+                        | ItemWait::Run(_)
                         | ItemWait::Item { .. }
                         | ItemWait::ForeignItem(_)
                         | ItemWait::Landing { .. }

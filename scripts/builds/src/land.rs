@@ -305,9 +305,24 @@ fn git_text(dir: &Path, args: &[&str]) -> Option<String> {
 }
 
 /// What a landing writes into a turn file once it holds the lock: its process
-/// id and what it lands (`record_pid` reads the id back).
-fn turn_record(pid: u32, what: &str) -> String {
-    format!("process {pid} landing {what}")
+/// id, the branch it started on once it has read it, and what it lands
+/// (`record_pid` and `record_branch` read the first two back).
+pub fn turn_record(pid: u32, branch: Option<&str>, what: &str) -> String {
+    match branch {
+        Some(branch) => format!("process {pid} on branch {branch} landing {what}"),
+        None => format!("process {pid} landing {what}"),
+    }
+}
+
+/// The branch that the turn file's text <record> names: None before the
+/// landing has read where it started, and for a landing that started on a
+/// detached HEAD.
+pub fn record_branch(record: &str) -> Option<&str> {
+    let mut words = record.strip_prefix("process ")?.split(' ').skip(1);
+    match (words.next(), words.next(), words.next()) {
+        (Some("on"), Some("branch"), branch) => branch,
+        _ => None,
+    }
 }
 
 /// The process id that the turn file's text <record> names.
@@ -350,10 +365,16 @@ fn take_turn(path: &Path, whose: &str, me: &str, out: &mut dyn Write) -> Result<
         crate::flock::lock(&file, libc::LOCK_EX, path)?;
         let _ = writeln!(out, "{whose} finished, so this landing has its turn");
     }
-    let _ = file.set_len(0);
-    let _ = file.seek(SeekFrom::Start(0));
-    let _ = file.write_all(me.as_bytes());
+    write_turn(&mut file, path, me)?;
     Ok(file)
+}
+
+/// Replaces what the turn file <file> at <path> says with <record>.
+fn write_turn(file: &mut std::fs::File, path: &Path, record: &str) -> Result<()> {
+    file.set_len(0)
+        .and_then(|()| file.seek(SeekFrom::Start(0)))
+        .and_then(|_| file.write_all(record.as_bytes()))
+        .context(|| format!("writing {}", path.display()))
 }
 
 /// The words of <args>, as a shell reads them.
@@ -365,16 +386,23 @@ fn shell_words(args: &[String]) -> String {
 }
 
 /// Waits for, then holds, the exclusive lock of one landing in a worktree
-/// (`land.lock` in its git dir), as `take_turn` does.
-fn lock_worktree(worktree: &Path, args: &[String], out: &mut dyn Write) -> Result<std::fs::File> {
+/// (`land.lock` in its git dir), as `take_turn` does. Returns the file and
+/// its path.
+fn lock_worktree(
+    worktree: &Path,
+    args: &[String],
+    out: &mut dyn Write,
+) -> Result<(std::fs::File, PathBuf)> {
     let git_dir = git_text(worktree, &["rev-parse", "--absolute-git-dir"])
         .ok_or_else(|| Fail::Message(format!("{} is not a git worktree", worktree.display())))?;
-    take_turn(
-        &PathBuf::from(git_dir).join(WORKTREE_TURN_FILE),
+    let path = PathBuf::from(git_dir).join(WORKTREE_TURN_FILE);
+    let file = take_turn(
+        &path,
         &format!("the landing in {}", worktree.display()),
-        &turn_record(std::process::id(), &shell_words(args)),
+        &turn_record(std::process::id(), None, &shell_words(args)),
         out,
-    )
+    )?;
+    Ok((file, path))
 }
 
 /// The file in a worktree's git folder whose lock a landing in the worktree
@@ -1404,7 +1432,7 @@ fn land_profiled(program: &Path, args: &[String], out: &mut dyn Write) -> Ended 
         return Ended::before_landing(Err(refuse(out, USAGE)));
     };
     let waiting = (crate::app_timing::now(), Moment::now());
-    let (workdir, lock) = match std::path::absolute(worktree)
+    let (workdir, (mut lock, turn_file)) = match std::path::absolute(worktree)
         .context(|| format!("resolving {worktree}"))
         .and_then(|workdir| Ok((workdir.clone(), lock_worktree(&workdir, rest, out)?)))
     {
@@ -1416,11 +1444,18 @@ fn land_profiled(program: &Path, args: &[String], out: &mut dyn Write) -> Ended 
         started_at: waiting.0,
         ms: waiting.1.elapsed().as_millis() as u64,
     };
-    let _lock = lock;
     let mut landing = match open_landing(program, workdir, rest, out) {
         Ok(landing) => landing,
         Err(error) => return Ended::before_landing(Err(error)),
     };
+    // Written before the landing moves HEAD, so health knows which branch the
+    // worktree works on while the landing checks out other commits there.
+    if let Start::Branch(branch) = &landing.start {
+        let record = turn_record(std::process::id(), Some(branch), &shell_words(rest));
+        if let Err(error) = write_turn(&mut lock, &turn_file, &record) {
+            return Ended::before_landing(Err(error));
+        }
+    }
     landing.steps.borrow_mut().push(lock_step);
     let result = landing.proceed(out);
     let run = match landing.run_record(started_at, began) {

@@ -819,3 +819,35 @@ fn a_worktree_an_item_keeps_says_what_its_item_waits_on() {
         )
     );
 }
+
+/// A card with commits waiting to land whose landing, app build, design
+/// record or board comparison runs is working and says which, over a rules
+/// review that has yet to take the commits.
+#[test]
+fn a_card_whose_branch_a_command_takes_to_main_works_and_names_it() {
+    use crate::design_run::DesignCommand;
+    use crate::health::BranchRun;
+    for (run, named) in [
+        (BranchRun::Landing, "Landing"),
+        (BranchRun::AppBuild, "App build"),
+        (BranchRun::Design(DesignCommand::Record), "Design record"),
+        (
+            BranchRun::Design(DesignCommand::Comparison),
+            "Board comparison",
+        ),
+    ] {
+        let waits = ranked([
+            ItemWait::RulesReview(ReviewWait::NotRun),
+            ItemWait::Run(run),
+        ]);
+        let state = card_state(CardState::ReadyToLand, false, Some(&waits), None);
+        assert_eq!(state, CardState::Working, "{named}");
+        let shown = words(
+            &card(Some("working"), claim(None), Some(0)),
+            state,
+            &[],
+            &waits,
+        );
+        assert_eq!(shown.pill.map(|pill| pill.text).as_deref(), Some(named));
+    }
+}
