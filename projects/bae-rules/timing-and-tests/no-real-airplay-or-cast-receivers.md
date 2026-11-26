@@ -29,6 +29,5 @@ one-off probe an agent runs once.
   The test never falls back to hardware.
 
 A check that only real hardware can answer, such as whether a particular speaker
-accepts bae's stream, is not an agent's check. Ask the person to do it with
-`builds question ask --kind your-step`, say which receiver and which steps, and
-let the item wait on that question.
+accepts bae's stream, is not an agent's check: it is a step for the person
+(`builds help workflow ROLES`), which names the receiver and the steps.
