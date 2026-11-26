@@ -1543,7 +1543,7 @@ fn app_build_returns_a_cached_failure_and_takes_no_lane_without_a_project() {
     std::fs::create_dir_all(run.report()).unwrap();
     std::fs::write(
         run.findings_json(),
-        r#"{"findings": [], "scenes": ["mac.a"]}"#,
+        r#"{"findings": [], "scenes": ["mac.a"], "boards": {"mac.a": "h"}}"#,
     )
     .unwrap();
     crate::shots_program::cmd_shots(
@@ -1700,7 +1700,7 @@ fn a_build_that_reuses_a_cached_run_leaves_the_passing_build_that_land_counts() 
 fn report_run(versions: &crate::shots_program::Versions) -> String {
     let (capture, version) = (&versions.capture, &versions.comparison);
     format!(
-        "mkdir -p shots/report/img; echo png > shots/report/img/a.png; echo stale > shots/report/img/old.png; echo \"<img src=\\\"img/a.png\\\">\" > shots/report/index.html; echo '{{\"version\": \"{version}\", \"capture_version\": \"{capture}\", \"commit\": \"c\", \"scenes\": [], \"findings\": []}}' > shots/report/findings.json; echo '    Running `target/debug/builds-shots run`' >&2; echo 'builds shots: report at '\"$PWD\"'/shots/report/index.html' >&2; exit 0"
+        "mkdir -p shots/report/img; echo png > shots/report/img/a.png; echo stale > shots/report/img/old.png; echo \"<img src=\\\"img/a.png\\\">\" > shots/report/index.html; echo '{{\"version\": \"{version}\", \"capture_version\": \"{capture}\", \"commit\": \"c\", \"scenes\": [], \"boards\": {{}}, \"findings\": []}}' > shots/report/findings.json; echo '    Running `target/debug/builds-shots run`' >&2; echo 'builds shots: report at '\"$PWD\"'/shots/report/index.html' >&2; exit 0"
     )
 }
 

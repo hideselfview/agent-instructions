@@ -45,6 +45,7 @@ fn cache_run_at(places: &Places, key: &Key, recorded_at: i64, exit_code: i64) ->
             "capture_version": key.versions.capture,
             "commit": "c",
             "scenes": ["mac.a"],
+            "boards": {"mac.a": "h"},
             "failed": [],
             "sizes": {"mac.a": {"board": {"width": 1.0, "height": 1.0}}},
             "components": [],
@@ -67,7 +68,7 @@ fn recheck_program(scratch: &Scratch, capture: &str, comparison: &str, passed: b
     std::fs::write(
         &program,
         format!(
-            "#!/bin/sh\necho \"$@\" >> \"{}\"\necho '{{\"version\": \"{comparison}\", \"capture_version\": \"{capture}\", \"commit\": \"c\", \"passed\": {passed}, \"scenes\": [\"mac.a\"], \"seen\": {{\"mac.a\": {{\"board\": [{{\"role\": \"text\", \"words\": \"Beta\"}}], \"shot\": []}}}}, \"findings\": [{{\"scene\": \"mac.a\", \"level\": \"warning\", \"kind\": \"moved\", \"element\": {{\"role\": \"text\", \"words\": \"Beta\"}}, \"dx\": 1.0, \"dy\": 0.0, \"sentence\": \"new sentence\"}}]}}'\n",
+            "#!/bin/sh\necho \"$@\" >> \"{}\"\necho '{{\"version\": \"{comparison}\", \"capture_version\": \"{capture}\", \"commit\": \"c\", \"passed\": {passed}, \"scenes\": [\"mac.a\"], \"boards\": {{\"mac.a\": \"h\"}}, \"seen\": {{\"mac.a\": {{\"board\": [{{\"role\": \"text\", \"words\": \"Beta\"}}], \"shot\": []}}}}, \"findings\": [{{\"scene\": \"mac.a\", \"level\": \"warning\", \"kind\": \"moved\", \"element\": {{\"role\": \"text\", \"words\": \"Beta\"}}, \"dx\": 1.0, \"dy\": 0.0, \"sentence\": \"new sentence\"}}]}}'\n",
             scratch.dir.join("calls").display()
         ),
     )
@@ -238,7 +239,7 @@ fn a_comparison_that_prints_no_elements_read_makes_no_run() {
     std::fs::write(
         &program,
         format!(
-            "#!/bin/sh\necho '{{\"version\": \"{}\", \"capture_version\": \"{capture}\", \"commit\": \"c\", \"passed\": true, \"scenes\": [\"mac.a\"], \"findings\": []}}'\n",
+            "#!/bin/sh\necho '{{\"version\": \"{}\", \"capture_version\": \"{capture}\", \"commit\": \"c\", \"passed\": true, \"scenes\": [\"mac.a\"], \"boards\": {{\"mac.a\": \"h\"}}, \"findings\": []}}'\n",
             VERSIONS.comparison
         ),
     )

@@ -504,6 +504,12 @@ fn words(value: &str) -> Vec<String> {
     value.split_whitespace().map(str::to_string).collect()
 }
 
+/// The repo's `.app-build` at <commit>, read from the git repository at <top>
+/// without touching a checkout's tree.
+pub fn config_in(top: &Path, commit: &str) -> Result<Config> {
+    parse_config(&run_git(top, &["show", &format!("{commit}:{CONFIG}")])?)
+}
+
 pub fn parse_config(text: &str) -> Result<Config> {
     let (mut mac_build, mut mac_app, mut bundle) = (None, None, None);
     let mut android = None;

@@ -35,9 +35,7 @@ pub struct Run {
     /// Every scene the run checked.
     pub scenes: Vec<String>,
     /// The hash of each checked scene's board (`shot_unconfirmed.rs`): runs
-    /// of a scene with the same hash drew the same board. Empty in a run
-    /// that an older shots program made, which records none.
-    #[serde(default)]
+    /// of a scene with the same hash drew the same board.
     pub boards: BTreeMap<String, String>,
     pub findings: Vec<Record>,
 }

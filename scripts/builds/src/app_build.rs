@@ -113,9 +113,8 @@ use std::time::Duration;
 use crate::app_build_step_failure::StepRead;
 use crate::app_build_step_shots::{BaseRun, Pictures, ReusedRead, ShotsUse};
 use crate::app_config::{
-    CONFIG, CheckedOut, Config, PickKind, Picker, Scenes, Step, check_out, count_scenes,
-    parse_config, parse_scene_count, resolve, resolve_checkout, run_command_keeping, run_git,
-    show_duration,
+    CONFIG, CheckedOut, Config, PickKind, Picker, Scenes, Step, check_out, config_in, count_scenes,
+    parse_config, parse_scene_count, resolve, resolve_checkout, run_command_keeping, show_duration,
 };
 use crate::app_landing::covers_prefix;
 use crate::app_lock_guard::CheckoutLock;
@@ -984,7 +983,7 @@ fn run_steps_with(
 /// lane's own run reads it again from its checkout, under its lock.
 pub fn config_at(places: &Places, repo: &str, commit: &str) -> Result<Config> {
     let source = fetched_local_source(places, repo)?;
-    parse_config(&run_git(&source, &["show", &format!("{commit}:{CONFIG}")])?)
+    config_in(&source, commit)
 }
 
 /// What a lane's build does in its app checkout (app_site.rs).
@@ -1039,8 +1038,7 @@ impl Site<'_> {
                 let source = fetched_local_source(places, repo)?;
                 let sha = resolve(&source, commit)?;
                 remote.switch_to(&source, &sha)?;
-                let config =
-                    parse_config(&run_git(&source, &["show", &format!("{sha}:{CONFIG}")])?)?;
+                let config = config_in(&source, &sha)?;
                 Ok(CheckedOut { sha, config })
             }
         }
@@ -1175,7 +1173,7 @@ pub fn commit_and_config(
 ) -> Result<(std::path::PathBuf, String, Config)> {
     let top = fetched_local_source(places, repo)?;
     let commit = resolve(&top, git_ref)?;
-    let config = parse_config(&run_git(&top, &["show", &format!("{commit}:{CONFIG}")])?)?;
+    let config = config_in(&top, &commit)?;
     Ok((top, commit, config))
 }
 

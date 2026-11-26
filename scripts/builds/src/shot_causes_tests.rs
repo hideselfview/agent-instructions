@@ -12,7 +12,7 @@ fn run(records: &[Value], clean: &[&str]) -> Run {
     scenes.sort();
     scenes.dedup();
     parse(
-        &json!({"version": "v1", "commit": "abc", "scenes": scenes, "findings": records})
+        &json!({"version": "v1", "commit": "abc", "scenes": scenes, "boards": {}, "findings": records})
             .to_string(),
     )
     .unwrap()

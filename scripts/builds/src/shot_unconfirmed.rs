@@ -11,9 +11,8 @@
 //! no mark: nothing says its findings are flaky.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
 
-use crate::app_config::{CONFIG, parse_config, run_git};
+use crate::app_config::{config_in, run_git};
 use crate::app_remote::fetched_local_source;
 use crate::app_tree;
 use crate::fail;
@@ -38,7 +37,7 @@ pub fn mark(places: &Places, cached: &Cached, run: &mut Run) -> Result<()> {
     let key = &cached.key;
     let _reading = shots_cache::writing(places)?;
     let mut trees = AppTrees::new(places, &key.repo, key.lane)?;
-    let Some(own_tree) = trees.of(&key.commit) else {
+    let Some(own_tree) = trees.of(&key.commit)? else {
         fail!(
             "the app checkout of {} lacks commit {}, so no other run can be compared with its app code",
             key.repo,
@@ -62,7 +61,7 @@ pub fn mark(places: &Places, cached: &Cached, run: &mut Run) -> Result<()> {
             continue;
         }
         if other.key.commit != key.commit {
-            match trees.of(&other.key.commit) {
+            match trees.of(&other.key.commit)? {
                 Some(tree) if tree == own_tree => {}
                 Some(_) => continue,
                 None => {
@@ -94,11 +93,9 @@ pub fn mark(places: &Places, cached: &Cached, run: &mut Run) -> Result<()> {
 fn boards_in_common<'a>(run: &'a Run, theirs: &'a Run) -> impl Iterator<Item = &'a str> {
     let scenes: BTreeSet<&str> = run.findings.iter().map(|r| r.scene.as_str()).collect();
     scenes.into_iter().filter(|scene| {
-        theirs.scenes.iter().any(|s| s == scene)
-            && run
-                .boards
-                .get(*scene)
-                .is_some_and(|hash| theirs.boards.get(*scene) == Some(hash))
+        run.boards
+            .get(*scene)
+            .is_some_and(|hash| theirs.boards.get(*scene) == Some(hash))
     })
 }
 
@@ -147,9 +144,7 @@ fn shown_of(record: &shot_causes::Record) -> Shown {
 struct AppTrees {
     top: std::path::PathBuf,
     lane: Lane,
-    /// Each commit asked for, with its tree; none for a commit the app
-    /// checkout lacks.
-    known: BTreeMap<String, Option<String>>,
+    known: BTreeMap<String, String>,
 }
 
 impl AppTrees {
@@ -161,18 +156,25 @@ impl AppTrees {
         })
     }
 
-    /// The app source tree of <commit>; none when the app checkout lacks it.
-    fn of(&mut self, commit: &str) -> Option<String> {
-        self.known
-            .entry(commit.to_string())
-            .or_insert_with(|| tree_of(&self.top, commit, self.lane).ok())
-            .clone()
+    /// The app source tree of <commit>; none when the app checkout lacks the
+    /// commit. Any other failure fails the read.
+    fn of(&mut self, commit: &str) -> Result<Option<String>> {
+        if let Some(tree) = self.known.get(commit) {
+            return Ok(Some(tree.clone()));
+        }
+        if run_git(
+            &self.top,
+            &["cat-file", "-e", &format!("{commit}^{{commit}}")],
+        )
+        .is_err()
+        {
+            return Ok(None);
+        }
+        let config = config_in(&self.top, commit)?;
+        let tree = app_tree::of(&self.top, commit, &config, self.lane)?;
+        self.known.insert(commit.to_string(), tree.clone());
+        Ok(Some(tree))
     }
-}
-
-fn tree_of(top: &Path, commit: &str, lane: Lane) -> Result<String> {
-    let config = parse_config(&run_git(top, &["show", &format!("{commit}:{CONFIG}")])?)?;
-    app_tree::of(top, commit, &config, lane)
 }
 
 #[cfg(test)]

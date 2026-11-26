@@ -69,14 +69,6 @@ fn each_scene_counts_only_the_runs_that_checked_it_with_its_board() {
 }
 
 #[test]
-fn a_run_that_records_no_board_hashes_marks_nothing() {
-    let mut mine = run(&[], &[("mac.a", "grey")]);
-    let theirs = run(&[("mac.a", "h1")], &[]);
-    apply(&mut mine, &[theirs]);
-    assert_eq!(others(&mine), vec![None]);
-}
-
-#[test]
 fn the_plain_text_marks_an_unconfirmed_finding_and_the_causes_leave_it_out() {
     let mut mine = run(
         &[("mac.a", "h1"), ("mac.b", "h1")],

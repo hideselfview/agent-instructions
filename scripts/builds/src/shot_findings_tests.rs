@@ -125,7 +125,7 @@ fn a_run_grouped_by_cause_reads_the_records_its_cached_report_holds() {
     std::fs::create_dir_all(cached.report()).unwrap();
     std::fs::write(
         cached.findings_json(),
-        r#"{"findings": [{"scene": "mac.a", "level": "warning", "component": "MacRow", "kind": "region", "sentence": "s"}], "scenes": ["mac.a"]}"#,
+        r#"{"findings": [{"scene": "mac.a", "level": "warning", "component": "MacRow", "kind": "region", "sentence": "s"}], "scenes": ["mac.a"], "boards": {"mac.a": "h"}}"#,
     )
     .unwrap();
     let text = shot_causes::text(&read_run(&cached, "main").unwrap());
@@ -258,7 +258,7 @@ fn the_plain_findings_are_the_records_never_the_stored_build_log() {
     std::fs::create_dir_all(cached.report()).unwrap();
     std::fs::write(
         cached.findings_json(),
-        r#"{"findings": [{"scene": "mac.a", "level": "warning", "kind": "region", "sentence": "The pictures differ"}, {"scene": "mac.b", "level": "finding", "kind": "missing", "sentence": "An element is missing"}], "scenes": ["mac.a", "mac.b", "mac.c"]}"#,
+        r#"{"findings": [{"scene": "mac.a", "level": "warning", "kind": "region", "sentence": "The pictures differ"}, {"scene": "mac.b", "level": "finding", "kind": "missing", "sentence": "An element is missing"}], "scenes": ["mac.a", "mac.b", "mac.c"], "boards": {}}"#,
     )
     .unwrap();
     assert_eq!(
