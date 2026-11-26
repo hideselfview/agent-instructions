@@ -15,7 +15,7 @@
     toLocaleString(locales, options) { return super.toLocaleString(locales, {...options, timeZone: "UTC"}); }
     toLocaleTimeString(locales, options) { return super.toLocaleTimeString(locales, {...options, timeZone: "UTC"}); }
   }
-  for (const part of ["FullYear", "Month", "Date", "Day", "Hours", "Minutes"]) {
+  for (const part of ["FullYear", "Month", "Date", "Hours", "Minutes"]) {
     Staged.prototype["get" + part] = Real.prototype["getUTC" + part];
   }
   Staged.prototype.setHours = Real.prototype.setUTCHours;
