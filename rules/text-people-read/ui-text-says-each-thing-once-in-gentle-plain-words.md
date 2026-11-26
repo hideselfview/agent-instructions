@@ -32,27 +32,22 @@ never with breaks placed by hand:
 
 **An action that hasn't happened yet takes "will".** A confirmation describes
 what happens after the person confirms, so its line says what the app will do.
-Don't put that coming action in the simple present: a reader takes "bae deletes
-540 MB" to mean the deletion is already happening. The slip usually comes from
-turning a passive sentence ("540 MB will be removed") into an active one and
-dropping the "will" with the passive.
+Don't put that coming action in the simple present: a reader takes "The app
+deletes 540 MB" to mean the deletion is already happening. The slip usually
+comes from turning a passive sentence ("540 MB will be removed") into an active
+one and dropping the "will" with the passive.
 
-- ✗ "bae deletes 540 MB from this phone." → ✓ "bae will delete 540 MB from this
-  phone."
-- ✗ "bae deletes this playlist from every device." → ✓ "bae will delete this
-  playlist from every device."
-- ✗ "bae removes its files from this Mac now." → ✓ "bae will remove its files
-  from this Mac now."
-- ✗ "bae deletes your saved key." → ✓ "bae will delete your saved key."
+- ✗ "The app deletes 540 MB from this phone." → ✓ "The app will delete 540 MB
+  from this phone."
+- ✗ "The app deletes your saved key." → ✓ "The app will delete your saved key."
 
-The simple present stays right for what bae always does ("bae keeps tracks you
-played from the cloud here") and for what a line states as true now ("Your
-library stays as it is").
+The simple present stays right for what the app always does ("The app keeps the
+files you opened here") and for what a line states as true now ("Your library
+stays as it is").
 
 **A placeholder says what a field is for, only when the label can't.** Under the
-label "Your name", "For your profile, ratings and playlists" earns its place;
-"Enter your name" repeats the label. A placeholder fits the box on one line,
-about 40 characters on a phone.
+label "Email", "Enter your email" repeats the label. A placeholder fits the box
+on one line, about 40 characters on a phone.
 
 **A notice says what happened, what's wrong and the fix, each once.**
 
@@ -70,12 +65,10 @@ about 40 characters on a phone.
 - No quotes around names or the names of controls.
 - No contractions: write the words out (Could not, does not, cannot).
 
-Example: a library on the Mac's Welcome list fails to open because its tables
-don't match the app's.
+Example: a list's row for a folder that the app can no longer read.
 
-- Before, a notice over the whole list: "Library failed to open / Choose another
-  library, or restore it with “Enter code”." It doesn't say which library, and
-  Enter code isn't on the screen.
-- After, under the row: "Could not open / Something is wrong with this library’s
-  data." with Details and Reset from cloud…, whose confirmation warns about
-  unsynced edits.
+- Before, a notice over the whole list: "Folder failed to load / Choose another
+  folder in Settings." It doesn't say which folder, and Settings isn't on the
+  screen.
+- After, under the row: "Could not open / The app cannot read this folder." with
+  Details and Choose again…
