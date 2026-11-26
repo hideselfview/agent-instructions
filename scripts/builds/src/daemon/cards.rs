@@ -35,7 +35,8 @@ pub enum ItemWait {
     ForeignItem {
         project: String,
         id: u32,
-        title: String,
+        /// None when that project's store could not be read.
+        title: Option<String>,
         /// Where the item stands, in words.
         state: String,
     },
@@ -236,7 +237,10 @@ impl ItemWait {
                 id,
                 title,
                 state,
-            } => format!("Waits on {project} #{id} ({state}): {title}"),
+            } => match title {
+                Some(title) => format!("Waits on {project} #{id} ({state}): {title}"),
+                None => format!("Waits on {project} #{id} ({state})"),
+            },
             ItemWait::Landing { id, title } => {
                 format!("Waits on design change {id} to land: {title}")
             }

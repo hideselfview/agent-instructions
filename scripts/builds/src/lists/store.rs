@@ -396,7 +396,7 @@ pub fn read(db: &Connection) -> Result<Lists> {
     // Closed records by closing time, then id.
     closed.sort_by_key(|c| (c.closed.at, c.record.id()));
     lists.closed = closed;
-    lists.foreign = item_wait_foreign::resolve(db.path().map_or(Path::new(""), Path::new), &lists);
+    lists.foreign = item_wait_foreign::resolve(db.path().map(Path::new), &lists);
     Ok(lists)
 }
 
@@ -584,7 +584,7 @@ pub fn reload(
         let kept = before.filter(|before| match (&before.lists, store.revision()) {
             (Ok(lists), Ok(version)) => {
                 lists.version == version
-                    && lists.foreign == item_wait_foreign::resolve(&store.database(), lists)
+                    && lists.foreign == item_wait_foreign::resolve(Some(&store.database()), lists)
             }
             (Err(fault), Err(now)) => *fault == now.text(),
             _ => false,

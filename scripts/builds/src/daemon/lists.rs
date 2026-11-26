@@ -491,7 +491,7 @@ pub fn item_waits(
                 ItemWait::ForeignItem {
                     project: project.clone(),
                     id: on.0,
-                    title: found.title().unwrap_or_default().to_string(),
+                    title: found.title().map(str::to_string),
                     state: found.words(),
                 }
             }

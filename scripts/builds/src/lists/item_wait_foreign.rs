@@ -199,10 +199,15 @@ fn standing_in(conn: &Connection, project: &str, id: Id) -> Result<(String, Fore
 
 /// The folder that holds every project's store, from the path of one
 /// project's database: <lists>/<project>/builds.sqlite.
-fn folder_of(database: &Path) -> Result<&Path> {
+fn folder_of(database: Option<&Path>) -> Result<&Path> {
+    let Some(database) = database else {
+        fail!(
+            "the lists were read from a database with no file, so builds cannot find the other projects' stores"
+        );
+    };
     match database.parent().and_then(Path::parent) {
-        Some(folder) if !database.as_os_str().is_empty() => Ok(folder),
-        _ => fail!(
+        Some(folder) => Ok(folder),
+        None => fail!(
             "{} is not in a project's folder, so builds cannot find the other projects' stores",
             database.display()
         ),
@@ -211,8 +216,8 @@ fn folder_of(database: &Path) -> Result<&Path> {
 
 /// Every item of another project that an item of <lists>, open or closed,
 /// waits on, read from the stores beside <database>, the database <lists>
-/// came from, in project then id order.
-pub fn resolve(database: &Path, lists: &Lists) -> Vec<ForeignItem> {
+/// came from (None for one with no file), in project then id order.
+pub fn resolve(database: Option<&Path>, lists: &Lists) -> Vec<ForeignItem> {
     let closed = lists
         .closed
         .iter()
