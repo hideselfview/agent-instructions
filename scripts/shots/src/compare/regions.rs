@@ -3,7 +3,7 @@
 //! the text and control boxes; a cell whose mean difference passes the
 //! tolerance is marked, and neighbouring marked cells merge into rectangles.
 
-use super::colour::{Lab, delta_e, pixel};
+use super::colour::{Lab, Rgb, delta_e, pixel};
 use super::components::components;
 use super::window::Window;
 use super::{DELTA_E_TOLERANCE, PictureSide, REGION_CELL, Side};
@@ -14,8 +14,8 @@ use crate::shots::{Bounds, Element, Picture};
 /// differ by [`RESIDUAL_LEVELS`] or fewer on average: ink in the same places
 /// on both sides, differing by the antialiasing of its edges or a colour
 /// rounded by a level, which neither the board nor the app can change. The
-/// edges of the residuals measured in bae's runs on 35f6ab0d24 differ by up to
-/// 43 levels; ink moved half a point differs by the ink's whole contrast.
+/// antialiased edges of the same ink differ by up to about 43 levels; ink
+/// moved half a point differs by the ink's whole contrast.
 pub(super) const EDGE_LEVELS: u8 = 48;
 /// The mean difference, in levels, of a region that is alike.
 pub(super) const RESIDUAL_LEVELS: f64 = 2.0;
@@ -49,6 +49,36 @@ fn covered(list: &[Element], offset: (f64, f64)) -> Vec<Bounds> {
         .collect()
 }
 
+/// The colours of the two pictures at the point (`px`, `py`) of the board's
+/// frame, as the picture comparison reads them: none where either picture
+/// has no pixel or the window leaves the point out. The shot's frame is
+/// `offset` from the board's.
+fn colours_at(
+    board: &Side,
+    shot: &Side,
+    offset: (f64, f64),
+    window: Option<&Window>,
+    (px, py): (f64, f64),
+) -> Option<(Rgb, Rgb)> {
+    if window.is_some_and(|window| {
+        !window.compares(PictureSide::Board, board, px, py)
+            || !window.compares(PictureSide::Shot, shot, px + offset.0, py + offset.1)
+    }) {
+        return None;
+    }
+    let at = |picture: &Picture, scale: f64, shift: (f64, f64)| {
+        pixel(
+            picture,
+            ((px + shift.0) * scale).floor() as i64,
+            ((py + shift.1) * scale).floor() as i64,
+        )
+    };
+    Some((
+        at(board.picture, board.scale, (0.0, 0.0))?,
+        at(shot.picture, shot.scale, offset)?,
+    ))
+}
+
 /// The mean difference of the two pictures over the cell at (`x`, `y`) of the
 /// board's frame, sampled every point; the shot's frame is `offset` from the
 /// board's.
@@ -64,24 +94,8 @@ fn cell_delta(
     let steps = REGION_CELL as i64;
     for dy in 0..steps {
         for dx in 0..steps {
-            let (px, py) = (x + dx as f64 + 0.5, y + dy as f64 + 0.5);
-            if window.is_some_and(|window| {
-                !window.compares(PictureSide::Board, board, px, py)
-                    || !window.compares(PictureSide::Shot, shot, px + offset.0, py + offset.1)
-            }) {
-                continue;
-            }
-            let at = |picture: &Picture, scale: f64, shift: (f64, f64)| {
-                pixel(
-                    picture,
-                    ((px + shift.0) * scale).floor() as i64,
-                    ((py + shift.1) * scale).floor() as i64,
-                )
-            };
-            if let (Some(a), Some(b)) = (
-                at(board.picture, board.scale, (0.0, 0.0)),
-                at(shot.picture, shot.scale, offset),
-            ) {
+            let point = (x + dx as f64 + 0.5, y + dy as f64 + 0.5);
+            if let Some((a, b)) = colours_at(board, shot, offset, window, point) {
                 total += delta_e(Lab::of(a), Lab::of(b));
                 count += 1;
             }
@@ -107,24 +121,11 @@ fn residual(
             for dx in 0..steps {
                 let x = (column as f64 * REGION_CELL * board.scale).floor() as i64 + dx;
                 let y = (row as f64 * REGION_CELL * board.scale).floor() as i64 + dy;
-                let (px, py) = (
+                let point = (
                     (x as f64 + 0.5) / board.scale,
                     (y as f64 + 0.5) / board.scale,
                 );
-                if window.is_some_and(|window| {
-                    !window.compares(PictureSide::Board, board, px, py)
-                        || !window.compares(PictureSide::Shot, shot, px + offset.0, py + offset.1)
-                }) {
-                    continue;
-                }
-                let (Some(a), Some(b)) = (
-                    pixel(board.picture, x, y),
-                    pixel(
-                        shot.picture,
-                        ((px + offset.0) * shot.scale).floor() as i64,
-                        ((py + offset.1) * shot.scale).floor() as i64,
-                    ),
-                ) else {
+                let Some((a, b)) = colours_at(board, shot, offset, window, point) else {
                     continue;
                 };
                 let differences = a.iter().zip(b).map(|(&a, b)| a.abs_diff(b));
