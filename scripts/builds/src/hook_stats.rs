@@ -337,7 +337,8 @@ pub struct CheckStats {
 
 /// The median time of a check's latest `TREND_RUNS` runs and of the
 /// `TREND_RUNS` before them.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Trend {
     pub recent_ms: u64,
     pub earlier_ms: u64,
@@ -1015,8 +1016,8 @@ pub struct CheckFigures {
     pub skipped: u32,
     pub median_ms: u64,
     pub slowest_ms: u64,
-    pub recent_ms: Option<u64>,
-    pub earlier_ms: Option<u64>,
+    /// Its latest runs against the ones before; None until enough ran.
+    pub trend: Option<Trend>,
 }
 
 /// The dashboard's hooks for one repo of a project: its figures and latest
@@ -1042,8 +1043,7 @@ fn repo_hooks(repo: &str, path: &Path, since: i64) -> RepoHooks {
                     skipped: c.skipped,
                     median_ms: c.median_ms,
                     slowest_ms: c.slowest_ms,
-                    recent_ms: c.trend.map(|t| t.recent_ms),
-                    earlier_ms: c.trend.map(|t| t.earlier_ms),
+                    trend: c.trend,
                 })
                 .collect(),
             trend_runs: TREND_RUNS,

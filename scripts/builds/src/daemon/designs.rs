@@ -34,7 +34,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use boards::colors;
-use boards::colors::Switch;
+use boards::colors::{Comparison, Switch};
 use boards::preview::{Card, contents};
 use boards::tokens::{Specimen, Theme as ColorTheme, specimen};
 use boards::{BOARD_SUFFIX, CANVAS, Source, TOKENS_JSON, canvas_place, canvas_size};
@@ -175,18 +175,9 @@ pub enum Colors {
     Read {
         themes: Vec<ColorTheme>,
         switches: Vec<Switch>,
-        comparison: Option<ColorsComparison>,
+        comparison: Option<Comparison>,
         groups: Vec<ColorsGroup>,
     },
-}
-
-/// The scene that the colors draw once for each option of a switch.
-#[derive(serde::Serialize, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ColorsComparison {
-    pub name: String,
-    pub about: String,
-    pub switch: String,
 }
 
 /// A group of colors: the names of the colors its swatches show.
@@ -338,15 +329,7 @@ pub fn data(
         Ok(palette) => Colors::Read {
             themes: palette.themes.to_vec(),
             switches: palette.switches,
-            comparison: palette
-                .colors
-                .comparison
-                .as_ref()
-                .map(|comparison| ColorsComparison {
-                    name: comparison.name.clone(),
-                    about: comparison.about.clone(),
-                    switch: comparison.switch.clone(),
-                }),
+            comparison: palette.colors.comparison,
             groups: palette
                 .colors
                 .groups

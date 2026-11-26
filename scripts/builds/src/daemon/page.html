@@ -1105,9 +1105,9 @@ function moreToggle(key, label) {
 }
 function checkRow(c) {
   let last = h("td", {class: "n"}, "");
-  if (c.recent_ms != null) {
-    const cls = c.recent_ms < c.earlier_ms ? "ok" : c.recent_ms > c.earlier_ms ? "warn" : "";
-    last = h("td", {class: "n"}, h("span", {class: cls}, secs(c.recent_ms)));
+  if (c.trend != null) {
+    const cls = c.trend.recent_ms < c.trend.earlier_ms ? "ok" : c.trend.recent_ms > c.trend.earlier_ms ? "warn" : "";
+    last = h("td", {class: "n"}, h("span", {class: cls}, secs(c.trend.recent_ms)));
   }
   return h("tr", {}, h("td", {}, c.name), h("td", {class: "n"}, secs(c.median_ms)), last, h("td", {class: "n"}, secs(c.slowest_ms)));
 }

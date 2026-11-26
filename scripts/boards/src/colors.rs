@@ -32,7 +32,7 @@ pub struct Colors {
 }
 
 /// A scene drawn once for each option of a switch, side by side.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Comparison {
     pub name: String,

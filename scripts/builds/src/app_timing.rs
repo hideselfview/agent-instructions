@@ -39,7 +39,8 @@ pub const WINDOW_SECONDS: i64 = crate::hook_stats::DASHBOARD_WINDOW_SECONDS;
 pub const WAITS_SHOWN: usize = 20;
 
 /// What kind of step a row is.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum StepKind {
     /// A step of `.app-build`.
     Step,
@@ -833,7 +834,8 @@ pub fn waits(conn: &Connection, since: i64, path: &Path) -> Result<Vec<crate::wa
 }
 
 /// One step's figures in one repo and lane.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct StepStats {
     /// As the dashboard words it: `macos`, `Foo` for the test class `Foo`,
     /// `mac.welcome.*` for the shot prefix `mac.welcome.`.
@@ -848,8 +850,10 @@ pub struct StepStats {
 }
 
 /// One app build lane's figures in one repo.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LaneStats {
+    #[serde(with = "lane_word")]
     pub lane: Lane,
     /// Runs in the window, whether they passed or not.
     pub runs: u32,
@@ -862,7 +866,8 @@ pub struct LaneStats {
 }
 
 /// One repo's figures over the window.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RepoStats {
     pub repo: String,
     /// The lanes with a run in the window, mac first.
@@ -1042,39 +1047,8 @@ pub enum AppBuilds {
     },
     Read {
         window_seconds: i64,
-        repos: Vec<RepoFigures>,
+        repos: Vec<RepoStats>,
     },
-}
-
-/// One repo's app builds, lane by lane.
-#[derive(serde::Serialize, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct RepoFigures {
-    pub repo: String,
-    pub lanes: Vec<LaneFigures>,
-}
-
-/// One lane's waits and steps.
-#[derive(serde::Serialize, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct LaneFigures {
-    pub lane: String,
-    pub runs: u32,
-    pub median_wait_ms: u64,
-    pub waits_ms: Vec<u64>,
-    pub steps: Vec<StepFigures>,
-}
-
-/// One step's figures.
-#[derive(serde::Serialize, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct StepFigures {
-    pub name: String,
-    pub kind: String,
-    pub ran: u32,
-    pub median_ms: u64,
-    pub slowest_ms: u64,
-    pub total_ms: u64,
 }
 
 /// The dashboard's app builds figures for the project store at <path>, over
@@ -1086,35 +1060,23 @@ pub fn dashboard_figures(path: &Path, now: i64) -> AppBuilds {
         },
         Ok(repos) => AppBuilds::Read {
             window_seconds: WINDOW_SECONDS,
-            repos: repos
-                .iter()
-                .map(|repo| RepoFigures {
-                    repo: repo.repo.clone(),
-                    lanes: repo
-                        .lanes
-                        .iter()
-                        .map(|l| LaneFigures {
-                            lane: l.lane.word().to_string(),
-                            runs: l.runs,
-                            median_wait_ms: l.median_wait_ms,
-                            waits_ms: l.waits_ms.clone(),
-                            steps: l
-                                .steps
-                                .iter()
-                                .map(|s| StepFigures {
-                                    name: s.name.clone(),
-                                    kind: s.kind.word().to_string(),
-                                    ran: s.ran,
-                                    median_ms: s.median_ms,
-                                    slowest_ms: s.slowest_ms,
-                                    total_ms: s.total_ms,
-                                })
-                                .collect(),
-                        })
-                        .collect(),
-                })
-                .collect(),
+            repos,
         },
+    }
+}
+
+/// A lane as its word, `mac` or `android`, in the page's data.
+mod lane_word {
+    use super::Lane;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(lane: &Lane, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(lane.word())
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Lane, D::Error> {
+        let word = String::deserialize(deserializer)?;
+        Lane::parse(&word).ok_or_else(|| serde::de::Error::custom(format!("no lane {word:?}")))
     }
 }
 

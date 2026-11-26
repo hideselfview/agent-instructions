@@ -502,7 +502,7 @@ fn the_dashboard_json_carries_the_flags_and_the_trend() {
     assert_eq!(project["over"][0]["total_ms"], 99_000);
     assert_eq!(project["over"][0]["worktree"], "/d/bae");
     assert_eq!(project["over"][0]["checks"][0]["crates"], 0);
-    assert!(project["checks"][0]["recent_ms"].is_null());
+    assert!(project["checks"][0]["trend"].is_null());
 }
 
 #[test]

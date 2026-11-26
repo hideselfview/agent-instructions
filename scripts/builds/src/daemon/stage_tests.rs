@@ -75,7 +75,7 @@ fn hooks() -> Value {
             "repo": "demo", "runs": 1, "median_ms": 50, "slowest_ms": 50,
             "checks": [{
                 "name": "fmt", "kind": "check", "ran": 1, "skipped": 0, "median_ms": 10,
-                "slowest_ms": 10, "recent_ms": null, "earlier_ms": null,
+                "slowest_ms": 10, "trend": { "recent_ms": 9, "earlier_ms": 10 },
             }],
             "trend_runs": 10, "limit_ms": 45_000, "over_count": 0,
             "over": [], "slowest": [run.clone()], "recent": [run],
