@@ -11,7 +11,10 @@ CREATE TABLE IF NOT EXISTS app_build_runs (
     -- When the run joined the lane's queue, seconds since 1970.
     started_at INTEGER NOT NULL CHECK (started_at > 0),
     repo TEXT NOT NULL CHECK (repo <> ''),
-    lane TEXT NOT NULL CHECK (lane IN ('mac', 'android')),
+    -- The name of the app the lane builds: lower-case words of letters and
+    -- digits joined by '-', in at most 32 bytes, as
+    -- `boards::app_build::is_app_name` accepts.
+    lane TEXT NOT NULL CHECK (length(CAST(lane AS BLOB)) <= 32 AND lane NOT GLOB '*[^-a-z0-9]*' AND '-' || lane || '-' NOT GLOB '*--*'),
     -- The app checkout (side-N) the run built in.
     checkout TEXT NOT NULL CHECK (checkout <> ''),
     -- The ref the caller named.

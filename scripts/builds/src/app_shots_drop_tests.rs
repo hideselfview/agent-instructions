@@ -36,6 +36,68 @@ fn a_drop_counts_for_its_branch_and_lane_since_the_branchs_first_commit() {
     assert_eq!(dropped(&db, "bae", "gone", Lane::MAC, SINCE).unwrap(), []);
 }
 
+#[test]
+fn a_web_lanes_build_and_dropped_prefix_are_recorded() {
+    let scratch = Scratch::new("shots-drop-web");
+    let store = make_store_named(&scratch.places(), "demo", &["bae"]);
+    let run = RunRecord {
+        started_at: NOON,
+        repo: "bae".into(),
+        lane: Lane::WEB,
+        checkout: "side-1".into(),
+        built_ref: "work".into(),
+        requested_commit: None,
+        built_commit: None,
+        who: None,
+        wait_ms: 0,
+        outcome: RunEnd::Passed,
+        load: None,
+        steps: Vec::new(),
+    };
+    crate::app_timing::record(&store.database(), &run).unwrap();
+    drop_of(&store, "work", Lane::WEB, "web.dashboard.", NOON).unwrap();
+}
+
+/// The lane checks of the runs' table and the drops' table take exactly the
+/// app names.
+#[test]
+fn each_lane_column_takes_exactly_the_app_names() {
+    let db = crate::db::memory();
+    db.pragma_update(None, "foreign_keys", false).unwrap();
+    let longest = "a".repeat(boards::app_build::APP_NAME_BYTES);
+    let too_long = "a".repeat(boards::app_build::APP_NAME_BYTES + 1);
+    for name in [
+        "mac",
+        "web",
+        "zeta-shell-2",
+        "7",
+        &longest,
+        &too_long,
+        "",
+        "-",
+        "-web",
+        "web-",
+        "zeta--shell",
+        "Web",
+        "web.dashboard",
+        "zeta_shell",
+        "zeta shell",
+        "wéb",
+    ] {
+        let run = db.execute(
+            "INSERT INTO app_build_runs (started_at, repo, lane, checkout, built_ref, wait_ms, outcome) VALUES (1, 'bae', ?1, 'side-1', 'work', 0, 'passed')",
+            [name],
+        );
+        let drop = db.execute(
+            "INSERT INTO app_shots_drop (repo, branch, lane, prefix, at, by, why) VALUES ('bae', 'work', ?1, 'p.', 1, 'agent', 'why')",
+            [name],
+        );
+        let takes = boards::app_build::is_app_name(name);
+        assert_eq!(run.is_ok(), takes, "{name:?}");
+        assert_eq!(drop.is_ok(), takes, "{name:?}");
+    }
+}
+
 /// A drop with no reason is refused by the table.
 #[test]
 fn a_drop_with_no_reason_is_refused() {

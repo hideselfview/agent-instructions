@@ -642,6 +642,35 @@ pub fn add_at_merge_base(db: &Connection) -> Result<()> {
     )
 }
 
+/// Makes `app_build_runs` again as app_timing.sql writes it, which takes any
+/// app's name as a run's lane: a store from before took only `mac` and
+/// `android`. Each run keeps its row. migrate.rs runs it with the foreign
+/// keys off, so the rows that point at a run stay.
+pub fn allow_named_lanes(db: &Connection) -> Result<()> {
+    use crate::db::{Sql, remake_table, statement};
+    let schema = include_str!("app_timing.sql");
+    remake_table(
+        db,
+        "app_build_runs",
+        statement(
+            schema,
+            "CREATE TABLE IF NOT EXISTS app_build_runs",
+            ") STRICT;",
+        ),
+        |db| {
+            db.execute_batch(
+                "INSERT INTO app_build_runs (id, started_at, repo, lane, checkout, built_ref, who, wait_ms, outcome, cores, load) SELECT id, started_at, repo, lane, checkout, built_ref, who, wait_ms, outcome, cores, load FROM app_build_runs_old",
+            )
+            .sql()
+        },
+        &[statement(
+            schema,
+            "CREATE INDEX IF NOT EXISTS idx_app_build_runs_started",
+            ";",
+        )],
+    )
+}
+
 /// A passing app build run: the commit it built (app_build_commit.rs) and
 /// the steps that passed and the comparisons it reused.
 #[derive(Clone, Debug, PartialEq, Eq)]

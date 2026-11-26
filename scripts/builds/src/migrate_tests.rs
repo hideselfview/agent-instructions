@@ -3174,3 +3174,63 @@ fn a_store_from_before_foreign_waits_gets_the_table_and_keeps_its_waits() {
         .unwrap();
     assert_eq!(waits, 0);
 }
+
+#[test]
+fn the_named_lanes_stamp_is_the_schema_before_it() {
+    assert_eq!(
+        db::stamp_of_text(&db::schema_before_named_lanes()),
+        BEFORE_NAMED_LANES_STAMP
+    );
+}
+
+/// A store from before a lane could be any app keeps each app build run, with
+/// its step, and each dropped prefix, equals a fresh schema, and then takes a
+/// web lane's run and drop.
+#[test]
+fn a_store_from_before_named_lanes_keeps_its_runs_and_drops_and_takes_a_web_lane() {
+    let scratch = Scratch::new("move-named-lanes");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    const RUN: &str = "INSERT INTO app_build_runs (id, started_at, repo, lane, checkout, built_ref, wait_ms, outcome) VALUES";
+    const DROP: &str =
+        "INSERT INTO app_shots_drop (id, repo, branch, lane, prefix, at, by, why) VALUES";
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&db::schema_before_named_lanes())
+            .unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_NAMED_LANES_STAMP)
+            .unwrap();
+        conn.execute_batch(&format!(
+            "INSERT INTO repo (name) VALUES ('bae');
+             {RUN} (1, 5, 'bae', 'mac', 'side-1', 'b', 0, 'passed');
+             INSERT INTO app_build_steps (run_id, position, name, kind, started_at, wall_ms, cpu_ms, result) VALUES (1, 0, 'shots mac.a.', 'shots', 5, 1, 1, 'passed');
+             {DROP} (7, 'bae', 'b', 'android', 'android.a.', 5, 'agent', 'why');"
+        ))
+        .unwrap();
+    }
+    migrate_stores(&places, 0).unwrap();
+    let conn = db::open(&path, db::Make::Never).unwrap();
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    let kept: (String, String, i64, String) = conn
+        .query_row(
+            "SELECT r.lane, s.name, d.id, d.lane FROM app_build_runs r
+             JOIN app_build_steps s ON s.run_id = r.id JOIN app_shots_drop d ON d.branch = r.built_ref",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .unwrap();
+    assert_eq!(
+        kept,
+        ("mac".into(), "shots mac.a.".into(), 7, "android".into())
+    );
+    conn.execute_batch(&format!(
+        "{RUN} (2, 6, 'bae', 'web', 'side-1', 'b', 0, 'passed');
+         {DROP} (8, 'bae', 'b', 'web', 'web.a.', 6, 'agent', 'why');"
+    ))
+    .unwrap();
+}

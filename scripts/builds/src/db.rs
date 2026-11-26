@@ -861,9 +861,25 @@ fn text_before(part: &str) -> String {
 /// keeping the time of each (`with_ack_version_time`).
 #[cfg(test)]
 fn joined_before(part: &str) -> String {
-    with_held_and_deferred(with_closed_once(with_ack_version_time(
+    with_held_and_deferred(with_closed_once(with_ack_version_time(with_listed_lanes(
         parts_before(part).join("\n"),
-    )))
+    ))))
+}
+
+/// <schema> as it was before an app build run and a dropped shots prefix could
+/// name any app as their lane: with the checks that took only `mac` and
+/// `android`. A schema with neither table is returned as it is.
+#[cfg(test)]
+pub fn with_listed_lanes(schema: String) -> String {
+    const NAMED: &str = "CHECK (length(CAST(lane AS BLOB)) <= 32 AND lane NOT GLOB '*[^-a-z0-9]*' AND '-' || lane || '-' NOT GLOB '*--*')";
+    schema.replace(NAMED, "CHECK (lane IN ('mac', 'android'))")
+}
+
+/// The schema as it was before an app build run and a dropped shots prefix
+/// could name any app as their lane.
+#[cfg(test)]
+pub fn schema_before_named_lanes() -> String {
+    with_listed_lanes(schema())
 }
 
 /// <schema> with the statement that starts with <start> and ends with <end>
@@ -962,7 +978,7 @@ pub fn without_agent_item_given(schema: String) -> String {
 /// item.
 #[cfg(test)]
 pub fn schema_before_agent_item_given() -> String {
-    without_agent_item_given(schema())
+    without_agent_item_given(schema_before_named_lanes())
 }
 
 /// <schema> as it was before builds recorded why the merge base's saved run

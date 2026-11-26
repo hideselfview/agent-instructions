@@ -92,6 +92,29 @@ pub fn record(
     Ok(())
 }
 
+/// Makes `app_shots_drop` again as app_shots_drop.sql writes it, which takes
+/// any app's name as a drop's lane: a store from before took only `mac` and
+/// `android`. Each drop keeps its row.
+pub fn allow_named_lanes(db: &Connection) -> Result<()> {
+    use crate::db::{remake_table, statement};
+    remake_table(
+        db,
+        "app_shots_drop",
+        statement(
+            include_str!("app_shots_drop.sql"),
+            "CREATE TABLE app_shots_drop",
+            ") STRICT;",
+        ),
+        |db| {
+            db.execute_batch(
+                "INSERT INTO app_shots_drop (id, repo, branch, lane, prefix, at, by, why) SELECT id, repo, branch, lane, prefix, at, by, why FROM app_shots_drop_old",
+            )
+            .sql()
+        },
+        &[],
+    )
+}
+
 /// `builds app-build --drop-shots`: records the drop of <prefix>, which the
 /// app builds of <branch> in <lane> ran since the branch left origin/main,
 /// and says so. Runs in the branch's worktree.
