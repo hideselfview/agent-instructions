@@ -1279,9 +1279,11 @@ fn a_finished_lane_run_writes_its_wait_steps_and_checkout_to_its_projects_store(
 /// A request to build the branch `my-branch` of demo.
 fn my_branch() -> LaneRequest<'static> {
     LaneRequest {
-        commit: "0123456789abcdef0123456789abcdef01234567",
-        named: "my-branch",
-        project: Some("demo"),
+        of: BuildOf {
+            commit: "0123456789abcdef0123456789abcdef01234567",
+            named: "my-branch",
+            project: Some("demo"),
+        },
         names: &[],
         picks: &[],
         reused_shots: &[],

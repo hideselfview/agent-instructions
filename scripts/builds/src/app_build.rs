@@ -1727,11 +1727,13 @@ impl Timing {
         outcome: RunEnd,
     ) -> Result<()> {
         let LaneRequest {
+            of, reused_shots, ..
+        } = request;
+        let BuildOf {
             named: built_ref,
-            reused_shots,
             project,
             ..
-        } = request;
+        } = of;
         let Some(held) = self.held else {
             return Ok(());
         };
@@ -1823,18 +1825,12 @@ fn run_lane(
     crate::fail::with_cleanup(result.map_err(Fail::from), recorded)
 }
 
-/// What a caller asked one lane to build: <commit>, with the lane's steps
+/// What a caller asked one lane to build: <of>, with the lane's steps
 /// <names> (all of them when none and no <picks>), then the test classes and
 /// shots of <picks>.
 #[derive(Clone, Copy)]
 struct LaneRequest<'a> {
-    commit: &'a str,
-    /// The ref the caller named, which the run records as the ref it built
-    /// (`BUILT_REF`).
-    named: &'a str,
-    /// The project whose store records the run
-    /// (`app_timing::recording_project`); None for a repo in no project.
-    project: Option<&'a str>,
+    of: BuildOf<'a>,
     names: &'a [String],
     picks: &'a [Pick],
     reused_shots: &'a [shots::Prefix],
@@ -1991,9 +1987,15 @@ fn build_lane(
 ) -> LaneResult<()> {
     let places = &tool.places;
     let floor_kib = tool.rules.floor_kib;
-    let (source, target, config) = commit_and_config(places, repo, request.commit)?;
+    let (source, target, config) = commit_and_config(places, repo, request.of.commit)?;
     let commit = target.as_str();
-    let request = LaneRequest { commit, ..request };
+    let request = LaneRequest {
+        of: BuildOf {
+            commit,
+            ..request.of
+        },
+        ..request
+    };
     let LaneRequest { picks, .. } = request;
     note(format!(
         "waiting for {repo}'s {} app lock, then building {commit}",
@@ -2117,12 +2119,8 @@ impl<'a> LaneBuild<'a> {
     /// The lane's steps at the commit, as `lane_steps` makes them from the
     /// commit's own `.app-build`.
     fn steps(&self) -> Result<Vec<Step>> {
-        let LaneRequest {
-            commit,
-            names,
-            picks,
-            ..
-        } = self.request;
+        let commit = self.request.of.commit;
+        let LaneRequest { names, picks, .. } = self.request;
         let program_of = |class: &str| {
             crate::derive::program_of(&self.source, &self.config, commit, self.lane, class)
         };
@@ -2149,8 +2147,8 @@ impl<'a> LaneBuild<'a> {
         let LaneBuild {
             places, repo, lane, ..
         } = *self;
+        let commit = self.request.of.commit;
         let LaneRequest {
-            commit,
             names,
             picks,
             needs_only,
@@ -2393,7 +2391,7 @@ impl<'a> LaneBuild<'a> {
             programs,
             ..
         } = *self;
-        let commit = self.request.commit;
+        let commit = self.request.of.commit;
         let program = programs.builds();
         let missing = |prefixes: &[shots::Prefix]| -> Result<Vec<shots::Prefix>> {
             let mut missing = Vec::new();
@@ -2780,6 +2778,7 @@ pub fn pin(places: &Places) -> Result<Pinned> {
 #[derive(Clone, Copy)]
 pub struct BuildOf<'a> {
     pub commit: &'a str,
+    /// A lane's run records it as the ref it built (`BUILT_REF`).
     pub named: &'a str,
     pub project: Option<&'a str>,
 }
@@ -3097,9 +3096,11 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
         // A lane's process always says why it ended badly: a bare exit status
         // from a path that noted nothing would reach the parent as no output.
         let request = LaneRequest {
-            commit,
-            named,
-            project: project.as_deref(),
+            of: BuildOf {
+                commit,
+                named,
+                project: project.as_deref(),
+            },
             names: &names,
             picks: &picks,
             reused_shots: &reused_shots,
