@@ -9,6 +9,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.LayoutInfo
 import androidx.compose.ui.node.ModifierNodeElement
+import androidx.compose.ui.semantics.SemanticsNode
 
 /**
  * Marks a layout of a shot's scene as a window that the app opens over its screen: an open menu, a sheet or a dialog.
@@ -18,8 +19,11 @@ import androidx.compose.ui.node.ModifierNodeElement
  */
 internal fun Modifier.windowOverScreen(): Modifier = this.then(WindowMark)
 
-/** Whether this layout carries the [windowOverScreen] mark. */
-internal fun LayoutInfo.isWindow(): Boolean = getModifierInfo().any { it.modifier === WindowMark }
+/** Whether the node is in a layout the scene marks as a window the app opens over its screen ([windowOverScreen]). */
+internal fun SemanticsNode.inWindow(): Boolean =
+    generateSequence<LayoutInfo>(layoutInfo) { it.parentInfo }.any { layout ->
+        layout.getModifierInfo().any { it.modifier === WindowMark }
+    }
 
 private data object WindowMark : ModifierNodeElement<WindowMarkNode>() {
     override fun create() = WindowMarkNode()

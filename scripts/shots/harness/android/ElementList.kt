@@ -5,7 +5,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.isSpecified
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.layout.LayoutInfo
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsConfiguration
@@ -160,9 +159,6 @@ internal object ElementList {
         val box = node.wholeBox()
         return !box.isEmpty && (node.boundsInRoot.isEmpty || !box.overlaps(frame))
     }
-
-    /** Whether the node is in a layout the scene marks as a window the app opens over its screen ([windowOverScreen]). */
-    private fun SemanticsNode.inWindow(): Boolean = generateSequence<LayoutInfo>(layoutInfo) { it.parentInfo }.any { it.isWindow() }
 
     /** Whether the node asks to be read before the texts of the merged node that holds it. */
     private fun SemanticsNode.readsFirst(): Boolean = (config.getOrNull(SemanticsProperties.TraversalIndex) ?: 0f) < 0f

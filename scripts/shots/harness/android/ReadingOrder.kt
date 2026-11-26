@@ -107,7 +107,15 @@ internal fun interface ReadingOrder {
             val full = ReadingOrder { parent -> children[parent]?.sortedBy(::earliest) }
             // A node of the screen keeps the order it has with no window up: a window is read apart from the screen.
             val screen = (view.tag as ScreenOrder?)?.order ?: return full
-            return ReadingOrder { parent -> screen.childrenOf(parent) ?: full.childrenOf(parent) }
+            val windows = windowNodes((view as ViewRootForTest).semanticsOwner.unmergedRootSemanticsNode)
+            return ReadingOrder { parent -> if (parent in windows) full.childrenOf(parent) else screen.childrenOf(parent) }
+        }
+
+        /** The ids of the nodes at or under [from] that are in a window. */
+        private fun windowNodes(from: SemanticsNode): Set<Int> {
+            val below = from.children.flatMapTo(mutableSetOf(), ::windowNodes)
+            if (from.inWindow()) below.add(from.id)
+            return below
         }
     }
 }
