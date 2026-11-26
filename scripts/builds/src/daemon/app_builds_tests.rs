@@ -15,7 +15,7 @@ fn checkout(name: &str, lane: Option<&'static str>, branch: Option<&str>) -> Che
         main: false,
         branch: branch.map(str::to_string),
         app_checkout: lane.is_some(),
-        app_lane: lane,
+        app_lane: lane.map(str::to_string),
         claim: None,
         git: Some(SideGit::Side(Ok(SideRead {
             head: Some(Commit {
@@ -30,7 +30,7 @@ fn checkout(name: &str, lane: Option<&'static str>, branch: Option<&str>) -> Che
             uncommitted: 0,
             last_write: None,
         }))),
-        state: Some("free"),
+        state: Some("free".to_string()),
         folders: Some(Vec::new()),
         total_kib: Some(18_000_000),
         activity: Activity::default(),
@@ -99,10 +99,10 @@ fn repo(checkouts: Vec<CheckoutPage>, locks: Vec<LockHealth>, queue: Vec<Queued>
     let lanes = crate::lane::Lane::ALL
         .into_iter()
         .map(|lane| crate::status::LaneJson {
-            lane: lane.word(),
+            lane: lane.word().to_string(),
             app_checkouts: checkouts
                 .iter()
-                .filter(|c| c.app_lane == Some(lane.word()))
+                .filter(|c| c.app_lane.as_deref() == Some(lane.word()))
                 .map(|c| c.name.clone())
                 .chain(
                     locks
@@ -593,7 +593,7 @@ fn a_checkout_builds_added_says_why_and_the_lane_lists_what_builds_removed() {
         why: why.into(),
     };
     page.lanes = vec![crate::status::LaneJson {
-        lane: "mac",
+        lane: "mac".to_string(),
         app_checkouts: vec!["m1:mac-1".into(), "m1:builds-mac-1".into()],
         app_locks: Vec::new(),
         added_by_builds: vec![change("m1:builds-mac-1", "2 builds waited")],

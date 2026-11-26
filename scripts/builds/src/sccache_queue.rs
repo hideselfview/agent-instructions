@@ -34,7 +34,7 @@ const FULL_SHARE: f64 = 0.99;
 /// The Rust compiles a server's cache answered (hits) and those it ran
 /// (misses), since <since> (seconds since 1970), or since the server started
 /// when <since> is None.
-#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Rate {
     pub since: Option<i64>,
     pub hits: u64,

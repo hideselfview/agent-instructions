@@ -146,7 +146,7 @@ fn lane_title(lane: Lane) -> &'static str {
 }
 
 /// A build that waits in a lane's queue.
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct QueuedBuild {
     /// Its place, 1 for the next build to start.
     pub place: usize,
@@ -416,7 +416,7 @@ fn waits_in_queue(state: CardState, wait: Option<&ItemWait>) -> Option<Lane> {
 }
 
 /// A running item, as its card lists it.
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct RunningItem {
     pub id: u32,
     pub title: String,
@@ -424,18 +424,18 @@ pub struct RunningItem {
 
 /// What a card waits on, in one or two words; `title` is the whole
 /// sentence, which the page shows on hover.
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Pill {
     pub text: String,
     pub title: String,
 }
 
 /// What a card says in words.
-#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Words {
     /// The chip at the left of the top bar: only a worktree an agent holds
     /// or commits wait in has one.
-    pub chip: Option<&'static str>,
+    pub chip: Option<String>,
     /// What the worktree waits on, at the right of the top bar.
     pub pill: Option<Pill>,
     /// The items running here, in list order, or the item that keeps the worktree.
@@ -456,7 +456,7 @@ pub struct Words {
 
 /// A worktree's uncommitted files, as its card's footer counts them, with
 /// what the count means in `title`.
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Uncommitted {
     pub text: String,
     pub title: String,
@@ -515,7 +515,7 @@ pub fn kept_words(checkout: &CheckoutPage, item: RunningItem, card: &KeptCard) -
         )),
     };
     Words {
-        chip: kept_state(card).chip(),
+        chip: kept_state(card).chip().map(str::to_string),
         pill: None,
         items: vec![item],
         note,
@@ -610,7 +610,7 @@ pub fn words(
                     .join(". ")
             };
             return Words {
-                chip: state.chip(),
+                chip: state.chip().map(str::to_string),
                 pill: None,
                 items: items.to_vec(),
                 note: Some(note),
@@ -630,7 +630,7 @@ pub fn words(
         _ => None,
     };
     Words {
-        chip: state.chip(),
+        chip: state.chip().map(str::to_string),
         pill,
         items: items.to_vec(),
         note,

@@ -965,37 +965,78 @@ fn repo_json(repo: &str, path: &Path, since: i64) -> serde_json::Value {
     }
 }
 
-/// The dashboard's JSON for one project as of <now>: each repo with runs in
-/// it, apart, or `error` when the database can't be read.
-fn project_json(project: &str, path: &Path, now: i64) -> serde_json::Value {
+/// What the dashboard's page reads of the hook runs, as the `hooks` event and
+/// `/api/hooks` carry it: each project with a store, or why the stores'
+/// folder can't be listed.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+pub enum Hooks {
+    Read { projects: Vec<HookProject> },
+    Failed { error: String },
+}
+
+/// One project's hook runs, or why its database can't be read.
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct HookProject {
+    pub project: String,
+    #[serde(flatten)]
+    pub read: HookRead,
+}
+
+/// What a project's database gave: each repo with runs in it, apart, with the
+/// app builds' and waits' figures, or `error`.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+pub enum HookRead {
+    Read {
+        repos: Vec<serde_json::Value>,
+        app_builds: serde_json::Value,
+        waits: serde_json::Value,
+    },
+    Failed {
+        error: String,
+    },
+}
+
+/// The dashboard's hooks for one project as of <now>.
+fn project_json(project: &str, path: &Path, now: i64) -> HookProject {
     let since = now - DASHBOARD_WINDOW_SECONDS;
-    match repos(path) {
-        Ok(repos) => serde_json::json!({
-            "project": project,
-            "repos": repos.iter().map(|repo| repo_json(repo, path, since)).collect::<Vec<_>>(),
-            "app_builds": crate::app_timing::dashboard_json(path, now),
-            "waits": crate::waits::dashboard_json(path, now),
-        }),
-        Err(error) => serde_json::json!({ "project": project, "error": error.text() }),
+    let read = match repos(path) {
+        Ok(repos) => HookRead::Read {
+            repos: repos
+                .iter()
+                .map(|repo| repo_json(repo, path, since))
+                .collect(),
+            app_builds: crate::app_timing::dashboard_json(path, now),
+            waits: crate::waits::dashboard_json(path, now),
+        },
+        Err(error) => HookRead::Failed {
+            error: error.text(),
+        },
+    };
+    HookProject {
+        project: project.to_string(),
+        read,
     }
 }
 
-/// The dashboard's JSON for every project with a store: `{"projects": [...]}`,
-/// or `{"error"}` when the stores' folder can't be listed, as of <now>
+/// The dashboard's hooks for every project with a store, as JSON: `{"projects":
+/// [...]}`, or `{"error"}` when the stores' folder can't be listed, as of <now>
 /// (seconds since 1970): only runs that started in the 12 hours before it
 /// count.
 pub fn dashboard_json_at(places: &crate::places::Places, now: i64) -> String {
-    let value = match crate::lists::store::stores(places) {
-        Ok(stores) => {
-            let projects: Vec<serde_json::Value> = stores
+    let hooks = match crate::lists::store::stores(places) {
+        Ok(stores) => Hooks::Read {
+            projects: stores
                 .iter()
                 .map(|store| project_json(&store.project, &store.dir.join(DATABASE), now))
-                .collect();
-            serde_json::json!({ "projects": projects })
-        }
-        Err(error) => serde_json::json!({ "error": error.text() }),
+                .collect(),
+        },
+        Err(error) => Hooks::Failed {
+            error: error.text(),
+        },
     };
-    value.to_string()
+    serde_json::to_string(&hooks).expect("the hooks serialize")
 }
 
 /// Every run recorded for <repo>, newest first, whether or not it passed: for

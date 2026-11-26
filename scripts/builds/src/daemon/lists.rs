@@ -606,15 +606,15 @@ pub fn compose(
 }
 
 /// The lists JSON of every project, as the page and `/api/lists` have it.
-#[derive(serde::Serialize)]
-pub struct Served<'a> {
-    pub projects: &'a [Composed],
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct Served {
+    pub projects: Vec<Composed>,
 }
 
 /// One project's lists JSON: the view `lists show --json` prints, and the
 /// running work the Work tab lists (board.rs), which needs the claim facts
 /// only the daemon has.
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct Composed {
     #[serde(flatten)]
     pub view: View,

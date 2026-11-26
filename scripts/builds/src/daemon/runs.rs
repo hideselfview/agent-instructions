@@ -104,7 +104,7 @@ enum LogWatch {
 }
 
 /// Where a run is, as the page shows it.
-#[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum Phase {
     /// In the lane's queue, waiting for an app lock.
@@ -120,9 +120,9 @@ pub enum Phase {
     Lost,
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, serde::Deserialize, Debug)]
 pub struct RunPage {
-    pub lane: &'static str,
+    pub lane: String,
     #[serde(rename = "ref")]
     pub reference: Option<String>,
     pub phase: Phase,
@@ -568,7 +568,7 @@ impl Runs {
         ));
         let ended = record.ended.as_ref();
         RunPage {
-            lane: lane.word(),
+            lane: lane.word().to_string(),
             reference: record.reference.clone(),
             phase: run.phase(queued),
             pid: record.pid,

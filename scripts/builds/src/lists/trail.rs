@@ -91,7 +91,7 @@ pub fn earlier_with_tag(db: &Connection, id: Id, tag: &str) -> Result<Option<Id>
 
 /// A record's trail: the tags of the records on it, and the records before it
 /// from the first to the one it came from. The page reads it as it is.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, serde::Deserialize)]
 pub struct Trail {
     /// The tags of the records on the trail, the first record's first.
     pub tags: Vec<String>,
@@ -100,7 +100,7 @@ pub struct Trail {
 }
 
 /// An earlier record of a trail, with its title.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, serde::Deserialize)]
 pub struct Earlier {
     pub id: Id,
     pub title: String,

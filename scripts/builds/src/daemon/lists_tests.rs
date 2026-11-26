@@ -738,10 +738,7 @@ fn a_projects_lists_json_keeps_each_field_once_with_its_own_shape() {
     );
     // The page reads the text a client gets: a key that appears twice in it
     // keeps only its last value there.
-    let text = serde_json::to_string(&Served {
-        projects: &composed,
-    })
-    .unwrap();
+    let text = serde_json::to_string(&Served { projects: composed }).unwrap();
     for key in ["stack", "designs", "board"] {
         let count = text.matches(&format!("\"{key}\":")).count();
         assert_eq!(count, 1, "{key} appears {count} times in {text}");
@@ -750,4 +747,7 @@ fn a_projects_lists_json_keeps_each_field_once_with_its_own_shape() {
     assert_eq!(project["stack"][0]["id"], json!(question.0));
     assert_eq!(project["designs"][0]["id"], json!(change.0));
     assert_eq!(project["board"]["waiting"], json!(2));
+    // A fixture gives the lists back as the daemon sends them.
+    let read: Served = serde_json::from_str(&text).unwrap();
+    assert_eq!(serde_json::to_string(&read).unwrap(), text);
 }

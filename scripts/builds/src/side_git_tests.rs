@@ -89,6 +89,35 @@ fn the_page_reads_a_side_read_a_main_head_or_a_failure_as_one_object() {
     }
 }
 
+/// A fixture gives the page's git objects back as the daemon sends them.
+#[test]
+fn each_git_object_the_page_reads_reads_back_as_the_same_object() {
+    let commit = Commit {
+        sha: "abc1234".to_string(),
+        full: "a".repeat(40),
+        time: 1,
+        authored: 1,
+        subject: "s".to_string(),
+    };
+    for git in [
+        SideGit::Side(Ok(SideRead {
+            head: Some(commit.clone()),
+            ahead: vec![commit.clone()],
+            main: "b".repeat(40),
+            uncommitted: 2,
+            last_write: None,
+        })),
+        SideGit::Main(Ok(Some(commit))),
+        SideGit::Main(Ok(None)),
+        SideGit::Side(Err("git failed".to_string())),
+        SideGit::Main(Err("git failed".to_string())),
+    ] {
+        let sent = serde_json::to_value(&git).unwrap();
+        let read: SideGit = serde_json::from_value(sent.clone()).unwrap();
+        assert_eq!(serde_json::to_value(read).unwrap(), sent);
+    }
+}
+
 /// A change to a worktree's files changes the uncommitted count and nothing
 /// else of its read, so the daemon asks git for that count alone.
 #[test]

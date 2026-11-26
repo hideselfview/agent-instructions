@@ -12,7 +12,7 @@ use crate::lists::derive::Times;
 use crate::lists::view::{DesignView, ItemView, Named, RulesReview, View};
 
 /// The tab a running work is under.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, serde::Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Tab {
     /// The person has to act before the work goes on.
@@ -24,14 +24,14 @@ pub enum Tab {
 /// design changes waiting on the person's review and the running work held on
 /// the person.
 /// The page counts the other tabs from the rows it draws.
-#[derive(Clone, Debug, Default, Serialize)]
+#[derive(Clone, Debug, Default, Serialize, serde::Deserialize)]
 pub struct Board {
     pub waiting: usize,
     pub works: Vec<Work>,
 }
 
 /// The running items of one worktree: the work an agent does there.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, serde::Deserialize)]
 pub struct Work {
     /// What the work is called: the title of its one item, or for a work of
     /// several items the job its agent claimed the worktree for (`job`). A work

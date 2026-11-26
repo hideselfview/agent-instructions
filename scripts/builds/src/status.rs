@@ -677,9 +677,9 @@ pub struct RepoJson {
     pub checkouts: Vec<CheckoutJson>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, serde::Deserialize)]
 pub struct LaneJson {
-    pub lane: &'static str,
+    pub lane: String,
     /// The lane's app checkouts (side-N), in the order recorded.
     pub app_checkouts: Vec<String>,
     /// The lane's locks that exist, one per app checkout.
@@ -693,7 +693,7 @@ pub struct LaneJson {
 
 /// A checkout builds added to a lane or removed from it, when (seconds since
 /// 1970) and why.
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, serde::Deserialize)]
 pub struct LaneChange {
     pub checkout: String,
     pub at: i64,
@@ -881,7 +881,7 @@ pub fn lanes_of(places: &Places, repo: &str) -> Result<Vec<LaneJson>> {
             .collect();
         if !app_checkouts.is_empty() || !app_locks.is_empty() {
             lanes.push(LaneJson {
-                lane: lane.word(),
+                lane: lane.word().to_string(),
                 app_checkouts,
                 app_locks,
                 added_by_builds,

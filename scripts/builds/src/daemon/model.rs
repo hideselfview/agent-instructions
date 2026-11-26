@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 
 use crate::clock::Moment;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use super::cards::{CardState, ItemWait, KeptCard, ReviewWait, RunningItem};
@@ -87,14 +87,25 @@ struct Facts {
     gone_kib: Option<u64>,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, serde::Deserialize)]
 pub struct FolderFacts {
     pub path: String,
     pub cap_kib: u64,
     pub exists: bool,
     pub kib: u64,
     pub last_write: Option<i64>,
-    pub link: &'static str,
+    pub link: LinkState,
+}
+
+/// Where a folder's link in the checkout leads, as the page words it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LinkState {
+    #[serde(rename = "linked")]
+    Linked,
+    #[serde(rename = "elsewhere")]
+    Elsewhere,
+    #[serde(rename = "not linked")]
+    NotLinked,
 }
 
 /// What the daemon learned the last time it listed the processes: what they
@@ -1235,7 +1246,7 @@ impl Model {
             },
         );
         let json = Arc::new(
-            serde_json::to_string(&super::lists::Served { projects: &view })
+            serde_json::to_string(&super::lists::Served { projects: view })
                 .expect("the lists serialize"),
         );
         *served = Some((key, json.clone()));
@@ -1747,7 +1758,9 @@ impl Model {
                         main: live.is_main(),
                         branch: facts.branch.clone(),
                         app_checkout: root.is_app_checkout(&self.places)?,
-                        app_lane: root.app_lane(&self.places)?.map(crate::lane::Lane::word),
+                        app_lane: root
+                            .app_lane(&self.places)?
+                            .map(|lane| lane.word().to_string()),
                         // The card's state, which `judge_card` gives below.
                         state: None,
                         claim: facts.claim.clone(),
@@ -1813,7 +1826,7 @@ impl Model {
                         .and_then(|h| h.worktrees.iter().find(|w| w.path == checkout.path))
                         .map(|w| w.landings.clone());
                     checkout.errors.extend(judged.errors);
-                    checkout.state = Some(judged.state.word());
+                    checkout.state = Some(judged.state.word().to_string());
                     checkout.words = match &judged.kept {
                         Some((item, card)) => {
                             super::cards::kept_words(&checkout, item.clone(), card)
@@ -2202,12 +2215,12 @@ fn folder_facts(
     let exists = folder.is_dir();
     let link_state = if link.is_symlink() {
         if absolute_link_target(link).is_ok_and(|target| target == folder) {
-            "linked"
+            LinkState::Linked
         } else {
-            "elsewhere"
+            LinkState::Elsewhere
         }
     } else {
-        "not linked"
+        LinkState::NotLinked
     };
     FolderFacts {
         path: entry.path.clone(),
@@ -2355,7 +2368,7 @@ pub fn worktree_state(claim: Option<&Claim>, git: Option<&SideGit>) -> CardState
     CardState::Working
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct Page {
     pub version: u64,
     pub generated_at: i64,
@@ -2377,14 +2390,14 @@ pub struct Page {
     pub repos: Vec<RepoPage>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct VolumePage {
     #[serde(flatten)]
     pub disk: DiskSpace,
     pub size_kib: u64,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct LoadPage {
     pub now: [f64; 3],
     pub cores: usize,
@@ -2392,7 +2405,7 @@ pub struct LoadPage {
     pub history: Vec<(i64, f64)>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct RepoPage {
     pub name: String,
     pub lanes: Vec<crate::status::LaneJson>,
@@ -2407,7 +2420,7 @@ pub struct RepoPage {
     pub checkouts: Vec<CheckoutPage>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct CheckoutPage {
     pub name: String,
     pub path: String,
@@ -2416,10 +2429,10 @@ pub struct CheckoutPage {
     pub main: bool,
     pub branch: Option<String>,
     pub app_checkout: bool,
-    pub app_lane: Option<&'static str>,
+    pub app_lane: Option<String>,
     pub claim: Option<Claim>,
     pub git: Option<SideGit>,
-    pub state: Option<&'static str>,
+    pub state: Option<String>,
     /// None for a gone root, and for a live one until the daemon reads its
     /// sizes.
     pub folders: Option<Vec<FolderFacts>>,
@@ -2440,7 +2453,7 @@ pub struct CheckoutPage {
     pub errors: Vec<String>,
 }
 
-#[derive(Default, Serialize)]
+#[derive(Default, Serialize, Deserialize)]
 pub struct Activity {
     pub processes: Vec<ProcessPage>,
     /// CPU in percent of one core, summed.
@@ -2450,7 +2463,7 @@ pub struct Activity {
     pub started: Option<i64>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct ProcessPage {
     pub pid: i32,
     pub started: i64,

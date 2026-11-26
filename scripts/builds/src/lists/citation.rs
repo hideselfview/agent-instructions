@@ -52,7 +52,7 @@ fn cited_decision(lists: &Lists, id: Id) -> CitedDecision {
 
 /// What a `decision #N` in a text names: `question show` and the
 /// dashboard read it. The JSON names the variant in `found`.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, serde::Deserialize)]
 #[serde(tag = "found", rename_all = "lowercase")]
 pub enum CitedDecision {
     /// A decision of the log, with its title.

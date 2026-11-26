@@ -16,7 +16,7 @@ use crate::lists::{
     Priority, QuestionKind, Resolution, Stamp, Standing, Wait, side_worktree_parts,
 };
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, serde::Deserialize)]
 pub struct View {
     pub project: String,
     pub version: u64,
@@ -30,13 +30,13 @@ pub struct View {
     pub decisions: Vec<DecisionView>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, serde::Deserialize)]
 pub struct Named {
     pub id: Id,
     pub title: String,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, serde::Deserialize)]
 pub struct StackView {
     pub id: Id,
     pub title: String,
@@ -58,7 +58,7 @@ pub struct StackView {
 }
 
 /// An open item that waits on a question directly.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, serde::Deserialize)]
 pub struct BlockedView {
     pub id: Id,
     pub title: String,
@@ -71,7 +71,7 @@ pub struct BlockedView {
 
 /// What an item waits on, one variant for each kind of wait; the JSON names
 /// the kind in `kind`.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, serde::Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum WaitView {
     Item(RecordWaitView),
@@ -85,7 +85,7 @@ pub enum WaitView {
 }
 
 /// A wait on a record.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, serde::Deserialize)]
 pub struct RecordWaitView {
     pub id: Id,
     pub title: Option<String>,
@@ -111,7 +111,7 @@ impl WaitView {
 
 /// What the daemon joins to a running item from the worktree's claim and
 /// git; `lists show --json` has none of it.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, serde::Deserialize)]
 pub struct ClaimFacts {
     /// The claim's who; None when the worktree has no claim.
     pub agent: Option<String>,
@@ -121,7 +121,7 @@ pub struct ClaimFacts {
     pub waiting_to_land: usize,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, serde::Deserialize)]
 pub struct RunningView {
     pub worktree: String,
     pub repo: String,
@@ -136,7 +136,7 @@ pub struct RunningView {
     pub claim: Option<ClaimFacts>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, serde::Deserialize)]
 pub struct ItemView {
     pub id: Id,
     pub title: String,
@@ -168,31 +168,31 @@ pub struct ItemView {
     pub trail: Trail,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, serde::Deserialize)]
 pub struct PlaceItem {
     pub id: Id,
     pub title: String,
     /// The item's state, or `closed`.
-    pub state: &'static str,
+    pub state: String,
 }
 
 /// How a design place is resolved: by the item that does the app work, or by
 /// how it was checked that the app already matches.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum PlaceResolution {
     Item(PlaceItem),
     Matches(String),
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, serde::Deserialize)]
 pub struct PlaceView {
     pub path: String,
     /// None until the design session names the place's app work.
     pub resolution: Option<PlaceResolution>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, serde::Deserialize)]
 pub struct DesignView {
     pub id: Id,
     pub title: String,
@@ -224,7 +224,7 @@ pub struct DesignView {
 
 /// Where the rules review of a design change that waits on the person's
 /// approval stands (decision #362, `review::design_review`).
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, serde::Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum RulesReview {
     /// The review of the change's branch takes its commits: the change waits
@@ -239,14 +239,14 @@ pub enum RulesReview {
     Unread(String),
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, serde::Deserialize)]
 pub struct WorkView {
     pub id: Id,
     pub title: String,
     pub open: bool,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, serde::Deserialize)]
 pub struct DecisionView {
     pub id: Id,
     pub date: String,
@@ -409,17 +409,18 @@ fn place_item(lists: &Lists, id: Id) -> PlaceItem {
             id,
             title: title.to_string(),
             state: derive::item_state(lists, lists.item(id).expect("located as an open item"))
-                .label(),
+                .label()
+                .to_string(),
         },
         Some(Located { title, .. }) => PlaceItem {
             id,
             title: title.to_string(),
-            state: "closed",
+            state: "closed".to_string(),
         },
         None => PlaceItem {
             id,
             title: String::new(),
-            state: "closed",
+            state: "closed".to_string(),
         },
     }
 }

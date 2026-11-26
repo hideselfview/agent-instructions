@@ -81,7 +81,7 @@ impl Effect {
 }
 
 /// Where a placed question sits in the stack.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, serde::Deserialize)]
 #[serde(tag = "at", rename_all = "lowercase")]
 pub enum Position {
     /// In the person's ranked order at the top of the stack, above every
@@ -101,7 +101,7 @@ impl Position {
 }
 
 /// Where a question sits in the stack when not by how much it unblocks.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, serde::Deserialize)]
 pub struct Placement {
     #[serde(flatten)]
     pub at: Position,

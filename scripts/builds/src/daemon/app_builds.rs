@@ -12,13 +12,13 @@ use crate::health::{Holder, LockHealth};
 use crate::holder_run::RunTimes;
 use crate::status::LaneChange;
 
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, serde::Deserialize)]
 pub struct Program {
     pub name: String,
     pub count: usize,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, serde::Deserialize)]
 #[serde(tag = "state", rename_all = "kebab-case")]
 pub enum Now {
     /// Nobody holds the lock.
@@ -47,7 +47,7 @@ pub enum Now {
 }
 
 /// One app checkout of a lane: a row of the lane's card.
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, serde::Deserialize)]
 pub struct AppBuild {
     /// The app checkout, `side-N`, or `host:name` for one on another Mac.
     pub checkout: String,
@@ -63,7 +63,7 @@ pub struct AppBuild {
 }
 
 /// One build waiting for a checkout of the lane.
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, serde::Deserialize)]
 pub struct Waiting {
     /// The branch the build is for, else what it is ("your test app").
     pub branch: String,
@@ -73,7 +73,7 @@ pub struct Waiting {
 }
 
 /// One app build lane of a repo: its checkouts, and the one queue they share.
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, serde::Deserialize)]
 pub struct AppLane {
     pub lane: String,
     /// The checkouts that build for the lane, local ones first by name, then
@@ -420,7 +420,7 @@ pub fn build(repo: &RepoPage) -> Result<Vec<AppLane>> {
         let mut checkouts: Vec<AppBuild> = repo
             .checkouts
             .iter()
-            .filter(|c| c.live && c.app_checkout && c.app_lane == Some(word))
+            .filter(|c| c.live && c.app_checkout && c.app_lane.as_deref() == Some(word))
             .map(|c| local_row(repo, c, word))
             .collect();
         checkouts.sort_by(|a, b| a.checkout.cmp(&b.checkout));

@@ -27,7 +27,7 @@ fn card(
                 last_write: None,
             }))
         }),
-        state,
+        state: state.map(str::to_string),
         folders: None,
         total_kib: None,
         activity: Activity::default(),
@@ -73,11 +73,11 @@ fn the_chip_names_only_a_worktree_with_an_agent_or_commits() {
         )
         .chip
     };
-    assert_eq!(chip("ready-to-land"), Some("Ready to land"));
-    assert_eq!(chip("working"), Some("Working"));
-    assert_eq!(chip("held"), Some("Paused"));
-    assert_eq!(chip("winding-down"), Some("Working"));
-    assert_eq!(chip("waiting-on-you"), Some("Waiting on you"));
+    assert_eq!(chip("ready-to-land"), Some("Ready to land".to_string()));
+    assert_eq!(chip("working"), Some("Working".to_string()));
+    assert_eq!(chip("held"), Some("Paused".to_string()));
+    assert_eq!(chip("winding-down"), Some("Working".to_string()));
+    assert_eq!(chip("waiting-on-you"), Some("Waiting on you".to_string()));
     assert_eq!(chip("free"), None);
     let mut main = card(None, None, None);
     main.main = true;
@@ -258,7 +258,7 @@ fn an_item_that_waits_on_a_question_names_it_in_the_pill_under_waiting_on_you() 
             title: "When to reopen a copied library".into(),
         },
     );
-    assert_eq!(card.chip, Some("Waiting on you"));
+    assert_eq!(card.chip, Some("Waiting on you".to_string()));
     assert_eq!(
         card.pill,
         pill(
@@ -280,7 +280,7 @@ fn an_item_that_waits_on_another_item_names_it_in_the_pill_and_stays_working() {
             state: "ready",
         },
     );
-    assert_eq!(card.chip, Some("Working"));
+    assert_eq!(card.chip, Some("Working".to_string()));
     assert_eq!(
         card.pill,
         pill(
@@ -299,7 +299,7 @@ fn an_item_that_waits_on_an_approved_design_change_names_it_in_the_pill_and_stay
             title: "Heading row".into(),
         },
     );
-    assert_eq!(card.chip, Some("Working"));
+    assert_eq!(card.chip, Some("Working".to_string()));
     assert_eq!(
         card.pill,
         pill(
@@ -335,7 +335,7 @@ fn a_design_branch_no_recorded_change_covers_says_it_waits_on_a_design_change() 
         &[],
         &[ItemWait::Unrecorded],
     );
-    assert_eq!(card.chip, Some("Ready to land"));
+    assert_eq!(card.chip, Some("Ready to land".to_string()));
     assert_eq!(
         card.pill,
         pill(
@@ -421,7 +421,7 @@ fn a_held_worktree_says_paused_and_what_its_running_items_wait_on() {
         &running(&[(3, "Item")]),
         &waits,
     );
-    assert_eq!(card.chip, Some("Paused"));
+    assert_eq!(card.chip, Some("Paused".to_string()));
     assert_eq!(card.pill, None);
     assert_eq!(card.items, running(&[(3, "Item")]));
     assert_eq!(
@@ -431,7 +431,7 @@ fn a_held_worktree_says_paused_and_what_its_running_items_wait_on() {
         )
     );
     let noted = listed("held", Some("Until the store lands."), &[(3, "Item")]);
-    assert_eq!(noted.chip, Some("Paused"));
+    assert_eq!(noted.chip, Some("Paused".to_string()));
     assert_eq!(noted.note.as_deref(), Some("Until the store lands."));
     let unnoted = listed("held", None, &[]);
     assert_eq!(
@@ -501,7 +501,7 @@ fn a_branch_with_an_app_build_waits_on_it_and_is_not_ready_to_land() {
             queued: None,
         }],
     );
-    assert_eq!(card.chip, Some("Working"));
+    assert_eq!(card.chip, Some("Working".to_string()));
     assert_eq!(card.pill, None, "the build has not started");
     assert_eq!(
         card.note.as_deref(),
@@ -587,7 +587,10 @@ fn a_worktree_whose_waits_the_daemon_cannot_read_says_so_and_never_working_or_re
         &running(&[(7, "Reopen a copied library")]),
         &[],
     );
-    assert_eq!(card.chip, Some("Can't read what this worktree waits on"));
+    assert_eq!(
+        card.chip,
+        Some("Can't read what this worktree waits on".to_string())
+    );
     assert_eq!(card.pill, None);
     assert_eq!(card.note, None);
 }
@@ -685,7 +688,7 @@ fn a_queued_card_names_the_lane_and_carries_its_place_and_what_it_asked() {
         &[],
         &[queued_wait(false)],
     );
-    assert_eq!(card.chip, Some("Waiting on Mac"));
+    assert_eq!(card.chip, Some("Waiting on Mac".to_string()));
     assert_eq!(card.pill, None, "the chip says it");
     assert_eq!(
         card.note.as_deref(),
@@ -725,12 +728,12 @@ fn commits_whose_rules_review_is_not_finished_are_in_review_and_the_card_says_wh
         );
         (card.chip.unwrap(), card.pill)
     };
-    assert_eq!(said(ReviewWait::NotRun), ("Needs review", None));
-    assert_eq!(said(ReviewWait::Running), ("Reviewing", None));
+    assert_eq!(said(ReviewWait::NotRun), ("Needs review".to_string(), None));
+    assert_eq!(said(ReviewWait::Running), ("Reviewing".to_string(), None));
     assert_eq!(
         said(ReviewWait::ToSettle(3, Settler::Coordinator)),
         (
-            "Findings to settle",
+            "Findings to settle".to_string(),
             pill(
                 "3 findings",
                 "3 review findings wait for the coordinator to settle them."
@@ -740,7 +743,7 @@ fn commits_whose_rules_review_is_not_finished_are_in_review_and_the_card_says_wh
     assert_eq!(
         said(ReviewWait::ToSettle(1, Settler::Judge)),
         (
-            "Findings to settle",
+            "Findings to settle".to_string(),
             pill(
                 "1 finding",
                 "1 review finding waits for the judge to settle it."
@@ -750,7 +753,7 @@ fn commits_whose_rules_review_is_not_finished_are_in_review_and_the_card_says_wh
     assert_eq!(
         said(ReviewWait::Open(1)),
         (
-            "Open findings",
+            "Open findings".to_string(),
             pill(
                 "1 finding",
                 "1 open confirmed review finding waits for a review that closes it."
@@ -760,7 +763,7 @@ fn commits_whose_rules_review_is_not_finished_are_in_review_and_the_card_says_wh
     assert_eq!(
         said(ReviewWait::Unreviewed(2)),
         (
-            "Unreviewed changes",
+            "Unreviewed changes".to_string(),
             pill(
                 "2 files",
                 "2 files changed since the last review: builds review reads the changes in a new run."
@@ -780,7 +783,7 @@ fn a_worktree_an_item_keeps_says_what_its_item_waits_on() {
     let said = kept_words(&page, item.clone(), &KeptCard::None);
     assert_eq!(
         (said.chip, said.items.clone(), said.note),
-        (Some("Ready"), vec![item.clone()], None)
+        (Some("Ready".to_string()), vec![item.clone()], None)
     );
     let open = [
         ItemWait::Item {
@@ -796,7 +799,7 @@ fn a_worktree_an_item_keeps_says_what_its_item_waits_on() {
     let open = KeptCard::Open(open.to_vec());
     assert_eq!(kept_state(&open), CardState::KeptWaiting);
     let said = kept_words(&page, item.clone(), &open);
-    assert_eq!(said.chip, Some("Waiting"));
+    assert_eq!(said.chip, Some("Waiting".to_string()));
     assert_eq!(
         said.note.as_deref(),
         Some(
@@ -808,7 +811,7 @@ fn a_worktree_an_item_keeps_says_what_its_item_waits_on() {
     ]);
     assert_eq!(kept_state(&met), CardState::KeptMet);
     let said = kept_words(&page, item, &met);
-    assert_eq!(said.chip, Some("Waits met"));
+    assert_eq!(said.chip, Some("Waits met".to_string()));
     assert_eq!(
         said.note.as_deref(),
         Some(

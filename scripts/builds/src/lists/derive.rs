@@ -118,7 +118,7 @@ pub fn items_ahead_of_last<'a>(lists: &'a Lists, item: &'a Item) -> impl Iterato
     })
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, serde::Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ItemState {
     /// An agent works on it (it may also wait, when its agent is held on an
@@ -311,7 +311,7 @@ pub fn dispatch_order(lists: &Lists, audience: Audience) -> Vec<&Item> {
 /// A time that adds up spans: the seconds of the spans that ended, and the
 /// start of the span that goes on, if one does. At the moment `now` the time
 /// is `seconds + (now - since)`.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, serde::Deserialize)]
 pub struct Total {
     pub seconds: i64,
     pub since: Option<i64>,
@@ -352,7 +352,7 @@ impl Total {
 
 /// What runs add up to: the runs of one item, or of every item that ran on
 /// one branch.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, serde::Deserialize)]
 pub struct Times {
     /// When the first run started.
     pub first: i64,

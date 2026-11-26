@@ -161,7 +161,7 @@ fn a_shots_run_shows_while_it_runs_and_once_it_ended_for_the_page_s_commit_only(
     let scratch = Scratch::new("component-shots-capture");
     let places = scratch.places();
     let page = |reference: &str, phase| RunPage {
-        lane: "mac",
+        lane: "mac".to_string(),
         reference: Some(reference.to_string()),
         phase,
         pid: 7,

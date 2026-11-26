@@ -132,7 +132,7 @@ pub fn rates_text(samples: &[Reading], host: &str, now: i64) -> String {
 
 /// One host's rates for the dashboard: each window's name and rate, None
 /// where the history has too few samples.
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, serde::Deserialize)]
 pub struct HostRates {
     pub host: String,
     pub windows: Vec<(String, Option<Rate>)>,

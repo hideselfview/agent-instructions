@@ -11,7 +11,7 @@ use crate::host::{self, Ssh};
 use crate::places::Places;
 
 /// One host's load card.
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, serde::Deserialize)]
 pub struct HostPage {
     pub name: String,
     pub cores: u32,

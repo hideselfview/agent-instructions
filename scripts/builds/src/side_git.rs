@@ -51,6 +51,25 @@ impl Serialize for SideGit {
     }
 }
 
+/// `SideGit` as the page reads it back: the same three shapes, told apart by
+/// their fields.
+impl<'de> serde::Deserialize<'de> for SideGit {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(serde::Deserialize)]
+        #[serde(untagged)]
+        enum Page {
+            Side(SideRead),
+            Failed { error: String },
+            Main { head: Option<Commit> },
+        }
+        Ok(match Page::deserialize(deserializer)? {
+            Page::Side(read) => SideGit::Side(Ok(read)),
+            Page::Main { head } => SideGit::Main(Ok(head)),
+            Page::Failed { error } => SideGit::Side(Err(error)),
+        })
+    }
+}
+
 /// What git said of a side worktree.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SideRead {
