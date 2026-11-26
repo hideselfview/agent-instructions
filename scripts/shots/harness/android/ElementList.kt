@@ -303,8 +303,8 @@ internal object ElementList {
         val config = node.config
         if (!config.contains(SemanticsProperties.EditableText)) return null
         val words = config.getOrNull(SemanticsProperties.Text)?.joinToString(" ") { it.text } ?: return null
-        val inside = find(unmerged, node.id) ?: return null
-        return inside.children
+        return unmergedNode(unmerged, node.id)
+            .children
             .flatMap(::textsUnder)
             .firstOrNull { it.first == words }
             ?.second
@@ -319,7 +319,7 @@ internal object ElementList {
         unmerged: SemanticsNode,
     ): List<SemanticsNode> {
         val words = node.config.getOrNull(SemanticsProperties.Text)?.joinToString(" ") { it.text } ?: return emptyList()
-        val parts = textsUnder(find(unmerged, node.id) ?: node)
+        val parts = textsUnder(unmergedNode(unmerged, node.id))
         return if (parts.size > 1 && parts.joinToString(" ") { it.first } == words) parts.map { it.second } else emptyList()
     }
 
@@ -332,7 +332,7 @@ internal object ElementList {
         unmerged: SemanticsNode,
     ): SemanticsNode {
         val words = node.config.getOrNull(SemanticsProperties.Text)?.joinToString(" ") { it.text } ?: return node
-        val parts = textsUnder(find(unmerged, node.id) ?: node)
+        val parts = textsUnder(unmergedNode(unmerged, node.id))
         return if (parts.size == 1 && parts.single().first == words) parts.single().second else node
     }
 
@@ -351,6 +351,12 @@ internal object ElementList {
      * which cuts an element that reaches past the shot's frame.
      */
     private fun SemanticsNode.wholeBox(): Rect = if (layoutInfo.isPlaced) Rect(positionInRoot, size.toSize()) else Rect.Zero
+
+    /** The unmerged tree's node of [id], which it holds for every node of the merged tree. */
+    private fun unmergedNode(
+        unmerged: SemanticsNode,
+        id: Int,
+    ): SemanticsNode = checkNotNull(find(unmerged, id)) { "the unmerged semantics tree has no node $id, which the merged tree has" }
 
     /** The node of [id] at or under [from]. */
     private fun find(
