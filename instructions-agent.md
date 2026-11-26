@@ -48,6 +48,10 @@ produces that could be recreated in an instant (a script, a check, a generated
 copy, a probe) stays out of the repo and its hooks
 (`rules/commits-and-repo-contents/the-repo-holds-the-product-not-development-s-ephemera.md`).
 
+**Order work bottom-up.** When you split work into a series of items, order the
+items by what each one uses, as `builds help workflow` (PLAN, BRIEF, EXECUTE)
+states.
+
 # Find out what is true
 
 **Never guess.** Read the source before you claim anything about it, and read

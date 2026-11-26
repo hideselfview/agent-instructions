@@ -147,6 +147,19 @@ PLAN, BRIEF, EXECUTE
   - Plan: the coordinator runs the strongest model. For work whose shape is
     still open, it writes a software plan in plans/<name>.md, and the plan's
     open questions go on the decision stack.
+  - Order: sort the items of a series bottom-up by what each one uses
+    (decision #781 in project builds).
+    - The items that build what other items use come first, such as one
+      item per domain that writes that domain's fragments, or an item that
+      builds a shared component.
+    - Each item waits on exactly the items whose output it uses (`builds
+      item wait`), such as a screen item on the items of the domains it
+      reads, and on no other item.
+    - Items with no dependency between them run at the same time.
+    - An item compiles and passes its tests only on top of what it uses, once
+      that work has landed. Code that several items use belongs to the one
+      item that builds it. The bottom-up order runs the most items at once,
+      and no two running items change the same files.
   - Brief: each queued item gets a brief that states the goal, the shape, the
     facts gathered so far (measurements, logs, leads), what must hold, and the
     checks.
@@ -335,6 +348,9 @@ DISPATCH
       replaces with plain live queries.
     - Other cleanups (rewording, deleting dead code, merging duplicate types)
       start only when no critical item is ready.
+  - Queue a series with the waits of its bottom-up order (PLAN, BRIEF,
+    EXECUTE), so that `builds next` lists each item once the items it uses
+    have landed.
   - Take items from `builds next`, from the top: items placed first, then the
     items that other open items wait on (most first), then the rest by area
     and age. Claim the worktree (`builds claim`), mark the items running
