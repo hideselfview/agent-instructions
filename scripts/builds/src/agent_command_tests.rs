@@ -449,6 +449,54 @@ fn resume_runs_claude_with_resume_when_no_session_runs_or_the_inbox_is_gone() {
     }
 }
 
+/// The finished agent's items close, and item 3 is taken in its worktree on a
+/// new branch, as every take after a landing is.
+#[test]
+fn resume_takes_an_item_on_a_new_branch_of_the_agents_worktree_and_records_it() {
+    for inbox in [false, true] {
+        let (mut demo, session) = ended_agent(if inbox { "ar-new-in" } else { "ar-new" });
+        for id in ["1", "2"] {
+            cmd_item(
+                &demo.tool,
+                &crate::testing::no_ssh(),
+                &words(&["finished", id, "--made", "the work"]),
+            )
+            .unwrap();
+        }
+        add_item(&demo, "Do the third thing now");
+        let side = demo.main.parent().unwrap().join("demo-worktrees/side-1");
+        crate::app_config::run_git(&side, &["switch", "-q", "-c", "next"]).unwrap();
+        let brief = demo.brief("next.md");
+        take(&demo, &["3"], &side, "next", &brief);
+        let socket = demo.scratch.dir.join("s.sock");
+        let listener = inbox.then(|| crate::testing::FakeInbox::listen(&socket));
+        if inbox {
+            record_running(&demo, &session, &socket);
+        }
+        let init = init_line(TOOLS_JSON, "[]", "[]", "claude-sonnet-5-5");
+        let dir = fake_claude(&mut demo, &[&init, RESULT], 0);
+        let (result, _) = resume_command(&demo, &["resume", &session, "--item", "3"]);
+        result.unwrap();
+        let message = match listener {
+            Some(listener) => listener.received().remove(0),
+            None => std::fs::read_to_string(dir.join("prompt.txt")).unwrap(),
+        };
+        assert!(message.contains("on branch next"), "{message}");
+        assert!(message.contains("--done 3 --project demo"), "{message}");
+        assert!(!message.contains("--done 1"), "{message}");
+        let conn = db::open(&demo.store.database(), db::Make::Never).unwrap();
+        let agent = agent_record::read(&conn, &session).unwrap().unwrap();
+        let branches: Vec<&str> = agent
+            .work
+            .places()
+            .iter()
+            .map(|place| place.branch.as_str())
+            .collect();
+        assert_eq!(branches, ["next"]);
+        assert_eq!(agent.items, [1, 3]);
+    }
+}
+
 #[test]
 fn resume_refuses_nothing_to_say_an_unknown_agent_and_an_item_outside_the_worktree() {
     let (demo, session) = ended_agent("ar-refuse");
@@ -473,6 +521,6 @@ fn resume_refuses_nothing_to_say_an_unknown_agent_and_an_item_outside_the_worktr
         outside
             .unwrap_err()
             .text()
-            .contains("does not run in the worktree")
+            .contains("does not run in a worktree")
     );
 }

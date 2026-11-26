@@ -26,7 +26,8 @@ CREATE TABLE agent (
     CHECK ((context_window IS NULL) OR (context_tokens IS NOT NULL))
 ) STRICT, WITHOUT ROWID;
 
--- The worktree and branch of each repo an implementing agent's items run in.
+-- The worktree and branch of each repo an implementing agent's items run in,
+-- as of its start or its last resume with an item.
 CREATE TABLE agent_place (
     session TEXT NOT NULL REFERENCES agent (session) ON DELETE CASCADE,
     worktree TEXT NOT NULL CHECK (worktree <> ''),

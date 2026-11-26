@@ -62,6 +62,21 @@ pub struct Plan {
     pub brief: String,
 }
 
+/// The worktree and branch of each repo <item> runs in, by worktree; none
+/// when it does not run.
+fn run_places(item: &crate::lists::Item) -> Vec<Place> {
+    let mut places: Vec<Place> = item
+        .running
+        .iter()
+        .map(|run| Place {
+            worktree: run.worktree.clone(),
+            branch: run.branch.clone(),
+        })
+        .collect();
+    places.sort_by(|a, b| a.worktree.cmp(&b.worktree));
+    places
+}
+
 /// Checks <ids> for an agent of <role> and says what it runs on. An
 /// implementing agent takes items that run, all in the same worktrees with
 /// the same brief and tier, and no `--brief`. A planner takes open items that
@@ -102,14 +117,8 @@ pub fn plan(lists: &Lists, role: AgentRole, ids: &[Id], brief: Option<&str>) -> 
                 );
             }
             let key = |item: &crate::lists::Item| {
-                let mut places: Vec<(String, String)> = item
-                    .running
-                    .iter()
-                    .map(|run| (run.worktree.clone(), run.branch.clone()))
-                    .collect();
-                places.sort();
                 let run = item.running.first()?;
-                Some((places, run.brief.clone(), run.tier))
+                Some((run_places(item), run.brief.clone(), run.tier))
             };
             let mut first = None;
             for item in &items {
@@ -128,15 +137,7 @@ pub fn plan(lists: &Lists, role: AgentRole, ids: &[Id], brief: Option<&str>) -> 
                     Some(_) => {}
                 }
             }
-            let (_, (_, brief, tier)) = first.expect("the items are not empty");
-            let places = items[0]
-                .running
-                .iter()
-                .map(|run| Place {
-                    worktree: run.worktree.clone(),
-                    branch: run.branch.clone(),
-                })
-                .collect();
+            let (_, (places, brief, tier)) = first.expect("the items are not empty");
             Ok(Plan {
                 work: Work::Implementing { places },
                 tier,
@@ -416,37 +417,88 @@ fn drive(
 const RESUME_USAGE: &str =
     "builds agent resume SESSION [--item N]... [--message-file F] [--project P]";
 
-/// Fails unless each of <ids> may join the agent <agent>: an implementing
-/// agent takes items that run in its worktree, a planner open items no agent
-/// runs.
-fn require_joinable(lists: &Lists, agent: &Agent, ids: &[Id]) -> Result<()> {
-    for id in ids {
-        let item = open_item(lists, *id)?;
-        match &agent.work {
-            Work::Implementing { places } => {
-                let joins = item.running.iter().any(|run| {
-                    places
-                        .iter()
-                        .any(|place| place.worktree == run.worktree && place.branch == run.branch)
-                });
-                if !joins {
-                    fail!(
-                        "{id} does not run in the worktree of agent {}: take it there with `builds item take` first",
-                        agent.session
-                    );
-                }
-            }
-            Work::Planner => {
+/// An agent as a resume with new items leaves it.
+struct Joined {
+    work: Work,
+    /// The items that run in the agent's worktrees, which each land command
+    /// names; none for a planner.
+    landing: Vec<u32>,
+}
+
+/// What <agent> works on once <ids> join it. A planner takes open items no
+/// agent runs. An implementing agent takes items that run in one of its
+/// worktrees, on any branch, since each take starts a new one. Its places
+/// become the ones those items run in, and the earlier items it still has
+/// there must run in the same ones.
+fn join(lists: &Lists, agent: &Agent, ids: &[Id]) -> Result<Joined> {
+    let items = ids
+        .iter()
+        .map(|id| open_item(lists, *id))
+        .collect::<Result<Vec<_>>>()?;
+    let unchanged = Joined {
+        work: agent.work.clone(),
+        landing: Vec::new(),
+    };
+    let held = match &agent.work {
+        Work::Implementing { places } => places,
+        Work::Planner => {
+            for item in &items {
                 if let Some(run) = item.running.first() {
                     fail!(
-                        "{id} runs in {}, and a planner takes only items no agent runs",
+                        "{} runs in {}, and a planner takes only items no agent runs",
+                        item.id,
                         run.worktree
                     );
                 }
             }
+            return Ok(unchanged);
+        }
+    };
+    for item in &items {
+        let in_held = item
+            .running
+            .iter()
+            .any(|run| held.iter().any(|place| place.worktree == run.worktree));
+        if !in_held {
+            let worktrees: Vec<&str> = held.iter().map(|place| place.worktree.as_str()).collect();
+            fail!(
+                "{} does not run in a worktree of agent {} ({}): take it there with `builds item take` first",
+                item.id,
+                agent.session,
+                worktrees.join(", ")
+            );
         }
     }
-    Ok(())
+    let Some(first) = items.first() else {
+        return Ok(unchanged);
+    };
+    let places = run_places(first);
+    let earlier = agent
+        .items
+        .iter()
+        .filter_map(|number| lists.item(Id(*number)))
+        .filter(|item| {
+            item.running
+                .iter()
+                .any(|run| places.iter().any(|place| place.worktree == run.worktree))
+        });
+    let mut landing = Vec::new();
+    for item in items.iter().copied().chain(earlier) {
+        if run_places(item) != places {
+            fail!(
+                "{} and {} run in different worktrees; resume an agent on items that run together",
+                first.id,
+                item.id
+            );
+        }
+        landing.push(item.id.0);
+    }
+    landing.sort_unstable();
+    landing.dedup();
+    Ok(Joined {
+        work: Work::Implementing { places },
+        landing,
+    })
 }
 
 /// `builds agent resume`, printing to <out>.
@@ -475,7 +527,7 @@ fn resume(tool: &Tool, args: &[String], cwd: &Path, out: &mut dyn Write) -> Resu
     let Some(agent) = agent else {
         fail!("project {} records no agent {session}", lists.project);
     };
-    require_joinable(&lists, &agent, &ids)?;
+    let joined = join(&lists, &agent, &ids)?;
     let base = match message_file {
         Some(path) => {
             std::fs::read_to_string(path).context(|| format!("reading the message file {path}"))?
@@ -484,15 +536,11 @@ fn resume(tool: &Tool, args: &[String], cwd: &Path, out: &mut dyn Write) -> Resu
     };
     let texts = item_texts(&lists, &ids, tool.now)?;
     let new_items = item_refs(&ids, &texts);
-    let mut all_ids: Vec<u32> = agent.items.clone();
-    all_ids.extend(ids.iter().map(|id| id.0));
-    all_ids.sort_unstable();
-    all_ids.dedup();
     let message = crate::agent_prompt::resume_message(
         &lists.project,
         &base,
-        agent.work.places(),
-        &all_ids,
+        joined.work.places(),
+        &joined.landing,
         &new_items,
         agent.tier.trailer(),
     );
@@ -500,8 +548,12 @@ fn resume(tool: &Tool, args: &[String], cwd: &Path, out: &mut dyn Write) -> Resu
     if let Some(socket) = running_socket(tool, session)? {
         let inbox = crate::inbox::Messaging::new(&socket, None)?;
         if tool.places.sessions().send(&inbox, &message)? == crate::inbox::Sent::Delivered {
-            let conn = db::open(&store.database(), db::Make::Never)?;
-            agent_record::add_items(&conn, session, &new_ids)?;
+            let mut conn = db::open(&store.database(), db::Make::Never)?;
+            let tx = conn
+                .transaction_with_behavior(TransactionBehavior::Immediate)
+                .sql()?;
+            agent_record::join(&tx, session, &joined.work, &new_ids)?;
+            tx.commit().sql()?;
             let _ = writeln!(out, "agent {session}: the message reached its inbox");
             return Ok(());
         }
@@ -520,7 +572,7 @@ fn resume(tool: &Tool, args: &[String], cwd: &Path, out: &mut dyn Write) -> Resu
     );
     let started = agent_launch::start(command, &message, Log::append(&log)?)?;
     let (started, number) = record_process(&store, started, &message, tool.now, |db, process| {
-        agent_record::add_items(db, session, &new_ids)?;
+        agent_record::join(db, session, &joined.work, &new_ids)?;
         agent_record::add_process(db, session, process)
     })?;
     let _ = writeln!(

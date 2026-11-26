@@ -122,19 +122,34 @@ pub fn start(db: &Connection, agent: &Agent, process: &Process) -> Result<()> {
         ],
     )
     .sql()?;
-    for place in agent.work.places() {
-        db.execute(
-            "INSERT INTO agent_place (session, worktree, branch) VALUES (?1, ?2, ?3)",
-            params![agent.session, place.worktree, place.branch],
-        )
-        .sql()?;
-    }
+    add_places(db, &agent.session, agent.work.places())?;
     add_items(db, &agent.session, &agent.items)?;
     add_process(db, &agent.session, process).map(drop)
 }
 
+fn add_places(db: &Connection, session: &str, places: &[Place]) -> Result<()> {
+    for place in places {
+        db.execute(
+            "INSERT INTO agent_place (session, worktree, branch) VALUES (?1, ?2, ?3)",
+            params![session, place.worktree, place.branch],
+        )
+        .sql()?;
+    }
+    Ok(())
+}
+
+/// Records that <items> joined <session>'s agent, whose work is now <work>:
+/// its places replace the recorded ones. The caller's transaction makes the
+/// writes one.
+pub fn join(db: &Connection, session: &str, work: &Work, items: &[u32]) -> Result<()> {
+    db.execute("DELETE FROM agent_place WHERE session = ?1", [session])
+        .sql()?;
+    add_places(db, session, work.places())?;
+    add_items(db, session, items)
+}
+
 /// Records that <items> are among the items of <session>'s agent.
-pub fn add_items(db: &Connection, session: &str, items: &[u32]) -> Result<()> {
+fn add_items(db: &Connection, session: &str, items: &[u32]) -> Result<()> {
     for item in items {
         db.execute(
             "INSERT OR IGNORE INTO agent_item (session, item) VALUES (?1, ?2)",

@@ -188,9 +188,14 @@ process ends.
       Gives the recorded agent SESSION a message: the words of --message-file,
       then, for each --item, the worktree and land command, the item as
       `builds item show` prints it and the commit trailer again. It needs at
-      least one of --item and --message-file. Each --item runs in the agent's
-      worktree (the coordinator takes it there first), or for a planner is an
-      open item no agent runs; builds adds it to the agent's record.
+      least one of --item and --message-file. Each --item of an implementing
+      agent runs in one of the agent's worktrees, on any branch (the
+      coordinator takes it there first). A planner takes an open item that no
+      agent runs. builds adds each --item to the agent's record.
+      - The worktrees and branches that an implementing agent's --item items
+        run in replace the recorded ones. Each land command names these items
+        and the agent's earlier items that still run there. builds refuses the
+        resume unless all those items run in the same worktrees.
       - When Claude Code's record of running sessions names SESSION, builds
         sends the message to the session's inbox and exits at once.
       - Otherwise, or when nothing listens at the inbox, builds runs `claude
