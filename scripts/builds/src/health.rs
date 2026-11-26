@@ -6,6 +6,9 @@
 //! again the findings that waited for a settle and reached it in no message,
 //! and forgets a judge whose session ended.
 //!
+//! A text run marks each needs-action line that the same caller's last text run
+//! did not print (`health_new`).
+//!
 //! Health exits 1 when work has stopped moving or another finding needs action.
 
 use std::path::{Path, PathBuf};
@@ -2148,12 +2151,20 @@ fn report(tool: &Tool, json: bool, stop_junk: bool, release_failures: Vec<Advice
     health
         .findings
         .extend(host_findings(&scanned, &busy, &refusals, &installed));
+    let caller = crate::health_new::caller_name(&tool.session)?;
+    // Read before this run writes its own, and a record that cannot be read
+    // counts as no earlier run: this run writes a whole one over it.
+    let earlier = crate::health_new::read(&tool.places.home, &caller).unwrap_or_else(|error| {
+        crate::text::note(error.text());
+        None
+    });
     if json {
         println!("{}", health_json(&health, &busy));
     } else {
         // The dashboard, prune and the busy processes come before "needs
         // action", which is last.
         let mut out = lines(&health);
+        crate::health_new::mark(&mut out, &health.findings, earlier.as_deref());
         let at = out
             .iter()
             .position(|line| line.starts_with("needs action"))
@@ -2176,6 +2187,7 @@ fn report(tool: &Tool, json: bool, stop_junk: bool, release_failures: Vec<Advice
         for line in out {
             println!("{line}");
         }
+        crate::health_new::write(&tool.places.home, &caller, &health.findings)?;
     }
     if health.findings.is_empty() {
         Ok(())

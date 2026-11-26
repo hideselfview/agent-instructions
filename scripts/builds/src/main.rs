@@ -77,6 +77,7 @@ mod glob;
 mod handed_runs;
 mod health;
 mod health_fix;
+mod health_new;
 mod health_stillness;
 mod help;
 mod holder_run;
