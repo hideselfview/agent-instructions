@@ -3866,13 +3866,17 @@ run `review replay --rules-root` on it.
                               that are all design files take --design alone
                               (`builds help lists`). A landing that names one
                               --design, with or without items, and two or
-                              more commits that are all design files
-                              squashes them into one commit whose message is
-                              the change's title (decision 292): land builds
-                              it on the first commit's parent, moves the
-                              branch to it, and refuses, changing nothing,
-                              when the squash would give a tree other than
-                              the last commit's, or when the branch has
+                              more commits in a row that are all design
+                              files squashes those into one commit whose
+                              message is the change's title (decision 292):
+                              land builds it on the first one's parent. Each
+                              other commit, such as a spec edit for another
+                              item, keeps its own commit, built again on the
+                              squashed one with its tree, author and message.
+                              Land moves the branch to the last commit, and
+                              refuses, changing nothing, when the squash
+                              would give a tree other than that of the last
+                              commit it squashes, or when the branch has
                               commits after the last one named. For a
                               squashed landing, land passes --squashed to
                               `review check-landing`, which then takes the

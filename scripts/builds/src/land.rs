@@ -61,12 +61,14 @@
 //! requirement: the design changes hold the app work. A repo in no project
 //! takes none of these flags and lands as before.
 //!
-//! A landing that names one `--design N`, with two or more commits that are all
-//! design files (`builds design only`), whether or not it names items, lands
-//! them as one commit (land_squash.rs, decision #292): land builds a
-//! commit with the change's title as its message (`builds design title`) on
-//! the parent of the first commit, moves the branch to it, and goes on with
-//! that commit alone. It refuses before it moves anything when the squashed
+//! A landing that names one `--design N`, whether or not it names items, lands
+//! its commits that change design files only (`builds design only` for each
+//! commit) as one commit (land_squash.rs, decision #292) when they are two or
+//! more in a row: land builds a commit with the change's title as its message
+//! (`builds design title`) on the parent of the first of them. Every other
+//! commit, such as a spec edit for another item, stays a commit of its own,
+//! built again on the squashed commit with its tree, author and message. Land
+//! moves the branch to the last commit and goes on with them. It refuses before it moves anything when the squashed
 //! tree is not the last commit's tree, or when the branch has commits after the
 //! last one named.
 //!
@@ -899,10 +901,10 @@ impl Landing<'_> {
     /// Squashes the commits of a landing that holds only one design change
     /// into one commit with the change's title as its message (decision #292,
     /// land_squash.rs), and moves the branch to it, whether or not the landing
-    /// names items. Two or more commits that are all design files and share
-    /// one design change are its rounds; a landing of several changes has no
-    /// one title for its commits, and commits that change app files are app
-    /// work, so neither squashes. The branch must end at the
+    /// names items. Two or more commits in a row that are all design files and
+    /// share one design change are its rounds; a landing of several changes
+    /// has no one title for its commits, and a commit that changes app files
+    /// or only spec lines is another concern, which keeps its own commit. The branch must end at the
     /// last commit, since land moves it only there. Refuses, before it
     /// changes anything, when the squash would change a file.
     fn squash_design(&mut self, out: &mut dyn Write) -> Result<()> {
@@ -934,6 +936,39 @@ impl Landing<'_> {
             );
             return Ok(());
         }
+        // Only the commits of design files are the change's rounds. A commit of
+        // anything else, such as a spec edit for another item, keeps its own
+        // commit.
+        let is_design: Vec<bool> = self
+            .request
+            .shas
+            .iter()
+            .map(|sha| {
+                self.run_line(&self.with_items(
+                    &["design", "only"],
+                    false,
+                    std::slice::from_ref(sha),
+                    project,
+                ))
+                .0
+            })
+            .collect();
+        let Some(first) = is_design.iter().position(|&design| design) else {
+            return Ok(());
+        };
+        let end = first
+            + is_design[first..]
+                .iter()
+                .take_while(|&&design| design)
+                .count();
+        if end - first < 2 || is_design[end..].contains(&true) {
+            let _ = writeln!(
+                out,
+                "not squashing the commits of design change {}: its design commits are not two or more in a row",
+                design.0
+            );
+            return Ok(());
+        }
         let (ok, title) = self.builds(&[
             "design",
             "title",
@@ -958,8 +993,13 @@ impl Landing<'_> {
                 ),
             ));
         }
-        let squashed = match crate::land_squash::squash(&self.workdir, &self.request.shas, &title) {
-            Ok(squashed) => squashed,
+        let landed = match crate::land_squash::squash_run(
+            &self.workdir,
+            &self.request.shas,
+            first..end,
+            &title,
+        ) {
+            Ok(landed) => landed,
             Err(error) => {
                 let said = error.text();
                 return Err(refuse(
@@ -971,6 +1011,7 @@ impl Landing<'_> {
                 ));
             }
         };
+        let squashed = landed.last().expect("the landing holds commits").clone();
         if !git_ok(&self.workdir, &["reset", "-q", "--hard", &squashed]) {
             return Err(refuse(
                 out,
@@ -985,11 +1026,12 @@ impl Landing<'_> {
         }
         let _ = writeln!(
             out,
-            "squashed {} commits of design change {} into {squashed}, which has the tree of {last}; the branch is now at it, so a later landing names {squashed}",
-            self.request.shas.len(),
-            design.0
+            "squashed {} commits of design change {} into one, which with the commits after it ends at {squashed}, the tree of {last}; the branch is now at it, so a later landing names {}",
+            end - first,
+            design.0,
+            landed.join(" ")
         );
-        self.request.shas = vec![squashed];
+        self.request.shas = landed;
         self.squashed.set(true);
         Ok(())
     }

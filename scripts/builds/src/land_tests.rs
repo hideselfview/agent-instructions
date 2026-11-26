@@ -128,6 +128,10 @@ struct Cues {
     refuse: &'static str,
     says: &'static str,
     coverage: &'static str,
+    /// A file name: `design only` for one commit that changes exactly this
+    /// file says the commit changes no design files, as it does for a
+    /// commit of spec lines alone.
+    no_design_file: &'static str,
 }
 
 /// Writes the stand-in `builds` for <cues> and returns it with the file it
@@ -138,7 +142,7 @@ fn stub(f: &Fixture, cues: &Cues) -> (PathBuf, PathBuf) {
     let stub = f.scratch.dir.join("stub-builds");
     let log = f.scratch.dir.join("calls.log");
     let script = format!(
-        "#!/bin/bash\necho \"$*\" >> '{log}'\n[ '{refuse}' = \"$1 $2\" ] && {{ echo '{says}'; exit 1; }}\ncase \"$1 $2\" in\n  'lists project-of') echo '{project}' ;;\n  'review key') k=$(git -C \"$3\" symbolic-ref -q --short HEAD) && echo \"branch:$k\" || echo \"detached:$(git -C \"$3\" rev-parse --short HEAD)\" ;;\n  'design places') printf '%s' '{places}' ;;\n  'design title') echo '{title}' ;;\n  'app-build --landing-coverage') {coverage} ;;\nesac\nexit 0\n",
+        "#!/bin/bash\necho \"$*\" >> '{log}'\n[ '{refuse}' = \"$1 $2\" ] && {{ echo '{says}'; exit 1; }}\nif [ \"$1 $2\" = 'design only' ] && [ \"$5\" = '--project' ] && [ -n '{no_design_file}' ] && [ \"$(git -C \"$3\" show --name-only --format= \"$4\")\" = '{no_design_file}' ]; then echo 'the commits change no design files'; exit 1; fi\ncase \"$1 $2\" in\n  'lists project-of') echo '{project}' ;;\n  'review key') k=$(git -C \"$3\" symbolic-ref -q --short HEAD) && echo \"branch:$k\" || echo \"detached:$(git -C \"$3\" rev-parse --short HEAD)\" ;;\n  'design places') printf '%s' '{places}' ;;\n  'design title') echo '{title}' ;;\n  'app-build --landing-coverage') {coverage} ;;\nesac\nexit 0\n",
         log = log.display(),
         refuse = cues.refuse,
         says = if cues.says.is_empty() {
@@ -148,6 +152,7 @@ fn stub(f: &Fixture, cues: &Cues) -> (PathBuf, PathBuf) {
         },
         project = cues.project,
         title = cues.title,
+        no_design_file = cues.no_design_file,
         places = cues.places,
         coverage = or_true(cues.coverage).replace("{root}", &root),
     );
@@ -2008,6 +2013,71 @@ fn a_design_landing_with_an_item_squashes_its_design_commits_too() {
     assert!(calls.contains(&format!(
         "design landed 3 {shown} {landed} --project bae --by agent A"
     )));
+}
+
+/// Lands the design rounds of `three_rounds` with a commit of spec.md, which
+/// is no design file of the change, added `before` them or after them.
+fn land_rounds_with_a_spec_commit(name: &str, before: bool) {
+    let f = fixture(name, "true\n", None);
+    let dir = f.side(1, "a");
+    let base = main_of(&f);
+    let mut shas = Vec::new();
+    if before {
+        shas.push(commit_file(&dir, "spec.md", "spec\n", "Say how rows wrap"));
+    }
+    shas.push(commit_file(&dir, "a.txt", "a\n", "draw the button"));
+    shas.push(commit_file(&dir, "a.txt", "a2\n", "redraw the button"));
+    if !before {
+        shas.push(commit_file(&dir, "spec.md", "spec\n", "Say how rows wrap"));
+    }
+    let tree = git_out(&dir, &["rev-parse", "HEAD^{tree}"]);
+    let mut args = vec!["--design", "3"];
+    args.extend(shas.iter().map(String::as_str));
+    let (code, out, _) = run_land(
+        &f,
+        &dir,
+        &args,
+        Cues {
+            title: "Draw the button",
+            places: BOARDS,
+            no_design_file: "spec.md",
+            ..project()
+        },
+    );
+    assert_eq!(code, 0, "{out}");
+    let landed = main_of(&f);
+    assert_eq!(
+        git_out(
+            &f.origin,
+            &["rev-list", "--count", &format!("{base}..{landed}")]
+        ),
+        "2",
+        "the two rounds become one commit and the spec commit stays: {out}"
+    );
+    let messages = git_out(
+        &f.origin,
+        &["log", "--format=%s", &format!("{base}..{landed}")],
+    );
+    let want = if before {
+        "Draw the button\nSay how rows wrap"
+    } else {
+        "Say how rows wrap\nDraw the button"
+    };
+    assert_eq!(messages, want);
+    assert_eq!(
+        git_out(&f.origin, &["rev-parse", &format!("{landed}^{{tree}}")]),
+        tree
+    );
+}
+
+#[test]
+fn a_spec_commit_after_the_design_rounds_keeps_its_own_commit() {
+    land_rounds_with_a_spec_commit("land-squash-spec-after", false);
+}
+
+#[test]
+fn a_spec_commit_before_the_design_rounds_keeps_its_own_commit() {
+    land_rounds_with_a_spec_commit("land-squash-spec-before", true);
 }
 
 #[test]

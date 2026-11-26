@@ -670,7 +670,8 @@ nothing, so each fix keeps its commit.
      the worktree where the design session drew the boards, naming every
      commit of the change, oldest first. Land squashes the commits of a change
      of design files only into one commit with the change's title as its
-     message (decision #292).
+     message (decision #292), and keeps every other commit of the branch, such
+     as a spec edit for another item, as its own commit.
      When the session that recorded the change has ended, the next design
      session lands it. The rules review read the branch before the person
      reviewed it (step 2), so land needs no new review unless the branch
