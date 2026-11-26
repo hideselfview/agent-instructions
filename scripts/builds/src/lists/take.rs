@@ -13,17 +13,13 @@
 //! without --worktree and --branch, and nowhere else.
 //!
 //! Before the take's write, take refuses a brief that pastes a coding rule or
-//! workflow text (pasted.rs), and checks that each sentence of the brief that
-//! states a ruling of the person's or a standing prohibition cites where it
-//! is written (rulings.rs), and refuses the take when one cites nothing or
-//! names what does not exist. Then it checks the
-//! brief against the product spec of each named worktree's repo that has
+//! workflow text (pasted.rs). Then it checks the brief against the product spec of each named worktree's repo that has
 //! spec files (spec_check.rs) and records each check in its own write. A
 //! conflict refuses the take unless `--spec-decided` names the decision or
 //! question that records the person's choice on it; take prints each
 //! behavior the spec doesn't state and takes the items. `--reviewer` and
-//! `--rules-root` name the reviewer program and the rules checkout both
-//! checks use in place of the tool's.
+//! `--rules-root` name the reviewer program and the rules checkout the
+//! spec check uses in place of the tool's.
 
 use std::path::Path;
 
@@ -38,7 +34,6 @@ use crate::lists::held::waits_on_open;
 use crate::lists::item::{Item, open_item};
 use crate::lists::item_command::blocking_words;
 use crate::lists::kept_work::{self, kept_in, places_words};
-use crate::lists::rulings::{self, Source, Text};
 use crate::lists::running::{
     PlaceTable, Running, SpanKind, insert_places, open_span, place_in_repo, running_in, start,
 };
@@ -431,10 +426,9 @@ fn check_spec(
 }
 
 /// The checks of a brief that `item take` and `item check-brief` share: the
-/// pasted-text check, the rulings check and the spec check of each of
+/// pasted-text check and the spec check of each of
 /// <checkouts>' repos. Records the spec checks when <recording> is given.
 fn check_brief(
-    tool: &Tool,
     recording: Option<&Recording>,
     lists: &Lists,
     checkouts: &[Checkout],
@@ -442,22 +436,13 @@ fn check_brief(
     checks: &Checks,
 ) -> Result<()> {
     crate::lists::pasted::require_unpasted(brief, &checks.reviewer.rules_root, &lists.project)?;
-    for line in rulings::require_cited(
-        &checks.reviewer,
-        &tool.places.home,
-        lists,
-        Source::Brief,
-        &[Text::new(format!("the brief {}", brief.name), &brief.text)],
-    )? {
-        note(line);
-    }
     check_spec(recording, lists, checkouts, brief, checks)
 }
 
 const CHECK_USAGE: &str = "builds item check-brief --worktree W [--worktree W2] --brief P [--spec-decided N] [--rules-root DIR] [--reviewer PROGRAM]";
 
 /// `builds item check-brief`: runs the checks `item take` runs on a brief
-/// (pasted text, rulings, spec) in the worktrees <args> names, and takes and
+/// (pasted text, spec) in the worktrees <args> names, and takes and
 /// records nothing.
 pub fn check(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let args = Args::parse(
@@ -495,7 +480,7 @@ pub fn check(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         require_project_repo(&lists, checkout)?;
     }
     let checks = Checks::of(tool, &lists, &args)?;
-    check_brief(tool, None, &lists, &checkouts, &read_brief, &checks)?;
+    check_brief(None, &lists, &checkouts, &read_brief, &checks)?;
     note(format!(
         "brief {brief} passes the checks of `builds item take`; nothing was taken or recorded"
     ));
@@ -579,14 +564,7 @@ pub fn take(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         ids: &ids,
     };
     let checkouts: Vec<Checkout> = places.iter().map(|place| place.checkout.clone()).collect();
-    check_brief(
-        tool,
-        Some(&recording),
-        &lists,
-        &checkouts,
-        &read_brief,
-        &checks,
-    )?;
+    check_brief(Some(&recording), &lists, &checkouts, &read_brief, &checks)?;
     let take = store.write(
         &stamp,
         &format!(

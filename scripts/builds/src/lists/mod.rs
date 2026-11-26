@@ -17,9 +17,7 @@
 //! transaction and the snapshot read, `check` the checks the tables cannot
 //! hold, `derive` what is computed and never stored, `view` the JSON the page
 //! reads, `draft` what a command that makes work checks before the write,
-//! `rulings` the check that text a command writes cites where each ruling of
-//! the person's it states is written down, `citation` what such a citation
-//! names, `args` the flag parsing every command uses.
+//! `citation` what the `decision #N` citations in a question name, `args` the flag parsing every command uses.
 
 pub mod area;
 pub mod args;
@@ -60,7 +58,6 @@ mod publish_command;
 pub mod question;
 pub mod question_command;
 pub mod record;
-pub mod rulings;
 pub mod running;
 pub mod rust_check;
 pub mod rust_release;

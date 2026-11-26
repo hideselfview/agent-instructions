@@ -90,7 +90,7 @@ impl Scratch {
     }
 
     /// A tool whose places are in the scratch folder, and whose reviewer
-    /// (`no_rulings_reviewer`) finds no ruling in any text.
+    /// (`empty_reviewer`) answers every call with an empty answer.
     pub fn tool(&self, floor_gib: u64) -> Tool {
         let mut tool = Tool::new(
             self.places(),
@@ -110,7 +110,7 @@ impl Scratch {
             crate::ack::agent::Session::Terminal,
         )
         .expect("the test's directory exists");
-        tool.reviewer = self.no_rulings_reviewer();
+        tool.reviewer = self.empty_reviewer();
         tool
     }
 
@@ -150,13 +150,13 @@ exit 0"#
         program
     }
 
-    /// A reviewer stand-in that answers every rulings check with no claim,
-    /// over a rules checkout in the scratch folder that holds no group.
-    pub fn no_rulings_reviewer(&self) -> crate::review::Reviewer {
-        let program = self.dir.join("no-rulings-reviewer");
+    /// A reviewer stand-in that answers every call with an empty list of
+    /// claims, over a rules checkout in the scratch folder that holds no group.
+    pub fn empty_reviewer(&self) -> crate::review::Reviewer {
+        let program = self.dir.join("empty-reviewer");
         if !program.exists() {
             self.script(
-                "no-rulings-reviewer",
+                "empty-reviewer",
                 "cat > /dev/null\necho '{\"is_error\": false, \"usage\": {\"input_tokens\": 0, \"output_tokens\": 0}, \"structured_output\": {\"claims\": []}}'",
             );
         }

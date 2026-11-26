@@ -92,7 +92,7 @@ mod prompt;
 mod propose;
 pub mod provider;
 pub use key::landing_key;
-pub use provider::{Program, Selection, Tier};
+pub use provider::{Program, Selection};
 pub mod record;
 mod render;
 mod rerun;
@@ -143,7 +143,7 @@ pub fn default_rules_root() -> Result<PathBuf> {
 }
 
 /// The reviewer program a command asks and the rules checkout it reads, for
-/// the commands that check text before they write it (`lists::rulings`).
+/// the commands that check text before they write it (`lists::spec_check`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Reviewer {
     pub program: Program,

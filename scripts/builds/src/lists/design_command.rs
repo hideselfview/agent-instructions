@@ -20,7 +20,6 @@ use crate::lists::design::{self, DesignRequest, Drawn, Landed, PlaceAnswer, Sett
 use crate::lists::design_drawn::{ProgramRenders, Renders, Sameness};
 use crate::lists::design_paths::{self, Changes, Globs, PlaceKind};
 use crate::lists::design_session;
-use crate::lists::rulings::{self, Source};
 use crate::lists::store::{self, Store, project_of};
 use crate::lists::{Id, Lists, Stamp};
 use crate::text::local_minute;
@@ -369,11 +368,8 @@ fn require_review_boards(scope: &Scope, request: &DesignRequest) -> Result<()> {
 }
 
 /// The request's new items: each one's brief exists in a main checkout
-/// of the project, and its title and details cite the decision or rule behind each
-/// ruling of the person's they state (`rulings`). Returns what the rulings
-/// check prints.
-fn require_drafts(tool: &Tool, scope: &Scope, request: &DesignRequest) -> Result<Vec<String>> {
-    let mut drafts = Vec::new();
+/// of the project.
+fn require_drafts(tool: &Tool, scope: &Scope, request: &DesignRequest) -> Result<()> {
     for answer in request.places.values().flatten() {
         if let PlaceAnswer::New(draft) = answer {
             crate::lists::draft::require_draft_briefs(
@@ -381,16 +377,9 @@ fn require_drafts(tool: &Tool, scope: &Scope, request: &DesignRequest) -> Result
                 &scope.lists.repos,
                 std::slice::from_ref(draft),
             )?;
-            drafts.push(draft.clone());
         }
     }
-    rulings::require_cited(
-        &tool.reviewer,
-        &tool.places.home,
-        &scope.lists,
-        Source::Lists,
-        &rulings::draft_texts(&drafts),
-    )
+    Ok(())
 }
 
 /// Refuses a change whose boards draw a component state that no preview row
@@ -484,7 +473,7 @@ fn record(
     args.exactly(0, USAGE)?;
     let request: DesignRequest = read_request(args.require("request")?)?;
     let scope = request_scope(tool, &args, &request)?;
-    let cited = require_drafts(tool, &scope, &request)?;
+    require_drafts(tool, &scope, &request)?;
     require_review_boards(&scope, &request)?;
     let affected = affected_components(&scope, &request)?;
     require_states_shown(tool, &scope)?;
@@ -520,7 +509,7 @@ fn record(
         Settlement::Review => Review::Waits,
     };
     let awaits = review.awaits_approval();
-    let words = recorded_words("recorded", &recorded, &title, review) + &rulings::lines(cited);
+    let words = recorded_words("recorded", &recorded, &title, review);
     if !awaits {
         return Ok(words);
     }
@@ -573,7 +562,7 @@ fn amend(
     let id = Id::parse(id)?;
     let request: DesignRequest = read_request(args.require("request")?)?;
     let scope = request_scope(tool, &args, &request)?;
-    let cited = require_drafts(tool, &scope, &request)?;
+    require_drafts(tool, &scope, &request)?;
     require_review_boards(&scope, &request)?;
     let affected = affected_components(&scope, &request)?;
     require_states_shown(tool, &scope)?;
@@ -619,7 +608,7 @@ fn amend(
                 Ok((recorded, design.title.clone(), review))
             })?;
     let awaits = review.awaits_approval();
-    let words = recorded_words("amended", &recorded, &title, review) + &rulings::lines(cited);
+    let words = recorded_words("amended", &recorded, &title, review);
     if !awaits {
         return Ok(words);
     }

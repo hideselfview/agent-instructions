@@ -233,7 +233,6 @@ sed "s/^{{/{{\"modelUsage\":{{\"$model\":{{}}}},/" "$answer"
     };
     fake.answer("alpha", &[("rule-a", None)]);
     fake.answer("beta", &[("rule-b", None)]);
-    fake.answer_task("rulings", serde_json::json!({"claims": []}));
     fake
 }
 

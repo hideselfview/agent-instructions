@@ -21,7 +21,6 @@ use crate::lists::item::{
     start_from_backlog,
 };
 use crate::lists::record::close;
-use crate::lists::rulings::{self, Source};
 use crate::lists::show::wait_words;
 use crate::lists::store::{self, Store};
 use crate::lists::{
@@ -187,13 +186,6 @@ fn add(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let store = Store::resolve(&tool.places, &args, cwd)?;
     require_draft_briefs(&tool.places, &store.repos()?, std::slice::from_ref(&draft))?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
-    let cited = rulings::require_cited(
-        &tool.reviewer,
-        &tool.places.home,
-        &store.load()?,
-        Source::Lists,
-        &rulings::draft_texts(std::slice::from_ref(&draft)),
-    )?;
     let (id, state) = store.write(&stamp, &format!("item add {}", draft.title), |db| {
         let id = add_item(db, &draft, origin, &stamp)?;
         let lists = store::read(db)?;
@@ -204,7 +196,6 @@ fn add(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         draft.title,
         state.label()
     ));
-    cited.into_iter().for_each(note);
     Ok(())
 }
 
@@ -249,13 +240,6 @@ fn edit(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         find_brief(&tool.places, &store.repos()?, brief)?;
     }
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
-    let cited = rulings::require_cited(
-        &tool.reviewer,
-        &tool.places.home,
-        &store.load()?,
-        Source::Lists,
-        &rulings::edit_texts(id, &edit),
-    )?;
     store.write(&stamp, &format!("item edit {id}"), |db| {
         let lists = store::read(db)?;
         if fields {
@@ -283,7 +267,6 @@ fn edit(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         tag::add_tags(db, id, &tags)
     })?;
     note(format!("edited {id}"));
-    cited.into_iter().for_each(note);
     Ok(())
 }
 
@@ -692,16 +675,6 @@ fn backlog(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let why = args.why()?.to_string();
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
-    let cited = rulings::require_cited(
-        &tool.reviewer,
-        &tool.places.home,
-        &store.load()?,
-        Source::Lists,
-        &[rulings::Text::new(
-            "why the items wait in the backlog",
-            &why,
-        )],
-    )?;
     let named: Vec<String> = ids.iter().map(|id| id.0.to_string()).collect();
     let moves: Vec<(Id, String)> = ids.iter().map(|id| (*id, why.clone())).collect();
     store.write(&stamp, &format!("item backlog {}", named.join(" ")), |db| {
@@ -710,7 +683,6 @@ fn backlog(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     for id in &ids {
         note(format!("moved {id} to the backlog"));
     }
-    cited.into_iter().for_each(note);
     Ok(())
 }
 
