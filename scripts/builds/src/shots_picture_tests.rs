@@ -1,6 +1,8 @@
 use super::*;
+use crate::places::Places;
 use crate::shots_cache::{Key, stage};
 use crate::testing::Scratch;
+use std::path::PathBuf;
 
 fn key(prefix: &str, commit: &str) -> Key {
     Key {
@@ -9,14 +11,7 @@ fn key(prefix: &str, commit: &str) -> Key {
         lane: Lane::Mac,
         environment: "26B131-17C529".to_string(),
         prefix: prefix.to_string(),
-        versions: versions(),
-    }
-}
-
-fn versions() -> Versions {
-    Versions {
-        capture: "c0c0c0c0c0c0c0c0".to_string(),
-        comparison: "0123456789abcdef".to_string(),
+        versions: crate::shots_program::VERSIONS.clone(),
     }
 }
 
@@ -33,7 +28,7 @@ fn cache_run(places: &Places, key: &Key, files: &[&str]) {
 }
 
 fn ask(places: &Places, commit: &str, scene: &str, side: Side) -> Option<PathBuf> {
-    stored(places, "demo", commit, Lane::Mac, scene, side, &versions()).unwrap()
+    picture_file(places, "demo", commit, Lane::Mac, scene, side).unwrap()
 }
 
 #[test]
@@ -96,7 +91,7 @@ fn a_run_of_another_prefix_does_not_cover_the_scene() {
 }
 
 #[test]
-fn the_scene_names_its_lane_and_a_side_is_board_or_shot() {
+fn the_scene_names_its_lane() {
     assert_eq!(
         lane_of("android.playlists.playlist").unwrap(),
         Lane::Android
@@ -109,13 +104,6 @@ fn the_scene_names_its_lane_and_a_side_is_board_or_shot() {
             .contains("web")
     );
     assert!(lane_of("welcome").is_err());
-    assert_eq!(Side::parse("board").unwrap(), Side::Board);
-    assert!(
-        Side::parse("both")
-            .unwrap_err()
-            .text()
-            .contains("board | shot")
-    );
 }
 
 #[test]

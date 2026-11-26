@@ -32,6 +32,7 @@ pub use crate::declared::Declared;
 use crate::names::Platform;
 pub use crate::names::{ComponentName, Name, NameError, Prefix, ScreenName};
 pub use crate::pictures::app_picture_tree;
+pub use crate::report::{board_picture, shot_picture};
 use crate::settings::Settings;
 use clap::{Args, Parser, Subcommand};
 use std::path::{Path, PathBuf};

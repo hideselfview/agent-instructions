@@ -146,10 +146,20 @@ impl Side {
         }
     }
 
-    fn word(self) -> &'static str {
+    /// The side's word in a picture's address.
+    pub fn word(self) -> &'static str {
         match self {
             Side::Board => "board",
             Side::Shot => "shot",
+        }
+    }
+
+    /// The picture file the report of a run keeps for <scene>'s side, in the
+    /// report's folder.
+    fn file(self, scene: &str) -> String {
+        match self {
+            Side::Board => shots::board_picture(scene),
+            Side::Shot => shots::shot_picture(scene),
         }
     }
 }
@@ -290,6 +300,27 @@ pub fn picture(
     scene: &str,
     side: Side,
 ) -> Result<Option<Vec<u8>>> {
+    let Some(file) = picture_file(places, repo, commit, lane, scene, side)? else {
+        return Ok(None);
+    };
+    match std::fs::read(&file) {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => fail!("reading {}: {error}", file.display()),
+    }
+}
+
+/// The file of the picture `picture` reads: the report of the cached run of
+/// <repo>'s <commit> on <lane> that covers <scene> keeps one of its <side>;
+/// none when no such run holds it. Reading marks the run used.
+pub fn picture_file(
+    places: &Places,
+    repo: &str,
+    commit: &str,
+    lane: Lane,
+    scene: &str,
+    side: Side,
+) -> Result<Option<std::path::PathBuf>> {
     let plain = !scene.is_empty()
         && !scene.contains("..")
         && scene
@@ -302,15 +333,8 @@ pub fn picture(
         return Ok(None);
     }
     shots_cache::read_covering(places, repo, commit, lane, scene, &VERSIONS, |cached| {
-        let file = cached
-            .report()
-            .join("img")
-            .join(format!("{scene}.{}.png", side.word()));
-        match std::fs::read(&file) {
-            Ok(bytes) => Ok(Some(bytes)),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-            Err(error) => fail!("reading {}: {error}", file.display()),
-        }
+        let file = cached.report().join(side.file(scene));
+        Ok(file.is_file().then_some(file))
     })
 }
 

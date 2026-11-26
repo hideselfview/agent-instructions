@@ -39,11 +39,11 @@ pub(crate) struct Header {
 }
 
 /// The picture file names a checked pair uses inside the report directory.
-pub(crate) fn board_picture(name: &str) -> String {
+pub fn board_picture(name: &str) -> String {
     format!("img/{name}.board.png")
 }
 
-pub(crate) fn shot_picture(name: &str) -> String {
+pub fn shot_picture(name: &str) -> String {
     format!("img/{name}.shot.png")
 }
 
