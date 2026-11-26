@@ -158,9 +158,24 @@ pub struct Health {
     pub queues: Vec<LaneQueue>,
     /// What needs acting on, one line each; empty when nothing does.
     pub findings: Vec<Finding>,
+    /// The work with commits waiting to land and no claim, one entry for
+    /// each: the dashboard's Leftover work list. The `Unclaimed` and
+    /// `Branch` findings say the same in words.
+    #[serde(default)]
+    pub leftover: Vec<Leftover>,
     /// Whether the coordinator's schedule has open work or worktree state
     /// to watch.
     pub schedule_needed: bool,
+}
+
+/// One piece of work with commits waiting to land and no claim.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Leftover {
+    /// The worktree's label, or the repo and branch of a loose branch.
+    pub name: String,
+    pub commits: usize,
+    /// When the oldest of its commits was made, seconds since 1970.
+    pub since: i64,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -872,6 +887,7 @@ pub fn assess(
             .map(|advice| Finding::new(FindingKind::Host, advice)),
     );
     let mut schedule_needed = !left.branches.is_empty();
+    let mut leftover = Vec::new();
     for Unclaimed {
         place,
         git,
@@ -882,6 +898,13 @@ pub fn assess(
         // could not read, may hold commits health did not see.
         schedule_needed |= git.is_err() || kept_unknown.is_some();
         let ahead = git.as_ref().map_or(0, |git| git.ahead.len());
+        if let Some(oldest) = git.as_ref().ok().and_then(|git| git.ahead.last()) {
+            leftover.push(Leftover {
+                name: places[place].label.clone(),
+                commits: ahead,
+                since: oldest.time,
+            });
+        }
         if ahead > 0 {
             schedule_needed = true;
             let unknown = match kept_unknown {
@@ -902,6 +925,13 @@ pub fn assess(
     }
     for branch in &left.branches {
         findings.push(Finding::new(FindingKind::Branch, loose_advice(branch)));
+        if let Some(oldest) = branch.commits.last() {
+            leftover.push(Leftover {
+                name: format!("{} {}", branch.repo, branch.branch),
+                commits: branch.commits.len(),
+                since: oldest.time,
+            });
+        }
     }
     let mut worktrees = Vec::new();
     for Claimed {
@@ -1019,6 +1049,7 @@ pub fn assess(
         locks: machine.locks,
         queues: machine.queues,
         findings,
+        leftover,
         schedule_needed,
     }
 }
@@ -3097,6 +3128,14 @@ mod tests {
                 branches: Vec::new(),
             },
             Vec::new(),
+        );
+        assert_eq!(
+            health.leftover,
+            vec![Leftover {
+                name: "demo/side-1".to_string(),
+                commits: 1,
+                since: now
+            }]
         );
         assert_eq!(health.findings.len(), 1, "{:?}", health.findings);
         assert!(
