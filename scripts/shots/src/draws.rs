@@ -21,6 +21,8 @@
 //! shared board) and a component preview are drawn every time: the folder
 //! keeps no picture of either.
 
+use crate::Checker;
+use crate::cli::DrawsArgs;
 use crate::design::{self, DesignSystem};
 use crate::names::{Name, Platform, Previews};
 use crate::pictures::Pictures;
@@ -103,6 +105,32 @@ enum Selection<'a> {
         boards: &'a [String],
         components: &'a [String],
     },
+}
+
+/// `builds shots draws`: prints a line for each board and component preview
+/// of the repo at <root> that draws the same at the two revisions of <args>,
+/// taking pictures from the folder <args> names; true.
+pub(crate) fn command(checker: &Checker, root: &Path, args: DrawsArgs) -> Result<bool, String> {
+    let pictures = args
+        .pictures
+        .map(|dir| Pictures::new(dir, std::time::SystemTime::now()));
+    let store = Store {
+        capture_version: &checker.versions.capture,
+        pictures: pictures.as_ref(),
+    };
+    let lines = lines(
+        root,
+        &args.at,
+        &args.against,
+        &args.boards,
+        &args.components,
+        checker.folders,
+        &store,
+    )?;
+    for line in lines {
+        println!("{line}");
+    }
+    Ok(true)
 }
 
 /// The names of the boards and component previews of the repo at <root>

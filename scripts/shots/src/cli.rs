@@ -115,12 +115,6 @@ pub(crate) enum Action {
     },
     /// Fail when a declared shot has no board.
     Lint,
-    /// List each design-system component's preview rows whose shot its
-    /// capture file (Components/<Component>.<extension> under the platform's
-    /// declare folder) does not declare, and each capture file with no
-    /// preview. A component, or a row (`Component.row`), that
-    /// `shots-design-only` names for a platform is left out there and counted.
-    /// The listing fails nothing.
     /// List each design-system component state that a board draws and no row
     /// of the component's preview shows: a value of a state prop, or a
     /// component no preview row draws, with the boards that draw it. A prop
@@ -130,39 +124,17 @@ pub(crate) enum Action {
     /// names (icon, name, or a prop that ends in Icon) are not. With
     /// --against, list only the states that the listing at that revision
     /// does not hold, and fail when there is one.
-    States {
-        /// Draw the boards and previews as they are at this revision, not as
-        /// the working tree holds them.
-        #[arg(long)]
-        at: Option<String>,
-        /// List only the states that the listing at this revision does not
-        /// hold, and fail when there is one.
-        #[arg(long)]
-        against: Option<String>,
-    },
+    States(StatesArgs),
     /// Print whether each named board or component preview draws alike at
     /// the two revisions. Give no selectors to compare every board and
     /// component preview from either revision.
-    Draws {
-        /// The first revision.
-        #[arg(long)]
-        at: String,
-        /// The revision to compare with.
-        #[arg(long)]
-        against: String,
-        /// A board's name (`design/mocks/<name>.dc.html`); repeat for several.
-        #[arg(long = "board")]
-        boards: Vec<String>,
-        /// A component's name, whose preview page is drawn; repeat for several.
-        #[arg(long = "component")]
-        components: Vec<String>,
-        /// The folder of the board pictures earlier runs drew, which builds
-        /// keeps and passes: a screen board takes its drawing from it by its
-        /// board hash when it keeps one, and a board it lacks is drawn and
-        /// kept there.
-        #[arg(long)]
-        pictures: Option<PathBuf>,
-    },
+    Draws(DrawsArgs),
+    /// List each design-system component's preview rows whose shot its
+    /// capture file (Components/<Component>.<extension> under the platform's
+    /// declare folder) does not declare, and each capture file with no
+    /// preview. A component, or a row (`Component.row`), that
+    /// `shots-design-only` names for a platform is left out there and counted.
+    /// The listing fails nothing.
     Components {
         /// A component to show with every row, such as MacRow; repeat for
         /// several. With none, every component with a row its capture file
@@ -197,4 +169,45 @@ pub(crate) struct Selection {
 
 fn parse_platform(text: &str) -> Result<Platform, String> {
     Platform::parse(text).ok_or_else(|| "a platform is mac, android or web".to_string())
+}
+
+/// The arguments of `states`.
+#[derive(Args)]
+pub(crate) struct StatesArgs {
+    /// Draw the boards and previews as they are at this revision, not as
+    /// the working tree holds them.
+    #[arg(long)]
+    pub(crate) at: Option<String>,
+    /// List only the states that the listing at this revision does not
+    /// hold, and fail when there is one.
+    #[arg(long)]
+    pub(crate) against: Option<String>,
+    /// The folder of the board pictures and instance lists earlier runs kept,
+    /// which builds passes: a board or preview it keeps is not drawn again,
+    /// and one it lacks is drawn and kept there.
+    #[arg(long)]
+    pub(crate) pictures: Option<PathBuf>,
+}
+
+/// The arguments of `draws`.
+#[derive(Args)]
+pub(crate) struct DrawsArgs {
+    /// The first revision.
+    #[arg(long)]
+    pub(crate) at: String,
+    /// The revision to compare with.
+    #[arg(long)]
+    pub(crate) against: String,
+    /// A board's name (`design/mocks/<name>.dc.html`); repeat for several.
+    #[arg(long = "board")]
+    pub(crate) boards: Vec<String>,
+    /// A component's name, whose preview page is drawn; repeat for several.
+    #[arg(long = "component")]
+    pub(crate) components: Vec<String>,
+    /// The folder of the board pictures earlier runs drew, which builds
+    /// keeps and passes: a screen board takes its drawing from it by its
+    /// board hash when it keeps one, and a board it lacks is drawn and
+    /// kept there.
+    #[arg(long)]
+    pub(crate) pictures: Option<PathBuf>,
 }

@@ -465,44 +465,8 @@ fn run(checker: &Checker, action: Action) -> Result<bool, String> {
             }
             Ok(true)
         }
-        Action::States { at, against } => {
-            let now = states::read(&root, at.as_deref(), checker.folders)?;
-            let listed = match &against {
-                Some(rev) => states::added(now, &states::read(&root, Some(rev), checker.folders)?),
-                None => now,
-            };
-            for line in states::lines(&listed, against.as_deref()) {
-                crate::log::outcome(line);
-            }
-            Ok(against.is_none() || listed.is_empty())
-        }
-        Action::Draws {
-            at,
-            against,
-            boards,
-            components,
-            pictures,
-        } => {
-            let pictures =
-                pictures.map(|dir| pictures::Pictures::new(dir, std::time::SystemTime::now()));
-            let store = draws::Store {
-                capture_version: &checker.versions.capture,
-                pictures: pictures.as_ref(),
-            };
-            let lines = draws::lines(
-                &root,
-                &at,
-                &against,
-                &boards,
-                &components,
-                checker.folders,
-                &store,
-            )?;
-            for line in lines {
-                println!("{line}");
-            }
-            Ok(true)
-        }
+        Action::States(args) => states::command(checker, &root, args),
+        Action::Draws(args) => draws::command(checker, &root, args),
         Action::Version | Action::Recheck { .. } | Action::Chrome => {
             unreachable!("`main` runs these before it reads a repo")
         }

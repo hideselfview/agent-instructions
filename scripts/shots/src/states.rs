@@ -32,6 +32,8 @@
 //! whatever its props. A component with no preview has no component shot,
 //! so the listing leaves it out.
 
+use crate::Checker;
+use crate::cli::StatesArgs;
 use crate::design::{self, Frame};
 use crate::names::Previews;
 use crate::render::instances::{self, Instance};
@@ -284,6 +286,21 @@ pub(crate) fn lines(uncovered: &[Uncovered], against: Option<&str>) -> Vec<Strin
         ),
     });
     lines
+}
+
+/// `builds shots states`: prints the component states the boards of the repo
+/// at <root> draw that no preview row shows (or, with `--against`, those the
+/// listing at that revision lacks); false when `--against` finds one.
+pub(crate) fn command(checker: &Checker, root: &Path, args: StatesArgs) -> Result<bool, String> {
+    let now = read(root, args.at.as_deref(), checker.folders)?;
+    let listed = match &args.against {
+        Some(rev) => added(now, &read(root, Some(rev), checker.folders)?),
+        None => now,
+    };
+    for line in lines(&listed, args.against.as_deref()) {
+        crate::log::outcome(line);
+    }
+    Ok(args.against.is_none() || listed.is_empty())
 }
 
 /// The component states of the repo at <root> that no preview row shows, as
