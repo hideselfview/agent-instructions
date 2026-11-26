@@ -245,12 +245,13 @@ internal object ElementList {
         val kind = kind(config, role, editable != null, ownText, description != null && node.children.isEmpty())
         val named = merged.isEmpty() || kind != "other"
         val drawn = if (kind == "text") drawnText(node, unmerged) else node
+        val layout = if (kind == "text") textLayout(drawn) else null
         // The box the node draws, not the 48 dp touch target Compose grows around a smaller one: a board draws the
         // box. It is the whole box, also where it reaches past the shot's frame, as a board's box does.
         val bounds =
             when {
-                kind == "text" -> {
-                    textBox(drawn)
+                layout != null -> {
+                    textBox(drawn, layout)
                 }
 
                 // Material's outlined field includes the 8dp in which its visible label floats.
@@ -288,7 +289,7 @@ internal object ElementList {
                 ).put("enabled", !config.contains(SemanticsProperties.Disabled))
                 .put("selected", orNull(config.getOrNull(SemanticsProperties.Selected)))
         config.getOrNull(SemanticsProperties.Focused)?.let { out.put("focused", it) }
-        if (kind == "text") textStyle(drawn.config)?.let { out.put("text", it) }
+        layout?.let { out.put("text", textStyle(it)) }
         return out
     }
 
@@ -340,10 +341,28 @@ internal object ElementList {
      * A text node's box as a browser reports a text's: vertically from the first line's ascent to the last line's
      * descent, inside the line boxes whose height only spaces the lines. Compose's node box is the line boxes.
      */
-    private fun textBox(node: SemanticsNode): Rect {
+    private fun textBox(
+        node: SemanticsNode,
+        layout: TextLayoutResult,
+    ): Rect {
         val box = node.wholeBox()
-        val glyphs = glyphBox(node.config, box) ?: return box
-        return Rect(box.left, glyphs.first, box.right, glyphs.second)
+        val fontSize = layout.layoutInput.style.fontSize
+        check(fontSize.isSp) { "the text '${layout.layoutInput.text}' has the font size $fontSize, not one in sp" }
+        val size = with(layout.layoutInput.density) { fontSize.toPx() }
+        val metrics = Paint().apply { textSize = size }.fontMetrics
+        val first = box.top + layout.getLineBaseline(0) + metrics.ascent
+        val last = box.top + layout.getLineBaseline(layout.lineCount - 1) + metrics.descent
+        return Rect(box.left, first, box.right, last)
+    }
+
+    /** The layout that [node] drew its text with. */
+    private fun textLayout(node: SemanticsNode): TextLayoutResult {
+        val results = mutableListOf<TextLayoutResult>()
+        val read = node.config.getOrNull(SemanticsActions.GetTextLayoutResult)?.action
+        check(read != null && read(results) && results.isNotEmpty()) {
+            "the text node ${node.id} (${node.config.getOrNull(SemanticsProperties.Text)?.joinToString(" ")}) gives no text layout"
+        }
+        return results.first()
     }
 
     /**
@@ -369,25 +388,6 @@ internal object ElementList {
         val own = from.config.getOrNull(SemanticsProperties.Text)?.joinToString(" ") { it.text }
         val held = if (own == null) emptyList() else listOf(own to from)
         return held + from.children.flatMap(::textsUnder)
-    }
-
-    /** From the first line's ascent to the last line's descent of the text [config] holds, from the box [bounds]. */
-    private fun glyphBox(
-        config: SemanticsConfiguration,
-        bounds: Rect,
-    ): Pair<Float, Float>? {
-        val top = bounds.top
-        val results = mutableListOf<TextLayoutResult>()
-        val read = config.getOrNull(SemanticsActions.GetTextLayoutResult)?.action
-        if (read == null || !read(results) || results.isEmpty()) return null
-        val layout = results.first()
-        val fontSize = layout.layoutInput.style.fontSize
-        if (!fontSize.isSp) return null
-        val size = with(layout.layoutInput.density) { fontSize.toPx() }
-        val metrics = Paint().apply { textSize = size }.fontMetrics
-        val first = top + layout.getLineBaseline(0) + metrics.ascent
-        val last = top + layout.getLineBaseline(layout.lineCount - 1) + metrics.descent
-        return first to last
     }
 
     /** JSON null for an absent value: [JSONObject.put] would drop the key. */
@@ -472,16 +472,12 @@ internal object ElementList {
             }
 
     /** The text's size in sp, weight on the 100 to 900 scale, and colour, from the layout it was drawn with. */
-    private fun textStyle(config: SemanticsConfiguration): JSONObject? {
-        val results = mutableListOf<TextLayoutResult>()
-        val read = config.getOrNull(SemanticsActions.GetTextLayoutResult)?.action
-        if (read == null || !read(results) || results.isEmpty()) return null
-        val style = results.first().layoutInput.style
-        val out = JSONObject()
-        if (style.fontSize.isSp) out.put("size", style.fontSize.value.toDouble())
+    private fun textStyle(layout: TextLayoutResult): JSONObject {
+        val style = layout.layoutInput.style
+        val out = JSONObject().put("size", style.fontSize.value.toDouble())
         style.fontWeight?.let { out.put("weight", it.weight) }
         if (style.color.isSpecified) out.put("color", hex(style.color.toArgb()))
-        return out.takeIf { it.length() > 0 }
+        return out
     }
 
     /** sRGB as `#RRGGBBAA` from an ARGB int. */
