@@ -28,15 +28,6 @@ rebuilds the conditions by hand, calling sub-functions in the order you think
 causes the bug, tests another program
 (`never-re-implement-production-logic-in-tests-mocks-or-previews`).
 
-### Debug the code as it is
-
-Find the cause in the current code: run the failing test, read why it fails, and
-follow the code and the spec from there. Which commit introduced the bug doesn't
-change the fix, so don't bisect or search `git log`, `git blame` or old commits
-for it unless the user asks. Each bisect step recompiles, and a bisect over a
-day of commits can take an hour to name a commit whose change the current code
-already shows.
-
 ### Fix where the bad value comes from
 
 Trace the bad value back through each step until you reach a layer you don't
