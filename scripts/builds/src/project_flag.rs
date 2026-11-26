@@ -9,8 +9,6 @@
 
 use crate::fail;
 use crate::fail::Result;
-use crate::lists::store::Store;
-use crate::places::Places;
 
 /// The flag that names a project.
 pub const PROJECT: &str = "--project";
@@ -66,15 +64,6 @@ pub fn split(command: &str, args: &[String]) -> Result<Split> {
     kept.extend_from_slice(passed);
     let flag = project.map_or(Flag::Absent, |project| Flag::Unread(project.to_string()));
     Ok(Split { flag, args: kept })
-}
-
-/// Fails when no project is named <project>, so that a command that does not
-/// read the flag refuses one that names nothing.
-pub fn require_exists(places: &Places, project: &str) -> Result<()> {
-    if !Store::named(places, project)?.database().is_file() {
-        fail!("there are no lists for project {project}");
-    }
-    Ok(())
 }
 
 /// The project that <args>' `--project` names, and <args> without it. A

@@ -269,8 +269,15 @@ fn run_command(args: &[String], session: ack::agent::Session) -> ExitCode {
     if let Err(fail) = Places::from_env().and_then(|places| {
         ack::gate(&places, &session, command, rest, split.flag.project())?;
         match &split.flag {
-            project_flag::Flag::Unread(project) => project_flag::require_exists(&places, project),
-            project_flag::Flag::Absent | project_flag::Flag::Read(_) => Ok(()),
+            // Refuses a name that no project has, which the command itself
+            // would never look at. A command that takes no use of the stores
+            // opens none: `install` runs on stores of an older schema.
+            project_flag::Flag::Unread(project) if !install_gate::storeless(command, rest) => {
+                lists::store::Store::named(&places, project)?
+                    .repos()
+                    .map(drop)
+            }
+            _ => Ok(()),
         }
     }) {
         return exit_code_after(command, fail);
