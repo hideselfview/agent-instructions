@@ -65,11 +65,48 @@ fn a_colour_off_by_a_few_levels_under_the_same_ink_marks_no_region() {
 }
 
 #[test]
-fn a_half_point_move_marks_its_region_whatever_else_differs() {
-    // At 2 pixels to the point, one pixel is half a point.
+fn the_same_square_with_differently_antialiased_edges_marks_no_region() {
+    let edge = |grey: u8| {
+        let mut picture = picture(64, 64, &[(20, 20, 12)]);
+        for y in 20..32_usize {
+            for x in 20..32_usize {
+                if x == 20 || x == 31 || y == 20 || y == 31 {
+                    let at = (y * 64 + x) * 4;
+                    picture.pixels[at..at + 3].fill(grey);
+                }
+            }
+        }
+        picture
+    };
+    let (board, shot) = (edge(80), edge(200));
+    let found = regions(
+        &side(&[], &board, 1.0),
+        &side(&[], &shot, 1.0),
+        (0.0, 0.0),
+        None,
+    );
+    assert!(found.is_empty(), "{found:?}");
+}
+
+#[test]
+fn a_one_pixel_move_at_two_pixels_to_the_point_marks_no_region() {
+    let board = picture(128, 128, &[(41, 40, 16)]);
+    let shot = picture(128, 128, &[(42, 40, 16)]);
+    let found = regions(
+        &side(&[], &board, 2.0),
+        &side(&[], &shot, 2.0),
+        (0.0, 0.0),
+        None,
+    );
+    assert!(found.is_empty(), "{found:?}");
+}
+
+#[test]
+fn a_two_pixel_move_marks_its_region_whatever_else_differs() {
+    // At 2 pixels to the point, two pixels are one point.
     let board = picture(128, 128, &[(41, 40, 16)]);
     for grey in [GREY, SLIGHTLY_OFF] {
-        let shot = picture_on(grey, 128, 128, &[(42, 40, 16)]);
+        let shot = picture_on(grey, 128, 128, &[(43, 40, 16)]);
         let found = regions(
             &side(&[], &board, 2.0),
             &side(&[], &shot, 2.0),

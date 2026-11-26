@@ -40,7 +40,7 @@ pub(crate) fn tolerances() -> Vec<String> {
         ),
         format!("region cells {REGION_CELL} pt"),
         format!(
-            "a region is alike when no pixel differs by more than {} levels and the mean is {} levels or fewer",
+            "a region is alike when ink up to one pixel apart differs by no more than {} levels in a pixel and {} levels on average",
             regions::EDGE_LEVELS,
             regions::RESIDUAL_LEVELS
         ),

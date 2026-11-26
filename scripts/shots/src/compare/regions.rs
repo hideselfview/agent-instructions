@@ -9,13 +9,13 @@ use super::window::Window;
 use super::{DELTA_E_TOLERANCE, PictureSide, REGION_CELL, Side};
 use crate::shots::{Bounds, Element, Picture};
 
-/// A marked region is alike when no pixel of it differs by more than this
-/// many levels in a channel (a channel's level is 0 to 255) and its pixels
-/// differ by [`RESIDUAL_LEVELS`] or fewer on average: ink in the same places
-/// on both sides, differing by the antialiasing of its edges or a colour
-/// rounded by a level, which neither the board nor the app can change. The
-/// antialiased edges of the same ink differ by up to about 43 levels; ink
-/// moved half a point differs by the ink's whole contrast.
+/// A marked region is alike when no pixel of it is more than this many
+/// levels (a channel's level is 0 to 255) outside the range of the other
+/// picture's pixels within one pixel of it, and those distances average
+/// [`RESIDUAL_LEVELS`] or fewer: ink in the same places on both sides, up to
+/// one pixel apart, differing by the antialiasing of its edges or a colour
+/// rounded by a level, which neither the board nor the app can change. Ink
+/// two pixels apart or more is not alike.
 pub(super) const EDGE_LEVELS: u8 = 48;
 /// The mean difference, in levels, of a region that is alike.
 pub(super) const RESIDUAL_LEVELS: f64 = 2.0;
@@ -49,34 +49,66 @@ fn covered(list: &[Element], offset: (f64, f64)) -> Vec<Bounds> {
         .collect()
 }
 
-/// The colours of the two pictures at the point (`px`, `py`) of the board's
-/// frame, as the picture comparison reads them: none where either picture
-/// has no pixel or the window leaves the point out. The shot's frame is
-/// `offset` from the board's.
-fn colours_at(
+/// The pixels of the two pictures at the point (`px`, `py`) of the board's
+/// frame, as (column, row) of each picture: none where the window leaves the
+/// point out. The shot's frame is `offset` from the board's.
+fn pixels_at(
     board: &Side,
     shot: &Side,
     offset: (f64, f64),
     window: Option<&Window>,
     (px, py): (f64, f64),
-) -> Option<(Rgb, Rgb)> {
+) -> Option<[(i64, i64); 2]> {
     if window.is_some_and(|window| {
         !window.compares(PictureSide::Board, board, px, py)
             || !window.compares(PictureSide::Shot, shot, px + offset.0, py + offset.1)
     }) {
         return None;
     }
-    let at = |picture: &Picture, scale: f64, shift: (f64, f64)| {
-        pixel(
-            picture,
+    let at = |scale: f64, shift: (f64, f64)| {
+        (
             ((px + shift.0) * scale).floor() as i64,
             ((py + shift.1) * scale).floor() as i64,
         )
     };
-    Some((
-        at(board.picture, board.scale, (0.0, 0.0))?,
-        at(shot.picture, shot.scale, offset)?,
-    ))
+    Some([at(board.scale, (0.0, 0.0)), at(shot.scale, offset)])
+}
+
+/// The colours of the two pictures at the point (`px`, `py`) of the board's
+/// frame, as the picture comparison reads them: none where either picture
+/// has no pixel or the window leaves the point out.
+fn colours_at(
+    board: &Side,
+    shot: &Side,
+    offset: (f64, f64),
+    window: Option<&Window>,
+    point: (f64, f64),
+) -> Option<(Rgb, Rgb)> {
+    let [(bx, by), (sx, sy)] = pixels_at(board, shot, offset, window, point)?;
+    Some((pixel(board.picture, bx, by)?, pixel(shot.picture, sx, sy)?))
+}
+
+/// How far each channel of `colour` lies outside the range of that channel
+/// over the pixels within one pixel of (`x`, `y`) in `picture`, leaving out
+/// positions past its edge.
+fn outside_neighbourhood(picture: &Picture, (x, y): (i64, i64), colour: Rgb) -> [u8; 3] {
+    let mut low = [u8::MAX; 3];
+    let mut high = [u8::MIN; 3];
+    for ny in y - 1..=y + 1 {
+        for nx in x - 1..=x + 1 {
+            if let Some(near) = pixel(picture, nx, ny) {
+                for channel in 0..3 {
+                    low[channel] = low[channel].min(near[channel]);
+                    high[channel] = high[channel].max(near[channel]);
+                }
+            }
+        }
+    }
+    std::array::from_fn(|channel| {
+        colour[channel]
+            .saturating_sub(high[channel])
+            .max(low[channel].saturating_sub(colour[channel]))
+    })
 }
 
 /// The mean difference of the two pictures over the cell at (`x`, `y`) of the
@@ -105,8 +137,12 @@ fn cell_delta(
 }
 
 /// Whether the pictures of the cells (columns and rows of the grid) differ
-/// only by a residual ([`EDGE_LEVELS`], [`RESIDUAL_LEVELS`]). Compares every
-/// pixel of the board's picture in the cells.
+/// only by a residual ([`EDGE_LEVELS`], [`RESIDUAL_LEVELS`]): in each channel,
+/// a pixel's difference is the larger of how far the board's value lies
+/// outside the shot's range within one pixel of the pixel it maps to, and how
+/// far the shot's value lies outside the board's range within one pixel of
+/// the board's pixel. Compares every pixel of the board's picture in the
+/// cells.
 fn residual(
     board: &Side,
     shot: &Side,
@@ -125,14 +161,25 @@ fn residual(
                     (x as f64 + 0.5) / board.scale,
                     (y as f64 + 0.5) / board.scale,
                 );
-                let Some((a, b)) = colours_at(board, shot, offset, window, point) else {
+                let Some([board_pixel, shot_pixel]) = pixels_at(board, shot, offset, window, point)
+                else {
                     continue;
                 };
-                let differences = a.iter().zip(b).map(|(&a, b)| a.abs_diff(b));
-                if differences.clone().any(|d| d > EDGE_LEVELS) {
+                let (Some(a), Some(b)) = (
+                    pixel(board.picture, board_pixel.0, board_pixel.1),
+                    pixel(shot.picture, shot_pixel.0, shot_pixel.1),
+                ) else {
+                    continue;
+                };
+                let board_outside = outside_neighbourhood(shot.picture, shot_pixel, a);
+                let shot_outside = outside_neighbourhood(board.picture, board_pixel, b);
+                let differences: [u8; 3] = std::array::from_fn(|channel| {
+                    board_outside[channel].max(shot_outside[channel])
+                });
+                if differences.iter().any(|&d| d > EDGE_LEVELS) {
                     return false;
                 }
-                levels += differences.map(f64::from).sum::<f64>() / 3.0;
+                levels += differences.iter().map(|&d| f64::from(d)).sum::<f64>() / 3.0;
                 count += 1;
             }
         }
