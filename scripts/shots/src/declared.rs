@@ -66,12 +66,6 @@ pub struct Marks {
 /// the declare folder's own do.
 pub(crate) const COMPONENTS: &str = "Components";
 
-/// The extension of <platform>'s harness source, none for a platform whose
-/// shots are declared by their fixture files, which hold no capture code.
-pub(crate) fn source_extension(platform: Platform) -> Option<&'static str> {
-    backend::of(platform).capture_extension()
-}
-
 /// The name of the file at <path> without its extension.
 fn stem(path: &Path) -> Result<&str, DeclaredError> {
     path.file_stem()
@@ -145,7 +139,7 @@ pub(crate) fn read(
         let mut harness = harness_files(&directory, *platform)?;
         harness.extend(capture_files(&directory, *platform)?);
         for file in harness {
-            all.extend(declared_in(*platform, &file.path)?);
+            all.extend(backend::of(*platform).declared_in(&file.path)?);
         }
     }
     all.sort_by(|a, b| a.name.cmp(&b.name).then(a.file.cmp(&b.file)));
@@ -165,13 +159,6 @@ fn files(directory: &Path) -> Result<Vec<PathBuf>, DeclaredError> {
     std::fs::read_dir(directory)
         .and_then(|entries| entries.map(|e| e.map(|e| e.path())).collect())
         .map_err(|e| DeclaredError::Read(directory.to_path_buf(), e))
-}
-
-/// The shots the harness file <path> of <platform> declares, in the order
-/// it writes them: a source file's shots, or the one shot a web fixture
-/// file declares by its name.
-pub(crate) fn declared_in(platform: Platform, path: &Path) -> Result<Vec<Declared>, DeclaredError> {
-    backend::of(platform).declared_in(path)
 }
 
 /// The one shot the fixture file <path> declares by its name.

@@ -306,14 +306,12 @@ fn a_component_capture_file_declares_its_shots_from_the_components_folder() {
         ]
     );
     assert_eq!(
-        declared_in(
-            Platform::Mac,
-            &in_components(SWIFT_DIRECTORY, "MacRow.swift")
-        )
-        .unwrap()
-        .iter()
-        .map(|d| d.name.to_string())
-        .collect::<Vec<_>>(),
+        crate::backend::of(Platform::Mac)
+            .declared_in(&in_components(SWIFT_DIRECTORY, "MacRow.swift"))
+            .unwrap()
+            .iter()
+            .map(|d| d.name.to_string())
+            .collect::<Vec<_>>(),
         ["mac.component.row.label", "mac.component.row.nested-off"]
     );
 }

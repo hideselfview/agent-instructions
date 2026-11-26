@@ -12,6 +12,7 @@
 //! Web shots are fixture files that each declare one shot by their name, so
 //! web keeps no capture files and the listing leaves it out.
 
+use crate::backend;
 use crate::declared::{self, COMPONENTS, Declared};
 use crate::names::{Name, Platform, Previews};
 use crate::settings::{Settings, split_design_only};
@@ -124,8 +125,10 @@ pub(crate) fn list(
         .declared
         .iter()
         .filter_map(|(platform, folder)| {
-            declared::source_extension(*platform)
-                .map(|extension| (*platform, extension, Path::new(folder)))
+            let backend = backend::of(*platform);
+            backend
+                .holds_capture_code()
+                .then(|| (*platform, backend.declaring_extension(), Path::new(folder)))
         })
         .collect();
     let relative = |path: &Path| path.strip_prefix(root).unwrap_or(path).to_path_buf();

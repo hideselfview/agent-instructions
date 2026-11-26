@@ -44,18 +44,17 @@ pub(crate) struct Allowances {
 /// One platform's way of declaring shots, and of reading a board to compare
 /// with them.
 pub(crate) trait Backend {
-    fn platform(&self) -> Platform;
     /// The word in a shot's file name: `<name>@<file word>.png`.
     fn file_word(&self) -> &'static str;
-    /// The prefix of the platform's component names (`Mac` in `MacRow`).
-    fn component_prefix(&self) -> &'static str;
-    /// The extension of the platform's capture files, or none when a fixture
-    /// file declares each shot by its name.
-    fn capture_extension(&self) -> Option<&'static str>;
+    /// Whether the platform's harness source holds capture code that declares
+    /// its shots, rather than a fixture file that declares each shot by its
+    /// name.
+    fn holds_capture_code(&self) -> bool;
     /// The shots one harness file or fixture declares, read from its source
     /// with no build.
     fn declared_in(&self, file: &Path) -> Result<Vec<Declared>, DeclaredError>;
-    /// The extension of the files that declare shots.
+    /// The extension of the files that declare shots: a harness's source
+    /// files, or a fixture's.
     fn declaring_extension(&self) -> &'static str;
     /// Whether the capture command also gets each `BUILDS_SHOTS_*` variable
     /// as `TEST_RUNNER_BUILDS_SHOTS_*`, which `xcodebuild test` passes on to
@@ -82,17 +81,11 @@ struct Android;
 struct Web;
 
 impl Backend for Mac {
-    fn platform(&self) -> Platform {
-        Platform::Mac
-    }
     fn file_word(&self) -> &'static str {
         "macos"
     }
-    fn component_prefix(&self) -> &'static str {
-        self.platform().component_prefix()
-    }
-    fn capture_extension(&self) -> Option<&'static str> {
-        Some("swift")
+    fn holds_capture_code(&self) -> bool {
+        true
     }
     fn declaring_extension(&self) -> &'static str {
         "swift"
@@ -133,17 +126,11 @@ impl Backend for Mac {
 }
 
 impl Backend for Android {
-    fn platform(&self) -> Platform {
-        Platform::Android
-    }
     fn file_word(&self) -> &'static str {
         "android"
     }
-    fn component_prefix(&self) -> &'static str {
-        self.platform().component_prefix()
-    }
-    fn capture_extension(&self) -> Option<&'static str> {
-        Some("kt")
+    fn holds_capture_code(&self) -> bool {
+        true
     }
     fn declaring_extension(&self) -> &'static str {
         "kt"
@@ -181,17 +168,11 @@ impl Backend for Android {
 }
 
 impl Backend for Web {
-    fn platform(&self) -> Platform {
-        Platform::Web
-    }
     fn file_word(&self) -> &'static str {
         "web"
     }
-    fn component_prefix(&self) -> &'static str {
-        self.platform().component_prefix()
-    }
-    fn capture_extension(&self) -> Option<&'static str> {
-        None
+    fn holds_capture_code(&self) -> bool {
+        false
     }
     fn declaring_extension(&self) -> &'static str {
         "json"

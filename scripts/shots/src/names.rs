@@ -175,7 +175,7 @@ impl ComponentName {
             .unwrap_or_else(|| {
                 format!(
                     "{}{}",
-                    crate::backend::of(self.platform).component_prefix(),
+                    self.platform.component_prefix(),
                     pascal_case(&self.thing)
                 )
             })
