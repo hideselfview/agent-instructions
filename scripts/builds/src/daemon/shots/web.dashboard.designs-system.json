@@ -4665,17 +4665,17 @@
     "styles": [
      {
       "name": "title · 600 20",
-      "css": "font:600 20px var(--font-sans)",
+      "css": "font:600 20px Inter, system-ui, -apple-system, \"Segoe UI\", sans-serif",
       "words": "Low Tide Hours"
      },
      {
       "name": "body · 400 13",
-      "css": "font:400 13px var(--font-sans)",
+      "css": "font:400 13px Inter, system-ui, -apple-system, \"Segoe UI\", sans-serif",
       "words": "bae saved the new S3 key."
      },
      {
       "name": "caption · 400 11",
-      "css": "font:400 11px var(--font-sans);color:var(--muted)",
+      "css": "font:400 11px Inter, system-ui, -apple-system, \"Segoe UI\", sans-serif;color:var(--muted)",
       "words": "Synced 2 minutes ago"
      }
     ]
