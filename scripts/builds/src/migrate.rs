@@ -859,6 +859,7 @@ fn move_to_backlog(tx: &Connection, now: i64) -> Result<()> {
     // The items whose events begin the backlog, recorded once item_event
     // takes that kind.
     let mut entered: Vec<(i64, String)> = Vec::new();
+    let mut gated_by: std::collections::BTreeMap<i64, i64> = std::collections::BTreeMap::new();
     for (entry, title, details) in entries {
         let items: Vec<i64> = tx
             .prepare(
@@ -890,6 +891,13 @@ fn move_to_backlog(tx: &Connection, now: i64) -> Result<()> {
                 );
             }
         }
+        for item in &items {
+            if let Some(first) = gated_by.insert(*item, entry) {
+                fail!(
+                    "item #{item} waits on two open held entries, #{first} and #{entry}, so the move cannot keep both of their reasons: drop one entry (`builds question drop N --why WHY`), then install again"
+                );
+            }
+        }
         let why = format!("{title}: {details}");
         for item in &items {
             tx.execute(
@@ -898,7 +906,7 @@ fn move_to_backlog(tx: &Connection, now: i64) -> Result<()> {
             )
             .sql()?;
             tx.execute(
-                "INSERT OR IGNORE INTO item_backlog (item_id, why, at, by) VALUES (?1, ?2, ?3, ?4)",
+                "INSERT INTO item_backlog (item_id, why, at, by) VALUES (?1, ?2, ?3, ?4)",
                 rusqlite::params![item, why, stamp.at, stamp.by],
             )
             .sql()?;

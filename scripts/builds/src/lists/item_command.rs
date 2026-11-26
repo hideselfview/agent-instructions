@@ -685,31 +685,10 @@ fn drop_item(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     Ok(())
 }
 
-/// The ids that `builds item backlog` and `builds item start` name: one or
-/// more bare numbers, each once.
-fn many_ids(args: &Args, usage: &str) -> Result<Vec<Id>> {
-    if args.positional().is_empty() {
-        fail!("usage: {usage}");
-    }
-    let ids = args
-        .positional()
-        .iter()
-        .map(|id| Id::parse(id))
-        .collect::<Result<Vec<_>>>()?;
-    if let Some(twice) = ids
-        .iter()
-        .enumerate()
-        .find_map(|(at, id)| ids[..at].contains(id).then_some(id))
-    {
-        fail!("{twice} is named twice");
-    }
-    Ok(ids)
-}
-
 fn backlog(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     const BACKLOG_USAGE: &str = "builds item backlog N [M...] --why WHY";
     let args = Args::parse(args, &["why"], &[])?;
-    let ids = many_ids(&args, BACKLOG_USAGE)?;
+    let ids = args.positional_ids(BACKLOG_USAGE)?;
     let why = args.why()?.to_string();
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
@@ -738,7 +717,7 @@ fn backlog(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
 fn start(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     const START_USAGE: &str = "builds item start N [M...] --said WORDS";
     let args = Args::parse(args, &["said"], &[])?;
-    let ids = many_ids(&args, START_USAGE)?;
+    let ids = args.positional_ids(START_USAGE)?;
     let said = args.require("said")?.to_string();
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;

@@ -146,6 +146,25 @@ impl Args {
     }
 
     /// The comma-separated ids given as flag <name>, if any.
+    /// The positional arguments as ids: at least one, each named once, else
+    /// <usage>.
+    pub fn positional_ids(&self, usage: &str) -> Result<Vec<Id>> {
+        if self.positional.is_empty() {
+            fail!("usage: {usage}");
+        }
+        let ids = self
+            .positional
+            .iter()
+            .map(|id| Id::parse(id))
+            .collect::<Result<Vec<_>>>()?;
+        for (at, id) in ids.iter().enumerate() {
+            if ids[..at].contains(id) {
+                fail!("the command names {id} twice");
+            }
+        }
+        Ok(ids)
+    }
+
     pub fn ids(&self, name: &str) -> Result<Option<Vec<Id>>> {
         self.value(name)?.map(Id::parse_list).transpose()
     }

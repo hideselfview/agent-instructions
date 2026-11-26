@@ -518,19 +518,7 @@ pub fn take(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         ],
         &[],
     )?;
-    if args.positional().is_empty() {
-        fail!("usage: {USAGE}");
-    }
-    let ids: Vec<Id> = args
-        .positional()
-        .iter()
-        .map(|id| Id::parse(id))
-        .collect::<Result<_>>()?;
-    for (at, id) in ids.iter().enumerate() {
-        if ids[..at].contains(id) {
-            fail!("the command names {id} twice");
-        }
-    }
+    let ids = args.positional_ids(USAGE)?;
     let design_session = match args.value("as")? {
         None => false,
         Some("design-session") => true,

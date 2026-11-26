@@ -3095,3 +3095,24 @@ fn a_store_whose_held_entry_gates_a_running_item_or_no_item_refuses_the_move_and
         );
     }
 }
+
+#[test]
+fn a_store_whose_item_waits_on_two_open_held_entries_refuses_the_move_and_names_both() {
+    let scratch = Scratch::new("move-backlog-two");
+    let places = scratch.places();
+    let path = scratch.dir.join(DATABASE);
+    let (first, second, item) = {
+        let conn = store_before_backlog(&path);
+        let first = old_question(&conn, "held", "Start the fixes");
+        let second = old_question(&conn, "held", "Start the other fixes");
+        let item = old_item(&conn, "Fix the first thing now", &[first, second]);
+        (first, second, item)
+    };
+    let said = move_store(&places, &path, 5).unwrap_err().text();
+    assert!(
+        said.contains(&format!("#{item}"))
+            && said.contains(&format!("#{first}"))
+            && said.contains(&format!("#{second}")),
+        "{said}"
+    );
+}

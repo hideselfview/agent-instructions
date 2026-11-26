@@ -1720,9 +1720,9 @@ function itemBody(it) {
 // An item's row shows, closed, its title and trail, then its priority, what
 // waits behind it, which worktree it keeps and what it waits on; opened, it adds
 // the rest of the item.
-function itemRow(it) {
+function itemRow(it, ...after) {
   return fold("i:" + it.id, it.id,
-    [h("div", {class: "l-rowmain"}, h("span", {class: "l-title"}, idChip(it.id), it.title, trailRow(it.trail)), itemFacts(it))],
+    [h("div", {class: "l-rowmain"}, h("span", {class: "l-title"}, idChip(it.id), it.title, trailRow(it.trail)), itemFacts(it)), ...after],
     () => itemBody(it),
     "l-work");
 }
@@ -1846,10 +1846,7 @@ function backlogRow(it) {
     ? h("button", {type: "button", class: "l-start", "aria-label": "Start #" + it.id}, "Start")
     : h("span", {class: "l-note"}, "Work starts only from this Mac.");
   if (here) start.addEventListener("click", e => { e.preventDefault(); e.stopPropagation(); startItem(it, start); });
-  return fold("i:" + it.id, it.id,
-    [h("div", {class: "l-rowmain"}, h("span", {class: "l-title"}, idChip(it.id), it.title, trailRow(it.trail)), itemFacts(it)), start],
-    () => itemBody(it),
-    "l-work");
+  return itemRow(it, start);
 }
 // With a tag, an area or a state chosen, only the items that match each.
 function queueShown() {
