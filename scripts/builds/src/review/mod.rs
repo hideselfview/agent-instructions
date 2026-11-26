@@ -63,6 +63,7 @@
 //! same way (`score.rs`).
 
 mod audit;
+pub mod audit_item;
 pub mod call;
 mod cases;
 pub mod check;
@@ -250,6 +251,7 @@ pub fn cmd_review(tool: &Tool, args: &[String]) -> Result<()> {
         "show" => show(tool, rest),
         "run" => run_command(tool, rest),
         "copy" => copy_command(tool, rest),
+        "hold-audits" => hold_audits(tool, rest),
         "key" => key::key_command(tool, rest),
         "check-landing" => landing::check_landing_command(tool, rest),
         "landed" => landing::landed_command(tool, rest),
@@ -1514,13 +1516,62 @@ fn settle(tool: &Tool, args: &[String], caller: Option<&Caller>) -> Result<()> {
         );
         return tell_judge_waiting(&store, &stamp, &sessions, &running);
     }
-    store.write(&stamp, &format!("review settle {id}"), |db| {
+    let held = store.write(&stamp, &format!("review settle {id}"), |db| {
         judge::may_judge(db, &sessions, &running, id, caller)?;
-        record::settle(db, id, how, why, stamp.at, &stamp.by)
+        record::settle(db, id, how, why, stamp.at, &stamp.by)?;
+        match record::finding_of(db, id)?.landing_id {
+            Some(landing) => audit_item::hold(db, landing, &stamp),
+            None => Ok(audit_item::Held::Nothing),
+        }
     })?;
     judge::tell_waits(&store.dir)?;
     println!("finding {id} settled {how}");
+    println!("{}", held_words(&held));
     tell_judge_waiting(&store, &stamp, &sessions, &running)
+}
+
+/// What the settle of an audit's last finding made, in words; empty when it
+/// made nothing.
+fn held_words(held: &audit_item::Held) -> String {
+    match held {
+        audit_item::Held::Nothing => String::new(),
+        audit_item::Held::NothingToFix => {
+            "the audit has no confirmed finding left to fix, so its review ended".to_string()
+        }
+        audit_item::Held::Item { item, entry } => format!(
+            "the audit has no finding left to settle: its confirmed findings became item {item}, which waits on stack entry {entry} until the person starts it"
+        ),
+    }
+}
+
+/// `builds review hold-audits --project P`: makes the held item of each
+/// open audit review whose findings are all settled, as the settle of an
+/// audit's last finding does.
+fn hold_audits(tool: &Tool, args: &[String]) -> Result<()> {
+    let args = Args::parse(args, &["project"], &[])?;
+    let (store, _) = store_of(tool, &args)?;
+    let stamp = Stamp::resolve(tool.now, &args, &tool.dir)?;
+    let lines = store.write(&stamp, "review hold-audits", |db| {
+        let mut lines = Vec::new();
+        for landing in record::all_landings(db)? {
+            if audit_item::name_of(&landing.key).is_none() || !landing.is_open() {
+                continue;
+            }
+            let held = audit_item::hold(db, landing.id, &stamp)?;
+            lines.push(match held_words(&held) {
+                said if said.is_empty() => format!(
+                    "review landing {} ({}): a finding still waits for a settle",
+                    landing.id, landing.key
+                ),
+                said => format!("review landing {} ({}): {said}", landing.id, landing.key),
+            });
+        }
+        Ok(lines)
+    })?;
+    for line in lines {
+        println!("{line}");
+    }
+    Ok(())
 }
 
 /// The finding a command names: its one positional argument.

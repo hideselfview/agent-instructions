@@ -3609,6 +3609,15 @@ commits to land, or that an item keeps, stays open. An abandoned landing keeps
 its runs, findings and settles, which the review scores count as before, and
 counts nowhere as landed: it has no landed run, so no audit and no case
 reads it. A branch of the same name can be reviewed again at once, as after a landing.
+A review under a key `audit:<name>` is an audit of main: its findings are in
+code that is on main, so no branch or agent waits on them. When the last
+finding of such a review is settled, builds makes one item for the audit, "Fix
+the confirmed findings of audit <name>", in the area `audits`. The item waits
+on a held entry of the stack, so it shows under Waiting on you until the person
+starts it, and the review ends as abandoned with the item's number, so no
+health line or dashboard row lists it. A review with no confirmed finding
+ends with no item. `builds review hold-audits --project P` does the same for
+each open audit review whose findings are all settled already.
 `review landed` then starts an audit of a sample of the landed reviews, never
 of a landing of design files only, which looks for findings they missed. A separate finding check reads each candidate
 miss the audit raises against the text of its rule, and the audit settles the
@@ -4034,6 +4043,9 @@ run `review replay --rules-root` on it.
                               one settled again) and the run that closed it,
                               the reason each group gave for keeping a finding
                               open in each run, and the run it landed with
+  builds review hold-audits --project P
+                              the item an audit makes (see below) for each open
+                              audit review whose findings are all settled
   builds review key <worktree> --project P
                               prints the key that names the worktree's change
                               in the review records: its branch, or, in a
