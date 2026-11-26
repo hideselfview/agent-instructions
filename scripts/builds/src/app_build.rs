@@ -2332,7 +2332,7 @@ impl<'a> LaneBuild<'a> {
             results,
             shots,
             programs: self.programs,
-            watch: crate::app_platform::of(self.lane.platform()).builds_with_xcode(),
+            watch: crate::app_platform::of(self.lane).builds_with_xcode(),
         };
         let results = config.results_of(self.lane);
         let ran = (|| {

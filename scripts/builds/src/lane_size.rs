@@ -139,7 +139,7 @@ pub fn grow(at: RepoLane, floor_kib: u64, now: i64) -> Result<Option<String>> {
         return Ok(None);
     }
     let probes = host::probe_all(places, ssh, hosts);
-    let refusing: Vec<String> = if crate::app_platform::of(lane.platform()).builds_with_xcode() {
+    let refusing: Vec<String> = if crate::app_platform::of(lane).builds_with_xcode() {
         host::refusing_mac_builds(places)?
             .into_iter()
             .map(|refusal| refusal.host)

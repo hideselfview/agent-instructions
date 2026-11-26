@@ -1,9 +1,8 @@
-//! What each platform of an app needs from the host that builds it, keyed by
-//! the shots platform (`boards::app_build::Platform`): the environment its
-//! shots are drawn in, whether it builds with Xcode, whether its shots open
-//! windows on the host's display, and what `builds build-app` does with the
-//! built app. A lane (lane.rs) asks its platform; no other code matches on
-//! the lane for these.
+//! What each platform of a lane needs from the host that builds it: the
+//! environment its shots are drawn in, whether it builds with Xcode, whether
+//! its shots open windows on the host's display, and what `builds build-app`
+//! does with the built app. Other code asks the lane's row, and matches on
+//! the lane for none of these.
 //!
 //! The environment is the host software that draws the shots. A shot's
 //! picture and element list depend on it: the same app draws
@@ -16,7 +15,7 @@
 //! The mac platform's environment is the macOS build and the Xcode build of
 //! the host that draws the shots, `<macOS build>-<Xcode build>`
 //! (`26B131-17C529`), from `sw_vers -buildVersion` and the `Build version`
-//! line of `xcodebuild -version`. The android and web platforms' is the host's
+//! line of `xcodebuild -version`. The android platform's is the host's
 //! OS name and machine architecture from `uname -sm` (`Darwin-arm64`), since
 //! Robolectric loads native graphics per OS and architecture. A lane reads it
 //! from the host of the checkout it builds in, when it takes the checkout,
@@ -25,7 +24,7 @@
 
 use crate::fail;
 use crate::fail::Result;
-use boards::app_build::Platform;
+use crate::lane::Lane;
 
 /// The command that prints the macOS build of a Mac.
 const SW_VERS: &str = "sw_vers -buildVersion";
@@ -62,14 +61,12 @@ pub trait Host {
     /// (app_remote.rs).
     fn opens_windows(&self) -> bool;
 
-    /// What `builds build-app` does with the built app, or none when the
-    /// platform has no `build-app`.
-    fn install(&self) -> Option<Install>;
+    /// What `builds build-app` does with the built app.
+    fn install(&self) -> Install;
 }
 
 struct Mac;
 struct Android;
-struct Web;
 
 impl Host for Mac {
     fn environment(&self, run: &mut dyn FnMut(&str, &str) -> Result<String>) -> Result<String> {
@@ -86,8 +83,8 @@ impl Host for Mac {
         true
     }
 
-    fn install(&self) -> Option<Install> {
-        Some(Install::CopiedApp)
+    fn install(&self) -> Install {
+        Install::CopiedApp
     }
 }
 
@@ -104,35 +101,16 @@ impl Host for Android {
         false
     }
 
-    fn install(&self) -> Option<Install> {
-        Some(Install::OnDevice)
+    fn install(&self) -> Install {
+        Install::OnDevice
     }
 }
 
-impl Host for Web {
-    fn environment(&self, run: &mut dyn FnMut(&str, &str) -> Result<String>) -> Result<String> {
-        parse_uname(&run(UNAME, "reading the host's OS and architecture")?)
-    }
-
-    fn builds_with_xcode(&self) -> bool {
-        false
-    }
-
-    fn opens_windows(&self) -> bool {
-        false
-    }
-
-    fn install(&self) -> Option<Install> {
-        None
-    }
-}
-
-/// The row of <platform>.
-pub fn of(platform: Platform) -> &'static dyn Host {
-    match platform {
-        Platform::Mac => &Mac,
-        Platform::Android => &Android,
-        Platform::Web => &Web,
+/// The row of <lane>'s platform.
+pub fn of(lane: Lane) -> &'static dyn Host {
+    match lane {
+        Lane::Mac => &Mac,
+        Lane::Android => &Android,
     }
 }
 

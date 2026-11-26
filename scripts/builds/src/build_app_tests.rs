@@ -30,10 +30,10 @@ fn the_copy_replaces_the_test_app() {
 fn a_platform_the_config_lacks_is_refused() {
     let config = parse_config("android build ./a.sh\n").unwrap();
     assert_eq!(
-        Target::of(Lane::Android).unwrap().build(&config).unwrap(),
+        Target::of(Lane::Android).build(&config).unwrap(),
         ["./a.sh".to_string()]
     );
-    assert!(Target::of(Lane::Mac).unwrap().build(&config).is_err());
+    assert!(Target::of(Lane::Mac).build(&config).is_err());
     assert!(Target::parse("ios").is_err());
 }
 
@@ -110,23 +110,20 @@ fn the_mac_build_may_take_a_hosts_checkout_unless_it_runs_a_here_step() {
     let mac = "mac build ./run.sh --no-open\nmac app out.app\nmac bundle demo.test\nstep mac signed ./run.sh --no-open\n";
     let free = parse_config(mac).unwrap();
     assert_eq!(
-        Target::of(Lane::Mac).unwrap().allowed(&free).unwrap(),
+        Target::of(Lane::Mac).allowed(&free).unwrap(),
         Where::Anywhere
     );
 
     let here = parse_config(&format!("{mac}here signed\n")).unwrap();
-    assert_eq!(
-        Target::of(Lane::Mac).unwrap().allowed(&here).unwrap(),
-        Where::Here
-    );
+    assert_eq!(Target::of(Lane::Mac).allowed(&here).unwrap(), Where::Here);
 
     let other = parse_config(&format!("{mac}step mac other ./other.sh\nhere other\n")).unwrap();
     assert_eq!(
-        Target::of(Lane::Mac).unwrap().allowed(&other).unwrap(),
+        Target::of(Lane::Mac).allowed(&other).unwrap(),
         Where::Anywhere
     );
     assert_eq!(
-        Target::of(Lane::Android).unwrap().allowed(&free).unwrap(),
+        Target::of(Lane::Android).allowed(&free).unwrap(),
         Where::Here
     );
 }

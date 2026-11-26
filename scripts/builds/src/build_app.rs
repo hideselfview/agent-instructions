@@ -51,15 +51,15 @@ struct Target {
 impl Target {
     fn parse(word: &str) -> Result<Target> {
         match Lane::parse(word) {
-            Some(lane) => Target::of(lane),
+            Some(lane) => Ok(Target::of(lane)),
             None => fail!("{USAGE}"),
         }
     }
 
-    fn of(lane: Lane) -> Result<Target> {
-        match app_platform::of(lane.platform()).install() {
-            Some(install) => Ok(Target { lane, install }),
-            None => fail!("{} has no build-app", lane.word()),
+    fn of(lane: Lane) -> Target {
+        Target {
+            lane,
+            install: app_platform::of(lane).install(),
         }
     }
 
