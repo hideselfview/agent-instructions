@@ -334,7 +334,11 @@ pub fn picture_file(
     }
     shots_cache::read_covering(places, repo, commit, lane, scene, &VERSIONS, |cached| {
         let file = cached.report().join(side.file(scene));
-        Ok(file.is_file().then_some(file))
+        match std::fs::metadata(&file) {
+            Ok(found) => Ok(found.is_file().then_some(file)),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => fail!("reading {}: {error}", file.display()),
+        }
     })
 }
 
