@@ -336,7 +336,7 @@ const BEFORE_BASE_MISSES_STAMP: i64 = 1_905_259_196;
 /// adds the move, puts this stamp at the end of `STAMPS` under a name that
 /// says what the schema lacked, and sets this to the new schema's stamp, which
 /// the compiler's error names.
-const SCHEMA_STAMP: i64 = 2_066_493_144;
+const SCHEMA_STAMP: i64 = 1_179_704_518;
 
 // The compiler refuses a schema whose stamp is not SCHEMA_STAMP. A const
 // assert could not print the new stamp, so the check compares two array
@@ -776,9 +776,11 @@ pub fn move_store(places: &Places, path: &Path, now: i64) -> Result<()> {
         crate::review::record::allow_reclosing(&tx)?;
     }
     // Every store from before builds recorded why the merge base's saved run
-    // was missing gets the empty table: the steps it holds have no cause.
+    // was missing gets the table, with the cause `unrecorded` for each built
+    // step it holds.
     if before(found, BEFORE_BASE_MISSES_STAMP) {
         tx.execute_batch(db::APP_BUILD_BASE_MISSES_PART).sql()?;
+        crate::app_build_base_misses::mark_old_steps_unrecorded(&tx)?;
     }
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     let broken: Option<String> = tx

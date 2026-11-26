@@ -44,12 +44,15 @@ impl BaseRun {
     }
 
     /// The base run a stored <word> says, with <miss> the stored cause of a
-    /// built one: none for a step of a build that kept no cause.
+    /// built one, which every built step has.
     pub fn from_word(word: &str, miss: Option<MissCause>) -> Result<BaseRun> {
         Ok(match word {
             "not needed" => BaseRun::NotNeeded,
             "saved" => BaseRun::Saved,
-            "built" => BaseRun::Built(miss.unwrap_or(MissCause::Unrecorded)),
+            "built" => match miss {
+                Some(cause) => BaseRun::Built(cause),
+                None => fail!("a built shots step has no stored cause for the miss"),
+            },
             other => fail!("a shots step's base run is {other:?}"),
         })
     }

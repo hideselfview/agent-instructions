@@ -3167,10 +3167,10 @@ fn the_base_misses_stamp_is_the_schema_before_it() {
 }
 
 /// A store from before builds recorded why the merge base's saved run was
-/// missing keeps its built steps, which read as having no recorded cause, and
+/// missing keeps its built steps, which read as having an unrecorded cause, and
 /// equals a fresh schema.
 #[test]
-fn a_store_from_before_the_miss_causes_keeps_its_built_steps_with_no_cause() {
+fn a_store_from_before_the_miss_causes_keeps_its_built_steps_with_an_unrecorded_cause() {
     use crate::shots_cache::MissCause;
 
     let scratch = Scratch::new("move-base-misses");

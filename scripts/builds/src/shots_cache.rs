@@ -670,14 +670,14 @@ pub enum MissCause {
 }
 
 impl MissCause {
-    /// The word the store keeps, None for a cause the store keeps no row of.
-    pub fn word(self) -> Option<&'static str> {
+    /// The word the store keeps.
+    pub fn word(self) -> &'static str {
         match self {
-            MissCause::ProgramChanged => Some("program"),
-            MissCause::EnvironmentChanged => Some("environment"),
-            MissCause::BoardChanged => Some("board"),
-            MissCause::NoneSaved => Some("none"),
-            MissCause::Unrecorded => None,
+            MissCause::ProgramChanged => "program",
+            MissCause::EnvironmentChanged => "environment",
+            MissCause::BoardChanged => "board",
+            MissCause::NoneSaved => "none",
+            MissCause::Unrecorded => "unrecorded",
         }
     }
 
@@ -687,6 +687,7 @@ impl MissCause {
             "environment" => MissCause::EnvironmentChanged,
             "board" => MissCause::BoardChanged,
             "none" => MissCause::NoneSaved,
+            "unrecorded" => MissCause::Unrecorded,
             other => fail!("a shots step's base run miss is {other:?}"),
         })
     }

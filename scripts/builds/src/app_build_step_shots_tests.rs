@@ -184,4 +184,8 @@ fn a_run_read_back_holds_the_steps_with_what_they_used() {
 fn a_base_run_word_the_store_does_not_know_is_refused() {
     assert!(BaseRun::from_word("saved", None).is_ok());
     assert!(BaseRun::from_word("missing", None).is_err());
+    assert!(
+        BaseRun::from_word("built", None).is_err(),
+        "a built step stores its cause"
+    );
 }
