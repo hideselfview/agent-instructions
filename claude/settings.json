@@ -167,5 +167,10 @@
     ]
   },
   "voiceEnabled": true,
-  "syncClaudeAiSkills": false
+  "syncClaudeAiSkills": false,
+  "skillOverrides": {
+    "design": "off",
+    "design-sync": "off",
+    "code-review": "off"
+  }
 }
