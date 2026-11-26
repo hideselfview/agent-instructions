@@ -497,8 +497,119 @@ fn resume_takes_an_item_on_a_new_branch_of_the_agents_worktree_and_records_it() 
     }
 }
 
+/// Finishes items 1 and 2, then takes a new item 3 in a second worktree.
+fn take_third_in_another_worktree(demo: &Demo) -> std::path::PathBuf {
+    for id in ["1", "2"] {
+        cmd_item(
+            &demo.tool,
+            &crate::testing::no_ssh(),
+            &words(&["finished", id, "--made", "the work"]),
+        )
+        .unwrap();
+    }
+    add_item(demo, "Do the third thing now");
+    let side = demo.add_side(2, "agent B", "elsewhere");
+    let brief = demo.brief("elsewhere.md");
+    take(demo, &["3"], &side, "elsewhere", &brief);
+    side
+}
+
+fn recorded_agent(demo: &Demo, session: &str) -> Agent {
+    let conn = db::open(&demo.store.database(), db::Make::Never).unwrap();
+    agent_record::read(&conn, session).unwrap().unwrap()
+}
+
 #[test]
-fn resume_refuses_nothing_to_say_an_unknown_agent_and_an_item_outside_the_worktree() {
+fn resume_starts_the_agent_in_the_other_worktree_its_new_item_runs_in() {
+    let (mut demo, session) = ended_agent("ar-moved");
+    let side = take_third_in_another_worktree(&demo);
+    let init = init_line(TOOLS_JSON, "[]", "[]", "claude-sonnet-5-5");
+    let dir = fake_claude(&mut demo, &[&init, RESULT], 0);
+    let (result, out) = resume_command(&demo, &["resume", &session, "--item", "3"]);
+    result.unwrap();
+    let folder = side.display().to_string();
+    assert!(out.contains(&format!("resumed in {folder}")), "{out}");
+    assert_eq!(
+        std::fs::canonicalize(std::fs::read_to_string(dir.join("cwd.txt")).unwrap().trim())
+            .unwrap(),
+        std::fs::canonicalize(&side).unwrap()
+    );
+    let message = std::fs::read_to_string(dir.join("prompt.txt")).unwrap();
+    let place = format!("Your worktree is {folder}, on branch elsewhere.");
+    assert!(message.contains(&place), "{message}");
+    assert!(message.contains("--done 3 --project demo"), "{message}");
+    let agent = recorded_agent(&demo, &session);
+    assert_eq!(
+        agent.work.places(),
+        [Place {
+            worktree: folder.clone(),
+            branch: "elsewhere".to_string()
+        }]
+    );
+    assert_eq!(agent.folder, folder);
+}
+
+/// A running session keeps its process, so the folder its record names stays
+/// until builds starts a process in the new worktree.
+#[test]
+fn a_running_agent_keeps_its_folder_until_a_process_starts_in_its_new_worktree() {
+    let (mut demo, session) = ended_agent("ar-moved-in");
+    let first = recorded_agent(&demo, &session).folder;
+    let side = take_third_in_another_worktree(&demo);
+    let socket = demo.scratch.dir.join("s.sock");
+    let inbox = crate::testing::FakeInbox::listen(&socket);
+    record_running(&demo, &session, &socket);
+    let (result, _) = resume_command(&demo, &["resume", &session, "--item", "3"]);
+    result.unwrap();
+    let folder = side.display().to_string();
+    let message = inbox.received().remove(0);
+    assert!(message.contains(&folder), "{message}");
+    let agent = recorded_agent(&demo, &session);
+    assert_eq!(agent.work.places()[0].worktree, folder);
+    assert_eq!(agent.folder, first);
+    std::fs::remove_dir_all(demo.tool.places.claude_sessions()).unwrap();
+    let init = init_line(TOOLS_JSON, "[]", "[]", "claude-sonnet-5-5");
+    fake_claude(&mut demo, &[&init, RESULT], 0);
+    let message = message_file(&demo, "Go on.\n");
+    let (result, _) = resume_command(&demo, &["resume", &session, "--message-file", &message]);
+    result.unwrap();
+    assert_eq!(recorded_agent(&demo, &session).folder, folder);
+}
+
+#[test]
+fn resume_refuses_an_item_another_running_agent_runs() {
+    let (mut demo, session) = ended_agent("ar-theirs");
+    let side = take_third_in_another_worktree(&demo);
+    let init = init_line(TOOLS_JSON, "[]", "[]", "claude-sonnet-5-5");
+    fake_claude(&mut demo, &[&init, RESULT], 0);
+    let (result, out) = run_command(&demo, &["--role", "implementing", "3"]);
+    result.unwrap();
+    let other = out
+        .split(':')
+        .next()
+        .unwrap()
+        .trim_start_matches("agent ")
+        .to_string();
+    record_running(&demo, &other, &demo.scratch.dir.join("other.sock"));
+    let (refused, _) = resume_command(&demo, &["resume", &session, "--item", "3"]);
+    let error = refused.unwrap_err().text();
+    assert!(
+        error.contains(&format!(
+            "agent {other} runs now and has #3 in {}",
+            side.display()
+        )),
+        "{error}"
+    );
+    assert_eq!(recorded_agent(&demo, &session).items, [1]);
+    // Once the other agent has ended, its item can go to this one.
+    std::fs::remove_dir_all(demo.tool.places.claude_sessions()).unwrap();
+    let (result, _) = resume_command(&demo, &["resume", &session, "--item", "3"]);
+    result.unwrap();
+    assert_eq!(recorded_agent(&demo, &session).items, [1, 3]);
+}
+
+#[test]
+fn resume_refuses_nothing_to_say_an_unknown_agent_and_an_item_that_does_not_run() {
     let (demo, session) = ended_agent("ar-refuse");
     let (nothing, _) = resume_command(&demo, &["resume", &session]);
     assert!(
@@ -516,13 +627,9 @@ fn resume_refuses_nothing_to_say_an_unknown_agent_and_an_item_outside_the_worktr
             .contains("records no agent nope")
     );
     add_item(&demo, "Do the third thing now");
-    let (outside, _) = resume_command(&demo, &["resume", &session, "--item", "3"]);
-    assert!(
-        outside
-            .unwrap_err()
-            .text()
-            .contains("does not run in a worktree")
-    );
+    let (waiting, _) = resume_command(&demo, &["resume", &session, "--item", "3"]);
+    let error = waiting.unwrap_err().text();
+    assert!(error.contains("#3 is not running"), "{error}");
 }
 
 /// An ended agent whose items are all closed can still take a message and its

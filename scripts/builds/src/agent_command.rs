@@ -15,6 +15,7 @@ use crate::agent_launch::{self, Log, Session};
 use crate::agent_prompt::{Brief, Item, Opening};
 use crate::agent_record::{self, Agent, AgentRole, Place, Process, Work};
 use crate::agent_stream::{Line, Report};
+use crate::claude_sessions::Running;
 use crate::db::{self, Sql};
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
@@ -425,12 +426,19 @@ struct Joined {
     landing: Vec<u32>,
 }
 
-/// What <agent> works on once <ids> join it. A planner takes open items no
-/// agent runs. An implementing agent takes items that run in one of its
-/// worktrees, on any branch, since each take starts a new one. Its places
-/// become the ones those items run in, and the earlier items it still has
-/// there must run in the same ones.
-fn join(lists: &Lists, agent: &Agent, ids: &[Id]) -> Result<Joined> {
+/// What <agent> works on once <ids> join it, while the sessions <running>
+/// run. A planner takes open items no agent runs. An implementing agent takes
+/// items that run, in any worktrees and on any branch, unless another of
+/// <agents> that runs now has one there. Its places become the ones those
+/// items run in, and the earlier items it still has there must run in the
+/// same ones.
+fn join(
+    lists: &Lists,
+    agent: &Agent,
+    ids: &[Id],
+    agents: &[Agent],
+    running: &[Running],
+) -> Result<Joined> {
     let items = ids
         .iter()
         .map(|id| open_item(lists, *id))
@@ -439,34 +447,45 @@ fn join(lists: &Lists, agent: &Agent, ids: &[Id]) -> Result<Joined> {
         work: agent.work.clone(),
         landing: Vec::new(),
     };
-    let held = match &agent.work {
-        Work::Implementing { places } => places,
-        Work::Planner => {
-            for item in &items {
-                if let Some(run) = item.running.first() {
-                    fail!(
-                        "{} runs in {}, and a planner takes only items no agent runs",
-                        item.id,
-                        run.worktree
-                    );
-                }
+    if agent.work == Work::Planner {
+        for item in &items {
+            if let Some(run) = item.running.first() {
+                fail!(
+                    "{} runs in {}, and a planner takes only items no agent runs",
+                    item.id,
+                    run.worktree
+                );
             }
-            return Ok(unchanged);
         }
-    };
+        return Ok(unchanged);
+    }
     for item in &items {
-        let in_held = item
-            .running
-            .iter()
-            .any(|run| held.iter().any(|place| place.worktree == run.worktree));
-        if !in_held {
-            let worktrees: Vec<&str> = held.iter().map(|place| place.worktree.as_str()).collect();
+        if item.running.is_empty() {
             fail!(
-                "{} does not run in a worktree of agent {} ({}): take it there with `builds item take` first",
-                item.id,
-                agent.session,
-                worktrees.join(", ")
+                "{} is not running: take it with `builds item take` before an agent resumes on it",
+                item.id
             );
+        }
+        let others = agents.iter().filter(|other| {
+            other.session != agent.session
+                && other.items.contains(&item.id.0)
+                && running_session(running, &other.session).is_some()
+        });
+        for other in others {
+            let theirs = item.running.iter().find(|run| {
+                let places = other.work.places();
+                places.iter().any(|place| place.worktree == run.worktree)
+            });
+            if let Some(run) = theirs {
+                fail!(
+                    "agent {} runs now and has {} in {}, so builds does not give {} to agent {}",
+                    other.session,
+                    item.id,
+                    run.worktree,
+                    item.id,
+                    agent.session
+                );
+            }
         }
     }
     let Some(first) = items.first() else {
@@ -520,11 +539,11 @@ fn resume(tool: &Tool, args: &[String], cwd: &Path, out: &mut dyn Write) -> Resu
     }
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let lists = store.load()?;
-    let agent = {
+    let agents = {
         let conn = db::open(&store.database(), db::Make::Never)?;
-        agent_record::read(&conn, session)?
+        agent_record::read_all(&conn)?
     };
-    let Some(agent) = agent else {
+    let Some(agent) = agents.iter().find(|agent| agent.session == *session) else {
         fail!("project {} records no agent {session}", lists.project);
     };
     if let Some(context) = agent.context.filter(|context| context.past_handoff()) {
@@ -535,7 +554,9 @@ fn resume(tool: &Tool, args: &[String], cwd: &Path, out: &mut dyn Write) -> Resu
             tool.places.agents().join(session).join("scratch").display()
         );
     }
-    let joined = join(&lists, &agent, &ids)?;
+    let running = crate::claude_sessions::running_now(&tool.places.claude_sessions())
+        .map_err(|why| Fail::Message(format!("reading the running Claude Code sessions: {why}")))?;
+    let joined = join(&lists, agent, &ids, &agents, &running)?;
     let base = match message_file {
         Some(path) => {
             std::fs::read_to_string(path).context(|| format!("reading the message file {path}"))?
@@ -553,8 +574,9 @@ fn resume(tool: &Tool, args: &[String], cwd: &Path, out: &mut dyn Write) -> Resu
         agent.tier.trailer(),
     );
     let new_ids: Vec<u32> = ids.iter().map(|id| id.0).collect();
-    if let Some(socket) = running_socket(tool, session)? {
-        let inbox = crate::inbox::Messaging::new(&socket, None)?;
+    let socket = running_session(&running, session).and_then(|own| own.messaging_socket.as_deref());
+    if let Some(socket) = socket {
+        let inbox = crate::inbox::Messaging::new(socket, None)?;
         if tool.places.sessions().send(&inbox, &message)? == crate::inbox::Sent::Delivered {
             let mut conn = db::open(&store.database(), db::Make::Never)?;
             let tx = conn
@@ -573,35 +595,32 @@ fn resume(tool: &Tool, args: &[String], cwd: &Path, out: &mut dyn Write) -> Resu
         .join(agent_launch::LOG_FILE);
     let name = agent_name(&lists.project, agent.work.role(), &agent.items);
     let arguments = agent_launch::arguments(&agent.model, &name, Session::Resume(session));
-    let command = agent_launch::command(
-        &tool.places.claude_program,
-        &arguments,
-        Path::new(&agent.folder),
-    );
+    // Claude Code finds a session by its id from any folder, so the new
+    // process runs where the agent's items now run.
+    let folder = match joined.work.places().first() {
+        Some(place) => &place.worktree,
+        None => &agent.folder,
+    };
+    let command = agent_launch::command(&tool.places.claude_program, &arguments, Path::new(folder));
     let started = agent_launch::start(command, &message, Log::append(&log)?)?;
     let (started, number) = record_process(&store, started, &message, tool.now, |db, process| {
         agent_record::join(db, session, &joined.work, &new_ids, tool.now)?;
+        agent_record::set_folder(db, session, folder)?;
         agent_record::add_process(db, session, process)
     })?;
     let _ = writeln!(
         out,
-        "agent {session}: resumed in {}, log {}",
-        agent.folder,
+        "agent {session}: resumed in {folder}, log {}",
         log.display()
     );
     let _ = out.flush();
     drive(&store, session, number, &agent.model, started, out)
 }
 
-/// The inbox socket of the running Claude Code session <session>, None when
-/// no record names it as running or the record names no socket.
-fn running_socket(tool: &Tool, session: &str) -> Result<Option<String>> {
-    let running = crate::claude_sessions::running_now(&tool.places.claude_sessions())
-        .map_err(|why| Fail::Message(format!("reading the running Claude Code sessions: {why}")))?;
-    Ok(running
-        .into_iter()
-        .find(|running| running.session_id == session)
-        .and_then(|running| running.messaging_socket))
+/// The record in <running> of Claude Code session <session>, None when it
+/// does not run.
+fn running_session<'a>(running: &'a [Running], session: &str) -> Option<&'a Running> {
+    running.iter().find(|running| running.session_id == session)
 }
 
 #[cfg(test)]

@@ -200,9 +200,12 @@ process ends.
       then, for each --item, the worktree and land command, the item as
       `builds item show` prints it and the commit trailer again. It needs at
       least one of --item and --message-file. Each --item of an implementing
-      agent runs in one of the agent's worktrees, on any branch (the
-      coordinator takes it there first). A planner takes an open item that no
-      agent runs. builds adds each --item to the agent's record.
+      agent runs, in any worktree and on any branch (the coordinator takes it
+      first, in whichever worktree builds hands out). A planner takes an open
+      item that no agent runs. builds adds each --item to the agent's record.
+      - builds refuses an --item while another agent that runs now has it:
+        that agent's record names the item and a worktree the item runs in,
+        and Claude Code's record of running sessions names its session.
       - builds refuses to resume an agent whose last turn had 550k tokens of
         context or more, the handoff size, with a message or an item, whether
         or not its session runs: a fresh agent continues its work (`builds
@@ -216,8 +219,13 @@ process ends.
         sends the message to the session's inbox and exits at once.
       - Otherwise, or when nothing listens at the inbox, builds runs `claude
         -p --resume SESSION` with the flags of the agent's role and the
-        recorded model, in the agent's folder, appends to the agent's log,
-        records a new process, and runs until it ends, as `agent run` does.
+        recorded model, appends to the agent's log, records a new process,
+        and runs until it ends, as `agent run` does.
+        An implementing agent's process starts in the first of the worktrees
+        in its record, which builds records as the agent's folder, and a
+        planner's starts in the folder of its record. Claude Code finds the
+        session by its id from any folder. A message to a running session's
+        inbox changes no folder.
   builds agent list [--running] [--project P]
       Prints one line for each agent the project recorded, oldest first: the
       session, role, model, items, folder, whether it runs now or when it

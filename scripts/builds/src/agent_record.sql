@@ -6,8 +6,8 @@
 -- (claude_sessions.rs).
 
 -- Each agent, by its Claude Code session, with the role it was started for,
--- the model and tier it runs, the folder it runs in and the brief it was
--- given.
+-- the model and tier it runs, the folder its last process started in and the
+-- brief it was given.
 CREATE TABLE agent (
     session TEXT PRIMARY KEY CHECK (session <> ''),
     role TEXT NOT NULL CHECK (role IN ('implementing', 'planner')),

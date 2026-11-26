@@ -150,6 +150,17 @@ fn add_places(db: &Connection, session: &str, places: &[Place]) -> Result<()> {
     Ok(())
 }
 
+/// Records <folder> as the folder <session>'s agent runs in, for a process
+/// that starts there.
+pub fn set_folder(db: &Connection, session: &str, folder: &str) -> Result<()> {
+    db.execute(
+        "UPDATE agent SET folder = ?2 WHERE session = ?1",
+        params![session, folder],
+    )
+    .sql()?;
+    Ok(())
+}
+
 /// Records that <items> joined <session>'s agent at <at>, whose work is now
 /// <work>: its places replace the recorded ones. The caller's transaction
 /// makes the writes one.
