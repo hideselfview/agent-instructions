@@ -386,14 +386,14 @@ impl ItemDraft {
             if why.trim().is_empty() {
                 fail!("a backlog item needs its why");
             }
-            for wait in &self.waits {
-                if let Wait::Question(question) = wait
-                    && question_is_open(db, *question)?
-                {
-                    fail!(
-                        "an item in the backlog cannot wait on open question {question}: answer the question first, or leave the wait out"
-                    );
-                }
+            if let Some(Wait::Question(question)) = self
+                .waits
+                .iter()
+                .find(|wait| matches!(wait, Wait::Question(_)))
+            {
+                fail!(
+                    "an item in the backlog cannot wait on open question {question}: answer the question first, or leave the wait out"
+                );
             }
         }
         for wait in &self.waits {
@@ -412,13 +412,6 @@ impl ItemDraft {
 }
 
 /// Is open item <id> in the backlog?
-fn question_is_open(db: &Connection, id: Id) -> Result<bool> {
-    Ok(matches!(
-        record::standing(db, id)?,
-        Some((Kind::Question, None))
-    ))
-}
-
 fn in_backlog(db: &Connection, id: Id) -> Result<bool> {
     db.query_row(
         "SELECT EXISTS (SELECT 1 FROM item_backlog WHERE item_id = ?1 \
@@ -493,10 +486,11 @@ pub fn move_to_backlog(db: &Connection, moves: &[(Id, String)], stamp: &Stamp) -
                 "{id} keeps a worktree: finish or drop its work first; the backlog keeps no worktree"
             );
         }
-        if let Some(Wait::Question(question)) = item.waits.iter().find(|wait| {
-            matches!(wait, Wait::Question(q)
-                if matches!(lists.locate(*q), Some(Located { standing: Standing::Open, .. })))
-        }) {
+        if let Some(Wait::Question(question)) = item
+            .waits
+            .iter()
+            .find(|wait| matches!(wait, Wait::Question(q) if lists.question(*q).is_some()))
+        {
             fail!(
                 "{id} waits on open question {question}: answer it first (`builds question answer {} ...`, with `{{\"backlog\": WHY}}` for this item), since the backlog holds no item that waits on a question",
                 question.0
@@ -721,7 +715,7 @@ pub fn add_wait(db: &Connection, id: Id, wait: Wait) -> Result<()> {
     require_open_item(db, id)?;
     let backlog = in_backlog(db, id)?;
     match &wait {
-        Wait::Question(question) if backlog && question_is_open(db, *question)? => fail!(
+        Wait::Question(question) if backlog => fail!(
             "{id} is in the backlog and cannot wait on question {question}: start it first (`builds item start {} --said WORDS`)",
             id.0
         ),

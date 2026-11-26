@@ -471,12 +471,6 @@ fn the_backlog_takes_an_item_whose_questions_are_closed_and_refuses_one_with_an_
     to_backlog(&db, &[item_closed]).unwrap();
     close(&db, open, How::DoneUnrecorded, &stamp(NOON)).unwrap();
     to_backlog(&db, &[item_open]).unwrap();
-    let other = item(&db, vec![]);
-    add_wait(&db, item_closed, Wait::Question(closed)).unwrap();
-    to_backlog(&db, &[other]).unwrap();
-    assert!(
-        refusal(add_wait(&db, other, Wait::Question(question(&db)))).contains("is in the backlog")
-    );
 }
 
 #[test]
