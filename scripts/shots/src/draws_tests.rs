@@ -65,17 +65,8 @@ fn history_of(name: &str) -> tempfile::TempDir {
         1,
     );
     std::fs::write(&canvas, text).unwrap();
-    let entry = |board: &str| format!("{board}{}", boards::BOARD_SUFFIX);
     if name != BOARD {
-        let mut index: serde_json::Value =
-            serde_json::from_slice(&std::fs::read(&canvas).unwrap()).unwrap();
-        index["boards"][entry(name)] = index["boards"][entry(BOARD)].clone();
-        std::fs::write(&canvas, serde_json::to_vec(&index).unwrap()).unwrap();
-        std::fs::copy(
-            repo.path().join(boards::board_path(BOARD)),
-            repo.path().join(boards::board_path(name)),
-        )
-        .unwrap();
+        copy_board(repo.path(), name);
     }
     git(repo.path(), &["init", "-q", "-b", "main"]);
     git(repo.path(), &["add", "-A"]);
@@ -83,7 +74,7 @@ fn history_of(name: &str) -> tempfile::TempDir {
     git(repo.path(), &["tag", "a"]);
     let mut index: serde_json::Value =
         serde_json::from_slice(&std::fs::read(&canvas).unwrap()).unwrap();
-    index["boards"][entry(name)]["x"] = 9000.into();
+    index["boards"][format!("{name}{}", boards::BOARD_SUFFIX)]["x"] = 9000.into();
     std::fs::write(&canvas, serde_json::to_vec(&index).unwrap()).unwrap();
     let board = repo.path().join(boards::board_path(name));
     let html = std::fs::read_to_string(&board).unwrap();
@@ -96,6 +87,21 @@ fn history_of(name: &str) -> tempfile::TempDir {
     git(repo.path(), &["commit", "-q", "-am", "c"]);
     git(repo.path(), &["tag", "c"]);
     repo
+}
+
+/// Copies `BOARD`'s file and canvas.json entry in <repo> under <name>.
+fn copy_board(repo: &Path, name: &str) {
+    let entry = |board: &str| format!("{board}{}", boards::BOARD_SUFFIX);
+    let canvas = repo.join("design/mocks/canvas.json");
+    let mut index: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&canvas).unwrap()).unwrap();
+    index["boards"][entry(name)] = index["boards"][entry(BOARD)].clone();
+    std::fs::write(&canvas, serde_json::to_vec(&index).unwrap()).unwrap();
+    std::fs::copy(
+        repo.join(boards::board_path(BOARD)),
+        repo.join(boards::board_path(name)),
+    )
+    .unwrap();
 }
 
 #[test]
@@ -449,14 +455,8 @@ const SHOT_BOARD: &str = "mac.dash.board";
 /// `s2`, which adds a comment to the file and so changes the board hash.
 fn history_with_shot_board() -> tempfile::TempDir {
     let repo = history();
-    let canvas = repo.path().join("design/mocks/canvas.json");
-    let mut index: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(&canvas).unwrap()).unwrap();
-    index["boards"][format!("{SHOT_BOARD}{}", boards::BOARD_SUFFIX)] =
-        index["boards"][format!("{BOARD}{}", boards::BOARD_SUFFIX)].clone();
-    std::fs::write(&canvas, serde_json::to_vec(&index).unwrap()).unwrap();
+    copy_board(repo.path(), SHOT_BOARD);
     let board = repo.path().join(boards::board_path(SHOT_BOARD));
-    std::fs::copy(repo.path().join(boards::board_path(BOARD)), &board).unwrap();
     git(repo.path(), &["add", "-A"]);
     git(repo.path(), &["commit", "-q", "-m", "s1"]);
     git(repo.path(), &["tag", "s1"]);
