@@ -321,15 +321,20 @@ pub fn lines(run: &Run) -> String {
             record.scene, record.level, record.sentence
         ));
     }
+    out.push_str(&format!("{}\n", count_sentence(run)));
+    out
+}
+
+/// `3 findings in 2 of the 9 scenes the run checked`.
+fn count_sentence(run: &Run) -> String {
     let scenes: std::collections::BTreeSet<&str> =
         run.findings.iter().map(|r| r.scene.as_str()).collect();
-    out.push_str(&format!(
-        "{} in {} of the {} the run checked\n",
+    format!(
+        "{} in {} of the {} the run checked",
         plural(run.findings.len(), "finding"),
         scenes.len(),
         plural(run.scenes.len(), "scene")
-    ));
-    out
+    )
 }
 
 /// The most scenes a cause's line names: those where it makes the most
@@ -340,13 +345,9 @@ const SCENES_SHOWN: usize = 10;
 /// prints them.
 pub fn text(run: &Run) -> String {
     let causes = causes(run);
-    let scenes: std::collections::BTreeSet<&str> =
-        run.findings.iter().map(|r| r.scene.as_str()).collect();
     let mut out = format!(
-        "{} in {} of the {} the run checked, grouped by cause, largest first.\n",
-        plural(run.findings.len(), "finding"),
-        scenes.len(),
-        plural(run.scenes.len(), "scene")
+        "{}, grouped by cause, largest first.\n",
+        count_sentence(run)
     );
     for (title, groups) in [
         ("By component", &causes.components),
