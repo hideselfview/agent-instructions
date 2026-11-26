@@ -221,7 +221,7 @@ async fn draw_screen(
     let slots = read::slots(page, "document", (rendered.frame.x, rendered.frame.y))
         .await
         .map_err(|e| e.to_string())?;
-    let window = read::window(page, (rendered.frame.x, rendered.frame.y))
+    let window = read::window(page, rendered.frame)
         .await
         .map_err(|e| e.to_string())?;
     Ok(Drawn {
@@ -233,7 +233,7 @@ async fn draw_screen(
         elements,
         unshot,
         slots,
-        window,
+        window: Some(window),
     })
 }
 

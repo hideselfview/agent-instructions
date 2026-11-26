@@ -46,13 +46,27 @@ fn a_board_whose_window_fill_matches_its_backdrop_compares_by_its_window_element
 }
 
 #[test]
-fn a_board_that_draws_no_window_differs_from_a_shot_with_rounded_corners() {
-    let pair = compare_window_without_window(
+fn a_board_whose_page_draws_no_window_element_has_square_corners() {
+    let pair = compare_window_cut(
         "mac.welcome.a",
+        0.0,
         window_picture(2, 0, [255, 255, 255, 255], false),
         window_picture(2, 16, [0, 0, 0, 0], false),
     );
     assert_eq!(pair.warnings, [Warning::WindowCorners]);
+}
+
+#[test]
+fn a_board_with_no_window_read_has_no_corners_to_compare() {
+    let pair = compare_with_window(
+        "mac.welcome.a",
+        None,
+        window_picture(2, 0, [255, 255, 255, 255], false),
+        window_picture(2, 16, [0, 0, 0, 0], false),
+    );
+    // The pictures still differ at the corners, which the region check marks.
+    assert!(!pair.warnings.contains(&Warning::WindowCorners));
+    assert_eq!(pair.warnings.len(), 4, "{:?}", pair.warnings);
 }
 
 #[test]
@@ -215,11 +229,8 @@ fn compare_window_cut(scene: &str, cut: f64, board: Picture, shot: Picture) -> C
     compare_with_window(scene, Some(cut), board, shot)
 }
 
-/// Compares a board whose page draws no window with a shot.
-fn compare_window_without_window(scene: &str, board: Picture, shot: Picture) -> Checked {
-    compare_with_window(scene, None, board, shot)
-}
-
+/// Compares a board whose list holds a window with the corner cut `cut` (none
+/// when no one read the window) with a shot.
 fn compare_with_window(scene: &str, cut: Option<f64>, board: Picture, shot: Picture) -> Checked {
     let scene = name(scene);
     let size = crate::shots::Size {

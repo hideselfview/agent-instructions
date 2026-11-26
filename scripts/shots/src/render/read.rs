@@ -781,55 +781,46 @@ const WINDOW_SELECTOR: &str = ".bae-m-window, .bae-m-mainwin, .bae-m-storewin";
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct WindowStyle {
-    x: f64,
-    y: f64,
-    width: f64,
-    height: f64,
+    frame: Bounds,
     /// The radius of the top-left corner, in points.
     radius: f64,
     /// The computed `corner-shape`, such as `superellipse(1.585)`.
     corner_shape: String,
 }
 
-/// The first window the page draws, measured from `origin`, or none when it
-/// draws no window. The comparison reads the corners of a native window
-/// against this window's frame and corner curve.
-pub(crate) async fn window(
-    page: &DrawPage,
-    origin: (f64, f64),
-) -> Result<Option<WindowShape>, ReadError> {
+/// The window the page draws, measured from `origin`: the first window
+/// element's frame and corner curve. A page with no window element draws its
+/// whole `frame` with square corners. The comparison reads the corners of a
+/// native window against this shape.
+pub(crate) async fn window(page: &DrawPage, frame: Bounds) -> Result<WindowShape, ReadError> {
     let selector = serde_json::to_string(WINDOW_SELECTOR).expect("a string serializes");
     let styles: Vec<WindowStyle> = page
         .evaluate(format!(
             "[...document.querySelectorAll({selector})].slice(0, 1).map(e => {{ \
              const r = e.getBoundingClientRect(); const s = getComputedStyle(e); \
-             return {{x: r.x, y: r.y, width: r.width, height: r.height, \
+             return {{frame: {{x: r.x, y: r.y, width: r.width, height: r.height}}, \
              radius: parseFloat(s.borderTopLeftRadius), cornerShape: s.cornerShape}}; }})"
         ))
         .await
         .map_err(protocol)?
         .into_value()
         .map_err(protocol)?;
-    styles
-        .into_iter()
-        .next()
-        .map(|style| {
-            let frame = relative_to(
-                Bounds {
-                    x: style.x,
-                    y: style.y,
-                    width: style.width,
-                    height: style.height,
-                },
-                origin,
-            );
-            Ok(WindowShape {
-                frame,
-                radius: style.radius,
-                exponent: curve_exponent(&style.corner_shape)?,
-            })
-        })
-        .transpose()
+    let Some(style) = styles.into_iter().next() else {
+        return Ok(WindowShape {
+            frame: Bounds {
+                x: 0.0,
+                y: 0.0,
+                ..frame
+            },
+            radius: 0.0,
+            exponent: 2.0,
+        });
+    };
+    Ok(WindowShape {
+        frame: relative_to(style.frame, (frame.x, frame.y)),
+        radius: style.radius,
+        exponent: curve_exponent(&style.corner_shape)?,
+    })
 }
 
 /// The exponent of the curve a computed `corner-shape` draws: `round` is

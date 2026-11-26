@@ -1071,17 +1071,12 @@ async fn a_boards_window_reads_as_its_frame_radius_and_curve() {
             )
             .await
             .unwrap();
-            read.push(
-                window(&page, (rendered.frame.x, rendered.frame.y))
-                    .await
-                    .unwrap(),
-            );
+            read.push(window(&page, rendered.frame).await.unwrap());
         }
         let none = read.pop().unwrap();
         (read.pop().unwrap(), none)
     })
     .await;
-    let window = window.expect("the board draws a window");
     assert_eq!(
         window.frame,
         Bounds {
@@ -1093,7 +1088,20 @@ async fn a_boards_window_reads_as_its_frame_radius_and_curve() {
     );
     assert_eq!(window.radius, 24.0);
     assert!((window.exponent - 3.0).abs() < 0.01, "{}", window.exponent);
-    assert!(none.is_none());
+    // A page with no window element draws its frame with square corners.
+    assert_eq!(
+        none,
+        WindowShape {
+            frame: Bounds {
+                x: 0.0,
+                y: 0.0,
+                width: 300.0,
+                height: 200.0
+            },
+            radius: 0.0,
+            exponent: 2.0
+        }
+    );
 }
 
 #[test]

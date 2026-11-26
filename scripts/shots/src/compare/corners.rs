@@ -3,7 +3,7 @@
 use std::cmp::Ordering;
 
 use super::{PictureSide, Side, rgba};
-use crate::shots::{Bounds, WindowShape};
+use crate::shots::WindowShape;
 
 /// The corner search reaches past macOS's 23.5 pt curve.
 const CORNER_POINTS: f64 = 32.0;
@@ -31,20 +31,10 @@ struct Insets {
 impl Corners {
     /// The shot's alpha identifies a native rounded window. Mac component
     /// shots drawn into a rectangular image have opaque corners. The board's
-    /// corners are those of `window`, the window its page draws; a page that
-    /// draws none has square corners at the edge of its picture.
+    /// corners are those of `window`, the window its page draws; a board with
+    /// no window read has none to compare.
     pub(super) fn of(board: &Side, shot: &Side, window: Option<&WindowShape>) -> Option<Self> {
-        let square = WindowShape {
-            frame: Bounds {
-                x: 0.0,
-                y: 0.0,
-                width: f64::from(board.picture.width) / board.scale,
-                height: f64::from(board.picture.height) / board.scale,
-            },
-            radius: 0.0,
-            exponent: 2.0,
-        };
-        let window = window.unwrap_or(&square);
+        let window = window?;
         let scale = board.scale.min(shot.scale);
         let limit = [board, shot]
             .into_iter()

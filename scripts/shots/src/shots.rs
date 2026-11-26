@@ -118,8 +118,11 @@ pub(crate) struct ElementList {
     /// write it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) slots: Vec<Bounds>,
-    /// The window the board's page draws, with the shape of its corners.
-    /// Absent when the page draws none. Only boards write it.
+    /// The window the board's page draws, with the shape of its corners: its
+    /// whole frame with square corners when the page has no window element.
+    /// Absent where no one read it, as in a component's board and in a report
+    /// an older checker wrote, where the comparison checks no window corners.
+    /// Only boards write it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) window: Option<WindowShape>,
 }
