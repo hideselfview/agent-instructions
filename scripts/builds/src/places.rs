@@ -59,6 +59,10 @@ pub const MACOS_ENTRIES: [&str; 8] = [
     ".com.apple.timemachine.donotpresent",
 ];
 
+/// The folder of the build volume that holds each started agent's log and
+/// scratch folder.
+pub const AGENTS_FOLDER: &str = "agents";
+
 /// The start of a folder the trash is renamed to while it is emptied.
 pub const EMPTYING_PREFIX: &str = ".trash-emptying.";
 
@@ -92,6 +96,8 @@ pub struct Places {
     pub lists: PathBuf,
     /// The Codex CLI that delivers and checks registered thread notifications.
     pub codex_program: PathBuf,
+    /// The Claude Code CLI that `builds agent run` and `resume` start.
+    pub claude_program: PathBuf,
     /// The folder of the SF Mono files that the boards whose mono stack names
     /// them draw mono text in: the Mac's Terminal.app ships them
     /// (`boards::fonts`).
@@ -132,6 +138,7 @@ impl Places {
             uid: unsafe { libc::getuid() },
             lists,
             codex_program: PathBuf::from("codex"),
+            claude_program: PathBuf::from("claude"),
             fonts: cfg!(target_os = "macos").then(|| PathBuf::from(boards::fonts::TERMINAL_FONTS)),
         })
     }
@@ -363,6 +370,12 @@ impl Places {
         self.home.join(".claude/sessions")
     }
 
+    /// The folder of the agents `builds agent run` started, one folder per
+    /// session with its log and its scratch folder (agent_command.rs).
+    pub fn agents(&self) -> PathBuf {
+        self.root.join(AGENTS_FOLDER)
+    }
+
     /// How this machine reaches the agent sessions registered with builds.
     pub fn sessions(&self) -> crate::inbox::Sessions {
         crate::inbox::Sessions {
@@ -435,7 +448,11 @@ impl Places {
     /// Is <dir> one of the volume's own folders (DerivedData, caches, the
     /// trash), which a repo can't be named after?
     pub fn is_reserved_name(&self, name: &str) -> bool {
-        name == "DerivedData" || name == "caches" || name == "mode" || name.starts_with('.')
+        name == "DerivedData"
+            || name == "caches"
+            || name == "mode"
+            || name == AGENTS_FOLDER
+            || name.starts_with('.')
     }
 }
 

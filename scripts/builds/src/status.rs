@@ -105,6 +105,7 @@ pub fn repos(places: &Places) -> Result<Vec<Repo>> {
             || dir == places.caches()
             || dir == crate::shots_cache::root(places)
             || dir == crate::review::texts::root(places)
+            || dir == places.agents()
         {
             continue;
         }
@@ -601,6 +602,14 @@ pub fn cmd_status(tool: &mut Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
                 "review-texts (the reviews' texts)",
                 crate::review::texts::CAP_KIB,
             )?);
+        } else if entry == tool.places.agents() && entry.is_dir() {
+            let measured = tool.measure(&entry)?;
+            out.push(format!(
+                "{:<38} {:>8}  last write {}",
+                "agents (each agent's log and scratch)",
+                human(measured.kib),
+                last_write(measured.newest)
+            ));
         } else if let Some(repo) = repos.iter().find(|repo| repo.dir == entry) {
             for item in &repo.entries {
                 match item {

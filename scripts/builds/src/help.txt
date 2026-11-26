@@ -60,7 +60,7 @@ an agent holds from the sections it acknowledged, so the gate asks no agent
 for a role's sections. After a compaction, the agent names its roles again.
 
 Builds requires acknowledgement for agent commands other than `help`, `ack`,
-`agent`, `brief`, `rules-on-edit`, `install`, `dashboard` and `version`.
+`agent start`, `brief`, `rules-on-edit`, `install`, `dashboard` and `version`.
 
   builds ack [--agent ID] [--project P] [--role ROLE]...
       Start a reading. Its first line says why builds asks agents to read the
@@ -138,6 +138,55 @@ commands without acknowledgement. The acknowledgement gate also passes
 pre-commit checks in the main checkout and `builds status --json --no-folders`.
 
 
+AGENTS
+
+`builds agent run` starts an agent on items. builds writes the agent's
+opening prompt, starts Claude Code with the flags of the agent's role, records
+the session and reads the agent's context. Every `builds agent` command but
+`agent start` (ACKNOWLEDGING THE RULES) needs acknowledgement. The coordinator
+runs each of them as a background task, and the task ends when the agent's
+process ends.
+
+  builds agent run --role implementing|planner N [M...] [--brief P]
+                    [--message-file F] [--project P] [--by WHO]
+      Starts a new agent, prints one line (its session id, role, project,
+      model, folder and log), and runs until the agent's process ends. Then it
+      prints the agent's last result whole and the exit status, and exits
+      with the status when it is not 0.
+      - implementing: every N is an item that `builds item take` started, all
+        in the same worktrees, with the same brief and the same tier. The
+        agent runs in the first worktree, with the model of the items' tier.
+        builds reads the worktrees, branches and brief from the items' run,
+        so the command takes no --brief.
+      - planner: every N is an open item that no agent runs, and --brief names
+        the brief of the plan. The planner runs the strongest model in the
+        worktrees folder of the repo whose main checkout holds the brief.
+      builds writes the prompt from these parts, in this order, and no
+      template: the project's description (the first paragraph of
+      projects/<project>.md in the rules checkout), the role's line, the
+      worktree, branch and land command of an implementing agent, each item
+      as `builds item show` prints it, the brief whole, the words of
+      --message-file, the project's `## Hard limits` section whole, the
+      commit trailer of the model, and the agent's scratch folder. builds
+      refuses to start an agent when the project file or its Hard limits
+      section is missing, and names the file.
+      The agent starts with no MCP server, no skill and these tools: Bash,
+      Edit, LSP, Monitor, Read, TaskStop, ToolSearch and Write, in an
+      environment that holds no caller's identity and no inbox, so the agent
+      is a new Claude Code session. The prompt goes to the agent on standard
+      input. When the agent's first stream line shows another model, tool, MCP
+      server or skill than builds asked for, builds stops the agent and
+      fails.
+      builds keeps the stream of each agent and Claude Code's standard error
+      in <build volume>/agents/<session>/log.jsonl, and gives the agent
+      <build volume>/agents/<session>/scratch for its scratch files. It reads
+      the context of each turn of the agent (the input, cache-creation and
+      cache-read tokens together) from the stream, and records them in the
+      store with the agent's session, role, model, items and processes
+      (agent, agent_item and agent_process). builds never stores whether an
+      agent runs: it asks Claude Code's record of its running sessions.
+
+
 BUILD VOLUME
 
 Every build on this Mac writes to the build volume, and builds owns everything
@@ -183,6 +232,10 @@ on it:
   review-texts/<project>/<run>/
                         the texts of each review run (DISK), one file per
                         text, named for the text's hash
+  agents/<session>/     what `builds agent run` keeps of each agent it
+                        started: log.jsonl, the stream and Claude Code's
+                        standard error as JSON lines, and scratch/, the
+                        agent's folder for scratch files (AGENTS)
   .chrome-slots/        the slot files that limit the pages Chromes draw at once
                         on the host (APP BUILDS); `builds status` leaves it out
   .trash/               folders being deleted in the background

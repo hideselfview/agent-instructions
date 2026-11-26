@@ -52,6 +52,16 @@ impl Tier {
     }
 }
 
+impl Tier {
+    /// The commit trailer of the Claude model an agent runs at this tier.
+    pub fn claude_trailer(self) -> &'static str {
+        match self {
+            Tier::Implementation => "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>",
+            Tier::Strongest => "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>",
+        }
+    }
+}
+
 /// A running agent process and the place its working folder is in.
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Agent {

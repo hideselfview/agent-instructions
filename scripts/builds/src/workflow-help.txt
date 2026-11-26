@@ -166,13 +166,14 @@ PLAN, BRIEF, EXECUTE
       `builds item take` checks the brief against the spec (DISPATCH).
     - Each sentence of a brief that states a ruling of the person's, or a
       prohibition meant to hold beyond the task, names where it is written
-      (ROLES), and so does each hard limit that DISPATCH lists.
+      (ROLES).
     - `builds help briefs` is the instructions for a planner agent that
       writes briefs.
-  - Implementation: the brief specifies the behavior and how to test it. Name
-    the implementation tier's model on each dispatch: claude-sonnet-5-5 in
-    Claude, GPT-6.2 Sol (gpt-6.2-sol) in Codex. `builds health` lists an
-    agent that runs another model than its item's tier, or names none.
+  - Implementation: the brief specifies the behavior and how to test it.
+    builds names the model from the tier the item was taken at:
+    claude-sonnet-5-5 in Claude, GPT-6.2 Sol (gpt-6.2-sol) in Codex. `builds
+    health` lists an agent that runs another model than its item's tier, or
+    names none.
   - Tier: name an item's tier when taking it. `builds item take --tier
     strongest` is for an item whose agent coordinates, plans or writes a
     spec or another document that takes judgment; `--tier implementation`
@@ -268,8 +269,27 @@ WHAT AN IMPLEMENTING AGENT DOES
      open and, for app changes, the app build has passed.
  11. Report the landed commits and the checks, or what stopped the landing.
 
-Agents share their coordinator's scratchpad folder, so each keeps its scratch
-files (commit messages, probes) in a folder of its own, named for its branch.
+An agent that `builds agent run` starts keeps its scratch files (commit
+messages, probes) in the scratch folder its prompt names (`builds help`,
+AGENTS). Any other agent keeps them in a folder of its own, named for its
+branch, because agents share their coordinator's scratchpad folder.
+
+
+WHAT A PLANNER DOES
+
+A planner writes a plan or briefs for items, and changes no code. `builds
+agent run --role planner` starts one with the items and the brief that says
+what to write.
+
+  1. Read each item (`builds item show N`) and the decisions it cites
+     (`builds decision find <words>`).
+  2. Read code only through git, on current main, as HANDOFF, AUDITS AND FLAKY
+     TESTS says. Never check out, edit or build, and never touch the person's
+     main checkouts.
+  3. Write only the files the brief names.
+  4. Put each open choice in a numbered Questions section of the file, with a
+     pick and one clause of why.
+  5. Reply with the files' paths and the questions, one line each.
 
 
 HANDOFF, AUDITS AND FLAKY TESTS
@@ -301,16 +321,16 @@ DISPATCH
     finished work there. Send that agent a message to resume it. Start a new
     agent only when no finished agent under the handoff size knows the area,
     or the item needs a different model.
-  - Each brief names its worktree, its items, and the project's hard limits
-    (the person's checkouts, the keychain, devices, cargo through the
-    wrapper, no `git add -A` or stash, no --no-verify), and "review and land
-    through builds; don't push main". Send the worker the brief's path.
+  - Start each agent with `builds agent run`, which gives it the items, the
+    brief whole, the project's hard limits (the `## Hard limits` section of
+    projects/<project>.md) and the commit trailer of its model (`builds help`,
+    AGENTS). A brief names none of them. The limits that hold in every
+    project stay in WORKTREES, BUILDS and LANDING, which every agent reads.
     - A brief carries no coding rules and no workflow text: builds gives a
       Claude Code agent each rule when it first edits a file the rule covers
       (`builds rules-on-edit`) and every agent the workflow when it runs
       `builds ack`, and `builds item take` refuses a brief that pastes
       either.
-    - Each worker credits its own model in the commit trailer.
   - Critical work starts first: what the person sees in the apps (a screen, a
     bug, a feature the person asked for), builds work that blocks or slows
     the agents, and the cleanups the person marks critical.

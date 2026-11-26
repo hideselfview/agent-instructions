@@ -172,6 +172,10 @@ pub const APP_BUILD_REQUESTED_COMMIT_PART: &str = include_str!("app_build_reques
 /// The cached shots comparisons reused by app builds.
 pub const APP_BUILD_REUSED_SHOTS_PART: &str = include_str!("app_build_reused_shots.sql");
 
+/// The agents `builds agent run` started and their processes
+/// (agent_record.sql); the schema holds it after the judge's corrections.
+pub const AGENT_RECORD_PART: &str = include_str!("agent_record.sql");
+
 /// Each part of the schema, in the order the schema holds them: the lists'
 /// tables, then the hook stats', then the app-build timings', then the design
 /// changes' recording sessions', then the review's, then the hook checks'
@@ -188,7 +192,7 @@ pub const APP_BUILD_REUSED_SHOTS_PART: &str = include_str!("app_build_reused_sho
 /// cap. A table points at ones earlier or
 /// later (SQLite resolves foreign keys when rows are written), but the order is
 /// the one to read the schema in. A part that joins the schema goes at the end.
-const SCHEMA_PARTS: [&str; 47] = [
+const SCHEMA_PARTS: [&str; 48] = [
     include_str!("lists/project.sql"),
     include_str!("lists/area.sql"),
     include_str!("lists/record.sql"),
@@ -236,6 +240,7 @@ const SCHEMA_PARTS: [&str; 47] = [
     APP_BUILD_REQUESTED_COMMIT_PART,
     APP_BUILD_REUSED_SHOTS_PART,
     REVIEW_KEPT_CORRECTION_PART,
+    AGENT_RECORD_PART,
 ];
 
 /// The length of <parts> joined with a newline between each two.
@@ -848,6 +853,20 @@ CREATE TABLE design_board (
 
 ";
 
+/// <schema> as it was before the agents `builds agent run` starts were
+/// recorded: without their tables, the last part of the schema.
+#[cfg(test)]
+pub fn without_agent_record(schema: String) -> String {
+    schema.replacen(&format!("\n{AGENT_RECORD_PART}"), "", 1)
+}
+
+/// The schema as it was before the agents `builds agent run` starts were
+/// recorded.
+#[cfg(test)]
+pub fn schema_before_agent_record() -> String {
+    without_agent_record(schema())
+}
+
 /// <schema> as it was before a design change stopped keeping the canvas link
 /// of each board: with the links' table before the review page's table, and
 /// the comments of the schema that the move reworded as they were. A schema
@@ -879,7 +898,7 @@ pub fn with_board_links(schema: String) -> String {
 /// link of each board.
 #[cfg(test)]
 pub fn schema_before_no_board_link() -> String {
-    with_board_links(schema())
+    with_board_links(without_agent_record(schema()))
 }
 
 /// <schema> as it was before the judge could correct the reason it kept a
@@ -887,7 +906,11 @@ pub fn schema_before_no_board_link() -> String {
 /// with the board links' table every schema then held.
 #[cfg(test)]
 pub fn without_kept_correction(schema: String) -> String {
-    with_board_links(schema.replacen(&format!("\n{REVIEW_KEPT_CORRECTION_PART}"), "", 1))
+    with_board_links(without_agent_record(schema).replacen(
+        &format!("\n{REVIEW_KEPT_CORRECTION_PART}"),
+        "",
+        1,
+    ))
 }
 
 /// The schema as it was before the judge could correct the reason it kept a

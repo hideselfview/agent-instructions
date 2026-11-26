@@ -4,7 +4,12 @@ fn names(text: &Text) -> Vec<String> {
     text.sections.iter().map(|s| s.name.clone()).collect()
 }
 
-const COORDINATOR_HEADINGS: [&str; 3] = ["PLAN, BRIEF, EXECUTE", "DISPATCH", "HEALTH CHECK"];
+const COORDINATOR_HEADINGS: [&str; 4] = [
+    "PLAN, BRIEF, EXECUTE",
+    "WHAT A PLANNER DOES",
+    "DISPATCH",
+    "HEALTH CHECK",
+];
 const DESIGN_HEADINGS: [&str; 2] = ["DESIGN CHANGES", "PUBLISHING DESIGNS"];
 
 fn headings_of(text: &Text, section: &str) -> Vec<String> {

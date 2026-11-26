@@ -327,17 +327,26 @@ impl Identity {
     }
 }
 
+/// The variables that name the agent that runs a command and the inbox of its
+/// session. A daemon that serves the person, and an agent that builds starts,
+/// inherit none of them.
+pub const IDENTITY: [&str; 7] = [
+    CODEX_SESSION,
+    CODEX_THREAD,
+    super::SESSION,
+    VARIABLE,
+    super::PASSED,
+    MESSAGING_SOCKET,
+    MESSAGING_TOKEN,
+];
+
+/// The variables Claude Code sets in its own children: an agent that builds
+/// starts is a new session, not a child of the Claude Code that runs builds.
+pub const CLAUDE_CODE: [&str; 2] = ["CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT"];
+
 /// Remove agent identity before launching a daemon that serves the person.
 pub fn clear_for_daemon() {
-    for name in [
-        CODEX_SESSION,
-        CODEX_THREAD,
-        super::SESSION,
-        VARIABLE,
-        super::PASSED,
-        "CLAUDE_CODE_MESSAGING_SOCKET",
-        "CLAUDE_CODE_MESSAGING_TOKEN",
-    ] {
+    for name in IDENTITY {
         // SAFETY: main calls this before it starts any threads.
         unsafe { std::env::remove_var(name) };
     }

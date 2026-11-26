@@ -2,6 +2,11 @@
 //! on it. `builds help` says what it does; src/help.txt is that text.
 
 mod ack;
+mod agent_command;
+mod agent_launch;
+mod agent_prompt;
+mod agent_record;
+mod agent_stream;
 mod app_build;
 mod app_build_commit;
 mod app_build_requested_commit;
@@ -350,13 +355,13 @@ fn holds_for_life(command: &str, rest: &[String]) -> bool {
 /// Takes the use of the stores that <command> needs before it runs. <args>
 /// starts with the command. Returns the use the command holds for its life,
 /// or None when the command takes a use per store connection, takes none (a
-/// command of `install_gate::STORELESS`, or the shots checker), or runs
+/// command `install_gate::storeless` names, or the shots checker), or runs
 /// under a holder's use. An app build lane refuses to start if its parent
 /// picked its program before an install moved the stores. Other commands
 /// that waited at a closed gate run the program at the same path in their
 /// place, with the same arguments.
 fn enter_stores(command: &str, args: &[String]) -> Result<Option<install_gate::Use>> {
-    if install_gate::STORELESS.contains(&command)
+    if install_gate::storeless(command, &args[1..])
         || (command == "shots" && shots_program::runs_checker(&args[1..]))
         || std::env::var_os(install_gate::VARIABLE).is_some()
     {
@@ -455,7 +460,9 @@ fn run(command: &str, args: &[String], session: ack::agent::Session) -> Result<(
             return brief::cmd_brief(&root, args);
         }
         "ack" => return ack::cmd_ack(&Places::from_env()?, &session, args),
-        "agent" => return ack::agent::cmd_agent(&Places::from_env()?, args),
+        "agent" if args.first().is_some_and(|sub| sub == "start") => {
+            return ack::agent::cmd_agent(&Places::from_env()?, args);
+        }
         "rules-on-edit" => {
             let root = review::default_rules_root()?;
             return rules_on_edit::cmd_rules_on_edit(&Places::from_env()?, &root, args);
@@ -505,6 +512,7 @@ fn run(command: &str, args: &[String], session: ack::agent::Session) -> Result<(
         "decision" => lists::cmd_decision(&tool, args),
         "design" => lists::cmd_design(&tool, args),
         "question" => lists::question_command::cmd_question(&tool, args),
+        "agent" => agent_command::cmd_agent(&tool, args),
         "item" => lists::cmd_item(&tool, args),
         "next" => lists::cmd_next(&tool, args),
         "area" => lists::cmd_area(&tool, args),

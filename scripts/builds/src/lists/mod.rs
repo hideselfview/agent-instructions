@@ -49,7 +49,7 @@ mod item_command;
 pub mod item_event;
 #[cfg(test)]
 pub mod item_fixtures;
-mod item_show;
+pub(crate) mod item_show;
 pub mod kept_work;
 pub mod landing;
 pub mod pasted;

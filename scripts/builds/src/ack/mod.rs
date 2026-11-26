@@ -56,7 +56,7 @@ const USAGE: &str = "usage: builds ack [--agent ID] [--project P] [--role coordi
 /// acknowledgement, read-only `brief`, `rules-on-edit` (a hook that must run before an agent
 /// acknowledges), `status --json --no-folders` (`lists_checkouts`), and the commands a builds command that passed runs. The
 /// gate also passes the commands that do not use the stores
-/// (`install_gate::STORELESS`): the gate reads a store, and install must run
+/// (`install_gate::storeless`): the gate reads a store, and install must run
 /// while the stores still have an older schema, because install migrates them
 /// to its schema. The gate passes the pre-commit hook's checks in a main
 /// checkout too (`commits_in_main_checkout`).
@@ -68,7 +68,7 @@ pub fn gate(
 ) -> Result<()> {
     if command == "ack"
         || command == "rules-on-edit"
-        || install_gate::STORELESS.contains(&command)
+        || install_gate::storeless(command, args)
         || std::env::var_os(PASSED).is_some()
         || lists_checkouts(command, args)
         || commits_in_main_checkout(command, args)?

@@ -2708,3 +2708,39 @@ fn a_store_from_before_board_links_left_loses_their_table() {
         .unwrap();
     assert_eq!(left, 0);
 }
+
+#[test]
+fn the_agent_record_stamp_is_the_schema_before_it() {
+    assert_eq!(
+        db::stamp_of_text(&db::schema_before_agent_record()),
+        BEFORE_AGENT_RECORD_STAMP
+    );
+}
+
+#[test]
+fn a_store_from_before_agent_records_gains_the_empty_tables() {
+    let scratch = Scratch::new("move-agent-record");
+    let places = scratch.places();
+    let path = scratch.dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&db::schema_before_agent_record())
+            .unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_AGENT_RECORD_STAMP)
+            .unwrap();
+    }
+    move_store(&places, &path, 0).unwrap();
+    let conn = db::open(&path, db::Make::Never).unwrap();
+    for table in ["agent", "agent_item", "agent_process"] {
+        let rows: i64 = conn
+            .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(rows, 0, "{table}");
+    }
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+}

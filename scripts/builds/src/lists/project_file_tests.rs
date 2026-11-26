@@ -11,24 +11,44 @@ fn root_with(name: &str, text: &str) -> (crate::testing::Scratch, std::path::Pat
 }
 
 #[test]
-fn the_limits_are_the_section_up_to_the_next_heading_of_its_level() {
+fn the_description_is_the_first_paragraph_and_the_limits_are_their_section() {
     let (_scratch, root) = root_with("demo", FILE);
+    let file = load(&root, "demo").unwrap();
+    assert_eq!(file.description, "Demo is a tool.\nIt runs here.");
     assert_eq!(
-        hard_limits_if_any(&root, "demo").unwrap(),
+        file.hard_limits,
         "- Never do a.\n- Never do b.\n\n### Detail\n\nMore."
     );
+    assert!(file.path.ends_with("projects/demo.md"));
 }
 
 #[test]
-fn a_project_with_no_file_or_no_section_or_an_empty_one_has_no_limits() {
+fn a_missing_file_fails_naming_it() {
     let (_scratch, root) = root_with("demo", FILE);
-    assert_eq!(hard_limits_if_any(&root, "other"), None);
-    std::fs::write(root.join("projects/demo.md"), "# demo\n\nText.\n").unwrap();
-    assert_eq!(hard_limits_if_any(&root, "demo"), None);
-    std::fs::write(
-        root.join("projects/demo.md"),
-        "# demo\n\nText.\n\n## Hard limits\n\n## Next\n\nx\n",
-    )
-    .unwrap();
-    assert_eq!(hard_limits_if_any(&root, "demo"), None);
+    let error = load(&root, "other").unwrap_err().text();
+    assert!(error.contains("projects/other.md"), "{error}");
+}
+
+#[test]
+fn a_file_without_a_hard_limits_section_fails_naming_the_file() {
+    let (_scratch, root) = root_with("demo", "# demo\n\nDemo is a tool.\n\n## Crates\n\nText.\n");
+    let error = load(&root, "demo").unwrap_err().text();
+    assert!(error.contains("projects/demo.md"), "{error}");
+    assert!(error.contains("## Hard limits"), "{error}");
+}
+
+#[test]
+fn an_empty_hard_limits_section_fails() {
+    let (_scratch, root) = root_with(
+        "demo",
+        "# demo\n\nDemo is a tool.\n\n## Hard limits\n\n## Next\n\nx\n",
+    );
+    assert!(load(&root, "demo").is_err());
+}
+
+#[test]
+fn a_file_with_a_heading_where_the_description_belongs_fails() {
+    let (_scratch, root) = root_with("demo", "# demo\n\n## Hard limits\n\n- a\n");
+    let error = load(&root, "demo").unwrap_err().text();
+    assert!(error.contains("no description"), "{error}");
 }

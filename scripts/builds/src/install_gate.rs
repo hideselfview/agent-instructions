@@ -80,22 +80,32 @@ const LANE_GENERATION: &str = "BUILDS_APP_BUILD_GENERATION";
 
 /// The commands that take no use of the stores: install, which closes the
 /// gates and moves the stores, the dashboard, which install restarts, the
-/// help, `brief`, `agent`, which registers an agent outside the stores
-/// (ack/agent.rs), `version`, which prints only what the program was built
+/// help, `brief`, `version`, which prints only what the program was built
 /// from, `programs`, which runs a lane's step on a host (programs.rs), and
-/// `sccache-tmpdir`, which checks a host's sccache server.
-pub const STORELESS: [&str; 10] = [
+/// `sccache-tmpdir`, which checks a host's sccache server. `agent start`
+/// takes none either (`storeless`).
+const STORELESS: [&str; 9] = [
     "install",
     "dashboard",
     "help",
     "brief",
     "-h",
     "--help",
-    "agent",
     "version",
     "programs",
     "sccache-tmpdir",
 ];
+
+/// Whether `builds <command> <rest>` takes no use of the stores: a command
+/// of `STORELESS`, or `agent start`, which registers an agent outside the
+/// stores (ack/agent.rs). The other `agent` commands read and write the
+/// store of a project.
+pub fn storeless(command: &str, rest: &[String]) -> bool {
+    if command == "agent" {
+        return rest.first().is_some_and(|sub| sub == "start");
+    }
+    STORELESS.contains(&command)
+}
 
 /// Runs the program at this program's path with this process's arguments in
 /// its place; returns only when it cannot, with the error that says why.

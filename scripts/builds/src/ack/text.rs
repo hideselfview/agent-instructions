@@ -90,7 +90,12 @@ const GROUPS: [Group; 4] = [
     Group {
         name: "builds help workflow, coordinator",
         page: Page::Workflow,
-        headings: &["PLAN, BRIEF, EXECUTE", "DISPATCH", "HEALTH CHECK"],
+        headings: &[
+            "PLAN, BRIEF, EXECUTE",
+            "WHAT A PLANNER DOES",
+            "DISPATCH",
+            "HEALTH CHECK",
+        ],
         roles: &[Role::Coordinator],
     },
     Group {
