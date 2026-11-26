@@ -933,8 +933,8 @@ a `shots` line that passes --windows, only one on a host, as below). builds cach
 under that prefix like any other shots run's (below), and `builds shots
 findings <repo> <ref> mac mac.` prints them again. The shots program takes a
 window's shot on the display of the host it runs on, whose size may differ
-from that of CI's runner, so a window that fits one display and not the other
-can pass on one and fail on the other.
+from another host's, so a window that fits one display and not the other can
+pass on one and fail on the other.
 
 App builds (an Xcode app, a Gradle app, a bridge cross-compiled for a platform)
 take 10-20 GB per platform per checkout, so a repo keeps them built only in
