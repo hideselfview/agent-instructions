@@ -69,6 +69,23 @@ impl Globs {
             .any(|globs| globs.get(repo).is_some_and(|paths| !paths.is_empty()))
     }
 
+    /// The globs of <repo> in all of <projects> together.
+    pub fn of_each(projects: &[Lists], repo: &str) -> Globs {
+        let mut all = Globs {
+            places: Vec::new(),
+            sources: Vec::new(),
+            spec: Vec::new(),
+            capture: Vec::new(),
+        };
+        for lists in projects {
+            let own = Globs::of(lists, repo);
+            all.places.extend(own.places);
+            all.sources.extend(own.sources);
+            all.spec.extend(own.spec);
+        }
+        all
+    }
+
     /// The globs of <repo> in <lists>.
     pub fn of(lists: &Lists, repo: &str) -> Globs {
         Globs::of_repo(

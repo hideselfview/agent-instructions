@@ -21,16 +21,22 @@ fn a_board_change_that_waits_on_an_open_item_leaves_its_scene_out() {
     design_place(&db, change, BOARD, Resolution::Item(work));
     let lists = read(&db);
     assert_eq!(
-        waiting_in(&lists, "bae", &strings(&[BOARD])),
+        waiting_in(std::slice::from_ref(&lists), "bae", &strings(&[BOARD])),
         [Waiting {
             scene: "mac.identify.found".into(),
             items: vec![work],
         }]
     );
     // A branch that leaves the board as it is has nothing to wait for.
-    assert_eq!(waiting_in(&lists, "bae", &strings(&["src/a.rs"])), []);
+    assert_eq!(
+        waiting_in(std::slice::from_ref(&lists), "bae", &strings(&["src/a.rs"])),
+        []
+    );
     // Another repo's boards are none of this repo's.
-    assert_eq!(waiting_in(&lists, "coven", &strings(&[BOARD])), []);
+    assert_eq!(
+        waiting_in(std::slice::from_ref(&lists), "coven", &strings(&[BOARD])),
+        []
+    );
 }
 
 #[test]
@@ -52,7 +58,10 @@ fn only_a_board_place_with_open_app_work_waits() {
     );
     let lists = read(&db);
     let changed = strings(&[BOARD, "design/system/components/MacRow/a.html"]);
-    assert_eq!(waiting_in(&lists, "bae", &changed), []);
+    assert_eq!(
+        waiting_in(std::slice::from_ref(&lists), "bae", &changed),
+        []
+    );
 }
 
 #[test]
@@ -74,6 +83,7 @@ fn a_prefix_runs_the_names_it_selects_less_the_waiting_scenes() {
 
 fn run(ran: &[&str]) -> PassedRun {
     PassedRun {
+        started_at: 0,
         commit: "built".to_string().into(),
         steps: ran.iter().map(|p| format!("shots {p}")).collect(),
     }

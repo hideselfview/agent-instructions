@@ -668,6 +668,19 @@ pub fn project_of(
     )
 }
 
+/// The project of work in <repo> that no worktree's claim speaks for: the one
+/// <flag>, a command's `--project`, names, else the one project that holds the
+/// repo; None when no project holds it. Fails when <flag> names a project that
+/// does not hold the repo, and when two projects hold it and there is no
+/// <flag>.
+pub fn project_named(places: &Places, repo: &str, flag: Option<&str>) -> Result<Option<String>> {
+    let holding = projects_holding(places, repo)?;
+    let named = flag
+        .filter(|_| !holding.is_empty())
+        .map(|flag| (flag, "--project"));
+    choose_project(repo, named, holding)
+}
+
 /// Finds the project of the worktree at <top> of <repo> among <loaded> the
 /// way `project_of` does, from the project its claim names (<named>), and
 /// returns that project's lists. Returns None when no project holds the repo.

@@ -71,11 +71,19 @@ struct Record {
 }
 
 /// What a run the page starts runs: `build-app <repo> <lane> [<reference>]`,
-/// or `app-build <repo> <commit> --shots <prefix>` for a shots run.
+/// or `app-build <repo> <commit> --shots <prefix> --project <project>` for a
+/// shots run.
 #[derive(Clone, Copy)]
 enum Job<'a> {
-    BuildApp { reference: Option<&'a str> },
-    Shots { commit: &'a str, prefix: &'a str },
+    BuildApp {
+        reference: Option<&'a str>,
+    },
+    Shots {
+        commit: &'a str,
+        prefix: &'a str,
+        /// The project whose store records the run.
+        project: &'a str,
+    },
 }
 
 /// Which run of a repo's lane a run is: its build-app run (no prefix) or
@@ -367,8 +375,9 @@ impl Runs {
         Ok(())
     }
 
-    /// Starts `app-build <repo> <commit> --shots <prefix>`, which takes the
-    /// shots of <commit> whose names start with <prefix> on <lane>, unless a
+    /// Starts `app-build <repo> <commit> --shots <prefix> --project
+    /// <project>`, which takes the shots of <commit> whose names start with
+    /// <prefix> on <lane> and records the run in <project>'s store, unless a
     /// shots run of that prefix is running; deletes the ended shots runs of
     /// the lane's other prefixes. One call starts at most one run. The
     /// component page is the one caller: its route checked that <commit> is a
@@ -376,7 +385,7 @@ impl Runs {
     /// component's name (component_shots.rs).
     pub fn start_shots(
         self: &Arc<Self>,
-        repo: &str,
+        (repo, project): (&str, &str),
         lane: Lane,
         commit: &str,
         prefix: &str,
@@ -422,7 +431,15 @@ impl Runs {
             state.remove(key);
         }
         let run = self
-            .spawn(repo, lane, Job::Shots { commit, prefix })
+            .spawn(
+                repo,
+                lane,
+                Job::Shots {
+                    commit,
+                    prefix,
+                    project,
+                },
+            )
             .map_err(|error| StartError::Failed(error.text()))?;
         state.insert(key, run);
         drop(state);
@@ -434,7 +451,7 @@ impl Runs {
     fn spawn(self: &Arc<Self>, repo: &str, lane: Lane, job: Job) -> Result<Run> {
         let (reference, shots) = match job {
             Job::BuildApp { reference } => (reference, None),
-            Job::Shots { commit, prefix } => (Some(commit), Some(prefix)),
+            Job::Shots { commit, prefix, .. } => (Some(commit), Some(prefix)),
         };
         let log_path = log_file(&self.dir, repo, lane, shots);
         let log = std::fs::File::create(&log_path)
@@ -451,13 +468,19 @@ impl Runs {
                     command.arg(reference);
                 }
             }
-            Job::Shots { commit, prefix } => {
+            Job::Shots {
+                commit,
+                prefix,
+                project,
+            } => {
                 command
                     .arg("app-build")
                     .arg(repo)
                     .arg(commit)
                     .arg("--shots")
-                    .arg(prefix);
+                    .arg(prefix)
+                    .arg(crate::app_build::PROJECT)
+                    .arg(project);
             }
         }
         command.stdin(Stdio::null()).stdout(log).stderr(errors);

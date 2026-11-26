@@ -18,6 +18,7 @@ fn paths(list: &[&str]) -> Vec<String> {
 
 fn passed(commit: &str, steps: &[&str]) -> PassedRun {
     PassedRun {
+        started_at: 0,
         commit: commit.to_string().into(),
         steps: paths(steps),
     }
@@ -445,6 +446,11 @@ impl ShotsLanding {
         crate::app_timing::record(&self.store.database(), &run).unwrap();
     }
 
+    /// Adds a second project that holds the repo, and returns its store.
+    fn second_project(&self) -> crate::lists::store::Store {
+        crate::lists::fixtures::make_store_named(&self.scratch.places(), "second", &["bae"])
+    }
+
     fn check(&self) -> Result<()> {
         let args = [
             self.dir.display().to_string(),
@@ -471,6 +477,45 @@ impl ShotsLanding {
         ];
         cmd_landing_coverage(&self.scratch.places(), &args)
     }
+}
+
+/// In a repo two projects hold, one build of the branch recorded in each
+/// store: land requires the prefix the one ran of the other, counts the
+/// passing build in either, and honors a drop in either.
+#[test]
+fn a_two_project_repos_landing_reads_the_builds_and_drops_of_both_stores() {
+    let mut landing = ShotsLanding::new();
+    landing.record_run(
+        landing.since + 1,
+        RunEnd::Failed,
+        &[(
+            "shots mac.nowplaying.",
+            StepResult::Failed(Default::default()),
+        )],
+    );
+    let second = landing.second_project();
+    let first = std::mem::replace(&mut landing.store, second);
+    assert!(landing.check().is_err());
+    landing.record_run(
+        landing.since + 2,
+        RunEnd::Passed,
+        &[("shots mac.seek.", StepResult::Passed)],
+    );
+    assert!(landing.check().is_err());
+    let stamp = crate::lists::fixtures::stamp(landing.since + 3);
+    first
+        .write(&stamp, "drop shots", |db| {
+            crate::app_shots_drop::record(
+                db,
+                ("bae", "work"),
+                Lane::MAC,
+                "mac.nowplaying.",
+                "the board moved",
+                &stamp,
+            )
+        })
+        .unwrap();
+    landing.check().unwrap();
 }
 
 /// The branch ran two prefixes. Land refuses when the passing build skipped

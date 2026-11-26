@@ -30,10 +30,12 @@ use std::path::Path;
 
 use rusqlite::{Connection, params};
 
+use crate::app_timing::RepoDatabases;
 use crate::checks::Kind;
 use crate::fail;
-use crate::fail::{Context, Result};
+use crate::fail::{Context, Fail, Result};
 use crate::host::Load;
+use crate::lists::store::Store;
 use crate::step_failure::{RunResult, StepFailure};
 use crate::text::plural;
 
@@ -1093,8 +1095,41 @@ pub enum HookRead {
     },
 }
 
-/// The dashboard's hooks for one project as of <now>.
-fn project_json(project: &str, path: &Path, now: i64) -> HookProject {
+/// The repos of each of <stores> with the databases that record their app
+/// builds, those of every store that holds the repo: one list for each store,
+/// or why its repos can't be read.
+fn app_build_databases(stores: &[Store]) -> Vec<std::result::Result<Vec<RepoDatabases>, String>> {
+    let held: Vec<_> = stores
+        .iter()
+        .map(|store| (store.database(), store.repos().map_err(Fail::text)))
+        .collect();
+    held.iter()
+        .map(|(_, repos)| {
+            let mut repos = repos.clone()?;
+            repos.sort();
+            Ok(repos
+                .into_iter()
+                .map(|repo| {
+                    let paths = held
+                        .iter()
+                        .filter(|(_, own)| own.as_ref().is_ok_and(|own| own.contains(&repo)))
+                        .map(|(path, _)| path.clone())
+                        .collect();
+                    RepoDatabases { repo, paths }
+                })
+                .collect())
+        })
+        .collect()
+}
+
+/// The dashboard's hooks for one project as of <now>; its app builds' figures
+/// read <app_builds> (`app_build_databases`).
+fn project_json(
+    project: &str,
+    path: &Path,
+    app_builds: std::result::Result<Vec<RepoDatabases>, String>,
+    now: i64,
+) -> HookProject {
     let since = now - DASHBOARD_WINDOW_SECONDS;
     let read = match repos(path) {
         Ok(repos) => HookRead::Read {
@@ -1102,7 +1137,10 @@ fn project_json(project: &str, path: &Path, now: i64) -> HookProject {
                 .iter()
                 .map(|repo| repo_hooks(repo, path, since))
                 .collect(),
-            app_builds: crate::app_timing::dashboard_figures(path, now),
+            app_builds: match app_builds {
+                Ok(repos) => crate::app_timing::dashboard_figures(&repos, now),
+                Err(error) => crate::app_timing::AppBuilds::Failed { error },
+            },
             waits: crate::waits::dashboard_figures(path, now),
         },
         Err(error) => HookRead::Failed {
@@ -1124,7 +1162,10 @@ pub fn dashboard_json_at(places: &crate::places::Places, now: i64) -> String {
         Ok(stores) => Hooks::Read {
             projects: stores
                 .iter()
-                .map(|store| project_json(&store.project, &store.dir.join(DATABASE), now))
+                .zip(app_build_databases(&stores))
+                .map(|(store, app_builds)| {
+                    project_json(&store.project, &store.database(), app_builds, now)
+                })
                 .collect(),
         },
         Err(error) => Hooks::Failed {

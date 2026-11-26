@@ -166,11 +166,11 @@ fn a_shots_run_takes_one_component_s_shots_beside_the_lane_s_build() {
     let prefix = "mac.component.checkbox.";
     s.control(&format!("hold-{COMMIT}"));
     s.runs
-        .start_shots("demo", Lane::MAC, COMMIT, prefix)
+        .start_shots(("demo", "demo"), Lane::MAC, COMMIT, prefix)
         .unwrap();
     let again = s
         .runs
-        .start_shots("demo", Lane::MAC, COMMIT, prefix)
+        .start_shots(("demo", "demo"), Lane::MAC, COMMIT, prefix)
         .unwrap_err();
     assert!(matches!(again, StartError::Busy(_)), "{again:?}");
     assert!(
@@ -183,8 +183,9 @@ fn a_shots_run_takes_one_component_s_shots_beside_the_lane_s_build() {
     let done = s.until_shots(prefix, Phase::Succeeded);
     assert_eq!(done.reference.as_deref(), Some(COMMIT));
     assert!(
-        done.output
-            .contains(&format!("args: app-build demo {COMMIT} --shots {prefix}\n")),
+        done.output.contains(&format!(
+            "args: app-build demo {COMMIT} --shots {prefix} --project demo\n"
+        )),
         "{}",
         done.output
     );
@@ -196,13 +197,13 @@ fn a_new_shots_run_in_a_lane_deletes_the_ended_runs_of_other_prefixes() {
     let dir = s.scratch.places().daemon_dir().join("runs");
     let (first, second) = ("mac.component.checkbox.", "mac.component.row.");
     s.runs
-        .start_shots("demo", Lane::MAC, COMMIT, first)
+        .start_shots(("demo", "demo"), Lane::MAC, COMMIT, first)
         .unwrap();
     s.until_shots(first, Phase::Succeeded);
     let record = record_file(&dir, "demo", Lane::MAC, Some(first));
     assert!(record.is_file(), "{}", record.display());
     s.runs
-        .start_shots("demo", Lane::MAC, COMMIT, second)
+        .start_shots(("demo", "demo"), Lane::MAC, COMMIT, second)
         .unwrap();
     assert!(s.runs.shots_page("demo", Lane::MAC, first).is_none());
     assert!(!record.exists() && !log_file(&dir, "demo", Lane::MAC, Some(first)).exists());

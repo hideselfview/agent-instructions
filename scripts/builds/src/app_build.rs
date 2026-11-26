@@ -142,7 +142,7 @@ use crate::text::note;
 use crate::tool::Tool;
 use crate::window_lock::Access;
 
-const USAGE: &str = "usage: builds app-build <repo> <ref> [--test <Class>]... [--shots <prefix>]... [--all-shots <app>]... [--fresh] | builds app-build <repo> <ref> <step>... [--test <app> <Class>]... [--shots <app> <prefix>]... [--all-shots <app>]... [--fresh] | builds app-build <repo> --list | builds app-build <repo> --lane <app> <ref> [<step>...] [--test <app> <Class>]... [--shots <app> <prefix>]... [--all-shots <app>]...";
+const USAGE: &str = "usage: builds app-build <repo> <ref> [--test <Class>]... [--shots <prefix>]... [--all-shots <app>]... [--fresh] [--project P] | builds app-build <repo> <ref> <step>... [--test <app> <Class>]... [--shots <app> <prefix>]... [--all-shots <app>]... [--fresh] [--project P] | builds app-build <repo> --list | builds app-build <repo> --lane <app> <ref> [<step>...] [--test <app> <Class>]... [--shots <app> <prefix>]... [--all-shots <app>]...";
 
 /// Set by the parent in each lane's process: print the marker line below once
 /// the checkout is known.
@@ -1202,6 +1202,11 @@ fn shots_prefix(step: &Step) -> &str {
 /// which is how `builds land` finds a branch's builds.
 const BUILT_REF: &str = "--built-ref";
 
+/// The flag that names the project whose store records a build of a ref that
+/// no claimed worktree speaks for (`app_timing::recording_project`). A lane's
+/// process is given the project its request chose.
+pub const PROJECT: &str = "--project";
+
 /// What a lane's process is given first when its steps are only what its
 /// shots picks need, because no path the branch changes needs a step in the
 /// lane (derive.rs): the lane then builds nothing when the picture folder
@@ -1708,8 +1713,8 @@ impl Timing {
         }
     }
 
-    /// Writes the run, which ended with <outcome>, to the repo's project
-    /// store when it took a checkout. When an install moved the store to
+    /// Writes the run of <request>, which ended with <outcome>, to the store
+    /// of the request's project when it took a checkout. When an install moved the store to
     /// another schema while the run built, the run goes to the store through
     /// the installed builds (handed_runs.rs). A repo in no project has no
     /// store to write to.
@@ -1718,10 +1723,15 @@ impl Timing {
         places: &Places,
         repo: &str,
         lane: Lane,
-        built_ref: &str,
-        reused_shots: &[shots::Prefix],
+        request: LaneRequest,
         outcome: RunEnd,
     ) -> Result<()> {
+        let LaneRequest {
+            named: built_ref,
+            reused_shots,
+            project,
+            ..
+        } = request;
         let Some(held) = self.held else {
             return Ok(());
         };
@@ -1742,7 +1752,7 @@ impl Timing {
             load: held.load,
             steps: self.steps,
         };
-        crate::handed_runs::record(places, &run).context(|| {
+        crate::handed_runs::record(places, &run, project).context(|| {
             format!(
                 "recording the {} app build of {repo} {built_ref}",
                 lane.word()
@@ -1809,14 +1819,7 @@ fn run_lane(
         Err(_) if lock::stop_signal().is_some() => RunEnd::Stopped,
         Err(_) => RunEnd::Failed,
     };
-    let recorded = timing.record(
-        &tool.places,
-        repo,
-        lane,
-        request.named,
-        request.reused_shots,
-        outcome,
-    );
+    let recorded = timing.record(&tool.places, repo, lane, request, outcome);
     crate::fail::with_cleanup(result.map_err(Fail::from), recorded)
 }
 
@@ -1829,6 +1832,9 @@ struct LaneRequest<'a> {
     /// The ref the caller named, which the run records as the ref it built
     /// (`BUILT_REF`).
     named: &'a str,
+    /// The project whose store records the run
+    /// (`app_timing::recording_project`); None for a repo in no project.
+    project: Option<&'a str>,
     names: &'a [String],
     picks: &'a [Pick],
     reused_shots: &'a [shots::Prefix],
@@ -2768,20 +2774,31 @@ pub fn pin(places: &Places) -> Result<Pinned> {
     }
 }
 
+/// What a request builds: the commit, the ref the caller named it by, and the
+/// project whose store records the runs (`app_timing::recording_project`),
+/// None for a repo in no project.
+#[derive(Clone, Copy)]
+pub struct BuildOf<'a> {
+    pub commit: &'a str,
+    pub named: &'a str,
+    pub project: Option<&'a str>,
+}
+
 /// The arguments after `builds` that start <lane>'s process for the run of
-/// <commit>, which the caller named <named>: the flags it is given first
-/// (`--built-ref`, whether its steps are only what its shots need, `--fresh`),
+/// <of>: the flags it is given first
+/// (`--built-ref`, `--project` when a project records the run, whether its steps are only what its shots need, `--fresh`),
 /// then the steps <names> and the picks of <lane> in <picks>.
 fn lane_words(
     repo: &str,
     lane: Lane,
-    (commit, named): (&str, &str),
+    of: BuildOf,
     (needs_only, fresh): (bool, bool),
     (names, picks): (&[String], &[Pick]),
 ) -> Vec<String> {
-    let mut words: Vec<String> = ["app-build", repo, "--lane", lane.word(), commit]
+    let mut words: Vec<String> = ["app-build", repo, "--lane", lane.word(), of.commit]
         .into_iter()
-        .chain([BUILT_REF, named])
+        .chain([BUILT_REF, of.named])
+        .chain(of.project.into_iter().flat_map(|name| [PROJECT, name]))
         .chain(needs_only.then_some(NEEDS_ONLY))
         .chain(fresh.then_some(FRESH))
         .map(str::to_string)
@@ -2804,7 +2821,7 @@ fn lane_words(
 pub fn run_lanes(
     pinned: &Pinned,
     repo: &str,
-    (commit, named): (&str, &str),
+    of: BuildOf,
     lanes: &[(Lane, Vec<String>)],
     picks: &BuildPicks,
     needs_only: &[Lane],
@@ -2822,7 +2839,7 @@ pub fn run_lanes(
             .args(lane_words(
                 repo,
                 *lane,
-                (commit, named),
+                of,
                 (needs_only.contains(lane), fresh),
                 (names, &picks.pending),
             ))
@@ -3037,6 +3054,19 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
         if built_ref_flag != BUILT_REF {
             fail!("{USAGE}");
         }
+        let (flag, names) = match names.split_first() {
+            Some((first, [project, rest @ ..])) if first == PROJECT => {
+                (Some(project.as_str()), rest)
+            }
+            _ => (None, names),
+        };
+        // The request that started the lane chose the project, and a claim
+        // that changed while the lane queued does not change it. A lane run
+        // by hand chooses it as a request does.
+        let project = match flag {
+            Some(_) => crate::lists::store::project_named(places, repo, flag)?,
+            None => crate::app_timing::recording_project(places, repo, named, None)?,
+        };
         let (needs_only, names) = strip_leading(names, NEEDS_ONLY);
         let (fresh, names) = strip_leading(names, FRESH);
         let lanes = config_at(places, repo, commit)?.lanes;
@@ -3069,6 +3099,7 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
         let request = LaneRequest {
             commit,
             named,
+            project: project.as_deref(),
             names: &names,
             picks: &picks,
             reused_shots: &reused_shots,
@@ -3092,9 +3123,14 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
     if commit.starts_with('-') {
         fail!("{USAGE}");
     }
+    let (flag, tail) = take_project(tail)?;
+    // Before anything builds, so that a build with nowhere to record fails
+    // at once.
+    let project = crate::app_timing::recording_project(places, repo, commit, flag)?;
     if tail.first().is_none_or(|arg| arg.starts_with("--")) {
         // No step named: the diff chooses them (derive.rs).
-        return crate::derive::derive_and_run(places, args);
+        let args: Vec<String> = [repo, commit].into_iter().cloned().chain(tail).collect();
+        return crate::derive::derive_and_run(places, &args, project.as_deref());
     }
     let fresh = tail.iter().any(|arg| arg == "--fresh");
     let tail: Vec<String> = tail
@@ -3108,12 +3144,33 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
     run_lanes(
         &pinned,
         repo,
-        (&plan.commit, commit),
+        BuildOf {
+            commit: &plan.commit,
+            named: commit,
+            project: project.as_deref(),
+        },
         &plan.lanes,
         &BuildPicks::pending(plan.picks),
         &[],
         fresh,
     )
+}
+
+/// The project that <args>' `--project` names, and <args> without it.
+fn take_project(args: &[String]) -> Result<(Option<&str>, Vec<String>)> {
+    let mut rest = args.to_vec();
+    let Some(at) = args.iter().position(|arg| arg == PROJECT) else {
+        return Ok((None, rest));
+    };
+    let value = args.get(at + 1).filter(|value| !value.starts_with('-'));
+    let Some(value) = value else {
+        fail!("{PROJECT} needs a project's name\n{USAGE}");
+    };
+    rest.drain(at..at + 2);
+    if rest.iter().any(|arg| arg == PROJECT) {
+        fail!("{PROJECT} is given twice\n{USAGE}");
+    }
+    Ok((Some(value), rest))
 }
 
 /// What an app build with named steps or picks builds: the one commit its ref

@@ -12,8 +12,8 @@
 //! checked, and its report holds the pair's pictures. When builds has no
 //! cached run on a lane, the page asks this Mac's daemon to take the
 //! component's shots there (`start`): one `builds app-build <repo> <commit>
-//! --shots <prefix>` per lane (runs.rs), whose progress the page shows until
-//! the run is cached.
+//! --shots <prefix> --project <project>` per lane (runs.rs), whose progress
+//! the page shows until the run is cached.
 //!
 //! The component's name gives its platform and the prefix of its shots
 //! (`boards::component_key`): a component of one platform has that
@@ -269,11 +269,12 @@ fn read_run(cached: &Cached, component: &str, lane: Lane, prefix: &str) -> Resul
 }
 
 /// Takes <component>'s shots of <repo>'s <commit> on each of its lanes where
-/// builds has no cached run of them and no shots run of its prefix runs (runs.rs).
+/// builds has no cached run of them and no shots run of its prefix runs
+/// (runs.rs). <project>, whose page asks, records the runs.
 pub fn start(
     places: &Places,
     runs: &std::sync::Arc<Runs>,
-    repo: &str,
+    (repo, project): (&str, &str),
     commit: &str,
     component: &str,
     repo_lanes: &[Lane],
@@ -286,7 +287,7 @@ pub fn start(
         if cached.is_some() {
             continue;
         }
-        match runs.start_shots(repo, lane, commit, &prefix) {
+        match runs.start_shots((repo, project), lane, commit, &prefix) {
             Ok(()) | Err(StartError::Busy(_)) => {}
             Err(error) => fail!("{}", error.message()),
         }

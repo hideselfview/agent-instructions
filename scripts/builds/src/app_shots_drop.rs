@@ -62,6 +62,18 @@ pub fn dropped(
     rows.map(|row| row.sql()).collect()
 }
 
+impl crate::app_timing::BuildRecords<'_> {
+    /// `dropped` of every store, since each drop is recorded in the store of
+    /// the project its command named.
+    pub fn dropped(&self, branch: &str, lane: Lane, since: i64) -> Result<Vec<Drop>> {
+        let mut found = Vec::new();
+        for store in &self.stores {
+            found.extend(dropped(&store.conn, self.repo, branch, lane, since)?);
+        }
+        Ok(found)
+    }
+}
+
 /// Records that the writer of <stamp> dropped <prefix> of <lane> from the
 /// landing of <branch> of <repo>, for <why>.
 pub fn record(
@@ -98,9 +110,9 @@ pub fn cmd_drop_shots(tool: &Tool, args: &[String]) -> Result<()> {
     };
     let since = branch_since(&checkout.top, "origin/main", branch)?;
     let commits = crate::git::commits_in_range(&checkout.top, "origin/main", branch)?;
-    let ran = {
-        let db = store.open_existing()?;
-        crate::app_timing::shots_ran(&db, repo, lane, branch, &commits, since, &store.database())?
+    let ran = match crate::app_timing::BuildRecords::open(&tool.places, repo)? {
+        Some(records) => records.shots_ran(lane, branch, &commits, since)?,
+        None => Vec::new(),
     };
     if !ran.contains(prefix) {
         let word = lane.word();

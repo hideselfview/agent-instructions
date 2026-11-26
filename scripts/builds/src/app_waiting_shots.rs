@@ -13,8 +13,6 @@
 
 use std::collections::{BTreeMap, HashSet};
 
-use rusqlite::Connection;
-
 use crate::app_build::Pick;
 use crate::app_config::PickKind;
 use crate::fail::Result;
@@ -42,20 +40,23 @@ impl Waiting {
 }
 
 /// The scenes of <repo>'s boards among <changed> whose place in an open design
-/// change has an open item as its app work, by scene name.
-pub fn waiting_in(lists: &Lists, repo: &str, changed: &[String]) -> Vec<Waiting> {
+/// change of one of the projects <projects> has an open item of that project
+/// as its app work, by scene name.
+pub fn waiting_in(projects: &[Lists], repo: &str, changed: &[String]) -> Vec<Waiting> {
     let mut found: BTreeMap<String, Vec<Id>> = BTreeMap::new();
-    for design in lists.designs.iter().filter(|design| design.repo == repo) {
-        for (path, resolution) in &design.places {
-            let (Some(Resolution::Item(item)), Some(scene)) = (resolution, board_scene(path))
-            else {
-                continue;
-            };
-            if changed.contains(path) && lists.item(*item).is_some() {
-                let items = found.entry(scene.to_string()).or_default();
-                if !items.contains(item) {
-                    items.push(*item);
-                    items.sort();
+    for lists in projects {
+        for design in lists.designs.iter().filter(|design| design.repo == repo) {
+            for (path, resolution) in &design.places {
+                let (Some(Resolution::Item(item)), Some(scene)) = (resolution, board_scene(path))
+                else {
+                    continue;
+                };
+                if changed.contains(path) && lists.item(*item).is_some() {
+                    let items = found.entry(scene.to_string()).or_default();
+                    if !items.contains(item) {
+                        items.push(*item);
+                        items.sort();
+                    }
                 }
             }
         }
@@ -64,12 +65,6 @@ pub fn waiting_in(lists: &Lists, repo: &str, changed: &[String]) -> Vec<Waiting>
         .into_iter()
         .map(|(scene, items)| Waiting { scene, items })
         .collect()
-}
-
-/// The scenes of <repo> among the boards <changed> that the project's store,
-/// open as <conn>, says wait on open app work.
-pub fn waiting(conn: &Connection, repo: &str, changed: &[String]) -> Result<Vec<Waiting>> {
-    Ok(waiting_in(&crate::lists::store::read(conn)?, repo, changed))
 }
 
 /// The names of <waiting>, for a check of which shots a prefix selects.

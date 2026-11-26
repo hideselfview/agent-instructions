@@ -1232,7 +1232,7 @@ fn a_finished_lane_run_writes_its_wait_steps_and_checkout_to_its_projects_store(
     )
     .unwrap();
     timing
-        .record(&places, "demo", Lane::MAC, "my-branch", &[], RunEnd::Passed)
+        .record(&places, "demo", Lane::MAC, my_branch(), RunEnd::Passed)
         .unwrap();
     let path = store.dir.join(app_timing::DATABASE);
     let conn = rusqlite::Connection::open(&path).unwrap();
@@ -1265,7 +1265,7 @@ fn a_finished_lane_run_writes_its_wait_steps_and_checkout_to_its_projects_store(
             20.0
         )
     );
-    let repo = &app_timing::stats(&path, 0).unwrap()[0];
+    let repo = &app_timing::stats(&demo_runs(&path), 0).unwrap()[0];
     assert_eq!(repo.repo, "demo");
     let names: Vec<&str> = repo.lanes[0]
         .steps
@@ -1276,16 +1276,38 @@ fn a_finished_lane_run_writes_its_wait_steps_and_checkout_to_its_projects_store(
     assert!(names.contains(&"build") && names.contains(&"Foo"));
 }
 
+/// A request to build the branch `my-branch` of demo.
+fn my_branch() -> LaneRequest<'static> {
+    LaneRequest {
+        commit: "0123456789abcdef0123456789abcdef01234567",
+        named: "my-branch",
+        project: Some("demo"),
+        names: &[],
+        picks: &[],
+        reused_shots: &[],
+        needs_only: false,
+        fresh: false,
+    }
+}
+
+/// demo's runs in the one database at <path>.
+fn demo_runs(path: &Path) -> [app_timing::RepoDatabases; 1] {
+    [app_timing::RepoDatabases {
+        repo: "demo".to_string(),
+        paths: vec![path.to_path_buf()],
+    }]
+}
+
 #[test]
 fn a_run_that_never_took_a_checkout_writes_nothing() {
     let scratch = crate::testing::Scratch::new("timing-no-checkout");
     let places = scratch.places();
     let store = crate::lists::fixtures::make_store(&places, &["demo"]);
     Timing::start()
-        .record(&places, "demo", Lane::MAC, "my-branch", &[], RunEnd::Failed)
+        .record(&places, "demo", Lane::MAC, my_branch(), RunEnd::Failed)
         .unwrap();
     assert!(
-        app_timing::stats(&store.dir.join(app_timing::DATABASE), 0)
+        app_timing::stats(&demo_runs(&store.database()), 0)
             .unwrap()
             .is_empty()
     );
@@ -1300,12 +1322,16 @@ fn a_lane_is_told_the_ref_the_caller_named_beside_the_commit_it_builds() {
     let words = lane_words(
         "bae",
         Lane::MAC,
-        (commit, "my-branch"),
+        BuildOf {
+            commit,
+            named: "my-branch",
+            project: Some("demo"),
+        },
         (false, false),
         (&["macos".to_string()], &[]),
     );
     assert_eq!(
-        words[..7],
+        words[..9],
         [
             "app-build",
             "bae",
@@ -1313,7 +1339,9 @@ fn a_lane_is_told_the_ref_the_caller_named_beside_the_commit_it_builds() {
             "mac",
             commit,
             "--built-ref",
-            "my-branch"
+            "my-branch",
+            "--project",
+            "demo"
         ]
     );
 }
@@ -1663,6 +1691,7 @@ fn a_build_that_reuses_a_cached_run_leaves_the_passing_build_that_land_counts() 
     .unwrap();
     assert!(serve().pending.is_empty());
     let run = crate::app_timing::PassedRun {
+        started_at: 5,
         commit: commit.clone().into(),
         steps: vec!["shots mac.".to_string()],
     };

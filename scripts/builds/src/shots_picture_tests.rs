@@ -105,7 +105,7 @@ fn the_scene_names_its_lane() {
 #[test]
 fn a_missing_picture_is_asked_of_an_app_build_of_the_scene_that_runs_again() {
     assert_eq!(
-        app_build_words("bae", "origin/main", "mac.welcome.library-details"),
+        app_build_words("bae", "origin/main", "mac.welcome.library-details", None),
         [
             "bae",
             "origin/main",
@@ -113,5 +113,9 @@ fn a_missing_picture_is_asked_of_an_app_build_of_the_scene_that_runs_again() {
             "mac.welcome.library-details",
             "--fresh"
         ]
+    );
+    assert_eq!(
+        app_build_words("bae", "origin/main", "mac.a.one", Some("builds"))[5..],
+        ["--project", "builds"]
     );
 }

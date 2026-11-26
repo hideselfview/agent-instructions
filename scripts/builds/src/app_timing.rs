@@ -1,7 +1,10 @@
 //! The record of every `builds app-build` run: each lane's run writes one row
-//! to `builds.sqlite` in its repo's project store, with every step it started
-//! and every shots comparison it reused. The dashboard reads the figures back; they
-//! are SQL rows and Rust medians over the last `WINDOW_SECONDS`, never stored.
+//! to `builds.sqlite` in the store of the project that records the build
+//! (`recording_project`), with every step it started and every shots
+//! comparison it reused. What reads the runs of a repo reads the store of every
+//! project that holds it (`BuildRecords`). The dashboard reads the figures
+//! back; they are SQL rows and Rust medians over the last `WINDOW_SECONDS`,
+//! never stored.
 //!
 //! A run records when it joined the lane's queue, how long it waited there
 //! before it took a checkout (a wait after a takeover included), the checkout,
@@ -235,42 +238,122 @@ impl Timer {
     }
 }
 
-/// The database of the project <repo> is in; None for a repo in no project,
-/// which has nowhere to record.
-pub fn database_of(
+/// The project whose store records an app build of <git_ref> of <repo>, or
+/// None for a repo in no project, which has nowhere to record. When a
+/// worktree has the branch <git_ref> checked out, it is the project
+/// `project_of` finds for that worktree, which its claim outranks <flag> in
+/// naming. For a ref that no worktree has checked out, such as a commit, it is
+/// `project_named`: <flag>, else the one project that holds the repo. A repo
+/// two projects hold, with neither a claim nor <flag> to name one, is refused.
+pub fn recording_project(
     places: &crate::places::Places,
     repo: &str,
-) -> Result<Option<std::path::PathBuf>> {
-    let mut found = crate::lists::store::databases_holding(places, repo)?;
-    match found.len() {
-        0 => Ok(None),
-        1 => Ok(Some(found.remove(0))),
-        _ => fail!(
-            "repo {repo} is in two projects; app-build runs have no one place to record ({})",
-            found
-                .iter()
-                .map(|path| path.display().to_string())
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
+    git_ref: &str,
+    flag: Option<&str>,
+) -> Result<Option<String>> {
+    use crate::lists::store::{project_named, project_of, projects_holding};
+    if projects_holding(places, repo)?.is_empty() {
+        return Ok(None);
+    }
+    let branch = git_ref.strip_prefix("refs/heads/").unwrap_or(git_ref);
+    let source = crate::app_remote::local_source(places, repo)?;
+    let holder = crate::checkout::worktree_list(&source)?
+        .into_iter()
+        .find(|worktree| worktree.branch.as_deref() == Some(branch));
+    match holder {
+        Some(worktree) => {
+            let Some(checkout) = crate::checkout::Checkout::at(&worktree.top)? else {
+                fail!("git finds no checkout at {}", worktree.top.display());
+            };
+            project_of(places, &checkout, flag)
+        }
+        None => project_named(places, repo, flag),
     }
 }
 
-/// The project records for one repository, as read while planning a build
-/// or checking a landing.
+/// The app build records of one repository, as read while planning a build
+/// or checking a landing: the store of every project that holds the repo,
+/// since each build is recorded in one of them.
 pub struct BuildRecords<'a> {
     pub repo: &'a str,
+    pub stores: Vec<RecordStore>,
+}
+
+/// One project's store, open to read.
+pub struct RecordStore {
     pub conn: crate::db::Held,
     pub path: std::path::PathBuf,
 }
 
-impl<'a> BuildRecords<'a> {
-    pub fn open(places: &crate::places::Places, repo: &'a str) -> Result<Option<Self>> {
-        let Some(path) = database_of(places, repo)? else {
-            return Ok(None);
-        };
+impl RecordStore {
+    pub fn open(path: std::path::PathBuf) -> Result<Self> {
         let conn = crate::db::open(&path, crate::db::Make::Never)?;
-        Ok(Some(Self { repo, conn, path }))
+        Ok(Self { conn, path })
+    }
+}
+
+impl<'a> BuildRecords<'a> {
+    /// None for a repo in no project.
+    pub fn open(places: &crate::places::Places, repo: &'a str) -> Result<Option<Self>> {
+        let stores = crate::lists::store::databases_holding(places, repo)?
+            .into_iter()
+            .map(RecordStore::open)
+            .collect::<Result<Vec<_>>>()?;
+        Ok((!stores.is_empty()).then_some(Self { repo, stores }))
+    }
+
+    /// The lists of each project that holds the repo.
+    pub fn lists(&self) -> Result<Vec<crate::lists::Lists>> {
+        self.stores
+            .iter()
+            .map(|store| crate::lists::store::read(&store.conn))
+            .collect()
+    }
+
+    /// `passed_runs` of every store, newest first.
+    pub fn passed_runs(
+        &self,
+        lane: Lane,
+        named: Option<&str>,
+        commits: &[String],
+    ) -> Result<Vec<PassedRun>> {
+        let mut found = Vec::new();
+        for store in &self.stores {
+            found.extend(passed_runs(
+                &store.conn,
+                self.repo,
+                lane,
+                &store.path,
+                named,
+                commits,
+            )?);
+        }
+        // Stable, so that two runs of one store keep that store's order.
+        found.sort_by_key(|run| std::cmp::Reverse(run.started_at));
+        Ok(found)
+    }
+
+    /// `shots_ran` of every store: each prefix once, in name order.
+    pub fn shots_ran(
+        &self,
+        lane: Lane,
+        named: &str,
+        commits: &[String],
+        since: i64,
+    ) -> Result<Vec<String>> {
+        let mut found = std::collections::BTreeSet::new();
+        for store in &self.stores {
+            found.extend(shots_ran(
+                &store.conn,
+                self.repo,
+                lane,
+                named,
+                commits,
+                since,
+                &store.path,
+            )?);
+        }
+        Ok(found.into_iter().collect())
     }
 
     pub fn has_passing_run(
@@ -280,11 +363,7 @@ impl<'a> BuildRecords<'a> {
         covered: impl FnMut(&PassedRun) -> bool,
     ) -> Result<bool> {
         let own = [commit.to_string()];
-        Ok(
-            passed_runs(&self.conn, self.repo, lane, &self.path, None, &own)?
-                .iter()
-                .any(covered),
-        )
+        Ok(self.passed_runs(lane, None, &own)?.iter().any(covered))
     }
 }
 
@@ -567,6 +646,8 @@ pub fn add_at_merge_base(db: &Connection) -> Result<()> {
 /// the steps that passed and the comparisons it reused.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PassedRun {
+    /// When it joined the lane's queue, seconds since 1970.
+    pub started_at: i64,
     pub commit: BuiltCommit,
     pub steps: Vec<String>,
 }
@@ -612,26 +693,27 @@ pub fn passed_runs(
     let mut runs = conn
         .prepare(
             format!(
-                "SELECT r.id, c.built_commit FROM app_build_runs r
+                "SELECT r.id, r.started_at, c.built_commit FROM app_build_runs r
                  JOIN app_build_run_commit c ON c.run_id = r.id
                  WHERE r.repo = ?1 AND r.lane = ?2 AND r.outcome = 'passed'
                    AND {matches_branch}
-                 ORDER BY r.id DESC"
+                 ORDER BY r.started_at DESC, r.id DESC"
             )
             .as_str(),
         )
         .context(what)?;
-    let found: Vec<(i64, String)> = runs
+    let found: Vec<(i64, i64, String)> = runs
         .query_map(params![repo, lane.word(), named, commits], |row| {
-            Ok((row.get(0)?, row.get(1)?))
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
         })
         .context(what)?
         .collect::<std::result::Result<_, _>>()
         .context(what)?;
     found
         .into_iter()
-        .map(|(id, commit)| {
+        .map(|(id, started_at, commit)| {
             Ok(PassedRun {
+                started_at,
                 commit: BuiltCommit::read(conn, id, commit)?,
                 steps: passed_steps(conn, id, path)?,
             })
@@ -930,89 +1012,89 @@ pub fn branch_ends(db: &Connection) -> Result<Vec<BranchEnd>> {
     rows.map(|row| row.sql()).collect()
 }
 
-/// The figures of every repo with a run since <since> (seconds since 1970) in
-/// the database at <path>, by repo name; empty when nothing was recorded.
-pub fn stats(path: &Path, since: i64) -> Result<Vec<RepoStats>> {
-    let Some(conn) = crate::db::open_reader(path)? else {
-        return Ok(Vec::new());
-    };
-    let what = || format!("reading {}", path.display());
-    let mut repos: Vec<String> = Vec::new();
-    {
-        let mut statement = conn
-            .prepare(
-                "SELECT DISTINCT repo FROM app_build_runs WHERE started_at >= ?1 ORDER BY repo",
-            )
-            .context(what)?;
-        for row in statement
-            .query_map([since], |row| row.get::<_, String>(0))
-            .context(what)?
-        {
-            repos.push(row.context(what)?);
+/// The figures of each repo of <repos> with a run since <since> (seconds
+/// since 1970) in any of its databases, the paths given with it; the repos
+/// keep their order, and one with no such run is left out.
+pub fn stats(repos: &[RepoDatabases], since: i64) -> Result<Vec<RepoStats>> {
+    let mut found = Vec::new();
+    for RepoDatabases { repo, paths } in repos {
+        let mut open = Vec::new();
+        for path in paths {
+            if let Some(conn) = crate::db::open_reader(path)? {
+                open.push((conn, path.as_path()));
+            }
+        }
+        let stats = repo_stats(&open, repo, since)?;
+        if !stats.lanes.is_empty() {
+            found.push(stats);
         }
     }
-    repos
-        .into_iter()
-        .map(|repo| repo_stats(&conn, &repo, since, path))
-        .collect()
+    Ok(found)
 }
 
-fn repo_stats(conn: &Connection, repo: &str, since: i64, path: &Path) -> Result<RepoStats> {
-    let what = || format!("reading {}", path.display());
-    let mut lanes = Vec::new();
-    let mut words: Vec<String> = Vec::new();
-    {
-        let mut statement = conn
-            .prepare("SELECT DISTINCT lane FROM app_build_runs WHERE repo = ?1 ORDER BY lane")
-            .context(what)?;
-        for row in statement
-            .query_map([repo], |row| row.get::<_, String>(0))
-            .context(what)?
-        {
-            words.push(row.context(what)?);
+/// A repo and the databases that record its app builds: the store of each
+/// project that holds it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RepoDatabases {
+    pub repo: String,
+    pub paths: Vec<std::path::PathBuf>,
+}
+
+/// The rows <sql> selects with <params> from each of <open>, together.
+fn rows_of_each<T>(
+    open: &[(crate::db::Held, &Path)],
+    sql: &str,
+    params: impl rusqlite::Params + Copy,
+    row: impl Fn(&rusqlite::Row) -> rusqlite::Result<T>,
+) -> Result<Vec<T>> {
+    let mut rows = Vec::new();
+    for (conn, path) in open {
+        let what = || format!("reading {}", path.display());
+        let mut statement = conn.prepare(sql).context(what)?;
+        for found in statement.query_map(params, &row).context(what)? {
+            rows.push(found.context(what)?);
         }
     }
+    Ok(rows)
+}
+
+fn repo_stats(open: &[(crate::db::Held, &Path)], repo: &str, since: i64) -> Result<RepoStats> {
+    let mut words: Vec<String> = rows_of_each(
+        open,
+        "SELECT DISTINCT lane FROM app_build_runs WHERE repo = ?1",
+        [repo],
+        |row| row.get(0),
+    )?;
     words.sort_by(|a, b| Lane::word_order(a).cmp(&Lane::word_order(b)));
+    words.dedup();
+    let mut lanes = Vec::new();
     for lane in &words {
-        // Oldest first.
-        let mut statement = conn
-            .prepare(
-                "SELECT wait_ms FROM app_build_runs
-                 WHERE repo = ?1 AND lane = ?2 AND started_at >= ?3
-                 ORDER BY started_at, id",
-            )
-            .context(what)?;
-        let waits: Vec<u64> = statement
-            .query_map(params![repo, lane, since], |row| {
-                Ok(row.get::<_, i64>(0)? as u64)
-            })
-            .context(what)?
-            .collect::<std::result::Result<_, _>>()
-            .context(what)?;
-        if waits.is_empty() {
+        let mut runs: Vec<(i64, u64)> = rows_of_each(
+            open,
+            "SELECT started_at, wait_ms FROM app_build_runs
+             WHERE repo = ?1 AND lane = ?2 AND started_at >= ?3
+             ORDER BY started_at, id",
+            params![repo, lane, since],
+            |row| Ok((row.get(0)?, row.get::<_, i64>(1)? as u64)),
+        )?;
+        if runs.is_empty() {
             continue;
         }
-        // Each step's passing wall times, grouped by step.
-        let mut statement = conn
-            .prepare(
-                "SELECT s.name, s.kind, s.wall_ms
-                 FROM app_build_steps s JOIN app_build_runs r ON r.id = s.run_id
-                 WHERE r.repo = ?1 AND r.lane = ?2 AND s.started_at >= ?3 AND s.result = 'passed'
-                 ORDER BY s.name, s.kind",
-            )
-            .context(what)?;
-        let rows = statement
-            .query_map(params![repo, lane, since], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, i64>(2)? as u64,
-                ))
-            })
-            .context(what)?;
+        // Oldest first.
+        runs.sort_by_key(|(started_at, _)| *started_at);
+        let waits: Vec<u64> = runs.into_iter().map(|(_, wait)| wait).collect();
+        // Each step's passing wall times.
+        let mut rows: Vec<(String, String, u64)> = rows_of_each(
+            open,
+            "SELECT s.name, s.kind, s.wall_ms
+             FROM app_build_steps s JOIN app_build_runs r ON r.id = s.run_id
+             WHERE r.repo = ?1 AND r.lane = ?2 AND s.started_at >= ?3 AND s.result = 'passed'",
+            params![repo, lane, since],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get::<_, i64>(2)? as u64)),
+        )?;
+        rows.sort();
         let mut groups: Vec<(String, String, Vec<u64>)> = Vec::new();
-        for row in rows {
-            let (name, kind, wall) = row.context(what)?;
+        for (name, kind, wall) in rows {
             match groups.last_mut() {
                 Some((n, k, times)) if *n == name && *k == kind => times.push(wall),
                 _ => groups.push((name, kind, vec![wall])),
@@ -1022,7 +1104,7 @@ fn repo_stats(conn: &Connection, repo: &str, since: i64, path: &Path) -> Result<
             .into_iter()
             .map(|(name, kind, mut times)| -> Result<StepStats> {
                 let Some(kind) = StepKind::from_word(&kind) else {
-                    fail!("{}: a step is of kind {kind:?}", path.display());
+                    fail!("a step {name} of {repo} is of kind {kind:?}");
                 };
                 let ran = times.len() as u32;
                 let slowest_ms = times.iter().copied().max().unwrap_or(0);
@@ -1068,10 +1150,10 @@ pub enum AppBuilds {
     },
 }
 
-/// The dashboard's app builds figures for the project store at <path>, over
-/// the `WINDOW_SECONDS` before <now>.
-pub fn dashboard_figures(path: &Path, now: i64) -> AppBuilds {
-    match stats(path, now - WINDOW_SECONDS) {
+/// The dashboard's app builds figures for the repos <repos> of one project,
+/// over the `WINDOW_SECONDS` before <now>.
+pub fn dashboard_figures(repos: &[RepoDatabases], now: i64) -> AppBuilds {
+    match stats(repos, now - WINDOW_SECONDS) {
         Err(error) => AppBuilds::Failed {
             error: error.text(),
         },

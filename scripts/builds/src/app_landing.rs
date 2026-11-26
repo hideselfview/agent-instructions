@@ -41,7 +41,7 @@ use std::path::Path;
 
 use crate::app_config::{CONFIG, Config, config_in, run_git};
 use crate::app_shots_drop::Drop;
-use crate::app_timing::{self, BuildRecords, PassedRun};
+use crate::app_timing::{BuildRecords, PassedRun};
 use crate::app_waiting_shots::Waiting;
 use crate::derive::paths_between;
 use crate::fail;
@@ -482,19 +482,13 @@ impl<'a> BranchBuilds<'a> {
         shots: ShotsToCover<'_>,
         declarations: &mut ShotDeclarations<'_>,
     ) -> Result<(Coverage, Excused)> {
-        let BuildRecords { repo, conn, path } = records;
         let top = self.top;
         let drops: DroppedShots = match shots {
             ShotsToCover::Landing => config
                 .lanes
                 .iter()
                 .copied()
-                .map(|lane| {
-                    Ok((
-                        lane,
-                        crate::app_shots_drop::dropped(conn, repo, self.named, lane, self.since)?,
-                    ))
-                })
+                .map(|lane| Ok((lane, records.dropped(self.named, lane, self.since)?)))
                 .collect::<Result<_>>()?,
             ShotsToCover::Build(_) => Vec::new(),
         };
@@ -502,7 +496,9 @@ impl<'a> BranchBuilds<'a> {
         // requested comparisons name the shots it ran, which leave them out
         // already.
         let waiting = match shots {
-            ShotsToCover::Landing => crate::app_waiting_shots::waiting(conn, repo, changed)?,
+            ShotsToCover::Landing => {
+                crate::app_waiting_shots::waiting_in(&records.lists()?, records.repo, changed)
+            }
             ShotsToCover::Build(_) => Vec::new(),
         };
         let scenes = crate::app_waiting_shots::scenes(&waiting);
@@ -510,22 +506,12 @@ impl<'a> BranchBuilds<'a> {
             config,
             changed,
             self.target,
-            &mut |lane| {
-                app_timing::passed_runs(conn, repo, lane, path, Some(self.named), &self.commits)
-            },
+            &mut |lane| records.passed_runs(lane, Some(self.named), &self.commits),
             &mut |lane| {
                 if let ShotsToCover::Build(picks) = shots {
                     return Ok(picks.reused_in(lane).map(str::to_string).collect());
                 }
-                let ran = app_timing::shots_ran(
-                    conn,
-                    repo,
-                    lane,
-                    self.named,
-                    &self.commits,
-                    self.since,
-                    path,
-                )?;
+                let ran = records.shots_ran(lane, self.named, &self.commits, self.since)?;
                 let drops = drops
                     .iter()
                     .flat_map(|(own, drops)| drops.iter().filter(move |_| *own == lane));

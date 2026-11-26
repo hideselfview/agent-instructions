@@ -170,10 +170,12 @@ fn passing_runs_of_a_lane_come_back_newest_first_with_their_passed_steps() {
         runs,
         vec![
             PassedRun {
+                started_at: NOW,
                 commit: "d".repeat(40).into(),
                 steps: vec!["macos".to_string(), "macos-shots".to_string()],
             },
             PassedRun {
+                started_at: NOW,
                 commit: "a".repeat(40).into(),
                 steps: vec!["macos".to_string()],
             },
@@ -232,8 +234,7 @@ fn a_commits_passing_shots_run_is_found_whatever_ran_since() {
     }
     let records = BuildRecords {
         repo: "bae",
-        conn: crate::db::open_reader(&path).unwrap().unwrap(),
-        path,
+        stores: vec![RecordStore::open(path).unwrap()],
     };
     let ran = |commit: &str, prefix: &str| {
         records
@@ -241,6 +242,14 @@ fn a_commits_passing_shots_run_is_found_whatever_ran_since() {
             .unwrap()
     };
     assert!(ran("a", "mac.a.") && !ran("a", "mac.b.") && !ran("b", "mac.a."));
+}
+
+/// bae's runs in the one database at <path>.
+fn of_bae(path: &Path) -> [RepoDatabases; 1] {
+    [RepoDatabases {
+        repo: "bae".to_string(),
+        paths: vec![path.to_path_buf()],
+    }]
 }
 
 #[test]
@@ -280,7 +289,7 @@ fn a_recorded_run_comes_back_in_the_figures_with_its_steps() {
         ),
     )
     .unwrap();
-    let repos = stats(&path, NOW - WINDOW_SECONDS).unwrap();
+    let repos = stats(&of_bae(&path), NOW - WINDOW_SECONDS).unwrap();
     assert_eq!(repos.len(), 1);
     let mac = &repos[0].lanes[0];
     assert_eq!(
@@ -375,7 +384,7 @@ fn a_steps_figures_count_passing_runs_in_the_window_and_total_runs_times_median(
         ),
     )
     .unwrap();
-    let lane = &stats(&path, NOW - WINDOW_SECONDS).unwrap()[0].lanes[0];
+    let lane = &stats(&of_bae(&path), NOW - WINDOW_SECONDS).unwrap()[0].lanes[0];
     let macos = &lane.steps[0];
     assert_eq!(macos.ran, 12, "the old and the failed run are not counted");
     assert_eq!(macos.median_ms, 6_500);
@@ -428,7 +437,7 @@ fn steps_are_ranked_by_the_time_they_took_in_all() {
         ),
     )
     .unwrap();
-    let lane = &stats(&path, NOW - WINDOW_SECONDS).unwrap()[0].lanes[0];
+    let lane = &stats(&of_bae(&path), NOW - WINDOW_SECONDS).unwrap()[0].lanes[0];
     let order: Vec<&str> = lane.steps.iter().map(|s| s.name.as_str()).collect();
     assert_eq!(order, vec!["fast", "slow"]);
 }
@@ -449,7 +458,7 @@ fn queue_waits_are_per_lane_oldest_first_with_the_lanes_median() {
         &run(NOW - 50, Lane::ANDROID, 40_000, RunEnd::Failed, Vec::new()),
     )
     .unwrap();
-    let repo = &stats(&path, NOW - WINDOW_SECONDS).unwrap()[0];
+    let repo = &stats(&of_bae(&path), NOW - WINDOW_SECONDS).unwrap()[0];
     let lanes: Vec<(String, u32, u64, Vec<u64>)> = repo
         .lanes
         .iter()
@@ -481,7 +490,7 @@ fn only_the_latest_waits_get_a_bar() {
         )
         .unwrap();
     }
-    let lane = &stats(&path, NOW - WINDOW_SECONDS).unwrap()[0].lanes[0];
+    let lane = &stats(&of_bae(&path), NOW - WINDOW_SECONDS).unwrap()[0].lanes[0];
     assert_eq!(lane.runs, WAITS_SHOWN as u32 + 5);
     assert_eq!(lane.waits_ms.len(), WAITS_SHOWN);
     assert_eq!(lane.waits_ms[0], 5);
@@ -503,9 +512,13 @@ fn a_store_with_no_run_in_the_window_has_no_figures_and_a_missing_file_has_none(
         ),
     )
     .unwrap();
-    assert!(stats(&path, NOW - WINDOW_SECONDS).unwrap().is_empty());
     assert!(
-        stats(&scratch.dir.join("none.sqlite"), 0)
+        stats(&of_bae(&path), NOW - WINDOW_SECONDS)
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        stats(&of_bae(&scratch.dir.join("none.sqlite")), 0)
             .unwrap()
             .is_empty()
     );
@@ -532,7 +545,7 @@ fn the_dashboard_json_names_the_window_and_each_repos_figures() {
         ),
     )
     .unwrap();
-    let json = serde_json::to_value(dashboard_figures(&path, NOW)).unwrap();
+    let json = serde_json::to_value(dashboard_figures(&of_bae(&path), NOW)).unwrap();
     assert_eq!(json["window_seconds"], WINDOW_SECONDS);
     let repo = &json["repos"][0];
     assert_eq!(repo["repo"], "bae");
@@ -545,17 +558,92 @@ fn the_dashboard_json_names_the_window_and_each_repos_figures() {
     assert_eq!(lane["steps"][0]["total_ms"], 7_000);
 }
 
+/// A repo two projects hold records each build in the store of the project
+/// the claim of the branch's worktree names, else the one `--project` names,
+/// and is refused with neither.
 #[test]
-fn a_repo_in_a_project_has_that_projects_database_and_a_repo_in_none_has_none() {
-    let scratch = Scratch::new("timing-database");
+fn a_build_of_a_two_project_repo_records_in_the_project_its_claim_or_flag_names() {
+    let scratch = Scratch::new("timing-recording-project");
     let places = scratch.places();
-    assert_eq!(database_of(&places, "bae").unwrap(), None);
-    let store = crate::lists::fixtures::make_store(&places, &["bae", "coven"]);
     assert_eq!(
-        database_of(&places, "bae").unwrap(),
-        Some(store.dir.join(DATABASE))
+        recording_project(&places, "demo", "work", None).unwrap(),
+        None
     );
-    assert_eq!(database_of(&places, "web").unwrap(), None);
+    let clone = places.home.join(crate::host::clone_path("demo"));
+    std::fs::create_dir_all(clone.parent().unwrap()).unwrap();
+    crate::testing::repo(&clone, "target 1\n");
+    let side = places.home.join("dev/demo-worktrees/side-1");
+    let path = side.display().to_string();
+    crate::testing::git(&clone, &["worktree", "add", "-q", "-b", "work", &path]);
+    let commit = crate::testing::git_out(&clone, &["rev-parse", "HEAD"]);
+    crate::lists::fixtures::make_store_named(&places, "first", &["demo"]);
+    let of = |git_ref: &str, flag| recording_project(&places, "demo", git_ref, flag);
+    assert_eq!(of(&commit, None).unwrap(), Some("first".to_string()));
+    crate::lists::fixtures::make_store_named(&places, "second", &["demo"]);
+    for git_ref in [commit.as_str(), "work"] {
+        let refused = of(git_ref, None).unwrap_err().text();
+        assert!(
+            refused.contains("two projects (first, second)"),
+            "{refused}"
+        );
+        assert_eq!(of(git_ref, Some("second")).unwrap(), Some("second".into()));
+    }
+    let refused = of(&commit, Some("third")).unwrap_err().text();
+    assert!(refused.contains("does not hold repo demo"), "{refused}");
+    let checkout = crate::checkout::Checkout::at(&side).unwrap().unwrap();
+    crate::claim::set_project(&places, &checkout, Some("second")).unwrap();
+    for git_ref in ["work", "refs/heads/work"] {
+        assert_eq!(of(git_ref, None).unwrap(), Some("second".into()));
+        assert_eq!(of(git_ref, Some("first")).unwrap(), Some("second".into()));
+    }
+    // The claim speaks for its branch, not for a commit.
+    assert!(of(&commit, None).is_err());
+}
+
+/// The base-run lookup and the dashboard's figures of a repo two projects
+/// hold read the runs of both stores, newest first.
+#[test]
+fn a_two_project_repos_runs_are_read_from_both_stores() {
+    let scratch = Scratch::new("timing-two-stores");
+    let places = scratch.places();
+    let first = crate::lists::fixtures::make_store_named(&places, "first", &["bae"]);
+    let second = crate::lists::fixtures::make_store_named(&places, "second", &["bae"]);
+    let build = |at: i64, wait: u64, commit: &str, prefix: &str| {
+        let name = format!("shots {prefix}");
+        let shots = step(&name, StepKind::Shots, at, 1_000, StepResult::Passed);
+        let mut run = run(at, Lane::MAC, wait, RunEnd::Passed, vec![shots]);
+        record_checkout(&mut run, commit.repeat(40));
+        run
+    };
+    record(&second.database(), &build(NOW - 20, 2_000, "a", "mac.a.")).unwrap();
+    record(&first.database(), &build(NOW - 10, 4_000, "b", "mac.b.")).unwrap();
+    let records = BuildRecords::open(&places, "bae").unwrap().unwrap();
+    let ran = |commit: &str, prefix: &str| {
+        records
+            .has_passing_run(Lane::MAC, &commit.repeat(40), |run| run.ran_shots(prefix))
+            .unwrap()
+    };
+    assert!(ran("a", "mac.a.") && ran("b", "mac.b.") && !ran("a", "mac.b."));
+    let commits = ["a".repeat(40), "b".repeat(40)];
+    let newest: Vec<i64> = records
+        .passed_runs(Lane::MAC, None, &commits)
+        .unwrap()
+        .iter()
+        .map(|run| run.started_at)
+        .collect();
+    assert_eq!(newest, [NOW - 10, NOW - 20]);
+    let repos = [RepoDatabases {
+        repo: "bae".to_string(),
+        paths: vec![first.database(), second.database()],
+    }];
+    let mac = &stats(&repos, NOW - WINDOW_SECONDS).unwrap()[0].lanes[0];
+    assert_eq!((mac.runs, &mac.waits_ms[..]), (2, &[2_000, 4_000][..]));
+    let dashboard = crate::hook_stats::dashboard_json_at(&places, NOW);
+    let dashboard: serde_json::Value = serde_json::from_str(&dashboard).unwrap();
+    for project in dashboard["projects"].as_array().unwrap() {
+        let lane = &project["app_builds"]["repos"][0]["lanes"][0];
+        assert_eq!(lane["runs"], 2, "{project}");
+    }
 }
 
 /// A run reads back as it was recorded: its load, the commit it built, and

@@ -1527,7 +1527,14 @@ impl Model {
     ) -> Option<crate::fail::Result<()>> {
         Some(self.design_repo_named(project)?.and_then(|(repo, _)| {
             let lanes = crate::repo_lanes::of(&self.places, &repo)?;
-            super::component_shots::start(&self.places, &self.runs, &repo, commit, name, &lanes)
+            super::component_shots::start(
+                &self.places,
+                &self.runs,
+                (&repo, project),
+                commit,
+                name,
+                &lanes,
+            )
         }))
     }
 

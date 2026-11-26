@@ -1668,7 +1668,7 @@ it builds no merge base: it fails, naming the command that makes the run it
 lacks. A shots check's "before" side is read from the cached runs, never
 built again.
 
-  builds app-build <repo> <ref> [--test <Class>]... [--shots <prefix>]... [--design-shots] [--all-shots <app>]... [--fresh]
+  builds app-build <repo> <ref> [--test <Class>]... [--shots <prefix>]... [--design-shots] [--all-shots <app>]... [--fresh] [--project P]
                               build <ref> where it is needed; builds picks the
                               steps, lanes and hosts, and no caller names them.
                               The paths <ref> changes since its merge-base
@@ -1695,7 +1695,21 @@ built again.
                               cached failure. --fresh builds the app, takes every
                               selected shot again and replaces the cached
                               pictures with the new ones.
-  builds app-build <repo> <ref> <step>... [--test <app> <Class>]... [--shots <app> <prefix>]... [--all-shots <app>]... [--fresh]
+                              One project's store records the runs of a
+                              build. When a worktree has the branch <ref>
+                              checked out, it is the project that worktree's
+                              claim names, else --project's. For a ref that
+                              no worktree has checked out, such as a commit,
+                              it is --project's. A repo in one project needs
+                              neither. A repo two projects hold, with
+                              neither, is refused before anything builds, and
+                              so is a --project that does not hold the repo.
+                              What reads the runs reads the store of every
+                              project that holds the repo: this command's own
+                              look for a passing build of <ref>'s commit,
+                              --landing-coverage, --drop-shots and the
+                              dashboard's figures.
+  builds app-build <repo> <ref> <step>... [--test <app> <Class>]... [--shots <app> <prefix>]... [--all-shots <app>]... [--fresh] [--project P]
                               check out <ref> in a free app checkout of each
                               lane the steps are in, holding that checkout's
                               lock, and run the steps in the order given,
@@ -1722,8 +1736,8 @@ built again.
                               that does not answer, and the mac lane also
                               skips a host whose Xcode cannot start or whose
                               UI tests timed out turning on automation mode.
-                              When a lane's run ends, the project's store
-                              records the requested ref, the commit that ref
+                              When a lane's run ends, the store of the
+                              build's project (above, --project) records the requested ref, the commit that ref
                               named, any target commit the lane checked out,
                               the worktree's claim, the checkout, the host's
                               core count and one-minute load when the lane
@@ -1869,7 +1883,7 @@ built again.
                               findings.json (one whose report builds could
                               not copy) fails, naming the command that runs
                               the shots again
-  builds shots picture <repo> <ref> <scene> board|shot
+  builds shots picture <repo> <ref> <scene> board|shot [--project P]
                               print the path of the picture of a scene's
                               board or shot at <ref>'s commit. This is how an
                               agent sees a board or a shot: no agent draws a
@@ -1880,7 +1894,10 @@ built again.
                               img/<scene>.board.png or .shot.png), and marks
                               the run used. When no cached run holds it,
                               builds runs `builds app-build <repo> <ref>
-                              --shots <scene> --fresh`, which takes its turn
+                              --shots <scene> --fresh`, with --project P
+                              when given (a repo two projects hold needs it
+                              for a ref no claimed worktree has checked
+                              out), which takes its turn
                               in the lane's queue, draws only the boards
                               whose board hash the picture folder lacks and
                               takes only the shots of an app source tree it

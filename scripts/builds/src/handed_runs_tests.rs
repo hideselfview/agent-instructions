@@ -63,13 +63,19 @@ fn a_passing_run_reaches_the_installed_builds_after_its_project_schema_moves() {
 
     let completed = run();
     let mut handed = None;
-    write(&places, &completed, install_gate::install_ran, |store| {
-        handed = Some((
-            store.to_path_buf(),
-            crate::app_timing::read_named_run(store)?,
-        ));
-        Ok(())
-    })
+    write(
+        &places,
+        &completed,
+        None,
+        install_gate::install_ran,
+        |store| {
+            handed = Some((
+                store.to_path_buf(),
+                crate::app_timing::read_named_run(store)?,
+            ));
+            Ok(())
+        },
+    )
     .unwrap();
     let (store, saved) = handed.expect("the lane hands its run to the installed builds");
     assert_eq!(saved, completed);
@@ -90,6 +96,7 @@ fn a_store_of_another_schema_with_no_install_fails_the_record() {
     let Err(error) = write(
         &places,
         &run(),
+        None,
         || Ok(false),
         |_| panic!("no install ran, so the lane hands nothing"),
     ) else {
@@ -108,6 +115,7 @@ fn the_lane_records_its_run_directly_if_no_install_moved_the_stores() {
     write(
         &places,
         &run(),
+        None,
         || Ok(false),
         |_| panic!("no install moved the stores, so the lane hands nothing"),
     )
@@ -128,6 +136,7 @@ fn a_hand_off_that_fails_fails_the_record_and_leaves_no_store() {
     let Err(error) = write(
         &places,
         &run(),
+        None,
         || Ok(true),
         |handed| {
             store = Some(handed.to_path_buf());
@@ -152,7 +161,7 @@ fn the_installed_builds_records_the_run_of_a_handed_store() {
     std::fs::create_dir_all(handed.parent().unwrap()).unwrap();
     drop(crate::db::open(&handed, crate::db::Make::Allowed).unwrap());
     crate::app_timing::record(&handed, &run()).unwrap();
-    receive(&places, "bae", &handed, 1_000_100).unwrap();
+    receive(&places, "bae", &handed, None, 1_000_100).unwrap();
     assert_eq!(
         crate::app_timing::read_named_run(&project.dir.join(DATABASE)).unwrap(),
         run()
@@ -168,7 +177,7 @@ fn the_installed_builds_refuses_a_handoff_that_names_another_repo() {
     drop(crate::db::open(&handed, crate::db::Make::Allowed).unwrap());
     crate::app_timing::record(&handed, &run()).unwrap();
 
-    let said = receive(&places, "other", &handed, 1_000_100)
+    let said = receive(&places, "other", &handed, None, 1_000_100)
         .unwrap_err()
         .text();
     assert!(
@@ -176,8 +185,35 @@ fn the_installed_builds_refuses_a_handoff_that_names_another_repo() {
         "{said}"
     );
     assert!(
-        app_timing::stats(&project.dir.join(DATABASE), 0)
+        crate::app_timing::branch_ends(&rusqlite::Connection::open(project.database()).unwrap())
             .unwrap()
             .is_empty()
     );
+}
+
+/// A lane of a repo two projects hold records its run in the store of the
+/// project it was told, whether it writes the run itself or hands it to the
+/// installed builds, and a run with no project named is refused.
+#[test]
+fn a_two_project_repos_run_goes_to_the_store_of_its_project() {
+    let scratch = Scratch::new("handed-runs-two-projects");
+    let places = scratch.places();
+    let first = crate::lists::fixtures::make_store_named(&places, "first", &["bae"]);
+    let second = crate::lists::fixtures::make_store_named(&places, "second", &["bae"]);
+    let runs = |store: &crate::lists::store::Store| {
+        let db = rusqlite::Connection::open(store.database()).unwrap();
+        crate::app_timing::branch_ends(&db).unwrap().len()
+    };
+    let no_hand_off = |_: &Path| panic!("no install moved the stores");
+    write(&places, &run(), Some("second"), || Ok(false), no_hand_off).unwrap();
+    assert_eq!((runs(&first), runs(&second)), (0, 1));
+    let handed = scratch.dir.join(DATABASE);
+    drop(crate::db::open(&handed, crate::db::Make::Allowed).unwrap());
+    crate::app_timing::record(&handed, &run()).unwrap();
+    let refused = receive(&places, "bae", &handed, None, 1_000_100)
+        .unwrap_err()
+        .text();
+    assert!(refused.contains("two projects"), "{refused}");
+    receive(&places, "bae", &handed, Some("first"), 1_000_100).unwrap();
+    assert_eq!((runs(&first), runs(&second)), (1, 1));
 }

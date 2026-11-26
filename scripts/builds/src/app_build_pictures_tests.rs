@@ -80,6 +80,7 @@ esac"#,
         request: LaneRequest {
             commit: &head,
             named: "change",
+            project: None,
             names: &needs,
             picks: &picks,
             reused_shots: &[],

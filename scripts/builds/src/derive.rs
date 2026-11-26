@@ -32,6 +32,7 @@
 use std::collections::HashSet;
 use std::path::Path;
 
+use crate::app_build::BuildOf;
 use crate::app_build::{self, Pick};
 use crate::app_config::{CONFIG, Config, PickKind, run_git};
 use crate::app_landing::{BranchBuilds, ShotsToCover};
@@ -44,7 +45,7 @@ use crate::shots_declared::ShotDeclarations;
 use crate::text::note;
 use boards::git;
 
-const USAGE: &str = "usage: builds app-build <repo> <ref> [--test <Class>]... [--shots <prefix>]... [--design-shots] [--all-shots <app>]... [--fresh]";
+const USAGE: &str = "usage: builds app-build <repo> <ref> [--test <Class>]... [--shots <prefix>]... [--design-shots] [--all-shots <app>]... [--fresh] [--project P]";
 
 /// The flag that adds the shots of the boards and components the branch
 /// changes (`app_design_shots`).
@@ -310,7 +311,7 @@ fn adopt_main_rules(top: &Path, config: &mut Config) -> Result<()> {
     Ok(())
 }
 
-pub fn derive_and_run(places: &Places, args: &[String]) -> Result<()> {
+pub fn derive_and_run(places: &Places, args: &[String], project: Option<&str>) -> Result<()> {
     let [repo, git_ref, tail @ ..] = args else {
         fail!("{USAGE}");
     };
@@ -332,17 +333,14 @@ pub fn derive_and_run(places: &Places, args: &[String]) -> Result<()> {
     })?;
     let changed = changed_paths(&top, &commit)?;
     let store = BuildRecords::open(places, repo)?;
-    let lists = store
-        .as_ref()
-        .map(|store| crate::lists::store::read(&store.conn))
-        .transpose()?;
+    let lists = store.as_ref().map(BuildRecords::lists).transpose()?;
     if design_shots {
         let Some(lists) = &lists else {
             fail!(
                 "{DESIGN_SHOTS} reads the project's design places, and repo {repo} is in no project"
             );
         };
-        let globs = crate::lists::design_paths::Globs::of(lists, repo);
+        let globs = crate::lists::design_paths::Globs::of_each(lists, repo);
         let found =
             crate::app_design_shots::picked(&globs, &changed, &config.lanes, &mut |lane| {
                 declarations.names(lane, &commit).ok_or_else(|| {
@@ -463,7 +461,11 @@ pub fn derive_and_run(places: &Places, args: &[String]) -> Result<()> {
     let ran = app_build::run_lanes(
         &pinned,
         repo,
-        (&commit, git_ref),
+        BuildOf {
+            commit: &commit,
+            named: git_ref,
+            project,
+        },
         &lanes,
         &picks,
         &needs_only,
