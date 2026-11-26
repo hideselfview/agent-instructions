@@ -160,9 +160,8 @@ pub(crate) enum Action {
 pub(crate) struct Selection {
     /// An app to take shots of; repeat for several. With none, the apps of
     /// the --select prefixes, or every app the repo's .app-build gives a
-    /// shots-capture line. The old name `--platform` still works, because the
-    /// `.app-build` of a commit that predates `--app` passes it.
-    #[arg(long = "app", alias = "platform")]
+    /// shots-capture line.
+    #[arg(long = "app")]
     pub(crate) apps: Vec<String>,
     /// A board-name prefix: `mac.welcome.` is the Mac welcome boards,
     /// `mac.component.row.` one component's states. Repeat for several. With
