@@ -78,9 +78,21 @@ local, coven lacks something: fix coven, and never work around it in bae.
 
 Each table is in the crate of the domain that owns it: records are in
 bae-records and the import's tables in bae-import, for example. bae-store has
-none. Only a domain's own code writes its tables, and tests follow the same
-rule. "Changing a table" below says where the SQL goes and how the rule is
-checked.
+none. Only a domain's own code reads or writes its tables, and tests follow the
+same rule. Other code reads a domain's rows through the domain's fragments. The
+`[[database.domains]]` rows of `owner-construction-check.toml` give each domain
+its files, called its homes, and its tables. Two checks use those rows:
+
+- For writes, the pre-commit hook runs coven's structural checker
+  (`scripts/owner-construction-check.sh`), whose `database-boundary` rule
+  refuses a write of a table from a file outside the homes of the table's
+  domain.
+- For reads, the fragments build step (`bae-fragments-build`) fails the build
+  when a `fragment!`, `read!` or `write!` call reads a table of a domain whose
+  homes don't hold the call's file. The build step checks no other SQL, and the
+  rule covers that SQL too.
+
+"Changing a table" below says where the SQL goes.
 
 ### Shapes change in one commit, with no compatibility code
 
@@ -162,11 +174,6 @@ which bae-library assembles (`SCHEMA`) from each crate's parts in crate order. A
 schema change edits its domain's SQL file and never adds a second migration. No
 library has to advance from an older schema: `scripts/reset-bae.py` resets
 development data.
-
-The pre-commit hook checks that only a domain's own code writes its tables: it
-runs coven's structural checker (`scripts/owner-construction-check.sh`), whose
-`database-boundary` rule refuses any crate that writes a table
-`owner-construction-check.toml` doesn't assign to it.
 
 A test builds the library state it needs through the owning domain's own writes,
 never by writing tables directly. When a test needs damaged data, such as a
