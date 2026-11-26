@@ -31,7 +31,7 @@ use std::path::Path;
 use crate::checkout::Checkout;
 use crate::claim::{Claim, Note};
 use crate::fail;
-use crate::fail::Result;
+use crate::fail::{Fail, Result};
 use crate::git::branch_exists;
 use crate::lists::args::Args;
 use crate::lists::draft::find_brief;
@@ -560,11 +560,17 @@ pub fn take(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let places: Vec<Place> = handed.iter().map(|(place, _)| place.clone()).collect();
     match request.run(&places) {
         Ok(()) => Ok(()),
-        Err(error) => Err(handed
-            .into_iter()
-            .rev()
-            .fold(error, |error, (_, made)| made.undo(tool, error))),
+        Err(error) => Err(give_back(tool, handed, error)),
     }
+}
+
+/// Undoes each of <handed>, last first, after <error>, and returns <error>
+/// with the failure of any undo.
+fn give_back(tool: &Tool, handed: Vec<(Place, Handed)>, error: Fail) -> Fail {
+    handed
+        .into_iter()
+        .rev()
+        .fold(error, |error, (_, made)| made.undo(tool, error))
 }
 
 /// What `take` runs with, once it has its worktrees.
@@ -636,22 +642,21 @@ fn hand_out_places(
             &stamp.by,
             Some(&lists.project),
         );
-        match made {
-            Ok(made) => handed.push((
+        let placed = made.and_then(|made| match Claim::read(&made.checkout.claim_file()) {
+            Ok(claim) => Ok((
                 Place {
                     top: made.checkout.top.display().to_string(),
-                    claim: Claim::read(&made.checkout.claim_file())?,
+                    claim,
                     checkout: made.checkout.clone(),
                     branch: branch.to_string(),
                 },
                 made,
             )),
-            Err(error) => {
-                return Err(handed
-                    .into_iter()
-                    .rev()
-                    .fold(error, |error, (_, made)| made.undo(tool, error)));
-            }
+            Err(error) => Err(made.undo(tool, error)),
+        });
+        match placed {
+            Ok(one) => handed.push(one),
+            Err(error) => return Err(give_back(tool, handed, error)),
         }
     }
     Ok(handed)
