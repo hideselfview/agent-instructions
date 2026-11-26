@@ -394,33 +394,36 @@ async fn a_row_draws_the_same_picture_below_a_row_of_a_fractional_height() {
     assert_eq!(decoded[0], decoded[1]);
 }
 
-/// A preview page of two rows: the first draws a window element 100 by 60
-/// with 12 pt corners, the second draws none.
+/// A preview page of three rows: the first draws a window element 100 by 60
+/// with 12 pt corners, the second a sheet of 80 by 40 with 8 pt corners, the
+/// third neither.
 const WINDOW_PREVIEW: &str = r#"<!doctype html><html><head><meta charset="utf-8">
 <style>body{margin:0;font:13px sans-serif}.row{display:flex;height:100px}
 .row-cell{width:200px;position:relative}
-.bae-m-window{width:100px;height:60px;border-radius:12px;corner-shape:round}</style></head>
+.bae-m-window{width:100px;height:60px;border-radius:12px;corner-shape:round}
+.bae-m-face-sheet{width:80px;height:40px;border-radius:8px}</style></head>
 <body><div id="root"></div><script>
 const h = React.createElement;
 const W = (name, child) => h('div', {className: 'row'},
   h('span', {className: 'row-name'}, name), h('div', {className: 'row-cell'}, child));
 ReactDOM.createRoot(document.getElementById('root')).render(h('div', null,
   W('Window', h('div', {className: 'bae-m-window'})),
+  W('Sheet', h('div', {className: 'bae-m-face-sheet'})),
   W('Plain', h('div', null, 'text'))));
 </script></body></html>"#;
 
 #[tokio::test]
-async fn a_row_reports_the_window_its_cell_draws_from_the_cells_corner() {
+async fn a_row_reports_the_window_or_sheet_its_cell_draws_from_the_cells_corner() {
     let root = fixture::tree(&[]);
     fixture::write(
         root.path(),
         "design/system/components/MacRow/preview.html",
         WINDOW_PREVIEW,
     );
-    let (window, plain) = fixture::with_browser(root.path(), async |server, chrome| {
+    let (window, sheet, plain) = fixture::with_browser(root.path(), async |server, chrome| {
         let url = server.preview_url("MacRow");
         let mut rows = Vec::new();
-        for state in ["window", "plain"] {
+        for state in ["window", "sheet", "plain"] {
             let page = chrome.new_page().await.unwrap();
             rows.push(
                 render_row(&page, "MacRow", state, &url, Platform::Mac, marks(&[]))
@@ -429,12 +432,14 @@ async fn a_row_reports_the_window_its_cell_draws_from_the_cells_corner() {
                     .window,
             );
         }
-        (rows[0], rows[1])
+        (rows[0], rows[1], rows[2])
     })
     .await;
     assert_eq!((window.frame.x, window.frame.y), (0.0, 0.0));
     assert_eq!((window.frame.width, window.frame.height), (100.0, 60.0));
     assert_eq!((window.radius, window.exponent), (12.0, 2.0));
+    assert_eq!((sheet.frame.width, sheet.frame.height), (80.0, 40.0));
+    assert_eq!((sheet.radius, sheet.exponent), (8.0, 2.0));
     assert_eq!(plain.radius, 0.0);
     assert!(plain.frame.width > 0.0);
 }

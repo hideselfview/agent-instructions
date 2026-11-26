@@ -774,8 +774,9 @@ pub(crate) async fn slots(
 }
 
 /// The elements of the design system that draw a Mac window: the window of
-/// a settings or import screen, the main window and the storage window.
-const WINDOW_SELECTOR: &str = ".bae-m-window, .bae-m-mainwin, .bae-m-storewin";
+/// a settings or import screen, the main window, the storage window and a
+/// sheet, which macOS draws as a window of its own.
+const WINDOW_SELECTOR: &str = ".bae-m-window, .bae-m-mainwin, .bae-m-storewin, .bae-m-face-sheet";
 
 /// What Chrome reports of a window element.
 #[derive(Deserialize)]
