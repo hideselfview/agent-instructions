@@ -15,10 +15,7 @@ import kotlin.math.roundToInt
  * reads on through, so a list of the semantics alone would leave a seek bar's clocks and slider out.
  */
 internal object EmbeddedViews {
-    private const val TENTH = 10.0
     private const val PERCENT = 100.0
-    private const val HEX_RADIX = 16
-    private const val RGB_DIGITS = 8
     private const val HOLDER_SUFFIX = "ViewFactoryHolder"
 
     /**
@@ -90,10 +87,10 @@ internal object EmbeddedViews {
                 .put(
                     "bounds",
                     JSONObject()
-                        .put("x", dp(at[0] - origin[0] + box.left, density))
-                        .put("y", dp(at[1] - origin[1] + box.top, density))
-                        .put("width", dp(box.width(), density))
-                        .put("height", dp(box.height(), density)),
+                        .put("x", dp((at[0] - origin[0] + box.left).toFloat(), density))
+                        .put("y", dp((at[1] - origin[1] + box.top).toFloat(), density))
+                        .put("width", dp(box.width().toFloat(), density))
+                        .put("height", dp(box.height().toFloat(), density)),
                 ).put("enabled", view.isEnabled)
                 .put("selected", JSONObject.NULL)
                 .put("parent", JSONObject.NULL)
@@ -120,15 +117,8 @@ internal object EmbeddedViews {
     /** The words' size in sp and colour, as the view draws them. */
     private fun style(view: TextView): JSONObject {
         val sp = view.textSize / view.resources.displayMetrics.scaledDensity
-        val rrggbb = (view.currentTextColor and 0xFFFFFF).toString(HEX_RADIX).padStart(RGB_DIGITS - 2, '0')
-        val alpha = ((view.currentTextColor ushr 24) and 0xFF).toString(HEX_RADIX).padStart(2, '0')
         return JSONObject()
-            .put("size", (sp * TENTH).roundToInt() / TENTH)
-            .put("color", "#" + (rrggbb + alpha).uppercase())
+            .put("size", tenths(sp))
+            .put("color", hex(view.currentTextColor))
     }
-
-    private fun dp(
-        pixels: Int,
-        density: Float,
-    ): Double = (pixels / density * TENTH).roundToInt() / TENTH
 }

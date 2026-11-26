@@ -76,6 +76,7 @@ pub(crate) static ANDROID: Harness = Harness {
         file!("android", "BoardShot.kt"),
         file!("android", "ComposeView.kt"),
         file!("android", "ElementList.kt"),
+        file!("android", "ElementValues.kt"),
         file!("android", "EmbeddedViews.kt"),
         file!("android", "ReadingOrder.kt"),
         file!("android", "ShotBoardSizes.kt"),

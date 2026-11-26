@@ -15,7 +15,6 @@ import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.toSize
 import org.json.JSONObject
-import kotlin.math.roundToInt
 
 /**
  * The element list a shot writes beside its PNG as `<board>@android.json`: what Compose's merged
@@ -31,10 +30,7 @@ internal object ElementList {
     /** A line-break mark that a screen puts in its words, which the board has no word for. */
     private const val ZERO_WIDTH_SPACE = "\u200B"
 
-    private const val TENTH = 10.0
     private const val SLACK = 0.6
-    private const val HEX_RADIX = 16
-    private const val RGB_DIGITS = 8
     private const val FIELD_LABEL_RISE_DP = 8f
     private const val OUTLINE_HEIGHT_DP = 56f
 
@@ -142,8 +138,8 @@ internal object ElementList {
             .put(
                 "size",
                 JSONObject()
-                    .put("width", dp(root.size.width, density))
-                    .put("height", dp(root.size.height, density)),
+                    .put("width", dp(root.size.width.toFloat(), density))
+                    .put("height", dp(root.size.height.toFloat(), density)),
             ).put("scale", density.toDouble())
             .put("elements", elements)
     }
@@ -475,21 +471,4 @@ internal object ElementList {
         if (style.color.isSpecified) out.put("color", hex(style.color.toArgb()))
         return out
     }
-
-    /** sRGB as `#RRGGBBAA` from an ARGB int. */
-    private fun hex(argb: Int): String {
-        val rrggbb = (argb and 0xFFFFFF).toString(HEX_RADIX).padStart(RGB_DIGITS - 2, '0')
-        val alpha = ((argb ushr 24) and 0xFF).toString(HEX_RADIX).padStart(2, '0')
-        return "#" + (rrggbb + alpha).uppercase()
-    }
-
-    private fun dp(
-        pixels: Int,
-        density: Float,
-    ): Double = dp(pixels.toFloat(), density)
-
-    private fun dp(
-        pixels: Float,
-        density: Float,
-    ): Double = (pixels / density * TENTH).roundToInt() / TENTH
 }
