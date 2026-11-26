@@ -34,25 +34,11 @@ second, and is one of two kinds:
   transfer's byte count. Core sends it straight from where it has it to the view
   that draws it.
 - A value that Rust computes from such a value together with a live query's
-  values.
-  - An upload's bar is the release's stored bytes, from the live query, plus,
-    for each file being sent, its size times the share of its bytes that bae has
-    sent so far, which coven's transfer watch reports.
-  - A Rust watcher in the domain that owns the value computes it again each time
-    the query reruns or the in-memory value changes
-    (`reactive-screens-read-plain-live-queries.md`, "A fast value computed with
-    a live query's values"). For the upload bar, the watcher also measures the
-    speed from how fast those shares change.
-  - The view draws the value as the stream gives it, and adds nothing up.
+  values, such as an upload's bar. The view draws the value as the stream gives
+  it, and adds nothing up.
 
-Core never does either of these:
-
-- Write a fast value to a table so a live query can read it. Each such write
-  makes coven rerun screen queries many times a second to deliver one number.
-- Put a plain query result, with no fast-changing part, on a fast stream. Such a
-  value reaches the screen through the screen's live query, however often it
-  changes. When that query reruns too often, the fix is in the query or in
-  coven.
+`reactive-screens-read-plain-live-queries.md` says how core computes such a
+value, and what core never writes to a table or puts on a fast stream.
 
 ### Drawn once per frame, from the latest value per key
 

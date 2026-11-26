@@ -25,10 +25,13 @@ Two kinds of value reach a screen outside its query's rows:
   - The value lives in Rust's memory (playback position, transfer bytes, rates,
     levels), or a Rust watcher computes it from such a value and a live query's
     values ("A fast value computed with a live query's values").
-  - Core never writes such a value to a table for a query to read.
+  - Core never writes such a value to a table for a query to read: each such
+    write makes coven rerun screen queries many times a second to deliver one
+    number.
   - Core never puts a plain query result, with no fast-changing part, on a fast
     stream. Such a value reaches the screen through the screen's live query,
-    however often it changes.
+    however often it changes. When that query reruns too often, the fix is in
+    the query or in coven.
 - State that exists only on screen (hover, focus, the selected rows, an open
   popover or menu, a drag in progress, the text typed in a search or input
   field) stays in the view that controls it. The view owns the state: no table
