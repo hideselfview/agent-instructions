@@ -10,17 +10,30 @@
 use rusqlite::Connection;
 
 use super::record::{self, Finding};
+use crate::db::Sql;
 use crate::fail::Result;
-use crate::lists::item::{ItemDraft, add_item};
+use crate::lists::item::{ItemDraft, ItemEdit, add_item};
 use crate::lists::question::{NewQuestion, ask};
 use crate::lists::{Audience, Effect, Id, QuestionKind, Stamp, Wait};
 
 /// The area that holds the items of audits.
 const AREA: &str = "audits";
 
-/// The audit's name, for a landing key of an audit.
+/// The audit's name, for a landing key of an audit. An audit may run as
+/// several landings, keyed `audit:<name>-1`, `audit:<name>-2` and so on: they
+/// share the name `<name>`, and one entry and one item hold the fixes of all.
 pub fn name_of(key: &str) -> Option<&str> {
-    key.strip_prefix("audit:")
+    let name = key.strip_prefix("audit:")?;
+    Some(match name.rsplit_once('-') {
+        Some((audit, number))
+            if !audit.is_empty()
+                && !number.is_empty()
+                && number.chars().all(|c| c.is_ascii_digit()) =>
+        {
+            audit
+        }
+        _ => name,
+    })
 }
 
 /// What `hold` made of an audit landing.
@@ -32,6 +45,9 @@ pub enum Held {
     /// The audit's confirmed findings became this item, held on this entry
     /// of the stack.
     Item { item: Id, entry: Id },
+    /// Another landing of the audit made this item already, and the findings
+    /// joined its details.
+    Joined { item: Id },
 }
 
 /// An open audit landing that no finding of waits on a settle: the one kind
@@ -40,7 +56,6 @@ pub struct Ready {
     landing: i64,
     name: String,
     repo: String,
-    key: String,
     confirmed: Vec<Finding>,
 }
 
@@ -63,7 +78,6 @@ impl Ready {
             landing,
             name: name.to_string(),
             repo: row.repo.clone(),
-            key: row.key.clone(),
             confirmed: findings.into_iter().filter(Finding::is_open).collect(),
         }))
     }
@@ -76,7 +90,6 @@ pub fn hold(db: &Connection, ready: &Ready, stamp: &Stamp) -> Result<Held> {
         landing,
         name,
         repo,
-        key,
         confirmed,
     } = ready;
     if confirmed.is_empty() {
@@ -87,6 +100,29 @@ pub fn hold(db: &Connection, ready: &Ready, stamp: &Stamp) -> Result<Held> {
             stamp.at,
         )?;
         return Ok(Held::NothingToFix);
+    }
+    let tag = format!("audit:{name}");
+    if let Some(item) = open_item_tagged(db, &tag)? {
+        let old: String = db
+            .query_row("SELECT details FROM item WHERE id = ?1", [item], |row| {
+                row.get(0)
+            })
+            .sql()?;
+        ItemEdit {
+            title: None,
+            area: None,
+            details: Some(format!("{old}\n\n{}", details(repo, *landing, confirmed))),
+            brief: None,
+            r#for: None,
+        }
+        .apply(db, item)?;
+        record::record_abandoned(
+            db,
+            *landing,
+            &format!("its confirmed findings joined item {item}"),
+            stamp.at,
+        )?;
+        return Ok(Held::Joined { item });
     }
     if !crate::lists::area::areas(db)?
         .iter()
@@ -121,7 +157,7 @@ pub fn hold(db: &Connection, ready: &Ready, stamp: &Stamp) -> Result<Held> {
             waits: vec![Wait::Question(entry)],
             brief: None,
             priority: None,
-            tags: vec![key.clone()],
+            tags: vec![tag],
         },
         Some(entry),
         stamp,
@@ -133,6 +169,21 @@ pub fn hold(db: &Connection, ready: &Ready, stamp: &Stamp) -> Result<Held> {
         stamp.at,
     )?;
     Ok(Held::Item { item, entry })
+}
+
+/// The open item that an earlier landing of the audit tagged <tag>, if any.
+fn open_item_tagged(db: &Connection, tag: &str) -> Result<Option<Id>> {
+    for (id, tags) in crate::lists::tag::read(db)? {
+        if tags.iter().any(|known| known == tag)
+            && matches!(
+                crate::lists::record::standing(db, id)?,
+                Some((crate::lists::Kind::Item, None))
+            )
+        {
+            return Ok(Some(id));
+        }
+    }
+    Ok(None)
 }
 
 /// The item's details: where each finding is and what it says. Main may have

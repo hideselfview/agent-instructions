@@ -155,3 +155,20 @@ fn a_review_recorded_under_a_detached_key_ends_landed_when_its_commit_is_on_main
     let row = landing(&r);
     assert!(row.landed_run().is_some(), "{row:?}");
 }
+
+#[test]
+fn a_review_under_any_other_key_ends_landed_when_its_commit_is_on_main() {
+    let r = reviewed_under("ended-sweep", None, "sweep-run-1");
+    assert_eq!(closed(&r, &[]), Vec::<String>::new());
+    land_on_main(&r);
+    assert_eq!(closed(&r, &[]).len(), 1);
+    assert!(landing(&r).landed_run().is_some());
+}
+
+#[test]
+fn an_audits_review_stays_open_though_its_commit_is_on_main() {
+    let r = reviewed_under("ended-audit", None, "audit:nov14-1");
+    land_on_main(&r);
+    assert_eq!(closed(&r, &[]), Vec::<String>::new());
+    assert!(landing(&r).is_open());
+}

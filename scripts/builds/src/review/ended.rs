@@ -10,9 +10,11 @@
 //!
 //!   - landed, when every commit the branch holds is on origin/main by patch
 //!     (`side_git::waiting_to_land`), or the branch is gone and the commit
-//!     the last review read is on origin/main. A review recorded under a
-//!     detached key (`key.rs`) has no branch: it ends landed when the commit
-//!     its last review read is on origin/main, and otherwise stays open. The landing takes the last
+//!     the last review read is on origin/main. A review recorded under any
+//!     other key than a branch's or an audit's (a detached key, `key.rs`, or a
+//!     name such as `sweep-run-1`) has no branch: it ends landed when the
+//!     commit its last review read is on origin/main, and otherwise stays
+//!     open. The landing takes the last
 //!     review's run as the run that covered the commits.
 //!   - abandoned, when the branch is gone, no ref and no detached worktree
 //!     holds the commit the last review read, no open item names the branch,
@@ -69,10 +71,11 @@ pub fn close(
     for (landing, run) in open.into_iter().zip(runs) {
         let change = if let Some(branch) = landing.key.strip_prefix("branch:") {
             Change::Branch(branch)
-        } else if landing.key.starts_with("detached:") {
-            Change::Detached
-        } else {
+        } else if super::audit_item::name_of(&landing.key).is_some() {
+            // An audit's findings end it (audit_item.rs), never its commit.
             continue;
+        } else {
+            Change::Commit
         };
         let words = format!(
             "review landing {} ({}, {})",
@@ -138,7 +141,7 @@ enum Change<'a> {
     /// A branch of this name.
     Branch(&'a str),
     /// The commit its last review read, with no branch.
-    Detached,
+    Commit,
 }
 
 /// How <change> ends in the repo at <main>, whose last review read <head>, or
@@ -157,7 +160,7 @@ fn end_of(
     };
     let branch = match change {
         Change::Branch(branch) => branch,
-        Change::Detached => {
+        Change::Commit => {
             return Ok(
                 (crate::git::commit_exists(main, head)? && !unlanded(head)?).then_some(End::Landed)
             );
