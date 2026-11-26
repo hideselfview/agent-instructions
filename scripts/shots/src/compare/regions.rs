@@ -84,8 +84,16 @@ fn colours_at(
     window: Option<&Window>,
     point: (f64, f64),
 ) -> Option<(Rgb, Rgb)> {
-    let [(bx, by), (sx, sy)] = pixels_at(board, shot, offset, window, point)?;
-    Some((pixel(board.picture, bx, by)?, pixel(shot.picture, sx, sy)?))
+    colours_of(board, shot, pixels_at(board, shot, offset, window, point)?)
+}
+
+/// The colours of the two pictures at the pixels `pixels_at` gives, when both
+/// pictures have them.
+fn colours_of(board: &Side, shot: &Side, [b, s]: [(i64, i64); 2]) -> Option<(Rgb, Rgb)> {
+    Some((
+        pixel(board.picture, b.0, b.1)?,
+        pixel(shot.picture, s.0, s.1)?,
+    ))
 }
 
 /// How far each channel of `colour` lies outside the range of that channel
@@ -165,10 +173,7 @@ fn residual(
                 else {
                     continue;
                 };
-                let (Some(a), Some(b)) = (
-                    pixel(board.picture, board_pixel.0, board_pixel.1),
-                    pixel(shot.picture, shot_pixel.0, shot_pixel.1),
-                ) else {
+                let Some((a, b)) = colours_of(board, shot, [board_pixel, shot_pixel]) else {
                     continue;
                 };
                 let board_outside = outside_neighbourhood(shot.picture, shot_pixel, a);
