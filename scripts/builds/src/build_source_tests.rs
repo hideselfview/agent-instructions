@@ -93,7 +93,9 @@ fn the_shots_checker_is_hashed_from_its_own_crates() {
 
 /// A file of the shots checker is in the capture version or the comparison
 /// version by what reads it, so a change to the comparison leaves the capture
-/// version, which keys the cached shots and board pictures, as it was.
+/// version, which keys the cached shots and board pictures, as it was. The
+/// command line (cli.rs) is in neither version: a new or renamed argument
+/// keeps every stored picture and run.
 #[test]
 fn a_file_only_the_comparison_reads_is_not_in_the_capture_version_and_the_reverse() {
     let scratch = Scratch::new("build-source-sides");
@@ -108,6 +110,7 @@ fn a_file_only_the_comparison_reads_is_not_in_the_capture_version_and_the_revers
         "design.rs",
         "compare_tests.rs",
         "states.rs",
+        "cli.rs",
     ] {
         write(&scripts, &format!("shots/src/{file}"), "// 1\n");
     }
@@ -142,7 +145,11 @@ fn a_file_only_the_comparison_reads_is_not_in_the_capture_version_and_the_revers
         assert!(capture.contains(&read.to_string()), "{read}");
         assert!(comparison.contains(&read.to_string()), "{read}");
     }
-    for read in ["shots/src/compare_tests.rs", "shots/src/states.rs"] {
+    for read in [
+        "shots/src/compare_tests.rs",
+        "shots/src/states.rs",
+        "shots/src/cli.rs",
+    ] {
         assert!(!capture.contains(&read.to_string()), "{read}");
         assert!(!comparison.contains(&read.to_string()), "{read}");
     }

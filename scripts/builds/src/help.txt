@@ -1309,7 +1309,9 @@ packages they use. The comparison version is a hash of the files that compare
 a shot with its board and write the findings and the report, with the boards
 library's files and the same package versions (scripts/builds/build_source.rs
 lists the files each version reads). A change to builds alone keeps both
-versions, and so does a change to a test file. builds keys the shots, the
+versions, and so does a change to a test file or to the shots checker's
+command line (the subcommands and their arguments): every stored shot, board
+picture and run stays valid. builds keys the shots, the
 element lists and the board pictures by the capture version, and the findings
 by the comparison version.
 

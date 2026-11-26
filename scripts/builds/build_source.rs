@@ -122,9 +122,11 @@ const COMPARISON_ONLY: [&str; 10] = [
 ];
 
 /// The files of the shots crate's `src` that neither side reads: `builds shots
-/// states`, which lists the component states the boards draw, and `builds
-/// shots draws`, which says whether boards draw the same at two commits.
-const UNVERSIONED: [&str; 2] = ["states.rs", "draws.rs"];
+/// states`, which lists the component states the boards draw, `builds shots
+/// draws`, which says whether boards draw the same at two commits, and the
+/// command line (cli.rs): the subcommands and arguments name no picture, so a
+/// change to one keeps every stored shot, board picture and run.
+const UNVERSIONED: [&str; 3] = ["states.rs", "draws.rs", "cli.rs"];
 
 /// Who reads a file of the shots checker.
 #[derive(PartialEq, Eq, Debug)]

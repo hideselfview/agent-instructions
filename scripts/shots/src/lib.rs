@@ -7,6 +7,7 @@ mod before;
 mod board_sizes;
 mod capture;
 mod capture_marks;
+mod cli;
 mod compare;
 mod component_files;
 mod declared;
@@ -28,13 +29,14 @@ mod states;
 mod verify;
 
 pub use crate::capture_marks::{CAPTURE_MARKS_DIR, CaptureMarkError, CaptureMarks};
+use crate::cli::{Action, Cli, Selection};
 pub use crate::declared::Declared;
 use crate::names::Platform;
 pub use crate::names::{ComponentName, Name, NameError, Prefix, ScreenName};
 pub use crate::pictures::app_picture_tree;
 pub use crate::report::{board_picture, shot_picture};
 use crate::settings::Settings;
-use clap::{Args, Parser, Subcommand};
+use clap::Parser;
 use std::path::{Path, PathBuf};
 
 /// The two versions of the checker. The capture version is a hash of the files
@@ -76,197 +78,6 @@ pub struct Checker<'a> {
     /// pinned Chrome and the scratch folders the design system is built in),
     /// and the folder of the SF Mono files the boards' pages load.
     pub folders: &'a boards::Folders,
-}
-
-#[derive(Parser)]
-#[command(name = "builds shots")]
-struct Cli {
-    #[command(subcommand)]
-    action: Action,
-}
-
-#[derive(Subcommand)]
-enum Action {
-    /// Name the canvas runtime copy that draws the boards.
-    Runtime,
-    /// Start the pinned Chrome and print one line, `chrome=started <version>`,
-    /// `chrome=no-address <why>` (it ran and printed no debugging address in
-    /// its deadline) or `chrome=failed <why>`, so that builds can tell before
-    /// a build whether its shots can draw boards on this host.
-    Chrome,
-    /// Print the checker's capture version and comparison version, which each
-    /// run's findings.json names.
-    Version,
-    /// Take the shots into shots/, a folder for each platform, and check them.
-    /// With --before, only pairs worse against that run fail the run,
-    /// and the rest are listed; without it, every pair with a finding fails.
-    Run {
-        #[command(flatten)]
-        selection: Selection,
-        /// The findings.json of the run to compare with, written by this
-        /// version of the checker, such as the run of the branch's merge base
-        /// with origin/main, which builds passes.
-        #[arg(long, conflicts_with = "base")]
-        before: Option<PathBuf>,
-        /// Compare with an empty run of this commit, the branch's merge base,
-        /// whose run checked no scene: every pair is new, so its findings are
-        /// listed and fail nothing. builds passes it for a prefix that starts
-        /// no scene the merge base declares.
-        #[arg(long, conflicts_with_all = ["before", "base"])]
-        empty_before: Option<String>,
-        /// The folder of the board pictures earlier runs drew, which builds
-        /// keeps: the run draws only the boards it lacks and adds each new
-        /// drawing.
-        #[arg(long)]
-        pictures: Option<PathBuf>,
-        /// The app source tree the shots are taken of, which builds names:
-        /// when the picture folder keeps every selected shot of a platform
-        /// for it, the run takes none and uses those, and otherwise it keeps
-        /// the shots it takes there.
-        #[arg(long, requires = "pictures")]
-        app_tree: Option<String>,
-        /// Fail instead of capturing when the picture folder lacks a selected
-        /// shot of the app tree: builds passes it when it built no app.
-        #[arg(long, requires = "app_tree")]
-        no_capture: bool,
-        /// Take every selected shot again, even when the picture folder keeps
-        /// it for the app tree, and replace the kept pictures with the new
-        /// ones. A shot taken before its window had loaded stays wrong in the
-        /// folder until a run takes it again.
-        #[arg(long, requires = "app_tree", conflicts_with = "no_capture")]
-        retake: bool,
-        /// Take every selected shot into the picture folder, mark each
-        /// selected prefix taken, and end without drawing boards or comparing
-        /// anything: builds takes the shots of all a lane's prefixes in one
-        /// run, then runs each prefix with --no-capture.
-        #[arg(
-            long,
-            requires = "app_tree",
-            conflicts_with_all = ["before", "no_capture", "base"]
-        )]
-        capture_only: bool,
-    },
-    /// Print the number of shots a run of the same selection takes, which
-    /// builds counts to give the run a time limit that grows with its work.
-    Scenes {
-        #[command(flatten)]
-        selection: Selection,
-    },
-    /// Take the shots into a directory.
-    Capture {
-        #[command(flatten)]
-        selection: Selection,
-        /// The directory the PNGs and element lists are written to.
-        #[arg(long)]
-        out: PathBuf,
-    },
-    /// Check shots already taken against their boards.
-    Check {
-        /// The directory holding every platform's PNGs and element lists.
-        #[arg(long)]
-        shots: PathBuf,
-        /// The directory the report is written to, with the rendered boards.
-        #[arg(long)]
-        out: PathBuf,
-        /// The commit the shots were taken at, for the report.
-        #[arg(long)]
-        sha: String,
-    },
-    /// Compare again the pairs a report holds, with this checker, and print
-    /// the findings as records (the report's findings.json). The report is
-    /// a cached run's folder, which holds each pair's pictures and element
-    /// lists. The command draws and captures nothing and reads no repo, so a
-    /// change to the comparison shows what it clears and adds on a run that
-    /// another checker made.
-    Recheck {
-        /// The report's folder, with its findings.json and its `img` folder.
-        #[arg(long)]
-        report: PathBuf,
-    },
-    /// Fail when a declared shot has no board.
-    Lint,
-    /// List each design-system component's preview rows whose shot its
-    /// capture file (Components/<Component>.<extension> under the platform's
-    /// declare folder) does not declare, and each capture file with no
-    /// preview. A component, or a row (`Component.row`), that
-    /// `shots-design-only` names for a platform is left out there and counted.
-    /// The listing fails nothing.
-    /// List each design-system component state that a board draws and no row
-    /// of the component's preview shows: a value of a state prop, or a
-    /// component no preview row draws, with the boards that draw it. A prop
-    /// is part of a state when it is true, or a code word (a lower-case
-    /// letter, then letters, digits, - and _) that the component never draws
-    /// as words; children, callbacks, numbers, words, className and icon
-    /// names (icon, name, or a prop that ends in Icon) are not. With
-    /// --against, list only the states that the listing at that revision
-    /// does not hold, and fail when there is one.
-    States {
-        /// Draw the boards and previews as they are at this revision, not as
-        /// the working tree holds them.
-        #[arg(long)]
-        at: Option<String>,
-        /// List only the states that the listing at this revision does not
-        /// hold, and fail when there is one.
-        #[arg(long)]
-        against: Option<String>,
-    },
-    /// Print whether each named board or component preview draws alike at
-    /// the two revisions. Give no selectors to compare every board and
-    /// component preview from either revision.
-    Draws {
-        /// The first revision.
-        #[arg(long)]
-        at: String,
-        /// The revision to compare with.
-        #[arg(long)]
-        against: String,
-        /// A board's name (`design/mocks/<name>.dc.html`); repeat for several.
-        #[arg(long = "board")]
-        boards: Vec<String>,
-        /// A component's name, whose preview page is drawn; repeat for several.
-        #[arg(long = "component")]
-        components: Vec<String>,
-        /// The folder of the board pictures earlier runs drew, which builds
-        /// keeps and passes: a screen board takes its drawing from it by its
-        /// board hash when it keeps one, and a board it lacks is drawn and
-        /// kept there.
-        #[arg(long)]
-        pictures: Option<PathBuf>,
-    },
-    Components {
-        /// A component to show with every row, such as MacRow; repeat for
-        /// several. With none, every component with a row its capture file
-        /// does not declare.
-        components: Vec<String>,
-    },
-}
-
-#[derive(Args)]
-struct Selection {
-    /// A platform to take shots on (mac, android, web); repeat for several.
-    /// With none, the platforms of the --select prefixes, or every platform
-    /// the repo's .app-build gives a shots-capture line.
-    #[arg(long = "platform", value_parser = parse_platform)]
-    platforms: Vec<Platform>,
-    /// A board-name prefix: `mac.welcome.` is the Mac welcome boards,
-    /// `mac.component.row.` one component's states. Repeat for several. With
-    /// none, every shot the platform declares.
-    #[arg(long = "select", value_parser = Prefix::parse)]
-    prefixes: Vec<Prefix>,
-    /// Also take the shots that take the keyboard focus, which bring the app to
-    /// the front.
-    #[arg(long)]
-    windows: bool,
-    /// This is the run of the branch's merge base: a --select prefix that
-    /// starts no declared shot selects none, because the branch adds those
-    /// shots, and the run has no pairs for them. Without it, such a prefix
-    /// fails the run.
-    #[arg(long)]
-    base: bool,
-}
-
-fn parse_platform(text: &str) -> Result<Platform, String> {
-    Platform::parse(text).ok_or_else(|| "a platform is mac, android or web".to_string())
 }
 
 impl Selection {
