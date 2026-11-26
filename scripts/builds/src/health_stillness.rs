@@ -492,9 +492,7 @@ fn worktree_pids(tree: &WorktreeHealth) -> impl Iterator<Item = i32> + '_ {
         .iter()
         .map(|run| run.pid)
         .chain(tree.remote_runs.iter().map(|run| run.pid))
-        .chain(tree.app_builds.iter().map(|run| run.pid))
-        .chain(tree.landings.iter().map(|run| run.pid))
-        .chain(tree.design_runs.iter().map(|run| run.pid))
+        .chain(tree.branch_runs().map(|(_, pid)| pid))
         .chain(tree.app_build)
         .chain(tree.in_line.iter().map(|run| run.pid))
 }
