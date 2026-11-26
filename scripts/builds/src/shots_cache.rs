@@ -32,8 +32,11 @@
 //! `<volume>/shots/<repo>/pictures/`, which app-build passes to the shots
 //! program (`run --pictures`): the program caches each board picture it draws
 //! there as `boards/<board hash>.png` and `.json`, the hash of everything the
-//! picture depends on, and draws only the boards whose hash the folder lacks;
-//! and it caches each shot the app takes as
+//! picture depends on, and draws only the boards whose hash the folder lacks.
+//! `builds shots draws` and `states` keep a page the same way and, beside the
+//! picture or alone, the components the page draws as
+//! `boards/<hash>.instances.json`; the cap deletes it with its picture. The
+//! program caches each shot the app takes as
 //! `<platform>/<app source tree>/<shot>.png` and `.json` (app_tree.rs), and
 //! takes no shot again when the folder caches every one the run selects. The
 //! folder's key for a shot is the app source tree combined with the
@@ -97,6 +100,10 @@ const OUTPUT_FILE: &str = "output.txt";
 const REPORT: &str = "report";
 /// The folder of a picture folder that holds the board pictures.
 pub const BOARD_PICTURES: &str = "boards";
+
+/// The ending of the file that keeps the components a board or preview page
+/// draws, beside its picture `<hash>.png`.
+const INSTANCES: &str = ".instances.json";
 /// What the name of a folder starts with that holds, in a picture folder,
 /// the pictures a run on a host made while builds moves them into place.
 const INCOMING: &str = ".incoming-";
@@ -800,6 +807,24 @@ fn group(places: &Places, repo: &str, named: &Named) -> Result<Group> {
     for (name, path) in entries_in(&boards)? {
         if name.starts_with('.') {
             kept.push(Kept::Loose { file: path });
+        } else if let Some(hash) = name.strip_suffix(INSTANCES) {
+            // Beside a picture they go with it (below); alone they are what
+            // `builds shots states` kept of a page it read and drew no
+            // picture of.
+            if !boards.join(format!("{hash}.png")).exists() {
+                let Some(last_use) = capped_store::written_at(&path)? else {
+                    note(format!(
+                        "{} disappeared during prune planning",
+                        path.display()
+                    ));
+                    continue;
+                };
+                kept.push(Kept::Files {
+                    last_use,
+                    files: vec![path],
+                    what: "the components of a page",
+                });
+            }
         } else if let Some(hash) = name.strip_suffix(".png") {
             let Some(last_use) = capped_store::written_at(&path)? else {
                 note(format!(
@@ -808,11 +833,17 @@ fn group(places: &Places, repo: &str, named: &Named) -> Result<Group> {
                 ));
                 continue;
             };
+            // The picture goes before its element list, so the shots
+            // program never finds a picture without one; the page's
+            // components, which need no picture, go last.
+            let mut files = vec![path.clone(), boards.join(format!("{hash}.json"))];
+            let instances = boards.join(format!("{hash}{INSTANCES}"));
+            if instances.exists() {
+                files.push(instances);
+            }
             kept.push(Kept::Files {
                 last_use,
-                // The picture goes before its element list, so the shots
-                // program never finds a picture without one.
-                files: vec![path.clone(), boards.join(format!("{hash}.json"))],
+                files,
                 what: "a board picture",
             });
         } else if let Some(hash) = name.strip_suffix(".json")

@@ -1436,6 +1436,11 @@ shots-unshot and shots-preview lines. app-build passes the folder to each shots 
 on this Mac (`run --pictures`), and the run draws only the boards whose hash
 the folder lacks and adds each new drawing to it, so builds draws a board
 once for its inputs.
+`builds shots draws` and `states` keep a shared board and a component's
+preview page in the same folder by the same kind of hash, each with a file
+`<hash>.instances.json` that holds the components the page draws (alone, for
+a page `states` read and drew no picture of); the cap deletes it with its
+picture.
 
 The same folder caches the app's shots by the lane's app source tree, in
 pictures/<platform>/<app tree>/, where <app tree> is a hash of the lane's
@@ -1782,16 +1787,17 @@ built again.
                               command prints `alike` or `differs` for each
                               name, and a second run of the same comparison
                               prints the same.
-                              A screen board (a shot's name) takes its
-                              drawing from the repo's picture folder by its
-                              board hash (APP BUILDS) when the folder keeps
-                              one, and the command draws only the boards the
-                              folder lacks and keeps them there, so a design
-                              branch's full comparison draws the boards the
-                              branch changed. builds passes the folder
-                              (`--pictures <folder>` names another). A shared
-                              board and a component preview are drawn each
-                              time: the folder keeps no picture of either.
+                              Each board and each component's preview page
+                              takes its drawing from the repo's picture
+                              folder by its hash (APP BUILDS) when the folder
+                              keeps one, and the command draws only the pages
+                              the folder lacks and keeps them there, so a
+                              design branch's full comparison draws what the
+                              branch changed. A page it draws also keeps the
+                              components it draws, in `<hash>.instances.json`
+                              beside the picture (`states` reads them).
+                              builds passes the folder (`--pictures <folder>`
+                              names another).
   builds shots run|scenes|capture|check|lint|runtime|chrome|components|states|version [<argument>...]
                               run the shots checker, which checks the shots
                               of the repo it runs in against the repo's
@@ -1894,10 +1900,15 @@ built again.
                               that declares its shot. `run` and `check` print
                               how many gaps the listing has and put the
                               listing in the report, and a gap fails neither.
-                              `states [--at <rev>] [--against <rev>]` draws
-                              every board and every component's preview, as the
-                              working tree holds them or as they are at <rev>,
-                              and lists each component state that a board draws
+                              `states [--at <rev>] [--against <rev>]` reads
+                              the components of every board and every
+                              component's preview, as the working tree holds
+                              them or as they are at <rev>, from the repo's
+                              picture folder by each page's hash and, for each
+                              page the folder lacks, from a drawing of the
+                              page, which it keeps there (`--pictures
+                              <folder>` names another; builds passes the
+                              repo's), and lists each component state that a board draws
                               and no row of the component's preview shows, with
                               the boards that draw it, so that the design
                               session adds the state as a row of the preview

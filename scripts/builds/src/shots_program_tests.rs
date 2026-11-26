@@ -18,10 +18,14 @@ fn draws_takes_the_repos_picture_folder_unless_it_names_one() {
 }
 
 #[test]
-fn only_draws_gets_a_picture_folder_and_only_in_a_checkout() {
+fn draws_and_states_get_a_picture_folder_and_only_in_a_checkout() {
     let store = Some(PathBuf::from("/s"));
     let run = words("run --select mac.");
-    assert_eq!(with_board_store(&run, store), run);
+    assert_eq!(with_board_store(&run, store.clone()), run);
+    assert_eq!(
+        with_board_store(&words("states --at a"), store),
+        words("states --at a --pictures /s")
+    );
     let draws = words("draws --at a --against b");
     assert_eq!(with_board_store(&draws, None), draws);
 }

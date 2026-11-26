@@ -74,12 +74,15 @@ fn board_store(places: &Places) -> Result<Option<PathBuf>> {
 }
 
 /// <args> of a `builds shots` command, with `--pictures <store>` added to
-/// `draws` when <store> is known and the command names no folder, so that no
-/// agent draws a board that builds' picture folder holds (`builds help`).
+/// `draws` and `states` when <store> is known and the command names no
+/// folder, so that no agent draws a page that builds' picture folder holds
+/// (`builds help`).
 fn with_board_store(args: &[String], store: Option<PathBuf>) -> Vec<String> {
     let mut args = args.to_vec();
     if let Some(store) = store
-        && args.first().is_some_and(|sub| sub == "draws")
+        && args
+            .first()
+            .is_some_and(|sub| sub == "draws" || sub == "states")
         && !args
             .iter()
             .any(|arg| arg == "--pictures" || arg.starts_with("--pictures="))

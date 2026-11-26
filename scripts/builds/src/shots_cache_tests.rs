@@ -561,6 +561,47 @@ fn the_cap_deletes_board_pictures_and_runs_together_least_recently_used_first() 
     assert!(new_picture.exists() && new_picture.with_extension("json").exists());
 }
 
+/// Writes the component instances of a page into <repo>'s picture folder
+/// under <hash>, as the shots program keeps them, of <kib> KiB, last used
+/// <hours> ago.
+fn keep_instances(places: &Places, repo: &str, hash: &str, kib: usize, hours: u64) -> PathBuf {
+    let boards = pictures(places, repo).join(BOARD_PICTURES);
+    let file = boards.join(format!("{hash}.instances.json"));
+    fill(&file, kib);
+    age(&file, hours);
+    file
+}
+
+#[test]
+fn a_pictures_instances_go_with_the_picture_and_count_in_its_size() {
+    let scratch = Scratch::new("shot-store-instances-with-picture");
+    let places = scratch.places();
+    let tool = scratch.tool(0);
+    let old_picture = keep_picture(&places, "demo", "old", 200, 30);
+    let old_instances = keep_instances(&places, "demo", "old", 300, 30);
+    let new_picture = keep_picture(&places, "demo", "new", 200, 2);
+    let new_instances = keep_instances(&places, "demo", "new", 300, 2);
+    prune_runs(&tool, Run::Real, 600).unwrap();
+    assert!(
+        !old_picture.exists() && !old_instances.exists(),
+        "the old picture and its instances go together"
+    );
+    assert!(new_picture.exists() && new_instances.exists());
+}
+
+#[test]
+fn instances_with_no_picture_are_kept_by_their_own_last_use() {
+    let scratch = Scratch::new("shot-store-instances-alone");
+    let places = scratch.places();
+    let tool = scratch.tool(0);
+    std::fs::create_dir_all(pictures(&places, "demo").join(BOARD_PICTURES)).unwrap();
+    let old = keep_instances(&places, "demo", "old", 400, 30);
+    let new = keep_instances(&places, "demo", "new", 400, 2);
+    prune_runs(&tool, Run::Real, 500).unwrap();
+    assert!(!old.exists(), "the least recently used goes first");
+    assert!(new.exists(), "a recent page's instances stay under the cap");
+}
+
 #[test]
 fn a_loose_picture_file_goes_once_no_run_writes_to_the_folder() {
     let scratch = Scratch::new("shot-store-loose");
