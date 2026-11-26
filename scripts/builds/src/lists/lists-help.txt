@@ -718,8 +718,11 @@ session that recorded the change has ended. builds sends no second message.
       `fix` says what a change that changes no design fixes: boards made to
       follow the design system's measures, a drawing mistake corrected, a
       board deleted because the app can no longer reach the state it draws,
-      or a board redrawn to draw what the app draws today, when the person
-      decided nothing about the difference (the board rule in
+      a board redrawn to draw what the app draws today, when the person
+      decided nothing about the difference, or a board redrawn where neither
+      it nor the app drew the screen as it should be and the person's
+      decisions, the spec or the platform's conventions settle what it
+      should be (the board rule in
       projects/bae-rules/screen-content/build-each-screen-to-match-its-board.md).
       Such a change needs no `review` and is approved when recorded. An amend
       without `fix` makes the change wait on the person's review again, unless

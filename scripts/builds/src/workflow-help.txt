@@ -590,14 +590,17 @@ change need no canvas link, artifact or claude.ai account (decision #702).
 Landing a design change publishes nothing (PUBLISHING DESIGNS).
 
 The design session records a fix that changes no design with `fix`, and the fix
-needs no review page or approval. Such fixes are boards it redrew to follow
-the design system's measures, a drawing mistake it corrected, a board it
-deleted because the app can no longer reach the state the board draws, and a
-board it redrew to draw what the app draws today, where the person decided
-nothing about the difference. Each fix is a design change of its own, in a
-commit of its own, and the ready fixes land as one batch (WORKTREES): `builds
-land <worktree> --design N --design M <sha>...` takes every change with all its
-commits and squashes nothing, so each fix keeps its commit.
+needs no review page or approval. Such fixes are boards it redrew to follow the
+design system's measures, a drawing mistake it corrected, a board it deleted
+because the app can no longer reach the state the board draws, a board it
+redrew to draw what the app draws today, where the person decided nothing about
+the difference, and a board it redrew where neither the board nor the app drew
+the screen as it should be and the person's decisions, the spec or the
+platform's conventions settle what it should be (decision #1422 in project
+bae). Each fix is a design change of its own, in a commit of its own, and the
+ready fixes land as one batch (WORKTREES): `builds land <worktree> --design N
+--design M <sha>...` takes every change with all its commits and squashes
+nothing, so each fix keeps its commit.
 
   1. While drawing, look at a board with `builds design render`, which draws
      it from the worktree as one page of HTML and publishes nothing. To
