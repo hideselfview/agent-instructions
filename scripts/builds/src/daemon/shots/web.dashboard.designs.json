@@ -1878,7 +1878,7 @@
       },
       {
        "name": "Your libraries and removing one",
-       "y": 900.0,
+       "y": 1000.0,
        "boards": [
         "mac.welcome.opening.steps",
         "mac.welcome.reset.confirm",
@@ -1888,7 +1888,7 @@
       },
       {
        "name": "Joining from an invite",
-       "y": 1800.0,
+       "y": 2000.0,
        "boards": [
         "mac.welcome.board-9",
         "mac.welcome.board-10",
@@ -1898,7 +1898,7 @@
       },
       {
        "name": "Adding this device from another of yours",
-       "y": 2700.0,
+       "y": 3000.0,
        "boards": [
         "mac.welcome.board-13",
         "mac.welcome.board-14",
@@ -1911,7 +1911,7 @@
        "subs": [
         {
          "name": "Android",
-         "y": 3600.0,
+         "y": 4000.0,
          "boards": [
           "mac.welcome.board-17",
           "mac.welcome.board-18"
@@ -1919,7 +1919,7 @@
         },
         {
          "name": "macOS",
-         "y": 4050.0,
+         "y": 4450.0,
          "boards": [
           "mac.welcome.board-19",
           "mac.welcome.board-20"
@@ -1929,7 +1929,7 @@
       },
       {
        "name": "Entering a code",
-       "y": 4500.0,
+       "y": 13000.0,
        "boards": [
         "mac.welcome.board-21",
         "mac.welcome.board-22",
@@ -1939,7 +1939,7 @@
       },
       {
        "name": "Resetting this device",
-       "y": 5400.0,
+       "y": 14000.0,
        "boards": [
         "mac.welcome.board-25",
         "mac.welcome.board-26",
@@ -1949,7 +1949,7 @@
       },
       {
        "name": "Creating a library",
-       "y": 6300.0,
+       "y": 15000.0,
        "boards": [
         "mac.welcome.board-29",
         "mac.welcome.board-30",
@@ -1959,7 +1959,7 @@
       },
       {
        "name": "Saved restore codes",
-       "y": 7200.0,
+       "y": 16000.0,
        "boards": [
         "mac.welcome.board-33",
         "mac.welcome.board-34",
