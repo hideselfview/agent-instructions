@@ -31,7 +31,7 @@ use crate::review::provider::Provider;
 use crate::text::note;
 use crate::tool::Tool;
 
-const USAGE: &str = "builds agent run --role implementing|planner N [M...] [--brief P] [--message-file F] [--project P] [--by WHO]\n       builds agent resume SESSION [--item N]... [--message-file F] [--project P]";
+const USAGE: &str = "builds agent run --role implementing|planner N [M...] [--brief P] [--message-file F] [--project P] [--by WHO]\n       builds agent resume SESSION [--item N]... [--message-file F] [--project P]\n       builds agent list [--running] [--project P]\n       builds agent show SESSION [--project P]";
 
 /// `builds agent <command>`; `agent start`, the hook, is `ack::agent`'s.
 pub fn cmd_agent(tool: &Tool, args: &[String]) -> Result<()> {
@@ -40,6 +40,12 @@ pub fn cmd_agent(tool: &Tool, args: &[String]) -> Result<()> {
         Some((command, rest)) if command == "run" => run(tool, rest, &cwd, &mut std::io::stdout()),
         Some((command, rest)) if command == "resume" => {
             resume(tool, rest, &cwd, &mut std::io::stdout())
+        }
+        Some((command, rest)) if command == "list" => {
+            crate::agent_list::list(tool, rest, &cwd, &mut std::io::stdout())
+        }
+        Some((command, rest)) if command == "show" => {
+            crate::agent_list::show(tool, rest, &cwd, &mut std::io::stdout())
         }
         Some((command, _)) => fail!("builds agent has no command {command}\nusage: {USAGE}"),
         None => fail!("usage: {USAGE}"),
@@ -302,6 +308,7 @@ fn run(tool: &Tool, args: &[String], cwd: &Path, out: &mut dyn Write) -> Result<
         started_at: now(),
         started_by,
         items: ids.iter().map(|id| id.0).collect(),
+        context: None,
     };
     let process = Process {
         pid,

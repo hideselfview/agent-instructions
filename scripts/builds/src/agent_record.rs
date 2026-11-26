@@ -48,6 +48,17 @@ pub struct Agent {
     pub started_at: i64,
     pub started_by: String,
     pub items: Vec<u32>,
+    /// The context of its last turn; None before the first turn.
+    pub context: Option<Context>,
+}
+
+/// The context of an agent's last turn.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Context {
+    pub tokens: u64,
+    /// The model's window, known once the agent's result line has named it.
+    pub window: Option<u64>,
+    pub read_at: i64,
 }
 
 /// A process of an agent, as builds records its start.
@@ -179,7 +190,28 @@ fn row_agent(row: &rusqlite::Row<'_>) -> rusqlite::Result<Agent> {
         started_at: row.get("started_at")?,
         started_by: row.get("started_by")?,
         items: Vec::new(),
+        context: {
+            let tokens: Option<i64> = row.get("context_tokens")?;
+            let window: Option<i64> = row.get("context_window")?;
+            let read_at: Option<i64> = row.get("context_read_at")?;
+            tokens.zip(read_at).map(|(tokens, read_at)| Context {
+                tokens: tokens as u64,
+                window: window.map(|window| window as u64),
+                read_at,
+            })
+        },
     })
+}
+
+fn items_of(db: &Connection, session: &str) -> Result<Vec<u32>> {
+    let mut statement = db
+        .prepare("SELECT item FROM agent_item WHERE session = ?1 ORDER BY item")
+        .sql()?;
+    statement
+        .query_map([session], |row| row.get(0))
+        .sql()?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .sql()
 }
 
 /// The agent of <session>, with its items, None when the store has none.
@@ -195,15 +227,62 @@ pub fn read(db: &Connection, session: &str) -> Result<Option<Agent>> {
     let Some(mut agent) = found else {
         return Ok(None);
     };
+    agent.items = items_of(db, session)?;
+    Ok(Some(agent))
+}
+
+/// Every agent of the store, oldest first, with its items.
+pub fn read_all(db: &Connection) -> Result<Vec<Agent>> {
     let mut statement = db
-        .prepare("SELECT item FROM agent_item WHERE session = ?1 ORDER BY item")
+        .prepare("SELECT * FROM agent ORDER BY started_at, session")
         .sql()?;
-    agent.items = statement
-        .query_map([session], |row| row.get(0))
+    let mut agents = statement
+        .query_map([], row_agent)
         .sql()?
         .collect::<rusqlite::Result<Vec<_>>>()
         .sql()?;
-    Ok(Some(agent))
+    for agent in &mut agents {
+        agent.items = items_of(db, &agent.session)?;
+    }
+    Ok(agents)
+}
+
+/// A process of an agent as the store keeps it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProcessRow {
+    pub number: u32,
+    pub process: Process,
+    /// When builds saw it end and its exit status; None when builds saw no
+    /// end.
+    pub ended: Option<(i64, i32)>,
+}
+
+/// Every process of <session>'s agent, first first.
+pub fn processes(db: &Connection, session: &str) -> Result<Vec<ProcessRow>> {
+    let mut statement = db
+        .prepare(
+            "SELECT number, pid, pid_started, started_at, ended_at, exit_status, message \
+             FROM agent_process WHERE session = ?1 ORDER BY number",
+        )
+        .sql()?;
+    statement
+        .query_map([session], |row| {
+            let ended: Option<i64> = row.get(4)?;
+            let status: Option<i32> = row.get(5)?;
+            Ok(ProcessRow {
+                number: row.get(0)?,
+                process: Process {
+                    pid: row.get(1)?,
+                    pid_started: row.get(2)?,
+                    started_at: row.get(3)?,
+                    message: row.get(6)?,
+                },
+                ended: ended.zip(status),
+            })
+        })
+        .sql()?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .sql()
 }
 
 #[cfg(test)]

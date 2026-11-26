@@ -297,7 +297,8 @@ HANDOFF, AUDITS AND FLAKY TESTS
   - When an agent's context reaches about 550k tokens, it writes a handoff
     file at its next clean point (what's committed, what isn't, what's left,
     decisions, traps), and a fresh agent continues from it (`builds item
-    handoff`).
+    handoff`). The coordinator reads each agent's context in `builds agent
+    list`, which marks each agent past that size.
   - Read-only agents (planners, audits) read origin/main through `git show`
     and `git grep`, never a checkout.
   - Flaky tests and speed work (profiling, benchmarks, timing a build) never

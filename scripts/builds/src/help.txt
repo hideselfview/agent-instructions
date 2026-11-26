@@ -198,6 +198,18 @@ process ends.
         -p --resume SESSION` with the flags of the agent's role and the
         recorded model, in the agent's folder, appends to the agent's log,
         records a new process, and runs until it ends, as `agent run` does.
+  builds agent list [--running] [--project P]
+      Prints one line for each agent the project recorded, oldest first: the
+      session, role, model, items, folder, whether it runs now or when it
+      ended, and the context of its last turn against its model's window,
+      such as `292k of 1000k`. An agent at 550k or more is marked past the
+      handoff size (`builds help workflow`, HANDOFF, AUDITS AND FLAKY TESTS),
+      so the coordinator sees which finished agents can take more work.
+      --running lists only the agents that run now.
+  builds agent show SESSION [--project P]
+      Prints the agent's record: its fields, the log's path, each process of
+      the session (pid, start, end and exit status, and the hash of the
+      message builds sent it) and the last result text of its log.
 
 
 BUILD VOLUME

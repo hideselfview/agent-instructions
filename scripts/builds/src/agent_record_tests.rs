@@ -12,6 +12,7 @@ fn agent(session: &str) -> Agent {
         started_at: 1000,
         started_by: "coordinator".into(),
         items: vec![1, 2],
+        context: None,
     }
 }
 
