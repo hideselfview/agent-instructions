@@ -376,6 +376,15 @@ impl Settlement {
 }
 
 impl DesignChange {
+    /// The places that name no app work yet, in path order.
+    pub fn places_lacking_app_work(&self) -> Vec<&str> {
+        self.places
+            .iter()
+            .filter(|(_, resolution)| resolution.is_none())
+            .map(|(path, _)| path.as_str())
+            .collect()
+    }
+
     /// The places the change holds that a drawing shows: every place but a
     /// spec section.
     pub fn drawn_places(&self) -> BTreeSet<String> {
@@ -663,12 +672,7 @@ fn resolve(
     // A decided change is approved as it is recorded, and no later step
     // names its app work, so the request names it for every place.
     if matches!(request.settlement, Settlement::Decision(_)) {
-        let lacking: Vec<&str> = design
-            .places
-            .iter()
-            .filter(|(_, resolution)| resolution.is_none())
-            .map(|(path, _)| path.as_str())
-            .collect();
+        let lacking = design.places_lacking_app_work();
         if !lacking.is_empty() {
             fail!(
                 "a change settled by a `decision` is approved as recorded, so each place needs its app work in this request; these places name none: {}; give each under `places` as `item` (an open item), `new` (an item draft) or `matches` (how it was checked)",
@@ -1337,12 +1341,7 @@ pub fn check_changes(designs: &[DrawnChange], changes: &Changes) -> Result<()> {
                 id.0
             );
         }
-        let unnamed: Vec<&str> = design
-            .places
-            .iter()
-            .filter(|(_, resolution)| resolution.is_none())
-            .map(|(path, _)| path.as_str())
-            .collect();
+        let unnamed = design.places_lacking_app_work();
         if !unnamed.is_empty() {
             fail!(
                 "design change {id} names no app work for {}; give each under `places` in `builds design amend {}` as `item` (an open item), `new` (an item draft) or `matches` (how it was checked), which keeps the person's approval",
