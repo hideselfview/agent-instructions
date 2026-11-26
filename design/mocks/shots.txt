@@ -1,0 +1,7 @@
+web.dashboard.page
+web.dashboard.lists-queue
+web.dashboard.lane-modals
+web.dashboard.designs
+web.dashboard.designs-publish
+web.dashboard.designs-system
+web.dashboard.designs-scratch
