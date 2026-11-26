@@ -294,8 +294,11 @@ impl Palette {
 }
 
 /// The dominant background and the foreground colours in `bounds`, in points
-/// from the picture's top-left.
-fn palette(picture: &Picture, scale: f64, bounds: Bounds) -> Option<Palette> {
+/// from the picture's top-left. With `ink`, the foreground leaves out each
+/// row at the top or bottom edge of the box that is one colour from end to
+/// end and far from the background, with the rows inside it that are the same
+/// kind of line: a border of a neighbouring control, never a glyph's.
+fn palette(picture: &Picture, scale: f64, bounds: Bounds, ink: bool) -> Option<Palette> {
     let (left, top) = (
         (bounds.x * scale).round() as i64,
         (bounds.y * scale).round() as i64,
@@ -312,10 +315,43 @@ fn palette(picture: &Picture, scale: f64, bounds: Bounds) -> Option<Palette> {
     }
     let (background, lab) = background_of(&counts)?;
     let pixels = counts.values().sum();
-    let foreground = counts
+    let is_foreground = |colour: Rgb| delta_e(lab, Lab::of(colour)) > FAR_FROM_BACKGROUND;
+    let mut ink_counts = counts.clone();
+    if ink {
+        // The colour of a row that has one colour from end to end.
+        let line = |y: i64| -> Option<Rgb> {
+            let first = pixel(picture, left, y)?;
+            (left..right)
+                .all(|x| pixel(picture, x, y) == Some(first))
+                .then_some(first)
+                .filter(|colour| is_foreground(*colour))
+        };
+        let mut drop_row = |y: i64| {
+            for x in left..right {
+                if let Some(colour) = pixel(picture, x, y)
+                    && let Some(count) = ink_counts.get_mut(&colour)
+                {
+                    *count -= 1;
+                }
+            }
+        };
+        for rows in [
+            Box::new(top..bottom) as Box<dyn Iterator<Item = i64>>,
+            Box::new((top..bottom).rev()),
+        ] {
+            for y in rows {
+                if line(y).is_none() {
+                    break;
+                }
+                drop_row(y);
+            }
+        }
+        ink_counts.retain(|_, count| *count > 0);
+    }
+    let foreground = ink_counts
         .iter()
         .map(|(colour, count)| (*colour, *count))
-        .filter(|(colour, _)| delta_e(lab, Lab::of(*colour)) > FAR_FROM_BACKGROUND)
+        .filter(|(colour, _)| is_foreground(*colour))
         .collect();
     Some(Palette {
         background,
@@ -390,8 +426,18 @@ pub(crate) fn pairs(
             ));
             continue;
         }
-        let from = palette(board.picture, board.scale, b.bounds(board.elements));
-        let to = palette(shot.picture, shot.scale, shot.elements[s.index].bounds);
+        let from = palette(
+            board.picture,
+            board.scale,
+            b.bounds(board.elements),
+            b.kind == Role::Text,
+        );
+        let to = palette(
+            shot.picture,
+            shot.scale,
+            shot.elements[s.index].bounds,
+            b.kind == Role::Text,
+        );
         if let (Some(from), Some(to)) = (&from, &to) {
             // A box that fits its glyph tightly is mostly glyph, and a looser
             // box is mostly surface, so one side's majority colour can be the

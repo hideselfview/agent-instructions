@@ -91,7 +91,7 @@ fn the_background_is_the_most_common_colour_and_the_foreground_the_most_frequent
         width: 10.0,
         height: 10.0,
     };
-    let palette = palette(&picture, 1.0, bounds).unwrap();
+    let palette = palette(&picture, 1.0, bounds, false).unwrap();
     assert_eq!(palette.background, dark);
     assert_eq!(palette.mode().map(|(colour, _)| colour), Some(white));
 }
@@ -118,7 +118,7 @@ fn a_background_of_many_near_shades_beats_a_text_of_one_fill() {
         width: 10.0,
         height: 10.0,
     };
-    let palette = palette(&picture, 1.0, bounds).unwrap();
+    let palette = palette(&picture, 1.0, bounds, false).unwrap();
     assert!(
         rgb_delta(palette.background, [21, 20, 33]) < 6.0,
         "{:?}",
@@ -136,7 +136,7 @@ fn a_box_of_one_colour_has_no_foreground() {
         width: 4.0,
         height: 4.0,
     };
-    let palette = palette(&picture, 1.0, bounds).unwrap();
+    let palette = palette(&picture, 1.0, bounds, false).unwrap();
     assert_eq!(palette.background, [9, 9, 9]);
     assert_eq!(palette.glyph_colour(), None);
 }
@@ -152,7 +152,7 @@ fn a_box_is_read_in_pixels_at_the_scale() {
         height: 2.0,
     };
     assert_eq!(
-        palette(&picture, 2.0, bounds).unwrap().background,
+        palette(&picture, 2.0, bounds, false).unwrap().background,
         [255, 0, 0]
     );
 }
@@ -385,6 +385,23 @@ fn glyphs_keep_their_colour_when_edge_pixels_outnumber_stem_pixels() {
         let warnings = warn(Role::Text, &board, &shot);
         assert!(warnings.is_empty(), "{warnings:?}");
     }
+}
+
+#[test]
+fn text_ignores_a_border_line_that_crosses_its_box() {
+    let background = [40, 40, 48];
+    let ink = [236, 236, 238];
+    let border = [74, 74, 85];
+    let board = picture(8, 8, |x, y| if x == 1 && y > 0 { ink } else { background });
+    // The shot's box also holds the row of a border above the text, a line
+    // with more pixels than any one colour of the glyphs.
+    let shot = picture(8, 8, |x, y| match (x, y) {
+        (_, 0) => border,
+        (1, 1..=4) => ink,
+        _ => background,
+    });
+    let warnings = warn(Role::Text, &board, &shot);
+    assert!(warnings.is_empty(), "{warnings:?}");
 }
 
 #[test]
