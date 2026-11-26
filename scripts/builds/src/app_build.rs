@@ -1319,16 +1319,17 @@ struct ShotsCache {
     bases: Vec<(String, BaseRun)>,
 }
 
-/// The names of the shots declared at <base> in <source>, read once into
-/// <cache> and then reused for every prefix of a run.
+/// The names of the shots <lane> declares at <base> in <source>, read once
+/// into <cache> and then reused for every prefix of a run.
 fn base_declared<'a>(
     cache: &'a mut Option<Vec<String>>,
     source: &Path,
     base: &str,
+    lane: Lane,
 ) -> Result<&'a [String]> {
     let names = match cache.take() {
         Some(names) => names,
-        None => crate::shots_declared::declared_names_at(source, base)?,
+        None => crate::shots_declared::declared_names_in_lane(source, base, lane)?,
     };
     Ok(cache.insert(names))
 }
@@ -1393,7 +1394,7 @@ impl ShotsCache {
                 // A prefix that starts no shot declared at the merge base has
                 // nothing to compare with: its scenes are all new.
                 None if !crate::shots_declared::starts_a_shot(
-                    base_declared(&mut base_declared_names, source, &base)?,
+                    base_declared(&mut base_declared_names, source, &base, lane)?,
                     prefix,
                 ) =>
                 {
@@ -1840,9 +1841,9 @@ struct LaneRequest<'a> {
     fresh: bool,
 }
 
-/// The merge base of a lane's commit with origin/main, whose runs the shots
-/// of the commit compare with, read from git alone, before the lane takes a
-/// checkout.
+/// The merge base of a lane's commit with origin/main, where the lane makes
+/// the runs that the shots of the commit compare with, read from git alone,
+/// before the lane takes a checkout.
 struct MergeBase {
     commit: String,
     /// The repo's `.app-build` at the merge base.
@@ -1850,7 +1851,7 @@ struct MergeBase {
     /// The steps of the lane that a run of its picks at the merge base needs:
     /// the lane's `needs` steps.
     names: Vec<String>,
-    /// The shots picks of the lane.
+    /// The lane's shots picks that start a shot declared at the merge base.
     prefixes: Vec<shots::Prefix>,
     /// The prefixes of the picks that select a scene shown in its window at
     /// the merge base.
@@ -1858,17 +1859,11 @@ struct MergeBase {
 }
 
 impl MergeBase {
-    /// The merge base of <commit> when it is not <commit> itself, and the
-    /// lane has shots picks among <picks>; None otherwise.
-    fn of(
-        places: &Places,
-        repo: &str,
-        lane: Lane,
-        source: &Path,
-        commit: &str,
-        picks: &[Pick],
-    ) -> Result<Option<Self>> {
-        let prefixes: Vec<_> = Pick::prefixes(picks).cloned().collect();
+    /// The merge base of <commit> when it is not <commit> itself and one of
+    /// the lane's shots picks among <picks> starts a shot the lane declares
+    /// there; None otherwise, since the merge base then has no run to make.
+    fn of(lane: Lane, source: &Path, commit: &str, picks: &[Pick]) -> Result<Option<Self>> {
+        let mut prefixes: Vec<_> = Pick::prefixes(picks).cloned().collect();
         if prefixes.is_empty() {
             return Ok(None);
         }
@@ -1876,7 +1871,12 @@ impl MergeBase {
         if base == commit {
             return Ok(None);
         }
-        let config = config_at(places, repo, &base)?;
+        let declared = crate::shots_declared::declared_names_in_lane(source, &base, lane)?;
+        prefixes.retain(|prefix| crate::shots_declared::starts_a_shot(&declared, prefix.as_str()));
+        if prefixes.is_empty() {
+            return Ok(None);
+        }
+        let config = config_in(source, &base)?;
         let commands = Self::commands(lane, &prefixes);
         let names = crate::derive::plan(&config, &[], &commands)
             .into_iter()
@@ -1964,9 +1964,9 @@ struct LaneBuild<'a> {
     /// its window at the commit.
     windowed: Vec<(String, Access)>,
     /// The merge base, when the commit has one and the lane has shots picks
-    /// that compare with a run of it. None for a lane that runs its picks
-    /// against the checkout as it is (no step named): it cannot switch the
-    /// checkout to the merge base.
+    /// that compare with a run of it (`MergeBase::of`). None also for a lane
+    /// that runs its picks against the checkout as it is (no step named): it
+    /// cannot switch the checkout to the merge base.
     base: Option<MergeBase>,
 }
 
@@ -2009,7 +2009,7 @@ fn build_lane(
     let base = if runs_checkout_as_it_is {
         None
     } else {
-        MergeBase::of(places, repo, lane, &source, commit, picks)?
+        MergeBase::of(lane, &source, commit, picks)?
     };
     let build = LaneBuild {
         places,
@@ -2364,11 +2364,10 @@ impl<'a> LaneBuild<'a> {
 
     /// Makes the cache hold the run of each shots pick of the lane at the
     /// merge base <base>, which the commit's shots compare with, in <site>:
-    /// the picks that start a shot declared at the merge base and have no
-    /// cached run. The lane checks the merge base out, runs the lane's
-    /// `needs` steps there (none when the picture folder caches every shot
-    /// the runs take), runs the missing prefixes with `--base`, and caches
-    /// their findings, holding the lock on the merge base's runs, so another
+    /// the picks of <base> that have no cached run. The lane checks the merge
+    /// base out, runs the lane's `needs` steps there (none when the picture
+    /// folder caches every shot the runs take), runs the missing prefixes
+    /// with `--base`, and caches their findings, holding the lock on the merge base's runs, so another
     /// lane's process that needs the same runs waits for them and reads them
     /// from the cache. The lane then goes on with the commit in the same
     /// turn. A run of the merge base compares with nothing, so the findings
@@ -2412,21 +2411,7 @@ impl<'a> LaneBuild<'a> {
             }
             Ok(missing)
         };
-        let lacking = missing(&base.prefixes)?;
-        if lacking.is_empty() {
-            return Ok((Ended::Finished, Vec::new()));
-        }
-        let declared = crate::shots_declared::declared_names_at(&self.source, &base.commit)?;
-        let (asked, new): (Vec<_>, Vec<_>) = lacking
-            .into_iter()
-            .partition(|pick| crate::shots_declared::starts_a_shot(&declared, pick.as_str()));
-        if !new.is_empty() {
-            note(format!(
-                "{} start no shot declared at the merge base {}, so their runs compare with nothing and every scene they select is new",
-                prefixes_of(&new),
-                short(&base.commit)
-            ));
-        }
+        let asked = missing(&base.prefixes)?;
         if asked.is_empty() {
             return Ok((Ended::Finished, Vec::new()));
         }

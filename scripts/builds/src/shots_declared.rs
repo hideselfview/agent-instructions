@@ -84,7 +84,7 @@ pub fn windowed_prefixes(
             continue;
         }
         if !declared.contains_key(lane) {
-            declared.insert(*lane, declared_at(top, commit, Some(*lane))?);
+            declared.insert(*lane, declared_at(top, commit, *lane)?);
         }
         let access = declared[lane]
             .iter()
@@ -111,16 +111,14 @@ pub fn starts_a_shot(declared: &[String], prefix: &str) -> bool {
     declared.iter().any(|name| name.starts_with(prefix))
 }
 
-/// The names of the shots the harnesses declare at <commit> of the repo at
-/// <top>.
-pub fn declared_names_at(top: &Path, commit: &str) -> Result<Vec<String>> {
-    declared_names(top, commit, None)
-}
-
-/// The names declared by the harness for <lane>, empty when the commit
-/// names no harness for that lane.
+/// The names of the shots the harness for <lane> declares at <commit> of the
+/// repo at <top>, empty when the commit has no `.app-build` or its
+/// `.app-build` names no harness for that lane.
 pub fn declared_names_in_lane(top: &Path, commit: &str, lane: Lane) -> Result<Vec<String>> {
-    declared_names(top, commit, Some(lane))
+    Ok(declared_at(top, commit, lane)?
+        .into_iter()
+        .map(|scene| scene.name.to_string())
+        .collect())
 }
 
 pub type ShotNames = Rc<HashSet<String>>;
@@ -157,34 +155,20 @@ impl<'a> ShotDeclarations<'a> {
     }
 }
 
-fn declared_names(top: &Path, commit: &str, lane: Option<Lane>) -> Result<Vec<String>> {
-    Ok(declared_at(top, commit, lane)?
-        .into_iter()
-        .map(|scene| scene.name.to_string())
-        .collect())
-}
-
-/// The shots the commit's `.app-build` declares, limited to <lane> when given.
-fn declared_at(top: &Path, commit: &str, lane: Option<Lane>) -> Result<Vec<shots::Declared>> {
+/// The shots the commit's `.app-build` declares for <lane>; none when the
+/// commit has no `.app-build`.
+fn declared_at(top: &Path, commit: &str, lane: Lane) -> Result<Vec<shots::Declared>> {
+    if !boards::exists_in(top, commit, CONFIG).map_err(|error| Fail::Message(error.to_string()))? {
+        return Ok(Vec::new());
+    }
     let config = run_git(top, &["show", &format!("{commit}:{CONFIG}")])?;
-    let folders = match lane {
-        Some(lane) => {
-            let app = lane.app();
-            let folder = boards::app_build::declared_folder(&config, &app.name)
-                .map_err(|error| Fail::Message(error.text()))?;
-            let Some(folder) = folder else {
-                return Ok(Vec::new());
-            };
-            vec![(app, folder)]
-        }
-        None => {
-            let folders = shots::declared_folders(&config).map_err(Fail::Message)?;
-            if folders.is_empty() {
-                fail!("{CONFIG} at {commit} has no shots-declared line, so no shot is declared");
-            }
-            folders
-        }
+    let app = lane.app();
+    let Some(folder) = boards::app_build::declared_folder(&config, &app.name)
+        .map_err(|error| Fail::Message(error.text()))?
+    else {
+        return Ok(Vec::new());
     };
+    let folders = vec![(app, folder)];
     let paths: Vec<String> = folders.iter().map(|(_, folder)| folder.clone()).collect();
     let scratch = std::env::temp_dir();
     crate::evict::in_temp_dir(&scratch, ".builds-declared.", |root| {

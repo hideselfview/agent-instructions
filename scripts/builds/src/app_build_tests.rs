@@ -1972,6 +1972,73 @@ fn a_prefix_that_starts_no_shot_declared_at_the_merge_base_compares_with_no_run(
     assert!(!command.contains(&"--before".to_string()), "{command:?}");
 }
 
+/// The app build of a branch whose merge base holds <base_config> as its
+/// `.app-build`, or none, and whose one commit declares a Mac shot: its plan
+/// and what its shots run of the merge base's missing prefix compares with.
+fn plans_over_a_base_without_the_lanes_shots(base_config: Option<&str>) {
+    let scratch = crate::testing::Scratch::new("shots-base-declares-none");
+    let places = scratch.places();
+    let top = scratch.dir.join("repo");
+    crate::testing::repo(&top, "target\n");
+    if let Some(text) = base_config {
+        std::fs::write(top.join(CONFIG), text).unwrap();
+        crate::testing::git(&top, &["add", CONFIG]);
+        crate::testing::git(&top, &["commit", "-q", "-m", "Base"]);
+    }
+    let base = resolve(&top, "HEAD").unwrap();
+    let origin = top.display().to_string();
+    crate::testing::git(&top, &["remote", "add", "origin", &origin]);
+    crate::testing::git(&top, &["checkout", "-q", "-b", "work"]);
+    std::fs::write(
+        top.join(CONFIG),
+        "step mac macos true\nshots mac true {select}\nshots-declared mac app/shots\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(top.join("app/shots")).unwrap();
+    std::fs::write(
+        top.join("app/shots/Shots.swift"),
+        "let scenes = [\"mac.a.one\"]\n",
+    )
+    .unwrap();
+    crate::testing::git(&top, &["add", CONFIG, "app"]);
+    crate::testing::git(&top, &["commit", "-q", "-m", "Add shots"]);
+    crate::testing::git(&top, &["fetch", "-q", "origin"]);
+    let work = resolve(&top, "HEAD").unwrap();
+    let planned = MergeBase::of(Lane::MAC, &top, &work, &a_screens()).unwrap();
+    assert!(planned.is_none(), "the merge base has no run to make");
+    let config = config_in(&top, &work).unwrap();
+    let store = ShotsCache::of(
+        &places,
+        &top,
+        "demo",
+        Lane::MAC,
+        ENVIRONMENT,
+        &work,
+        picture_tree(&top, &work, &config, Lane::MAC, ENVIRONMENT).unwrap(),
+        &a_screens(),
+        false,
+        false,
+        false,
+        &[],
+        Path::new("/nonexistent/builds"),
+    )
+    .unwrap();
+    assert_eq!(
+        store.befores,
+        [("mac.a.".to_string(), Compared::Nothing(base))]
+    );
+}
+
+#[test]
+fn a_branch_that_adds_the_repos_first_app_build_compares_its_shots_with_an_empty_run() {
+    plans_over_a_base_without_the_lanes_shots(None);
+}
+
+#[test]
+fn a_merge_base_that_declares_no_shot_of_the_lane_compares_with_an_empty_run() {
+    plans_over_a_base_without_the_lanes_shots(Some("step android apk true\n"));
+}
+
 #[test]
 fn a_cached_run_made_in_another_environment_is_a_commits_own_run_and_is_printed() {
     let scratch = crate::testing::Scratch::new("shots-serve-environment");
