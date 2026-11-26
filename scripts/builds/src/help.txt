@@ -13,6 +13,11 @@ More help:
   builds help briefs    the instructions a coordinator gives an agent that
                         writes implementation briefs
 
+A section's heading after the page prints that section alone: `builds help
+lists RULINGS`, or `builds help APP BUILDS` for a section of this page. So a
+citation such as (`builds help lists`, RULINGS) is a command that prints what
+it names.
+
 builds is a Rust program in agent-instructions (scripts/builds).
 agent-instructions' install.sh builds it from the main checkout's committed
 HEAD, never from the working tree, with the libraries it is built with: the

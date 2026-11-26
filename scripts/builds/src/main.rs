@@ -462,14 +462,13 @@ fn run(command: &str, args: &[String], session: ack::agent::Session) -> Result<(
         }
         "queue" => return queue::cmd_queue(&Places::from_env()?, args),
         "takeover" => return queue::cmd_takeover(&Places::from_env()?, args),
-        "-h" | "--help" | "help" => {
-            let topic = match args {
-                [topic] => help::page(Some(topic.as_str())).map(|_| topic.as_str()),
-                _ => None,
-            };
-            print!("{}", help::page(topic).expect("builds help has a page"));
-            return Ok(());
-        }
+        "-h" | "--help" | "help" => match help::lookup(args) {
+            Ok(text) => {
+                print!("{text}");
+                return Ok(());
+            }
+            Err(why) => fail!("{why}"),
+        },
         _ => {}
     }
     if command == "dashboard" {

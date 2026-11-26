@@ -29,6 +29,37 @@ pub fn page(topic: Option<&str>) -> Option<&'static str> {
     }
 }
 
+/// What `builds help <args>` prints: with no <args>, `builds help`; with a
+/// page's topic, that page; and with the words of a section's heading after
+/// the topic, or alone for a section of `builds help`, that section only, so
+/// that a citation such as (`builds help lists`, RULINGS) is the command
+/// `builds help lists RULINGS`. The heading's words match in any case. Err
+/// names the page's headings when none matches.
+pub fn lookup(args: &[String]) -> Result<&'static str, String> {
+    let (topic, words) = match args.split_first() {
+        Some((topic, words)) if page(Some(topic)).is_some() => (Some(topic.as_str()), words),
+        _ => (None, args),
+    };
+    let text = page(topic).expect("a known topic or none");
+    if words.is_empty() {
+        return Ok(text);
+    }
+    let heading = words.join(" ");
+    chunks(text)
+        .into_iter()
+        .find(|(name, _)| !name.is_empty() && name.eq_ignore_ascii_case(&heading))
+        .map(|(_, section)| section)
+        .ok_or_else(|| {
+            let name = topic.map_or("builds help".to_string(), |topic| {
+                format!("builds help {topic}")
+            });
+            format!(
+                "{name} has no section {heading}. Its sections are {}.",
+                sections(text).join("; ")
+            )
+        })
+}
+
 /// Whether <line> is the heading of a section: it starts at the margin and
 /// holds capital letters, spaces and commas only.
 fn is_heading(line: &str) -> bool {

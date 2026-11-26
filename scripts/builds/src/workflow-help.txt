@@ -14,9 +14,11 @@ ack --role coordinator`, `--role design` or `--role judge`: PLAN, BRIEF,
 EXECUTE, DISPATCH and HEALTH CHECK for the coordinator, DESIGN CHANGES and
 PUBLISHING DESIGNS for the design session, JUDGING for the judge. An agent that
 takes up another role reads that role's sections the same way. `builds help
-workflow` prints every section. When this text changes, the next builds command
-an agent runs prints one line that gives `builds ack`, and the agent runs `builds
-ack` to read the changed sections: no other command counts the change as read.
+workflow` prints every section, and `builds help workflow DISPATCH` prints that
+section alone, as for any page (`builds help`). When this text changes, the
+next builds command an agent runs prints one line that gives `builds ack`, and
+the agent runs `builds ack` to read the changed sections: no other command
+counts the change as read.
 
 
 ROLES
