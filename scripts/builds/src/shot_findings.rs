@@ -33,7 +33,9 @@
 //! `builds shots findings <repo> <ref> <platform> <prefix>` prints the newest
 //! cached run of the commit made in any environment, with the environment it
 //! was made in, and with `--by-cause` its findings grouped by cause, from the records
-//! its report holds (shot_causes.rs). When this builds' shots program made
+//! its report holds (shot_causes.rs). It marks a finding unconfirmed when
+//! another cached run of the scene with the same board and app code lacks it
+//! (shot_unconfirmed.rs). When this builds' shots program made
 //! no run of the commit, it prints the newest run another program version
 //! made, with the findings that run stored, and says which versions made
 //! them (`shots_cache::lookup_older_program`). `builds app-build <repo> <ref>
@@ -264,29 +266,12 @@ fn note_run(cached: &Cached) {
     ));
 }
 
-/// The findings of the cached run <cached> grouped by cause, from the records
-/// its report holds. Fails when the run cached no such records, naming the
-/// command that runs it again for <git_ref>.
-pub fn by_cause(cached: &Cached, git_ref: &str) -> Result<String> {
-    records_text(cached, git_ref, shot_causes::text)
-}
-
-/// The findings of the cached run <cached>, one to a line, from the records
-/// its report holds, never the build log the run stored. Fails as `by_cause`
-/// does.
-pub fn plain(cached: &Cached, git_ref: &str) -> Result<String> {
-    records_text(cached, git_ref, shot_causes::lines)
-}
-
-/// <show> of the records of <cached>'s report; fails, naming the command that
-/// runs the shots again for <git_ref>, when it holds none.
-fn records_text(
-    cached: &Cached,
-    git_ref: &str,
-    show: fn(&shot_causes::Run) -> String,
-) -> Result<String> {
+/// The records of <cached>'s report, never the build log the run stored.
+/// Fails when the report holds none, naming the command that runs the shots
+/// again for <git_ref>.
+pub fn read_run(cached: &Cached, git_ref: &str) -> Result<shot_causes::Run> {
     match shot_causes::read(&cached.report()) {
-        Ok(run) => Ok(show(&run)),
+        Ok(run) => Ok(run),
         Err(error) => fail!(
             "{}. The shots program writes its findings as records beside its report, which builds caches with the run; `{} --fresh` runs this one again",
             error.text(),
@@ -414,10 +399,12 @@ pub fn cmd_findings(places: &Places, args: &[String]) -> Result<()> {
     if let Some(said) = older_program_note(&cached) {
         note(said);
     }
+    let mut run = read_run(&cached, git_ref)?;
+    crate::shot_unconfirmed::mark(places, &cached, &mut run)?;
     let text = if grouped {
-        by_cause(&cached, git_ref)?
+        shot_causes::text(&run)
     } else {
-        plain(&cached, git_ref)?
+        shot_causes::lines(&run)
     };
     note_run(&cached);
     print!("{text}");

@@ -406,6 +406,39 @@ pub fn environments(places: &Places, repo: &str, commit: &str, lane: Lane) -> Re
         .collect())
 }
 
+/// Every run of <repo> on <lane> made in <environment> by shots program
+/// <versions>, of any commit and prefix, whose report holds findings.json:
+/// the runs whose findings are comparable with one of that program and
+/// environment. Reading them marks none used.
+pub fn runs_in_environment(
+    places: &Places,
+    repo: &str,
+    lane: Lane,
+    environment: &str,
+    versions: &Versions,
+) -> Result<Vec<Cached>> {
+    let mut found = Vec::new();
+    let commits = root(places).join(repo).join("runs");
+    for (commit, _) in folders_in(&commits)? {
+        if commit.starts_with('.') {
+            continue;
+        }
+        let prefixes = prefixes_folder(places, repo, &commit, lane, environment);
+        for (prefix, _) in folders_in(&prefixes)? {
+            if prefix.starts_with('.') {
+                continue;
+            }
+            let key = Key::new(repo, &commit, lane, environment, &prefix, versions);
+            if let Some(cached) = read(&run_folder(places, &key), &key)?
+                && cached.findings_json().is_file()
+            {
+                found.push(cached);
+            }
+        }
+    }
+    Ok(found)
+}
+
 /// The folder of the runs of <key>'s capture version: one folder for each
 /// comparison version that compared its pictures.
 fn captures_folder(places: &Places, key: &Key) -> PathBuf {

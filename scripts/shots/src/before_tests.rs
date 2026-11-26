@@ -13,7 +13,7 @@ fn before() -> Before {
         "version": "v1",
         "capture_version": "c1",
         "commit": "abc",
-        "scenes": ["mac.a.b", "mac.a.c"],
+        "scenes": ["mac.a.b", "mac.a.c"], "boards": {},
         "failed": [],
         "problems": 0,
         "sizes": {},
@@ -188,7 +188,7 @@ fn a_finding_on_an_element_the_before_run_reported_missing_is_a_first_observatio
 #[test]
 fn a_finding_on_an_element_the_before_run_reported_extra_is_a_first_observation() {
     let text = serde_json::json!({
-        "version": "v1", "capture_version": "c1", "commit": "abc", "scenes": ["s"], "failed": [], "problems": 0, "sizes": {},
+        "version": "v1", "capture_version": "c1", "commit": "abc", "scenes": ["s"], "boards": {}, "failed": [], "problems": 0, "sizes": {},
         "components": [], "seen": {},
         "findings": [{"scene": "s", "level": "finding", "kind": "extra",
             "element": {"role": "text", "words": "Beta"}, "sentence": EXTRA}],
@@ -294,7 +294,7 @@ fn a_value_that_is_no_number_counts_as_farther_than_a_number() {
         shot: shot.to_string(),
     };
     let text = serde_json::json!({
-        "version": "v1", "capture_version": "c1", "commit": "abc", "scenes": ["s"], "failed": [], "problems": 0, "sizes": {},
+        "version": "v1", "capture_version": "c1", "commit": "abc", "scenes": ["s"], "boards": {}, "failed": [], "problems": 0, "sizes": {},
         "components": [], "seen": {},
         "findings": [{"scene": "s", "level": "finding", "kind": "state-differs",
             "element": {"role": "field", "words": "Name"}, "aspect": "value",
@@ -320,7 +320,7 @@ fn an_empty_run_makes_every_scene_new() {
 
 #[test]
 fn a_file_of_another_version_is_refused() {
-    let text = r#"{"version": "v2", "capture_version": "c1", "commit": "abc", "scenes": [], "failed": [], "problems": 0, "sizes": {}, "components": [], "seen": {}, "findings": []}"#;
+    let text = r#"{"version": "v2", "capture_version": "c1", "commit": "abc", "scenes": [], "boards": {}, "failed": [], "problems": 0, "sizes": {}, "components": [], "seen": {}, "findings": []}"#;
     let error = Before::parse(text, "before.json", "v1").unwrap_err();
     assert!(error.contains("shots checker version v2"), "{error}");
     assert!(error.contains("this is version v1"), "{error}");

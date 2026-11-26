@@ -35,6 +35,7 @@ fn report_of_a_pair(dir: &Path, missing: bool) -> std::path::PathBuf {
             list: board_list,
             picture: Picture::decode(&png(800, 380)).unwrap(),
             png: pictures.join("board.png"),
+            hash: "b0a2".to_string(),
         },
         &Shot {
             list: shot_list,
@@ -93,6 +94,11 @@ fn a_report_is_compared_again_to_the_findings_it_holds_under_the_new_version() {
         "the pictures keep the capture version of the checker that made them"
     );
     assert_eq!(file["commit"], "abc123def");
+    assert_eq!(
+        file["boards"],
+        serde_json::json!({"mac.welcome.a": "b0a2"}),
+        "the pictures keep the hash of the board they were drawn from"
+    );
     assert!(
         file.get("failed").is_none() && file.get("components").is_none(),
         "the recheck states nothing of the run's failed scenes or components"

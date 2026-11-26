@@ -117,7 +117,7 @@ fn a_run_grouped_by_cause_reads_the_records_its_cached_report_holds() {
         .unwrap()
         .finish(1, "FAIL x\n")
         .unwrap();
-    let missing = by_cause(&cached, "main").expect_err("refused").text();
+    let missing = read_run(&cached, "main").expect_err("refused").text();
     assert!(
         missing.contains("builds app-build demo main --all-shots mac --fresh"),
         "{missing}"
@@ -128,7 +128,7 @@ fn a_run_grouped_by_cause_reads_the_records_its_cached_report_holds() {
         r#"{"findings": [{"scene": "mac.a", "level": "warning", "component": "MacRow", "kind": "region", "sentence": "s"}], "scenes": ["mac.a"]}"#,
     )
     .unwrap();
-    let text = by_cause(&cached, "main").unwrap();
+    let text = shot_causes::text(&read_run(&cached, "main").unwrap());
     assert!(
         text.starts_with("1 finding in 1 of the 1 scene the run checked, grouped by cause"),
         "{text}"
@@ -253,7 +253,7 @@ fn the_plain_findings_are_the_records_never_the_stored_build_log() {
         .unwrap()
         .finish(0, log)
         .unwrap();
-    let missing = plain(&cached, "main").expect_err("no records").text();
+    let missing = read_run(&cached, "main").expect_err("no records").text();
     assert!(missing.contains("--fresh"), "{missing}");
     std::fs::create_dir_all(cached.report()).unwrap();
     std::fs::write(
@@ -262,7 +262,7 @@ fn the_plain_findings_are_the_records_never_the_stored_build_log() {
     )
     .unwrap();
     assert_eq!(
-        plain(&cached, "main").unwrap(),
+        shot_causes::lines(&read_run(&cached, "main").unwrap()),
         "mac.a: warning: The pictures differ\nmac.b: finding: An element is missing\n2 findings in 2 of the 3 scenes the run checked\n"
     );
 }

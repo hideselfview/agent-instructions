@@ -68,6 +68,9 @@ struct File {
     _capture_version: serde::de::IgnoredAny,
     commit: String,
     scenes: Vec<String>,
+    /// The hash of each scene's board, which the comparison leaves unread.
+    #[serde(rename = "boards")]
+    _boards: serde::de::IgnoredAny,
     /// The elements each scene's board and shot held, which a finding on an
     /// element in neither is a first observation of.
     seen: BTreeMap<String, Seen>,

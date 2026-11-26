@@ -7,7 +7,8 @@
 //! The file is one object: `version`, the comparison version of the checker
 //! that wrote it, and `capture_version`, the capture version of the checker
 //! that made the pictures it compares (`builds shots version`); `commit`, the commit the run checked;
-//! `scenes`, every pair the run checked; `seen`, the elements of each pair's
+//! `scenes`, every pair the run checked; `boards`, the hash of each pair's board
+//! (the hash that keys its picture in the picture folder), by scene; `seen`, the elements of each pair's
 //! board and shot that the comparison read; `failed`, each selected scene the
 //! capture wrote no usable shot of, with its `error`; `sizes`, each pair's board and shot
 //! sizes in points, by scene, at which a reader shows the report's pictures
@@ -343,6 +344,9 @@ struct Rechecked<'a> {
     capture_version: &'a str,
     commit: &'a str,
     scenes: Vec<String>,
+    /// The hash of each pair's board, by scene (`Checked::board_hash`): runs
+    /// of one scene with the same hash drew the same board.
+    boards: BTreeMap<String, String>,
     /// The elements each pair compared, by scene.
     seen: BTreeMap<String, Seen>,
     findings: Vec<Record>,
@@ -410,6 +414,10 @@ fn compared<'a>(
         capture_version,
         commit,
         scenes: checked.iter().map(|pair| pair.name.to_string()).collect(),
+        boards: checked
+            .iter()
+            .map(|pair| (pair.name.to_string(), pair.board_hash.clone()))
+            .collect(),
         seen: checked
             .iter()
             .map(|pair| (pair.name.to_string(), Seen::of(pair)))

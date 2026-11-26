@@ -779,3 +779,42 @@ fn runs_in_use_that_pass_the_cap_all_stay() {
     prune_naming(&tool, Run::Real, 500, &|_| Ok(named.clone())).unwrap();
     assert!(folders.iter().all(|folder| folder.exists()));
 }
+
+#[test]
+fn the_runs_of_an_environment_are_those_of_every_commit_and_prefix_with_records() {
+    let scratch = Scratch::new("shot-store-all-runs");
+    let places = scratch.places();
+    let first = key("mac.welcome.");
+    let second = Key {
+        commit: "b".repeat(40),
+        ..key("mac.")
+    };
+    let other_environment = Key {
+        environment: "other".to_string(),
+        ..key("mac.")
+    };
+    cache_run(&places, &first, 0, "", true);
+    cache_run(&places, &second, 0, "", true);
+    cache_run(&places, &key("mac.settings."), 0, "", false);
+    cache_run(&places, &other_environment, 0, "", true);
+    let found = runs_in_environment(
+        &places,
+        &first.repo,
+        first.lane,
+        &first.environment,
+        &first.versions,
+    )
+    .unwrap();
+    let mut found: Vec<(String, String)> = found
+        .into_iter()
+        .map(|cached| (cached.key.commit[..1].to_string(), cached.key.prefix))
+        .collect();
+    found.sort();
+    assert_eq!(
+        found,
+        vec![
+            ("a".to_string(), "mac.welcome.".to_string()),
+            ("b".to_string(), "mac.".to_string())
+        ]
+    );
+}

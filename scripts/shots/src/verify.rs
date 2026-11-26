@@ -74,6 +74,10 @@ pub(crate) struct Checked {
     /// How far the shot's frame sits right and down of the board's.
     pub(crate) offset: (f64, f64),
     pub(crate) board_png: PathBuf,
+    /// The hash of everything the board's picture depends on
+    /// (`render::hashes`): two runs whose pairs of a scene have the same
+    /// hash drew the same board.
+    pub(crate) board_hash: String,
     pub(crate) shot_png: PathBuf,
     pub(crate) findings: Vec<Finding>,
     pub(crate) warnings: Vec<Warning>,
@@ -153,6 +157,8 @@ pub(crate) struct Drawn {
     pub(crate) list: ElementList,
     pub(crate) picture: Picture,
     pub(crate) png: PathBuf,
+    /// The board's hash (`Checked::board_hash`).
+    pub(crate) hash: String,
 }
 
 /// Compares the board <board> with the shot <shot> (whose picture is the file
@@ -162,6 +168,7 @@ pub(crate) fn compare_pair(name: &Name, board: Drawn, shot: &Shot, shot_png: Pat
         list,
         picture,
         png: board_png,
+        hash: board_hash,
     } = board;
     let result = compare::compare(
         &list.elements,
@@ -204,6 +211,7 @@ pub(crate) fn compare_pair(name: &Name, board: Drawn, shot: &Shot, shot_png: Pat
         board: list,
         shot: shot.list.clone(),
         board_png,
+        board_hash,
         shot_png,
         findings: result.findings,
         warnings,
@@ -263,6 +271,9 @@ pub(crate) fn verify(job: &Verification) -> Result<Outcome, String> {
     for name in &names {
         let list =
             ElementList::load(&boards.join(format!("{name}.json"))).map_err(|e| e.to_string())?;
+        let hash_path = boards.join(render::hash_file(name));
+        let hash_text = std::fs::read_to_string(&hash_path)
+            .map_err(|e| format!("cannot read {}: {e}", hash_path.display()))?;
         let picture_file = boards.join(format!("{name}.png"));
         let picture = std::fs::read(&picture_file)
             .map_err(|e| format!("cannot read {}: {e}", picture_file.display()))?;
@@ -274,6 +285,7 @@ pub(crate) fn verify(job: &Verification) -> Result<Outcome, String> {
                 list,
                 picture,
                 png: picture_file,
+                hash: hash_text,
             },
             &shots[name],
             (job.shots_for)(name.platform()).join(name.file_name("png")),

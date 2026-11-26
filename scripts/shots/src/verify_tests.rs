@@ -263,6 +263,7 @@ fn compare_with_window(scene: &str, cut: Option<f64>, board: Picture, shot: Pict
             list: list(board.width, window),
             picture: board,
             png: PathBuf::new(),
+            hash: String::new(),
         },
         &Shot {
             list: list(shot.width, None),
@@ -355,6 +356,7 @@ fn pair_with_finding(against: Option<Against>) -> Checked {
         pairs: Vec::new(),
         offset: (0.0, 0.0),
         board_png: PathBuf::new(),
+        board_hash: String::new(),
         shot_png: PathBuf::new(),
         findings: vec![finding],
         warnings: Vec::new(),

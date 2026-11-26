@@ -23,6 +23,9 @@ struct Named {
     capture_version: String,
     commit: String,
     scenes: Vec<String>,
+    /// The board hash of each scene's pair, which a comparison again leaves
+    /// as it is.
+    boards: std::collections::BTreeMap<String, String>,
     /// The scenes the capture wrote no usable shot of, which fail the run.
     failed: Vec<FailedScene>,
     /// How many problems the run found, each of which fails it.
@@ -47,6 +50,11 @@ pub(crate) fn text(report: &Path, version: &str) -> Result<String, String> {
             list: ElementList::load(&report.join(board_list(scene))).map_err(|e| e.to_string())?,
             picture: decode(&board_png)?,
             png: board_png,
+            hash: named
+                .boards
+                .get(scene)
+                .ok_or_else(|| format!("{}: names no board hash for {scene}", file.display()))?
+                .clone(),
         };
         let shot = Shot {
             list: ElementList::load(&report.join(shot_list(scene))).map_err(|e| e.to_string())?,

@@ -76,6 +76,7 @@ fn outcome(dir: &Path, words: &str) -> Outcome {
         pairs: vec![(2, 2)],
         offset: (0.0, 0.0),
         board_png: pictures.join("board.png"),
+        board_hash: "b0a2".to_string(),
         shot_png: pictures.join("shot.png"),
     };
     Outcome {

@@ -38,6 +38,7 @@ fn checked(name: &str, findings: Vec<Finding>, warnings: Vec<Warning>) -> Checke
         pairs: Vec::new(),
         offset: (0.0, 0.0),
         board_png: "board.png".into(),
+        board_hash: format!("hash-of-{name}"),
         shot_png: "shot.png".into(),
     }
 }
@@ -121,6 +122,7 @@ fn each_finding_and_warning_is_a_record_with_its_kind_component_element_and_numb
         "capture_version": CAPTURE,
         "commit": "abc123",
         "scenes": ["mac.welcome.a", "mac.welcome.b"],
+        "boards": {"mac.welcome.a": "hash-of-mac.welcome.a", "mac.welcome.b": "hash-of-mac.welcome.b"},
         "failed": [],
         "problems": 0,
         "seen": {

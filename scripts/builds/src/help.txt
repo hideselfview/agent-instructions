@@ -1527,7 +1527,10 @@ of React, the pinned Chrome, the capture version of the shots checker, and the
 shots-unshot and shots-preview lines. app-build passes the folder to each shots run
 on this Mac (`run --pictures`), and the run draws only the boards whose hash
 the folder lacks and adds each new drawing to it, so builds draws a board
-once for its inputs.
+once for its inputs. Beside each board's picture in a run's boards folder,
+the shots program writes the board hash as `<scene>.hash`, and the run's
+findings.json records it by scene (`boards`), so that builds can tell whether
+two runs of a scene drew the same board (`builds shots findings`).
 `builds shots draws` and `states` keep a shared board and a component's
 preview page in the same folder by the same kind of hash, each with a file
 `<hash>.instances.json` that holds the components the page draws (alone, for
@@ -1796,7 +1799,24 @@ built again.
                               findings.json, `scene: level: sentence`, and a
                               count, never the build log the run stored; a
                               run whose report holds no findings.json fails,
-                              as below. With --by-cause, it
+                              as below. A finding is marked `[unconfirmed:
+                              N of M other runs of this scene with the same
+                              board and app code don't show it]` when at
+                              least one other cached run of its scene lacks
+                              the same finding (the same level and sentence).
+                              Those runs are the cached runs of the repo and
+                              lane made in the same environment by the same
+                              shots program, of any commit and prefix, whose
+                              findings.json gives the scene the same board
+                              hash and whose commit has the same app source
+                              tree (APP BUILDS); builds reads the board hash
+                              from findings.json (`boards`, by scene) and
+                              computes each commit's app source tree. A
+                              scene no other run measures that way has no
+                              mark, and a run of a commit the app checkout
+                              lacks is left out and counted on stderr. The
+                              count says how many findings are unconfirmed.
+                              With --by-cause, it
                               prints them grouped by cause across every scene
                               from the report's findings.json: by the
                               design-system component that draws each
@@ -1809,7 +1829,10 @@ built again.
                               foreground colour that an element draws on one
                               side and not the other by that colour and the
                               side; and every frame offset by its offset to
-                              the nearest point.
+                              the nearest point. It leaves each unconfirmed
+                              finding out of every cause and lists the
+                              scenes of them, with how many each has, after
+                              the causes.
                               It counts the causes of one finding each instead
                               of listing them. A run whose report holds no
                               findings.json (one whose report builds could

@@ -163,6 +163,7 @@ mod setup;
 mod shells;
 mod shot_causes;
 mod shot_findings;
+mod shot_unconfirmed;
 mod shots_cache;
 mod shots_check_program;
 mod shots_compare_again;

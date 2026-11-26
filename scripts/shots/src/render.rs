@@ -132,7 +132,9 @@ impl Drawer<'_> {
     /// Puts into <out> the picture and element list of each board of
     /// <hashes>: the ones <pictures> keeps for its hash, and a drawing of
     /// each other board at its scale in <scales>, which it keeps there. With
-    /// no picture folder, it draws every board.
+    /// no picture folder, it draws every board. Beside each picture it writes
+    /// the board's hash, `<name>.hash`, which the comparison records
+    /// (`hash_file`).
     pub(crate) fn boards_into(
         &self,
         pictures: Option<&Pictures>,
@@ -156,8 +158,18 @@ impl Drawer<'_> {
                 pictures.keep_board(&hashes[name], &name.to_string(), out)?;
             }
         }
+        for (name, hash) in hashes {
+            let file = out.join(hash_file(name));
+            std::fs::write(&file, hash)
+                .map_err(|e| format!("cannot write {}: {e}", file.display()))?;
+        }
         Ok(())
     }
+}
+
+/// The name of the file beside a board's picture that holds the board's hash.
+pub(crate) fn hash_file(name: &Name) -> String {
+    format!("{name}.hash")
 }
 
 /// Copies into <boards> the picture <pictures> keeps for the hash of each

@@ -34,6 +34,11 @@ pub const FILE: &str = "findings.json";
 pub struct Run {
     /// Every scene the run checked.
     pub scenes: Vec<String>,
+    /// The hash of each checked scene's board (`shot_unconfirmed.rs`): runs
+    /// of a scene with the same hash drew the same board. Empty in a run
+    /// that an older shots program made, which records none.
+    #[serde(default)]
+    pub boards: BTreeMap<String, String>,
     pub findings: Vec<Record>,
 }
 
@@ -52,6 +57,39 @@ pub struct Record {
     pub sentence: String,
     #[serde(flatten)]
     pub what: What,
+    /// What other cached runs of the scene with the same board and app code
+    /// show of this record, once `shot_unconfirmed::mark` has set it; the
+    /// file holds none.
+    #[serde(skip)]
+    pub others: Option<Others>,
+}
+
+/// How many other runs of a record's scene, with the same board and app
+/// code, there are and how many of them lack the record.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Others {
+    pub of: usize,
+    pub without: usize,
+}
+
+impl Record {
+    /// Whether another run of the same scene, board and app code lacks the
+    /// record, so that this run's shot may be a flaky one.
+    pub fn unconfirmed(&self) -> bool {
+        self.others.is_some_and(|others| others.without > 0)
+    }
+
+    /// The text that marks an unconfirmed record, with a space before it;
+    /// empty for any other.
+    fn mark(&self) -> String {
+        match self.others {
+            Some(Others { of, without }) if without > 0 => format!(
+                " [unconfirmed: {without} of {} of this scene with the same board and app code don't show it]",
+                plural(of, "other run")
+            ),
+            _ => String::new(),
+        }
+    }
 }
 
 /// What a record says: its kind, with the fields of it that the grouping
@@ -254,7 +292,7 @@ pub fn causes(run: &Run) -> Causes {
     let mut remainder: BTreeMap<&str, Tally> = BTreeMap::new();
     let mut colours: BTreeMap<String, Tally> = BTreeMap::new();
     let mut frames: BTreeMap<(i64, i64), Tally> = BTreeMap::new();
-    for record in &run.findings {
+    for record in run.findings.iter().filter(|r| !r.unconfirmed()) {
         let scene = record.scene.as_str();
         let kind = record.what.kind();
         match &record.component {
@@ -317,8 +355,11 @@ pub fn lines(run: &Run) -> String {
     let mut out = String::new();
     for record in &run.findings {
         out.push_str(&format!(
-            "{}: {}: {}\n",
-            record.scene, record.level, record.sentence
+            "{}: {}: {}{}\n",
+            record.scene,
+            record.level,
+            record.sentence,
+            record.mark()
         ));
     }
     out.push_str(&format!("{}\n", count_sentence(run)));
@@ -329,11 +370,17 @@ pub fn lines(run: &Run) -> String {
 fn count_sentence(run: &Run) -> String {
     let scenes: std::collections::BTreeSet<&str> =
         run.findings.iter().map(|r| r.scene.as_str()).collect();
+    let unconfirmed = run.findings.iter().filter(|r| r.unconfirmed()).count();
     format!(
-        "{} in {} of the {} the run checked",
+        "{} in {} of the {} the run checked{}",
         plural(run.findings.len(), "finding"),
         scenes.len(),
-        plural(run.scenes.len(), "scene")
+        plural(run.scenes.len(), "scene"),
+        if unconfirmed == 0 {
+            String::new()
+        } else {
+            format!(", {unconfirmed} of them unconfirmed")
+        }
     )
 }
 
@@ -399,7 +446,29 @@ pub fn text(run: &Run) -> String {
             ));
         }
     }
+    out.push_str(&unconfirmed_text(run));
     out
+}
+
+/// The scenes whose findings other runs with the same board and app code
+/// don't show, which `text` leaves out of every cause, each with how many of
+/// its findings are unconfirmed; empty when there are none.
+fn unconfirmed_text(run: &Run) -> String {
+    let mut scenes: BTreeMap<&str, usize> = BTreeMap::new();
+    for record in run.findings.iter().filter(|r| r.unconfirmed()) {
+        *scenes.entry(record.scene.as_str()).or_default() += 1;
+    }
+    if scenes.is_empty() {
+        return String::new();
+    }
+    let listed: Vec<String> = scenes
+        .iter()
+        .map(|(scene, n)| format!("{scene} ({n})"))
+        .collect();
+    format!(
+        "\nUnconfirmed, in no cause above, because another run of the scene with the same board and app code lacks the finding (`builds shots findings` without --by-cause says how many): {}\n",
+        listed.join(", ")
+    )
 }
 
 #[cfg(test)]
