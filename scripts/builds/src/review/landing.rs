@@ -380,7 +380,7 @@ impl Coverage {
 /// messages.
 fn changed_paths(net: &run::NetChange) -> Vec<String> {
     let mut paths = net.diff.changed.clone();
-    if !net.diff.messages.trim().is_empty() {
+    if files::CommitMessages::from_text(&net.diff.messages).is_some() {
         paths.push(files::COMMIT_MESSAGE.to_string());
     }
     paths
@@ -607,12 +607,8 @@ pub fn refusal(needs: &[Need], verdict: &Verdict) -> Option<String> {
     if !unfinished.rechecked.is_empty() {
         let count = unfinished.rechecked.len();
         text.push_str(&format!(
-            "{} closed by a review and goes back to its group:\n",
-            if count == 1 {
-                "1 finding is".to_string()
-            } else {
-                format!("{count} findings are")
-            }
+            "{} closed by a review and waiting to go back to its group:\n",
+            crate::text::counted(count, "finding is", "findings are")
         ));
         for recheck in &unfinished.rechecked {
             text.push_str(&render::finding_text(&recheck.finding));

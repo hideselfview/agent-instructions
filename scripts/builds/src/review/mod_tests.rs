@@ -2668,7 +2668,7 @@ fn closed_by_a_change_to_b(name: &str) -> (Demo, Fake, PathBuf, i64, i64) {
     (demo, fake, side, landing, finding)
 }
 
-/// Bae's landing 1104: a run closed a finding on a diff that changed b.rs,
+/// A run closed a finding on a diff that changed b.rs,
 /// and a later commit put b.rs back. The group that holds the finding reads
 /// it again, and its still-open verdict opens the finding.
 #[test]

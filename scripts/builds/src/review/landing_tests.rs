@@ -1083,7 +1083,7 @@ fn land_refuses_a_branch_whose_last_review_read_a_fix_path_without_giving_the_fi
     assert!(unfinished.open.is_empty() && unfinished.unreviewed.is_empty());
     let words = refused(&asked);
     assert!(
-        words.contains("closed by a review and goes back to its group")
+        words.contains("closed by a review and waiting to go back to its group")
             && words.contains("b.rs")
             && words.contains("Review run 2 closed the finding"),
         "{words}"
