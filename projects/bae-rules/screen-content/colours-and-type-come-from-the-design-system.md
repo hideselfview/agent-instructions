@@ -19,7 +19,8 @@ the pink accent, the ones a new installation starts with, in Dark and Light;
 - Every colour on a platform comes from the design system: the accent the person
   chose, the surfaces, the text. None is left to the system's own colour (the
   Mac's accent, Material's dynamic colour) beside them; a part the platform
-  colours with no way to change it is drawn by the app.
+  colours with no way to change it is drawn by the app, and when the app can't
+  draw it, ask the person.
 - The accents are measured in OKLCH, a colour space where equal steps in the
   numbers look equal. Each fill has the sheep's pink lightness, 0.75, and its
   saturation, 0.17, or the most the screen can show at that hue. The six hues

@@ -85,12 +85,8 @@ decided.
   - Drawing it by hand on a board is a bug, even when the pixels match.
   - Before you add a component, look for one the design system has, and use or
     extend it.
-- Every colour an app shows comes from the design system: the accent the person
-  chose, the surfaces, the text.
-  - None comes from the platform (the Mac's accent, Material's dynamic colour).
-  - When the platform draws a part in its own colour and offers no way to change
-    it, the app draws that part itself.
-  - When the app can't, ask the person.
+- Every colour an app shows comes from the design system
+  (`colours-and-type-come-from-the-design-system.md`).
 
 ### Drawing a board
 
