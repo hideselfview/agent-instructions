@@ -35,10 +35,10 @@
 use crate::Checker;
 use crate::cli::StatesArgs;
 use crate::design::{self, Frame};
-use crate::names::Previews;
+use crate::pictures::Pictures;
 use crate::render::instances::{self, Instance};
-use crate::render::{self, board, chrome, preview};
-use crate::settings::Settings;
+use crate::render::pages::{Context, Page, Store};
+use crate::render::{self, board, chrome, preview, serve};
 use futures::StreamExt;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -292,9 +292,16 @@ pub(crate) fn lines(uncovered: &[Uncovered], against: Option<&str>) -> Vec<Strin
 /// at <root> draw that no preview row shows (or, with `--against`, those the
 /// listing at that revision lacks); false when `--against` finds one.
 pub(crate) fn command(checker: &Checker, root: &Path, args: StatesArgs) -> Result<bool, String> {
-    let now = read(root, args.at.as_deref(), checker.folders)?;
+    let pictures = args
+        .pictures
+        .map(|dir| Pictures::new(dir, std::time::SystemTime::now()));
+    let store = Store {
+        capture_version: &checker.versions.capture,
+        pictures: pictures.as_ref(),
+    };
+    let now = read(root, args.at.as_deref(), checker.folders, &store)?;
     let listed = match &args.against {
-        Some(rev) => added(now, &read(root, Some(rev), checker.folders)?),
+        Some(rev) => added(now, &read(root, Some(rev), checker.folders, &store)?),
         None => now,
     };
     for line in lines(&listed, args.against.as_deref()) {
@@ -310,53 +317,121 @@ pub(crate) fn read(
     root: &Path,
     at: Option<&str>,
     folders: &boards::Folders,
+    store: &Store,
 ) -> Result<Vec<Uncovered>, String> {
     let Some(rev) = at else {
-        let settings = Settings::load(root).map_err(|e| e.to_string())?;
-        return Ok(uncovered(&draw(root, &settings, folders)?));
+        return Ok(uncovered(&draw(root, folders, store)?));
     };
     design::at_revision(root, rev, &folders.cache, |work| {
-        let settings = Settings::load(work).map_err(|e| e.to_string())?;
-        draw(work, &settings, folders).map(|drawn| uncovered(&drawn))
+        draw(work, folders, store).map(|drawn| uncovered(&drawn))
     })
 }
 
-/// Draws every board and every preview of the repo at <root> and reads the
-/// components each draws. A repo with no preview has no state to list, so
-/// nothing is drawn.
-fn draw(root: &Path, settings: &Settings, folders: &boards::Folders) -> Result<Drawn, String> {
-    let previews = Previews::of(root)?;
-    let Some((first, _)) = previews.components.first() else {
+/// The components every board and every preview of the repo at <root> draws:
+/// the instances the picture folder keeps for the page's hash, and for each
+/// page it lacks, the ones read from a drawing of the page, which it keeps. A
+/// repo with no preview has no state to list, so nothing is read.
+fn draw(root: &Path, folders: &boards::Folders, store: &Store) -> Result<Drawn, String> {
+    let context = Context::of(root, folders)?;
+    let Some((first, _)) = context.previews.components.first() else {
         return Ok(Drawn::default());
     };
-    let rows = settings
+    let rows = context
+        .settings
         .preview(first)
         .map_err(|e| e.to_string())?
         .row
         .as_str();
-    // The components a board draws do not depend on the device scale.
-    render::with_design(root, folders, 1.0, async |server, chrome, frames| {
-        let boards = frames.iter().map(|(name, frame)| Sheet {
+    let pages: Vec<(Page, bool, String)> = context
+        .frames
+        .iter()
+        .map(|(name, frame)| (Page::Board(name, *frame), true))
+        .chain(
+            context
+                .previews
+                .components
+                .iter()
+                .map(|(name, _)| (Page::Preview(name), false)),
+        )
+        .map(|(page, is_board)| {
+            let hash = page.hash(root, &context, store.capture_version)?;
+            Ok((page, is_board, hash))
+        })
+        .collect::<Result<_, String>>()?;
+    let mut read: BTreeMap<String, Vec<Instance>> = BTreeMap::new();
+    let mut lacking = Vec::new();
+    for (page, _, hash) in &pages {
+        let kept = match store.pictures {
+            Some(pictures) => pictures.take_instances(hash)?,
+            None => None,
+        };
+        match kept {
+            Some(text) => {
+                let found = serde_json::from_str(&text)
+                    .map_err(|e| format!("the instances kept for {hash}: {e}"))?;
+                read.insert(hash.clone(), found);
+            }
+            None => lacking.push((*page, hash.clone())),
+        }
+    }
+    crate::log::note(format_args!(
+        "took the components of {} of {} pages from the picture folder; drawing {}",
+        pages.len() - lacking.len(),
+        pages.len(),
+        lacking.len()
+    ));
+    if !lacking.is_empty() {
+        // The components a page draws do not depend on the device scale.
+        let found =
+            render::with_browser(context.tree(root), folders, 1.0, async |server, chrome| {
+                let sheets = lacking.iter().map(|(page, _)| sheet(*page, server, rows));
+                read_sheets(chrome, sheets).await
+            })?;
+        for ((_, hash), instances) in lacking.iter().zip(found) {
+            if let Some(pictures) = store.pictures {
+                let text = serde_json::to_string(&instances).map_err(|e| e.to_string())?;
+                pictures.keep_instances(hash, &text)?;
+            }
+            read.insert(hash.clone(), instances);
+        }
+    }
+    let mut drawn = Drawn::default();
+    for (page, is_board, hash) in pages {
+        let (name, instances) = match page {
+            Page::Board(name, _) | Page::Preview(name) => (name, read[&hash].clone()),
+        };
+        let list = if is_board {
+            &mut drawn.boards
+        } else {
+            &mut drawn.previews
+        };
+        list.push((name.to_string(), instances));
+    }
+    drawn.boards.sort_by(|a, b| a.0.cmp(&b.0));
+    drawn.previews.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(drawn)
+}
+
+/// The sheet that draws <page>, on <server>; <rows> selects a preview's rows.
+fn sheet<'a>(page: Page<'a>, server: &serve::Server, rows: &'a str) -> Sheet<'a> {
+    match page {
+        Page::Board(name, frame) => Sheet {
             name,
             url: server.board_url(name),
-            frame: *frame,
+            frame,
             mounted: board::BOARD_MOUNTED,
             rows: None,
-            what: name.clone(),
-        });
-        let previews = previews.components.iter().map(|(name, _)| Sheet {
+            what: name.to_string(),
+        },
+        Page::Preview(name) => Sheet {
             name,
             url: server.preview_url(name),
             frame: preview::PREVIEW_FRAME,
             mounted: preview::PREVIEW_LOADED,
             rows: Some(rows),
             what: format!("the preview of {name}"),
-        });
-        Ok(Drawn {
-            boards: read_sheets(chrome, boards).await?,
-            previews: read_sheets(chrome, previews).await?,
-        })
-    })
+        },
+    }
 }
 
 /// One page to draw and read: a board, or a component's preview.
@@ -374,11 +449,11 @@ struct Sheet<'a> {
 }
 
 /// Draws each of <sheets>, several at once, and reads the components each
-/// draws, by name.
+/// draws, in the order of <sheets>.
 async fn read_sheets(
     chrome: &chrome::Chrome,
     sheets: impl Iterator<Item = Sheet<'_>>,
-) -> Result<Vec<(String, Vec<Instance>)>, String> {
+) -> Result<Vec<Vec<Instance>>, String> {
     let read = futures::stream::iter(sheets.map(|sheet| async move {
         let found = chrome
             .with_page(&sheet.what, async |page| {
@@ -397,14 +472,12 @@ async fn read_sheets(
                     .map_err(|e| e.to_string())
             })
             .await?;
-        Ok::<_, String>((sheet.name.to_string(), found))
+        Ok::<_, String>(found)
     }))
-    .buffer_unordered(PAGES)
+    .buffered(PAGES)
     .collect::<Vec<_>>()
     .await;
-    let mut read = read.into_iter().collect::<Result<Vec<_>, _>>()?;
-    read.sort_by(|a, b| a.0.cmp(&b.0));
-    Ok(read)
+    read.into_iter().collect()
 }
 
 #[cfg(test)]

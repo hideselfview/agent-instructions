@@ -6,11 +6,11 @@
 
 use crate::render::board;
 use crate::render::chrome::DrawPage;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 /// One component drawn on a page.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct Instance {
     /// The component's name in the design system, such as `MacButton`.
     pub(crate) component: String,

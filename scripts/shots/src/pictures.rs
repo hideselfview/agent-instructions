@@ -8,7 +8,10 @@
 //! pictures used least recently; a run sets a picture's time when it uses it.
 //!
 //! A board picture is `boards/<hash>.png` with its element list
-//! `boards/<hash>.json`, and an app's shot is
+//! `boards/<hash>.json`; a board or a component's preview page with no shot
+//! name is kept the same way, and `boards/<hash>.instances.json` holds the
+//! components it draws once `states` has read them (a hash with no picture
+//! can hold it alone). An app's shot is
 //! `<platform>/<app tree>/<name>@<platform>.png` with its element list. Once
 //! a run has kept every shot a prefix selects, it marks the prefix taken in
 //! `<platform>/<app tree>/.taken/<prefix>@windows` (or `@no-windows` for a
@@ -101,6 +104,53 @@ impl Pictures {
             .map_err(|e| format!("cannot prepare {}: {e}", boards.display()))?;
         place(&out.join(format!("{shot}.json")), &json)?;
         place(&out.join(format!("{shot}.png")), &png)
+    }
+}
+
+impl Pictures {
+    /// The file of the component instances kept for the board hash <hash>.
+    fn instances(&self, hash: &str) -> PathBuf {
+        self.dir.join(BOARDS).join(format!("{hash}.instances.json"))
+    }
+
+    /// The component instances kept for <hash>: the text `keep_instances`
+    /// wrote. Marks them, and the board's picture when the folder keeps
+    /// one, used. None when the folder keeps none, or builds deleted them
+    /// meanwhile.
+    pub(crate) fn take_instances(&self, hash: &str) -> Result<Option<String>, String> {
+        let file = self.instances(hash);
+        let text = match std::fs::read_to_string(&file) {
+            Ok(text) => text,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(format!("cannot read {}: {e}", file.display())),
+        };
+        self.mark_used(&file)?;
+        let (png, _) = self.board(hash);
+        if png.is_file() {
+            self.mark_used(&png)?;
+        }
+        Ok(Some(text))
+    }
+
+    /// Keeps <text>, the component instances of the board or preview page of
+    /// hash <hash>, beside its picture, if the folder keeps one: the file is
+    /// written under a hidden name and renamed into place.
+    pub(crate) fn keep_instances(&self, hash: &str, text: &str) -> Result<(), String> {
+        let file = self.instances(hash);
+        let boards = self.dir.join(BOARDS);
+        std::fs::create_dir_all(&boards)
+            .map_err(|e| format!("cannot prepare {}: {e}", boards.display()))?;
+        let temporary = boards.join(format!(".{hash}.instances.{}", std::process::id()));
+        std::fs::write(&temporary, text)
+            .map_err(|e| format!("cannot write {}: {e}", temporary.display()))?;
+        std::fs::rename(&temporary, &file).map_err(|e| {
+            let _ = std::fs::remove_file(&temporary);
+            format!(
+                "cannot move {} to {}: {e}",
+                temporary.display(),
+                file.display()
+            )
+        })
     }
 }
 

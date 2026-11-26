@@ -294,6 +294,25 @@ pub(crate) fn preview_hash(
     component: &str,
     common: &Common,
 ) -> Result<String, DesignError> {
+    preview_hashed(root, component, Some(name), common)
+}
+
+/// What the picture and the instances of the whole preview page of
+/// <component> depend on: what `preview_hash` names, without a shot's name.
+pub(crate) fn preview_page_hash(
+    root: &Path,
+    component: &str,
+    common: &Common,
+) -> Result<String, DesignError> {
+    preview_hashed(root, component, None, common)
+}
+
+fn preview_hashed(
+    root: &Path,
+    component: &str,
+    shot: Option<&str>,
+    common: &Common,
+) -> Result<String, DesignError> {
     let mut hasher = Sha256::new();
     let preview = root.join(boards::preview::preview_path(component));
     feed(
@@ -301,7 +320,9 @@ pub(crate) fn preview_hash(
         &format!("preview {component}"),
         &read(&preview)?,
     );
-    feed(&mut hasher, "shot", name.as_bytes());
+    if let Some(shot) = shot {
+        feed(&mut hasher, "shot", shot.as_bytes());
+    }
     feed(&mut hasher, "react", REACT.as_bytes());
     feed(&mut hasher, "react-dom", REACT_DOM.as_bytes());
     if let Some(marks) = &common.settings.preview {

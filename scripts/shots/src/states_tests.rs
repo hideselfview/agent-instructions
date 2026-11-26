@@ -286,3 +286,72 @@ fn props_a_component_gives_to_a_component_it_draws_are_no_state() {
     )];
     assert_eq!(listed(&drawn(boards, previews)), Vec::<String>::new());
 }
+
+#[test]
+fn the_components_of_each_page_come_from_the_picture_folder_by_its_hash() {
+    let repo = tempfile::tempdir().unwrap();
+    let here = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../design");
+    copy_tree(&here, &repo.path().join("design"));
+    // The design system the boards load, which the repo's own canvas.json
+    // does not name.
+    let canvas = repo.path().join("design/mocks/canvas.json");
+    let text = std::fs::read_to_string(&canvas).unwrap();
+    let text = text.replacen(
+        "\"attachments\": {},",
+        "\"attachments\": {}, \"designSystems\": [{\"namespace\": \"demo\"}],",
+        1,
+    );
+    std::fs::write(&canvas, text).unwrap();
+    // One preview with a row, and the marks that name its rows.
+    let preview = repo
+        .path()
+        .join(boards::preview::COMPONENTS)
+        .join("MacRow")
+        .join("preview.html");
+    std::fs::create_dir_all(preview.parent().unwrap()).unwrap();
+    std::fs::write(
+        &preview,
+        "<html><head></head><body><div class='preview-row'><p>a row</p></div></body></html>",
+    )
+    .unwrap();
+    std::fs::write(
+        repo.path().join(".app-build"),
+        "shots-preview .preview-row .preview-name .preview-cell\n",
+    )
+    .unwrap();
+    let folders = boards::Folders {
+        cache: crate::render::fixture::cache(),
+        fonts: None,
+        volume: crate::render::fixture::volume(),
+    };
+    let folder = tempfile::tempdir().unwrap();
+    let pictures = Pictures::new(folder.path().to_path_buf(), std::time::SystemTime::now());
+    let store = Store {
+        capture_version: "c0c0c0c0c0c0c0c0",
+        pictures: Some(&pictures),
+    };
+    let first = read(repo.path(), None, &folders, &store).unwrap();
+    let kept: Vec<_> = std::fs::read_dir(folder.path().join("boards"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .collect();
+    assert!(!kept.is_empty(), "every page's components are kept");
+    let second = read(repo.path(), None, &folders, &store).unwrap();
+    assert_eq!(first, second, "the kept components give the same states");
+    std::fs::write(&kept[0], "not json").unwrap();
+    let error = read(repo.path(), None, &folders, &store).unwrap_err();
+    assert!(error.contains("the instances kept for"), "{error}");
+}
+
+fn copy_tree(from: &Path, to: &Path) {
+    std::fs::create_dir_all(to).unwrap();
+    for entry in std::fs::read_dir(from).unwrap() {
+        let entry = entry.unwrap();
+        let target = to.join(entry.file_name());
+        if entry.file_type().unwrap().is_dir() {
+            copy_tree(&entry.path(), &target);
+        } else {
+            std::fs::copy(entry.path(), target).unwrap();
+        }
+    }
+}

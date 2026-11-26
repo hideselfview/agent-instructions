@@ -164,3 +164,55 @@ fn a_taken_prefix_is_marked_with_whether_the_run_took_the_window_shots() {
     assert!(taken.join("mac.a.@windows").is_file());
     assert!(taken.join("mac.b.@no-windows").is_file());
 }
+
+#[test]
+fn kept_instances_are_taken_by_hash_beside_a_picture_or_alone() {
+    let dir = tempfile::tempdir().unwrap();
+    let run_time = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_800_000_000);
+    let pictures = Pictures::new(dir.path().to_path_buf(), run_time);
+    assert_eq!(pictures.take_instances("h1").unwrap(), None);
+    pictures.keep_instances("h1", "[1]").unwrap();
+    assert_eq!(
+        pictures.take_instances("h1").unwrap().as_deref(),
+        Some("[1]")
+    );
+    pictures.keep_instances("h1", "[2]").unwrap();
+    assert_eq!(
+        pictures.take_instances("h1").unwrap().as_deref(),
+        Some("[2]")
+    );
+    assert_eq!(pictures.take_instances("h2").unwrap(), None);
+    let left: Vec<String> = std::fs::read_dir(dir.path().join("boards"))
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(left, ["h1.instances.json"], "no temporary file is left");
+}
+
+#[test]
+fn taking_instances_marks_them_and_the_picture_used_at_the_runs_time() {
+    let dir = tempfile::tempdir().unwrap();
+    let run_time = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_800_000_000);
+    let pictures = Pictures::new(dir.path().to_path_buf(), run_time);
+    std::fs::create_dir_all(dir.path().join("boards")).unwrap();
+    let png = dir.path().join("boards/h1.png");
+    std::fs::write(&png, "png").unwrap();
+    pictures.keep_instances("h1", "[]").unwrap();
+    let instances = dir.path().join("boards/h1.instances.json");
+    for file in [&png, &instances] {
+        std::fs::File::options()
+            .write(true)
+            .open(file)
+            .unwrap()
+            .set_modified(std::time::UNIX_EPOCH)
+            .unwrap();
+    }
+    pictures.take_instances("h1").unwrap();
+    for file in [&png, &instances] {
+        assert_eq!(
+            std::fs::metadata(file).unwrap().modified().unwrap(),
+            run_time,
+            "{file:?}"
+        );
+    }
+}

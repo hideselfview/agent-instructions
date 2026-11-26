@@ -12,24 +12,23 @@
 //! bytes never decide: a rebase that merges unrelated lines into a board
 //! file, `canvas.json` or a component's source changes bytes and no drawing.
 //!
-//! A screen board takes its drawing from the picture folder (`--pictures`)
-//! by its board hash (design.rs) when the folder keeps one, and draws only the
-//! boards it lacks and keeps them there, as a shots run does (verify.rs). The
-//! folder holds the boards of the other revision, and of every run, so a
-//! comparison of a branch with its base draws only the boards whose files, or
-//! whose design system, the branch changed. A board with no shot name (a
-//! shared board) and a component preview are drawn every time: the folder
-//! keeps no picture of either.
+//! Each board and each component's preview page takes its drawing from the
+//! picture folder (`--pictures`) by its hash (design.rs) when the folder keeps
+//! one, and the command draws only what the folder lacks and keeps it there,
+//! as a shots run does for the screen boards (verify.rs). The folder holds
+//! the drawings of the other revision and of every run, so a comparison of a
+//! branch with its base draws only the boards and previews whose files, or
+//! whose design system, the branch changed. A shared board or a preview it
+//! draws also keeps the components the page draws (`states` reads them).
 
 use crate::Checker;
 use crate::cli::DrawsArgs;
-use crate::design::{self, DesignSystem};
-use crate::names::{Name, Platform, Previews};
+use crate::design;
+use crate::names::Name;
 use crate::pictures::Pictures;
+use crate::render;
 use crate::render::Drawer;
-use crate::render::serve::Tree;
-use crate::render::{self, board, preview, runtime};
-use crate::settings::Settings;
+use crate::render::pages::{self, Context, Page, SCALE, Store};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
@@ -39,19 +38,6 @@ use std::path::Path;
 /// `chrome::ARGS` leaves it nothing else to vary; two levels of 255 is far
 /// below what anyone sees as a change.
 const NOISE_LEVELS: u8 = 2;
-
-/// The pixels per point that boards and previews draw at, the device scale of
-/// a Mac shot: Chrome rounds boxes and lines to the device's pixels, so a
-/// board that draws alike at this scale draws alike in a shots run.
-const DEVICE_SCALE: f64 = 2.0;
-
-/// How a comparison draws screen boards: the capture version of the checker,
-/// which keys board hashes, and the picture folder it takes board pictures
-/// from and keeps the ones it draws in, when builds gives one.
-pub(crate) struct Store<'a> {
-    pub(crate) capture_version: &'a str,
-    pub(crate) pictures: Option<&'a Pictures>,
-}
 
 /// What a board or a preview draws: its picture, as the PNG Chrome made, and
 /// its element list.
@@ -220,44 +206,59 @@ fn read(
     })
 }
 
-/// Draws the selection at <work>: the screen boards from the picture folder
-/// and, for those it lacks, the same drawing a shots run makes; every other
-/// board and the previews in the browser (`draw_in_browser`).
+/// Draws the selection at <work>: each screen board from the picture folder
+/// and, for those it lacks, the drawing a shots run makes; every other board
+/// and each component's preview page from the picture folder and, for those
+/// it lacks, drawn in the browser (`draw_pages`).
 fn draw(
     work: &Path,
     folders: &boards::Folders,
     selection: Selection<'_>,
     store: &Store,
 ) -> Result<Drawings, String> {
-    let frames = design::frames(work).map_err(|e| e.to_string())?;
+    let context = Context::of(work, folders)?;
     let wanted: Vec<&String> = match selection {
-        Selection::All => frames.keys().collect(),
+        Selection::All => context.frames.keys().collect(),
         Selection::Named { boards, .. } => boards.iter().collect(),
     };
+    let components: Vec<&String> = match selection {
+        Selection::All => context
+            .previews
+            .components
+            .iter()
+            .map(|(name, _)| name)
+            .collect(),
+        Selection::Named { components, .. } => components.iter().collect(),
+    };
     let (screens, others): (Vec<&String>, Vec<&String>) = wanted.into_iter().partition(|name| {
-        frames.contains_key(*name) && matches!(Name::parse(name), Ok(Name::Screen(_)))
+        context.frames.contains_key(*name) && matches!(Name::parse(name), Ok(Name::Screen(_)))
     });
     let mut drawn = Drawings::new();
     if !screens.is_empty() {
-        drawn.extend(draw_screens(work, folders, &screens, store)?);
+        drawn.extend(draw_screens(work, folders, &context, &screens, store)?);
     }
-    let components: Vec<String> = match selection {
-        Selection::All => Previews::of(work)?
+    let boards = others.into_iter().map(|name| {
+        let page = context
+            .frames
+            .get(name)
+            .map(|frame| Page::Board(name, *frame));
+        (format!("board {name}"), page)
+    });
+    let previews = components.into_iter().map(|name| {
+        let known = context
+            .previews
             .components
-            .into_iter()
-            .map(|(name, _)| name)
-            .collect(),
-        Selection::Named { components, .. } => components.to_vec(),
-    };
-    let others: Vec<String> = others.into_iter().cloned().collect();
-    if others.is_empty() && components.is_empty() {
-        return Ok(drawn);
+            .iter()
+            .any(|(known, _)| known == name);
+        (
+            format!("component {name}"),
+            known.then_some(Page::Preview(name)),
+        )
+    });
+    let pages: Vec<_> = boards.chain(previews).collect();
+    if !pages.is_empty() {
+        drawn.extend(draw_pages(work, folders, &context, pages, store)?);
     }
-    let in_browser = Selection::Named {
-        boards: &others,
-        components: &components,
-    };
-    drawn.extend(draw_in_browser(work, folders, in_browser)?);
     Ok(drawn)
 }
 
@@ -266,40 +267,29 @@ fn draw(
 fn draw_screens(
     work: &Path,
     folders: &boards::Folders,
+    context: &Context,
     names: &[&String],
     store: &Store,
 ) -> Result<Drawings, String> {
-    let previews = Previews::of(work)?;
-    let settings = Settings::load(work).map_err(|e| e.to_string())?;
-    let runtime = runtime::check(work).map_err(|e| e.to_string())?;
-    let design = DesignSystem::of(work, folders).map_err(|e| e.to_string())?;
-    let tree = Tree {
-        root: work,
-        design: &design,
-        runtime: runtime.copy.text,
-    };
     let names: Vec<Name> = names
         .iter()
         .map(|name| Name::parse(name).map_err(|e| e.to_string()))
         .collect::<Result<_, _>>()?;
-    let scales: render::Scales = names
-        .iter()
-        .map(|name| (name.clone(), DEVICE_SCALE))
-        .collect();
+    let scales: render::Scales = names.iter().map(|name| (name.clone(), SCALE)).collect();
     let hashes = render::hashes(
         work,
         &scales,
-        &previews,
-        &design,
-        runtime.copy.sha256,
+        &context.previews,
+        &context.design,
+        context.runtime.sha256,
         store.capture_version,
-        &settings,
+        &context.settings,
     )?;
     let out = tempfile::tempdir_in(&folders.cache).map_err(|e| e.to_string())?;
     Drawer {
-        tree,
-        settings: &settings,
-        previews: &previews,
+        tree: context.tree(work),
+        settings: &context.settings,
+        previews: &context.previews,
         folders,
     }
     .boards_into(store.pictures, &hashes, &scales, out.path())?;
@@ -318,97 +308,95 @@ fn draw_screens(
     Ok(drawn)
 }
 
-fn draw_in_browser(
+/// The drawings of <pages>, each named by the line's subject (`board <name>`
+/// or `component <name>`; none for a page the revision lacks): taken from the
+/// picture folder by its hash when it keeps one, and otherwise drawn in the
+/// browser, with the components it draws, and kept there.
+fn draw_pages(
     work: &Path,
     folders: &boards::Folders,
-    selection: Selection<'_>,
+    context: &Context,
+    pages: Vec<(String, Option<Page<'_>>)>,
+    store: &Store,
 ) -> Result<Drawings, String> {
-    let previews = Previews::of(work)?;
-    render::with_design(
-        work,
+    let out = tempfile::tempdir_in(&folders.cache).map_err(|e| e.to_string())?;
+    let mut drawn = Drawings::new();
+    let mut lacking = Vec::new();
+    for (what, page) in pages {
+        let Some(page) = page else {
+            drawn.insert(what, None);
+            continue;
+        };
+        let hash = page.hash(work, context, store.capture_version)?;
+        let kept = match store.pictures {
+            Some(pictures) => pictures.take_board(&hash, &hash, out.path())?,
+            None => false,
+        };
+        if kept {
+            drawn.insert(what, Some(read_kept(out.path(), &hash)?));
+        } else {
+            lacking.push((what, page, hash));
+        }
+    }
+    crate::log::note(format_args!(
+        "drawing {} pages the picture folder lacks",
+        lacking.len()
+    ));
+    if lacking.is_empty() {
+        return Ok(drawn);
+    }
+    let pages_drawn = render::with_browser(
+        context.tree(work),
         folders,
-        DEVICE_SCALE,
-        async |server, chrome, frames| {
-            let (boards, components): (Vec<_>, Vec<_>) = match selection {
-                Selection::All => (
-                    frames
-                        .iter()
-                        .map(|(name, frame)| (name, Some(frame)))
-                        .collect(),
-                    previews
-                        .components
-                        .iter()
-                        .map(|(name, _)| (name, true))
-                        .collect(),
-                ),
-                Selection::Named { boards, components } => {
-                    let known_components: BTreeSet<_> =
-                        previews.components.iter().map(|(name, _)| name).collect();
-                    (
-                        boards.iter().map(|name| (name, frames.get(name))).collect(),
-                        components
-                            .iter()
-                            .map(|name| (name, known_components.contains(name)))
-                            .collect(),
-                    )
-                }
-            };
-            let mut drawn = Drawings::new();
-            for (name, frame) in boards {
-                let picture = match frame {
-                    None => None,
-                    Some(frame) => Some(
-                        chrome
-                            .with_page(&format!("board {name}"), async |page| {
-                                let rendered =
-                                    board::render(page, name, &server.board_url(name), *frame)
-                                        .await
-                                        .map_err(|e| e.to_string())?;
-                                let elements =
-                                    render::read::elements(page, rendered.frame, Platform::Mac)
-                                        .await
-                                        .map_err(|e| e.to_string())?;
-                                Picture::of(&rendered.png, &elements)
-                            })
-                            .await?,
-                    ),
-                };
-                drawn.insert(format!("board {name}"), picture);
+        SCALE,
+        async |server, chrome| {
+            let mut all = Vec::new();
+            for (_, page, _) in &lacking {
+                all.push(pages::draw(*page, context, server, chrome).await?);
             }
-            for (name, exists) in components {
-                let picture = if exists {
-                    Some(
-                        chrome
-                            .with_page(&format!("the preview of {name}"), async |page| {
-                                board::load(
-                                    page,
-                                    name,
-                                    &server.preview_url(name),
-                                    preview::PREVIEW_FRAME,
-                                    preview::PREVIEW_LOADED,
-                                    None,
-                                )
-                                .await
-                                .map_err(|e| e.to_string())?;
-                                let rendered = preview::capture(page, preview::CaptureArea::Page)
-                                    .await
-                                    .map_err(|e| e.to_string())?;
-                                let elements =
-                                    render::read::elements(page, rendered.frame, Platform::Mac)
-                                        .await
-                                        .map_err(|e| e.to_string())?;
-                                Picture::of(&rendered.png, &elements)
-                            })
-                            .await?,
-                    )
-                } else {
-                    None
-                };
-                drawn.insert(format!("component {name}"), picture);
-            }
-            Ok(drawn)
+            Ok(all)
         },
-    )
+    )?;
+    for ((what, _, hash), page) in lacking.into_iter().zip(pages_drawn) {
+        let picture = Picture::of(&page.png, &page.elements)?;
+        if let Some(pictures) = store.pictures {
+            keep(pictures, &hash, &page, out.path())?;
+        }
+        drawn.insert(what, Some(picture));
+    }
+    Ok(drawn)
+}
+
+/// The drawing the picture folder kept for <hash> and `take_board` copied to
+/// <out>.
+fn read_kept(out: &Path, hash: &str) -> Result<Picture, String> {
+    let png_file = out.join(format!("{hash}.png"));
+    let png =
+        std::fs::read(&png_file).map_err(|e| format!("cannot read {}: {e}", png_file.display()))?;
+    let list_file = out.join(format!("{hash}.json"));
+    let text = std::fs::read_to_string(&list_file)
+        .map_err(|e| format!("cannot read {}: {e}", list_file.display()))?;
+    let list: pages::Elements =
+        serde_json::from_str(&text).map_err(|e| format!("{}: {e}", list_file.display()))?;
+    Picture::of(&png, &list.elements)
+}
+
+/// Keeps the page <page>, drawn for <hash>, in <pictures>, writing its files
+/// in <out> first.
+fn keep(pictures: &Pictures, hash: &str, page: &pages::Drawn, out: &Path) -> Result<(), String> {
+    let png_file = out.join(format!("{hash}.png"));
+    std::fs::write(&png_file, &page.png)
+        .map_err(|e| format!("cannot write {}: {e}", png_file.display()))?;
+    let list = serde_json::to_vec(&pages::Elements {
+        elements: page.elements.clone(),
+    })
+    .map_err(|e| e.to_string())?;
+    let list_file = out.join(format!("{hash}.json"));
+    std::fs::write(&list_file, list)
+        .map_err(|e| format!("cannot write {}: {e}", list_file.display()))?;
+    pictures.keep_board(hash, hash, out)?;
+    let instances = serde_json::to_string(&page.instances).map_err(|e| e.to_string())?;
+    pictures.keep_instances(hash, &instances)
 }
 
 #[cfg(test)]

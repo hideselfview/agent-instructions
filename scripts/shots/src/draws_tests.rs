@@ -1,5 +1,6 @@
 use super::*;
 use crate::shots::tests::png_of;
+use std::path::PathBuf;
 use std::process::Command;
 
 fn git(dir: &Path, args: &[&str]) {
@@ -482,4 +483,112 @@ fn a_screen_board_is_drawn_once_and_then_taken_from_the_picture_folder_by_its_ha
     )
     .unwrap();
     assert_eq!(unkept, vec![format!("alike board {SHOT_BOARD}")]);
+}
+
+fn kept_files(folder: &Path, ending: &str) -> Vec<PathBuf> {
+    let mut files: Vec<_> = std::fs::read_dir(folder.join("boards"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| path.to_string_lossy().ends_with(ending))
+        .collect();
+    files.sort();
+    files
+}
+
+/// Empties the element list that <list>, a file `keep` wrote, holds.
+fn empty_elements(list: &Path) {
+    let mut found: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(list).unwrap()).unwrap();
+    assert!(
+        !found["elements"].as_array().unwrap().is_empty(),
+        "the drawing read some element"
+    );
+    found["elements"] = serde_json::json!([]);
+    std::fs::write(list, serde_json::to_vec(&found).unwrap()).unwrap();
+}
+
+#[test]
+fn a_shared_board_is_drawn_once_and_kept_with_its_instances() {
+    let repo = history();
+    let folder = tempfile::tempdir().unwrap();
+    let pictures = Pictures::new(folder.path().to_path_buf(), std::time::SystemTime::now());
+    let store = Store {
+        pictures: Some(&pictures),
+        capture_version: VERSION,
+    };
+    let boards = vec![BOARD.to_string()];
+    let first = lines(repo.path(), "a", "a", &boards, &[], &folders(), &store).unwrap();
+    assert_eq!(first, vec![format!("alike board {BOARD}")]);
+    let lists: Vec<_> = kept_files(folder.path(), ".json")
+        .into_iter()
+        .filter(|path| !path.to_string_lossy().ends_with(".instances.json"))
+        .collect();
+    assert_eq!(lists.len(), 1, "the one drawing is kept");
+    assert_eq!(
+        kept_files(folder.path(), ".instances.json").len(),
+        1,
+        "with the components it draws"
+    );
+    // The revision `b` draws the board again (another hash), `a` does not.
+    empty_elements(&lists[0]);
+    let second = lines(repo.path(), "a", "b", &boards, &[], &folders(), &store).unwrap();
+    assert_eq!(second, vec![format!("differs board {BOARD}")]);
+    let unkept = lines(repo.path(), "a", "b", &boards, &[], &folders(), &no_store()).unwrap();
+    assert_eq!(unkept, vec![format!("alike board {BOARD}")]);
+}
+
+#[test]
+fn a_preview_page_is_drawn_once_and_kept_with_its_instances() {
+    let repo = history();
+    let component = "MacRow";
+    let preview = repo
+        .path()
+        .join(boards::preview::COMPONENTS)
+        .join(component)
+        .join("preview.html");
+    std::fs::create_dir_all(preview.parent().unwrap()).unwrap();
+    let page = "<html><head></head><body><p>a row</p></body></html>";
+    std::fs::write(&preview, page).unwrap();
+    git(repo.path(), &["add", "-A"]);
+    git(repo.path(), &["commit", "-q", "-m", "v1"]);
+    git(repo.path(), &["tag", "v1"]);
+    std::fs::write(&preview, format!("{page}<!-- a comment -->")).unwrap();
+    git(repo.path(), &["commit", "-q", "-am", "v2"]);
+    git(repo.path(), &["tag", "v2"]);
+    let folder = tempfile::tempdir().unwrap();
+    let pictures = Pictures::new(folder.path().to_path_buf(), std::time::SystemTime::now());
+    let store = Store {
+        pictures: Some(&pictures),
+        capture_version: VERSION,
+    };
+    let components = vec![component.to_string()];
+    let first = lines(
+        repo.path(),
+        "v1",
+        "v1",
+        &[],
+        &components,
+        &folders(),
+        &store,
+    )
+    .unwrap();
+    assert_eq!(first, vec![format!("alike component {component}")]);
+    let lists: Vec<_> = kept_files(folder.path(), ".json")
+        .into_iter()
+        .filter(|path| !path.to_string_lossy().ends_with(".instances.json"))
+        .collect();
+    assert_eq!(lists.len(), 1);
+    assert_eq!(kept_files(folder.path(), ".instances.json").len(), 1);
+    empty_elements(&lists[0]);
+    let second = lines(
+        repo.path(),
+        "v1",
+        "v2",
+        &[],
+        &components,
+        &folders(),
+        &store,
+    )
+    .unwrap();
+    assert_eq!(second, vec![format!("differs component {component}")]);
 }

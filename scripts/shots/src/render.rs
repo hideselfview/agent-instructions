@@ -5,6 +5,7 @@ pub(crate) mod chrome;
 #[cfg(test)]
 pub(crate) mod fixture;
 pub(crate) mod instances;
+pub(crate) mod pages;
 pub(crate) mod preview;
 pub(crate) mod read;
 pub(crate) mod runtime;
@@ -116,33 +117,6 @@ pub(crate) fn with_browser<T>(
             .await
             .map_err(|e| e.to_string())?
         })
-}
-
-/// Runs <work> with the design tree at <root> served and the pinned Chrome
-/// started, given every board's frame from `canvas.json`: checks the canvas
-/// runtime copy and builds the design system the boards load first. The
-/// browser has a device scale of <scale> pixels per point.
-pub(crate) fn with_design<T>(
-    root: &Path,
-    folders: &boards::Folders,
-    scale: f64,
-    work: impl AsyncFnOnce(
-        &serve::Server,
-        &chrome::Chrome,
-        &std::collections::BTreeMap<String, design::Frame>,
-    ) -> Result<T, String>,
-) -> Result<T, String> {
-    let runtime = runtime::check(root).map_err(|e| e.to_string())?;
-    let design = DesignSystem::of(root, folders).map_err(|e| e.to_string())?;
-    let frames = design::frames(root).map_err(|e| e.to_string())?;
-    let tree = Tree {
-        root,
-        design: &design,
-        runtime: runtime.copy.text,
-    };
-    with_browser(tree, folders, scale, async |server, chrome| {
-        work(server, chrome, &frames).await
-    })
 }
 
 /// What draws a board: the design tree it is served from, the repo's settings
