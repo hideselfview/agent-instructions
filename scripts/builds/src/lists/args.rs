@@ -145,7 +145,6 @@ impl Args {
         self.value(name)?.map(Id::parse).transpose()
     }
 
-    /// The comma-separated ids given as flag <name>, if any.
     /// The positional arguments as ids: at least one, each named once, else
     /// <usage>.
     pub fn positional_ids(&self, usage: &str) -> Result<Vec<Id>> {
@@ -165,6 +164,7 @@ impl Args {
         Ok(ids)
     }
 
+    /// The comma-separated ids given as flag <name>, if any.
     pub fn ids(&self, name: &str) -> Result<Option<Vec<Id>>> {
         self.value(name)?.map(Id::parse_list).transpose()
     }
