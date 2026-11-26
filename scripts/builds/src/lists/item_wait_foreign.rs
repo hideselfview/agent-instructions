@@ -10,9 +10,9 @@ use rusqlite::Connection;
 
 use crate::db::{self, DATABASE, Sql};
 use crate::fail;
-use crate::fail::Result;
+use crate::fail::{Fail, Result};
 use crate::lists::check::project_name_fault;
-use crate::lists::record::{self, How, Id, Kind};
+use crate::lists::record::{self, How, Id, Kind, Record};
 use crate::lists::{Lists, Wait};
 
 /// Writes item <id>'s wait on item <item> of <project>, once.
@@ -64,6 +64,16 @@ pub enum ForeignStanding {
     /// Closed in a way that meets no wait (the word `How::label` gives): only
     /// `builds item wait --off` ends a wait on it.
     Ended(String),
+}
+
+/// What reading an item of another project found.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ForeignState {
+    Read {
+        title: String,
+        standing: ForeignStanding,
+    },
     /// The store or the item could not be read: why.
     Unreadable(String),
 }
@@ -73,9 +83,7 @@ pub enum ForeignStanding {
 pub struct ForeignItem {
     pub project: String,
     pub id: Id,
-    /// Empty when the item could not be read.
-    pub title: String,
-    pub standing: ForeignStanding,
+    pub state: ForeignState,
 }
 
 use serde::Serialize;
@@ -83,32 +91,65 @@ use serde::Serialize;
 impl ForeignItem {
     /// <project>'s item <id> as the store in folder <lists> holds it now.
     pub fn read(lists: &Path, project: &str, id: Id) -> ForeignItem {
-        let (title, standing) = match read_standing(lists, project, id) {
-            Ok(found) => found,
-            Err(error) => (String::new(), ForeignStanding::Unreadable(error.text())),
+        let state = match read_standing(lists, project, id) {
+            Ok((title, standing)) => ForeignState::Read { title, standing },
+            Err(error) => ForeignState::Unreadable(error.text()),
         };
         ForeignItem {
             project: project.to_string(),
             id,
-            title,
-            standing,
+            state,
+        }
+    }
+
+    /// An item whose reading failed at once, for <why>.
+    fn unreadable(project: &str, id: Id, why: String) -> ForeignItem {
+        ForeignItem {
+            project: project.to_string(),
+            id,
+            state: ForeignState::Unreadable(why),
+        }
+    }
+
+    pub fn title(&self) -> Option<&str> {
+        match &self.state {
+            ForeignState::Read { title, .. } => Some(title),
+            ForeignState::Unreadable(_) => None,
+        }
+    }
+
+    pub fn standing(&self) -> Option<&ForeignStanding> {
+        match &self.state {
+            ForeignState::Read { standing, .. } => Some(standing),
+            ForeignState::Unreadable(_) => None,
         }
     }
 
     pub fn met(&self) -> bool {
-        matches!(self.standing, ForeignStanding::Met(_))
+        matches!(self.standing(), Some(ForeignStanding::Met(_)))
     }
 
-    /// What the standing says, for a person.
+    /// Does a wait on it still hold something? Not once it landed or closed
+    /// without meeting waits; an item that could not be read may still.
+    pub fn holds(&self) -> bool {
+        !matches!(
+            self.standing(),
+            Some(ForeignStanding::Met(_) | ForeignStanding::Ended(_))
+        )
+    }
+
+    /// What the state says, for a person.
     pub fn words(&self) -> String {
-        match &self.standing {
-            ForeignStanding::Open => "open".to_string(),
-            ForeignStanding::Backlog => "in the backlog".to_string(),
-            ForeignStanding::Met(_) => "landed".to_string(),
-            ForeignStanding::Ended(how) => {
-                format!("closed as {how}, which meets no wait: end the wait by hand")
-            }
-            ForeignStanding::Unreadable(why) => format!("unreadable: {why}"),
+        match &self.state {
+            ForeignState::Read { standing, .. } => match standing {
+                ForeignStanding::Open => "open".to_string(),
+                ForeignStanding::Backlog => "in the backlog".to_string(),
+                ForeignStanding::Met(_) => "landed".to_string(),
+                ForeignStanding::Ended(how) => {
+                    format!("closed as {how}, which meets no wait: end the wait by hand")
+                }
+            },
+            ForeignState::Unreadable(why) => format!("unreadable: {why}"),
         }
     }
 }
@@ -136,14 +177,7 @@ fn standing_in(conn: &Connection, project: &str, id: Id) -> Result<(String, Fore
     };
     let standing = match record::standing(conn, id)? {
         Some((Kind::Item, None)) => {
-            let backlog: bool = conn
-                .query_row(
-                    "SELECT EXISTS (SELECT 1 FROM item_backlog WHERE item_id = ?1)",
-                    [id],
-                    |row| row.get(0),
-                )
-                .sql()?;
-            if backlog {
+            if crate::lists::item::in_backlog(conn, id)? {
                 ForeignStanding::Backlog
             } else {
                 ForeignStanding::Open
@@ -163,12 +197,33 @@ fn standing_in(conn: &Connection, project: &str, id: Id) -> Result<(String, Fore
     Ok((title, standing))
 }
 
-/// Every item of another project that an open item of <lists> waits on, read
-/// from the stores in folder <folder>, in project then id order.
-pub fn resolve(folder: &Path, lists: &Lists) -> Vec<ForeignItem> {
+/// The folder that holds every project's store, from the path of one
+/// project's database: <lists>/<project>/builds.sqlite.
+fn folder_of(database: &Path) -> Result<&Path> {
+    match database.parent().and_then(Path::parent) {
+        Some(folder) if !database.as_os_str().is_empty() => Ok(folder),
+        _ => fail!(
+            "{} is not in a project's folder, so builds cannot find the other projects' stores",
+            database.display()
+        ),
+    }
+}
+
+/// Every item of another project that an item of <lists>, open or closed,
+/// waits on, read from the stores beside <database>, the database <lists>
+/// came from, in project then id order.
+pub fn resolve(database: &Path, lists: &Lists) -> Vec<ForeignItem> {
+    let closed = lists
+        .closed
+        .iter()
+        .filter_map(|closed| match &closed.record {
+            Record::Item(item) => Some(item),
+            _ => None,
+        });
     let mut named: Vec<(&str, Id)> = lists
         .items
         .iter()
+        .chain(closed)
         .flat_map(|item| &item.waits)
         .filter_map(|wait| match wait {
             Wait::Foreign { project, item } => Some((project.as_str(), *item)),
@@ -177,13 +232,29 @@ pub fn resolve(folder: &Path, lists: &Lists) -> Vec<ForeignItem> {
         .collect();
     named.sort();
     named.dedup();
+    let folder = folder_of(database).map_err(Fail::text);
     named
         .into_iter()
-        .map(|(project, id)| ForeignItem::read(folder, project, id))
+        .map(|(project, id)| match &folder {
+            Ok(folder) => ForeignItem::read(folder, project, id),
+            Err(why) => ForeignItem::unreadable(project, id, why.clone()),
+        })
         .collect()
 }
 
 impl Lists {
+    /// The item <id> of project <project> that a wait of this project's items
+    /// names, which loading the lists read. Panics when it is missing: a
+    /// `Lists` holds every item its waits name, an unreadable one as
+    /// `ForeignState::Unreadable`.
+    pub fn foreign_item_read(&self, project: &str, id: Id) -> &ForeignItem {
+        self.foreign_item(project, id).unwrap_or_else(|| {
+            panic!(
+                "the lists hold no reading of item {id} of project {project}, which a wait names"
+            )
+        })
+    }
+
     /// The item <id> of project <project> that an item waits on.
     pub fn foreign_item(&self, project: &str, id: Id) -> Option<&ForeignItem> {
         self.foreign
@@ -207,7 +278,13 @@ pub fn require_open(folder: &Path, own: &str, wait: &Wait) -> Result<()> {
         );
     }
     let found = ForeignItem::read(folder, project, *item);
-    match found.standing {
+    let ForeignState::Read { standing, .. } = &found.state else {
+        fail!(
+            "a wait names {item} of project {project}: {}",
+            found.words()
+        );
+    };
+    match standing {
         ForeignStanding::Open => Ok(()),
         ForeignStanding::Backlog => fail!(
             "a wait names {item} of project {project}, which is in that project's backlog: start it first (`builds item start {} --project {project} --said WORDS`)",
@@ -217,9 +294,6 @@ pub fn require_open(folder: &Path, own: &str, wait: &Wait) -> Result<()> {
             "a wait names {item} of project {project}, which is closed ({}); a wait on a closed item never holds anything",
             found.words()
         ),
-        ForeignStanding::Unreadable(why) => {
-            fail!("a wait names {item} of project {project}: {why}")
-        }
     }
 }
 

@@ -356,15 +356,13 @@ fn wait_view(lists: &Lists, wait: &Wait) -> Result<WaitView> {
         Wait::Question(id) => WaitView::Question(record(*id)?),
         Wait::Design(id) => WaitView::Design(record(*id)?),
         Wait::Foreign { project, item } => {
-            let found = lists.foreign_item(project, *item);
+            let found = lists.foreign_item_read(project, *item);
             WaitView::Foreign(ForeignWaitView {
                 project: project.clone(),
                 id: *item,
-                title: found
-                    .filter(|found| !found.title.is_empty())
-                    .map(|found| found.title.clone()),
+                title: found.title().map(str::to_string),
                 met: derive::wait_met(lists, wait),
-                standing: found.map_or_else(|| "unread".to_string(), |found| found.words()),
+                standing: found.words(),
             })
         }
         Wait::Condition { text, until } => WaitView::Condition {

@@ -59,9 +59,7 @@ pub fn wait_met(lists: &Lists, wait: &Wait) -> bool {
     let id = match wait {
         Wait::Item(id) | Wait::Question(id) | Wait::Design(id) => *id,
         Wait::Foreign { project, item } => {
-            return lists
-                .foreign_item(project, *item)
-                .is_some_and(|found| found.met());
+            return lists.foreign_item_read(project, *item).met();
         }
         Wait::Condition { .. } => return false,
     };

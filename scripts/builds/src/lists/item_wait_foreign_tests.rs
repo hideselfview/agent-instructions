@@ -66,8 +66,8 @@ fn a_wait_on_an_item_of_another_project_clears_when_that_item_lands() {
         ItemState::Waiting
     );
     assert_eq!(
-        lists.foreign_item("other", Id(1)).unwrap().standing,
-        ForeignStanding::Open
+        lists.foreign_item("other", Id(1)).unwrap().standing(),
+        Some(&ForeignStanding::Open)
     );
 
     close_in(&other, 1, How::Landed(vec!["a".repeat(40)]));
@@ -79,8 +79,8 @@ fn a_wait_on_an_item_of_another_project_clears_when_that_item_lands() {
         ItemState::Ready
     );
     assert_eq!(
-        lists.foreign_item("other", Id(1)).unwrap().standing,
-        ForeignStanding::Met(NOON + 60)
+        lists.foreign_item("other", Id(1)).unwrap().standing(),
+        Some(&ForeignStanding::Met(NOON + 60))
     );
 }
 
@@ -176,4 +176,21 @@ fn health_lists_the_item_of_the_other_project_not_the_item_that_waits_on_it() {
         .collect();
     assert_eq!(rows.len(), 1, "{lines:?}");
     assert!(rows[0].contains("It blocks 1 item."), "{lines:?}");
+}
+
+/// The lists a write reads inside its transaction hold the other project's
+/// item too, so a write judges the wait as a load does.
+#[test]
+fn the_lists_a_write_reads_see_the_item_of_the_other_project_landed() {
+    let (demo, other) = two_projects("foreign-wait-in-write");
+    item(&demo, &["wait", "1", "--on", "item:other/1"]).unwrap();
+    close_in(&other, 1, How::Landed(vec!["d".repeat(40)]));
+    let met = demo
+        .store
+        .write(&stamp(NOON + 120), "read", |db| {
+            let lists = crate::lists::store::read(db)?;
+            Ok(unmet_waits(&lists, lists.item(Id(1)).unwrap()).is_empty())
+        })
+        .unwrap();
+    assert!(met);
 }

@@ -423,7 +423,7 @@ impl ItemDraft {
 }
 
 /// Is open item <id> in the backlog?
-fn in_backlog(db: &Connection, id: Id) -> Result<bool> {
+pub(crate) fn in_backlog(db: &Connection, id: Id) -> Result<bool> {
     db.query_row(
         "SELECT EXISTS (SELECT 1 FROM item_backlog WHERE item_id = ?1 \
          AND NOT EXISTS (SELECT 1 FROM closing WHERE record_id = ?1))",

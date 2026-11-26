@@ -13,7 +13,6 @@ use crate::fail::Result;
 use crate::health::Advice;
 use crate::lists::design::DesignCommit;
 use crate::lists::design_reads::Coverage;
-use crate::lists::item_wait_foreign::ForeignStanding;
 use crate::lists::running::{SpanKind, end_span, open_span, running_in, running_in_any};
 use crate::lists::store::{Loaded, Store, lists_of};
 use crate::lists::{Id, Item, Lists, Located, Stamp, Standing, Wait};
@@ -30,12 +29,7 @@ pub fn wait_open(lists: &Lists, wait: &Wait) -> bool {
         // Open, in the backlog or unreadable holds something; landed or
         // closed without meeting the wait holds nothing.
         Wait::Foreign { project, item } => {
-            return lists.foreign_item(project, *item).is_none_or(|found| {
-                !matches!(
-                    found.standing,
-                    ForeignStanding::Met(_) | ForeignStanding::Ended(_)
-                )
-            });
+            return lists.foreign_item_read(project, *item).holds();
         }
         Wait::Item(id) | Wait::Question(id) | Wait::Design(id) => *id,
     };

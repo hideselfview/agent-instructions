@@ -142,7 +142,7 @@ pub fn kept_waits(lists: &Lists, item: &Item) -> Result<KeptWaits> {
     let mut met = Vec::new();
     for wait in &item.waits {
         if let Wait::Foreign { project, item } = wait {
-            met.push(foreign_met_words(lists, project, *item)?);
+            met.push(foreign_met_words(lists, project, *item));
             continue;
         }
         let closed = met_by(lists, wait)?;
@@ -158,21 +158,19 @@ pub fn kept_waits(lists: &Lists, item: &Item) -> Result<KeptWaits> {
 }
 
 /// What met the wait on item <item> of <project>, which is met.
-fn foreign_met_words(lists: &Lists, project: &str, item: Id) -> Result<String> {
-    match lists.foreign_item(project, item) {
-        Some(found) if found.met() => Ok(format!("item {project}/{item} landed: {}", found.title)),
-        _ => fail!("a met wait names {item} of project {project}, which no store shows landed"),
-    }
+fn foreign_met_words(lists: &Lists, project: &str, item: Id) -> String {
+    let found = lists.foreign_item_read(project, item);
+    format!(
+        "item {project}/{item} landed: {}",
+        found.title().unwrap_or_default()
+    )
 }
 
 /// When <wait>, which is met, was met: the time the record that met it
 /// closed.
 pub fn met_at(lists: &Lists, wait: &Wait) -> Result<i64> {
     if let Wait::Foreign { project, item } = wait {
-        return match lists
-            .foreign_item(project, *item)
-            .map(|found| &found.standing)
-        {
+        return match lists.foreign_item_read(project, *item).standing() {
             Some(ForeignStanding::Met(at)) => Ok(*at),
             _ => fail!("a met wait names {item} of project {project}, which no store shows landed"),
         };
