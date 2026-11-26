@@ -9,6 +9,8 @@
 //! platform's word (`mac`, `android`, `web`) runs on that platform and needs
 //! no `app` line.
 
+use crate::segment::is_segment;
+
 /// A platform an app runs on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Platform {
@@ -76,19 +78,13 @@ pub fn is_app_name(name: &str) -> bool {
     name_fault(name).is_none()
 }
 
-/// What keeps <name> from being an app's name, which is lower-case words
-/// joined by `-` in at most `APP_NAME_BYTES` bytes.
+/// What keeps <name> from being an app's name, which is a name segment
+/// (`segment::is_segment`) in at most `APP_NAME_BYTES` bytes.
 fn name_fault(name: &str) -> Option<&'static str> {
     if name.len() > APP_NAME_BYTES {
         return Some("names an app in more than 32 bytes");
     }
-    let words = name.split('-').all(|word| {
-        !word.is_empty()
-            && word
-                .chars()
-                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
-    });
-    (!words).then_some("names an app that is not lower-case words joined by '-'")
+    (!is_segment(name)).then_some("names an app that is not lower-case words joined by '-'")
 }
 
 /// The apps a repo's `.app-build` names with `app` lines. An app named for a

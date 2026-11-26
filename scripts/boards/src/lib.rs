@@ -13,6 +13,7 @@ pub mod fonts;
 pub mod preview;
 pub mod routes;
 pub mod runtime;
+pub mod segment;
 pub mod source;
 pub mod tokens;
 

@@ -6,6 +6,7 @@
 //! segment is lower-case words joined by `-`.
 
 use boards::component_key::ComponentKey;
+use boards::segment::is_segment;
 use std::fmt;
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -263,10 +264,6 @@ fn pascal_case(thing: &str) -> String {
                 .unwrap_or_default()
         })
         .collect()
-}
-
-fn is_segment(segment: &str) -> bool {
-    boards::app_build::is_app_name(segment)
 }
 
 impl fmt::Display for Name {

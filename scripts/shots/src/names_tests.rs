@@ -144,6 +144,20 @@ fn names_that_are_not_boards_are_refused() {
 }
 
 #[test]
+fn a_segment_after_the_app_has_any_length() {
+    let long = "waiting-for-01-harbor-lights-flac";
+    assert_eq!(long.len(), 33);
+    for text in [
+        format!("android.component.upload-line.{long}"),
+        format!("android.component.{long}.default"),
+        format!("mac.{long}.{long}.{long}"),
+    ] {
+        let name = Name::parse(&text, &Apps::default()).unwrap();
+        assert_eq!(name.to_string(), text);
+    }
+}
+
+#[test]
 fn a_preview_row_name_becomes_its_state_id() {
     assert_eq!(state_id("Nested, off"), "nested-off");
     assert_eq!(state_id("Opens a page"), "opens-a-page");
