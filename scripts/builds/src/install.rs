@@ -409,7 +409,6 @@ fn replace_program(
             "every store has this builds' schema, so install waits for no builds command"
                 .to_string(),
         );
-        crate::migrate::migrate_app_files(places)?;
         put()?;
         installing.remove_ended_uses()?;
         drop(installing);
@@ -428,7 +427,6 @@ fn replace_program(
     // build lane holds no use while it builds, so install waits for no app
     // build's steps.
     let closed = installing.close(say)?;
-    crate::migrate::migrate_app_files(places)?;
     crate::migrate::migrate_stores(places, now)?;
     put()?;
     drop(closed);
