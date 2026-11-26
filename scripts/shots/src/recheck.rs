@@ -67,16 +67,8 @@ pub(crate) fn text(report: &Path, version: &str) -> Result<String, String> {
     }
     let mut failed = Vec::new();
     for scene in &named.failed {
-        let platform = crate::backend::from_file_word(&scene.platform).ok_or_else(|| {
-            format!(
-                "{}: {} names the platform word {:?}, which is no platform's",
-                file.display(),
-                scene.scene,
-                scene.platform
-            )
-        })?;
-        let name =
-            scene_name(&scene.scene, platform).map_err(|e| format!("{}: {e}", file.display()))?;
+        let name = scene_name(&scene.scene, scene.platform)
+            .map_err(|e| format!("{}: {e}", file.display()))?;
         failed.push(Failed {
             name,
             why: scene.error.clone(),
