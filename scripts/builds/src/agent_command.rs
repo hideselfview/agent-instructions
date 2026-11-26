@@ -315,7 +315,7 @@ fn run(tool: &Tool, args: &[String], cwd: &Path, out: &mut dyn Write) -> Result<
         message: message.as_deref(),
         hard_limits_file: &file.path,
         hard_limits: &file.hard_limits,
-        trailer: plan.tier.trailer(Provider::Claude),
+        trailer: plan.tier.trailer(),
         scratch: &made.scratch.display().to_string(),
     }
     .text();
@@ -494,7 +494,7 @@ fn resume(tool: &Tool, args: &[String], cwd: &Path, out: &mut dyn Write) -> Resu
         agent.work.places(),
         &all_ids,
         &new_items,
-        agent.tier.trailer(Provider::Claude),
+        agent.tier.trailer(),
     );
     let new_ids: Vec<u32> = ids.iter().map(|id| id.0).collect();
     if let Some(socket) = running_socket(tool, session)? {
