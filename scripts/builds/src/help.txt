@@ -61,6 +61,16 @@ for a role's sections. After a compaction, the agent names its roles again.
 Builds requires acknowledgement for agent commands other than `help`, `ack`,
 `agent start`, `brief`, `rules-on-edit`, `install`, `dashboard` and `version`.
 
+Every command takes --project P. The check of an agent's acknowledgement reads
+it from the store of the project the agent works in: the one the claim of the
+worktree the command runs in names, else --project's. In a repo two projects
+hold, an agent's command from a checkout whose claim names neither therefore
+needs --project, whatever the command does. A command that makes no other use
+of a project, such as `queue`, `takeover`, `build-app` or `retire`, only
+checks that the project exists. For `lock`, --project goes before the command
+it runs, and for `remote run`, before `--`. Every word after `cargo` and
+`lake` belongs to the tool.
+
   builds ack [--agent ID] [--project P] [--role ROLE]...
       Start a reading. Its first line says why builds asks agents to read the
       text: agents that skip it work in the person's checkout, push main and

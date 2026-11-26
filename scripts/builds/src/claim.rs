@@ -445,9 +445,8 @@ pub fn cmd_note(places: &Places, args: &[String], now: i64) -> Result<()> {
 /// worktree holds work origin/main lacks that no item holds. `builds new`
 /// reads the same facts (kept.rs).
 pub fn cmd_release(places: &Places, args: &[String]) -> Result<()> {
-    let parsed = crate::lists::args::Args::parse_only(args, &["project"])?;
-    let [checkout] = parsed.exactly(1, "builds release <checkout> [--project P]")? else {
-        unreachable!("exactly(1) returns one argument")
+    let [checkout] = args else {
+        fail!("usage: builds release <checkout>")
     };
     let checkout = Checkout::find(checkout)?;
     let every = crate::lists::store::every_lists(places)?;

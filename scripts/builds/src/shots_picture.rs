@@ -34,7 +34,7 @@ fn app_build_words(repo: &str, git_ref: &str, scene: &str, project: Option<&str>
         .chain(
             project
                 .into_iter()
-                .flat_map(|name| [crate::app_build::PROJECT, name]),
+                .flat_map(|name| [crate::project_flag::PROJECT, name]),
         )
         .map(str::to_string)
         .collect()
@@ -42,7 +42,7 @@ fn app_build_words(repo: &str, git_ref: &str, scene: &str, project: Option<&str>
 
 /// `builds shots picture`, given the arguments after `picture`.
 pub fn cmd(tool: &Tool, args: &[String]) -> Result<()> {
-    let (project, words) = crate::app_build::take_project(args, USAGE)?;
+    let (project, words) = crate::project_flag::take(args, USAGE)?;
     let [repo, git_ref, scene, side] = &words[..] else {
         fail!("{USAGE}");
     };

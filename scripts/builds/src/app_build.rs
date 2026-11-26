@@ -133,6 +133,7 @@ use crate::lane::Lane;
 use crate::lock::{self, Found, Keep, Ran, Within};
 use crate::places::Places;
 use crate::programs::Pinned;
+use crate::project_flag::PROJECT;
 use crate::run_end::RunEnd;
 use crate::shot_findings;
 use crate::shots_cache;
@@ -1201,11 +1202,6 @@ fn shots_prefix(step: &Step) -> &str {
 /// one): the run records it as the ref it built (`app_timing::RunRecord`),
 /// which is how `builds land` finds a branch's builds.
 const BUILT_REF: &str = "--built-ref";
-
-/// The flag that names the project whose store records a build of a ref that
-/// no claimed worktree speaks for (`app_timing::recording_project`). A lane's
-/// process is given the project its request chose.
-pub const PROJECT: &str = "--project";
 
 /// What a lane's process is given first when its steps are only what its
 /// shots picks need, because no path the branch changes needs a step in the
@@ -3109,7 +3105,7 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
     if commit.starts_with('-') {
         fail!("{USAGE}");
     }
-    let (flag, tail) = take_project(tail, USAGE)?;
+    let (flag, tail) = crate::project_flag::take(tail, USAGE)?;
     // Before anything builds, so that a build with nowhere to record fails
     // at once.
     let project = crate::app_timing::recording_project(places, repo, commit, flag)?;
@@ -3140,24 +3136,6 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
         &[],
         fresh,
     )
-}
-
-/// The project that <args>' `--project` names, and <args> without it. A
-/// refusal ends with the command's <usage>.
-pub fn take_project<'a>(args: &'a [String], usage: &str) -> Result<(Option<&'a str>, Vec<String>)> {
-    let mut rest = args.to_vec();
-    let Some(at) = args.iter().position(|arg| arg == PROJECT) else {
-        return Ok((None, rest));
-    };
-    let value = args.get(at + 1).filter(|value| !value.starts_with('-'));
-    let Some(value) = value else {
-        fail!("{PROJECT} needs a project's name\n{usage}");
-    };
-    rest.drain(at..at + 2);
-    if rest.iter().any(|arg| arg == PROJECT) {
-        fail!("{PROJECT} is given twice\n{usage}");
-    }
-    Ok((Some(value), rest))
 }
 
 /// What an app build with named steps or picks builds: the one commit its ref

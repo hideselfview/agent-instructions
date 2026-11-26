@@ -144,6 +144,7 @@ mod proc_limit;
 mod process_readings;
 mod procs;
 mod programs;
+mod project_flag;
 mod prune;
 mod prune_schedule;
 mod python;
@@ -255,14 +256,24 @@ fn run_command(args: &[String], session: ack::agent::Session) -> ExitCode {
         print!("{}", help::HELP);
         return ExitCode::from(2);
     };
+    let split = match project_flag::split(command, rest) {
+        Ok(split) => split,
+        Err(fail) => return exit_code_after(command, fail),
+    };
+    let rest = split.args.as_slice();
     let nested = std::env::var_os(ack::PASSED).is_some();
     let _use = match enter_stores(command, args) {
         Ok(held) => held,
         Err(fail) => return exit_code_after(command, fail),
     };
-    if let Err(fail) =
-        Places::from_env().and_then(|places| ack::gate(&places, &session, command, rest))
-    {
+    if let Err(fail) = Places::from_env().and_then(|places| {
+        let project = split.project.as_deref();
+        ack::gate(&places, &session, command, rest, project)?;
+        match project {
+            Some(project) => project_flag::require_exists(&places, project),
+            None => Ok(()),
+        }
+    }) {
         return exit_code_after(command, fail);
     }
     if let Err(fail) = claimed_branch::gate(command, nested, &session) {

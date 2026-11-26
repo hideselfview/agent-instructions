@@ -479,7 +479,7 @@ impl Runs {
                     .arg(commit)
                     .arg("--shots")
                     .arg(prefix)
-                    .arg(crate::app_build::PROJECT)
+                    .arg(crate::project_flag::PROJECT)
                     .arg(project);
             }
         }

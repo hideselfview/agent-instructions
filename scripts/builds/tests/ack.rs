@@ -139,7 +139,11 @@ fn an_agent_runs_install_on_a_store_of_an_older_schema_and_builds_refuses_its_ot
 
     // install refuses the extra arguments with its usage, which shows that
     // the gate let the command through to install.
-    let install = builds(&dir, Some("s1"), &[&["install"][..], &agent].concat());
+    let install = builds(
+        &dir,
+        Some("s1"),
+        &[&["install", "extra"][..], &agent].concat(),
+    );
     let said = String::from_utf8_lossy(&install.stderr);
     assert!(said.contains("usage: builds install"), "{said}");
 

@@ -582,15 +582,6 @@ fn an_agent_outside_a_checkout_names_the_project_with_project() {
 }
 
 #[test]
-fn the_gate_reads_project_before_the_end_of_the_flags() {
-    let args: Vec<String> = ["show", "--project", "p", "--", "--project", "x"]
-        .iter()
-        .map(|arg| arg.to_string())
-        .collect();
-    assert_eq!(flag(&args, "project"), Some("p"));
-}
-
-#[test]
 fn a_claim_that_names_a_project_without_the_repo_is_refused_even_with_project() {
     let world = world("ack-bad-claim");
     let checkout = Checkout::at(&world.checkout).unwrap().unwrap();
@@ -790,8 +781,8 @@ fn the_gate_passes_the_rules_hook_of_an_agent_that_has_not_acknowledged() {
     // one starts no thread that reads the environment.
     unsafe { std::env::remove_var(PASSED) };
     let session = agent::Session::of(Some(SESSION_ID.into()), None, None, Some(AGENT.into()));
-    gate(&world.places, &session, "rules-on-edit", &[]).unwrap();
-    assert!(gate(&world.places, &session, "du", &[]).is_err());
+    gate(&world.places, &session, "rules-on-edit", &[], None).unwrap();
+    assert!(gate(&world.places, &session, "du", &[], None).is_err());
 }
 
 #[test]
@@ -801,7 +792,7 @@ fn the_gate_refuses_a_claude_agent_that_names_no_id() {
     // one starts no thread that reads the environment.
     unsafe { std::env::remove_var(PASSED) };
     let session = agent::Session::of(Some(SESSION_ID.into()), None, None, None);
-    let refusal = message(gate(&world.places, &session, "du", &[]));
+    let refusal = message(gate(&world.places, &session, "du", &[], None));
     assert!(refusal.contains("pass --agent ID"), "{refusal}");
     assert!(refusal.contains("BUILDS_AGENT=ID"), "{refusal}");
 }

@@ -65,6 +65,7 @@ pub fn gate(
     session: &agent::Session,
     command: &str,
     args: &[String],
+    project: Option<&str>,
 ) -> Result<()> {
     if command == "ack"
         || command == "rules-on-edit"
@@ -78,7 +79,7 @@ pub fn gate(
     let Some(identity) = session.identity()? else {
         return Ok(());
     };
-    if let Some(notice) = check(places, &identity, flag(args, "project"), &current_dir()?)? {
+    if let Some(notice) = check(places, &identity, project, &current_dir()?)? {
         eprint!("{notice}");
     }
     // SAFETY: no other thread runs yet, so none reads the environment while
@@ -109,16 +110,6 @@ fn commits_in_main_checkout(command: &str, args: &[String]) -> Result<bool> {
         return Ok(false);
     };
     Ok(Checkout::at(worktree)?.is_some_and(|checkout| checkout.is_main()))
-}
-
-/// The value of flag <name> in a command's arguments <args>, before any `--`.
-fn flag<'a>(args: &'a [String], name: &str) -> Option<&'a str> {
-    let wanted = format!("--{name}");
-    args.iter()
-        .take_while(|arg| *arg != "--")
-        .position(|arg| *arg == wanted)
-        .and_then(|at| args.get(at + 1))
-        .map(String::as_str)
 }
 
 /// An agent as builds names it, and where builds keeps its acknowledgement.
