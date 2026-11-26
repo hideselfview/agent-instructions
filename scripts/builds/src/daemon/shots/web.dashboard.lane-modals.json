@@ -2306,150 +2306,6 @@
        },
        "landings": [],
        "errors": []
-      },
-      {
-       "name": "side-30",
-       "path": "/Users/builder/dev/bae-worktrees/side-30",
-       "root": "/Volumes/Builds/bae/side-30",
-       "live": true,
-       "main": false,
-       "branch": "parked-1",
-       "app_checkout": false,
-       "app_lane": null,
-       "claim": null,
-       "git": {
-        "head": {
-         "sha": "2222222222",
-         "full": "2222222222000000000000000000000000000000",
-         "time": 1794523980,
-         "authored": 1794523980,
-         "subject": "Merge main"
-        },
-        "ahead": [],
-        "main": "1000000000000000000000000000000000000000",
-        "uncommitted": 0,
-        "last_write": null
-       },
-       "state": "kept-waiting",
-       "folders": [],
-       "total_kib": null,
-       "activity": {
-        "processes": [],
-        "cpu": 0.0,
-        "memory": 0,
-        "started": null
-       },
-       "words": {
-        "chip": "Waiting",
-        "pill": null,
-        "items": [
-         {
-          "id": 600,
-          "title": "Lints driver on Linux"
-         }
-        ],
-        "note": "No Linux host",
-        "uncommitted": null,
-        "queued": null
-       },
-       "landings": [],
-       "errors": []
-      },
-      {
-       "name": "side-31",
-       "path": "/Users/builder/dev/bae-worktrees/side-31",
-       "root": "/Volumes/Builds/bae/side-31",
-       "live": true,
-       "main": false,
-       "branch": "parked-2",
-       "app_checkout": false,
-       "app_lane": null,
-       "claim": null,
-       "git": {
-        "head": {
-         "sha": "2222222222",
-         "full": "2222222222000000000000000000000000000000",
-         "time": 1794437580,
-         "authored": 1794437580,
-         "subject": "Merge main"
-        },
-        "ahead": [],
-        "main": "1000000000000000000000000000000000000000",
-        "uncommitted": 0,
-        "last_write": null
-       },
-       "state": "kept-waiting",
-       "folders": [],
-       "total_kib": null,
-       "activity": {
-        "processes": [],
-        "cpu": 0.0,
-        "memory": 0,
-        "started": null
-       },
-       "words": {
-        "chip": "Waiting",
-        "pill": null,
-        "items": [
-         {
-          "id": 601,
-          "title": "Mac shots losing their window"
-         }
-        ],
-        "note": "Waits for it to recur",
-        "uncommitted": null,
-        "queued": null
-       },
-       "landings": [],
-       "errors": []
-      },
-      {
-       "name": "side-32",
-       "path": "/Users/builder/dev/bae-worktrees/side-32",
-       "root": "/Volumes/Builds/bae/side-32",
-       "live": true,
-       "main": false,
-       "branch": "parked-3",
-       "app_checkout": false,
-       "app_lane": null,
-       "claim": null,
-       "git": {
-        "head": {
-         "sha": "2222222222",
-         "full": "2222222222000000000000000000000000000000",
-         "time": 1794351180,
-         "authored": 1794351180,
-         "subject": "Merge main"
-        },
-        "ahead": [],
-        "main": "1000000000000000000000000000000000000000",
-        "uncommitted": 0,
-        "last_write": null
-       },
-       "state": "kept-waiting",
-       "folders": [],
-       "total_kib": null,
-       "activity": {
-        "processes": [],
-        "cpu": 0.0,
-        "memory": 0,
-        "started": null
-       },
-       "words": {
-        "chip": "Waiting",
-        "pill": null,
-        "items": [
-         {
-          "id": 602,
-          "title": "Shots whose shadow differs"
-         }
-        ],
-        "note": "Waits on Light question",
-        "uncommitted": null,
-        "queued": null
-       },
-       "landings": [],
-       "errors": []
       }
      ]
     },
@@ -3009,6 +2865,160 @@
         "pill": null,
         "items": [],
         "note": null,
+        "uncommitted": null,
+        "queued": null
+       },
+       "landings": [],
+       "errors": []
+      }
+     ]
+    },
+    {
+     "name": "agent-instructions",
+     "lanes": [],
+     "locks": [],
+     "queues": [],
+     "runs": [],
+     "app_builds": [],
+     "checkouts": [
+      {
+       "name": "side-30",
+       "path": "/Users/builder/dev/agent-instructions-worktrees/side-30",
+       "root": "/Volumes/Builds/agent-instructions/side-30",
+       "live": true,
+       "main": false,
+       "branch": "parked-1",
+       "app_checkout": false,
+       "app_lane": null,
+       "claim": null,
+       "git": {
+        "head": {
+         "sha": "2222222222",
+         "full": "2222222222000000000000000000000000000000",
+         "time": 1794523980,
+         "authored": 1794523980,
+         "subject": "Merge main"
+        },
+        "ahead": [],
+        "main": "1000000000000000000000000000000000000000",
+        "uncommitted": 0,
+        "last_write": null
+       },
+       "state": "kept-waiting",
+       "folders": [],
+       "total_kib": null,
+       "activity": {
+        "processes": [],
+        "cpu": 0.0,
+        "memory": 0,
+        "started": null
+       },
+       "words": {
+        "chip": "Waiting",
+        "pill": null,
+        "items": [
+         {
+          "id": 600,
+          "title": "Lints driver on Linux"
+         }
+        ],
+        "note": "No Linux host",
+        "uncommitted": null,
+        "queued": null
+       },
+       "landings": [],
+       "errors": []
+      },
+      {
+       "name": "side-31",
+       "path": "/Users/builder/dev/agent-instructions-worktrees/side-31",
+       "root": "/Volumes/Builds/agent-instructions/side-31",
+       "live": true,
+       "main": false,
+       "branch": "parked-2",
+       "app_checkout": false,
+       "app_lane": null,
+       "claim": null,
+       "git": {
+        "head": {
+         "sha": "2222222222",
+         "full": "2222222222000000000000000000000000000000",
+         "time": 1794437580,
+         "authored": 1794437580,
+         "subject": "Merge main"
+        },
+        "ahead": [],
+        "main": "1000000000000000000000000000000000000000",
+        "uncommitted": 0,
+        "last_write": null
+       },
+       "state": "kept-waiting",
+       "folders": [],
+       "total_kib": null,
+       "activity": {
+        "processes": [],
+        "cpu": 0.0,
+        "memory": 0,
+        "started": null
+       },
+       "words": {
+        "chip": "Waiting",
+        "pill": null,
+        "items": [
+         {
+          "id": 601,
+          "title": "Mac shots losing their window"
+         }
+        ],
+        "note": "Waits for it to recur",
+        "uncommitted": null,
+        "queued": null
+       },
+       "landings": [],
+       "errors": []
+      },
+      {
+       "name": "side-32",
+       "path": "/Users/builder/dev/agent-instructions-worktrees/side-32",
+       "root": "/Volumes/Builds/agent-instructions/side-32",
+       "live": true,
+       "main": false,
+       "branch": "parked-3",
+       "app_checkout": false,
+       "app_lane": null,
+       "claim": null,
+       "git": {
+        "head": {
+         "sha": "2222222222",
+         "full": "2222222222000000000000000000000000000000",
+         "time": 1794351180,
+         "authored": 1794351180,
+         "subject": "Merge main"
+        },
+        "ahead": [],
+        "main": "1000000000000000000000000000000000000000",
+        "uncommitted": 0,
+        "last_write": null
+       },
+       "state": "kept-waiting",
+       "folders": [],
+       "total_kib": null,
+       "activity": {
+        "processes": [],
+        "cpu": 0.0,
+        "memory": 0,
+        "started": null
+       },
+       "words": {
+        "chip": "Waiting",
+        "pill": null,
+        "items": [
+         {
+          "id": 602,
+          "title": "Shots whose shadow differs"
+         }
+        ],
+        "note": "Waits on Light question",
         "uncommitted": null,
         "queued": null
        },
