@@ -6,7 +6,7 @@
 
 use std::path::Path;
 
-use crate::app_config::{CONFIG, config_in};
+use crate::app_config::{CONFIG, config_in, resolve};
 use crate::app_remote::local_source;
 use crate::fail::Result;
 use crate::lane::{Lane, app_of_file};
@@ -21,6 +21,9 @@ pub fn of(places: &Places, repo: &str) -> Result<Vec<Lane>> {
 /// The lanes at origin/main of the repo whose checkout or clone is at
 /// <source>; none when origin/main has no `.app-build`, so no app builds.
 pub fn in_source(source: &Path) -> Result<Vec<Lane>> {
+    // `exists_in` answers false for a ref or a repo that git cannot read, so
+    // origin/main must resolve first.
+    resolve(source, "origin/main")?;
     if !boards::exists_in(source, "origin/main", CONFIG)
         .map_err(|error| crate::fail::Fail::Message(error.to_string()))?
     {
@@ -61,13 +64,22 @@ pub fn with_files(places: &Places, repo: &str) -> Result<Vec<Lane>> {
     Ok(lanes)
 }
 
-/// The lane of <repo> that <word> names: the app named for a platform, which
-/// needs no line, else the app that origin/main's `.app-build` names so;
-/// fails naming the apps there are.
+/// The lane that <word> names for a repo whose apps are <lanes>: the app
+/// named for a platform, which needs no line, else the app of <lanes> so
+/// named; fails naming the apps there are.
+pub fn parse_among(lanes: &[Lane], word: &str) -> Result<Lane> {
+    match Lane::named_for(word) {
+        Some(lane) => Ok(lane),
+        None => Lane::parse_in_or_fail(lanes, word),
+    }
+}
+
+/// `parse_among`, reading <repo>'s apps from its local source when <word>
+/// needs them.
 pub fn parse(places: &Places, repo: &str, word: &str) -> Result<Lane> {
     match Lane::named_for(word) {
         Some(lane) => Ok(lane),
-        None => Lane::parse_in_or_fail(&of(places, repo)?, word),
+        None => parse_among(&of(places, repo)?, word),
     }
 }
 
@@ -75,6 +87,6 @@ pub fn parse(places: &Places, repo: &str, word: &str) -> Result<Lane> {
 pub fn parse_in_source(source: &Path, word: &str) -> Result<Lane> {
     match Lane::named_for(word) {
         Some(lane) => Ok(lane),
-        None => Lane::parse_in_or_fail(&in_source(source)?, word),
+        None => parse_among(&in_source(source)?, word),
     }
 }

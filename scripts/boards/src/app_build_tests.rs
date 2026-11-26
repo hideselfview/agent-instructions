@@ -98,7 +98,7 @@ fn an_app_line_that_is_wrong_is_an_error() {
         ("app", "names no app"),
         (
             "app Windows web",
-            "names an app that is not lower-case words joined by '-'",
+            "names an app that is not lower-case words joined by '-' in at most 32 bytes",
         ),
         ("app windows", "names its app and nothing else"),
         (

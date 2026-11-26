@@ -1101,6 +1101,14 @@ impl<'de> serde::Deserialize<'de> for StepKind {
     }
 }
 
+/// `read_run` for a run of an app named for its platform.
+#[cfg(test)]
+pub fn read_named_run(path: &Path) -> Result<RunRecord> {
+    read_run(path, |_, word| {
+        Ok(Lane::named_for(word).expect("a platform's app"))
+    })
+}
+
 #[cfg(test)]
 #[path = "app_timing_tests.rs"]
 mod tests;

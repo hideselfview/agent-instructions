@@ -100,6 +100,7 @@ fn a_checkout_is_the_app_checkout_of_one_lane_only() {
             &side.display().to_string(),
         ],
     );
+    git(&main, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
     let arg = side.display().to_string();
     cmd_app_checkout(
         &tool,

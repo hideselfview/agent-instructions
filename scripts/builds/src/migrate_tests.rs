@@ -6,13 +6,6 @@ use crate::testing::Scratch;
 use rusqlite::Connection;
 use std::os::unix::fs::MetadataExt;
 
-/// `read_run` for a run of an app named for its platform.
-fn read_named_run(path: &std::path::Path) -> crate::fail::Result<crate::app_timing::RunRecord> {
-    crate::app_timing::read_run(path, |_, word| {
-        Ok(crate::lane::Lane::named_for(word).expect("a platform's app"))
-    })
-}
-
 /// Waits until nothing holds the lock on <path>. A process another test forks
 /// meanwhile has a copy of every open descriptor until it execs, and with it
 /// the lock, for a moment after the test closed its own.
@@ -2387,7 +2380,7 @@ fn an_app_build_run_keeps_its_checkout_when_the_store_adds_requested_commits() {
         .unwrap();
     }
     move_store(&places, &path, 0).unwrap();
-    let run = read_named_run(&path).unwrap();
+    let run = crate::app_timing::read_named_run(&path).unwrap();
     assert_eq!(
         run.built_commit.map(|built| built.sha).as_deref(),
         Some(commit.as_str())
@@ -2497,7 +2490,7 @@ fn a_store_from_before_reused_shots_keeps_its_steps_and_their_shots_details() {
         tx.commit().unwrap();
     }
     migrate_stores(&places, 0).unwrap();
-    let run = read_named_run(&path).unwrap();
+    let run = crate::app_timing::read_named_run(&path).unwrap();
     assert_eq!(run.steps[0].at_merge_base, Some(true));
     assert!(run.built_commit.unwrap().reused_shots.is_empty());
     assert_eq!(
@@ -3244,7 +3237,7 @@ fn a_store_from_before_the_miss_causes_keeps_its_built_steps_with_an_unrecorded_
         db::schema_rows(&conn).unwrap(),
         db::schema_rows(&db::memory()).unwrap()
     );
-    let run = read_named_run(&path).unwrap();
+    let run = crate::app_timing::read_named_run(&path).unwrap();
     assert_eq!(
         run.steps[0].shots.as_ref().unwrap().base_run,
         crate::app_build_step_shots::BaseRun::Built(MissCause::Unrecorded)

@@ -63,6 +63,7 @@ pub fn named_in(
     };
     let versions = &crate::shots_program::VERSIONS;
     let mut bases: HashMap<String, Option<String>> = HashMap::new();
+    let lanes = crate::repo_lanes::in_source(source)?;
     for build in crate::app_timing::shots_builds(conn, repo, *since, path)? {
         match waiting.get(&build.branch) {
             Some(first) if build.started_at >= *first => {}
@@ -73,7 +74,7 @@ pub fn named_in(
             bases.insert(build.commit.clone(), base);
         }
         let base = bases[&build.commit].as_ref();
-        let lane = crate::repo_lanes::parse(places, repo, &build.lane)?;
+        let lane = crate::repo_lanes::parse_among(&lanes, &build.lane)?;
         for commit in std::iter::once(&build.commit).chain(base) {
             for folder in crate::shots_cache::covering_folders(
                 places,
