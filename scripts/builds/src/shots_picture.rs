@@ -42,12 +42,9 @@ fn app_build_words(repo: &str, git_ref: &str, scene: &str, project: Option<&str>
 
 /// `builds shots picture`, given the arguments after `picture`.
 pub fn cmd(tool: &Tool, args: &[String]) -> Result<()> {
-    let (repo, git_ref, scene, side, project) = match args {
-        [repo, git_ref, scene, side] => (repo, git_ref, scene, side, None),
-        [repo, git_ref, scene, side, flag, name] if flag == crate::app_build::PROJECT => {
-            (repo, git_ref, scene, side, Some(name.as_str()))
-        }
-        _ => fail!("{USAGE}"),
+    let (project, words) = crate::app_build::take_project(args, USAGE)?;
+    let [repo, git_ref, scene, side] = &words[..] else {
+        fail!("{USAGE}");
     };
     let Some(side) = Side::parse(side) else {
         fail!("{side:?} is not a side of a scene (board | shot); {USAGE}");

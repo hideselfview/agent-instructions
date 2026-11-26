@@ -3124,7 +3124,7 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
     if commit.starts_with('-') {
         fail!("{USAGE}");
     }
-    let (flag, tail) = take_project(tail)?;
+    let (flag, tail) = take_project(tail, USAGE)?;
     // Before anything builds, so that a build with nowhere to record fails
     // at once.
     let project = crate::app_timing::recording_project(places, repo, commit, flag)?;
@@ -3157,19 +3157,20 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
     )
 }
 
-/// The project that <args>' `--project` names, and <args> without it.
-fn take_project(args: &[String]) -> Result<(Option<&str>, Vec<String>)> {
+/// The project that <args>' `--project` names, and <args> without it. A
+/// refusal ends with the command's <usage>.
+pub fn take_project<'a>(args: &'a [String], usage: &str) -> Result<(Option<&'a str>, Vec<String>)> {
     let mut rest = args.to_vec();
     let Some(at) = args.iter().position(|arg| arg == PROJECT) else {
         return Ok((None, rest));
     };
     let value = args.get(at + 1).filter(|value| !value.starts_with('-'));
     let Some(value) = value else {
-        fail!("{PROJECT} needs a project's name\n{USAGE}");
+        fail!("{PROJECT} needs a project's name\n{usage}");
     };
     rest.drain(at..at + 2);
     if rest.iter().any(|arg| arg == PROJECT) {
-        fail!("{PROJECT} is given twice\n{USAGE}");
+        fail!("{PROJECT} is given twice\n{usage}");
     }
     Ok((Some(value), rest))
 }
