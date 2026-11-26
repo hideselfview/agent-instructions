@@ -252,21 +252,13 @@ pub(crate) fn verify(job: &Verification) -> Result<Outcome, String> {
         &job.checker.versions.capture,
         job.settings,
     )?;
-    let to_draw = take_pictures(job.pictures, &hashes, &names, &boards)?;
-    render::boards(
+    Drawer {
         tree,
-        job.settings,
-        &previews,
-        job.checker.folders,
-        &to_draw,
-        &scales,
-        &boards,
-    )?;
-    if let Some(pictures) = job.pictures {
-        for name in &to_draw {
-            pictures.keep_board(&hashes[name], &name.to_string(), &boards)?;
-        }
+        settings: job.settings,
+        previews: &previews,
+        folders: job.checker.folders,
     }
+    .boards_into(job.pictures, &hashes, &scales, &boards)?;
     let mut checked = Vec::new();
     for name in &names {
         let list =
@@ -305,6 +297,47 @@ pub(crate) fn verify(job: &Verification) -> Result<Outcome, String> {
         failed: job.failed.to_vec(),
         components,
     })
+}
+
+/// What draws a board: the design tree it is served from, the repo's settings
+/// and previews, and the folders of the browser that draws it.
+pub(crate) struct Drawer<'a> {
+    pub(crate) tree: Tree<'a>,
+    pub(crate) settings: &'a Settings,
+    pub(crate) previews: &'a Previews,
+    pub(crate) folders: &'a boards::Folders,
+}
+
+impl Drawer<'_> {
+    /// Puts into <out> the picture and element list of each board of
+    /// <hashes>: the ones <pictures> keeps for its hash, and a drawing of
+    /// each other board at its scale in <scales>, which it keeps there. With
+    /// no picture folder, it draws every board.
+    pub(crate) fn boards_into(
+        &self,
+        pictures: Option<&Pictures>,
+        hashes: &BTreeMap<Name, String>,
+        scales: &render::Scales,
+        out: &Path,
+    ) -> Result<(), String> {
+        let names: Vec<Name> = hashes.keys().cloned().collect();
+        let to_draw = take_pictures(pictures, hashes, &names, out)?;
+        render::boards(
+            self.tree,
+            self.settings,
+            self.previews,
+            self.folders,
+            &to_draw,
+            scales,
+            out,
+        )?;
+        if let Some(pictures) = pictures {
+            for name in &to_draw {
+                pictures.keep_board(&hashes[name], &name.to_string(), out)?;
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Copies into <boards> the picture <pictures> keeps for the hash of each

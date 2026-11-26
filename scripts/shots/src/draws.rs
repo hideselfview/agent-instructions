@@ -27,6 +27,7 @@ use crate::pictures::Pictures;
 use crate::render::serve::Tree;
 use crate::render::{self, board, preview, runtime};
 use crate::settings::Settings;
+use crate::verify::Drawer;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
@@ -42,11 +43,12 @@ const NOISE_LEVELS: u8 = 2;
 /// board that draws alike at this scale draws alike in a shots run.
 const DEVICE_SCALE: f64 = 2.0;
 
-/// The picture folder a comparison takes board pictures from and keeps the
-/// ones it draws in, with the capture version of the checker that keys them.
+/// How a comparison draws screen boards: the capture version of the checker,
+/// which keys board hashes, and the picture folder it takes board pictures
+/// from and keeps the ones it draws in, when builds gives one.
 pub(crate) struct Store<'a> {
-    pub(crate) pictures: &'a Pictures,
     pub(crate) capture_version: &'a str,
+    pub(crate) pictures: Option<&'a Pictures>,
 }
 
 /// What a board or a preview draws: its picture, as the PNG Chrome made, and
@@ -113,7 +115,7 @@ pub(crate) fn lines(
     boards: &[String],
     components: &[String],
     folders: &boards::Folders,
-    store: Option<&Store>,
+    store: &Store,
 ) -> Result<Vec<String>, String> {
     let selection = if boards.is_empty() && components.is_empty() {
         Selection::All
@@ -183,7 +185,7 @@ fn read(
     rev: &str,
     folders: &boards::Folders,
     selection: Selection<'_>,
-    store: Option<&Store>,
+    store: &Store,
 ) -> Result<Drawings, String> {
     design::at_revision(root, rev, &folders.cache, |work| {
         draw(work, folders, selection, store)
@@ -197,7 +199,7 @@ fn draw(
     work: &Path,
     folders: &boards::Folders,
     selection: Selection<'_>,
-    store: Option<&Store>,
+    store: &Store,
 ) -> Result<Drawings, String> {
     let frames = design::frames(work).map_err(|e| e.to_string())?;
     let wanted: Vec<&String> = match selection {
@@ -237,7 +239,7 @@ fn draw_screens(
     work: &Path,
     folders: &boards::Folders,
     names: &[&String],
-    store: Option<&Store>,
+    store: &Store,
 ) -> Result<Drawings, String> {
     let previews = Previews::of(work)?;
     let settings = Settings::load(work).map_err(|e| e.to_string())?;
@@ -256,33 +258,23 @@ fn draw_screens(
         .iter()
         .map(|name| (name.clone(), DEVICE_SCALE))
         .collect();
-    let version = store.map_or("", |store| store.capture_version);
     let hashes = render::hashes(
         work,
         &scales,
         &previews,
         &design,
         runtime.copy.sha256,
-        version,
+        store.capture_version,
         &settings,
     )?;
     let out = tempfile::tempdir_in(&folders.cache).map_err(|e| e.to_string())?;
-    let pictures = store.map(|store| store.pictures);
-    let to_draw = crate::verify::take_pictures(pictures, &hashes, &names, out.path())?;
-    render::boards(
+    Drawer {
         tree,
-        &settings,
-        &previews,
+        settings: &settings,
+        previews: &previews,
         folders,
-        &to_draw,
-        &scales,
-        out.path(),
-    )?;
-    if let Some(pictures) = pictures {
-        for name in &to_draw {
-            pictures.keep_board(&hashes[name], &name.to_string(), out.path())?;
-        }
     }
+    .boards_into(store.pictures, &hashes, &scales, out.path())?;
     let mut drawn = Drawings::new();
     for name in &names {
         let list = crate::shots::ElementList::load(&out.path().join(format!("{name}.json")))

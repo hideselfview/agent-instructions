@@ -674,10 +674,10 @@ fn run(checker: &Checker, action: Action) -> Result<bool, String> {
         } => {
             let pictures =
                 pictures.map(|dir| pictures::Pictures::new(dir, std::time::SystemTime::now()));
-            let store = pictures.as_ref().map(|pictures| draws::Store {
-                pictures,
+            let store = draws::Store {
                 capture_version: &checker.versions.capture,
-            });
+                pictures: pictures.as_ref(),
+            };
             let lines = draws::lines(
                 &root,
                 &at,
@@ -685,7 +685,7 @@ fn run(checker: &Checker, action: Action) -> Result<bool, String> {
                 &boards,
                 &components,
                 checker.folders,
-                store.as_ref(),
+                &store,
             )?;
             for line in lines {
                 println!("{line}");

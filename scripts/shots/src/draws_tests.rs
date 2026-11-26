@@ -80,9 +80,9 @@ fn history() -> tempfile::TempDir {
 fn a_board_whose_bytes_change_and_drawing_does_not_draws_alike_and_a_redrawn_one_differs() {
     let repo = history();
     let boards = vec![BOARD.to_string()];
-    let same = lines(repo.path(), "a", "b", &boards, &[], &folders(), None).unwrap();
+    let same = lines(repo.path(), "a", "b", &boards, &[], &folders(), &no_store()).unwrap();
     assert_eq!(same, vec![format!("alike board {BOARD}")]);
-    let moved = lines(repo.path(), "b", "c", &boards, &[], &folders(), None).unwrap();
+    let moved = lines(repo.path(), "b", "c", &boards, &[], &folders(), &no_store()).unwrap();
     assert_eq!(moved, vec![format!("differs board {BOARD}")]);
 }
 
@@ -97,7 +97,7 @@ fn a_board_draws_at_the_device_scale_of_a_shot() {
             boards: &[BOARD.to_string()],
             components: &[],
         },
-        None,
+        &no_store(),
     )
     .unwrap();
     let picture = decode(&drawn[&format!("board {BOARD}")].as_ref().unwrap().png).unwrap();
@@ -158,7 +158,7 @@ fn a_preview_draws_at_rest_even_when_a_rule_marks_an_animation_important() {
             &[],
             &[component.to_string()],
             &folders(),
-            None,
+            &no_store(),
         )
         .unwrap();
         assert_eq!(drawings, ["alike component Welcome"], "{revision}");
@@ -192,7 +192,7 @@ fn a_label_below_the_viewport_changes_the_full_preview_drawing() {
         &[],
         &[component.to_string()],
         &folders(),
-        None,
+        &no_store(),
     )
     .unwrap();
     assert_eq!(drawings, ["differs component MacRow"]);
@@ -258,7 +258,7 @@ fn a_board_or_component_that_neither_revision_draws_draws_alike_when_their_merge
         &boards,
         &components,
         &folders(),
-        None,
+        &no_store(),
     )
     .unwrap();
     assert_eq!(
@@ -274,13 +274,31 @@ fn a_board_or_component_that_neither_revision_draws_draws_alike_when_their_merge
 fn a_board_or_component_that_no_revision_holds_is_an_error() {
     let (repo, _) = history_with_deletions();
     let missing = vec!["no-such-board".to_string()];
-    let error = lines(repo.path(), "d", "e", &missing, &[], &folders(), None).unwrap_err();
+    let error = lines(
+        repo.path(),
+        "d",
+        "e",
+        &missing,
+        &[],
+        &folders(),
+        &no_store(),
+    )
+    .unwrap_err();
     assert!(
         error.contains("board no-such-board exists at neither"),
         "{error}"
     );
     let missing = vec!["NoSuchComponent".to_string()];
-    let error = lines(repo.path(), "d", "e", &[], &missing, &folders(), None).unwrap_err();
+    let error = lines(
+        repo.path(),
+        "d",
+        "e",
+        &[],
+        &missing,
+        &folders(),
+        &no_store(),
+    )
+    .unwrap_err();
     assert!(
         error.contains("component NoSuchComponent exists at neither"),
         "{error}"
@@ -300,7 +318,7 @@ fn a_board_or_component_that_exists_at_one_revision_only_differs() {
             &boards,
             &components,
             &folders(),
-            None,
+            &no_store(),
         )
         .unwrap();
         assert_eq!(
@@ -318,7 +336,7 @@ fn a_board_or_component_that_exists_at_one_revision_only_differs() {
 fn without_selectors_draws_compares_the_boards_and_previews_of_both_revisions() {
     let (repo, component) = history_with_deletions();
     for (at, against) in [("p", "d"), ("d", "p")] {
-        let drawings = lines(repo.path(), at, against, &[], &[], &folders(), None).unwrap();
+        let drawings = lines(repo.path(), at, against, &[], &[], &folders(), &no_store()).unwrap();
         assert!(
             drawings.contains(&format!("differs board {BOARD}")),
             "{drawings:?}"
@@ -339,7 +357,7 @@ fn without_selectors_draws_reports_a_canvas_entry_whose_file_is_missing() {
     let repo = history();
     std::fs::remove_file(repo.path().join(boards::board_path(BOARD))).unwrap();
     git(repo.path(), &["commit", "-q", "-am", "missing board"]);
-    let error = lines(repo.path(), "HEAD", "c", &[], &[], &folders(), None).unwrap_err();
+    let error = lines(repo.path(), "HEAD", "c", &[], &[], &folders(), &no_store()).unwrap_err();
     assert!(
         error.starts_with("HEAD:") && error.contains(&boards::board_path(BOARD)),
         "{error}"
@@ -393,6 +411,16 @@ fn drawings_with_other_element_lists_differ_whatever_their_pictures() {
     assert!(!one.draws_like(&two).unwrap());
 }
 
+const VERSION: &str = "c0c0c0c0c0c0c0c0";
+
+/// No picture folder: every screen board is drawn.
+fn no_store() -> Store<'static> {
+    Store {
+        capture_version: VERSION,
+        pictures: None,
+    }
+}
+
 const SHOT_BOARD: &str = "mac.dash.board";
 
 /// `history()`'s repo with the board also under a shot name: commit `s1`, then
@@ -423,20 +451,11 @@ fn a_screen_board_is_drawn_once_and_then_taken_from_the_picture_folder_by_its_ha
     let folder = tempfile::tempdir().unwrap();
     let pictures = Pictures::new(folder.path().to_path_buf(), std::time::SystemTime::now());
     let store = Store {
-        pictures: &pictures,
-        capture_version: "c0c0c0c0c0c0c0c0",
+        pictures: Some(&pictures),
+        capture_version: VERSION,
     };
     let boards = vec![SHOT_BOARD.to_string()];
-    let first = lines(
-        repo.path(),
-        "s1",
-        "s1",
-        &boards,
-        &[],
-        &folders(),
-        Some(&store),
-    )
-    .unwrap();
+    let first = lines(repo.path(), "s1", "s1", &boards, &[], &folders(), &store).unwrap();
     assert_eq!(first, vec![format!("alike board {SHOT_BOARD}")]);
     let kept: Vec<_> = std::fs::read_dir(folder.path().join("boards"))
         .unwrap()
@@ -450,17 +469,17 @@ fn a_screen_board_is_drawn_once_and_then_taken_from_the_picture_folder_by_its_ha
         serde_json::from_slice(&std::fs::read(&kept[0]).unwrap()).unwrap();
     list["elements"].as_array_mut().unwrap().pop();
     std::fs::write(&kept[0], serde_json::to_vec(&list).unwrap()).unwrap();
-    let second = lines(
+    let second = lines(repo.path(), "s1", "s2", &boards, &[], &folders(), &store).unwrap();
+    assert_eq!(second, vec![format!("differs board {SHOT_BOARD}")]);
+    let unkept = lines(
         repo.path(),
         "s1",
         "s2",
         &boards,
         &[],
         &folders(),
-        Some(&store),
+        &no_store(),
     )
     .unwrap();
-    assert_eq!(second, vec![format!("differs board {SHOT_BOARD}")]);
-    let unkept = lines(repo.path(), "s1", "s2", &boards, &[], &folders(), None).unwrap();
     assert_eq!(unkept, vec![format!("alike board {SHOT_BOARD}")]);
 }
