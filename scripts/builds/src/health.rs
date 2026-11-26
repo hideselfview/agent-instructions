@@ -1051,23 +1051,15 @@ fn shots_cache_findings(tool: &Tool) -> Vec<Finding> {
         .collect()
 }
 
-/// What health says of <branch>: its commits, and the command that takes it
-/// back into a worktree.
+/// What health says of <branch>: the commits that no worktree or item holds.
 fn loose_advice(branch: &crate::unlanded::LooseBranch) -> Advice {
-    Advice::run(
-        format!(
-            "branch: {} {} holds {} origin/main lacks ({}), and no worktree checks it out or open item names it; check it out in a worktree with",
-            branch.repo,
-            branch.branch,
-            crate::text::counted(branch.commits.len(), "commit", "commits"),
-            crate::unlanded::commit_words(&branch.commits)
-        ),
-        format!(
-            "builds new {} --resume {}",
-            branch.main.display(),
-            branch.branch
-        ),
-    )
+    Advice::said(format!(
+        "branch: {} {} holds {} origin/main lacks ({}), and no worktree checks it out or open item names it",
+        branch.repo,
+        branch.branch,
+        crate::text::counted(branch.commits.len(), "commit", "commits"),
+        crate::unlanded::commit_words(&branch.commits)
+    ))
 }
 
 /// The finding when health could not read the branches of the repo whose

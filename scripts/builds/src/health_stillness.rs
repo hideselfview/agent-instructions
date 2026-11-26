@@ -53,6 +53,9 @@ struct Work {
     wait_join: &'static str,
     otherwise: Advice,
     report: bool,
+    /// Whether the record is a work item, which a row counts among the items
+    /// it blocks.
+    item: bool,
 }
 
 impl Work {
@@ -65,6 +68,7 @@ impl Work {
             wait_join: " and ",
             otherwise: Advice::said(otherwise.into()),
             report: true,
+            item: false,
         }
     }
 }
@@ -111,11 +115,17 @@ impl WorkGraph {
         times: &BTreeMap<Key, Option<i64>>,
         seen: &mut BTreeSet<Key>,
         path: &mut BTreeSet<Key>,
+        hide_processes: bool,
     ) -> Vec<String> {
         work.waits
             .iter()
             .filter_map(|blocker| match blocker {
                 Blocker::Reason(reason) => Some(reason.clone()),
+                Blocker::Work(key)
+                    if hide_processes && self.0.contains_key(key) && is_process(key) =>
+                {
+                    None
+                }
                 Blocker::Work(key) if path.contains(key) => {
                     Some(format!("{} again", self.0[key].name))
                 }
@@ -139,7 +149,7 @@ impl WorkGraph {
                         None => "health has no time for its last movement".to_string(),
                     };
                     path.insert(key.clone());
-                    let next = self.waits(waited, now, times, seen, path);
+                    let next = self.waits(waited, now, times, seen, path, hide_processes);
                     path.remove(key);
                     if next.is_empty() {
                         Some(format!(
@@ -168,7 +178,79 @@ impl WorkGraph {
         times
     }
 
+    /// The processes that a record, a worktree or an item names as doing its
+    /// work or as a wait, with the processes those start or wait on.
+    fn held_processes(&self) -> BTreeSet<&Key> {
+        let named = |work: &'_ Work| -> Vec<&Key> {
+            work.doing
+                .iter()
+                .chain(work.waits.iter().filter_map(|wait| match wait {
+                    Blocker::Work(key) => Some(key),
+                    Blocker::Reason(_) => None,
+                }))
+                .filter_map(|key| self.0.get_key_value(key).map(|(key, _)| key))
+                .filter(|key| is_process(key))
+                .collect()
+        };
+        let mut held = BTreeSet::new();
+        let mut next: Vec<&Key> = self
+            .0
+            .iter()
+            .filter(|(key, _)| !is_process(key))
+            .flat_map(|(_, work)| named(work))
+            .collect();
+        while let Some(key) = next.pop() {
+            if held.insert(key) {
+                next.extend(named(&self.0[key]));
+            }
+        }
+        held
+    }
+
+    /// For each record, how many items wait on it, directly or through other
+    /// records.
+    fn items_blocked(&self) -> BTreeMap<&Key, usize> {
+        let mut waiters: BTreeMap<&Key, Vec<&Key>> = BTreeMap::new();
+        for (key, work) in &self.0 {
+            for wait in &work.waits {
+                if let Blocker::Work(blocker) = wait
+                    && let Some((blocker, _)) = self.0.get_key_value(blocker)
+                {
+                    waiters.entry(blocker).or_default().push(key);
+                }
+            }
+        }
+        self.0
+            .keys()
+            .map(|key| {
+                let mut seen = BTreeSet::from([key]);
+                let mut next = vec![key];
+                while let Some(at) = next.pop() {
+                    for waiter in waiters.get(at).into_iter().flatten() {
+                        if seen.insert(waiter) {
+                            next.push(waiter);
+                        }
+                    }
+                }
+                let items = seen
+                    .iter()
+                    .filter(|waiter| **waiter != key && self.0[**waiter].item)
+                    .count();
+                (key, items)
+            })
+            .collect()
+    }
+
+    /// One row for each record that someone must act on: a record that has
+    /// not moved for <limit> minutes and waits on no other record that health
+    /// lists. A record that waits on another record gets no row: that record
+    /// is the person's (a question), moves (so the wait is healthy), or has
+    /// its own row, which counts the items it blocks. A process gets a row
+    /// only when no record names it, so the rows name agents, worktrees and
+    /// items, not the shells and cargo runs under them.
     fn findings(&self, times: &BTreeMap<Key, Option<i64>>, now: i64, limit: u64) -> Vec<Finding> {
+        let held = self.held_processes();
+        let blocked = self.items_blocked();
         self.0
             .iter()
             .filter_map(|(key, work)| {
@@ -176,29 +258,49 @@ impl WorkGraph {
                 if !work.report || (minutes_since(now, at) as u64) < limit {
                     return None;
                 }
+                if is_process(key) && held.contains(key) {
+                    return None;
+                }
+                let waits_on_record = work.waits.iter().any(|wait| {
+                    matches!(wait, Blocker::Work(blocker)
+                        if self.0.contains_key(blocker) && !is_process(blocker))
+                });
+                if waits_on_record {
+                    return None;
+                }
                 let subject = format!("{} last moved {} ago", work.name, elapsed(now, at));
-                let (text, command) = if work.waits.is_empty() {
+                let trace = self.waits(
+                    work,
+                    now,
+                    times,
+                    &mut BTreeSet::new(),
+                    &mut BTreeSet::from([key.clone()]),
+                    !is_process(key),
+                );
+                let (mut text, command) = if trace.is_empty() {
                     (
                         format!("{subject}. {}", work.otherwise.text),
                         work.otherwise.command.clone(),
                     )
                 } else {
-                    let trace = self.waits(
-                        work,
-                        now,
-                        times,
-                        &mut BTreeSet::new(),
-                        &mut BTreeSet::from([key.clone()]),
-                    );
                     (
                         format!("{subject} and waits on {}.", trace.join(work.wait_join)),
                         None,
                     )
                 };
+                match blocked[key] {
+                    0 => {}
+                    1 => text.push_str(" It blocks 1 item."),
+                    items => text.push_str(&format!(" It blocks {items} items.")),
+                }
                 Some(Finding::new(FindingKind::Still, Advice { text, command }))
             })
             .collect()
     }
+}
+
+fn is_process(key: &Key) -> bool {
+    matches!(key, Key::Process(..))
 }
 
 pub(super) fn elapsed(now: i64, at: i64) -> String {
@@ -282,6 +384,7 @@ fn records(graph: &mut WorkGraph, loaded: &[Loaded], progress: Option<&Progress>
                 )?),
                 otherwise,
             );
+            work.item = true;
             work.waits = blockers(lists, item);
             work.doing.extend(
                 item.running
@@ -386,6 +489,7 @@ fn worktrees(
     owned: &BTreeMap<String, Vec<Key>>,
     progress: Option<&Progress>,
 ) {
+    let mut held_reviews = BTreeSet::new();
     for tree in &health.worktrees {
         let mut work = Work::new(
             format!("worktree {} ({})", tree.checkout, tree.claim.who),
@@ -408,6 +512,10 @@ fn worktrees(
             let Ok(lists) = &project.lists else { continue };
             for item in crate::lists::running::running_in(lists, &tree.path) {
                 running_item = true;
+                work.name.push_str(&format!(
+                    " running item {}",
+                    item.named(Some(&lists.project))
+                ));
                 work.waits.extend(blockers(lists, item));
             }
             if let Some(branch) = &tree.branch {
@@ -420,12 +528,11 @@ fn worktrees(
                         && review.landing.key.strip_prefix("branch:") == Some(branch)
                     {
                         work.moved_at = work.moved_at.max(Some(review.at));
+                        let key = Key::Review(lists.project.clone(), review.landing.id);
                         if !review.unsettled.is_empty() || !review.confirmed.is_empty() {
-                            work.waits.push(Blocker::Work(Key::Review(
-                                lists.project.clone(),
-                                review.landing.id,
-                            )));
+                            work.waits.push(Blocker::Work(key.clone()));
                         }
+                        held_reviews.insert((key, tree.checkout.clone()));
                     }
                 }
             }
@@ -454,6 +561,32 @@ fn worktrees(
             );
         }
         graph.0.insert(Key::Worktree(tree.path.clone()), work);
+    }
+    for (key, checkout) in &held_reviews {
+        if let Some(review) = graph.0.get_mut(key) {
+            review.name.push_str(&format!(" in worktree {checkout}"));
+        }
+    }
+    for project in loaded {
+        let Some(progress) = progress.and_then(|progress| progress.project(&project.project))
+        else {
+            continue;
+        };
+        for review in &progress.reviews {
+            let key = Key::Review(project.project.clone(), review.landing.id);
+            let in_worktree = held_reviews.iter().any(|(held, _)| *held == key);
+            if review.landing.key.starts_with("detached:")
+                && !in_worktree
+                && review.unsettled.is_empty()
+                && review.confirmed.is_empty()
+                && let Some(work) = graph.0.get_mut(&key)
+            {
+                work.otherwise = Advice::said(
+                    "The reviewed commits are on no worktree's branch, and no item names them."
+                        .to_string(),
+                );
+            }
+        }
     }
 }
 
@@ -970,6 +1103,120 @@ mod tests {
             tool.rules.still_minutes,
         );
         assert!(health.schedule_needed);
+    }
+
+    fn graph_of(works: Vec<(Key, Work)>) -> WorkGraph {
+        WorkGraph(works.into_iter().collect())
+    }
+
+    fn rows(graph: &WorkGraph, now: i64) -> Vec<String> {
+        graph
+            .findings(&graph.times(), now, 30)
+            .into_iter()
+            .map(|finding| finding.advice.text)
+            .collect()
+    }
+
+    fn item_work(name: &str, at: i64, waits: Vec<Blocker>) -> Work {
+        let mut work = Work::new(
+            format!("item {name}"),
+            Some(at),
+            "The item waits for an agent.",
+        );
+        work.item = true;
+        work.waits = waits;
+        work
+    }
+
+    #[test]
+    fn a_row_counts_the_items_that_wait_on_it_and_they_get_no_row() {
+        let (now, old) = (100_000, 0);
+        let root = Key::Record("p".to_string(), Id(1));
+        let middle = Key::Record("p".to_string(), Id(2));
+        let leaf = Key::Record("p".to_string(), Id(3));
+        let graph = graph_of(vec![
+            (
+                root.clone(),
+                item_work(
+                    "#1",
+                    old,
+                    vec![Blocker::reason(
+                        "the coordinator to end the condition “a host exists”",
+                    )],
+                ),
+            ),
+            (
+                middle.clone(),
+                item_work("#2", old, vec![Blocker::Work(root.clone())]),
+            ),
+            (leaf, item_work("#3", old, vec![Blocker::Work(middle)])),
+        ]);
+        let rows = rows(&graph, now);
+        assert_eq!(rows.len(), 1, "{rows:?}");
+        assert!(
+            rows[0].starts_with("item #1 last moved")
+                && rows[0].contains("a host exists")
+                && rows[0].ends_with("It blocks 2 items."),
+            "{rows:?}"
+        );
+    }
+
+    #[test]
+    fn an_item_that_waits_on_the_person_or_on_work_that_moves_has_no_row() {
+        let (now, old) = (100_000, 0);
+        let question = Key::Record("p".to_string(), Id(1));
+        let moving = Key::Record("p".to_string(), Id(2));
+        let mut asked = Work::new(
+            "question 1".to_string(),
+            Some(old),
+            "The question waits for the person.",
+        );
+        asked.report = false;
+        let graph = graph_of(vec![
+            (question.clone(), asked),
+            (moving.clone(), item_work("#2", now - 60, Vec::new())),
+            (
+                Key::Record("p".to_string(), Id(3)),
+                item_work("#3", old, vec![Blocker::Work(question)]),
+            ),
+            (
+                Key::Record("p".to_string(), Id(4)),
+                item_work("#4", old, vec![Blocker::Work(moving)]),
+            ),
+        ]);
+        assert_eq!(rows(&graph, now), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_stalled_worktree_has_a_row_that_names_the_worktree_and_not_its_processes() {
+        let (now, old) = (100_000, 0);
+        let tree = Key::Worktree("/w".to_string());
+        let shell = Key::local(7);
+        let mut work = Work::new(
+            "worktree demo/side-1 (agent) running item #5".to_string(),
+            Some(old),
+            "The agent has no recorded wait.",
+        );
+        work.doing.insert(shell.clone());
+        work.waits.push(Blocker::Work(shell.clone()));
+        let graph = graph_of(vec![
+            (tree, work),
+            (
+                shell,
+                Work::new(
+                    "process 7 on this Mac (zsh)".to_string(),
+                    Some(old),
+                    "Health found no recorded wait.",
+                ),
+            ),
+        ]);
+        let rows = rows(&graph, now);
+        assert_eq!(rows.len(), 1, "{rows:?}");
+        assert!(
+            rows[0].starts_with("worktree demo/side-1 (agent) running item #5")
+                && !rows[0].contains("process 7"),
+            "{rows:?}"
+        );
     }
 
     #[test]

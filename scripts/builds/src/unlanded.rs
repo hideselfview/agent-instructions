@@ -9,7 +9,7 @@
 //! (lists/dropped.rs).
 
 use std::collections::{BTreeSet, HashMap};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use crate::checkout::Checkout;
 use crate::fail;
@@ -293,8 +293,6 @@ pub fn refusal(what: &str, top: &Path, held: &Held) -> String {
 #[derive(Clone, Debug)]
 pub struct LooseBranch {
     pub repo: String,
-    /// The repo's main checkout.
-    pub main: PathBuf,
     pub branch: String,
     /// Newest first.
     pub commits: Vec<Commit>,
@@ -370,7 +368,6 @@ pub fn loose_branches(main: &Path, judged: &mut Judged) -> Result<Vec<LooseBranc
             let commits = judged.0[&(sha, tip.clone())].clone();
             (!commits.is_empty()).then(|| LooseBranch {
                 repo: repo.clone(),
-                main: main.to_path_buf(),
                 branch,
                 commits,
             })

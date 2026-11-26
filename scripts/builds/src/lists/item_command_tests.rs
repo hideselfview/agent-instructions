@@ -50,14 +50,19 @@ fn health_lists_an_old_wait_through_to_the_item_at_its_end() {
         demo.tool.rules.still_minutes,
     );
     let lines = crate::health::lines(&health);
+    let rows: Vec<_> = lines
+        .iter()
+        .filter(|line| line.contains("item #"))
+        .collect();
+    assert_eq!(
+        rows.len(),
+        1,
+        "only the item at the end of the waits: {lines:?}"
+    );
     assert!(
-        lines.iter().any(|line| {
-            line.contains("item #3")
-                && line.contains("30m")
-                && line.contains("item #2")
-                && line.contains("item #1")
-                && line.contains("40m")
-        }),
+        rows[0].contains("item #1")
+            && rows[0].contains("40m")
+            && rows[0].contains("It blocks 2 items."),
         "{lines:?}"
     );
     assert!(health.schedule_needed);
@@ -1752,7 +1757,7 @@ fn add_loose_branch(demo: &Demo) -> String {
 }
 
 /// Health lists a branch with commits origin/main lacks that no worktree
-/// checks out and no item names, with the command that checks it out, and
+/// checks out and no item names, and
 /// stops listing it once a worktree checks it out again or the branch lands.
 #[test]
 fn health_lists_a_loose_branch_until_a_worktree_takes_it_or_it_lands() {
@@ -1767,10 +1772,7 @@ fn health_lists_a_loose_branch_until_a_worktree_takes_it_or_it_lands() {
             .starts_with("branch: demo loose holds 1 commit"),
         "{found:?}"
     );
-    assert_eq!(
-        found[0].advice.command.as_deref(),
-        Some(format!("builds new {} --resume loose", demo.main.display()).as_str())
-    );
+    assert_eq!(found[0].advice.command, None, "the row has no control");
 
     crate::worktree::cmd_new(
         &demo.tool,
