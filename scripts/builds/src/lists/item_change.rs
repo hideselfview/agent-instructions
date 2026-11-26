@@ -154,19 +154,17 @@ pub fn words(lists: &Lists, change: &Change) -> String {
                 new.trim_end()
             );
         }
-        What::Decision(id) => match lists.decision(*id) {
-            Some(decision) => {
-                let _ = write!(
-                    out,
-                    "decision {id} made the item's origin {when}\n{}\n{}\n",
-                    decision.title,
-                    decision.body.trim_end()
-                );
-            }
-            None => {
-                let _ = writeln!(out, "decision {id} made the item's origin {when}");
-            }
-        },
+        What::Decision(id) => {
+            let decision = lists
+                .decision(*id)
+                .expect("a change names a decision of the log");
+            let _ = write!(
+                out,
+                "decision {id} made the item's origin {when}\n{}\n{}\n",
+                decision.title,
+                decision.body.trim_end()
+            );
+        }
     }
     out
 }
