@@ -61,24 +61,18 @@ delete the plan and any line of the project file that names it.
 
 ## Measurements
 
-A measurement runs every shot of one lane on a commit of origin/main, and the
-coordinator runs one for each lane
-(`builds app-build <repo> <commit> --all-shots mac`, and the same for android).
-The build fails on every shot that has findings, because a run of origin/main
-compares with no earlier run (`builds help`, APP BUILDS): read the findings, not
-the exit status. Then rank the findings by the design-system component that
-draws each one
+A measurement is a full run of one lane's shots on a commit of origin/main, and
+the coordinator runs one for each lane (`builds help workflow BUILDS`;
+`builds help APP BUILDS` gives the command and what the run compares with). Read
+its findings, not its exit status, and rank them by the design-system component
+that draws each one
 (`builds shots findings <repo> <commit> <lane> <lane>. --by-cause`). The command
 also prints where the run's report is: its findings.json holds every finding as
 a record, with its scene, kind, board element, component and numbers.
 
-Agents never measure a whole lane: each one runs only the shots of the
-components or screens it changes (`builds help workflow`, WHAT AN IMPLEMENTING
-AGENT DOES).
-
-A fix to how the checker compares needs no new shots. The next lookup of a
-cached run checks its report again with the installed checker (`builds help`,
-APP BUILDS), so measure again by reading the findings once the fix is installed.
+A fix to how the checker compares needs no new shots: once the fix is installed,
+measure again by reading the findings, which builds checks again with the
+installed checker (`builds help APP BUILDS`).
 
 ## Shared causes
 
@@ -173,10 +167,11 @@ another running branch changes waits on that branch's item (`builds item wait`).
 
 Each part of the chunk goes on one branch: the agent reviews it, runs one app
 build with the shots of the components it changed last (`builds help workflow`,
-WHAT AN IMPLEMENTING AGENT DOES) and lands it. An agent rebases only when
-`builds land` refuses because its cherry-pick conflicts: each shots run compares
-with the run of its own merge base, so a branch behind origin/main needs no
-rebase to compare (`builds help`, APP BUILDS).
+WHAT AN IMPLEMENTING AGENT DOES) and lands it. Each shots run compares with the
+run of its own merge base, so a branch behind origin/main needs no rebase to
+compare (`builds help APP BUILDS`). An agent rebases when `builds land` refuses
+because its cherry-pick conflicts, or when the coordinator sends it back after a
+landing that changed shared code under it (`builds help workflow LANDING`).
 
 ## Screens
 
