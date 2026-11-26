@@ -204,13 +204,7 @@ pub(crate) fn take_pictures(
 pub(crate) struct Drawn {
     pub(crate) png: Vec<u8>,
     pub(crate) size: Size,
-    pub(crate) elements: Vec<crate::shots::Element>,
-    /// The boxes of the parts the app draws no counterpart for.
-    pub(crate) unshot: Vec<crate::shots::Bounds>,
-    /// The boxes of the preview slots.
-    pub(crate) slots: Vec<crate::shots::Bounds>,
-    /// The window the page draws.
-    pub(crate) window: crate::shots::WindowShape,
+    pub(crate) read: Read,
 }
 
 async fn draw_with(
@@ -243,10 +237,10 @@ async fn draw_with(
             platform: name.platform(),
             size: drawn.size,
             scale: chrome.scale(),
-            elements: drawn.elements,
-            unshot: drawn.unshot,
-            slots: drawn.slots,
-            window: Some(drawn.window),
+            elements: drawn.read.elements,
+            unshot: drawn.read.unshot,
+            slots: drawn.read.slots,
+            window: Some(drawn.read.window),
         };
         let file = out.join(format!("{board}.json"));
         std::fs::write(
@@ -278,18 +272,18 @@ async fn draw_screen(
             width: rendered.frame.width,
             height: rendered.frame.height,
         },
-        elements: read.elements,
-        unshot: read.unshot,
-        slots: read.slots,
-        window: read.window,
+        read,
     })
 }
 
 /// What the reader finds on a drawn page.
 pub(crate) struct Read {
     pub(crate) elements: Vec<crate::shots::Element>,
+    /// The boxes of the parts the app draws no counterpart for.
     pub(crate) unshot: Vec<crate::shots::Bounds>,
+    /// The boxes of the preview slots.
     pub(crate) slots: Vec<crate::shots::Bounds>,
+    /// The window the page draws.
     pub(crate) window: crate::shots::WindowShape,
 }
 

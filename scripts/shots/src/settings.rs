@@ -229,6 +229,15 @@ impl Settings {
         apps
     }
 
+    /// The command <commands> gives <app>; empty when it gives none.
+    pub(crate) fn command_of<'a>(commands: &'a [(App, Vec<String>)], app: &App) -> &'a [String] {
+        commands
+            .iter()
+            .find(|(a, _)| a == app)
+            .map(|(_, command)| command.as_slice())
+            .unwrap_or_default()
+    }
+
     /// The preview markers, which drawing component <component> needs.
     pub(crate) fn preview(&self, component: &str) -> Result<&Preview, SettingsError> {
         self.preview

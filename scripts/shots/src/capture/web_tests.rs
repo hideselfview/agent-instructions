@@ -110,7 +110,10 @@ p{position:absolute;left:0;top:50px;margin:0}\
 <script>\
 new EventSource('/events');\
 document.getElementById('go').addEventListener('click', () => {\
-document.getElementById('status').textContent = 'Done'; });\
+fetch('/data').then((r) => r.text()).then(() => {\
+document.getElementById('status').textContent = 'Done';\
+const done = document.createElement('div'); done.id = 'done';\
+document.getElementById('box').append(done); }); });\
 fetch('/data').then((r) => r.text()).then(() => {\
 const ready = document.createElement('div'); ready.id = 'ready';\
 document.getElementById('box').append(ready); });\
@@ -217,7 +220,8 @@ fn take(
 
 #[test]
 fn a_staged_page_waits_for_its_ready_selector_runs_a_click_and_compares_with_its_board() {
-    let (root, declared) = repo("{\"ready\":\"#ready\",\"steps\":[{\"click\":\"#go\"}]}");
+    let (root, declared) =
+        repo("{\"ready\":\"#ready\",\"steps\":[{\"click\":\"#go\",\"until\":\"#done\"}]}");
     let (taken, out, _keep) = take(root.path(), &declared, Duration::from_secs(120));
     assert!(taken.failed.is_empty(), "{:?}", taken.failed);
     assert_eq!(taken.names, [name()]);

@@ -252,10 +252,12 @@ pub(crate) async fn render_row(
             width: rendered.frame.width,
             height: rendered.frame.height,
         },
-        elements,
-        slots,
-        unshot,
-        window,
+        read: crate::render::Read {
+            elements,
+            unshot,
+            slots,
+            window,
+        },
     })
 }
 

@@ -113,6 +113,7 @@ async fn a_row_reads_as_the_state_it_names() {
     );
     let row = row.unwrap();
     let found: Vec<(Role, Option<&str>)> = row
+        .read
         .elements
         .iter()
         .map(|e| (e.role, e.label.as_deref()))
@@ -125,7 +126,10 @@ async fn a_row_reads_as_the_state_it_names() {
         ]
     );
     assert!(
-        row.elements.iter().all(|e| e.bounds.y < row.size.height),
+        row.read
+            .elements
+            .iter()
+            .all(|e| e.bounds.y < row.size.height),
         "boxes are inside the cell"
     );
     assert_eq!(&row.png[..8], b"\x89PNG\r\n\x1a\n");
@@ -249,6 +253,7 @@ async fn a_row_reports_the_unshot_parts_inside_its_cell_from_the_cells_corner() 
                 render_row(&page, "MacRow", state, &url, Platform::Mac, marks(unshot))
                     .await
                     .unwrap()
+                    .read
                     .unshot,
             );
         }
@@ -285,6 +290,7 @@ async fn a_row_reports_only_the_preview_slots_inside_its_cell() {
                 render_row(&page, "MacRow", state, &url, Platform::Mac, marks(&[]))
                     .await
                     .unwrap()
+                    .read
                     .slots,
             );
         }
@@ -429,6 +435,7 @@ async fn a_row_reports_the_window_or_sheet_its_cell_draws_from_the_cells_corner(
                 render_row(&page, "MacRow", state, &url, Platform::Mac, marks(&[]))
                     .await
                     .unwrap()
+                    .read
                     .window,
             );
         }

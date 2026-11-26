@@ -37,10 +37,17 @@ pub(crate) struct Capture {
 
 /// One thing the page is given before its picture.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-pub(crate) enum Step {
-    /// A click on the first element the selector matches.
-    #[serde(rename = "click")]
-    Click(String),
+#[serde(deny_unknown_fields)]
+pub(crate) struct Step {
+    /// The selector of the element to click: the first it matches.
+    pub(crate) click: String,
+    /// The selector of an element the page has once the click's effects are
+    /// done. A click whose handler changes the page after a fetch or a timer
+    /// names one; without it the step ends once the page has drawn the
+    /// frames after the click, which shows what a synchronous handler
+    /// changed.
+    #[serde(default)]
+    pub(crate) until: Option<String>,
 }
 
 /// The host that serves the SF Mono files to a page: no network answers it,
@@ -102,18 +109,27 @@ pub(crate) async fn load(
     .await
 }
 
-/// Runs <step> on <page> and returns once the page has drawn two frames after
-/// it.
+/// Runs <step> on <page> and returns once its effects are done: the element
+/// the step's `until` selector names is there, and the page has drawn two
+/// frames and loaded its fonts. A selector that matches nothing never ends
+/// by itself, so the page's own deadline ends it (`Chrome::with_page_within`).
 async fn run(page: &DrawPage, step: &Step) -> Result<(), String> {
-    let Step::Click(selector) = step;
-    let selector_text = serde_json::to_string(selector).expect("a string serializes");
+    let selector = serde_json::to_string(&step.click).expect("a string serializes");
+    let until = serde_json::to_string(&step.until).expect("an option of a string serializes");
     let clicked: bool = page
         .evaluate(format!(
             "(async () => {{ \
-             const target = document.querySelector({selector_text}); \
+             const target = document.querySelector({selector}); \
              if (!target) return false; \
+             const until = {until}; \
+             const done = until === null ? Promise.resolve() : new Promise((resolve) => {{ \
+             const look = () => {{ if (document.querySelector(until)) {{ watching.disconnect(); resolve(); }} }}; \
+             const watching = new MutationObserver(look); \
+             watching.observe(document, {{ childList: true, subtree: true, attributes: true }}); \
+             look(); }}); \
              target.click(); \
-             await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))); \
+             await done; \
+             await new Promise((frame) => requestAnimationFrame(() => requestAnimationFrame(frame))); \
              await document.fonts.ready; \
              return true; }})()"
         ))
@@ -124,7 +140,10 @@ async fn run(page: &DrawPage, step: &Step) -> Result<(), String> {
     if clicked {
         Ok(())
     } else {
-        Err(format!("the step click {selector}: no element matches it"))
+        Err(format!(
+            "the step click {}: no element matches it",
+            step.click
+        ))
     }
 }
 

@@ -159,8 +159,11 @@ async fn shot(chrome: &chrome::Chrome, job: &Job<'_>, name: &Name) -> Result<(),
         .await;
     // The stage ends whether or not its page was drawn.
     let ended = stage.end().await;
-    let (png, bounds, read) = taken?;
-    ended?;
+    let (png, bounds, read) = match (taken, ended) {
+        (Ok(taken), Ok(())) => taken,
+        (Ok(_), Err(why)) | (Err(why), Ok(())) => return Err(why),
+        (Err(page), Err(stage)) => return Err(format!("{page}\n{stage}")),
+    };
     let list = ElementList {
         board: name.to_string(),
         platform: Platform::Web,

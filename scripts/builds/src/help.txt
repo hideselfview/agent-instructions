@@ -2099,7 +2099,9 @@ built again.
                               Chrome, waits for the `ready` selector that
                               the shot's fixture `<name>.json` gives in the
                               `shots-declared` folder, runs the fixture's
-                              `steps` (each `{"click": <selector>}`) and
+                              `steps` (each `{"click": <selector>}`, with
+                              `"until": <selector>` when the click's effects
+                              come after a fetch or a timer) and
                               takes the shot, which fails when the stage
                               prints no URL, the selector matches nothing
                               within two minutes, or a step's selector

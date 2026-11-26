@@ -182,12 +182,7 @@ fn capture(
             }
         }
         let taken = if backend::of(app.platform).holds_capture_code() {
-            let command = settings
-                .capture
-                .iter()
-                .find(|(a, _)| a == app)
-                .map(|(_, command)| command.as_slice())
-                .unwrap_or_default();
+            let command = Settings::command_of(&settings.capture, app);
             capture::capture(
                 root,
                 command,
@@ -203,12 +198,7 @@ fn capture(
                 },
             )
         } else {
-            let command = settings
-                .stage
-                .iter()
-                .find(|(a, _)| a == app)
-                .map(|(_, command)| command.as_slice())
-                .unwrap_or_default();
+            let command = Settings::command_of(&settings.stage, app);
             capture::web::capture(&capture::web::Job {
                 root,
                 command,
