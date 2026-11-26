@@ -67,12 +67,6 @@ fn each_caller_keeps_its_own_record() {
         vec![key("item #1 last moved 9m ago")]
     );
     assert!(read(&scratch.dir, "a2").unwrap().is_empty());
-    std::fs::write(
-        scratch
-            .dir
-            .join("Library/Caches/builds/health-seen/a1.json"),
-        "not json",
-    )
-    .unwrap();
+    std::fs::write(file(&scratch.dir, "a1"), "not json").unwrap();
     assert!(read(&scratch.dir, "a1").is_err());
 }
