@@ -18,8 +18,9 @@ code path, and never waits an animation out with a delay.
 ### macOS
 
 macOS plays a zoom-in when a window is shown: the window starts at about 80% of
-its size and grows to full over a few frames. Off every display, where baeShots
-puts its content windows, no display paces the animation, and it never ends.
+its size and grows to full over a few frames. Off every display, where the shot
+harness puts its content windows, no display paces the animation, and it never
+ends.
 
 Every `NSWindow` a test or shot creates sets `animationBehavior = .none` before
 `orderFront`, `makeKeyAndOrderFront` or `makeKey`. That holds for a borderless
@@ -51,9 +52,9 @@ compose.mainClock.advanceTimeBy(SETTLE_MILLIS)
 compose.onRoot().captureRoboImage(file)
 ```
 
-The shot harness (`settle` in
-`bae-android/app/src/test/java/fm/bae/app/shots/BoardShot.kt`) does this for
-every shot, so a shot never does it by hand.
+The shot harness (`settle` in agent-instructions'
+`scripts/shots/harness/android/ShotSettle.kt`) does this for every shot, each of
+which extends `BaeBoardShot`, so a shot never does it by hand.
 
 `BaeRobolectricTestRunner` paces frames by the looper's clock for a test without
 a compose rule, and leaves a compose-rule test to the rule's clock, so this rule

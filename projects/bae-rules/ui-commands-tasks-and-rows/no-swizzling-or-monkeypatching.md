@@ -23,8 +23,9 @@ behavior fits. bae's macOS menus, for example, are an AppKit shell (an
 `NSApplicationDelegate` and a plain `NSMenu` of AppKit's standard Edit items),
 because SwiftUI's App lifecycle crashed in the Edit menu.
 
-The Mac shot tool (`bae-macos/bae/baeShots`) is test code that never ships, and
-it may use CoreGraphics' private `CGVirtualDisplay` classes to draw window
+The Mac shot tool (`bae-macos/bae/baeShots/`, and the shot harness in
+agent-instructions' `scripts/shots/harness/mac/`) is test code that never ships,
+and it may use CoreGraphics' private `CGVirtualDisplay` classes to draw window
 scenes on a virtual display larger than the Mac's own: macOS has no documented
 way to make one, and CI's Mac screen is smaller than some of bae's windows. The
 person decided this. Everything else in the shot tool, and all of the app,

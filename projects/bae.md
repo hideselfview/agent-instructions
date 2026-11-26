@@ -147,7 +147,7 @@ shot of a platform. CI takes no shots: only app builds run them.
 
 The Mac shots take each window in an area of 1600 by 1200 points at two pixels
 per point, and the renderer fails a scene whose window is larger
-(`bae-macos/bae/baeShots/ShotDisplay.swift`).
+(agent-instructions' `scripts/shots/harness/mac/ShotDisplay.swift`).
 
 The `ci-only` line of `.app-build` names the whole test suites
 (`macos-tests-run`, `macos-tests-all`, `android-tests`), which only CI runs.

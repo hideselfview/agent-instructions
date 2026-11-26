@@ -15,6 +15,6 @@ with each OS version and can read the same pixels differently ("Waiting…" as
 
 To check what a view says, read its words where they are kept: its accessibility
 labels and values, or the values it renders from. To check how it looks, add or
-change a shot: a macOS scene in `bae-macos/bae/baeShots/ShotScene.swift`, or an
-Android shot in `bae-android/app/src/test/java/fm/bae/app/shots/`. A shot draws
-the real view and compares it with its board.
+change a shot: a macOS scene in `bae-macos/bae/baeShots/`, or an Android shot in
+`bae-android/app/src/test/java/fm/bae/app/shots/`. A shot draws the real view
+and compares it with its board.
