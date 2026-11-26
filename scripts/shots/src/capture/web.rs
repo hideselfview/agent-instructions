@@ -50,8 +50,8 @@ const STAGE_EXIT_DEADLINE: Duration = Duration::from_secs(30);
 /// What a capture of a web app's shots needs.
 pub(crate) struct Job<'a> {
     pub(crate) root: &'a Path,
-    /// The app's `shots-stage` command.
-    pub(crate) command: &'a [String],
+    /// The app's `shots-stage` command, if it has the line.
+    pub(crate) command: Option<&'a [String]>,
     pub(crate) declared: &'a [Declared],
     pub(crate) app: &'a App,
     pub(crate) apps: &'a Apps,
@@ -75,11 +75,10 @@ pub(crate) fn capture(job: &Job) -> Result<Taken, CaptureError> {
     if taken.names.is_empty() {
         return Ok(taken);
     }
-    let command_line = job.command.join(" ");
-    if job.command.is_empty() {
-        return Err(CaptureError::NoCommand(job.app.name.clone()));
-    }
-    crate::log::note(&command_line);
+    let command = job
+        .command
+        .ok_or_else(|| CaptureError::NoCommand(job.app.name.clone()))?;
+    crate::log::note(command.join(" "));
     let results = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
@@ -87,7 +86,7 @@ pub(crate) fn capture(job: &Job) -> Result<Taken, CaptureError> {
         .block_on(chrome::with_chrome(job.folders, SCALE, async |chrome| {
             let mut results = Vec::new();
             for name in &taken.names {
-                results.push(shot(chrome, job, name).await);
+                results.push(shot(chrome, job, command, name).await);
             }
             results
         }))
@@ -128,8 +127,14 @@ struct Fixture {
     capture: Capture,
 }
 
-/// Takes the shot <name>: stages its page, draws it and writes its files.
-async fn shot(chrome: &chrome::Chrome, job: &Job<'_>, name: &Name) -> Result<(), String> {
+/// Takes the shot <name>: stages its page with the stage <command>, draws it
+/// and writes its files.
+async fn shot(
+    chrome: &chrome::Chrome,
+    job: &Job<'_>,
+    command: &[String],
+    name: &Name,
+) -> Result<(), String> {
     let declared = job
         .declared
         .iter()
@@ -140,7 +145,7 @@ async fn shot(chrome: &chrome::Chrome, job: &Job<'_>, name: &Name) -> Result<(),
     let fixture: Fixture =
         serde_json::from_str(&text).map_err(|e| format!("{}: {e}", declared.file.display()))?;
     let frame = design::frame(job.root, &name.to_string()).map_err(|e| e.to_string())?;
-    let stage = Stage::start(job.root, job.command, name, job.deadline).await?;
+    let stage = Stage::start(job.root, command, name, job.deadline).await?;
     let taken = chrome
         .with_page_within(&format!("shot {name}"), job.deadline, async |page| {
             live::load(

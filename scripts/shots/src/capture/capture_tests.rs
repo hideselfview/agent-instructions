@@ -360,7 +360,7 @@ fn a_capture_runs_the_apps_command_with_the_variables_and_checks_what_it_wrote()
     let shots = declared(&[("mac.welcome.a", false), ("mac.welcome.window", true)]);
     let taken = capture(
         ready.path(),
-        &copying_command(ready.path(), &seen),
+        Some(&copying_command(ready.path(), &seen)),
         &shots,
         &App::named_for(Platform::Mac),
         &Apps::default(),
@@ -398,11 +398,12 @@ fn a_capture_command_that_fails_before_any_shot_fails_the_capture() {
     let empty = tempfile::tempdir().unwrap();
     let out = tempfile::tempdir().unwrap();
     let shots = declared(&[("android.welcome.a", false)]);
-    let run = |command: &[&str]| {
-        let command: Vec<String> = command.iter().map(|w| w.to_string()).collect();
+    let run = |command: Option<&[&str]>| {
+        let command: Option<Vec<String>> =
+            command.map(|words| words.iter().map(|w| w.to_string()).collect());
         capture(
             empty.path(),
-            &command,
+            command.as_deref(),
             &shots,
             &App::named_for(Platform::Android),
             &Apps::default(),
@@ -415,12 +416,16 @@ fn a_capture_command_that_fails_before_any_shot_fails_the_capture() {
             },
         )
     };
-    let failed = run(&["false"]).unwrap();
+    let failed = run(Some(&["false"])).unwrap();
     assert_eq!(failed.failed.len(), 1);
-    let wrote_nothing = run(&["true"]).unwrap();
+    let wrote_nothing = run(Some(&["true"])).unwrap();
     assert!(wrote_nothing.names.is_empty());
     assert_eq!(wrote_nothing.failed.len(), 1);
-    assert!(matches!(run(&[]), Err(CaptureError::NoCommand(app)) if app == "android"));
+    let refused = run(None).unwrap_err();
+    assert_eq!(
+        refused.to_string(),
+        "the repo's .app-build has no shots-capture or shots-stage line for the app android"
+    );
 }
 
 #[test]
@@ -449,7 +454,7 @@ fn the_board_sizes_file_is_written_whole_before_the_command_starts() {
     )]);
     capture(
         ready.path(),
-        &command,
+        Some(&command),
         &declared(&[("mac.checkbox.default", false)]),
         &App::named_for(Platform::Mac),
         &Apps::default(),
@@ -479,7 +484,7 @@ fn a_run_that_cannot_measure_the_boards_does_not_start_the_command() {
     let out = tempfile::tempdir().unwrap();
     let result = capture(
         out.path(),
-        &["false".to_string()],
+        Some(&["false".to_string()]),
         &declared(&[("mac.checkbox.default", false)]),
         &App::named_for(Platform::Mac),
         &Apps::default(),
@@ -516,7 +521,7 @@ fn one_failed_scene_among_several_leaves_the_others_taken_and_names_it() {
     ];
     let taken = capture(
         ready.path(),
-        &command,
+        Some(&command),
         &shots,
         &App::named_for(Platform::Mac),
         &Apps::default(),

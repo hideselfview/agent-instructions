@@ -203,7 +203,7 @@ fn take(
     let folders = fixture::folders();
     let taken = capture(&Job {
         root,
-        command: &staging(&serve()),
+        command: Some(&staging(&serve())),
         declared: std::slice::from_ref(declared),
         app: &app,
         apps: &Apps::default(),
@@ -318,5 +318,33 @@ fn a_step_whose_selector_matches_nothing_fails_the_shot() {
         failed.why.contains("click #missing: no element matches it"),
         "{}",
         failed.why
+    );
+}
+
+#[test]
+fn a_capture_of_an_app_with_no_stage_line_is_refused() {
+    let out = tempfile::tempdir().unwrap();
+    let declared = Declared {
+        name: name(),
+        file: PathBuf::from("web.page.main.json"),
+        marks: Marks::default(),
+    };
+    let refused = capture(&Job {
+        root: out.path(),
+        command: None,
+        declared: std::slice::from_ref(&declared),
+        app: &App::named_for(Platform::Web),
+        apps: &Apps::default(),
+        prefixes: &[],
+        base: false,
+        out: out.path(),
+        settings: &Settings::default(),
+        folders: &fixture::folders(),
+        deadline: Duration::from_secs(20),
+    })
+    .unwrap_err();
+    assert_eq!(
+        refused.to_string(),
+        "the repo's .app-build has no shots-capture or shots-stage line for the app web"
     );
 }

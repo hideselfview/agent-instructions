@@ -190,7 +190,7 @@ pub(crate) struct Target<'a> {
 
 /// Takes the shots of `app` that `prefixes` select (all when empty) into
 /// `target.out`, an absolute path, with the `command` the app's `shots-capture` line
-/// gives, run from `root`. Without `windows`, a shot that takes the keyboard
+/// gives, run from `root`; with shots to take and no `command`, it fails. Without `windows`, a shot that takes the keyboard
 /// focus is left out and said on stderr. Before the command starts, `target.measure`
 /// gives the board size of each shot the run takes, and the run writes them to
 /// `board-sizes.json` in `target.out` (the module's doc). Returns the shots taken, those the
@@ -199,7 +199,7 @@ pub(crate) struct Target<'a> {
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn capture(
     root: &Path,
-    command: &[String],
+    command: Option<&[String]>,
     declared: &[Declared],
     app: &App,
     apps: &Apps,
@@ -219,9 +219,8 @@ pub(crate) fn capture(
     }
     let sizes = write_board_sizes(out, &measure(&taken.names).map_err(CaptureError::Measure)?)?;
     let step = format!("the {} shots-capture command", app.name);
-    let (program, args) = command
-        .split_first()
-        .ok_or_else(|| CaptureError::NoCommand(app.name.clone()))?;
+    let command = command.ok_or_else(|| CaptureError::NoCommand(app.name.clone()))?;
+    let (program, args) = command.split_first().expect("the command has a program");
     crate::log::note(command.join(" "));
     let status = Command::new(program)
         .args(args)
