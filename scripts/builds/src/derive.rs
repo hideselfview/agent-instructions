@@ -314,14 +314,15 @@ pub fn derive_and_run(places: &Places, args: &[String]) -> Result<()> {
     })?;
     app_build::require_pickers(&config, &picks)?;
     let asked_for_picks = !picks.is_empty();
-    let waiting = crate::app_waiting_shots::waiting(places, repo, &top, &commit)?;
+    let changed = changed_paths(&top, &commit)?;
+    let store = BuildRecords::open(places, repo)?;
+    let waiting = match &store {
+        Some(store) => crate::app_waiting_shots::waiting(&store.conn, repo, &changed)?,
+        None => Vec::new(),
+    };
     let picks = crate::app_waiting_shots::leave_out(picks, &waiting, &mut declarations, &commit)?;
     let use_cache = !fresh && Pick::prefixes(&picks).next().is_some();
-    let records = if use_cache {
-        BuildRecords::open(places, repo)?
-    } else {
-        None
-    };
+    let records = if use_cache { store } else { None };
     let picks = if use_cache {
         let program = crate::this_program()?;
         app_build::serve_cached(
@@ -337,7 +338,6 @@ pub fn derive_and_run(places: &Places, args: &[String]) -> Result<()> {
         app_build::BuildPicks::pending(picks)
     };
     crate::shots_declared::refuse_undeclared(&top, &commit, &picks.pending)?;
-    let changed = changed_paths(&top, &commit)?;
     let required = plan(&config, &changed, &[]);
     let lanes = if asked_for_picks && picks.pending.is_empty() {
         let Some(records) = &records else {

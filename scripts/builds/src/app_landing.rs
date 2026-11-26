@@ -500,11 +500,7 @@ impl<'a> BranchBuilds<'a> {
         // requested comparisons name the shots it ran, which leave them out
         // already.
         let waiting = match shots {
-            ShotsToCover::Landing => crate::app_waiting_shots::waiting_in(
-                &crate::lists::store::read(conn)?,
-                repo,
-                &crate::derive::changed_paths(top, self.target)?,
-            ),
+            ShotsToCover::Landing => crate::app_waiting_shots::waiting(conn, repo, changed)?,
             ShotsToCover::Build(_) => Vec::new(),
         };
         let scenes = crate::app_waiting_shots::scenes(&waiting);

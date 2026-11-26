@@ -12,15 +12,14 @@
 //! design/mocks/mac.welcome.open-failed.dc.html).
 
 use std::collections::{BTreeMap, HashSet};
-use std::path::Path;
+
+use rusqlite::Connection;
 
 use crate::app_build::Pick;
 use crate::app_config::PickKind;
-use crate::app_timing::BuildRecords;
 use crate::fail::Result;
 use crate::lane::Lane;
 use crate::lists::{Id, Lists, Resolution};
-use crate::places::Places;
 use crate::shots_declared::ShotDeclarations;
 use crate::text::note;
 
@@ -56,7 +55,7 @@ pub fn waiting_in(lists: &Lists, repo: &str, changed: &[String]) -> Vec<Waiting>
             let (Some(Resolution::Item(item)), Some(scene)) = (resolution, scene_of(path)) else {
                 continue;
             };
-            if changed.contains(path) && lists.items.iter().any(|open| open.id == *item) {
+            if changed.contains(path) && lists.item(*item).is_some() {
                 let items = found.entry(scene.to_string()).or_default();
                 if !items.contains(item) {
                     items.push(*item);
@@ -71,15 +70,10 @@ pub fn waiting_in(lists: &Lists, repo: &str, changed: &[String]) -> Vec<Waiting>
         .collect()
 }
 
-/// The scenes of <repo> that the commit <commit> of the repo at <top> redraws
-/// ahead of open app work; none when the repo is in no project.
-pub fn waiting(places: &Places, repo: &str, top: &Path, commit: &str) -> Result<Vec<Waiting>> {
-    let Some(records) = BuildRecords::open(places, repo)? else {
-        return Ok(Vec::new());
-    };
-    let lists = crate::lists::store::read(&records.conn)?;
-    let changed = crate::derive::changed_paths(top, commit)?;
-    Ok(waiting_in(&lists, repo, &changed))
+/// The scenes of <repo> among the boards <changed> that the project's store,
+/// open as <conn>, says wait on open app work.
+pub fn waiting(conn: &Connection, repo: &str, changed: &[String]) -> Result<Vec<Waiting>> {
+    Ok(waiting_in(&crate::lists::store::read(conn)?, repo, changed))
 }
 
 /// The names of <waiting>, for a check of which shots a prefix selects.
