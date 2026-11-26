@@ -5,6 +5,7 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.LayoutInfo
 import androidx.compose.ui.node.ModifierNodeElement
@@ -29,25 +30,26 @@ private data object WindowMark : ModifierNodeElement<WindowMarkNode>() {
 private class WindowMarkNode : Modifier.Node()
 
 /**
- * What a scene draws of the windows it opens over its screen. A window in the app has a reading order of its own, apart
- * from the screen's, but a scene draws it inside the screen, where Compose sorts its nodes together with the screen's by
- * place and moves the screen's nodes. So [settle] draws the screen alone first and keeps its reading order as
- * [pageOrder], which [ReadingOrder.of] gives the screen's nodes, then draws the windows.
+ * The windows that one shot's scene opens over its screen, which [settle] gives the scene. A window in the app has a
+ * reading order of its own, apart from the screen's, but a scene draws it inside the screen, where Compose sorts its
+ * nodes together with the screen's by place and moves the screen's nodes. So [settle] draws the screen alone first and
+ * keeps its reading order ([ScreenOrder]), then draws the windows.
  */
-internal object ShotWindows {
-    /** Whether the scene draws its windows; [settle] turns them off for the screen's own reading order. */
-    var shown by mutableStateOf(true)
+internal class ShotWindows {
+    /** Whether the scene draws its windows; [settle] turns them on after it reads the screen's own reading order. */
+    var shown by mutableStateOf(false)
 
-    /** Whether the scene being drawn holds a window drawn through [WindowOverScreen]. */
+    /** Whether the scene holds a window drawn through [WindowOverScreen]. */
     var declared = false
-
-    /** The reading order of the screen drawn without its windows, when the scene holds any. */
-    var pageOrder: ReadingOrder? = null
 }
 
-/** [content] as a window over the screen: drawn once [ShotWindows.shown], after the screen's reading order is read. */
+internal val LocalShotWindows =
+    staticCompositionLocalOf<ShotWindows> { error("WindowOverScreen draws only in a scene that settle draws") }
+
+/** [content] as a window over the screen: drawn once [settle] has read the screen's reading order. */
 @Composable
 internal fun WindowOverScreen(content: @Composable () -> Unit) {
-    SideEffect { ShotWindows.declared = true }
-    if (ShotWindows.shown) content()
+    val windows = LocalShotWindows.current
+    SideEffect { windows.declared = true }
+    if (windows.shown) content()
 }

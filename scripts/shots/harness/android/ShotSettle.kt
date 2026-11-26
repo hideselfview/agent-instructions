@@ -2,6 +2,7 @@ package builds.shots
 
 import android.view.View
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.isFocused
@@ -23,18 +24,19 @@ internal fun ComposeContentTestRule.settle(
 ) {
     mainClock.autoAdvance = false
     setTestAnimatorScale(0f)
-    ShotWindows.declared = false
-    ShotWindows.pageOrder = null
-    ShotWindows.shown = false
-    setContent { look.Dress(content) }
+    val windows = ShotWindows()
+    setContent { CompositionLocalProvider(LocalShotWindows provides windows) { look.Dress(content) } }
     ReadingOrder.enableTalkBack(onRoot().fetchSemanticsNode())
     mainClock.advanceTimeBy(SETTLE_MILLIS)
     // The windows a scene opens over its screen come after the screen's reading order, read with no window up.
-    if (ShotWindows.declared) ShotWindows.pageOrder = ReadingOrder.of(onRoot().fetchSemanticsNode().root as View)
-    ShotWindows.shown = true
+    if (windows.declared) {
+        val screen = onRoot().fetchSemanticsNode().root as View
+        screen.tag = ScreenOrder(ReadingOrder.of(screen))
+    }
+    windows.shown = true
     // The write is outside a composition, so the compose runtime hears of it only once it is told.
     Snapshot.sendApplyNotifications()
-    if (ShotWindows.declared) mainClock.advanceTimeBy(SETTLE_MILLIS)
+    if (windows.declared) mainClock.advanceTimeBy(SETTLE_MILLIS)
     // A field that took focus raises its label over 150 ms, which the first step stops partway through.
     if (onAllNodes(hasSetTextAction() and isFocused()).fetchSemanticsNodes().isNotEmpty()) {
         mainClock.advanceTimeBy(FOCUS_SETTLE_MILLIS)

@@ -10,6 +10,14 @@ import androidx.test.core.app.ApplicationProvider
 import org.robolectric.Shadows
 
 /**
+ * The reading order of a screen drawn without the windows its scene opens over it, which [settle] keeps as the tag of
+ * the shot's Compose view.
+ */
+internal class ScreenOrder(
+    val order: ReadingOrder,
+)
+
+/**
  * The order TalkBack reads a Compose screen's nodes in, from Compose's own accessibility delegate. The node provider
  * gives TalkBack no sorted child list: the delegate sorts all nodes by place on screen and traversal index into one
  * chain, and tells each node the node that follows it. [ElementList] lists each node's children by their place in
@@ -43,7 +51,10 @@ internal fun interface ReadingOrder {
             (root.root as ViewRootForTest).forceAccessibilityForTesting(true)
         }
 
-        /** The reading order of the Compose view below [window], after [enableTalkBack]. */
+        /**
+         * The reading order of the Compose view below [window], after [enableTalkBack]. A view that has a
+         * [ScreenOrder] gives its screen's nodes that order.
+         */
         fun of(window: View): ReadingOrder {
             val view = window.composeView()
             val provider = view.accessibilityNodeProvider
@@ -95,7 +106,7 @@ internal fun interface ReadingOrder {
                 }
             val full = ReadingOrder { parent -> children[parent]?.sortedBy(::earliest) }
             // A node of the screen keeps the order it has with no window up: a window is read apart from the screen.
-            val screen = ShotWindows.pageOrder ?: return full
+            val screen = (view.tag as ScreenOrder?)?.order ?: return full
             return ReadingOrder { parent -> screen.childrenOf(parent) ?: full.childrenOf(parent) }
         }
     }
