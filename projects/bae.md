@@ -152,11 +152,7 @@ builds them on CI.
 outrank it. Every commit checks whether it changes or adds anything the spec
 states or should state (behavior, a schema or sync shape, a user-visible rule),
 and if it does, edits the spec in the same commit. A commit without its spec
-edit is unfinished.
-
-When the spec contradicts a rule, the code or what a change builds, ask the
-person, say which text looks wrong and why, and offer the edit. Edit that text
-only after they agree
+edit is unfinished
 (`rules/commits-and-repo-contents/every-change-agrees-with-its-product-spec.md`).
 
 ### Changing a table
