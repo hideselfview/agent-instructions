@@ -14,30 +14,15 @@ them into `~/.claude/` and `~/.codex/`, so both tools read the same files.
     to talk with the user, and commits.
 - Both `AGENTS.md` and `CLAUDE.md` link to `instructions-agent.md`.
 - `rules/<group>/*.md` holds one code rule per file, in the folder of its review
-  group (see below). Each file's frontmatter has these fields:
-  - `paths`: globs for the files the rule covers. Builds uses them when it
-    prepares briefs and runs reviews.
-  - `blocking`: whether the reviewer's prompt and the report mark the rule's
-    findings blocking. Every finding, blocking or not, must be settled before
-    `builds land` takes the commits.
-  - `review: false` (optional): marks a rule a reviewer can't check, which
-    `builds review` leaves out.
-  - `design: true` (optional): marks a rule about how a screen, board or
-    component looks. `builds review` checks a project's design files (its
-    boards, design system and canvas.json) only against these rules, and against
-    no other rule, whatever its `paths` match.
-  - `capture: true` (optional): marks a rule about screenshot capture files.
-    `builds review` checks a repo's capture files (the files below each
-    `shots-declared` folder of its `.app-build`) only against these rules, and
-    against no other rule, whatever its `paths` match.
+  group. Each file's frontmatter gives `paths`, the globs of the files the rule
+  covers, and the flags that `builds help LANDING AND REVIEW` explains:
+  `blocking`, `review: false`, `design: true` and `capture: true`.
 - `projects/<name>.md` holds a project's always-loaded instructions.
 - `projects/<name>-rules/<group>/*.md` holds a project's rules, with the same
   frontmatter as `rules/`.
 - `rules/<group>/group.toml` holds the settings of one review group for
-  `builds review`. Every rule, general or project, is in one group: its group is
-  the folder it sits in, and a project-rules folder must have the name of a
-  group folder under `rules/`. `builds help` (LANDING AND REVIEW) explains the
-  fields.
+  `builds review`, which `builds help LANDING AND REVIEW` explains with how each
+  rule belongs to one group.
 - `claude/settings.json` holds the Claude Code settings: environment variables,
   permissions, hooks and plugins.
   - Machine-specific settings go in `~/.claude/settings.local.json`, outside

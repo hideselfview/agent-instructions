@@ -3500,7 +3500,10 @@ text and names it by its hash. A group's model and prompt are its setup: two
 calls with the same setup were asked the same way. Every audit and replay
 records the same, with the commit of the rules checkout it read. A rule's `blocking` marks its
 findings blocking in the reviewer's prompt and the report; every finding,
-blocking or not, must be settled before the commits land.
+blocking or not, must be settled before the commits land. A rule marked
+`review: false` in its front matter is one a reviewer cannot check, such as
+one that needs the network: no review asks it, and builds still gives it to
+the agent that edits a file it covers.
 
 Builds keeps the input and output totals, the uncached input count, cache
 read and write counts, and the reasoning output count. A count stays unknown
