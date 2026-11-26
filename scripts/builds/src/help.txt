@@ -3871,8 +3871,9 @@ run `review replay --rules-root` on it.
                               message is the change's title (decision 292):
                               land builds it on the first one's parent. Each
                               other commit, such as a spec edit for another
-                              item, keeps its own commit, built again on the
-                              squashed one with its tree, author and message.
+                              item, keeps its own commit; one after the
+                              squashed commits is built again on the squashed
+                              one, with its tree, author and message.
                               Land moves the branch to the last commit, and
                               refuses, changing nothing, when the squash
                               would give a tree other than that of the last

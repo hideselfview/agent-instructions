@@ -66,8 +66,9 @@
 //! commit) as one commit (land_squash.rs, decision #292) when they are two or
 //! more in a row: land builds a commit with the change's title as its message
 //! (`builds design title`) on the parent of the first of them. Every other
-//! commit, such as a spec edit for another item, stays a commit of its own,
-//! built again on the squashed commit with its tree, author and message. Land
+//! commit, such as a spec edit for another item, stays a commit of its own;
+//! one after the squashed commits is built again on the squashed commit, with
+//! its tree, author and message. Land
 //! moves the branch to the last commit and goes on with them. It refuses before it moves anything when the squashed
 //! tree is not the last commit's tree, or when the branch has commits after the
 //! last one named.
@@ -939,22 +940,34 @@ impl Landing<'_> {
         // Only the commits of design files are the change's rounds. A commit of
         // anything else, such as a spec edit for another item, keeps its own
         // commit.
-        let is_design: Vec<bool> = self
-            .request
-            .shas
-            .iter()
-            .map(|sha| {
-                self.run_line(&self.with_items(
-                    &["design", "only"],
-                    false,
-                    std::slice::from_ref(sha),
-                    project,
-                ))
-                .0
-            })
-            .collect();
+        let mut is_design = Vec::new();
+        for sha in &self.request.shas {
+            let (ok, said) = self.run_line(&self.with_items(
+                &["design", "only"],
+                false,
+                std::slice::from_ref(sha),
+                project,
+            ));
+            // `design only` fails for a commit that is no design change in two
+            // ways it words itself; any other failure is the check's own.
+            let says_no = said.starts_with("the commits change no design files")
+                || said.starts_with("the commits also change files that are no design file");
+            if !ok && !says_no {
+                return Err(refuse(
+                    out,
+                    format!("refusing: builds design only failed for {sha}: {said}"),
+                ));
+            }
+            is_design.push(ok);
+        }
         let Some(first) = is_design.iter().position(|&design| design) else {
-            return Ok(());
+            return Err(refuse(
+                out,
+                format!(
+                    "refusing: the commits of design change {} pass `builds design only` together, but none does alone",
+                    design.0
+                ),
+            ));
         };
         let end = first
             + is_design[first..]
