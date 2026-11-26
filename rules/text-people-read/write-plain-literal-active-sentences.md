@@ -14,26 +14,12 @@ briefs, rules, and replies in chat. This rule outranks every other writing rule.
 **Comments and commit messages.** The rule does not cover code comments (doc and
 line comments in a source file) or commit messages.
 
-**Who checks it.** `builds review` judges no text on its word choice, grammar or
-style: it never asks this rule or the other rules in its folder. The person
-reviews copy, and may run the copy review (`builds review copy`), which asks
-these rules. A review still judges whether text is accurate, under rules such as
-committed-text-describes-the-current-state and
-every-change-agrees-with-its-product-spec.
-
 Short text (app strings, titles, buttons, messages) has no room to set up
 context, so it follows the forms here. A document (prose a reader reads from the
 top, such as a README, a rule or a brief) also follows the editor skill
 (`claude/skills/editor/SKILL.md`), which asks a document to name its reader up
 front, introduce the names it uses and give its sections headers. Where the two
 give different forms below, each says which text it covers.
-
-**English forms.** The grammar forms below, and the habits they forbid, are
-English's: active voice with a named subject, a title or button that starts with
-its verb, whole sentences with their articles, no sentence that opens with "It"
-or "This", and no dash as punctuation. Other languages have their own forms. A
-translation follows its project's localization rule, such as bae's
-(`projects/bae-rules/text-people-read/localization-stays-in-sync-with-ui.md`).
 
 **Active.** Name the actor and the action: "bae uploads the cover", not "the
 cover is uploaded"; "Ana removed this Mac", not "this Mac was removed". A past
