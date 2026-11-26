@@ -7,7 +7,7 @@ use std::fmt::Write;
 use std::path::Path;
 
 use crate::fail;
-use crate::fail::{Fail, Result};
+use crate::fail::Result;
 use crate::lists::args::Args;
 use crate::lists::derive::{self, FLOW_DAYS, ItemState, Times, branch_times, item_times};
 use crate::lists::item::open_item;
@@ -436,18 +436,11 @@ pub fn next_report(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
         return Ok(next_text(&store.load()?, audience));
     }
     let mut out = String::new();
-    for loaded in crate::lists::store::load_all(&tool.places).map_err(Fail::Message)? {
-        let project = loaded.project;
-        let lists = loaded.lists.map_err(|fault| {
-            Fail::Message(format!(
-                "the lists of project {} fail their check, so builds cannot list its items: {fault}",
-                project
-            ))
-        })?;
+    for lists in crate::lists::store::every_lists(&tool.places)? {
         if derive::dispatch_order(&lists, audience).is_empty() {
             continue;
         }
-        let _ = writeln!(out, "project {project}");
+        let _ = writeln!(out, "project {}", lists.project);
         out.push_str(&next_text(&lists, audience));
     }
     if out.is_empty() {
