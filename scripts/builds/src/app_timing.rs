@@ -39,8 +39,7 @@ pub const WINDOW_SECONDS: i64 = crate::hook_stats::DASHBOARD_WINDOW_SECONDS;
 pub const WAITS_SHOWN: usize = 20;
 
 /// What kind of step a row is.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StepKind {
     /// A step of `.app-build`.
     Step,
@@ -1065,12 +1064,34 @@ pub fn dashboard_figures(path: &Path, now: i64) -> AppBuilds {
     }
 }
 
+impl serde::Serialize for StepKind {
+    fn serialize<S: serde::Serializer>(
+        &self,
+        serializer: S,
+    ) -> std::result::Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.word())
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for StepKind {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<StepKind, D::Error> {
+        let word = <String as serde::Deserialize>::deserialize(deserializer)?;
+        StepKind::from_word(&word)
+            .ok_or_else(|| serde::de::Error::custom(format!("no step kind {word:?}")))
+    }
+}
+
 /// A lane as its word, `mac` or `android`, in the page's data.
 mod lane_word {
     use super::Lane;
     use serde::{Deserialize, Deserializer, Serializer};
 
-    pub fn serialize<S: Serializer>(lane: &Lane, serializer: S) -> Result<S::Ok, S::Error> {
+    pub fn serialize<S: Serializer>(
+        lane: &Lane,
+        serializer: S,
+    ) -> std::result::Result<S::Ok, S::Error> {
         serializer.serialize_str(lane.word())
     }
 
