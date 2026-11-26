@@ -3133,7 +3133,8 @@ STATUS, HEALTH AND THE DASHBOARD
                               hook times; a Needs attention box with
                               two lists: Leftover work, each piece of work
                               with commits waiting to land and no claim,
-                              and Parked, each held or kept worktree with
+                              or an unclaimed worktree whose git builds
+                              could not read, and Parked, each held or kept worktree with
                               what it waits on. Only the command-line
                               report shows the other findings, such as
                               process-limit findings.
