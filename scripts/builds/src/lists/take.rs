@@ -435,7 +435,7 @@ fn check_brief(
     brief: &Brief,
     checks: &Checks,
 ) -> Result<()> {
-    crate::lists::pasted::require_unpasted(brief, &checks.reviewer.rules_root)?;
+    crate::lists::pasted::require_unpasted(brief, &checks.reviewer.rules_root, &lists.project)?;
     for line in rulings::require_cited(
         &checks.reviewer,
         &tool.places.home,

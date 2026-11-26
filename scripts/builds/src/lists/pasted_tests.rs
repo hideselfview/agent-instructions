@@ -55,7 +55,7 @@ fn the_workflow_page_and_every_rule_of_the_checkout_are_sources() {
         format!("---\npaths: ['**/*']\n---\n{RULE}"),
     )
     .unwrap();
-    let names: Vec<String> = sources(&root)
+    let names: Vec<String> = sources(&root, "demo")
         .unwrap()
         .into_iter()
         .map(|source| source.name)
@@ -72,4 +72,21 @@ fn the_workflow_page_and_every_rule_of_the_checkout_are_sources() {
             "builds help lists overview, the order of the stack"
         ]
     );
+}
+
+#[test]
+fn a_brief_that_holds_three_lines_of_the_projects_hard_limits_pastes_them() {
+    let scratch = crate::testing::Scratch::new("pasted-limits");
+    let root = scratch.dir.join("instructions");
+    std::fs::create_dir_all(root.join("rules/text")).unwrap();
+    std::fs::create_dir_all(root.join("projects")).unwrap();
+    std::fs::write(
+        root.join("projects/demo.md"),
+        "# demo\n\nDemo is a tool.\n\n## Hard limits\n\n- Never edit the person's checkout of the demo repo (Checkouts).\n- Run every cargo command through the demo wrapper (Rust builds).\n- Stage by path, with no stash and no hook skipping (CLAUDE.md).\n",
+    )
+    .unwrap();
+    let brief = "Limits:\n  - Never edit the person's checkout of the demo repo (Checkouts).\n  - Run every cargo command through the demo wrapper (Rust builds).\n  - Stage by path, with no stash and no hook skipping (CLAUDE.md).\n";
+    let found = pasted_from(brief, &sources(&root, "demo").unwrap()).unwrap();
+    assert_eq!(found.source, "projects/demo.md, Hard limits");
+    assert_eq!(pasted_from(brief, &sources(&root, "other").unwrap()), None);
 }

@@ -93,11 +93,14 @@ WRITE ONE BRIEF PER ITEM
     behavior the spec states: ask the person whether the behavior stays, and
     quote the spec's text.
 
-A brief carries no coding rules and no workflow text. builds gives a Claude
-Code agent each rule when it first edits a file the rule covers, and every
-agent the workflow when it runs `builds ack`, and `builds item take` refuses a brief that holds three
-lines in a row of a rule, of `builds help workflow` or of `builds help lists`.
-Name the rule files that matter to the work, never copy them.
+A brief carries no coding rules, no workflow text, no hard limits and no
+commit trailer. builds gives a Claude Code agent each rule when it first edits
+a file the rule covers, and every agent the workflow when it runs `builds ack`.
+`builds agent run` gives each agent its project's hard limits (the `## Hard
+limits` section of projects/<project>.md) and the trailer of its model.
+`builds item take` refuses a brief that holds three lines in a row of a rule,
+of `builds help workflow`, of `builds help lists` or of the project's hard
+limits. Name the rule files that matter to the work, never copy them.
 
 Group the briefs in commit order and write them to the file you were given. Use
 plain words, with no jargon and no size or effort words ("simple", "small",

@@ -35,8 +35,10 @@ pub struct Pasted {
 }
 
 /// The texts builds supplies to agents: each coding rule of the checkout at
-/// <rules_root>, then each section that `builds ack` prints for any role.
-pub fn sources(rules_root: &Path) -> Result<Vec<Source>> {
+/// <rules_root>, then each section that `builds ack` prints for any role, then
+/// the Hard limits section of <project>'s file, which builds gives each agent
+/// of the project.
+pub fn sources(rules_root: &Path, project: &str) -> Result<Vec<Source>> {
     let mut sources: Vec<Source> = crate::review::rules::load(rules_root, None)?
         .into_iter()
         .map(|rule| Source {
@@ -53,6 +55,12 @@ pub fn sources(rules_root: &Path) -> Result<Vec<Source>> {
                 text: section.text,
             }),
     );
+    if let Some(text) = crate::lists::project_file::hard_limits_if_any(rules_root, project) {
+        sources.push(Source {
+            name: format!("projects/{project}.md, Hard limits"),
+            text,
+        });
+    }
     Ok(sources)
 }
 
@@ -88,12 +96,12 @@ pub fn pasted_from(brief: &str, sources: &[Source]) -> Option<Pasted> {
     })
 }
 
-/// Fails when <brief> pastes a coding rule of the checkout at <rules_root> or
-/// the workflow text.
-pub fn require_unpasted(brief: &Brief, rules_root: &Path) -> Result<()> {
-    if let Some(pasted) = pasted_from(&brief.text, &sources(rules_root)?) {
+/// Fails when <brief> pastes a coding rule of the checkout at <rules_root>,
+/// the workflow text or the hard limits of <project>.
+pub fn require_unpasted(brief: &Brief, rules_root: &Path, project: &str) -> Result<()> {
+    if let Some(pasted) = pasted_from(&brief.text, &sources(rules_root, project)?) {
         fail!(
-            "the brief {} pastes text of {}, from the line {:?}. builds gives an agent each coding rule when it first edits a file the rule covers, and the workflow when it runs `builds ack`, so a brief carries neither: take the pasted text out, and write what the work should do",
+            "the brief {} pastes text of {}, from the line {:?}. builds gives an agent each coding rule when it first edits a file the rule covers, the workflow when it runs `builds ack`, and the project's hard limits when it starts, so a brief carries none of them: take the pasted text out, and write what the work should do",
             brief.name,
             pasted.source,
             pasted.line

@@ -54,6 +54,7 @@ pub mod kept_work;
 pub mod landing;
 pub mod pasted;
 pub mod project;
+pub mod project_file;
 pub mod publish;
 mod publish_command;
 pub mod question;

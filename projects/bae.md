@@ -5,6 +5,21 @@ library and does all the work. Native apps on each platform show the library
 through a generated bridge. coven syncs the library between devices through S3,
 Dropbox, OneDrive or iCloud.
 
+## Hard limits
+
+- Never edit, build, commit or cherry-pick in `~/dev/bae` or `~/dev/coven`, the
+  person's checkouts (Building and testing, Checkouts).
+- Run every cargo command through `scripts/cargo.sh` (Building and testing, Rust
+  builds).
+- Never write to the person's keychain from a test, bench or probe, and never
+  read it unless the person asks (Making a change, Checking a change).
+- Never build anything for iOS: not the app, the bridge or BaeKit (Crates and
+  apps, bae has four apps).
+- Never write a list id or a mention of the lists in a commit, a repo file or
+  code (How work is tracked, Decision stack and work queue).
+- Never put a real artist, album or song name in a file that lasts
+  (projects/bae-rules/screen-content/no-real-artist-album-song-names-in-artifacts.md).
+
 ## Crates and apps
 
 bae's Rust code is a workspace of crates:
