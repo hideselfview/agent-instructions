@@ -220,7 +220,7 @@ fn locked_ssh(dir: &std::path::Path, locked: u32) -> Ssh {
     std::fs::write(
         &program,
         format!(
-            "#!/bin/sh\ncase \"$*\" in\n*notifyutil*) echo x >> '{count}.waits' ;;\n*IOConsoleLocked*)\n  n=$(cat '{count}' 2>/dev/null || echo 0)\n  echo $((n + 1)) > '{count}'\n  if [ \"$n\" -lt {locked} ]; then echo 'screen_locked=\"IOConsoleLocked\" = Yes'; else echo 'screen_locked=\"IOConsoleLocked\" = No'; fi ;;\n*) printf 'os=Darwin\\narch=arm64\\ncores=1\\nload=0.00 0 0\\nfree_kib=900000000\\nmemory_free_percent=80\\nswap_used_mib=0\\nmemory_pressure_level=1\\nprocs=300\\nmax_procs=8000\\n' ;;\nesac\n",
+            "#!/bin/sh\ncase \"$*\" in\n*PPID*) echo x >> '{count}.waits' ;;\n*IOConsoleLocked*)\n  n=$(cat '{count}' 2>/dev/null || echo 0)\n  echo $((n + 1)) > '{count}'\n  if [ \"$n\" -lt {locked} ]; then echo 'screen_locked=\"IOConsoleLocked\" = Yes'; else echo 'screen_locked=\"IOConsoleLocked\" = No'; fi ;;\n*) printf 'os=Darwin\\narch=arm64\\ncores=1\\nload=0.00 0 0\\nfree_kib=900000000\\nmemory_free_percent=80\\nswap_used_mib=0\\nmemory_pressure_level=1\\nprocs=300\\nmax_procs=8000\\n' ;;\nesac\n",
             count = count.display()
         ),
     )
