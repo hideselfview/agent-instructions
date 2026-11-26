@@ -646,6 +646,26 @@ fn a_two_project_repos_runs_are_read_from_both_stores() {
     }
 }
 
+/// A store whose repos can't be read may hold any repo, so no project's app
+/// build figures are shown as whole: each says which store failed.
+#[test]
+fn a_store_whose_repos_cannot_be_read_fails_every_projects_app_build_figures() {
+    let scratch = Scratch::new("timing-unreadable-store");
+    let places = scratch.places();
+    crate::lists::fixtures::make_store_named(&places, "first", &["bae"]);
+    let second = crate::lists::fixtures::make_store_named(&places, "second", &["bae"]);
+    rusqlite::Connection::open(second.database())
+        .unwrap()
+        .pragma_update(None, "user_version", 7)
+        .unwrap();
+    let dashboard = crate::hook_stats::dashboard_json_at(&places, NOW);
+    let dashboard: serde_json::Value = serde_json::from_str(&dashboard).unwrap();
+    let first = &dashboard["projects"][0];
+    assert_eq!(first["project"], "first");
+    let error = first["app_builds"]["error"].as_str().unwrap_or_default();
+    assert!(error.contains("second"), "{dashboard}");
+}
+
 /// A run reads back as it was recorded: its load, the commit it built, and
 /// each step with its result and what a failed or timed-out step said.
 #[test]

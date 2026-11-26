@@ -33,7 +33,7 @@ use rusqlite::{Connection, params};
 use crate::app_timing::RepoDatabases;
 use crate::checks::Kind;
 use crate::fail;
-use crate::fail::{Context, Fail, Result};
+use crate::fail::{Context, Result};
 use crate::host::Load;
 use crate::lists::store::Store;
 use crate::step_failure::{RunResult, StepFailure};
@@ -1096,23 +1096,35 @@ pub enum HookRead {
 }
 
 /// The repos of each of <stores> with the databases that record their app
-/// builds, those of every store that holds the repo: one list for each store,
-/// or why its repos can't be read.
+/// builds, those of every store that holds the repo: one list for each store.
+/// When the repos of any store can't be read, that store may hold any repo, so
+/// every store's list is why it can't be read.
 fn app_build_databases(stores: &[Store]) -> Vec<std::result::Result<Vec<RepoDatabases>, String>> {
-    let held: Vec<_> = stores
+    let held = stores
         .iter()
-        .map(|store| (store.database(), store.repos().map_err(Fail::text)))
-        .collect();
+        .map(|store| match store.repos() {
+            Ok(repos) => Ok((store.database(), repos)),
+            Err(error) => Err(format!(
+                "reading the repos of project {}: {}",
+                store.project,
+                error.text()
+            )),
+        })
+        .collect::<std::result::Result<Vec<_>, String>>();
+    let held = match held {
+        Ok(held) => held,
+        Err(error) => return stores.iter().map(|_| Err(error.clone())).collect(),
+    };
     held.iter()
         .map(|(_, repos)| {
-            let mut repos = repos.clone()?;
+            let mut repos = repos.clone();
             repos.sort();
             Ok(repos
                 .into_iter()
                 .map(|repo| {
                     let paths = held
                         .iter()
-                        .filter(|(_, own)| own.as_ref().is_ok_and(|own| own.contains(&repo)))
+                        .filter(|(_, own)| own.contains(&repo))
                         .map(|(path, _)| path.clone())
                         .collect();
                     RepoDatabases { repo, paths }
