@@ -10,11 +10,14 @@ fn settle(r: &Reviewed, how: &str) {
         .unwrap();
 }
 
-fn held(r: &Reviewed) -> Held {
+fn held(r: &Reviewed) -> Option<Held> {
     r.demo
         .store
         .write(&stamp("judge"), "hold", |db| {
-            hold(db, r.landing, &stamp("judge"))
+            match Ready::of(db, r.landing)? {
+                Some(ready) => hold(db, &ready, &stamp("judge")).map(Some),
+                None => Ok(None),
+            }
         })
         .unwrap()
 }
@@ -22,7 +25,7 @@ fn held(r: &Reviewed) -> Held {
 #[test]
 fn an_audit_with_a_finding_to_settle_makes_no_item() {
     let r = reviewed_under("audit-unsettled", None, "audit:nov14-1");
-    assert_eq!(held(&r), Held::Nothing);
+    assert_eq!(held(&r), None);
     let conn = r.demo.store.open_existing().unwrap();
     assert!(record::landing(&conn, r.landing).unwrap().is_open());
 }
@@ -31,7 +34,7 @@ fn an_audit_with_a_finding_to_settle_makes_no_item() {
 fn an_audit_with_a_confirmed_finding_becomes_one_item_held_on_the_stack() {
     let r = reviewed_under("audit-confirmed", None, "audit:nov14-1");
     settle(&r, "confirmed");
-    let Held::Item { item, entry } = held(&r) else {
+    let Some(Held::Item { item, entry }) = held(&r) else {
         panic!("the audit makes an item");
     };
     let conn = r.demo.store.open_existing().unwrap();
@@ -48,14 +51,14 @@ fn an_audit_with_a_confirmed_finding_becomes_one_item_held_on_the_stack() {
     assert_eq!(lists.question(entry).unwrap().kind, QuestionKind::Held);
     assert!(made.details.contains("a.rs"), "{}", made.details);
     // Settling again makes no second item.
-    assert_eq!(held(&r), Held::Nothing);
+    assert_eq!(held(&r), None);
 }
 
 #[test]
 fn an_audit_whose_findings_are_all_dropped_ends_with_no_item() {
     let r = reviewed_under("audit-dropped", None, "audit:nov14-2");
     settle(&r, "dropped");
-    assert_eq!(held(&r), Held::NothingToFix);
+    assert_eq!(held(&r), Some(Held::NothingToFix));
     let conn = r.demo.store.open_existing().unwrap();
     assert!(!record::landing(&conn, r.landing).unwrap().is_open());
 }
@@ -64,5 +67,5 @@ fn an_audit_whose_findings_are_all_dropped_ends_with_no_item() {
 fn a_branch_review_is_no_audit() {
     let r = reviewed_under("audit-branch", None, "branch:work");
     settle(&r, "confirmed");
-    assert_eq!(held(&r), Held::Nothing);
+    assert_eq!(held(&r), None);
 }

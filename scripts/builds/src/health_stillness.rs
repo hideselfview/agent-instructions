@@ -574,9 +574,7 @@ fn worktrees(
         };
         for review in &progress.reviews {
             let key = Key::Review(project.project.clone(), review.landing.id);
-            let in_worktree = held_reviews.iter().any(|(held, _)| *held == key);
             if review.landing.key.starts_with("detached:")
-                && !in_worktree
                 && review.unsettled.is_empty()
                 && review.confirmed.is_empty()
                 && let Some(work) = graph.0.get_mut(&key)

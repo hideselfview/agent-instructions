@@ -23,11 +23,9 @@ pub fn name_of(key: &str) -> Option<&str> {
     key.strip_prefix("audit:")
 }
 
-/// What `hold` did with an audit landing.
+/// What `hold` made of an audit landing.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Held {
-    /// The landing is no open audit, or a finding of it waits for a settle.
-    Nothing,
     /// No finding of the audit stays confirmed, so the landing ended with
     /// nothing to fix.
     NothingToFix,
@@ -36,29 +34,55 @@ pub enum Held {
     Item { item: Id, entry: Id },
 }
 
-/// Makes the held item of the audit landing <landing> when it is open and no
-/// finding of it waits for a settle, and ends the landing as abandoned with
-/// the item's number. Writes nothing otherwise.
-pub fn hold(db: &Connection, landing: i64, stamp: &Stamp) -> Result<Held> {
-    let row = record::landing(db, landing)?;
-    let Some(name) = name_of(&row.key) else {
-        return Ok(Held::Nothing);
-    };
-    if !row.is_open() {
-        return Ok(Held::Nothing);
+/// An open audit landing that no finding of waits on a settle: the one kind
+/// `hold` takes.
+pub struct Ready {
+    landing: i64,
+    name: String,
+    repo: String,
+    key: String,
+    confirmed: Vec<Finding>,
+}
+
+impl Ready {
+    /// The audit landing <landing> when it is open and no finding of it waits
+    /// for a settle; None for any other landing.
+    pub fn of(db: &Connection, landing: i64) -> Result<Option<Ready>> {
+        let row = record::landing(db, landing)?;
+        let Some(name) = name_of(&row.key) else {
+            return Ok(None);
+        };
+        if !row.is_open() {
+            return Ok(None);
+        }
+        let findings = record::findings_of_landing(db, landing)?;
+        if findings.iter().any(Finding::is_unsettled) {
+            return Ok(None);
+        }
+        Ok(Some(Ready {
+            landing,
+            name: name.to_string(),
+            repo: row.repo.clone(),
+            key: row.key.clone(),
+            confirmed: findings.into_iter().filter(Finding::is_open).collect(),
+        }))
     }
-    let findings = record::findings_of_landing(db, landing)?;
-    if findings.iter().any(Finding::is_unsettled) {
-        return Ok(Held::Nothing);
-    }
-    let confirmed: Vec<&Finding> = findings
-        .iter()
-        .filter(|finding| finding.is_open())
-        .collect();
+}
+
+/// Makes the held item of the audit <ready>, and ends its landing as
+/// abandoned with the item's number.
+pub fn hold(db: &Connection, ready: &Ready, stamp: &Stamp) -> Result<Held> {
+    let Ready {
+        landing,
+        name,
+        repo,
+        key,
+        confirmed,
+    } = ready;
     if confirmed.is_empty() {
         record::record_abandoned(
             db,
-            landing,
+            *landing,
             "the audit has no confirmed finding left to fix",
             stamp.at,
         )?;
@@ -75,8 +99,7 @@ pub fn hold(db: &Connection, landing: i64, stamp: &Stamp) -> Result<Held> {
         NewQuestion {
             title: format!("Start the fixes for audit {name}"),
             details: format!(
-                "The audit {name} of {} has {} confirmed findings in code on main. The item that waits on this entry fixes them. Close this entry when you want the fixes to start.",
-                row.repo,
+                "The audit {name} of {repo} has {} confirmed findings in code on main. The item that waits on this entry fixes them. Close this entry when you want the fixes to start.",
                 confirmed.len()
             ),
             kind: QuestionKind::Held,
@@ -93,19 +116,19 @@ pub fn hold(db: &Connection, landing: i64, stamp: &Stamp) -> Result<Held> {
         &ItemDraft {
             title: format!("Fix the confirmed findings of audit {name}"),
             area: AREA.to_string(),
-            details: details(&row.repo, landing, &confirmed),
+            details: details(repo, *landing, confirmed),
             r#for: Audience::Coordinator,
             waits: vec![Wait::Question(entry)],
             brief: None,
             priority: None,
-            tags: vec![row.key.clone()],
+            tags: vec![key.clone()],
         },
         Some(entry),
         stamp,
     )?;
     record::record_abandoned(
         db,
-        landing,
+        *landing,
         &format!("its confirmed findings became item {item}"),
         stamp.at,
     )?;
@@ -114,7 +137,7 @@ pub fn hold(db: &Connection, landing: i64, stamp: &Stamp) -> Result<Held> {
 
 /// The item's details: where each finding is and what it says. Main may have
 /// fixed some since the audit, so the agent checks each against main first.
-fn details(repo: &str, landing: i64, confirmed: &[&Finding]) -> String {
+fn details(repo: &str, landing: i64, confirmed: &[Finding]) -> String {
     let mut text = format!(
         "Fix the confirmed findings of review landing {landing} of {repo}, an audit of code on main. `builds review show {landing}` lists every finding with its settle. Main may have fixed some since the audit: check each finding against main, and fix the ones it still has.\n"
     );
