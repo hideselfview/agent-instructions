@@ -273,7 +273,7 @@ fn parse(top: &Path) -> Result<Manifest> {
                 ("lane", Some(word)) if lane.is_none() => match Lane::parse(word) {
                     Some(parsed) => lane = Some(parsed),
                     None => fail!(
-                        "{}: '{line}' names the lane '{word}', which is not mac or android",
+                        "{}: '{line}' names the lane '{word}', which no .app-build app names",
                         file.display()
                     ),
                 },
@@ -491,15 +491,15 @@ mod tests {
         .unwrap();
         let entries = build_dirs(&dir).unwrap();
         let lanes: Vec<Option<Lane>> = entries.iter().map(|entry| entry.lane).collect();
-        assert_eq!(lanes, vec![None, Some(Lane::Mac), Some(Lane::Android)]);
+        assert_eq!(lanes, vec![None, Some(Lane::MAC), Some(Lane::ANDROID)]);
         assert_eq!(entries[2].cap_kib(true), GIB);
         // The host folder is every app checkout's; a lane's folder its lane's.
-        assert!(entries[0].is_app_in(Some(Lane::Mac)) && entries[0].is_app_in(Some(Lane::Android)));
+        assert!(entries[0].is_app_in(Some(Lane::MAC)) && entries[0].is_app_in(Some(Lane::ANDROID)));
         assert!(
-            entries[1].is_app_in(Some(Lane::Mac)) && !entries[1].is_app_in(Some(Lane::Android))
+            entries[1].is_app_in(Some(Lane::MAC)) && !entries[1].is_app_in(Some(Lane::ANDROID))
         );
         assert!(
-            !entries[2].is_app_in(Some(Lane::Mac)) && entries[2].is_app_in(Some(Lane::Android))
+            !entries[2].is_app_in(Some(Lane::MAC)) && entries[2].is_app_in(Some(Lane::ANDROID))
         );
         assert!(
             !entries[0].is_app_in(None),

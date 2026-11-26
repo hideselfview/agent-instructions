@@ -109,14 +109,14 @@ fn a_checkout_is_the_app_checkout_of_one_lane_only() {
     .unwrap();
     assert_eq!(
         tool.places.app_lane_of("demo", "side-1").unwrap(),
-        Some(Lane::Android)
+        Some(Lane::ANDROID)
     );
     assert!(
         tool.places
-            .app_checkouts_file("demo", Lane::Android)
+            .app_checkouts_file("demo", Lane::ANDROID)
             .is_file()
     );
-    assert!(!tool.places.app_checkouts_file("demo", Lane::Mac).exists());
+    assert!(!tool.places.app_checkouts_file("demo", Lane::MAC).exists());
     assert!(
         refusal(cmd_app_checkout(
             &tool,
@@ -131,7 +131,7 @@ fn a_checkout_is_the_app_checkout_of_one_lane_only() {
             &crate::host::Ssh::from_env(),
             &["ios".to_string(), arg]
         ))
-        .contains("usage")
+        .contains("is no app")
     );
     assert!(
         refusal(cmd_retire(&tool, &[side.display().to_string()])).contains("android app checkouts")
@@ -180,13 +180,13 @@ fn a_lane_holds_several_app_checkouts_and_one_comes_out_while_no_build_holds_it(
     )
     .unwrap();
     assert_eq!(
-        tool.places.app_checkouts_of("demo", Lane::Android).unwrap(),
+        tool.places.app_checkouts_of("demo", Lane::ANDROID).unwrap(),
         vec!["side-1", "side-2"]
     );
     for name in ["side-1", "side-2"] {
         assert_eq!(
             tool.places.app_lane_of("demo", name).unwrap(),
-            Some(Lane::Android)
+            Some(Lane::ANDROID)
         );
     }
     assert!(
@@ -194,7 +194,7 @@ fn a_lane_holds_several_app_checkouts_and_one_comes_out_while_no_build_holds_it(
             .contains("app-checkout remove android")
     );
 
-    let lock = tool.places.app_lock_file("demo", Lane::Android, "side-2");
+    let lock = tool.places.app_lock_file("demo", Lane::ANDROID, "side-2");
     std::fs::create_dir_all(lock.parent().unwrap()).unwrap();
     // Close-on-exec: a process another test starts meanwhile must not inherit
     // the lock and keep it past the close.
@@ -209,7 +209,7 @@ fn a_lane_holds_several_app_checkouts_and_one_comes_out_while_no_build_holds_it(
     );
     assert_eq!(
         tool.places
-            .app_checkouts_of("demo", Lane::Android)
+            .app_checkouts_of("demo", Lane::ANDROID)
             .unwrap()
             .len(),
         2
@@ -226,7 +226,7 @@ fn a_lane_holds_several_app_checkouts_and_one_comes_out_while_no_build_holds_it(
     )
     .unwrap();
     assert_eq!(
-        tool.places.app_checkouts_of("demo", Lane::Android).unwrap(),
+        tool.places.app_checkouts_of("demo", Lane::ANDROID).unwrap(),
         vec!["side-1"]
     );
     assert!(!lock.exists(), "its lock went with it");
@@ -248,7 +248,7 @@ fn a_lane_holds_several_app_checkouts_and_one_comes_out_while_no_build_holds_it(
     assert!(
         !tool
             .places
-            .app_checkouts_file("demo", Lane::Android)
+            .app_checkouts_file("demo", Lane::ANDROID)
             .exists(),
         "an empty set is no file"
     );
@@ -453,7 +453,7 @@ fn a_hosts_app_checkout_is_recorded_beside_this_macs_and_taken_out_again() {
     cmd_app_checkout(&tool, &ssh, &words(&["android", "--host", "m1", path])).unwrap();
     cmd_app_checkout(&tool, &ssh, &words(&["android", "--host", "m1", path])).unwrap();
     assert_eq!(
-        tool.places.app_checkouts_of("demo", Lane::Android).unwrap(),
+        tool.places.app_checkouts_of("demo", Lane::ANDROID).unwrap(),
         vec!["m1:app-1"],
         "recording it twice records it once"
     );
@@ -489,7 +489,7 @@ fn a_hosts_app_checkout_is_recorded_beside_this_macs_and_taken_out_again() {
     .unwrap();
     assert!(
         tool.places
-            .app_checkouts_of("demo", Lane::Android)
+            .app_checkouts_of("demo", Lane::ANDROID)
             .unwrap()
             .is_empty()
     );
@@ -541,7 +541,7 @@ fn a_hosts_app_checkout_has_its_lane_file_exactly_while_it_is_in_a_lane() {
         .contains("host gone")
     );
     assert_eq!(
-        tool.places.app_checkouts_of("demo", Lane::Android).unwrap(),
+        tool.places.app_checkouts_of("demo", Lane::ANDROID).unwrap(),
         vec!["m1:app-1"],
         "an addition the host did not answer was recorded"
     );
@@ -559,11 +559,11 @@ fn a_hosts_app_checkout_has_its_lane_file_exactly_while_it_is_in_a_lane() {
     );
     let mut set = tool
         .places
-        .app_checkouts_recorded("demo", Lane::Android)
+        .app_checkouts_recorded("demo", Lane::ANDROID)
         .unwrap();
     set.push(crate::lane::AppCheckout::by_person("gone:app-1"));
     tool.places
-        .write_app_checkouts("demo", Lane::Android, &set)
+        .write_app_checkouts("demo", Lane::ANDROID, &set)
         .unwrap();
     assert!(
         refusal(cmd_app_checkout(
@@ -574,7 +574,7 @@ fn a_hosts_app_checkout_has_its_lane_file_exactly_while_it_is_in_a_lane() {
         .contains("host gone")
     );
     assert_eq!(
-        tool.places.app_checkouts_of("demo", Lane::Android).unwrap(),
+        tool.places.app_checkouts_of("demo", Lane::ANDROID).unwrap(),
         vec!["m1:app-1", "gone:app-1"],
         "a removal the host did not answer took the checkout out"
     );
@@ -587,7 +587,7 @@ fn a_hosts_app_checkout_has_its_lane_file_exactly_while_it_is_in_a_lane() {
     assert!(!lane_file.exists(), "the host keeps the lane file");
     assert!(wt.join(".git").exists(), "the worktree stays on the host");
     assert_eq!(
-        tool.places.app_checkouts_of("demo", Lane::Android).unwrap(),
+        tool.places.app_checkouts_of("demo", Lane::ANDROID).unwrap(),
         vec!["gone:app-1"]
     );
 }
@@ -710,13 +710,13 @@ fn a_lane_with_no_app_checkout_on_this_mac_gets_one_and_keeps_it_from_new() {
     tool.places
         .write_app_checkouts(
             "demo",
-            Lane::Mac,
+            Lane::MAC,
             &[crate::lane::AppCheckout::by_person("m1:mac-1")],
         )
         .unwrap();
 
-    ensure_local_app_checkout(&tool, &ssh, "demo", Lane::Mac).unwrap();
-    let entries = tool.places.app_checkouts_of("demo", Lane::Mac).unwrap();
+    ensure_local_app_checkout(&tool, &ssh, "demo", Lane::MAC).unwrap();
+    let entries = tool.places.app_checkouts_of("demo", Lane::MAC).unwrap();
     assert_eq!(entries, ["m1:mac-1", "side-1"]);
     let side = scratch.dir.join("home/dev/demo-worktrees/side-1");
     assert!(side.join("target").is_symlink(), "the checkout is set up");
@@ -737,9 +737,9 @@ fn a_lane_with_no_app_checkout_on_this_mac_gets_one_and_keeps_it_from_new() {
     );
 
     // A lane that has one on this Mac is left as it is.
-    ensure_local_app_checkout(&tool, &ssh, "demo", Lane::Mac).unwrap();
+    ensure_local_app_checkout(&tool, &ssh, "demo", Lane::MAC).unwrap();
     assert_eq!(
-        tool.places.app_checkouts_of("demo", Lane::Mac).unwrap(),
+        tool.places.app_checkouts_of("demo", Lane::MAC).unwrap(),
         entries
     );
 }
@@ -751,23 +751,23 @@ fn a_lane_record_whose_message_to_the_queue_fails_is_taken_out_again() {
     tool.places
         .write_app_checkouts(
             "demo",
-            Lane::Mac,
+            Lane::MAC,
             &[crate::lane::AppCheckout::by_person("m1:mac-1")],
         )
         .unwrap();
-    let error = record_with_message(&tool, "demo", Lane::Mac, "side-1", || {
+    let error = record_with_message(&tool, "demo", Lane::MAC, "side-1", || {
         Err(Fail::Message("the queue did not answer".to_string()))
     })
     .unwrap_err()
     .text();
     assert_eq!(error, "the queue did not answer");
     assert_eq!(
-        tool.places.app_checkouts_of("demo", Lane::Mac).unwrap(),
+        tool.places.app_checkouts_of("demo", Lane::MAC).unwrap(),
         ["m1:mac-1"]
     );
-    record_with_message(&tool, "demo", Lane::Mac, "side-1", || Ok(())).unwrap();
+    record_with_message(&tool, "demo", Lane::MAC, "side-1", || Ok(())).unwrap();
     assert_eq!(
-        tool.places.app_checkouts_of("demo", Lane::Mac).unwrap(),
+        tool.places.app_checkouts_of("demo", Lane::MAC).unwrap(),
         ["m1:mac-1", "side-1"]
     );
 }

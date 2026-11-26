@@ -65,17 +65,21 @@ pub fn windowed_prefixes(
     picks: &[Pick],
 ) -> Result<Vec<(String, crate::window_lock::Access)>> {
     use crate::window_lock::Access;
-    let adds_display = config
-        .picker_in(Lane::Mac, crate::app_config::PickKind::Shots, None)
-        .is_some_and(|picker| picker.opens_windows)
-        && !config.mac_shares_shot_display;
+    let shares = |lane: Lane| config.shared_shot_display.contains(&lane);
+    let adds_display = |lane: Lane| {
+        lane.platform() == boards::app_build::Platform::Mac
+            && config
+                .picker_in(lane, crate::app_config::PickKind::Shots, None)
+                .is_some_and(|picker| picker.opens_windows)
+            && !shares(lane)
+    };
     let mut declared: HashMap<Lane, Vec<shots::Declared>> = HashMap::new();
     let mut windowed = Vec::new();
     for pick in picks {
         let Pick::Shots(lane, prefix) = pick else {
             continue;
         };
-        if adds_display && prefix.app() == Lane::Mac.app().name {
+        if adds_display(*lane) {
             windowed.push((prefix.as_str().to_string(), Access::Exclusive));
             continue;
         }
@@ -86,9 +90,7 @@ pub fn windowed_prefixes(
             .iter()
             .filter(|scene| prefix.matches(&scene.name))
             .filter_map(|scene| {
-                if scene.marks.takes_focus
-                    || (scene.marks.in_window && !config.mac_shares_shot_display)
-                {
+                if scene.marks.takes_focus || (scene.marks.in_window && !shares(*lane)) {
                     Some(Access::Exclusive)
                 } else if scene.marks.in_window {
                     Some(Access::Shared)

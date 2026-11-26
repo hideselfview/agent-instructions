@@ -8,13 +8,13 @@ fn the_copy_replaces_the_test_app() {
     let scratch = Scratch::new("build-app-copy");
     let places = scratch.places();
     let config = parse_config("mac build b\nmac app out/out.app\nmac bundle demo.test\n").unwrap();
-    let app = copy_path(&places, "demo", config.mac.as_ref().unwrap()).unwrap();
+    let app = copy_path(&places, "demo", &CopiedApp::of(&config, Lane::MAC).unwrap()).unwrap();
     assert_eq!(app, places.home.join("Applications/demo-test/out.app"));
     std::fs::create_dir_all(app.join("old")).unwrap();
 
     let built = scratch.dir.join("built/out.app");
     std::fs::create_dir_all(built.join("new")).unwrap();
-    let lock = lock::take_checkout(&places, "demo", Lane::Mac, "side-1").unwrap();
+    let lock = lock::take_checkout(&places, "demo", Lane::MAC, "side-1").unwrap();
     copy_out(&built, &app, CheckoutLock::new(lock.as_fd(), None)).unwrap();
     assert!(
         app.join("old").exists(),
@@ -30,17 +30,21 @@ fn the_copy_replaces_the_test_app() {
 fn a_platform_the_config_lacks_is_refused() {
     let config = parse_config("android build ./a.sh\n").unwrap();
     assert_eq!(
-        Target::of(Lane::Android).build(&config).unwrap(),
+        Target::of(Lane::ANDROID).build(&config).unwrap(),
         ["./a.sh".to_string()]
     );
-    assert!(Target::of(Lane::Mac).build(&config).is_err());
-    assert!(Target::parse("ios").is_err());
+    assert!(Target::of(Lane::MAC).build(&config).is_err());
+    assert!(Target::parse(&config, "ios").is_err());
 }
 
 #[test]
 fn a_platform_builds_in_its_lane() {
-    assert_eq!(Target::parse("mac").unwrap().lane(), Lane::Mac);
-    assert_eq!(Target::parse("android").unwrap().lane(), Lane::Android);
+    let config = parse_config("mac build b\nmac app a\nmac bundle c\nandroid build d\n").unwrap();
+    assert_eq!(Target::parse(&config, "mac").unwrap().lane(), Lane::MAC);
+    assert_eq!(
+        Target::parse(&config, "android").unwrap().lane(),
+        Lane::ANDROID
+    );
 }
 
 #[test]
@@ -93,7 +97,7 @@ fn no_ref_builds_the_origin_main_the_fetch_brought_not_a_stale_local_main() {
     git(&other, &["push", "-q", "origin", "main"]);
     let newer = run_git(&other, &["rev-parse", "HEAD"]).unwrap();
 
-    let lock = lock::take_checkout(&scratch.places(), "demo", Lane::Mac, "side-1").unwrap();
+    let lock = lock::take_checkout(&scratch.places(), "demo", Lane::MAC, "side-1").unwrap();
     let checkout = CheckoutLock::new(lock.as_fd(), None);
     let config = check_out(&top, default, checkout).unwrap().config;
     assert_eq!(
@@ -101,7 +105,12 @@ fn no_ref_builds_the_origin_main_the_fetch_brought_not_a_stale_local_main() {
         newer,
         "built the stale local main"
     );
-    run_command(&top, &config.mac.unwrap().build, checkout).unwrap();
+    run_command(
+        &top,
+        &config.test_app_of(Lane::MAC).unwrap().build,
+        checkout,
+    )
+    .unwrap();
     assert!(top.join("out.app").is_dir() && top.join("newer").exists());
 }
 
@@ -110,20 +119,20 @@ fn the_mac_build_may_take_a_hosts_checkout_unless_it_runs_a_here_step() {
     let mac = "mac build ./run.sh --no-open\nmac app out.app\nmac bundle demo.test\nstep mac signed ./run.sh --no-open\n";
     let free = parse_config(mac).unwrap();
     assert_eq!(
-        Target::of(Lane::Mac).allowed(&free).unwrap(),
+        Target::of(Lane::MAC).allowed(&free).unwrap(),
         Where::Anywhere
     );
 
     let here = parse_config(&format!("{mac}here signed\n")).unwrap();
-    assert_eq!(Target::of(Lane::Mac).allowed(&here).unwrap(), Where::Here);
+    assert_eq!(Target::of(Lane::MAC).allowed(&here).unwrap(), Where::Here);
 
     let other = parse_config(&format!("{mac}step mac other ./other.sh\nhere other\n")).unwrap();
     assert_eq!(
-        Target::of(Lane::Mac).allowed(&other).unwrap(),
+        Target::of(Lane::MAC).allowed(&other).unwrap(),
         Where::Anywhere
     );
     assert_eq!(
-        Target::of(Lane::Android).allowed(&free).unwrap(),
+        Target::of(Lane::ANDROID).allowed(&free).unwrap(),
         Where::Here
     );
 }

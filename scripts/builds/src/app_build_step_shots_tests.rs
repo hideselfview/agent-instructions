@@ -126,7 +126,7 @@ fn each_shots_step_keeps_its_base_run_and_its_screenshots_in_the_store() {
     let run = RunRecord {
         started_at: 1_000_000,
         repo: "bae".to_string(),
-        lane: Lane::Mac,
+        lane: Lane::MAC,
         checkout: "side-1".to_string(),
         built_ref: "branch".to_string(),
         requested_commit: None,
@@ -165,7 +165,7 @@ fn a_run_read_back_holds_the_steps_with_what_they_used() {
     let run = RunRecord {
         started_at: 1_000_000,
         repo: "bae".to_string(),
-        lane: Lane::Mac,
+        lane: Lane::MAC,
         checkout: "side-1".to_string(),
         built_ref: "branch".to_string(),
         requested_commit: None,

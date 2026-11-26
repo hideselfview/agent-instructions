@@ -8,7 +8,7 @@ fn key(prefix: &str, commit: &str) -> Key {
     Key {
         repo: "demo".to_string(),
         commit: commit.to_string(),
-        lane: Lane::Mac,
+        lane: Lane::MAC,
         environment: "26B131-17C529".to_string(),
         prefix: prefix.to_string(),
         versions: crate::shots_program::VERSIONS.clone(),
@@ -28,7 +28,7 @@ fn cache_run(places: &Places, key: &Key, files: &[&str]) {
 }
 
 fn ask(places: &Places, commit: &str, scene: &str, side: Side) -> Option<PathBuf> {
-    picture_file(places, "demo", commit, Lane::Mac, scene, side).unwrap()
+    picture_file(places, "demo", commit, Lane::MAC, scene, side).unwrap()
 }
 
 #[test]
@@ -92,18 +92,14 @@ fn a_run_of_another_prefix_does_not_cover_the_scene() {
 
 #[test]
 fn the_scene_names_its_lane() {
-    assert_eq!(
-        lane_of("android.playlists.playlist").unwrap(),
-        Lane::Android
-    );
-    assert_eq!(lane_of("mac.welcome.library-details").unwrap(), Lane::Mac);
-    assert!(
-        lane_of("web.landing.home")
-            .unwrap_err()
-            .text()
-            .contains("web")
-    );
-    assert!(lane_of("welcome").is_err());
+    let scratch = crate::testing::Scratch::new("picture-lane");
+    let places = scratch.places();
+    let lane = |scene| lane_of(&places, "demo", scene);
+    assert_eq!(lane("android.playlists.playlist").unwrap(), Lane::ANDROID);
+    assert_eq!(lane("mac.welcome.library-details").unwrap(), Lane::MAC);
+    assert_eq!(lane("web.dashboard.page").unwrap(), Lane::WEB);
+    assert!(lane("ios.welcome.home").is_err());
+    assert!(lane("welcome").is_err());
 }
 
 #[test]

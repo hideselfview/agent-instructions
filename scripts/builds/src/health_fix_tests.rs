@@ -486,7 +486,7 @@ mod stalled_claims {
             &RunRecord {
                 started_at: demo.tool.now - 120,
                 repo: "demo".into(),
-                lane: crate::lane::Lane::Mac,
+                lane: crate::lane::Lane::MAC,
                 checkout: "mac-1".into(),
                 built_ref: "work".into(),
                 requested_commit: None,

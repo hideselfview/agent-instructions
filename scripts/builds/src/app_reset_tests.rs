@@ -65,7 +65,7 @@ fn halfway(scratch: &Scratch) -> (Places, PathBuf, String, String) {
     places
         .write_app_checkouts(
             "demo",
-            Lane::Mac,
+            Lane::MAC,
             &[crate::lane::AppCheckout::by_person("side-1")],
         )
         .unwrap();
@@ -127,7 +127,7 @@ fn a_clean_checkout_is_put_on_origins_main_too() {
 fn the_reset_waits_for_the_checkouts_lock() {
     let scratch = Scratch::new("app-reset-lock");
     let (places, top, _, new) = halfway(&scratch);
-    let held = lock::take_checkout(&places, "demo", Lane::Mac, "side-1").unwrap();
+    let held = lock::take_checkout(&places, "demo", Lane::MAC, "side-1").unwrap();
     let resetting = std::thread::spawn({
         let places = places.clone();
         let ssh = no_ssh(&scratch);
@@ -248,16 +248,16 @@ fn on_host(scratch: &Scratch) -> OnHost {
     places
         .write_app_checkouts(
             "demo",
-            Lane::Mac,
+            Lane::MAC,
             &[crate::lane::AppCheckout::by_person("m1:mac-1")],
         )
         .unwrap();
-    let lock = lock::take_checkout(&places, "demo", Lane::Mac, "m1:mac-1").unwrap();
+    let lock = lock::take_checkout(&places, "demo", Lane::MAC, "m1:mac-1").unwrap();
     crate::app_remote::RemoteApp::find(
         &places,
         &ssh,
         "demo",
-        Lane::Mac,
+        Lane::MAC,
         "m1:mac-1",
         CheckoutLock::new(lock.as_fd(), None),
     )
@@ -354,7 +354,7 @@ fn a_hosts_checkout_resets_over_a_tree_matching_names() {
 fn a_refresh_passes_over_differing_files_and_fails_on_any_other_error() {
     let scratch = Scratch::new("app-reset-refresh");
     let (_, top, _, _) = halfway(&scratch);
-    let lock = lock::take_checkout(&scratch.places(), "demo", Lane::Mac, "side-1").unwrap();
+    let lock = lock::take_checkout(&scratch.places(), "demo", Lane::MAC, "side-1").unwrap();
     let mut site = Site::Local(
         top.clone(),
         top.join("no.xcconfig"),

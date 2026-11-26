@@ -223,7 +223,7 @@ fn an_app_checkout_keeps_warm_only_the_folders_its_lane_builds_into() {
         "target 1G\nxcode 1G lane mac\ngradle 1G lane android\n",
     );
     std::fs::create_dir_all(tool.places.root.join("demo")).unwrap();
-    for (side, lane) in [("side-1", Lane::Mac), ("side-2", Lane::Android)] {
+    for (side, lane) in [("side-1", Lane::MAC), ("side-2", Lane::ANDROID)] {
         let dir = scratch.dir.join("demo-worktrees").join(side);
         git(
             &main,

@@ -188,7 +188,7 @@ fn a_kept_tree_stays_in_main_and_the_app_checkout_but_not_in_another_worktree() 
     );
     std::fs::create_dir_all(tool.places.root.join("demo")).unwrap();
     std::fs::write(
-        tool.places.app_checkouts_file("demo", Lane::Mac),
+        tool.places.app_checkouts_file("demo", Lane::MAC),
         "side-1\n",
     )
     .unwrap();

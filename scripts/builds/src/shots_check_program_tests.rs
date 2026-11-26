@@ -1,4 +1,5 @@
 use super::*;
+use crate::lane::Lane;
 use crate::shots_cache::{self, Key};
 
 /// A cached run of two scenes whose report holds findings.json: scene `a`
@@ -8,7 +9,7 @@ fn cached_run(scratch: &crate::testing::Scratch) -> Cached {
     let key = Key {
         repo: "demo".to_string(),
         commit: "a".repeat(40),
-        lane: Lane::Mac,
+        lane: Lane::MAC,
         environment: "26B131-17C529".to_string(),
         prefix: "mac.".to_string(),
         versions: crate::shots_program::Versions {

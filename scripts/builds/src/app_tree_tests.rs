@@ -37,16 +37,16 @@ fn a_lanes_app_tree_changes_only_with_the_paths_its_on_lines_name() {
     let config = parse_config(LINES).unwrap();
     let tree = |commit: &str, lane| of(&top, commit, &config, lane).unwrap();
     let first = resolve(&top, "HEAD").unwrap();
-    let (mac, android) = (tree(&first, Lane::Mac), tree(&first, Lane::Android));
+    let (mac, android) = (tree(&first, Lane::MAC), tree(&first, Lane::ANDROID));
     assert_ne!(mac, android);
     let core = commit_change(&top, "core/lib.rs", "changed");
-    assert_eq!(tree(&core, Lane::Mac), mac, "no on line names core/");
+    assert_eq!(tree(&core, Lane::MAC), mac, "no on line names core/");
     let droid = commit_change(&top, "app-android/Main.kt", "changed");
-    assert_eq!(tree(&droid, Lane::Mac), mac);
-    assert_ne!(tree(&droid, Lane::Android), android);
+    assert_eq!(tree(&droid, Lane::MAC), mac);
+    assert_ne!(tree(&droid, Lane::ANDROID), android);
     let swift = commit_change(&top, "tools/x.swift", "changed");
     assert_ne!(
-        tree(&swift, Lane::Mac),
+        tree(&swift, Lane::MAC),
         mac,
         "a file the *.swift line matches"
     );
@@ -78,7 +78,7 @@ fn a_lanes_app_tree_changes_with_what_sizes_a_component_scene() {
     let scratch = Scratch::new("app-tree-sizes");
     let top = design_repo(&scratch);
     let config = parse_config(LINES).unwrap();
-    let tree = |commit: &str| of(&top, commit, &config, Lane::Mac).unwrap();
+    let tree = |commit: &str| of(&top, commit, &config, Lane::MAC).unwrap();
     let first = resolve(&top, "HEAD").unwrap();
     let before = tree(&first);
     let board = commit_change(&top, "design/mocks/welcome.dc.html", "another board");
@@ -146,7 +146,7 @@ fn a_lanes_app_tree_holds_the_crates_its_bridge_builds_from() {
     let scratch = Scratch::new("app-tree-crates");
     let top = rust_repo(&scratch);
     let config = parse_config(RUST_LINES).unwrap();
-    let tree = |commit: &str| of(&top, commit, &config, Lane::Mac).unwrap();
+    let tree = |commit: &str| of(&top, commit, &config, Lane::MAC).unwrap();
     let first = resolve(&top, "HEAD").unwrap();
     let base = tree(&first);
     let mut seen = vec![base.clone()];
@@ -175,9 +175,9 @@ fn a_crate_the_bridge_does_not_use_leaves_the_app_tree_alone() {
     let top = rust_repo(&scratch);
     let config = parse_config(RUST_LINES).unwrap();
     let first = resolve(&top, "HEAD").unwrap();
-    let base = of(&top, &first, &config, Lane::Mac).unwrap();
+    let base = of(&top, &first, &config, Lane::MAC).unwrap();
     let unrelated = commit_change(&top, "other/src/lib.rs", "changed");
-    assert_eq!(of(&top, &unrelated, &config, Lane::Mac).unwrap(), base);
+    assert_eq!(of(&top, &unrelated, &config, Lane::MAC).unwrap(), base);
 }
 
 #[test]

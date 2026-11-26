@@ -137,7 +137,7 @@ BUILDS):
   - An app build of a branch (`builds app-build <repo> <branch>`) runs only
     the test classes and the shots of the screens the change touches (--test
     <Class>, --shots mac.welcome.), and CI runs the full suites.
-  - A full run (`--all-shots mac|android`) runs every shot of one lane with
+  - A full run (`--all-shots <app>`) runs every shot of one lane with
     the installed shots program. It has two uses:
     - Board matching measures each lane with one, on a commit of origin/main,
       at each step of a round that measures, to list every scene that differs

@@ -21,7 +21,7 @@ impl World {
         std::fs::create_dir_all(places.root.join("demo")).unwrap();
         std::fs::create_dir_all(&places.home).unwrap();
         std::fs::create_dir_all(scratch.dir.join("host-home/dev")).unwrap();
-        std::fs::write(places.app_checkouts_file("demo", Lane::Android), android).unwrap();
+        std::fs::write(places.app_checkouts_file("demo", Lane::ANDROID), android).unwrap();
         let program = scratch.dir.join("ssh");
         std::fs::write(
             &program,
@@ -80,7 +80,7 @@ cd '{home}' && HOME='{home}' BUILDS_VOLUME='{home}/no-volume' exec sh -c "$*"
 
     fn set(&self) -> Vec<AppCheckout> {
         self.places
-            .app_checkouts_recorded("demo", Lane::Android)
+            .app_checkouts_recorded("demo", Lane::ANDROID)
             .unwrap()
     }
 
@@ -102,7 +102,7 @@ cd '{home}' && HOME='{home}' BUILDS_VOLUME='{home}/no-volume' exec sh -c "$*"
         let (places, ssh) = (self.places.clone(), self.ssh.clone());
         std::thread::spawn(move || {
             let held =
-                take_where(&places, &ssh, "demo", Lane::Android, Where::Anywhere, 0).unwrap();
+                take_where(&places, &ssh, "demo", Lane::ANDROID, Where::Anywhere, 0).unwrap();
             said.send(held.checkout.clone()).unwrap();
             freed.recv().unwrap();
             held.release();
@@ -125,7 +125,7 @@ fn a_build_that_waits_adds_a_checkout_on_a_host_with_room_and_builds_there() {
         &world.places,
         &world.ssh,
         "demo",
-        Lane::Android,
+        Lane::ANDROID,
         Where::Anywhere,
         0,
     )
@@ -159,7 +159,7 @@ fn two_builds_that_wait_at_once_each_add_a_checkout_of_their_own() {
     let (said, heard) = channel();
     std::thread::scope(|scope| {
         for _ in 0..2 {
-            let (start, said, at) = (&start, said.clone(), world.at(Lane::Android));
+            let (start, said, at) = (&start, said.clone(), world.at(Lane::ANDROID));
             scope.spawn(move || {
                 start.wait();
                 said.send(grow(at, 0, NOW).unwrap()).unwrap();
@@ -176,7 +176,7 @@ fn two_builds_that_wait_at_once_each_add_a_checkout_of_their_own() {
         ]
     );
     assert_eq!(world.entries().len(), 3);
-    let queue = Queue::of(&world.places, "demo", Lane::Android);
+    let queue = Queue::of(&world.places, "demo", Lane::ANDROID);
     assert!(
         queue.order().unwrap().len() <= queue.slots(),
         "the lane has a checkout for each build in line"
@@ -187,7 +187,7 @@ fn two_builds_that_wait_at_once_each_add_a_checkout_of_their_own() {
 fn a_lane_at_its_cap_or_a_host_with_no_room_gets_no_checkout() {
     let full: String = (1..=LANE_CAP).map(|n| format!("m1:app-{n}\n")).collect();
     let world = World::new("size-cap", &full);
-    let queue = Queue::of(&world.places, "demo", Lane::Android);
+    let queue = Queue::of(&world.places, "demo", Lane::ANDROID);
     std::fs::create_dir_all(world.places.root.join("demo/app-android.queue")).unwrap();
     let order: String = (1..=LANE_CAP + 2).map(|n| format!("{n}-1\n")).collect();
     std::fs::write(
@@ -196,20 +196,20 @@ fn a_lane_at_its_cap_or_a_host_with_no_room_gets_no_checkout() {
     )
     .unwrap();
     assert_eq!(queue.order().unwrap().len() - queue.slots(), 2);
-    let grown = grow(world.at(Lane::Android), 0, NOW).unwrap();
+    let grown = grow(world.at(Lane::ANDROID), 0, NOW).unwrap();
     assert_eq!(grown, None, "the lane has its cap");
     assert_eq!(world.entries().len(), LANE_CAP);
 
     std::fs::write(
-        world.places.app_checkouts_file("demo", Lane::Android),
+        world.places.app_checkouts_file("demo", Lane::ANDROID),
         "m1:app-1\n",
     )
     .unwrap();
     world.host_has(10, 9.5, 900_000_000);
-    let grown = grow(world.at(Lane::Android), 0, NOW).unwrap();
+    let grown = grow(world.at(Lane::ANDROID), 0, NOW).unwrap();
     assert_eq!(grown, None, "the host has under a core free");
     world.host_has(10, 2.0, 35 * 1024 * 1024);
-    let grown = grow(world.at(Lane::Android), 30 * 1024 * 1024, NOW).unwrap();
+    let grown = grow(world.at(Lane::ANDROID), 30 * 1024 * 1024, NOW).unwrap();
     assert_eq!(
         grown, None,
         "a checkout would take the host under its floor"
@@ -224,13 +224,13 @@ fn two_lanes_that_add_at_once_never_pass_the_host_cap() {
     for round in 0..5 {
         // m1 holds one checkout under its cap, and builds wait in both lanes.
         std::fs::write(
-            places.app_checkouts_file("demo", Lane::Android),
+            places.app_checkouts_file("demo", Lane::ANDROID),
             "m1:app-1\nm1:app-2\n",
         )
         .unwrap();
         let mac: String = (1..HOST_CAP - 2).map(|n| format!("m1:mac-{n}\n")).collect();
-        std::fs::write(places.app_checkouts_file("demo", Lane::Mac), mac).unwrap();
-        for lane in Lane::ALL {
+        std::fs::write(places.app_checkouts_file("demo", Lane::MAC), mac).unwrap();
+        for lane in [Lane::MAC, Lane::ANDROID] {
             let dir = places.root.join("demo").join(lane.queue_dir_name());
             std::fs::create_dir_all(&dir).unwrap();
             let order: String = (1..=HOST_CAP).map(|n| format!("{n}-{round}\n")).collect();
@@ -238,7 +238,7 @@ fn two_lanes_that_add_at_once_never_pass_the_host_cap() {
         }
         let start = std::sync::Barrier::new(2);
         let grown: Vec<Option<String>> = std::thread::scope(|scope| {
-            let threads: Vec<_> = Lane::ALL
+            let threads: Vec<_> = [Lane::MAC, Lane::ANDROID]
                 .into_iter()
                 .map(|lane| {
                     let start = &start;
@@ -286,16 +286,16 @@ fn a_host_that_cannot_build_the_mac_lane_takes_no_mac_checkout() {
             },
         }),
     )];
-    let (fits, _) = fitting_hosts(Lane::Mac, 0, &probes, &[], &[]);
+    let (fits, _) = fitting_hosts(Lane::MAC, 0, &probes, &[], &[]);
     assert_eq!(fits.len(), 1);
-    let (fits, lacks) = fitting_hosts(Lane::Mac, 0, &probes, &["m1".to_string()], &[]);
+    let (fits, lacks) = fitting_hosts(Lane::MAC, 0, &probes, &["m1".to_string()], &[]);
     assert!(fits.is_empty());
     assert!(lacks[0].contains("cannot build the mac lane"), "{lacks:?}");
     let mut linux = probes.clone();
     if let Ok(probe) = &mut linux[0].1 {
         probe.platform.os = crate::host_platform::Os::Linux;
     }
-    for lane in Lane::ALL {
+    for lane in [Lane::MAC, Lane::ANDROID] {
         let (fits, lacks) = fitting_hosts(lane, 0, &linux, &[], &[]);
         assert!(fits.is_empty(), "a Linux host takes no {lane:?} checkout");
         assert!(lacks[0].contains("m1 runs Linux"), "{lacks:?}");
@@ -313,14 +313,14 @@ fn an_idle_checkout_builds_added_goes_and_a_persons_and_a_used_one_stay() {
     );
     let places = &world.places;
     // builds-android-2 had a build that ended a minute ago.
-    std::fs::create_dir_all(places.app_locks_dir("demo", Lane::Android)).unwrap();
+    std::fs::create_dir_all(places.app_locks_dir("demo", Lane::ANDROID)).unwrap();
     std::fs::write(
-        places.app_lock_ended_file("demo", Lane::Android, "m1:builds-android-2"),
+        places.app_lock_ended_file("demo", Lane::ANDROID, "m1:builds-android-2"),
         (NOW - 60).to_string(),
     )
     .unwrap();
     std::fs::write(
-        places.app_lock_ended_file("demo", Lane::Android, "m1:builds-android-1"),
+        places.app_lock_ended_file("demo", Lane::ANDROID, "m1:builds-android-1"),
         hours_ago(2).to_string(),
     )
     .unwrap();
@@ -332,10 +332,10 @@ fn an_idle_checkout_builds_added_goes_and_a_persons_and_a_used_one_stay() {
     }
     std::fs::create_dir_all(places.root.join("demo/m1:builds-android-1/out")).unwrap();
 
-    shrink(world.at(Lane::Android), Run::Dry, NOW).unwrap();
+    shrink(world.at(Lane::ANDROID), Run::Dry, NOW).unwrap();
     assert_eq!(world.entries().len(), 3, "a dry run removes nothing");
 
-    shrink(world.at(Lane::Android), Run::Real, NOW).unwrap();
+    shrink(world.at(Lane::ANDROID), Run::Real, NOW).unwrap();
     assert_eq!(
         world.entries(),
         ["m1:app-1", "m1:builds-android-2"],
@@ -345,10 +345,10 @@ fn an_idle_checkout_builds_added_goes_and_a_persons_and_a_used_one_stay() {
     assert!(!places.root.join("demo/m1:builds-android-1").exists());
     assert!(
         !places
-            .app_lock_file("demo", Lane::Android, "m1:builds-android-1")
+            .app_lock_file("demo", Lane::ANDROID, "m1:builds-android-1")
             .exists()
     );
-    let removed = places.app_checkouts_removed("demo", Lane::Android).unwrap();
+    let removed = places.app_checkouts_removed("demo", Lane::ANDROID).unwrap();
     assert_eq!(removed.len(), 1);
     assert_eq!(removed[0].entry, "m1:builds-android-1");
     assert_eq!(removed[0].why, "no build used it for 120 minutes");
@@ -366,12 +366,12 @@ fn a_checkout_whose_host_removal_fails_stays_in_the_set() {
     // The host has no clone of demo, so git cannot remove the worktree there.
     let host_home = world.scratch.dir.join("host-home");
     std::fs::create_dir_all(host_home.join("dev/demo-worktrees/builds-android-1/.git")).unwrap();
-    shrink(world.at(Lane::Android), Run::Real, NOW).unwrap();
+    shrink(world.at(Lane::ANDROID), Run::Real, NOW).unwrap();
     assert_eq!(world.entries(), ["m1:builds-android-1"]);
     assert!(
         world
             .places
-            .app_checkouts_removed("demo", Lane::Android)
+            .app_checkouts_removed("demo", Lane::ANDROID)
             .unwrap()
             .is_empty()
     );
@@ -380,10 +380,10 @@ fn a_checkout_whose_host_removal_fails_stays_in_the_set() {
 #[test]
 fn a_host_with_a_checkout_to_clone_needs_only_what_the_clone_does_not_share() {
     const GIB: u64 = 1024 * 1024;
-    assert_eq!(new_checkout_kib(Lane::Mac, false), 22 * GIB);
-    assert_eq!(new_checkout_kib(Lane::Android, false), 10 * GIB);
-    let mac = new_checkout_kib(Lane::Mac, true);
-    let android = new_checkout_kib(Lane::Android, true);
+    assert_eq!(new_checkout_kib(Lane::MAC, false), 22 * GIB);
+    assert_eq!(new_checkout_kib(Lane::ANDROID, false), 10 * GIB);
+    let mac = new_checkout_kib(Lane::MAC, true);
+    let android = new_checkout_kib(Lane::ANDROID, true);
     assert!(mac > 12 * GIB && mac < 13 * GIB, "{mac}");
     assert!(android > GIB && android < 2 * GIB, "{android}");
 }

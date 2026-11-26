@@ -5,7 +5,7 @@ use crate::lists::fixtures::{NOON, db, item};
 fn seen(worktree: &str, state: &'static str, items: &[u32]) -> Seen {
     Seen {
         worktree: worktree.to_string(),
-        state,
+        state: state.to_string(),
         items: items.iter().copied().collect(),
     }
 }

@@ -259,11 +259,9 @@ fn written_by(places: &Places, command: &str, args: &[String]) -> Result<Vec<Pat
         "app-build" | "build-app" | "app-checkout" => {
             let mut roots = here()?;
             if let Some(repo) = args.iter().find(|arg| !arg.starts_with('-')) {
-                for lane in crate::lane::Lane::ALL {
-                    for entry in places.app_checkouts_of(repo, lane)? {
-                        if !entry.contains(':') {
-                            roots.push(places.root.join(repo).join(entry));
-                        }
+                for entry in places.app_checkout_entries(repo)? {
+                    if !entry.contains(':') {
+                        roots.push(places.root.join(repo).join(entry));
                     }
                 }
             }

@@ -84,7 +84,7 @@ fn covers(ran: &[&str], waiting: &[&str]) -> bool {
     covers_prefix(
         &run(ran),
         "mac.identify.",
-        (Lane::Mac, "branch"),
+        (Lane::MAC, "branch"),
         &mut |_, _| Some(declared.clone().into()),
         &names(waiting),
     )

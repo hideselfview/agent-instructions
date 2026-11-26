@@ -303,6 +303,30 @@ impl Places {
             .collect())
     }
 
+    /// The entries of every app checkout set in <repo>'s folder, whatever the
+    /// lane: the files `app-<app>-checkouts`, in the order of their names.
+    pub fn app_checkout_entries(&self, repo: &str) -> Result<Vec<String>> {
+        let dir = self.root.join(repo);
+        let mut files: Vec<String> = match std::fs::read_dir(&dir) {
+            Ok(entries) => entries
+                .filter_map(|entry| entry.ok())
+                .map(|entry| entry.file_name().to_string_lossy().into_owned())
+                .filter(|name| crate::lane::is_lane_file(name) && name.ends_with("-checkouts"))
+                .collect(),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+            Err(error) => fail!("listing {}: {error}", dir.display()),
+        };
+        files.sort();
+        let mut entries = Vec::new();
+        for name in files {
+            let file = dir.join(&name);
+            let text =
+                std::fs::read_to_string(&file).context(|| format!("reading {}", file.display()))?;
+            entries.extend(crate::lane::parse_set(&text)?.into_iter().map(|c| c.entry));
+        }
+        Ok(entries)
+    }
+
     /// Replaces <lane>'s set of app checkouts with <checkouts>, in one rename;
     /// an empty set removes the file. Only a holder of the lane's queue guard
     /// (queue.rs `Queue::guard`) writes it, so no two writes run at once and
@@ -347,7 +371,7 @@ impl Places {
 
     /// The lane <checkout> is one of <repo>'s app checkouts of, if it is one.
     pub fn app_lane_of(&self, repo: &str, checkout: &str) -> Result<Option<Lane>> {
-        for lane in Lane::ALL {
+        for lane in crate::repo_lanes::with_files(self, repo)? {
             if self
                 .app_checkouts_of(repo, lane)?
                 .iter()

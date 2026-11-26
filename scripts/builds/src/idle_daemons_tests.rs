@@ -1,4 +1,5 @@
 use super::*;
+use crate::lane::Lane;
 use std::cell::RefCell;
 
 const NOW: i64 = 1_000_000;
@@ -49,8 +50,8 @@ fn finds_this_users_idle_daemons_in_a_listing() {
 #[test]
 fn a_daemon_is_idle_by_its_lanes_last_build() {
     let use_of = |lane| match lane {
-        Lane::Android => LaneUse::LastBuild(Some(NOW - 7 * HOUR)),
-        Lane::Mac => LaneUse::LastBuild(Some(NOW - 10 * 60)),
+        Platform::Android => LaneUse::LastBuild(Some(NOW - 7 * HOUR)),
+        _ => LaneUse::LastBuild(Some(NOW - 10 * 60)),
     };
     let idle = judge(found(), &use_of, NOW);
     assert_eq!(pids(&idle), [4101, 4102]);
@@ -66,8 +67,8 @@ fn a_daemon_is_idle_by_its_lanes_last_build() {
 #[test]
 fn a_running_or_recent_build_keeps_its_lanes_daemons() {
     let building = |lane| match lane {
-        Lane::Android => LaneUse::Building,
-        Lane::Mac => LaneUse::LastBuild(Some(NOW - 2 * HOUR)),
+        Platform::Android => LaneUse::Building,
+        _ => LaneUse::LastBuild(Some(NOW - 2 * HOUR)),
     };
     assert_eq!(pids(&judge(found(), &building, NOW)), [4106, 4107]);
     let recent = |_| LaneUse::LastBuild(Some(NOW - 59 * 60));
@@ -134,14 +135,14 @@ fn a_listing_without_a_user_line_is_an_error() {
 fn a_lane_is_in_use_on_the_host_whose_checkout_a_build_holds() {
     let scratch = crate::testing::Scratch::new("idle-daemons-lane-use");
     let places = scratch.places();
-    std::fs::create_dir_all(places.app_locks_dir("demo", Lane::Android)).unwrap();
+    std::fs::create_dir_all(places.app_locks_dir("demo", Lane::ANDROID)).unwrap();
     std::fs::write(
-        places.app_checkouts_file("demo", Lane::Android),
+        places.app_checkouts_file("demo", Lane::ANDROID),
         "m1:builds-android-1\nside-1\n",
     )
     .unwrap();
     std::fs::write(
-        places.app_lock_ended_file("demo", Lane::Android, "m1:builds-android-1"),
+        places.app_lock_ended_file("demo", Lane::ANDROID, "m1:builds-android-1"),
         "5000\n",
     )
     .unwrap();
@@ -156,16 +157,16 @@ fn a_lane_is_in_use_on_the_host_whose_checkout_a_build_holds() {
     let m1 = host("m1", true);
     let here = host(crate::host::LOCAL, false);
     let other = host("m2", true);
-    let android = |host: &Host| lane_use(&places, &ssh, host, Lane::Android).unwrap();
+    let android = |host: &Host| lane_use(&places, &ssh, host, Platform::Android).unwrap();
     assert_eq!(android(&m1), LaneUse::LastBuild(Some(5000)));
     assert_eq!(android(&here), LaneUse::LastBuild(None));
     assert_eq!(android(&other), LaneUse::LastBuild(None));
     assert_eq!(
-        lane_use(&places, &ssh, &m1, Lane::Mac).unwrap(),
+        lane_use(&places, &ssh, &m1, Platform::Mac).unwrap(),
         LaneUse::LastBuild(None)
     );
     let held =
-        crate::lane_size::lock_checkout(&places, "demo", Lane::Android, "m1:builds-android-1")
+        crate::lane_size::lock_checkout(&places, "demo", Lane::ANDROID, "m1:builds-android-1")
             .unwrap()
             .expect("nothing holds the lock");
     assert_eq!(android(&m1), LaneUse::Building);
@@ -186,9 +187,9 @@ fn a_repo_two_projects_hold_is_read_in_both_projects() {
     let first = crate::lists::fixtures::make_store_named(&places, "first", &["shared"]);
     let second = crate::lists::fixtures::make_store_named(&places, "second", &["shared"]);
     let entry = "m1:builds-android-1";
-    std::fs::create_dir_all(places.app_locks_dir("shared", Lane::Android)).unwrap();
+    std::fs::create_dir_all(places.app_locks_dir("shared", Lane::ANDROID)).unwrap();
     std::fs::write(
-        places.app_checkouts_file("shared", Lane::Android),
+        places.app_checkouts_file("shared", Lane::ANDROID),
         format!("{entry}\n"),
     )
     .unwrap();
@@ -203,7 +204,7 @@ fn a_repo_two_projects_hold_is_read_in_both_projects() {
     let ran = |at: i64| RunRecord {
         started_at: at,
         repo: "shared".to_string(),
-        lane: Lane::Android,
+        lane: Lane::ANDROID,
         checkout: entry.to_string(),
         built_ref: "branch".to_string(),
         requested_commit: None,
@@ -214,7 +215,7 @@ fn a_repo_two_projects_hold_is_read_in_both_projects() {
         load: None,
         steps: Vec::new(),
     };
-    let android = || lane_use(&places, &ssh, &m1, Lane::Android).unwrap();
+    let android = || lane_use(&places, &ssh, &m1, Platform::Android).unwrap();
 
     record(&first.dir.join(DATABASE), &ran(1000)).unwrap();
     assert_eq!(android(), LaneUse::LastBuild(Some(1001)));
@@ -223,7 +224,7 @@ fn a_repo_two_projects_hold_is_read_in_both_projects() {
     record(&first.dir.join(DATABASE), &ran(3000)).unwrap();
     assert_eq!(android(), LaneUse::LastBuild(Some(3001)));
 
-    let held = crate::lane_size::lock_checkout(&places, "shared", Lane::Android, entry)
+    let held = crate::lane_size::lock_checkout(&places, "shared", Lane::ANDROID, entry)
         .unwrap()
         .expect("nothing holds the lock");
     assert_eq!(android(), LaneUse::Building);

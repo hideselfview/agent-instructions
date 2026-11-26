@@ -150,6 +150,7 @@ mod queue;
 mod readings_file;
 mod remote;
 mod remote_worktrees;
+mod repo_lanes;
 mod review;
 mod rules_on_edit;
 mod run_end;

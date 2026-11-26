@@ -852,8 +852,8 @@ pub struct StepStats {
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LaneStats {
-    #[serde(with = "lane_word")]
-    pub lane: Lane,
+    /// The app's name.
+    pub lane: String,
     /// Runs in the window, whether they passed or not.
     pub runs: u32,
     /// The median time a run waited in the lane's queue.
@@ -955,7 +955,22 @@ pub fn stats(path: &Path, since: i64) -> Result<Vec<RepoStats>> {
 fn repo_stats(conn: &Connection, repo: &str, since: i64, path: &Path) -> Result<RepoStats> {
     let what = || format!("reading {}", path.display());
     let mut lanes = Vec::new();
-    for lane in Lane::ALL {
+    let mut words: Vec<String> = Vec::new();
+    {
+        let mut statement = conn
+            .prepare("SELECT DISTINCT lane FROM app_build_runs WHERE repo = ?1 ORDER BY lane")
+            .context(what)?;
+        for row in statement
+            .query_map([repo], |row| row.get::<_, String>(0))
+            .context(what)?
+        {
+            words.push(row.context(what)?);
+        }
+    }
+    // The platforms' order, as `Lane` orders its apps; an app this process
+    // has not read from a `.app-build` goes last.
+    words.sort_by_key(|word| (Lane::parse(word).is_none(), Lane::parse(word), word.clone()));
+    for lane in &words {
         // Oldest first.
         let mut statement = conn
             .prepare(
@@ -965,7 +980,7 @@ fn repo_stats(conn: &Connection, repo: &str, since: i64, path: &Path) -> Result<
             )
             .context(what)?;
         let waits: Vec<u64> = statement
-            .query_map(params![repo, lane.word(), since], |row| {
+            .query_map(params![repo, lane, since], |row| {
                 Ok(row.get::<_, i64>(0)? as u64)
             })
             .context(what)?
@@ -984,7 +999,7 @@ fn repo_stats(conn: &Connection, repo: &str, since: i64, path: &Path) -> Result<
             )
             .context(what)?;
         let rows = statement
-            .query_map(params![repo, lane.word(), since], |row| {
+            .query_map(params![repo, lane, since], |row| {
                 Ok((
                     row.get::<_, String>(0)?,
                     row.get::<_, String>(1)?,
@@ -1023,7 +1038,7 @@ fn repo_stats(conn: &Connection, repo: &str, since: i64, path: &Path) -> Result<
         let runs = waits.len() as u32;
         let mut sorted = waits.clone();
         lanes.push(LaneStats {
-            lane,
+            lane: lane.clone(),
             runs,
             median_wait_ms: median_of(&mut sorted),
             waits_ms: waits[waits.len().saturating_sub(WAITS_SHOWN)..].to_vec(),
@@ -1080,24 +1095,6 @@ impl<'de> serde::Deserialize<'de> for StepKind {
         let word = <String as serde::Deserialize>::deserialize(deserializer)?;
         StepKind::from_word(&word)
             .ok_or_else(|| serde::de::Error::custom(format!("no step kind {word:?}")))
-    }
-}
-
-/// A lane as its word, `mac` or `android`, in the page's data.
-mod lane_word {
-    use super::Lane;
-    use serde::{Deserialize, Deserializer, Serializer};
-
-    pub fn serialize<S: Serializer>(
-        lane: &Lane,
-        serializer: S,
-    ) -> std::result::Result<S::Ok, S::Error> {
-        serializer.serialize_str(lane.word())
-    }
-
-    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Lane, D::Error> {
-        let word = String::deserialize(deserializer)?;
-        Lane::parse(&word).ok_or_else(|| serde::de::Error::custom(format!("no lane {word:?}")))
     }
 }
 

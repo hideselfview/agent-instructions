@@ -16,15 +16,12 @@ use crate::tool::Tool;
 
 const USAGE: &str = "usage: builds shots picture <repo> <ref> <scene> board|shot";
 
-/// The lane that takes the shots of <scene>, named by the platform its name
-/// starts with.
-fn lane_of(scene: &str) -> Result<Lane> {
+/// The lane of <repo> that takes the shots of <scene>, named by the app its
+/// name starts with: a mac, android or web app.
+fn lane_of(places: &crate::places::Places, repo: &str, scene: &str) -> Result<Lane> {
     shots::Prefix::parse(scene).map_err(|error| crate::fail::Fail::Message(error.to_string()))?;
-    let (platform, _) = scene.split_once('.').expect("a parsed scene holds a dot");
-    match Lane::parse(platform) {
-        Some(lane) => Ok(lane),
-        None => fail!("builds takes no shots of {platform}, only of mac and android"),
-    }
+    let (app, _) = scene.split_once('.').expect("a parsed scene holds a dot");
+    crate::repo_lanes::parse(places, repo, app)
 }
 
 /// The arguments of `builds app-build` that make a run holding <scene> at
@@ -44,7 +41,7 @@ pub fn cmd(tool: &Tool, args: &[String]) -> Result<()> {
     let Some(side) = Side::parse(side) else {
         fail!("{side:?} is not a side of a scene (board | shot); {USAGE}");
     };
-    let lane = lane_of(scene)?;
+    let lane = lane_of(&tool.places, repo, scene)?;
     let commit = crate::shot_findings::commit_of(&tool.places, repo, git_ref)?;
     let find = || picture_file(&tool.places, repo, &commit, lane, scene, side);
     let picture = match find()? {

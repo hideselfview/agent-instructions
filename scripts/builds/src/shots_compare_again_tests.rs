@@ -15,7 +15,7 @@ fn in_environment(environment: &str, capture: &str, comparison: &str) -> Key {
     Key::new(
         "demo",
         COMMIT,
-        Lane::Mac,
+        Lane::MAC,
         environment,
         "mac.",
         &Versions {
@@ -155,7 +155,7 @@ fn the_run_a_branch_compares_with_is_made_by_comparing_the_base_s_cached_run_aga
         &places,
         "demo",
         COMMIT,
-        Lane::Mac,
+        Lane::MAC,
         ENVIRONMENT,
         "mac.a.",
         &program,
@@ -194,7 +194,7 @@ fn an_app_build_reuses_only_a_recheck_whose_source_and_build_record_passed() {
                 &places,
                 "demo",
                 COMMIT,
-                vec![crate::app_build::all_shots(Lane::Mac)],
+                vec![crate::app_build::all_shots(Lane::MAC)],
                 &program,
                 recorded,
                 &mut crate::shots_declared::ShotDeclarations::new(&scratch.dir),
@@ -207,7 +207,7 @@ fn an_app_build_reuses_only_a_recheck_whose_source_and_build_record_passed() {
             &RunRecord {
                 started_at: app_timing::now(),
                 repo: "demo".into(),
-                lane: Lane::Mac,
+                lane: Lane::MAC,
                 checkout: "side-1".into(),
                 requested_commit: None,
                 built_ref: "work".into(),
@@ -295,7 +295,7 @@ fn only_a_run_of_the_same_environment_is_compared_again() {
             &places,
             "demo",
             COMMIT,
-            Lane::Mac,
+            Lane::MAC,
             ENVIRONMENT,
             "mac.a.",
             &program
@@ -309,7 +309,7 @@ fn only_a_run_of_the_same_environment_is_compared_again() {
         &places,
         "demo",
         COMMIT,
-        Lane::Mac,
+        Lane::MAC,
         ENVIRONMENT,
         "mac.a.",
         &program,
@@ -359,7 +359,7 @@ fn before_run_considers_a_covering_run_published_during_recheck() {
                 &places,
                 "demo",
                 COMMIT,
-                Lane::Mac,
+                Lane::MAC,
                 ENVIRONMENT,
                 "mac.a.",
                 &program,
@@ -402,12 +402,12 @@ fn the_newest_run_of_a_commit_and_prefix_is_found_in_any_environment() {
         &in_environment("25G241-27B52", capture, &VERSIONS.comparison),
     );
     let program = recheck_program(&scratch, capture, &VERSIONS.comparison, true);
-    let found = lookup_newest(&places, "demo", COMMIT, Lane::Mac, "mac.", &program)
+    let found = lookup_newest(&places, "demo", COMMIT, Lane::MAC, "mac.", &program)
         .unwrap()
         .expect("a run of another environment is a commit's own run");
     assert_eq!(found.key.environment, "25G241-27B52");
     assert!(
-        lookup_newest(&places, "demo", COMMIT, Lane::Mac, "mac.b.", &program)
+        lookup_newest(&places, "demo", COMMIT, Lane::MAC, "mac.b.", &program)
             .unwrap()
             .is_none()
     );

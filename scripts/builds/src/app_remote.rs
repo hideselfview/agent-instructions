@@ -45,6 +45,7 @@ use crate::remote::{
     JOB_WORKTREE_PREFIX, JOBS_REF, Transport, job_id, release_script, root_script, worktree_in,
 };
 use crate::text::note;
+use boards::app_build::Platform;
 
 /// What separates the host from the checkout's name in a lane's entry.
 const SEPARATOR: char = ':';
@@ -113,27 +114,30 @@ pub fn name_in(path: &str) -> Result<(String, String)> {
 /// when that is a checkout of <repo>, else the first of <repo>'s app
 /// checkouts here, else the clone `~/dev/<repo>`.
 pub fn local_source(places: &Places, repo: &str) -> Result<PathBuf> {
+    match find_local_source(places, repo)? {
+        Some(source) => Ok(source),
+        None => fail!(
+            "{repo} has no app checkout here and no clone at {} to read commits from",
+            places.home.join(clone_path(repo)).display()
+        ),
+    }
+}
+
+/// `local_source`, or None when <repo> has no checkout or clone here.
+pub fn find_local_source(places: &Places, repo: &str) -> Result<Option<PathBuf>> {
     let here = std::env::current_dir().context(|| "reading the working directory".to_string())?;
     if let Some(checkout) = Checkout::at(&here)?
         && checkout.repo() == repo
     {
-        return Ok(checkout.top);
+        return Ok(Some(checkout.top));
     }
-    for lane in Lane::ALL {
-        for entry in places.app_checkouts_of(repo, lane)? {
-            if split(&entry).is_none() {
-                return app_checkout_top(places, repo, &entry);
-            }
+    for entry in places.app_checkout_entries(repo)? {
+        if split(&entry).is_none() {
+            return Ok(Some(app_checkout_top(places, repo, &entry)?));
         }
     }
     let clone = places.home.join(clone_path(repo));
-    if !clone.join(".git").exists() {
-        fail!(
-            "{repo} has no app checkout here and no clone at {} to read commits from",
-            clone.display()
-        );
-    }
-    Ok(clone)
+    Ok(clone.join(".git").exists().then_some(clone))
 }
 
 /// `local_source`, after a fetch from origin there, so that it holds the
@@ -975,9 +979,9 @@ impl Drop for ListFile {
 /// every cap. A checkout whose setup fails is removed, so the next build sets
 /// it up again rather than finding half of it.
 fn ensure_script(host: &Host, repo: &str, name: &str, sha: &str, lane: Lane) -> String {
-    let android = match lane {
-        Lane::Android => ANDROID_SETUP,
-        Lane::Mac => "",
+    let android = match lane.platform() {
+        Platform::Android => ANDROID_SETUP,
+        Platform::Mac | Platform::Web => "",
     };
     ENSURE
         .replace("@MARK_LANE@", MARK_LANE)

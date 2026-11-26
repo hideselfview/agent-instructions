@@ -26,11 +26,11 @@ fn a_base_lane_holds_cached_pictures_before_and_between_comparisons() {
     crate::testing::git(&top, &["commit", "--allow-empty", "-qm", "Branch change"]);
     let head = resolve(&top, "HEAD").unwrap();
     let config = parse_config(&config_text).unwrap();
-    let tree = picture_tree(&top, &base, &config, Lane::Mac, ENVIRONMENT).unwrap();
+    let tree = picture_tree(&top, &base, &config, Lane::MAC, ENVIRONMENT).unwrap();
     let marks = shots::CaptureMarks::of(&shots_cache::app_picture_tree(
         &places,
         "demo",
-        Lane::Mac,
+        Lane::MAC,
         &tree,
     ));
     let prefixes = ["mac.a.", "mac.b."].map(|prefix| shots::Prefix::parse(prefix).unwrap());
@@ -71,12 +71,12 @@ esac"#,
     let programs = crate::testing::pinned_programs(&scratch.dir, &places.home);
     let picks = prefixes
         .clone()
-        .map(|prefix| Pick::Shots(Lane::Mac, prefix));
+        .map(|prefix| Pick::Shots(Lane::MAC, prefix));
     let needs = ["macos".to_string()];
     let build = LaneBuild {
         places: &places,
         repo: "demo",
-        lane: Lane::Mac,
+        lane: Lane::MAC,
         request: LaneRequest {
             commit: &head,
             named: "change",

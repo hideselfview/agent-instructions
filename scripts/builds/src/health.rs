@@ -1152,7 +1152,7 @@ pub fn locks_of(places: &crate::places::Places, roots: &[Root]) -> Result<Vec<Ap
     repos.dedup();
     let mut locks = Vec::new();
     for repo in repos {
-        for lane in Lane::ALL {
+        for lane in crate::repo_lanes::with_files(places, &repo)? {
             for app in places.app_checkouts_of(&repo, lane)? {
                 let path = places.app_lock_file(&repo, lane, &app);
                 let app_top = roots
@@ -2907,7 +2907,7 @@ mod tests {
                 locks: Vec::new(),
                 queues: vec![LaneQueue {
                     repo: "demo".to_string(),
-                    lane: Lane::Android,
+                    lane: Lane::ANDROID,
                     queue,
                 }],
             };

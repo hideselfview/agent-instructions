@@ -425,21 +425,18 @@ pub fn retire_checkout(tool: &Tool, checkout: &Checkout) -> Result<()> {
     Ok(())
 }
 
-/// `builds app-checkout [remove] mac|android --host <host> <path>`: records
+/// `builds app-checkout [remove] <app> --host <host> <path>`: records
 /// (or takes out) the app checkout `~/dev/<repo>-worktrees/<name>` on the host
 /// <path> names, as the entry `<host>:<name>` of the lane's set (app_remote.rs).
 /// The first build there makes the checkout.
 fn app_checkout_on_host(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
-    const USAGE: &str = "usage: builds app-checkout mac|android --host <host> <path> | builds app-checkout remove mac|android --host <host> <path>";
+    const USAGE: &str = "usage: builds app-checkout <app> --host <host> <path> | builds app-checkout remove <app> --host <host> <path>";
     let (removing, lane, host, path) = match args {
         [word, lane, flag, host, path] if word == "remove" && flag == "--host" => {
             (true, lane, host, path)
         }
         [lane, flag, host, path] if flag == "--host" => (false, lane, host, path),
         _ => fail!("{USAGE}"),
-    };
-    let Some(lane) = Lane::parse(lane) else {
-        fail!("{USAGE}")
     };
     if !crate::host::read_remote(&tool.places)?
         .iter()
@@ -448,6 +445,7 @@ fn app_checkout_on_host(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
         fail!("no host named {host} (`builds host list`)");
     }
     let (repo, name) = crate::app_remote::name_in(path)?;
+    let lane = crate::repo_lanes::parse(&tool.places, &repo, lane)?;
     tool.places.require_volume()?;
     let entry = crate::app_remote::entry_of(host, &name);
     if removing {
@@ -493,12 +491,12 @@ fn app_checkout_on_host(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
     Ok(())
 }
 
-/// `builds app-checkout mac|android <checkout>`: adds the side worktree to its
-/// repo's app checkouts for the lane; `builds app-checkout remove mac|android
+/// `builds app-checkout <app> <checkout>`: adds the side worktree to its
+/// repo's app checkouts for the lane; `builds app-checkout remove <app>
 /// <checkout>` takes it out again, while no build holds its lock; `builds
 /// app-checkout reset <repo> <checkout>` puts one on origin's main (app_reset.rs).
 pub fn cmd_app_checkout(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
-    const USAGE: &str = "usage: builds app-checkout mac|android <checkout> | builds app-checkout mac|android --host <host> <path> | builds app-checkout remove mac|android [--host <host>] <checkout or path> | builds app-checkout reset <repo> <checkout> [--matching <rev>]";
+    const USAGE: &str = "usage: builds app-checkout <app> <checkout> | builds app-checkout <app> --host <host> <path> | builds app-checkout remove <app> [--host <host>] <checkout or path> | builds app-checkout reset <repo> <checkout> [--matching <rev>]";
     if args.iter().any(|arg| arg == "--host") {
         return app_checkout_on_host(tool, ssh, args);
     }
@@ -518,9 +516,6 @@ pub fn cmd_app_checkout(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
         [lane, arg] => (false, lane, arg),
         _ => fail!("{USAGE}"),
     };
-    let Some(lane) = Lane::parse(lane) else {
-        fail!("{USAGE}")
-    };
     let checkout = Checkout::find(arg)?;
     if checkout.is_main() {
         fail!(
@@ -538,6 +533,7 @@ pub fn cmd_app_checkout(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
     checkout.require_repo_name(&tool.places)?;
     let repo = checkout.repo();
     let name = checkout.name();
+    let lane = crate::repo_lanes::parse_in_source(&checkout.top, lane)?;
     if removing {
         let shown = checkout.top.display().to_string();
         remove_from_lane(tool, &repo, lane, &name, &shown, |_| Ok(()))?;

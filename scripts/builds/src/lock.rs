@@ -181,13 +181,13 @@ pub fn takeover_stopped() -> bool {
 }
 
 pub fn cmd_lock(places: &Places, args: &[String]) -> Result<()> {
-    const USAGE: &str = "usage: builds lock <repo> [--lane mac|android] <command> [<args>...]";
+    const USAGE: &str = "usage: builds lock <repo> --lane <app> <command> [<args>...]";
     let (lane, args) = match args {
         [repo, flag, word, rest @ ..] if flag == "--lane" => (
-            Lane::parse_or_fail(word)?,
+            crate::repo_lanes::parse(places, repo, word)?,
             [std::slice::from_ref(repo), rest].concat(),
         ),
-        _ => (Lane::Mac, args.to_vec()),
+        _ => fail!("{USAGE}"),
     };
     let [repo, command, rest @ ..] = &args[..] else {
         fail!("{USAGE}");

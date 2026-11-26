@@ -410,7 +410,7 @@ fn an_app_checkout_is_held_with_no_item_and_health_leaves_it() {
     std::fs::write(
         demo.tool
             .places
-            .app_checkouts_file("demo", crate::lane::Lane::ALL[0]),
+            .app_checkouts_file("demo", crate::lane::Lane::MAC),
         "side-1\n",
     )
     .unwrap();

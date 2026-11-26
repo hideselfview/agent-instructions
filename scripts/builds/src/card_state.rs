@@ -22,7 +22,7 @@ pub const GONE: &str = "gone";
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Seen {
     pub worktree: String,
-    pub state: &'static str,
+    pub state: String,
     pub items: BTreeSet<u32>,
 }
 
@@ -93,9 +93,9 @@ pub fn follow(
     for card in cards {
         let same = last
             .get(&card.worktree)
-            .is_some_and(|(state, items)| state == card.state && *items == card.items);
+            .is_some_and(|(state, items)| *state == card.state && *items == card.items);
         if !same {
-            insert(&tx, at, &card.worktree, card.state, &card.items)?;
+            insert(&tx, at, &card.worktree, &card.state, &card.items)?;
         }
     }
     for (worktree, (state, _)) in &last {

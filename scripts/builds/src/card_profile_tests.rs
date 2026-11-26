@@ -240,7 +240,7 @@ fn landed_card(scratch: &Scratch) -> (crate::lists::store::Store, Id) {
         ] {
             let seen = crate::card_state::Seen {
                 worktree: WORKTREE.into(),
-                state,
+                state: state.to_string(),
                 items: [id.0].into(),
             };
             crate::card_state::follow(&mut db, T0 + at, &[seen], &none).unwrap();
@@ -253,7 +253,7 @@ fn landed_card(scratch: &Scratch) -> (crate::lists::store::Store, Id) {
         &crate::app_timing::RunRecord {
             started_at: T0 + 480,
             repo: "bae".into(),
-            lane: crate::lane::Lane::Mac,
+            lane: crate::lane::Lane::MAC,
             checkout: "side-1".into(),
             built_ref: "work".into(),
             requested_commit: None,
@@ -583,7 +583,7 @@ fn a_failed_shots_step_names_its_shots_in_the_cards_failures_and_totals() {
         &crate::app_timing::RunRecord {
             started_at: T0 + 300,
             repo: "bae".into(),
-            lane: crate::lane::Lane::Mac,
+            lane: crate::lane::Lane::MAC,
             checkout: "side-1".into(),
             built_ref: "work".into(),
             requested_commit: None,

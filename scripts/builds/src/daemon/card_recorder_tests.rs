@@ -48,12 +48,12 @@ fn each_card_goes_to_its_projects_store_by_its_states_name_and_an_unread_one_to_
             vec![
                 Seen {
                     worktree: "/d/bae-worktrees/side-1".into(),
-                    state: "findings-to-settle",
+                    state: "findings-to-settle".to_string(),
                     items: BTreeSet::from([12]),
                 },
                 Seen {
                     worktree: "/d/bae-worktrees/side-2".into(),
-                    state: "reviewing",
+                    state: "reviewing".to_string(),
                     items: BTreeSet::from([13]),
                 },
             ]

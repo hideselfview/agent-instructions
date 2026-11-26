@@ -44,7 +44,7 @@ fn a_lane_reads_its_environment_from_the_commands_of_its_host() {
         })
     };
     assert_eq!(
-        of(Lane::Mac).environment(&mut mac).unwrap(),
+        of(Lane::MAC).environment(&mut mac).unwrap(),
         "26B131-17C529"
     );
     assert_eq!(asked, ["sw_vers -buildVersion", "xcodebuild -version"]);
@@ -53,7 +53,7 @@ fn a_lane_reads_its_environment_from_the_commands_of_its_host() {
         Ok("Darwin arm64\n".to_string())
     };
     assert_eq!(
-        of(Lane::Android).environment(&mut android).unwrap(),
+        of(Lane::ANDROID).environment(&mut android).unwrap(),
         "Darwin-arm64"
     );
 }
@@ -61,7 +61,7 @@ fn a_lane_reads_its_environment_from_the_commands_of_its_host() {
 #[test]
 fn a_command_that_fails_fails_the_read_with_what_it_printed() {
     let mut failing = |_: &str, what: &str| -> Result<String> { fail!("{what} failed: no Xcode") };
-    let error = of(Lane::Mac).environment(&mut failing).unwrap_err().text();
+    let error = of(Lane::MAC).environment(&mut failing).unwrap_err().text();
     assert!(error.contains("no Xcode"), "{error}");
 }
 
@@ -75,6 +75,6 @@ fn each_platform_names_what_it_needs_from_the_host() {
             host.install(),
         )
     };
-    assert_eq!(row(Lane::Mac), (true, true, Install::CopiedApp));
-    assert_eq!(row(Lane::Android), (false, false, Install::OnDevice));
+    assert_eq!(row(Lane::MAC), (true, true, Install::CopiedApp));
+    assert_eq!(row(Lane::ANDROID), (false, false, Install::OnDevice));
 }

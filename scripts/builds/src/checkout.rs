@@ -240,12 +240,9 @@ impl Checkout {
         }
         let file = self.app_lane_file();
         match std::fs::read_to_string(&file) {
-            Ok(text) => match Lane::parse(text.trim()) {
-                Some(lane) => Ok(Some(lane)),
-                None => fail!(
-                    "{} holds {text:?}, not a lane (mac | android)",
-                    file.display()
-                ),
+            Ok(text) => match crate::repo_lanes::parse(places, &self.repo(), text.trim()) {
+                Ok(lane) => Ok(Some(lane)),
+                Err(error) => fail!("{} holds {text:?}: {}", file.display(), error.text()),
             },
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
             Err(error) => fail!("reading {}: {error}", file.display()),

@@ -69,11 +69,11 @@ fn the_report_folder_and_its_pictures_are_read_from_the_shots_programs_lines_and
 #[test]
 fn a_missing_run_of_a_lanes_whole_prefix_is_made_with_all_shots() {
     assert_eq!(
-        how_to_make("bae", "main", Lane::Mac, "mac."),
+        how_to_make("bae", "main", Lane::MAC, "mac."),
         "builds app-build bae main --all-shots mac"
     );
     assert_eq!(
-        how_to_make("bae", "main", Lane::Android, "android.welcome."),
+        how_to_make("bae", "main", Lane::ANDROID, "android.welcome."),
         "builds app-build bae main --shots android.welcome."
     );
 }
@@ -105,7 +105,7 @@ fn a_run_grouped_by_cause_reads_the_records_its_cached_report_holds() {
     let key = Key {
         repo: "demo".to_string(),
         commit: "a".repeat(40),
-        lane: Lane::Mac,
+        lane: Lane::MAC,
         environment: "26B131-17C529".to_string(),
         prefix: "mac.".to_string(),
         versions: crate::shots_program::Versions {
@@ -187,7 +187,7 @@ fn run_key(environment: &str, capture: &str, comparison: &str) -> Key {
     Key {
         repo: "demo".to_string(),
         commit: "a".repeat(40),
-        lane: Lane::Mac,
+        lane: Lane::MAC,
         environment: environment.to_string(),
         prefix: "mac.".to_string(),
         versions: crate::shots_program::Versions {
@@ -203,7 +203,7 @@ fn findings_print_the_newest_run_an_older_shots_program_made_and_say_so() {
     let places = scratch.places();
     let program = Path::new("/nonexistent/builds");
     let commit = "a".repeat(40);
-    let find = || printable_run(&places, "demo", "main", &commit, Lane::Mac, "mac.", program);
+    let find = || printable_run(&places, "demo", "main", &commit, Lane::MAC, "mac.", program);
     let error = find().expect_err("no run is cached").text();
     assert!(error.contains("no run of mac. on mac is cached"), "{error}");
     let first = run_key("env", "old-capture", "old-comparison");

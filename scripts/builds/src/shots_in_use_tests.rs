@@ -20,7 +20,7 @@ fn cache_by(
     let key = Key {
         repo: BAE.to_string(),
         commit: commit.to_string(),
-        lane: Lane::Mac,
+        lane: Lane::MAC,
         environment: "26B131-17C529".to_string(),
         prefix: prefix.to_string(),
         versions: crate::shots_program::Versions {
@@ -48,7 +48,7 @@ fn build(branch: &str, commit: &str, prefix: &str) -> RunRecord {
     RunRecord {
         started_at: 4_000_000_000,
         repo: BAE.to_string(),
-        lane: Lane::Mac,
+        lane: Lane::MAC,
         checkout: "side-1".to_string(),
         built_ref: branch.to_string(),
         requested_commit: None,
@@ -112,7 +112,7 @@ fn a_waiting_branchs_builds_name_their_covering_runs_and_their_base_runs() {
         let key = Key {
             repo: BAE.to_string(),
             commit: waiting.clone(),
-            lane: Lane::Mac,
+            lane: Lane::MAC,
             environment: "25G241-27B52".to_string(),
             prefix: "mac.".to_string(),
             versions: crate::shots_program::Versions {

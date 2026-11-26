@@ -89,7 +89,7 @@ pub fn cmd_drop_shots(tool: &Tool, args: &[String]) -> Result<()> {
     let [repo, branch, lane, prefix] = args.exactly(4, USAGE)? else {
         unreachable!("exactly four")
     };
-    let lane = Lane::parse_or_fail(lane)?;
+    let lane = crate::repo_lanes::parse(&tool.places, repo, lane)?;
     let why = args.why()?;
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;

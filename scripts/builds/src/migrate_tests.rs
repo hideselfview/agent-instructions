@@ -41,11 +41,11 @@ fn the_old_files_become_the_new_ones_with_the_lock_keeping_its_inode() {
         .ino();
     migrate_app_files(&places).unwrap();
     assert_eq!(
-        places.app_checkouts_of("demo", Lane::Android).unwrap(),
+        places.app_checkouts_of("demo", Lane::ANDROID).unwrap(),
         vec!["side-3"]
     );
     assert!(!dir.join("app-android-checkout").exists() && !dir.join("app-android.lock").exists());
-    let lock = places.app_lock_file("demo", Lane::Android, "side-3");
+    let lock = places.app_lock_file("demo", Lane::ANDROID, "side-3");
     assert_eq!(
         std::fs::metadata(lock).unwrap().ino(),
         inode,
@@ -63,9 +63,9 @@ fn builds_from_before_keep_their_lock_and_queue_and_the_old_names_go_when_they_e
     // An old build holds the old lock.
     let held = crate::queue::open_with(&dir.join("app-android.lock"), 0).unwrap();
     migrate_app_files(&places).unwrap();
-    let new_lock = places.app_lock_file("demo", Lane::Android, "side-3");
+    let new_lock = places.app_lock_file("demo", Lane::ANDROID, "side-3");
     assert_eq!(
-        places.app_checkouts_of("demo", Lane::Android).unwrap(),
+        places.app_checkouts_of("demo", Lane::ANDROID).unwrap(),
         vec!["side-3"]
     );
     assert!(
@@ -90,7 +90,7 @@ fn builds_from_before_keep_their_lock_and_queue_and_the_old_names_go_when_they_e
     migrate_app_files(&places).unwrap();
     assert!(!dir.join("app-android-checkout").exists() && !dir.join("app-android.lock").exists());
     assert_eq!(
-        places.app_checkouts_of("demo", Lane::Android).unwrap(),
+        places.app_checkouts_of("demo", Lane::ANDROID).unwrap(),
         vec!["side-3"]
     );
     let fd = crate::queue::try_lock(&new_lock)
@@ -112,11 +112,93 @@ fn a_lane_never_locked_gets_its_old_lock_made_before_it_is_linked() {
     migrate_app_files(&places).unwrap();
     assert_eq!(
         std::fs::metadata(dir.join("app.lock")).unwrap().ino(),
-        std::fs::metadata(places.app_lock_file("demo", Lane::Mac, "side-1"))
+        std::fs::metadata(places.app_lock_file("demo", Lane::MAC, "side-1"))
             .unwrap()
             .ino()
     );
     unsafe { libc::close(ticket) };
+}
+
+/// A volume whose mac lane has the files that every lane had before its files
+/// took the app-named form.
+fn mac_volume_before_app_names(scratch: &Scratch) -> Places {
+    let places = scratch.places();
+    let dir = places.root.join("demo");
+    std::fs::create_dir_all(dir.join("app.locks")).unwrap();
+    std::fs::create_dir_all(dir.join("app.queue")).unwrap();
+    std::fs::write(
+        dir.join("app-checkouts"),
+        "side-1\nm1:builds-mac-1 builds 5 why\n",
+    )
+    .unwrap();
+    std::fs::write(dir.join("app-checkouts-removed"), "7 side-2 idle\n").unwrap();
+    std::fs::write(dir.join("app.locks/side-1"), "").unwrap();
+    places
+}
+
+#[test]
+fn the_mac_lanes_files_take_the_app_named_form_and_keep_their_locks() {
+    let scratch = Scratch::new("migrate-mac-names");
+    let places = mac_volume_before_app_names(&scratch);
+    let dir = places.root.join("demo");
+    let inode = std::fs::metadata(dir.join("app.locks/side-1"))
+        .unwrap()
+        .ino();
+    migrate_app_files(&places).unwrap();
+    for old in [
+        "app-checkouts",
+        "app-checkouts-removed",
+        "app.locks",
+        "app.queue",
+    ] {
+        assert!(!dir.join(old).exists(), "{old} moved");
+    }
+    assert_eq!(
+        places.app_checkouts_of("demo", Lane::MAC).unwrap(),
+        vec!["side-1", "m1:builds-mac-1"]
+    );
+    assert_eq!(
+        places
+            .app_checkouts_removed("demo", Lane::MAC)
+            .unwrap()
+            .len(),
+        1
+    );
+    assert!(dir.join("app-mac.queue").is_dir());
+    assert_eq!(
+        std::fs::metadata(places.app_lock_file("demo", Lane::MAC, "side-1"))
+            .unwrap()
+            .ino(),
+        inode
+    );
+    // Again: nothing left to move.
+    migrate_app_files(&places).unwrap();
+}
+
+#[test]
+fn a_mac_lane_with_a_build_under_the_old_names_keeps_them_until_it_ends() {
+    let scratch = Scratch::new("migrate-mac-names-busy");
+    let places = mac_volume_before_app_names(&scratch);
+    let dir = places.root.join("demo");
+    let held = crate::queue::open_with(&dir.join("app.locks/side-1"), 0).unwrap();
+    migrate_app_files(&places).unwrap();
+    assert!(dir.join("app-checkouts").is_file() && dir.join("app.locks").is_dir());
+    assert!(!dir.join("app-mac-checkouts").exists());
+    unsafe { libc::close(held) };
+    until_free(&dir.join("app.locks/side-1"));
+    migrate_app_files(&places).unwrap();
+    assert!(dir.join("app-mac-checkouts").is_file() && !dir.join("app.locks").exists());
+}
+
+#[test]
+fn a_mac_lane_with_files_of_both_forms_fails_loudly() {
+    let scratch = Scratch::new("migrate-mac-names-both");
+    let places = mac_volume_before_app_names(&scratch);
+    let dir = places.root.join("demo");
+    std::fs::write(dir.join("app-mac-checkouts"), "side-9\n").unwrap();
+    let error = migrate_app_files(&places).unwrap_err().text();
+    assert!(error.contains("both exist"), "{error}");
+    assert!(dir.join("app-checkouts").is_file(), "nothing was lost");
 }
 
 /// The index that found a review's landing by its key alone, as record.sql
@@ -1562,7 +1644,7 @@ INSERT INTO app_build_steps (run_id, position, name, kind, started_at, wall_ms, 
         &crate::app_timing::RunRecord {
             started_at: 7,
             repo: "bae".into(),
-            lane: crate::lane::Lane::Mac,
+            lane: crate::lane::Lane::MAC,
             checkout: "side-1".into(),
             built_ref: "three".into(),
             requested_commit: None,

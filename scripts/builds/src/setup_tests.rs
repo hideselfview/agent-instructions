@@ -95,7 +95,7 @@ fn the_app_checkout_takes_its_own_cap() {
         roots.push((checkout, tool.places.root.join("demo").join(name)));
     }
     std::fs::write(
-        tool.places.app_checkouts_file("demo", Lane::Mac),
+        tool.places.app_checkouts_file("demo", Lane::MAC),
         "side-1\n",
     )
     .unwrap();
@@ -151,7 +151,7 @@ fn a_lane_checkout_takes_the_app_cap_only_on_the_folders_its_lane_builds_into() 
         "xcode 4M app 1M lane mac\ngradle 4M app 1M lane android\n",
     );
     let mut roots = Vec::new();
-    for (name, lane) in [("side-1", Lane::Mac), ("side-2", Lane::Android)] {
+    for (name, lane) in [("side-1", Lane::MAC), ("side-2", Lane::ANDROID)] {
         let side = scratch.dir.join("demo-worktrees").join(name);
         git(
             &main,

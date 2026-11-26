@@ -30,7 +30,7 @@ fn places_with(scratch: &Scratch, entries: &str) -> (Places, Ssh) {
     let places = scratch.places();
     std::fs::create_dir_all(places.root.join("demo")).unwrap();
     std::fs::create_dir_all(&places.home).unwrap();
-    std::fs::write(places.app_checkouts_file("demo", Lane::Android), entries).unwrap();
+    std::fs::write(places.app_checkouts_file("demo", Lane::ANDROID), entries).unwrap();
     let ssh = idle_ssh(&scratch.dir.join("ssh"));
     crate::host::add(&places, &ssh, "m1", "user@m1").unwrap();
     crate::host::add(&places, &ssh, "m2", "user@m2").unwrap();
@@ -38,7 +38,7 @@ fn places_with(scratch: &Scratch, entries: &str) -> (Places, Ssh) {
 }
 
 fn held_on(places: &Places, ssh: &Ssh) -> crate::lock::Held {
-    take_where(places, ssh, "demo", Lane::Android, Where::Anywhere, 0).unwrap()
+    take_where(places, ssh, "demo", Lane::ANDROID, Where::Anywhere, 0).unwrap()
 }
 
 #[test]
@@ -237,10 +237,10 @@ fn the_mac_lane_holds_a_window_step_while_the_hosts_screen_is_locked() {
     let places = scratch.places();
     std::fs::create_dir_all(places.root.join("demo")).unwrap();
     std::fs::create_dir_all(&places.home).unwrap();
-    std::fs::write(places.app_checkouts_file("demo", Lane::Mac), "m1:mac-1\n").unwrap();
+    std::fs::write(places.app_checkouts_file("demo", Lane::MAC), "m1:mac-1\n").unwrap();
     let ssh = locked_ssh(&scratch.dir.join("ssh"), 2);
     crate::host::add(&places, &ssh, "m1", "user@m1").unwrap();
-    let held = take_where(&places, &ssh, "demo", Lane::Mac, Where::Anywhere, 0).unwrap();
+    let held = take_where(&places, &ssh, "demo", Lane::MAC, Where::Anywhere, 0).unwrap();
     let window = held
         .take_window("shots", Access::Exclusive)
         .unwrap()

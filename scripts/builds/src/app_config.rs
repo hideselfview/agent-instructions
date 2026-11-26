@@ -104,6 +104,7 @@ use crate::fail::{Context, Result};
 use crate::lane::Lane;
 use crate::lock::{self, Where, Within};
 use crate::places::Places;
+use boards::app_build::Apps;
 use boards::{git, git_text};
 
 pub const CONFIG: &str = ".app-build";
@@ -120,15 +121,21 @@ pub const DEFAULT_STEP_LIMIT: Duration = Duration::from_secs(45 * 60);
 /// A repo's `.app-build`.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Config {
-    pub mac: Option<MacApp>,
-    pub android: Option<AndroidApp>,
+    /// The apps of the repo: each one an `app` line names, and each app
+    /// named for a platform that any other line names, in the platforms'
+    /// order.
+    pub lanes: Vec<Lane>,
+    /// The `<app> build|app|bundle` lines, one app's lines together, in the
+    /// order the apps first appear.
+    pub test_apps: Vec<TestApp>,
     /// What `builds app-build` runs, in the order written.
     pub steps: Vec<Step>,
     /// How each lane runs test classes and one selection of shots: at most
     /// one test line per lane and program, and one shots line per lane.
     pub pickers: Vec<Picker>,
-    /// The Mac capture leases the host display only for scenes with windows.
-    pub mac_shares_shot_display: bool,
+    /// The mac apps whose capture leases the host display only for scenes
+    /// with windows (`shared-shot-display <app>`).
+    pub shared_shot_display: Vec<Lane>,
     /// The folders each lane's runs of tests and screenshots write, from the
     /// `results` lines, in the order written.
     pub results: Vec<(Lane, String)>,
@@ -158,6 +165,11 @@ impl Rule {
 }
 
 impl Config {
+    /// The lines that say how to build <lane>'s test app, when it has them.
+    pub fn test_app_of(&self, lane: Lane) -> Option<&TestApp> {
+        self.test_apps.iter().find(|install| install.lane == lane)
+    }
+
     /// The folders of <lane>'s checkout that its picks write.
     pub fn results_of(&self, lane: Lane) -> Vec<String> {
         self.results
@@ -193,15 +205,15 @@ pub struct Source {
 
 /// <word> (`mac`, or `mac:shots` for a named program of the lane) as the lane
 /// and the program.
-fn lane_and_program(word: &str) -> Option<(Lane, Option<String>)> {
+fn lane_and_program(apps: &Apps, word: &str) -> Option<(Lane, Option<String>)> {
     match word.split_once(':') {
-        None => Some((Lane::parse(word)?, None)),
+        None => Some((Lane::parse_in(apps, word)?, None)),
         Some((lane, program)) => {
             let plain = !program.is_empty()
                 && program
                     .chars()
                     .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
-            plain.then(|| Some((Lane::parse(lane)?, Some(program.to_string()))))?
+            plain.then(|| Some((Lane::parse_in(apps, lane)?, Some(program.to_string()))))?
         }
     }
 }
@@ -374,24 +386,20 @@ impl Picker {
     }
 }
 
-/// The `mac` lines.
+/// The `<app> build`, `<app> app` and `<app> bundle` lines of one app.
 #[derive(Debug, PartialEq, Eq)]
-pub struct MacApp {
+pub struct TestApp {
+    pub lane: Lane,
     /// The build's program, relative to the checkout when it names a path,
-    /// and its arguments.
+    /// and its arguments. For an app on the android platform, the program
+    /// also installs the app wherever it should go.
     pub build: Vec<String>,
-    /// The built app, relative to the checkout.
-    pub app: String,
-    /// The app's bundle id, to quit the one running.
-    pub bundle: String,
-}
-
-/// The `android` line.
-#[derive(Debug, PartialEq, Eq)]
-pub struct AndroidApp {
-    /// The build's program, as for `MacApp::build`, which also installs the
-    /// app wherever it should go.
-    pub build: Vec<String>,
+    /// The built app, relative to the checkout, for an app on the mac
+    /// platform.
+    pub app: Option<String>,
+    /// The app's bundle id, to quit the one running, for an app on the mac
+    /// platform.
+    pub bundle: Option<String>,
 }
 
 /// A `step <lane> <name> <program> [<args>...]` line: a program, relative to
@@ -515,10 +523,9 @@ pub fn config_in(top: &Path, commit: &str) -> Result<Config> {
 }
 
 pub fn parse_config(text: &str) -> Result<Config> {
-    boards::app_build::Apps::read(text)
-        .map_err(|error| crate::fail::Fail::Message(error.text()))?;
-    let (mut mac_build, mut mac_app, mut bundle) = (None, None, None);
-    let mut android = None;
+    let apps = Apps::read(text).map_err(|error| crate::fail::Fail::Message(error.text()))?;
+    let mut lanes: Vec<Lane> = apps.named().map(|app| Lane::of(&app)).collect();
+    let mut installs: Vec<TestApp> = Vec::new();
     let mut steps: Vec<Step> = Vec::new();
     let mut pickers: Vec<Picker> = Vec::new();
     let mut limits: Vec<(String, Duration)> = Vec::new();
@@ -526,7 +533,7 @@ pub fn parse_config(text: &str) -> Result<Config> {
     let mut here: Vec<String> = Vec::new();
     let mut ci_only: Vec<String> = Vec::new();
     let mut windowed: Vec<(Lane, Option<String>)> = Vec::new();
-    let mut mac_shares_shot_display = false;
+    let mut shared_shot_display: Vec<Lane> = Vec::new();
     let mut rules: Vec<Rule> = Vec::new();
     let mut needs: Vec<(Lane, Vec<String>)> = Vec::new();
     let mut sources: Vec<Source> = Vec::new();
@@ -539,13 +546,26 @@ pub fn parse_config(text: &str) -> Result<Config> {
         let (name, value) = field.trim().split_once(' ').unwrap_or((field.trim(), ""));
         let value = value.trim();
         match (platform, name) {
-            ("mac", "build") => mac_build = Some(words(value)),
-            ("mac", "app") => mac_app = Some(value.to_string()),
-            ("mac", "bundle") => bundle = Some(value.to_string()),
-            ("android", "build") => {
-                android = Some(AndroidApp {
-                    build: words(value),
-                })
+            (app, "build" | "app" | "bundle") if Lane::parse_in(&apps, app).is_some() => {
+                let lane = Lane::parse_in(&apps, app).expect("the guard found the lane");
+                let at = match installs.iter().position(|install| install.lane == lane) {
+                    Some(at) => at,
+                    None => {
+                        installs.push(TestApp {
+                            lane,
+                            build: Vec::new(),
+                            app: None,
+                            bundle: None,
+                        });
+                        installs.len() - 1
+                    }
+                };
+                let install = &mut installs[at];
+                match name {
+                    "build" => install.build = words(value),
+                    "app" => install.app = Some(value.to_string()),
+                    _ => install.bundle = Some(value.to_string()),
+                }
             }
             ("step", _) => {
                 let mut words = field.split_whitespace().map(str::to_string);
@@ -553,10 +573,8 @@ pub fn parse_config(text: &str) -> Result<Config> {
                     fail!("{CONFIG}: a step needs a lane, a name and a command");
                 };
                 let command = words.collect::<Vec<_>>();
-                let Some(lane) = Lane::parse(&lane) else {
-                    fail!(
-                        "{CONFIG}: {line:?}: a step starts with its lane, mac or android, not {lane:?}"
-                    );
+                let Some(lane) = Lane::parse_in(&apps, &lane) else {
+                    fail!("{CONFIG}: {line:?}: a step starts with its app, not {lane:?}");
                 };
                 if command.is_empty() {
                     fail!("{CONFIG}: step {name} names no command");
@@ -582,9 +600,9 @@ pub fn parse_config(text: &str) -> Result<Config> {
                     PickKind::Shots
                 };
                 let placeholder = kind.placeholder();
-                let Some((lane, program)) = lane_and_program(name) else {
+                let Some((lane, program)) = lane_and_program(&apps, name) else {
                     fail!(
-                        "{CONFIG}: {line:?}: a {keyword} line starts with its lane, mac or android (and for test, a program after a colon), not {name:?}"
+                        "{CONFIG}: {line:?}: a {keyword} line starts with its app (and for test, a program after a colon), not {name:?}"
                     );
                 };
                 if program.is_some() && kind != PickKind::Class {
@@ -618,11 +636,17 @@ pub fn parse_config(text: &str) -> Result<Config> {
                     opens_windows,
                 });
             }
-            ("shared-shot-display", "mac") if value.is_empty() && !mac_shares_shot_display => {
-                mac_shares_shot_display = true;
-            }
             ("shared-shot-display", _) => {
-                fail!("{CONFIG}: use one `shared-shot-display mac` line")
+                let lane = Lane::parse_in(&apps, name)
+                    .filter(|lane| lane.platform() == boards::app_build::Platform::Mac);
+                match lane {
+                    Some(lane) if value.is_empty() && !shared_shot_display.contains(&lane) => {
+                        shared_shot_display.push(lane)
+                    }
+                    _ => fail!(
+                        "{CONFIG}: use one `shared-shot-display <app>` line for each app on the mac platform"
+                    ),
+                }
             }
             (keyword, _) if keyword.starts_with("shots-") => {}
             ("app", _) => {}
@@ -638,10 +662,8 @@ pub fn parse_config(text: &str) -> Result<Config> {
                 });
             }
             ("needs", _) => {
-                let Some(lane) = Lane::parse(name) else {
-                    fail!(
-                        "{CONFIG}: {line:?}: a needs line starts with its lane, mac or android, not {name:?}"
-                    );
+                let Some(lane) = Lane::parse_in(&apps, name) else {
+                    fail!("{CONFIG}: {line:?}: a needs line starts with its app, not {name:?}");
                 };
                 let named = words(value);
                 if named.is_empty() {
@@ -650,9 +672,9 @@ pub fn parse_config(text: &str) -> Result<Config> {
                 needs.push((lane, named));
             }
             ("sources", _) => {
-                let Some((lane, program)) = lane_and_program(name) else {
+                let Some((lane, program)) = lane_and_program(&apps, name) else {
                     fail!(
-                        "{CONFIG}: {line:?}: a sources line starts with its lane, mac or android, optionally with a program after a colon, not {name:?}"
+                        "{CONFIG}: {line:?}: a sources line starts with its app, optionally with a program after a colon, not {name:?}"
                     );
                 };
                 let paths = words(value);
@@ -692,19 +714,17 @@ pub fn parse_config(text: &str) -> Result<Config> {
                     fail!("{CONFIG}: an opens-windows line names no test line");
                 }
                 for word in named {
-                    let Some(test) = lane_and_program(&word) else {
+                    let Some(test) = lane_and_program(&apps, &word) else {
                         fail!(
-                            "{CONFIG}: {line:?}: an opens-windows line names test lines by lane, mac or android, with a program after a colon for a named one, not {word:?}"
+                            "{CONFIG}: {line:?}: an opens-windows line names test lines by app, with a program after a colon for a named one, not {word:?}"
                         );
                     };
                     windowed.push(test);
                 }
             }
             ("results", _) => {
-                let Some(lane) = Lane::parse(name) else {
-                    fail!(
-                        "{CONFIG}: {line:?}: a results line starts with its lane, mac or android, not {name:?}"
-                    );
+                let Some(lane) = Lane::parse_in(&apps, name) else {
+                    fail!("{CONFIG}: {line:?}: a results line starts with its app, not {name:?}");
                 };
                 let paths = words(value);
                 if paths.is_empty() {
@@ -798,17 +818,44 @@ pub fn parse_config(text: &str) -> Result<Config> {
             fail!("{CONFIG}: sources for {named}, which has no `test {named}` line");
         }
     }
-    let mac = match (mac_build, mac_app, bundle) {
-        (Some(build), Some(app), Some(bundle)) => Some(MacApp { build, app, bundle }),
-        (None, None, None) => None,
-        _ => fail!("{CONFIG}: mac needs build, app and bundle lines"),
-    };
+    for install in &installs {
+        let name = install.lane.word();
+        let complete = match install.lane.platform() {
+            boards::app_build::Platform::Mac => {
+                !install.build.is_empty() && install.app.is_some() && install.bundle.is_some()
+            }
+            boards::app_build::Platform::Android => {
+                !install.build.is_empty() && install.app.is_none() && install.bundle.is_none()
+            }
+            boards::app_build::Platform::Web => false,
+        };
+        if !complete {
+            fail!(
+                "{CONFIG}: {name} needs {} lines",
+                match install.lane.platform() {
+                    boards::app_build::Platform::Mac => "build, app and bundle",
+                    boards::app_build::Platform::Android => "a build line, and no more",
+                    boards::app_build::Platform::Web =>
+                        "no build, app or bundle line: a web app has no build-app",
+                }
+            );
+        }
+    }
+    let mut mentioned: Vec<Lane> = steps.iter().map(|step| step.lane).collect();
+    mentioned.extend(pickers.iter().map(|picker| picker.lane));
+    mentioned.extend(results.iter().map(|(lane, _)| *lane));
+    mentioned.extend(needs.iter().map(|(lane, _)| *lane));
+    mentioned.extend(sources.iter().map(|source| source.lane));
+    mentioned.extend(installs.iter().map(|install| install.lane));
+    lanes.extend(mentioned);
+    lanes.sort();
+    lanes.dedup();
     Ok(Config {
-        mac,
-        android,
+        lanes,
+        test_apps: installs,
         steps,
         pickers,
-        mac_shares_shot_display,
+        shared_shot_display,
         results,
         rules,
         needs,

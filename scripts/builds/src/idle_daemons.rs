@@ -23,10 +23,10 @@ use crate::fail::Result;
 use crate::host::{Host, Ssh, Terminal};
 use crate::host_scan::Row;
 use crate::host_scan::parse_ps;
-use crate::lane::Lane;
 use crate::lane_size::{IDLE_MINUTES, RepoLane, last_use};
 use crate::places::Places;
 use crate::text::duration;
+use boards::app_build::Platform;
 
 /// A daemon using this share of a core or more is working now, whatever the
 /// builds record says.
@@ -41,11 +41,11 @@ pub enum Kind {
 }
 
 impl Kind {
-    /// The lane whose builds use this kind of daemon.
-    fn lane(self) -> Lane {
+    /// The platform whose builds use this kind of daemon.
+    fn platform(self) -> Platform {
         match self {
-            Kind::Gradle | Kind::KotlinCompile => Lane::Android,
-            Kind::Simulator => Lane::Mac,
+            Kind::Gradle | Kind::KotlinCompile => Platform::Android,
+            Kind::Simulator => Platform::Mac,
         }
     }
 
@@ -120,11 +120,11 @@ pub struct Idle {
 
 /// The daemons of <daemons> that no build uses at <now>, by <use_of>: the
 /// lane's use on the host.
-pub fn judge(daemons: Vec<Daemon>, use_of: &dyn Fn(Lane) -> LaneUse, now: i64) -> Vec<Idle> {
+pub fn judge(daemons: Vec<Daemon>, use_of: &dyn Fn(Platform) -> LaneUse, now: i64) -> Vec<Idle> {
     daemons
         .into_iter()
         .filter_map(|daemon| {
-            let (seconds, recorded) = match use_of(daemon.kind.lane()) {
+            let (seconds, recorded) = match use_of(daemon.kind.platform()) {
                 LaneUse::Building => return None,
                 LaneUse::LastBuild(Some(end)) => ((now - end).max(0).min(daemon.age_seconds), true),
                 LaneUse::LastBuild(None) => (daemon.age_seconds, false),
@@ -186,13 +186,13 @@ pub fn stop(
         let used = if found.recorded {
             format!(
                 "no {} lane build used {place} for {}",
-                kind.lane().word(),
+                kind.platform().word(),
                 duration(found.seconds)
             )
         } else {
             format!(
                 "no {} lane build is on record for {place}, and it has run {}",
-                kind.lane().word(),
+                kind.platform().word(),
                 duration(found.seconds)
             )
         };
@@ -212,36 +212,41 @@ pub fn stop(
     lines
 }
 
-/// What <lane> has done on <host>, from the lane's locks and run records of
-/// every repo.
-pub fn lane_use(places: &Places, ssh: &Ssh, host: &Host, lane: Lane) -> Result<LaneUse> {
+/// What the lanes on <platform> have done on <host>, from their locks and
+/// run records in every repo.
+pub fn lane_use(places: &Places, ssh: &Ssh, host: &Host, platform: Platform) -> Result<LaneUse> {
     let on_host = |entry: &str| match split(entry) {
         Some((name, _)) => name == host.name,
         None => host.target.is_none(),
     };
     let mut last: Option<i64> = None;
     for repo in places.repo_folder_names()? {
-        for entry in places
-            .app_checkouts_of(&repo, lane)?
-            .iter()
-            .filter(|entry| on_host(entry))
-        {
-            if crate::flock::is_held(&places.app_lock_file(&repo, lane, entry))? {
-                return Ok(LaneUse::Building);
+        let lanes = crate::repo_lanes::with_files(places, &repo)?
+            .into_iter()
+            .filter(|lane| lane.platform() == platform);
+        for lane in lanes {
+            for entry in places
+                .app_checkouts_of(&repo, lane)?
+                .iter()
+                .filter(|entry| on_host(entry))
+            {
+                if crate::flock::is_held(&places.app_lock_file(&repo, lane, entry))? {
+                    return Ok(LaneUse::Building);
+                }
+                let at = RepoLane {
+                    places,
+                    ssh,
+                    repo: &repo,
+                    lane,
+                };
+                last = last.max(last_use(at, entry)?);
             }
-            let at = RepoLane {
-                places,
-                ssh,
-                repo: &repo,
-                lane,
-            };
-            last = last.max(last_use(at, entry)?);
-        }
-        // Every project that holds the repo records its own runs.
-        for database in crate::lists::store::databases_holding(places, &repo)? {
-            for (entry, end) in app_timing::last_ends(&database, lane)? {
-                if on_host(&entry) {
-                    last = last.max(Some(end));
+            // Every project that holds the repo records its own runs.
+            for database in crate::lists::store::databases_holding(places, &repo)? {
+                for (entry, end) in app_timing::last_ends(&database, lane)? {
+                    if on_host(&entry) {
+                        last = last.max(Some(end));
+                    }
                 }
             }
         }
@@ -289,11 +294,13 @@ pub fn stop_on(
     }
     // One reading of each lane, taken after the listing, so a build that
     // started since the listing keeps its daemons.
-    let android = lane_use(places, ssh, host, Lane::Android).map_err(|fault| fault.text())?;
-    let mac = lane_use(places, ssh, host, Lane::Mac).map_err(|fault| fault.text())?;
-    let use_of = |lane: Lane| match lane {
-        Lane::Android => android,
-        Lane::Mac => mac,
+    let android = lane_use(places, ssh, host, Platform::Android).map_err(|fault| fault.text())?;
+    let mac = lane_use(places, ssh, host, Platform::Mac).map_err(|fault| fault.text())?;
+    let web = lane_use(places, ssh, host, Platform::Web).map_err(|fault| fault.text())?;
+    let use_of = |platform: Platform| match platform {
+        Platform::Android => android,
+        Platform::Mac => mac,
+        Platform::Web => web,
     };
     let idle = judge(found, &use_of, now);
     Ok(stop(

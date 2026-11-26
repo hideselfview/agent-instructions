@@ -140,10 +140,12 @@ impl ReviewWait {
 }
 
 /// <lane>'s name as a card writes it.
-fn lane_title(lane: Lane) -> &'static str {
+fn lane_title(lane: Lane) -> String {
     match lane {
-        Lane::Mac => "Mac",
-        Lane::Android => "Android",
+        Lane::MAC => "Mac".to_string(),
+        Lane::ANDROID => "Android".to_string(),
+        Lane::WEB => "Web".to_string(),
+        other => other.word().to_string(),
     }
 }
 
@@ -322,37 +324,35 @@ impl CardState {
 
     /// The state's name, as builds records it: one per chip, and the review's
     /// counts left out.
-    pub fn name(self) -> &'static str {
+    pub fn name(self) -> String {
         match self {
-            CardState::Queued(Lane::Mac) => "waiting-on-mac",
-            CardState::Queued(Lane::Android) => "waiting-on-android",
-            CardState::Paused => "paused",
-            CardState::InReview(ReviewWait::NotRun) => "needs-review",
+            CardState::Queued(lane) => format!("waiting-on-{}", lane.word()),
+            CardState::Paused => "paused".to_string(),
+            CardState::InReview(ReviewWait::NotRun) => "needs-review".to_string(),
             CardState::InReview(
                 ReviewWait::Running | ReviewWait::Checking | ReviewWait::DesignCoverage,
-            ) => "reviewing",
-            CardState::InReview(ReviewWait::ToSettle(..)) => "findings-to-settle",
-            CardState::InReview(ReviewWait::Open(_)) => "open-findings",
-            CardState::InReview(ReviewWait::Unreviewed(_)) => "unreviewed-changes",
-            other => other.word(),
+            ) => "reviewing".to_string(),
+            CardState::InReview(ReviewWait::ToSettle(..)) => "findings-to-settle".to_string(),
+            CardState::InReview(ReviewWait::Open(_)) => "open-findings".to_string(),
+            CardState::InReview(ReviewWait::Unreviewed(_)) => "unreviewed-changes".to_string(),
+            other => other.word().to_string(),
         }
     }
 
     /// The chip at the left of the card's top bar; None for a free worktree.
-    pub fn chip(self) -> Option<&'static str> {
+    pub fn chip(self) -> Option<String> {
         Some(match self {
             CardState::Free => return None,
-            CardState::Working | CardState::WindingDown => "Working",
-            CardState::Queued(Lane::Mac) => "Waiting on Mac",
-            CardState::Queued(Lane::Android) => "Waiting on Android",
-            CardState::WaitingOnYou => "Waiting on you",
-            CardState::Paused => "Paused",
-            CardState::ReadyToLand => "Ready to land",
-            CardState::InReview(review) => review.chip(),
-            CardState::WaitsUnread => "Can't read what this worktree waits on",
-            CardState::Kept => "Ready",
-            CardState::KeptWaiting => "Waiting",
-            CardState::KeptMet => "Waits met",
+            CardState::Working | CardState::WindingDown => "Working".to_string(),
+            CardState::Queued(lane) => format!("Waiting on {}", lane_title(lane)),
+            CardState::WaitingOnYou => "Waiting on you".to_string(),
+            CardState::Paused => "Paused".to_string(),
+            CardState::ReadyToLand => "Ready to land".to_string(),
+            CardState::InReview(review) => review.chip().to_string(),
+            CardState::WaitsUnread => "Can't read what this worktree waits on".to_string(),
+            CardState::Kept => "Ready".to_string(),
+            CardState::KeptWaiting => "Waiting".to_string(),
+            CardState::KeptMet => "Waits met".to_string(),
         })
     }
 }
@@ -537,7 +537,7 @@ pub fn kept_words(checkout: &CheckoutPage, item: RunningItem, card: &KeptCard) -
         )),
     };
     Words {
-        chip: kept_state(card).chip().map(str::to_string),
+        chip: kept_state(card).chip(),
         pill: None,
         items: vec![item],
         note,
@@ -632,7 +632,7 @@ pub fn words(
                     .join(". ")
             };
             return Words {
-                chip: state.chip().map(str::to_string),
+                chip: state.chip(),
                 pill: None,
                 items: items.to_vec(),
                 note: Some(note),
@@ -652,7 +652,7 @@ pub fn words(
         _ => None,
     };
     Words {
-        chip: state.chip().map(str::to_string),
+        chip: state.chip(),
         pill,
         items: items.to_vec(),
         note,

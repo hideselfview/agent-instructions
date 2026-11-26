@@ -405,16 +405,17 @@ pub fn fill(tool: &Tool, checkout: &Checkout) -> Result<()> {
     )
 }
 
-/// `builds app-clone mac|android <source> <dest>`: `clone_lane` for two
+/// `builds app-clone <app> <source> <dest>`: `clone_lane` for two
 /// checkouts of this machine, which a host runs for the new app checkout that
 /// this Mac's build makes there (app_remote.rs).
 pub fn cmd_app_clone(tool: &Tool, args: &[String]) -> Result<()> {
     let [lane, source, dest] = args else {
-        fail!("usage: builds app-clone mac|android <source checkout> <new checkout>")
+        fail!("usage: builds app-clone <app> <source checkout> <new checkout>")
     };
-    let lane = Lane::parse_or_fail(lane)?;
+    let (source, dest) = (Checkout::find(source)?, Checkout::find(dest)?);
+    let lane = crate::repo_lanes::parse(&tool.places, &source.repo(), lane)?;
     tool.places.require_volume()?;
-    clone_lane(tool, lane, &Checkout::find(source)?, &Checkout::find(dest)?)
+    clone_lane(tool, lane, &source, &dest)
 }
 
 /// The folders of <dest_root> that a new checkout of <lane> starts from a clone

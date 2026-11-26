@@ -45,6 +45,7 @@ use crate::places::Places;
 use crate::prune::Run;
 use crate::queue::{self, Queue};
 use crate::text::{human, minutes_since, note};
+use boards::app_build::Platform;
 
 /// The most app checkouts a lane has. On 2026-11-16, the busiest day
 /// recorded (85 android and 101 mac runs), 4 builds at once, waiting or
@@ -77,9 +78,12 @@ const REMOVED_KEPT_SECONDS: i64 = 12 * 3600;
 /// (target-android 8.0, bae-android 0.9, target 0.7).
 pub fn checkout_kib(lane: Lane) -> u64 {
     const GIB: u64 = 1024 * 1024;
-    match lane {
-        Lane::Mac => 22 * GIB,
-        Lane::Android => 10 * GIB,
+    match lane.platform() {
+        Platform::Mac => 22 * GIB,
+        Platform::Android => 10 * GIB,
+        // A web app's checkout builds what the repo builds on this Mac, with
+        // no Xcode or Gradle folders: measured with the cargo target alone.
+        Platform::Web => GIB,
     }
 }
 
@@ -94,9 +98,10 @@ pub fn checkout_kib(lane: Lane) -> u64 {
 /// checkout adds before its first build.
 pub fn cloned_kib(lane: Lane) -> u64 {
     const GIB_TENTHS: u64 = 1024 * 1024 / 10;
-    match lane {
-        Lane::Mac => 97 * GIB_TENTHS,
-        Lane::Android => 87 * GIB_TENTHS,
+    match lane.platform() {
+        Platform::Mac => 97 * GIB_TENTHS,
+        Platform::Android => 87 * GIB_TENTHS,
+        Platform::Web => 7 * GIB_TENTHS,
     }
 }
 
@@ -188,11 +193,7 @@ pub fn grow(at: RepoLane, floor_kib: u64, now: i64) -> Result<Option<String>> {
             ));
             continue;
         }
-        let taken: Vec<String> = Lane::ALL
-            .into_iter()
-            .map(|lane| places.app_checkouts_of(repo, lane))
-            .collect::<Result<Vec<_>>>()?
-            .concat();
+        let taken: Vec<String> = places.app_checkout_entries(repo)?;
         let entry = (1..)
             .map(|n| entry_of(&host.name, &format!("builds-{}-{n}", lane.word())))
             .find(|entry| !taken.contains(entry))
@@ -293,13 +294,11 @@ fn fitting_hosts(
 fn checkouts_on(places: &Places, host_name: &str) -> Result<usize> {
     let mut count = 0;
     for repo in places.repo_folder_names()? {
-        for lane in Lane::ALL {
-            count += places
-                .app_checkouts_of(&repo, lane)?
-                .iter()
-                .filter(|entry| split(entry).is_some_and(|(host, _)| host == host_name))
-                .count();
-        }
+        count += places
+            .app_checkout_entries(&repo)?
+            .iter()
+            .filter(|entry| split(entry).is_some_and(|(host, _)| host == host_name))
+            .count();
     }
     Ok(count)
 }
@@ -566,7 +565,7 @@ pub fn take_out(
 /// `shrink` for every lane of every repo on the volume, for `builds prune`.
 pub fn shrink_all(places: &Places, ssh: &Ssh, run: Run, now: i64) -> Result<()> {
     for repo in places.repo_folder_names()? {
-        for lane in Lane::ALL {
+        for lane in crate::repo_lanes::with_files(places, &repo)? {
             let at = RepoLane {
                 places,
                 ssh,

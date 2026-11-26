@@ -44,7 +44,7 @@ use crate::shots_declared::ShotDeclarations;
 use crate::text::note;
 use boards::git;
 
-const USAGE: &str = "usage: builds app-build <repo> <ref> [--test <Class>]... [--shots <prefix>]... [--design-shots] [--all-shots mac|android]... [--fresh]";
+const USAGE: &str = "usage: builds app-build <repo> <ref> [--test <Class>]... [--shots <prefix>]... [--design-shots] [--all-shots <app>]... [--fresh]";
 
 /// The flag that adds the shots of the boards and components the branch
 /// changes (`app_design_shots`).
@@ -61,8 +61,10 @@ pub fn plan(config: &Config, changed: &[String], picks: &[Pick]) -> Vec<(Lane, V
         .filter(|rule| changed.iter().any(|path| rule.matches(path)))
         .flat_map(|rule| rule.steps.iter().map(String::as_str))
         .collect();
-    Lane::ALL
-        .into_iter()
+    config
+        .lanes
+        .iter()
+        .copied()
         .map(|lane| {
             let picked = picks.iter().any(|pick| pick.lane() == lane);
             let mut names: Vec<String> = config
@@ -163,7 +165,7 @@ fn folders_of<'a>(config: &'a Config, lane: Lane, program: Option<&str>) -> Vec<
 /// the type <class> (a plain mention of the name does not count).
 fn lanes_declaring(top: &Path, config: &Config, commit: &str, class: &str) -> Result<Vec<Lane>> {
     let mut found = Vec::new();
-    for lane in Lane::ALL {
+    for lane in config.lanes.iter().copied() {
         let folders: Vec<&str> = config
             .sources
             .iter()
@@ -218,12 +220,17 @@ fn lane_of_class(declaring: &[Lane], class: &str) -> Result<Lane> {
 }
 
 /// The lane a shots <prefix> starts with (`mac.welcome.` is the mac lane's).
-fn lane_of_prefix(prefix: &str) -> Result<Lane> {
+fn lane_of_prefix(prefix: &str, lanes: &[Lane]) -> Result<Lane> {
     let first = prefix.split('.').next().unwrap_or("");
-    match Lane::parse(first) {
-        Some(lane) => Ok(lane),
+    match lanes.iter().find(|lane| lane.word() == first) {
+        Some(lane) => Ok(*lane),
         None => fail!(
-            "the shots prefix {prefix:?} starts with no lane; shots names start with mac. or android."
+            "the shots prefix {prefix:?} starts with no app of {CONFIG}; shots names start with an app's name and a dot ({})",
+            lanes
+                .iter()
+                .map(|lane| lane.all_shots_prefix())
+                .collect::<Vec<_>>()
+                .join(" ")
         ),
     }
 }
@@ -233,6 +240,7 @@ fn lane_of_prefix(prefix: &str) -> Result<Lane> {
 /// given.
 fn parse_picks(
     args: &[String],
+    lanes: &[Lane],
     mut lane_of: impl FnMut(PickKind, &str) -> Result<Lane>,
 ) -> Result<(Vec<Pick>, bool)> {
     let (mut picks, mut fresh) = (Vec::new(), false);
@@ -244,7 +252,7 @@ fn parse_picks(
             continue;
         }
         if flag == app_build::ALL_SHOTS {
-            let (pick, after) = app_build::all_shots_flag(after, USAGE)?;
+            let (pick, after) = app_build::all_shots_flag(after, USAGE, lanes)?;
             picks.push(pick);
             rest = after;
             continue;
@@ -318,8 +326,8 @@ pub fn derive_and_run(places: &Places, args: &[String]) -> Result<()> {
         .filter(|arg| *arg != DESIGN_SHOTS)
         .cloned()
         .collect();
-    let (mut picks, fresh) = parse_picks(&tail, |kind, arg| match kind {
-        PickKind::Shots => lane_of_prefix(arg),
+    let (mut picks, fresh) = parse_picks(&tail, &config.lanes, |kind, arg| match kind {
+        PickKind::Shots => lane_of_prefix(arg, &config.lanes),
         PickKind::Class => lane_of_class(&lanes_declaring(&top, &config, &commit, arg)?, arg),
     })?;
     let changed = changed_paths(&top, &commit)?;
@@ -335,20 +343,21 @@ pub fn derive_and_run(places: &Places, args: &[String]) -> Result<()> {
             );
         };
         let globs = crate::lists::design_paths::Globs::of(lists, repo);
-        let found = crate::app_design_shots::picked(&globs, &changed, &mut |lane| {
-            declarations.names(lane, &commit).ok_or_else(|| {
-                crate::fail::Fail::Message(format!(
-                    "{DESIGN_SHOTS} could not read the {} shots declared at {commit}",
-                    lane.word()
-                ))
-            })
-        })?;
+        let found =
+            crate::app_design_shots::picked(&globs, &changed, &config.lanes, &mut |lane| {
+                declarations.names(lane, &commit).ok_or_else(|| {
+                    crate::fail::Fail::Message(format!(
+                        "{DESIGN_SHOTS} could not read the {} shots declared at {commit}",
+                        lane.word()
+                    ))
+                })
+            })?;
         for line in &found.left_out {
             note(format!("{DESIGN_SHOTS} picks no shot for this: {line}"));
         }
         for prefix in &found.prefixes {
             picks.push(Pick::from_flag(
-                lane_of_prefix(prefix)?,
+                lane_of_prefix(prefix, &config.lanes)?,
                 PickKind::Shots,
                 prefix,
             )?);

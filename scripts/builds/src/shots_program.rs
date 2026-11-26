@@ -29,7 +29,7 @@ pub static VERSIONS: LazyLock<Versions> = LazyLock::new(|| Versions {
     comparison: env!("COMPARISON_SOURCE").to_string(),
 });
 
-const USAGE: &str = "usage: builds shots findings <repo> <ref> mac|android <prefix> [--by-cause] | builds shots picture <repo> <ref> <scene> board|shot | builds shots check-program <repo> <ref> mac|android <prefix> [--checkout <folder>] | builds shots run|capture|check|lint|runtime|components|states|version [<argument>...] (builds shots <command> --help)";
+const USAGE: &str = "usage: builds shots findings <repo> <ref> <app> <prefix> [--by-cause] | builds shots picture <repo> <ref> <scene> board|shot | builds shots check-program <repo> <ref> <app> <prefix> [--checkout <folder>] | builds shots run|capture|check|lint|runtime|components|states|version [<argument>...] (builds shots <command> --help)";
 
 /// Whether `builds shots <args>` runs the checker, which uses no store:
 /// every subcommand but the three that read the cached runs.

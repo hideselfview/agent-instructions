@@ -403,7 +403,7 @@ fn a_recorded_app_build_run_reaches_the_feeds_hooks_and_health() {
     let run = RunRecord {
         started_at: at,
         repo: "bae".into(),
-        lane: crate::lane::Lane::Mac,
+        lane: crate::lane::Lane::MAC,
         checkout: "side-4".into(),
         built_ref: "branch".into(),
         requested_commit: None,

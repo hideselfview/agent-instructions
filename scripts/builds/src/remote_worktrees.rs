@@ -20,7 +20,6 @@ use crate::checkout::{file_name, worktrees_of};
 use crate::fail::Result;
 use crate::host::{self, Host, Ssh, clone_path, sh_quote};
 use crate::job_claim::{Holder, Holders, RELEASE_GONE};
-use crate::lane::Lane;
 use crate::places::Places;
 use crate::prune::Run;
 use crate::remote::{JOB_WORKTREE_PREFIX, Transport, root_script};
@@ -181,12 +180,7 @@ fn checkouts_here(places: &Places, repo: &str) -> Result<Option<Vec<String>>> {
 /// removes here?
 fn app_checkout(places: &Places, repo: &str, host: &str, name: &str) -> Result<bool> {
     let entry = crate::app_remote::entry_of(host, name);
-    for lane in Lane::ALL {
-        if places.app_checkouts_of(repo, lane)?.contains(&entry) {
-            return Ok(true);
-        }
-    }
-    Ok(false)
+    Ok(places.app_checkout_entries(repo)?.contains(&entry))
 }
 
 /// Removes the job worktrees on every recorded host that no checkout's jobs

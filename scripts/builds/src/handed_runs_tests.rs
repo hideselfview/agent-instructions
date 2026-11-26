@@ -11,7 +11,7 @@ fn run() -> RunRecord {
     RunRecord {
         started_at: 1_000_000,
         repo: "bae".to_string(),
-        lane: Lane::Mac,
+        lane: Lane::MAC,
         checkout: "side-1".to_string(),
         built_ref: "branch".to_string(),
         requested_commit: Some("0123456789abcdef0123456789abcdef01234567".to_string()),

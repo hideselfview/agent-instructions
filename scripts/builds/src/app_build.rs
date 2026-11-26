@@ -142,7 +142,7 @@ use crate::text::note;
 use crate::tool::Tool;
 use crate::window_lock::Access;
 
-const USAGE: &str = "usage: builds app-build <repo> <ref> [--test <Class>]... [--shots <prefix>]... [--all-shots mac|android]... [--fresh] | builds app-build <repo> <ref> <step>... [--test mac|android <Class>]... [--shots mac|android <prefix>]... [--all-shots mac|android]... [--fresh] | builds app-build <repo> --list | builds app-build <repo> --lane mac|android <ref> [<step>...] [--test mac|android <Class>]... [--shots mac|android <prefix>]... [--all-shots mac|android]...";
+const USAGE: &str = "usage: builds app-build <repo> <ref> [--test <Class>]... [--shots <prefix>]... [--all-shots <app>]... [--fresh] | builds app-build <repo> <ref> <step>... [--test <app> <Class>]... [--shots <app> <prefix>]... [--all-shots <app>]... [--fresh] | builds app-build <repo> --list | builds app-build <repo> --lane <app> <ref> [<step>...] [--test <app> <Class>]... [--shots <app> <prefix>]... [--all-shots <app>]...";
 
 /// Set by the parent in each lane's process: print the marker line below once
 /// the checkout is known.
@@ -175,7 +175,7 @@ fn step_named<'a>(config: &'a Config, name: &str) -> Result<&'a Step> {
     };
     if step.ci_only {
         fail!(
-            "step {name} is CI-only in {CONFIG}, and builds refuses it: {ONLY_WHAT_A_CHANGE_TOUCHES}. Name the change's test classes with --test and its screens' shots with --shots, or run a lane's full set of shots with {ALL_SHOTS} mac|android"
+            "step {name} is CI-only in {CONFIG}, and builds refuses it: {ONLY_WHAT_A_CHANGE_TOUCHES}. Name the change's test classes with --test and its screens' shots with --shots, or run a lane's full set of shots with {ALL_SHOTS} <app>"
         );
     }
     Ok(step)
@@ -291,11 +291,15 @@ pub fn all_shots(lane: Lane) -> Pick {
 /// The pick of the `--all-shots <lane>` flag whose words after the flag are
 /// <after>, and the words after the lane; fails naming <usage> when no lane
 /// follows.
-pub fn all_shots_flag<'a>(after: &'a [String], usage: &str) -> Result<(Pick, &'a [String])> {
+pub fn all_shots_flag<'a>(
+    after: &'a [String],
+    usage: &str,
+    lanes: &[Lane],
+) -> Result<(Pick, &'a [String])> {
     let [lane, rest @ ..] = after else {
-        fail!("{ALL_SHOTS} needs a lane\n{usage}");
+        fail!("{ALL_SHOTS} needs an app\n{usage}");
     };
-    Ok((all_shots(Lane::parse_or_fail(lane)?), rest))
+    Ok((all_shots(Lane::parse_in_or_fail(lanes, lane)?), rest))
 }
 
 /// The command-line words that ask for <pick> in a lane's process, or in a
@@ -320,7 +324,7 @@ pub fn pick_kind_of(name: &str) -> Option<PickKind> {
 /// <args> (the steps, then `--test` and `--shots` flags, each with a lane and
 /// an argument, and `--all-shots` flags, each with a lane) as the step names
 /// and the flags.
-pub fn split_picks(args: &[String]) -> Result<(Vec<String>, Vec<Pick>)> {
+pub fn split_picks(args: &[String], lanes: &[Lane]) -> Result<(Vec<String>, Vec<Pick>)> {
     let is_flag =
         |arg: &String| arg == ALL_SHOTS || PickKind::ALL.iter().any(|kind| arg == kind.flag());
     let at = args.iter().position(is_flag).unwrap_or(args.len());
@@ -328,7 +332,7 @@ pub fn split_picks(args: &[String]) -> Result<(Vec<String>, Vec<Pick>)> {
     let mut picks = Vec::new();
     while let Some((flag, rest)) = flags.split_first() {
         if flag == ALL_SHOTS {
-            let (pick, after) = all_shots_flag(rest, USAGE)?;
+            let (pick, after) = all_shots_flag(rest, USAGE, lanes)?;
             picks.push(pick);
             flags = after;
             continue;
@@ -350,7 +354,7 @@ pub fn split_picks(args: &[String]) -> Result<(Vec<String>, Vec<Pick>)> {
                 kind.what()
             );
         }
-        let lane = Lane::parse_or_fail(lane)?;
+        let lane = Lane::parse_in_or_fail(lanes, lane)?;
         picks.push(Pick::from_flag(lane, kind, arg)?);
         flags = after;
     }
@@ -3027,8 +3031,9 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
         }
         let (needs_only, names) = strip_leading(names, NEEDS_ONLY);
         let (fresh, names) = strip_leading(names, FRESH);
-        let (names, mut picks) = split_picks(names)?;
-        let lane = Lane::parse_or_fail(word)?;
+        let lanes = config_at(places, repo, commit)?.lanes;
+        let (names, mut picks) = split_picks(names, &lanes)?;
+        let lane = Lane::parse_in_or_fail(&lanes, word)?;
         if !picks.is_empty() {
             picks.retain(|pick| pick.lane() == lane);
             if names.is_empty() && picks.is_empty() {
@@ -3089,7 +3094,7 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
         .filter(|arg| *arg != "--fresh")
         .cloned()
         .collect();
-    let (names, picks) = split_picks(&tail)?;
+    let (names, picks) = split_picks(&tail, &config_at(places, repo, commit)?.lanes)?;
     let plan = explicit_plan(places, repo, commit, &names, picks)?;
     let pinned = pin(places)?;
     run_lanes(
@@ -3129,8 +3134,10 @@ fn explicit_plan(
     crate::shots_declared::refuse_undeclared(&top, &commit, &picks)?;
     // The lanes the steps or picks are in: those with a step named, or with
     // any step when none is named and no pick is, each with its own names.
-    let lanes: Vec<(Lane, Vec<String>)> = Lane::ALL
-        .into_iter()
+    let lanes: Vec<(Lane, Vec<String>)> = config
+        .lanes
+        .iter()
+        .copied()
         .map(|lane| (lane, names_in(&config, lane, names)))
         .filter(|(lane, own)| {
             let picks_here = picks.iter().any(|pick| pick.lane() == *lane);

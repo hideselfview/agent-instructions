@@ -34,11 +34,11 @@ fn a_checkout_no_build_used_is_no_source() {
 fn lane(scratch: &Scratch, set: &str, ended: &[(&str, i64)]) -> Places {
     let places = scratch.places();
     std::fs::create_dir_all(places.root.join("demo")).unwrap();
-    std::fs::write(places.app_checkouts_file("demo", Lane::Mac), set).unwrap();
-    std::fs::create_dir_all(places.app_locks_dir("demo", Lane::Mac)).unwrap();
+    std::fs::write(places.app_checkouts_file("demo", Lane::MAC), set).unwrap();
+    std::fs::create_dir_all(places.app_locks_dir("demo", Lane::MAC)).unwrap();
     for (entry, at) in ended {
         std::fs::write(
-            places.app_lock_ended_file("demo", Lane::Mac, entry),
+            places.app_lock_ended_file("demo", Lane::MAC, entry),
             format!("{at}\n"),
         )
         .unwrap();
@@ -51,7 +51,7 @@ fn at<'a>(places: &'a Places, ssh: &'a Ssh) -> RepoLane<'a> {
         places,
         ssh,
         repo: "demo",
-        lane: Lane::Mac,
+        lane: Lane::MAC,
     }
 }
 
@@ -105,7 +105,7 @@ fn a_source_a_build_holds_is_waited_for() {
     let mut both: Vec<_> = ["m1:app-2", "m1:app-1"]
         .into_iter()
         .map(|entry| {
-            lock_checkout(&places, "demo", Lane::Mac, entry)
+            lock_checkout(&places, "demo", Lane::MAC, entry)
                 .unwrap()
                 .unwrap()
         })

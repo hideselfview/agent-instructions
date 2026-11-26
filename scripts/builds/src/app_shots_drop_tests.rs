@@ -20,20 +20,20 @@ fn drop_of(store: &Store, branch: &str, lane: Lane, prefix: &str, at: i64) -> Re
 fn a_drop_counts_for_its_branch_and_lane_since_the_branchs_first_commit() {
     let scratch = Scratch::new("shots-drop");
     let store = make_store_named(&scratch.places(), "demo", &["bae"]);
-    drop_of(&store, "work", Lane::Mac, "mac.seek.", NOON).unwrap();
-    drop_of(&store, "work", Lane::Android, "android.seek.", NOON).unwrap();
-    drop_of(&store, "other", Lane::Mac, "mac.x.", NOON).unwrap();
-    drop_of(&store, "work", Lane::Mac, "mac.old.", SINCE - 1).unwrap();
+    drop_of(&store, "work", Lane::MAC, "mac.seek.", NOON).unwrap();
+    drop_of(&store, "work", Lane::ANDROID, "android.seek.", NOON).unwrap();
+    drop_of(&store, "other", Lane::MAC, "mac.x.", NOON).unwrap();
+    drop_of(&store, "work", Lane::MAC, "mac.old.", SINCE - 1).unwrap();
     let db = store.open_existing().unwrap();
     assert_eq!(
-        dropped(&db, "bae", "work", Lane::Mac, SINCE).unwrap(),
+        dropped(&db, "bae", "work", Lane::MAC, SINCE).unwrap(),
         [Drop {
             prefix: "mac.seek.".into(),
             by: "coordinator".into(),
             why: "the board moved".into(),
         }]
     );
-    assert_eq!(dropped(&db, "bae", "gone", Lane::Mac, SINCE).unwrap(), []);
+    assert_eq!(dropped(&db, "bae", "gone", Lane::MAC, SINCE).unwrap(), []);
 }
 
 /// A drop with no reason is refused by the table.
@@ -43,7 +43,7 @@ fn a_drop_with_no_reason_is_refused() {
     let store = make_store_named(&scratch.places(), "demo", &["bae"]);
     let stamp = stamp(NOON);
     let refused = store.write(&stamp, "drop shots", |db| {
-        record(db, ("bae", "work"), Lane::Mac, "mac.seek.", " ", &stamp)
+        record(db, ("bae", "work"), Lane::MAC, "mac.seek.", " ", &stamp)
     });
     assert!(refused.is_err());
 }
@@ -64,7 +64,7 @@ fn the_drop_command_accepts_a_prefix_from_a_build_named_by_commit() {
     let run = RunRecord {
         started_at: tool.now,
         repo: "bae".into(),
-        lane: Lane::Mac,
+        lane: Lane::MAC,
         checkout: "side-1".into(),
         built_ref: head.clone(),
         requested_commit: None,
@@ -99,7 +99,7 @@ fn the_drop_command_accepts_a_prefix_from_a_build_named_by_commit() {
     cmd_drop_shots(&tool, &args).unwrap();
     let db = store.open_existing().unwrap();
     assert_eq!(
-        dropped(&db, "bae", "work", Lane::Mac, tool.now).unwrap(),
+        dropped(&db, "bae", "work", Lane::MAC, tool.now).unwrap(),
         [Drop {
             prefix: prefix.into(),
             by: "agent".into(),

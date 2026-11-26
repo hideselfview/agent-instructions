@@ -252,7 +252,7 @@ pub fn needs(
 ) -> Result<Coverage> {
     let mut covering = Vec::new();
     let mut unbuilt = Vec::new();
-    for lane in Lane::ALL {
+    for lane in config.lanes.iter().copied() {
         if lane_paths(config, lane, changed).is_empty() {
             continue;
         }
@@ -485,8 +485,10 @@ impl<'a> BranchBuilds<'a> {
         let BuildRecords { repo, conn, path } = records;
         let top = self.top;
         let drops: DroppedShots = match shots {
-            ShotsToCover::Landing => Lane::ALL
-                .into_iter()
+            ShotsToCover::Landing => config
+                .lanes
+                .iter()
+                .copied()
                 .map(|lane| {
                     Ok((
                         lane,

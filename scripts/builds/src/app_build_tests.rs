@@ -4,6 +4,11 @@ use crate::app_timing::{self, StepKind, StepResult};
 use crate::testing::Scratch;
 use std::time::Duration;
 
+/// `split_picks` with the apps of a repo that names only the platforms' own.
+fn split_picks(args: &[String]) -> Result<(Vec<String>, Vec<Pick>)> {
+    super::split_picks(args, &[Lane::MAC, Lane::ANDROID])
+}
+
 /// A lock of an app lane in <scratch>'s places, held while a test runs steps,
 /// which record the step they run beside it.
 fn held_in(scratch: &Scratch) -> lock::Held {
@@ -11,11 +16,11 @@ fn held_in(scratch: &Scratch) -> lock::Held {
     places
         .write_app_checkouts(
             "steps",
-            Lane::Mac,
+            Lane::MAC,
             &[crate::lane::AppCheckout::by_person("side-1")],
         )
         .unwrap();
-    lock::take(&places, "steps", Lane::Mac).unwrap()
+    lock::take(&places, "steps", Lane::MAC).unwrap()
 }
 
 fn config() -> Config {
@@ -29,11 +34,11 @@ fn names(steps: &[Step]) -> Vec<&str> {
 #[test]
 fn no_step_named_runs_every_step_of_the_lane_in_the_order_written() {
     assert_eq!(
-        names(&chosen(&config(), Lane::Mac, &[]).unwrap()),
+        names(&chosen(&config(), Lane::MAC, &[]).unwrap()),
         vec!["one", "three"]
     );
     assert_eq!(
-        names(&chosen(&config(), Lane::Android, &[]).unwrap()),
+        names(&chosen(&config(), Lane::ANDROID, &[]).unwrap()),
         vec!["two", "four"]
     );
 }
@@ -42,7 +47,7 @@ fn no_step_named_runs_every_step_of_the_lane_in_the_order_written() {
 fn steps_named_run_in_the_order_named() {
     let named = ["three".to_string(), "one".to_string()];
     assert_eq!(
-        names(&chosen(&config(), Lane::Mac, &named).unwrap()),
+        names(&chosen(&config(), Lane::MAC, &named).unwrap()),
         vec!["three", "one"]
     );
 }
@@ -50,16 +55,16 @@ fn steps_named_run_in_the_order_named() {
 #[test]
 fn steps_named_go_to_the_lanes_they_are_in_each_in_the_order_named() {
     let named: Vec<String> = ["four", "three", "two"].map(str::to_string).to_vec();
-    assert_eq!(names_in(&config(), Lane::Mac, &named), vec!["three"]);
+    assert_eq!(names_in(&config(), Lane::MAC, &named), vec!["three"]);
     assert_eq!(
-        names_in(&config(), Lane::Android, &named),
+        names_in(&config(), Lane::ANDROID, &named),
         vec!["four", "two"]
     );
 }
 
 #[test]
 fn a_lane_refuses_a_step_of_the_other_lane() {
-    let Err(Fail::Message(message)) = chosen(&config(), Lane::Mac, &["two".to_string()]) else {
+    let Err(Fail::Message(message)) = chosen(&config(), Lane::MAC, &["two".to_string()]) else {
         panic!("refused")
     };
     assert!(
@@ -70,7 +75,7 @@ fn a_lane_refuses_a_step_of_the_other_lane() {
 
 #[test]
 fn a_step_the_config_lacks_is_refused_with_the_ones_it_has() {
-    let Err(Fail::Message(message)) = chosen(&config(), Lane::Mac, &["nope".to_string()]) else {
+    let Err(Fail::Message(message)) = chosen(&config(), Lane::MAC, &["nope".to_string()]) else {
         panic!("refused")
     };
     assert!(
@@ -85,7 +90,7 @@ fn a_ci_only_step_named_is_refused_naming_the_rule_and_left_out_of_every_step() 
         parse_config("step mac one ./one\nstep mac suite ./suite\nci-only suite\n").unwrap();
     let refused = chosen(
         &config,
-        Lane::Mac,
+        Lane::MAC,
         &["one".to_string(), "suite".to_string()],
     )
     .unwrap_err()
@@ -93,7 +98,7 @@ fn a_ci_only_step_named_is_refused_naming_the_rule_and_left_out_of_every_step() 
     assert!(refused.contains("suite"), "{refused}");
     assert!(refused.contains(ONLY_WHAT_A_CHANGE_TOUCHES), "{refused}");
     assert_eq!(
-        names(&chosen(&config, Lane::Mac, &[]).unwrap()),
+        names(&chosen(&config, Lane::MAC, &[]).unwrap()),
         vec!["one"]
     );
 }
@@ -118,7 +123,7 @@ fn steps_stop_at_the_first_failure() {
     let held = held_in(&scratch);
     let step = |name: &str, command: &[&str]| Step {
         name: name.to_string(),
-        lane: Lane::Mac,
+        lane: Lane::MAC,
         command: command.iter().map(|w| w.to_string()).collect(),
         limit: None,
         scenes: None,
@@ -174,7 +179,7 @@ fn a_step_that_fails_after_xcodebuild_said_it_cannot_start_is_the_hosts_failure(
     let said = "A required plugin failed to load. Please ensure system content is up-to-date, try running 'xcodebuild -runFirstLaunch'.";
     let step = |script: String| Step {
         name: "xcframework".to_string(),
-        lane: Lane::Mac,
+        lane: Lane::MAC,
         command: vec!["sh".to_string(), "-c".to_string(), script],
         limit: None,
         scenes: None,
@@ -245,7 +250,7 @@ fn a_step_past_its_limit_is_killed_with_what_it_started_and_fails_the_build() {
     let held = held_in(&scratch);
     let slow = Step {
         name: "slow".to_string(),
-        lane: Lane::Mac,
+        lane: Lane::MAC,
         command: ["sh", "-c", "sleep 300 & echo $! > background; wait"]
             .map(str::to_string)
             .to_vec(),
@@ -257,7 +262,7 @@ fn a_step_past_its_limit_is_killed_with_what_it_started_and_fails_the_build() {
     };
     let after = Step {
         name: "after".to_string(),
-        lane: Lane::Mac,
+        lane: Lane::MAC,
         command: vec!["touch".to_string(), "after".to_string()],
         limit: None,
         scenes: None,
@@ -416,12 +421,12 @@ fn test_and_shots_flags_follow_the_steps_each_naming_a_lane_and_an_argument() {
     assert_eq!(
         picks,
         vec![
-            Pick::Class(Lane::Mac, "FooTests".to_string()),
+            Pick::Class(Lane::MAC, "FooTests".to_string()),
             Pick::Shots(
-                Lane::Android,
+                Lane::ANDROID,
                 shots::Prefix::parse("android.welcome.").unwrap()
             ),
-            Pick::Class(Lane::Android, "BarTest".to_string()),
+            Pick::Class(Lane::ANDROID, "BarTest".to_string()),
         ]
     );
     assert_eq!(
@@ -475,7 +480,7 @@ fn a_shots_prefix_that_selects_every_shot_of_its_lane_is_refused_naming_the_rule
             .unwrap()
             .1,
         vec![Pick::Shots(
-            Lane::Mac,
+            Lane::MAC,
             shots::Prefix::parse("mac.import").unwrap()
         )]
     );
@@ -496,8 +501,8 @@ fn all_shots_asks_a_lanes_process_for_every_shot_of_the_lane_and_reads_back_the_
     assert_eq!(
         picks,
         vec![
-            all_shots(Lane::Android),
-            Pick::Shots(Lane::Mac, shots::Prefix::parse("mac.import.").unwrap()),
+            all_shots(Lane::ANDROID),
+            Pick::Shots(Lane::MAC, shots::Prefix::parse("mac.import.").unwrap()),
         ]
     );
     let words: Vec<String> = picks
@@ -520,9 +525,9 @@ fn a_lanes_full_set_of_shots_runs_through_its_shots_line_and_is_cached_as_a_shot
         parse_config("step mac one ./one\nshots mac ./s --windows --select {select}\n").unwrap();
     let steps = lane_steps(
         &config,
-        Lane::Mac,
+        Lane::MAC,
         &[],
-        &[all_shots(Lane::Mac)],
+        &[all_shots(Lane::MAC)],
         &[],
         &|_| Ok(None),
     )
@@ -546,9 +551,9 @@ fn a_lanes_full_run_of_the_checker_counts_its_scenes_for_its_limit() {
         parse_config("shots mac builds shots run --app mac --windows --select {select}\n").unwrap();
     let steps = lane_steps(
         &config,
-        Lane::Mac,
+        Lane::MAC,
         &[],
-        &[all_shots(Lane::Mac)],
+        &[all_shots(Lane::MAC)],
         &[],
         &|_| Ok(None),
     )
@@ -578,12 +583,12 @@ fn a_lane_runs_its_steps_then_each_test_line_once_and_only_the_picks_when_no_ste
     )
     .unwrap();
     let picks = [
-        Pick::Class(Lane::Mac, "A".to_string()),
-        Pick::Class(Lane::Android, "B".to_string()),
-        Pick::Shots(Lane::Mac, shots::Prefix::parse("mac.welcome.").unwrap()),
-        Pick::Class(Lane::Mac, "C".to_string()),
+        Pick::Class(Lane::MAC, "A".to_string()),
+        Pick::Class(Lane::ANDROID, "B".to_string()),
+        Pick::Shots(Lane::MAC, shots::Prefix::parse("mac.welcome.").unwrap()),
+        Pick::Class(Lane::MAC, "C".to_string()),
     ];
-    let steps = lane_steps(&config, Lane::Mac, &args(&["one"]), &picks, &[], &|_| {
+    let steps = lane_steps(&config, Lane::MAC, &args(&["one"]), &picks, &[], &|_| {
         Ok(None)
     })
     .unwrap();
@@ -592,12 +597,12 @@ fn a_lane_runs_its_steps_then_each_test_line_once_and_only_the_picks_when_no_ste
     assert_eq!(steps[1].limit(), PickKind::Class.limit());
     assert_eq!(steps[2].command, args(&["./s", "--select", "mac.welcome."]));
     assert_eq!(steps[2].limit(), PickKind::Shots.limit());
-    let only = lane_steps(&config, Lane::Mac, &[], &picks, &[], &|_| Ok(None)).unwrap();
+    let only = lane_steps(&config, Lane::MAC, &[], &picks, &[], &|_| Ok(None)).unwrap();
     assert_eq!(names(&only), vec!["test A C", "shots mac.welcome."]);
-    let android = lane_steps(&config, Lane::Android, &[], &picks, &[], &|_| Ok(None)).unwrap();
+    let android = lane_steps(&config, Lane::ANDROID, &[], &picks, &[], &|_| Ok(None)).unwrap();
     assert_eq!(names(&android), vec!["test B"]);
     assert_eq!(
-        names(&lane_steps(&config, Lane::Mac, &[], &[], &[], &|_| Ok(None)).unwrap()),
+        names(&lane_steps(&config, Lane::MAC, &[], &[], &[], &|_| Ok(None)).unwrap()),
         vec!["one"]
     );
 }
@@ -607,10 +612,10 @@ fn a_lane_without_the_line_refuses_a_pick() {
     let config = parse_config("step mac one ./one\ntest mac ./t {class}\n").unwrap();
     let Err(Fail::Message(message)) = lane_steps(
         &config,
-        Lane::Mac,
+        Lane::MAC,
         &[],
         &[Pick::Shots(
-            Lane::Mac,
+            Lane::MAC,
             shots::Prefix::parse("mac.x.").unwrap(),
         )],
         &[],
@@ -621,9 +626,9 @@ fn a_lane_without_the_line_refuses_a_pick() {
     assert!(message.contains("no `shots mac ...` line"), "{message}");
     let Err(Fail::Message(message)) = lane_steps(
         &config,
-        Lane::Android,
+        Lane::ANDROID,
         &[],
-        &[Pick::Class(Lane::Android, "A".to_string())],
+        &[Pick::Class(Lane::ANDROID, "A".to_string())],
         &[],
         &|_| Ok(None),
     ) else {
@@ -639,12 +644,12 @@ fn a_class_runs_through_the_program_its_folder_names() {
     )
     .unwrap();
     let picks = [
-        Pick::Class(Lane::Mac, "AppTests".to_string()),
-        Pick::Class(Lane::Mac, "ShotTests".to_string()),
-        Pick::Class(Lane::Mac, "ModelTests".to_string()),
-        Pick::Class(Lane::Mac, "SceneTests".to_string()),
+        Pick::Class(Lane::MAC, "AppTests".to_string()),
+        Pick::Class(Lane::MAC, "ShotTests".to_string()),
+        Pick::Class(Lane::MAC, "ModelTests".to_string()),
+        Pick::Class(Lane::MAC, "SceneTests".to_string()),
     ];
-    let steps = lane_steps(&config, Lane::Mac, &[], &picks, &[], &|class| {
+    let steps = lane_steps(&config, Lane::MAC, &[], &picks, &[], &|class| {
         Ok(matches!(class, "ShotTests" | "SceneTests").then(|| "shots".to_string()))
     })
     .unwrap();
@@ -663,10 +668,10 @@ fn a_class_runs_through_the_program_its_folder_names() {
 fn a_lane_with_one_shots_prefix_runs_it_in_one_step_that_captures() {
     let config = parse_config("shots mac ./s --select {select}\n").unwrap();
     let picks = [Pick::Shots(
-        Lane::Mac,
+        Lane::MAC,
         shots::Prefix::parse("mac.welcome.").unwrap(),
     )];
-    let steps = lane_steps(&config, Lane::Mac, &[], &picks, &[], &|_| Ok(None)).unwrap();
+    let steps = lane_steps(&config, Lane::MAC, &[], &picks, &[], &|_| Ok(None)).unwrap();
     assert_eq!(names(&steps), vec!["shots mac.welcome."]);
     assert_eq!(steps[0].command, args(&["./s", "--select", "mac.welcome."]));
 }
@@ -678,16 +683,16 @@ fn a_lane_with_several_shots_prefixes_captures_them_once_and_then_runs_each_with
     )
     .unwrap();
     let picks = [
-        Pick::Class(Lane::Mac, "A".to_string()),
-        Pick::Shots(Lane::Mac, shots::Prefix::parse("mac.welcome.").unwrap()),
-        Pick::Shots(Lane::Mac, shots::Prefix::parse("mac.settings.").unwrap()),
+        Pick::Class(Lane::MAC, "A".to_string()),
+        Pick::Shots(Lane::MAC, shots::Prefix::parse("mac.welcome.").unwrap()),
+        Pick::Shots(Lane::MAC, shots::Prefix::parse("mac.settings.").unwrap()),
         Pick::Shots(
-            Lane::Mac,
+            Lane::MAC,
             shots::Prefix::parse("mac.component.row.").unwrap(),
         ),
     ];
     let windowed = [("mac.welcome.".to_string(), Access::Exclusive)];
-    let steps = lane_steps(&config, Lane::Mac, &[], &picks, &windowed, &|_| Ok(None)).unwrap();
+    let steps = lane_steps(&config, Lane::MAC, &[], &picks, &windowed, &|_| Ok(None)).unwrap();
     assert_eq!(
         names(&steps),
         vec![
@@ -791,10 +796,10 @@ fn a_lane_with_several_shots_prefixes_captures_them_once_and_then_runs_each_with
 fn a_lane_whose_picture_folder_caches_every_shot_has_no_capture_step() {
     let config = parse_config("shots mac ./s --select {select}\n").unwrap();
     let picks = [
-        Pick::Shots(Lane::Mac, shots::Prefix::parse("mac.a.").unwrap()),
-        Pick::Shots(Lane::Mac, shots::Prefix::parse("mac.b.").unwrap()),
+        Pick::Shots(Lane::MAC, shots::Prefix::parse("mac.a.").unwrap()),
+        Pick::Shots(Lane::MAC, shots::Prefix::parse("mac.b.").unwrap()),
     ];
-    let steps = lane_steps_with(&config, Lane::Mac, &[], &picks, &[], true, &|_| Ok(None)).unwrap();
+    let steps = lane_steps_with(&config, Lane::MAC, &[], &picks, &[], true, &|_| Ok(None)).unwrap();
     assert_eq!(names(&steps), vec!["shots mac.a.", "shots mac.b."]);
     assert!(
         steps
@@ -807,11 +812,11 @@ fn a_lane_whose_picture_folder_caches_every_shot_has_no_capture_step() {
 fn a_single_prefix_read_from_a_caching_picture_folder_captures_nothing_and_takes_no_window() {
     let config = parse_config("shots mac ./s --windows --select {select}\n").unwrap();
     let picks = [Pick::Shots(
-        Lane::Mac,
+        Lane::MAC,
         shots::Prefix::parse("mac.a.").unwrap(),
     )];
     let windowed = [("mac.a.".to_string(), Access::Exclusive)];
-    let steps = lane_steps_with(&config, Lane::Mac, &[], &picks, &windowed, true, &|_| {
+    let steps = lane_steps_with(&config, Lane::MAC, &[], &picks, &windowed, true, &|_| {
         Ok(None)
     })
     .unwrap();
@@ -824,10 +829,10 @@ fn a_single_prefix_read_from_a_caching_picture_folder_captures_nothing_and_takes
 fn the_capture_of_prefixes_with_no_window_scene_opens_no_window() {
     let config = parse_config("shots mac ./s --windows --select {select}\n").unwrap();
     let picks = [
-        Pick::Shots(Lane::Mac, shots::Prefix::parse("mac.component.a.").unwrap()),
-        Pick::Shots(Lane::Mac, shots::Prefix::parse("mac.component.b.").unwrap()),
+        Pick::Shots(Lane::MAC, shots::Prefix::parse("mac.component.a.").unwrap()),
+        Pick::Shots(Lane::MAC, shots::Prefix::parse("mac.component.b.").unwrap()),
     ];
-    let steps = lane_steps(&config, Lane::Mac, &[], &picks, &[], &|_| Ok(None)).unwrap();
+    let steps = lane_steps(&config, Lane::MAC, &[], &picks, &[], &|_| Ok(None)).unwrap();
     assert!(steps.iter().all(|step| step.window.is_none()));
 }
 
@@ -835,10 +840,10 @@ fn the_capture_of_prefixes_with_no_window_scene_opens_no_window() {
 fn a_shots_line_with_the_placeholder_beside_other_text_repeats_the_word_for_each_prefix() {
     let config = parse_config("shots mac ./s --select={select}\n").unwrap();
     let picks = [
-        Pick::Shots(Lane::Mac, shots::Prefix::parse("mac.a.").unwrap()),
-        Pick::Shots(Lane::Mac, shots::Prefix::parse("mac.b.").unwrap()),
+        Pick::Shots(Lane::MAC, shots::Prefix::parse("mac.a.").unwrap()),
+        Pick::Shots(Lane::MAC, shots::Prefix::parse("mac.b.").unwrap()),
     ];
-    let steps = lane_steps(&config, Lane::Mac, &[], &picks, &[], &|_| Ok(None)).unwrap();
+    let steps = lane_steps(&config, Lane::MAC, &[], &picks, &[], &|_| Ok(None)).unwrap();
     assert_eq!(
         steps[0].command,
         args(&[
@@ -854,11 +859,11 @@ fn a_shots_line_with_the_placeholder_beside_other_text_repeats_the_word_for_each
 fn a_shots_line_that_puts_the_placeholder_after_no_flag_cannot_repeat_it_and_is_refused() {
     let config = parse_config("shots mac ./s {select}\n").unwrap();
     let picks = [
-        Pick::Shots(Lane::Mac, shots::Prefix::parse("mac.a.").unwrap()),
-        Pick::Shots(Lane::Mac, shots::Prefix::parse("mac.b.").unwrap()),
+        Pick::Shots(Lane::MAC, shots::Prefix::parse("mac.a.").unwrap()),
+        Pick::Shots(Lane::MAC, shots::Prefix::parse("mac.b.").unwrap()),
     ];
     let Err(Fail::Message(message)) =
-        lane_steps(&config, Lane::Mac, &[], &picks, &[], &|_| Ok(None))
+        lane_steps(&config, Lane::MAC, &[], &picks, &[], &|_| Ok(None))
     else {
         panic!("refused")
     };
@@ -873,12 +878,12 @@ fn a_test_run_that_opens_windows_may_take_any_checkout_and_holds_the_window_lock
     .unwrap();
     let program_of = |class: &str| Ok((class == "MenuTests").then(|| "ui".to_string()));
     let picks = [
-        Pick::Class(Lane::Mac, "MenuTests".to_string()),
-        Pick::Class(Lane::Mac, "ModelTests".to_string()),
+        Pick::Class(Lane::MAC, "MenuTests".to_string()),
+        Pick::Class(Lane::MAC, "ModelTests".to_string()),
     ];
     let steps = lane_steps(
         &config,
-        Lane::Mac,
+        Lane::MAC,
         &args(&["build"]),
         &picks,
         &[],
@@ -890,7 +895,7 @@ fn a_test_run_that_opens_windows_may_take_any_checkout_and_holds_the_window_lock
     assert_eq!(place_of(&steps), lock::Where::Anywhere);
     let signed = lane_steps(
         &config,
-        Lane::Mac,
+        Lane::MAC,
         &args(&["signed"]),
         &[],
         &[],
@@ -900,7 +905,7 @@ fn a_test_run_that_opens_windows_may_take_any_checkout_and_holds_the_window_lock
     assert_eq!(place_of(&signed), lock::Where::Here);
     let both = lane_steps(
         &config,
-        Lane::Mac,
+        Lane::MAC,
         &args(&["signed"]),
         &picks,
         &[],
@@ -922,8 +927,8 @@ fn a_shots_run_holds_the_window_lock_for_each_prefix_that_selects_a_scene_shown_
         ("mac.settings.".to_string(), Access::Exclusive),
     ];
     let run = |prefix: &str| {
-        let pick = Pick::Shots(Lane::Mac, shots::Prefix::parse(prefix).unwrap());
-        lane_steps(&config, Lane::Mac, &[], &[pick], &windowed, &|_| Ok(None)).unwrap()
+        let pick = Pick::Shots(Lane::MAC, shots::Prefix::parse(prefix).unwrap());
+        lane_steps(&config, Lane::MAC, &[], &[pick], &windowed, &|_| Ok(None)).unwrap()
     };
     for prefix in ["mac.welcome.", "mac.settings."] {
         assert!(
@@ -996,7 +1001,7 @@ fn what_was_built_is_kept_in_a_file_and_cleared_by_the_next_run() {
 fn fake(name: &str, command: &[&str], limit: Option<Duration>) -> Step {
     Step {
         name: name.to_string(),
-        lane: Lane::Mac,
+        lane: Lane::MAC,
         command: command.iter().map(|w| w.to_string()).collect(),
         limit,
         scenes: None,
@@ -1140,7 +1145,7 @@ fn each_step_is_recorded_beside_the_lock_as_the_step_that_runs() {
     let held = held_in(&scratch);
     let record = scratch
         .places()
-        .app_lock_run_file("steps", Lane::Mac, &held.checkout);
+        .app_lock_run_file("steps", Lane::MAC, &held.checkout);
     let names = format!("grep -q '\"name\":\"macos-tests\"' {}", record.display());
     run_steps(
         &scratch.dir,
@@ -1231,7 +1236,7 @@ fn a_finished_lane_run_writes_its_wait_steps_and_checkout_to_its_projects_store(
     )
     .unwrap();
     timing
-        .record(&places, "demo", Lane::Mac, "my-branch", &[], RunEnd::Passed)
+        .record(&places, "demo", Lane::MAC, "my-branch", &[], RunEnd::Passed)
         .unwrap();
     let path = store.dir.join(app_timing::DATABASE);
     let conn = rusqlite::Connection::open(&path).unwrap();
@@ -1281,7 +1286,7 @@ fn a_run_that_never_took_a_checkout_writes_nothing() {
     let places = scratch.places();
     let store = crate::lists::fixtures::make_store(&places, &["demo"]);
     Timing::start()
-        .record(&places, "demo", Lane::Mac, "my-branch", &[], RunEnd::Failed)
+        .record(&places, "demo", Lane::MAC, "my-branch", &[], RunEnd::Failed)
         .unwrap();
     assert!(
         app_timing::stats(&store.dir.join(app_timing::DATABASE), 0)
@@ -1298,7 +1303,7 @@ fn a_lane_is_told_the_ref_the_caller_named_beside_the_commit_it_builds() {
     let commit = "0123456789abcdef0123456789abcdef01234567";
     let words = lane_words(
         "bae",
-        Lane::Mac,
+        Lane::MAC,
         (commit, "my-branch"),
         (false, false),
         (&["macos".to_string()], &[]),
@@ -1359,7 +1364,7 @@ fn a_store(places: &Places) -> ShotsCache {
     ShotsCache {
         places: places.clone(),
         repo: "demo".to_string(),
-        lane: Lane::Mac,
+        lane: Lane::MAC,
         versions: crate::shots_program::VERSIONS.clone(),
         befores: Vec::new(),
         environment: ENVIRONMENT.to_string(),
@@ -1405,7 +1410,7 @@ fn shots_key(commit: &str, prefix: &str) -> shots_cache::Key {
     shots_cache::Key::new(
         "demo",
         commit,
-        Lane::Mac,
+        Lane::MAC,
         ENVIRONMENT,
         prefix,
         &crate::shots_program::VERSIONS,
@@ -1507,7 +1512,7 @@ fn app_build_returns_a_cached_failure_and_takes_no_lane_without_a_project() {
     places
         .write_app_checkouts(
             "demo",
-            Lane::Mac,
+            Lane::MAC,
             &[crate::lane::AppCheckout::by_person("side-1")],
         )
         .unwrap();
@@ -1536,7 +1541,7 @@ fn app_build_returns_a_cached_failure_and_takes_no_lane_without_a_project() {
     ));
     let commit = crate::shot_findings::commit_of(&places, "demo", "HEAD").unwrap();
     let run =
-        crate::shots_cache::lookup_older_program(&places, "demo", &commit, Lane::Mac, "mac.a.")
+        crate::shots_cache::lookup_older_program(&places, "demo", &commit, Lane::MAC, "mac.a.")
             .unwrap()
             .expect("the run is cached");
     std::fs::create_dir_all(run.report()).unwrap();
@@ -1577,7 +1582,7 @@ fn a_build_that_reuses_a_cached_run_leaves_the_passing_build_that_land_counts() 
     places
         .write_app_checkouts(
             "demo",
-            Lane::Mac,
+            Lane::MAC,
             &[crate::lane::AppCheckout::by_person("side-1")],
         )
         .unwrap();
@@ -1597,7 +1602,7 @@ fn a_build_that_reuses_a_cached_run_leaves_the_passing_build_that_land_counts() 
     let commit = resolve(&top, "HEAD").unwrap();
     let store = crate::lists::fixtures::make_store_named(&places, "demo-project", &["demo"]);
     let records = BuildRecords::open(&places, "demo").unwrap().unwrap();
-    let pick: Pick = Pick::Shots(Lane::Mac, shots::Prefix::parse("mac.a.").unwrap());
+    let pick: Pick = Pick::Shots(Lane::MAC, shots::Prefix::parse("mac.a.").unwrap());
     let record = |outcome: RunEnd, shots: StepResult| {
         let step = |name: &str, kind, result| StepRecord {
             at_merge_base: None,
@@ -1612,7 +1617,7 @@ fn a_build_that_reuses_a_cached_run_leaves_the_passing_build_that_land_counts() 
         let run = RunRecord {
             started_at: 5,
             repo: "demo".to_string(),
-            lane: Lane::Mac,
+            lane: Lane::MAC,
             checkout: "side-1".to_string(),
             built_ref: "work".to_string(),
             requested_commit: None,
@@ -1829,7 +1834,7 @@ fn a_shots_run_is_given_the_picture_folder_its_app_tree_and_its_before_runs_find
 /// The pick of the shots of the Mac's a screens.
 fn a_screens() -> Vec<Pick> {
     vec![Pick::Shots(
-        Lane::Mac,
+        Lane::MAC,
         shots::Prefix::parse("mac.a.").unwrap(),
     )]
 }
@@ -1847,10 +1852,10 @@ fn a_lanes_shots_runs_compare_with_the_cached_run_of_the_merge_base_and_a_run_of
             &places,
             &top,
             "demo",
-            Lane::Mac,
+            Lane::MAC,
             ENVIRONMENT,
             commit,
-            picture_tree(&top, commit, &config, Lane::Mac, ENVIRONMENT).unwrap(),
+            picture_tree(&top, commit, &config, Lane::MAC, ENVIRONMENT).unwrap(),
             &a_screens(),
             false,
             false,
@@ -1894,17 +1899,17 @@ fn a_prefix_that_starts_no_shot_declared_at_the_merge_base_compares_with_no_run(
     crate::testing::git(&top, &["commit", "-q", "--allow-empty", "-m", "Work"]);
     let work = resolve(&top, "HEAD").unwrap();
     let new = [Pick::Shots(
-        Lane::Mac,
+        Lane::MAC,
         shots::Prefix::parse("mac.new.").unwrap(),
     )];
     let store = ShotsCache::of(
         &places,
         &top,
         "demo",
-        Lane::Mac,
+        Lane::MAC,
         ENVIRONMENT,
         &work,
-        picture_tree(&top, &work, &config, Lane::Mac, ENVIRONMENT).unwrap(),
+        picture_tree(&top, &work, &config, Lane::MAC, ENVIRONMENT).unwrap(),
         &new,
         false,
         false,
@@ -1922,7 +1927,7 @@ fn a_prefix_that_starts_no_shot_declared_at_the_merge_base_compares_with_no_run(
     assert_eq!(store.bases, [("mac.new.".to_string(), BaseRun::NotNeeded)]);
     let step = Step {
         name: "shots mac.new.".to_string(),
-        lane: Lane::Mac,
+        lane: Lane::MAC,
         command: vec!["builds".to_string(), "shots".to_string(), "run".to_string()],
         limit: None,
         scenes: None,
@@ -1949,7 +1954,7 @@ fn a_cached_run_made_in_another_environment_is_a_commits_own_run_and_is_printed(
     places
         .write_app_checkouts(
             "demo",
-            Lane::Mac,
+            Lane::MAC,
             &[crate::lane::AppCheckout::by_person("side-1")],
         )
         .unwrap();
@@ -1980,7 +1985,7 @@ fn a_cached_run_made_in_another_environment_is_a_commits_own_run_and_is_printed(
         "the cached verdict applies whatever environment made it"
     );
     let cached =
-        shot_findings::cached_run(&places, "demo", "HEAD", Lane::Mac, "mac.a.", program).unwrap();
+        shot_findings::cached_run(&places, "demo", "HEAD", Lane::MAC, "mac.a.", program).unwrap();
     assert_eq!(cached.key.environment, "25G241-27B52");
 }
 
@@ -2079,26 +2084,26 @@ fn the_picture_folder_caches_the_shots_of_the_prefixes_its_marks_cover_for_the_a
     shots_repo(&top);
     let commit = resolve(&top, "HEAD").unwrap();
     let config = parse_config(&std::fs::read_to_string(top.join(CONFIG)).unwrap()).unwrap();
-    let source_tree = crate::app_tree::of(&top, &commit, &config, Lane::Mac).unwrap();
-    let tree = picture_tree(&top, &commit, &config, Lane::Mac, ENVIRONMENT).unwrap();
+    let source_tree = crate::app_tree::of(&top, &commit, &config, Lane::MAC).unwrap();
+    let tree = picture_tree(&top, &commit, &config, Lane::MAC, ENVIRONMENT).unwrap();
     assert_eq!(
         tree,
         crate::app_tree::in_environment(&source_tree, ENVIRONMENT)
     );
     let cached = |tree, prefixes: &[&str]| {
-        let pictures = shots_cache::AppPictures::of(&places, "demo", Lane::Mac, tree);
+        let pictures = shots_cache::AppPictures::of(&places, "demo", Lane::MAC, tree);
         let prefixes: Vec<_> = prefixes
             .iter()
             .map(|prefix| shots::Prefix::parse(prefix).unwrap())
             .collect();
-        let query = capture_query(&config, Lane::Mac, &prefixes).unwrap();
+        let query = capture_query(&config, Lane::MAC, &prefixes).unwrap();
         pictures.while_held(Some(&query), |cached| cached).unwrap()
     };
     assert!(!cached(&tree, &["mac.a."]));
     let marks = shots::CaptureMarks::of(&shots_cache::app_picture_tree(
         &places,
         "demo",
-        Lane::Mac,
+        Lane::MAC,
         &tree,
     ));
     marks
@@ -2275,7 +2280,7 @@ fn an_explicit_step_plan_pins_the_commit_its_ref_named() {
     places
         .write_app_checkouts(
             "demo",
-            Lane::Mac,
+            Lane::MAC,
             &[crate::lane::AppCheckout::by_person("side-1")],
         )
         .unwrap();
@@ -2286,5 +2291,5 @@ fn an_explicit_step_plan_pins_the_commit_its_ref_named() {
     let plan = explicit_plan(&places, "demo", "work", &["macos".to_string()], Vec::new()).unwrap();
     assert_eq!(plan.commit, resolve(&top, "work").unwrap());
     assert_eq!(plan.commit.len(), 40);
-    assert_eq!(plan.lanes, [(Lane::Mac, vec!["macos".to_string()])]);
+    assert_eq!(plan.lanes, [(Lane::MAC, vec!["macos".to_string()])]);
 }

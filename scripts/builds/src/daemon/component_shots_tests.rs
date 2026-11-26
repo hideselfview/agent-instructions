@@ -3,6 +3,7 @@ use crate::shots_cache::{Key, stage};
 use crate::testing::Scratch;
 use serde_json::Value;
 
+const LANES: [Lane; 2] = [Lane::MAC, Lane::ANDROID];
 const COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
 
 /// Keeps a run of the demo repo's COMMIT on <lane> under <prefix>, by this
@@ -92,12 +93,12 @@ fn a_component_s_rows_show_the_cached_run_s_pairs_and_findings_in_the_preview_s_
     let places = scratch.places();
     cache_run(
         &places,
-        Lane::Mac,
+        Lane::MAC,
         "mac.component.",
         checkbox_findings(),
         &["mac.component.checkbox.off"],
     );
-    let shots = shots(&places, "demo", COMMIT, "MacCheckbox", &no_capture).unwrap();
+    let shots = shots(&places, "demo", COMMIT, "MacCheckbox", &LANES, &no_capture).unwrap();
     let json = serde_json::to_value(&shots).unwrap();
     let run = &json["platforms"][0]["run"];
     assert_eq!(json["platforms"].as_array().unwrap().len(), 1, "{json}");
@@ -124,7 +125,7 @@ fn a_component_s_rows_show_the_cached_run_s_pairs_and_findings_in_the_preview_s_
 fn a_component_both_platforms_share_has_a_platform_for_each_lane() {
     let scratch = Scratch::new("component-shots-shared");
     let places = scratch.places();
-    let shots = shots(&places, "demo", COMMIT, "Artwork", &no_capture).unwrap();
+    let shots = shots(&places, "demo", COMMIT, "Artwork", &LANES, &no_capture).unwrap();
     let lanes: Vec<(&str, &str)> = shots
         .platforms
         .iter()
@@ -146,13 +147,13 @@ fn a_run_of_another_commit_or_shots_version_shows_no_run() {
     let places = scratch.places();
     cache_run(
         &places,
-        Lane::Mac,
+        Lane::MAC,
         "mac.component.checkbox.",
         checkbox_findings(),
         &[],
     );
     let other = "f".repeat(40);
-    let shots = shots(&places, "demo", &other, "MacCheckbox", &no_capture).unwrap();
+    let shots = shots(&places, "demo", &other, "MacCheckbox", &LANES, &no_capture).unwrap();
     assert!(shots.platforms[0].run.is_none());
 }
 
@@ -176,7 +177,7 @@ fn a_shots_run_shows_while_it_runs_and_once_it_ended_for_the_page_s_commit_only(
     let other = "f".repeat(40);
     let shown = |reference: &str, phase| {
         let capture = |_: Lane, _: &str| Some(page(reference, phase));
-        shots(&places, "demo", COMMIT, "MacCheckbox", &capture)
+        shots(&places, "demo", COMMIT, "MacCheckbox", &LANES, &capture)
             .unwrap()
             .platforms[0]
             .capture
@@ -197,7 +198,7 @@ fn pruning_keeps_an_old_run_until_the_dashboard_finishes_reading_it() {
     let tool = scratch.tool(0);
     let places = &tool.places;
     let prefix = "mac.component.checkbox.";
-    let cached = cache_run(places, Lane::Mac, prefix, checkbox_findings(), &[]);
+    let cached = cache_run(places, Lane::MAC, prefix, checkbox_findings(), &[]);
     let run = &cached.folder;
     crate::testing::age(&run.join(shots_cache::RUN_FILE), 30);
 
@@ -206,12 +207,12 @@ fn pruning_keeps_an_old_run_until_the_dashboard_finishes_reading_it() {
         places,
         "demo",
         COMMIT,
-        Lane::Mac,
+        Lane::MAC,
         prefix,
         &VERSIONS,
         |cached| {
             prune()?;
-            read_run(cached, "MacCheckbox", Lane::Mac, prefix).map(Some)
+            read_run(cached, "MacCheckbox", Lane::MAC, prefix).map(Some)
         },
     )
     .unwrap()
@@ -231,12 +232,12 @@ fn a_cached_run_s_board_and_shot_pictures_are_read_by_scene() {
     let places = scratch.places();
     cache_run(
         &places,
-        Lane::Mac,
+        Lane::MAC,
         "mac.component.",
         checkbox_findings(),
         &["mac.component.checkbox.off"],
     );
-    let read = |scene: &str, side| picture(&places, "demo", COMMIT, Lane::Mac, scene, side);
+    let read = |scene: &str, side| picture(&places, "demo", COMMIT, Lane::MAC, scene, side);
     assert_eq!(
         read("mac.component.checkbox.off", Side::Board).unwrap(),
         Some(b"mac.component.checkbox.off board".to_vec())
@@ -259,7 +260,7 @@ fn a_name_that_is_no_component_s_is_refused() {
     let places = scratch.places();
     for name in ["row", "../MacRow", ""] {
         assert!(
-            shots(&places, "demo", COMMIT, name, &no_capture).is_err(),
+            shots(&places, "demo", COMMIT, name, &LANES, &no_capture).is_err(),
             "{name:?}"
         );
     }
@@ -319,8 +320,8 @@ fn a_cached_run_that_lists_no_rows_of_the_component_fails_the_read() {
     let places = scratch.places();
     let mut findings = checkbox_findings();
     findings["components"] = json!([]);
-    cache_run(&places, Lane::Mac, "mac.component.", findings, &[]);
-    let error = shots(&places, "demo", COMMIT, "MacCheckbox", &no_capture)
+    cache_run(&places, Lane::MAC, "mac.component.", findings, &[]);
+    let error = shots(&places, "demo", COMMIT, "MacCheckbox", &LANES, &no_capture)
         .unwrap_err()
         .text();
     assert!(
@@ -335,8 +336,8 @@ fn a_listed_row_whose_shot_is_not_the_component_s_fails_the_read() {
     let places = scratch.places();
     let mut findings = checkbox_findings();
     findings["components"][0]["rows"] = json!(["mac.component.row.plain"]);
-    cache_run(&places, Lane::Mac, "mac.component.", findings, &[]);
-    let error = shots(&places, "demo", COMMIT, "MacCheckbox", &no_capture)
+    cache_run(&places, Lane::MAC, "mac.component.", findings, &[]);
+    let error = shots(&places, "demo", COMMIT, "MacCheckbox", &LANES, &no_capture)
         .unwrap_err()
         .text();
     assert!(

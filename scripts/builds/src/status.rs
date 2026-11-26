@@ -59,8 +59,10 @@ fn is_repo_dir(dir: &Path) -> Result<bool> {
     if !dir.is_dir() || dir.is_symlink() {
         return Ok(false);
     }
-    if Lane::ALL.into_iter().any(|lane| {
-        dir.join(lane.checkouts_file_name()).is_file() || dir.join(lane.locks_dir_name()).is_dir()
+    if std::fs::read_dir(dir).is_ok_and(|entries| {
+        entries
+            .filter_map(|entry| entry.ok())
+            .any(|entry| crate::lane::is_lane_file(&entry.file_name().to_string_lossy()))
     }) {
         return Ok(true);
     }
@@ -850,7 +852,7 @@ fn checkout_json(tool: &Tool, root: &Root, with_folders: bool) -> Result<Checkou
 /// <repo>'s lanes that have an app checkout recorded or a lock.
 pub fn lanes_of(places: &Places, repo: &str) -> Result<Vec<LaneJson>> {
     let mut lanes = Vec::new();
-    for lane in Lane::ALL {
+    for lane in crate::repo_lanes::with_files(places, repo)? {
         let recorded = places.app_checkouts_recorded(repo, lane)?;
         let added_by_builds = recorded
             .iter()

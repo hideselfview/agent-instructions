@@ -51,7 +51,7 @@ fn claimed(who: &str) -> Claim {
 fn lock(checkout: &str, minutes: i64, from: &str, running: &[&str]) -> LockHealth {
     LockHealth {
         repo: "bae".into(),
-        lane: Lane::Mac,
+        lane: Lane::MAC,
         checkout: checkout.into(),
         path: "/v/bae/app.locks/x".into(),
         holder: Some(Holder {
@@ -96,7 +96,7 @@ fn process(name: &str) -> ProcessPage {
 /// <queue>, and a record of each lane they name, in which builds added and
 /// removed nothing.
 fn repo(checkouts: Vec<CheckoutPage>, locks: Vec<LockHealth>, queue: Vec<Queued>) -> RepoPage {
-    let lanes = crate::lane::Lane::ALL
+    let lanes = [Lane::MAC, Lane::ANDROID]
         .into_iter()
         .map(|lane| crate::status::LaneJson {
             lane: lane.word().to_string(),
@@ -123,7 +123,7 @@ fn repo(checkouts: Vec<CheckoutPage>, locks: Vec<LockHealth>, queue: Vec<Queued>
         locks,
         queues: vec![LaneQueue {
             repo: "bae".into(),
-            lane: Lane::Mac,
+            lane: Lane::MAC,
             queue,
         }],
         runs: Vec::new(),
@@ -356,7 +356,7 @@ fn a_branch_with_a_running_or_queued_app_build_is_found_in_its_lane() {
     assert_eq!(
         flat(build_for(&page.locks, &page.queues, "mac-alerts")),
         Some(app_build(
-            Lane::Mac,
+            Lane::MAC,
             true,
             "builds in side-1 for 6 minutes after waiting 25 minutes, running macos for 4 minutes, asked for macos"
         ))
@@ -364,7 +364,7 @@ fn a_branch_with_a_running_or_queued_app_build_is_found_in_its_lane() {
     assert_eq!(
         flat(build_for(&page.locks, &page.queues, "reads-import-count")),
         Some(app_build(
-            Lane::Mac,
+            Lane::MAC,
             false,
             "place 2 in the queue, waiting 1 minute, asked for every step"
         ))
@@ -380,7 +380,7 @@ fn the_lanes_real_queue_and_command_lines_name_each_waiting_branch() {
     use crate::lane::Lane;
     use crate::queue::Queue;
     let scratch = crate::testing::Scratch::new("app-builds-real-queue");
-    let dir = scratch.dir.join(Lane::Mac.queue_dir_name());
+    let dir = scratch.dir.join(Lane::MAC.queue_dir_name());
     std::fs::create_dir_all(&dir).unwrap();
     for ticket in ["10239-1", "26684-1", "29988-1", "31898-1", "59768-1"] {
         std::fs::write(dir.join(ticket), "").unwrap();
@@ -391,12 +391,12 @@ fn the_lanes_real_queue_and_command_lines_name_each_waiting_branch() {
     )
     .unwrap();
     std::fs::write(
-        scratch.dir.join(Lane::Mac.checkouts_file_name()),
+        scratch.dir.join(Lane::MAC.checkouts_file_name()),
         "side-1\nside-14\n",
     )
     .unwrap();
     // The first two tickets are the builds that hold the two locks.
-    let locks = scratch.dir.join(Lane::Mac.locks_dir_name());
+    let locks = scratch.dir.join(Lane::MAC.locks_dir_name());
     std::fs::create_dir_all(&locks).unwrap();
     let _held: Vec<_> = [("side-1", 31898), ("side-14", 59768)]
         .into_iter()
@@ -441,7 +441,7 @@ fn the_lanes_real_queue_and_command_lines_name_each_waiting_branch() {
             ),
         ),
     ];
-    let waiting = Queue::in_repo_dir(&scratch.dir, Lane::Mac)
+    let waiting = Queue::in_repo_dir(&scratch.dir, Lane::MAC)
         .waiting()
         .unwrap();
     assert_eq!(
@@ -469,7 +469,7 @@ fn the_lanes_real_queue_and_command_lines_name_each_waiting_branch() {
     assert_eq!(
         flat(build_for(&page.locks, &page.queues, "mac-alerts")),
         Some(app_build(
-            Lane::Mac,
+            Lane::MAC,
             false,
             "place 1 in the queue, waiting 20 minutes, asked for macos macos-tests"
         ))
@@ -486,7 +486,7 @@ fn the_lanes_real_queue_and_command_lines_name_each_waiting_branch() {
     assert_eq!(
         flat(build_for(&page.locks, &page.queues, "reads-auto-picks")),
         Some(app_build(
-            Lane::Mac,
+            Lane::MAC,
             true,
             "builds in side-1, asked for macos macos-tests"
         ))

@@ -29,6 +29,7 @@ pub struct Picked {
 pub fn picked(
     globs: &Globs,
     changed: &[String],
+    lanes: &[Lane],
     declared: &mut dyn FnMut(Lane) -> Result<ShotNames>,
 ) -> Result<Picked> {
     let drawn: Vec<String> = changed
@@ -46,7 +47,10 @@ pub fn picked(
         match PlaceKind::of(place) {
             PlaceKind::Board => {
                 let scene = board_scene(place);
-                let lane = scene.and_then(|scene| Lane::parse(scene.split('.').next()?));
+                let lane = scene.and_then(|scene| {
+                    let first = scene.split('.').next()?;
+                    lanes.iter().copied().find(|lane| lane.word() == first)
+                });
                 match (scene, lane) {
                     (Some(scene), Some(lane)) if declares(lane, scene)? => {
                         prefixes.push(scene.to_string());
@@ -60,9 +64,10 @@ pub fn picked(
                     left_out.push(format!("{place} is no component's folder"));
                     continue;
                 };
-                let lanes: Vec<Lane> = Lane::ALL
-                    .into_iter()
-                    .filter(|lane| key.platform.is_none_or(|own| own == lane.word()))
+                let lanes: Vec<Lane> = lanes
+                    .iter()
+                    .copied()
+                    .filter(|lane| key.platform.is_none_or(|own| own == lane.platform().word()))
                     .collect();
                 let before = prefixes.len();
                 for lane in lanes {

@@ -6,7 +6,6 @@ use serde::Serialize;
 
 use super::cards::{ItemWait, QueuedBuild};
 use super::model::{CheckoutPage, RepoPage};
-use crate::fail;
 use crate::fail::Result;
 use crate::health::{Holder, LockHealth};
 use crate::holder_run::RunTimes;
@@ -415,8 +414,29 @@ fn waiting_in(repo: &RepoPage, lane: &str) -> Vec<Waiting> {
 /// for a lane with checkouts whose record (`RepoPage::lanes`) the page lacks.
 pub fn build(repo: &RepoPage) -> Result<Vec<AppLane>> {
     let mut found: Vec<AppLane> = Vec::new();
-    for lane in crate::lane::Lane::ALL {
-        let word = lane.word();
+    // Every lane the page shows a checkout or a lock of, and every lane it
+    // has a record of, in the platforms' order.
+    let mut words: Vec<&str> = repo
+        .lanes
+        .iter()
+        .map(|recorded| recorded.lane.as_str())
+        .chain(repo.locks.iter().map(|lock| lock.lane.word()))
+        .chain(
+            repo.checkouts
+                .iter()
+                .filter(|c| c.live && c.app_checkout)
+                .filter_map(|c| c.app_lane.as_deref()),
+        )
+        .collect();
+    words.sort_by_key(|word| {
+        (
+            crate::lane::Lane::parse(word).is_none(),
+            crate::lane::Lane::parse(word),
+            *word,
+        )
+    });
+    words.dedup();
+    for word in words {
         let mut checkouts: Vec<AppBuild> = repo
             .checkouts
             .iter()
@@ -427,14 +447,16 @@ pub fn build(repo: &RepoPage) -> Result<Vec<AppLane>> {
         checkouts.extend(
             repo.locks
                 .iter()
-                .filter(|l| l.lane == lane && crate::app_remote::split(&l.checkout).is_some())
+                .filter(|l| {
+                    l.lane.word() == word && crate::app_remote::split(&l.checkout).is_some()
+                })
                 .map(|l| remote_row(repo, l)),
         );
         if checkouts.is_empty() {
             continue;
         }
         let Some(recorded) = repo.lanes.iter().find(|recorded| recorded.lane == word) else {
-            fail!(
+            crate::fail!(
                 "the page shows checkouts of {}'s {word} lane, but it read no record of that lane's checkouts",
                 repo.name
             );

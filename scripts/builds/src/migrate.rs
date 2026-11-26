@@ -1,18 +1,23 @@
 //! Moves from an older shape of what the tool stores, done in place by
 //! `builds install`.
 //!
-//! The first is the move from a lane's one app checkout to a set of them, done in place by
-//! `builds install`: each repo's `app-checkout` file becomes `app-checkouts`
-//! and its `app.lock` becomes `app.locks/<checkout>` (a hard link to the same
-//! file, so the new path and the old are one lock), likewise for the android
-//! lane's `app-android-*`. The queue keeps its folder and format.
+//! The first is the move from a lane's one app checkout to a set of them: each
+//! repo's `app-checkout` file becomes the set and its `app.lock` becomes
+//! `app.locks/<checkout>` (a hard link to the same file, so the new path and
+//! the old are one lock), likewise for the android lane's `app-android-*`. The
+//! queue keeps its folder and format.
 //!
-//! A `builds` from before the move reads the old names, and a build running
-//! under it holds the old lock or waits in the old queue. The move does not
-//! wait for those builds and does not interrupt them: they and the new `builds`
-//! share the lock (one file under two names) and the queue, so they take turns
-//! as before. The old names are removed once nothing uses them, which is the
-//! first move run after the builds end (`builds install` runs it each time).
+//! The second is the move of the mac lane's files to the app-named form that
+//! every lane has (`lane.rs`): `app-checkouts`, `app-checkouts-removed`,
+//! `app.locks` and `app.queue` become `app-mac-checkouts`,
+//! `app-mac-checkouts-removed`, `app-mac.locks` and `app-mac.queue`. Folders
+//! keep their files, and so keep the locks that running builds hold.
+//!
+//! A `builds` from before a move reads the old names, and a build running
+//! under it holds the old lock or waits in the old queue. A move does not
+//! interrupt those builds: a lane with a build running or waiting under the
+//! old names keeps them, and the next `builds install` moves it (`builds
+//! install` runs each move each time).
 
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
@@ -40,17 +45,19 @@ pub fn migrate_app_files(places: &Places) -> Result<()> {
         if name.starts_with('.') || !repo.path().is_dir() {
             continue;
         }
-        for lane in Lane::ALL {
+        for lane in [Lane::MAC, Lane::ANDROID] {
             migrate_lane(places, &name, lane)?;
         }
+        move_mac_files(places, &name)?;
     }
     Ok(())
 }
 
 fn migrate_lane(places: &Places, repo: &str, lane: Lane) -> Result<()> {
     let dir = places.root.join(repo);
-    let old_file = dir.join(lane.legacy_checkout_file_name());
-    let old_lock = dir.join(lane.legacy_lock_file_name());
+    let tag = if lane == Lane::MAC { "" } else { "-android" };
+    let old_file = dir.join(format!("app{tag}-checkout"));
+    let old_lock = dir.join(format!("app{tag}.lock"));
     if !old_file.exists() && !old_lock.exists() {
         return Ok(());
     }
@@ -93,7 +100,7 @@ fn migrate_lane(places: &Places, repo: &str, lane: Lane) -> Result<()> {
             )?;
         }
     }
-    let queue = dir.join(lane.queue_dir_name());
+    let queue = dir.join(format!("app{tag}.queue"));
     if (old_lock.exists() && is_held(&old_lock)?) || waiting_in(&queue)? {
         crate::text::note(format!(
             "{repo}'s {} lane has builds from before the move running or waiting; its old file names go the next time install runs with none",
@@ -113,6 +120,56 @@ fn migrate_lane(places: &Places, repo: &str, lane: Lane) -> Result<()> {
         "moved {repo}'s {} app checkout to {}",
         lane.word(),
         places.app_checkouts_file(repo, lane).display()
+    ));
+    Ok(())
+}
+
+/// The mac lane's files before they took the app-named form, and after.
+const MAC_FILES: [(&str, &str); 4] = [
+    ("app-checkouts", "app-mac-checkouts"),
+    ("app-checkouts-removed", "app-mac-checkouts-removed"),
+    ("app.locks", "app-mac.locks"),
+    ("app.queue", "app-mac.queue"),
+];
+
+/// Renames <repo>'s mac lane files to the app-named form. A lane whose old
+/// lock or old queue is in use keeps its old names until a later run.
+fn move_mac_files(places: &Places, repo: &str) -> Result<()> {
+    let dir = places.root.join(repo);
+    if !MAC_FILES.iter().any(|(old, _)| dir.join(old).exists()) {
+        return Ok(());
+    }
+    let locks = dir.join("app.locks");
+    let mut in_use = waiting_in(&dir.join("app.queue"))?;
+    if locks.is_dir() {
+        for entry in std::fs::read_dir(&locks).context(|| format!("listing {}", locks.display()))? {
+            let entry = entry.context(|| format!("listing {}", locks.display()))?;
+            in_use |= is_held(&entry.path())?;
+        }
+    }
+    if in_use {
+        crate::text::note(format!(
+            "{repo}'s mac app has builds running or waiting under its old file names; install moves the files the next time it runs with none"
+        ));
+        return Ok(());
+    }
+    for (old, new) in MAC_FILES {
+        let (old, new) = (dir.join(old), dir.join(new));
+        if !old.exists() {
+            continue;
+        }
+        if new.exists() {
+            fail!(
+                "{} and {} both exist; remove the one that holds nothing",
+                old.display(),
+                new.display()
+            );
+        }
+        std::fs::rename(&old, &new)
+            .context(|| format!("renaming {} to {}", old.display(), new.display()))?;
+    }
+    crate::text::note(format!(
+        "moved {repo}'s mac app files to their app-named form"
     ));
     Ok(())
 }

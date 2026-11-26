@@ -9,7 +9,7 @@ const SETTLE: Duration = Duration::from_millis(300);
 
 /// The lane's queue with one app checkout, so one build goes at a time.
 fn queue(scratch: &Scratch) -> Queue {
-    let queue = Queue::in_repo_dir(&scratch.dir, Lane::Mac);
+    let queue = Queue::in_repo_dir(&scratch.dir, Lane::MAC);
     set_slots(&queue, 1);
     queue
 }
@@ -365,7 +365,7 @@ fn with_a_lock_free_a_waiter_moves_in_behind_the_builds_that_hold_one() {
 
 /// The lane's queue with the checkouts <entries>, in the order given.
 fn queue_with(scratch: &Scratch, entries: &[&str]) -> Queue {
-    let queue = Queue::in_repo_dir(&scratch.dir, Lane::Mac);
+    let queue = Queue::in_repo_dir(&scratch.dir, Lane::MAC);
     let text: String = entries.iter().map(|entry| format!("{entry}\n")).collect();
     std::fs::write(&queue.checkouts_file, text).unwrap();
     queue

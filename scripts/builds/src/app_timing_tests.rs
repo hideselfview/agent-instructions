@@ -49,7 +49,7 @@ const NOW: i64 = 1_000_000;
 fn cached_comparisons_do_not_change_when_a_build_without_steps_ended() {
     let scratch = Scratch::new("timing-reused-comparison");
     let path = store(&scratch);
-    let mut built = run(NOW, Lane::Mac, 3_000, RunEnd::Failed, Vec::new());
+    let mut built = run(NOW, Lane::MAC, 3_000, RunEnd::Failed, Vec::new());
     built.built_commit = Some(BuiltCommit {
         sha: "0123456789abcdef0123456789abcdef01234567".into(),
         reused_shots: vec![shots::Prefix::parse("mac.a.").unwrap()],
@@ -57,7 +57,7 @@ fn cached_comparisons_do_not_change_when_a_build_without_steps_ended() {
     record(&path, &built).unwrap();
     assert_eq!(read_run(&path).unwrap(), built);
     assert_eq!(
-        last_ends(&path, Lane::Mac).unwrap(),
+        last_ends(&path, Lane::MAC).unwrap(),
         [("side-1".into(), NOW + 3)]
     );
 }
@@ -66,13 +66,13 @@ fn cached_comparisons_do_not_change_when_a_build_without_steps_ended() {
 fn a_run_keeps_the_load_of_its_checkouts_host() {
     let scratch = Scratch::new("timing-load");
     let path = store(&scratch);
-    let mut loaded = run(NOW, Lane::Mac, 0, RunEnd::Passed, Vec::new());
+    let mut loaded = run(NOW, Lane::MAC, 0, RunEnd::Passed, Vec::new());
     loaded.load = Some(crate::host::Load {
         cores: 10,
         one_minute: 25.5,
     });
     record(&path, &loaded).unwrap();
-    record(&path, &run(NOW, Lane::Mac, 0, RunEnd::Passed, Vec::new())).unwrap();
+    record(&path, &run(NOW, Lane::MAC, 0, RunEnd::Passed, Vec::new())).unwrap();
     let conn = crate::db::open_reader(&path).unwrap().unwrap();
     let loads: Vec<(Option<i64>, Option<f64>)> = conn
         .prepare("SELECT cores, load FROM app_build_runs ORDER BY id")
@@ -89,10 +89,10 @@ fn a_run_keeps_the_commit_it_built_and_a_run_with_none_has_no_row() {
     let scratch = Scratch::new("timing-commit");
     let path = store(&scratch);
     let commit = "0123456789abcdef0123456789abcdef01234567";
-    let mut built = run(NOW, Lane::Mac, 0, RunEnd::Passed, Vec::new());
+    let mut built = run(NOW, Lane::MAC, 0, RunEnd::Passed, Vec::new());
     record_checkout(&mut built, commit.to_string());
     record(&path, &built).unwrap();
-    record(&path, &run(NOW, Lane::Mac, 0, RunEnd::Passed, Vec::new())).unwrap();
+    record(&path, &run(NOW, Lane::MAC, 0, RunEnd::Passed, Vec::new())).unwrap();
     let conn = crate::db::open_reader(&path).unwrap().unwrap();
     let commits: Vec<(i64, Option<String>)> = conn
         .prepare("SELECT r.id, c.built_commit FROM app_build_runs r LEFT JOIN app_build_run_commit c ON c.run_id = r.id ORDER BY r.id")
@@ -119,19 +119,19 @@ fn passing_runs_of_a_lane_come_back_newest_first_with_their_passed_steps() {
     let passing = |name: &str| step(name, StepKind::Step, NOW, 1, StepResult::Passed);
     record(
         &path,
-        &built("a", Lane::Mac, RunEnd::Passed, vec![passing("macos")]),
+        &built("a", Lane::MAC, RunEnd::Passed, vec![passing("macos")]),
     )
     .unwrap();
     record(
         &path,
-        &built("b", Lane::Mac, RunEnd::Failed, vec![passing("macos")]),
+        &built("b", Lane::MAC, RunEnd::Failed, vec![passing("macos")]),
     )
     .unwrap();
     record(
         &path,
         &built(
             "e",
-            Lane::Mac,
+            Lane::MAC,
             RunEnd::Stopped,
             vec![
                 passing("macos"),
@@ -142,19 +142,19 @@ fn passing_runs_of_a_lane_come_back_newest_first_with_their_passed_steps() {
     .unwrap();
     record(
         &path,
-        &built("c", Lane::Android, RunEnd::Passed, vec![passing("android")]),
+        &built("c", Lane::ANDROID, RunEnd::Passed, vec![passing("android")]),
     )
     .unwrap();
     record(
         &path,
-        &run(NOW, Lane::Mac, 0, RunEnd::Passed, vec![passing("macos")]),
+        &run(NOW, Lane::MAC, 0, RunEnd::Passed, vec![passing("macos")]),
     )
     .unwrap();
     record(
         &path,
         &built(
             "d",
-            Lane::Mac,
+            Lane::MAC,
             RunEnd::Passed,
             vec![
                 passing("macos"),
@@ -165,7 +165,7 @@ fn passing_runs_of_a_lane_come_back_newest_first_with_their_passed_steps() {
     )
     .unwrap();
     let conn = crate::db::open_reader(&path).unwrap().unwrap();
-    let runs = passed_runs(&conn, "bae", Lane::Mac, &path, Some("branch"), &[]).unwrap();
+    let runs = passed_runs(&conn, "bae", Lane::MAC, &path, Some("branch"), &[]).unwrap();
     assert_eq!(
         runs,
         vec![
@@ -190,7 +190,7 @@ fn a_branchs_passing_build_is_found_by_its_name_or_its_commit_whatever_ran_since
     let path = store(&scratch);
     let passing = |name: &str| step(name, StepKind::Step, NOW, 1, StepResult::Passed);
     let build = |at: i64, named: &str, commit: &str| {
-        let mut run = run(at, Lane::Mac, 0, RunEnd::Passed, vec![passing("macos")]);
+        let mut run = run(at, Lane::MAC, 0, RunEnd::Passed, vec![passing("macos")]);
         run.built_ref = named.to_string();
         record_checkout(&mut run, commit.repeat(40));
         run
@@ -207,10 +207,10 @@ fn a_branchs_passing_build_is_found_by_its_name_or_its_commit_whatever_ran_since
             .map(|run| run.commit.sha[..1].to_string())
             .collect()
     };
-    let found = passed_runs(&conn, "bae", Lane::Mac, &path, Some("branch"), &[]).unwrap();
+    let found = passed_runs(&conn, "bae", Lane::MAC, &path, Some("branch"), &[]).unwrap();
     assert_eq!(commits(found), ["a"]);
     let own = ["b".repeat(40)];
-    let found = passed_runs(&conn, "bae", Lane::Mac, &path, Some("branch"), &own).unwrap();
+    let found = passed_runs(&conn, "bae", Lane::MAC, &path, Some("branch"), &own).unwrap();
     assert_eq!(commits(found), ["b", "a"]);
 }
 
@@ -221,7 +221,7 @@ fn a_commits_passing_shots_run_is_found_whatever_ran_since() {
     let scratch = Scratch::new("timing-passed-shots");
     let path = store(&scratch);
     let build = |at: i64, commit: &str, steps: Vec<StepRecord>| {
-        let mut run = run(at, Lane::Mac, 0, RunEnd::Passed, steps);
+        let mut run = run(at, Lane::MAC, 0, RunEnd::Passed, steps);
         record_checkout(&mut run, commit.repeat(40));
         run
     };
@@ -237,7 +237,7 @@ fn a_commits_passing_shots_run_is_found_whatever_ran_since() {
     };
     let ran = |commit: &str, prefix: &str| {
         records
-            .has_passing_run(Lane::Mac, &commit.repeat(40), |run| run.ran_shots(prefix))
+            .has_passing_run(Lane::MAC, &commit.repeat(40), |run| run.ran_shots(prefix))
             .unwrap()
     };
     assert!(ran("a", "mac.a.") && !ran("a", "mac.b.") && !ran("b", "mac.a."));
@@ -251,7 +251,7 @@ fn a_recorded_run_comes_back_in_the_figures_with_its_steps() {
         &path,
         &run(
             NOW - 100,
-            Lane::Mac,
+            Lane::MAC,
             2_000,
             RunEnd::Passed,
             vec![
@@ -284,8 +284,8 @@ fn a_recorded_run_comes_back_in_the_figures_with_its_steps() {
     assert_eq!(repos.len(), 1);
     let mac = &repos[0].lanes[0];
     assert_eq!(
-        (mac.lane, mac.runs, mac.median_wait_ms),
-        (Lane::Mac, 1, 2_000)
+        (mac.lane.as_str(), mac.runs, mac.median_wait_ms),
+        ("mac", 1, 2_000)
     );
     let names: Vec<(&str, StepKind, u64)> = mac
         .steps
@@ -326,7 +326,7 @@ fn a_steps_figures_count_passing_runs_in_the_window_and_total_runs_times_median(
         &path,
         &run(
             NOW - WINDOW_SECONDS - 10,
-            Lane::Mac,
+            Lane::MAC,
             0,
             RunEnd::Passed,
             vec![step(
@@ -344,7 +344,7 @@ fn a_steps_figures_count_passing_runs_in_the_window_and_total_runs_times_median(
             &path,
             &run(
                 NOW - 1000 + n as i64,
-                Lane::Mac,
+                Lane::MAC,
                 0,
                 RunEnd::Passed,
                 vec![step(
@@ -362,7 +362,7 @@ fn a_steps_figures_count_passing_runs_in_the_window_and_total_runs_times_median(
         &path,
         &run(
             NOW - 5,
-            Lane::Mac,
+            Lane::MAC,
             0,
             RunEnd::Failed,
             vec![step(
@@ -397,7 +397,7 @@ fn steps_are_ranked_by_the_time_they_took_in_all() {
             &path,
             &run(
                 NOW - 100 + n,
-                Lane::Mac,
+                Lane::MAC,
                 0,
                 RunEnd::Passed,
                 vec![step(
@@ -415,7 +415,7 @@ fn steps_are_ranked_by_the_time_they_took_in_all() {
         &path,
         &run(
             NOW - 50,
-            Lane::Mac,
+            Lane::MAC,
             0,
             RunEnd::Passed,
             vec![step(
@@ -440,26 +440,26 @@ fn queue_waits_are_per_lane_oldest_first_with_the_lanes_median() {
     for (n, wait) in [(1, 1_000), (2, 9_000), (3, 5_000)] {
         record(
             &path,
-            &run(NOW - 100 + n, Lane::Mac, wait, RunEnd::Passed, Vec::new()),
+            &run(NOW - 100 + n, Lane::MAC, wait, RunEnd::Passed, Vec::new()),
         )
         .unwrap();
     }
     record(
         &path,
-        &run(NOW - 50, Lane::Android, 40_000, RunEnd::Failed, Vec::new()),
+        &run(NOW - 50, Lane::ANDROID, 40_000, RunEnd::Failed, Vec::new()),
     )
     .unwrap();
     let repo = &stats(&path, NOW - WINDOW_SECONDS).unwrap()[0];
-    let lanes: Vec<(Lane, u32, u64, Vec<u64>)> = repo
+    let lanes: Vec<(String, u32, u64, Vec<u64>)> = repo
         .lanes
         .iter()
-        .map(|l| (l.lane, l.runs, l.median_wait_ms, l.waits_ms.clone()))
+        .map(|l| (l.lane.clone(), l.runs, l.median_wait_ms, l.waits_ms.clone()))
         .collect();
     assert_eq!(
         lanes,
         vec![
-            (Lane::Mac, 3, 5_000, vec![1_000, 9_000, 5_000]),
-            (Lane::Android, 1, 40_000, vec![40_000])
+            ("mac".to_string(), 3, 5_000, vec![1_000, 9_000, 5_000]),
+            ("android".to_string(), 1, 40_000, vec![40_000])
         ]
     );
 }
@@ -473,7 +473,7 @@ fn only_the_latest_waits_get_a_bar() {
             &path,
             &run(
                 NOW - 1000 + n,
-                Lane::Mac,
+                Lane::MAC,
                 n as u64,
                 RunEnd::Passed,
                 Vec::new(),
@@ -496,7 +496,7 @@ fn a_store_with_no_run_in_the_window_has_no_figures_and_a_missing_file_has_none(
         &path,
         &run(
             NOW - WINDOW_SECONDS - 1,
-            Lane::Mac,
+            Lane::MAC,
             0,
             RunEnd::Passed,
             Vec::new(),
@@ -519,7 +519,7 @@ fn the_dashboard_json_names_the_window_and_each_repos_figures() {
         &path,
         &run(
             NOW - 10,
-            Lane::Android,
+            Lane::ANDROID,
             3_000,
             RunEnd::Passed,
             vec![step(
@@ -572,7 +572,7 @@ fn a_recorded_run_reads_back_whole() {
     };
     let mut built = run(
         NOW,
-        Lane::Android,
+        Lane::ANDROID,
         3_000,
         RunEnd::Failed,
         vec![
@@ -609,7 +609,7 @@ fn a_recorded_run_reads_back_whole() {
         cores: 8,
         one_minute: 2.5,
     });
-    let bare = run(NOW + 60, Lane::Mac, 0, RunEnd::Stopped, Vec::new());
+    let bare = run(NOW + 60, Lane::MAC, 0, RunEnd::Stopped, Vec::new());
     record(&path, &built).unwrap();
     assert_eq!(read_run(&path).unwrap(), built);
     let other = scratch.dir.join("other.sqlite");
@@ -636,7 +636,7 @@ fn a_failed_step_with_no_failure_row_fails_the_read() {
     );
     record(
         &path,
-        &run(NOW, Lane::Android, 0, RunEnd::Failed, vec![failed]),
+        &run(NOW, Lane::ANDROID, 0, RunEnd::Failed, vec![failed]),
     )
     .unwrap();
     crate::app_build_step_failure::remove_every_failure(&path).unwrap();
@@ -658,7 +658,7 @@ fn the_shots_prefixes_a_branch_ran_come_back_once_each_whatever_their_result() {
     };
     let mut first = run(
         NOW,
-        Lane::Mac,
+        Lane::MAC,
         0,
         RunEnd::Failed,
         vec![
@@ -671,7 +671,7 @@ fn the_shots_prefixes_a_branch_ran_come_back_once_each_whatever_their_result() {
     record(&path, &first).unwrap();
     let mut second = run(
         NOW + 5,
-        Lane::Mac,
+        Lane::MAC,
         0,
         RunEnd::Passed,
         vec![
@@ -685,7 +685,7 @@ fn the_shots_prefixes_a_branch_ran_come_back_once_each_whatever_their_result() {
     record(&path, &second).unwrap();
     let mut other_ref = run(
         NOW,
-        Lane::Mac,
+        Lane::MAC,
         0,
         RunEnd::Passed,
         vec![shots("mac.x.", StepResult::Passed)],
@@ -697,7 +697,7 @@ fn the_shots_prefixes_a_branch_ran_come_back_once_each_whatever_their_result() {
         &path,
         &run(
             NOW,
-            Lane::Android,
+            Lane::ANDROID,
             0,
             RunEnd::Passed,
             vec![shots("android.x.", StepResult::Passed)],
@@ -706,7 +706,7 @@ fn the_shots_prefixes_a_branch_ran_come_back_once_each_whatever_their_result() {
     .unwrap();
     let mut other_repo = run(
         NOW,
-        Lane::Mac,
+        Lane::MAC,
         0,
         RunEnd::Passed,
         vec![shots("mac.y.", StepResult::Passed)],
@@ -717,7 +717,7 @@ fn the_shots_prefixes_a_branch_ran_come_back_once_each_whatever_their_result() {
         &path,
         &run(
             NOW - 100,
-            Lane::Mac,
+            Lane::MAC,
             0,
             RunEnd::Passed,
             vec![shots("mac.old.", StepResult::Failed(Default::default()))],
@@ -727,14 +727,14 @@ fn the_shots_prefixes_a_branch_ran_come_back_once_each_whatever_their_result() {
     let conn = crate::db::open_reader(&path).unwrap().unwrap();
     let commits = ["b".repeat(40)];
     assert_eq!(
-        shots_ran(&conn, "bae", Lane::Mac, "branch", &commits, NOW, &path).unwrap(),
+        shots_ran(&conn, "bae", Lane::MAC, "branch", &commits, NOW, &path).unwrap(),
         ["mac.nowplaying.", "mac.seek.", "mac.volume."]
     );
     assert_eq!(
         shots_ran(
             &conn,
             "bae",
-            Lane::Mac,
+            Lane::MAC,
             "branch",
             &commits,
             NOW - 200,
@@ -752,7 +752,7 @@ fn shots_ran_counts_a_run_named_by_a_branch_commit_that_recorded_no_commit() {
     let sha = "d".repeat(40);
     let mut failed = run(
         NOW,
-        Lane::Mac,
+        Lane::MAC,
         0,
         RunEnd::Failed,
         vec![step(
@@ -768,7 +768,7 @@ fn shots_ran_counts_a_run_named_by_a_branch_commit_that_recorded_no_commit() {
     record(&path, &failed).unwrap();
     let conn = crate::db::open_reader(&path).unwrap().unwrap();
     assert_eq!(
-        shots_ran(&conn, "bae", Lane::Mac, "branch", &[sha], NOW, &path).unwrap(),
+        shots_ran(&conn, "bae", Lane::MAC, "branch", &[sha], NOW, &path).unwrap(),
         ["mac.base."]
     );
 }
@@ -781,7 +781,7 @@ fn a_step_keeps_whether_it_ran_at_the_merge_base_or_at_the_commit() {
         at_merge_base: Some(base),
         ..step("macos", StepKind::Step, NOW, 1, StepResult::Passed)
     };
-    let recorded = run(NOW, Lane::Mac, 0, RunEnd::Passed, vec![at(true), at(false)]);
+    let recorded = run(NOW, Lane::MAC, 0, RunEnd::Passed, vec![at(true), at(false)]);
     record(&path, &recorded).unwrap();
     assert_eq!(read_run(&path).unwrap(), recorded);
 }

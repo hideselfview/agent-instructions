@@ -164,18 +164,21 @@ impl Side {
     }
 }
 
-/// The lanes that draw component <component>, each with the prefix of its
-/// shots there; fails when <component> is no component's name.
-pub fn lanes(component: &str) -> Result<Vec<(Lane, String)>> {
+/// The lanes among <repo_lanes>, a repo's apps, that draw component
+/// <component>, each with the prefix of its shots there: every lane for a
+/// component all platforms share, else the lanes on the component's platform.
+/// Fails when <component> is no component's name.
+pub fn lanes(repo_lanes: &[Lane], component: &str) -> Result<Vec<(Lane, String)>> {
     let Some(key) = ComponentKey::of(component) else {
         fail!("{component:?} is no component's name: a capital, then letters and digits");
     };
-    let lanes: Vec<Lane> = match key.platform {
-        None => Lane::ALL.to_vec(),
-        Some(word) => Lane::parse(word).into_iter().collect(),
-    };
-    Ok(lanes
-        .into_iter()
+    Ok(repo_lanes
+        .iter()
+        .copied()
+        .filter(|lane| {
+            key.platform
+                .is_none_or(|word| word == lane.platform().word())
+        })
         .map(|lane| (lane, key.prefix(lane.word())))
         .collect())
 }
@@ -189,9 +192,10 @@ pub fn shots(
     repo: &str,
     commit: &str,
     component: &str,
+    repo_lanes: &[Lane],
     capture: &dyn Fn(Lane, &str) -> Option<RunPage>,
 ) -> Result<Shots> {
-    let lanes = lanes(component)?;
+    let lanes = lanes(repo_lanes, component)?;
     let mut platforms = Vec::new();
     for (lane, prefix) in lanes {
         let run =
@@ -272,8 +276,9 @@ pub fn start(
     repo: &str,
     commit: &str,
     component: &str,
+    repo_lanes: &[Lane],
 ) -> Result<()> {
-    for (lane, prefix) in lanes(component)? {
+    for (lane, prefix) in lanes(repo_lanes, component)? {
         let cached =
             shots_cache::read_covering(places, repo, commit, lane, &prefix, &VERSIONS, |_| {
                 Ok(Some(()))
@@ -354,7 +359,7 @@ pub fn page(
     component: &str,
     here: bool,
 ) -> Result<String> {
-    let lanes = lanes(component)?;
+    let lanes = lanes(&crate::repo_lanes::in_source(repo)?, component)?;
     let commit = Source::Commit { repo, rev: NOW }
         .check()?
         .expect("a commit source names a commit");

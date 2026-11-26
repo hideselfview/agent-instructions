@@ -45,9 +45,9 @@ fn picks(prefixes: &[&str]) -> Vec<Pick> {
         .iter()
         .map(|prefix| {
             let lane = if prefix.starts_with("mac") {
-                Lane::Mac
+                Lane::MAC
             } else {
-                Lane::Android
+                Lane::ANDROID
             };
             Pick::Shots(lane, shots::Prefix::parse(prefix).unwrap())
         })
@@ -84,9 +84,9 @@ fn prefixes_that_start_a_declared_shot_pass_and_all_shots_needs_no_declared_name
         "mac.settings.appearance",
         "mac.welcome.",
     ]);
-    ok.push(Pick::Class(Lane::Mac, "FooTests".to_string()));
+    ok.push(Pick::Class(Lane::MAC, "FooTests".to_string()));
     refuse_undeclared(&top, "HEAD", &ok).unwrap();
-    refuse_undeclared(&top, "HEAD", &[crate::app_build::all_shots(Lane::Mac)]).unwrap();
+    refuse_undeclared(&top, "HEAD", &[crate::app_build::all_shots(Lane::MAC)]).unwrap();
 }
 
 #[test]
@@ -101,8 +101,8 @@ fn a_prefix_that_selects_a_window_scene_is_named_and_one_that_selects_none_is_no
         "mac.welcome.",
         "android.activity.",
     ]);
-    asked.push(Pick::Class(Lane::Mac, "FooTests".to_string()));
-    asked.push(crate::app_build::all_shots(Lane::Mac));
+    asked.push(Pick::Class(Lane::MAC, "FooTests".to_string()));
+    asked.push(crate::app_build::all_shots(Lane::MAC));
     let config = parse_config("shared-shot-display mac\n").unwrap();
     assert_eq!(
         windowed_prefixes(&top, "HEAD", &config, &asked).unwrap(),
@@ -162,12 +162,12 @@ fn a_prefix_is_checked_against_the_names_of_its_own_lane() {
     let scratch = Scratch::new("shots-declared-own-lane");
     let top = declaring(&scratch);
     let wrong_lane = vec![Pick::Shots(
-        Lane::Android,
+        Lane::ANDROID,
         shots::Prefix::parse("android.settings.").unwrap(),
     )];
     refuse_undeclared(&top, "HEAD", &wrong_lane).unwrap();
     let mac_named_android = vec![Pick::Shots(
-        Lane::Mac,
+        Lane::MAC,
         shots::Prefix::parse("android.activity.").unwrap(),
     )];
     assert!(refuse_undeclared(&top, "HEAD", &mac_named_android).is_err());

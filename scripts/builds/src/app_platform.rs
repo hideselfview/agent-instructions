@@ -25,6 +25,7 @@
 use crate::fail;
 use crate::fail::Result;
 use crate::lane::Lane;
+use boards::app_build::Platform;
 
 /// The command that prints the macOS build of a Mac.
 const SW_VERS: &str = "sw_vers -buildVersion";
@@ -41,6 +42,8 @@ pub enum Install {
     CopiedApp,
     /// The build installs the app on the device of the Mac it runs on.
     OnDevice,
+    /// The platform has no `build-app`: its shots stage pages from a command.
+    None,
 }
 
 /// The facts of one platform's row.
@@ -67,6 +70,7 @@ pub trait Host {
 
 struct Mac;
 struct Android;
+struct Web;
 
 impl Host for Mac {
     fn environment(&self, run: &mut dyn FnMut(&str, &str) -> Result<String>) -> Result<String> {
@@ -106,11 +110,30 @@ impl Host for Android {
     }
 }
 
+impl Host for Web {
+    fn environment(&self, run: &mut dyn FnMut(&str, &str) -> Result<String>) -> Result<String> {
+        parse_uname(&run(UNAME, "reading the host's OS and architecture")?)
+    }
+
+    fn builds_with_xcode(&self) -> bool {
+        false
+    }
+
+    fn opens_windows(&self) -> bool {
+        false
+    }
+
+    fn install(&self) -> Install {
+        Install::None
+    }
+}
+
 /// The row of <lane>'s platform.
 pub fn of(lane: Lane) -> &'static dyn Host {
-    match lane {
-        Lane::Mac => &Mac,
-        Lane::Android => &Android,
+    match lane.platform() {
+        Platform::Mac => &Mac,
+        Platform::Android => &Android,
+        Platform::Web => &Web,
     }
 }
 

@@ -163,7 +163,7 @@ fn a_store_gives_each_kind_its_own_rows_and_leaves_out_other_cargo_runs() {
         &crate::app_timing::RunRecord {
             started_at: 1_050,
             repo: "bae".into(),
-            lane: crate::lane::Lane::Mac,
+            lane: crate::lane::Lane::MAC,
             checkout: "side-1".into(),
             built_ref: "branch".into(),
             requested_commit: None,

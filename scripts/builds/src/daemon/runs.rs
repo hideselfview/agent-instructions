@@ -259,7 +259,7 @@ impl Runs {
             let text = std::fs::read(&path).context(|| format!("reading {}", path.display()))?;
             let record: Record = serde_json::from_slice(&text)
                 .context(|| format!("{} is not a run record", path.display()))?;
-            let lane = Lane::parse_or_fail(&record.lane)?;
+            let lane = crate::repo_lanes::parse(&places, &record.repo, &record.lane)?;
             state.insert(
                 (record.repo.clone(), lane, record.shots.clone()),
                 Run {
@@ -326,10 +326,9 @@ impl Runs {
         lane: &str,
         reference: Option<&str>,
     ) -> std::result::Result<(), StartError> {
-        let Some(lane) = Lane::parse(lane) else {
-            return Err(StartError::Invalid(format!(
-                "{lane:?} is not a lane (mac | android)"
-            )));
+        let lane = match crate::repo_lanes::parse(&self.places, repo, lane) {
+            Ok(lane) => lane,
+            Err(error) => return Err(StartError::Invalid(error.text())),
         };
         if !plain_name(repo) {
             return Err(StartError::Invalid(format!("{repo:?} is not a repo name")));
@@ -540,7 +539,13 @@ impl Runs {
     /// gives the pids waiting in a lane's queue.
     pub fn pages(&self, repo: &str, queued: &dyn Fn(Lane) -> Vec<i32>) -> Vec<RunPage> {
         let state = self.state.lock().expect("no panic holding it");
-        Lane::ALL
+        let mut lanes: Vec<Lane> = state
+            .keys()
+            .filter(|(own, _, shots)| own == repo && shots.is_none())
+            .map(|(_, lane, _)| *lane)
+            .collect();
+        lanes.sort();
+        lanes
             .into_iter()
             .filter_map(|lane| {
                 let run = state.get(&(repo.to_string(), lane, None))?;

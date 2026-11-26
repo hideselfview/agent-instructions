@@ -720,7 +720,7 @@ fn lanes_of(places: &Places, repo: &str) -> Result<Vec<Lane>> {
         fail!("{repo:?} is not a repo's name");
     }
     let mut lanes = Vec::new();
-    for lane in Lane::ALL {
+    for lane in crate::repo_lanes::with_files(places, repo)? {
         if !places.app_checkouts_of(repo, lane)?.is_empty() {
             lanes.push(lane);
         }
@@ -871,16 +871,16 @@ pub fn repoint(places: &Places, repo: &str, lane: Lane) -> Result<()> {
 }
 
 /// Splits `--lane <lane>` out of <args>.
-fn split_lane(args: &[String]) -> Result<(Vec<String>, Option<Lane>)> {
+fn split_lane(args: &[String]) -> Result<(Vec<String>, Option<String>)> {
     let mut rest = Vec::new();
     let mut lane = None;
     let mut args = args.iter();
     while let Some(arg) = args.next() {
         if arg == "--lane" {
             let Some(word) = args.next() else {
-                fail!("--lane takes mac or android")
+                fail!("--lane takes an app of the repo")
             };
-            lane = Some(Lane::parse_or_fail(word)?);
+            lane = Some(word.clone());
         } else {
             rest.push(arg.clone());
         }
@@ -890,13 +890,13 @@ fn split_lane(args: &[String]) -> Result<(Vec<String>, Option<Lane>)> {
 
 /// `builds queue <repo> [--lane <lane>] [top <pid>]`.
 pub fn cmd_queue(places: &Places, args: &[String]) -> Result<()> {
-    const USAGE: &str =
-        "usage: builds queue <repo> [--lane mac|android] | builds queue <repo> top <pid>";
+    const USAGE: &str = "usage: builds queue <repo> [--lane <app>] | builds queue <repo> top <pid>";
     let (args, lane) = split_lane(args)?;
     match &args[..] {
         [repo] => {
             let lanes = match lane {
-                Some(lane) => {
+                Some(word) => {
+                    let lane = crate::repo_lanes::parse(places, repo, &word)?;
                     check_repo(places, repo, lane)?;
                     vec![lane]
                 }
@@ -964,12 +964,17 @@ pub fn cmd_queue(places: &Places, args: &[String]) -> Result<()> {
 
 /// `builds takeover <repo> [--lane <lane>] [<pid>]`.
 pub fn cmd_takeover(places: &Places, args: &[String]) -> Result<()> {
-    const USAGE: &str = "usage: builds takeover <repo> [--lane mac|android] [<pid>]";
+    const USAGE: &str = "usage: builds takeover <repo> [--lane <app>] [<pid>]";
     let (args, lane) = split_lane(args)?;
+    let lane_of = |repo: &str| {
+        lane.as_deref()
+            .map(|word| crate::repo_lanes::parse(places, repo, word))
+            .transpose()
+    };
     match &args[..] {
-        [repo] => takeover(places, repo, None, lane),
+        [repo] => takeover(places, repo, None, lane_of(repo)?),
         [repo, pid] => match pid.parse() {
-            Ok(pid) => takeover(places, repo, Some(pid), lane),
+            Ok(pid) => takeover(places, repo, Some(pid), lane_of(repo)?),
             Err(_) => fail!("{USAGE}"),
         },
         _ => fail!("{USAGE}"),

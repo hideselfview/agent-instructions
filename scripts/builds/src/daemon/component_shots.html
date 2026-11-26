@@ -61,7 +61,7 @@ document.getElementById("at").append("main at ", short(data.commit));
 const back = document.getElementById("back");
 back.href = data.designs + "#system";
 back.textContent = "All of " + data.project + "'s designs";
-const LANES = {mac: "Mac", android: "Android"};
+const LANES = {mac: "Mac", android: "Android", web: "Web"};
 function minute(at) {
   return new Date(at * 1000).toLocaleString([], {month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false});
 }
@@ -124,7 +124,7 @@ function render(state) {
   if (state.error) { main.replaceChildren(h("div", {class: "problem"}, state.error)); return; }
   const parts = [];
   if (failure) parts.push(h("div", {class: "problem"}, failure));
-  if (!state.platforms.length) parts.push(h("div", {class: "cs-meta"}, "builds takes no shots of " + data.component + ": it takes the shots of mac and Android components only."));
+  if (!state.platforms.length) parts.push(h("div", {class: "cs-meta"}, "builds takes no shots of " + data.component + ": it takes the shots of components that one of the repo's apps draws."));
   parts.push(state.platforms.map(laneView));
   main.replaceChildren(...parts.flat());
 }

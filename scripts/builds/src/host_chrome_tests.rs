@@ -120,7 +120,7 @@ fn a_takeover_ends_the_hold_and_another_failure_fails_the_build() {
 fn lock(checkout: &str, step: Option<&str>) -> LockHealth {
     LockHealth {
         repo: "bae".to_string(),
-        lane: Lane::Android,
+        lane: Lane::ANDROID,
         checkout: checkout.to_string(),
         path: String::new(),
         holder: Some(Holder {

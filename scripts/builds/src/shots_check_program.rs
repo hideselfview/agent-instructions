@@ -17,14 +17,13 @@ use serde::Deserialize;
 use crate::checkout::Checkout;
 use crate::fail;
 use crate::fail::{Context, Result};
-use crate::lane::Lane;
 use crate::places::Places;
 use crate::shot_findings;
 use crate::shots_cache::Cached;
 use crate::text::{note, plural};
 
 const USAGE: &str =
-    "usage: builds shots check-program <repo> <ref> mac|android <prefix> [--checkout <folder>]";
+    "usage: builds shots check-program <repo> <ref> <app> <prefix> [--checkout <folder>]";
 
 /// The program a built checkout holds, relative to the checkout's top.
 const PROGRAM: &str = "scripts/builds/target/release/builds";
@@ -192,7 +191,7 @@ pub fn cmd(places: &Places, args: &[String]) -> Result<()> {
     let [repo, git_ref, lane, prefix] = named[..] else {
         fail!("{USAGE}");
     };
-    let lane = Lane::parse_or_fail(lane)?;
+    let lane = crate::repo_lanes::parse(places, repo, lane)?;
     let me = crate::this_program()?;
     let cached = shot_findings::cached_run(places, repo, git_ref, lane, prefix, &me)?;
     let here = std::env::current_dir().context(|| "reading the working directory".to_string())?;

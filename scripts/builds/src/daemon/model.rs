@@ -1505,9 +1505,15 @@ impl Model {
         name: &str,
     ) -> Option<crate::fail::Result<super::component_shots::Shots>> {
         Some(self.design_repo_named(project)?.and_then(|(repo, _)| {
-            super::component_shots::shots(&self.places, &repo, commit, name, &|lane, prefix| {
-                self.runs.shots_page(&repo, lane, prefix)
-            })
+            let lanes = crate::repo_lanes::of(&self.places, &repo)?;
+            super::component_shots::shots(
+                &self.places,
+                &repo,
+                commit,
+                name,
+                &lanes,
+                &|lane, prefix| self.runs.shots_page(&repo, lane, prefix),
+            )
         }))
     }
 
@@ -1520,7 +1526,8 @@ impl Model {
         name: &str,
     ) -> Option<crate::fail::Result<()>> {
         Some(self.design_repo_named(project)?.and_then(|(repo, _)| {
-            super::component_shots::start(&self.places, &self.runs, &repo, commit, name)
+            let lanes = crate::repo_lanes::of(&self.places, &repo)?;
+            super::component_shots::start(&self.places, &self.runs, &repo, commit, name, &lanes)
         }))
     }
 

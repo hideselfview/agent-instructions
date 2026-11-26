@@ -1,4 +1,4 @@
-//! `builds build-app <repo> mac|android [<ref>]`: builds the person's test app
+//! `builds build-app <repo> <app> [<ref>]`: builds the person's test app
 //! in an app checkout of the platform's lane (lane.rs), whose build stays
 //! warm, taking turns on that lane's app lock. Nothing is opened. The Mac
 //! build takes a checkout on this Mac or on a host, as `builds app-build`
@@ -23,7 +23,7 @@ use std::thread::sleep;
 use std::time::Duration;
 
 use crate::app_build::{config_at, place_of};
-use crate::app_config::{CONFIG, Config, MacApp, Step, run_command};
+use crate::app_config::{CONFIG, Config, Step, run_command};
 use crate::app_lock_guard::CheckoutLock;
 use crate::app_platform::{self, Install};
 use crate::app_site::Site;
@@ -36,7 +36,7 @@ use crate::places::Places;
 use crate::text::note;
 use crate::tool::Tool;
 
-const USAGE: &str = "usage: builds build-app <repo> mac|android [<ref>]";
+const USAGE: &str = "usage: builds build-app <repo> <app> [<ref>]";
 const QUIT_CHECKS: u32 = 60;
 const QUIT_CHECK_EVERY: Duration = Duration::from_millis(500);
 
@@ -49,11 +49,9 @@ struct Target {
 }
 
 impl Target {
-    fn parse(word: &str) -> Result<Target> {
-        match Lane::parse(word) {
-            Some(lane) => Ok(Target::of(lane)),
-            None => fail!("{USAGE}"),
-        }
+    /// The target of the app <word> names among the apps of <config>.
+    fn parse(config: &Config, word: &str) -> Result<Target> {
+        Ok(Target::of(Lane::parse_in_or_fail(&config.lanes, word)?))
     }
 
     fn of(lane: Lane) -> Target {
@@ -85,6 +83,10 @@ impl Target {
                 Ok(place_of(&named))
             }
             Install::OnDevice => Ok(Where::Here),
+            Install::None => fail!(
+                "{} is a web app, which has no build-app: its shots stage their pages",
+                self.word()
+            ),
         }
     }
 
@@ -93,21 +95,40 @@ impl Target {
     }
 
     fn build(self, config: &Config) -> Result<&[String]> {
-        let build = match self.install {
-            Install::CopiedApp => config.mac.as_ref().map(|mac| &mac.build[..]),
-            Install::OnDevice => config.android.as_ref().map(|android| &android.build[..]),
-        };
-        match build {
-            Some(build) => Ok(build),
+        match config.test_app_of(self.lane) {
+            Some(install) => Ok(&install.build),
             None => fail!("{CONFIG} has no {} lines", self.word()),
         }
     }
 }
 
+/// The `app` and `bundle` lines of a lane that builds a copied `.app`.
+struct CopiedApp<'a> {
+    lane: Lane,
+    app: &'a str,
+    bundle: &'a str,
+}
+
+impl<'a> CopiedApp<'a> {
+    fn of(config: &'a Config, lane: Lane) -> Result<CopiedApp<'a>> {
+        match config.test_app_of(lane) {
+            Some(crate::app_config::TestApp {
+                app: Some(app),
+                bundle: Some(bundle),
+                ..
+            }) => Ok(CopiedApp { lane, app, bundle }),
+            _ => fail!(
+                "{CONFIG} has no build, app and bundle lines for {}",
+                lane.word()
+            ),
+        }
+    }
+}
+
 /// Where the test app lives: outside the checkout, under the home folder.
-fn copy_path(places: &Places, repo: &str, mac: &MacApp) -> Result<PathBuf> {
-    let Some(name) = Path::new(&mac.app).file_name() else {
-        fail!("{CONFIG}: mac app names no file");
+fn copy_path(places: &Places, repo: &str, built: &CopiedApp) -> Result<PathBuf> {
+    let Some(name) = Path::new(&built.app).file_name() else {
+        fail!("{CONFIG}: {} app names no file", built.lane.word());
     };
     Ok(places
         .home
@@ -203,12 +224,10 @@ fn quit(bundle: &str, app: &Path) -> Result<()> {
 /// app checkout's own `main` can lag behind it.
 const DEFAULT_REF: &str = "origin/main";
 
-fn parse_args(args: &[String]) -> Result<(&String, Target, &str)> {
+fn parse_args(args: &[String]) -> Result<(&String, &str, &str)> {
     match args {
-        [repo, platform] => Ok((repo, Target::parse(platform)?, DEFAULT_REF)),
-        [repo, platform, commit] if !commit.starts_with('-') => {
-            Ok((repo, Target::parse(platform)?, commit.as_str()))
-        }
+        [repo, app] => Ok((repo, app, DEFAULT_REF)),
+        [repo, app, commit] if !commit.starts_with('-') => Ok((repo, app, commit.as_str())),
         _ => fail!("{USAGE}"),
     }
 }
@@ -225,12 +244,12 @@ fn run_build(site: &mut Site, command: &[String]) -> Result<Within> {
 /// The folder on this Mac that holds the built app of <mac>: the checkout
 /// itself, or for a checkout on a host the folder the build's output was
 /// copied to.
-fn built_app(site: &mut Site, mac: &MacApp) -> Result<PathBuf> {
+fn built_app(site: &mut Site, built: &CopiedApp) -> Result<PathBuf> {
     match site {
-        Site::Local(top, ..) => Ok(top.join(&mac.app)),
+        Site::Local(top, ..) => Ok(top.join(built.app)),
         Site::Remote(remote) => {
-            remote.pull_bundle(&mac.app)?;
-            Ok(remote.local_folder().join(&mac.app))
+            remote.pull_bundle(built.app)?;
+            Ok(remote.local_folder().join(built.app))
         }
     }
 }
@@ -259,17 +278,19 @@ fn ended(result: Result<()>, signal: Option<libc::c_int>) -> Result<()> {
 }
 
 fn build_app(tool: &Tool, args: &[String]) -> Result<()> {
-    let (repo, platform, commit) = parse_args(args)?;
+    let (repo, word, commit) = parse_args(args)?;
     lock::end_on_stop_signals();
     let places = &tool.places;
     let ssh = Ssh::from_env();
+    let first_config = config_at(places, repo, commit)?;
+    let platform = Target::parse(&first_config, word)?;
 
     note(format!(
         "waiting for {repo}'s {} app lock, then building {commit}'s {} app",
         platform.word(),
         platform.word()
     ));
-    let allowed = platform.allowed(&config_at(places, repo, commit)?)?;
+    let allowed = platform.allowed(&first_config)?;
     if allowed == Where::Here {
         crate::worktree::ensure_local_app_checkout(tool, &ssh, repo, platform.lane())?;
     }
@@ -283,7 +304,7 @@ fn build_app(tool: &Tool, args: &[String]) -> Result<()> {
     )?;
     // A takeover stops the build; it runs again from a checkout, behind the
     // build that took over.
-    let (mac, app) = loop {
+    let (bundle, app) = loop {
         let mut site = Site::of(
             places,
             &ssh,
@@ -298,17 +319,15 @@ fn build_app(tool: &Tool, args: &[String]) -> Result<()> {
         lock::refuse_when_stopped(&format!("built {commit}'s {} app", platform.word()))?;
         match ran? {
             Within::Ran(lock::Ran::Finished) => {
-                let Some(mac) = config
-                    .mac
-                    .filter(|_| platform.install == Install::CopiedApp)
-                else {
+                if platform.install != Install::CopiedApp {
                     drop(site);
                     held.release();
                     return Ok(());
-                };
-                let app = copy_path(places, repo, &mac)?;
-                copy_out(&built_app(&mut site, &mac)?, &app, held.checkout_lock())?;
-                break (mac, app);
+                }
+                let built = CopiedApp::of(&config, platform.lane())?;
+                let app = copy_path(places, repo, &built)?;
+                copy_out(&built_app(&mut site, &built)?, &app, held.checkout_lock())?;
+                break (built.bundle.to_string(), app);
             }
             // Only a takeover stops it: it holds no use of the stores, so
             // install never stops it.
@@ -329,7 +348,7 @@ fn build_app(tool: &Tool, args: &[String]) -> Result<()> {
     // The build and the copy are done: the next build can start.
     held.release();
 
-    quit(&mac.bundle, &app)?;
+    quit(&bundle, &app)?;
     replace(&app)?;
     note(format!("built {}", app.display()));
     Ok(())

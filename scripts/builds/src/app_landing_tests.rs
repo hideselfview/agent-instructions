@@ -54,7 +54,7 @@ fn check_shots(
                 .collect())
         },
         &mut |lane| {
-            Ok(if lane == Lane::Mac {
+            Ok(if lane == Lane::MAC {
                 paths(required)
             } else {
                 Vec::new()
@@ -92,7 +92,7 @@ fn a_build_of_the_branch_covers_it() {
     assert_eq!(
         check(
             &["bae-macos/Card.swift"],
-            &[(Lane::Mac, passed("built", BOTH))],
+            &[(Lane::MAC, passed("built", BOTH))],
             &[("built", &[])],
         ),
         []
@@ -106,11 +106,11 @@ fn a_lane_with_no_build_of_the_branch_is_unbuilt() {
     assert_eq!(
         check(
             &["bae-macos/Card.swift"],
-            &[(Lane::Mac, passed("older", BOTH))],
+            &[(Lane::MAC, passed("older", BOTH))],
             &[("older", &["bae-macos/Card.swift"])],
         ),
         [Unbuilt {
-            lane: Lane::Mac,
+            lane: Lane::MAC,
             newest: Some(Newest {
                 commit: "older".to_string(),
                 paths: paths(&["bae-macos/Card.swift"]),
@@ -128,11 +128,11 @@ fn a_build_covers_a_lane_only_when_it_passed_every_step_the_change_needs() {
     assert_eq!(
         check(
             &["bae-macos/Card.swift"],
-            &[(Lane::Mac, passed("app-only", &["macos"]))],
+            &[(Lane::MAC, passed("app-only", &["macos"]))],
             &[("app-only", &[])],
         ),
         [Unbuilt {
-            lane: Lane::Mac,
+            lane: Lane::MAC,
             newest: Some(Newest {
                 commit: "app-only".to_string(),
                 paths: Vec::new(),
@@ -144,8 +144,8 @@ fn a_build_covers_a_lane_only_when_it_passed_every_step_the_change_needs() {
         check(
             &["bae-macos/Card.swift"],
             &[
-                (Lane::Mac, passed("app-only", &["macos"])),
-                (Lane::Mac, passed("whole", BOTH)),
+                (Lane::MAC, passed("app-only", &["macos"])),
+                (Lane::MAC, passed("whole", BOTH)),
             ],
             &[("app-only", &[]), ("whole", &[])],
         ),
@@ -161,13 +161,13 @@ fn a_lane_with_no_build_git_has_is_unbuilt_beside_a_covered_one() {
         check(
             &["bae-macos/Card.swift", "bae-android/Main.kt"],
             &[
-                (Lane::Mac, passed("built", BOTH)),
-                (Lane::Android, passed("gone", &["android"])),
+                (Lane::MAC, passed("built", BOTH)),
+                (Lane::ANDROID, passed("gone", &["android"])),
             ],
             &[("built", &[])],
         ),
         [Unbuilt {
-            lane: Lane::Android,
+            lane: Lane::ANDROID,
             newest: None,
         }]
     );
@@ -179,7 +179,7 @@ fn a_lane_with_no_build_git_has_is_unbuilt_beside_a_covered_one() {
 fn the_refusal_names_each_lane_the_paths_and_the_next_steps() {
     let many: Vec<String> = (0..12).map(|n| format!("bae-macos/F{n}.swift")).collect();
     let mac = Unbuilt {
-        lane: Lane::Mac,
+        lane: Lane::MAC,
         newest: Some(Newest {
             commit: "0123456789abcdef".to_string(),
             paths: many,
@@ -187,7 +187,7 @@ fn the_refusal_names_each_lane_the_paths_and_the_next_steps() {
         }),
     };
     let android = Unbuilt {
-        lane: Lane::Android,
+        lane: Lane::ANDROID,
         newest: None,
     };
     let said = refusal("bae", "/w/side-3", "fedcba9876543210", &[&mac, &android]);
@@ -232,12 +232,12 @@ fn a_build_that_skipped_a_shots_prefix_the_branch_ran_covers_nothing() {
     assert_eq!(
         check_shots(
             &["bae-macos/Card.swift"],
-            &[(Lane::Mac, run)],
+            &[(Lane::MAC, run)],
             &["mac.nowplaying.", "mac.seek."],
             &same,
         ),
         [Unbuilt {
-            lane: Lane::Mac,
+            lane: Lane::MAC,
             newest: Some(Newest {
                 commit: "built".to_string(),
                 paths: Vec::new(),
@@ -268,7 +268,7 @@ fn a_build_that_ran_every_shots_prefix_the_branch_ran_covers_it() {
     assert_eq!(
         check_shots(
             &["bae-macos/Card.swift"],
-            &[(Lane::Mac, seek_only.clone()), (Lane::Mac, both)],
+            &[(Lane::MAC, seek_only.clone()), (Lane::MAC, both)],
             &required,
             &same,
         ),
@@ -277,7 +277,7 @@ fn a_build_that_ran_every_shots_prefix_the_branch_ran_covers_it() {
     assert_eq!(
         check_shots(
             &["bae-macos/Card.swift"],
-            &[(Lane::Mac, seek_only), (Lane::Mac, all)],
+            &[(Lane::MAC, seek_only), (Lane::MAC, all)],
             &required,
             &same,
         ),
@@ -294,7 +294,7 @@ fn a_dropped_prefix_is_printed_with_who_dropped_it_and_why() {
         why: "the board changed".into(),
     }];
     assert_eq!(
-        dropped_lines(Lane::Mac, &drops),
+        dropped_lines(Lane::MAC, &drops),
         [
             "shots dropped: the mac shots prefix mac.seek. needs no run before the landing; agent-1 recorded why: the board changed"
         ]
@@ -306,7 +306,7 @@ fn a_dropped_prefix_is_printed_with_who_dropped_it_and_why() {
 fn land_prints_the_pairs_the_base_never_rendered() {
     let findings = "FAIL x\nbuilds shots: 2 pair(s) the base never rendered, with 3 finding(s) that fail nothing: mac.a.b, mac.a.c\nbuilds shots: no pair fails the run\n";
     let line = unrendered_line(
-        Lane::Mac,
+        Lane::MAC,
         "0123456789abcdef",
         "26B131-17C529",
         "mac.a.",
@@ -319,7 +319,7 @@ fn land_prints_the_pairs_the_base_never_rendered() {
     );
     assert_eq!(
         unrendered_line(
-            Lane::Mac,
+            Lane::MAC,
             "abc",
             "26B131-17C529",
             "mac.a.",
@@ -333,7 +333,7 @@ fn land_prints_the_pairs_the_base_never_rendered() {
 #[test]
 fn the_refusal_names_the_missing_shots_prefixes_and_how_to_drop_one() {
     let mac = Unbuilt {
-        lane: Lane::Mac,
+        lane: Lane::MAC,
         newest: Some(Newest {
             commit: "0123456789abcdef".to_string(),
             paths: Vec::new(),
@@ -420,7 +420,7 @@ impl ShotsLanding {
         let run = crate::app_timing::RunRecord {
             started_at: at,
             repo: "bae".to_string(),
-            lane: Lane::Mac,
+            lane: Lane::MAC,
             checkout: "side-1".to_string(),
             built_ref: built_ref.to_string(),
             requested_commit: Some(self.head.clone()),
@@ -499,7 +499,7 @@ fn a_landing_whose_covering_build_skipped_a_failed_prefix_is_refused_until_it_is
             crate::app_shots_drop::record(
                 db,
                 ("bae", "work"),
-                Lane::Mac,
+                Lane::MAC,
                 "mac.nowplaying.",
                 "the board moved",
                 &stamp,
@@ -671,7 +671,7 @@ fn a_landing_is_judged_over_its_own_commits() {
     let run = crate::app_timing::RunRecord {
         started_at: since + 1,
         repo: "bae".to_string(),
-        lane: Lane::Mac,
+        lane: Lane::MAC,
         checkout: "side-1".to_string(),
         built_ref: "work".to_string(),
         requested_commit: None,

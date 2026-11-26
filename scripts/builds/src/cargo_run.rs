@@ -1092,7 +1092,7 @@ mod tests {
         std::fs::create_dir_all(side_1.join("crate/src")).unwrap();
         std::fs::create_dir_all(main.join("crate")).unwrap();
         std::fs::create_dir_all(places.root.join("demo")).unwrap();
-        std::fs::write(places.app_checkouts_file("demo", Lane::Mac), "side-1\n").unwrap();
+        std::fs::write(places.app_checkouts_file("demo", Lane::MAC), "side-1\n").unwrap();
         let none: &[&str] = &[];
         let off: &[&str] = &["--config", "build.incremental=false"];
         assert_eq!(role(&side_1), off, "the app checkout");

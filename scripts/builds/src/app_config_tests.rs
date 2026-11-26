@@ -3,7 +3,7 @@ use crate::testing::{Scratch, git, repo};
 use std::os::fd::AsFd;
 
 fn checkout_lock(scratch: &Scratch) -> std::os::fd::OwnedFd {
-    lock::take_checkout(&scratch.places(), "demo", Lane::Mac, "side-1").unwrap()
+    lock::take_checkout(&scratch.places(), "demo", Lane::MAC, "side-1").unwrap()
 }
 
 const CONFIG_TEXT: &str =
@@ -35,17 +35,24 @@ fn a_config_names_each_platforms_build() {
     assert_eq!(
         parse_config(CONFIG_TEXT).unwrap(),
         Config {
-            mac: Some(MacApp {
-                build: words("mkdir out.app"),
-                app: "out.app".to_string(),
-                bundle: "demo.test".to_string()
-            }),
-            android: Some(AndroidApp {
-                build: words("./a.sh --x")
-            }),
+            lanes: vec![Lane::MAC, Lane::ANDROID],
+            test_apps: vec![
+                TestApp {
+                    lane: Lane::MAC,
+                    build: words("mkdir out.app"),
+                    app: Some("out.app".to_string()),
+                    bundle: Some("demo.test".to_string()),
+                },
+                TestApp {
+                    lane: Lane::ANDROID,
+                    build: words("./a.sh --x"),
+                    app: None,
+                    bundle: None,
+                },
+            ],
             steps: Vec::new(),
             pickers: Vec::new(),
-            mac_shares_shot_display: false,
+            shared_shot_display: Vec::new(),
             results: Vec::new(),
             rules: Vec::new(),
             needs: Vec::new(),
@@ -57,7 +64,7 @@ fn a_config_names_each_platforms_build() {
 #[test]
 fn a_platform_may_be_left_out_but_not_left_half_written() {
     let config = parse_config("android build ./a.sh\n").unwrap();
-    assert_eq!(config.mac, None);
+    assert_eq!(config.test_app_of(Lane::MAC), None);
     assert!(
         parse_config("mac build mkdir out.app\nmac app out.app\n").is_err(),
         "no bundle"
@@ -82,7 +89,12 @@ fn the_commit_named_is_checked_out_and_built_in_the_checkout() {
         run_git(&top, &["symbolic-ref", "-q", "HEAD"]).is_err(),
         "the checkout is detached"
     );
-    run_command(&top, &config.mac.unwrap().build, checkout).unwrap();
+    run_command(
+        &top,
+        &config.test_app_of(Lane::MAC).unwrap().build,
+        checkout,
+    )
+    .unwrap();
     assert!(top.join("out.app").is_dir());
 }
 
@@ -121,7 +133,7 @@ fn step_lines_name_a_command_each_in_the_order_written() {
     .unwrap();
     let step = |name: &str, command: &str| Step {
         name: name.to_string(),
-        lane: Lane::Mac,
+        lane: Lane::MAC,
         command: words(command),
         limit: None,
         scenes: None,
@@ -186,7 +198,7 @@ fn a_step_names_its_lane_first() {
     let config = parse_config("step mac a ./a\nstep android b ./b --x\n").unwrap();
     assert_eq!(
         (config.steps[0].lane, config.steps[1].lane),
-        (Lane::Mac, Lane::Android)
+        (Lane::MAC, Lane::ANDROID)
     );
     assert_eq!(config.steps[1].command, words("./b --x"));
     assert!(
@@ -209,14 +221,14 @@ fn a_test_line_gives_a_lane_the_command_that_runs_its_classes() {
         config.pickers,
         vec![
             Picker {
-                lane: Lane::Mac,
+                lane: Lane::MAC,
                 kind: PickKind::Class,
                 program: None,
                 command: words("./t.sh --run-only {class}"),
                 opens_windows: false,
             },
             Picker {
-                lane: Lane::Android,
+                lane: Lane::ANDROID,
                 kind: PickKind::Class,
                 program: None,
                 command: words("./g.sh --tests *{class}"),
@@ -226,7 +238,7 @@ fn a_test_line_gives_a_lane_the_command_that_runs_its_classes() {
     );
     assert_eq!(
         config
-            .picker(Lane::Android, PickKind::Class)
+            .picker(Lane::ANDROID, PickKind::Class)
             .unwrap()
             .command[2],
         "*{class}"
@@ -234,7 +246,7 @@ fn a_test_line_gives_a_lane_the_command_that_runs_its_classes() {
     assert!(
         parse_config("step mac s ./a\n")
             .unwrap()
-            .picker(Lane::Mac, PickKind::Class)
+            .picker(Lane::MAC, PickKind::Class)
             .is_none()
     );
 }
@@ -259,7 +271,7 @@ fn a_test_line_needs_a_lane_a_class_placeholder_and_to_be_the_only_one_of_its_la
 #[test]
 fn the_word_that_holds_the_class_appears_once_for_each_class() {
     let test = Picker {
-        lane: Lane::Mac,
+        lane: Lane::MAC,
         kind: PickKind::Class,
         program: None,
         command: words("./g.sh --tests *{class} --continue"),
@@ -337,20 +349,20 @@ fn a_shots_line_gives_a_lane_the_command_that_runs_a_selection_of_shots() {
         "test mac ./t {class}\nshots mac ./s run --select {select}\nshots android ./a --select={select}\n",
     )
     .unwrap();
-    let mac = config.picker(Lane::Mac, PickKind::Shots).unwrap();
+    let mac = config.picker(Lane::MAC, PickKind::Shots).unwrap();
     assert_eq!(
         mac.command_for(&["mac.welcome."]),
         words("./s run --select mac.welcome.")
     );
     assert_eq!(
         config
-            .picker(Lane::Android, PickKind::Shots)
+            .picker(Lane::ANDROID, PickKind::Shots)
             .unwrap()
             .command_for(&["android.x."]),
         words("./a --select=android.x.")
     );
     assert_eq!(
-        config.picker(Lane::Mac, PickKind::Class).unwrap().command,
+        config.picker(Lane::MAC, PickKind::Class).unwrap().command,
         words("./t {class}"),
         "a lane's test and shots lines are kept apart"
     );
@@ -395,10 +407,10 @@ fn results_lines_name_the_folders_a_lane_copies_back() {
     )
     .unwrap();
     assert_eq!(
-        config.results_of(Lane::Android),
+        config.results_of(Lane::ANDROID),
         vec!["shots", "bae-android/app/build/test-results", "reports/"]
     );
-    assert_eq!(config.results_of(Lane::Mac), vec!["shots"]);
+    assert_eq!(config.results_of(Lane::MAC), vec!["shots"]);
     for refused in [
         "results android",
         "results ios shots",
@@ -455,9 +467,9 @@ fn an_opens_windows_line_marks_its_test_lines_as_opening_windows() {
             .unwrap()
             .opens_windows
     };
-    assert!(opens(Lane::Mac, Some("ui")));
-    assert!(opens(Lane::Android, None));
-    assert!(!opens(Lane::Mac, None));
+    assert!(opens(Lane::MAC, Some("ui")));
+    assert!(opens(Lane::ANDROID, None));
+    assert!(!opens(Lane::MAC, None));
     for refused in [
         "opens-windows",
         "test mac ./t {class}\nopens-windows mac:ui",
@@ -483,8 +495,8 @@ fn a_shots_line_that_passes_windows_opens_windows() {
             .unwrap()
             .opens_windows
     };
-    assert!(opens(Lane::Mac));
-    assert!(!opens(Lane::Android));
+    assert!(opens(Lane::MAC));
+    assert!(!opens(Lane::ANDROID));
 }
 
 #[test]
@@ -496,17 +508,17 @@ fn rule_lines_name_the_steps_a_changed_path_needs() {
     assert_eq!(config.rules.len(), 2);
     assert!(config.rules[0].matches("app/x/y.swift") && !config.rules[0].matches("other/app/x"));
     assert!(config.rules[1].matches("any/where/Foo.kt") && !config.rules[1].matches("Foo.kts"));
-    assert_eq!(config.needs, vec![(Lane::Mac, vec!["a".to_string()])]);
+    assert_eq!(config.needs, vec![(Lane::MAC, vec!["a".to_string()])]);
     assert_eq!(
         config.sources,
         vec![
             Source {
-                lane: Lane::Mac,
+                lane: Lane::MAC,
                 program: None,
                 folder: "app".to_string()
             },
             Source {
-                lane: Lane::Mac,
+                lane: Lane::MAC,
                 program: None,
                 folder: "lib".to_string()
             }
@@ -537,12 +549,12 @@ fn a_test_line_and_its_sources_can_name_a_program_of_the_lane() {
     )
     .unwrap();
     assert_eq!(
-        config.picker(Lane::Mac, PickKind::Class).unwrap().command[0],
+        config.picker(Lane::MAC, PickKind::Class).unwrap().command[0],
         "./t"
     );
     assert_eq!(
         config
-            .picker_in(Lane::Mac, PickKind::Class, Some("shots"))
+            .picker_in(Lane::MAC, PickKind::Class, Some("shots"))
             .unwrap()
             .command[0],
         "./s"
@@ -560,11 +572,15 @@ fn a_test_line_and_its_sources_can_name_a_program_of_the_lane() {
 
 #[test]
 fn the_lane_and_program_word_reads_back_as_its_lane_and_program() {
-    for (lane, program) in [(Lane::Mac, None), (Lane::Android, Some("ui".to_string()))] {
+    for (lane, program) in [(Lane::MAC, None), (Lane::ANDROID, Some("ui".to_string()))] {
         let word = lane_and_program_word(lane, program.as_deref());
-        assert_eq!(lane_and_program(&word), Some((lane, program)), "{word}");
+        assert_eq!(
+            lane_and_program(&Apps::default(), &word),
+            Some((lane, program)),
+            "{word}"
+        );
     }
-    assert_eq!(lane_and_program_word(Lane::Mac, Some("shots")), "mac:shots");
+    assert_eq!(lane_and_program_word(Lane::MAC, Some("shots")), "mac:shots");
 }
 
 #[test]
@@ -609,4 +625,46 @@ fn app_lines_are_accepted_and_a_wrong_one_is_refused() {
     parse_config("app windows web\napp linux web\n").unwrap();
     let twice = parse_config("app a web\napp a web\n").unwrap_err().text();
     assert!(twice.contains("an earlier line named"), "{twice}");
+}
+
+#[test]
+fn an_app_line_makes_a_lane_that_every_line_may_name() {
+    let config = parse_config(
+        "app dashboard web\n\
+         app desktop mac\n\
+         desktop build ./run.sh\n\
+         desktop app out/desktop.app\n\
+         desktop bundle fm.desktop\n\
+         step dashboard build cargo build\n\
+         shots dashboard builds shots run --app dashboard --select {select}\n\
+         results dashboard shots/web\n\
+         needs dashboard build\n\
+         shared-shot-display desktop\n",
+    )
+    .unwrap();
+    let names: Vec<&str> = config.lanes.iter().map(|lane| lane.word()).collect();
+    assert_eq!(names, ["desktop", "dashboard"], "mac apps first, then web");
+    let desktop = config.test_app_of(config.lanes[0]).unwrap();
+    assert_eq!(desktop.app.as_deref(), Some("out/desktop.app"));
+    assert_eq!(config.lanes[1].platform(), boards::app_build::Platform::Web);
+    assert_eq!(config.steps[0].lane, config.lanes[1]);
+    assert_eq!(config.shared_shot_display, vec![config.lanes[0]]);
+    assert!(config.picker(config.lanes[1], PickKind::Shots).is_some());
+}
+
+#[test]
+fn a_line_naming_an_app_no_line_names_is_refused() {
+    let wrong = parse_config("step shop build cargo build\n")
+        .unwrap_err()
+        .text();
+    assert!(wrong.contains("a step starts with its app"), "{wrong}");
+    let web_build = parse_config("web build ./run.sh\n").unwrap_err().text();
+    assert!(
+        web_build.contains("a web app has no build-app"),
+        "{web_build}"
+    );
+    let shared = parse_config("shared-shot-display android\n")
+        .unwrap_err()
+        .text();
+    assert!(shared.contains("shared-shot-display <app>"), "{shared}");
 }

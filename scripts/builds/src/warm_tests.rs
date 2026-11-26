@@ -402,7 +402,7 @@ fn a_new_app_checkout_clones_the_cargo_folders_of_its_lane_and_no_others() {
         dest.build_root(&tool.places),
     );
 
-    clone_lane(&tool, Lane::Mac, &source, &dest).unwrap();
+    clone_lane(&tool, Lane::MAC, &source, &dest).unwrap();
 
     let rlib = "debug/deps/libdep-1.rlib";
     for cloned in ["target", "target-macos"] {
@@ -442,7 +442,7 @@ fn the_android_lane_clones_target_android() {
     let scratch = Scratch::new("warm-lane-android");
     let tool = scratch.tool(0);
     let (source, dest) = lane_checkouts(&scratch, &tool);
-    clone_lane(&tool, Lane::Android, &source, &dest).unwrap();
+    clone_lane(&tool, Lane::ANDROID, &source, &dest).unwrap();
     let to = dest.build_root(&tool.places);
     assert!(to.join("target-android/debug/deps/libdep-1.rlib").is_file());
     assert!(
@@ -472,8 +472,8 @@ fn only_folders_that_hold_a_cargo_build_and_are_empty_are_cloned() {
             .map(|dir| dir.path)
             .collect()
     };
-    assert_eq!(paths(Lane::Mac), ["target"]);
-    assert_eq!(paths(Lane::Android), ["target", "target-android"]);
+    assert_eq!(paths(Lane::MAC), ["target"]);
+    assert_eq!(paths(Lane::ANDROID), ["target", "target-android"]);
 }
 
 #[test]
@@ -485,7 +485,7 @@ fn a_source_with_no_cargo_build_leaves_the_new_checkout_cold() {
     for cargo in ["target", "target-macos"] {
         std::fs::remove_dir_all(from.join(cargo).join("debug")).unwrap();
     }
-    clone_lane(&tool, Lane::Mac, &source, &dest).unwrap();
+    clone_lane(&tool, Lane::MAC, &source, &dest).unwrap();
     let to = dest.build_root(&tool.places);
     assert!(
         std::fs::read_dir(to.join("target-macos"))
@@ -609,7 +609,7 @@ fn a_new_app_checkout_forgets_the_build_script_runs_that_name_the_sources_paths(
             .collect()
     };
 
-    clone_lane(&tool, Lane::Mac, &source, &dest).unwrap();
+    clone_lane(&tool, Lane::MAC, &source, &dest).unwrap();
 
     assert_runs_forgotten(&moved(&forgotten), &moved(&kept));
 }

@@ -24,14 +24,14 @@ fn changed(list: &[&str]) -> Vec<String> {
 
 fn declared(lane: Lane) -> Result<ShotNames> {
     let names: &[&str] = match lane {
-        Lane::Mac => &[
+        Lane::MAC => &[
             "mac.welcome.add-code",
             "mac.welcome.open-failed",
             "mac.component.row.plain",
             "mac.component.row.selected",
             "mac.component.status-chip.ok",
         ],
-        Lane::Android => &["android.component.status-chip.ok"],
+        _ => &["android.component.status-chip.ok"],
     };
     Ok(Rc::new(names.iter().map(|name| name.to_string()).collect()))
 }
@@ -45,6 +45,7 @@ fn a_changed_board_picks_its_shot_and_a_changed_component_its_rows() {
             "design/system/components/MacRow/preview.html",
             "design/system/components/MacRow/README.md",
         ]),
+        &[Lane::MAC, Lane::ANDROID],
         &mut |lane| declared(lane),
     )
     .unwrap();
@@ -60,6 +61,7 @@ fn a_component_every_platform_shares_picks_each_platform_that_declares_its_rows(
     let found = picked(
         &globs(),
         &changed(&["design/system/components/StatusChip/preview.html"]),
+        &[Lane::MAC, Lane::ANDROID],
         &mut |lane| declared(lane),
     )
     .unwrap();
@@ -83,6 +85,7 @@ fn a_change_with_no_declared_shot_is_named_and_left_out() {
             "design/system/components/src/10-mac.js",
             "src/main.rs",
         ]),
+        &[Lane::MAC, Lane::ANDROID],
         &mut |lane| declared(lane),
     )
     .unwrap();
@@ -99,6 +102,7 @@ fn a_changed_readme_picks_nothing() {
     let found = picked(
         &globs(),
         &changed(&["design/system/components/MacRow/README.md"]),
+        &[Lane::MAC, Lane::ANDROID],
         &mut |lane| declared(lane),
     )
     .unwrap();
@@ -111,6 +115,7 @@ fn shots_that_cannot_be_read_fail_the_pick() {
     let refused = picked(
         &globs(),
         &changed(&["design/mocks/mac.welcome.add-code.dc.html"]),
+        &[Lane::MAC, Lane::ANDROID],
         &mut |_| Err(Fail::Message("no declared shots".into())),
     );
     assert_eq!(refused.unwrap_err().text(), "no declared shots");

@@ -110,7 +110,7 @@ print("alike board Held")
     assert!(next_event(&mut events, "lists").contains("checking-design"));
 
     let places = &server.model.places;
-    let line = crate::queue::Queue::of(places, "demo", crate::lane::Lane::Mac);
+    let line = crate::queue::Queue::of(places, "demo", crate::lane::Lane::MAC);
     let (ticket, _) = line.join(crate::lock::Where::Anywhere).unwrap();
     let pid = std::process::id();
     let (status, reply) = server.post_to(

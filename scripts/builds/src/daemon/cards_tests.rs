@@ -47,7 +47,7 @@ fn st(word: &str) -> CardState {
         "winding-down" => CardState::WindingDown,
         "waiting-on-you" => CardState::WaitingOnYou,
         "free" => CardState::Free,
-        "queued" => CardState::Queued(Lane::Mac),
+        "queued" => CardState::Queued(Lane::MAC),
         "waits-unread" => CardState::WaitsUnread,
         "in-review" => CardState::InReview(ReviewWait::NotRun),
         other => panic!("no card state for {other}"),
@@ -495,7 +495,7 @@ fn a_branch_with_an_app_build_waits_on_it_and_is_not_ready_to_land() {
         st("working"),
         &[],
         &[ItemWait::AppBuild {
-            lane: Lane::Mac,
+            lane: Lane::MAC,
             running: false,
             how: "place 2 in the queue".into(),
             queued: None,
@@ -514,7 +514,7 @@ fn a_branch_whose_app_build_runs_names_the_lane_in_the_pill() {
     let card = waiting(
         "working",
         ItemWait::AppBuild {
-            lane: Lane::Android,
+            lane: Lane::ANDROID,
             running: true,
             how: "builds in side-1 for 1 minute".into(),
             queued: None,
@@ -532,7 +532,7 @@ fn a_branch_whose_app_build_runs_names_the_lane_in_the_pill() {
 #[test]
 fn ready_to_land_needs_no_active_shell_no_app_build_and_no_waiting_item() {
     let build = ItemWait::AppBuild {
-        lane: Lane::Mac,
+        lane: Lane::MAC,
         running: true,
         how: "builds in side-1 for 1 minute".into(),
         queued: None,
@@ -624,7 +624,7 @@ fn a_worktree_whose_waits_the_daemon_read_takes_its_state_from_the_first() {
     );
     assert_eq!(
         state(CardState::Working, &[queued_wait(false)]),
-        CardState::Queued(Lane::Mac)
+        CardState::Queued(Lane::MAC)
     );
     assert_eq!(
         state(CardState::Working, &[answer, item]),
@@ -651,7 +651,7 @@ fn a_worktree_an_item_keeps_takes_its_state_from_the_items_waits() {
 
 fn queued_wait(running: bool) -> ItemWait {
     ItemWait::AppBuild {
-        lane: Lane::Mac,
+        lane: Lane::MAC,
         running,
         how: "place 1 in the queue".into(),
         queued: (!running).then(|| QueuedBuild {
@@ -667,7 +667,7 @@ fn queued_wait(running: bool) -> ItemWait {
 fn a_worktree_whose_app_build_has_not_started_is_queued_and_one_whose_build_runs_is_working() {
     assert_eq!(
         waits_in_queue(CardState::Working, Some(&queued_wait(false))),
-        Some(Lane::Mac)
+        Some(Lane::MAC)
     );
     assert_eq!(
         waits_in_queue(CardState::Working, Some(&queued_wait(true))),

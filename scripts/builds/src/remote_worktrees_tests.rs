@@ -1,5 +1,6 @@
 use super::*;
 use crate::host::tests::fake_ssh;
+use crate::lane::Lane;
 use crate::testing::{Scratch, git, gone_pid};
 use std::path::Path;
 
@@ -168,7 +169,7 @@ fn prune_removes_the_worktrees_on_a_host_that_no_checkout_uses() {
     places
         .write_app_checkouts(
             "demo",
-            Lane::Android,
+            Lane::ANDROID,
             &[crate::lane::AppCheckout::by_person("m1:remote-app")],
         )
         .unwrap();

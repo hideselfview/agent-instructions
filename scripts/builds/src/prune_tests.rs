@@ -263,7 +263,7 @@ fn a_hosts_prune_keeps_its_app_checkouts_lane_folders_warm() {
     std::fs::write(roots[0].0.app_lane_file(), "mac\n").unwrap();
     assert_eq!(
         roots[0].0.app_lane(&tool.places).unwrap(),
-        Some(crate::lane::Lane::Mac)
+        Some(crate::lane::Lane::MAC)
     );
     assert_eq!(roots[1].0.app_lane(&tool.places).unwrap(), None);
     for (_, root) in &roots {
@@ -314,13 +314,13 @@ fn this_mac_reads_its_app_checkouts_from_the_lanes_sets() {
     std::fs::create_dir_all(tool.places.root.join("demo")).unwrap();
     std::fs::write(
         tool.places
-            .app_checkouts_file("demo", crate::lane::Lane::Android),
+            .app_checkouts_file("demo", crate::lane::Lane::ANDROID),
         "side-1\n",
     )
     .unwrap();
     assert_eq!(
         checkout.app_lane(&tool.places).unwrap(),
-        Some(crate::lane::Lane::Android)
+        Some(crate::lane::Lane::ANDROID)
     );
 }
 

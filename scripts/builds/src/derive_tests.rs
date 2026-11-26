@@ -77,7 +77,7 @@ fn a_bridge_change_builds_both_lanes_with_each_step_once() {
 
 #[test]
 fn a_pick_in_a_lane_the_branch_does_not_touch_builds_what_the_lane_needs() {
-    let picks = vec![Pick::Class(Lane::Mac, "FooTests".to_string())];
+    let picks = vec![Pick::Class(Lane::MAC, "FooTests".to_string())];
     let plan = plan(&config(), &paths(&["bae-library/src/lib.rs"]), &picks);
     assert_eq!(names(&plan), vec![("mac", vec!["macos-tests"])]);
 }
@@ -85,18 +85,23 @@ fn a_pick_in_a_lane_the_branch_does_not_touch_builds_what_the_lane_needs() {
 #[test]
 fn a_pick_in_a_lane_with_no_needs_line_runs_with_no_build() {
     let config = parse_config("step mac a ./a\ntest mac ./t {class}\n").unwrap();
-    let picks = vec![Pick::Class(Lane::Mac, "FooTests".to_string())];
+    let picks = vec![Pick::Class(Lane::MAC, "FooTests".to_string())];
     let plan = plan(&config, &[], &picks);
     assert_eq!(names(&plan), vec![("mac", vec![])]);
 }
 
+const LANES: [Lane; 2] = [Lane::MAC, Lane::ANDROID];
+
 #[test]
 fn a_shots_prefix_names_its_lane_and_a_class_must_be_in_exactly_one() {
-    assert_eq!(lane_of_prefix("android.welcome.").unwrap(), Lane::Android);
-    assert!(lane_of_prefix("welcome.").is_err());
-    assert_eq!(lane_of_class(&[Lane::Mac], "X").unwrap(), Lane::Mac);
+    assert_eq!(
+        lane_of_prefix("android.welcome.", &LANES).unwrap(),
+        Lane::ANDROID
+    );
+    assert!(lane_of_prefix("welcome.", &LANES).is_err());
+    assert_eq!(lane_of_class(&[Lane::MAC], "X").unwrap(), Lane::MAC);
     assert!(lane_of_class(&[], "X").is_err());
-    assert!(lane_of_class(&Lane::ALL, "X").is_err());
+    assert!(lane_of_class(&[Lane::MAC, Lane::ANDROID], "X").is_err());
 }
 
 #[test]
@@ -105,26 +110,26 @@ fn the_flags_take_a_name_without_a_lane_and_fresh_anywhere() {
         .iter()
         .map(|word| word.to_string())
         .collect();
-    let (picks, fresh) = parse_picks(&args, |kind, arg| match kind {
-        PickKind::Shots => lane_of_prefix(arg),
-        PickKind::Class => Ok(Lane::Android),
+    let (picks, fresh) = parse_picks(&args, &LANES, |kind, arg| match kind {
+        PickKind::Shots => lane_of_prefix(arg, &LANES),
+        PickKind::Class => Ok(Lane::ANDROID),
     })
     .unwrap();
     assert!(fresh);
     assert_eq!(
         picks,
         vec![
-            Pick::Class(Lane::Android, "FooTests".to_string()),
-            Pick::Shots(Lane::Mac, shots::Prefix::parse("mac.a.").unwrap())
+            Pick::Class(Lane::ANDROID, "FooTests".to_string()),
+            Pick::Shots(Lane::MAC, shots::Prefix::parse("mac.a.").unwrap())
         ]
     );
-    assert!(parse_picks(&["--test".to_string()], |_, _| Ok(Lane::Mac)).is_err());
-    assert!(parse_picks(&["mac".to_string()], |_, _| Ok(Lane::Mac)).is_err());
+    assert!(parse_picks(&["--test".to_string()], &LANES, |_, _| Ok(Lane::MAC)).is_err());
+    assert!(parse_picks(&["mac".to_string()], &LANES, |_, _| Ok(Lane::MAC)).is_err());
 }
 
 fn picks_of(words: &[&str]) -> Result<Vec<Pick>> {
     let args: Vec<String> = words.iter().map(|word| word.to_string()).collect();
-    parse_picks(&args, |_, arg| lane_of_prefix(arg)).map(|(picks, _)| picks)
+    parse_picks(&args, &LANES, |_, arg| lane_of_prefix(arg, &LANES)).map(|(picks, _)| picks)
 }
 
 #[test]
@@ -146,7 +151,7 @@ fn a_shots_prefix_that_selects_every_shot_of_its_lane_is_refused_naming_the_rule
     assert_eq!(
         picks_of(&["--shots", "mac.import"]).unwrap(),
         vec![Pick::Shots(
-            Lane::Mac,
+            Lane::MAC,
             shots::Prefix::parse("mac.import").unwrap()
         )]
     );
@@ -157,9 +162,9 @@ fn all_shots_names_its_lane_and_picks_every_shot_of_it_where_the_refusal_says_so
     assert_eq!(
         picks_of(&["--all-shots", "mac", "--shots", "android.welcome."]).unwrap(),
         vec![
-            app_build::all_shots(Lane::Mac),
+            app_build::all_shots(Lane::MAC),
             Pick::Shots(
-                Lane::Android,
+                Lane::ANDROID,
                 shots::Prefix::parse("android.welcome.").unwrap()
             )
         ]
@@ -209,7 +214,7 @@ fn the_changed_paths_are_those_after_the_merge_base_with_origin_main_and_a_class
     let config = config();
     assert_eq!(
         lanes_declaring(&top, &config, "work", "FooTests").unwrap(),
-        vec![Lane::Mac]
+        vec![Lane::MAC]
     );
     assert!(
         lanes_declaring(&top, &config, "work", "Nothing")
@@ -246,7 +251,7 @@ fn a_test_type_is_found_however_its_language_declares_it() {
     ] {
         assert_eq!(
             declared("bae-macos/FooTests.swift", text, "FooTests"),
-            vec![Lane::Mac],
+            vec![Lane::MAC],
             "{text}"
         );
     }
@@ -258,7 +263,7 @@ fn a_test_type_is_found_however_its_language_declares_it() {
     ] {
         assert_eq!(
             declared("bae-android/FooTest.kt", text, "FooTest"),
-            vec![Lane::Android],
+            vec![Lane::ANDROID],
             "{text}"
         );
     }
@@ -322,12 +327,12 @@ fn the_program_that_runs_a_class_is_the_one_whose_sources_declare_it() {
         "step mac macos-tests ./mt\nsources mac bae-macos\nsources mac:shots bae-macos/baeShots\ntest mac ./t {class}\ntest mac:shots ./s {class}\n",
     )
     .unwrap();
-    let program = |class: &str| program_of(&top, &config, "HEAD", Lane::Mac, class).unwrap();
+    let program = |class: &str| program_of(&top, &config, "HEAD", Lane::MAC, class).unwrap();
     assert_eq!(program("ShotTests").as_deref(), Some("shots"));
     assert_eq!(program("AppTests"), None);
     assert_eq!(program("Missing"), None);
     assert_eq!(
         lanes_declaring(&top, &config, "HEAD", "ShotTests").unwrap(),
-        vec![Lane::Mac]
+        vec![Lane::MAC]
     );
 }

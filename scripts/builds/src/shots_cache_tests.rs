@@ -51,7 +51,7 @@ fn key(prefix: &str) -> Key {
     Key {
         repo: "demo".to_string(),
         commit: "a".repeat(40),
-        lane: Lane::Mac,
+        lane: Lane::MAC,
         environment: ENVIRONMENT.to_string(),
         prefix: prefix.to_string(),
         versions: Versions {
@@ -112,7 +112,7 @@ fn a_cached_run_is_found_by_its_whole_key_and_a_later_run_of_the_key_replaces_it
             ..key.clone()
         },
         Key {
-            lane: Lane::Android,
+            lane: Lane::ANDROID,
             ..key.clone()
         },
         Key {
@@ -210,7 +210,7 @@ fn the_before_run_is_the_newest_run_of_the_version_whose_prefix_starts_the_runs_
             &places,
             "demo",
             &base,
-            Lane::Mac,
+            Lane::MAC,
             Made::In(ENVIRONMENT),
             prefix,
             &versions,
@@ -246,7 +246,7 @@ fn the_before_run_is_the_newest_run_of_the_version_whose_prefix_starts_the_runs_
         &places,
         "demo",
         &base,
-        Lane::Mac,
+        Lane::MAC,
         Made::In(ENVIRONMENT),
         "mac.welcome.",
         &versions,
@@ -266,7 +266,7 @@ fn the_before_run_is_the_newest_run_of_the_version_whose_prefix_starts_the_runs_
             &places,
             "demo",
             &base,
-            Lane::Android,
+            Lane::ANDROID,
             Made::In(ENVIRONMENT),
             "android.",
             &versions
@@ -292,7 +292,7 @@ fn the_before_run_is_a_run_made_in_the_same_environment_and_no_other() {
             &places,
             "demo",
             &commit,
-            Lane::Mac,
+            Lane::MAC,
             Made::In(environment),
             "mac.a.",
             &versions,
@@ -322,7 +322,7 @@ fn a_read_in_any_environment_finds_the_newest_run_and_names_its_environment() {
             &places,
             "demo",
             &commit,
-            Lane::Mac,
+            Lane::MAC,
             made,
             "mac.a.",
             &versions,
@@ -346,11 +346,11 @@ fn a_read_in_any_environment_finds_the_newest_run_and_names_its_environment() {
         ENVIRONMENT
     );
     assert_eq!(
-        environments(&places, "demo", &commit, Lane::Mac).unwrap(),
+        environments(&places, "demo", &commit, Lane::MAC).unwrap(),
         ["25G241-27B52", ENVIRONMENT]
     );
     assert_eq!(
-        covering_folders(&places, "demo", &commit, Lane::Mac, "mac.a.", &versions)
+        covering_folders(&places, "demo", &commit, Lane::MAC, "mac.a.", &versions)
             .unwrap()
             .len(),
         2
@@ -412,7 +412,7 @@ fn the_run_that_covers_a_prefix_is_found_without_marking_it_used() {
         &places,
         "demo",
         &"a".repeat(40),
-        Lane::Mac,
+        Lane::MAC,
         Made::Anywhere,
         "mac.component.checkbox.",
         &Versions {
@@ -674,7 +674,7 @@ fn a_lane_can_read_its_cached_app_pictures_after_a_prune_between_steps() {
             .unwrap();
         crate::testing::age_all(tree, 2);
     }
-    let pictures = AppPictures::of(&places, "demo", Lane::Mac, "active");
+    let pictures = AppPictures::of(&places, "demo", Lane::MAC, "active");
     let query = CaptureQuery {
         prefixes: vec![shots::Prefix::parse("mac.a.").unwrap()],
         windows: true,
@@ -827,7 +827,7 @@ fn cause(places: &Places, prefix: &str) -> MissCause {
         places,
         "demo",
         &wanted.commit,
-        Lane::Mac,
+        Lane::MAC,
         ENVIRONMENT,
         prefix,
         &wanted.versions,

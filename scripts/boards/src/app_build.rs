@@ -134,6 +134,11 @@ impl Apps {
         Ok(apps)
     }
 
+    /// The apps that `app` lines name, in the order written.
+    pub fn named(&self) -> impl Iterator<Item = App> + '_ {
+        self.named.iter().cloned()
+    }
+
     /// The app called <name>: the one an `app` line names, else the one
     /// named for the platform whose word <name> is.
     pub fn get(&self, name: &str) -> Option<App> {

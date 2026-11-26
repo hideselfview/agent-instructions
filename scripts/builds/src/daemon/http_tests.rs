@@ -36,7 +36,7 @@ fn server_with(name: &str, prepare: impl FnOnce(&Scratch, &mut crate::places::Pl
     let mut places = tool.places.clone();
     prepare(&scratch, &mut places);
     std::fs::create_dir_all(places.root.join("demo")).unwrap();
-    std::fs::write(places.root.join("demo/app-checkouts"), "side-1\n").unwrap();
+    std::fs::write(places.root.join("demo/app-mac-checkouts"), "side-1\n").unwrap();
     let gate = scratch.dir.join("gate");
     let program = vec![
         "/bin/sh".to_string(),
@@ -889,7 +889,7 @@ fn a_designs_path_is_the_page_or_a_board_or_component_at_a_full_commit() {
         Some(DesignsRoute::Picture(
             "bae",
             commit,
-            Lane::Mac,
+            Lane::MAC,
             "mac.component.checkbox.on",
             PictureSide::Board
         ))
