@@ -145,7 +145,7 @@ fn queued(from: &str, command: &str) -> Queued {
 
 #[test]
 fn a_lane_with_a_running_build_says_whose_it_is_and_what_runs() {
-    let mut app = checkout("side-1", Some("mac"), None);
+    let mut app = checkout("app-1", Some("mac"), None);
     app.activity = Activity {
         processes: vec![
             process("xcodebuild"),
@@ -166,7 +166,7 @@ fn a_lane_with_a_running_build_says_whose_it_is_and_what_runs() {
         // 25 minutes for the lock, ran `macos`, and started `macos-tests` 4
         // minutes ago.
         vec![running(
-            lock("side-1", 32, "/d/bae-worktrees/side-5", &[]),
+            lock("app-1", 32, "/d/bae-worktrees/side-5", &[]),
             25,
             7,
             ("macos-tests", 4),
@@ -227,14 +227,14 @@ fn a_lane_with_a_running_build_says_whose_it_is_and_what_runs() {
 #[test]
 fn a_lock_only_leftover_processes_hold_is_stuck_and_a_running_build_is_not() {
     let mut leftover = lock(
-        "side-13",
+        "app-13",
         37 * 60,
         "/d/bae-worktrees/side-2",
         &["/usr/bin/adb -L tcp:5037"],
     );
     leftover.holder.as_mut().unwrap().driver_running = false;
     let stuck = repo(
-        vec![checkout("side-13", Some("mac"), None)],
+        vec![checkout("app-13", Some("mac"), None)],
         vec![leftover],
         Vec::new(),
     );
@@ -248,8 +248,8 @@ fn a_lock_only_leftover_processes_hold_is_stuck_and_a_running_build_is_not() {
     // A build that holds the lock with its driver running is building, even
     // when no build program has started yet and however long it has held it.
     let building = repo(
-        vec![checkout("side-13", Some("mac"), None)],
-        vec![lock("side-13", 37 * 60, "/d/bae-worktrees/side-2", &[])],
+        vec![checkout("app-13", Some("mac"), None)],
+        vec![lock("app-13", 37 * 60, "/d/bae-worktrees/side-2", &[])],
         Vec::new(),
     );
     assert!(matches!(
@@ -260,9 +260,9 @@ fn a_lock_only_leftover_processes_hold_is_stuck_and_a_running_build_is_not() {
 
 #[test]
 fn a_free_lock_is_idle_and_the_mac_lane_comes_first() {
-    let mut android = checkout("side-13", Some("android"), Some("android-branch"));
+    let mut android = checkout("app-13", Some("android"), Some("android-branch"));
     android.git = None;
-    let mac = checkout("side-1", Some("mac"), None);
+    let mac = checkout("app-1", Some("mac"), None);
     let page = repo(vec![android, mac], Vec::new(), Vec::new());
     let lanes = build(&page).unwrap();
     assert_eq!(
@@ -293,9 +293,9 @@ fn how_of(wait: Option<ItemWait>) -> String {
 }
 
 fn branch_built_by(command: &str) -> Option<String> {
-    let mut app = checkout("side-1", Some("mac"), Some("mac-components-shots"));
+    let mut app = checkout("app-1", Some("mac"), Some("mac-components-shots"));
     app.activity.processes = vec![process("xcodebuild")];
-    let mut held = lock("side-1", 3, "/d/bae-worktrees/side-5", &[]);
+    let mut held = lock("app-1", 3, "/d/bae-worktrees/side-5", &[]);
     held.holder.as_mut().unwrap().command = command.into();
     match build(&repo(vec![app], vec![held], vec![]))
         .unwrap()
@@ -333,14 +333,14 @@ fn a_lane_names_the_branch_of_the_build_that_runs_not_the_one_checked_out_before
 #[test]
 fn a_branch_with_a_running_or_queued_app_build_is_found_in_its_lane() {
     let mut held = running(
-        lock("side-1", 31, "/d/bae-worktrees/side-5", &[]),
+        lock("app-1", 31, "/d/bae-worktrees/side-5", &[]),
         25,
         6,
         ("macos", 4),
     );
     held.holder.as_mut().unwrap().command = "builds app-build bae mac-alerts macos".into();
     let page = repo(
-        vec![checkout("side-1", Some("mac"), None)],
+        vec![checkout("app-1", Some("mac"), None)],
         vec![held],
         vec![
             queued(
@@ -358,7 +358,7 @@ fn a_branch_with_a_running_or_queued_app_build_is_found_in_its_lane() {
         Some(app_build(
             Lane::MAC,
             true,
-            "builds in side-1 for 6 minutes after waiting 25 minutes, running macos for 4 minutes, asked for macos"
+            "builds in app-1 for 6 minutes after waiting 25 minutes, running macos for 4 minutes, asked for macos"
         ))
     );
     assert_eq!(
@@ -392,13 +392,13 @@ fn the_lanes_real_queue_and_command_lines_name_each_waiting_branch() {
     .unwrap();
     std::fs::write(
         scratch.dir.join(Lane::MAC.checkouts_file_name()),
-        "side-1\nside-14\n",
+        "app-1\napp-14\n",
     )
     .unwrap();
     // The first two tickets are the builds that hold the two locks.
     let locks = scratch.dir.join(Lane::MAC.locks_dir_name());
     std::fs::create_dir_all(&locks).unwrap();
-    let _held: Vec<_> = [("side-1", 31898), ("side-14", 59768)]
+    let _held: Vec<_> = [("app-1", 31898), ("app-14", 59768)]
         .into_iter()
         .map(|(checkout, pid)| {
             let lock = crate::queue::try_lock(&locks.join(checkout))
@@ -459,10 +459,10 @@ fn the_lanes_real_queue_and_command_lines_name_each_waiting_branch() {
             commit: None,
         })
         .collect();
-    let mut held = lock("side-1", 27, "/d/bae-worktrees/side-16", &[]);
+    let mut held = lock("app-1", 27, "/d/bae-worktrees/side-16", &[]);
     held.holder.as_mut().unwrap().command = line("reads-auto-picks", "macos macos-tests");
     let page = repo(
-        vec![checkout("side-1", Some("mac"), None)],
+        vec![checkout("app-1", Some("mac"), None)],
         vec![held],
         queue,
     );
@@ -488,7 +488,7 @@ fn the_lanes_real_queue_and_command_lines_name_each_waiting_branch() {
         Some(app_build(
             Lane::MAC,
             true,
-            "builds in side-1, asked for macos macos-tests"
+            "builds in app-1, asked for macos macos-tests"
         ))
     );
     assert_eq!(
@@ -500,7 +500,7 @@ fn the_lanes_real_queue_and_command_lines_name_each_waiting_branch() {
 #[test]
 fn a_queued_build_knows_its_place_the_queues_length_and_what_it_asked() {
     let page = repo(
-        vec![checkout("side-1", Some("mac"), None)],
+        vec![checkout("app-1", Some("mac"), None)],
         Vec::new(),
         vec![
             queued(
@@ -553,10 +553,10 @@ fn a_lane_has_a_row_for_each_checkout_here_and_for_each_on_another_mac() {
     remote.holder.as_mut().unwrap().app_head = Some("abcdef0123456789".into());
     let page = repo(
         vec![
-            checkout("side-14", Some("mac"), None),
-            checkout("side-1", Some("mac"), None),
+            checkout("app-14", Some("mac"), None),
+            checkout("app-1", Some("mac"), None),
         ],
-        vec![remote, lock("side-1", 6, "/d/bae-worktrees/side-5", &[])],
+        vec![remote, lock("app-1", 6, "/d/bae-worktrees/side-5", &[])],
         Vec::new(),
     );
     let lanes = build(&page).unwrap();
@@ -568,7 +568,7 @@ fn a_lane_has_a_row_for_each_checkout_here_and_for_each_on_another_mac() {
         .collect();
     assert_eq!(
         rows,
-        vec![("side-1", false), ("side-14", false), ("m1:mac-1", true)]
+        vec![("app-1", false), ("app-14", false), ("m1:mac-1", true)]
     );
     let m1 = &lanes[0].checkouts[2];
     assert_eq!(m1.disk_kib, None);

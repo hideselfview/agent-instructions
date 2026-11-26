@@ -30,7 +30,7 @@ fn setup(name: &str) -> Setup {
     for file in ["demo/app-mac-checkouts", "demo/app-android-checkouts"] {
         let file = places.root.join(file);
         std::fs::create_dir_all(file.parent().unwrap()).unwrap();
-        std::fs::write(file, "side-1\n").unwrap();
+        std::fs::write(file, "app-1\n").unwrap();
     }
     let stub = scratch.dir.join("stub.sh");
     std::fs::write(&stub, STUB).unwrap();
@@ -303,7 +303,7 @@ fn a_run_a_restart_did_not_see_end_is_detached_while_it_runs_and_lost_after() {
     let scratch = Scratch::new("runs-restart");
     let places = scratch.places();
     std::fs::create_dir_all(places.root.join("demo")).unwrap();
-    std::fs::write(places.root.join("demo/app-mac-checkouts"), "side-1\n").unwrap();
+    std::fs::write(places.root.join("demo/app-mac-checkouts"), "app-1\n").unwrap();
     let dir = places.daemon_dir().join("runs");
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(

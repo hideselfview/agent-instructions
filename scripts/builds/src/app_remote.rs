@@ -41,9 +41,7 @@ use crate::fail::{Context, Result};
 use crate::host::{self, Host, Ssh, clone_path, sh_quote};
 use crate::lane::Lane;
 use crate::places::Places;
-use crate::remote::{
-    JOB_WORKTREE_PREFIX, JOBS_REF, Transport, job_id, release_script, root_script, worktree_in,
-};
+use crate::remote::{JOBS_REF, Transport, job_id, release_script, root_script, worktree_in};
 use crate::text::note;
 use boards::app_build::Platform;
 
@@ -59,7 +57,7 @@ const CRASHED_MINUTES: u32 = 24 * 60;
 const HOST_PICTURES: &str = ".cache/builds-pictures";
 
 /// The host and the name in the entry <entry>, when it is a checkout on a
-/// host rather than one of this Mac's side worktrees.
+/// host rather than on this Mac.
 pub fn split(entry: &str) -> Option<(&str, &str)> {
     entry.split_once(SEPARATOR)
 }
@@ -96,17 +94,7 @@ pub fn name_in(path: &str) -> Result<(String, String)> {
     if dev != "dev" {
         fail!("{path:?} is not under dev/; a host's app checkout is ~/dev/<repo>-worktrees/<name>");
     }
-    if name.starts_with(JOB_WORKTREE_PREFIX) {
-        fail!(
-            "{name} is a name `builds remote run` gives its job worktrees; give the app checkout another"
-        );
-    }
-    if !name
-        .bytes()
-        .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
-    {
-        fail!("{name:?} must be letters, digits, dashes and underscores");
-    }
+    crate::lane::require_app_checkout_name(name)?;
     Ok((repo.to_string(), name.to_string()))
 }
 

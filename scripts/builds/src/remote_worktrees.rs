@@ -176,13 +176,6 @@ fn checkouts_here(places: &Places, repo: &str) -> Result<Option<Vec<String>>> {
     ))
 }
 
-/// Is <name> one of <repo>'s app checkouts on <host>, which builds never
-/// removes here?
-fn app_checkout(places: &Places, repo: &str, host: &str, name: &str) -> Result<bool> {
-    let entry = crate::app_remote::entry_of(host, name);
-    Ok(places.app_checkout_entries(repo)?.contains(&entry))
-}
-
 /// Removes the job worktrees on every recorded host that no checkout's jobs
 /// use (or with <run> dry, says which it would remove). When a host does not
 /// answer or a removal fails there, prune notes it and moves on to the next
@@ -229,9 +222,6 @@ fn prune_host(places: &Places, ssh: &Ssh, host: &Host, holders: &Holders, run: R
                 continue;
             }
         };
-        if app_checkout(places, repo, &host.name, &worktree.name)? {
-            continue;
-        }
         if run.dry() {
             note(format!("would remove {shown} and its build root ({why})"));
             continue;

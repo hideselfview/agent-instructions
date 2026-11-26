@@ -9,7 +9,7 @@ const SETTLE: Duration = Duration::from_millis(200);
 fn places(scratch: &Scratch) -> Places {
     let places = scratch.places();
     std::fs::create_dir_all(places.root.join("demo")).unwrap();
-    std::fs::write(places.app_checkouts_file("demo", Lane::MAC), "side-1\n").unwrap();
+    std::fs::write(places.app_checkouts_file("demo", Lane::MAC), "app-1\n").unwrap();
     places
 }
 
@@ -94,7 +94,7 @@ fn an_android_step_can_leave_a_daemon_without_holding_the_checkout() {
     let scratch = Scratch::new("lock-daemon");
     let places = places(&scratch);
     let lane = Lane::ANDROID;
-    std::fs::write(places.app_checkouts_file("demo", lane), "side-1\n").unwrap();
+    std::fs::write(places.app_checkouts_file("demo", lane), "app-1\n").unwrap();
     let held = take(&places, "demo", lane).unwrap();
     let lock = places.app_lock_file("demo", lane, &held.checkout);
     let ticket = held.queue.ticket_path(&held.ticket.name);
@@ -148,7 +148,7 @@ if os.fork() == 0:
 
 /// Records <count> app checkouts in the mac lane.
 fn set_of(places: &Places, count: usize) {
-    let text: String = (1..=count).map(|n| format!("side-{n}\n")).collect();
+    let text: String = (1..=count).map(|n| format!("app-{n}\n")).collect();
     std::fs::write(places.app_checkouts_file("demo", Lane::MAC), text).unwrap();
 }
 
@@ -163,7 +163,7 @@ fn builds_take_different_checkouts_at_once_and_wait_when_every_lock_is_held() {
     held.sort();
     assert_eq!(
         held,
-        ["side-1", "side-2"],
+        ["app-1", "app-2"],
         "each build has a checkout of its own"
     );
 
@@ -335,18 +335,18 @@ fn a_build_that_runs_here_never_takes_a_checkout_on_a_host() {
 #[test]
 fn the_checkout_on_the_less_loaded_host_goes_first() {
     let scratch = Scratch::new("lock-load");
-    let places = places_with_host(&scratch, "side-2\nm1:app-1\n");
+    let places = places_with_host(&scratch, "app-2\nm1:app-1\n");
     // This Mac's load per core is never 1000.
     let busy = ssh_with_load(&scratch.dir.join("busy"), "1000.00");
     let idle = ssh_with_load(&scratch.dir.join("idle"), "0.00");
-    let entries = || vec!["side-2".to_string(), "m1:app-1".to_string()];
+    let entries = || vec!["app-2".to_string(), "m1:app-1".to_string()];
     let mut loads = Loads {
         places: &places,
         ssh: &busy,
         asked: HashMap::new(),
     };
     let (ordered, skipped) = by_load(&mut loads, entries());
-    assert_eq!(ordered, vec!["side-2", "m1:app-1"], "the host is busier");
+    assert_eq!(ordered, vec!["app-2", "m1:app-1"], "the host is busier");
     assert!(skipped.is_empty());
     let mut loads = Loads {
         places: &places,
@@ -356,7 +356,7 @@ fn the_checkout_on_the_less_loaded_host_goes_first() {
     let (ordered, _) = by_load(&mut loads, entries());
     assert_eq!(
         ordered,
-        vec!["m1:app-1", "side-2"],
+        vec!["m1:app-1", "app-2"],
         "the host's 0 per core is under this Mac's"
     );
 }
@@ -392,7 +392,7 @@ fn a_host_that_does_not_answer_is_skipped_and_named_when_it_was_the_only_one() {
 fn a_holder_records_how_long_it_waited_and_the_step_it_runs() {
     let scratch = Scratch::new("lock-record");
     let places = places(&scratch);
-    let record = places.app_lock_run_file("demo", Lane::MAC, "side-1");
+    let record = places.app_lock_run_file("demo", Lane::MAC, "app-1");
     let first = take(&places, "demo", Lane::MAC).unwrap();
     let (said, heard) = channel();
     let (free, freed): (_, Receiver<()>) = channel();
@@ -471,10 +471,10 @@ fn a_build_that_draws_takes_no_host_whose_lid_is_closed_and_says_so() {
 #[test]
 fn a_build_that_draws_takes_this_macs_checkout_without_asking_about_a_lid() {
     let scratch = Scratch::new("lock-lid-local");
-    let places = places_with_host(&scratch, "side-2\n");
+    let places = places_with_host(&scratch, "app-2\n");
     let closed = ssh_with_screen(&scratch.dir.join("closed"), "lid=closed\\nscreens=0\\n");
     let held = take_drawing(&places, &closed, "demo", Lane::ANDROID, Where::Anywhere, 0).unwrap();
-    assert_eq!(held.checkout, "side-2");
+    assert_eq!(held.checkout, "app-2");
     held.release();
 }
 

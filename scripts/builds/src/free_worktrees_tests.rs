@@ -35,6 +35,34 @@ fn new(tool: &Tool, main: &Path, extra: &[&str]) {
     cmd_new(tool, &crate::testing::no_ssh(), &args).unwrap();
 }
 
+/// A worktree of <main> that is no side worktree, recorded as its mac app
+/// checkout.
+fn app_checkout(tool: &Tool, scratch: &Scratch, main: &Path) -> std::path::PathBuf {
+    let top = scratch.dir.join("demo-worktrees/mac-1");
+    git(
+        main,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "--detach",
+            &top.display().to_string(),
+            "origin/main",
+        ],
+    );
+    crate::worktree::cmd_app_checkout(
+        tool,
+        &crate::host::Ssh::from_env(),
+        &["mac".to_string(), top.display().to_string()],
+    )
+    .unwrap();
+    assert!(
+        top.join("target").is_symlink(),
+        "app-checkout did not set the worktree up"
+    );
+    top
+}
+
 fn head(top: &Path) -> String {
     git_text(boards::git(top).args(["rev-parse", "HEAD"]), "read HEAD")
         .unwrap()
@@ -101,7 +129,7 @@ fn new_adds_a_worktree_when_none_is_free() {
         "agent B"
     );
 
-    // A dirty one and the app checkout are not free either.
+    // A dirty one is not free, and an app checkout is no side worktree.
     cmd_release(
         &scratch.places(),
         &[side(&scratch, 1).display().to_string()],
@@ -113,14 +141,15 @@ fn new_adds_a_worktree_when_none_is_free() {
     )
     .unwrap();
     std::fs::write(side(&scratch, 1).join("stray"), "x").unwrap();
-    crate::worktree::cmd_app_checkout(
-        &tool,
-        &crate::host::Ssh::from_env(),
-        &["mac".to_string(), side(&scratch, 2).display().to_string()],
-    )
-    .unwrap();
+    std::fs::write(side(&scratch, 2).join("stray"), "x").unwrap();
+    let app = app_checkout(&tool, &scratch, &main);
     new(&tool, &main, &[]);
     assert!(side(&scratch, 3).exists());
+    let checkout = Checkout::find(&app.display().to_string()).unwrap();
+    assert!(
+        Claim::read(&checkout.claim_file()).unwrap().is_none(),
+        "new handed out the app checkout"
+    );
 }
 
 #[test]
@@ -159,14 +188,8 @@ fn a_free_worktree_is_retired_at_once_and_the_rest_stay() {
     for n in [1, 2, 3, 5] {
         release(&scratch, n);
     }
-    // side-1 is the long-lived one, side-4 stays claimed, side-5 is the app
-    // checkout.
-    crate::worktree::cmd_app_checkout(
-        &tool,
-        &crate::host::Ssh::from_env(),
-        &["mac".to_string(), tops[4].display().to_string()],
-    )
-    .unwrap();
+    // side-1 is the long-lived one and side-4 stays claimed.
+    let app = app_checkout(&tool, &scratch, &main);
     // Each was used a moment ago.
 
     retire_free(&tool, &tool.roots().unwrap(), Run::Dry).unwrap();
@@ -183,7 +206,8 @@ fn a_free_worktree_is_retired_at_once_and_the_rest_stay() {
         "side-1, the long-lived worktree, was retired"
     );
     assert!(tops[3].exists(), "a claimed worktree was retired");
-    assert!(tops[4].exists(), "the app checkout was retired");
+    assert!(!tops[4].exists(), "a free worktree was kept");
+    assert!(app.exists(), "the app checkout was retired");
     assert!(main.exists());
 }
 
@@ -254,6 +278,28 @@ fn new_without_for_still_claims() {
         Claim::read(&checkout.claim_file()).unwrap().unwrap().who,
         "builds new"
     );
+}
+
+/// A side worktree is what `new` and `item take` hand out, so no lane records
+/// one as an app checkout: a lane's build would detach the branch of the
+/// agent that works there.
+#[test]
+fn a_side_worktree_is_never_recorded_as_an_app_checkout() {
+    let scratch = Scratch::new("free-side-app");
+    let (tool, main) = demo(&scratch);
+    new(&tool, &main, &["--for", "agent"]);
+    release(&scratch, 1);
+
+    let result = crate::worktree::cmd_app_checkout(
+        &tool,
+        &crate::host::Ssh::from_env(),
+        &["mac".to_string(), side(&scratch, 1).display().to_string()],
+    );
+    assert!(
+        result.is_err(),
+        "a side worktree was recorded as an app checkout"
+    );
+    assert_eq!(tool.places.app_lane_of("demo", "side-1").unwrap(), None);
 }
 
 /// A worktree Claude Code's harness made inside the main checkout, set up the

@@ -36,8 +36,8 @@ struct Candidate {
     measured: Measure,
 }
 
-/// Is <checkout> one whose folders the floor may delete: a side worktree no
-/// agent claims, or a job worktree on a host that no job claims? A claimed
+/// Is <checkout> one that no agent or job works in: a side worktree no agent
+/// claims, or a job worktree on a host that no job claims? A claimed
 /// worktree has an agent or a job at work in it; an agent may go quiet for an
 /// hour between builds, and deleting its folders costs it a cold rebuild of
 /// every dependency.
@@ -47,16 +47,16 @@ fn unclaimed(checkout: &Checkout) -> bool {
 }
 
 /// The build folders the floor may delete, least recently written first:
-/// every unclaimed side or job worktree's (`unclaimed`), but for the folders
-/// an app checkout's lane builds into.
+/// every unclaimed side or job worktree's (`unclaimed`), and every app
+/// checkout's but those its lane builds into.
 fn floor_candidates(tool: &Tool, roots: &[Root]) -> Result<Vec<Candidate>> {
     let mut paths = Vec::new();
     for root in roots {
         let Some(checkout) = &root.live else { continue };
-        if !unclaimed(checkout) {
+        let lane = root.app_lane(&tool.places)?;
+        if lane.is_none() && !unclaimed(checkout) {
             continue;
         }
-        let lane = root.app_lane(&tool.places)?;
         for entry in build_dirs(&checkout.top)? {
             // An app checkout's folders of the other lane are not warm: nothing
             // builds into them there.

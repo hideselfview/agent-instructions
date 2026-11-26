@@ -222,12 +222,38 @@ pub enum AddedBy {
     Builds { at: i64, why: String },
 }
 
-/// One line of a lane's set: the checkout's entry (`side-N` here, or
+/// Refuses <name> as the name of an app checkout's worktree: a side
+/// worktree's name, which `builds new` and `builds item take` hand to agents,
+/// a job worktree's, or one that is not letters, digits, dashes and
+/// underscores.
+pub fn require_app_checkout_name(name: &str) -> Result<()> {
+    if crate::checkout::is_side_name(name) {
+        fail!(
+            "{name} is a side worktree's name, and builds hands side worktrees to agents; an app checkout is a worktree with another name, such as mac-1"
+        );
+    }
+    if name.starts_with(crate::remote::JOB_WORKTREE_PREFIX) {
+        fail!(
+            "{name} is a name `builds remote run` gives its job worktrees; give the app checkout another"
+        );
+    }
+    if name.is_empty()
+        || !name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+    {
+        fail!("{name:?} must be letters, digits, dashes and underscores");
+    }
+    Ok(())
+}
+
+/// One line of a lane's set: the checkout's entry (`<name>` here, or
 /// `<host>:<name>` on a host) alone when a person added it, or
-/// `<entry> builds <at> <why>` when builds did.
+/// `<entry> builds <at> <why>` when builds did. Its name is never a side
+/// worktree's (`require_app_checkout_name`), so no lane's set holds one.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AppCheckout {
-    pub entry: String,
+    entry: String,
     pub added_by: AddedBy,
 }
 
@@ -236,12 +262,27 @@ pub struct AppCheckout {
 const BY_BUILDS: &str = "builds";
 
 impl AppCheckout {
-    /// A checkout a person added.
-    pub fn by_person(entry: &str) -> AppCheckout {
-        AppCheckout {
+    /// The checkout <entry>; fails when no app checkout takes its name.
+    pub fn new(entry: &str, added_by: AddedBy) -> Result<AppCheckout> {
+        let name = crate::app_remote::split(entry).map_or(entry, |(_, name)| name);
+        require_app_checkout_name(name)?;
+        Ok(AppCheckout {
             entry: entry.to_string(),
-            added_by: AddedBy::Person,
-        }
+            added_by,
+        })
+    }
+
+    /// A checkout a person added.
+    pub fn by_person(entry: &str) -> Result<AppCheckout> {
+        AppCheckout::new(entry, AddedBy::Person)
+    }
+
+    pub fn entry(&self) -> &str {
+        &self.entry
+    }
+
+    pub fn into_entry(self) -> String {
+        self.entry
     }
 
     pub fn parse(line: &str) -> Result<AppCheckout> {
@@ -261,10 +302,7 @@ impl AppCheckout {
         if entry.is_empty() {
             fail!("{line:?} is not a line of a lane's app checkouts");
         }
-        Ok(AppCheckout {
-            entry: entry.to_string(),
-            added_by,
-        })
+        AppCheckout::new(entry, added_by)
     }
 
     pub fn line(&self) -> String {
@@ -373,8 +411,8 @@ mod tests {
     #[test]
     fn a_set_line_says_who_added_the_checkout() {
         let set =
-            parse_set("side-1\nm1:builds-android-1 builds 1763337600 2 builds waited\n").unwrap();
-        assert_eq!(set[0], AppCheckout::by_person("side-1"));
+            parse_set("app-1\nm1:builds-android-1 builds 1763337600 2 builds waited\n").unwrap();
+        assert_eq!(set[0], AppCheckout::by_person("app-1").unwrap());
         assert_eq!(
             set[1].added_by,
             AddedBy::Builds {
@@ -386,10 +424,25 @@ mod tests {
             set[1].line(),
             "m1:builds-android-1 builds 1763337600 2 builds waited"
         );
-        assert!(AppCheckout::parse("side-1 someone").is_err());
-        assert!(AppCheckout::parse("side-1 builds soon why").is_err());
+        assert!(AppCheckout::parse("app-1 someone").is_err());
+        assert!(AppCheckout::parse("app-1 builds soon why").is_err());
         let removed = Removed::parse("1763337600 m1:builds-mac-1 no build for 61 minutes").unwrap();
         assert_eq!(removed.entry, "m1:builds-mac-1");
         assert_eq!(Removed::parse(&removed.line()).unwrap(), removed);
+    }
+
+    #[test]
+    fn no_lane_holds_a_side_worktree_or_a_job_worktree() {
+        for entry in [
+            "side-3",
+            "m1:side-3",
+            "side-3 builds 1763337600 why",
+            "remote-side-3",
+        ] {
+            assert!(AppCheckout::parse(entry).is_err(), "{entry}");
+        }
+        for entry in ["side", "side-3a", "m1:builds-mac-1", "mac-1"] {
+            assert!(AppCheckout::parse(entry).is_ok(), "{entry}");
+        }
     }
 }

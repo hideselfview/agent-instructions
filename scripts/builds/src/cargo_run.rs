@@ -1075,7 +1075,7 @@ mod tests {
         let places = scratch.places();
         let main = scratch.dir.join("demo");
         repo(&main, "target 1G\n");
-        for name in ["side-1", "side-2"] {
+        for name in ["app-1", "side-2"] {
             let side = scratch.dir.join("demo-worktrees").join(name);
             git(
                 &main,
@@ -1088,15 +1088,15 @@ mod tests {
                 ],
             );
         }
-        let side_1 = scratch.dir.join("demo-worktrees/side-1");
-        std::fs::create_dir_all(side_1.join("crate/src")).unwrap();
+        let app = scratch.dir.join("demo-worktrees/app-1");
+        std::fs::create_dir_all(app.join("crate/src")).unwrap();
         std::fs::create_dir_all(main.join("crate")).unwrap();
         std::fs::create_dir_all(places.root.join("demo")).unwrap();
-        std::fs::write(places.app_checkouts_file("demo", Lane::MAC), "side-1\n").unwrap();
+        std::fs::write(places.app_checkouts_file("demo", Lane::MAC), "app-1\n").unwrap();
         let none: &[&str] = &[];
         let off: &[&str] = &["--config", "build.incremental=false"];
-        assert_eq!(role(&side_1), off, "the app checkout");
-        assert_eq!(role(&side_1.join("crate/src")), off);
+        assert_eq!(role(&app), off, "the app checkout");
+        assert_eq!(role(&app.join("crate/src")), off);
         assert_eq!(
             role(&scratch.dir.join("demo-worktrees/side-2")),
             off,

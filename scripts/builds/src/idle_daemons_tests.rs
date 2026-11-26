@@ -138,7 +138,7 @@ fn a_lane_is_in_use_on_the_host_whose_checkout_a_build_holds() {
     std::fs::create_dir_all(places.app_locks_dir("demo", Lane::ANDROID)).unwrap();
     std::fs::write(
         places.app_checkouts_file("demo", Lane::ANDROID),
-        "m1:builds-android-1\nside-1\n",
+        "m1:builds-android-1\napp-1\n",
     )
     .unwrap();
     std::fs::write(

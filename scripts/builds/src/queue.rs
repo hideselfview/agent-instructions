@@ -335,7 +335,7 @@ impl Queue {
         };
         Ok(crate::lane::parse_set(&text)?
             .into_iter()
-            .map(|checkout| checkout.entry)
+            .map(crate::lane::AppCheckout::into_entry)
             .collect())
     }
 
@@ -907,7 +907,7 @@ pub fn cmd_queue(places: &Places, args: &[String]) -> Result<()> {
                 let order = queue.order()?;
                 let first: Vec<i32> = order.iter().filter_map(|name| pid_of(name)).collect();
                 for recorded in places.app_checkouts_recorded(repo, lane)? {
-                    let checkout = &recorded.entry;
+                    let checkout = recorded.entry();
                     let lock = places.app_lock_file(repo, lane, checkout);
                     if !crate::flock::is_held(&lock)? {
                         println!("{} {checkout}: free", lane.word());

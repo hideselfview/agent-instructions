@@ -17,7 +17,7 @@ fn held_in(scratch: &Scratch) -> lock::Held {
         .write_app_checkouts(
             "steps",
             Lane::MAC,
-            &[crate::lane::AppCheckout::by_person("side-1")],
+            &[crate::lane::AppCheckout::by_person("app-1").unwrap()],
         )
         .unwrap();
     lock::take(&places, "steps", Lane::MAC).unwrap()
@@ -105,10 +105,10 @@ fn a_ci_only_step_named_is_refused_naming_the_rule_and_left_out_of_every_step() 
 
 #[test]
 fn a_marker_line_names_the_checkout_in_the_prefix_and_other_lines_do_not() {
-    let marker = format!("{CHECKOUT_MARKER}side-9\n");
+    let marker = format!("{CHECKOUT_MARKER}app-9\n");
     assert_eq!(
         prefix_from_marker("android", marker.as_bytes()).as_deref(),
-        Some("[android side-9] ")
+        Some("[android app-9] ")
     );
     assert_eq!(
         prefix_from_marker("android", b"step android-bridge\n"),
@@ -957,14 +957,14 @@ fn built(commit: &str, steps: &[&str]) -> Built {
 #[test]
 fn a_class_run_of_the_commit_just_built_passes() {
     let last = built("abc123", &["macos", "macos-tests"]);
-    Built::allows_class_run(Some(&last), "side-1", "my-branch", "abc123", "abc123").unwrap();
+    Built::allows_class_run(Some(&last), "app-1", "my-branch", "abc123", "abc123").unwrap();
 }
 
 #[test]
 fn a_class_run_of_another_commit_is_refused_naming_what_was_built() {
     let last = built("abc123", &["macos", "macos-tests"]);
-    let error = Built::allows_class_run(Some(&last), "side-1", "my-branch", "def456", "abc123")
-        .unwrap_err();
+    let error =
+        Built::allows_class_run(Some(&last), "app-1", "my-branch", "def456", "abc123").unwrap_err();
     let text = format!("{error:?}");
     assert!(
         text.contains("abc123") && text.contains("macos macos-tests") && text.contains("my-branch"),
@@ -974,16 +974,16 @@ fn a_class_run_of_another_commit_is_refused_naming_what_was_built() {
 
 #[test]
 fn a_class_run_with_no_finished_build_or_a_moved_checkout_is_refused() {
-    assert!(Built::allows_class_run(None, "side-1", "b", "abc123", "abc123").is_err());
+    assert!(Built::allows_class_run(None, "app-1", "b", "abc123", "abc123").is_err());
     let last = built("abc123", &["macos"]);
-    assert!(Built::allows_class_run(Some(&last), "side-1", "b", "abc123", "def456").is_err());
+    assert!(Built::allows_class_run(Some(&last), "app-1", "b", "abc123", "def456").is_err());
 }
 
 #[test]
 fn what_was_built_is_kept_in_a_file_and_cleared_by_the_next_run() {
     let scratch = crate::testing::Scratch::new("app-built");
     let places = scratch.places();
-    let file = places.app_built_file("demo", "side-1");
+    let file = places.app_built_file("demo", "app-1");
     std::fs::create_dir_all(file.parent().unwrap()).unwrap();
     assert_eq!(Built::read(&file).unwrap(), None);
     let last = built("abc123", &["macos", "macos-tests"]);
@@ -1211,7 +1211,7 @@ fn a_finished_lane_run_writes_its_wait_steps_and_checkout_to_its_projects_store(
     timing.held = Some(HeldTimes {
         joined_at: 1_790_000_000,
         wait: Duration::from_millis(1500),
-        checkout: "side-3".to_string(),
+        checkout: "app-3".to_string(),
         requested_commit: "a".repeat(40),
         load: Some(crate::host::Load {
             cores: 14,
@@ -1258,7 +1258,7 @@ fn a_finished_lane_run_writes_its_wait_steps_and_checkout_to_its_projects_store(
         (
             1_790_000_000,
             1500,
-            "side-3".to_string(),
+            "app-3".to_string(),
             "my-branch".to_string(),
             "passed".to_string(),
             14,
@@ -1539,10 +1539,10 @@ fn app_build_returns_a_cached_failure_and_takes_no_lane_without_a_project() {
         .write_app_checkouts(
             "demo",
             Lane::MAC,
-            &[crate::lane::AppCheckout::by_person("side-1")],
+            &[crate::lane::AppCheckout::by_person("app-1").unwrap()],
         )
         .unwrap();
-    let marker = places.root.join("demo/side-1");
+    let marker = places.root.join("demo/app-1");
     std::fs::create_dir_all(&marker).unwrap();
     std::fs::write(marker.join(".checkout"), top.display().to_string()).unwrap();
     let step = fake("shots mac.a.", &["sh", "-c", FINDINGS_RUN], None);
@@ -1609,10 +1609,10 @@ fn a_build_that_reuses_a_cached_run_leaves_the_passing_build_that_land_counts() 
         .write_app_checkouts(
             "demo",
             Lane::MAC,
-            &[crate::lane::AppCheckout::by_person("side-1")],
+            &[crate::lane::AppCheckout::by_person("app-1").unwrap()],
         )
         .unwrap();
-    let marker = places.root.join("demo/side-1");
+    let marker = places.root.join("demo/app-1");
     std::fs::create_dir_all(&marker).unwrap();
     std::fs::write(marker.join(".checkout"), top.display().to_string()).unwrap();
     let step = fake("shots mac.a.", &["sh", "-c", FINDINGS_RUN], None);
@@ -1644,7 +1644,7 @@ fn a_build_that_reuses_a_cached_run_leaves_the_passing_build_that_land_counts() 
             started_at: 5,
             repo: "demo".to_string(),
             lane: Lane::MAC,
-            checkout: "side-1".to_string(),
+            checkout: "app-1".to_string(),
             built_ref: "work".to_string(),
             requested_commit: None,
             built_commit: Some(commit.clone().into()),
@@ -2049,10 +2049,10 @@ fn a_cached_run_made_in_another_environment_is_a_commits_own_run_and_is_printed(
         .write_app_checkouts(
             "demo",
             Lane::MAC,
-            &[crate::lane::AppCheckout::by_person("side-1")],
+            &[crate::lane::AppCheckout::by_person("app-1").unwrap()],
         )
         .unwrap();
-    let marker = places.root.join("demo/side-1");
+    let marker = places.root.join("demo/app-1");
     std::fs::create_dir_all(&marker).unwrap();
     std::fs::write(marker.join(".checkout"), top.display().to_string()).unwrap();
     let commit = resolve(&top, "HEAD").unwrap();
@@ -2375,10 +2375,10 @@ fn an_explicit_step_plan_pins_the_commit_its_ref_named() {
         .write_app_checkouts(
             "demo",
             Lane::MAC,
-            &[crate::lane::AppCheckout::by_person("side-1")],
+            &[crate::lane::AppCheckout::by_person("app-1").unwrap()],
         )
         .unwrap();
-    let marker = places.root.join("demo/side-1");
+    let marker = places.root.join("demo/app-1");
     std::fs::create_dir_all(&marker).unwrap();
     std::fs::write(marker.join(".checkout"), top.display().to_string()).unwrap();
     crate::testing::git(&top, &["branch", "work"]);

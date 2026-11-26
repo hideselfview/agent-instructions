@@ -856,7 +856,7 @@ pub fn lanes_of(places: &Places, repo: &str) -> Result<Vec<LaneJson>> {
             .iter()
             .filter_map(|checkout| match &checkout.added_by {
                 AddedBy::Builds { at, why } => Some(LaneChange {
-                    checkout: checkout.entry.clone(),
+                    checkout: checkout.entry().to_string(),
                     at: *at,
                     why: why.clone(),
                 }),
@@ -872,7 +872,10 @@ pub fn lanes_of(places: &Places, repo: &str) -> Result<Vec<LaneJson>> {
                 why: removed.why,
             })
             .collect();
-        let app_checkouts: Vec<String> = recorded.into_iter().map(|c| c.entry).collect();
+        let app_checkouts: Vec<String> = recorded
+            .into_iter()
+            .map(crate::lane::AppCheckout::into_entry)
+            .collect();
         let app_locks: Vec<String> = app_checkouts
             .iter()
             .map(|checkout| places.app_lock_file(repo, lane, checkout))

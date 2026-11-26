@@ -198,7 +198,6 @@ fn worktree(top: &std::path::Path, who: &str, state: Option<&str>, ahead: Vec<St
             note: Some(Note::with_state(state, "kept".into()).unwrap()),
         },
         project: None,
-        app_checkout: false,
         git: Ok(side_read(&ahead)),
         committing: Ok(Vec::new()),
     }
@@ -396,31 +395,6 @@ fn health_skips_branches_with_no_design_files() {
         findings(
             &loaded(lists),
             &[plain],
-            Coverage::Read(&DesignReads::default())
-        )
-        .is_empty()
-    );
-}
-
-#[test]
-fn an_app_checkout_is_held_with_no_item_and_health_leaves_it() {
-    let demo = demo("held-app");
-    let top = demo.add_side(1, "agent", "work");
-    std::fs::create_dir_all(demo.tool.places.root.join("demo")).unwrap();
-    std::fs::write(
-        demo.tool
-            .places
-            .app_checkouts_file("demo", crate::lane::Lane::MAC),
-        "side-1\n",
-    )
-    .unwrap();
-    held(&demo, &top).unwrap();
-    let mut tree = bae_worktree(Some("held"));
-    tree.app_checkout = true;
-    assert!(
-        findings(
-            &loaded(read(&db())),
-            &[tree],
             Coverage::Read(&DesignReads::default())
         )
         .is_empty()
@@ -682,7 +656,6 @@ fn an_active_worktree_does_not_need_a_release_copy_check() {
 
     let checkout = Checkout::at(&top).unwrap().unwrap();
     let mut worktree = Worktree::read(
-        &demo.tool.places,
         "demo/side-1".into(),
         &checkout,
         &claim_of(&top),
@@ -714,7 +687,6 @@ fn an_idle_worktree_keeps_a_branch_it_left_with_uncopied_work() {
     let git = crate::side_git::read(&top).unwrap();
     assert!(git.ahead.is_empty());
     let tree = Worktree::read(
-        &demo.tool.places,
         "demo/side-1".into(),
         &checkout,
         &claim_of(&top),
@@ -772,9 +744,6 @@ fn a_claim_is_idle_only_when_nothing_holds_the_worktree() {
     let mut unknown = worktree(&top, "a", None, Vec::new());
     unknown.committing = Err("ps failed".into());
     assert!(unknown.idle_claim(true, &[]).is_err());
-    let mut app = worktree(&top, "a", None, Vec::new());
-    app.app_checkout = true;
-    assert!(app.idle_claim(true, &[]).unwrap().is_none());
 }
 
 /// Health's advice to release a claim and its own release use one test, so

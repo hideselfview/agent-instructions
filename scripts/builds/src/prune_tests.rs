@@ -297,7 +297,7 @@ fn this_mac_reads_its_app_checkouts_from_the_lanes_sets() {
     let tool = scratch.tool(0);
     let main = scratch.dir.join("demo");
     crate::testing::repo(&main, "target 1G\n");
-    let dir = scratch.dir.join("demo-worktrees/side-1");
+    let dir = scratch.dir.join("demo-worktrees/app-1");
     crate::testing::git(
         &main,
         &[
@@ -315,7 +315,7 @@ fn this_mac_reads_its_app_checkouts_from_the_lanes_sets() {
     std::fs::write(
         tool.places
             .app_checkouts_file("demo", crate::lane::Lane::ANDROID),
-        "side-1\n",
+        "app-1\n",
     )
     .unwrap();
     assert_eq!(

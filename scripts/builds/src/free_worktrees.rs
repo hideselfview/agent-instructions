@@ -10,8 +10,9 @@
 //! left since its last claim began holds a commit missing from origin/main.
 //! `builds release` refuses to remove a claim on the same facts. Landing
 //! rebases, so `side_git` compares commits by patch (`git cherry`), not by
-//! hash. main and the repo's app checkout are never free: the person's
-//! builds and the agents' app builds stay warm in them.
+//! hash. main and the repo's app checkouts are no side worktrees, so they are
+//! never free: the person's builds and the agents' app builds stay warm in
+//! them.
 
 use std::path::Path;
 
@@ -48,13 +49,6 @@ pub fn find_free(tool: &Tool, main: &Path) -> Result<Option<Checkout>> {
         if !checkout.is_side() || checkout.top != top {
             continue;
         }
-        if tool
-            .places
-            .app_lane_of(&checkout.repo(), &checkout.name())?
-            .is_some()
-        {
-            continue;
-        }
         if is_free(&checkout, &every, &commits)? {
             return Ok(Some(checkout));
         }
@@ -63,7 +57,7 @@ pub fn find_free(tool: &Tool, main: &Path) -> Result<Option<Checkout>> {
 }
 
 /// Retires each free side worktree among <roots> that no build process
-/// uses: no claim, nothing that keeps it (kept.rs). It never retires main, the
+/// uses: no claim, nothing that keeps it (kept.rs). It never retires main, an
 /// app checkout, side-1 (the repo's long-lived side worktree) or a claimed
 /// worktree, and it keeps the worktrees that hold commits missing from
 /// origin/main (health lists them). It holds the picking lock of the repo
@@ -77,7 +71,7 @@ pub fn retire_free(tool: &Tool, roots: &[Root], run: Run) -> Result<()> {
     let builds = build_processes(&processes, &places, &BUILD_NAMES);
     for root in roots {
         let Some(checkout) = &root.live else { continue };
-        if !checkout.is_side() || root.keeps_warm(&tool.places)? {
+        if !checkout.is_side() {
             continue;
         }
         // Each repo's long-lived side worktree stays, free or not.

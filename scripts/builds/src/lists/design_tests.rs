@@ -853,7 +853,6 @@ fn health_of(w: &World, range: &str) -> Vec<String> {
             note: None,
         },
         project: Some("demo".into()),
-        app_checkout: false,
         git: Ok(side_read_of(w, range)),
         committing: Ok(Vec::new()),
     };
@@ -1084,7 +1083,6 @@ fn health_and_check_cover_commits_whose_boards_differ_in_bytes_and_draw_alike() 
                 note: None,
             },
             project: Some("demo".into()),
-            app_checkout: false,
             git: Ok(side_read_of(w, "base..HEAD")),
             committing: Ok(Vec::new()),
         };

@@ -27,9 +27,9 @@ fn plant_dead(queue: &Queue, name: &str) {
 #[test]
 fn health_reads_waits_from_unused_and_held_app_checkouts() {
     let scratch = Scratch::new("queue-health-waits");
-    let queue = queue_with(&scratch, &["side-1", "m1:side-1", "side-2"]);
-    let local = hold(&queue, "side-1", 10);
-    let remote = open_locked(&queue.lock_path("m1:side-1")).unwrap();
+    let queue = queue_with(&scratch, &["app-1", "m1:app-1", "app-2"]);
+    let local = hold(&queue, "app-1", 10);
+    let remote = open_locked(&queue.lock_path("m1:app-1")).unwrap();
     let tickets = [
         plant_live(&queue, 30, Where::Here),
         plant_live(&queue, 40, Where::Here),
@@ -49,7 +49,7 @@ fn health_reads_waits_from_unused_and_held_app_checkouts() {
     );
     assert!(first[&40].contains(&AppWait::Process(30)));
     assert!(first[&40].contains(&AppWait::Process(10)));
-    assert!(first[&50].contains(&AppWait::HeldCheckout("m1:side-1".into())));
+    assert!(first[&50].contains(&AppWait::HeldCheckout("m1:app-1".into())));
 
     unsafe { libc::close(remote) };
     assert!(
@@ -57,7 +57,7 @@ fn health_reads_waits_from_unused_and_held_app_checkouts() {
         "the anywhere build can use the free remote checkout"
     );
     queue
-        .record_checkout_wait(&tickets[2].name, &["side-1".to_string()])
+        .record_checkout_wait(&tickets[2].name, &["app-1".to_string()])
         .unwrap();
     assert_eq!(waits()[&50], [AppWait::Process(10)]);
     drop(tickets);
@@ -67,8 +67,8 @@ fn health_reads_waits_from_unused_and_held_app_checkouts() {
 #[test]
 fn a_waiter_that_can_only_pass_on_a_remote_checkout_does_not_take_a_local_waiters_place() {
     let scratch = Scratch::new("queue-health-remote-pass");
-    let queue = queue_with(&scratch, &["side-1", "m1:side-1"]);
-    let local = hold(&queue, "side-1", 10);
+    let queue = queue_with(&scratch, &["app-1", "m1:app-1"]);
+    let local = hold(&queue, "app-1", 10);
     let tickets = [
         plant_live(&queue, 20, Where::Here),
         plant_live(&queue, 30, Where::Anywhere),
@@ -145,7 +145,7 @@ fn a_waiter_moves_to_right_behind_the_holder() {
     ] {
         plant_dead(&queue, name);
     }
-    let _held = hold(&queue, "side-1", 10);
+    let _held = hold(&queue, "app-1", 10);
     queue.move_to_top(40).unwrap();
     assert_eq!(
         queue.order().unwrap(),
@@ -233,7 +233,7 @@ fn a_signal_between_reading_the_order_and_waiting_is_not_lost() {
 /// Records <count> app checkouts for the queue's lane, so it has that many
 /// slots.
 fn set_slots(queue: &Queue, count: usize) {
-    let text: String = (1..=count).map(|n| format!("side-{n}\n")).collect();
+    let text: String = (1..=count).map(|n| format!("app-{n}\n")).collect();
     std::fs::write(&queue.checkouts_file, text).unwrap();
 }
 
@@ -249,16 +249,16 @@ fn a_queue_has_a_slot_for_each_app_checkout_and_at_least_one() {
 #[test]
 fn the_waiting_are_the_tickets_whose_builds_hold_no_lock_wherever_they_stand() {
     let scratch = Scratch::new("queue-waiting");
-    let queue = queue_with(&scratch, &["side-1", "side-2", "side-3"]);
+    let queue = queue_with(&scratch, &["app-1", "app-2", "app-3"]);
     let tickets: Vec<Ticket> = [10, 20, 30, 40, 50]
         .into_iter()
         .map(|pid| plant_live(&queue, pid, Where::Anywhere))
         .collect();
     // The builds of the first, the third and the fifth ticket hold locks.
     let held = [
-        hold(&queue, "side-1", 10),
-        hold(&queue, "side-2", 30),
-        hold(&queue, "side-3", 50),
+        hold(&queue, "app-1", 10),
+        hold(&queue, "app-2", 30),
+        hold(&queue, "app-3", 50),
     ];
     assert_eq!(
         queue.waiting().unwrap(),
@@ -318,7 +318,7 @@ fn a_waiter_moves_to_right_behind_the_holders() {
         plant_dead(&queue, name);
     }
     // Both locks are held.
-    let held = [hold(&queue, "side-1", 10), hold(&queue, "side-2", 20)];
+    let held = [hold(&queue, "app-1", 10), hold(&queue, "app-2", 20)];
     queue.move_to_top(40).unwrap();
     assert_eq!(
         queue.order().unwrap(),
@@ -349,7 +349,7 @@ fn with_a_lock_free_a_waiter_moves_in_behind_the_builds_that_hold_one() {
         plant_dead(&queue, name);
     }
     // One lock held: the waiter goes second, where it may take the free one.
-    let held = hold(&queue, "side-1", 10);
+    let held = hold(&queue, "app-1", 10);
     queue.move_to_top(40).unwrap();
     assert_eq!(
         queue.order().unwrap(),
@@ -406,12 +406,12 @@ fn hold(queue: &Queue, checkout: &str, pid: i32) -> libc::c_int {
 #[test]
 fn a_waiter_that_may_take_any_checkout_waits_behind_an_earlier_one_that_may_too() {
     let scratch = Scratch::new("queue-first-fit-any");
-    let queue = queue_with(&scratch, &["m1:mac-1", "side-3"]);
+    let queue = queue_with(&scratch, &["m1:mac-1", "app-3"]);
     let a = plant_live(&queue, 10, Where::Anywhere);
     let _held = hold(&queue, "m1:mac-1", 10);
     let first = plant_live(&queue, 20, Where::Anywhere);
     let second = plant_live(&queue, 30, Where::Here);
-    // side-3 is the one free checkout: the earlier waiter may take it.
+    // app-3 is the one free checkout: the earlier waiter may take it.
     assert!(
         queue
             .may_go(&first.name, &queue.order().unwrap()[..1])
@@ -428,7 +428,7 @@ fn a_waiter_that_may_take_any_checkout_waits_behind_an_earlier_one_that_may_too(
 #[test]
 fn each_free_checkout_is_left_for_one_waiter_that_may_use_it() {
     let scratch = Scratch::new("queue-first-fit-counts");
-    let queue = queue_with(&scratch, &["m1:mac-1", "side-3", "side-4"]);
+    let queue = queue_with(&scratch, &["m1:mac-1", "app-3", "app-4"]);
     let a = plant_live(&queue, 10, Where::Anywhere);
     let _held = hold(&queue, "m1:mac-1", 10);
     let tickets: Vec<Ticket> = [20, 30, 40]

@@ -190,7 +190,6 @@ pub fn release_idle_claims(tool: &Tool) -> Result<(Vec<String>, Vec<crate::healt
                 &claim,
                 &every,
                 nothing_runs,
-                || Ok(checkout.app_lane(&tool.places)?.is_some()),
                 || crate::procs::commits_in(&commits, &checkout.top),
                 None,
             )?
@@ -246,10 +245,6 @@ pub fn release_stalled_claims(
         let checkout = crate::checkout::Checkout::find(&worktree.path)?;
         let top = checkout.top.display().to_string();
         if !checkout.is_side()
-            || tool
-                .places
-                .app_lane_of(&checkout.repo(), &checkout.name())?
-                .is_some()
             || Claim::read(&checkout.claim_file())?.as_ref() != Some(&worktree.claim)
         {
             continue;

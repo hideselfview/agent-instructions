@@ -175,10 +175,8 @@ impl Checkout {
     /// else made (Claude Code's harness puts agents' under
     /// <main>/.claude/worktrees) is not one, and no command treats it as one.
     pub fn is_side(&self) -> bool {
-        self.name_in_worktrees().is_some_and(|name| {
-            name.strip_prefix("side-")
-                .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
-        })
+        self.name_in_worktrees()
+            .is_some_and(|name| is_side_name(&name))
     }
 
     /// Is this a worktree that jobs run in on a host,
@@ -199,7 +197,7 @@ impl Checkout {
 
     /// The worktree's folder name, when it is in the repo's worktrees folder,
     /// <main's folder>/../<repo>-worktrees.
-    fn name_in_worktrees(&self) -> Option<String> {
+    pub fn name_in_worktrees(&self) -> Option<String> {
         let folder = worktrees_folder(&self.main)?;
         (self.top.parent() == Some(folder.as_path())).then(|| file_name(&self.top))
     }
@@ -319,6 +317,14 @@ impl Checkout {
         }
         Ok(())
     }
+}
+
+/// Is <name> a side worktree's: `side-N`? A checkout's name says which kind
+/// it is: no app checkout takes such a name
+/// (`lane::require_app_checkout_name`).
+pub fn is_side_name(name: &str) -> bool {
+    name.strip_prefix("side-")
+        .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
 }
 
 pub fn file_name(path: &Path) -> String {

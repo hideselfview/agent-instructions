@@ -36,7 +36,7 @@ fn server_with(name: &str, prepare: impl FnOnce(&Scratch, &mut crate::places::Pl
     let mut places = tool.places.clone();
     prepare(&scratch, &mut places);
     std::fs::create_dir_all(places.root.join("demo")).unwrap();
-    std::fs::write(places.root.join("demo/app-mac-checkouts"), "side-1\n").unwrap();
+    std::fs::write(places.root.join("demo/app-mac-checkouts"), "app-1\n").unwrap();
     let gate = scratch.dir.join("gate");
     let program = vec![
         "/bin/sh".to_string(),

@@ -52,22 +52,6 @@ fn new_claims_a_worktree_and_retire_removes_it() {
             .contains("is claimed by agent A since")
     );
     cmd_release(&scratch.places(), std::slice::from_ref(&side_arg)).unwrap();
-    cmd_app_checkout(
-        &tool,
-        &crate::host::Ssh::from_env(),
-        &["mac".to_string(), side_arg.clone()],
-    )
-    .unwrap();
-    assert!(
-        refusal(cmd_retire(&tool, std::slice::from_ref(&side_arg)))
-            .contains("one of demo's mac app checkouts")
-    );
-    cmd_app_checkout(
-        &tool,
-        &crate::host::Ssh::from_env(),
-        &["remove".to_string(), "mac".to_string(), side_arg.clone()],
-    )
-    .unwrap();
     std::fs::write(side.join("stray"), "x").unwrap();
     assert!(
         refusal(cmd_retire(&tool, std::slice::from_ref(&side_arg)))
@@ -89,7 +73,7 @@ fn a_checkout_is_the_app_checkout_of_one_lane_only() {
     let tool = scratch.tool(0);
     let main = scratch.dir.join("demo");
     repo(&main, "target 1G\n");
-    let side = scratch.dir.join("demo-worktrees/side-1");
+    let side = scratch.dir.join("demo-worktrees/app-1");
     git(
         &main,
         &[
@@ -109,7 +93,7 @@ fn a_checkout_is_the_app_checkout_of_one_lane_only() {
     )
     .unwrap();
     assert_eq!(
-        tool.places.app_lane_of("demo", "side-1").unwrap(),
+        tool.places.app_lane_of("demo", "app-1").unwrap(),
         Some(Lane::ANDROID)
     );
     assert!(
@@ -135,7 +119,8 @@ fn a_checkout_is_the_app_checkout_of_one_lane_only() {
         .contains("is no app")
     );
     assert!(
-        refusal(cmd_retire(&tool, &[side.display().to_string()])).contains("android app checkouts")
+        refusal(cmd_retire(&tool, &[side.display().to_string()]))
+            .contains("only side worktrees retire")
     );
 }
 
@@ -153,7 +138,7 @@ fn a_lane_holds_several_app_checkouts_and_one_comes_out_while_no_build_holds_it(
             .collect()
     };
     let sides: Vec<_> = (1..=2)
-        .map(|n| scratch.dir.join(format!("demo-worktrees/side-{n}")))
+        .map(|n| scratch.dir.join(format!("demo-worktrees/app-{n}")))
         .collect();
     for side in &sides {
         git(
@@ -182,9 +167,9 @@ fn a_lane_holds_several_app_checkouts_and_one_comes_out_while_no_build_holds_it(
     .unwrap();
     assert_eq!(
         tool.places.app_checkouts_of("demo", Lane::ANDROID).unwrap(),
-        vec!["side-1", "side-2"]
+        vec!["app-1", "app-2"]
     );
-    for name in ["side-1", "side-2"] {
+    for name in ["app-1", "app-2"] {
         assert_eq!(
             tool.places.app_lane_of("demo", name).unwrap(),
             Some(Lane::ANDROID)
@@ -192,10 +177,10 @@ fn a_lane_holds_several_app_checkouts_and_one_comes_out_while_no_build_holds_it(
     }
     assert!(
         refusal(cmd_retire(&tool, &[sides[1].display().to_string()]))
-            .contains("app-checkout remove android")
+            .contains("only side worktrees retire")
     );
 
-    let lock = tool.places.app_lock_file("demo", Lane::ANDROID, "side-2");
+    let lock = tool.places.app_lock_file("demo", Lane::ANDROID, "app-2");
     std::fs::create_dir_all(lock.parent().unwrap()).unwrap();
     // Close-on-exec: a process another test starts meanwhile must not inherit
     // the lock and keep it past the close.
@@ -228,10 +213,10 @@ fn a_lane_holds_several_app_checkouts_and_one_comes_out_while_no_build_holds_it(
     .unwrap();
     assert_eq!(
         tool.places.app_checkouts_of("demo", Lane::ANDROID).unwrap(),
-        vec!["side-1"]
+        vec!["app-1"]
     );
     assert!(!lock.exists(), "its lock went with it");
-    assert_eq!(tool.places.app_lane_of("demo", "side-2").unwrap(), None);
+    assert_eq!(tool.places.app_lane_of("demo", "app-2").unwrap(), None);
     assert!(
         refusal(cmd_app_checkout(
             &tool,
@@ -541,7 +526,7 @@ fn a_hosts_app_checkout_has_its_lane_file_exactly_while_it_is_in_a_lane() {
         .places
         .app_checkouts_recorded("demo", Lane::ANDROID)
         .unwrap();
-    set.push(crate::lane::AppCheckout::by_person("gone:app-1"));
+    set.push(crate::lane::AppCheckout::by_person("gone:app-1").unwrap());
     tool.places
         .write_app_checkouts("demo", Lane::ANDROID, &set)
         .unwrap();
@@ -691,20 +676,20 @@ fn a_lane_with_no_app_checkout_on_this_mac_gets_one_and_keeps_it_from_new() {
         .write_app_checkouts(
             "demo",
             Lane::MAC,
-            &[crate::lane::AppCheckout::by_person("m1:mac-1")],
+            &[crate::lane::AppCheckout::by_person("m1:mac-1").unwrap()],
         )
         .unwrap();
 
     ensure_local_app_checkout(&tool, &ssh, "demo", Lane::MAC).unwrap();
     let entries = tool.places.app_checkouts_of("demo", Lane::MAC).unwrap();
-    assert_eq!(entries, ["m1:mac-1", "side-1"]);
-    let side = scratch.dir.join("home/dev/demo-worktrees/side-1");
-    assert!(side.join("target").is_symlink(), "the checkout is set up");
+    assert_eq!(entries, ["m1:mac-1", "builds-mac-1"]);
+    let top = scratch.dir.join("home/dev/demo-worktrees/builds-mac-1");
+    assert!(top.join("target").is_symlink(), "the checkout is set up");
     assert_eq!(
-        crate::app_config::app_checkout_top(&tool.places, "demo", "side-1").unwrap(),
-        side
+        crate::app_config::app_checkout_top(&tool.places, "demo", "builds-mac-1").unwrap(),
+        top
     );
-    let checkout = Checkout::find(&side.display().to_string()).unwrap();
+    let checkout = Checkout::find(&top.display().to_string()).unwrap();
     assert!(
         Claim::read(&checkout.claim_file()).unwrap().is_none(),
         "no agent holds it"
@@ -724,6 +709,11 @@ fn a_lane_with_no_app_checkout_on_this_mac_gets_one_and_keeps_it_from_new() {
     );
 }
 
+/// An app checkout on this Mac, as a lane's set records it.
+fn local() -> crate::lane::AppCheckout {
+    crate::lane::AppCheckout::by_person("mac-1").unwrap()
+}
+
 #[test]
 fn a_lane_record_whose_message_to_the_queue_fails_is_taken_out_again() {
     let scratch = Scratch::new("worktree-record-message");
@@ -732,10 +722,10 @@ fn a_lane_record_whose_message_to_the_queue_fails_is_taken_out_again() {
         .write_app_checkouts(
             "demo",
             Lane::MAC,
-            &[crate::lane::AppCheckout::by_person("m1:mac-1")],
+            &[crate::lane::AppCheckout::by_person("m1:mac-1").unwrap()],
         )
         .unwrap();
-    let error = record_with_message(&tool, "demo", Lane::MAC, "side-1", || {
+    let error = record_with_message(&tool, "demo", Lane::MAC, local(), || {
         Err(Fail::Message("the queue did not answer".to_string()))
     })
     .unwrap_err()
@@ -745,9 +735,9 @@ fn a_lane_record_whose_message_to_the_queue_fails_is_taken_out_again() {
         tool.places.app_checkouts_of("demo", Lane::MAC).unwrap(),
         ["m1:mac-1"]
     );
-    record_with_message(&tool, "demo", Lane::MAC, "side-1", || Ok(())).unwrap();
+    record_with_message(&tool, "demo", Lane::MAC, local(), || Ok(())).unwrap();
     assert_eq!(
         tool.places.app_checkouts_of("demo", Lane::MAC).unwrap(),
-        ["m1:mac-1", "side-1"]
+        ["m1:mac-1", "mac-1"]
     );
 }

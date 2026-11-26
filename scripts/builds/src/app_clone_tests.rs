@@ -14,13 +14,13 @@ fn used(entries: &[(&str, Option<i64>)]) -> Vec<(String, Option<i64>)> {
 #[test]
 fn the_warmest_source_is_the_one_a_build_used_last() {
     let ranked = rank_sources(&used(&[
-        ("side-3", Some(100)),
+        ("app-3", Some(100)),
         ("m1:app-2", Some(300)),
         ("m1:app-1", Some(300)),
         ("m1:builds-mac-1", None),
-        ("side-4", Some(200)),
+        ("app-4", Some(200)),
     ]));
-    assert_eq!(ranked, ["m1:app-1", "m1:app-2", "side-4", "side-3"]);
+    assert_eq!(ranked, ["m1:app-1", "m1:app-2", "app-4", "app-3"]);
 }
 
 #[test]
@@ -66,9 +66,9 @@ fn a_source_is_on_the_new_checkouts_host_and_is_not_the_new_checkout() {
     let scratch = Scratch::new("clone-source-host");
     let places = lane(
         &scratch,
-        "side-3\nm1:app-1\nm1:builds-mac-1\nm2:app-1\n",
+        "app-3\nm1:app-1\nm1:builds-mac-1\nm2:app-1\n",
         &[
-            ("side-3", 900),
+            ("app-3", 900),
             ("m1:app-1", 100),
             ("m1:builds-mac-1", 500),
             ("m2:app-1", 800),
@@ -82,8 +82,8 @@ fn a_source_is_on_the_new_checkouts_host_and_is_not_the_new_checkout() {
         "the new checkout is not its own source, and no other host's checkout is one"
     );
     assert_eq!(
-        ranked(at, crate::host::LOCAL, Some("side-9")).unwrap(),
-        ["side-3"]
+        ranked(at, crate::host::LOCAL, Some("app-9")).unwrap(),
+        ["app-3"]
     );
     assert!(has_source(at, "m1").unwrap() && !has_source(at, "m3").unwrap());
     let source = take_source(at, "m1", "m1:builds-mac-1")

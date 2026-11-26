@@ -11,12 +11,12 @@ fn no_ssh(scratch: &Scratch) -> Ssh {
     fake_ssh(&scratch.dir.join("bin"), &scratch.dir.join("remote-home"))
 }
 
-/// Registers a mac app checkout side-1 of the repo demo, in a clone whose
+/// Registers a mac app checkout app-1 of the repo demo, in a clone whose
 /// origin's main has a second commit (it changes `kept`, deletes `gone`, adds
 /// `added`) and whose HEAD is the first. Returns the places, the checkout's
 /// folder, the first commit and the second.
 fn halfway(scratch: &Scratch) -> (Places, PathBuf, String, String) {
-    let top = scratch.dir.join("side-1");
+    let top = scratch.dir.join("app-1");
     repo(&top, "target 1G\n");
     std::fs::write(top.join("kept"), "old\n").unwrap();
     std::fs::write(top.join("gone"), "old\n").unwrap();
@@ -59,14 +59,14 @@ fn halfway(scratch: &Scratch) -> (Places, PathBuf, String, String) {
         "the checkout starts dirty"
     );
     let places = scratch.places();
-    let root = places.root.join("demo").join("side-1");
+    let root = places.root.join("demo").join("app-1");
     std::fs::create_dir_all(&root).unwrap();
     std::fs::write(root.join(".checkout"), top.to_str().unwrap()).unwrap();
     places
         .write_app_checkouts(
             "demo",
             Lane::MAC,
-            &[crate::lane::AppCheckout::by_person("side-1")],
+            &[crate::lane::AppCheckout::by_person("app-1").unwrap()],
         )
         .unwrap();
     (places, top, old, new)
@@ -76,7 +76,7 @@ fn halfway(scratch: &Scratch) -> (Places, PathBuf, String, String) {
 fn a_checkout_left_halfway_goes_to_origins_main() {
     let scratch = Scratch::new("app-reset-halfway");
     let (places, top, _, new) = halfway(&scratch);
-    cmd_reset(&places, &no_ssh(&scratch), "demo", "side-1", None).unwrap();
+    cmd_reset(&places, &no_ssh(&scratch), "demo", "app-1", None).unwrap();
     assert_eq!(run_git(&top, &["rev-parse", "HEAD"]).unwrap().trim(), new);
     assert_eq!(run_git(&top, &["status", "--porcelain"]).unwrap(), "");
     assert_eq!(std::fs::read_to_string(top.join("kept")).unwrap(), "new\n");
@@ -90,7 +90,7 @@ fn a_real_local_change_stops_the_reset_and_is_named() {
     std::fs::write(top.join("kept"), "mine\n").unwrap();
     std::fs::write(top.join("notes"), "mine\n").unwrap();
     let Err(crate::fail::Fail::Message(message)) =
-        cmd_reset(&places, &no_ssh(&scratch), "demo", "side-1", None)
+        cmd_reset(&places, &no_ssh(&scratch), "demo", "app-1", None)
     else {
         panic!("refused")
     };
@@ -119,7 +119,7 @@ fn a_clean_checkout_is_put_on_origins_main_too() {
     let scratch = Scratch::new("app-reset-clean");
     let (places, top, old, new) = halfway(&scratch);
     git(&top, &["checkout", "-q", "--force", "--detach", &old]);
-    cmd_reset(&places, &no_ssh(&scratch), "demo", "side-1", None).unwrap();
+    cmd_reset(&places, &no_ssh(&scratch), "demo", "app-1", None).unwrap();
     assert_eq!(run_git(&top, &["rev-parse", "HEAD"]).unwrap().trim(), new);
 }
 
@@ -127,11 +127,11 @@ fn a_clean_checkout_is_put_on_origins_main_too() {
 fn the_reset_waits_for_the_checkouts_lock() {
     let scratch = Scratch::new("app-reset-lock");
     let (places, top, _, new) = halfway(&scratch);
-    let held = lock::take_checkout(&places, "demo", Lane::MAC, "side-1").unwrap();
+    let held = lock::take_checkout(&places, "demo", Lane::MAC, "app-1").unwrap();
     let resetting = std::thread::spawn({
         let places = places.clone();
         let ssh = no_ssh(&scratch);
-        move || cmd_reset(&places, &ssh, "demo", "side-1", None)
+        move || cmd_reset(&places, &ssh, "demo", "app-1", None)
     });
     std::thread::sleep(std::time::Duration::from_millis(500));
     assert!(
@@ -148,7 +148,7 @@ fn the_reset_waits_for_the_checkouts_lock() {
 fn a_name_that_is_no_app_checkout_is_refused() {
     let scratch = Scratch::new("app-reset-unknown");
     let (places, _, _, _) = halfway(&scratch);
-    assert!(cmd_reset(&places, &no_ssh(&scratch), "demo", "side-9", None).is_err());
+    assert!(cmd_reset(&places, &no_ssh(&scratch), "demo", "app-9", None).is_err());
 }
 
 #[test]
@@ -168,12 +168,12 @@ fn a_tree_of_an_older_target_resets_only_with_matching_naming_it() {
     git(&top, &["checkout", "-q", &middle, "--", "."]);
     git(&top, &["reset", "-q", &old]);
     let Err(crate::fail::Fail::Message(message)) =
-        cmd_reset(&places, &no_ssh(&scratch), "demo", "side-1", None)
+        cmd_reset(&places, &no_ssh(&scratch), "demo", "app-1", None)
     else {
         panic!("refused")
     };
     assert!(message.contains("kept"), "{message}");
-    cmd_reset(&places, &no_ssh(&scratch), "demo", "side-1", Some(&middle)).unwrap();
+    cmd_reset(&places, &no_ssh(&scratch), "demo", "app-1", Some(&middle)).unwrap();
     assert_eq!(
         run_git(&top, &["rev-parse", "HEAD"]).unwrap().trim(),
         new,
@@ -188,7 +188,7 @@ fn matching_does_not_excuse_a_change_no_commit_holds() {
     let (places, top, old, _) = halfway(&scratch);
     std::fs::write(top.join("kept"), "mine\n").unwrap();
     let Err(crate::fail::Fail::Message(message)) =
-        cmd_reset(&places, &no_ssh(&scratch), "demo", "side-1", Some(&old))
+        cmd_reset(&places, &no_ssh(&scratch), "demo", "app-1", Some(&old))
     else {
         panic!("refused")
     };
@@ -249,7 +249,7 @@ fn on_host(scratch: &Scratch) -> OnHost {
         .write_app_checkouts(
             "demo",
             Lane::MAC,
-            &[crate::lane::AppCheckout::by_person("m1:mac-1")],
+            &[crate::lane::AppCheckout::by_person("m1:mac-1").unwrap()],
         )
         .unwrap();
     let lock = lock::take_checkout(&places, "demo", Lane::MAC, "m1:mac-1").unwrap();
@@ -354,7 +354,7 @@ fn a_hosts_checkout_resets_over_a_tree_matching_names() {
 fn a_refresh_passes_over_differing_files_and_fails_on_any_other_error() {
     let scratch = Scratch::new("app-reset-refresh");
     let (_, top, _, _) = halfway(&scratch);
-    let lock = lock::take_checkout(&scratch.places(), "demo", Lane::MAC, "side-1").unwrap();
+    let lock = lock::take_checkout(&scratch.places(), "demo", Lane::MAC, "app-1").unwrap();
     let mut site = Site::Local(
         top.clone(),
         top.join("no.xcconfig"),

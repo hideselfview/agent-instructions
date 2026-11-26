@@ -72,17 +72,8 @@ fn hold_fault(running: &[(&Lists, &Item)], worktree: &str) -> Option<String> {
 
 /// Refuses `builds note --state held` unless every item running in the
 /// worktree waits on an open question, item, design change or condition.
-/// Never refuses it for an app checkout (the recorded app-checkout list),
-/// which runs no item.
 pub fn require_hold_allowed(places: &Places, checkout: &Checkout) -> Result<()> {
     let top = checkout.top.display().to_string();
-    if checkout.is_side()
-        && places
-            .app_lane_of(&checkout.repo(), &checkout.name())?
-            .is_some()
-    {
-        return Ok(());
-    }
     let every = crate::lists::store::every_lists(places)?;
     match hold_fault(&running_in_any(&every, &top), &top) {
         None => Ok(()),
@@ -158,8 +149,6 @@ pub struct Worktree {
     /// The project the claim names (`builds claim --project`), or None when
     /// the claim names none.
     pub project: Option<String>,
-    /// Is it one of the repo's recorded app checkouts?
-    pub app_checkout: bool,
     /// What git said of it, or what git said when it could not read it.
     pub git: std::result::Result<SideRead, String>,
     /// The pids of the `git commit`s that run in it, or why builds cannot
@@ -171,7 +160,6 @@ impl Worktree {
     /// The claimed worktree and the latest reads of its git state and
     /// processes. The release check reads copies only when no item runs.
     pub fn read(
-        places: &Places,
         label: String,
         checkout: &Checkout,
         claim: &Claim,
@@ -185,7 +173,6 @@ impl Worktree {
             branch,
             claim: claim.clone(),
             project: checkout.claimed_project()?,
-            app_checkout: checkout.app_lane(places)?.is_some(),
             git: git.clone(),
             committing: crate::procs::commits_in(commits, &checkout.top),
         })
@@ -203,7 +190,6 @@ impl Worktree {
             &self.claim,
             lists,
             nothing_runs,
-            || Ok(self.app_checkout),
             || self.committing.clone(),
             self.git.as_ref().ok(),
         )
@@ -219,7 +205,7 @@ impl Worktree {
         loaded: &std::result::Result<Vec<Loaded>, String>,
         reviews: &Reads,
     ) -> Option<std::result::Result<crate::review::idle::Landing, String>> {
-        if self.app_checkout || self.claim.is_held() {
+        if self.claim.is_held() {
             return None;
         }
         let git = self.git.as_ref().ok()?;

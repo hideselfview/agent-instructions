@@ -1398,7 +1398,6 @@ fn read_health(
         }
         match Claim::read_with_time(&checkout.claim_file()) {
             Ok(Some((claim, noted_at))) => claimed.push((at, checkout, claim, noted_at)),
-            Ok(None) if root.is_app_checkout(&tool.places)? => {}
             Ok(None)
                 if kept
                     .as_ref()
@@ -1430,7 +1429,6 @@ fn read_health(
     for ((place, checkout, claim, noted_at), git) in claimed.into_iter().zip(gits) {
         let branch = checkout.branch()?;
         held_worktrees.push(crate::lists::held::Worktree::read(
-            &tool.places,
             places[place].label.clone(),
             checkout,
             &claim,

@@ -237,7 +237,8 @@ BUILD VOLUME
 Every build on this Mac writes to the build volume, and builds owns everything
 on it:
 
-  <repo>/<checkout>/    one build root per checkout (main or side-N)
+  <repo>/<checkout>/    one build root per checkout, named for its worktree
+                        (main, side-N or an app checkout's name)
   <repo>/app-<app>-checkouts
                         the app's app checkouts, one per line: the name
                         alone for one a person added, and the name, `builds`,
@@ -250,12 +251,12 @@ on it:
                         last 12 hours, one per line: the time, the name and
                         why
   <repo>/app-<app>.locks/
-                        one lock per app checkout (app-<app>.locks/side-N),
+                        one lock per app checkout (app-<app>.locks/<entry>),
                         held by the build that runs there, and beside each
-                        lock the record that build keeps (side-N.run): when
+                        lock the record that build keeps (<entry>.run): when
                         it joined the queue, how long it waited, and the step
                         it runs; and when the last build there let the lock
-                        go (side-N.ended)
+                        go (<entry>.ended)
   <repo>/app-<app>.queue/
                         the builds waiting for the lane's locks: `order` holds
                         one ticket per line, next first, the holders' tickets
@@ -681,7 +682,7 @@ times` reads these records.
                               branch from origin/main, or add the next side-N
                               when none is free; link it and run its
                               post-checkout, which builds nothing. A free
-                              worktree is not an app checkout, has no claim,
+                              worktree is a side worktree that has no claim,
                               and passes the check `release` makes: no item of
                               any project runs in or keeps it, its tree is
                               clean, no `git commit` runs there, and every
@@ -757,8 +758,8 @@ times` reads these records.
                               away, by dropping its item. `new` hands out no
                               worktree that this check would refuse
   builds retire <checkout>    remove a clean, unclaimed side worktree and its
-                              build root; refuses an app checkout, a worktree
-                              an item runs in or keeps, and one that
+                              build root; refuses every other worktree, a
+                              worktree an item runs in or keeps, and one that
                               `release` would refuse for its work: commits on
                               its HEAD or on a branch it left since its last
                               claim began, or files not committed
@@ -1066,11 +1067,17 @@ App builds (an Xcode app, a Gradle app, a bridge cross-compiled for a platform)
 take 10-20 GB per platform per checkout, so a repo keeps them built only in
 main, for the person's installs and releases, and in its app checkouts, one or
 more per lane: the long-lived ones a person records with `builds app-checkout`
-(side worktrees here, or worktrees on a host), and the ones the builds tool
-adds on a host while other builds wait for the lane and removes once no build
-uses them.
-Every other side worktree builds host output only (for Rust, target, which
-tests, clippy and the hook use).
+(worktrees here or on a host), and the ones the builds tool adds on a host
+while other builds wait for the lane and removes once no build uses them.
+Every side worktree builds host output only (for Rust, target, which tests,
+clippy and the hook use).
+
+A worktree is a side worktree or an app checkout, never both, and its name
+says which. A side worktree is named side-N, and `builds new` and `builds item
+take` hand only side worktrees to agents. An app checkout takes any other name
+of letters, digits, dashes and underscores that does not start with remote-,
+which job worktrees take. `builds app-checkout` refuses a side worktree, and
+builds fails on a lane's set that names one.
 
 The builds tool adds checkouts to a lane while other builds wait in its queue,
 and removes the ones it added that no build uses. A build that joins a lane's
@@ -1085,9 +1092,10 @@ a lane has at most 4. The new checkout's first build makes it on the host, as fo
 app-checkout --host` records. A build that waits adds a checkout only on a
 host. A build that may run only on this Mac (the android build-app, a mac
 build-app or app-build that runs a `here` step) and finds the lane with no
-checkout on this Mac adds a new side worktree of ~/dev/<repo>, set up as `builds
-new` sets one up and recorded in the lane as the person's, so no `builds new`
-hands it out and builds never removes it. A new app checkout of a lane starts from copy-on-write clones of the cargo
+checkout on this Mac adds a new worktree of ~/dev/<repo> named
+`builds-<lane>-<n>`, set up as `builds new` sets one up and recorded in the
+lane as the person's, so builds never removes it. A new app checkout of a lane
+starts from copy-on-write clones of the cargo
 build folders of the lane's warmest checkout on the same host (the one whose
 lock a build let go of last), so the new checkout takes almost no new disk
 and its first build compiles little: for the mac lane the host target and
@@ -1096,7 +1104,7 @@ holds the source's lock while it clones, so no build runs there, and waits
 for it when every source is building. A takeover ends the wait, and the new
 checkout then starts empty. This holds for a checkout builds adds on a host, for a
 checkout `builds app-checkout --host` records (its first build makes it there),
-and for a side worktree that `builds app-checkout` adds to a lane that already
+and for a worktree here that `builds app-checkout` adds to a lane that already
 has a checkout on this Mac; it fills only folders that are empty. builds clones
 no Xcode tree, SwiftPM package folder or Gradle folder, because each holds the
 checkout's own path and a copy would rebuild or break: Xcode's build
@@ -2333,8 +2341,13 @@ built again.
                               pid and builds waiting in both lanes, --lane
                               does. The dashboard's queue has both as buttons
   builds app-checkout <app> <checkout>
-                              add the side worktree to the lane's app
-                              checkouts (app-<app>-checkouts)
+                              set up the worktree <checkout>, one in
+                              <repo>-worktrees, as `builds new` sets one up,
+                              and add it to the lane's app checkouts
+                              (app-<app>-checkouts). Make it first with
+                              `git worktree add --detach
+                              ~/dev/<repo>-worktrees/<name> origin/main`.
+                              Refuses a side worktree (APP BUILDS)
   builds app-checkout <app> --host <host> <path>
                               record an app checkout on a host as the lane's
                               entry <host>:<name>. <path> ends in
@@ -2364,7 +2377,10 @@ built again.
   builds app-checkout remove <app> <checkout>
   builds app-checkout remove <app> --host <host> <path>
                               take it out again; refused while a build holds
-                              its lock. On a host, the removal first deletes
+                              its lock. A worktree here stays until you
+                              remove it with `git worktree remove`, and
+                              `builds prune` then deletes its build folders.
+                              On a host, the removal first deletes
                               the checkout's builds-app-lane file there and
                               leaves the worktree; when the host does not
                               answer, the removal fails and the checkout
@@ -2374,7 +2390,7 @@ built again.
   builds app-checkout reset <repo> <checkout> [--matching <rev>]
                               put an app checkout on origin/main, holding its
                               lock (reset waits for the build holding it). The
-                              checkout is a side worktree here or one on a
+                              checkout is a worktree here or one on a
                               host (<host>:<name>), and this Mac sends the
                               commits to the host's clone. A build that
                               SIGKILL stops during its switch leaves new files
@@ -2759,9 +2775,9 @@ then deletes the build roots of checkouts that are gone, DerivedData's idle
 entries, then the incremental folders nothing wrote inside for 60 minutes in
 every checkout (claimed ones, main and the app checkouts included), and then
 the whole folders that nothing wrote to for 30 minutes in the side worktrees no
-agent claims and in a host's job worktrees no job claims, never main's or an
-app checkout's own lane's folders. Each kind goes least recently written first,
-until the volume has the target free. builds says what it deletes and why, and
+agent claims, in a host's job worktrees no job claims and, but for the
+folders its own lane builds into, in every app checkout, never in main. Each
+kind goes least recently written first, until the volume has the target free. builds says what it deletes and why, and
 a last line gives the space it freed and the free space after. If builds can't
 reach the floor, it warns, naming the free space and the biggest folders, and
 the build goes on: whoever runs the agents stops starting more. Only under the

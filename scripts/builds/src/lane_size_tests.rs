@@ -87,7 +87,7 @@ cd '{home}' && HOME='{home}' BUILDS_VOLUME='{home}/no-volume' exec sh -c "$*"
     fn entries(&self) -> Vec<String> {
         self.set()
             .into_iter()
-            .map(|checkout| checkout.entry)
+            .map(AppCheckout::into_entry)
             .collect()
     }
 
@@ -136,7 +136,7 @@ fn a_build_that_waits_adds_a_checkout_on_a_host_with_room_and_builds_there() {
     let took = heard.recv_timeout(Duration::from_secs(20)).unwrap();
     assert_eq!(took, "m1:builds-android-1");
     let set = world.set();
-    assert_eq!(set[0], AppCheckout::by_person("m1:app-1"));
+    assert_eq!(set[0], AppCheckout::by_person("m1:app-1").unwrap());
     let AddedBy::Builds { why, .. } = &set[1].added_by else {
         panic!("builds added it: {set:?}");
     };

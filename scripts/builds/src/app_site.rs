@@ -1,4 +1,4 @@
-//! Where one of a repo's app checkouts is: a side worktree on this Mac, or a
+//! Where one of a repo's app checkouts is: a worktree on this Mac, or a
 //! checkout on a host (app_remote.rs), whose git runs there over ssh. A build
 //! runs its steps in it (app_build.rs) and a reset puts it on origin's main
 //! (app_reset.rs).

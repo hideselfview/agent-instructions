@@ -1,11 +1,11 @@
 //! Side worktrees: adding one, retiring one, and recording a repo's app
 //! checkout.
 //!
-//! By default a side worktree builds host Rust only, and a repo with app
-//! builds keeps them built in main and in its app checkouts, one or more side
-//! worktrees per lane (mac, android), which agents take turns in by holding a
-//! checkout's lock, <root>/<repo>/app.locks/<checkout> for the mac lane; see
-//! APP BUILDS in help.txt. Nothing here enforces who builds what: the caps
+//! A side worktree builds host Rust only, and a repo with app builds keeps
+//! them built in main and in its app checkouts, one or more worktrees per lane
+//! (mac, android) that builds hands to no agent and whose names are not side
+//! worktrees', which agents take turns in by holding a checkout's lock,
+//! <root>/<repo>/app-<app>.locks/<checkout>; see APP BUILDS in help.txt. Nothing here enforces who builds what: the caps
 //! bound whatever a checkout builds, and the floor bounds every checkout but
 //! main and the folders an app checkout's lane builds into.
 
@@ -21,7 +21,7 @@ use crate::fail;
 use crate::fail::{Context, Fail, Result};
 use crate::free_worktrees::find_free;
 use crate::host::Ssh;
-use crate::lane::Lane;
+use crate::lane::{AppCheckout, Lane, require_app_checkout_name};
 use crate::setup::setup;
 use crate::text::note;
 use crate::tool::Tool;
@@ -156,7 +156,7 @@ pub(crate) fn hand_out(
             (free, false)
         }
         None => {
-            let dir = add_new(tool, &main, &start)?;
+            let dir = add_new(tool, &main, &start, side_name, &[])?;
             let started = Checkout::find(&dir.display().to_string()).and_then(|checkout| {
                 write_claim(&checkout, who, tool.now, Some(Note::Starting))?;
                 set_project(&tool.places, &checkout, project)?;
@@ -287,22 +287,32 @@ pub(crate) fn lock_picking(main: &Path) -> Result<std::fs::File> {
     Ok(file)
 }
 
-/// Adds the next side-N worktree of <main>'s repo, at <start>.
-fn add_new(tool: &Tool, main: &Path, start: &Start) -> Result<std::path::PathBuf> {
+/// The name of the <n>th side worktree.
+fn side_name(n: usize) -> String {
+    format!("side-{n}")
+}
+
+/// Adds a worktree of <main>'s repo at <start>, under the first name that
+/// <name_of> gives for 1 and up that no worktree or build root has and
+/// <taken> lacks.
+fn add_new(
+    tool: &Tool,
+    main: &Path,
+    start: &Start,
+    name_of: impl Fn(usize) -> String,
+    taken: &[String],
+) -> Result<std::path::PathBuf> {
     let repo = crate::checkout::file_name(main);
     let parent = crate::checkout::worktrees_folder(main).expect("a main checkout has a folder");
-    let mut n = 1;
-    while parent.join(format!("side-{n}")).exists()
-        || tool
-            .places
-            .root
-            .join(&repo)
-            .join(format!("side-{n}"))
-            .exists()
-    {
-        n += 1;
-    }
-    let dir = parent.join(format!("side-{n}"));
+    let name = (1..)
+        .map(name_of)
+        .find(|name| {
+            !parent.join(name).exists()
+                && !tool.places.root.join(&repo).join(name).exists()
+                && !taken.contains(name)
+        })
+        .expect("some number names no worktree");
+    let dir = parent.join(name);
     std::fs::create_dir_all(&parent).context(|| format!("creating {}", parent.display()))?;
     // The hooks the common .git points at may belong to another checkout;
     // this one's own post-checkout runs in `prepare`, after its build paths
@@ -376,14 +386,6 @@ pub fn cmd_retire(tool: &Tool, args: &[String]) -> Result<()> {
             "not one of the repo's side worktrees"
         };
         fail!("{top} is {what}; only side worktrees retire");
-    }
-    let repo = checkout.repo();
-    if let Some(lane) = tool.places.app_lane_of(&repo, &checkout.name())? {
-        fail!(
-            "{top} is one of {repo}'s {} app checkouts; builds app-checkout remove {} {top} first",
-            lane.word(),
-            lane.word()
-        );
     }
     retire_checkout(tool, &checkout)
 }
@@ -471,10 +473,11 @@ fn app_checkout_on_host(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
             other.word()
         );
     }
+    let recorded = AppCheckout::by_person(&entry)?;
     // The lane file comes first: a host that does not answer fails the
     // addition and leaves the lane as it was, for the person to add it again.
     let marked = crate::app_remote::mark(&tool.places, ssh, &repo, lane, host, &name)?;
-    let count = record_in_lane(tool, &repo, lane, &entry)?;
+    let count = record_in_lane(tool, &repo, lane, recorded)?;
     let worktree = format!("~/dev/{repo}-worktrees/{name}");
     let there = if marked {
         format!(
@@ -491,10 +494,11 @@ fn app_checkout_on_host(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
     Ok(())
 }
 
-/// `builds app-checkout <app> <checkout>`: adds the side worktree to its
-/// repo's app checkouts for the lane; `builds app-checkout remove <app>
-/// <checkout>` takes it out again, while no build holds its lock; `builds
-/// app-checkout reset <repo> <checkout>` puts one on origin's main (app_reset.rs).
+/// `builds app-checkout <app> <checkout>`: sets up the worktree <checkout>,
+/// one in <repo>-worktrees that is no side worktree, as `builds new` sets one
+/// up, and adds it to its repo's app checkouts for the lane; `builds
+/// app-checkout remove <app> <checkout>` takes it out again, while no build
+/// holds its lock; `builds app-checkout reset <repo> <checkout>` puts one on origin's main (app_reset.rs).
 pub fn cmd_app_checkout(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
     const USAGE: &str = "usage: builds app-checkout <app> <checkout> | builds app-checkout <app> --host <host> <path> | builds app-checkout remove <app> [--host <host>] <checkout or path> | builds app-checkout reset <repo> <checkout> [--matching <rev>]";
     if args.iter().any(|arg| arg == "--host") {
@@ -519,31 +523,32 @@ pub fn cmd_app_checkout(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
     let checkout = Checkout::find(arg)?;
     if checkout.is_main() {
         fail!(
-            "{} is the main checkout, which keeps its builds warm already; an app checkout is a side worktree",
+            "{} is the main checkout, which keeps its builds warm already; name another worktree",
             checkout.top.display()
         );
     }
-    if !checkout.is_side() {
+    let Some(name) = checkout.name_in_worktrees() else {
         fail!(
-            "{} is not one of the repo's side worktrees; an app checkout is one",
+            "{} is not in the repo's worktrees folder, <repo>-worktrees; an app checkout is a worktree there",
             checkout.top.display()
         );
-    }
+    };
     tool.places.require_volume()?;
     checkout.require_repo_name(&tool.places)?;
     let repo = checkout.repo();
-    let name = checkout.name();
     let lane = crate::repo_lanes::parse_in_source(&checkout.top, lane)?;
     if removing {
         let shown = checkout.top.display().to_string();
         remove_from_lane(tool, &repo, lane, &name, &shown, |_| Ok(()))?;
         note(format!(
-            "removed {} from {repo}'s {} app checkouts",
-            checkout.top.display(),
+            "removed {shown} from {repo}'s {} app checkouts; the worktree stays until you remove it with `git worktree remove`, and `builds prune` then deletes its build folders",
             lane.word()
         ));
         return Ok(());
     }
+    // A folder's name may hold a colon, which an entry reads as a host's.
+    require_app_checkout_name(&name)?;
+    let recorded = AppCheckout::by_person(&name)?;
     if let Some(other) = tool
         .places
         .app_lane_of(&repo, &name)?
@@ -556,9 +561,10 @@ pub fn cmd_app_checkout(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
         );
     }
     if !tool.places.app_checkouts_of(&repo, lane)?.contains(&name) {
+        prepare(tool, ssh, &checkout)?;
         start_from_warmest(tool, ssh, &repo, lane, &checkout)?;
     }
-    let count = record_in_lane(tool, &repo, lane, &name)?;
+    let count = record_in_lane(tool, &repo, lane, recorded)?;
     note(format!(
         "{} is one of {repo}'s {} app checkouts ({count} in all, in {}); the free-space floor keeps the folders its lane builds into",
         checkout.top.display(),
@@ -568,7 +574,7 @@ pub fn cmd_app_checkout(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
     Ok(())
 }
 
-/// Fills the empty cargo build folders of <checkout>, a side worktree about
+/// Fills the empty cargo build folders of <checkout>, a worktree about
 /// to become an app checkout of <repo>'s <lane>, from the lane's warmest
 /// checkout on this Mac, held under its lock (app_clone.rs). With no such
 /// checkout, the first build is cold.
@@ -605,10 +611,11 @@ fn start_from_warmest(
 
 /// Gives <repo>'s <lane> an app checkout on this Mac when it has none, for a
 /// build that runs only here (an `.app-build` `here` step, or the Android
-/// install): a new side worktree of the repo's clone at ~/dev/<repo>, detached
-/// at origin/main, set up as `builds new` sets one up and recorded in the
-/// lane as a checkout of the person's, which no `builds new` hands out and
-/// builds never removes. A lane that has one already is left as it is.
+/// install): a new worktree of the repo's clone at ~/dev/<repo> that builds
+/// names (`lane_size::builds_name`), detached at origin/main, set up as
+/// `builds new` sets one up and recorded in the lane as a checkout of the
+/// person's, which builds never removes. A lane that has one already is left
+/// as it is.
 pub fn ensure_local_app_checkout(tool: &Tool, ssh: &Ssh, repo: &str, lane: Lane) -> Result<()> {
     let has_local = || -> Result<bool> {
         Ok(tool
@@ -628,22 +635,25 @@ pub fn ensure_local_app_checkout(tool: &Tool, ssh: &Ssh, repo: &str, lane: Lane)
             main.display()
         );
     }
-    // Held from picking a worktree to recording it, as `builds new` holds it,
-    // so no other build adds one meanwhile and no `builds new` hands this one
-    // out before the lane holds it.
+    // Held from picking a name to recording it, so no other build adds one
+    // meanwhile.
     let _picking = lock_picking(&main)?;
     if has_local()? {
         return Ok(());
     }
     run_checked(git(&main).args(["fetch", "-q", "origin"]), "git fetch")?;
     let start = Start::Fresh(None);
-    let dir = add_new(tool, &main, &start)?;
+    let name_of = |n| crate::lane_size::builds_name(lane, n);
+    // A lane's set may name a worktree that is gone, and its name stays taken.
+    let taken = tool.places.app_checkout_entries(repo)?;
+    let dir = add_new(tool, &main, &start, name_of, &taken)?;
     let made = Checkout::find(&dir.display().to_string()).and_then(|checkout| {
         prepare(tool, ssh, &checkout)?;
         Ok(checkout)
     });
     let recorded = made.and_then(|checkout| {
-        record_with_message(tool, repo, lane, &checkout.name(), || {
+        let recorded = AppCheckout::by_person(&checkout.name())?;
+        record_with_message(tool, repo, lane, recorded, || {
             crate::queue::repoint(&tool.places, repo, lane)
         })?;
         Ok(checkout)
@@ -661,45 +671,49 @@ pub fn ensure_local_app_checkout(tool: &Tool, ssh: &Ssh, repo: &str, lane: Lane)
     }
 }
 
-/// Records <entry> as one of <repo>'s <lane> app checkouts that a person
+/// Records <checkout> as one of <repo>'s <lane> app checkouts that a person
 /// added, under the lane's queue guard. When the builds tool added the
 /// checkout, the person now owns it, so it stays until a person removes it.
 /// Returns how many checkouts the lane has.
-fn record_in_lane(tool: &Tool, repo: &str, lane: Lane, entry: &str) -> Result<usize> {
-    let count = write_in_lane(tool, repo, lane, entry)?;
+fn record_in_lane(tool: &Tool, repo: &str, lane: Lane, checkout: AppCheckout) -> Result<usize> {
+    let count = write_in_lane(tool, repo, lane, checkout)?;
     crate::queue::repoint(&tool.places, repo, lane)?;
     Ok(count)
 }
 
-/// `record_in_lane` up to the lane's set: writes <entry> into it, under the
+/// `record_in_lane` up to the lane's set: writes <added> into it, under the
 /// lane's queue guard, and returns how many checkouts the lane has. Nothing
 /// is written when it fails.
-fn write_in_lane(tool: &Tool, repo: &str, lane: Lane, entry: &str) -> Result<usize> {
+fn write_in_lane(tool: &Tool, repo: &str, lane: Lane, added: AppCheckout) -> Result<usize> {
     let queue = crate::queue::Queue::of(&tool.places, repo, lane);
     let guard = queue.guard()?;
     let mut set = tool.places.app_checkouts_recorded(repo, lane)?;
-    match set.iter_mut().find(|checkout| checkout.entry == entry) {
-        Some(checkout) => checkout.added_by = crate::lane::AddedBy::Person,
-        None => set.push(crate::lane::AppCheckout::by_person(entry)),
+    match set
+        .iter_mut()
+        .find(|checkout| checkout.entry() == added.entry())
+    {
+        Some(checkout) => *checkout = added,
+        None => set.push(added),
     }
     tool.places.write_app_checkouts(repo, lane, &set)?;
     drop(guard);
     Ok(set.len())
 }
 
-/// Writes <entry> into <repo>'s <lane> set, then runs <tell>, the message to
-/// the lane's queue to read the set again. The lane holds the checkout once
+/// Writes <checkout> into <repo>'s <lane> set, then runs <tell>, the message
+/// to the lane's queue to read the set again. The lane holds the checkout once
 /// the write lands, so a failure of <tell> takes it out again, and a failed
 /// write leaves the lane as it was.
 fn record_with_message(
     tool: &Tool,
     repo: &str,
     lane: Lane,
-    entry: &str,
+    checkout: AppCheckout,
     tell: impl FnOnce() -> Result<()>,
 ) -> Result<()> {
-    write_in_lane(tool, repo, lane, entry)?;
-    tell().map_err(|error| undo(error, forget_in_lane(tool, repo, lane, entry)))
+    let entry = checkout.entry().to_string();
+    write_in_lane(tool, repo, lane, checkout)?;
+    tell().map_err(|error| undo(error, forget_in_lane(tool, repo, lane, &entry)))
 }
 
 /// Takes <entry> out of <repo>'s <lane> set when it is in it, under the
@@ -708,7 +722,7 @@ fn forget_in_lane(tool: &Tool, repo: &str, lane: Lane, entry: &str) -> Result<()
     let queue = crate::queue::Queue::of(&tool.places, repo, lane);
     let guard = queue.guard()?;
     let mut set = tool.places.app_checkouts_recorded(repo, lane)?;
-    set.retain(|checkout| checkout.entry != entry);
+    set.retain(|checkout| checkout.entry() != entry);
     tool.places.write_app_checkouts(repo, lane, &set)?;
     drop(guard);
     Ok(())

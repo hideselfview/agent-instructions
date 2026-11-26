@@ -116,19 +116,17 @@ fn keeping_items<'a>(
 /// hold copies of its work. Each fact is read only once the facts before it
 /// leave the claim eligible: no Git read is needed when an item keeps it,
 /// and <known>, a read of the worktree's git state the caller already has,
-/// stands in for the reads it holds. <app_checkout> says whether the
-/// worktree is an app checkout, and <committing> which `git commit`s run
-/// there, or why builds cannot tell.
+/// stands in for the reads it holds. <committing> says which `git commit`s
+/// run there, or why builds cannot tell.
 pub fn idle_claim(
     checkout: &Checkout,
     claim: &Claim,
     every: &[Lists],
     nothing_runs: bool,
-    app_checkout: impl FnOnce() -> Result<bool>,
     committing: impl FnOnce() -> std::result::Result<Vec<i32>, String>,
     known: Option<&SideRead>,
 ) -> Result<Option<std::collections::BTreeSet<String>>> {
-    if !nothing_runs || claim.is_held() || claim.is_starting() || app_checkout()? {
+    if !nothing_runs || claim.is_held() || claim.is_starting() {
         return Ok(None);
     }
     let top = checkout.top.to_string_lossy();

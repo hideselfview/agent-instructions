@@ -293,13 +293,13 @@ impl Places {
         }
     }
 
-    /// The entries (`side-N`, `<host>:<name>`) of <repo>'s app checkouts in
+    /// The entries (`<name>`, `<host>:<name>`) of <repo>'s app checkouts in
     /// <lane>, in the order recorded; empty when none is.
     pub fn app_checkouts_of(&self, repo: &str, lane: Lane) -> Result<Vec<String>> {
         Ok(self
             .app_checkouts_recorded(repo, lane)?
             .into_iter()
-            .map(|checkout| checkout.entry)
+            .map(AppCheckout::into_entry)
             .collect())
     }
 
@@ -338,7 +338,11 @@ impl Places {
             let file = self.root.join(repo).join(&name);
             let text =
                 std::fs::read_to_string(&file).context(|| format!("reading {}", file.display()))?;
-            entries.extend(crate::lane::parse_set(&text)?.into_iter().map(|c| c.entry));
+            entries.extend(
+                crate::lane::parse_set(&text)?
+                    .into_iter()
+                    .map(AppCheckout::into_entry),
+            );
         }
         Ok(entries)
     }

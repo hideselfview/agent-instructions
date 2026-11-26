@@ -223,7 +223,7 @@ fn an_app_checkout_keeps_warm_only_the_folders_its_lane_builds_into() {
         "target 1G\nxcode 1G lane mac\ngradle 1G lane android\n",
     );
     std::fs::create_dir_all(tool.places.root.join("demo")).unwrap();
-    for (side, lane) in [("side-1", Lane::MAC), ("side-2", Lane::ANDROID)] {
+    for (side, lane) in [("app-1", Lane::MAC), ("app-2", Lane::ANDROID)] {
         let dir = scratch.dir.join("demo-worktrees").join(side);
         git(
             &main,
@@ -252,7 +252,7 @@ fn an_app_checkout_keeps_warm_only_the_folders_its_lane_builds_into() {
     let roots = all_roots(&tool.places).unwrap();
     keep_floor(&tool, &roots, Pruner::Setup, Run::Real).unwrap();
     let root = tool.places.root.join("demo");
-    for (side, own, other) in [("side-1", "xcode", "gradle"), ("side-2", "gradle", "xcode")] {
+    for (side, own, other) in [("app-1", "xcode", "gradle"), ("app-2", "gradle", "xcode")] {
         assert!(
             root.join(side).join(own).join("blob").exists(),
             "{side}: its lane's folder was deleted"

@@ -1034,13 +1034,8 @@ impl Model {
             disk,
         } = sample;
         let (_, loaded) = self.lists.current();
-        let (mut claimed, held) = claimed_of(
-            &self.places,
-            &inputs.roots,
-            &inputs.facts,
-            &places,
-            &machine.commits,
-        )?;
+        let (mut claimed, held) =
+            claimed_of(&inputs.roots, &inputs.facts, &places, &machine.commits)?;
         let unclaimed = unclaimed_of(
             &self.places,
             &inputs.roots,
@@ -2286,7 +2281,6 @@ fn folder_facts(
 /// The claimed side worktrees of <roots>, with <commits>, the `git
 /// commit`s that ran when the daemon last read the processes.
 fn claimed_of(
-    tool_places: &Places,
     roots: &[Root],
     facts: &HashMap<PathBuf, Facts>,
     places: &[Place],
@@ -2316,7 +2310,6 @@ fn claimed_of(
             continue;
         };
         held.push(crate::lists::held::Worktree::read(
-            tool_places,
             places[place].label.clone(),
             checkout,
             claim,

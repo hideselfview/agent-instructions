@@ -1,6 +1,5 @@
 use super::*;
 use crate::host::tests::fake_ssh;
-use crate::lane::Lane;
 use crate::testing::{Scratch, git, gone_pid};
 use std::path::Path;
 
@@ -118,8 +117,8 @@ fn host_worktree(home: &Path, clone: &Path, name: &str, claim: Option<&str>) {
 
 /// prune removes each worktree on a host that belongs to no checkout here,
 /// with its build root, including one whose claim's job is gone, and keeps
-/// the worktrees of the checkouts here, the one a running job claims, an app
-/// checkout, and everything with --dry-run. prune skips a host that does
+/// the worktrees of the checkouts here, the one a running job claims, and
+/// everything with --dry-run. prune skips a host that does
 /// not answer.
 #[test]
 fn prune_removes_the_worktrees_on_a_host_that_no_checkout_uses() {
@@ -165,14 +164,6 @@ fn prune_removes_the_worktrees_on_a_host_that_no_checkout_uses() {
     host_worktree(&home, &clone, "remote-3", None);
     host_worktree(&home, &clone, "remote-4", Some(&dead));
     host_worktree(&home, &clone, "remote-5", Some(&live));
-    host_worktree(&home, &clone, "remote-app", None);
-    places
-        .write_app_checkouts(
-            "demo",
-            Lane::ANDROID,
-            &[crate::lane::AppCheckout::by_person("m1:remote-app")],
-        )
-        .unwrap();
     let all = [
         "remote-demo",
         "remote-side-1",
@@ -180,7 +171,6 @@ fn prune_removes_the_worktrees_on_a_host_that_no_checkout_uses() {
         "remote-3",
         "remote-4",
         "remote-5",
-        "remote-app",
     ];
     let present = || -> Vec<&str> {
         all.iter()
@@ -199,8 +189,7 @@ fn prune_removes_the_worktrees_on_a_host_that_no_checkout_uses() {
             "remote-demo",
             "remote-side-1",
             "remote-side-1.2",
-            "remote-5",
-            "remote-app"
+            "remote-5"
         ]
     );
     let roots = home.join(crate::host::REMOTE_ROOT).join("demo");

@@ -1,6 +1,6 @@
 //! `builds app-checkout reset <repo> <checkout>`: puts an app checkout that a
 //! checkout left halfway on origin's main, under that checkout's own lock. The
-//! checkout is one of this Mac's side worktrees or a checkout on a host
+//! checkout is a worktree on this Mac or a checkout on a host
 //! (app_remote.rs), whose lock is on this Mac too and whose git runs there
 //! over ssh.
 //!

@@ -6,8 +6,8 @@
 //! A build that joins a lane's queue and has to wait adds a checkout (`grow`): on the host with the most free cores, of
 //! those that have a core free, disk free above the floor by one checkout of
 //! the lane, and fewer than `HOST_CAP` app checkouts, while the lane has fewer
-//! than `LANE_CAP`. builds names it `builds-<lane>-<n>` and records it in the
-//! lane's set as its own, with when and why (lane.rs `AppCheckout`). Its first
+//! than `LANE_CAP`. builds names it `builds-<lane>-<n>` (`builds_name`) and
+//! records it in the lane's set as its own, with when and why (lane.rs `AppCheckout`). Its first
 //! build makes it on the host, as for a checkout `builds app-checkout --host`
 //! records, and starts its cargo build folders from clones of the lane's
 //! warmest checkout on that host (app_clone.rs), which is why a host with such
@@ -126,6 +126,11 @@ pub struct RepoLane<'a> {
     pub lane: Lane,
 }
 
+/// The name of the <n>th app checkout of <lane> that builds names.
+pub fn builds_name(lane: Lane, n: usize) -> String {
+    format!("builds-{}-{n}", lane.word())
+}
+
 /// Adds a checkout of <at>'s lane on a host for a build that joined the queue
 /// and waits behind the builds that hold the lane's locks, when a host and the
 /// caps allow it, and returns its entry. A host whose
@@ -195,7 +200,7 @@ pub fn grow(at: RepoLane, floor_kib: u64, now: i64) -> Result<Option<String>> {
         }
         let taken: Vec<String> = places.app_checkout_entries(repo)?;
         let entry = (1..)
-            .map(|n| entry_of(&host.name, &format!("builds-{}-{n}", lane.word())))
+            .map(|n| entry_of(&host.name, &builds_name(lane, n)))
             .find(|entry| !taken.contains(entry))
             .expect("some number names no checkout");
         let why = format!(
@@ -204,13 +209,11 @@ pub fn grow(at: RepoLane, floor_kib: u64, now: i64) -> Result<Option<String>> {
             probe.room(),
             human(probe.free_kib)
         );
-        set.push(AppCheckout {
-            entry: entry.clone(),
-            added_by: AddedBy::Builds {
-                at: now,
-                why: why.clone(),
-            },
-        });
+        let added_by = AddedBy::Builds {
+            at: now,
+            why: why.clone(),
+        };
+        set.push(AppCheckout::new(&entry, added_by)?);
         places.write_app_checkouts(repo, lane, &set)?;
         drop(host_guard);
         drop(lane_guard);
@@ -343,7 +346,7 @@ pub fn shrink(at: RepoLane, run: Run, now: i64) -> Result<()> {
         let AddedBy::Builds { at: added_at, .. } = checkout.added_by else {
             continue;
         };
-        let entry = checkout.entry;
+        let entry = checkout.into_entry();
         let Some(lock) = lock_checkout(places, repo, lane, &entry)? else {
             // A build holds it.
             continue;
@@ -524,7 +527,7 @@ pub fn take_out(
     let queue = Queue::of(places, repo, lane);
     let guard = queue.guard()?;
     let mut set = places.app_checkouts_recorded(repo, lane)?;
-    set.retain(|checkout| checkout.entry != entry);
+    set.retain(|checkout| checkout.entry() != entry);
     places.write_app_checkouts(repo, lane, &set)?;
     if let Some(removal) = removal {
         let mut removals: Vec<Removed> = places
