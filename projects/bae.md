@@ -201,11 +201,8 @@ types to make a split compile.
 
 ### Checking a change
 
-Before you commit, run the pre-commit hook (the `.checks` lines the staged files
-reach: formatters and static checks only) and the tests of the components the
-change affects. Then commit and push. When a CI job fails, reproduce that job
-locally.
-
+Check only what the change touches: the pre-commit hook and the tests of the
+changed code (`builds help workflow WHAT AN IMPLEMENTING AGENT DOES`, step 5).
 Test a crate with the features the hook builds it with, so the test reuses the
 hook's build instead of compiling every crate again:
 `scripts/cargo.sh test -p <crate> --features test-utils <filter>` for a crate
