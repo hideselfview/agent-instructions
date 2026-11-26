@@ -156,12 +156,21 @@ fn an_edit_changes_named_fields_by_the_drafts_rules() {
         f(&mut e);
         e
     };
-    assert!(refusal(edit(&|_| {}).apply(&db, id)).contains("names no field"));
-    assert!(refusal(edit(&|e| e.title = Some("Short".into())).apply(&db, id)).contains("words"));
-    assert!(refusal(edit(&|e| e.area = Some("Nowhere".into())).apply(&db, id)).contains("Nowhere"));
-    assert!(refusal(edit(&|e| e.details = Some("".into())).apply(&db, id)).contains("details"));
+    assert!(refusal(edit(&|_| {}).apply(&db, id, &stamp(NOON))).contains("names no field"));
     assert!(
-        refusal(edit(&|e| e.details = Some("d".into())).apply(&db, Id(99)))
+        refusal(edit(&|e| e.title = Some("Short".into())).apply(&db, id, &stamp(NOON)))
+            .contains("words")
+    );
+    assert!(
+        refusal(edit(&|e| e.area = Some("Nowhere".into())).apply(&db, id, &stamp(NOON)))
+            .contains("Nowhere")
+    );
+    assert!(
+        refusal(edit(&|e| e.details = Some("".into())).apply(&db, id, &stamp(NOON)))
+            .contains("details")
+    );
+    assert!(
+        refusal(edit(&|e| e.details = Some("d".into())).apply(&db, Id(99), &stamp(NOON)))
             .contains("not an open item")
     );
     edit(&|e| {
@@ -171,7 +180,7 @@ fn an_edit_changes_named_fields_by_the_drafts_rules() {
         e.brief = Some("b.md".into());
         e.r#for = Some(Audience::DesignSession);
     })
-    .apply(&db, id)
+    .apply(&db, id, &stamp(NOON))
     .unwrap();
     let lists = read(&db);
     let it = lists.item(id).unwrap();

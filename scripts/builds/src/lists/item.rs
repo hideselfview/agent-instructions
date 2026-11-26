@@ -192,6 +192,9 @@ pub struct Item {
     pub spec_checks: Vec<crate::lists::spec_check::SpecChecked>,
     /// Newest last.
     pub notes: Vec<Note>,
+    /// What someone changed in it that its agent reads (item_change.rs),
+    /// oldest first.
+    pub changes: Vec<crate::lists::item_change::Change>,
     /// The record it came from (trail.rs).
     pub origin: Option<Id>,
     pub opened: Stamp,
@@ -471,8 +474,9 @@ impl ItemEdit {
             && self.r#for.is_none()
     }
 
-    /// Changes item <id> as the edit says, by the draft's rules.
-    pub fn apply(&self, db: &Connection, id: Id) -> Result<()> {
+    /// Changes item <id> as the edit says, by the draft's rules, and records
+    /// a change of its details as <stamp>'s (item_change.rs).
+    pub fn apply(&self, db: &Connection, id: Id, stamp: &Stamp) -> Result<()> {
         if self.is_empty() {
             fail!("the edit of {id} changes nothing: it names no field");
         }
@@ -491,6 +495,14 @@ impl ItemEdit {
             fail!("brief is empty");
         }
         require_open_item(db, id)?;
+        if let Some(new) = &self.details {
+            let old: String = db
+                .query_row("SELECT details FROM item WHERE id = ?1", [id], |row| {
+                    row.get(0)
+                })
+                .sql()?;
+            crate::lists::item_change::record_details(db, id, &old, new, stamp)?;
+        }
         db.execute(
             "UPDATE item SET title = COALESCE(?2, title), area = COALESCE(?3, area), details = COALESCE(?4, details), \
              brief = COALESCE(?5, brief), audience = COALESCE(?6, audience) WHERE id = ?1",
@@ -707,6 +719,7 @@ pub fn read(
     let mut landed = landing::read(db)?;
     let mut dropped = crate::lists::dropped::read_all(db)?;
     let mut spec_checks = crate::lists::spec_check::read_all(db)?;
+    let mut changes = crate::lists::item_change::read_all(db)?;
     let mut statement = db
         .prepare("SELECT id, title, area, details, audience, brief, origin FROM item ORDER BY id")
         .sql()?;
@@ -747,6 +760,7 @@ pub fn read(
             dropped: dropped.remove(&id).unwrap_or_default(),
             spec_checks: spec_checks.remove(&id).unwrap_or_default(),
             notes: notes.remove(&id).unwrap_or_default(),
+            changes: changes.remove(&id).unwrap_or_default(),
             origin,
             opened: opened[&id].clone(),
             tags: tags.get(&id).cloned().unwrap_or_default(),

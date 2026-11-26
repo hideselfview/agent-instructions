@@ -27,7 +27,7 @@ use crate::lists::{
     How, Id, Kind, Lists, Located, Stamp, dropped, issue, item_show, kept_work, landing, running,
     tag, take, trail,
 };
-use crate::lists::{item_event, project};
+use crate::lists::{item_change, item_event, project};
 use crate::text::note;
 use crate::tool::Tool;
 
@@ -255,7 +255,7 @@ fn edit(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         let lists = store::read(db)?;
         if fields {
             open_item(&lists, id)?;
-            edit.apply(db, id)?;
+            edit.apply(db, id, &stamp)?;
         } else if !matches!(
             lists.locate(id),
             Some(Located {
@@ -270,6 +270,9 @@ fn edit(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         }
         if let Some(origin) = origin {
             trail::set_origin(db, trail::Entry::Item, id, origin)?;
+            if lists.decision(origin).is_some() {
+                item_change::record_decision(db, id, origin, &stamp)?;
+            }
         }
         tag::remove_tags(db, id, &untags)?;
         tag::add_tags(db, id, &tags)

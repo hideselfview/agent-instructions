@@ -315,13 +315,16 @@ const BEFORE_AGENT_RECORD_STAMP: i64 = 204_057_206;
 /// (decision #746).
 const BEFORE_NO_OVER_CAP_STAMP: i64 = 850_242_028;
 
+/// The stamp of the schema before builds recorded the changes of open items.
+const BEFORE_ITEM_CHANGE_STAMP: i64 = 1_050_103_093;
+
 /// The stamp of today's schema (`db::STAMP`). A change to the schema changes
 /// its stamp, and builds then fails to compile until the change gives it a
 /// move from this schema, since every store carries this stamp: the change
 /// adds the move, puts this stamp at the end of `STAMPS` under a name that
 /// says what the schema lacked, and sets this to the new schema's stamp, which
 /// the compiler's error names.
-const SCHEMA_STAMP: i64 = 1_050_103_093;
+const SCHEMA_STAMP: i64 = 1_696_267_334;
 
 // The compiler refuses a schema whose stamp is not SCHEMA_STAMP. A const
 // assert could not print the new stamp, so the check compares two array
@@ -331,7 +334,7 @@ const _: [(); SCHEMA_STAMP as usize] = [(); db::STAMP as usize];
 
 /// Every stamp a store can carry that `move_store` moves, oldest schema first.
 /// A new move adds the stamp of the schema before it at the end.
-const STAMPS: [i64; 49] = [
+const STAMPS: [i64; 50] = [
     BEFORE_CONDITION_ENDERS_STAMP,
     BEFORE_ITEM_EVENT_STAMP,
     BEFORE_LAND_RUN_STAMP,
@@ -381,6 +384,7 @@ const STAMPS: [i64; 49] = [
     BEFORE_NO_BOARD_LINK_STAMP,
     BEFORE_AGENT_RECORD_STAMP,
     BEFORE_NO_OVER_CAP_STAMP,
+    BEFORE_ITEM_CHANGE_STAMP,
 ];
 
 /// Whether a store stamped <found> comes before the move that follows the
@@ -738,6 +742,11 @@ pub fn move_store(places: &Places, path: &Path, now: i64) -> Result<()> {
     // about one: the review has no cap now (decision #746).
     if !before(found, BEFORE_OVER_CAP_STAMP) && before(found, BEFORE_NO_OVER_CAP_STAMP) {
         drop_over_cap(&tx, now)?;
+    }
+    // Every store from before builds recorded the changes of open items gets
+    // the empty tables of changes.
+    if before(found, BEFORE_ITEM_CHANGE_STAMP) {
+        tx.execute_batch(db::ITEM_CHANGE_PART).sql()?;
     }
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     let broken: Option<String> = tx

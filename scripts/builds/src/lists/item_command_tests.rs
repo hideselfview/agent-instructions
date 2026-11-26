@@ -218,6 +218,48 @@ fn take_refuses_a_relative_brief_that_no_main_checkout_holds() {
 }
 
 #[test]
+fn edit_records_a_new_details_text_and_a_decision_origin_as_changes() {
+    let demo = demo("item-edit-changes");
+    add(&demo, FIVE, &[]).unwrap();
+    let old = open(&demo).items[0].details.clone();
+    let details = demo.scratch.dir.join("new-details.txt");
+    std::fs::write(&details, "Cite the new decision.\n").unwrap();
+    let details = details.display().to_string();
+    item(&demo, &["edit", "1", "--details-file", &details]).unwrap();
+    item(&demo, &["edit", "1", "--area", "Beta"]).unwrap();
+    let new = open(&demo).items[0].details.clone();
+    let changes = open(&demo).items[0].changes.clone();
+    assert_eq!(changes.len(), 1, "{changes:?}");
+    assert_eq!(
+        changes[0].what,
+        crate::lists::item_change::What::Details { old, new }
+    );
+}
+
+#[test]
+fn edit_records_a_decision_as_the_origin_but_a_question_as_no_change() {
+    let demo = demo("item-edit-origin-changes");
+    add(&demo, FIVE, &[]).unwrap();
+    add(&demo, "Do the second thing now", &[]).unwrap();
+    item(&demo, &["edit", "1", "--origin", "2"]).unwrap();
+    assert!(open(&demo).items[0].changes.is_empty());
+    let decision = demo
+        .store
+        .write(&crate::lists::fixtures::stamp(NOON), "decision", |db| {
+            let asked = crate::lists::fixtures::question(db);
+            Ok(crate::lists::fixtures::decision_answering(db, asked))
+        })
+        .unwrap();
+    item(&demo, &["edit", "1", "--origin", &decision.0.to_string()]).unwrap();
+    let changes = open(&demo).items[0].changes.clone();
+    assert_eq!(changes.len(), 1, "{changes:?}");
+    assert_eq!(
+        changes[0].what,
+        crate::lists::item_change::What::Decision(decision)
+    );
+}
+
+#[test]
 fn edit_changes_fields_and_refuses_a_closed_or_empty_edit() {
     let demo = demo("item-edit");
     add(&demo, FIVE, &[]).unwrap();

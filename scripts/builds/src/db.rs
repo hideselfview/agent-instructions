@@ -172,6 +172,11 @@ pub const APP_BUILD_REUSED_SHOTS_PART: &str = include_str!("app_build_reused_sho
 /// (agent_record.sql); the schema holds it after the judge's corrections.
 pub const AGENT_RECORD_PART: &str = include_str!("agent_record.sql");
 
+/// What someone changed in an open item after its take, and which changes its
+/// agent read (lists/item_change.sql); the schema holds it after the agents'
+/// tables.
+pub const ITEM_CHANGE_PART: &str = include_str!("lists/item_change.sql");
+
 /// Each part of the schema, in the order the schema holds them: the lists'
 /// tables, then the hook stats', then the app-build timings', then the design
 /// changes' recording sessions', then the review's, then the hook checks'
@@ -188,7 +193,7 @@ pub const AGENT_RECORD_PART: &str = include_str!("agent_record.sql");
 /// cap. A table points at ones earlier or
 /// later (SQLite resolves foreign keys when rows are written), but the order is
 /// the one to read the schema in. A part that joins the schema goes at the end.
-const SCHEMA_PARTS: [&str; 47] = [
+const SCHEMA_PARTS: [&str; 48] = [
     include_str!("lists/project.sql"),
     include_str!("lists/area.sql"),
     include_str!("lists/record.sql"),
@@ -236,6 +241,7 @@ const SCHEMA_PARTS: [&str; 47] = [
     APP_BUILD_REUSED_SHOTS_PART,
     REVIEW_KEPT_CORRECTION_PART,
     AGENT_RECORD_PART,
+    ITEM_CHANGE_PART,
 ];
 
 /// The length of <parts> joined with a newline between each two.
@@ -798,7 +804,7 @@ pub fn with_ack_version_time(schema: String) -> String {
 /// agent last acknowledged each version.
 #[cfg(test)]
 pub fn schema_before_ack_version_time() -> String {
-    with_ack_version_time(schema())
+    with_ack_version_time(schema_before_item_change())
 }
 
 /// <schema> as it was before running items recorded the tier of model they
@@ -818,7 +824,7 @@ pub fn with_running_without_tier(schema: String) -> String {
 /// take.
 #[cfg(test)]
 pub fn schema_before_running_tier() -> String {
-    with_running_without_tier(schema())
+    with_running_without_tier(schema_before_item_change())
 }
 
 /// <schema> as it was before review calls recorded the reason of each verdict
@@ -848,6 +854,19 @@ CREATE TABLE design_board (
 
 ";
 
+/// <schema> as it was before item changes were recorded: without their
+/// tables, the last part of the schema.
+#[cfg(test)]
+pub fn without_item_change(schema: String) -> String {
+    schema.replacen(&format!("\n{ITEM_CHANGE_PART}"), "", 1)
+}
+
+/// The schema as it was before item changes were recorded.
+#[cfg(test)]
+pub fn schema_before_item_change() -> String {
+    without_item_change(schema())
+}
+
 /// <schema> as it was before the agents `builds agent run` starts were
 /// recorded: without their tables, the last part of the schema.
 #[cfg(test)]
@@ -859,7 +878,7 @@ pub fn without_agent_record(schema: String) -> String {
 /// recorded.
 #[cfg(test)]
 pub fn schema_before_agent_record() -> String {
-    with_over_cap(without_agent_record(schema()))
+    with_over_cap(without_agent_record(schema_before_item_change()))
 }
 
 /// <schema> as it was before a design change stopped keeping the canvas link
@@ -893,7 +912,9 @@ pub fn with_board_links(schema: String) -> String {
 /// link of each board.
 #[cfg(test)]
 pub fn schema_before_no_board_link() -> String {
-    with_over_cap(with_board_links(without_agent_record(schema())))
+    with_over_cap(with_board_links(without_agent_record(
+        schema_before_item_change(),
+    )))
 }
 
 /// <schema> as it was before the judge could correct the reason it kept a
@@ -912,14 +933,14 @@ pub fn without_kept_correction(schema: String) -> String {
 /// finding.
 #[cfg(test)]
 pub fn schema_before_kept_correction() -> String {
-    without_kept_correction(schema())
+    without_kept_correction(schema_before_item_change())
 }
 
 /// The schema as it was before review calls recorded the reason of each
 /// verdict that kept a finding open.
 #[cfg(test)]
 pub fn schema_before_kept_open_reason() -> String {
-    with_kept_open_without_reason(schema())
+    with_kept_open_without_reason(schema_before_item_change())
 }
 
 #[cfg(test)]
@@ -999,7 +1020,7 @@ pub fn with_over_cap(schema: String) -> String {
 /// The schema as it was before the review lost its cap.
 #[cfg(test)]
 pub fn schema_before_no_over_cap() -> String {
-    with_over_cap(schema())
+    with_over_cap(schema_before_item_change())
 }
 
 /// The schema as it was before the branches over the review's cap joined it,

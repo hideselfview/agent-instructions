@@ -2833,3 +2833,39 @@ fn a_store_from_before_the_review_lost_its_cap_loses_the_table_and_settles_open_
         [(1, "settled".to_string()), (2, "dropped".to_string())]
     );
 }
+
+#[test]
+fn the_item_change_stamp_is_the_schema_before_it() {
+    assert_eq!(
+        db::stamp_of_text(&db::schema_before_item_change()),
+        BEFORE_ITEM_CHANGE_STAMP
+    );
+}
+
+#[test]
+fn a_store_from_before_item_changes_gains_the_empty_tables() {
+    let scratch = Scratch::new("move-item-change");
+    let places = scratch.places();
+    let path = scratch.dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&db::schema_before_item_change())
+            .unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_ITEM_CHANGE_STAMP)
+            .unwrap();
+    }
+    move_store(&places, &path, 0).unwrap();
+    let conn = db::open(&path, db::Make::Never).unwrap();
+    for table in ["item_change", "item_change_read"] {
+        let rows: i64 = conn
+            .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(rows, 0, "{table}");
+    }
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+}

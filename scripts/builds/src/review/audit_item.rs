@@ -115,7 +115,7 @@ pub fn hold(db: &Connection, ready: &Ready, stamp: &Stamp) -> Result<Held> {
             brief: None,
             r#for: None,
         }
-        .apply(db, item)?;
+        .apply(db, item, stamp)?;
         record::record_abandoned(
             db,
             *landing,

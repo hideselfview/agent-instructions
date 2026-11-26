@@ -540,7 +540,7 @@ pub fn apply_blocked(
     for (id, fate) in blocked {
         match fate {
             Blocked::Proceeds => {}
-            Blocked::Edit(edit) => edit.apply(db, *id)?,
+            Blocked::Edit(edit) => edit.apply(db, *id, stamp)?,
             Blocked::Drop(why) => {
                 let lists = store::read(db)?;
                 let works = drop_open_item(db, &lists, others, *id, why, stamp)?;

@@ -101,7 +101,7 @@ pub fn set_audience(db: &Connection, id: Id, audience: Audience) {
         brief: None,
         r#for: Some(audience),
     }
-    .apply(db, id)
+    .apply(db, id, &stamp(NOON))
     .unwrap();
 }
 
@@ -114,7 +114,7 @@ pub fn set_area(db: &Connection, id: Id, area: &str) {
         brief: None,
         r#for: None,
     }
-    .apply(db, id)
+    .apply(db, id, &stamp(NOON))
     .unwrap();
 }
 
