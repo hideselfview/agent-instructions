@@ -229,7 +229,11 @@ pub fn release_idle_claims(tool: &Tool) -> Result<(Vec<String>, Vec<crate::healt
 /// makes (`kept::read`), read again here. A worktree with such work keeps its
 /// claim and its finding. Returns one line for each item it stopped and each
 /// claim it released.
-pub fn release_stalled_claims(tool: &Tool, health: &crate::health::Health) -> Result<Vec<String>> {
+pub fn release_stalled_claims(
+    tool: &Tool,
+    ssh: &crate::host::Ssh,
+    health: &crate::health::Health,
+) -> Result<Vec<String>> {
     let release_minutes = tool.rules.idle_claim_hours.saturating_mul(60);
     let every = crate::lists::store::every_lists(&tool.places)?;
     let commits = crate::procs::git_commits(&crate::procs::Processes::read()?);
@@ -263,7 +267,7 @@ pub fn release_stalled_claims(tool: &Tool, health: &crate::health::Health) -> Re
             );
             let said = crate::lists::cmd_item(
                 tool,
-                &crate::host::Ssh::from_env(),
+                ssh,
                 &[
                     "stop".to_string(),
                     id.clone(),

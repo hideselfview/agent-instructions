@@ -359,6 +359,7 @@ fn health_report(r: &Reviewed) -> crate::health::Health {
     );
     crate::health::finish_health(
         tool,
+        &crate::testing::no_ssh(),
         health,
         &mut crate::lists::store::load_all(&tool.places),
         &scanned,

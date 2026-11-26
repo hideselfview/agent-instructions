@@ -387,6 +387,7 @@ mod stalled_claims {
         );
         crate::health::finish_health(
             tool,
+            &crate::testing::no_ssh(),
             health,
             &mut crate::lists::store::load_all(&tool.places),
             &scanned,

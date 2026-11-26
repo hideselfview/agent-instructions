@@ -1866,6 +1866,7 @@ fn judge_discovery_failure(error: &Fail) -> Finding {
 /// then checks which projects need a judge.
 pub(crate) fn finish_health(
     tool: &Tool,
+    ssh: &crate::host::Ssh,
     mut health: Health,
     loaded: &mut std::result::Result<Vec<Loaded>, String>,
     scanned: &Scanned,
@@ -1884,7 +1885,7 @@ pub(crate) fn finish_health(
         );
     };
     assess(&mut health, loaded);
-    let lines = match crate::health_fix::release_stalled_claims(tool, &health) {
+    let lines = match crate::health_fix::release_stalled_claims(tool, ssh, &health) {
         Ok(lines) => {
             if !lines.is_empty() {
                 *loaded = project_lists(projects);
@@ -2150,8 +2151,15 @@ fn report(tool: &Tool, json: bool, stop_junk: bool, release_failures: Vec<Advice
     stops.lines.iter().for_each(crate::text::note);
     scanned.orphans = stops.remaining;
     scanned.forget_stopped(&stops.stopped);
-    let (mut health, releases) =
-        finish_health(tool, health, &mut loaded, &scanned, &projects, &running)?;
+    let (mut health, releases) = finish_health(
+        tool,
+        &ssh,
+        health,
+        &mut loaded,
+        &scanned,
+        &projects,
+        &running,
+    )?;
     releases.iter().for_each(crate::text::note);
     health.findings.extend(claim_findings(release_failures));
     health.findings.extend(dashboard_finding(dashboard));
@@ -2264,6 +2272,7 @@ mod tests {
         let projects = Err(Fail::Message("The lists folder is unreadable.".into()));
         let (health, _) = finish_health(
             &tool,
+            &crate::testing::no_ssh(),
             health,
             &mut project_lists(&projects),
             &scanned,
