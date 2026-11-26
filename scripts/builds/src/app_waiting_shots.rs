@@ -19,6 +19,7 @@ use crate::app_build::Pick;
 use crate::app_config::PickKind;
 use crate::fail::Result;
 use crate::lane::Lane;
+use crate::lists::design_paths::board_scene;
 use crate::lists::{Id, Lists, Resolution};
 use crate::shots_declared::ShotDeclarations;
 use crate::text::note;
@@ -40,19 +41,14 @@ impl Waiting {
     }
 }
 
-/// The shot name of the board file <path>: its file name without
-/// `.dc.html`; None for a path that is no board file.
-fn scene_of(path: &str) -> Option<&str> {
-    path.rsplit('/').next()?.strip_suffix(".dc.html")
-}
-
 /// The scenes of <repo>'s boards among <changed> whose place in an open design
 /// change has an open item as its app work, by scene name.
 pub fn waiting_in(lists: &Lists, repo: &str, changed: &[String]) -> Vec<Waiting> {
     let mut found: BTreeMap<String, Vec<Id>> = BTreeMap::new();
     for design in lists.designs.iter().filter(|design| design.repo == repo) {
         for (path, resolution) in &design.places {
-            let (Some(Resolution::Item(item)), Some(scene)) = (resolution, scene_of(path)) else {
+            let (Some(Resolution::Item(item)), Some(scene)) = (resolution, board_scene(path))
+            else {
                 continue;
             };
             if changed.contains(path) && lists.item(*item).is_some() {

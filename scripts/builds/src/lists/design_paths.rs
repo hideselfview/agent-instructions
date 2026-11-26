@@ -179,6 +179,19 @@ impl Globs {
     }
 }
 
+/// The shot name of the board file <path> (`mac.welcome.add-code` for
+/// design/mocks/mac.welcome.add-code.dc.html): its file name without
+/// `.dc.html`; None for a path that is no board file.
+pub fn board_scene(path: &str) -> Option<&str> {
+    path.rsplit('/').next()?.strip_suffix(".dc.html")
+}
+
+/// Does a change to the design file <path> change no drawing? A README
+/// documents a component, and draws nothing.
+pub fn changes_no_drawing(path: &str) -> bool {
+    path.rsplit('/').next() == Some("README.md")
+}
+
 /// What a place is, read from how its key is written.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlaceKind {
@@ -391,7 +404,7 @@ pub fn classify(globs: &Globs, paths: &[String]) -> Changes {
             changes.draws = true;
         } else if let Some(place) = places.iter().find_map(|glob| glob.place(path)) {
             changes.places.insert(place);
-            changes.draws |= path.rsplit('/').next() != Some("README.md");
+            changes.draws |= !changes_no_drawing(path);
         } else if spec.iter().any(|glob| glob.matches(path)) {
             changes.spec_files.insert(path.clone());
         } else if roots.iter().any(|root| {
