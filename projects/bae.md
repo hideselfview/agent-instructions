@@ -230,17 +230,9 @@ the main checkout (git ignores `plans/`).
   Sparkle when the SwiftPM cache is corrupt. `builds help` (DISK) gives the
   steps that repair the cache.
 
-- bae-audio finds FFmpeg through `FFMPEG_DIR`, which `.cargo/config.toml` points
-  at `bae-ffmpeg/dist`. Before each cargo command, builds runs
-  `scripts/prepare-ffmpeg.sh` in the checkout. The script links `bae-ffmpeg` to
-  `~/.cache/bae-ffmpeg/<release>`, the folder of the release that
-  `scripts/bae-ffmpeg-release` pins, and installs the dist there when it is
-  missing.
-
-  - On macOS, the tests find FFmpeg's libraries through `DYLD_LIBRARY_PATH`,
-    which `.cargo/config.toml` sets. On Linux, cargo's runner
-    (`scripts/cargo-runner-linux.sh`) puts them on `LD_LIBRARY_PATH`, because
-    cargo ignores an `[env]` value for a variable it sets itself.
-  - Don't export `FFMPEG_DIR` or `DYLD_LIBRARY_PATH`: macOS drops `DYLD_*`
-    whenever a shell script starts, so an export before `scripts/cargo.sh` never
-    reaches the tests.
+- bae-audio finds FFmpeg through `FFMPEG_DIR` and its tests find FFmpeg's
+  libraries through `DYLD_LIBRARY_PATH`, which `.cargo/config.toml` sets, and
+  `scripts/prepare-ffmpeg.sh` says how each checkout gets its FFmpeg. Don't
+  export `FFMPEG_DIR` or `DYLD_LIBRARY_PATH`: macOS drops `DYLD_*` whenever a
+  shell script starts, so an export before `scripts/cargo.sh` never reaches the
+  tests.
