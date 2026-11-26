@@ -28,7 +28,7 @@ use crate::lists::store::{Loaded, Store, load_stores, stores};
 use crate::places::DiskSpace;
 use crate::procs::{
     BUILD_NAMES, BuildProcess, Place, Process, Processes, args, build_processes, cores, live_args,
-    load_average, open_files, place_of_process, usage,
+    live_place_of_process, load_average, open_files, place_of_process, usage,
 };
 use crate::shells::Shells;
 use crate::side_git::SideRead;
@@ -565,12 +565,20 @@ pub fn sample(
                 .list
                 .iter()
                 .any(|parent| parent.pid == process.ppid && parent.name == "builds");
-            if !started_by_builds && let Some(place) = place_of_process(places, process.pid) {
-                design_runs.push(DesignRun {
+            if started_by_builds {
+                continue;
+            }
+            match live_place_of_process(places, process.pid) {
+                Ok(Some(place)) => design_runs.push(DesignRun {
                     pid: process.pid,
                     place,
                     command,
-                });
+                }),
+                Ok(None) => {}
+                Err(error) => unread.push(format!(
+                    "{error}, so health cannot tell which worktree its {} runs in",
+                    command.word()
+                )),
             }
         } else if let Some(worktree) = crate::land_turns::landing_worktree(process.pid, &argv) {
             let worktree = match worktree {

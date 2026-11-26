@@ -293,6 +293,23 @@ pub fn place_of_process(places: &[Place], pid: i32) -> Option<usize> {
     cwd(pid).and_then(|dir| place_of(places, &dir))
 }
 
+/// `place_of_process` that tells a failed read apart: None when the working
+/// directory of process <pid> is in no place or the process has exited, and
+/// an error that names the process when it still runs and builds cannot read
+/// its working directory.
+pub fn live_place_of_process(
+    places: &[Place],
+    pid: i32,
+) -> std::result::Result<Option<usize>, String> {
+    match cwd(pid) {
+        Some(dir) => Ok(place_of(places, &dir)),
+        None if !runs(pid) => Ok(None),
+        None => Err(format!(
+            "builds cannot read the working directory of process {pid}, which still runs"
+        )),
+    }
+}
+
 /// A build process at work in a checkout.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct BuildProcess {
@@ -551,5 +568,16 @@ mod tests {
             .unwrap()
             .join(path.file_name().unwrap());
         assert!(open.contains(&wanted), "{open:?}");
+    }
+
+    #[test]
+    fn a_working_directory_builds_cannot_read_is_no_process_outside_every_place() {
+        let own = std::process::id() as i32;
+        assert_eq!(live_place_of_process(&[], own), Ok(None));
+        let gone = crate::testing::gone_pid() as i32;
+        assert_eq!(live_place_of_process(&[], gone), Ok(None));
+        // launchd runs as root, whose working directory no other user reads.
+        let said = live_place_of_process(&[], 1).unwrap_err();
+        assert!(said.contains("process 1, which still runs"), "{said}");
     }
 }
