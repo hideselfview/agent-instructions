@@ -434,29 +434,11 @@ coordinator nothing of a second disagreement: the agent reports it, and the
 coordinator asks the person whether to allow the finding to land, or tells the
 agent to fix it.
 
-A group that raises an open confirmed finding again at the same place (the same
-rule, clause and quoted code, at a line that edits above it moved, or under the
-old name of a renamed file) keeps it as one open finding. builds tells the
-judge nothing, and the run's report says the group still finds it.
-
-In a later run, each group that holds open findings reads every file that
-changed since the last review, because the fix of a finding may be in any file.
-Each other group reads the changed files its rules cover, except a file where a
-group holds an open finding: only the groups that hold findings there read that
-file. The run's report names each group that did not read a file, with the
-files it did not read.
-
-The changes since the last review are the lines the branch adds or removes that
-it did not add or remove at the last review, the lines it no longer changes,
-and the commit messages it did not hold then. A reviewer judges only those
-lines. Run `builds review` again whenever the branch changed since the last
-review: a new commit, a fix, a squash that changed lines, a conflict's
-resolution or a reworded message. Main's commits that a rebase brings in are
-not part of the changes, so a rebase that keeps every line the branch adds and
-removes keeps its review, and a rebase that resolves a conflict differently
-leaves only the resolution's lines to read. A reworded message alone leaves
-only the changed messages to read, and dropping the commit that held a
-confirmed finding's code closes the finding at the next review.
+Run `builds review` again whenever the branch changed since the last review: a
+new commit, a fix, a squash that changed lines, a conflict's resolution or a
+reworded message. A rebase that keeps every line the branch adds and removes
+keeps its review. `builds help LANDING AND REVIEW` says which changes and files
+each group reads in a later run.
 
 A confirmed finding stays open until a later review closes it, the judge
 settles it again as dropped after a dispute, or the person allows its code to

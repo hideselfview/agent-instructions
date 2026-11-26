@@ -3426,6 +3426,22 @@ deleted it, for example) shows its whole net change, and so does every file
 when the repo no longer has the commits the last review read. The commit
 messages the run reads are those the last review's net change did not hold.
 
+The changes since the last review are the lines the branch adds or removes that
+it did not add or remove at the last review, the lines it no longer changes,
+and the commit messages it did not hold then. Main's commits that a
+rebase brings in are not part of the changes, so a rebase that keeps every line
+the branch adds and removes keeps its review, and a rebase that resolves a
+conflict differently leaves only the resolution's lines to read. A reworded
+message alone leaves only the changed messages to read, and dropping the commit
+that held a confirmed finding's code closes the finding at the next review.
+
+In a later run, each group that holds open findings reads every file that
+changed since the last review, because the fix of a finding may be in any file.
+Each other group reads the changed files its rules cover, except a file where a
+group holds an open finding: only the groups that hold findings there read that
+file. The run's report names each group that did not read a file, with the
+files it did not read.
+
 Each reviewer reads the changes since the last review, and raises findings
 only on lines those changes add or remove. builds drops a finding whose code
 sits only on the lines around them, which the diff shows for context: a later
@@ -3882,7 +3898,8 @@ run `review replay --rules-root` on it.
                               again with the same rule, clause and quoted
                               code at the same place in the file gets no
                               new finding. Builds follows the line as edits
-                              above it move it. Builds keeps the finding
+                              above it move it, and the file under its old
+                              name when the branch renames it. Builds keeps the finding
                               open, tells the judge nothing, and the run's
                               report says the group still finds it.
                               --head SHA reviews the commits up to SHA from a
