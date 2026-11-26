@@ -243,3 +243,26 @@ fn findings_print_the_newest_run_an_older_shots_program_made_and_say_so() {
     );
     assert!(older_program_note(&made).is_none());
 }
+
+#[test]
+fn the_plain_findings_are_the_records_never_the_stored_build_log() {
+    let scratch = crate::testing::Scratch::new("shots-plain");
+    let places = scratch.places();
+    let log = "builds shots: ./app-android/shots-capture.sh\n> Task :app:assemble\nBUILD SUCCESSFUL in 2m\nmac.a: warning: the log's own line\n";
+    let cached = shots_cache::stage(&places, &run_key("env", "c", "v"))
+        .unwrap()
+        .finish(0, log)
+        .unwrap();
+    let missing = plain(&cached, "main").expect_err("no records").text();
+    assert!(missing.contains("--fresh"), "{missing}");
+    std::fs::create_dir_all(cached.report()).unwrap();
+    std::fs::write(
+        cached.findings_json(),
+        r#"{"findings": [{"scene": "mac.a", "level": "warning", "kind": "region", "sentence": "The pictures differ"}, {"scene": "mac.b", "level": "finding", "kind": "missing", "sentence": "An element is missing"}], "scenes": ["mac.a", "mac.b", "mac.c"]}"#,
+    )
+    .unwrap();
+    assert_eq!(
+        plain(&cached, "main").unwrap(),
+        "mac.a: warning: The pictures differ\nmac.b: finding: An element is missing\n2 findings in 2 of the 3 scenes the run checked\n"
+    );
+}

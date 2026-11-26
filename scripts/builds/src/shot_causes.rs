@@ -46,6 +46,10 @@ pub struct Record {
     /// draws it.
     #[serde(default)]
     pub component: Option<String>,
+    /// `finding` (fails the run) or `warning`.
+    pub level: String,
+    /// The sentence the shots program printed for the record.
+    pub sentence: String,
     #[serde(flatten)]
     pub what: What,
 }
@@ -305,6 +309,27 @@ pub fn causes(run: &Run) -> Causes {
             ))
         })),
     }
+}
+
+/// <run>'s records one to a line, `scene: level: sentence`, then a count, as
+/// `builds shots findings` prints them.
+pub fn lines(run: &Run) -> String {
+    let mut out = String::new();
+    for record in &run.findings {
+        out.push_str(&format!(
+            "{}: {}: {}\n",
+            record.scene, record.level, record.sentence
+        ));
+    }
+    let scenes: std::collections::BTreeSet<&str> =
+        run.findings.iter().map(|r| r.scene.as_str()).collect();
+    out.push_str(&format!(
+        "{} in {} of the {} the run checked\n",
+        plural(run.findings.len(), "finding"),
+        scenes.len(),
+        plural(run.scenes.len(), "scene")
+    ));
+    out
 }
 
 /// The most scenes a cause's line names: those where it makes the most

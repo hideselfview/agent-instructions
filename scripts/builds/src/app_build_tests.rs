@@ -1535,6 +1535,17 @@ fn app_build_returns_a_cached_failure_and_takes_no_lane_without_a_project() {
         ),
         Err(Fail::Exit(1))
     ));
+    let commit = crate::shot_findings::commit_of(&places, "demo", "HEAD").unwrap();
+    let run =
+        crate::shots_cache::lookup_older_program(&places, "demo", &commit, Lane::Mac, "mac.a.")
+            .unwrap()
+            .expect("the run is cached");
+    std::fs::create_dir_all(run.report()).unwrap();
+    std::fs::write(
+        run.findings_json(),
+        r#"{"findings": [], "scenes": ["mac.a"]}"#,
+    )
+    .unwrap();
     crate::shots_program::cmd_shots(
         &places,
         &args(&["findings", "demo", "HEAD", "mac", "mac.a."]),

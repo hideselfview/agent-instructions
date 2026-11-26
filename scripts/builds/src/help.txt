@@ -1791,7 +1791,12 @@ built again.
                               shots comparison version made them and where the run's
                               report is, and mark the run used. With none
                               kept, it fails and names the app-build
-                              command that makes them. With --by-cause, it
+                              command that makes them. It prints one line
+                              for each finding from the report's
+                              findings.json, `scene: level: sentence`, and a
+                              count, never the build log the run stored; a
+                              run whose report holds no findings.json fails,
+                              as below. With --by-cause, it
                               prints them grouped by cause across every scene
                               from the report's findings.json: by the
                               design-system component that draws each

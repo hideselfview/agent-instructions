@@ -268,8 +268,25 @@ fn note_run(cached: &Cached) {
 /// its report holds. Fails when the run cached no such records, naming the
 /// command that runs it again for <git_ref>.
 pub fn by_cause(cached: &Cached, git_ref: &str) -> Result<String> {
+    records_text(cached, git_ref, shot_causes::text)
+}
+
+/// The findings of the cached run <cached>, one to a line, from the records
+/// its report holds, never the build log the run stored. Fails as `by_cause`
+/// does.
+pub fn plain(cached: &Cached, git_ref: &str) -> Result<String> {
+    records_text(cached, git_ref, shot_causes::lines)
+}
+
+/// <show> of the records of <cached>'s report; fails, naming the command that
+/// runs the shots again for <git_ref>, when it holds none.
+fn records_text(
+    cached: &Cached,
+    git_ref: &str,
+    show: fn(&shot_causes::Run) -> String,
+) -> Result<String> {
     match shot_causes::read(&cached.report()) {
-        Ok(run) => Ok(shot_causes::text(&run)),
+        Ok(run) => Ok(show(&run)),
         Err(error) => fail!(
             "{}. The shots program writes its findings as records beside its report, which builds caches with the run; `{} --fresh` runs this one again",
             error.text(),
@@ -397,13 +414,13 @@ pub fn cmd_findings(places: &Places, args: &[String]) -> Result<()> {
     if let Some(said) = older_program_note(&cached) {
         note(said);
     }
-    if grouped {
-        let text = by_cause(&cached, git_ref)?;
-        note_run(&cached);
-        print!("{text}");
+    let text = if grouped {
+        by_cause(&cached, git_ref)?
     } else {
-        print(&cached);
-    }
+        plain(&cached, git_ref)?
+    };
+    note_run(&cached);
+    print!("{text}");
     note_report(&cached);
     Ok(())
 }
