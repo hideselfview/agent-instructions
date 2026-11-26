@@ -397,7 +397,7 @@ a.l-ref:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; b
   <div class="rv-head"><span class="rv-title" id="rv-title"></span><a id="rv-open" target="_blank" rel="noopener">Open in its own tab</a><button type="button" id="rv-close">Close</button></div>
   <iframe class="rv-frame" id="rv-frame" title="Design change review"></iframe>
 </dialog>
-<dialog class="lane-dlg" id="lane-modal">
+<dialog class="lane-dlg" id="lane-modal" aria-labelledby="lm-title">
   <div class="lm-head" id="lm-head"></div>
   <div class="lm-body" id="lm-body"></div>
 </dialog>
@@ -887,7 +887,7 @@ function laneModalView() {
     sub = "Newest first";
     content = laneLogs(al);
   }
-  document.getElementById("lm-head").replaceChildren(h("span", {class: "lm-title"}, title), h("span", {class: "lm-sub"}, sub || ""), close);
+  document.getElementById("lm-head").replaceChildren(h("span", {class: "lm-title", id: "lm-title"}, title), h("span", {class: "lm-sub"}, sub || ""), close);
   // The build form stays the same element, so the ref being typed keeps its focus.
   if (!(content.length === 1 && body.firstChild === content[0] && body.childNodes.length === 1)) body.replaceChildren(...content);
   if (!dlg.open) dlg.showModal();
