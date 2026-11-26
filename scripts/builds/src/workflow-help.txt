@@ -102,13 +102,9 @@ worktree, is the unit of work.
     worktrees from `builds new ~/dev/agent-instructions --for <who> --project
     builds` (the opening of `builds help`).
   - Work that origin/main lacks (commits, or files not committed) leaves a
-    worktree only by landing, or with an item that holds it: one that keeps
-    the worktree while it waits in the queue (`builds item stop` records the
-    work when a run ends with work left), one running there, or one taken
-    there held on the person (`builds item take --held`). `builds release`
-    refuses every other worktree with such work, and `builds new` hands none
-    out (`builds help`, WORKTREES AND CLAIMS). Only the person throws work
-    away, by dropping its item (`builds item drop`, `builds help lists`).
+    worktree only by landing or with an item that holds it, and only the
+    person throws such work away (`builds help WORKTREES AND CLAIMS`, and
+    `builds item stop`, `take --held` and `drop` in `builds help lists`).
 
 Land the fixes you have ready together, in one batch (decision #1391 in project
 bae), since each branch takes its own review, compile check and, for app
@@ -502,11 +498,9 @@ the worktree.
     with a coordinator, a CI run on main that fails or stalls is the
     coordinator's to run down and fix.
   - After each landing, `builds land` fast-forwards the repo's main checkout
-    to origin/main. In agent-instructions, the checkout's post-merge hook then
-    runs install.sh, which installs the landed builds and links the landed
-    rules and skills (`builds help`, INSTALLING). When land prints MAIN
-    CHECKOUT BEHIND, tell the person and give them the command it prints;
-    never stash or reset their edits.
+    to origin/main, which in agent-instructions installs what landed (`builds
+    help INSTALLING`). When land prints MAIN CHECKOUT BEHIND, tell the person
+    and give them the command it prints; never stash or reset their edits.
 
 
 DESIGN TERMS
