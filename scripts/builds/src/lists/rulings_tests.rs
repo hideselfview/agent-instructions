@@ -76,12 +76,7 @@ impl Bench {
     }
 
     fn question(&self, args: &[&str]) -> Result<String> {
-        crate::lists::question_command::run(
-            &self.demo.tool,
-            &words(args),
-            &self.demo.main,
-            &|args| panic!("gh must not run: {args:?}"),
-        )
+        crate::lists::question_command::run(&self.demo.tool, &words(args), &self.demo.main)
     }
 
     /// Takes item 1, which it adds, in side worktree 1 with a brief that

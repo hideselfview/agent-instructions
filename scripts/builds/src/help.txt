@@ -3144,7 +3144,18 @@ STATUS, HEALTH AND THE DASHBOARD
                               can show the questions of one kind alone, and
                               Queue the items of one area or one state
                               alone: ready, waiting, or for the design
-                              session, which draws the boards. The page
+                              session, which draws the boards. The Backlog
+                              tab after Queue lists the items that wait until
+                              you start them, by area and age, each with the
+                              row Queue draws and, opened, why it waits, who
+                              moved it there and when. Each row has a Start
+                              button, which moves the item to the queue
+                              (POST /api/item-start, as `builds item start`
+                              does, recorded as "person (dashboard)"); the
+                              page served at an address other than
+                              127.0.0.1 or localhost shows the row without
+                              the button, and work starts only from this
+                              Mac. The page
                               keeps each list's sort and filters in its
                               URL, so a reload keeps them, and the lists
                               keep nothing about them. Under the project
@@ -3695,8 +3706,8 @@ an audit of main: its findings are in code that is on main, so no branch or
 agent waits on them. An audit may run as several reviews, `audit:<name>-1`,
 `audit:<name>-2` and so on. When the last finding of one of them is settled,
 builds makes one item for the audit, "Fix the confirmed findings of audit
-<name>", in the area `audits`, and one held entry of the stack that the item
-waits on, so the item shows under Waiting on you until the person starts it.
+<name>", in the area `audits`, straight in the backlog (decision #743), so
+the item waits until the person starts it.
 The audit's other reviews add their findings to that item, not a second item.
 Each review ends as abandoned with the item's number, so no health line or
 dashboard row lists it. A review with no confirmed finding ends with no item.

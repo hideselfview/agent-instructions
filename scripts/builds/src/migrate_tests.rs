@@ -2869,3 +2869,229 @@ fn a_store_from_before_item_changes_gains_the_empty_tables() {
         db::schema_rows(&db::memory()).unwrap()
     );
 }
+
+#[test]
+fn the_backlog_stamp_is_the_schema_before_it() {
+    assert_eq!(
+        db::stamp_of_text(&db::schema_before_backlog()),
+        BEFORE_BACKLOG_STAMP
+    );
+}
+
+/// A store of the schema before the backlog, with project `demo` and area
+/// Alpha, at <path>.
+fn store_before_backlog(path: &std::path::Path) -> Connection {
+    let conn = Connection::open(path).unwrap();
+    conn.execute_batch(&db::schema_before_backlog()).unwrap();
+    conn.pragma_update(None, "user_version", BEFORE_BACKLOG_STAMP)
+        .unwrap();
+    crate::lists::project::init(
+        &conn,
+        &crate::lists::project::NewProject {
+            name: "demo".to_string(),
+            canvas: false,
+            repos: vec!["demo".to_string()],
+            places: Default::default(),
+            sources: Default::default(),
+            specs: Default::default(),
+        },
+    )
+    .unwrap();
+    crate::lists::area::add_area(&conn, "Alpha", None).unwrap();
+    conn
+}
+
+fn old_record(conn: &Connection, kind: &str) -> i64 {
+    conn.execute(
+        "INSERT INTO record (kind, opened_at, opened_by) VALUES (?1, 1, 'a')",
+        [kind],
+    )
+    .unwrap();
+    conn.last_insert_rowid()
+}
+
+fn old_question(conn: &Connection, kind: &str, title: &str) -> i64 {
+    let id = old_record(conn, "question");
+    conn.execute(
+        "INSERT INTO question (id, title, details, kind, effect, blocks_nothing) VALUES (?1, ?2, 'the details', ?3, 'cleanup', 'x')",
+        rusqlite::params![id, title, kind],
+    )
+    .unwrap();
+    id
+}
+
+fn old_item(conn: &Connection, title: &str, waits_on: &[i64]) -> i64 {
+    let id = old_record(conn, "item");
+    conn.execute(
+        "INSERT INTO item (id, title, area, details, audience) VALUES (?1, ?2, 'Alpha', 'd', 'coordinator')",
+        rusqlite::params![id, title],
+    )
+    .unwrap();
+    for question in waits_on {
+        conn.execute(
+            "INSERT INTO item_wait_question (item_id, on_question) VALUES (?1, ?2)",
+            [id, *question],
+        )
+        .unwrap();
+    }
+    id
+}
+
+fn old_closing(conn: &Connection, id: i64, kind: &str, how: &str, reason: &str) {
+    conn.execute(
+        "INSERT INTO closing (record_id, kind, how, at, by, reason) VALUES (?1, ?2, ?3, 2, 'a', ?4)",
+        rusqlite::params![id, kind, how, reason],
+    )
+    .unwrap();
+}
+
+#[test]
+fn a_store_from_before_the_backlog_moves_held_work_into_it_and_drops_deferred_closings() {
+    let scratch = Scratch::new("move-backlog");
+    let places = scratch.places();
+    let path = scratch.dir.join(DATABASE);
+    let (entry, first, second, closed_entry, deferred_item, deferred_question) = {
+        let conn = store_before_backlog(&path);
+        let entry = old_question(&conn, "held", "Start the fixes");
+        let first = old_item(&conn, "Fix the first thing now", &[entry]);
+        let second = old_item(&conn, "Fix the second thing now", &[entry]);
+        let closed_entry = old_question(&conn, "held", "Start the old fixes");
+        old_closing(&conn, closed_entry, "question", "dropped", "no");
+        let deferred_item = old_item(&conn, "Do the later thing now", &[]);
+        old_closing(&conn, deferred_item, "item", "deferred", "https://x/1");
+        let deferred_question = old_question(&conn, "question", "Ask the later thing");
+        old_closing(
+            &conn,
+            deferred_question,
+            "question",
+            "deferred",
+            "https://x/2",
+        );
+        (
+            entry,
+            first,
+            second,
+            closed_entry,
+            deferred_item,
+            deferred_question,
+        )
+    };
+    move_store(&places, &path, 5).unwrap();
+    let conn = db::open(&path, db::Make::Never).unwrap();
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    let backlog: Vec<(i64, String, i64, String)> = conn
+        .prepare("SELECT item_id, why, at, by FROM item_backlog ORDER BY item_id")
+        .unwrap()
+        .query_map([], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        })
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap();
+    let why = "Start the fixes: the details".to_string();
+    assert_eq!(
+        backlog,
+        [
+            (first, why.clone(), 5, "builds install".to_string()),
+            (second, why, 5, "builds install".to_string())
+        ]
+    );
+    let waits: i64 = conn
+        .query_row("SELECT COUNT(*) FROM item_wait_question", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(waits, 0);
+    let closing = |id: i64| -> (String, String) {
+        conn.query_row(
+            "SELECT how, reason FROM closing WHERE record_id = ?1",
+            [id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap()
+    };
+    assert_eq!(
+        closing(entry),
+        (
+            "done".to_string(),
+            format!("moved to the backlog with items {first}, {second}")
+        )
+    );
+    assert_eq!(
+        closing(closed_entry),
+        ("dropped".to_string(), "no".to_string())
+    );
+    assert_eq!(
+        closing(deferred_item),
+        ("dropped".to_string(), "deferred to https://x/1".to_string())
+    );
+    assert_eq!(
+        closing(deferred_question),
+        ("dropped".to_string(), "deferred to https://x/2".to_string())
+    );
+    let held: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM question WHERE kind = 'your-step'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(held, 2, "each held entry is a your-step entry now");
+    assert!(
+        crate::lists::check::faults(&conn, "demo")
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
+fn a_store_whose_held_entry_gates_a_running_item_or_no_item_refuses_the_move_and_names_it() {
+    for (name, running) in [
+        ("move-backlog-running", true),
+        ("move-backlog-empty", false),
+    ] {
+        let scratch = Scratch::new(name);
+        let places = scratch.places();
+        let path = scratch.dir.join(DATABASE);
+        let (entry, item) = {
+            let conn = store_before_backlog(&path);
+            let entry = old_question(&conn, "held", "Start the fixes");
+            let item = if running {
+                let item = old_item(&conn, "Fix the first thing now", &[entry]);
+                crate::lists::running::start(
+                    &conn,
+                    &[crate::lists::Id(item as u32)],
+                    &[crate::lists::Running {
+                        worktree: "/d/demo-worktrees/side-1".to_string(),
+                        branch: "work".to_string(),
+                        brief: "plans/b.md".to_string(),
+                        since: crate::lists::Stamp {
+                            at: 1,
+                            by: "a".to_string(),
+                        },
+                        tier: crate::model_tier::Tier::Implementation,
+                    }],
+                )
+                .unwrap();
+                item
+            } else {
+                0
+            };
+            (entry, item)
+        };
+        let said = move_store(&places, &path, 5).unwrap_err().text();
+        assert!(said.contains(&format!("#{entry}")), "{said}");
+        if running {
+            assert!(said.contains(&format!("#{item}")), "{said}");
+        }
+        let conn = Connection::open(&path).unwrap();
+        assert_eq!(
+            db::stamp_of(&conn, &path).unwrap(),
+            BEFORE_BACKLOG_STAMP,
+            "the store is left as it was"
+        );
+    }
+}

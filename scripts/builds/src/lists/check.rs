@@ -95,7 +95,7 @@ pub fn faults(db: &Connection, project: &str) -> Result<Vec<String>> {
         )),
         _ => {}
     }
-    let queries: [(&str, String); 12] = [
+    let queries: [(&str, String); 15] = [
         // 1. A project has at least one repo: a parent that needs a child.
         ("repos", "SELECT 'the project has no repos' WHERE NOT EXISTS (SELECT 1 FROM repo)".to_string()),
         // 2. An open question has an open item waiting on it or gives the
@@ -224,6 +224,39 @@ pub fn faults(db: &Connection, project: &str) -> Result<Vec<String>> {
              ELSE 'the item closed at ' || c.at END \
              FROM item_run r LEFT JOIN closing c ON c.record_id = r.item_id \
              WHERE r.how = 'closed' AND (c.at IS NULL OR c.at <> r.ended_at) ORDER BY r.item_id"
+                .to_string(),
+        ),
+        // 11. An item in the backlog runs nowhere and keeps no worktree.
+        (
+            "backlog_runs",
+            "SELECT 'item #' || b.item_id || ' is in the backlog and ' || CASE WHEN r.item_id IS NOT NULL \
+             THEN 'runs somewhere' ELSE 'keeps a worktree' END \
+             FROM item_backlog b \
+             LEFT JOIN running r ON r.item_id = b.item_id \
+             LEFT JOIN kept_work k ON k.item_id = b.item_id \
+             WHERE NOT EXISTS (SELECT 1 FROM closing c WHERE c.record_id = b.item_id) \
+               AND (r.item_id IS NOT NULL OR k.item_id IS NOT NULL) ORDER BY b.item_id"
+                .to_string(),
+        ),
+        // 12. An item in the backlog waits on no open question.
+        (
+            "backlog_questions",
+            "SELECT 'item #' || b.item_id || ' is in the backlog and waits on open question #' || w.on_question \
+             FROM item_backlog b JOIN item_wait_question w ON w.item_id = b.item_id \
+             WHERE NOT EXISTS (SELECT 1 FROM closing c WHERE c.record_id = b.item_id) \
+               AND NOT EXISTS (SELECT 1 FROM closing c WHERE c.record_id = w.on_question) \
+             ORDER BY b.item_id, w.on_question"
+                .to_string(),
+        ),
+        // 13. No open item outside the backlog waits on an item in it.
+        (
+            "backlog_waiters",
+            "SELECT 'item #' || w.item_id || ' is not in the backlog and waits on item #' || w.on_item || ', which is' \
+             FROM item_wait_item w JOIN item_backlog b ON b.item_id = w.on_item \
+             WHERE NOT EXISTS (SELECT 1 FROM closing c WHERE c.record_id = w.item_id) \
+               AND NOT EXISTS (SELECT 1 FROM closing c WHERE c.record_id = w.on_item) \
+               AND NOT EXISTS (SELECT 1 FROM item_backlog own WHERE own.item_id = w.item_id) \
+             ORDER BY w.item_id, w.on_item"
                 .to_string(),
         ),
     ];

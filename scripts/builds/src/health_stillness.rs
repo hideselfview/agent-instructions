@@ -363,6 +363,9 @@ fn records(graph: &mut WorkGraph, loaded: &[Loaded], progress: Option<&Progress>
         for item in &lists.items {
             let state = item_state(lists, item);
             let otherwise = match state {
+                // The item waits on the person's choice to start it, not on
+                // someone who should act: health lists no row for it.
+                ItemState::Backlog => continue,
                 ItemState::Running => "The agent has no recorded wait.".to_string(),
                 ItemState::Ready if !item.kept.is_empty() => {
                     let places = crate::lists::kept_work::places_words(

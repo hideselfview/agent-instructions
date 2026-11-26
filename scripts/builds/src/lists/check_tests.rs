@@ -4,7 +4,7 @@ use crate::lists::item::{add_wait, remove_wait};
 use crate::lists::landing::add_part;
 use crate::lists::record::close;
 use crate::lists::running::{Ended, Running, start};
-use crate::lists::{How, LandedPart, Wait};
+use crate::lists::{How, Id, LandedPart, Wait};
 
 fn faults_of(db: &Connection) -> Vec<String> {
     faults(db, "demo").unwrap()
@@ -108,10 +108,11 @@ fn an_open_items_wait_on_a_record_closed_so_it_never_meets_it_is_a_fault() {
     );
     close(&db, dropped_q, How::Dropped("x".into()), &stamp(NOON)).unwrap();
     close(&db, answered_q, How::Done("shown".into()), &stamp(NOON)).unwrap();
+    let took_its_place = question(&db);
     close(
         &db,
         dropped_item,
-        How::Deferred("https://x/1".into()),
+        How::MovedToStack(took_its_place),
         &stamp(NOON),
     )
     .unwrap();
@@ -125,7 +126,7 @@ fn an_open_items_wait_on_a_record_closed_so_it_never_meets_it_is_a_fault() {
     );
     assert!(
         found[1].contains(&format!("waits on {dropped_item}"))
-            && found[1].contains("closed as deferred"),
+            && found[1].contains("closed as moved-to-stack"),
         "{found:?}"
     );
     // The same waits of a closed item are history, not a fault.
@@ -393,6 +394,64 @@ fn a_run_that_ended_with_its_closing_ended_when_its_item_closed() {
             "item {id} has a run that ended with its closing at {}, but the item closed at {}",
             NOON + 5,
             NOON + 6
+        )]
+    );
+}
+
+fn backlog(db: &Connection, ids: &[Id]) {
+    let moves: Vec<(Id, String)> = ids.iter().map(|id| (*id, "later".to_string())).collect();
+    crate::lists::item::move_to_backlog(db, &moves, &stamp(NOON)).unwrap();
+}
+
+#[test]
+fn an_item_in_the_backlog_that_runs_or_keeps_a_worktree_is_a_fault() {
+    let db = db();
+    let id = item(&db, vec![]);
+    backlog(&db, &[id]);
+    start(&db, &[id], &[running("/d/bae-worktrees/side-1", "work")]).unwrap();
+    assert_eq!(
+        faults_of(&db),
+        [format!("item {id} is in the backlog and runs somewhere")]
+    );
+}
+
+#[test]
+fn an_item_in_the_backlog_that_waits_on_an_open_question_is_a_fault() {
+    let db = db();
+    let q = question(&db);
+    let id = item(&db, vec![]);
+    backlog(&db, &[id]);
+    crate::lists::fixtures::blocks_nothing_because(&db, q, "asked anyway");
+    assert_eq!(faults_of(&db), Vec::<String>::new());
+    db.execute(
+        "INSERT INTO item_wait_question (item_id, on_question) VALUES (?1, ?2)",
+        rusqlite::params![id, q],
+    )
+    .unwrap();
+    let found = faults_of(&db);
+    assert!(
+        found
+            .iter()
+            .any(|fault| *fault
+                == format!("item {id} is in the backlog and waits on open question {q}")),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn an_open_item_outside_the_backlog_that_waits_on_a_backlog_item_is_a_fault() {
+    let db = db();
+    let later = item(&db, vec![]);
+    let waiter = item(&db, vec![Wait::Item(later)]);
+    db.execute(
+        "INSERT INTO item_backlog (item_id, why, at, by) VALUES (?1, 'later', 1, 'tester')",
+        [later],
+    )
+    .unwrap();
+    assert_eq!(
+        faults_of(&db),
+        [format!(
+            "item {waiter} is not in the backlog and waits on item {later}, which is"
         )]
     );
 }

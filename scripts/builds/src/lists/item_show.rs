@@ -222,6 +222,15 @@ pub fn render_item(lists: &Lists, id: Id, now: i64) -> Result<String> {
             Audience::DesignSession => "design session",
         }
     );
+    if let Some(backlog) = &item.backlog {
+        let _ = writeln!(
+            out,
+            "in the backlog since {} by {}: {}",
+            local_minute(backlog.at),
+            backlog.by,
+            backlog.why
+        );
+    }
     if let Some(priority) = &item.priority {
         let _ = writeln!(
             out,
@@ -328,14 +337,15 @@ pub fn show(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
 struct Choice<'a> {
     running: bool,
     ready: bool,
+    backlog: bool,
     area: Option<&'a str>,
     audience: Option<Audience>,
     tag: Option<&'a str>,
 }
 
-/// The items `list` prints: those running when asked, those ready when asked
-/// (in the queue's order, which the dashboard's Queue tab shows; the rest of
-/// the list stays in id order), in the area, for the audience and whose trail
+/// The items `list` prints: those running when asked, those ready or in the
+/// backlog when asked (in the queue's order, which the dashboard's Queue tab
+/// shows; the rest of the list stays in id order), in the area, for the audience and whose trail
 /// has the tag when given.
 fn chosen<'a>(lists: &'a Lists, choice: &Choice) -> Result<Vec<&'a Item>> {
     let mut chosen: Vec<&Item> = Vec::new();
@@ -344,6 +354,7 @@ fn chosen<'a>(lists: &'a Lists, choice: &Choice) -> Result<Vec<&'a Item>> {
         .iter()
         .filter(|item| !choice.running || !item.running.is_empty())
         .filter(|item| !choice.ready || derive::item_state(lists, item) == ItemState::Ready)
+        .filter(|item| !choice.backlog || item.backlog.is_some())
         .filter(|item| choice.area.is_none_or(|a| item.area == a))
         .filter(|item| choice.audience.is_none_or(|f| item.r#for == f))
     {
@@ -351,17 +362,21 @@ fn chosen<'a>(lists: &'a Lists, choice: &Choice) -> Result<Vec<&'a Item>> {
             chosen.push(item);
         }
     }
-    if choice.ready {
+    if choice.ready || choice.backlog {
         derive::queue_order(lists, &mut chosen);
     }
     Ok(chosen)
 }
 
 pub fn list(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
-    let args = Args::parse(args, &["area", "for", "tag"], &["running", "ready"])?;
+    let args = Args::parse(
+        args,
+        &["area", "for", "tag"],
+        &["running", "ready", "backlog"],
+    )?;
     args.exactly(
         0,
-        "builds item list [--running] [--ready] [--area A] [--for F] [--tag T]",
+        "builds item list [--running] [--ready] [--backlog] [--area A] [--for F] [--tag T]",
     )?;
     let audience: Option<Audience> = args.choice("for")?;
     let area = args.value("area")?;
@@ -380,6 +395,7 @@ pub fn list(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         &Choice {
             running: args.switch("running"),
             ready: args.switch("ready"),
+            backlog: args.switch("backlog"),
             area,
             audience,
             tag: args.value("tag")?,

@@ -4,7 +4,6 @@ use crate::lists::fixtures::{NOON, item, make_store, question, question_kind, st
 use crate::lists::{Closed, Record};
 use crate::testing::Scratch;
 use rusqlite::Connection;
-use std::cell::RefCell;
 
 const AS: &str = "--project demo --by tester";
 
@@ -20,22 +19,14 @@ fn setup<T>(name: &str, build: impl FnOnce(&Connection) -> T) -> (Scratch, Tool,
     (scratch, tool, store, made)
 }
 
-fn no_gh(args: &[&str]) -> Result<String> {
-    panic!("gh must not run: {args:?}")
-}
-
 fn go(scratch: &Scratch, tool: &Tool, command: &str) -> Result<String> {
-    go_gh(scratch, tool, command, &no_gh)
-}
-
-fn go_gh(scratch: &Scratch, tool: &Tool, command: &str, gh: GhRunner<'_>) -> Result<String> {
     // Ids print as #N; commands take bare numbers.
     let words: Vec<String> = format!("{command} {AS}")
         .replace('#', "")
         .split_whitespace()
         .map(str::to_string)
         .collect();
-    run(tool, &words, &scratch.dir, gh)
+    run(tool, &words, &scratch.dir)
 }
 
 fn file(scratch: &Scratch, name: &str, text: &str) -> String {
@@ -179,20 +170,22 @@ fn ask_refuses_a_bad_title_kind_effect_or_details() {
         &format!(
             "ask --title T --kind other --effect cleanup --details-file {d} --blocks-nothing why"
         ),
-        "--kind is question, your-step or held, not 'other'",
+        "--kind is question or your-step, not 'other'",
     );
     refuses(
         &scratch,
         &tool,
         &store,
-        &format!("ask --title T --kind held --details-file {d} --blocks-nothing why"),
+        &format!("ask --title T --kind your-step --details-file {d} --blocks-nothing why"),
         "--effect is required",
     );
     refuses(
         &scratch,
         &tool,
         &store,
-        &format!("ask --title T --kind held --effect big --details-file {d} --blocks-nothing why"),
+        &format!(
+            "ask --title T --kind your-step --effect big --details-file {d} --blocks-nothing why"
+        ),
         "--effect is data-loss, bug, slows-agents, product-design or cleanup, not 'big'",
     );
     refuses(
@@ -200,7 +193,7 @@ fn ask_refuses_a_bad_title_kind_effect_or_details() {
         &tool,
         &store,
         &format!(
-            "ask --title T --kind held --effect cleanup --details-file {empty} --blocks-nothing why"
+            "ask --title T --kind your-step --effect cleanup --details-file {empty} --blocks-nothing why"
         ),
         "details are empty",
     );
@@ -208,7 +201,7 @@ fn ask_refuses_a_bad_title_kind_effect_or_details() {
         &scratch,
         &tool,
         &store,
-        "ask --kind held --effect cleanup --details-file x --blocks-nothing why",
+        "ask --kind your-step --effect cleanup --details-file x --blocks-nothing why",
         "--title is required",
     );
     refuses(
@@ -229,7 +222,7 @@ fn ask_refuses_a_bad_title_kind_effect_or_details() {
         &scratch,
         &tool,
         &store,
-        "ask --title T --kind held --effect cleanup --details-file /nonexistent/x --blocks-nothing why",
+        "ask --title T --kind your-step --effect cleanup --details-file /nonexistent/x --blocks-nothing why",
         "reading /nonexistent/x",
     );
 }
@@ -739,12 +732,11 @@ fn settle_records_no_decision_and_needs_a_rule() {
 }
 
 #[test]
-fn done_closes_your_step_and_held_but_not_a_question() {
-    let (scratch, tool, store, (step, held, plain, waiting)) = setup("q-done", |l| {
+fn done_closes_your_step_but_not_a_question() {
+    let (scratch, tool, store, (step, plain, waiting)) = setup("q-done", |l| {
         let step = question_kind(l, QuestionKind::YourStep);
         let waiting = item(l, vec![Wait::Question(step)]);
-        let held = question_kind(l, QuestionKind::Held);
-        (step, held, question(l), waiting)
+        (step, question(l), waiting)
     });
     let r = file(
         &scratch,
@@ -784,14 +776,10 @@ fn done_closes_your_step_and_held_but_not_a_question() {
         &format!("done {step} --request {with_waiter}"),
     )
     .unwrap();
-    go(&scratch, &tool, &format!("done {held} --request {r}")).unwrap();
     let lists = store.load().unwrap();
     assert_eq!(
-        (closed_as(&lists, step), closed_as(&lists, held)),
-        (
-            &How::Done("the person's words".into()),
-            &How::Done("the person's words".into())
-        )
+        closed_as(&lists, step),
+        &How::Done("the person's words".into())
     );
     assert!(out.contains(&format!("question {step} done")), "{out}");
     let shown = go(&scratch, &tool, &format!("show {step}")).unwrap();
@@ -810,7 +798,7 @@ fn done_closes_your_step_and_held_but_not_a_question() {
     );
 }
 
-// drop, defer
+// drop
 
 #[test]
 fn drop_refuses_while_items_wait_and_names_the_command_that_frees_them() {
@@ -861,83 +849,6 @@ fn drop_refuses_while_items_wait_and_names_the_command_that_frees_them() {
         &format!("drop {q} --why again"),
         "is closed (dropped)",
     );
-}
-
-#[test]
-fn defer_asks_github_before_the_lock_and_needs_an_open_issue() {
-    let (scratch, tool, store, q) = setup("q-defer", question);
-    let calls = RefCell::new(Vec::<Vec<String>>::new());
-    let state = RefCell::new("CLOSED");
-    let gh = |args: &[&str]| -> Result<String> {
-        calls
-            .borrow_mut()
-            .push(args.iter().map(|s| s.to_string()).collect());
-        Ok(format!(r#"{{"state":"{}"}}"#, state.borrow()))
-    };
-    let url = "https://github.com/o/r/issues/7";
-    let before = state_of(&store);
-    let message = refused(go_gh(
-        &scratch,
-        &tool,
-        &format!("defer {q} --issue {url}"),
-        &gh,
-    ));
-    assert!(message.contains("is CLOSED, not open"), "{message}");
-    assert_eq!(state_of(&store), before);
-    *state.borrow_mut() = "OPEN";
-    let out = go_gh(&scratch, &tool, &format!("defer {q} --issue {url}"), &gh).unwrap();
-    assert_eq!(
-        closed_as(&store.load().unwrap(), q),
-        &How::Deferred(url.into())
-    );
-    assert!(out.contains(&format!("deferred question {q}")), "{out}");
-    assert_eq!(calls.borrow()[1], ["issue", "view", url, "--json", "state"]);
-}
-
-#[test]
-fn defer_refuses_while_items_wait_and_when_github_fails() {
-    let (scratch, tool, store, (q, a)) = setup("q-defer-refused", |l| {
-        let q = question(l);
-        (q, item(l, vec![Wait::Question(q)]))
-    });
-    let open = |_: &[&str]| -> Result<String> { Ok(r#"{"state":"OPEN"}"#.into()) };
-    let before = state_of(&store);
-    let message = refused(go_gh(
-        &scratch,
-        &tool,
-        &format!("defer {q} --issue u"),
-        &open,
-    ));
-    assert!(
-        message.contains(&format!("builds item wait {} --off question:{}", a.0, q.0)),
-        "{message}"
-    );
-    let failing = |_: &[&str]| -> Result<String> { fail!("gh issue view failed: not found") };
-    let message = refused(go_gh(
-        &scratch,
-        &tool,
-        &format!("defer {q} --issue u"),
-        &failing,
-    ));
-    assert!(message.contains("not found"), "{message}");
-    let garbage = |_: &[&str]| -> Result<String> { Ok("hello".into()) };
-    assert!(
-        refused(go_gh(
-            &scratch,
-            &tool,
-            &format!("defer {q} --issue u"),
-            &garbage
-        ))
-        .contains("no issue state")
-    );
-    refuses(
-        &scratch,
-        &tool,
-        &store,
-        &format!("defer {q}"),
-        "--issue is required",
-    );
-    assert_eq!(state_of(&store), before);
 }
 
 // place, edit
@@ -1253,14 +1164,14 @@ fn an_unknown_command_and_no_command_are_refused() {
     );
     let words: Vec<String> = Vec::new();
     assert!(
-        matches!(run(&tool, &words, &scratch.dir, &no_gh), Err(Fail::Message(m)) if m.contains("usage"))
+        matches!(run(&tool, &words, &scratch.dir), Err(Fail::Message(m)) if m.contains("usage"))
     );
     assert!(refused(go(&scratch, &tool, "show 1.5")).contains("not an id"));
     let hash: Vec<String> = ["show", "#3", "--project", "demo", "--by", "t"]
         .map(String::from)
         .to_vec();
     assert!(
-        matches!(run(&tool, &hash, &scratch.dir, &no_gh), Err(Fail::Message(m)) if m.contains("bare numbers"))
+        matches!(run(&tool, &hash, &scratch.dir), Err(Fail::Message(m)) if m.contains("bare numbers"))
     );
 }
 
@@ -1331,7 +1242,7 @@ fn ask_and_edit_tag_a_question_open_or_closed_and_list_chooses_by_tag() {
             tag,
         ];
         line.extend_from_slice(blocks);
-        run(&tool, &words(&line), &scratch.dir, &no_gh)
+        run(&tool, &words(&line), &scratch.dir)
     };
     let one = one.0.to_string();
     ask(
@@ -1355,7 +1266,6 @@ fn ask_and_edit_tag_a_question_open_or_closed_and_list_chooses_by_tag() {
         &tool,
         &words(&["list", "--tag", "coven-trust audit"]),
         &scratch.dir,
-        &no_gh,
     )
     .unwrap();
     assert!(
@@ -1365,14 +1275,9 @@ fn ask_and_edit_tag_a_question_open_or_closed_and_list_chooses_by_tag() {
         "{listed}"
     );
     assert!(
-        run(
-            &tool,
-            &words(&["list", "--tag", "nothing"]),
-            &scratch.dir,
-            &no_gh
-        )
-        .unwrap()
-        .contains("no question on the stack has the tag nothing on its trail")
+        run(&tool, &words(&["list", "--tag", "nothing"]), &scratch.dir,)
+            .unwrap()
+            .contains("no question on the stack has the tag nothing on its trail")
     );
 
     run(
@@ -1386,7 +1291,6 @@ fn ask_and_edit_tag_a_question_open_or_closed_and_list_chooses_by_tag() {
             "screen-reads audit",
         ]),
         &scratch.dir,
-        &no_gh,
     )
     .unwrap();
     assert_eq!(store.load().unwrap().questions[0].tags, ["mac"]);
@@ -1397,7 +1301,6 @@ fn ask_and_edit_tag_a_question_open_or_closed_and_list_chooses_by_tag() {
         &tool,
         &words(&["edit", &second.0.to_string(), "--tag", "later"]),
         &scratch.dir,
-        &no_gh,
     )
     .unwrap();
     let shown = go(&scratch, &tool, &format!("show {second}")).unwrap();

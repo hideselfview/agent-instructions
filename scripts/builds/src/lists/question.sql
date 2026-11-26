@@ -10,7 +10,7 @@ CREATE TABLE question (
         AND instr(title, char(9)) = 0 AND instr(title, char(10)) = 0 AND instr(title, char(13)) = 0
     ),
     details TEXT NOT NULL CONSTRAINT question_details_say_something CHECK (trim(details) <> ''),
-    kind TEXT NOT NULL CONSTRAINT question_kind_known CHECK (kind IN ('question', 'your-step', 'held')),
+    kind TEXT NOT NULL CONSTRAINT question_kind_known CHECK (kind IN ('question', 'your-step')),
     -- What the question affects (question.rs, Effect). The stack orders the
     -- questions no one placed by what they unblock, then by effect.
     effect TEXT NOT NULL CONSTRAINT question_effect_known CHECK (effect IN ('data-loss', 'bug', 'slows-agents', 'product-design', 'cleanup')),

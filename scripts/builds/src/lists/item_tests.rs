@@ -279,6 +279,20 @@ fn every_named_constraint_of_the_item_tables_refuses_its_row() {
         "item_priority_why_says_something",
         plant(&db, "item_priority", &row(&priority, &[("why", v(" "))])),
     );
+    let backlog = [
+        ("item_id", v(good.0)),
+        ("why", v("w")),
+        ("at", v(1)),
+        ("by", v("b")),
+    ];
+    refused.check(
+        "item_backlog_why_says_something",
+        plant(&db, "item_backlog", &row(&backlog, &[("why", v(" "))])),
+    );
+    refused.check(
+        "item_backlog_by_says_something",
+        plant(&db, "item_backlog", &row(&backlog, &[("by", v(" "))])),
+    );
     refused.check(
         "item_wait_item_not_itself",
         plant(
@@ -376,4 +390,119 @@ fn every_named_constraint_of_the_item_tables_refuses_its_row() {
         "item_wait_design_target_exists",
     ]);
     refused.done();
+}
+
+fn to_backlog(db: &Connection, ids: &[Id]) -> Result<()> {
+    let moves: Vec<(Id, String)> = ids.iter().map(|id| (*id, "later".to_string())).collect();
+    move_to_backlog(db, &moves, &stamp(NOON))
+}
+
+#[test]
+fn an_item_moves_to_the_backlog_with_its_why_and_who_moved_it() {
+    let db = db();
+    let id = item(&db, vec![]);
+    to_backlog(&db, &[id]).unwrap();
+    let lists = read(&db);
+    assert_eq!(
+        lists.item(id).unwrap().backlog,
+        Some(Backlog {
+            why: "later".into(),
+            at: NOON,
+            by: "coordinator".into()
+        })
+    );
+    assert!(refusal(to_backlog(&db, &[id])).contains("is in the backlog already"));
+}
+
+#[test]
+fn the_backlog_refuses_an_item_that_runs_keeps_a_worktree_or_waits_on_an_open_question() {
+    let db = db();
+    let running_item = item(&db, vec![]);
+    crate::lists::running::start(
+        &db,
+        &[running_item],
+        &[crate::lists::Running {
+            worktree: "/d/bae-worktrees/side-1".into(),
+            branch: "work".into(),
+            brief: "plans/b.md".into(),
+            since: stamp(NOON),
+            tier: crate::model_tier::Tier::Implementation,
+        }],
+    )
+    .unwrap();
+    let message = refusal(to_backlog(&db, &[running_item]));
+    assert!(
+        message.contains("runs") && message.contains("item stop"),
+        "{message}"
+    );
+    let kept_item = item(&db, vec![]);
+    crate::lists::kept_work::keep(
+        &db,
+        kept_item,
+        &[crate::lists::kept_work::KeptWork {
+            worktree: "/d/bae-worktrees/side-2".into(),
+            branch: "kept".into(),
+            since: stamp(NOON),
+        }],
+    )
+    .unwrap();
+    assert!(refusal(to_backlog(&db, &[kept_item])).contains("keeps a worktree"));
+    let q = question(&db);
+    let asked = item(&db, vec![Wait::Question(q)]);
+    let message = refusal(to_backlog(&db, &[asked]));
+    assert!(
+        message.contains(&format!("waits on open question {q}"))
+            && message.contains("question answer"),
+        "{message}"
+    );
+    assert!(refusal(to_backlog(&db, &[Id(99)])).contains("is not a record"));
+    assert!(read(&db).items.iter().all(|item| item.backlog.is_none()));
+}
+
+#[test]
+fn the_backlog_refuses_an_item_that_an_item_outside_it_waits_on_and_takes_both_together() {
+    let db = db();
+    let first = item(&db, vec![]);
+    let second = item(&db, vec![Wait::Item(first)]);
+    let message = refusal(to_backlog(&db, &[first]));
+    assert!(
+        message.contains(&second.to_string()) && message.contains("builds item backlog 1 2"),
+        "{message}"
+    );
+    to_backlog(&db, &[first, second]).unwrap();
+    assert!(read(&db).items.iter().all(|item| item.backlog.is_some()));
+}
+
+#[test]
+fn a_draft_in_the_backlog_is_added_there_and_waits_on_no_open_question() {
+    let db = db();
+    let mut later = draft("One two three four five");
+    later.backlog = Some("the person starts it".into());
+    let id = add_item(&db, &later, None, &stamp(NOON)).unwrap();
+    assert_eq!(
+        read(&db).item(id).unwrap().backlog.as_ref().unwrap().why,
+        "the person starts it"
+    );
+    let q = question(&db);
+    later.title = "Six seven eight nine ten".into();
+    later.waits = vec![Wait::Question(q)];
+    assert!(refusal(later.validate(&db)).contains("cannot wait on open question"));
+    later.waits = Vec::new();
+    later.backlog = Some(" ".into());
+    assert!(refusal(later.validate(&db)).contains("needs its why"));
+}
+
+#[test]
+fn a_wait_that_would_break_the_backlog_is_refused() {
+    let db = db();
+    let in_queue = item(&db, vec![]);
+    let later = item(&db, vec![]);
+    to_backlog(&db, &[later]).unwrap();
+    let q = question(&db);
+    assert!(refusal(add_wait(&db, later, Wait::Question(q))).contains("is in the backlog"));
+    assert!(refusal(add_wait(&db, in_queue, Wait::Item(later))).contains("is in the backlog"));
+    add_wait(&db, later, Wait::Item(in_queue)).unwrap();
+    let mut draft_in_queue = draft("One two three four five");
+    draft_in_queue.waits = vec![Wait::Item(later)];
+    assert!(refusal(draft_in_queue.validate(&db)).contains("is in the backlog"));
 }

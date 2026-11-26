@@ -754,21 +754,6 @@ fn drop_refuses_the_last_item_a_question_blocks() {
 }
 
 #[test]
-fn defer_wants_an_open_issue() {
-    let demo = demo("item-defer");
-    add(&demo, FIVE, &[]).unwrap();
-    let cwd = current_dir().unwrap();
-    let args = |url: &str| words(&["1", "--issue", url]);
-    let closed = |_: &[&str]| Ok(r#"{"state":"CLOSED"}"#.to_string());
-    let open_issue = |_: &[&str]| Ok(r#"{"state":"OPEN"}"#.to_string());
-    let before = demo.state();
-    assert!(refusal(defer(&demo.tool, &args("https://x/1"), &cwd, &closed)).contains("is CLOSED"));
-    assert_eq!(demo.state(), before);
-    defer(&demo.tool, &args("https://x/1"), &cwd, &open_issue).unwrap();
-    assert!(matches!(&open(&demo).closed[0].how, How::Deferred(url) if url == "https://x/1"));
-}
-
-#[test]
 fn place_moves_an_open_item_first_or_last_or_clears_it_and_logs_the_write() {
     let demo = demo("item-place");
     add(&demo, FIVE, &[]).unwrap();
@@ -1338,8 +1323,7 @@ fn an_answer_that_drops_an_item_keeping_a_worktree_throws_its_work_away() {
         "--blocks",
         "1",
     ]);
-    let no_gh = |args: &[&str]| -> Result<String> { panic!("gh must not run: {args:?}") };
-    crate::lists::question_command::run(&demo.tool, &ask, &demo.scratch.dir, &no_gh).unwrap();
+    crate::lists::question_command::run(&demo.tool, &ask, &demo.scratch.dir).unwrap();
     let request = demo.scratch.dir.join("answer.json");
     std::fs::write(
         &request,
@@ -1347,8 +1331,7 @@ fn an_answer_that_drops_an_item_keeping_a_worktree_throws_its_work_away() {
     )
     .unwrap();
     let answer = words(&["answer", "2", "--request", &request.display().to_string()]);
-    let out = crate::lists::question_command::run(&demo.tool, &answer, &demo.scratch.dir, &no_gh)
-        .unwrap();
+    let out = crate::lists::question_command::run(&demo.tool, &answer, &demo.scratch.dir).unwrap();
     assert!(out.contains("threw away the work in"), "{out}");
     let lists = open(&demo);
     let Closed {
@@ -1412,8 +1395,7 @@ fn an_answer_whose_drops_both_fail_in_git_names_each_item() {
         "--blocks",
         "1,2",
     ]);
-    let no_gh = |args: &[&str]| -> Result<String> { panic!("gh must not run: {args:?}") };
-    crate::lists::question_command::run(&demo.tool, &ask, &demo.scratch.dir, &no_gh).unwrap();
+    crate::lists::question_command::run(&demo.tool, &ask, &demo.scratch.dir).unwrap();
     let request = demo.scratch.dir.join("answer.json");
     std::fs::write(
         &request,
@@ -1425,7 +1407,6 @@ fn an_answer_whose_drops_both_fail_in_git_names_each_item() {
         &demo.tool,
         &answer,
         &demo.scratch.dir,
-        &no_gh,
     ));
     assert!(
         said.contains("builds item drop 1 --why WHY")
@@ -1877,4 +1858,200 @@ fn health_leaves_a_branch_an_item_of_another_project_names() {
         .unwrap();
     let found = branch_findings(&demo);
     assert!(found.is_empty(), "{found:?}");
+}
+
+fn backlog_item(demo: &Demo, ids: &[&str]) {
+    let mut args = vec!["backlog"];
+    args.extend_from_slice(ids);
+    args.extend(["--why", "the person starts it later"]);
+    item(demo, &args).unwrap();
+}
+
+#[test]
+fn backlog_moves_an_item_out_of_next_and_take_and_start_moves_it_back_with_the_words() {
+    let demo = demo("item-backlog");
+    let side = demo.add_side(1, "agent A", "work");
+    add(&demo, FIVE, &[]).unwrap();
+    add(&demo, "Do the second thing now", &[]).unwrap();
+    backlog_item(&demo, &["1"]);
+    let lists = open(&demo);
+    assert_eq!(
+        lists
+            .item(Id(1))
+            .unwrap()
+            .backlog
+            .as_ref()
+            .map(|b| b.why.as_str()),
+        Some("the person starts it later")
+    );
+    let next = crate::lists::item_show::next_text(&lists, Audience::Coordinator);
+    assert!(!next.contains("Do the first thing now"), "{next}");
+    assert!(next.contains("Do the second thing now"), "{next}");
+    assert_eq!(
+        item_state(&lists, lists.item(Id(1)).unwrap()),
+        crate::lists::derive::ItemState::Backlog
+    );
+    let brief = demo.brief("b.md");
+    let side_arg = side.display().to_string();
+    let refused = refusal(item(&demo, &take_args(&side_arg, &brief, &["1"], "work")));
+    assert!(
+        refused.contains("is in the backlog") && refused.contains("builds item start 1"),
+        "{refused}"
+    );
+    let shown = crate::lists::item_show::render_item(&lists, Id(1), demo.tool.now).unwrap();
+    assert!(
+        shown.contains("in the backlog since") && shown.contains("the person starts it later"),
+        "{shown}"
+    );
+    assert!(
+        refusal(item(&demo, &["start", "2", "--said", "go"])).contains("is not in the backlog")
+    );
+    item(&demo, &["start", "1", "--said", "start it today"]).unwrap();
+    let lists = open(&demo);
+    let started = lists.item(Id(1)).unwrap();
+    assert!(started.backlog.is_none());
+    assert_eq!(
+        started.notes.last().unwrap().text,
+        "started: start it today"
+    );
+    let next = crate::lists::item_show::next_text(&lists, Audience::Coordinator);
+    assert!(next.contains("Do the first thing now"), "{next}");
+}
+
+#[test]
+fn start_takes_two_items_where_one_waits_on_the_other_in_one_write_and_only_together() {
+    let demo = demo("item-start-together");
+    add(&demo, FIVE, &[]).unwrap();
+    add(&demo, "Do the second thing now", &["--wait", "item:1"]).unwrap();
+    let refused = refusal(item(&demo, &["backlog", "1", "--why", "later"]));
+    assert!(
+        refused.contains("#2") && refused.contains("builds item backlog 1 2"),
+        "{refused}"
+    );
+    backlog_item(&demo, &["1", "2"]);
+    let refused = refusal(item(&demo, &["start", "2", "--said", "go"]));
+    assert!(
+        refused.contains("waits on #1, which is in the backlog"),
+        "{refused}"
+    );
+    let before = open(&demo).version;
+    item(&demo, &["start", "1", "2", "--said", "go"]).unwrap();
+    let lists = open(&demo);
+    assert!(lists.items.iter().all(|item| item.backlog.is_none()));
+    assert_eq!(lists.version, before + 1, "one write");
+}
+
+#[test]
+fn the_backlog_refuses_a_running_item_and_waits_that_would_break_it() {
+    let demo = demo("item-backlog-refusals");
+    let side = demo.add_side(1, "agent A", "work");
+    add(&demo, FIVE, &[]).unwrap();
+    add(&demo, "Do the second thing now", &[]).unwrap();
+    let brief = demo.brief("b.md");
+    let side_arg = side.display().to_string();
+    item(&demo, &take_args(&side_arg, &brief, &["1"], "work")).unwrap();
+    let refused = refusal(item(&demo, &["backlog", "1", "--why", "later"]));
+    assert!(
+        refused.contains("runs") && refused.contains("item stop 1"),
+        "{refused}"
+    );
+    backlog_item(&demo, &["2"]);
+    let refused = refusal(item(&demo, &["wait", "1", "--on", "item:2"]));
+    assert!(refused.contains("is in the backlog"), "{refused}");
+    let details = demo.brief("d.txt");
+    let refused = refusal(item(
+        &demo,
+        &[
+            "add",
+            "--title",
+            "Do the third thing now",
+            "--area",
+            "Alpha",
+            "--details-file",
+            &details,
+            "--wait",
+            "item:2",
+        ],
+    ));
+    assert!(refused.contains("is in the backlog"), "{refused}");
+    item(
+        &demo,
+        &[
+            "add",
+            "--title",
+            "Do the fourth thing now",
+            "--area",
+            "Alpha",
+            "--details-file",
+            &details,
+            "--backlog",
+            "later",
+            "--wait",
+            "item:2",
+        ],
+    )
+    .unwrap();
+    assert_eq!(
+        open(&demo)
+            .items
+            .iter()
+            .filter(|item| item.backlog.is_some())
+            .count(),
+        2
+    );
+    let ask = words(&[
+        "ask",
+        "--title",
+        "Which_way",
+        "--kind",
+        "question",
+        "--effect",
+        "cleanup",
+        "--details-file",
+        &demo.brief("q.md"),
+        "--blocks",
+        "2",
+    ]);
+    let refused = refusal(crate::lists::question_command::run(
+        &demo.tool,
+        &ask,
+        &demo.scratch.dir,
+    ));
+    assert!(refused.contains("is in the backlog"), "{refused}");
+}
+
+#[test]
+fn an_answer_may_send_a_blocked_item_to_the_backlog() {
+    let demo = demo("item-answer-backlog");
+    add(&demo, FIVE, &[]).unwrap();
+    let ask = words(&[
+        "ask",
+        "--title",
+        "Which_way",
+        "--kind",
+        "question",
+        "--effect",
+        "cleanup",
+        "--details-file",
+        &demo.brief("q.md"),
+        "--blocks",
+        "1",
+    ]);
+    crate::lists::question_command::run(&demo.tool, &ask, &demo.scratch.dir).unwrap();
+    let request = demo.scratch.dir.join("answer.json");
+    std::fs::write(
+        &request,
+        r#"{"decision": {"title": "Do it later", "body": "Because it can wait.", "by": "person"}, "blocked": {"1": {"backlog": "the person starts it later"}}, "no_work": "x"}"#,
+    )
+    .unwrap();
+    let answer = words(&["answer", "2", "--request", &request.display().to_string()]);
+    let out = crate::lists::question_command::run(&demo.tool, &answer, &demo.scratch.dir).unwrap();
+    assert!(out.contains("moved item #1 to the backlog"), "{out}");
+    let lists = open(&demo);
+    let moved = lists.item(Id(1)).unwrap();
+    assert!(moved.waits.is_empty());
+    assert_eq!(
+        moved.backlog.as_ref().map(|b| b.why.as_str()),
+        Some("the person starts it later")
+    );
 }

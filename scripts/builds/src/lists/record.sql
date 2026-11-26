@@ -17,7 +17,7 @@ CREATE TABLE closing (
     record_id INTEGER PRIMARY KEY,
     kind TEXT NOT NULL,
     how TEXT NOT NULL CONSTRAINT closing_how_known CHECK (
-        how IN ('answered', 'settled', 'done', 'done-unrecorded', 'landed', 'finished', 'dropped', 'deferred', 'moved-to-stack')
+        how IN ('answered', 'settled', 'done', 'done-unrecorded', 'landed', 'finished', 'dropped', 'moved-to-stack')
     ),
     at INTEGER NOT NULL,
     by TEXT NOT NULL CONSTRAINT closing_by_says_something CHECK (trim(by) <> ''),
@@ -26,7 +26,7 @@ CREATE TABLE closing (
     -- The question that took an item's place.
     question_id INTEGER REFERENCES question (id),
     -- Why whoever closed the record settled it (the rule, spec text, earlier
-    -- decision or code that settles it), dropped or deferred it, or what
+    -- decision or code that settles it), or dropped it, or what
     -- shows a question's step done, or what a finished item made. A question
     -- leaves only with a decision (answered) or one of these reasons, except a
     -- done that closed before builds kept reasons (done-unrecorded), which only
@@ -35,15 +35,15 @@ CREATE TABLE closing (
     CONSTRAINT closing_names_its_record FOREIGN KEY (record_id, kind) REFERENCES record (id, kind),
     CONSTRAINT closing_how_fits_kind CHECK (
         CASE kind
-            WHEN 'question' THEN how IN ('answered', 'settled', 'done', 'done-unrecorded', 'dropped', 'deferred')
-            WHEN 'item' THEN how IN ('landed', 'finished', 'dropped', 'deferred', 'moved-to-stack')
+            WHEN 'question' THEN how IN ('answered', 'settled', 'done', 'done-unrecorded', 'dropped')
+            WHEN 'item' THEN how IN ('landed', 'finished', 'dropped', 'moved-to-stack')
             WHEN 'design' THEN how IN ('landed', 'dropped')
             ELSE 0
         END
     ),
     CONSTRAINT closing_answered_names_its_decision CHECK ((how = 'answered') = (decision_id IS NOT NULL)),
     CONSTRAINT closing_moved_names_its_question CHECK ((how = 'moved-to-stack') = (question_id IS NOT NULL)),
-    CONSTRAINT closing_reason_goes_with_how CHECK ((how IN ('settled', 'done', 'finished', 'dropped', 'deferred')) = (reason IS NOT NULL)),
+    CONSTRAINT closing_reason_goes_with_how CHECK ((how IN ('settled', 'done', 'finished', 'dropped')) = (reason IS NOT NULL)),
     CONSTRAINT closing_reason_says_something CHECK (reason IS NULL OR trim(reason) <> ''),
     CONSTRAINT closing_with_how UNIQUE (record_id, how)
 ) STRICT;

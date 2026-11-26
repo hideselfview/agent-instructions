@@ -318,13 +318,17 @@ const BEFORE_NO_OVER_CAP_STAMP: i64 = 850_242_028;
 /// The stamp of the schema before builds recorded the changes of open items.
 const BEFORE_ITEM_CHANGE_STAMP: i64 = 1_050_103_093;
 
+/// The stamp of the schema before the backlog (decision #751): the stack had a
+/// held kind and records could close as deferred.
+const BEFORE_BACKLOG_STAMP: i64 = 1_696_267_334;
+
 /// The stamp of today's schema (`db::STAMP`). A change to the schema changes
 /// its stamp, and builds then fails to compile until the change gives it a
 /// move from this schema, since every store carries this stamp: the change
 /// adds the move, puts this stamp at the end of `STAMPS` under a name that
 /// says what the schema lacked, and sets this to the new schema's stamp, which
 /// the compiler's error names.
-const SCHEMA_STAMP: i64 = 1_696_267_334;
+const SCHEMA_STAMP: i64 = 867_290_757;
 
 // The compiler refuses a schema whose stamp is not SCHEMA_STAMP. A const
 // assert could not print the new stamp, so the check compares two array
@@ -334,7 +338,7 @@ const _: [(); SCHEMA_STAMP as usize] = [(); db::STAMP as usize];
 
 /// Every stamp a store can carry that `move_store` moves, oldest schema first.
 /// A new move adds the stamp of the schema before it at the end.
-const STAMPS: [i64; 50] = [
+const STAMPS: [i64; 51] = [
     BEFORE_CONDITION_ENDERS_STAMP,
     BEFORE_ITEM_EVENT_STAMP,
     BEFORE_LAND_RUN_STAMP,
@@ -385,6 +389,7 @@ const STAMPS: [i64; 50] = [
     BEFORE_AGENT_RECORD_STAMP,
     BEFORE_NO_OVER_CAP_STAMP,
     BEFORE_ITEM_CHANGE_STAMP,
+    BEFORE_BACKLOG_STAMP,
 ];
 
 /// Whether a store stamped <found> comes before the move that follows the
@@ -748,6 +753,12 @@ pub fn move_store(places: &Places, path: &Path, now: i64) -> Result<()> {
     if before(found, BEFORE_ITEM_CHANGE_STAMP) {
         tx.execute_batch(db::ITEM_CHANGE_PART).sql()?;
     }
+    // Every store from before the backlog moves the work its held entries
+    // gate into the backlog and turns its deferred closings into dropped
+    // ones.
+    if before(found, BEFORE_BACKLOG_STAMP) {
+        move_to_backlog(&tx, now)?;
+    }
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     let broken: Option<String> = tx
         .query_row("PRAGMA foreign_key_check", [], |row| row.get(0))
@@ -811,6 +822,178 @@ fn drop_over_cap(tx: &Connection, now: i64) -> Result<()> {
         }
     }
     tx.execute_batch("DROP TABLE review_over_cap;").sql()?;
+    Ok(())
+}
+
+/// Moves a store from before the backlog to its shape. Each open held entry
+/// closes as done, and each open item that waits on it loses that wait and
+/// enters the backlog, with the entry's title and details as its why. Every
+/// held entry then becomes a your-step entry, and every deferred closing a
+/// dropped one that keeps its URL in the reason. Refuses, naming the entry
+/// and the item, when an item that waits on an open held entry runs or keeps
+/// a worktree, or when an open held entry has no open item waiting on it, and
+/// when the moved store would fail its check.
+fn move_to_backlog(tx: &Connection, now: i64) -> Result<()> {
+    use crate::lists::item_event;
+    let stamp = crate::lists::Stamp {
+        at: now,
+        by: "builds install".to_string(),
+    };
+    tx.execute_batch(db::statement(
+        db::SCHEMA,
+        "CREATE TABLE item_backlog (",
+        ") STRICT;",
+    ))
+    .sql()?;
+    let entries: Vec<(i64, String, String)> = tx
+        .prepare(
+            "SELECT id, title, details FROM question WHERE kind = 'held' \
+             AND NOT EXISTS (SELECT 1 FROM closing WHERE record_id = question.id) ORDER BY id",
+        )
+        .sql()?
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+        .sql()?
+        .collect::<std::result::Result<_, _>>()
+        .sql()?;
+    let mut moved = false;
+    // The items whose events begin the backlog, recorded once item_event
+    // takes that kind.
+    let mut entered: Vec<(i64, String)> = Vec::new();
+    for (entry, title, details) in entries {
+        let items: Vec<i64> = tx
+            .prepare(
+                "SELECT w.item_id FROM item_wait_question w WHERE w.on_question = ?1 \
+                 AND NOT EXISTS (SELECT 1 FROM closing WHERE record_id = w.item_id) ORDER BY w.item_id",
+            )
+            .sql()?
+            .query_map([entry], |row| row.get(0))
+            .sql()?
+            .collect::<std::result::Result<_, _>>()
+            .sql()?;
+        if items.is_empty() {
+            fail!(
+                "held entry #{entry} \"{title}\" has no open item waiting on it, so the move to the backlog has nothing to move: close it (`builds question drop {entry} --why WHY`), then install again"
+            );
+        }
+        for item in &items {
+            let places: i64 = tx
+                .query_row(
+                    "SELECT (SELECT COUNT(*) FROM running WHERE item_id = ?1) \
+                          + (SELECT COUNT(*) FROM kept_work WHERE item_id = ?1)",
+                    [item],
+                    |row| row.get(0),
+                )
+                .sql()?;
+            if places > 0 {
+                fail!(
+                    "item #{item} waits on held entry #{entry} \"{title}\" and runs or keeps a worktree, and the backlog keeps no worktree: stop the item (`builds item stop {item} --why WHY`), then install again"
+                );
+            }
+        }
+        let why = format!("{title}: {details}");
+        for item in &items {
+            tx.execute(
+                "DELETE FROM item_wait_question WHERE item_id = ?1 AND on_question = ?2",
+                rusqlite::params![item, entry],
+            )
+            .sql()?;
+            tx.execute(
+                "INSERT OR IGNORE INTO item_backlog (item_id, why, at, by) VALUES (?1, ?2, ?3, ?4)",
+                rusqlite::params![item, why, stamp.at, stamp.by],
+            )
+            .sql()?;
+            let recorded: bool = tx
+                .query_row(
+                    "SELECT EXISTS (SELECT 1 FROM item_event WHERE item_id = ?1)",
+                    [item],
+                    |row| row.get(0),
+                )
+                .sql()?;
+            if recorded {
+                entered.push((*item, why.clone()));
+            }
+        }
+        let named: Vec<String> = items.iter().map(i64::to_string).collect();
+        tx.execute(
+            "INSERT INTO closing (record_id, kind, how, at, by, reason) VALUES (?1, 'question', 'done', ?2, ?3, ?4)",
+            rusqlite::params![
+                entry,
+                stamp.at,
+                stamp.by,
+                format!("moved to the backlog with items {}", named.join(", "))
+            ],
+        )
+        .sql()?;
+        moved = true;
+    }
+    db::remake_table(
+        tx,
+        "question",
+        db::statement(db::SCHEMA, "CREATE TABLE question (", ") STRICT;"),
+        |db| {
+            db.execute_batch(
+                "INSERT INTO question (id, record_kind, title, details, kind, effect, blocks_nothing, origin) \
+                 SELECT id, record_kind, title, details, CASE kind WHEN 'held' THEN 'your-step' ELSE kind END, effect, blocks_nothing, origin FROM question_old;",
+            )
+            .sql()
+        },
+        &[db::statement(
+            db::SCHEMA,
+            "CREATE INDEX question_origin ON question",
+            ";",
+        )],
+    )?;
+    db::remake_table(
+        tx,
+        "closing",
+        db::statement(db::SCHEMA, "CREATE TABLE closing (", ") STRICT;"),
+        |db| {
+            db.execute_batch(
+                "INSERT INTO closing (record_id, kind, how, at, by, decision_id, question_id, reason) \
+                 SELECT record_id, kind, CASE how WHEN 'deferred' THEN 'dropped' ELSE how END, at, by, decision_id, question_id, \
+                        CASE how WHEN 'deferred' THEN 'deferred to ' || reason ELSE reason END FROM closing_old;",
+            )
+            .sql()
+        },
+        &[],
+    )?;
+    db::remake_table(
+        tx,
+        "item_event",
+        db::statement(db::SCHEMA, "CREATE TABLE item_event (", ") STRICT;"),
+        |db| {
+            db.execute_batch(
+                "INSERT INTO item_event (id, item_id, at, kind, detail) SELECT id, item_id, at, kind, detail FROM item_event_old;",
+            )
+            .sql()
+        },
+        &[db::statement(
+            db::SCHEMA,
+            "CREATE INDEX item_event_item ON item_event",
+            ";",
+        )],
+    )?;
+    for (item, why) in entered {
+        item_event::record(
+            tx,
+            crate::lists::Id(item as u32),
+            now,
+            item_event::Kind::Backlog,
+            Some(&why),
+        )?;
+    }
+    if moved {
+        let project: String = tx
+            .query_row("SELECT name FROM project", [], |row| row.get(0))
+            .sql()?;
+        let found = crate::lists::check::faults(tx, &project)?;
+        if !found.is_empty() {
+            fail!(
+                "the move to the backlog leaves the lists failing their check, so it is left undone:\n  {}",
+                found.join("\n  ")
+            );
+        }
+    }
     Ok(())
 }
 

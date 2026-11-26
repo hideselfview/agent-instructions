@@ -100,6 +100,7 @@ fn list_ready_comes_in_the_queue_order_not_in_id_order() {
             &Choice {
                 running: false,
                 ready,
+                backlog: false,
                 area,
                 audience: None,
                 tag: None,

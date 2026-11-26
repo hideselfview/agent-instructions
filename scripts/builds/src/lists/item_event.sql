@@ -12,13 +12,14 @@ CREATE TABLE item_event (
     at INTEGER NOT NULL,
     -- `ready`: an agent can start the item. `blocked`: an unmet wait, or
     -- being placed last, keeps it from starting. `running`: an agent took it.
+    -- `backlog`: the item waits until the person starts it; detail is why.
     -- `wait-gained` and `wait-lost`: an unmet wait began or ended, by an edit
     -- of the item or because the record it waits on closed; detail names the
     -- wait as `item:N`, `question:N`, `design:N` or `condition:TEXT`.
     -- `handed-off`: the item's run went to another agent's brief; detail is
     -- the brief.
     kind TEXT NOT NULL CONSTRAINT item_event_kind_known CHECK (
-        kind IN ('ready', 'blocked', 'running', 'wait-gained', 'wait-lost', 'handed-off')
+        kind IN ('ready', 'blocked', 'running', 'backlog', 'wait-gained', 'wait-lost', 'handed-off')
     ),
     detail TEXT CONSTRAINT item_event_detail_says_something CHECK (detail IS NULL OR trim(detail) <> '')
 ) STRICT;

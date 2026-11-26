@@ -69,10 +69,11 @@ pub fn draft_texts(drafts: &[ItemDraft]) -> Vec<Text> {
     drafts
         .iter()
         .map(|draft| {
-            Text::new(
-                format!("the new work item \"{}\"", draft.title),
-                format!("{}\n\n{}", draft.title, draft.details),
-            )
+            let mut text = format!("{}\n\n{}", draft.title, draft.details);
+            if let Some(why) = &draft.backlog {
+                text.push_str(&format!("\n\nWhy it waits in the backlog: {why}"));
+            }
+            Text::new(format!("the new work item \"{}\"", draft.title), text)
         })
         .collect()
 }
@@ -101,6 +102,10 @@ pub fn blocked_texts<'a>(blocked: impl IntoIterator<Item = (&'a Id, &'a Blocked)
             Blocked::Drop(why) => {
                 texts.push(Text::new(format!("the reason item {item} drops"), why))
             }
+            Blocked::Backlog(why) => texts.push(Text::new(
+                format!("the why of item {item} in the backlog"),
+                why,
+            )),
         }
     }
     texts

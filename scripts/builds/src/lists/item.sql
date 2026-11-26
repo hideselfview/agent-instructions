@@ -30,6 +30,16 @@ CREATE TABLE item_priority (
     why TEXT NOT NULL CONSTRAINT item_priority_why_says_something CHECK (trim(why) <> '')
 ) STRICT;
 
+-- An open item is in the backlog while its row exists: work that waits until
+-- the person starts it. Starting the item deletes the row. A closing leaves
+-- it, so a closed item shows that it closed from the backlog.
+CREATE TABLE item_backlog (
+    item_id INTEGER PRIMARY KEY REFERENCES item (id),
+    why TEXT NOT NULL CONSTRAINT item_backlog_why_says_something CHECK (trim(why) <> ''),
+    at INTEGER NOT NULL,
+    by TEXT NOT NULL CONSTRAINT item_backlog_by_says_something CHECK (trim(by) <> '')
+) STRICT;
+
 -- What an item waits on, one table per kind of wait.
 CREATE TABLE item_wait_item (
     item_id INTEGER NOT NULL REFERENCES item (id),

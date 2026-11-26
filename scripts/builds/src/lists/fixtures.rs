@@ -84,6 +84,7 @@ pub fn item_opened(db: &Connection, waits: Vec<Wait>, opened: Stamp) -> Id {
         brief: None,
         priority: None,
         tags: Vec::new(),
+        backlog: None,
     };
     add_item(db, &draft, None, &opened).unwrap();
     for wait in waits {
@@ -294,6 +295,7 @@ pub fn draft(title: &str) -> ItemDraft {
         brief: None,
         priority: None,
         tags: Vec::new(),
+        backlog: None,
     }
 }
 

@@ -87,8 +87,6 @@ pub enum How {
     /// what it made (items, stack entries, notes).
     Finished(String),
     Dropped(String),
-    /// The open GitHub issue it moved to.
-    Deferred(String),
     /// The question that took the item's place: the item was the person's.
     MovedToStack(Id),
 }
@@ -178,7 +176,6 @@ impl How {
             }
             How::Finished(made) => format!("finished: {made}"),
             How::Dropped(why) => format!("dropped: {why}"),
-            How::Deferred(url) => format!("deferred to {url}"),
             How::MovedToStack(question) => format!("moved to the stack as {question}"),
         }
     }
@@ -193,7 +190,6 @@ impl How {
             How::Landed(_) => "landed",
             How::Finished(_) => "finished",
             How::Dropped(_) => "dropped",
-            How::Deferred(_) => "deferred",
             How::MovedToStack(_) => "moved-to-stack",
         }
     }
@@ -208,15 +204,10 @@ impl How {
                     | How::Done(_)
                     | How::DoneUnrecorded
                     | How::Dropped(_)
-                    | How::Deferred(_)
             ),
             Kind::Item => matches!(
                 self,
-                How::Landed(_)
-                    | How::Finished(_)
-                    | How::Dropped(_)
-                    | How::Deferred(_)
-                    | How::MovedToStack(_)
+                How::Landed(_) | How::Finished(_) | How::Dropped(_) | How::MovedToStack(_)
             ),
             Kind::Design => matches!(self, How::Landed(_) | How::Dropped(_)),
             Kind::Decision => false,
@@ -345,11 +336,9 @@ fn insert_closing(db: &Connection, id: Id, kind: Kind, how: &How, stamp: &Stamp)
     let (decision, question, reason) = match how {
         How::Answered(decision) => (Some(*decision), None, None),
         How::MovedToStack(question) => (None, Some(*question), None),
-        How::Settled(reason)
-        | How::Done(reason)
-        | How::Finished(reason)
-        | How::Dropped(reason)
-        | How::Deferred(reason) => (None, None, Some(reason.as_str())),
+        How::Settled(reason) | How::Done(reason) | How::Finished(reason) | How::Dropped(reason) => {
+            (None, None, Some(reason.as_str()))
+        }
         How::DoneUnrecorded | How::Landed(_) => (None, None, None),
     };
     db.execute(
@@ -421,7 +410,6 @@ pub fn read_closings(db: &Connection) -> Result<BTreeMap<Id, (How, Stamp)>> {
             "landed" => How::Landed(commits.remove(&id).unwrap_or_default()),
             "finished" => How::Finished(reason()),
             "dropped" => How::Dropped(reason()),
-            "deferred" => How::Deferred(reason()),
             "moved-to-stack" => {
                 How::MovedToStack(question.expect("closing_moved_names_its_question holds"))
             }

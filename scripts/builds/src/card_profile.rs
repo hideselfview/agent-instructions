@@ -37,6 +37,8 @@ pub enum Kind {
     /// The item waited on a question or a design change the person had not
     /// answered.
     WaitingOnYou,
+    /// The item waited in the backlog until the person started it.
+    Backlog,
     /// The worktree's claim note said held.
     Held,
     /// `builds land`.
@@ -77,6 +79,7 @@ impl Kind {
     pub fn words(self) -> &'static str {
         match self {
             Kind::WaitingOnYou => "waiting on the person",
+            Kind::Backlog => "in the backlog",
             Kind::Held => "held by its agent",
             Kind::Landing => "landing",
             Kind::Review => "reviewers running",
@@ -239,8 +242,14 @@ pub fn gather(db: &Connection, lists: &Lists, id: Id, now: i64) -> Result<Card> 
         at: item.opened.at,
         words: format!("opened by {}", item.opened.by),
     });
+    let mut from_backlog = false;
     for event in item_event::read_item(db, id)? {
         let words = match (event.kind, &event.detail) {
+            (EventKind::Backlog, Some(why)) => format!("moved to the backlog: {why}"),
+            (EventKind::Ready, _) if from_backlog => "started from the backlog, ready".to_string(),
+            (EventKind::Blocked, _) if from_backlog => {
+                "started from the backlog, blocked".to_string()
+            }
             (EventKind::Ready, _) => "ready".to_string(),
             (EventKind::Blocked, Some(why)) => format!("blocked: {why}"),
             (EventKind::Blocked, None) => "blocked".to_string(),
@@ -253,7 +262,14 @@ pub fn gather(db: &Connection, lists: &Lists, id: Id, now: i64) -> Result<Card> 
         match event.kind {
             EventKind::Ready => card.states.push((event.at, Kind::Queued)),
             EventKind::Blocked => card.states.push((event.at, Kind::Blocked)),
+            EventKind::Backlog => card.states.push((event.at, Kind::Backlog)),
             _ => {}
+        }
+        if matches!(
+            event.kind,
+            EventKind::Ready | EventKind::Blocked | EventKind::Running | EventKind::Backlog
+        ) {
+            from_backlog = event.kind == EventKind::Backlog;
         }
         card.moments.push(Moment {
             at: event.at,

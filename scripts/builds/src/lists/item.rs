@@ -147,6 +147,16 @@ pub struct Priority {
     pub why: String,
 }
 
+/// Why an open item waits in the backlog until the person starts it, and who
+/// moved it there and when.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Backlog {
+    pub why: String,
+    pub at: i64,
+    pub by: String,
+}
+
 /// A progress line on an item.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -169,6 +179,9 @@ pub struct Item {
     pub r#for: Audience,
     pub waits: Vec<Wait>,
     pub priority: Option<Priority>,
+    /// Set while the item waits in the backlog for the person to start it;
+    /// a closed item keeps it.
+    pub backlog: Option<Backlog>,
     /// The implementation brief: path, then `#section` when it names one.
     pub brief: Option<String>,
     /// Where an agent works on it: one worktree per repo the work spans, none
@@ -230,6 +243,10 @@ pub struct ItemDraft {
     /// The audits or groups it comes from (tag.rs); none when left out.
     #[serde(default)]
     pub tags: Vec<String>,
+    /// Why the item waits in the backlog until the person starts it; none
+    /// when it goes to the queue.
+    #[serde(default)]
+    pub backlog: Option<String>,
 }
 
 /// The fields of an item an edit may change; at least one is set.
@@ -365,8 +382,44 @@ impl ItemDraft {
         if let Some(fault) = self.tags.iter().find_map(|tag| tag::tag_fault(tag)) {
             fail!("{fault}");
         }
+        if let Some(why) = &self.backlog {
+            if why.trim().is_empty() {
+                fail!("a backlog item needs its why");
+            }
+            if let Some(Wait::Question(question)) = self
+                .waits
+                .iter()
+                .find(|wait| matches!(wait, Wait::Question(_)))
+            {
+                fail!(
+                    "an item in the backlog cannot wait on open question {question}: answer the question first, or leave the wait out"
+                );
+            }
+        }
+        for wait in &self.waits {
+            if let Wait::Item(on) = wait
+                && self.backlog.is_none()
+                && in_backlog(db, *on)?
+            {
+                fail!(
+                    "the item waits on {on}, which is in the backlog; start {on} first (`builds item start {}`), or put the item in the backlog too",
+                    on.0
+                );
+            }
+        }
         Ok(())
     }
+}
+
+/// Is open item <id> in the backlog?
+fn in_backlog(db: &Connection, id: Id) -> Result<bool> {
+    db.query_row(
+        "SELECT EXISTS (SELECT 1 FROM item_backlog WHERE item_id = ?1 \
+         AND NOT EXISTS (SELECT 1 FROM closing WHERE record_id = ?1))",
+        [id],
+        |row| row.get(0),
+    )
+    .sql()
 }
 
 /// Adds the item <draft> describes, which came from record <origin> when
@@ -391,7 +444,127 @@ pub fn add_item(
         insert_priority(db, id, priority)?;
     }
     tag::add_tags(db, id, &draft.tags)?;
+    if let Some(why) = &draft.backlog {
+        insert_backlog(db, id, why, stamp)?;
+    }
     Ok(id)
+}
+
+fn insert_backlog(db: &Connection, id: Id, why: &str, stamp: &Stamp) -> Result<()> {
+    db.execute(
+        "INSERT INTO item_backlog (item_id, why, at, by) VALUES (?1, ?2, ?3, ?4)",
+        params![id, why, stamp.at, stamp.by],
+    )
+    .sql()?;
+    Ok(())
+}
+
+/// Moves the open items of <moves>, each with its why, into the backlog in
+/// one write. Refuses an item that is in the backlog already, that runs or
+/// keeps a worktree, that waits on an open question, or that an open item
+/// outside the backlog and outside <moves> waits on: each refusal names the
+/// item and the command that settles it.
+pub fn move_to_backlog(db: &Connection, moves: &[(Id, String)], stamp: &Stamp) -> Result<()> {
+    let ids: Vec<Id> = moves.iter().map(|(id, _)| *id).collect();
+    if let Some((id, _)) = moves.iter().find(|(_, why)| why.trim().is_empty()) {
+        fail!("the why of {id} in the backlog is empty; say why the work waits");
+    }
+    let lists = crate::lists::store::read(db)?;
+    for id in &ids {
+        let item = open_item(&lists, *id)?;
+        if item.backlog.is_some() {
+            fail!("{id} is in the backlog already");
+        }
+        if !item.running.is_empty() {
+            fail!(
+                "{id} runs: stop its agent first (`builds item stop {} --why WHY`), then move it; the backlog keeps no worktree",
+                id.0
+            );
+        }
+        if !item.kept.is_empty() {
+            fail!(
+                "{id} keeps a worktree: finish or drop its work first; the backlog keeps no worktree"
+            );
+        }
+        if let Some(Wait::Question(question)) = item
+            .waits
+            .iter()
+            .find(|wait| matches!(wait, Wait::Question(_)))
+        {
+            fail!(
+                "{id} waits on open question {question}: answer it first (`builds question answer {} ...`, with `{{\"backlog\": WHY}}` for this item), since the backlog holds no item that waits on a question",
+                question.0
+            );
+        }
+        let behind: Vec<String> = lists
+            .items
+            .iter()
+            .filter(|other| {
+                other.backlog.is_none()
+                    && !ids.contains(&other.id)
+                    && other.waits.contains(&Wait::Item(*id))
+            })
+            .map(|other| other.id.to_string())
+            .collect();
+        if !behind.is_empty() {
+            fail!(
+                "open items outside the backlog wait on {id}: {}; move them in the same command (`builds item backlog {} ...`)",
+                behind.join(", "),
+                ids.iter()
+                    .map(|id| id.0.to_string())
+                    .chain(behind.iter().map(|b| b.trim_start_matches('#').to_string()))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            );
+        }
+    }
+    for (id, why) in moves {
+        insert_backlog(db, *id, why, stamp)?;
+    }
+    Ok(())
+}
+
+/// Moves the items <ids> from the backlog to the queue in one write, each
+/// with its waits and priority as they were, and records <said> as the note
+/// of each. Refuses an item not in the backlog, and an item that waits on a
+/// backlog item <ids> does not hold.
+pub fn start_from_backlog(db: &Connection, ids: &[Id], said: &str, stamp: &Stamp) -> Result<()> {
+    if said.trim().is_empty() {
+        fail!("--said is empty; give the words in which the person started the work");
+    }
+    let lists = crate::lists::store::read(db)?;
+    for id in ids {
+        let item = open_item(&lists, *id)?;
+        if item.backlog.is_none() {
+            fail!("{id} is not in the backlog");
+        }
+        for wait in &item.waits {
+            if let Wait::Item(on) = wait
+                && !ids.contains(on)
+                && lists.item(*on).is_some_and(|other| other.backlog.is_some())
+            {
+                fail!(
+                    "{id} waits on {on}, which is in the backlog: start {on} in the same command (`builds item start {} {} --said WORDS`)",
+                    id.0,
+                    on.0
+                );
+            }
+        }
+    }
+    for id in ids {
+        db.execute("DELETE FROM item_backlog WHERE item_id = ?1", [id])
+            .sql()?;
+        add_note(
+            db,
+            *id,
+            Note {
+                at: stamp.at,
+                by: stamp.by.clone(),
+                text: format!("started: {said}"),
+            },
+        )?;
+    }
+    Ok(())
 }
 
 /// The item's own row, for the record <id> already opened.
@@ -535,9 +708,23 @@ pub fn add_note(db: &Connection, id: Id, note: Note) -> Result<()> {
     Ok(())
 }
 
-/// Makes open item <id> wait on <wait>, once.
+/// Makes open item <id> wait on <wait>, once. Refuses an item in the
+/// backlog that waits on an open question, and an item outside it that waits
+/// on a backlog item.
 pub fn add_wait(db: &Connection, id: Id, wait: Wait) -> Result<()> {
     require_open_item(db, id)?;
+    let backlog = in_backlog(db, id)?;
+    match &wait {
+        Wait::Question(question) if backlog => fail!(
+            "{id} is in the backlog and cannot wait on question {question}: start it first (`builds item start {} --said WORDS`)",
+            id.0
+        ),
+        Wait::Item(on) if !backlog && in_backlog(db, *on)? => fail!(
+            "{id} cannot wait on {on}, which is in the backlog: start {on} first (`builds item start {} --said WORDS`)",
+            on.0
+        ),
+        _ => {}
+    }
     insert_wait(db, id, &wait)
 }
 
@@ -692,6 +879,26 @@ pub fn read(
         };
         priorities.insert(item, Priority { level, why });
     }
+    let mut backlogs: BTreeMap<Id, Backlog> = BTreeMap::new();
+    let mut statement = db
+        .prepare("SELECT item_id, why, at, by FROM item_backlog")
+        .sql()?;
+    for row in statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, Id>(0)?,
+                Backlog {
+                    why: row.get(1)?,
+                    at: row.get(2)?,
+                    by: row.get(3)?,
+                },
+            ))
+        })
+        .sql()?
+    {
+        let (item, backlog) = row.sql()?;
+        backlogs.insert(item, backlog);
+    }
     let mut notes: BTreeMap<Id, Vec<Note>> = BTreeMap::new();
     let mut statement = db
         .prepare("SELECT item_id, at, by, text FROM item_note ORDER BY id")
@@ -751,6 +958,7 @@ pub fn read(
             },
             waits: waits.remove(&id).unwrap_or_default(),
             priority: priorities.remove(&id),
+            backlog: backlogs.remove(&id),
             brief,
             running: running.remove(&id).unwrap_or_default(),
             runs: runs.remove(&id).unwrap_or_default(),
@@ -837,9 +1045,10 @@ pub fn move_to_condition_enders(db: &Connection) -> Result<()> {
 
 /// The tables item.rs owns.
 #[cfg(test)]
-const TABLES: [&str; 7] = [
+const TABLES: [&str; 8] = [
     "item",
     "item_priority",
+    "item_backlog",
     "item_wait_item",
     "item_wait_question",
     "item_wait_design",

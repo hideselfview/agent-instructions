@@ -13,7 +13,6 @@ pub fn kind_words(kind: QuestionKind) -> &'static str {
     match kind {
         QuestionKind::Question => "question",
         QuestionKind::YourStep => "for you to do",
-        QuestionKind::Held => "held until you start it",
     }
 }
 
@@ -218,9 +217,14 @@ pub fn render(lists: &Lists, wanted: Option<&str>) -> Result<String> {
         out.push_str(&stack_entry(lists, at + 1, entry)?);
     }
     let mut items: Vec<&Item> = Vec::new();
+    let mut backlog: Vec<&Item> = Vec::new();
     for item in &lists.items {
         if trail_wanted(lists, item.id, wanted)? {
-            items.push(item);
+            if item.backlog.is_some() {
+                backlog.push(item);
+            } else {
+                items.push(item);
+            }
         }
     }
     let state = |wanted: ItemState| {
@@ -275,6 +279,22 @@ pub fn render(lists: &Lists, wanted: Option<&str>) -> Result<String> {
         let _ = writeln!(out, "{area}");
         for item in in_area {
             let _ = writeln!(out, "{}", item_line(lists, item)?);
+        }
+    }
+    if !backlog.is_empty() {
+        derive::queue_order(lists, &mut backlog);
+        let _ = writeln!(out, "\nBacklog ({})", backlog.len());
+        for item in backlog {
+            let _ = writeln!(out, "{}", item_line(lists, item)?);
+            if let Some(why) = &item.backlog {
+                let _ = writeln!(
+                    out,
+                    "      since {} by {}: {}",
+                    local_minute(why.at),
+                    why.by,
+                    why.why
+                );
+            }
         }
     }
     let _ = writeln!(

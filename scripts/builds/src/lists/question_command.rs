@@ -1,4 +1,4 @@
-//! `builds question ask | answer | settle | done | drop | defer | place |
+//! `builds question ask | answer | settle | done | drop | place |
 //! edit | show | list`: the decision stack. Each write is one `Store::write`,
 //! so it lands whole or not at all; what a step needs is checked inside it,
 //! and outside work (a brief file, GitHub, the rulings check of the text the
@@ -17,7 +17,6 @@ use crate::lists::decision::{NewDecision, add_decision};
 use crate::lists::derive::{self, ItemState};
 use crate::lists::draft::{require_draft_briefs, work_or_why};
 use crate::lists::dropped;
-use crate::lists::issue::{GhRunner, real_gh, require_open_issue};
 use crate::lists::item::{ItemDraft, RecordWait, add_item, add_wait, move_waits_to_question};
 use crate::lists::question::{self, Blocked, BlockedMap, NewQuestion, Spot, apply_blocked};
 use crate::lists::record::close;
@@ -31,12 +30,11 @@ use crate::lists::{
 };
 use crate::tool::Tool;
 
-const USAGE: &str = "usage: builds question ask --title T --kind question|your-step|held --effect E --details-file F (--blocks N[,N] | --blocks-nothing WHY) [--from-item N | --origin N] [--first WHY] [--plan PATH --plan-number Qn] [--tag T]...
+const USAGE: &str = "usage: builds question ask --title T --kind question|your-step --effect E --details-file F (--blocks N[,N] | --blocks-nothing WHY) [--from-item N | --origin N] [--first WHY] [--plan PATH --plan-number Qn] [--tag T]...
        builds question answer N --request F
        builds question settle N --request F
        builds question done N --request F
        builds question drop N --why WHY
-       builds question defer N --issue URL
        builds question place N (first|last|auto | --above M | --below M) --why WHY [--by-person]
        builds question edit N [--title T] [--details-file F] [--effect E] [--blocks-nothing WHY] [--origin N] [--tag T]... [--untag T]...
        builds question show N
@@ -45,12 +43,12 @@ const USAGE: &str = "usage: builds question ask --title T --kind question|your-s
 
 pub fn cmd_question(tool: &Tool, args: &[String]) -> Result<()> {
     let cwd = std::env::current_dir().context(|| "reading the current directory".to_string())?;
-    print!("{}", run(tool, args, &cwd, &real_gh)?);
+    print!("{}", run(tool, args, &cwd)?);
     Ok(())
 }
 
 /// Runs one command and returns what it prints.
-pub fn run(tool: &Tool, args: &[String], cwd: &Path, gh: GhRunner<'_>) -> Result<String> {
+pub fn run(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
     let Some((command, rest)) = args.split_first() else {
         fail!("{USAGE}")
     };
@@ -60,8 +58,7 @@ pub fn run(tool: &Tool, args: &[String], cwd: &Path, gh: GhRunner<'_>) -> Result
         "answer" => resolve(tool, rest, cwd, &words, Verb::Answer),
         "settle" => resolve(tool, rest, cwd, &words, Verb::Settle),
         "done" => resolve(tool, rest, cwd, &words, Verb::Done),
-        "drop" => leave(tool, rest, cwd, &words, gh, Leaving::Drop),
-        "defer" => leave(tool, rest, cwd, &words, gh, Leaving::Defer),
+        "drop" => drop_question(tool, rest, cwd, &words),
         "place" => place(tool, rest, cwd, &words),
         "edit" => edit(tool, rest, cwd, &words),
         "show" => show(tool, rest, cwd),
@@ -134,11 +131,7 @@ fn ask(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String> 
     if let Some(fault) = title_fault(&title) {
         fail!("{fault}");
     }
-    let kind: QuestionKind = parse_named(
-        "--kind",
-        args.require("kind")?,
-        "question, your-step or held",
-    )?;
+    let kind: QuestionKind = parse_named("--kind", args.require("kind")?, "question or your-step")?;
     let effect: Effect = parse_named("--effect", args.require("effect")?, Effect::NAMES)?;
     let details = read_input(args.require("details-file")?)?;
     if details.trim().is_empty() {
@@ -227,7 +220,14 @@ fn ask(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String> 
             }
             match lists.locate(*blocked) {
                 None => fail!("--blocks names {blocked}, which no record has"),
-                Some(Located { kind: Kind::Item, standing: Standing::Open, .. }) => {}
+                Some(Located { kind: Kind::Item, standing: Standing::Open, .. }) => {
+                    if lists.item(*blocked).is_some_and(|item| item.backlog.is_some()) {
+                        fail!(
+                            "--blocks names {blocked}, which is in the backlog: the backlog holds no item that waits on a question; start it first (`builds item start {} --said WORDS`)",
+                            blocked.0
+                        );
+                    }
+                }
                 Some(Located { kind: Kind::Item, standing: Standing::Closed(closed), .. }) => {
                     fail!("--blocks names {blocked}, an item that is closed ({})", closed.how.label())
                 }
@@ -456,7 +456,7 @@ fn resolve(tool: &Tool, args: &[String], cwd: &Path, words: &str, verb: Verb) ->
             (Verb::Done, QuestionKind::Question) => {
                 fail!("question {id} is a question: `builds question answer {} --request F` records the decision", id.0)
             }
-            (Verb::Answer, QuestionKind::YourStep | QuestionKind::Held) => fail!(
+            (Verb::Answer, QuestionKind::YourStep) => fail!(
                 "question {id} is {}: `builds question done {} --request F` closes it",
                 kind_words(question.kind),
                 id.0
@@ -515,6 +515,9 @@ fn resolve(tool: &Tool, args: &[String], cwd: &Path, words: &str, verb: Verb) ->
         out.push_str(&format!("made items {}\n", named.join(", ")));
     }
     for (item, fate) in &blocked {
+        if let Blocked::Backlog(why) = fate {
+            out.push_str(&format!("moved item {item} to the backlog: {why}\n"));
+        }
         if let Blocked::Drop(why) = fate {
             for (_, works) in dropped.iter().filter(|(dropped, _)| dropped == item) {
                 for work in works {
@@ -532,60 +535,25 @@ fn resolve(tool: &Tool, args: &[String], cwd: &Path, words: &str, verb: Verb) ->
     Ok(out)
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Leaving {
-    Drop,
-    Defer,
-}
-
-/// `drop` and `defer`: the question leaves with nothing waiting on it.
-fn leave(
-    tool: &Tool,
-    args: &[String],
-    cwd: &Path,
-    words: &str,
-    gh: GhRunner<'_>,
-    leaving: Leaving,
-) -> Result<String> {
-    let args = match leaving {
-        Leaving::Drop => Args::parse(args, &["why"], &[])?,
-        Leaving::Defer => Args::parse(args, &["issue"], &[])?,
-    };
+/// `drop`: the question leaves with nothing waiting on it.
+fn drop_question(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String> {
+    let args = Args::parse(args, &["why"], &[])?;
     let id = question_id(&args)?;
-    let how = match leaving {
-        Leaving::Drop => {
-            let why = args.require("why")?;
-            if why.trim().is_empty() {
-                fail!("--why is empty");
-            }
-            How::Dropped(why.to_string())
-        }
-        Leaving::Defer => {
-            let url = args.require("issue")?;
-            require_open_issue(gh, url)?;
-            How::Deferred(url.to_string())
-        }
-    };
+    let why = args.require("why")?;
+    if why.trim().is_empty() {
+        fail!("--why is empty");
+    }
+    let how = How::Dropped(why.to_string());
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
     store.write(&stamp, words, |db| {
         let lists = &store::read(db)?;
         open_question(lists, id)?;
-        let verb = if leaving == Leaving::Drop {
-            "drop"
-        } else {
-            "defer"
-        };
-        lists.require_none_waits_on(RecordWait::Question(id), verb)?;
+        lists.require_none_waits_on(RecordWait::Question(id), "drop")?;
         close(db, id, how, &stamp)
     })?;
     let lists = store.load()?;
-    let verb = if leaving == Leaving::Drop {
-        "dropped"
-    } else {
-        "deferred"
-    };
-    Ok(format!("{verb} question {id}\n{}\n", stack_top(&lists)?))
+    Ok(format!("dropped question {id}\n{}\n", stack_top(&lists)?))
 }
 
 fn place(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String> {

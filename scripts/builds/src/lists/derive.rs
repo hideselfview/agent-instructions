@@ -21,8 +21,8 @@ pub const FLOW_DAYS: usize = 14;
 /// Does a record that closed this way free the items that wait on it? A
 /// question frees them when someone answers, settles or completes it. An item
 /// or design change frees them when it lands, and an item also frees them
-/// when it finishes. A record that someone dropped, deferred or moved to the
-/// stack never frees them.
+/// when it finishes. A record that someone dropped or moved to the stack
+/// never frees them.
 pub fn closed_meets_wait(closed: &Closed) -> bool {
     use crate::lists::How;
     matches!(
@@ -110,6 +110,7 @@ pub fn items_ahead_of_last<'a>(lists: &'a Lists, item: &'a Item) -> impl Iterato
     candidates.iter().filter(move |other| {
         other.id != item.id
             && other.r#for == item.r#for
+            && other.backlog.is_none()
             && !other
                 .priority
                 .as_ref()
@@ -123,6 +124,8 @@ pub enum ItemState {
     /// An agent works on it (it may also wait, when its agent is held on an
     /// answer).
     Running,
+    /// Waits until the person starts it; no agent takes it.
+    Backlog,
     /// The design session's, shown apart and never dispatchable.
     DesignSession,
     Waiting,
@@ -133,6 +136,7 @@ impl ItemState {
     pub fn label(self) -> &'static str {
         match self {
             ItemState::Running => "running",
+            ItemState::Backlog => "backlog",
             ItemState::DesignSession => "design-session",
             ItemState::Waiting => "waiting",
             ItemState::Ready => "ready",
@@ -143,6 +147,8 @@ impl ItemState {
 pub fn item_state(lists: &Lists, item: &Item) -> ItemState {
     if !item.running.is_empty() {
         ItemState::Running
+    } else if item.backlog.is_some() {
+        ItemState::Backlog
     } else if item.r#for == Audience::DesignSession {
         ItemState::DesignSession
     } else if !can_start(lists, item) {
@@ -152,10 +158,13 @@ pub fn item_state(lists: &Lists, item: &Item) -> ItemState {
     }
 }
 
-/// Can <item> start now: no agent runs it, every wait is met, and it is not
-/// held back by being placed last.
+/// Can <item> start now: no agent runs it, it is not in the backlog, every
+/// wait is met, and it is not held back by being placed last.
 fn can_start(lists: &Lists, item: &Item) -> bool {
-    item.running.is_empty() && unmet_waits(lists, item).is_empty() && !waits_for_others(lists, item)
+    item.running.is_empty()
+        && item.backlog.is_none()
+        && unmet_waits(lists, item).is_empty()
+        && !waits_for_others(lists, item)
 }
 
 /// An entry of the stack with what it blocks.
@@ -185,7 +194,8 @@ fn waiting_behind(lists: &Lists, ids: &[Id]) -> BTreeSet<Id> {
     let mut frontier = ids.to_vec();
     while let Some(id) = frontier.pop() {
         for item in &lists.items {
-            if item.waits.contains(&Wait::Item(id)) && all.insert(item.id) {
+            if item.backlog.is_none() && item.waits.contains(&Wait::Item(id)) && all.insert(item.id)
+            {
                 frontier.push(item.id);
             }
         }

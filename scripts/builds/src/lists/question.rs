@@ -32,8 +32,6 @@ pub enum QuestionKind {
     Question,
     /// Work only the person can do.
     YourStep,
-    /// Work held until the person starts it.
-    Held,
 }
 
 /// What a question affects, from the workflow's definition of critical work
@@ -161,6 +159,9 @@ pub enum Blocked {
     Edit(ItemEdit),
     /// The item closes, for this reason.
     Drop(String),
+    /// The item goes to the backlog, for this reason, as the question
+    /// closes: the answer is "later".
+    Backlog(String),
 }
 
 /// For each item that waits on a question, what its answer does to it.
@@ -185,7 +186,6 @@ fn kind_word(kind: QuestionKind) -> &'static str {
     match kind {
         QuestionKind::Question => "question",
         QuestionKind::YourStep => "your-step",
-        QuestionKind::Held => "held",
     }
 }
 
@@ -455,8 +455,7 @@ pub fn read(
             details,
             kind: match kind.as_str() {
                 "question" => QuestionKind::Question,
-                "your-step" => QuestionKind::YourStep,
-                _ => QuestionKind::Held,
+                _ => QuestionKind::YourStep,
             },
             effect,
             blocks_nothing,
@@ -514,6 +513,9 @@ pub fn check_blocked(lists: &Lists, question: Id, blocked: &BlockedMap) -> Resul
             Blocked::Drop(why) if why.trim().is_empty() => {
                 fail!("`blocked` drops {id} with no reason")
             }
+            Blocked::Backlog(why) if why.trim().is_empty() => {
+                fail!("`blocked` moves {id} to the backlog with no why")
+            }
             Blocked::Edit(edit) if edit.is_empty() => {
                 fail!("`blocked` edits {id} but names no field; `proceeds` leaves it as it is")
             }
@@ -537,9 +539,11 @@ pub fn apply_blocked(
 ) -> Result<Vec<(Id, Vec<DroppedWork>)>> {
     check_blocked(&store::read(db)?, question, blocked)?;
     let mut dropped = Vec::new();
+    let mut later: Vec<(Id, String)> = Vec::new();
     for (id, fate) in blocked {
         match fate {
             Blocked::Proceeds => {}
+            Blocked::Backlog(why) => later.push((*id, why.clone())),
             Blocked::Edit(edit) => edit.apply(db, *id, stamp)?,
             Blocked::Drop(why) => {
                 let lists = store::read(db)?;
@@ -547,6 +551,14 @@ pub fn apply_blocked(
                 dropped.push((*id, works));
             }
         }
+    }
+    // The answer closes the question, so each item's wait on it ends; the
+    // items enter the backlog together, in one move.
+    for (id, _) in &later {
+        crate::lists::item::remove_wait(db, *id, &Wait::Question(question))?;
+    }
+    if !later.is_empty() {
+        crate::lists::item::move_to_backlog(db, &later, stamp)?;
     }
     Ok(dropped)
 }

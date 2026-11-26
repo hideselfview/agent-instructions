@@ -235,6 +235,7 @@ fn draft(area: String, stable: Version, lagging: &Lagging) -> ItemDraft {
         brief: None,
         priority: None,
         tags: Vec::new(),
+        backlog: None,
     }
 }
 

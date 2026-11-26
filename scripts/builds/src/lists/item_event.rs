@@ -23,6 +23,8 @@ pub enum Kind {
     Blocked,
     /// An agent took the item.
     Running,
+    /// The item waits until the person starts it; the detail is why.
+    Backlog,
     /// An unmet wait began.
     WaitGained,
     /// An unmet wait ended, because the item stopped waiting on it or the
@@ -38,6 +40,7 @@ impl Kind {
             Kind::Ready => "ready",
             Kind::Blocked => "blocked",
             Kind::Running => "running",
+            Kind::Backlog => "backlog",
             Kind::WaitGained => "wait-gained",
             Kind::WaitLost => "wait-lost",
             Kind::HandedOff => "handed-off",
@@ -49,6 +52,7 @@ impl Kind {
             "ready" => Kind::Ready,
             "blocked" => Kind::Blocked,
             "running" => Kind::Running,
+            "backlog" => Kind::Backlog,
             "wait-gained" => Kind::WaitGained,
             "wait-lost" => Kind::WaitLost,
             "handed-off" => Kind::HandedOff,
@@ -58,7 +62,10 @@ impl Kind {
 
     /// Does the kind say what state the item is in?
     fn is_state(self) -> bool {
-        matches!(self, Kind::Ready | Kind::Blocked | Kind::Running)
+        matches!(
+            self,
+            Kind::Ready | Kind::Blocked | Kind::Running | Kind::Backlog
+        )
     }
 }
 
@@ -218,6 +225,10 @@ pub fn follow(db: &Connection, lists: &Lists, at: i64) -> Result<()> {
         }
         let (state, detail) = match item_state(lists, item) {
             ItemState::Running => (Kind::Running, None),
+            ItemState::Backlog => (
+                Kind::Backlog,
+                item.backlog.as_ref().map(|backlog| backlog.why.as_str()),
+            ),
             ItemState::Ready => (Kind::Ready, None),
             ItemState::Waiting if unmet.is_empty() && waits_for_others(lists, item) => {
                 (Kind::Blocked, Some("placed last"))

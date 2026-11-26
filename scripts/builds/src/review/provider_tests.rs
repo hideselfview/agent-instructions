@@ -142,7 +142,6 @@ EVENTS"#
             "The disposable project has no work item.",
         ]),
         &scratch.dir,
-        &|_| panic!("the ruling check does not call GitHub"),
     )
     .unwrap();
 

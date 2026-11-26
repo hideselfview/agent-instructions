@@ -39,10 +39,10 @@ fn an_audit_with_a_finding_to_settle_makes_no_item() {
 }
 
 #[test]
-fn an_audit_with_a_confirmed_finding_becomes_one_item_held_on_the_stack() {
+fn an_audit_with_a_confirmed_finding_becomes_one_item_in_the_backlog_and_no_stack_entry() {
     let r = reviewed_under("audit-confirmed", None, "audit:nov14-1");
     settle(&r, "confirmed");
-    let Some(Held::Item { item, entry }) = held(&r) else {
+    let Some(Held::Item { item }) = held(&r) else {
         panic!("the audit makes an item");
     };
     let conn = r.demo.store.open_existing().unwrap();
@@ -55,8 +55,13 @@ fn an_audit_with_a_confirmed_finding_becomes_one_item_held_on_the_stack() {
     let lists = lists[0].lists.as_ref().unwrap();
     let made = lists.item(item).unwrap();
     assert_eq!(made.title, "Fix the confirmed findings of audit nov14");
-    assert_eq!(made.waits, vec![Wait::Question(entry)]);
-    assert_eq!(lists.question(entry).unwrap().kind, QuestionKind::Held);
+    assert!(made.waits.is_empty());
+    let backlog = made.backlog.as_ref().expect("the item is in the backlog");
+    assert_eq!(
+        backlog.why,
+        "the fixes of audit nov14 wait until you start them (decision #743)"
+    );
+    assert!(lists.questions.is_empty(), "the audit asks no stack entry");
     assert!(made.details.contains("a.rs"), "{}", made.details);
     // Settling again makes no second item.
     assert_eq!(held(&r), None);
@@ -79,7 +84,7 @@ fn a_branch_review_is_no_audit() {
 }
 
 #[test]
-fn the_landings_of_one_audit_share_one_entry_and_one_item() {
+fn the_landings_of_one_audit_share_one_item() {
     assert_eq!(name_of("audit:nov14-12"), Some("nov14"));
     assert_eq!(name_of("audit:nov14"), Some("nov14"));
     assert_eq!(name_of("audit:sweep-run"), Some("sweep-run"));
@@ -95,7 +100,7 @@ fn the_landings_of_one_audit_share_one_entry_and_one_item() {
     assert_eq!(held_landing(&r, next), Some(Held::Joined { item }));
     let lists = crate::lists::store::load_all(&r.demo.tool.places).unwrap();
     let lists = lists[0].lists.as_ref().unwrap();
-    assert_eq!(lists.questions.len(), 1, "one held entry");
+    assert!(lists.questions.is_empty(), "no stack entry");
     assert_eq!(
         lists
             .items

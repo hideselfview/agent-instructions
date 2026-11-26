@@ -61,7 +61,8 @@ read and before every commit holds the rest: the project has a repo; every open
 question has an open item waiting on it or says why it is asked anyway, never
 both; no open
 item waits on a record that closed in a way that never meets a wait (dropped,
-deferred, moved to the stack); no open items wait on each other in a circle; a
+moved to the stack); no item in the backlog runs, keeps a worktree or waits on
+an open question, and no open item outside the backlog waits on one in it; no open items wait on each other in a circle; a
 closed item runs nowhere; a run that ended with its item's closing ended when
 the item closed; a worktree holds one branch of work; a landed closing or part
 has a commit; no chain of origins loops; no record carries a tag that
@@ -98,12 +99,12 @@ directly next to M, an entry already in the ranked order, and every other entry
 keeps its place in that order. Placing an entry again moves it, and `place N
 auto` takes it out of the ranked order.
 
-  builds question ask --title T --kind question|your-step|held --effect E
+  builds question ask --title T --kind question|your-step --effect E
                       --details-file F (--blocks N[,N] | --blocks-nothing WHY)
                       [--from-item N | --origin N] [--first WHY]
                       [--plan PATH --plan-number Qn] [--tag T]...
-      Puts an entry on the stack: a question, work only the person can do
-      (your-step), or work held until they start it (held). ask needs the
+      Puts an entry on the stack: a question, or work only the person can do
+      (your-step). ask needs the
       entry's effect, one of the words above, and what the entry blocks:
       open items that gain a wait on it (the entry may block a running item,
       whose agent then waits for the answer), or why the asker asks it though
@@ -118,10 +119,12 @@ auto` takes it out of the ranked order.
 
   builds question answer N --request F
       The request: {"decision": {"title", "body", "by", "replaces"?},
-      "blocked": {"ITEM": "proceeds" | {"edit": {fields}} | {"drop": WHY}},
+      "blocked": {"ITEM": "proceeds" | {"edit": {fields}} | {"drop": WHY}
+                  | {"backlog": WHY}},
       "work": [item drafts] | "no_work": WHY}. In one write: the decision
       (linked to the question and its work), every new item (made by the
-      decision), each blocked item's edit or drop, and the question's close.
+      decision), each blocked item's edit, drop or move to the backlog (the
+      answer "later"), and the question's close.
       A drop works as `item drop` does: it records the work in the item's
       worktrees, deletes the branch and frees the worktree, or refuses the
       whole answer. `blocked` names every item waiting on N and no other; `work` or
@@ -137,19 +140,16 @@ auto` takes it out of the ranked order.
       dashboard's waits on the question print it.
 
   builds question done N --request F
-      For your-step and held entries: {"shown_by": what shows the step is
+      For your-step entries: {"shown_by": what shows the step is
       done (the person's words, a decision, a commit or the code), "blocked",
       "work" | "no_work"}. builds stores `shown_by` as the reason and prints
       it where it prints a settle's. A question closed as done before builds
       kept this shows "closed as done; builds kept no reason then".
 
   builds question drop N --why WHY
-  builds question defer N --issue URL
-      Takes the entry off with its reason (--why, or the issue); refused while
-      an item waits on it (the message names each and the `item wait ITEM
-      --off question:N` that frees it).
-      defer needs an open GitHub issue (`gh issue view URL --json state`,
-      asked before the write lock).
+      Takes the entry off with its reason; refused while an item waits on it
+      (the message names each and the `item wait ITEM --off question:N` that
+      frees it).
 
   builds question place N (first|last|auto | --above M | --below M) --why WHY
                           [--by-person]
@@ -193,22 +193,30 @@ and not under Paused. A wait on a question waits on the person until the
 question closes as answered, settled or done. A wait on a design change waits until the change is
 approved, and then only on its landing. The dashboard lists a
 running item's work under Waiting on you while a wait of the item waits on the
-person. An open item is then, in order: running; the design session's (shown
+person. An open item is then, in order: running; in the backlog (it waits until
+the person starts it, and no agent takes it); the design session's (shown
 apart, never dispatched); waiting (on a wait not met, or placed last while any
-other open item of the same audience that is not placed last exists); or ready. The
+other open item of the same audience that is not placed last exists); or ready.
+The backlog holds the work that is not for now, such as a release-time task or
+work that needs a quiet machine (a flaky test, speed work): an item in it keeps
+its id, details, trail, tags, priority and waits, and `next`, `item list
+--ready` and `item take` never offer it. The
 command looks up a relative brief path in the main checkouts of the project's
 repos (plans are in no commit), wherever it runs, and refuses a path that no
 main checkout holds or that more than one holds; an absolute path is itself.
 `item take` prints the file it found.
 
   builds item add --title T --area A --details-file F [--for design-session]
-                  [--wait REF [--until ENDER]]... [--brief P]
+                  [--wait REF [--until ENDER]]... [--brief P] [--backlog WHY]
                   [--priority first|last --why WHY]
                   [--origin N] [--tag T]...
       Needs a title of five to seven words, a known area (otherwise refused,
       naming the areas and `area add`), details, waits on open records, and a
       brief that exists. Refused when an open item in the project has the same
-      title and details; the refusal names that item.
+      title and details; the refusal names that item. --backlog WHY adds the
+      item straight to the backlog, which refuses an item that waits on an
+      open question; an item draft in a request takes `"backlog": WHY` the
+      same way.
 
   builds item edit N [--title T] [--area A] [--details-file F] [--brief P]
                      [--for F] [--origin N] [--tag T]... [--untag T]...
@@ -236,9 +244,33 @@ main checkout holds or that more than one holds; an absolute path is itself.
       `person` and says to ask a your-step question and wait on it with
       `--on question:N`. --off names a condition by its text alone. A wait on a question, from `item wait --on`, `item add
       --wait` or an item draft, clears the reason the question blocks
-      nothing in the same write. --off question:N on the last open item that
+      nothing in the same write. An item in the backlog cannot wait on an open
+      question, and an item outside the backlog cannot wait on one in it. --off question:N on the last open item that
       waits on N needs --blocks-nothing WHY, the reason N stays open, and wait
       refuses --blocks-nothing while another open item waits on N.
+
+  builds item backlog N [M...] --why WHY
+      Moves open items to the backlog in one write. Refused for an item that
+      runs or keeps a worktree (`item stop` keeps work; the backlog keeps
+      none), an item in the backlog already, an item that waits on an open
+      question (the refusal names it and `question answer`, whose `blocked`
+      entry may be {"backlog": WHY}), and an item that an open item outside
+      the backlog and outside the command's list waits on (the refusal names
+      each and the command that moves both). The why says why the work waits;
+      the rulings check reads it (RULINGS).
+
+  builds item start N [M...] --said WORDS
+      Moves items from the backlog to the queue in one write. Each waits on
+      what it waited on before and keeps its priority. WORDS are the words of
+      the person that start it, stored as the note "started: WORDS"; the
+      rulings check reads them no more than it reads done's `shown_by`.
+      Refused for an item not in the backlog, and for an item that waits on a
+      backlog item the command does not start too (the refusal names it). A
+      session runs start only on the person's word; the dashboard's Start
+      button records "person (dashboard)" and "started on the dashboard".
+      `builds item list --backlog` lists the backlog in the queue's order,
+      `item show` prints "in the backlog since T by WHO: WHY", and `lists
+      show` prints the backlog after the queue.
 
   builds item take N [M...] [--worktree W --branch B [--worktree W2 --branch B2]]
                     --brief P [--as design-session]
@@ -332,13 +364,12 @@ main checkout holds or that more than one holds; an absolute path is itself.
       which holds its work. A finished item frees the items that
       wait on it, as a landed item does.
 
-  builds item drop N --why WHY | builds item defer N --issue URL
-      drop and defer refuse an item while an open item waits on it (the
-      message names them and the `item wait --off` that frees each), or when
-      it is the last item an open question blocks (`item wait N --off
-      question:Q --blocks-nothing WHY` frees it). defer also refuses an item
-      that runs or keeps a worktree, and needs an open GitHub issue. The person drops
-      an item to throw its work away. drop refuses an item while another open
+  builds item drop N --why WHY
+      drop refuses an item while an open item waits on it (the message names
+      them and the `item wait --off` that frees each), or when it is the last
+      item an open question blocks (`item wait N --off question:Q
+      --blocks-nothing WHY` frees it). The person drops an item to throw its
+      work away. drop refuses an item while another open
       item of any project runs in or keeps one of its worktrees, since the
       work there is that item's too: `builds item stop N` ends the item's run
       and leaves the work to the other items, and a drop of an item that runs
@@ -533,7 +564,8 @@ prefers, forbids or allowed something:
                       `decision` is the record a citation names, and done's
                       `shown_by` records the person's words, so the check
                       reads neither
-  item add, item edit the title and details
+  item add, item edit the title and details, and the why of --backlog
+  item backlog        the why
   decision add        the item drafts; the decision is the record
   design record,      the item drafts of the request's places
   amend

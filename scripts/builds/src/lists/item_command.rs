@@ -1,9 +1,9 @@
 //! `builds item add | edit | note | wait | take | check-brief | handoff | stop | drop |
-//! defer | place | check-landing | landed | show | list | times`: the work queue's
+//! backlog | start | place | check-landing | landed | show | list | times`: the work queue's
 //! commands. Each refuses a step that lacks what it needs, and every write is
 //! one `Store::write` made of the owners' operations (`item`, `running`,
 //! `landing`, `record`), so it lands whole or not at all. What reads the file
-//! system or runs a program (a brief's file, `gh`, git) runs before the lock.
+//! system or runs a program (a brief's file, git) runs before the lock.
 
 use std::path::Path;
 
@@ -17,21 +17,22 @@ use crate::lists::derive::{item_state, unmet_waits, waits_for_others};
 use crate::lists::draft::{find_brief, require_draft_briefs};
 use crate::lists::item::{
     Audience, Ender, Item, ItemDraft, ItemEdit, Level, Note, Priority, RecordWait, Wait, add_item,
-    add_note, add_wait, open_item, remove_wait, require_open_wait, set_priority,
+    add_note, add_wait, move_to_backlog, open_item, remove_wait, require_open_wait, set_priority,
+    start_from_backlog,
 };
 use crate::lists::record::close;
 use crate::lists::rulings::{self, Source};
 use crate::lists::show::wait_words;
 use crate::lists::store::{self, Store};
 use crate::lists::{
-    How, Id, Kind, Lists, Located, Stamp, dropped, issue, item_show, kept_work, landing, running,
-    tag, take, trail,
+    How, Id, Kind, Lists, Located, Stamp, dropped, item_show, kept_work, landing, running, tag,
+    take, trail,
 };
 use crate::lists::{item_change, item_event, project};
 use crate::text::note;
 use crate::tool::Tool;
 
-const USAGE: &str = "usage: builds item add --title T --area A --details-file F [--for design-session] [--wait REF [--until ENDER]]... [--brief P] [--priority first|last --why WHY] [--origin N] [--tag T]...\n       builds item edit N [--title T] [--area A] [--details-file F] [--brief P] [--for F] [--origin N] [--tag T]... [--untag T]...\n       builds item note N TEXT\n       builds item changes N\n       builds item wait N (--on REF [--until ENDER] | --off REF [--blocks-nothing WHY])\n       builds item take N [M...] [--worktree W --branch B] --brief P [--as design-session] [--tier implementation|strongest]\n       builds item check-brief --worktree W [--worktree W2] --brief P\n       builds item handoff N --brief P\n       builds item stop N --why WHY\n       builds item finished N --made WHAT\n       builds item drop N --why WHY\n       builds item defer N --issue URL\n       builds item place N first|last|none --why WHY\n       builds item check-landing DIR [--done N]... [--part N]... SHA...\n       builds item landed DIR [--done N]... [--part N]... SHA...\n       builds item show N\n       builds item list [--running] [--ready] [--area A] [--for F] [--tag T]\n       builds item times [N...]\n(REF is item:N, question:N, design:N or condition:TEXT, and a condition takes --until agent|coordinator|ci)";
+const USAGE: &str = "usage: builds item add --title T --area A --details-file F [--backlog WHY] [--for design-session] [--wait REF [--until ENDER]]... [--brief P] [--priority first|last --why WHY] [--origin N] [--tag T]...\n       builds item edit N [--title T] [--area A] [--details-file F] [--brief P] [--for F] [--origin N] [--tag T]... [--untag T]...\n       builds item note N TEXT\n       builds item changes N\n       builds item wait N (--on REF [--until ENDER] | --off REF [--blocks-nothing WHY])\n       builds item take N [M...] [--worktree W --branch B] --brief P [--as design-session] [--tier implementation|strongest]\n       builds item check-brief --worktree W [--worktree W2] --brief P\n       builds item handoff N --brief P\n       builds item stop N --why WHY\n       builds item finished N --made WHAT\n       builds item drop N --why WHY\n       builds item backlog N [M...] --why WHY\n       builds item start N [M...] --said WORDS\n       builds item place N first|last|none --why WHY\n       builds item check-landing DIR [--done N]... [--part N]... SHA...\n       builds item landed DIR [--done N]... [--part N]... SHA...\n       builds item show N\n       builds item list [--running] [--ready] [--backlog] [--area A] [--for F] [--tag T]\n       builds item times [N...]\n(REF is item:N, question:N, design:N or condition:TEXT, and a condition takes --until agent|coordinator|ci)";
 
 pub fn cmd_item(tool: &Tool, args: &[String]) -> Result<()> {
     let cwd = current_dir()?;
@@ -50,7 +51,8 @@ pub fn cmd_item(tool: &Tool, args: &[String]) -> Result<()> {
         "stop" => stop(tool, rest, &cwd),
         "finished" => finished(tool, rest, &cwd),
         "drop" => drop_item(tool, rest, &cwd),
-        "defer" => defer(tool, rest, &cwd, &issue::real_gh),
+        "backlog" => backlog(tool, rest, &cwd),
+        "start" => start(tool, rest, &cwd),
         "place" => place(tool, rest, &cwd),
         "check-landing" => landing::check_landing(tool, rest),
         "landed" => landing::landed(tool, rest),
@@ -153,6 +155,7 @@ fn add(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
             "why",
             "origin",
             "tag",
+            "backlog",
         ],
         &[],
     )?;
@@ -179,6 +182,7 @@ fn add(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         brief: args.value("brief")?.map(str::to_string),
         priority,
         tags: tag::parse_tags(args.values("tag"))?,
+        backlog: args.value("backlog")?.map(str::to_string),
     };
     let store = Store::resolve(&tool.places, &args, cwd)?;
     require_draft_briefs(&tool.places, &store.repos()?, std::slice::from_ref(&draft))?;
@@ -562,7 +566,7 @@ fn remove_claims(id: Id, kept: &[kept_work::KeptWork], only_stale: bool) -> Resu
     Ok(removed)
 }
 
-/// Refuses to <how> (a verb: drop, defer, close) <item> while it keeps a
+/// Refuses to <how> (a verb: drop, close) <item> while it keeps a
 /// worktree: the worktree holds its commits and files.
 fn require_not_kept(item: &Item, how: &str) -> Result<()> {
     if item.kept.is_empty() {
@@ -681,19 +685,86 @@ fn drop_item(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     Ok(())
 }
 
-fn defer(tool: &Tool, args: &[String], cwd: &Path, gh: issue::GhRunner<'_>) -> Result<()> {
-    let args = Args::parse(args, &["issue"], &[])?;
-    let id = one_id(&args, "builds item defer N --issue URL")?;
-    let url = args.require("issue")?.to_string();
-    issue::require_open_issue(gh, &url)?;
+/// The ids that `builds item backlog` and `builds item start` name: one or
+/// more bare numbers, each once.
+fn many_ids(args: &Args, usage: &str) -> Result<Vec<Id>> {
+    if args.positional().is_empty() {
+        fail!("usage: {usage}");
+    }
+    let ids = args
+        .positional()
+        .iter()
+        .map(|id| Id::parse(id))
+        .collect::<Result<Vec<_>>>()?;
+    if let Some(twice) = ids
+        .iter()
+        .enumerate()
+        .find_map(|(at, id)| ids[..at].contains(id).then_some(id))
+    {
+        fail!("{twice} is named twice");
+    }
+    Ok(ids)
+}
+
+fn backlog(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
+    const BACKLOG_USAGE: &str = "builds item backlog N [M...] --why WHY";
+    let args = Args::parse(args, &["why"], &[])?;
+    let ids = many_ids(&args, BACKLOG_USAGE)?;
+    let why = args.why()?.to_string();
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
-    store.write(&stamp, &format!("item defer {id}"), |db| {
-        require_can_leave(&store::read(db)?, id, "defer", false)?;
-        close(db, id, How::Deferred(url.clone()), &stamp)
+    let cited = rulings::require_cited(
+        &tool.reviewer,
+        &tool.places.home,
+        &store.load()?,
+        Source::Lists,
+        &[rulings::Text::new(
+            "why the items wait in the backlog",
+            &why,
+        )],
+    )?;
+    let named: Vec<String> = ids.iter().map(|id| id.0.to_string()).collect();
+    let moves: Vec<(Id, String)> = ids.iter().map(|id| (*id, why.clone())).collect();
+    store.write(&stamp, &format!("item backlog {}", named.join(" ")), |db| {
+        move_to_backlog(db, &moves, &stamp)
     })?;
-    note(format!("deferred {id} to {url}"));
+    for id in &ids {
+        note(format!("moved {id} to the backlog"));
+    }
+    cited.into_iter().for_each(note);
     Ok(())
+}
+
+fn start(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
+    const START_USAGE: &str = "builds item start N [M...] --said WORDS";
+    let args = Args::parse(args, &["said"], &[])?;
+    let ids = many_ids(&args, START_USAGE)?;
+    let said = args.require("said")?.to_string();
+    let store = Store::resolve(&tool.places, &args, cwd)?;
+    let stamp = Stamp::resolve(tool.now, &args, cwd)?;
+    for (id, state) in start_items(&store, &ids, &said, &stamp)? {
+        note(format!("started {id} ({})", state.label()));
+    }
+    Ok(())
+}
+
+/// Moves the backlog items <ids> to the queue in one write of <store>, as
+/// `builds item start` does, and returns each one's state after.
+pub fn start_items(
+    store: &Store,
+    ids: &[Id],
+    said: &str,
+    stamp: &Stamp,
+) -> Result<Vec<(Id, crate::lists::derive::ItemState)>> {
+    let named: Vec<String> = ids.iter().map(|id| id.0.to_string()).collect();
+    store.write(stamp, &format!("item start {}", named.join(" ")), |db| {
+        start_from_backlog(db, ids, said, stamp)?;
+        let lists = store::read(db)?;
+        Ok(ids
+            .iter()
+            .map(|id| (*id, item_state(&lists, lists.item(*id).expect("open"))))
+            .collect())
+    })
 }
 
 fn place(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {

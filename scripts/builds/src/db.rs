@@ -296,6 +296,57 @@ pub fn schema() -> String {
     SCHEMA.to_string()
 }
 
+/// <schema> as it was before the backlog (decision #751): with the stack's
+/// held kind, the closing `deferred`, the item events without `backlog`, and
+/// no table of the backlog. A schema that has those already is returned as it
+/// is.
+#[cfg(test)]
+pub fn with_held_and_deferred(schema: String) -> String {
+    let schema = match schema.find("CREATE TABLE item_backlog (") {
+        Some(start) => {
+            let end = start
+                + schema[start..].find(") STRICT;").expect("the table ends")
+                + ") STRICT;".len();
+            format!("{}{}", &schema[..start], &schema[end..])
+        }
+        None => schema,
+    };
+    [
+        (
+            "kind IN ('question', 'your-step')",
+            "kind IN ('question', 'your-step', 'held')",
+        ),
+        (
+            "how IN ('answered', 'settled', 'done', 'done-unrecorded', 'landed', 'finished', 'dropped', 'moved-to-stack')",
+            "how IN ('answered', 'settled', 'done', 'done-unrecorded', 'landed', 'finished', 'dropped', 'deferred', 'moved-to-stack')",
+        ),
+        (
+            "WHEN 'question' THEN how IN ('answered', 'settled', 'done', 'done-unrecorded', 'dropped')",
+            "WHEN 'question' THEN how IN ('answered', 'settled', 'done', 'done-unrecorded', 'dropped', 'deferred')",
+        ),
+        (
+            "WHEN 'item' THEN how IN ('landed', 'finished', 'dropped', 'moved-to-stack')",
+            "WHEN 'item' THEN how IN ('landed', 'finished', 'dropped', 'deferred', 'moved-to-stack')",
+        ),
+        (
+            "(how IN ('settled', 'done', 'finished', 'dropped')) = (reason",
+            "(how IN ('settled', 'done', 'finished', 'dropped', 'deferred')) = (reason",
+        ),
+        (
+            "'running', 'backlog', 'wait-gained'",
+            "'running', 'wait-gained'",
+        ),
+    ]
+    .iter()
+    .fold(schema, |schema, (new, old)| schema.replace(new, old))
+}
+
+/// Today's schema as it was before the backlog.
+#[cfg(test)]
+pub fn schema_before_backlog() -> String {
+    with_held_and_deferred(schema())
+}
+
 /// The table of the `--shots` runs' findings, which every schema held
 /// between the design changes' recording sessions and the review's tables
 /// until builds kept the runs on the build volume (shots_cache.rs).
@@ -770,7 +821,7 @@ fn text_before(part: &str) -> String {
 /// keeping the time of each (`with_ack_version_time`).
 #[cfg(test)]
 fn joined_before(part: &str) -> String {
-    with_ack_version_time(parts_before(part).join("\n"))
+    with_held_and_deferred(with_ack_version_time(parts_before(part).join("\n")))
 }
 
 /// <schema> with the statement that starts with <start> and ends with <end>
@@ -864,7 +915,7 @@ pub fn without_item_change(schema: String) -> String {
 /// The schema as it was before item changes were recorded.
 #[cfg(test)]
 pub fn schema_before_item_change() -> String {
-    without_item_change(schema())
+    with_held_and_deferred(without_item_change(schema()))
 }
 
 /// <schema> as it was before the agents `builds agent run` starts were

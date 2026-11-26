@@ -165,3 +165,27 @@ fn the_table_refuses_a_kind_it_does_not_know() {
         .is_err()
     );
 }
+
+#[test]
+fn an_item_in_the_backlog_records_the_backlog_event_with_its_why_and_ready_on_start() {
+    let db = db();
+    let id = item(&db, vec![]);
+    follow_at(&db, NOON + 5);
+    crate::lists::item::move_to_backlog(&db, &[(id, "later".to_string())], &stamp(NOON + 10))
+        .unwrap();
+    follow_at(&db, NOON + 10);
+    assert_eq!(
+        kinds(&db, id)[1..],
+        [(NOON + 10, Kind::Backlog, Some("later".to_string()))]
+    );
+    follow_at(&db, NOON + 11);
+    assert_eq!(
+        kinds(&db, id).len(),
+        2,
+        "a write that changes nothing adds nothing"
+    );
+    db.execute("DELETE FROM item_backlog WHERE item_id = ?1", [id])
+        .unwrap();
+    follow_at(&db, NOON + 20);
+    assert_eq!(kinds(&db, id)[2..], [(NOON + 20, Kind::Ready, None)]);
+}

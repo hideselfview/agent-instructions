@@ -241,3 +241,36 @@ fn every_named_constraint_of_the_question_tables_refuses_its_row() {
     plant(&db, "question_plan", &plan).unwrap();
     refused.done();
 }
+
+#[test]
+fn a_blocked_item_may_go_to_the_backlog_as_its_question_closes() {
+    let (db, q, a, b) = waiting_lists();
+    let blocked = BlockedMap::from([
+        (a, Blocked::Backlog("the person starts it later".into())),
+        (b, Blocked::Proceeds),
+    ]);
+    apply_blocked(&db, q, &blocked, &[], &stamp(NOON)).unwrap();
+    close(&db, q, How::Done("shown".into()), &stamp(NOON)).unwrap();
+    let lists = read(&db);
+    let moved = lists.item(a).unwrap();
+    assert!(moved.waits.is_empty());
+    assert_eq!(
+        moved.backlog.as_ref().unwrap().why,
+        "the person starts it later"
+    );
+    assert!(lists.item(b).unwrap().backlog.is_none());
+    assert!(
+        crate::lists::check::faults(&db, "demo").unwrap().is_empty(),
+        "the store passes its check"
+    );
+}
+
+#[test]
+fn blocked_reads_a_backlog_fate_and_refuses_one_with_no_why() {
+    let blocked: BlockedMap = serde_json::from_str(r#"{"12":{"backlog":"later"}}"#).unwrap();
+    assert_eq!(blocked[&Id(12)], Blocked::Backlog("later".into()));
+    let (_db, q, a, b) = waiting_lists();
+    let lists = read(&_db);
+    let empty = BlockedMap::from([(a, Blocked::Backlog(" ".into())), (b, Blocked::Proceeds)]);
+    assert!(refusal(check_blocked(&lists, q, &empty)).contains("no why"));
+}

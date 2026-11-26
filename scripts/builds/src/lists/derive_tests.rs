@@ -32,26 +32,17 @@ fn a_wait_is_met_by_the_way_its_record_closed() {
     let settled = question(&db);
     let done = question(&db);
     let dropped = question(&db);
-    let deferred = question(&db);
     let open = question(&db);
     let decision = decision_answering(&db, answered);
     close(&db, answered, How::Answered(decision), &stamp(NOON)).unwrap();
     close(&db, settled, How::Settled("rule".into()), &stamp(NOON)).unwrap();
     close(&db, done, How::Done("shown".into()), &stamp(NOON)).unwrap();
     close(&db, dropped, How::Dropped("no".into()), &stamp(NOON)).unwrap();
-    close(
-        &db,
-        deferred,
-        How::Deferred("https://x/1".into()),
-        &stamp(NOON),
-    )
-    .unwrap();
     for (id, met) in [
         (answered, true),
         (settled, true),
         (done, true),
         (dropped, false),
-        (deferred, false),
         (open, false),
     ] {
         assert_eq!(waits(&read(&db), Wait::Question(id)), met, "{id}");
@@ -512,4 +503,60 @@ fn a_span_that_lies_in_none_of_its_items_runs_is_an_error() {
         fault
     );
     assert_eq!(message(branch_times(&lists).map(|_| ())), fault);
+}
+
+fn backlog_moves(db: &Connection, ids: &[Id]) {
+    let moves: Vec<(Id, String)> = ids.iter().map(|id| (*id, "later".to_string())).collect();
+    crate::lists::item::move_to_backlog(db, &moves, &stamp(NOON)).unwrap();
+}
+
+#[test]
+fn an_item_with_a_backlog_row_is_in_the_backlog_and_in_no_other_state() {
+    let db = db();
+    let id = item(&db, vec![]);
+    backlog_moves(&db, &[id]);
+    let lists = read(&db);
+    assert_eq!(
+        item_state(&lists, lists.item(id).unwrap()),
+        ItemState::Backlog
+    );
+    crate::lists::fixtures::set_audience(&db, id, Audience::DesignSession);
+    let lists = read(&db);
+    assert_eq!(
+        item_state(&lists, lists.item(id).unwrap()),
+        ItemState::Backlog,
+        "the backlog comes before the design session's"
+    );
+}
+
+#[test]
+fn dispatch_never_offers_a_backlog_item_and_it_holds_no_last_item_back() {
+    let db = db();
+    let later = item(&db, vec![]);
+    let last = item(&db, vec![]);
+    crate::lists::item::set_priority(
+        &db,
+        last,
+        Some(Priority {
+            level: Level::Last,
+            why: "x".into(),
+        }),
+    )
+    .unwrap();
+    backlog_moves(&db, &[later]);
+    let lists = read(&db);
+    let offered: Vec<Id> = dispatch_order(&lists, Audience::Coordinator)
+        .iter()
+        .map(|item| item.id)
+        .collect();
+    assert_eq!(offered, vec![last]);
+}
+
+#[test]
+fn a_backlog_item_adds_nothing_to_what_waits_behind_the_item_it_waits_on() {
+    let db = db();
+    let first = item(&db, vec![]);
+    let later = item(&db, vec![Wait::Item(first)]);
+    backlog_moves(&db, &[later]);
+    assert_eq!(behind(&read(&db), first), 0);
 }

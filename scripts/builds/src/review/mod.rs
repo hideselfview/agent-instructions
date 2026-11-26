@@ -1474,8 +1474,8 @@ fn held_words(held: &audit_item::Held) -> String {
         audit_item::Held::Joined { item } => format!(
             "the audit has no finding left to settle: its confirmed findings joined item {item}, which holds the fixes of the audit's other reviews"
         ),
-        audit_item::Held::Item { item, entry } => format!(
-            "the audit has no finding left to settle: its confirmed findings became item {item}, which waits on stack entry {entry} until the person starts it"
+        audit_item::Held::Item { item } => format!(
+            "the audit has no finding left to settle: its confirmed findings became item {item}, which waits in the backlog until the person starts it"
         ),
     }
 }

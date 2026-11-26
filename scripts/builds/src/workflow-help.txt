@@ -66,7 +66,9 @@ goes on the stack as a your-step question (`builds question ask --kind
 your-step`), and each item or held worktree that waits on it waits on
 `question:N`. The dashboard shows such a wait under Waiting on you, and a wait
 on a condition under Paused, so a condition names the agent, coordinator or CI
-that ends it (`--until`), never the person.
+that ends it (`--until`), never the person. Work that is not for now goes to the
+backlog (`builds item backlog`), which the dashboard shows under Backlog, and
+only the person starts it.
 
 
 WORKTREES
@@ -304,11 +306,12 @@ HANDOFF, AUDITS AND FLAKY TESTS
   - Flaky tests and speed work (profiling, benchmarks, timing a build) never
     go in the work queue, because they need a quiet machine: on a loaded one,
     load hides the cause and skews every number, and repeated runs slow every
-    other agent. Open a GitHub issue for each one instead, with what you know
-    so far, and take it off the queue. Whoever works the issue does it on a
-    quiet machine, and finds a flaky test's cause from its failure output,
-    code and logs that record the state at the failure. Run one test alone,
-    by name, never the whole suite in a loop.
+    other agent. Make a backlog item for each one instead (`builds item add
+    --backlog WHY`), with what you know so far, and the person starts it when
+    the machine is quiet. Whoever works the item does it on a quiet machine,
+    and finds a flaky test's cause from its failure output, code and logs that
+    record the state at the failure. Run one test alone, by name, never the
+    whole suite in a loop.
 
 
 DISPATCH

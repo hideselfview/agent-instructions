@@ -4,11 +4,12 @@ every repo.
 A project is a set of repos that share lists (bae holds bae and coven). Its
 lists are:
 
-  decision stack  what waits on the person: questions, work only they can
-                  do, and work that waits until they start it (builds
-                  question)
+  decision stack  what waits on the person: questions and work only they
+                  can do (builds question)
   work queue      what the coordinator and its agents can do (builds item,
                   builds next, builds area)
+  backlog         work that waits until the person starts it (builds item
+                  backlog, builds item start)
   decision log    every decision, with who made it and why (builds decision)
   design changes  product design changes (a board or a design-system
                   component, not a software plan) that wait on the person's
@@ -23,8 +24,8 @@ which builds prints as #N. Commands take ids as bare numbers
 The lists hold all the work there is to do: nothing to do is kept anywhere else
 (a brief, a handoff, a plan, the decision log or a chat message) unless an item
 points at it. Commits, code and repo files never name the lists or their ids.
-Neither list holds what is not relevant now, such as a release-time task: open
-a GitHub issue for it and take it off the list.
+Work that is not for now, such as a release-time task, goes to the backlog,
+never to a GitHub issue.
 
 
 WHO WRITES WHAT
@@ -39,7 +40,11 @@ write ("say who you are with --by").
     `builds question settle` closes it, records no decision and stores the
     rule, spec text, earlier decision or code that settles it. A question
     leaves the stack only with the person's answer (a decision) or with such
-    a stored reason: a settle, a done, a drop or a defer each needs one.
+    a stored reason: a settle, a done or a drop each needs one.
+  - The backlog holds work that no agent takes until the person starts it
+    (`builds item backlog`). A session starts an item (`builds item start`)
+    only on the person's word, and the dashboard's Start button is the
+    person's own start.
   - A finding that needs a decision goes on the stack, and whoever found it
     mentions it to the person in one line at most. A finding that needs none
     becomes a queue item, and nobody raises it with the person. When it is

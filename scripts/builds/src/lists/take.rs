@@ -257,6 +257,12 @@ fn require_takeable(
                 places_words(kept)
             );
         }
+        if item.backlog.is_some() {
+            fail!(
+                "{id} is in the backlog: only the person starts it (`builds item start {} --said WORDS`)",
+                id.0
+            );
+        }
         match (item.r#for, design_session) {
             (Audience::DesignSession, false) => {
                 fail!("{id} is the design session's; take it with --as design-session")

@@ -81,6 +81,7 @@ fn an_item_a_design_change_made_comes_from_it() {
         brief: None,
         priority: None,
         tags: Vec::new(),
+        backlog: None,
     };
     let made = add_item(&db, &draft, Some(change), &stamp(NOON)).unwrap();
     let lists = read(&db);
