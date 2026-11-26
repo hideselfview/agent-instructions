@@ -5,30 +5,19 @@ description: Publish a project's designs to the claude.ai account Claude Code is
 
 # Publish every canvas and the design system from one commit
 
-This skill is for a Claude session that publishes a project's designs when the
-person triggers it, with the dashboard's publish request or by asking the
-session. A landing, an approval or an item never starts a publish. The designs
-are the boards (`design/mocks`) and the design system (`design/system`) of the
-project's repo. The repo publishes them to several claude.ai artifacts: one
-canvas or more, which show the boards, and one Design System artifact, which
-also keeps the design system's pictures as uploads that its index names.
-`design/mocks/canvases.toml` in the repo names each artifact by its title. The
-artifacts are the ones on whichever claude.ai account Claude Code is signed in
-to: builds finds each title among the account's artifacts, so a change of
-account needs no edit in the repo.
+This skill is for a Claude session that publishes a project's designs, the
+boards and the design system of its repo, to the claude.ai artifacts that
+`design/mocks/canvases.toml` names: one canvas or more, and one Design System
+artifact. `builds help workflow PUBLISHING DESIGNS` says what starts a publish
+and that the repo's files replace any edit made on claude.ai.
 
-Every publish sends every artifact from the same commit, so the published copies
-never disagree. builds writes the files and only a session can call the Artifact
-tool, so the work splits in two: `builds design publish-files` writes every
-artifact's files, uploads and calls from one commit, and the session makes the
-calls in order. Each call file holds the arguments of one Artifact tool call,
-its `action` among them: pass every field as it is, and add none.
+Every publish sends every artifact from the same commit.
+`builds design publish-files` writes every artifact's files, uploads and calls
+from one commit, and the session makes the calls with the Artifact tool, in
+order. Each call file holds the arguments of one Artifact tool call, its
+`action` among them: pass every field as it is, and add none.
 `builds help lists` (design publish-find, publish-files and publish-last) says
 what each command writes.
-
-The repo's files are the source. An edit someone made on an artifact's page on
-claude.ai is an accident: the repo's files replace it, and you merge nothing
-from it.
 
 ## Find the artifacts
 
@@ -50,23 +39,13 @@ share a title, stop and ask the person which one to keep: publish nothing.
 
 ## A publish request from the dashboard
 
-The person can ask for a publish on the dashboard's Designs page. builds then
-records a publish request for one commit and sends the design session that
-listens for the project (`builds design listen --project P`, which a design
-session runs when it starts) a message: "Publish request #N of project P:
-publish the designs at commit C." For such a request:
-
-1. Take it first: `builds design publish take N --project P`. The dashboard then
-   shows that the design session took it.
-2. Follow the rest of this skill with `--at C` on `publish-files`, so that the
-   files come from the commit the person picked.
-3. After the last artifact's last calls and the runtime check (Check the canvas
-   runtime), end the request with one `--link` for each artifact, the title and
-   url that `publish-find` printed:
-   `builds design publish done N --link "<title>=<url>" ... --project P`. The
-   dashboard then shows the commit as published, with the links.
-4. When the publish stops before that, end the request with what stopped it:
-   `builds design publish failed N --why "<what stopped it>" --project P`.
+A publish request from the dashboard names commit C. Take it first
+(`builds design publish take N --project P`), and follow the rest of this skill
+with `--at C` on `publish-files`. After the runtime check (Check the canvas
+runtime), end it with `builds design publish done N`, with one `--link` for each
+artifact, the title and url that `publish-find` printed. When the publish stops
+before that, end it with `builds design publish failed N --why`
+(`builds help lists`, design publish take, done and failed).
 
 ## Write the files
 
@@ -82,15 +61,11 @@ publish the designs at commit C." For such a request:
    scratchpad. Leave out `--at`, so that the files come from origin/main, which
    holds what landed, unless a publish request names the commit.
 
-The command prints the commit, then each artifact in the order you publish them:
-the canvases, then the design system. For each artifact it prints its title, its
-url, the folder and the call files (`call-1.json` and on), and for the design
-system the upload files (`upload-1.json` and on) with the path each one uploads.
-builds uploads only the assets whose bytes the index records no upload of. The
-command ends with the sha256 that the repo records for the canvas runtime. When
-the command refuses because the account lacks a title, go back to Find the
-artifacts. When it refuses for another reason, publish nothing and report its
-error.
+The command prints the commit, each artifact's folder, calls and uploads in the
+order you publish them, and the sha256 of the canvas runtime
+(`builds help lists`, design publish-files). When the command refuses because
+the account lacks a title, go back to Find the artifacts. When it refuses for
+another reason, publish nothing and report its error.
 
 ## Publish each artifact
 
