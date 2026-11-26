@@ -17,8 +17,9 @@ fn a_mac_window_compares_content_inside_its_corners() {
 #[test]
 fn a_different_window_shape_reports_one_warning() {
     for (board, shot) in [(24, 16), (16, 24)] {
-        let pair = compare_window(
+        let pair = compare_window_cut(
             "mac.welcome.a",
+            f64::from(board),
             window_picture(2, board, [255, 255, 255, 255], false),
             window_picture(2, shot, [0, 0, 0, 0], false),
         );
@@ -27,9 +28,38 @@ fn a_different_window_shape_reports_one_warning() {
 }
 
 #[test]
-fn a_one_pixel_shift_in_the_window_outline_draws_no_warning() {
-    let pair = compare_window(
+fn a_board_whose_window_fill_matches_its_backdrop_compares_by_its_window_element() {
+    let backdrop = [40, 40, 40, 255];
+    let same = compare_window(
         "mac.welcome.a",
+        window_picture(2, 16, backdrop, false),
+        window_picture(2, 16, [0, 0, 0, 0], false),
+    );
+    assert!(same.warnings.is_empty(), "{:?}", same.warnings);
+    let other = compare_window_cut(
+        "mac.welcome.a",
+        24.0,
+        window_picture(2, 24, backdrop, false),
+        window_picture(2, 16, [0, 0, 0, 0], false),
+    );
+    assert_eq!(other.warnings, [Warning::WindowCorners]);
+}
+
+#[test]
+fn a_board_that_draws_no_window_differs_from_a_shot_with_rounded_corners() {
+    let pair = compare_window_without_window(
+        "mac.welcome.a",
+        window_picture(2, 0, [255, 255, 255, 255], false),
+        window_picture(2, 16, [0, 0, 0, 0], false),
+    );
+    assert_eq!(pair.warnings, [Warning::WindowCorners]);
+}
+
+#[test]
+fn a_one_pixel_shift_in_the_window_outline_draws_no_warning() {
+    let pair = compare_window_cut(
+        "mac.welcome.a",
+        18.0,
         window_picture(1, 18, [255, 255, 255, 255], false),
         window_picture(1, 16, [0, 0, 0, 0], false),
     );
@@ -174,13 +204,29 @@ fn paint_disc(picture: &mut Picture, scale: u32, middle: (f64, f64), radius: f64
     }
 }
 
+/// Compares a board whose window cuts its corners 16 pt with a shot.
 fn compare_window(scene: &str, board: Picture, shot: Picture) -> Checked {
+    compare_window_cut(scene, 16.0, board, shot)
+}
+
+/// Compares a board whose window element cuts each corner `cut` pt straight
+/// with a shot.
+fn compare_window_cut(scene: &str, cut: f64, board: Picture, shot: Picture) -> Checked {
+    compare_with_window(scene, Some(cut), board, shot)
+}
+
+/// Compares a board whose page draws no window with a shot.
+fn compare_window_without_window(scene: &str, board: Picture, shot: Picture) -> Checked {
+    compare_with_window(scene, None, board, shot)
+}
+
+fn compare_with_window(scene: &str, cut: Option<f64>, board: Picture, shot: Picture) -> Checked {
     let scene = name(scene);
     let size = crate::shots::Size {
         width: 64.0,
         height: 64.0,
     };
-    let list = |width| ElementList {
+    let list = |width, window| ElementList {
         board: scene.to_string(),
         platform: scene.platform(),
         size,
@@ -188,16 +234,27 @@ fn compare_window(scene: &str, board: Picture, shot: Picture) -> Checked {
         elements: Vec::new(),
         slots: Vec::new(),
         unshot: Vec::new(),
+        window,
     };
+    let window = cut.map(|radius| crate::shots::WindowShape {
+        frame: crate::shots::Bounds {
+            x: 0.0,
+            y: 0.0,
+            width: size.width,
+            height: size.height,
+        },
+        radius,
+        exponent: 1.0,
+    });
     compare_pair(
         &scene,
         Drawn {
-            list: list(board.width),
+            list: list(board.width, window),
             picture: board,
             png: PathBuf::new(),
         },
         &Shot {
-            list: list(shot.width),
+            list: list(shot.width, None),
             picture: shot,
         },
         PathBuf::new(),

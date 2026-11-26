@@ -12,7 +12,7 @@
 
 use crate::names::Platform;
 use crate::render::chrome::DrawPage;
-use crate::shots::{Bounds, Cover, Element, Role, TextStyle, words};
+use crate::shots::{Bounds, Cover, Element, Role, TextStyle, WindowShape, words};
 use chromiumoxide::cdp::browser_protocol::accessibility::{
     AxNode, AxNodeId, AxPropertyName, AxValue, AxValueSourceType, EnableParams, GetFullAxTreeParams,
 };
@@ -37,6 +37,8 @@ pub(crate) enum ReadError {
         name: String,
         why: &'static str,
     },
+    #[error("the board's window has the corner shape {0:?}, which the checker does not know")]
+    CornerShape(String),
 }
 
 fn protocol(error: impl std::fmt::Display) -> ReadError {
@@ -769,6 +771,81 @@ pub(crate) async fn slots(
     origin: (f64, f64),
 ) -> Result<Vec<Bounds>, ReadError> {
     boxes(page, scope, &format!(".{SLOT_CLASS}"), origin).await
+}
+
+/// The elements of the design system that draw a Mac window: the window of
+/// a settings or import screen, the main window and the storage window.
+const WINDOW_SELECTOR: &str = ".bae-m-window, .bae-m-mainwin, .bae-m-storewin";
+
+/// What Chrome reports of a window element.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WindowStyle {
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+    /// The radius of the top-left corner, in points.
+    radius: f64,
+    /// The computed `corner-shape`, such as `superellipse(1.585)`.
+    corner_shape: String,
+}
+
+/// The first window the page draws, measured from `origin`, or none when it
+/// draws no window. The comparison reads the corners of a native window
+/// against this window's frame and corner curve.
+pub(crate) async fn window(
+    page: &DrawPage,
+    origin: (f64, f64),
+) -> Result<Option<WindowShape>, ReadError> {
+    let selector = serde_json::to_string(WINDOW_SELECTOR).expect("a string serializes");
+    let styles: Vec<WindowStyle> = page
+        .evaluate(format!(
+            "[...document.querySelectorAll({selector})].slice(0, 1).map(e => {{ \
+             const r = e.getBoundingClientRect(); const s = getComputedStyle(e); \
+             return {{x: r.x, y: r.y, width: r.width, height: r.height, \
+             radius: parseFloat(s.borderTopLeftRadius), cornerShape: s.cornerShape}}; }})"
+        ))
+        .await
+        .map_err(protocol)?
+        .into_value()
+        .map_err(protocol)?;
+    styles
+        .into_iter()
+        .next()
+        .map(|style| {
+            let frame = relative_to(
+                Bounds {
+                    x: style.x,
+                    y: style.y,
+                    width: style.width,
+                    height: style.height,
+                },
+                origin,
+            );
+            Ok(WindowShape {
+                frame,
+                radius: style.radius,
+                exponent: curve_exponent(&style.corner_shape)?,
+            })
+        })
+        .transpose()
+}
+
+/// The exponent of the curve a computed `corner-shape` draws: `round` is
+/// `superellipse(1)`, `bevel` is `superellipse(0)`, and `superellipse(k)`
+/// has the exponent 2^k.
+fn curve_exponent(shape: &str) -> Result<f64, ReadError> {
+    let k = match shape {
+        "round" => Some(1.0),
+        "bevel" => Some(0.0),
+        _ => shape
+            .strip_prefix("superellipse(")
+            .and_then(|rest| rest.strip_suffix(')'))
+            .and_then(|k| k.parse::<f64>().ok()),
+    };
+    k.map(f64::exp2)
+        .ok_or_else(|| ReadError::CornerShape(shape.to_string()))
 }
 
 /// The elements under the DOM node `backend`, in reading order, with boxes

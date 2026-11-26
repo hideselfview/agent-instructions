@@ -262,6 +262,7 @@ fn an_offset_frame_is_reported_once_and_not_per_element() {
             scale: 1.0,
             unshot: &[],
         },
+        None,
         &found.pairs,
     );
     assert_eq!(
@@ -299,6 +300,7 @@ fn an_offset_under_the_tolerance_is_not_reported() {
                 scale: 1.0,
                 unshot: &[]
             },
+            None,
             &found.pairs,
         )
         .is_empty()

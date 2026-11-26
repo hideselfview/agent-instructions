@@ -4,6 +4,7 @@
 use super::buttons::Buttons;
 use super::corners::Corners;
 use super::{PictureSide, Side};
+use crate::shots::WindowShape;
 
 pub(super) struct Window {
     corners: Corners,
@@ -14,9 +15,15 @@ pub(super) struct Window {
 
 impl Window {
     /// The window both pictures draw, when the shot is a native window; the
-    /// shot's frame is `offset` from the board's.
-    pub(super) fn of(board: &Side, shot: &Side, offset: (f64, f64)) -> Option<Self> {
-        let corners = Corners::of(board, shot)?;
+    /// shot's frame is `offset` from the board's. The board's corners are
+    /// those of `window`, the window its page draws.
+    pub(super) fn of(
+        board: &Side,
+        shot: &Side,
+        window: Option<&WindowShape>,
+        offset: (f64, f64),
+    ) -> Option<Self> {
+        let corners = Corners::of(board, shot, window)?;
         let buttons = Buttons::of(board, shot, &corners);
         let buttons = (!buttons.differ(offset)).then_some(buttons);
         Some(Self { corners, buttons })

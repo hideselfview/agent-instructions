@@ -118,6 +118,47 @@ pub(crate) struct ElementList {
     /// write it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) slots: Vec<Bounds>,
+    /// The window the board's page draws, with the shape of its corners.
+    /// Absent when the page draws none. Only boards write it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) window: Option<WindowShape>,
+}
+
+/// A window as the board's page draws it: the box of the window element and
+/// the curve of its four corners, measured from the board's top-left corner.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct WindowShape {
+    pub(crate) frame: Bounds,
+    /// How far in points a corner's curve reaches along each edge.
+    pub(crate) radius: f64,
+    /// The exponent n of the curve `|u|^n + |v|^n = 1` that each corner
+    /// follows: 1 cuts the corner straight and 2 rounds it.
+    pub(crate) exponent: f64,
+}
+
+impl WindowShape {
+    /// Whether the point (`x`, `y`), measured from the board's top-left
+    /// corner, lies inside the window.
+    pub(crate) fn contains(&self, x: f64, y: f64) -> bool {
+        let Bounds {
+            x: left,
+            y: top,
+            width,
+            height,
+        } = self.frame;
+        if x < left || y < top || x > left + width || y > top + height {
+            return false;
+        }
+        // How far into the corner's curve the point reaches, as a fraction
+        // of the radius, along each axis; 0 where no corner covers it.
+        let depth = |near: f64, far: f64| ((self.radius - near.min(far)) / self.radius).max(0.0);
+        let (u, v) = (
+            depth(x - left, left + width - x),
+            depth(y - top, top + height - y),
+        );
+        self.radius <= 0.0 || u.powf(self.exponent) + v.powf(self.exponent) <= 1.0
+    }
 }
 
 fn platform_word<S: serde::Serializer>(

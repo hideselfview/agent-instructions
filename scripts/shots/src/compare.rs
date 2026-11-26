@@ -13,7 +13,7 @@ pub(crate) mod regions;
 mod window;
 
 use crate::names::Platform;
-use crate::shots::{Bounds, Element, Picture, Size};
+use crate::shots::{Bounds, Element, Picture, Size, WindowShape};
 use align::Step;
 use colour::{Rgb, hex};
 use normalize::{Entry, entries, fold_merged};
@@ -481,6 +481,7 @@ pub(crate) fn warnings(
     platform: Platform,
     board: &Side,
     shot: &Side,
+    window: Option<&WindowShape>,
     pairs: &[(Entry, Entry)],
 ) -> Vec<Warning> {
     let offset = geometry::frame_offset(board.elements, shot.elements, pairs);
@@ -508,7 +509,7 @@ pub(crate) fn warnings(
     found.extend(geometry::fonts(board.elements, shot.elements, pairs));
     found.extend(colour::pairs(platform, board, shot, pairs));
     let window = (platform == Platform::Mac)
-        .then(|| window::Window::of(board, shot, offset))
+        .then(|| window::Window::of(board, shot, window, offset))
         .flatten();
     if window.as_ref().is_some_and(window::Window::corners_differ) {
         found.push(Warning::WindowCorners);

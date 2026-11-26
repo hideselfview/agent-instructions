@@ -1048,3 +1048,61 @@ async fn an_element_beyond_the_viewport_is_asked_after_scrolling_to_it() {
         Cover::Clear
     );
 }
+
+const WINDOW_BOARD: &str = r##"<x-dc><helmet><style>body{margin:0}</style></helmet>
+<div class="bae-m-window" style="position:absolute;left:10px;top:20px;width:200px;height:100px;border-radius:24px;corner-shape:superellipse(1.585)"></div>
+</x-dc>"##;
+
+#[tokio::test]
+async fn a_boards_window_reads_as_its_frame_radius_and_curve() {
+    let root = fixture::tree(&[
+        ("fixture.window", WINDOW_BOARD),
+        ("fixture.none", "<x-dc><div>no window</div></x-dc>"),
+    ]);
+    let (window, none) = fixture::with_browser(root.path(), async |server, chrome| {
+        let mut read = Vec::new();
+        for board in ["fixture.window", "fixture.none"] {
+            let page = chrome.new_page().await.unwrap();
+            let rendered = render(
+                &page,
+                board,
+                &server.board_url(board),
+                Frame { w: 300, h: 200 },
+            )
+            .await
+            .unwrap();
+            read.push(
+                window(&page, (rendered.frame.x, rendered.frame.y))
+                    .await
+                    .unwrap(),
+            );
+        }
+        let none = read.pop().unwrap();
+        (read.pop().unwrap(), none)
+    })
+    .await;
+    let window = window.expect("the board draws a window");
+    assert_eq!(
+        window.frame,
+        Bounds {
+            x: 10.0,
+            y: 20.0,
+            width: 200.0,
+            height: 100.0
+        }
+    );
+    assert_eq!(window.radius, 24.0);
+    assert!((window.exponent - 3.0).abs() < 0.01, "{}", window.exponent);
+    assert!(none.is_none());
+}
+
+#[test]
+fn a_corner_shape_reads_as_the_exponent_of_its_curve() {
+    assert_eq!(curve_exponent("round").unwrap(), 2.0);
+    assert_eq!(curve_exponent("bevel").unwrap(), 1.0);
+    assert_eq!(curve_exponent("superellipse(2)").unwrap(), 4.0);
+    assert!(matches!(
+        curve_exponent("scoop"),
+        Err(ReadError::CornerShape(shape)) if shape == "scoop"
+    ));
+}

@@ -190,6 +190,7 @@ pub(crate) fn compare_pair(name: &Name, board: Drawn, shot: &Shot, shot_png: Pat
             scale: shot.list.scale,
             unshot: &shot.list.unshot,
         },
+        list.window.as_ref(),
         &result.pairs,
     );
     Checked {

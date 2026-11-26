@@ -226,3 +226,44 @@ fn words_are_composed_collapsed_and_trimmed_and_nothing_else() {
         "\u{201c}Set up\u{201d}\u{2026}"
     );
 }
+
+fn window(radius: f64, exponent: f64) -> WindowShape {
+    WindowShape {
+        frame: Bounds {
+            x: 10.0,
+            y: 20.0,
+            width: 100.0,
+            height: 60.0,
+        },
+        radius,
+        exponent,
+    }
+}
+
+#[test]
+fn a_window_covers_its_frame_and_leaves_out_what_its_corners_cut() {
+    let round = window(20.0, 2.0);
+    assert!(round.contains(60.0, 50.0));
+    assert!(!round.contains(9.0, 50.0), "left of the frame");
+    assert!(!round.contains(60.0, 81.0), "below the frame");
+    assert!(!round.contains(10.5, 20.5), "the tip of a round corner");
+    // A circle of radius 20 centred 20 in from each edge reaches 20 * (1 - 1/sqrt 2).
+    assert!(round.contains(10.0 + 6.0, 20.0 + 6.0));
+    assert!(!round.contains(10.0 + 5.0, 20.0 + 5.0));
+    assert!(
+        !round.contains(110.0 - 5.0, 80.0 - 5.0),
+        "every corner is cut"
+    );
+}
+
+#[test]
+fn a_straight_cut_corner_drops_the_triangle_at_the_tip() {
+    let cut = window(20.0, 1.0);
+    assert!(cut.contains(10.0 + 11.0, 20.0 + 10.0));
+    assert!(!cut.contains(10.0 + 9.0, 20.0 + 10.0));
+}
+
+#[test]
+fn a_window_with_no_radius_covers_its_whole_frame() {
+    assert!(window(0.0, 2.0).contains(10.0, 20.0));
+}

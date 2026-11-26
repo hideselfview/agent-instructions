@@ -3,14 +3,12 @@
 use std::cmp::Ordering;
 
 use super::{PictureSide, Side, rgba};
+use crate::shots::{Bounds, WindowShape};
 
 /// The corner search reaches past macOS's 23.5 pt curve.
 const CORNER_POINTS: f64 = 32.0;
 const EDGE_TOLERANCE_PIXELS: usize = 1;
 const HALF_ALPHA: u8 = 128;
-/// Chrome composites opaque boards onto the page. Its corner boundary can
-/// appear as a change of fill or as the highlight just inside the window.
-const CORNER_CONTRAST: u8 = 5;
 
 pub(super) struct Corners {
     scale: f64,
@@ -32,8 +30,21 @@ struct Insets {
 
 impl Corners {
     /// The shot's alpha identifies a native rounded window. Mac component
-    /// shots drawn into a rectangular image have opaque corners.
-    pub(super) fn of(board: &Side, shot: &Side) -> Option<Self> {
+    /// shots drawn into a rectangular image have opaque corners. The board's
+    /// corners are those of `window`, the window its page draws; a page that
+    /// draws none has square corners at the edge of its picture.
+    pub(super) fn of(board: &Side, shot: &Side, window: Option<&WindowShape>) -> Option<Self> {
+        let square = WindowShape {
+            frame: Bounds {
+                x: 0.0,
+                y: 0.0,
+                width: f64::from(board.picture.width) / board.scale,
+                height: f64::from(board.picture.height) / board.scale,
+            },
+            radius: 0.0,
+            exponent: 2.0,
+        };
+        let window = window.unwrap_or(&square);
         let scale = board.scale.min(shot.scale);
         let limit = [board, shot]
             .into_iter()
@@ -43,19 +54,22 @@ impl Corners {
         if limit == 0 {
             return None;
         }
-        let samples = |side| {
-            std::array::from_fn::<_, 4, _>(|corner| Samples {
-                side,
-                corner,
-                scale,
-            })
-        };
-        let (board, shot) = (samples(board), samples(shot));
-        let board_has_alpha = board.iter().any(|samples| samples.at(0, 0)[3] < HALF_ALPHA);
+        let shot = std::array::from_fn::<_, 4, _>(|corner| Samples {
+            side: shot,
+            corner,
+            scale,
+        });
+        let board = std::array::from_fn::<_, 4, _>(|corner| BoardCorner {
+            window,
+            width: f64::from(board.picture.width) / board.scale,
+            height: f64::from(board.picture.height) / board.scale,
+            corner,
+            scale,
+        });
         let cutouts = std::array::from_fn(|corner| {
             let shot = &shot[corner];
             (shot.at(0, 0)[3] < HALF_ALPHA && shot.at(limit - 1, limit - 1)[3] == 255)
-                .then(|| Cutout::read(&board[corner], shot, board_has_alpha, limit))
+                .then(|| Cutout::read(&board[corner], shot, limit))
         });
         cutouts.iter().any(Option::is_some).then_some(Self {
             scale,
@@ -123,9 +137,37 @@ impl Samples<'_, '_> {
     }
 }
 
+/// A corner of the board's picture, with the origin reflected to the tip of
+/// the corner, as the window's shape draws it.
+struct BoardCorner<'a> {
+    window: &'a WindowShape,
+    /// The picture's size in points.
+    width: f64,
+    height: f64,
+    corner: usize,
+    /// Pixels to the point of the grid the corner is read on.
+    scale: f64,
+}
+
+impl BoardCorner<'_> {
+    /// Whether the window covers the point `x` and `y` grid pixels from the
+    /// tip of the corner along the two edges: its middle when `middle` is
+    /// 0.5, the grid pixel's corner nearest the tip when it is 0.
+    fn covers(&self, x: usize, y: usize, middle: f64) -> bool {
+        let x = (x as f64 + middle) / self.scale;
+        let y = (y as f64 + middle) / self.scale;
+        let x = if self.corner & 1 != 0 {
+            self.width - x
+        } else {
+            x
+        };
+        let y = if self.corner >= 2 { self.height - y } else { y };
+        self.window.contains(x, y)
+    }
+}
+
 impl Cutout {
-    fn read(board: &Samples, shot: &Samples, board_has_alpha: bool, limit: usize) -> Self {
-        let backdrop = board.at(0, 0);
+    fn read(board: &BoardCorner, shot: &Samples, limit: usize) -> Self {
         let mut rays = Vec::with_capacity(2 * limit - 1);
         for ray in 0..2 * limit - 1 {
             let x = ray.saturating_sub(limit - 1);
@@ -137,39 +179,18 @@ impl Cutout {
             let shot_inset = (shot_edge..length)
                 .find(|d| shot.at(x + d, y + d)[3] == 255)
                 .unwrap_or(length);
-            let board_edge = (0..length).find(|d| {
-                let pixel = board.at(x + d, y + d);
-                if board_has_alpha {
-                    pixel[3] >= HALF_ALPHA
-                } else {
-                    pixel[..3]
-                        .iter()
-                        .zip(backdrop)
-                        .any(|(&a, b)| a.abs_diff(b) >= CORNER_CONTRAST)
-                }
-            });
-            let board_edge = if board_has_alpha {
-                Some(board_edge.unwrap_or(length))
+            let board_edge = (0..length)
+                .find(|d| board.covers(x + d, y + d, 0.5))
+                .unwrap_or(length);
+            // A pixel is whole inside the window once its corner nearest the
+            // tip is, since the window's shape is convex.
+            let board_inset = (board_edge..length)
+                .find(|d| board.covers(x + d, y + d, 0.0))
+                .unwrap_or(length);
+            let difference = if board_edge.abs_diff(shot_edge) > EDGE_TOLERANCE_PIXELS {
+                board_edge.cmp(&shot_edge)
             } else {
-                // A ray whose first pixel already differs from the backdrop
-                // gives no evidence of where an opaque board's outline is.
-                board_edge.filter(|edge| *edge > 0 && shot_edge < length)
-            };
-            let difference = board_edge.map_or(Ordering::Equal, |edge| {
-                if edge.abs_diff(shot_edge) > EDGE_TOLERANCE_PIXELS {
-                    edge.cmp(&shot_edge)
-                } else {
-                    Ordering::Equal
-                }
-            });
-            let board_inset = if board_has_alpha {
-                (board_edge.expect("alpha gives an extent even for an empty ray")..length)
-                    .find(|d| board.at(x + d, y + d)[3] == 255)
-                    .unwrap_or(length)
-            } else {
-                // The flattened board's first visible edge pixel may still
-                // blend with the page. Keep one pixel clear of that boundary.
-                board_edge.map_or(shot_inset, |edge| shot_inset.max(edge + 1))
+                Ordering::Equal
             };
             rays.push((
                 Insets {
@@ -179,27 +200,7 @@ impl Cutout {
                 difference,
             ));
         }
-        let mut differs = false;
-        // A board flattened onto its backdrop may have no visible edge. Its
-        // native counterpart supplies the mask until adjacent rays show a
-        // consistent shift. A single colour change can be a shadow or control.
-        for group in rays.chunk_by_mut(|a, b| a.1 == b.1) {
-            let edge_changed = group[0].1 != Ordering::Equal;
-            let shifted = edge_changed && (board_has_alpha || group.len() >= 3);
-            differs |= shifted;
-            if !board_has_alpha {
-                for (insets, _) in group {
-                    // The board and the native outline can agree within one
-                    // pixel even when Chrome blends a pixel farther inward.
-                    let interior = insets.shot + usize::from(insets.shot > 0);
-                    insets.board = if edge_changed && !shifted {
-                        interior
-                    } else {
-                        insets.board.max(interior)
-                    };
-                }
-            }
-        }
+        let differs = rays.iter().any(|(_, difference)| difference.is_ne());
         let insets = rays.into_iter().map(|(insets, _)| insets).collect();
         Self { insets, differs }
     }
