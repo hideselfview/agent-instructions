@@ -906,6 +906,9 @@ starts no shot the harnesses declare at the branch's commit, and names the
 nearest declared prefixes.
 
 To run every shot of one lane, pass `--all-shots mac` or `--all-shots android`.
+A full run has two uses: board matching's measurement of a lane on a commit of
+origin/main, which the coordinator runs (`builds help workflow`, BUILDS), and
+the run that a change to the shots program is checked against.
 An app build runs the installed shots program, so --all-shots never checks a
 change to the shots program on a branch. To check that change, run `builds
 shots check-program` (below) over a lane's cached --all-shots run. For a

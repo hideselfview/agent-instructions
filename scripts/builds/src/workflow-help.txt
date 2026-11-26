@@ -125,7 +125,7 @@ for work that nobody has started.
 
 BUILDS
 
-Every build follows three rules (`builds help`, CARGO, BUILD FOLDERS and APP
+Every build follows these rules (`builds help`, CARGO, BUILD FOLDERS and APP
 BUILDS):
 
   - Run every cargo command through `builds cargo`, which bae's and coven's
@@ -135,12 +135,17 @@ BUILDS):
     and sccache's key holds the path and every CARGO_* variable, so such a
     build gets no cache hits. A setting goes in a --config argument or in
     Cargo.toml.
-  - An app build (`builds app-build <repo> <branch>`) runs only the test
-    classes and the shots of the screens the change touches (--test <Class>,
-    --shots mac.welcome.), and CI runs the full suites. `--all-shots
-    mac|android` runs every shot of one lane with the installed shots
-    program, only to make a run that `builds shots check-program` checks a
-    change to the shots program against.
+  - An app build of a branch (`builds app-build <repo> <branch>`) runs only
+    the test classes and the shots of the screens the change touches (--test
+    <Class>, --shots mac.welcome.), and CI runs the full suites.
+  - A full run (`--all-shots mac|android`) runs every shot of one lane with
+    the installed shots program. It has two uses:
+    - Board matching measures each lane with one, on a commit of origin/main,
+      at each step of a round that measures, to list every scene that differs
+      from its board. The coordinator runs these, never an implementing agent
+      (the board-matching skill, Measurements).
+    - An agent that changes the shots program runs one, so that `builds
+      shots check-program` can check its change against the cached run.
 
 
 PLAN, BRIEF, EXECUTE

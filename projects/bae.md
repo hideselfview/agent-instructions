@@ -145,12 +145,14 @@ touches, such as `mac.welcome.`: builds refuses `mac.` and `android.`, which
 select every Mac shot or every Android shot. `builds help` (APP BUILDS) says how
 builds picks what to build and where.
 
-CI takes no shots. To check a change to the shot tooling, run one platform's
-full set of shots with `builds app-build bae <branch> --all-shots mac` (or
-`android`) as a background task. builds runs the `shots` line of `.app-build`
-with every shot of the platform selected and keeps the findings and the report,
-which `builds shots findings bae <branch> mac mac.` prints again. The run fails
-only on the pairs that are worse than in the run of the branch's merge base with
+CI takes no shots. A full run of one platform's shots has two uses: board
+matching's measurement of each platform, which the coordinator runs, and the
+check of a change to the shot tooling (`builds help workflow`, BUILDS). Run one
+with `builds app-build bae <branch> --all-shots mac` (or `android`) as a
+background task. builds runs the `shots` line of `.app-build` with every shot of
+the platform selected and keeps the findings and the report, which
+`builds shots findings bae <branch> mac mac.` prints again. The run fails only
+on the pairs that are worse than in the run of the branch's merge base with
 origin/main, which builds keeps and makes first when it has none. A scene that
 run did not check lists its findings and fails nothing. The Mac harness leases
 one virtual display across window shots on the same Mac. Each capture uses its
