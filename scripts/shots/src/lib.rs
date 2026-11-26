@@ -54,11 +54,6 @@ pub struct Versions {
     pub comparison: String,
 }
 
-/// The apps and declare folders in the shots checker's settings.
-pub fn declared_folders(config: &str) -> Result<Vec<(App, String)>, String> {
-    Ok(Settings::parse(config).map_err(|e| e.to_string())?.declared)
-}
-
 /// The CSS selector of a component preview row's state name, from the
 /// `shots-preview` line in the shots checker's settings, if they have one.
 pub fn preview_name_selector(config: &str) -> Result<Option<String>, String> {
