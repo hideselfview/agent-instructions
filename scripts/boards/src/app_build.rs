@@ -71,17 +71,24 @@ impl App {
 /// The most bytes an app's name has.
 pub const APP_NAME_BYTES: usize = 32;
 
-/// Whether <name> is an app's name: lower-case words joined by `-`, in at
-/// most `APP_NAME_BYTES` bytes.
+/// Whether <name> is an app's name (`name_fault`).
 pub fn is_app_name(name: &str) -> bool {
-    !name.is_empty()
-        && name.len() <= APP_NAME_BYTES
-        && name.split('-').all(|word| {
-            !word.is_empty()
-                && word
-                    .chars()
-                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
-        })
+    name_fault(name).is_none()
+}
+
+/// What keeps <name> from being an app's name, which is lower-case words
+/// joined by `-` in at most `APP_NAME_BYTES` bytes.
+fn name_fault(name: &str) -> Option<&'static str> {
+    if name.len() > APP_NAME_BYTES {
+        return Some("names an app in more than 32 bytes");
+    }
+    let words = name.split('-').all(|word| {
+        !word.is_empty()
+            && word
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+    });
+    (!words).then_some("names an app that is not lower-case words joined by '-'")
 }
 
 /// The apps a repo's `.app-build` names with `app` lines. An app named for a
@@ -110,10 +117,8 @@ impl Apps {
             let Some(name) = words.next() else {
                 return Err(bad("names no app"));
             };
-            if !is_app_name(name) {
-                return Err(bad(
-                    "names an app that is not lower-case words joined by '-' in at most 32 bytes",
-                ));
+            if let Some(why) = name_fault(name) {
+                return Err(bad(why));
             }
             let Some(platform) = words.next() else {
                 return Err(bad("names its app and nothing else"));

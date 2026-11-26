@@ -98,7 +98,7 @@ fn an_app_line_that_is_wrong_is_an_error() {
         ("app", "names no app"),
         (
             "app Windows web",
-            "names an app that is not lower-case words joined by '-' in at most 32 bytes",
+            "names an app that is not lower-case words joined by '-'",
         ),
         ("app windows", "names its app and nothing else"),
         (
@@ -120,4 +120,12 @@ fn an_app_line_that_is_wrong_is_an_error() {
     ] {
         assert_eq!(Apps::read(line).unwrap_err().why, why, "{line}");
     }
+}
+
+#[test]
+fn an_app_name_over_the_most_bytes_is_refused_for_its_length() {
+    let longest = "a".repeat(APP_NAME_BYTES);
+    assert!(Apps::read(&format!("app {longest} web")).is_ok());
+    let error = Apps::read(&format!("app {longest}a web")).unwrap_err();
+    assert_eq!(error.why, "names an app in more than 32 bytes");
 }
