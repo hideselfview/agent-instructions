@@ -43,7 +43,7 @@ pub const HOLD_COMMAND: &str = "__hold-awake";
 pub const HELD: &str = "held";
 
 /// Where builds takes its assertions.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub enum Power {
     /// macOS's power management daemon.
     Powerd,
