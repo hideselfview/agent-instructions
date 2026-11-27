@@ -83,7 +83,8 @@ fn the_commit_named_is_checked_out_and_built_in_the_checkout() {
     let top = checkout(&scratch, "demo");
     let commit = run_git(&top, &["rev-parse", "HEAD"]).unwrap();
     let lock = checkout_lock(&scratch);
-    let checkout = CheckoutLock::new(lock.as_fd(), None);
+    let volume = scratch.places().root;
+    let checkout = CheckoutLock::new(&volume, lock.as_fd(), None);
     let config = check_out(&top, &scratch.system(), commit.trim(), checkout)
         .unwrap()
         .config;
@@ -112,7 +113,7 @@ fn a_checkout_with_changes_builds_nothing() {
             &top,
             &scratch.system(),
             "origin/main",
-            CheckoutLock::new(lock.as_fd(), None)
+            CheckoutLock::new(&scratch.places().root, lock.as_fd(), None)
         )
         .is_err()
     );
@@ -129,7 +130,7 @@ fn a_git_lock_that_no_process_holds_stops_the_build_with_a_line_that_names_it() 
         &top,
         &scratch.system(),
         "origin/main",
-        CheckoutLock::new(lock.as_fd(), None),
+        CheckoutLock::new(&scratch.places().root, lock.as_fd(), None),
     )
     .err()
     .expect("the lock stops the build")
@@ -333,7 +334,11 @@ fn a_switch_stopped_by_a_signal_to_its_group_still_ends_on_the_new_commit() {
     let switching = std::thread::spawn({
         let (top, new) = (top.clone(), new.clone());
         let lock = checkout_lock(&scratch);
-        move || switch_to(&top, &new, false, CheckoutLock::new(lock.as_fd(), None))
+        let volume = scratch.places().root;
+        move || {
+            let checkout = CheckoutLock::new(&volume, lock.as_fd(), None);
+            switch_to(&top, &new, false, checkout)
+        }
     });
     let group = loop {
         if let Ok(text) = std::fs::read_to_string(&group_file)

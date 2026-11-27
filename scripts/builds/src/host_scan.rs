@@ -1,6 +1,7 @@
 //! One reading of a host as a whole, for `builds health` and the dashboard:
-//! its processes, how much of its CPU sits idle, the commands that builds'
-//! jobs run there, and its sccache server. One script prints them, over the
+//! its processes, the records of those builds detached there (process.rs),
+//! how much of its CPU sits idle, the commands that builds' jobs run there,
+//! and its sccache server. One script prints them, over the
 //! ssh builds already uses for hosts or with sh on this Mac, so a health
 //! check asks each host once. stuck.rs judges the processes, host_load.rs the
 //! idle share, health_stillness.rs the jobs, orphans.rs the processes whose caller
@@ -14,6 +15,8 @@ use serde::Serialize;
 use crate::fail;
 use crate::fail::Result;
 use crate::host::{Host, Ssh, output_of, place};
+use crate::places::Places;
+use crate::process::Detached;
 use crate::process_readings::{self, Reading, measure};
 
 /// The line after which the script prints its `ps` listing: every line
@@ -29,6 +32,8 @@ pub struct Scan {
     /// Seconds since 1970 by the host's clock when it listed the processes.
     pub at: i64,
     pub rows: Vec<Row>,
+    /// The pids of the rows whose process builds detached.
+    pub detached: BTreeSet<i32>,
     /// When each process last used CPU, by this host's clock.
     pub active: BTreeMap<i32, i64>,
     /// The share of the host's CPU that sat idle over one second, as a
@@ -88,7 +93,11 @@ impl JobRun {
 /// the record behind, naming a group that no longer runs, so the script
 /// prints only the groups that run. dash, Linux's sh, takes no `--` before a
 /// process group. A Mac also prints its display reading (host_display.rs).
-pub fn script(host: &Host) -> String {
+/// The script reads the records of the detached processes under the build
+/// volume (`records_folder`) before it lists the processes, so a record it
+/// prints whose process the listing lacks is of a process that ended. A
+/// record that another reading removes meanwhile is of one that ended too.
+pub fn script(host: &Host, volume: &Path) -> String {
     format!(
         r#"{root}echo "uid=$(id -u)"
 case "$(uname -s)" in
@@ -104,12 +113,45 @@ for claim in "$HOME"/dev/*-worktrees/*.job; do
   kill -0 "-$1" 2>/dev/null && echo "job=${{claim%.job}} $1 $2"
 done
 {listener}
+for record in {records}/*.json; do
+  [ -e "$record" ] || continue
+  if text=$(cat "$record"); then
+    printf 'detached=%s\n' "$text"
+  elif [ -e "$record" ]; then
+    exit 1
+  fi
+done
 {timed_ps}"#,
+        records = records_folder(host, volume),
         root = crate::remote::root_script(host),
         listener = crate::sccache::listener_script(),
         timed_ps = timed_ps_script(),
         display = crate::host_display::SCRIPT,
         run_file = crate::remote::RUN_FILE,
+    )
+}
+
+/// The folder of <host>'s records of detached processes, as a word of a
+/// script there: under <volume>, this Mac's build volume, or on another host
+/// under the build volume that `remote::root_script` names.
+fn records_folder(host: &Host, volume: &Path) -> String {
+    match host.target {
+        Some(_) => format!("\"$BUILDS_ROOT\"/{}", crate::process::FOLDER),
+        None => crate::host::sh_quote(&volume.join(crate::process::FOLDER).to_string_lossy()),
+    }
+}
+
+/// The script that removes the records <ended> from <host>.
+fn removal_script(host: &Host, volume: &Path, ended: &[Detached]) -> String {
+    let folder = records_folder(host, volume);
+    let files: Vec<String> = ended
+        .iter()
+        .map(|record| format!("{folder}/{}", record.file_name()))
+        .collect();
+    format!(
+        "{}rm -f {}",
+        crate::remote::root_script(host),
+        files.join(" ")
     )
 }
 
@@ -275,10 +317,19 @@ pub fn timed_rows(text: &str) -> std::result::Result<(&str, i64, Vec<Row>), Stri
 /// compares with.
 #[cfg(test)]
 pub fn parse(text: &str, readings: &[Reading]) -> std::result::Result<Scan, String> {
-    read_scan(text, readings).map(|(scan, _)| scan)
+    read_scan(text, readings).map(|read| read.scan)
 }
 
-fn read_scan(text: &str, readings: &[Reading]) -> std::result::Result<(Scan, Reading), String> {
+/// What one run of the script says.
+struct ScriptRead {
+    scan: Scan,
+    /// The reading of the CPU that `process_readings` keeps.
+    cpu: Reading,
+    /// The records whose process has ended.
+    ended: Vec<Detached>,
+}
+
+fn read_scan(text: &str, readings: &[Reading]) -> std::result::Result<ScriptRead, String> {
     let (head, at, rows) = timed_rows(text)?;
     let value = |key: &str| crate::host::answer_value(head, key);
     let jobs = head
@@ -309,10 +360,30 @@ fn read_scan(text: &str, readings: &[Reading]) -> std::result::Result<(Scan, Rea
         }))
     })()
     .map_err(|fault| fault.text());
+    let mut detached = BTreeSet::new();
+    let mut ended = Vec::new();
+    for line in head.lines() {
+        let Some(text) = line.strip_prefix("detached=") else {
+            continue;
+        };
+        let record: Detached = serde_json::from_str(text).map_err(|error| {
+            format!("builds cannot read the host's record of a detached process ({error}): {text}")
+        })?;
+        // A zombie has ended.
+        if rows
+            .iter()
+            .any(|row| !row.zombie && record.names(row.pid, at - row.age_seconds))
+        {
+            detached.insert(record.pid);
+        } else {
+            ended.push(record);
+        }
+    }
     let cpu = Reading::following(at, &rows, readings);
     let scan = Scan {
         uid,
         at,
+        detached,
         active: cpu
             .procs
             .iter()
@@ -329,23 +400,36 @@ fn read_scan(text: &str, readings: &[Reading]) -> std::result::Result<(Scan, Rea
         sccache,
         display: crate::host_display::parse(head),
     };
-    Ok((scan, cpu))
+    Ok(ScriptRead { scan, cpu, ended })
 }
 
 /// Runs the script on <host>, reads what it printed against the readings
-/// kept in the caches folder under <home>, and keeps this listing as a reading
-/// when the newest is a minute old (process_readings.rs).
-pub fn read(ssh: &Ssh, host: &Host, home: &Path) -> std::result::Result<Scan, String> {
+/// kept in the caches folder under <places>' home, keeps this listing as a
+/// reading when the newest is a minute old (process_readings.rs), and
+/// removes the records of detached processes that have ended.
+pub fn read(ssh: &Ssh, host: &Host, places: &Places) -> std::result::Result<Scan, String> {
+    let home = &places.home;
     let mut readings = process_readings::read(home, &host.name).map_err(|fault| fault.text())?;
     let text = crate::host::output_at(
         ssh,
         host,
-        &script(host),
+        &script(host, &places.root),
         &format!("reading {}", place(&host.name)),
     )?;
-    let (scan, current) = read_scan(&text, &readings)?;
-    if process_readings::record(&mut readings, current) {
+    let ScriptRead { scan, cpu, ended } = read_scan(&text, &readings)?;
+    if process_readings::record(&mut readings, cpu) {
         process_readings::write(home, &host.name, &readings).map_err(|fault| fault.text())?;
+    }
+    if !ended.is_empty() {
+        crate::host::output_at(
+            ssh,
+            host,
+            &removal_script(host, &places.root, &ended),
+            &format!(
+                "removing the records of ended processes on {}",
+                place(&host.name)
+            ),
+        )?;
     }
     Ok(scan)
 }

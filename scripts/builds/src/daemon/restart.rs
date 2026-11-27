@@ -8,7 +8,6 @@ use std::fs::{self, File};
 use std::io::{self, Read};
 use std::os::fd::{AsFd, AsRawFd, OwnedFd};
 use std::os::unix::net::UnixStream;
-use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::Duration;
@@ -19,6 +18,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::output::note;
 use crate::places::{LISTS_VARIABLE, Places, ROOT_VARIABLE, build_root, lists_setting};
+use crate::process::Detached;
 use crate::procs::{self, Process, Processes};
 
 const START_LIMIT: Duration = Duration::from_secs(30);
@@ -193,7 +193,8 @@ pub fn run(places: &Places) -> Result<()> {
                 .context(|| format!("Builds could not stop dashboard process {pid}"))
         },
         |root, launch| {
-            start(launch.command(&program), &places_at(root).daemon_log()).map(|child| child.id())
+            let at = places_at(root);
+            start(&at.root, launch.command(&program), &at.daemon_log()).map(|child| child.id())
         },
     )
 }
@@ -290,7 +291,7 @@ fn save(record: &Path, pending: &BTreeMap<PathBuf, Launch>) -> Result<()> {
     crate::whole_file::write(record, bytes)
 }
 
-fn start(mut command: Command, log: &Path) -> Result<Child> {
+fn start(volume: &Path, mut command: Command, log: &Path) -> Result<Child> {
     let dir = log.parent().expect("the dashboard log has a folder");
     match fs::create_dir(dir) {
         Ok(()) => {}
@@ -303,19 +304,12 @@ fn start(mut command: Command, log: &Path) -> Result<Child> {
     ready
         .set_read_timeout(Some(START_LIMIT))
         .context(|| "Builds could not set a timeout for dashboard startup".to_string())?;
-    let mut child = command
+    command
         .env(STARTING, "1")
         .stdin(Stdio::from(OwnedFd::from(report)))
         .stdout(Stdio::null())
-        .stderr(Stdio::from(log_file))
-        .process_group(0)
-        .spawn()
-        .context(|| {
-            format!(
-                "Builds could not start the dashboard with {}",
-                command.get_program().to_string_lossy()
-            )
-        })?;
+        .stderr(Stdio::from(log_file));
+    let mut child = Detached::start(volume, &mut command, "serve the dashboard")?;
     // Command keeps the supplied stdin descriptor for another spawn until it
     // drops. Only the child may keep that end while install waits for readiness.
     drop(command);
@@ -480,7 +474,7 @@ mod tests {
                 procs::terminate_and_wait(pid)
                     .context(|| "stopping the old test process".to_string())
             },
-            |_, launch| start(launch.command(&program), &log).map(|child| child.id()),
+            |_, launch| start(&root, launch.command(&program), &log).map(|child| child.id()),
         )
         .unwrap_err()
         .text();

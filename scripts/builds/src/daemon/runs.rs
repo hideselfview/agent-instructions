@@ -41,6 +41,7 @@ use super::vnode::Watch;
 use crate::fail::{Context, Result};
 use crate::lane::Lane;
 use crate::places::Places;
+use crate::process::Detached;
 use crate::run_end::RunEnd;
 
 /// The most of a run's output the page gets: its end.
@@ -484,9 +485,15 @@ impl Runs {
             }
         }
         command.stdin(Stdio::null()).stdout(log).stderr(errors);
-        let mut child = command
-            .spawn()
-            .context(|| format!("starting {}", self.program[0]))?;
+        // Detached: a dashboard that restarts leaves the build running.
+        let purpose = match job {
+            Job::BuildApp { .. } => format!("build {repo}'s {} app for the dashboard", lane.word()),
+            Job::Shots { prefix, .. } => format!(
+                "take the shots of {prefix} of {repo}'s {} app for the dashboard",
+                lane.word()
+            ),
+        };
+        let mut child = Detached::start(&self.places.root, &mut command, &purpose)?;
         let record = Record {
             repo: repo.to_string(),
             lane: lane.word().to_string(),

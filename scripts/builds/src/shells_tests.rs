@@ -266,7 +266,7 @@ fn a_junk_shell_names_the_process_that_started_it() {
 #[test]
 fn stopping_a_shell_takes_its_tree_deepest_first() {
     let pairs = [(1, 0), (10, 1), (11, 10), (12, 10), (20, 2), (13, 12)];
-    assert_eq!(tree_of(&pairs, 10), vec![13, 12, 11, 10]);
+    assert_eq!(tree_of(&pairs, 10, &BTreeSet::new()), vec![13, 12, 11, 10]);
     let junk = Junk {
         pid: 10,
         parent: 1,
@@ -800,4 +800,74 @@ fn a_shell_that_runs_a_live_session_is_not_idle() {
     let entries = coordinator_over_agent(30, "cargo test", false);
     let found = judge_with_sessions(&entries, &[2]);
     assert!(found.junk.is_empty(), "{:?}", reasons(&found));
+}
+
+/// Stopping a junk shell leaves a process builds detached to run, though it
+/// still runs under the shell, and stops the rest of the tree.
+#[test]
+fn stopping_a_junk_shell_leaves_what_builds_detached_to_run() {
+    use std::io::{BufRead, BufReader, Read};
+    let scratch = crate::testing::Scratch::new("shells-stop-detached");
+    let places = scratch.places();
+    // The second sleep holds the shell's stdout, and the first does not. The
+    // shell says `forked` once both are its children.
+    let mut shell = std::process::Command::new("/bin/bash")
+        .args([
+            "-c",
+            "sleep 600 >/dev/null & echo $!; sleep 600 & echo forked; wait",
+            "shell-snapshots",
+        ])
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut out = BufReader::new(shell.stdout.take().unwrap());
+    let mut line = || {
+        let mut said = String::new();
+        out.read_line(&mut said).unwrap();
+        said.trim().to_string()
+    };
+    let detached: i32 = line().parse().unwrap();
+    assert_eq!(line(), "forked");
+    // The record builds writes for a process it detaches, which a test
+    // writes itself for a process that another one started.
+    let record = crate::process::Detached {
+        pid: detached,
+        started: crate::app_timing::now(),
+        purpose: "check out a commit".to_string(),
+        caller: crate::process::Caller {
+            pid: shell.id() as i32,
+            command: "builds app-build demo work".to_string(),
+        },
+    };
+    let folder = places.root.join(crate::process::FOLDER);
+    std::fs::create_dir(&folder).unwrap();
+    std::fs::write(
+        folder.join(record.file_name()),
+        serde_json::to_vec(&record).unwrap(),
+    )
+    .unwrap();
+    let junk = Junk {
+        pid: shell.id() as i32,
+        parent: std::process::id() as i32,
+        agent: None,
+        minutes: 30,
+        worktree: "demo/side-1".to_string(),
+        reason: waits("sleep"),
+        command: "sleep 600".to_string(),
+    };
+    let shells = Shells {
+        running: 1,
+        junk: vec![junk],
+        active: Vec::new(),
+    };
+    let (lines, failed) = stop(&shells, &places).unwrap();
+    shell.wait().unwrap();
+    // The pipe ends once the second sleep has.
+    out.read_to_end(&mut Vec::new()).unwrap();
+    let runs = crate::procs::runs(detached);
+    // SAFETY: kill(2) on the sleep this test started.
+    unsafe { libc::kill(detached, libc::SIGKILL) };
+    assert!(runs, "the stop ended the detached process");
+    assert_eq!(failed, 0, "{lines:?}");
+    assert!(lines[0].contains("and 1 processes under it"), "{lines:?}");
 }

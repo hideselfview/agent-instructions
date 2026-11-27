@@ -153,6 +153,7 @@ mod output;
 mod output_excerpt;
 mod places;
 mod proc_limit;
+mod process;
 mod process_readings;
 mod procs;
 mod programs;

@@ -95,7 +95,7 @@
 
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use crate::app_lock_guard::CheckoutLock;
@@ -104,8 +104,9 @@ use crate::fail::{Context, Result};
 use crate::lane::Lane;
 use crate::lock::{self, Where, Within};
 use crate::places::Places;
+use crate::process::Detached;
 use boards::app_build::Apps;
-use boards::{git, git_text};
+use boards::{git, git_stdout, git_text};
 
 pub const CONFIG: &str = ".app-build";
 
@@ -941,8 +942,8 @@ fn resolve_with(rev: &str, git: impl FnOnce(&[&str]) -> Result<String>) -> Resul
 /// so that the tree is the old commit's or the new one's however the build
 /// that asks is stopped. `git checkout` writes the files first and moves HEAD
 /// last, so a checkout killed in between leaves the new commit's files under
-/// the old HEAD, a tree every later build refuses as dirty. So git runs in a
-/// process group of its own, with the stopping signals blocked (a Ctrl-C or a
+/// the old HEAD, a tree every later build refuses as dirty. So builds
+/// detaches git (process.rs), in a session of its own, with the stopping signals blocked (a Ctrl-C or a
 /// SIGTERM to the build's group, a takeover's SIGUSR2) and SIGPIPE ignored (the
 /// build may be gone when git writes). The checkout lock guard waits for git
 /// and holds the checkout even if the build driver dies. Only SIGKILL stops
@@ -955,7 +956,6 @@ pub fn switch_to(top: &Path, commit: &str, force: bool, lock: CheckoutLock<'_>) 
     }
     args.push(commit);
     git_args(top, None, &args, |mut command, what| {
-        command.process_group(0);
         unsafe {
             command.pre_exec(|| {
                 let mut stopping = std::mem::zeroed::<libc::sigset_t>();
@@ -975,7 +975,17 @@ pub fn switch_to(top: &Path, commit: &str, force: bool, lock: CheckoutLock<'_>) 
                 Ok(())
             });
         }
-        lock.run(command, |mut command| Ok(git_text(&mut command, what)?))
+        lock.run(command, |mut command| {
+            command
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
+            let purpose = format!("check out {commit} in {}", top.display());
+            let output = Detached::start(lock.volume(), &mut command, &purpose)?
+                .wait_with_output()
+                .context(|| format!("running git to {what}"))?;
+            Ok(git_stdout(output, what)?)
+        })
     })
     .map(|_| ())
 }

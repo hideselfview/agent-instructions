@@ -30,6 +30,7 @@ use crate::fail::{Context, Fail, Result};
 use crate::host::Load;
 use crate::host::{LOCAL, Ssh};
 use crate::places::{Places, Rules};
+use crate::process::Detached;
 use crate::roots::Changed;
 use crate::units::record::record;
 
@@ -241,8 +242,8 @@ pub fn locked_flag(args: &[String]) -> Option<&'static str> {
     }
 }
 
-/// Starts `builds units after-build <checkout>` in a session of its own, so
-/// it outlives this process: it deletes the build copies this build
+/// Detaches `builds units after-build <checkout>`, so it outlives this
+/// process: it deletes the build copies this build
 /// replaced, once nothing holds the checkout's guard or the profile's lock.
 /// What it says goes to <root>/.after-build.log, which it holds an exclusive
 /// flock on for its whole run (taken here, on the file description it
@@ -250,9 +251,8 @@ pub fn locked_flag(args: &[String]) -> Option<&'static str> {
 /// one still running from an earlier build is waited for first. Space it
 /// doesn't free stays for the next prune, so a failure to start it is said
 /// and the build's own result stands.
-fn start_after_build(checkout: &Checkout, root: &Path) {
-    use std::os::unix::process::CommandExt;
-    let started = (|| -> std::io::Result<()> {
+fn start_after_build(places: &Places, checkout: &Checkout, root: &Path) {
+    let opened = (|| -> std::io::Result<Command> {
         let log = std::fs::OpenOptions::new()
             .write(true)
             .create(true)
@@ -271,17 +271,21 @@ fn start_after_build(checkout: &Checkout, root: &Path) {
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(log);
-        unsafe {
-            command.pre_exec(|| {
-                libc::setsid();
-                Ok(())
-            });
-        }
-        command.spawn().map(|_| ())
+        Ok(command)
     })();
+    let started = opened
+        .map_err(|error| Fail::Message(error.to_string()))
+        .and_then(|mut command| {
+            let purpose = format!(
+                "delete the build copies a build in {} replaced",
+                checkout.top.display()
+            );
+            Detached::start(&places.root, &mut command, &purpose).map(drop)
+        });
     if let Err(error) = started {
         crate::output::note(format!(
-            "starting the prune of the build copies this build replaced: {error}"
+            "starting the prune of the build copies this build replaced: {}",
+            error.text()
         ));
     }
 }
@@ -729,7 +733,7 @@ fn run_here(
     let lock_wait = relay.map(|relay| relay.join().expect("the relay does not panic"));
     drop(guard);
     if let (Some(checkout), Some(root)) = (checkout, &root) {
-        start_after_build(checkout, root);
+        start_after_build(places, checkout, root);
     }
     // cargo and the recorder print their own failures.
     let recorded = match recorded {

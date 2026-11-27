@@ -16,6 +16,7 @@ fn scan(ps: &str, jobs: Vec<JobRun>) -> std::result::Result<Scan, String> {
         active: Default::default(),
         at: 0,
         rows: crate::host_scan::parse_ps(ps).unwrap(),
+        detached: Default::default(),
         cpu_idle: Ok(50.0),
         jobs,
         sccache: Ok(None),
@@ -28,9 +29,6 @@ fn scan(ps: &str, jobs: Vec<JobRun>) -> std::result::Result<Scan, String> {
 const HERE: &str = "    1     0     0   0.0   1:00.00 9-00:00:00 S /sbin/launchd\n\
   300     1   501   0.0   0:01.00 2-07:16:47 S /usr/bin/git -C /tmp/builds-test-1/demo-worktrees/side-1 -c x commit\n\
   301   300   501   0.0   0:01.00 2-07:16:47 S /usr/bin/vim .git/COMMIT_EDITMSG\n\
-  302     1   501   0.0   0:01.00    03:19 S builds dashboard --listen 192.168.1.166\n\
-  303     1   501   0.0   0:01.00    01:19 S /Users/x/.local/bin/builds units after-build /x\n\
-  312     1   501   0.0   0:01.00    05:19 S builds review audit 77 --project bae\n\
   304     1   501   0.0   0:01.00 1-06:22:49 S /Users/x/.cargo/bin/sccache\n\
   305     1   501   0.0   0:01.00 1-06:22:49 S git fsmonitor--daemon run\n\
   306     1   501   0.0   0:01.00    00:30 S cargo test\n\
@@ -39,8 +37,7 @@ const HERE: &str = "    1     0     0   0.0   1:00.00 9-00:00:00 S /sbin/launchd
   309     1     0   0.0   0:01.00    40:00 S cargo test\n\
   310     1   501   0.0   0:01.00    40:00 S /Applications/Safari.app/Contents/MacOS/Safari\n\
   311     1   501   0.0   0:01.00    40:00 S /x/dev/bae-worktrees/side-2/target/debug/deps/bae_views-0123456789abcdef\n\
-  313     1   501   0.0   0:00.00    40:00 Z cargo test\n\
-  314     1   501   0.0   0:01.00    12:19 S /Users/x/.local/bin/builds build-app bae mac main\n";
+  313     1   501   0.0   0:00.00    40:00 Z cargo test\n";
 
 /// The orphans among each host's processes, and the jobs whose caller on
 /// this Mac is gone; a job whose caller runs is none.
@@ -114,7 +111,7 @@ fn a_finding_names_the_orphan_and_how_to_stop_it() {
     let land = Orphan {
         host: Host::local(),
         kind: Kind::Process {
-            row: rows[9].clone(),
+            row: rows[6].clone(),
             tree: vec![307],
             stops: false,
         },
@@ -179,20 +176,23 @@ fn a_process_that_ignores_sigterm_remains_in_health() {
     );
 }
 
-/// The dashboard starts each `builds build-app` as its child, and a restart
-/// of the dashboard leaves it under launchd with its work to do: it is no
-/// orphan, while another `builds` command with no caller is listed.
+/// A process that builds detached has a record, so health leaves it alone,
+/// with what runs under it, though no list names its command line.
 #[test]
-fn a_build_app_the_dashboard_started_is_no_orphan() {
-    let ps = "314     1   501   0.0   0:01.00    12:19 S /Users/x/.local/bin/builds build-app bae mac main\n\
-              307     1   501   0.0   0:01.00    40:00 S builds land side-3\n";
-    let scans = vec![(Host::local(), scan(ps, Vec::new()))];
-    let pids: Vec<i32> = find(&scans, &Holders::read().unwrap())
+fn a_process_builds_detached_is_no_orphan_whatever_its_command_line() {
+    let text = "uid=501\nnow=1000000\n\
+        detached={\"pid\":300,\"started\":999880,\"purpose\":\"check out a commit\",\"caller\":{\"pid\":200,\"command\":\"builds app-build demo work\"}}\n\
+        ps_follows=1\n\
+        300 1 501 0.0 0:01.00 02:00 S git -C /w checkout -q --detach abc\n\
+        301 300 501 0.0 0:01.00 02:00 S sh .git/hooks/post-checkout\n\
+        302 1 501 0.0 0:01.00 02:00 S git -C /w status";
+    let scan = crate::host_scan::parse(text, &[]).unwrap();
+    let pids: Vec<i32> = find(&[(Host::local(), Ok(scan))], &Holders::read().unwrap())
         .iter()
         .filter_map(|orphan| match &orphan.kind {
             Kind::Process { row, .. } => Some(row.pid),
             Kind::Job { .. } => None,
         })
         .collect();
-    assert_eq!(pids, [307]);
+    assert_eq!(pids, [302]);
 }

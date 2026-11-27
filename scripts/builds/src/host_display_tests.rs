@@ -56,6 +56,7 @@ fn scan(display: std::result::Result<Option<Display>, String>) -> Scan {
         active: Default::default(),
         at: 0,
         rows: Vec::new(),
+        detached: Default::default(),
         cpu_idle: Ok(50.0),
         jobs: Vec::new(),
         sccache: Ok(None),

@@ -26,6 +26,7 @@ use std::process::{Command, Stdio};
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::places::{EMPTYING_PREFIX, Places};
+use crate::process::Detached;
 
 /// The shared trash lock: waits only for an emptier's rename.
 pub fn lock_shared(places: &Places) -> Result<File> {
@@ -54,6 +55,7 @@ fn try_lock_folder(dir: &Path) -> Result<Option<File>> {
 /// A slot in the trash, locked while it is removed.
 pub struct Slot {
     pub path: PathBuf,
+    volume: PathBuf,
     hold: File,
     _trash: File,
 }
@@ -68,6 +70,7 @@ impl Slot {
         let hold = lock_folder(&path)?;
         Ok(Slot {
             path,
+            volume: places.root.clone(),
             hold,
             _trash: trash_lock,
         })
@@ -82,7 +85,12 @@ impl Slot {
 
     /// Starts `rm -rf` on the slot; it keeps the slot's lock until it ends.
     pub fn remove_background(self) -> Result<()> {
-        spawn_rm(std::slice::from_ref(&self.path), None, &[&self.hold])
+        spawn_rm(
+            &self.volume,
+            std::slice::from_ref(&self.path),
+            None,
+            &[&self.hold],
+        )
     }
 }
 
@@ -104,11 +112,17 @@ pub fn remove_or_warn(path: &Path) -> bool {
     }
 }
 
-/// `rm -rf <paths>` in a session of its own, so it finishes after this
-/// process and its terminal are gone, then `rmdir <then_rmdir>` (failing
+/// `rm -rf <paths>`, detached, so it finishes after this process and its
+/// terminal are gone, then `rmdir <then_rmdir>` (failing
 /// harmlessly while something is left in it). The files in <holds> stay open
-/// in it, so their locks last as long as it runs.
-fn spawn_rm(paths: &[PathBuf], then_rmdir: Option<&Path>, holds: &[&File]) -> Result<()> {
+/// in it, so their locks last as long as it runs. <volume> is the build
+/// volume that records it (process.rs).
+fn spawn_rm(
+    volume: &Path,
+    paths: &[PathBuf],
+    then_rmdir: Option<&Path>,
+    holds: &[&File],
+) -> Result<()> {
     use std::os::unix::process::CommandExt;
     let mut command = Command::new("sh");
     command
@@ -123,21 +137,21 @@ fn spawn_rm(paths: &[PathBuf], then_rmdir: Option<&Path>, holds: &[&File]) -> Re
     let fds: Vec<i32> = holds.iter().map(|file| file.as_raw_fd()).collect();
     unsafe {
         command.pre_exec(move || {
-            libc::setsid();
             for fd in &fds {
                 crate::flock::inherit(*fd)?;
             }
             Ok(())
         });
     }
-    command.spawn().context(|| {
-        format!(
-            "starting rm -rf in {}",
-            paths
-                .first()
-                .map_or(String::new(), |p| p.display().to_string())
-        )
-    })?;
+    let purpose = format!(
+        "remove {}",
+        paths
+            .iter()
+            .map(|path| path.display().to_string())
+            .collect::<Vec<_>>()
+            .join(" ")
+    );
+    Detached::start(volume, &mut command, &purpose)?;
     Ok(())
 }
 
@@ -247,7 +261,7 @@ pub fn empty_background(places: &Places) -> Result<()> {
             }
         }
         let held: Vec<&File> = holds.iter().collect();
-        spawn_rm(&paths, Some(&folder), &held)?;
+        spawn_rm(&places.root, &paths, Some(&folder), &held)?;
     }
     Ok(())
 }

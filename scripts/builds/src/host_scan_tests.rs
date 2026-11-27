@@ -177,7 +177,7 @@ esac"#,
     let scan = || {
         let output = scratch
             .system()
-            .sh(&script(&local))
+            .sh(&script(&local, &scratch.places().root))
             .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
             .env("HOME", &home)
             .output()
@@ -266,4 +266,33 @@ fn parses_ps_lines() {
     // Linux's ps prints CPU time as [dd-]hh:mm:ss.
     let linux = parse_ps("  901     1  1000  2.0 1-02:03:04 3-00:00:01 S /usr/bin/x\n").unwrap();
     assert_eq!(linux[0].cpu_seconds, 86_400.0 + 7_384.0);
+}
+
+/// A reading of a host names the processes that builds detached there and
+/// still run, and removes the record of each one that has ended.
+#[test]
+fn a_reading_names_the_detached_processes_and_removes_ended_records() {
+    let scratch = crate::testing::Scratch::new("scan-detached");
+    let places = scratch.places();
+    let folder = places.root.join(crate::process::FOLDER);
+    let local = crate::host::Host::local();
+    let ssh = scratch.system().ssh();
+    let mut command = std::process::Command::new("sh");
+    command
+        .args(["-c", "read line"])
+        .stdin(std::process::Stdio::piped());
+    // JSON writes a newline and a backslash with a backslash, which the
+    // script prints as they are.
+    let mut child =
+        crate::process::Detached::start(&places.root, &mut command, "wait for\na \\ line").unwrap();
+    let pid = child.id() as i32;
+    let records = || std::fs::read_dir(&folder).unwrap().count();
+    let scan = read(&ssh, &local, &places).unwrap();
+    assert_eq!(scan.detached, std::collections::BTreeSet::from([pid]));
+    assert_eq!(records(), 1);
+    drop(child.stdin.take());
+    child.wait().unwrap();
+    let scan = read(&ssh, &local, &places).unwrap();
+    assert!(scan.detached.is_empty());
+    assert_eq!(records(), 0);
 }

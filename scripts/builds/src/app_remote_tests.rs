@@ -124,7 +124,7 @@ fn remote_app(s: &Setup) -> RemoteApp<'_> {
         "demo",
         s.lane,
         "m1:app-1",
-        CheckoutLock::new(s.lock.as_fd(), None),
+        CheckoutLock::new(&s.places.root, s.lock.as_fd(), None),
     )
     .unwrap()
     .unwrap()
@@ -133,7 +133,7 @@ fn remote_app(s: &Setup) -> RemoteApp<'_> {
 #[test]
 fn a_local_entry_is_no_remote_checkout() {
     let s = setup("remote-app-local", Lane::ANDROID);
-    let checkout = CheckoutLock::new(s.lock.as_fd(), None);
+    let checkout = CheckoutLock::new(&s.places.root, s.lock.as_fd(), None);
     assert!(
         RemoteApp::find(&s.places, &s.ssh, "demo", Lane::ANDROID, "side-1", checkout)
             .unwrap()

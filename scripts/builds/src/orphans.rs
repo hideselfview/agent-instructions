@@ -4,14 +4,10 @@
 //! - A development tool (cargo, a compiler, an sccache client, a test binary
 //!   cargo built, git, xcodebuild, builds' own ssh to a host, or `builds`)
 //!   whose parent is launchd: the process that started it ended, and
-//!   launchd took it over. builds starts on purpose only the dashboard, the
-//!   prune of build copies after a build (`builds units`), the audit a
-//!   landing's review samples (`builds review audit`) and the sccache server
-//!   that way, and git starts its daemons that way, so none of those is one.
-//!   A `builds build-app` is none either: the dashboard starts each one as its
-//!   child, and when `builds install` restarts the dashboard, the build runs on
-//!   under launchd and the restarted dashboard shows it again from its record
-//!   (daemon/runs.rs).
+//!   launchd took it over. A process that builds detached, and what runs
+//!   under it, is none: its host has a record of it (process.rs). Nor are
+//!   git's daemons and the sccache server, which run that way on purpose and
+//!   which builds does not detach.
 //! - A job's command on a host (host_scan.rs) whose `builds` process on this
 //!   Mac is gone, judged as job_claim.rs judges a claim.
 //!
@@ -21,11 +17,13 @@
 //! "needs action": a `builds` command such as a landing or an install still
 //! does its work when no one reads it.
 
+use std::collections::BTreeSet;
+
 use crate::command::Command;
 use crate::health::Advice;
 use crate::host::{Host, place};
 use crate::host_scan::Row;
-use crate::host_scan::{JobRun, Scan, arguments, program, tree};
+use crate::host_scan::{JobRun, Scan, arguments, program, tree, trees};
 use crate::job_claim::{Holder, Holders};
 use crate::shells::shown;
 use crate::text::duration;
@@ -160,18 +158,16 @@ impl Orphan {
     }
 }
 
-/// Whether <row>, whose parent is launchd, is a tool whose caller is gone,
-/// and whether its only work is what it prints; None for a process that
-/// runs under launchd on purpose. <targets> are the hosts' ssh targets.
+/// Whether <row>, whose parent is launchd and which builds did not detach,
+/// is a tool whose caller is gone, and whether its only work is what it
+/// prints; None for any other process. <targets> are the hosts' ssh targets.
 fn judge(row: &Row, targets: &[&str]) -> Option<bool> {
     let words = arguments(row);
     match program(row) {
-        "builds" => match Command::of(&words).map(|parsed| parsed.command.orphaned()) {
-            None if words.is_empty() => None,
-            Some(Orphaned::Detached) => None,
-            Some(Orphaned::OnlyPrints) => Some(true),
-            Some(Orphaned::Works) | None => Some(false),
-        },
+        "builds" => Some(
+            Command::of(&words)
+                .is_some_and(|parsed| parsed.command.orphaned() == Orphaned::OnlyPrints),
+        ),
         "git" => (!words.iter().any(|word| word.ends_with("--daemon"))).then_some(true),
         "sccache" => (!words.is_empty()).then_some(true),
         "ssh" => (words.contains(&"BatchMode=yes")
@@ -194,9 +190,14 @@ pub fn find(scans: &[(Host, std::result::Result<Scan, String>)], holders: &Holde
         let Ok(scan) = scan else {
             continue;
         };
+        let detached: BTreeSet<i32> = trees(&scan.rows, &scan.detached)
+            .iter()
+            .map(|row| row.pid)
+            .collect();
         for row in scan.rows.iter().filter(|row| {
             // A zombie has ended: only its parent's reap removes it.
-            row.ppid == LAUNCHD
+            !detached.contains(&row.pid)
+                && row.ppid == LAUNCHD
                 && row.uid == scan.uid
                 && row.age_seconds >= ORPHAN_SECONDS
                 && !row.zombie
@@ -209,6 +210,7 @@ pub fn find(scans: &[(Host, std::result::Result<Scan, String>)], holders: &Holde
                         tree: tree(&scan.rows, row.pid)
                             .iter()
                             .map(|row| row.pid)
+                            .filter(|pid| !detached.contains(pid))
                             .collect(),
                         stops,
                     },
@@ -241,8 +243,6 @@ pub fn find(scans: &[(Host, std::result::Result<Scan, String>)], holders: &Holde
 /// What a builds command does once its caller is gone (`Command::orphaned`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Orphaned {
-    /// It runs on its own on purpose, with no caller.
-    Detached,
     /// Its only work is what it prints, which nothing reads now.
     OnlyPrints,
     /// It does its work to its end.
@@ -256,13 +256,6 @@ impl crate::command::Command {
         use crate::command::Command::*;
         use crate::command::*;
         match self {
-            // Started on its own: the dashboard and its stage, the prune
-            // `builds cargo` starts as it exits, an audit, and build-app,
-            // which a person starts from the dashboard.
-            BuildApp
-            | Dashboard(dashboard::Serve | dashboard::Stage)
-            | Units(units::Prune | units::GitCheckouts | units::AfterBuild)
-            | Review(review::Audit) => Orphaned::Detached,
             Cargo
             | Remote(remote::Run | remote::Step)
             | Checks(checks::Run)
@@ -298,6 +291,9 @@ impl crate::command::Command {
             | Waits
             | Land
             | Brief
+            | BuildApp
+            | Dashboard(dashboard::Serve | dashboard::Stage)
+            | Units(units::Prune | units::GitCheckouts | units::AfterBuild)
             | Install
             | Version
             | Next
@@ -332,6 +328,7 @@ impl crate::command::Command {
                 | review::Misses
                 | review::Rates
                 | review::Scores
+                | review::Audit
                 | review::CasePropose
                 | review::CaseAdd,
             )

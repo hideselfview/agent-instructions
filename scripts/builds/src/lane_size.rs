@@ -47,6 +47,7 @@ use crate::prune::Run;
 use crate::queue::{self, Queue};
 use crate::text::{human, minutes_since};
 use boards::app_build::Platform;
+use std::path::PathBuf;
 
 /// The most app checkouts a lane has. On 2026-11-16, the busiest day
 /// recorded (85 android and 101 mac runs), 4 builds at once, waiting or
@@ -413,6 +414,8 @@ fn remove_if_idle(at: RepoLane, lock: &CheckoutLock, times: Idle, run: Run) -> R
 /// The lock of one app checkout, which this process holds until the value
 /// is dropped.
 pub struct CheckoutLock {
+    /// The build volume of the checkout.
+    volume: PathBuf,
     file: std::fs::File,
     entry: String,
 }
@@ -426,7 +429,7 @@ impl std::os::fd::AsFd for CheckoutLock {
 impl CheckoutLock {
     pub fn reservation(&self) -> crate::app_lock_guard::CheckoutLock<'_> {
         use std::os::fd::AsFd;
-        crate::app_lock_guard::CheckoutLock::new(self.as_fd(), None)
+        crate::app_lock_guard::CheckoutLock::new(&self.volume, self.as_fd(), None)
     }
 }
 
@@ -448,6 +451,7 @@ pub fn lock_checkout(
         return Ok(None);
     };
     let lock = CheckoutLock {
+        volume: places.root.clone(),
         file,
         entry: entry.to_string(),
     };
@@ -486,6 +490,7 @@ pub fn wait_checkout(places: &Places, repo: &str, lane: Lane, entry: &str) -> Re
         return Ok(Waited::Stopped);
     };
     let lock = CheckoutLock {
+        volume: places.root.clone(),
         file: locked,
         entry: entry.to_string(),
     };

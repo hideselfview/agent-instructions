@@ -27,6 +27,7 @@ use std::process::{Command, Stdio};
 use crate::fail;
 use crate::fail::{Context, Result, with_move_cleanup};
 use crate::places::Places;
+use crate::process::Detached;
 
 /// How the folder's space comes back.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -111,14 +112,14 @@ impl EvictionSlot {
         }
     }
 
-    fn remove(self, removal: Removal) -> Result<()> {
+    fn remove(self, places: &Places, removal: Removal) -> Result<()> {
         match (self, removal) {
             (Self::Trash(slot), Removal::Now) => {
                 slot.remove_now();
                 Ok(())
             }
             (Self::Trash(slot), Removal::Background) => slot.remove_background(),
-            (Self::Sibling(path), removal) => remove(&path, removal).map(drop),
+            (Self::Sibling(path), removal) => remove(places, &path, removal).map(drop),
         }
     }
 
@@ -203,7 +204,7 @@ fn displace(
         Change::Move(recreate, removal) => {
             let moved = move_in(&folder, slot.path(), name, recreate)?;
             drop(locks);
-            slot.remove(removal)?;
+            slot.remove(places, removal)?;
             Ok(if moved {
                 Evicted::Deleted
             } else {
@@ -215,7 +216,7 @@ fn displace(
             let moved = replace_from(system, &folder, &replacement, prepare);
             drop(locks);
             let cleanup = if matches!(moved, Ok(true)) {
-                slot.remove(Removal::Background)
+                slot.remove(places, Removal::Background)
             } else {
                 slot.discard()
             };
@@ -503,23 +504,23 @@ pub fn in_temp_dir<T>(
     }
 }
 
-/// Removes <slot> now (warning, and leaving it, when it cannot be finished), or starts `rm -rf` on it in a session of its own, so
-/// it finishes after this process and its terminal are gone.
-pub fn remove(slot: &Path, removal: Removal) -> Result<bool> {
+/// Removes <slot> now (warning, and leaving it, when it cannot be finished),
+/// or detaches `rm -rf` on it, so it finishes after this process and its
+/// terminal are gone.
+fn remove(places: &Places, slot: &Path, removal: Removal) -> Result<bool> {
     match removal {
         Removal::Now => {
             return Ok(crate::trash::remove_or_warn(slot));
         }
         Removal::Background => {
-            background_rm(slot)?;
+            background_rm(places, slot)?;
         }
     }
     Ok(true)
 }
 
 /// `rm -rf <path>` detached from this process.
-pub fn background_rm(path: &Path) -> Result<()> {
-    use std::os::unix::process::CommandExt;
+fn background_rm(places: &Places, path: &Path) -> Result<()> {
     let mut command = Command::new("rm");
     command
         .arg("-rf")
@@ -527,15 +528,8 @@ pub fn background_rm(path: &Path) -> Result<()> {
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    unsafe {
-        command.pre_exec(|| {
-            libc::setsid();
-            Ok(())
-        });
-    }
-    command
-        .spawn()
-        .context(|| format!("starting rm -rf {}", path.display()))?;
+    let purpose = format!("remove {}", path.display());
+    Detached::start(&places.root, &mut command, &purpose)?;
     Ok(())
 }
 

@@ -21,7 +21,12 @@ fn the_copy_replaces_the_test_app() {
     let built = scratch.dir.join("built/out.app");
     std::fs::create_dir_all(built.join("new")).unwrap();
     let lock = lock::take_checkout(&places, "demo", Lane::MAC, "side-1").unwrap();
-    let copied = copy_out(&built, &app, CheckoutLock::new(lock.as_fd(), None)).unwrap();
+    let copied = copy_out(
+        &built,
+        &app,
+        CheckoutLock::new(&places.root, lock.as_fd(), None),
+    )
+    .unwrap();
     assert!(
         app.join("old").exists(),
         "the test app stays until its replacement is ready"
@@ -83,7 +88,12 @@ fn finder_dates_the_test_app_when_it_was_copied_out() {
     let places = scratch.places();
     let lock = lock::take_checkout(&places, "demo", Lane::MAC, "side-1").unwrap();
     let before = SystemTime::now();
-    let copied = copy_out(&built, &app, CheckoutLock::new(lock.as_fd(), None)).unwrap();
+    let copied = copy_out(
+        &built,
+        &app,
+        CheckoutLock::new(&places.root, lock.as_fd(), None),
+    )
+    .unwrap();
     replace(&app, copied).unwrap();
     let after = SystemTime::now();
 
@@ -178,7 +188,8 @@ fn no_ref_builds_the_origin_main_the_fetch_brought_not_a_stale_local_main() {
     let newer = run_git(&other, &["rev-parse", "HEAD"]).unwrap();
 
     let lock = lock::take_checkout(&scratch.places(), "demo", Lane::MAC, "side-1").unwrap();
-    let checkout = CheckoutLock::new(lock.as_fd(), None);
+    let volume = scratch.places().root;
+    let checkout = CheckoutLock::new(&volume, lock.as_fd(), None);
     let config = check_out(&top, &scratch.system(), default, checkout)
         .unwrap()
         .config;

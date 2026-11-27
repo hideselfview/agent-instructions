@@ -42,7 +42,7 @@ fn every_command_is_named_by_its_words_and_its_usage_lines_start_with_them() {
 /// Every command answers each question builds asks about a command, and the
 /// answers agree: a command that makes a run folder keeps the Mac awake, a
 /// command that takes no use of the stores needs no acknowledgement, and the
-/// commands that start detached on purpose or only print are each one way.
+/// commands that only print are one way.
 /// The arguments of `builds <words>`.
 fn args_of(words: &[String]) -> crate::args::Args {
     let parsed = Command::parse(words).unwrap();
@@ -292,15 +292,13 @@ fn the_acknowledgement_check_covers_every_command_but_those_that_need_none() {
     }
 }
 
-/// The orphan check leaves the commands that run on their own on purpose,
-/// stops those that only print, and lets the rest work to their end.
+/// The orphan check stops the commands that only print, and lets the rest
+/// work to their end.
 #[test]
-fn an_orphaned_command_is_detached_only_prints_or_works() {
+fn an_orphaned_command_only_prints_or_works() {
     for (line, orphaned) in [
-        ("dashboard", Orphaned::Detached),
-        ("units prune 1 2 0 /f", Orphaned::Detached),
-        ("review audit 3 --repo-dir /r", Orphaned::Detached),
-        ("build-app bae mac", Orphaned::Detached),
+        ("dashboard", Orphaned::Works),
+        ("build-app bae mac", Orphaned::Works),
         ("cargo test", Orphaned::OnlyPrints),
         ("remote run bae main -- true", Orphaned::OnlyPrints),
         ("checks run", Orphaned::OnlyPrints),

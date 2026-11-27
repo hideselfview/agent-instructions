@@ -105,6 +105,7 @@ fn m1_with_server(
         m1(),
         Ok(Scan {
             uid: 502,
+            detached: Default::default(),
             active: Default::default(),
             at: 0,
             rows: crate::host_scan::parse_ps(&ps).unwrap(),

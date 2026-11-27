@@ -48,7 +48,7 @@ use super::short;
 use crate::args::Args;
 use crate::checkout::Checkout;
 use crate::fail;
-use crate::fail::{Context, Fail, Result};
+use crate::fail::{Fail, Result};
 use crate::lists::Stamp;
 use crate::lists::design_paths::Globs;
 use crate::lists::store::{Store, resolve_by};
@@ -682,6 +682,8 @@ struct Asked {
     material: Material,
     /// The design files of the change's repo.
     design: Globs,
+    /// The build volume, which records the audit (process.rs).
+    volume: PathBuf,
 }
 
 impl Asked {
@@ -728,6 +730,7 @@ fn ask(tool: &Tool, args: &Args, usage: &str) -> Result<Asked> {
         scope.group_names(paths)
     })?;
     Ok(Asked {
+        volume: tool.places.root.clone(),
         store,
         conn,
         repo,
@@ -890,7 +893,8 @@ fn start_audit(asked: &Asked, landing: i64, roll: f64) -> Result<()> {
     // The audit keeps running after this command exits, so this command
     // removes BUILDS_USE from the audit's environment, and the audit takes
     // its own use of the stores.
-    std::process::Command::new(program)
+    let mut command = std::process::Command::new(program);
+    command
         .env_remove(crate::install_gate::VARIABLE)
         .args(["review", "audit", &landing.to_string()])
         .args(["--project", &asked.store.project])
@@ -900,9 +904,9 @@ fn start_audit(asked: &Asked, landing: i64, roll: f64) -> Result<()> {
         .arg(&asked.root)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .context(|| "starting the audit".to_string())?;
+        .stderr(std::process::Stdio::null());
+    let purpose = format!("audit review landing {landing}");
+    crate::process::Detached::start(&asked.volume, &mut command, &purpose)?;
     Ok(())
 }
 

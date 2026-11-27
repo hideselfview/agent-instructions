@@ -1003,7 +1003,7 @@ impl Model {
                 crate::health::HostProcesses::read(
                     ssh,
                     host,
-                    &self.places.home,
+                    &self.places,
                     host.target.is_none().then_some(dashboard),
                 )
             }))

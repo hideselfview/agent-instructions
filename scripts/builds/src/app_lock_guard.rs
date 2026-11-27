@@ -1,16 +1,20 @@
 //! Keeps a checkout reserved while a foreground command uses it, even if
 //! the driver exits. The guard holds the locks and watches the command's exit
 //! in the kernel. The command and its descendants never receive the locks.
+//! builds detaches the guard (process.rs), which runs on when the driver ends.
 
 #[cfg(target_os = "macos")]
 use std::io;
 use std::os::fd::{AsRawFd, BorrowedFd, RawFd};
 use std::os::unix::process::CommandExt;
+use std::path::Path;
 use std::process::Command;
 
 #[cfg(target_os = "macos")]
 use crate::fail::Context;
 use crate::fail::Result;
+#[cfg(target_os = "macos")]
+use crate::process::Detached;
 
 #[cfg(target_os = "macos")]
 pub const COMMAND: &str = "__app-lock-guard";
@@ -19,18 +23,26 @@ const CHECKOUT_FDS: &str = "BUILDS_CHECKOUT_GUARD_FDS";
 
 #[derive(Clone, Copy, Debug)]
 pub struct CheckoutLock<'a> {
+    /// The build volume of the checkout, which records the processes that
+    /// builds detaches to outlive the driver (process.rs).
+    volume: &'a Path,
     file: BorrowedFd<'a>,
     source: Option<BorrowedFd<'a>>,
     ticket: Option<BorrowedFd<'a>>,
 }
 
 impl<'a> CheckoutLock<'a> {
-    pub fn new(file: BorrowedFd<'a>, ticket: Option<BorrowedFd<'a>>) -> Self {
+    pub fn new(volume: &'a Path, file: BorrowedFd<'a>, ticket: Option<BorrowedFd<'a>>) -> Self {
         Self {
+            volume,
             file,
             source: None,
             ticket,
         }
+    }
+
+    pub fn volume(self) -> &'a Path {
+        self.volume
     }
 
     pub fn with_clone_source(mut self, source: BorrowedFd<'a>) -> Self {
@@ -83,14 +95,15 @@ impl<'a> CheckoutLock<'a> {
             .collect::<Vec<_>>()
             .join(" ");
         watcher
-            .process_group(0)
             .env(CHECKOUT_FDS, files)
             .stdin(Stdio::from(OwnedFd::from(guard)))
             .stdout(Stdio::null());
         self.pass_to(&mut watcher);
-        let mut child = watcher
-            .spawn()
-            .context(|| "Builds could not start the app checkout lock guard".into())?;
+        let mut child = Detached::start(
+            self.volume,
+            &mut watcher,
+            "keep an app checkout reserved until its command ends",
+        )?;
         drop(watcher);
 
         let socket = runner.as_raw_fd();

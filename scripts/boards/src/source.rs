@@ -11,7 +11,7 @@
 //! change at any time, are built on each read.
 
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::{Command, Output, Stdio};
 
 use crate::tokens::{TOKENS_JSON, tokens_css};
 use crate::{Context, Error, Result, fail};
@@ -51,6 +51,12 @@ pub fn git_text(command: &mut Command, what: &str) -> Result<String> {
         .stdin(Stdio::null())
         .output()
         .context(|| format!("running git to {what}"))?;
+    git_stdout(output, what)
+}
+
+/// What a git that ran to <what> printed, from its <output>; fails with what
+/// it said when it failed.
+pub fn git_stdout(output: Output, what: &str) -> Result<String> {
     if !output.status.success() {
         fail!(
             "git failed to {what}: {}",

@@ -192,7 +192,7 @@ pub fn cmd_reset(
         repo,
         lane,
         checkout,
-        CheckoutLock::new(lock.as_fd(), None),
+        CheckoutLock::new(&places.root, lock.as_fd(), None),
         changed,
     )?;
     let mut sent = Vec::new();

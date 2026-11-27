@@ -332,6 +332,20 @@ on it:
                           since ended a process with exit status 0
   .chrome-slots/        the slot files that limit the pages Chromes draw at once
                         on the host (APP BUILDS); `builds status` leaves it out
+  .detached/            one record for each process builds detached, which
+                        runs on after the builds command that started it
+                        ends: the dashboard and the builds and prunes it
+                        runs, the prune after `builds cargo`, a review's
+                        audit, each background removal, the app checkout lock
+                        guard and the git that switches an app checkout.
+                        builds starts each one in a session of its own and,
+                        before it goes on, writes its pid, start time,
+                        purpose and the builds command that started it to
+                        <pid>-<start time>.json. When builds cannot write the
+                        record, it kills the process and the step fails.
+                        `builds health` and the dashboard remove a record
+                        whose process has ended when they read a host's
+                        processes. `builds status` leaves the folder out
   .trash/               folders being deleted in the background
   .trash.lock           taken shared by each deletion into .trash, and
                         exclusive only by the floor and prune, to rename
@@ -1300,8 +1314,9 @@ A repo's `.app-build` at its root says what its app builds run, one line each:
                     the step's time limit (90s, 30m, 2h), in place of 45
                     minutes
 
-A step that runs past its limit gets SIGTERM to its whole process group and
-SIGKILL ten seconds later, and fails the build, which gives up the lock.
+A step that runs past its limit gets SIGTERM to its whole process group, and
+what of the group still runs ten seconds later gets SIGKILL. The step fails the
+build, which gives up the lock.
 builds limits each run of a test line, with all of its classes, to 10 minutes.
 A --shots or --all-shots run of the shots checker (a `shots` line that runs
 `builds shots run`) has 20 minutes and 6 seconds for each scene it takes: before
@@ -3256,8 +3271,10 @@ STATUS, HEALTH AND THE DASHBOARD
                                 of an older shell's command in the same
                                 worktree. --stop-junk also checks for idle
                                 shells. The flag stops each junk shell and
-                                everything under it, and prints each pid and
-                                why it stopped it.
+                                everything under it, except each process
+                                builds detached and what runs under that
+                                process (BUILD VOLUME), and prints each pid
+                                and why it stopped it.
                               - each claimed worktree: claim, branch (while
                                 a landing runs there, the branch it lands),
                                 uncommitted files, commits waiting to land,
@@ -3408,11 +3425,10 @@ STATUS, HEALTH AND THE DASHBOARD
                               launchd (cargo, a compiler, an sccache client, a
                               test binary, git other than its daemons,
                               xcodebuild, builds' ssh to a host, or a builds
-                              command other than the dashboard, `builds
-                              units`, `builds review audit` and `builds
-                              build-app`, which a restarted dashboard shows
-                              again from its record), or a job on a
-                              host whose builds command here is gone; the fix
+                              command), except a process builds detached and
+                              what runs under that process (BUILD VOLUME), or
+                              a job on a host whose builds command here is
+                              gone; the fix
                               pass stops each of these except a builds
                               command that does more than print (a landing,
                               an install), which does its work to its end;

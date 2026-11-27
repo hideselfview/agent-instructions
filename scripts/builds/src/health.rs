@@ -1908,10 +1908,10 @@ impl HostProcesses {
     pub fn read(
         ssh: &crate::host::Ssh,
         host: &Host,
-        home: &std::path::Path,
+        places: &crate::places::Places,
         dashboard: Option<i32>,
     ) -> Self {
-        let scan = crate::host_scan::read(ssh, host, home);
+        let scan = crate::host_scan::read(ssh, host, places);
         let busy = crate::stuck::read(ssh, host, &scan, dashboard);
         Self { scan, busy }
     }
@@ -2136,7 +2136,7 @@ fn report(tool: &Tool, json: bool, stop_junk: bool, release_failures: Vec<Advice
     }
     if stop_junk {
         // Judge the shells now, never from the daemon's last reading.
-        let (mut lines, mut failed) = crate::shells::stop(&health(tool)?.shells, tool.places.uid)?;
+        let (mut lines, mut failed) = crate::shells::stop(&health(tool)?.shells, &tool.places)?;
         if lines.is_empty() {
             crate::output::say("no junk shells");
         }
@@ -2190,7 +2190,7 @@ fn report(tool: &Tool, json: bool, stop_junk: bool, release_failures: Vec<Advice
         let processes = HostProcesses::read(
             &ssh,
             host,
-            &tool.places.home,
+            &tool.places,
             host.target.is_none().then_some(dashboard).flatten(),
         );
         (processes, crate::host::probe(&tool.places, &ssh, host))
@@ -3474,6 +3474,7 @@ mod tests {
             host,
             Ok(crate::host_scan::Scan {
                 uid: 501,
+                detached: Default::default(),
                 active: Default::default(),
                 at: 1_000,
                 rows: Vec::new(),
@@ -3518,7 +3519,8 @@ esac"#,
             speed: None,
             band: None,
         };
-        let home = scratch.places().home;
+        let places = scratch.places();
+        let home = places.home.clone();
         crate::process_readings::write(
             &home,
             &host.name,
@@ -3533,7 +3535,7 @@ esac"#,
             }],
         )
         .unwrap();
-        let processes = HostProcesses::read(&ssh, &host, &home, None);
+        let processes = HostProcesses::read(&ssh, &host, &places, None);
         assert!(
             processes
                 .busy

@@ -29,6 +29,7 @@ fn left_out(name: &str) -> bool {
     MACOS_ENTRIES.contains(&name)
         || name == ".builds-daemon"
         || name == ".trash.lock"
+        || name == crate::process::FOLDER
         || name == shots::CHROME_SLOTS_FOLDER
 }
 

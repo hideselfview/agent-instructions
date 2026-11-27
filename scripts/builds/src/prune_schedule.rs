@@ -23,6 +23,7 @@ use crate::fail::{Context, Result};
 use crate::health::Advice;
 use crate::output::note;
 use crate::places::Places;
+use crate::process::Detached;
 use crate::text::{local_minute, minutes_since};
 
 /// What a prune says when another prune holds the prune lock.
@@ -86,20 +87,29 @@ fn next_start(finished: Option<i64>, started: Option<i64>) -> i64 {
 /// in the daemon's log how it ended.
 fn run_once(places: &Places, exe: &Path) {
     let log_path = places.prune_log();
-    let ended = (|| -> std::io::Result<std::process::ExitStatus> {
-        let log = File::create(&log_path)?;
-        let errors = log.try_clone()?;
+    let ended = (|| -> Result<std::process::ExitStatus> {
+        let what = || format!("opening {}", log_path.display());
+        let log = File::create(&log_path).context(what)?;
+        let errors = log.try_clone().context(what)?;
         // The prune is the daemon's, not the work of the agent whose session
         // started the daemon (an install restarts it from the session that
         // landed), and it takes its own use of the stores.
-        Command::new(exe)
+        let mut command = Command::new(exe);
+        command
             .arg("prune")
             .env_remove(crate::ack::SESSION)
             .env_remove(crate::install_gate::VARIABLE)
             .stdin(Stdio::null())
             .stdout(log)
-            .stderr(errors)
-            .status()
+            .stderr(errors);
+        // Detached: a daemon that restarts leaves the prune running.
+        Detached::start(
+            &places.root,
+            &mut command,
+            "prune on the dashboard's schedule",
+        )?
+        .wait()
+        .context(|| "waiting for the prune".to_string())
     })();
     match ended {
         Ok(status) if status.success() => {}
@@ -108,8 +118,9 @@ fn run_once(places: &Places, exe: &Path) {
             log_path.display()
         )),
         Err(error) => note(format!(
-            "starting the scheduled builds prune, with its output in {}: {error}",
-            log_path.display()
+            "the scheduled builds prune, with its output in {}, did not run to an end: {}",
+            log_path.display(),
+            error.text()
         )),
     }
 }

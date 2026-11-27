@@ -38,10 +38,10 @@
 //! dashboard read holder and waiters that way.
 //!
 //! A command run with a time limit (`run_in_group_within`) is stopped when the
-//! limit passes: its whole group gets SIGTERM, SIGKILL after `KILL_GRACE` if
-//! the leader still runs, and SIGKILL once more, after the same grace, for
-//! what the leader left behind. It says `Within::TimedOut` and the caller fails the build, so the lock
-//! goes to the next in line instead of staying with a build that hangs.
+//! limit passes: its whole group gets SIGTERM, and SIGKILL for what still runs
+//! after `STOP_GRACE` (process.rs `stop_group`). It says `Within::TimedOut` and
+//! the caller fails the build, so the lock goes to the next in line instead of
+//! staying with a build that hangs.
 //!
 //! The holder keeps a record of its run beside the lock (holder_run.rs): when
 //! it joined the queue, how long it waited, and the step it runs now
@@ -70,7 +70,7 @@ use std::process::Command;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::mpsc::{RecvTimeoutError, channel};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::app_lock_guard::CheckoutLock;
 use crate::app_remote::host_of;
@@ -82,6 +82,7 @@ use crate::host::{self, Ssh};
 use crate::lane::Lane;
 use crate::output::note;
 use crate::places::Places;
+use crate::process::{STOP_GRACE, stop_group};
 use crate::queue::{self, Queue, Ticket};
 
 /// The command's process group, for the signal handlers; 0 when none runs.
@@ -305,7 +306,11 @@ pub struct Held {
 
 impl Held {
     pub fn checkout_lock(&self) -> CheckoutLock<'_> {
-        CheckoutLock::new(self.lock.as_fd(), Some(self.ticket.as_fd()))
+        CheckoutLock::new(
+            &self.places.root,
+            self.lock.as_fd(),
+            Some(self.ticket.as_fd()),
+        )
     }
 
     /// Takes the window lock of this checkout's host for <step>, waiting
@@ -888,10 +893,6 @@ impl Drop for TerminalReturn {
     }
 }
 
-/// How long a command that ignores SIGTERM, and what its leader leaves behind
-/// after SIGTERM, get past the time limit before SIGKILL.
-const KILL_GRACE: Duration = Duration::from_secs(10);
-
 /// How a command run by `run_in_group` ended, when it didn't fail.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Ran {
@@ -1135,20 +1136,21 @@ fn run_group(
     if let Some(signal) = stop_signal() {
         unsafe { libc::kill(-group, signal) };
     }
-    // Dropping `ended` tells the watcher the command is over.
+    // Dropping `ended` tells the watcher the command is over. A watcher that
+    // stops the group returns once the group is empty or has had SIGKILL:
+    // what the leader left behind gets the grace too, since a git among it
+    // removes its lock files on SIGTERM, and SIGKILL before it has done so
+    // leaves an index.lock that fails every later build in the checkout.
     let (ended, over) = channel::<()>();
     let timed_out = Arc::new(AtomicBool::new(false));
     let watcher = limit.map(|limit| {
         let timed_out = timed_out.clone();
         std::thread::spawn(move || {
             if over.recv_timeout(limit) != Err(RecvTimeoutError::Timeout) {
-                return;
+                return Ok(());
             }
             timed_out.store(true, Ordering::SeqCst);
-            unsafe { libc::kill(-group, libc::SIGTERM) };
-            if over.recv_timeout(KILL_GRACE) == Err(RecvTimeoutError::Timeout) {
-                unsafe { libc::kill(-group, libc::SIGKILL) };
-            }
+            stop_group(group, STOP_GRACE)
         })
     });
     unsafe { libc::sigprocmask(libc::SIG_UNBLOCK, &passed, std::ptr::null_mut()) };
@@ -1159,26 +1161,15 @@ fn run_group(
             break;
         }
     }
-    if let Some(watcher) = watcher {
-        let _ = watcher.join();
-    }
-    if timed_out.load(Ordering::SeqCst) {
-        // What the leader left behind got the SIGTERM too: a git among it
-        // removes its lock files on SIGTERM, and SIGKILL before it has done
-        // so leaves an index.lock that fails every later build in the
-        // checkout. So the rest of the group gets `KILL_GRACE` to end, then
-        // SIGKILL. The group id is the leader's pid, which stays in use while
-        // any member of the group does.
-        let until = Instant::now() + KILL_GRACE;
-        while unsafe { libc::kill(-group, 0) } == 0 && Instant::now() < until {
-            std::thread::sleep(Duration::from_millis(20));
-        }
-        unsafe { libc::kill(-group, libc::SIGKILL) };
-    }
+    let stopped = match watcher {
+        Some(watcher) => watcher.join().expect("the watcher does not panic"),
+        None => Ok(()),
+    };
     let status = waited.context(|| format!("waiting for {command}"))?;
     // The group is gone with its leader's pid free to be reused: no later
     // signal may go to it.
     GROUP.store(0, Ordering::SeqCst);
+    stopped?;
     match crate::fail::exit_code(status) {
         _ if timed_out.load(Ordering::SeqCst) => Ok(Within::TimedOut),
         0 => Ok(Within::Ran(Ran::Finished)),

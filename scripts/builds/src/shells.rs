@@ -3,7 +3,8 @@
 //! are junk: a wait loop, a search over the whole disk, a copy of a command
 //! already running in the same worktree, a command stuck on input or a lock.
 //! `builds health` lists them, and `builds health --stop-junk` stops each one's
-//! whole tree by PID.
+//! tree by PID, but for the processes builds detached and what runs under them
+//! (process.rs).
 //!
 //! An agent shell looks, from outside, like Claude Code's: `/bin/zsh -c source
 //! ~/.claude/shell-snapshots/snapshot-zsh-….sh … && eval '<command>' <
@@ -13,13 +14,14 @@
 //! tree, not another shell. No other tool's shells were running when this was
 //! written, so none are matched.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
 use crate::ack::agent::{VARIABLE, is_id_char};
+use crate::places::Places;
 use crate::procs::{
     Place, Processes, args, cwd, environment, environment_value, place_of, tree_cpu,
 };
@@ -847,15 +849,15 @@ fn origin(junk: &Junk) -> String {
     format!("agent {agent}, started by pid {}", junk.parent)
 }
 
-/// The pids of <top> and everything under it, deepest first, from <pairs> of
-/// (pid, parent pid).
-fn tree_of(pairs: &[(i32, i32)], top: i32) -> Vec<i32> {
+/// The pids of <top> and everything under it but each of <detached> and what
+/// runs under that, deepest first, from <pairs> of (pid, parent pid).
+fn tree_of(pairs: &[(i32, i32)], top: i32, detached: &BTreeSet<i32>) -> Vec<i32> {
     let mut order = vec![top];
     let mut at = 0;
     while at < order.len() {
         let parent = order[at];
         for (pid, ppid) in pairs {
-            if *ppid == parent && !order.contains(pid) {
+            if *ppid == parent && !detached.contains(pid) && !order.contains(pid) {
                 order.push(*pid);
             }
         }
@@ -878,19 +880,22 @@ fn stopped_line(junk: &Junk, count: usize) -> String {
     )
 }
 
-/// Stops the whole tree of each junk shell in <shells> with SIGTERM, by PID,
-/// deepest process first. A pid that is no longer an agent shell of <uid>
+/// Stops the tree of each junk shell in <shells> with SIGTERM, by PID,
+/// deepest process first, leaving each process builds detached, and what runs
+/// under it, to run. A pid that is no longer an agent shell of <places>' user
 /// (it exited and the number went to another process) is left alone. Returns
 /// one line per shell and the number of shells it could not stop.
-pub fn stop(shells: &Shells, uid: u32) -> crate::fail::Result<(Vec<String>, usize)> {
+pub fn stop(shells: &Shells, places: &Places) -> crate::fail::Result<(Vec<String>, usize)> {
     let processes = Processes::read()?;
+    // After the processes, as `process::running` asks.
+    let detached = crate::process::running(&places.root, &processes)?;
     let pairs: Vec<(i32, i32)> = processes.list.iter().map(|p| (p.pid, p.ppid)).collect();
     let mut lines = Vec::new();
     let mut failed = 0;
     for junk in &shells.junk {
-        let still_there = processes
-            .get(junk.pid)
-            .is_some_and(|p| p.uid == uid && args(junk.pid).is_some_and(|a| is_agent_argv(&a)));
+        let still_there = processes.get(junk.pid).is_some_and(|p| {
+            p.uid == places.uid && args(junk.pid).is_some_and(|a| is_agent_argv(&a))
+        });
         if !still_there {
             lines.push(format!(
                 "pid {} is gone or no longer an agent shell; left alone",
@@ -898,7 +903,7 @@ pub fn stop(shells: &Shells, uid: u32) -> crate::fail::Result<(Vec<String>, usiz
             ));
             continue;
         }
-        let tree = tree_of(&pairs, junk.pid);
+        let tree = tree_of(&pairs, junk.pid, &detached);
         let mut errors = Vec::new();
         for pid in &tree {
             if let Err(error) = crate::procs::terminate(*pid) {

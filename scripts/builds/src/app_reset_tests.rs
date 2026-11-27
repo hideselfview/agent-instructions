@@ -310,7 +310,7 @@ fn on_host(scratch: &Scratch) -> OnHost {
         "demo",
         Lane::MAC,
         "m1:mac-1",
-        CheckoutLock::new(lock.as_fd(), None),
+        CheckoutLock::new(&places.root, lock.as_fd(), None),
     )
     .unwrap()
     .expect("m1:mac-1 is on a host")
@@ -431,11 +431,12 @@ fn a_hosts_checkout_resets_over_a_tree_matching_names() {
 fn a_refresh_passes_over_differing_files_and_fails_on_any_other_error() {
     let scratch = Scratch::new("app-reset-refresh");
     let (_, top, _, _) = halfway(&scratch);
+    let volume = scratch.places().root;
     let lock = lock::take_checkout(&scratch.places(), "demo", Lane::MAC, "app-1").unwrap();
     let mut site = Site::Local(
         top.clone(),
         top.join("no.xcconfig"),
-        CheckoutLock::new(lock.as_fd(), None),
+        CheckoutLock::new(&volume, lock.as_fd(), None),
         scratch.system(),
     );
     let index = scratch.dir.join("index").display().to_string();
