@@ -276,16 +276,23 @@ fn require_resumable(main: &Path, branch: &str) -> Result<()> {
     Ok(())
 }
 
+/// A repo's picking lock, which only `lock_picking` takes; dropping it
+/// releases the lock.
+pub(crate) struct PickingLock {
+    /// Open while the lock is held.
+    _file: std::fs::File,
+}
+
 /// An exclusive lock on <main>'s repo for picking or removing a worktree
-/// (flock on a file in the common git dir), held until the returned file is
+/// (flock on a file in the common git dir), held until the returned value is
 /// dropped. Before it returns, it ends each removal an earlier process left
 /// (worktree_removal.rs), so its holder reads no worktree removed in part.
-pub(crate) fn lock_picking(main: &Path) -> Result<std::fs::File> {
+pub(crate) fn lock_picking(main: &Path) -> Result<PickingLock> {
     let path = main.join(".git/builds-new.lock");
     let file = crate::flock::open_creating(&path)?;
     crate::flock::lock(&file, libc::LOCK_EX, &path)?;
     crate::worktree_removal::finish(main)?;
-    Ok(file)
+    Ok(PickingLock { _file: file })
 }
 
 /// The name of the <n>th side worktree.
@@ -396,7 +403,11 @@ pub fn cmd_retire(tool: &Tool, args: &[String]) -> Result<()> {
 /// whose HEAD origin/main covers (kept.rs), whole (worktree_removal.rs),
 /// and its build root. <_picking> is the repo's picking lock, so no `builds
 /// new` hands the worktree out meanwhile.
-pub fn retire_checkout(tool: &Tool, checkout: &Checkout, _picking: &std::fs::File) -> Result<()> {
+pub(crate) fn retire_checkout(
+    tool: &Tool,
+    checkout: &Checkout,
+    _picking: &PickingLock,
+) -> Result<()> {
     let top = checkout.top.display();
     let root = checkout.build_root(&tool.places);
     if let Some(claim) = Claim::read(&checkout.claim_file())? {
