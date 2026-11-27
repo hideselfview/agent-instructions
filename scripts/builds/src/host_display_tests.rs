@@ -268,46 +268,49 @@ fn held_lock(lane: Lane, checkout: &str, step: &str, wait: Option<Wait>) -> Lock
 
 /// Each reason that holds a step gets a line in the one shape, naming the
 /// host, the build, its step and how long the step has waited, the closed
-/// lid and Chrome's reason among them. A reason a held step names gets no
-/// second line from the host's scan, and a step that runs gets none.
+/// lid and Chrome's reason among them, and a step that runs gets none. A
+/// reason a held step names gets no second line from the host's scan.
 #[test]
 fn each_reason_that_holds_a_step_needs_action_with_how_long_it_waited() {
     let alert = Reason::SystemAlert {
         name: "UserNotificationCenter".to_string(),
         pid: 812,
     };
-    let found = findings(
-        &[(
-            host("m1"),
-            Ok(scan(Ok(Some(display(&[("front_app", ALERT)]))))),
-        )],
-        &[
-            held_lock(
-                Lane::MAC,
-                "m2:mac-1",
-                "shots",
-                Some(Wait::on(&host("m2"), vec![Reason::LidClosed])),
-            ),
-            held_lock(
-                Lane::ANDROID,
-                "m1:app-2",
-                crate::host_chrome::STEP,
-                Some(Wait::on(
-                    &host("m1"),
-                    vec![Reason::ChromeCannotStart {
-                        why: "no address in 120 seconds".to_string(),
-                    }],
-                )),
-            ),
-            held_lock(
-                Lane::MAC,
-                "m1:mac-2",
-                "test UITests",
-                Some(Wait::on(&host("m1"), vec![alert])),
-            ),
-            held_lock(Lane::MAC, "m3:mac-3", "macos", None),
-        ],
+    let locks = [
+        held_lock(
+            Lane::MAC,
+            "m2:mac-1",
+            "shots",
+            Some(Wait::on(&host("m2"), vec![Reason::LidClosed])),
+        ),
+        held_lock(
+            Lane::ANDROID,
+            "m1:app-2",
+            crate::host_chrome::STEP,
+            Some(Wait::on(
+                &host("m1"),
+                vec![Reason::ChromeCannotStart {
+                    why: "no address in 120 seconds".to_string(),
+                }],
+            )),
+        ),
+        held_lock(
+            Lane::MAC,
+            "m1:mac-2",
+            "test UITests",
+            Some(Wait::on(&host("m1"), vec![alert])),
+        ),
+        held_lock(Lane::MAC, "m3:mac-3", "macos", None),
+    ];
+    let scans = [(
+        host("m1"),
+        Ok(scan(Ok(Some(display(&[("front_app", ALERT)]))))),
+    )];
+    assert!(
+        findings(&scans, &locks).is_empty(),
+        "the alert of m1's scan is the one that holds its step"
     );
+    let found = held_findings(&locks);
     let lines: Vec<String> = found.iter().map(|advice| advice.line()).collect();
     assert_eq!(
         lines,

@@ -978,6 +978,11 @@ pub fn assess(
             Advice::said(format!("processes: {line}")),
         )
     }));
+    findings.extend(
+        crate::host_display::held_findings(&machine.locks)
+            .into_iter()
+            .map(|advice| Finding::new(FindingKind::Host, advice)),
+    );
     let mut schedule_needed = !left.branches.is_empty();
     let mut leftover = Vec::new();
     for Unclaimed {
@@ -1812,9 +1817,8 @@ impl Scanned {
 /// `builds` differs from this Mac's or that builds could not ask, and each
 /// Mac whose sccache server launchd does not run (host_installed.rs), and
 /// each Mac that lacks a setting that UI tests need or whose UI tests timed out
-/// (ui_test_settings.rs), and each reason a host gives that holds a step of
-/// a build that holds one of <locks>, or that a Mac's display reading gives
-/// (host_display.rs). `assess` judges
+/// (ui_test_settings.rs), and each reason a Mac's display reading gives that
+/// no held step of <locks> names (host_display.rs). `assess` judges
 /// only what this Mac's process reading finds, which runs no ssh, so `builds
 /// health` and the dashboard each add these findings to the ones `assess`
 /// returns.
@@ -2496,6 +2500,90 @@ mod tests {
         assert_eq!(
             claims[0]["command"],
             format!("builds release {}", top.display())
+        );
+    }
+
+    /// The dashboard's health, which `assess` alone judges, names each step
+    /// that a host holds, from the record beside the build's lock.
+    #[test]
+    fn assess_names_each_step_a_host_holds() {
+        let now = 1_800_000_000;
+        let held = LockHealth {
+            repo: "bae".to_string(),
+            lane: crate::lane::Lane::MAC,
+            checkout: "m1:mac-1".to_string(),
+            path: String::new(),
+            holder: Some(Holder {
+                pid: 4,
+                minutes: 12,
+                command: "builds app-build".to_string(),
+                running: Vec::new(),
+                started_from: None,
+                app_head: None,
+                driver_running: true,
+                run: Some(crate::holder_run::RunTimes {
+                    moved_at: 0,
+                    waited_minutes: 0,
+                    building_minutes: 12,
+                    step: Some(crate::holder_run::StepTime {
+                        name: "shots".to_string(),
+                        minutes: 5,
+                        waits: Some(crate::host_display::Wait {
+                            host: "m1".to_string(),
+                            target: Some("u@m1".to_string()),
+                            reasons: vec![crate::host_display::Reason::LidClosed],
+                        }),
+                    }),
+                }),
+            }),
+        };
+        let health = assess(
+            now,
+            DiskSpace {
+                free_kib: 100 << 20,
+                floor_kib: 30 << 20,
+                hard_floor_kib: 10 << 20,
+            },
+            Machine {
+                at: now,
+                load: [1.0; 3],
+                cores: 8,
+                builds: Vec::new(),
+                remote_runs: Vec::new(),
+                app_builds: Vec::new(),
+                landings: Vec::new(),
+                design_runs: Vec::new(),
+                unread: Vec::new(),
+                commits: Default::default(),
+                sccache: SccacheHealth {
+                    server: SccacheServer::Read {
+                        executed: 1,
+                        compared: None,
+                    },
+                    waiting: Vec::new(),
+                },
+                shells: Shells::default(),
+                agents: Vec::new(),
+                claude_sessions: Vec::new(),
+                locks: vec![held],
+                queues: Vec::new(),
+            },
+            &[],
+            Vec::new(),
+            LeftBehind::default(),
+            Vec::new(),
+        );
+        let hosts: Vec<String> = health
+            .findings
+            .iter()
+            .filter(|finding| finding.kind == FindingKind::Host)
+            .map(|finding| finding.advice.line())
+            .collect();
+        assert_eq!(
+            hosts,
+            [
+                "host m1 cannot run steps that open windows: its lid is closed and it lists no other display; the mac app build of bae has waited 5 minutes on checkout m1:mac-1 to run step shots. builds holds each step that needs windows on host m1 until it ends. Open the lid of host m1, or attach a display to it."
+            ]
         );
     }
 

@@ -341,7 +341,7 @@ fn health_names_a_window_step_that_a_closed_lid_holds() {
                 run: Some(run.times(crate::app_timing::now())),
             }),
         };
-        let lines: Vec<String> = crate::host_display::findings(&[], &[lock])
+        let lines: Vec<String> = crate::host_display::held_findings(&[lock])
             .iter()
             .map(|advice| advice.line())
             .collect();

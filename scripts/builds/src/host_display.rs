@@ -30,6 +30,7 @@ use serde::{Deserialize, Serialize};
 use crate::fail;
 use crate::fail::{Fail, Result};
 use crate::health::{Advice, LockHealth};
+use crate::holder_run::StepTime;
 use crate::host::{Host, Ssh, Terminal, answer_value, command_at, output_at, place};
 use crate::host_hold::Hold;
 use crate::host_scan::Scan;
@@ -487,28 +488,22 @@ fn fix(name: &str, target: Option<&str>, reason: &Reason) -> (String, Option<Str
     }
 }
 
-/// The lines for the display of each host: each reason that holds a step of
-/// a build that holds one of <locks>, with the build, its step and how long
-/// the step has waited; then each reason a host's reading in <scans> gives a
-/// step that opens no window scene that no held step names, and each host
-/// whose display health could not read. A host whose scan failed, and one
-/// that is no Mac, get no line from <scans>.
-pub fn findings(
-    scans: &[(Host, std::result::Result<Scan, String>)],
-    locks: &[LockHealth],
-) -> Vec<Advice> {
+/// Each step of a build that holds one of <locks> that a host holds, with
+/// the lock and what holds the step.
+fn held_steps(locks: &[LockHealth]) -> impl Iterator<Item = (&LockHealth, &StepTime, &Wait)> {
+    locks.iter().filter_map(|lock| {
+        let step = lock.holder.as_ref()?.run.as_ref()?.step.as_ref()?;
+        Some((lock, step, step.waits.as_ref()?))
+    })
+}
+
+/// The lines for each reason that holds a step of a build that holds one of
+/// <locks>, with the host, the build, its step and how long the step has
+/// waited. They come from the records beside the locks and need no host's
+/// answer, so the dashboard's health shows them too (health.rs `assess`).
+pub fn held_findings(locks: &[LockHealth]) -> Vec<Advice> {
     let mut found = Vec::new();
-    let mut held: Vec<(&str, &Reason)> = Vec::new();
-    for lock in locks {
-        let Some(step) = lock
-            .holder
-            .as_ref()
-            .and_then(|holder| holder.run.as_ref())
-            .and_then(|run| run.step.as_ref())
-        else {
-            continue;
-        };
-        let Some(wait) = &step.waits else { continue };
+    for (lock, step, wait) in held_steps(locks) {
         for reason in &wait.reasons {
             let (fix, run) = fix(&wait.host, wait.target.as_deref(), reason);
             found.push(finding(
@@ -525,9 +520,27 @@ pub fn findings(
                 &fix,
                 run,
             ));
-            held.push((&wait.host, reason));
         }
     }
+    found
+}
+
+/// The lines for <scans>: each reason a host's display reading gives a step
+/// that opens no window scene, unless a held step of <locks> names it
+/// (`held_findings` names those), and each host whose display health could
+/// not read. A host whose scan failed, and one that is no Mac, get no line.
+pub fn findings(
+    scans: &[(Host, std::result::Result<Scan, String>)],
+    locks: &[LockHealth],
+) -> Vec<Advice> {
+    let held: Vec<(&str, &Reason)> = held_steps(locks)
+        .flat_map(|(_, _, wait)| {
+            wait.reasons
+                .iter()
+                .map(|reason| (wait.host.as_str(), reason))
+        })
+        .collect();
+    let mut found = Vec::new();
     for (host, scan) in scans {
         let Ok(scan) = scan else { continue };
         let name = &host.name;
