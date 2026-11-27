@@ -285,8 +285,15 @@ mod tests {
 
     #[test]
     fn a_write_made_before_the_stream_started_is_reported_from_the_id_taken_before_it() {
-        let scratch = crate::testing::Scratch::new("fsevents-replay");
-        let root = scratch.dir.clone();
+        let folder = crate::testing::HistoryDir::new("fsevents-replay");
+        let root = folder.dir.clone();
+        use std::os::unix::fs::MetadataExt;
+        let device = std::fs::metadata(&root).expect("the folder").dev();
+        assert!(
+            device_keeps_events(device),
+            "{}'s volume keeps no event history to replay",
+            root.display()
+        );
         let since = Stream::current_event_id();
         std::fs::write(root.join("early"), b"x").expect("a write");
         let (told, heard) = mpsc::channel();

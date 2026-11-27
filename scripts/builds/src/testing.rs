@@ -13,6 +13,8 @@ use crate::tool::Tool;
 #[path = "../tests/test_dir/mod.rs"]
 mod test_dir;
 pub use test_dir::test_dir;
+mod history_dir;
+pub use history_dir::HistoryDir;
 
 pub struct Scratch {
     pub dir: PathBuf,

@@ -6,8 +6,9 @@ use std::path::PathBuf;
 /// The path of a folder named <name> for this test's process, in the
 /// temporary folder of its test run, with nothing there yet. `builds cargo`
 /// gives each run a temporary folder on the build volume, which no prune
-/// walks (.config/nextest.toml refuses a write outside it). A unix socket's
-/// path has room for about 100 bytes, so <name> is short.
+/// walks (.config/nextest.toml states that a test makes its folders there, and
+/// the exception). A unix socket's path has room for about 100 bytes, so
+/// <name> is short.
 pub fn test_dir(name: &str) -> PathBuf {
     let dir = std::env::temp_dir()
         .canonicalize()

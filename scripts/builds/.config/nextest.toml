@@ -2,8 +2,10 @@
 # temporary folder, to the test and to each program it starts: a real `builds
 # prune` deletes old build output under /private/tmp and the user's temporary
 # folder, a test's among it. A test makes its folders in the run's temporary
-# folder (tests/no-machine-temp.sh lists the files the Mac's own programs
-# write elsewhere).
+# folder. The one exception is a test that replays FSEvents history, which the
+# build volume keeps none of: it makes its folder in
+# ~/Library/Caches/builds-tests (tests/no-machine-temp.sh, which also lists the
+# files the Mac's own programs write elsewhere).
 experimental = ["wrapper-scripts"]
 
 [scripts.wrapper.no-machine-temp]
