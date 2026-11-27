@@ -93,10 +93,9 @@ impl JobRun {
 /// the record behind, naming a group that no longer runs, so the script
 /// prints only the groups that run. dash, Linux's sh, takes no `--` before a
 /// process group. A Mac also prints its display reading (host_display.rs).
-/// The script reads the records of the detached processes under the build
-/// volume (`records_folder`) before it lists the processes, so a record it
-/// prints whose process the listing lacks is of a process that ended. A
-/// record that another reading removes meanwhile is of one that ended too.
+/// The script prints the records of the processes builds detached before it
+/// lists the processes, as `process::listing_script` asks; <volume> is this
+/// Mac's build volume.
 pub fn script(host: &Host, volume: &Path) -> String {
     format!(
         r#"{root}echo "uid=$(id -u)"
@@ -113,45 +112,14 @@ for claim in "$HOME"/dev/*-worktrees/*.job; do
   kill -0 "-$1" 2>/dev/null && echo "job=${{claim%.job}} $1 $2"
 done
 {listener}
-for record in {records}/*.json; do
-  [ -e "$record" ] || continue
-  if text=$(cat "$record"); then
-    printf 'detached=%s\n' "$text"
-  elif [ -e "$record" ]; then
-    exit 1
-  fi
-done
+{records}
 {timed_ps}"#,
-        records = records_folder(host, volume),
+        records = crate::process::listing_script(host, volume),
         root = crate::remote::root_script(host),
         listener = crate::sccache::listener_script(),
         timed_ps = timed_ps_script(),
         display = crate::host_display::SCRIPT,
         run_file = crate::remote::RUN_FILE,
-    )
-}
-
-/// The folder of <host>'s records of detached processes, as a word of a
-/// script there: under <volume>, this Mac's build volume, or on another host
-/// under the build volume that `remote::root_script` names.
-fn records_folder(host: &Host, volume: &Path) -> String {
-    match host.target {
-        Some(_) => format!("\"$BUILDS_ROOT\"/{}", crate::process::FOLDER),
-        None => crate::host::sh_quote(&volume.join(crate::process::FOLDER).to_string_lossy()),
-    }
-}
-
-/// The script that removes the records <ended> from <host>.
-fn removal_script(host: &Host, volume: &Path, ended: &[Detached]) -> String {
-    let folder = records_folder(host, volume);
-    let files: Vec<String> = ended
-        .iter()
-        .map(|record| format!("{folder}/{}", record.file_name()))
-        .collect();
-    format!(
-        "{}rm -f {}",
-        crate::remote::root_script(host),
-        files.join(" ")
     )
 }
 
@@ -362,13 +330,7 @@ fn read_scan(text: &str, readings: &[Reading]) -> std::result::Result<ScriptRead
     .map_err(|fault| fault.text());
     let mut detached = BTreeSet::new();
     let mut ended = Vec::new();
-    for line in head.lines() {
-        let Some(text) = line.strip_prefix("detached=") else {
-            continue;
-        };
-        let record: Detached = serde_json::from_str(text).map_err(|error| {
-            format!("builds cannot read the host's record of a detached process ({error}): {text}")
-        })?;
+    for record in crate::process::listed(head)? {
         // A zombie has ended.
         if rows
             .iter()
@@ -421,15 +383,7 @@ pub fn read(ssh: &Ssh, host: &Host, places: &Places) -> std::result::Result<Scan
         process_readings::write(home, &host.name, &readings).map_err(|fault| fault.text())?;
     }
     if !ended.is_empty() {
-        crate::host::output_at(
-            ssh,
-            host,
-            &removal_script(host, &places.root, &ended),
-            &format!(
-                "removing the records of ended processes on {}",
-                place(&host.name)
-            ),
-        )?;
+        crate::process::remove(ssh, host, &places.root, &ended)?;
     }
     Ok(scan)
 }

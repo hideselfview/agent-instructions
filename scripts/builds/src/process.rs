@@ -6,8 +6,9 @@
 //! `<volume>/.detached/<pid>-<started>.json`, before its program runs. Health
 //! reads the records to tell these processes from orphans (orphans.rs) and
 //! leaves each one, with what runs under it, alone, when it stops orphans and
-//! when it stops junk shells (shells.rs). The scan of each host removes a
-//! record whose process has ended (host_scan.rs).
+//! when it stops junk shells (shells.rs). The scan of each host
+//! (host_scan.rs) reads that host's records with `listing_script` and removes,
+//! with `remove`, each one whose process has ended.
 
 use std::collections::BTreeSet;
 use std::io::{self, Read, Write};
@@ -22,6 +23,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
+use crate::host::{Host, Ssh};
 use crate::procs::Processes;
 
 /// The folder of the records, in the build volume's root. A name that starts
@@ -165,6 +167,83 @@ fn record_announced(mut stream: UnixStream, folder: &Path, purpose: &str) -> Res
         serde_json::to_vec(&record).expect("a record serializes"),
     )?;
     stream.write_all(&[0]).context(told)
+}
+
+/// The start of each line `listing_script` prints.
+const LISTED: &str = "detached=";
+
+/// The folder of <host>'s records, as a word of a script there: under
+/// <volume>, this Mac's build volume, or on another host under the build
+/// volume that `remote::root_script` names.
+fn folder_word(host: &Host, volume: &Path) -> String {
+    match host.target {
+        Some(_) => format!("\"$BUILDS_ROOT\"/{FOLDER}"),
+        None => crate::host::sh_quote(&volume.join(FOLDER).to_string_lossy()),
+    }
+}
+
+/// The shell lines that print each of <host>'s records on a line of its own,
+/// which `listed` reads; they follow `remote::root_script`. A script runs
+/// them before it lists the processes, so a record they print whose process
+/// the listing lacks is of a process that ended. A record that another
+/// reading removes meanwhile is of one that ended too. <volume> is this Mac's
+/// build volume.
+pub fn listing_script(host: &Host, volume: &Path) -> String {
+    format!(
+        r#"for record in {folder}/*.json; do
+  [ -e "$record" ] || continue
+  if text=$(cat "$record"); then
+    printf '{LISTED}%s\n' "$text"
+  elif [ -e "$record" ]; then
+    exit 1
+  fi
+done"#,
+        folder = folder_word(host, volume),
+    )
+}
+
+/// The records among the lines of <text>, what a script that ran
+/// `listing_script` printed.
+pub fn listed(text: &str) -> std::result::Result<Vec<Detached>, String> {
+    text.lines()
+        .filter_map(|line| line.strip_prefix(LISTED))
+        .map(|record| {
+            serde_json::from_str(record).map_err(|error| {
+                format!(
+                    "builds cannot read the host's record of a detached process ({error}): {record}"
+                )
+            })
+        })
+        .collect()
+}
+
+/// Removes the records <ended> from <host>. <volume> is this Mac's build
+/// volume.
+pub fn remove(
+    ssh: &Ssh,
+    host: &Host,
+    volume: &Path,
+    ended: &[Detached],
+) -> std::result::Result<(), String> {
+    let folder = folder_word(host, volume);
+    let files: Vec<String> = ended
+        .iter()
+        .map(|record| format!("{folder}/{}", record.file_name()))
+        .collect();
+    crate::host::output_at(
+        ssh,
+        host,
+        &format!(
+            "{}rm -f {}",
+            crate::remote::root_script(host),
+            files.join(" ")
+        ),
+        &format!(
+            "removing the records of ended processes on {}",
+            crate::host::place(&host.name)
+        ),
+    )
+    .map(drop)
 }
 
 /// Every record under the build volume <volume>.
