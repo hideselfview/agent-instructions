@@ -817,3 +817,22 @@ fn the_screen_script_reads_the_lid_and_the_displays() {
     assert_eq!(said, "lid=closed\nscreens=2\n");
     assert_eq!(screen_lacking(&said), Ok(None));
 }
+
+/// This Mac answers a probe with the script every host runs. A stand-in host,
+/// whose ssh runs the script on this Mac in another home, reads the same
+/// platform, cores and process limit, and the programs of its own home.
+#[test]
+fn this_mac_and_a_stand_in_host_answer_the_probe_through_one_script() {
+    use crate::cargo_program::{Has, NEXTEST};
+    let scratch = Scratch::new("probe-one-script");
+    let home = scratch.dir.join("remote-home");
+    let ssh = fake_ssh(&scratch, &home);
+    crate::cargo_program::tests::fake_program(&NEXTEST, &home.join(".cargo/bin"), "0.9.1");
+    let here = read_probe(&ssh, None).unwrap();
+    let there = read_probe(&ssh, Some("u@m1")).unwrap();
+    assert_eq!(here.platform, there.platform);
+    assert_eq!(here.cores, there.cores);
+    assert_eq!(here.processes.limit, there.processes.limit);
+    assert_eq!((&here.git_fails, &there.git_fails), (&None, &None));
+    assert_eq!(there.nextest, Has::Version("0.9.1".to_string()));
+}

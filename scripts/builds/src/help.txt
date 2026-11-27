@@ -2477,7 +2477,9 @@ and what it said, and every pick passes over it. `builds health` lists each
 recorded host under "needs action", and the dashboard's load card for the host
 says "refuses jobs" in place of its core count when git fails there. Fix the cause on the host; the next probe
 that finds the host answering with git running removes the record, and builds
-uses the host again. `builds host list` probes every host, and so does every
+uses the host again. builds probes this Mac with the script it runs on every
+other host, so this Mac also refuses jobs when git fails here. `builds host
+list` probes every host, and so does every
 `builds cargo` and `builds remote run` that picks one. A host whose Xcode
 cannot start, or whose UI tests timed out turning on automation mode, refuses
 mac app builds only (APP BUILDS).

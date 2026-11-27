@@ -39,7 +39,7 @@ use crate::host_memory::Memory;
 use crate::places::Places;
 use crate::system::{Program, System};
 use crate::text::{human, local_minute};
-use crate::tool::{Tool, volume_space};
+use crate::tool::Tool;
 
 /// The name of this Mac among the hosts. No other host may take it.
 pub const LOCAL: &str = "local";
@@ -376,8 +376,9 @@ impl Probe {
 /// Runs on the host to print what `parse_probe` reads, after the lines that
 /// name its platform (`host_platform::SCRIPT`), which set `os`: macOS's
 /// sysctl names the cores and load, and Linux's nproc and /proc/loadavg do.
-/// git runs in the shell ssh starts, with no PATH of builds' own, as the
-/// `git-receive-pack` that a job's push starts there does.
+/// On another host, git runs in the shell ssh starts, with no PATH of
+/// builds' own, as the `git-receive-pack` that a job's push starts there
+/// does; on this Mac, it runs as a job's git here does.
 const PROBE_SCRIPT: &str = r#"case "$os" in
 Darwin)
   echo cores=$(sysctl -n hw.ncpu)
@@ -392,9 +393,9 @@ echo free_kib=$(df -Pk "$HOME" | awk 'NR==2{print $4}')
 if ! said=$(git --version 2>&1); then echo "git_fails=$(printf '%s' "$said" | tr '\n' ' ')"; fi
 "#;
 
-/// The script a remote host runs: the platform's lines, `PROBE_SCRIPT`, then
-/// the memory script, then the lines of each program builds installs and the
-/// process lines.
+/// The script every host runs to answer a probe, this Mac included: the
+/// platform's lines, `PROBE_SCRIPT`, then the memory script, then the lines
+/// of each program builds installs and the process lines.
 fn probe_script() -> String {
     format!(
         "{}\n{PROBE_SCRIPT}{}\n{}\n{}\n{}\n{}",
@@ -456,45 +457,20 @@ pub fn parse_probe(text: &str) -> Result<Probe> {
     })
 }
 
-/// Asks <target> over ssh for its cores, load and free disk. The error says
-/// what ssh printed.
-pub fn probe_target(ssh: &Ssh, target: &str) -> std::result::Result<Probe, String> {
-    let output = ssh
-        .command(target, &probe_script(), Terminal::None)
-        .map_err(Fail::text)?
-        .stdin(Stdio::null())
-        .output()
-        .map_err(|error| format!("running ssh to {target}: {error}"))?;
-    if !output.status.success() {
-        let said = String::from_utf8_lossy(&output.stderr);
-        return Err(format!(
-            "ssh to {target} failed ({}): {}",
-            output.status,
-            said.trim()
-        ));
+/// Runs `probe_script` on the host <target> names, or on this Mac for None,
+/// and reads its answer. The error says what ssh or the script printed.
+pub fn read_probe(ssh: &Ssh, target: Option<&str>) -> std::result::Result<Probe, String> {
+    let command = match target {
+        Some(target) => ssh.command(target, &probe_script(), Terminal::None),
+        None => Ok(ssh.system.sh(&probe_script())),
     }
-    parse_probe(&String::from_utf8_lossy(&output.stdout)).map_err(|fail| fail.text())
-}
-
-/// This Mac's cores, load and free disk, read with <ssh>'s programs.
-pub fn probe_local(places: &Places, ssh: &Ssh) -> Result<Probe> {
-    let mut loads = [0f64; 3];
-    if unsafe { libc::getloadavg(loads.as_mut_ptr(), 3) } != 3 {
-        fail!("reading this Mac's load average");
-    }
-    // A job here runs in this Mac's own clone: nothing is pushed.
-    Ok(Probe {
-        platform: crate::host_platform::Platform::here(),
-        cores: Host::local().cores,
-        load: loads,
-        free_kib: volume_space(&places.home)?.free_kib,
-        memory: crate::host_memory::here()?,
-        git_fails: None,
-        nextest: crate::cargo_program::NEXTEST.has(&places.home),
-        mutants: crate::cargo_program::MUTANTS.has(&places.home),
-        node: crate::cargo_program::NODE.has(&places.home),
-        processes: crate::proc_limit::local(ssh)?,
-    })
+    .map_err(Fail::text)?;
+    let what = match target {
+        Some(target) => format!("ssh to {target}"),
+        None => "probing this Mac".to_string(),
+    };
+    let said = output_of(command, &what)?;
+    parse_probe(&said).map_err(|fail| fail.text())
 }
 
 /// The lines a host runs to say whether it can draw a window scene (a shot
@@ -556,10 +532,7 @@ pub fn screen_lacks(ssh: &Ssh, host: &Host) -> std::result::Result<Option<String
 /// removes the record of a host whose git runs. A host that does not answer
 /// keeps its record as it is.
 pub fn probe(places: &Places, ssh: &Ssh, host: &Host) -> std::result::Result<Probe, String> {
-    let Some(target) = &host.target else {
-        return probe_local(places, ssh).map_err(|fail| fail.text());
-    };
-    let probe = probe_target(ssh, target)?;
+    let probe = read_probe(ssh, host.target.as_deref())?;
     let kept = match &probe.git_fails {
         Some(said) => record_refusal(
             places,
@@ -1028,7 +1001,7 @@ pub fn add(places: &Places, ssh: &Ssh, name: &str, target: &str) -> Result<Host>
         fail!("{target:?} is not an ssh target (user@machine)");
     }
     // The probe runs before the change, so no other change waits for ssh.
-    let probe = match probe_target(ssh, target) {
+    let probe = match read_probe(ssh, Some(target)) {
         Ok(probe) => probe,
         Err(error) => fail!("host {name} is not reachable: {error}"),
     };

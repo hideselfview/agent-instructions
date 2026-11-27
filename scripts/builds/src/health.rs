@@ -2193,7 +2193,7 @@ fn report(tool: &Tool, json: bool, stop_junk: bool, release_failures: Vec<Advice
             probe: &|host| crate::host::probe(&tool.places, &ssh, host),
             measure: &|host| {
                 let target = host.target.as_deref().expect("a host to measure is remote");
-                let os = crate::host::probe_target(&ssh, target)?.platform.os;
+                let os = crate::host::read_probe(&ssh, Some(target))?.platform.os;
                 // Health runs with no person at a terminal, so a sudo step
                 // that setup still lacks fails and says what to run.
                 crate::host_setup::setup_host(&tool.places, &ssh, host, os, false, &tool.program)

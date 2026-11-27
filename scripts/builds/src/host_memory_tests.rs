@@ -97,13 +97,6 @@ fn the_script_reads_memory_pressure_and_swap_in_any_unit() {
     }
 }
 
-/// This Mac answers the script.
-#[test]
-fn this_mac_reports_its_memory() {
-    let memory = here().unwrap();
-    assert!(memory.free_percent <= 100);
-}
-
 /// A pressure level the kernel does not define fails the probe and names the
 /// value, so health says the host's answer cannot be read.
 #[test]

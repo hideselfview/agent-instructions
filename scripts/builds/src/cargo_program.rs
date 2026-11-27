@@ -123,37 +123,28 @@ impl Program {
         }
     }
 
-    /// What the program under <home>'s `.cargo/bin` is.
+    /// What the program under <home>'s `.cargo/bin` is, read by the lines a
+    /// probe runs on every host (`probe_lines`).
     pub fn has(&self, home: &Path) -> Has {
-        let program = bin_dir(home).join(self.name);
-        if !program.exists() {
-            return Has::Nothing;
-        }
-        let output = match Command::new(&program)
-            .args(self.version_args)
+        let output = match Command::new("sh")
+            .arg("-c")
+            .arg(self.probe_lines())
+            .env("HOME", home)
             .stdin(Stdio::null())
             .output()
         {
             Ok(output) => output,
-            Err(error) => return Has::Broken(format!("running {}: {error}", program.display())),
+            Err(error) => return Has::Broken(format!("running sh to read {}: {error}", self.name)),
         };
         if !output.status.success() {
             return Has::Broken(format!(
-                "{} failed ({}): {}",
-                program.display(),
+                "reading {} failed ({}): {}",
+                self.name,
                 output.status,
                 String::from_utf8_lossy(&output.stderr).trim()
             ));
         }
-        match String::from_utf8_lossy(&output.stdout)
-            .lines()
-            .next()
-            .and_then(|line| line.split_whitespace().nth(self.version_word - 1))
-            .map(|word| word.strip_prefix(self.version_prefix).unwrap_or(word))
-        {
-            Some(version) => Has::Version(version.to_string()),
-            None => Has::Broken(format!("{} printed no version", program.display())),
-        }
+        self.parse_has(&String::from_utf8_lossy(&output.stdout))
     }
 
     /// Installs the program at `version` under <home>'s `.cargo/bin` when it

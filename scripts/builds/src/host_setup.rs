@@ -220,7 +220,7 @@ pub fn cmd_setup(tool: &Tool, ssh: &Ssh, name: &str) -> Result<()> {
     let at_terminal = std::io::stdin().is_terminal();
     let os = match &host.target {
         None => Os::here(),
-        Some(target) => match host::probe_target(ssh, target) {
+        Some(target) => match host::read_probe(ssh, Some(target)) {
             Ok(probe) => probe.platform.os,
             Err(error) => fail!("host {name} is not reachable: {error}"),
         },

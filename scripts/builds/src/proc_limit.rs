@@ -5,8 +5,8 @@
 //! failed: resource temporarily unavailable".
 //!
 //! The probe reads the user's process count and the limit on every host,
-//! this Mac included (`PROBE_LINES`, run by `host.rs`'s probe script over ssh
-//! and by `local` here). `builds health` lists under "needs action" each host
+//! this Mac included (`PROBE_LINES`, which `host.rs`'s probe script runs).
+//! `builds health` lists under "needs action" each host
 //! whose count passes `WARN_SHARE` of the limit, with the parents that hold the
 //! most zombie children, which stuck.rs's `ps` listing shows. `stop` ends such
 //! a parent on this Mac when it is a test binary, under `builds health
@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
 use crate::health::Advice;
-use crate::host::{Host, Ssh, answer_value, output_at, place};
+use crate::host::{Host, Ssh, answer_value, place};
 use crate::host_scan::Row;
 use crate::shells::{basename, shown};
 use crate::text::duration;
@@ -72,19 +72,6 @@ pub fn parse(text: &str) -> Result<ProcessUse> {
         count: value("procs")?,
         limit: value("max_procs")?,
     })
-}
-
-/// This Mac's process count and limit, read by the lines the probe script
-/// runs on other hosts, with <ssh>'s programs.
-pub fn local(ssh: &Ssh) -> Result<ProcessUse> {
-    let printed = output_at(
-        ssh,
-        &Host::local(),
-        PROBE_LINES,
-        "counting this Mac's processes",
-    )
-    .map_err(Fail::Message)?;
-    parse(&printed)
 }
 
 /// A process that has zombie children.
@@ -201,9 +188,11 @@ pub fn finding(
 /// Stops each test-binary parent of zombies of <uid> on this Mac when this
 /// Mac is near its process limit, with SIGTERM: the zombies then belong to
 /// init, which reaps them. Returns one line per parent and the number it
-/// could not stop. <ssh> counts the processes.
+/// could not stop. <ssh> probes this Mac for the count.
 pub fn stop(ssh: &Ssh, uid: u32) -> Result<(Vec<String>, usize)> {
-    let used = local(ssh)?;
+    let used = crate::host::read_probe(ssh, None)
+        .map_err(Fail::Message)?
+        .processes;
     if !used.near_limit() {
         return Ok((Vec::new(), 0));
     }

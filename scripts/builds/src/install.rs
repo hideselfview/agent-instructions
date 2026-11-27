@@ -531,7 +531,7 @@ fn install_on_hosts(
             .target
             .as_deref()
             .expect("a recorded host has a target");
-        let os = crate::host::probe_target(ssh, target)
+        let os = crate::host::read_probe(ssh, Some(target))
             .map_err(crate::fail::Fail::Message)?
             .platform
             .os;

@@ -127,26 +127,6 @@ impl Memory {
     }
 }
 
-/// This Mac's memory, read by the same script a remote host runs.
-pub fn here() -> Result<Memory> {
-    let output = std::process::Command::new("sh")
-        .arg("-c")
-        .arg(format!("{}\n{SCRIPT}", crate::host_platform::SCRIPT))
-        .stdin(std::process::Stdio::null())
-        .output();
-    match output {
-        Ok(output) if output.status.success() => {
-            Memory::parse(&String::from_utf8_lossy(&output.stdout))
-        }
-        Ok(output) => fail!(
-            "reading this Mac's memory failed ({}): {}",
-            output.status,
-            String::from_utf8_lossy(&output.stderr).trim()
-        ),
-        Err(error) => fail!("running sh to read this Mac's memory: {error}"),
-    }
-}
-
 #[cfg(test)]
 #[path = "host_memory_tests.rs"]
 mod tests;
