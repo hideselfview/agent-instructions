@@ -125,7 +125,18 @@ pub enum Terminal {
 /// here, with the system's programs either way. <terminal> says whether a
 /// person at this terminal can answer it.
 pub fn command_at(ssh: &Ssh, host: &Host, script: &str, terminal: Terminal) -> Result<Command> {
-    match &host.target {
+    command_on(ssh, host.target.as_deref(), script, terminal)
+}
+
+/// The command that runs <script> on the host <target> names, or on this Mac
+/// for None, as `command_at` says.
+fn command_on(
+    ssh: &Ssh,
+    target: Option<&str>,
+    script: &str,
+    terminal: Terminal,
+) -> Result<Command> {
+    match target {
         Some(target) => ssh.command(target, script, terminal),
         None => Ok(ssh.system.sh(script)),
     }
@@ -460,11 +471,7 @@ pub fn parse_probe(text: &str) -> Result<Probe> {
 /// Runs `probe_script` on the host <target> names, or on this Mac for None,
 /// and reads its answer. The error says what ssh or the script printed.
 pub fn read_probe(ssh: &Ssh, target: Option<&str>) -> std::result::Result<Probe, String> {
-    let command = match target {
-        Some(target) => ssh.command(target, &probe_script(), Terminal::None),
-        None => Ok(ssh.system.sh(&probe_script())),
-    }
-    .map_err(Fail::text)?;
+    let command = command_on(ssh, target, &probe_script(), Terminal::None).map_err(Fail::text)?;
     let what = match target {
         Some(target) => format!("ssh to {target}"),
         None => "probing this Mac".to_string(),
