@@ -552,8 +552,7 @@ fn single_link(path: &Path) -> Result<bool> {
 /// <replaced> (superseded), the incremental folders only they used, every
 /// incremental folder nothing wrote anywhere inside since the idle cutoff,
 /// and the other units' dead object files, but none a process holds a file
-/// of, and none in <kept>. Returns the bytes freed (or that would be), and
-/// whether it deleted anything.
+/// of, and none in <kept>. Returns the bytes freed (or that would be).
 fn prune_profile(
     profile: &Path,
     units: &Units,
@@ -562,7 +561,7 @@ fn prune_profile(
     ages: &Ages,
     run: Run,
     open_files: &mut OpenFiles,
-) -> Result<Pruned> {
+) -> Result<u64> {
     let mut stale: Vec<&Unit> = Vec::new();
     for found in &units.list {
         if !kept.contains(&found.hash) && found.last_use()? < ages.cutoff {
@@ -612,10 +611,7 @@ fn prune_profile(
         && idle.is_empty()
         && objects.is_empty()
     {
-        return Ok(Pruned {
-            bytes: 0,
-            deleted: false,
-        });
+        return Ok(0);
     }
     let held = open_files.get()?.clone();
     let mut kept = Vec::new();
@@ -645,12 +641,6 @@ fn prune_profile(
         }
     }
     let objects = unheld;
-    let deleted = !run.dry()
-        && (!stale.is_empty()
-            || !older.is_empty()
-            || !increment_dirs.is_empty()
-            || !idle_dirs.is_empty()
-            || !objects.is_empty());
     let seen = Seen::default();
     let mut freed = 0;
     let groups = [
@@ -789,26 +779,16 @@ fn prune_profile(
             profile.display()
         ));
     }
-    Ok(Pruned {
-        bytes: freed,
-        deleted,
-    })
-}
-
-/// What `prune_profile` did in one profile folder.
-struct Pruned {
-    /// The bytes it freed, or on a dry run would free.
-    bytes: u64,
-    /// It deleted something.
-    deleted: bool,
+    Ok(freed)
 }
 
 /// Prunes each build folder's profile folders, while holding its checkout's
 /// guard and each profile folder's cargo lock (a dry run takes none and
 /// deletes nothing). A folder whose guard a `builds cargo` build holds is
 /// left whole; a profile folder whose lock a build holds keeps its units.
-/// Returns the KiB freed per folder; notes go to stderr. Each build root it
-/// deletes in goes in <changed>.
+/// Returns the KiB freed per folder; notes go to stderr. A real run adds to
+/// <changed> the build root of each folder whose profile folders it may
+/// delete in.
 pub fn prune(
     ages: &Ages,
     run: Run,
@@ -887,9 +867,13 @@ pub fn prune(
                 ));
             }
         }
+        // Before the first deletion, so that a deletion that fails partway
+        // still has the root measured when the command ends.
+        if !run.dry() && !free.is_empty() {
+            changed.add_holding(folder)?;
+        }
         let mut open_files = OpenFiles::new(std::slice::from_ref(&root));
         let mut freed = 0;
-        let mut deleted = false;
         for (at, (profile, units)) in every.iter().enumerate() {
             if !free.contains(&at) {
                 continue;
@@ -900,7 +884,7 @@ pub fn prune(
                     .map(|(_, hash)| hash.clone())
                     .collect()
             };
-            let pruned = prune_profile(
+            freed += prune_profile(
                 profile,
                 units,
                 &here(&judged.replaced),
@@ -909,13 +893,8 @@ pub fn prune(
                 run,
                 &mut open_files,
             )?;
-            freed += pruned.bytes;
-            deleted |= pruned.deleted;
         }
         drop(locks);
-        if deleted {
-            changed.add_holding(folder)?;
-        }
         result.push((folder.clone(), freed / 1024));
     }
     Ok(result)
