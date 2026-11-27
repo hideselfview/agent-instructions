@@ -2807,16 +2807,26 @@ so every dependency bump builds a new copy of each unit above it, and the old
 copy stays. In each cargo folder (target, target-macos, ...) builds deletes
 every file of a unit that no build used for BUILDS_UNUSED_DAYS days (default
 3), and of a unit a newer copy replaced: a copy of the same package and target,
-mode, features and profile, built from other sources (another version or git
-revision of a dependency, or another compiler), that a build used after the
-unit's last use. A unit is also replaced when a newer build of its package
-(such as the library beside a test binary) was built against another copy of
-something the unit was built against. Copies built from the same sources for
-another package selection or feature set (`-p x` against the workspace, or one
-package with and without its test features) stay side by side, and so does
-whatever a unit that stays was built against. A unit's last use is the
-last build that reported it, rebuilt or up to date; a unit that no recorded
-build used counts as used when cargo last built it.
+mode, features and profile, built from other sources, that a build used after
+the unit's last use. Two copies come from other sources when another compiler
+built them, or when each was built against a source folder or version of a
+package that the other was not built against (another version or git revision
+of a dependency, or a workspace crate's new version). A copy that was built
+against a further version of a package beside all the other's, as a feature
+that pulls one in does, comes from the same sources. builds reads each unit's
+package version from cargo's report of a `builds cargo` build and keeps it in
+the unit's fingerprint folder. For a unit that no such build used, builds
+compares only the compiler and the source folders. Two different units can come
+from the same sources: cargo builds some, such as a build script's runs that
+differ only in debug info, whose records it writes alike. A unit is also
+replaced when a newer build of its package (such as the library beside a test
+binary) was built against another copy, from other sources, of something the
+unit was built against. Copies built from the same sources for another package
+selection or feature set (`-p x` against the workspace, or one package with and
+without its test features) stay side by side, and so does whatever a unit that
+stays was built against. A unit's last use is the last build that reported it,
+rebuilt or up to date; a unit that no recorded build used counts as used when
+cargo last built it.
 
 Incremental folders. builds deletes the incremental folders that only deleted
 units used, and every incremental folder that nothing wrote anywhere inside

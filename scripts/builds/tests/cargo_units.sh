@@ -453,20 +453,20 @@ ln -s "$volume/ws/main/target" "$ws/target"
 bump 0.1.3 0.1.4
 [ -z "$(recent)" ] || fail "aging left recent copies: $(recent)"
 before_libs="$(lib_dep)"
-# What the build leaves besides the copy it builds: the copy with the feature,
-# and the plain copy the doc build made, which only checks dep (no rlib) and
-# which no build here replaces. The plain copy with an rlib is the one the
-# bump replaces.
+# What the build leaves besides the copy it builds: the plain copy the doc
+# build made, which only checks dep (no rlib) and which no build here
+# replaces. The bump replaces the copies with an rlib, the one with the
+# feature too: they were built from the version before.
 left_over=""
 for dir in $before_libs; do
-    if has_extra "$dir" || [ -z "$(unit_files "$dir" | grep '\.rlib$')" ]; then left_over="$left_over$dir"$'\n'; fi
+    if [ -z "$(unit_files "$dir" | grep '\.rlib$')" ]; then left_over="$left_over$dir"$'\n'; fi
 done
 BUILDS_ROOT="$volume" "$builds" cargo build -q --all-targets
 [ -f "$volume/ws/main/.builds-cargo.lock" ] || fail "builds cargo took no guard in the checkout's build root"
 lockf -k -t 60 "$volume/ws/main/.after-build.log" true || fail "the prune after the build ran for over a minute"
 bumped_libs="$(comm -12 <(lib_dep) <(recent))"
 [ -n "$bumped_libs" ] || fail "the bumped build left no library copy of dep"
-[ "$(echo "$left_over" | grep -c .)" -eq 2 ] || fail "expected two copies of dep's library to stay besides the bumped one, among: $before_libs"
+[ "$(echo "$left_over" | grep -c .)" -eq 1 ] || fail "expected one copy of dep's library to stay besides the bumped one, among: $before_libs"
 expected="$(sort <(echo "$bumped_libs") <(echo "$left_over" | grep .))"
 [ "$(lib_dep)" = "$expected" ] \
     || fail "the prune after the build left $(comm -13 <(echo "$expected") <(lib_dep)) and deleted $(comm -23 <(echo "$expected") <(lib_dep)): $(cat "$volume/ws/main/.after-build.log")"
@@ -518,6 +518,54 @@ units prune 3 100000 0 "$ws/target" > /dev/null 2>&1
     || fail "the compile with the feature compiled again: $(rebuilt "${with_feature[@]}")"
 [ -z "$(rebuilt "${without_feature[@]}")" ] \
     || fail "the compile without the feature compiled again: $(rebuilt "${without_feature[@]}")"
+# So it is too when a selection changes which units cargo shares between the
+# host and the target. app uses base in its build script and in its library.
+# With other selected too, which asks base for a feature, the two uses differ,
+# and cargo runs base's build script once for the host and once for the target.
+# With app alone they share one run. Cargo writes the same fingerprint record
+# for the host's own run and for the shared one: it records no profile for a
+# build script's run, and they differ in debug info only. base's extra
+# feature also pulls in a second version of twin, as a feature can in a
+# registry's crates, so only the compile with other builds base against it.
+shared="$scratch/shared"
+mkdir -p "$shared/base/src" "$shared/app/src" "$shared/other/src"
+cp -R "$scratch/ws/.cargo" "$shared/"
+printf '[workspace]\nmembers = ["base", "app", "other"]\nresolver = "2"\n' > "$shared/Cargo.toml"
+for name in base app other; do
+    printf '[package]\nname = "%s"\nversion = "0.1.0"\nedition = "2021"\n' "$name" > "$shared/$name/Cargo.toml"
+done
+for version in 1 2; do
+    mkdir -p "$scratch/twin-$version/src"
+    printf '[package]\nname = "twin"\nversion = "%s.0.0"\nedition = "2021"\n' "$version" > "$scratch/twin-$version/Cargo.toml"
+    echo 'pub fn twin() {}' > "$scratch/twin-$version/src/lib.rs"
+done
+printf '[features]\nextra = ["dep:next"]\n[dependencies]\ntwin = { path = "../../twin-1" }\nnext = { package = "twin", path = "../../twin-2", optional = true }\n' >> "$shared/base/Cargo.toml"
+printf '[dependencies]\nbase = { path = "../base" }\n[build-dependencies]\nbase = { path = "../base" }\n' >> "$shared/app/Cargo.toml"
+printf '[dependencies]\nbase = { path = "../base", features = ["extra"] }\n' >> "$shared/other/Cargo.toml"
+echo 'fn main() { println!("cargo:rerun-if-changed=build.rs"); }' > "$shared/base/build.rs"
+echo 'pub fn one() -> u32 { 1 }' > "$shared/base/src/lib.rs"
+echo 'fn main() { assert_eq!(base::one(), 1); println!("cargo:rerun-if-changed=build.rs"); }' > "$shared/app/build.rs"
+echo 'pub fn two() -> u32 { base::one() + 1 }' > "$shared/app/src/lib.rs"
+echo 'pub fn three() -> u32 { base::one() + 2 }' > "$shared/other/src/lib.rs"
+cd "$shared"
+ws="$shared"
+profile="$ws/target/debug"
+cargo generate-lockfile -q
+apart=(build -p app -p other)
+alone=(build -p app)
+for round in 1 2; do
+    for compile in apart alone; do
+        if [ "$compile" = apart ]; then words=("${apart[@]}"); else words=("${alone[@]}"); fi
+        "$builds" cargo "${words[@]}" -q
+        variants="$(fingerprints)"
+        units prune 3 100000 0 "$ws/target" > /dev/null 2>&1
+        [ "$(fingerprints)" = "$variants" ] \
+            || fail "pruning after round $round's $compile compile deleted $(comm -23 <(echo "$variants") <(fingerprints))"
+    done
+done
+[ -z "$(rebuilt "${apart[@]}")" ] || fail "the compile with other selected compiled again: $(rebuilt "${apart[@]}")"
+[ -z "$(rebuilt "${alone[@]}")" ] || fail "the compile of app alone compiled again: $(rebuilt "${alone[@]}")"
+
 cd "$scratch/ws"
 ws="$scratch/ws"
 profile="$ws/target/debug"

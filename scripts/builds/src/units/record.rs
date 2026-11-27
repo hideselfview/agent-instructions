@@ -210,6 +210,19 @@ fn package_name(package_id: &str) -> String {
     location.rsplit('/').next().unwrap_or("").to_string()
 }
 
+/// The package version in a cargo package id, which follows its `#`, after
+/// the name and `@` when the id has the name there.
+fn package_version(package_id: &str) -> Option<&str> {
+    let (_, named) = package_id.rsplit_once('#')?;
+    Some(named.rsplit_once('@').map_or(named, |(_, version)| version))
+}
+
+/// The file builds writes in a unit's fingerprint folder to keep the version
+/// of the unit's package, which cargo's own records there lack. A prune reads
+/// it to tell a new version of a package whose source folder stays the same
+/// (a workspace crate's) from the old one (prune.rs `Sources`).
+pub const VERSION_FILE: &str = "builds-version";
+
 fn target_kind(kind: &str) -> &str {
     match kind {
         "lib" | "rlib" | "dylib" | "cdylib" | "staticlib" | "proc-macro" => "lib",
@@ -253,6 +266,7 @@ pub fn fingerprint_values(fingerprint_dir: &Path) -> Result<HashSet<u64>> {
             || name.starts_with("dep-")
             || name.starts_with("output-")
             || name == "invoked.timestamp"
+            || name == VERSION_FILE
         {
             continue;
         }
@@ -554,8 +568,20 @@ fn now() -> libc::timeval {
     }
 }
 
-/// Marks the fingerprint folders <found> of <message> used at <when>, and
-/// notes each of <missing> as a failure.
+/// Writes <version> in the fingerprint folder <dir>, unless it holds one: a
+/// unit's package keeps its version, since cargo gives another version
+/// another unit.
+fn keep_version(dir: &Path, version: &str) -> Result<()> {
+    let file = dir.join(VERSION_FILE);
+    if stat(&file)?.is_some() {
+        return Ok(());
+    }
+    crate::whole_file::write(&file, version)
+}
+
+/// Marks the fingerprint folders <found> of <message> used at <when>, keeps
+/// the version of their package in each, and notes each of <missing> as a
+/// failure.
 fn mark(
     message: &Value,
     found: Vec<PathBuf>,
@@ -564,7 +590,19 @@ fn mark(
     touched: &mut Vec<PathBuf>,
     failures: &mut Vec<String>,
 ) -> Result<()> {
+    let version = message["package_id"].as_str().and_then(package_version);
     for dir in found {
+        match version {
+            // Before the touch: a new file changes the folder's own time,
+            // which the touch sets to when the build began.
+            Some(version) if is_folder(&dir)? => keep_version(&dir, version)?,
+            Some(_) => {}
+            None => failures.push(format!(
+                "cargo reported a build copy ({}) with no package version, so builds could not record the version of {}",
+                message["reason"].as_str().unwrap_or(""),
+                dir.display()
+            )),
+        }
         match touch(&dir, when) {
             Ok(()) => touched.push(dir),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {

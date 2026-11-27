@@ -10,7 +10,9 @@ use std::rc::Rc;
 use serde_json::Value;
 
 use super::objects::dead_objects;
-use super::record::{GONE, Record, UNREADABLE, fingerprint_values, recorded, unread_note};
+use super::record::{
+    GONE, Record, UNREADABLE, VERSION_FILE, fingerprint_values, recorded, unread_note,
+};
 use super::unit::{Unit, Units, units_in};
 use super::{
     Guard, INCREMENTAL_DEPTH, OpenFiles, holds_any, is_folder, lock_guard, lock_profile, lstat,
@@ -115,32 +117,41 @@ fn incremental_dirs(profile: &Path, units: &Units) -> Result<Vec<(PathBuf, BTree
 type Key = (usize, String);
 
 /// The sources a unit and everything it was built against came from: the
-/// compiler (cargo's hash of `rustc -vV`); each package's source folder
-/// (cargo's hash of its path: a registry version's folder, a git revision's
-/// checkout, a workspace member's own folder), by package; and the units
-/// themselves, by identity (`Copies::identity`), which tells a workspace
-/// crate's new version from its old one in the same folder.
+/// compiler (cargo's hash of `rustc -vV`); and by package, each source file
+/// cargo compiled (cargo's hash of its path, which a registry version's
+/// folder or a git revision's checkout is part of) and each version
+/// (`record::VERSION_FILE`), which tells a workspace crate's new version
+/// from its old one in the same folder. A unit that no `builds cargo` run
+/// used has no version here.
 #[derive(Default)]
 struct Sources {
     rustc: BTreeSet<u64>,
     paths: BTreeMap<usize, BTreeSet<u64>>,
-    units: BTreeMap<usize, BTreeSet<usize>>,
+    versions: BTreeMap<usize, BTreeSet<String>>,
 }
 
 impl Sources {
-    /// Were the two built from other sources: another compiler, another
-    /// source folder of a package both were built against, or another copy
-    /// of a unit both were built against a copy of? Copies built from the
-    /// same sources share every unit of an identity, since cargo names a unit
-    /// by its identity and sources.
+    /// Were the two built from other sources: another compiler, or, of a
+    /// package both were built against, a source file or version on each
+    /// side that the other lacks? A side that has all the other has, and
+    /// more, built a further version beside it, as a feature that pulls one
+    /// in does. Two distinct units alone show nothing: cargo gives builds of
+    /// the same sources a unit each for what their records here do not hold,
+    /// such as the debug info a build script's run is for.
     fn conflict(&self, other: &Sources) -> bool {
-        fn differ<K: Ord, V: Eq>(mine: &BTreeMap<K, V>, theirs: &BTreeMap<K, V>) -> bool {
-            mine.iter()
-                .any(|(key, values)| theirs.get(key).is_some_and(|other| other != values))
+        fn differ<V: Ord>(
+            mine: &BTreeMap<usize, BTreeSet<V>>,
+            theirs: &BTreeMap<usize, BTreeSet<V>>,
+        ) -> bool {
+            mine.iter().any(|(package, values)| {
+                theirs
+                    .get(package)
+                    .is_some_and(|other| !values.is_subset(other) && !other.is_subset(values))
+            })
         }
         self.rustc != other.rustc
             || differ(&self.paths, &other.paths)
-            || differ(&self.units, &other.units)
+            || differ(&self.versions, &other.versions)
     }
 
     fn extend(&mut self, other: &Sources) {
@@ -151,13 +162,22 @@ impl Sources {
                 .or_default()
                 .extend(paths.iter().copied());
         }
-        for (identity, units) in &other.units {
-            self.units
-                .entry(*identity)
+        for (package, versions) in &other.versions {
+            self.versions
+                .entry(*package)
                 .or_default()
-                .extend(units.iter().copied());
+                .extend(versions.iter().cloned());
         }
     }
+}
+
+/// What a unit's own records say it was built from.
+#[derive(Clone)]
+struct OwnSources {
+    package: usize,
+    paths: Vec<u64>,
+    rustc: Vec<u64>,
+    version: Option<String>,
 }
 
 /// Which units are copies of the same thing, and what each was built from
@@ -169,20 +189,11 @@ impl Sources {
 /// built from other sources (`Sources::conflict`): a dependency's version or
 /// git revision, or the compiler, which can also change a dependency's
 /// features (a new coven asking zeroize for another feature). Copies built
-/// from the same sources differ in their dependencies' features, which the
-/// package selection decides (`-p x` against the workspace); those are kept
-/// side by side, as builds use them in turn. Units cargo puts in one
+/// from the same sources differ in what the package selection decides, such
+/// as their dependencies' features (`-p x` against the workspace); those are
+/// kept side by side, as builds use them in turn. Units cargo puts in one
 /// fingerprint folder (a library's check and its documentation) count as
 /// one.
-///
-/// A unit's identity is its thing over the identities of what it was built
-/// against: copies with one identity differ only in their sources. A
-/// dependent's fingerprint names each dependency by the dependency's
-/// fingerprint when it was built. A fingerprint no unit has now (cargo has
-/// since rebuilt that dependency in place, or it is gone) counts by the
-/// package, crate name and fingerprint named, so two copies share it only
-/// when they were built against the same build of the dependency. A unit of
-/// another feature set has another fingerprint.
 struct Copies {
     /// The units with a fingerprint record that holds no JSON: nothing tells
     /// what they are copies of, so they stay.
@@ -192,13 +203,10 @@ struct Copies {
     /// dependent was built.
     unit_of: HashMap<u64, Key>,
     thing: HashMap<Key, String>,
-    own_sources: HashMap<Key, (usize, Vec<u64>, Vec<u64>)>,
-    /// [package id hash, crate name, fingerprint] per dependency.
-    deps: HashMap<Key, Vec<(String, String, Option<u64>)>>,
+    own_sources: HashMap<Key, OwnSources>,
+    /// The fingerprint value of each dependency.
+    deps: HashMap<Key, Vec<u64>>,
     packages: HashMap<String, usize>,
-    numbers: HashMap<Key, usize>,
-    identities: HashMap<String, usize>,
-    identity: HashMap<Key, usize>,
     sources: HashMap<Key, Rc<Sources>>,
 }
 
@@ -211,9 +219,6 @@ impl Copies {
             own_sources: HashMap::new(),
             deps: HashMap::new(),
             packages: HashMap::new(),
-            numbers: HashMap::new(),
-            identities: HashMap::new(),
-            identity: HashMap::new(),
             sources: HashMap::new(),
         };
         for (at, (profile, units)) in every.iter().enumerate() {
@@ -292,28 +297,22 @@ impl Copies {
                         .filter_map(|(_, record)| record.get(name).and_then(Value::as_u64))
                         .collect()
                 };
-                copies
-                    .own_sources
-                    .insert(key.clone(), (package, field("path"), field("rustc")));
-                let mut listed = Vec::new();
-                for (_, record) in &records {
-                    for dep in record
-                        .get("deps")
-                        .and_then(Value::as_array)
-                        .into_iter()
-                        .flatten()
-                    {
-                        if let Value::Array(parts) = dep
-                            && parts.len() >= 3
-                        {
-                            listed.push((
-                                parts[0].to_string(),
-                                parts[1].to_string(),
-                                parts[parts.len() - 1].as_u64(),
-                            ));
-                        }
-                    }
-                }
+                copies.own_sources.insert(
+                    key.clone(),
+                    OwnSources {
+                        package,
+                        paths: field("path"),
+                        rustc: field("rustc"),
+                        version: package_version_of(fingerprint)?,
+                    },
+                );
+                let listed = records
+                    .iter()
+                    .filter_map(|(_, record)| record.get("deps").and_then(Value::as_array))
+                    .flatten()
+                    // [package id hash, crate name, public, fingerprint]
+                    .filter_map(|dep| dep.as_array()?.last()?.as_u64())
+                    .collect();
                 copies.deps.insert(key.clone(), listed);
                 for value in fingerprint_values(fingerprint)? {
                     copies.unit_of.insert(value, key.clone());
@@ -321,37 +320,6 @@ impl Copies {
             }
         }
         Ok(copies)
-    }
-
-    /// <key>'s identity, a small number shared by equal ones.
-    fn identity(&mut self, key: &Key) -> usize {
-        if let Some(known) = self.identity.get(key) {
-            return *known;
-        }
-        // A placeholder, should the fingerprints ever name a cycle.
-        self.identity.insert(key.clone(), usize::MAX);
-        let mut parts = Vec::new();
-        for (package, krate, value) in self.deps.get(key).cloned().unwrap_or_default() {
-            let dependency = value.and_then(|value| self.unit_of.get(&value)).cloned();
-            match dependency {
-                Some(dependency) => {
-                    if dependency != *key {
-                        parts.push(format!("unit {}", self.identity(&dependency)));
-                    }
-                }
-                None => parts.push(format!("gone {package} {krate} {value:?}")),
-            }
-        }
-        parts.sort();
-        let shape = format!(
-            "{}\n{}",
-            self.thing.get(key).map(String::as_str).unwrap_or(""),
-            parts.join("\n")
-        );
-        let next = self.identities.len();
-        let identity = *self.identities.entry(shape).or_insert(next);
-        self.identity.insert(key.clone(), identity);
-        identity
     }
 
     /// The units <key> was built against that are still here. A dependency
@@ -362,7 +330,7 @@ impl Copies {
             .get(key)
             .into_iter()
             .flatten()
-            .filter_map(|(_, _, value)| value.and_then(|value| self.unit_of.get(&value)))
+            .filter_map(|value| self.unit_of.get(value))
             .filter(|dependency| *dependency != key)
             .cloned()
             .collect()
@@ -378,14 +346,21 @@ impl Copies {
         self.sources
             .insert(key.clone(), Rc::new(Sources::default()));
         let mut sources = Sources::default();
-        if let Some((package, paths, rustc)) = self.own_sources.get(key).cloned() {
-            sources.rustc.extend(rustc);
-            sources.paths.entry(package).or_default().extend(paths);
+        if let Some(own) = self.own_sources.get(key) {
+            sources.rustc.extend(own.rustc.iter().copied());
+            sources
+                .paths
+                .entry(own.package)
+                .or_default()
+                .extend(own.paths.iter().copied());
+            if let Some(version) = &own.version {
+                sources
+                    .versions
+                    .entry(own.package)
+                    .or_default()
+                    .insert(version.clone());
+            }
         }
-        let identity = self.identity(key);
-        let next = self.numbers.len();
-        let number = *self.numbers.entry(key.clone()).or_insert(next);
-        sources.units.entry(identity).or_default().insert(number);
         for dependency in self.dependencies(key) {
             let theirs = self.sources_of(&dependency);
             sources.extend(&theirs);
@@ -408,6 +383,17 @@ impl Copies {
         members
             .iter()
             .any(|other| times[other].1 > used && self.sources_of(other).conflict(&mine))
+    }
+}
+
+/// The package version builds kept in <fingerprint>; None for a unit no
+/// `builds cargo` run used.
+fn package_version_of(fingerprint: &Path) -> Result<Option<String>> {
+    let path = fingerprint.join(VERSION_FILE);
+    match std::fs::read_to_string(&path) {
+        Ok(version) => Ok(Some(version)),
+        Err(error) if gone(&error) => Ok(None),
+        Err(error) => fail!("reading {}: {error}", path.display()),
     }
 }
 
@@ -459,7 +445,7 @@ fn superseded(every: &[(PathBuf, Units)], free: &HashSet<usize>, cutoff: f64) ->
                 times.insert(key.clone(), (found.last_use()?, found.began()?));
                 groups.entry(thing.clone()).or_default().push(key.clone());
                 by_package
-                    .entry(copies.own_sources[&key].0)
+                    .entry(copies.own_sources[&key].package)
                     .or_default()
                     .push(key);
             }
@@ -483,7 +469,7 @@ fn superseded(every: &[(PathBuf, Units)], free: &HashSet<usize>, cutoff: f64) ->
             continue;
         }
         let mine = copies.dependencies(key);
-        let package = copies.own_sources[key].0;
+        let package = copies.own_sources[key].package;
         let newer: Vec<&Key> = by_package[&package]
             .iter()
             .filter(|other| times[*other].1 > *used)
