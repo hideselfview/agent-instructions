@@ -1,7 +1,9 @@
-# On a Mac every test runs in a sandbox that refuses a write under
-# /private/tmp or the user's temporary folder, to the test and to each program
-# it starts: a real `builds prune` deletes old build output there, a test's
-# among it. A test makes its folders in the run's temporary folder.
+# On a Mac every test runs in a sandbox that refuses a write outside the run's
+# temporary folder, to the test and to each program it starts: a real `builds
+# prune` deletes old build output under /private/tmp and the user's temporary
+# folder, a test's among it. A test makes its folders in the run's temporary
+# folder (tests/no-machine-temp.sh lists the files the Mac's own programs
+# write elsewhere).
 experimental = ["wrapper-scripts"]
 
 [scripts.wrapper.no-machine-temp]
