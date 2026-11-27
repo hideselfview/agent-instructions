@@ -5,11 +5,10 @@
 //! The table holds each program whose effect or answer reaches past the files
 //! builds names: the service managers, power, displays, settings, the screen's
 //! apps, Xcode, other processes, sudo, other machines and the agent CLIs. A
-//! test that ran one of the machine's own would act on the person's Mac: a
-//! stand-in host's `launchctl bootstrap` once loaded a test's sccache job
-//! and broke every build on it. The POSIX tools, git and the build tools
-//! (sh, ps, df, sysctl, git, tar, cargo, sccache) only read files and counts
-//! or act on paths builds names, and builds runs them by name.
+//! test that ran one of the machine's own would act on the person's Mac. The
+//! POSIX tools, git and the build tools (sh, ps, df, sysctl, git, tar, cargo,
+//! sccache) only read files and counts or act on paths builds names, and
+//! builds runs them by name.
 //!
 //! main reads `VARIABLE` once, and every builds process a command starts
 //! inherits it. Under a stand-in folder, builds refuses to run a name the
