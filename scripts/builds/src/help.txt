@@ -1542,9 +1542,12 @@ takes a page's shots in Chrome. The comparison version is a hash of the files
 that compare a shot with its board and write the findings and the report, with
 the boards library's files and the same package versions
 (scripts/builds/build_source.rs lists the files each version reads). A change
-to builds alone keeps every version, and so does a change to a test file or to
-the shots checker's command line (the subcommands and their arguments): every
-stored shot, board picture and run stays valid. builds keys the board pictures
+to builds alone keeps every version, and so does a change to a test file or
+test module, to the comments or layout of a Rust file, to a line of a Kotlin or
+Swift harness that holds only a `//` comment (in a file that opens no block
+comment or multi-line string), to what builds asks the checker outside a run
+(library.rs) or to the shots checker's command line (the subcommands and their
+arguments): every stored shot, board picture and run stays valid. builds keys the board pictures
 by the boards version, the shots and their element lists by their platform's
 capture version, and the findings by that capture version and the comparison
 version.

@@ -1,4 +1,4 @@
-use super::build_source::{Side, Taker, files, roots, shots_files};
+use super::build_source::{Side, Taker, files, meaning, roots, shots_files};
 use crate::testing::Scratch;
 use std::path::Path;
 
@@ -237,4 +237,54 @@ fn every_file_of_the_shots_crate_is_in_a_list() {
     ] {
         assert!(!shots_names(scripts, side).is_empty());
     }
+}
+
+/// What a version hashes of the source <text> of the file <shown>.
+fn meant(shown: &str, text: &str) -> String {
+    String::from_utf8(meaning(shown, text.as_bytes().to_vec())).unwrap()
+}
+
+/// A comment, the layout and a test module change no shot, so a change to
+/// them keeps every version of the shots checker.
+#[test]
+fn a_version_reads_no_comment_layout_or_test_module_of_a_rust_file() {
+    let before = "//! Takes a shot.\n\n/// Its size.\nfn size() -> u32 { 2 }\n";
+    let after = "//! Takes one shot,\n//! then ends.\n\n/* c */\n/// The size.\nfn size() -> u32 {\n    // two\n    2\n}\n\n#[cfg(test)]\n#[path = \"size_tests.rs\"]\nmod tests;\n";
+    let file = "shots/src/design.rs";
+    assert_eq!(meant(file, before), meant(file, after));
+    assert_ne!(meant(file, before), meant(file, &before.replace('2', "3")));
+    assert_ne!(
+        meant(file, "const A: &str = \"// one\";"),
+        meant(file, "const A: &str = \"// two\";"),
+        "the text of a string is no comment"
+    );
+    assert_ne!(
+        meant(file, "struct A { #[cfg(test)] a: u32, b: u32 }"),
+        meant(file, "struct A { #[cfg(test)] a: u32 }"),
+        "only a test module is left out"
+    );
+}
+
+/// A line of a Kotlin or Swift harness that holds only a comment changes no
+/// shot. A file that a block comment or a multi-line string could make such a
+/// line part of is read whole.
+#[test]
+fn a_version_reads_no_comment_line_of_a_harness() {
+    for file in [
+        "shots/harness/android/BoardShot.kt",
+        "shots/harness/mac/ShotScene.swift",
+    ] {
+        let code = "let a = \"x // y\"\nlet b = 2 // two\n";
+        assert_eq!(
+            meant(file, code),
+            meant(file, &format!("// why\n    /// more\n{code}"))
+        );
+        assert_ne!(meant(file, code), meant(file, &code.replace('2', "3")));
+        for opens in ["/*", "\"\"\""] {
+            let whole = format!("{opens}\n// kept\n");
+            assert_eq!(meant(file, &whole), whole);
+        }
+    }
+    let script = "shots/harness/mac/display/shot-display.py";
+    assert_eq!(meant(script, "// a\n"), "// a\n");
 }

@@ -16,7 +16,11 @@ shots = { path = "../shots" }
 toml = "1.1.8"
 wait-timeout = "=0.2.1"
 
+[dev-dependencies]
+proc-macro2 = "1.0.107"
+
 [build-dependencies]
+proc-macro2 = "1.0.107"
 sha2 = "0.10"
 toml = "1.1.8"
 

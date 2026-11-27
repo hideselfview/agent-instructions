@@ -54,15 +54,16 @@ fn main() {
 
 /// The version of <side> of the shots checker built from the crates in
 /// <scripts> with the Cargo.lock at <lock>: the first 8 bytes, in hex, of a
-/// sha256 of every file that side reads (`build_source::shots_files`), each by
-/// its path and length, and of the lock's entry for each package the checker
+/// sha256 of what every file that side reads (`build_source::shots_files`)
+/// means to the checker (`build_source::meaning`), each by its path and
+/// length, and of the lock's entry for each package the checker
 /// builds from. A change to builds alone keeps both versions, and a change to
 /// the other side keeps this one, so builds keeps what it stored.
 fn shots_version(scripts: &Path, lock: &Path, side: build_source::Side) -> String {
     let files = build_source::shots_files(scripts, side);
     let mut hash = Sha256::new();
     for (shown, path) in &files {
-        hash_file(&mut hash, shown, &read(path));
+        hash_file(&mut hash, shown, &build_source::meaning(shown, read(path)));
     }
     let lock = String::from_utf8(read(lock)).expect("Cargo.lock is UTF-8");
     for entry in lock_entries(&lock, "shots") {

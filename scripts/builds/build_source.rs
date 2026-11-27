@@ -10,6 +10,8 @@
 
 use std::path::{Path, PathBuf};
 
+use proc_macro2::{Delimiter, Spacing, TokenStream, TokenTree};
+
 /// The files and folders, relative to a crate's folder, that cargo builds
 /// the crate from.
 const PARTS: [&str; 6] = [
@@ -153,10 +155,11 @@ const COMPARISON_ONLY: [&str; 10] = [
 
 /// The files of the shots crate's `src` that neither side reads: `builds shots
 /// states`, which lists the component states the boards draw, `builds shots
-/// draws`, which says whether boards draw the same at two commits, and the
-/// command line (cli.rs): the subcommands and arguments name no picture, so a
-/// change to one keeps every stored shot, board picture and run.
-const UNVERSIONED: [&str; 3] = ["states.rs", "draws.rs", "cli.rs"];
+/// draws`, which says whether boards draw the same at two commits, what builds
+/// asks outside a run (library.rs), and the command line (cli.rs): the
+/// subcommands and arguments name no picture, so a change to one keeps every
+/// stored shot, board picture and run.
+const UNVERSIONED: [&str; 4] = ["states.rs", "draws.rs", "library.rs", "cli.rs"];
 
 /// Who reads a file of the shots checker.
 #[derive(PartialEq, Eq, Debug)]
@@ -228,6 +231,123 @@ pub fn shots_files(scripts: &Path, side: Side) -> Vec<(String, PathBuf)> {
             Readers::Nobody => false,
         })
         .collect()
+}
+
+/// What a version of the shots checker hashes of the file <shown>, whose
+/// contents are <bytes>: the part of it that can change what the checker
+/// does. Of a Rust file that is its tokens without comments, doc comments or
+/// test modules. Of a Kotlin or Swift file it is every line but those that
+/// hold only a `//` comment, unless the file opens a block comment or a
+/// multi-line string, which such a line could be part of. Of any other file it
+/// is the whole contents.
+pub fn meaning(shown: &str, bytes: Vec<u8>) -> Vec<u8> {
+    let text = |bytes: Vec<u8>| {
+        String::from_utf8(bytes).unwrap_or_else(|error| panic!("{shown} is not UTF-8: {error}"))
+    };
+    if shown.ends_with(".rs") {
+        let tokens: TokenStream = text(bytes)
+            .parse()
+            .unwrap_or_else(|error| panic!("{shown} is no Rust: {error}"));
+        let mut meant = String::new();
+        write_tokens(tokens, &mut meant);
+        meant.into_bytes()
+    } else if shown.ends_with(".kt") || shown.ends_with(".swift") {
+        let source = text(bytes);
+        if source.contains("/*") || source.contains("\"\"\"") {
+            return source.into_bytes();
+        }
+        source
+            .split_inclusive('\n')
+            .filter(|line| !line.trim_start().starts_with("//"))
+            .collect::<String>()
+            .into_bytes()
+    } else {
+        bytes
+    }
+}
+
+/// Writes each token of <tokens> into <into> with a space after it, leaving
+/// out each doc comment (which reads as a `doc` attribute) and each test
+/// module.
+fn write_tokens(tokens: TokenStream, into: &mut String) {
+    let tokens: Vec<TokenTree> = tokens.into_iter().collect();
+    let mut at = 0;
+    while at < tokens.len() {
+        if let Some((attribute, length)) = attribute_at(&tokens, at)
+            && (attribute.starts_with("doc =") || attribute.starts_with("doc="))
+        {
+            at += length;
+            continue;
+        }
+        if let Some(end) = test_module_end(&tokens, at) {
+            at = end;
+            continue;
+        }
+        match &tokens[at] {
+            TokenTree::Group(group) => {
+                let (open, close) = match group.delimiter() {
+                    Delimiter::Parenthesis => ("( ", ") "),
+                    Delimiter::Brace => ("{ ", "} "),
+                    Delimiter::Bracket => ("[ ", "] "),
+                    Delimiter::None => ("", ""),
+                };
+                into.push_str(open);
+                write_tokens(group.stream(), into);
+                into.push_str(close);
+            }
+            // A joint punctuation mark and the one after it are one operator.
+            TokenTree::Punct(punct) if punct.spacing() == Spacing::Joint => {
+                into.push(punct.as_char());
+            }
+            token => {
+                into.push_str(&token.to_string());
+                into.push(' ');
+            }
+        }
+        at += 1;
+    }
+}
+
+/// The attribute that starts at <at> in <tokens>, as its text, with the number
+/// of tokens it takes: `#[...]` or `#![...]`.
+fn attribute_at(tokens: &[TokenTree], at: usize) -> Option<(String, usize)> {
+    let is = |at: usize, mark: char| matches!(tokens.get(at), Some(TokenTree::Punct(punct)) if punct.as_char() == mark);
+    if !is(at, '#') {
+        return None;
+    }
+    let inner = usize::from(is(at + 1, '!'));
+    match tokens.get(at + 1 + inner) {
+        Some(TokenTree::Group(group)) if group.delimiter() == Delimiter::Bracket => {
+            Some((group.stream().to_string(), inner + 2))
+        }
+        _ => None,
+    }
+}
+
+/// Where the test module that starts at <at> in <tokens> ends: a
+/// `#[cfg(test)]` attribute, any other attributes, and a `mod` with its `;` or
+/// its braces. None when no test module starts there.
+fn test_module_end(tokens: &[TokenTree], at: usize) -> Option<usize> {
+    let (first, length) = attribute_at(tokens, at)?;
+    if first.replace(' ', "") != "cfg(test)" {
+        return None;
+    }
+    let mut next = at + length;
+    while let Some((_, length)) = attribute_at(tokens, next) {
+        next += length;
+    }
+    if !matches!(tokens.get(next), Some(TokenTree::Ident(word)) if word == "mod") {
+        return None;
+    }
+    let ends = |token: &TokenTree| match token {
+        TokenTree::Punct(punct) => punct.as_char() == ';',
+        TokenTree::Group(group) => group.delimiter() == Delimiter::Brace,
+        _ => false,
+    };
+    tokens[next..]
+        .iter()
+        .position(ends)
+        .map(|end| next + end + 1)
 }
 
 /// Adds <path> (shown as <shown>), or every file under it when it is a
