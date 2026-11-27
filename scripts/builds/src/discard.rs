@@ -15,9 +15,9 @@ use crate::args::Args;
 use crate::checkout::Checkout;
 use crate::fail;
 use crate::fail::Result;
+use crate::git::{delete_branch, detach_at_main};
 use crate::lists::Stamp;
 use crate::lists::decision::{NewDecision, add_decision};
-use crate::lists::dropped::{clear_worktree, delete_branch};
 use crate::lists::store::Store;
 use crate::output::note;
 use crate::side_git::Commit;
@@ -109,7 +109,7 @@ fn discard_worktree(
         &lines,
         stamp,
     )?;
-    clear_worktree(checkout)
+    detach_at_main(&checkout.top)
         .and_then(|()| {
             branches
                 .iter()

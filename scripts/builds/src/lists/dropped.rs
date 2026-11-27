@@ -18,13 +18,13 @@ use crate::checkout::Checkout;
 use crate::db::Sql;
 use crate::fail;
 use crate::fail::Result;
+use crate::git::{delete_branch, detach_at_main};
 use crate::lists::item::open_item;
 use crate::lists::kept_work;
 use crate::lists::record::close;
 use crate::lists::running::{self, require_side_worktree, running_in};
 use crate::lists::{How, Id, Lists, Stamp};
 use crate::side_git::Commit;
-use boards::{git, git_text};
 
 /// What one worktree of a dropped item held.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -356,7 +356,7 @@ fn place_of<'a>(
 }
 
 /// Throws <work> away: detaches its worktree at origin/main, discarding the
-/// files not committed (`clear_worktree`), deletes its branch and removes the
+/// files not committed (`git::detach_at_main`), deletes its branch and removes the
 /// worktree's claim. The worktree is then free. The claim goes last, so no one
 /// takes the worktree before the rest is done; a second run after a failure
 /// does again only what is left.
@@ -364,44 +364,11 @@ pub fn discard(work: &DroppedWork) -> Result<()> {
     let (_, main) = main_of(&work.worktree)?;
     let live = crate::lists::running::live_worktree(&work.worktree)?;
     if let Some(checkout) = &live {
-        clear_worktree(checkout)?;
+        detach_at_main(&checkout.top)?;
     }
     delete_branch(&main, &work.branch)?;
     if let Some(checkout) = &live {
         forget_claim(checkout)?;
-    }
-    Ok(())
-}
-
-/// Detaches <checkout> at origin/main, discarding the files not committed
-/// (ignored files, such as the build links, stay).
-pub fn clear_worktree(checkout: &Checkout) -> Result<()> {
-    git_text(
-        git(&checkout.top).args([
-            "-c",
-            "core.hooksPath=/dev/null",
-            "checkout",
-            "-q",
-            "-f",
-            "--detach",
-            "origin/main",
-        ]),
-        "detach the worktree at origin/main",
-    )?;
-    git_text(
-        git(&checkout.top).args(["clean", "-f", "-d", "-q"]),
-        "remove the files not committed",
-    )?;
-    Ok(())
-}
-
-/// Deletes <branch> of the repo at <main>, when the repo still has it.
-pub fn delete_branch(main: &Path, branch: &str) -> Result<()> {
-    if crate::git::branch_exists(main, branch)? {
-        git_text(
-            git(main).args(["branch", "-q", "-D", branch]),
-            "delete the branch",
-        )?;
     }
     Ok(())
 }

@@ -205,10 +205,7 @@ fn undo_reuse(main: &Path, free: &Checkout, start: &Start, switched: bool) -> Re
 /// detached start or a resumed branch.
 fn delete_made_branch(main: &Path, start: &Start) -> Result<()> {
     if let Start::Fresh(Some(branch)) = start {
-        run_checked(
-            git(main).args(["branch", "-q", "-D", branch]),
-            "git branch -D",
-        )?;
+        crate::git::delete_branch(main, branch)?;
     }
     Ok(())
 }

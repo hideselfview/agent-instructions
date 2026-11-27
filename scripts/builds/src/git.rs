@@ -1,6 +1,7 @@
-//! What git says about commits and revisions of a repo. Every caller reads
-//! the same answers and errors from here: a revision that names nothing is
-//! `None`, and any other git failure is an error that quotes git.
+//! What git says about commits and revisions of a repo, and the steps that
+//! throw away a worktree's changes and a branch. Every caller reads the same
+//! answers and errors from here: a revision that names nothing is `None`, and
+//! any other git failure is an error that quotes git.
 
 use std::path::Path;
 use std::process::Stdio;
@@ -50,6 +51,36 @@ pub fn branch_tip(dir: &Path, branch: &str) -> Result<Option<String>> {
 /// Does branch <branch> exist in the repo of <dir>?
 pub fn branch_exists(dir: &Path, branch: &str) -> Result<bool> {
     Ok(branch_tip(dir, branch)?.is_some())
+}
+
+/// Detaches the worktree <top> at origin/main, discarding the files not
+/// committed (ignored files, such as the build links, stay).
+pub fn detach_at_main(top: &Path) -> Result<()> {
+    boards::git_text(
+        boards::git(top).args([
+            "-c",
+            "core.hooksPath=/dev/null",
+            "checkout",
+            "-q",
+            "-f",
+            "--detach",
+            "origin/main",
+        ]),
+        "detach the worktree at origin/main",
+    )?;
+    boards::git_text(
+        boards::git(top).args(["clean", "-f", "-d", "-q"]),
+        "remove the files not committed",
+    )?;
+    Ok(())
+}
+
+/// Deletes <branch> of the repo at <repo>, when the repo still has it.
+pub fn delete_branch(repo: &Path, branch: &str) -> Result<()> {
+    if branch_exists(repo, branch)? {
+        text(repo, &["branch", "-q", "-D", branch])?;
+    }
+    Ok(())
 }
 
 /// Whether the repo at <repo> has the commit <sha>.
