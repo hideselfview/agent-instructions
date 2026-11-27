@@ -99,10 +99,7 @@ directly next to M, an entry already in the ranked order, and every other entry
 keeps its place in that order. Placing an entry again moves it, and `place N
 auto` takes it out of the ranked order.
 
-  builds question ask --title T --kind question|your-step --effect E
-                      --details-file F (--blocks N[,N] | --blocks-nothing WHY)
-                      [--from-item N | --origin N] [--first WHY]
-                      [--plan PATH --plan-number Qn] [--tag T]...
+  {question ask}
       Puts an entry on the stack: a question, or work only the person can do
       (your-step). ask needs the
       entry's effect, one of the words above, and what the entry blocks:
@@ -117,7 +114,7 @@ auto` takes it out of the ranked order.
       the entry came from when no item moves. --plan and --plan-number tie it
       to a plan's open question, and its answer carries the link.
 
-  builds question answer N --request F
+  {question answer}
       The request: {"decision": {"title", "body", "by", "replaces"?},
       "blocked": {"ITEM": "proceeds" | {"edit": {fields}} | {"drop": WHY}
                   | {"backlog": WHY}},
@@ -132,36 +129,33 @@ auto` takes it out of the ranked order.
       for a question-kind entry. Prints the items now ready and the stack's
       new top.
 
-  builds question settle N --request F
+  {question settle}
       The request: {"by_rule": the rule path, spec section, earlier decision
       or code that settles it, "blocked", "work" | "no_work"}. Records no
       decision: a question that rules settle is not the person's. builds
       stores `by_rule` as the question's reason, and `question show` and the
       dashboard's waits on the question print it.
 
-  builds question done N --request F
+  {question done}
       For your-step entries: {"shown_by": what shows the step is
       done (the person's words, a decision, a commit or the code), "blocked",
       "work" | "no_work"}. builds stores `shown_by` as the reason and prints
       it where it prints a settle's. A question closed as done before builds
       kept this shows "closed as done; builds kept no reason then".
 
-  builds question drop N --why WHY
+  {question drop}
       Takes the entry off with its reason; refused while an item waits on it
       (the message names each and the `item wait ITEM --off question:N` that
       frees it).
 
-  builds question place N (first|last|auto | --above M | --below M) --why WHY
-                          [--by-person]
+  {question place}
       Places it on top of the ranked order (first), at the bottom of the
       stack (last), directly above or below M in the ranked order, or by
       what it unblocks and its effect (auto, which removes its placement).
       The command refuses --above and --below when M is not in the ranked
       order.
 
-  builds question edit N [--title T] [--details-file F] [--effect E]
-                         [--blocks-nothing WHY]
-                         [--origin N] [--tag T]... [--untag T]...
+  {question edit}
       --effect gives the entry another effect, one of the words above. The
       person changes an entry's effect on the dashboard too, in the entry's
       opened row on the Waiting on you tab. The daemon records that change
@@ -174,7 +168,8 @@ auto` takes it out of the ranked order.
       and gives the why).
       --untag refuses a tag the entry does not carry.
 
-  builds question show N | builds question list [--tag T]
+  {question show}
+  {question list}
       One entry with its details and trail (a closed one shows how it left and the
       reason or decision that closed it), or
       the stack in the order builds asks the person its entries, one line per
@@ -209,10 +204,7 @@ repos (plans are in no commit), wherever it runs, and refuses a path that no
 main checkout holds or that more than one holds; an absolute path is itself.
 `item take` prints the file it found.
 
-  builds item add --title T --area A --details-file F [--for design-session]
-                  [--wait REF [--until ENDER]]... [--brief P] [--backlog WHY]
-                  [--priority first|last --why WHY]
-                  [--origin N] [--tag T]...
+  {item add}
       Needs a title of five to seven words, a known area (otherwise refused,
       naming the areas and `area add`), details, waits on open records, and a
       brief that exists. Refused when an open item in the project has the same
@@ -221,25 +213,24 @@ main checkout holds or that more than one holds; an absolute path is itself.
       open question; an item draft in a request takes `"backlog": WHY` the
       same way.
 
-  builds item edit N [--title T] [--area A] [--details-file F] [--brief P]
-                     [--for F] [--origin N] [--tag T]... [--untag T]...
+  {item edit}
       An edit that changes the details keeps the details before and after,
       and --origin N for a decision keeps that decision as a change of the
       item. Land refuses --done for such a change made after the item's take
       until the agent reads it (`item changes`).
       An item draft in a request (an answer's `work`) may carry "tags" too.
 
-  builds item note N TEXT
+  {item note}
       A lasting progress line on the item (`builds note` is the claim's).
 
-  builds item changes N
+  {item changes}
       Prints each change of running item N that someone made after its take
       and no agent read yet: the details before and after an edit, or the
       title and body of a decision made its origin. Then records that the
       caller read them, which lets `builds land --done N` pass (`item
       check-landing`). Refused for an item that does not run.
 
-  builds item wait N --on REF [--until ENDER] | --off REF [--blocks-nothing WHY]
+  {item wait}
       Refused when it would make items wait on each other in a circle, or on
       a closed record. --until names who ends a condition: agent, coordinator
       or ci. A condition needs it, and it goes with a condition only (item add
@@ -252,7 +243,7 @@ main checkout holds or that more than one holds; an absolute path is itself.
       waits on N needs --blocks-nothing WHY, the reason N stays open, and wait
       refuses --blocks-nothing while another open item waits on N.
 
-  builds item backlog N [M...] --why WHY
+  {item backlog}
       Moves open items to the backlog in one write. Refused for an item that
       runs or keeps a worktree (`item stop` keeps work; the backlog keeps
       none), an item in the backlog already, an item that waits on an open
@@ -261,7 +252,7 @@ main checkout holds or that more than one holds; an absolute path is itself.
       the backlog and outside the command's list waits on (the refusal names
       each and the command that moves both). The why says why the work waits.
 
-  builds item start N [M...] --said WORDS
+  {item start}
       Moves items from the backlog to the queue in one write. Each waits on
       what it waited on before and keeps its priority. WORDS are the words of
       the person that start it, stored as the note "started: WORDS".
@@ -273,11 +264,7 @@ main checkout holds or that more than one holds; an absolute path is itself.
       `item show` prints "in the backlog since T by WHO: WHY", and `lists
       show` prints the backlog after the queue.
 
-  builds item take N [M...] [--worktree W --branch B [--worktree W2 --branch B2]
-                    | --repo R --branch B [--repo R2 --branch B2]]
-                    --brief P [--as design-session]
-                    [--tier implementation|strongest] [--held WHY]
-                    [--rules-root DIR] [--reviewer PROGRAM]
+  {item take}
       Marks the items running. W is a claimed side worktree of a project repo
       (the claim names the agent; the item stores none) and B a branch of it.
       --repo R in place of --worktree W hands out a side worktree of repo R as
@@ -332,8 +319,7 @@ main checkout holds or that more than one holds; an absolute path is itself.
       brief cites (default ~/.codex/agent-instructions), and --reviewer the
       program the spec check runs in place of the session reviewer.
 
-  builds item check-brief --worktree W [--worktree W2] --brief P
-                    [--rules-root DIR] [--reviewer PROGRAM]
+  {item check-brief}
       Runs the checks that `item take` runs on brief P (the pasted-text
       check and the spec check of each W's repo) with the
       same code, prints what take would print, and takes no item. It records
@@ -342,11 +328,11 @@ main checkout holds or that more than one holds; an absolute path is itself.
       refuses. It takes the same --worktree, --brief, --rules-root and
       --reviewer as take, and names no item and no branch.
 
-  builds item handoff N --brief P
+  {item handoff}
       Sets a running item's brief for its next agent, in every worktree it
       runs in.
 
-  builds item stop N --why WHY
+  {item stop}
       Puts the item back in the queue; the why is a note. A worktree where
       the item ran that holds work origin/main lacks (commits, or files not
       committed), and where no other item runs, stays the item's: the item
@@ -360,14 +346,14 @@ main checkout holds or that more than one holds; an absolute path is itself.
       hand it out or remove it. `item show` and `builds next` name the
       worktree and branch an item keeps.
 
-  builds item finished N --made WHAT
+  {item finished}
       Closes an open item whose work made no commits (an audit, research) as
       finished, with what it made (items, stack entries, notes), and removes
       it from every worktree it runs in. finished refuses an item that keeps a worktree,
       which holds its work. A finished item frees the items that
       wait on it, as a landed item does.
 
-  builds item drop N --why WHY
+  {item drop}
       drop refuses an item while an open item waits on it (the message names
       them and the `item wait --off` that frees each), or when it is the last
       item an open question blocks (`item wait N --off question:Q
@@ -387,13 +373,13 @@ main checkout holds or that more than one holds; an absolute path is itself.
       item held, and git keeps the commits until it removes unreachable
       objects.
 
-  builds item place N first|last|none --why WHY
+  {item place}
       Sets an open item's priority as `item add --priority` does: first goes
       ahead of the queue, last waits until nothing else is open, and none
       gives it back to the order of area and age. The why is kept.
 
-  builds item check-landing DIR [--done N]... [--part N]... SHA...
-  builds item landed DIR [--done N]... [--part N]... SHA...
+  {item check-landing}
+  {item landed}
       What builds land runs. check-landing, before builds land fetches
       anything: each N is open and running in DIR itself, the worktree whose
       branch holds the commits (an item that runs in worktrees of two repos
@@ -412,13 +398,13 @@ main checkout holds or that more than one holds; an absolute path is itself.
       landed as --by, else DIR's claim. When --done ends the last item running
       in a worktree with nothing left to land, landed releases that worktree.
 
-  builds item show N | builds item list [--running] [--ready] [--area A] [--for F]
-                                      [--tag T]
+  {item show}
+  {item list}
       list --running prints each running item's marker line, one per
       worktree it runs in (agent, repo, worktree, branch, brief); show prints
       them all, and the item's times as `item times` prints them.
 
-  builds item times [N...]
+  {item times}
       How long items and branches ran. A run of an item lasts from `item
       take` until someone stops it or closes it (a landing, `item
       finished` or `item drop`), and the store keeps each run that ended, with
@@ -498,7 +484,7 @@ main checkout holds or that more than one holds; an absolute path is itself.
       runs that ended from the store's write log, which names no branch, so
       those runs name none and have no held or waiting time.
 
-  builds next [--for coordinator|design-session] [--project P]
+  {next}
       The ready items in dispatch order. Without --project, it lists the
       ready items of every project, each project's under a line "project
       NAME" (item numbers belong to one project), so a role that works for
@@ -516,8 +502,10 @@ main checkout holds or that more than one holds; an absolute path is itself.
       keeps a worktree names the worktree and branch its work waits in. `item list
       --ready` uses the same order.
 
-  builds area add NAME [--after AREA] | rename OLD NEW | move NAME --after AREA
-              | remove NAME
+  {area add}
+  {area rename}
+  {area move}
+  {area remove}
       remove is refused while an item, open or closed, is in the area; rename
       follows the items, open and closed.
 
@@ -527,7 +515,7 @@ DECISION LOG
 The log is never closed: a decision is revised only by a later decision that
 replaces it.
 
-  builds decision add --request FILE [--by WHO]
+  {decision add}
       Records a decision, dated today. The request is JSON: title, by (who
       decided: person, coordinator, design-session, ...), body, and either
       `work` (item drafts the decision makes, each waiting as its draft says)
@@ -538,19 +526,19 @@ replaces it.
       file under the repo's main checkout. A question's answer is recorded by
       `question answer`, not here.
 
-  builds decision edit N [--title T] [--body-file FILE|-] [--by WHO]
+  {decision edit}
       Changes a decision's title or body. Refused when it changes nothing.
 
-  builds decision find WORD...
+  {decision find}
       The decisions whose title or body holds every word, ignoring case,
       newest first, one line each.
 
-  builds decision show N
+  {decision show}
       One decision in full: who decided and recorded it, the question it
       answered, the items it made and where they are, what it replaces and
       what replaces it, and its body.
 
-  builds decision list [--plan PATH] [--since YYYY-MM-DD]
+  {decision list}
       The log, newest first, one line each; --plan keeps the decisions
       recorded against that plan, with their plan numbers.
 
@@ -635,7 +623,7 @@ session's socket and keeps its token in the store. builds never prints or
 returns the token. When the destination no longer exists, the card says the
 session that recorded the change has ended. builds sends no second message.
 
-  builds design places DIR REV...
+  {design places}
       Each REV is a commit, or a range (A~1..A) that stands for its commits;
       the command refuses a REV that names no commit. Here and in `only` and
       `check`, the commits are those the REVs name.
@@ -647,14 +635,14 @@ session that recorded the change has ended. builds sends no second message.
       each design change that resolves some of it; a landing whose only lines
       are `spec` lines takes --design N and needs none.
 
-  builds design only DIR REV...
+  {design only}
       Prints nothing and succeeds when the commits are a design change and
       every path they change is a design file (boards, the design system,
       spec sections); otherwise names the paths that are not. Only then does
       builds land take --design N alone, once for each change, with no
       --done or --part: the design changes hold the app work.
 
-  builds design record --request FILE       (`-` for standard input)
+  {design record}                           (`-` for standard input)
       FILE: {"title", "details", "worktree", "range": "origin/main..HEAD",
       "places": {PLACE: null | {"item": N} | {"new": ITEM_DRAFT} | {"matches": HOW}},
       "review": {"heading": H,
@@ -804,7 +792,7 @@ session that recorded the change has ended. builds sends no second message.
       to answer like any other, and is no board: it takes no place on the
       review page.
 
-  builds design amend N --request FILE
+  {design amend}
       The same over a new range, which N then holds to: a stored place the
       range no longer changes (a board renamed before landing) drops out with
       its place on the review page. `places` sets the app
@@ -828,7 +816,7 @@ session that recorded the change has ended. builds sends no second message.
       decision and the approval when the change keeps all of the above, and
       otherwise clears the approval and the fix or decision.
 
-  builds design approve N
+  {design approve}
       Records the approval of open design change N, by the design session
       that recorded it (decision #1422 in project bae), or by the session on
       the person's word that they approve it. A change the person asked to
@@ -837,7 +825,7 @@ session that recorded the change has ended. builds sends no second message.
       approval again writes nothing, and the command sends nothing to any
       session.
 
-  builds design check N[,N...] DIR REV...
+  {design check}
       Succeeds when one of the open changes N resolves each place the
       commits change; one change that holds each changed board or component
       (any of them, for a changed source) draws the same at its last commit
@@ -847,17 +835,17 @@ session that recorded the change has ended. builds sends no second message.
       place names its app work. Otherwise it names what does not hold. builds land runs it once with
       every change its --design flags name.
 
-  builds design landed N DIR SHA...
+  {design landed}
       What builds land runs after the push, with SHAs on origin/main: records
       them and closes N, which frees the items waiting on it. The same commits
       again record once; other commits for a landed change are refused. Who
       landed is --by, else DIR's claim.
 
-  builds design title N
+  {design title}
       Prints the title of open design change N. builds land reads it as the
       message of the commit that squashes the change's commits.
 
-  builds design drop N --why WHY
+  {design drop}
       Closes open change N, which will not land, and records WHY as the
       reason. The change leaves the Waiting on you tab and the open lists,
       and `builds design show N` prints the reason. The command refuses a
@@ -865,12 +853,13 @@ session that recorded the change has ended. builds sends no second message.
       on: it names each such item and the `builds item wait ITEM --off
       design:N` command that removes the item's wait.
 
-  builds design show N | builds design list
+  {design show}
+  {design list}
       `show` prints one design change, whether open, landed or dropped, and
       for an open change that waits on the person's approval, where its
       rules review stands; `list` prints the open ones, one line each.
 
-  builds design render DIR BOARD [--theme light|dark] [--now | --at REV]
+  {design render}
       Prints board BOARD of worktree DIR as one page of HTML, the way the
       design canvas draws it, dark unless asked: from DIR's files as they
       are, with --now as the board stands on origin/main, or with --at REV at
@@ -888,7 +877,7 @@ session that recorded the change has ended. builds sends no second message.
       Roboto from the net. The review page's frames load this page. Reads no
       store.
 
-  builds design tokens-css DIR
+  {design tokens-css}
       Writes worktree DIR's design/system/tokens.css from its tokens.json: a
       block of color properties per theme of `color.themes`, the first on
       :root too; one :root block of the other families' tokens, a
@@ -901,7 +890,7 @@ session that recorded the change has ended. builds sends no second message.
       for other tools that load it, such as a repo's screenshot checks.
       Reads no store.
 
-  builds design publish-find DIR --artifacts FILE [--at REV]
+  {design publish-find}
       Prints the link of each claude.ai artifact that the designs of DIR's
       repo publish to, on the account that the session is signed in to.
       design/mocks/canvases.toml at origin/main, or at commit or branch REV
@@ -921,7 +910,7 @@ session that recorded the change has ended. builds sends no second message.
       or when the file holds no listing of one of the types. Reads no store
       and writes nothing.
 
-  builds design publish-files DIR OUT --artifacts FILE (--index FILE | --no-index) [--at REV]
+  {design publish-files}
       Writes into folder OUT, which must be new or empty, the files of every
       claude.ai artifact that the designs of DIR's repo publish to: each
       canvas of the boards and the Design System artifact of the design
@@ -991,7 +980,7 @@ session that recorded the change has ended. builds sends no second message.
       title or an artifact, and, with --no-index, a bundle whose first line
       names no namespace. Reads no store and writes nothing in DIR.
 
-  builds design publish-last FOLDER --listing FILE [(--index FILE | --no-index) --by WHO [--uploaded FILE]]
+  {design publish-last}
       Writes the last calls of the artifact whose folder FOLDER
       `publish-files` wrote, as last-1.json, last-2.json and on. --listing
       FILE (or - for standard input) is the Artifact tool's listing of the
@@ -1023,7 +1012,7 @@ session that recorded the change has ended. builds sends no second message.
       uploads. A later run replaces the
       folder's last calls and deletes. Reads no store.
 
-  builds design listen --project P
+  {design listen}
       Registers this Codex or Claude Code session for dashboard publish
       requests, replacing the previous listener. For Codex, the dashboard
       queues each request in the registered thread and asks Codex to resume
@@ -1033,9 +1022,9 @@ session that recorded the change has ended. builds sends no second message.
       For Claude Code, the dashboard sends each request to the session's
       socket. A design session runs this command when it starts.
 
-  builds design publish take N [--project P] [--by WHO]
-  builds design publish done N --link TITLE=URL... [--project P] [--by WHO]
-  builds design publish failed N --why WHY [--project P] [--by WHO]
+  {design publish take}
+  {design publish done}
+  {design publish failed}
       The design session's side of a publish that the person asks for on
       the dashboard. The Designs page's Publish to claude.ai… form records
       a publish request for one commit and sends the listening session
@@ -1063,9 +1052,7 @@ session that recorded the change has ended. builds sends no second message.
 
 PROJECTS
 
-  builds lists init PROJECT --repos R,R [--canvas yes|no]
-                    [--design-places R:GLOB,...] [--design-sources R:GLOB,...]
-                    [--spec-files R:GLOB,...] [--by WHO]
+  {lists init}
       Makes the project's store. --repos names the repo folders the project
       covers, as their main checkouts' folders. --canvas yes says the
       project publishes its boards as a claude.ai canvas, so the
@@ -1074,9 +1061,7 @@ PROJECTS
       give each repo's design files, one REPO:GLOB each (DESIGN CHANGES,
       above). Refused when the store exists.
 
-  builds lists design-globs PROJECT [--canvas yes|no]
-                    [--design-places R:GLOB,...] [--design-sources R:GLOB,...]
-                    [--spec-files R:GLOB,...] [--by WHO]
+  {lists design-globs}
       Sets the design files of a project whose store exists, with the same
       REPO:GLOB entries as init, and with --canvas whether the project
       publishes its boards as a canvas (bae does; builds does not). Each
@@ -1087,7 +1072,7 @@ PROJECTS
       record a design change in that repo. A repo two projects hold needs
       the globs in one of them: the one whose design files it holds.
 
-  builds lists add-repo PROJECT REPO [--by WHO]
+  {lists add-repo}
       Adds a repo to the project, so its worktrees run items, land commits
       and resolve to the project from their folder (agent-instructions is in
       bae this way: its work is tracked on bae's lists). Refused when the
@@ -1096,7 +1081,7 @@ PROJECTS
       name its project with `builds claim --project` or `builds new --project`,
       and a command outside a claimed worktree takes --project.
 
-  builds lists show [--json | --tag T] [--project P]
+  {lists show}
       The stack in the order it is asked, then the queue, as text, each record
       with its trail; with --tag T only the records whose trail has T; with
       --json the whole state with its derived fields (each item's state, what
@@ -1104,7 +1089,7 @@ PROJECTS
       to each worktree a running item runs in, the agent, note, note state and
       commits waiting to land of its claim.
 
-  builds lists project-of DIR
+  {lists project-of}
       Prints the project DIR's repo belongs to, or nothing. Refused when the
       repo is in two projects and the worktree names neither (`builds claim
       --project`).

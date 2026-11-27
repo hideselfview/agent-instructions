@@ -284,7 +284,7 @@ fn run_program() -> ExitCode {
 
 fn run_command(args: &[String], session: ack::agent::Session, system: &system::System) -> ExitCode {
     let Some(first) = args.first() else {
-        output::answer(help::HELP);
+        output::answer(&*help::HELP);
         return ExitCode::from(2);
     };
     let parsed = match Command::parse(args) {

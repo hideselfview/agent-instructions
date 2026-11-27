@@ -5,12 +5,12 @@ cargo command, app build and landing through it.
 
 More help:
 
-  builds help workflow  how work moves through worktrees, builds and landing,
+  {help #1}             how work moves through worktrees, builds and landing,
                         and how a coordinator runs agents
-  builds help lists     a project's decision stack, work queue, decision log
+  {help #2}             a project's decision stack, work queue, decision log
                         and design changes, and their commands (builds
                         lists, question, item, next, area, decision, design)
-  builds help briefs    the instructions a coordinator gives an agent that
+  {help #3}             the instructions a coordinator gives an agent that
                         writes implementation briefs
 
 A section's heading after the page prints that section alone: `builds help
@@ -95,7 +95,7 @@ checks that the project exists. For `lock`, --project goes before the command
 it runs, and for `remote run`, before `--`. Every word after `cargo` and
 `lake` belongs to the tool.
 
-  builds ack [--agent ID] [--project P] [--role ROLE]...
+  {ack #1}
       Start a reading. Its first line says why builds asks agents to read the
       text: agents that skip it work in the person's checkout, push main and
       poll for builds. For an agent that Claude Code compacted since its last
@@ -112,7 +112,7 @@ it runs, and for `remote run`, before `--`. Every word after `cargo` and
       sections of the version each agent acknowledged, to name the sections
       that changed since that acknowledgement and to tell which roles the
       agent holds.
-  builds ack part PART TOKEN [--agent ID] [--project P] [--role ROLE]...
+  {ack #2}
       Print part PART of the reading, with no word added to the text. The
       part's first line says which part it is, and its last line gives the command for the next part, with a token that
       only this part's output shows, and the last part's last line gives the
@@ -120,10 +120,10 @@ it runs, and for `remote run`, before `--`. Every word after `cargo` and
       of part N - 1 (part 1 needs the one in the output of `builds ack`), so
       the agent fetches every part in order. Reading a part again shows it
       again with the same token.
-  builds ack VERSION TOKEN [--agent ID] [--project P] [--role ROLE]...
+  {ack #3}
       Acknowledge version VERSION, giving the token from the last part's last
       line. builds refuses a wrong token and says which part gives it.
-  builds ack --compacted
+  {ack #4}
       Claude Code's SessionStart hook runs this after Claude Code compacts
       an agent (claude/settings.json in agent-instructions). builds deletes
       every acknowledgement and the reading of that agent in every project's
@@ -132,17 +132,17 @@ it runs, and for `remote run`, before `--`. Every word after `cargo` and
       again before its next builds command and every other agent keeps its
       acknowledgements. builds refuses an agent no hook registered, and
       deletes nothing.
-  builds ack --codex-compacted
+  {ack #5}
       The Codex PostCompact hook runs this command and gives it the compacted
       thread. builds clears that thread's acknowledgements. Trust the hook
       definition in Codex so it can run after compaction.
-  builds agent start
+  {agent start}
       Claude Code's SessionStart hook (when a session starts, resumes,
       clears or forks) and its SubagentStart hook run this. builds reads the
       hook's input, registers the agent's id in the session, and adds "Your
       builds agent id is ID. Pass --agent ID to every builds command ..." to
       the agent's context.
-  builds rules-on-edit
+  {rules-on-edit}
       Claude Code's PreToolUse hook for Edit, Write, MultiEdit and
       NotebookEdit runs this. builds reads the hook's input and finds the
       file's repo and its project (`builds claim --project`, else the project
@@ -180,8 +180,7 @@ the session and reads the agent's context. Every `builds agent` command but
 runs each of them as a background task, and the task ends when the agent's
 process ends.
 
-  builds agent run --role implementing|planner N [M...] [--brief P]
-                    [--message-file F] [--project P] [--by WHO]
+  {agent run}
       Starts a new agent, prints one line (its session id, role, project,
       model, folder and log), and runs until the agent's process ends. Then it
       prints the agent's last result whole and the exit status, and exits
@@ -219,7 +218,7 @@ process ends.
       (agent, agent_item with the time the agent was given each item, and
       agent_process). builds never stores whether an
       agent runs: it asks Claude Code's record of its running sessions.
-  builds agent resume SESSION [--item N]... [--message-file F] [--project P]
+  {agent resume}
       Gives the recorded agent SESSION a message: the words of --message-file,
       then, for each --item, the worktree and land command, the item as
       `builds item show` prints it and the commit trailer again. It needs at
@@ -250,7 +249,7 @@ process ends.
         planner's starts in the folder of its record. Claude Code finds the
         session by its id from any folder. A message to a running session's
         inbox changes no folder.
-  builds agent list [--running] [--project P]
+  {agent list}
       Prints one line for each agent the project recorded, oldest first: the
       session, role, model, items, folder, whether it runs now or when it
       ended, and the context of its last turn against its model's window,
@@ -258,7 +257,7 @@ process ends.
       handoff size (`builds help workflow`, HANDOFF, AUDITS AND FLAKY TESTS),
       so the coordinator sees which finished agents can take more work.
       --running lists only the agents that run now.
-  builds agent show SESSION [--project P]
+  {agent show}
       Prints the agent's record: its fields, the log's path, each process of
       the session (pid, start, end and exit status, and the hash of the
       message builds sent it) and the last result text of its log.
@@ -468,7 +467,7 @@ in its checkout. The plugin passes these options at initialization, because
 rust-analyzer reads a repo's rust-analyzer.toml only after its first build has
 started into target.
 
-  builds setup [--no-prepare] [<checkout>]
+  {setup}
                               link the checkout's build folders, recreate any
                               that is missing, delete folders an older layout
                               left behind, apply the disk rules (DISK, below)
@@ -529,7 +528,7 @@ the runner's path there, so the tests and the runner they run always come
 from one Mac. The host gets BUILDS_CARGO_LEAN as it is, since it names the
 package by its folder in the checkout.
 
-  builds lake build [<args>...]
+  {lake}
                               run lake build with these arguments in the Lean
                               package of the working directory, on this Mac or
                               the host with the most room; builds refuses
@@ -603,7 +602,7 @@ again, with no source file touched, and a second run with the same key prints
 the warnings cargo kept. A wrapper under a link that points at no build fails
 the command, naming `builds tool`.
 
-  builds tool <name> [<checkout>]
+  {tool}
                               put the checkout's key of tool <name> in place
                               on this machine, point the checkout's link at it and
                               print its folder. A repo's script runs it before
@@ -708,8 +707,7 @@ the card lists. The daemon judges the state with the same code that draws the
 card, and records nothing until it has read the processes once. `builds item
 times` reads these records.
 
-  builds new [<repo>] [-b <branch> | --resume <branch>] [--for <who>]
-             [--project P]
+  {new}
                               hand out a free side worktree with a fresh
                               branch from origin/main, or add the next side-N
                               when none is free; link it and run its
@@ -744,7 +742,7 @@ times` reads these records.
                               from `builds item take N --repo R --branch B`
                               instead, which claims the worktree as new does
                               and gives it back when the take is refused
-  builds claim <checkout> <who> [--project P]
+  {claim}
                               record that <who> works in the side worktree
                               (--project as for `new`; a claim renewed without
                               it keeps its project). When builds removes a
@@ -752,7 +750,7 @@ times` reads these records.
                               or `drop`), the worktree keeps it as its last
                               claim, and `new` counts the branches the
                               worktree left from that claim's start
-  builds note <checkout> [--state waiting-on-you|winding-down|held] [<text>]
+  {note}
                               set the claim's note, or clear note and state
                               with no text; --state needs the text. --state
                               held is refused unless every item running in the
@@ -763,7 +761,7 @@ times` reads these records.
                               the worktree held, or ends its hold, starts or
                               ends the held time of each item running there
                               (`builds item times`)
-  builds release <checkout>   remove its claim; refused while an item of any
+  {release}                   remove its claim; refused while an item of any
                               project runs in the worktree, and while it holds
                               work origin/main lacks that no item holds: commits
                               on HEAD, on a branch the worktree left since its
@@ -789,7 +787,7 @@ times` reads these records.
                               person throws work
                               away, by dropping its item. `new` hands out no
                               worktree that this check would refuse
-  builds retire <checkout>    remove a clean, unclaimed side worktree and its
+  {retire}                    remove a clean, unclaimed side worktree and its
                               build root; refuses every other worktree, a
                               worktree an item runs in or keeps, and one that
                               `release` would refuse for its work: commits on
@@ -981,7 +979,15 @@ bytes and the crates above it come from the cache. A cdylib, such as
 bae-bridge's, keeps the name ld gives it. `builds help workflow` says when to
 restart the server.
 
-  builds cargo <subcommand> [<args>...]
+  {sccache-tmpdir}
+                              print, as JSON, why the TMPDIR of process <pid>
+                              on this machine is wrong for an sccache server
+                              (it names a run's folder, a file or a folder
+                              that does not exist), or null when it is right;
+                              `builds health` runs it on each host for the
+                              host's server
+
+  {cargo #1}
                               run cargo (build, check, clippy, doc, rustc,
                               rustdoc, test, bench, run, install, nextest
                               run|list|archive), record the build copies it
@@ -1050,12 +1056,12 @@ restart the server.
                               lines. builds records nothing for a repo in no
                               project, and a host that runs cargo for a job
                               records nothing there.
-  builds cargo update (-p <package>... | -w) [<args>...]
+  {cargo #2}
                               run cargo update on this Mac, which rewrites the
                               Cargo.lock entries of the named packages, or with
                               -w those of the workspace's own packages; refuse
                               an update that names neither.
-  builds cargo tree|metadata|locate-project|pkgid|verify-project [<args>...]
+  {cargo #3}
                               run cargo's subcommand on this Mac with --locked,
                               which fails instead of rewriting a stale
                               Cargo.lock.
@@ -1453,9 +1459,21 @@ folder here that no build holds, then has each host remove each version's
 folder there that no step holds and that this Mac no longer keeps, so a
 host keeps the folder of every build that runs here.
 
+  {programs}
+                              run <command> with this builds version's folder
+                              held and first on PATH; a lane runs each of its
+                              steps on a host this way
+
 When a lane finishes, builds records the run if a project holds the repo.
 If an install is moving the stores, the lane waits to record its run
 (INSTALLING). If builds cannot save the record, the command fails and says why.
+
+  {app-build #7}
+                              record the run a lane wrote to its own store
+                              <store> while an install moved the stores, in
+                              the store of <project>, else of the one project
+                              that holds <repo>; the lane runs it with the
+                              installed builds
 
 builds caches each --shots and --all-shots run on the build volume, in
 /Volumes/Builds/shots/<repo>/runs/<commit>/<lane>/<environment>/<prefix>/<capture>/<comparison>/,
@@ -1737,7 +1755,7 @@ it builds no merge base: it fails, naming the command that makes the run it
 lacks. A shots check's "before" side is read from the cached runs, never
 built again.
 
-  builds app-build <repo> <ref> [--test <Class>]... [--shots <prefix>]... [--design-shots] [--all-shots <app>]... [--fresh] [--project P]
+  {app-build #1}
                               build <ref> where it is needed; builds picks the
                               steps, lanes and hosts, and no caller names them.
                               The paths <ref> changes since its merge-base
@@ -1778,7 +1796,7 @@ built again.
                               look for a passing build of <ref>'s commit,
                               --landing-coverage, --drop-shots and the
                               dashboard's figures.
-  builds app-build <repo> <ref> <step>... [--test <app> <Class>]... [--shots <app> <prefix>]... [--all-shots <app>]... [--fresh] [--project P]
+  {app-build #2}
                               check out <ref> in a free app checkout of each
                               lane the steps are in, holding that checkout's
                               lock, and run the steps in the order given,
@@ -1821,18 +1839,18 @@ built again.
                               said fail the run; builds reads each line of a
                               step's output as it passes through. The
                               dashboard shows the last 12 hours
-  builds app-build <repo> --lane <app> <ref> [<step>...] [--test <lane> <Class>]... [--shots <lane> <prefix>]... [--all-shots <lane>]...
+  {app-build #3}
                               one lane's part of the above, in this process.
                               With no step named, only the --test, --shots
                               and --all-shots runs happen, and only when the
                               app checkout's last build finished and is of
                               <ref>; otherwise it refuses, naming what was
                               built
-  builds app-build <repo> --list
+  {app-build #4}
                               print the steps (lane, name, command, and "(CI
                               only)" for a step a `ci-only` line names) and
                               each lane's test and shots lines
-  builds app-build --landing-coverage <worktree> <branch> <ref> [<own commit>...]
+  {app-build #5}
                               check that a landing's branch has the passing app
                               builds it needs: `builds land` runs it after the
                               lists' checks and before it fetches anything,
@@ -1889,7 +1907,7 @@ built again.
                               whatever projects hold its repo, and neither does
                               a repo in no project or a branch whose commits
                               are all on origin/main
-  builds app-build --drop-shots <repo> <branch> <lane> <prefix> --why TEXT [--by WHO] [--project P]
+  {app-build #6}
                               record that the landing of <branch> needs no
                               run of the shots prefix <prefix> in <lane>,
                               which the branch's app builds ran, for the
@@ -1901,7 +1919,7 @@ built again.
                               prefix, who dropped it and why, as `shots
                               dropped: ...`; the drop counts only for runs
                               and landings of <branch> after that commit.
-  builds shots findings <repo> <ref> <app> <prefix> [--by-cause]
+  {shots findings}
                               print the findings of the run builds has cached for
                               <ref>'s commit, the lane and the prefix, with a
                               line on stderr that says how old they are, which
@@ -1952,7 +1970,7 @@ built again.
                               findings.json (one whose report builds could
                               not copy) fails, naming the command that runs
                               the shots again
-  builds shots picture <repo> <ref> <scene> board|shot [--project P]
+  {shots picture}
                               print the path of the picture of a scene's
                               board or shot at <ref>'s commit. This is how an
                               agent sees a board or a shot: no agent draws a
@@ -1977,7 +1995,7 @@ built again.
                               the run took no picture of it. The scene is a
                               scene of any app of the repo's .app-build, a web
                               app's included
-  builds shots check-program <repo> <ref> <app> <prefix> [--checkout <folder>]
+  {shots check-program}
                               check a change to the shots program before it
                               lands, with no install and no app build. It
                               builds the builds program of <folder> (default:
@@ -1998,7 +2016,7 @@ built again.
                               run whose report lacks the element lists (one
                               made before the report kept them) fails,
                               naming the app-build command that makes it again
-  builds shots draws --at <rev> --against <rev> [--board <name>]... [--component <name>]...
+  {shots #1}
                               compare the named boards and component previews
                               at the two revisions. Give no selectors to
                               compare every board and component preview from
@@ -2036,7 +2054,7 @@ built again.
                               beside the picture (`states` reads them).
                               builds passes the folder (`--pictures <folder>`
                               names another).
-  builds shots harness mac --into <folder>
+  {shots #2}
                               write the mac harness, the Swift code that
                               takes an app's shots inside the app's own
                               tests, into <folder>, which the app's shots
@@ -2058,7 +2076,7 @@ built again.
                               ShotRunner.swift state the interface. The
                               capture version covers the harness's sources
                               (below).
-  builds shots harness android --into <folder>
+  {shots #3}
                               write the android harness, the Kotlin code
                               that takes an app's shots inside the app's
                               Robolectric tests, into <folder>, which the
@@ -2094,7 +2112,7 @@ built again.
                               activity-compose and Compose's ui-test-junit4.
                               BoardShot.kt and ShotLook.kt state the
                               interface.
-  builds shots run|scenes|capture|check|lint|runtime|chrome|components|states|version [<argument>...]
+  {shots #4}
                               run the shots checker, which checks the shots
                               of the repo it runs in against the repo's
                               boards, with these arguments; builds gives it
@@ -2352,7 +2370,7 @@ built again.
                               and removes after, and sets a copy of each
                               variable with TEST_RUNNER_ in front, which
                               Xcode passes to the test process
-  builds build-app <repo> <app> [<ref>]
+  {build-app}
                               holding one of the lane's locks, check out <ref>
                               (default origin/main, after a fetch) in that app
                               checkout, which must be clean, and run the
@@ -2370,7 +2388,7 @@ built again.
                               nothing. This is the person's own build; the
                               dashboard runs it from the Build… item in each
                               lane's menu, one run per lane at a time
-  builds lock <repo> --lane <app> <command> [<args>...]
+  {lock}
                               wait for one of the app's locks, then run the
                               command holding it,
                               with the checkout in BUILDS_APP_CHECKOUT; run it
@@ -2380,15 +2398,15 @@ built again.
                               group and stop builds lock too, even while it
                               waits in the queue. Use this for commands outside
                               the repo's app build
-  builds queue <repo> [--lane <app>]
+  {queue #1}
                               show each lane's app checkouts, free or with
                               their holder, when and why builds added each one
                               it added, the checkouts it removed in the last
                               12 hours and why, and who waits, next first
-  builds queue <repo> top <pid>
+  {queue #2}
                               move that waiter to right behind the builds that
                               hold a lock, in the lane it waits in
-  builds takeover <repo> [--lane <app>] [<pid>]
+  {takeover}
                               with every lock of the lane held, stop the build
                               that joined last of the holders (SIGTERM to its
                               process group), run the waiter <pid> (default
@@ -2398,7 +2416,7 @@ built again.
                               the same as `top`. A pid names its lane; with no
                               pid and builds waiting in both lanes, --lane
                               does. The dashboard's queue has both as buttons
-  builds app-checkout <app> <checkout>
+  {app-checkout #1}
                               set up the worktree <checkout>, one in
                               <repo>-worktrees, as `builds new` sets one up,
                               and add it to the lane's app checkouts
@@ -2406,7 +2424,7 @@ built again.
                               `git worktree add --detach
                               ~/dev/<repo>-worktrees/<name> origin/main`.
                               Refuses a side worktree (APP BUILDS)
-  builds app-checkout <app> --host <host> <path>
+  {app-checkout #2}
                               record an app checkout on a host as the lane's
                               entry <host>:<name>. <path> ends in
                               dev/<repo>-worktrees/<name>, and the host's clone
@@ -2422,7 +2440,7 @@ built again.
                               post-checkout runs, and, for the android lane,
                               builds writes a local.properties naming the
                               host's Android SDK in each Gradle project
-  builds app-clone <app> <source> <new>
+  {app-clone}
                               fill the empty cargo build folders of the lane
                               in <new>, a new app checkout, with clones of
                               <source>'s, both checkouts of this machine, and
@@ -2432,8 +2450,7 @@ built again.
                               nothing when a build holds them. A build here
                               runs it on a host for a checkout it made there,
                               and holds <source>'s lane lock meanwhile
-  builds app-checkout remove <app> <checkout>
-  builds app-checkout remove <app> --host <host> <path>
+  {app-checkout remove}
                               take it out again; refused while a build holds
                               its lock. A worktree here stays until you
                               remove it with `git worktree remove`, and
@@ -2445,7 +2462,7 @@ built again.
                               stays in the lane. Adding a checkout that
                               builds added makes it the person's, so builds
                               no longer removes it
-  builds app-checkout reset <repo> <checkout> [--matching <rev>]
+  {app-checkout reset}
                               put an app checkout on origin/main, holding its
                               lock (reset waits until the build holding it
                               lets it go, and SIGTERM, SIGINT or SIGHUP ends
@@ -2593,17 +2610,15 @@ under "needs action" while it keeps a history, with the commands: `sudo touch
 stopped, `diskutil unmount /Volumes/Builds` and `diskutil mount <the
 volume's device>` (`df /Volumes/Builds` names it).
 
-  builds host add <name> <ssh target>
-  builds host setup <name>
-  builds host setup local
-  builds host setup-here
-  builds host speed-here
-  builds host band <name> <low> <high>
-  builds host band <name> clear
-  builds host list
-  builds host cache
-  builds host remove <name>
-  builds host clear-xcode <name>
+  {host add}
+  {host setup}
+  {host setup-here}
+  {host speed-here}
+  {host band}
+  {host list}
+  {host cache}
+  {host remove}
+  {host clear-xcode}
                               manage the hosts. `add` asks the host (over ssh,
                               by key, with no password) for its cores and
                               records it in the file `hosts` beside the lists
@@ -2713,9 +2728,7 @@ volume's device>` (`df /Volumes/Builds` names it).
                               Xcode cannot start, once the fix xcodebuild
                               named has run there, so mac app builds use its
                               checkouts again
-  builds remote run <repo> <ref> [--host <name>] -- <command> [<args>...]
-  builds remote run <repo> --staged [--host <name>] -- <command> [<args>...]
-  builds remote run <repo> --working [--host <name>] -- <command> [<args>...]
+  {remote run}
                               run the command on a host, in a worktree of the
                               host's clone with the commit <ref> names checked
                               out, pass its output back as it arrives, and exit
@@ -2764,7 +2777,7 @@ volume's device>` (`df /Volumes/Builds` names it).
                               A host that refuses the job fails it with what
                               the host said, and builds records the host as
                               refusing jobs.
-  builds remote step <host> <worktree> -- <command> [<args>...]
+  {remote step}
                               run the command in <worktree>, a folder on the
                               host that already holds the files, and pass its
                               output and status back; a stop signal stops it
@@ -3012,7 +3025,7 @@ Never run `cargo sweep --time` or `--maxsize`: APFS doesn't refresh access
 times, so sweep deletes the builds needed next. `cargo sweep --installed` after
 a toolchain upgrade is fine.
 
-  builds prune [--dry-run] [--idle <minutes> [--include-warm]]
+  {prune}
                               delete every checkout's unused build copies,
                               apply every cap, and delete build roots whose
                               checkout is gone, DerivedData entries nothing
@@ -3053,27 +3066,27 @@ a toolchain upgrade is fine.
                               `builds health` shows; the dashboard runs one
                               6 hours after the later of that time and its
                               own last start
-  builds units prune <days> <incremental hours> <dry 0|1> <folder>...
-  builds units git-checkouts <cargo home> <dry 0|1> <Cargo.lock>...
+  {units prune}
+  {units git-checkouts}
                               the steps setup and prune run on cargo's
                               folders, on the folders named; 0 incremental
                               hours deletes every incremental folder
-  builds units after-build <checkout>
+  {units after-build}
                               the deletion `builds cargo` starts as it exits:
                               the replaced copies in the checkout's folders,
                               logged to <build root>/.after-build.log
-  builds du <path>...         the KiB each path takes, counting blocks that
+  {du}                        the KiB each path takes, counting blocks that
                               APFS clones and hard links share once
 
 
 STATUS, HEALTH AND THE DASHBOARD
 
-  builds status               every entry on the volume: size per folder
+  {status #1}                 every entry on the volume: size per folder
                               against its cap, last write, links, and the
                               builds inside each folder; the build output in
                               the temporary folders; and whether Spotlight
                               indexes the build root (HOSTS)
-  builds status --json [--no-folders]
+  {status #2}
                               the repos' checkouts (path, branch, app
                               checkout, claim, note and its `note_state`, each
                               build folder) and the volume's free space
@@ -3081,7 +3094,7 @@ STATUS, HEALTH AND THE DASHBOARD
                               leaves out the build folders, whose sizes take
                               nearly all its time (half a minute or more while
                               agents build)
-  builds health [--json | --stop-junk]
+  {health}
                               what is stuck or needs acting on, from the
                               daemon when one runs. Health reads the lists,
                               each host's processes, load and CPU idle share
@@ -3364,7 +3377,7 @@ STATUS, HEALTH AND THE DASHBOARD
                               load;
                               this Mac or a host that did not
                               say its load, with what went wrong
-  builds dashboard stage --fixtures <folder> <shot>
+  {dashboard stage}
                               serve the dashboard's page for one shot on a
                               port the system picks at 127.0.0.1. It prints
                               as its first line the address of the page the
@@ -3393,7 +3406,7 @@ STATUS, HEALTH AND THE DASHBOARD
                               and a branch that changes the dashboard takes
                               them with `builds app-build agent-instructions
                               <branch> --shots web.dashboard.`
-  builds dashboard [--port <port>] [--listen <address>]
+  {dashboard}
                               run the daemon until it is killed. It follows
                               the checkouts and the lists through
                               FSEvents, keeps every checkout's git state and
@@ -3666,7 +3679,7 @@ that configure the check of every crate, such as the sources of a lint driver
 the line runs: a staged file it matches hands {crates} every crate, for that
 line alone, and builds refuses the mark on a line that names no {crates}.
 
-  builds checks run [<worktree>]
+  {checks run #1}
                               what the pre-commit hook runs: the check and fix
                               lines the staged files match, from the repo root:
                               the fix lines first, one at a time in file order,
@@ -3704,7 +3717,7 @@ line alone, and builds refuses the mark on a line that names no {crates}.
                               on 14 cores. A run it can't
                               record says so on stderr and ends as the checks
                               decided; a repo in no project records nothing
-  builds checks run --since <rev> [<worktree>]
+  {checks run #2}
                               run the check and fix lines that the files the
                               branch changed since it left <rev> (git
                               merge-base <rev> HEAD) match, over those files
@@ -3718,12 +3731,12 @@ line alone, and builds refuses the mark on a line that names no {crates}.
                               file's bytes back. Each line prints as for
                               `run`. builds records no range run, since the
                               record is of commits
-  builds checks whole [<worktree>]
+  {checks whole}
                               run every `whole` line on the tree as it is (the
                               checks `builds land` runs on a landing), printing
                               each one's time and result, with a failing one's
                               output; the exit status is non-zero if any failed
-  builds checks stats [--project <project>] [--repo <repo>] [--since <YYYY-MM-DD>] [--change <rev>]
+  {checks stats}
                               read the recorded runs back, for the project of
                               the current repo unless --project names one,
                               each repo apart (or only --repo's): the passing
@@ -3751,14 +3764,14 @@ line alone, and builds refuses the mark on a line that names no {crates}.
                               median and slowest time. The dashboard shows the
                               same per repo and lists a set of checks over the
                               limit among the findings
-  builds checks list [<worktree>]
+  {checks list}
                               print what `run` would run, without running it
-  builds checks tests --since <rev> [--run]
+  {checks tests}
                               the test lines whose paths match the files
                               changed in <rev>..HEAD; --run runs them and fails
                               if any fails. A <rev> not in the history selects
                               every test, and says so
-  builds install-hook <repo>  write the repo's pre-commit hook, a script that
+  {install-hook}              write the repo's pre-commit hook, a script that
                               runs `builds checks run`, in core.hooksPath when
                               it is set, else in the git common dir's hooks,
                               which worktrees share; it overwrites the file
@@ -3793,7 +3806,7 @@ load counts under "not recorded": a hook run from before builds kept each
 check's starting load, an app build run from before builds kept its host's
 load, or one whose host did not answer.
 
-  builds waits [--project <project>] [--since <YYYY-MM-DD>]
+  {waits}
                               print the time of each kind of wait per local
                               day and per band of load per core, for the
                               project of the current checkout unless
@@ -4145,7 +4158,7 @@ and list of changed paths that a review or `builds land` reads. To test
 another grouping, change the folders in a worktree of agent-instructions and
 run `review replay --rules-root` on it.
 
-  builds land <worktree> [--project P] [--done N]... [--part N]... [--design N]... [<sha>...]
+  {land}
                               put the commits on origin/main from the worktree
                               whose branch holds them: a fast-forward when
                               origin/main is their base, else a cherry-pick.
@@ -4300,7 +4313,7 @@ run `review replay --rules-root` on it.
                               since git does not report a failed hook); the
                               line comes with each landing until an install
                               succeeds
-  builds review [run] <worktree> [<base>] --kind code|mechanical [--checked-by TEXT] [--landing <key>] [--item N]... [--head SHA] [--rules-root DIR] [--reviewer PROGRAM]
+  {review}
                               review the worktree's net change past <base>
                               (default origin/main) against the rules in
                               --rules-root (default the agent-instructions
@@ -4369,7 +4382,7 @@ run `review replay --rules-root` on it.
                               with no judge listening, builds tells nobody.
                               builds records the dispatched agent that ran
                               each run as the agent of the branch
-  builds review copy <worktree> [<base>] [--rules-root DIR] [--reviewer PROGRAM]
+  {review copy}
                               the copy review: ask only the copy groups whose
                               rules cover a changed path over the worktree's
                               net change past <base> (default origin/main),
@@ -4380,7 +4393,7 @@ run `review replay --rules-root` on it.
                               no landing waits on it, and nothing else runs
                               it. Exits 1 when a group raised a finding or
                               gave no answer
-  builds review settle <finding> confirmed|dropped --why <text>
+  {review settle #1}
                               the judge's verdict on a finding, kept with who
                               and when. builds refuses a finding that is
                               settled already. While a judge listens (`judge
@@ -4390,17 +4403,17 @@ run `review replay --rules-root` on it.
                               An independent session settles in that case.
                               builds refuses every settle from the agent who
                               ran the review that raised the finding.
-  builds review settle <finding> --again --why <text>
+  {review settle #2}
                               change an open confirmed finding to dropped,
                               and keep the first settle beside the second;
                               builds takes it from whoever may give a verdict
-  builds review settle <finding> allowed --by-person --why <text>
+  {review settle #3}
                               record that the person allowed an open
                               confirmed finding's code to land as it is, with
                               their words in --why; the finding stays
                               confirmed, and land no longer waits on it. Pass
                               --by-person only once the person has said so
-  builds judge listen --project P [--by WHO]
+  {judge listen}
                               register this Codex or Claude Code session as
                               project P's judge, replacing any earlier judge.
                               Codex queues a message to the registered thread
@@ -4434,7 +4447,7 @@ run `review replay --rules-root` on it.
                               builds refuses it outside a session with an
                               inbox, and from an agent that a session
                               dispatched, which shares that session's inbox
-  builds review wait <landing>
+  {review wait}
                               wait until the review landing has no finding
                               left to settle and no dispute left to answer
                               (`review dispute`), then print each settle and
@@ -4449,7 +4462,7 @@ run `review replay --rules-root` on it.
                               run it again. After two hours the wait fails, naming the
                               findings that still wait; run it again to keep
                               waiting
-  builds review dispute <finding> --why <text>
+  {review dispute}
                               say that an open confirmed finding is wrong,
                               with why, and ask the judge once: builds records
                               the dispute and tells the judge, or, with no
@@ -4462,15 +4475,15 @@ run `review replay --rules-root` on it.
                               second disagreement goes to the coordinator, who
                               asks the person whether to allow the finding to
                               land
-  builds review keep <finding> --why <text>
+  {review keep #1}
                               the judge's answer to a dispute that keeps the
                               finding confirmed, with why; builds takes it
                               from whoever may give a verdict on the finding
-  builds review keep <finding> --again --why <text>
+  {review keep #2}
                               the judge's correction of the reason it gave
                               when it kept the finding; the record keeps both
                               reasons and shows the correction
-  builds review show <landing>
+  {review show}
                               the review of a landing under review: its last
                               review, each run's net change, the earlier run
                               each later run diffed the branch against,
@@ -4479,14 +4492,14 @@ run `review replay --rules-root` on it.
                               one settled again) and the run that closed it,
                               the reason each group gave for keeping a finding
                               open in each run, and the run it landed with
-  builds review key <worktree> --project P
+  {review key}
                               prints the key that names the worktree's change
                               in the review records: its branch, or, in a
                               detached worktree, the key of the open review
                               that read a commit the worktree holds, so that
                               fix commits and the landing stay with the first
                               review. `builds land` asks it first
-  builds review check-landing <worktree> --project P <sha>... [--landing KEY] [--squashed] [--rules-root DIR]
+  {review check-landing}
                               what `builds land` asks before it fetches: says
                               that the commits need no review, or that the
                               review of KEY (default the worktree's branch)
@@ -4495,7 +4508,7 @@ run `review replay --rules-root` on it.
                               with no answer over a diff a run read, a branch
                               that changed since the last review, an
                               unsettled finding, an open confirmed finding
-  builds review landed <worktree> --project P <sha>... [--landing KEY] [--more-to-land] [--rules-root DIR]
+  {review landed}
                               what `builds land` records after the push: the
                               open landing of KEY (default the worktree's
                               branch) as landed, with its last review, unless
@@ -4514,13 +4527,13 @@ run `review replay --rules-root` on it.
                               an audit of a landing whose commits are design
                               files only, the commits `builds design only`
                               accepts (decision #323)
-  builds brief [--project P] PATH...
+  {brief}
                               Print the full coding rules for the repo-relative
                               paths. Pass --project to include that project's
                               rules. A brief never holds this output
                               (`builds item take` refuses one that does).
 
-  builds review groups [--rules-root DIR] [--project P --repo R --changed PATH...]
+  {review groups}
                               list the groups of rules, and fail naming every
                               rule outside a group folder (one with no
                               group.toml) and every project-rules folder that
@@ -4528,7 +4541,7 @@ run `review replay --rules-root` on it.
                               groups a change to those paths in repo R runs,
                               over project P's rules, with the design files
                               that P's store gives R
-  builds review replay [--case NAME]... [--source REPO] [--model <model>] [--rules-root DIR] [--compare] [--reviewer PROGRAM]
+  {review replay #1}
                               run the grouping of the checkout (--rules-root)
                               over every case in its review/cases folder (a
                               change as `git format-patch` output, and
@@ -4554,7 +4567,7 @@ run `review replay --rules-root` on it.
                               findings on a rule the case's expected.toml
                               expects to raise none, and findings on a
                               `none` site), tokens and cost
-  builds review replay --landing N... --repo-dir DIR [--group NAME]... [--model <model>] [--rules-root DIR] [--reviewer PROGRAM]
+  {review replay #2}
                               ask again over each diff the reviews of landing
                               N read, with the groups and rules of the
                               checkout (--rules-root), only the groups --group
@@ -4571,7 +4584,7 @@ run `review replay --rules-root` on it.
                               calls, tokens and cost. Each replay goes in the
                               store. Exits 1 when a diff could not be read or
                               a call gave no answer
-  builds review audit <landing> --repo-dir DIR [--rules-root DIR] [--reviewer PROGRAM]
+  {review audit}
                               audit a landing whose change landed, over the
                               commits of the run it landed with, read in DIR's
                               repo. The audit asks only the groups that the
@@ -4590,8 +4603,8 @@ run `review replay --rules-root` on it.
                               settles it. A confirmed miss becomes a case
                               (`review case propose`) and a fix item.
                               The audit starts at most 3 reviewers at once
-  builds review misses        the candidate misses nobody has settled
-  builds review misses --check [--model <model>] [--rules-root DIR] [--reviewer PROGRAM]
+  {review misses #1}          the candidate misses nobody has settled
+  {review misses #2}
                               settle each of them as an audit settles the
                               misses it raises, over the diff the audit
                               reviewer that raised it read (the store keeps
@@ -4599,10 +4612,10 @@ run `review replay --rules-root` on it.
                               as the check's model when given. Exits 1
                               when the store keeps no such diff or a check
                               gave no answer
-  builds review rates [--rules-root DIR]
+  {review rates}
                               each group's audited miss rate: audits, confirmed
                               misses, and the latest 10 audits
-  builds review scores        the reviews' scores from every settled finding
+  {review scores}             the reviews' scores from every settled finding
                               and confirmed miss in the store: per group, each
                               setup (model and the first 8 digits of its
                               prompt's hash) with the rules commits it read,
@@ -4618,7 +4631,7 @@ run `review replay --rules-root` on it.
                               branches whose first review asked it, and the
                               rates leave out a first review from before
                               builds counted its changed lines
-  builds review case propose --repo-dir DIR --rules-root DIR [--per-group N] [--model <model>] [--reviewer PROGRAM]
+  {review case propose}
                               build the test set from the store's landed
                               changes of DIR's repo, written in the
                               review/cases folder of the agent-instructions
@@ -4650,13 +4663,13 @@ run `review replay --rules-root` on it.
                               the misses.
                               Exits 1 when a check gave no answer, and writes
                               no case for that landing
-  builds review case add <landing> <finding> --repo-dir DIR --rules-root DIR [--name NAME]
+  {review case add #1}
                               add the change of a confirmed finding as a case
                               expecting it, written in the review/cases folder
                               of the agent-instructions worktree --rules-root
                               names (never a default: the main checkout is the
                               person's)
-  builds review case add --rule SLUG --file PATH --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR
+  {review case add #2}
                               add a confirmed miss the same way; --clean-for
                               SLUG in place of --rule and --file adds a change
                               that rule must stay quiet on
@@ -4664,7 +4677,7 @@ run `review replay --rules-root` on it.
 
 INSTALLING
 
-  builds install              wait for another install to put its builds on
+  {install}                   wait for another install to put its builds on
                               PATH, then read each store's schema. When every
                               store already has this builds' schema, move no
                               store, wait for no command, and copy builds onto
@@ -4742,7 +4755,7 @@ INSTALLING
                               a fresh build (install.sh does), never from the
                               installed binary, which can't copy itself onto
                               itself
-  builds version              print `builds` and a hash of the sources this
+  {version}                   print `builds` and a hash of the sources this
                               program was built from. A build of the same
                               sources prints the same hash on macOS and on
                               Linux, so `builds host setup` and `builds
