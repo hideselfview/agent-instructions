@@ -333,10 +333,8 @@ fn the_stage_reads_its_folder_and_shot_in_either_order() {
             &words,
         )
         .and_then(|args| {
-            let [shot] = args.exactly(1)? else {
-                unreachable!("exactly one")
-            };
-            Ok((PathBuf::from(args.require("fixtures")?), shot.clone()))
+            let (folder, shot) = fixture_and_shot(&args)?;
+            Ok((folder, shot.to_string()))
         })
     };
     let expected = (PathBuf::from("shots"), "web.demo.page".to_string());

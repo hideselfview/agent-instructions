@@ -19,10 +19,7 @@ use crate::fail::{Context, Result};
 /// Reads the fixture the arguments name, prints the page's address, and serves
 /// until stdin closes.
 pub fn cmd_stage(args: &crate::args::Args) -> Result<()> {
-    let [shot] = args.exactly(1)? else {
-        unreachable!("exactly one")
-    };
-    let folder = PathBuf::from(args.require("fixtures")?);
+    let (folder, shot) = fixture_and_shot(args)?;
     let fixture = Fixture::load(&folder, shot)?;
     let listener = bind()?;
     crate::output::answer_line(address(port_of(&listener)?, &fixture));
@@ -40,6 +37,14 @@ pub fn cmd_stage(args: &crate::args::Args) -> Result<()> {
         .read_to_end(&mut sink)
         .context(|| "reading stdin".to_string())?;
     Ok(())
+}
+
+/// The fixtures folder and the shot that <args> name.
+fn fixture_and_shot(args: &crate::args::Args) -> Result<(PathBuf, &str)> {
+    let [shot] = args.exactly(1)? else {
+        unreachable!("exactly one")
+    };
+    Ok((PathBuf::from(args.require("fixtures")?), shot))
 }
 
 /// Listens on a port the system picks.
