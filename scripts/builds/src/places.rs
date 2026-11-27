@@ -28,6 +28,10 @@ pub const DERIVED_DATA_IDLE_MINUTES: u64 = 1440;
 pub const DASHBOARD_PORT: u16 = 7787;
 pub const ROOT_VARIABLE: &str = "BUILDS_ROOT";
 pub const LISTS_VARIABLE: &str = "BUILDS_LISTS";
+/// The variable that names a folder to stand in for the machine's temporary
+/// folders, which builds' tests set: `prune` deletes old entries in them, so a
+/// test's prune must not reach the machine's own.
+pub const TEMP_VARIABLE: &str = "BUILDS_TEMP";
 const DEFAULT_ROOT: &str = "/Volumes/Builds";
 
 /// The build root named by BUILDS_ROOT, including a relative path as given.
@@ -127,19 +131,34 @@ impl Places {
         let tmpdir = std::env::var_os("TMPDIR")
             .filter(|value| !value.is_empty())
             .map(PathBuf::from);
+        let stand_in = std::env::var_os(TEMP_VARIABLE).map(PathBuf::from);
         let lists = lists_setting(std::env::var_os(LISTS_VARIABLE).as_deref())
             .unwrap_or_else(|| default_lists(&home));
+        let (private_tmp, user_temp, tmpdir) = match stand_in {
+            // A TMPDIR outside the stand-in and the build volume is one of
+            // the machine's own.
+            Some(stand_in) => {
+                let tmpdir =
+                    tmpdir.filter(|tmp| tmp.starts_with(&stand_in) || tmp.starts_with(&root));
+                (stand_in, None, tmpdir)
+            }
+            None => (
+                PathBuf::from(if cfg!(target_os = "macos") {
+                    "/private/tmp"
+                } else {
+                    "/tmp"
+                }),
+                darwin_user_temp_dir(),
+                tmpdir,
+            ),
+        };
         Ok(Places {
             root,
             home,
             cargo_home,
             cache_home,
-            private_tmp: PathBuf::from(if cfg!(target_os = "macos") {
-                "/private/tmp"
-            } else {
-                "/tmp"
-            }),
-            user_temp: darwin_user_temp_dir(),
+            private_tmp,
+            user_temp,
             tmpdir,
             uid: unsafe { libc::getuid() },
             lists,

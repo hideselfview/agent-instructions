@@ -37,6 +37,7 @@ fn a_build_that_sets_terminal_modes_finishes_when_builds_runs_on_a_terminal() {
     command
         .env("BUILDS_ROOT", dir.join("volume"))
         .env("BUILDS_POWER_RECORD", dir.join("power"))
+        .env("BUILDS_TEMP", dir.join("temp"))
         .env("HOME", dir.join("home"))
         .env_remove("CLAUDE_CODE_SESSION_ID")
         .env_remove("CODEX_SESSION_ID")

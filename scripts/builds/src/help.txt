@@ -2941,7 +2941,9 @@ to four levels deep, that nothing wrote to for 30 minutes and no process holds
 a file in; `status` lists them. They skip /private/tmp's claude-* (Claude Code
 sessions' scratch, whose entries go three days after the session's last
 change), com.apple.* and tmux-* (live sockets), and anything the user doesn't
-own.
+own. builds' tests set BUILDS_TEMP to a folder of their own, which takes the
+place of /private/tmp and the user's temporary folder, and builds then deletes
+nothing in a TMPDIR outside it and the build volume.
 
 Agent registrations. `builds agent start` registers each agent in
 <the lists folder's parent>/agents/<session>/, and only a command that an

@@ -45,6 +45,7 @@ test "$?" -ne 0
         .current_dir(&work)
         .env("BUILDS_ROOT", &volume)
         .env("BUILDS_POWER_RECORD", dir.join("power"))
+        .env("BUILDS_TEMP", dir.join("temp"))
         .env("HOME", dir.join("home"))
         .env("PATH", path)
         .env("TMPDIR", dir.join("system-tmp"))

@@ -24,6 +24,13 @@ fn run(toolchain: &str, layout: &str, older: Option<&str>) {
     command
         .arg(script)
         .env("BUILDS_POWER_RECORD", &power)
+        .env(
+            "BUILDS_TEMP",
+            std::env::temp_dir().join(format!(
+                "builds-test-units-temp-{}-{layout}",
+                std::process::id()
+            )),
+        )
         .env("BUILDS_BIN", env!("CARGO_BIN_EXE_builds"))
         .env("TOOLCHAIN", toolchain)
         .env("LAYOUT", layout)

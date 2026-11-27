@@ -39,6 +39,7 @@ fn stage(dir: &Path) -> Command {
         .current_dir(dir)
         .env("BUILDS_ROOT", dir.join("no-volume"))
         .env("BUILDS_POWER_RECORD", dir.join("power"))
+        .env("BUILDS_TEMP", dir.join("temp"))
         .env("HOME", dir.join("home"))
         .env("BUILDS_LISTS", dir.join("lists"))
         .env_remove("CLAUDE_CODE_SESSION_ID")

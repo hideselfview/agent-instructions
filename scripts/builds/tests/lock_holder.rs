@@ -167,6 +167,7 @@ impl Demo {
         command
             .env("BUILDS_ROOT", self.dir.join("volume"))
             .env("BUILDS_POWER_RECORD", self.dir.join("power"))
+            .env("BUILDS_TEMP", self.dir.join("temp"))
             .env("HOME", self.dir.join("home"))
             .env_remove("CLAUDE_CODE_SESSION_ID")
             .env_remove("CODEX_SESSION_ID")

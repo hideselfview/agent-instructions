@@ -24,6 +24,7 @@ fn the_dashboard_reports_readiness_to_installs_startup_connection() {
         .args(["dashboard", "--port", "0"])
         .env("BUILDS_ROOT", &volume)
         .env("BUILDS_POWER_RECORD", dir.join("power"))
+        .env("BUILDS_TEMP", dir.join("temp"))
         .env("BUILDS_LISTS", dir.join("lists"))
         .env("BUILDS_DASHBOARD_RESTART", "1")
         .stdin(Stdio::from(OwnedFd::from(dashboard)))

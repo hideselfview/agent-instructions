@@ -82,7 +82,7 @@ impl Demo {
     fn new(name: &str) -> Demo {
         let dir = PathBuf::from(format!("/private/tmp/bc-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::create_dir_all(dir.join("temp")).unwrap();
         let output = Command::new("bash")
             .args(["-c", SETUP, "bash"])
             .arg(&dir)
@@ -116,10 +116,16 @@ impl Demo {
         self.dir.join("power")
     }
 
+    /// The folder that stands in for this Mac's temporary folders.
+    fn temp(&self) -> PathBuf {
+        self.dir.join("temp")
+    }
+
     fn builds(&self) -> Command {
         let mut command = Command::new(BUILDS);
         command
             .env("BUILDS_ROOT", self.volume())
+            .env("BUILDS_TEMP", self.temp())
             .env("HOME", self.dir.join("home"))
             .env("BUILDS_POWER_RECORD", self.power_record())
             .env_remove("CLAUDE_CODE_SESSION_ID")
@@ -626,6 +632,43 @@ fn prune_keeps_a_claimed_folder_over_its_cap_and_deletes_it_once_released() {
             && said.contains("demo/side-3/target (")
             && said.contains("> 1M)"),
         "an unclaimed folder over its cap wasn't deleted whole: {said}"
+    );
+}
+
+/// BUILDS_TEMP stands in for this Mac's temporary folders, so a test's
+/// prune lists and deletes only there.
+#[test]
+fn a_tests_prune_reaches_only_the_temporary_folder_it_names() {
+    let demo = Demo::new("temp");
+    let uid = String::from_utf8(Command::new("id").arg("-u").output().unwrap().stdout).unwrap();
+    let scratchpad = demo
+        .temp()
+        .join(format!("claude-{}/project/session/scratchpad", uid.trim()));
+    std::fs::create_dir_all(&scratchpad).unwrap();
+    let old = scratchpad.join("old-probe");
+    std::fs::write(&old, "probe").unwrap();
+    let four_days_ago = std::time::SystemTime::now() - Duration::from_secs(4 * 86400);
+    std::fs::File::options()
+        .write(true)
+        .open(&old)
+        .and_then(|file| file.set_modified(four_days_ago))
+        .unwrap();
+    let out = demo.builds().args(["prune", "--dry-run"]).output().unwrap();
+    let said = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "{said}");
+    let scratch: Vec<&str> = said
+        .lines()
+        .filter(|line| line.contains("scratch entries of ended sessions"))
+        .collect();
+    assert!(
+        scratch.len() == 1
+            && scratch[0].contains("would delete 1 scratch entries")
+            && scratch[0].ends_with(&format!(
+                "under {}/claude-{}",
+                demo.temp().display(),
+                uid.trim()
+            )),
+        "{said}"
     );
 }
 
