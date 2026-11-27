@@ -188,8 +188,9 @@ fn findings_of(chosen: &[(&Part, BTreeSet<String>)]) -> Result<Value> {
                 }
             }
         }
-        // A run counts the problems the repo has at the commit, which each
-        // run of the commit reads alike for its own scenes.
+        // The count names no scene, so two parts may have counted one
+        // problem: the largest is not zero when any part found one, which
+        // fails a recheck.
         problems = problems.max(part.file["problems"].as_u64().unwrap_or_default());
     }
     file["scenes"] = scenes.into_iter().collect::<Vec<_>>().into();
