@@ -178,10 +178,11 @@ impl Sources {
 /// A unit's identity is its thing over the identities of what it was built
 /// against: copies with one identity differ only in their sources. A
 /// dependent's fingerprint names each dependency by the dependency's
-/// fingerprint when it was built. A workspace crate rebuilt in place since
-/// (one some dependent names by a fingerprint no unit has now) counts by its
-/// package and crate name alone, wherever it is named: its dependents rebuild
-/// in place too on their next build.
+/// fingerprint when it was built. A fingerprint no unit has now (cargo has
+/// since rebuilt that dependency in place, or it is gone) counts by the
+/// package, crate name and fingerprint named, so two copies share it only
+/// when they were built against the same build of the dependency. A unit of
+/// another feature set has another fingerprint.
 struct Copies {
     /// The units with a fingerprint record that holds no JSON: nothing tells
     /// what they are copies of, so they stay.
@@ -194,7 +195,6 @@ struct Copies {
     own_sources: HashMap<Key, (usize, Vec<u64>, Vec<u64>)>,
     /// [package id hash, crate name, fingerprint] per dependency.
     deps: HashMap<Key, Vec<(String, String, Option<u64>)>>,
-    in_place: HashSet<(String, String)>,
     packages: HashMap<String, usize>,
     numbers: HashMap<Key, usize>,
     identities: HashMap<String, usize>,
@@ -210,7 +210,6 @@ impl Copies {
             unreadable: HashSet::new(),
             own_sources: HashMap::new(),
             deps: HashMap::new(),
-            in_place: HashSet::new(),
             packages: HashMap::new(),
             numbers: HashMap::new(),
             identities: HashMap::new(),
@@ -321,13 +320,6 @@ impl Copies {
                 }
             }
         }
-        copies.in_place = copies
-            .deps
-            .values()
-            .flatten()
-            .filter(|(_, _, value)| value.is_none_or(|value| !copies.unit_of.contains_key(&value)))
-            .map(|(package, krate, _)| (package.clone(), krate.clone()))
-            .collect();
         Ok(copies)
     }
 
@@ -342,12 +334,12 @@ impl Copies {
         for (package, krate, value) in self.deps.get(key).cloned().unwrap_or_default() {
             let dependency = value.and_then(|value| self.unit_of.get(&value)).cloned();
             match dependency {
-                Some(dependency) if !self.in_place.contains(&(package.clone(), krate.clone())) => {
+                Some(dependency) => {
                     if dependency != *key {
                         parts.push(format!("unit {}", self.identity(&dependency)));
                     }
                 }
-                _ => parts.push(format!("name {package} {krate}")),
+                None => parts.push(format!("gone {package} {krate} {value:?}")),
             }
         }
         parts.sort();
@@ -362,9 +354,9 @@ impl Copies {
         identity
     }
 
-    /// The units <key> was built against that are still here. A workspace
-    /// crate rebuilt in place since is named by a fingerprint no unit has
-    /// now; its dependents rebuild on their next build.
+    /// The units <key> was built against that are still here. A dependency
+    /// cargo has since rebuilt in place is named by a fingerprint no unit
+    /// has now.
     fn dependencies(&self, key: &Key) -> Vec<Key> {
         self.deps
             .get(key)

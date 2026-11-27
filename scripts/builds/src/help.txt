@@ -2771,8 +2771,9 @@ revision of a dependency, or another compiler), that a build used after the
 unit's last use. A unit is also replaced when a newer build of its package
 (such as the library beside a test binary) was built against another copy of
 something the unit was built against. Copies built from the same sources for
-another package selection (`-p x` against the workspace) stay side by side, and
-so does whatever a unit that stays was built against. A unit's last use is the
+another package selection or feature set (`-p x` against the workspace, or one
+package with and without its test features) stay side by side, and so does
+whatever a unit that stays was built against. A unit's last use is the
 last build that reported it, rebuilt or up to date; a unit that no recorded
 build used counts as used when cargo last built it.
 

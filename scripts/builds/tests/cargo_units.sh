@@ -477,6 +477,51 @@ esac
 rm -f "$ws/target"
 mv "$volume/ws/main/target" "$ws/target"
 
+# Two compiles of one workspace that take turns, one with a dependency's
+# feature and one without, keep both copies of each crate above it, and the
+# second run of each compiles nothing. So it is too while a crate no build
+# selects (here idle) still names the dependency as it was before it was
+# rebuilt in place.
+turns="$scratch/turns"
+mkdir -p "$turns/leaf/src" "$turns/mid/src" "$turns/top/src" "$turns/idle/src"
+cp -R "$ws/.cargo" "$turns/"
+printf '[workspace]\nmembers = ["leaf", "mid", "top", "idle"]\nresolver = "2"\n' > "$turns/Cargo.toml"
+member() {
+    printf '[package]\nname = "%s"\nversion = "0.1.0"\nedition = "2021"\n' "$1" > "$turns/$1/Cargo.toml"
+}
+for name in leaf mid top idle; do member "$name"; done
+printf '[features]\nextra = []\n' >> "$turns/leaf/Cargo.toml"
+# With no rerun-if line, a source edit reruns the script, which changes the
+# fingerprint cargo records for leaf.
+echo 'fn main() {}' > "$turns/leaf/build.rs"
+printf '[dependencies]\nleaf = { path = "../leaf" }\n' | tee -a "$turns/mid/Cargo.toml" "$turns/idle/Cargo.toml" "$turns/top/Cargo.toml" > /dev/null
+echo 'mid = { path = "../mid" }' >> "$turns/top/Cargo.toml"
+echo 'pub fn one() -> u32 { 1 }' > "$turns/leaf/src/lib.rs"
+echo 'pub fn two() -> u32 { leaf::one() + 1 }' > "$turns/mid/src/lib.rs"
+echo 'pub fn three() -> u32 { mid::two() + leaf::one() }' > "$turns/top/src/lib.rs"
+echo 'pub fn four() -> u32 { leaf::one() * 4 }' > "$turns/idle/src/lib.rs"
+cd "$turns"
+ws="$turns"
+profile="$ws/target/debug"
+cargo generate-lockfile -q
+"$builds" cargo build -q -p idle
+echo 'pub fn one() -> u32 { 2 - 1 }' > leaf/src/lib.rs
+with_feature=(build -p top --features leaf/extra)
+without_feature=(build -p top)
+"$builds" cargo "${with_feature[@]}" -q
+"$builds" cargo "${without_feature[@]}" -q
+variants="$(fingerprints)"
+units prune 3 100000 0 "$ws/target" > /dev/null 2>&1
+[ "$(fingerprints)" = "$variants" ] \
+    || fail "pruning between compiles that take turns deleted $(comm -23 <(echo "$variants") <(fingerprints))"
+[ -z "$(rebuilt "${with_feature[@]}")" ] \
+    || fail "the compile with the feature compiled again: $(rebuilt "${with_feature[@]}")"
+[ -z "$(rebuilt "${without_feature[@]}")" ] \
+    || fail "the compile without the feature compiled again: $(rebuilt "${without_feature[@]}")"
+cd "$scratch/ws"
+ws="$scratch/ws"
+profile="$ws/target/debug"
+
 # Cargo's git checkouts no Cargo.lock pins go; pinned ones, and the git
 # databases, stay. A cargo holding the package cache keeps them all.
 home="$scratch/cargo-home"
