@@ -37,6 +37,7 @@ fn the_tmpdir_probe_preserves_spaces_equals_and_newlines_in_a_process_path() {
     let report = Command::new(BUILDS)
         .args(["sccache-tmpdir", &child.id().to_string()])
         .env("BUILDS_ROOT", &root)
+        .env("BUILDS_POWER_RECORD", root.join("power"))
         .output();
     drop(child.stdin.take());
     let status = child.wait().unwrap();

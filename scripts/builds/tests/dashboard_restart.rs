@@ -23,6 +23,7 @@ fn the_dashboard_reports_readiness_to_installs_startup_connection() {
     let mut child = Command::new(env!("CARGO_BIN_EXE_builds"))
         .args(["dashboard", "--port", "0"])
         .env("BUILDS_ROOT", &volume)
+        .env("BUILDS_POWER_RECORD", dir.join("power"))
         .env("BUILDS_LISTS", dir.join("lists"))
         .env("BUILDS_DASHBOARD_RESTART", "1")
         .stdin(Stdio::from(OwnedFd::from(dashboard)))

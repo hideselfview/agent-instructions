@@ -832,7 +832,12 @@ pub fn run_script(host: &Host, worktree: &str, command: &[String], run: &str) ->
         r#"{root}{tmp_setup}# ssh's shell starts with macOS's default of 256 open files, which cargo's
 # tests (many stores open at once) exceed; a login shell here has more.
 ulimit -n 10240 2>/dev/null || ulimit -n "$(ulimit -Hn)" 2>/dev/null
-# The command and the watcher each run in a process group of their own, whose
+# The caller's pipe, kept on 5: a shell may give a background job /dev/null
+# as its stdin.
+exec 5<&0 </dev/null
+cd {wt} || exit 92
+job={wt}.job
+{awake}# The command and the watcher each run in a process group of their own, whose
 # id is the pid of its first process. Linux has setsid, which gives one;
 # macOS has no setsid, and its sh gives each background job a group of its own
 # under job control (set -m). Linux's sh (dash) turns job control off with no
@@ -840,11 +845,6 @@ ulimit -n 10240 2>/dev/null || ulimit -n "$(ulimit -Hn)" 2>/dev/null
 # has started the watcher. dash's kill takes no `--`, so each kill below
 # names the group as `-<pid>` alone.
 if command -v setsid >/dev/null 2>&1; then own_group=setsid; else set -m; own_group=; fi
-# The caller's pipe, kept on 5: a shell may give a background job /dev/null
-# as its stdin.
-exec 5<&0 </dev/null
-cd {wt} || exit 92
-job={wt}.job
 rm -f "$job/out" "$job/err"
 mkfifo "$job/out" "$job/err" || exit 95
 end={end}
@@ -884,6 +884,7 @@ wait $out $err
 rm -f "$job/out" "$job/err"
 {tmp_cleanup}exit $status"#,
         root = root_script(host),
+        awake = awake_script(host, worktree, command),
         tmp_setup = crate::run_tmp::remote_setup(host, run),
         tmp_cleanup = crate::run_tmp::remote_cleanup(host),
         wt = sh_quote(worktree),
@@ -892,6 +893,38 @@ rm -f "$job/out" "$job/err"
         run = sh_quote(run),
         run_file = RUN_FILE,
         host = host.name,
+    )
+}
+
+/// The part of `run_script` that keeps a host that is a Mac awake while the
+/// script runs <command> in <worktree> for this Mac: a builds there holds the
+/// assertion until the script's process ends (awake.rs `hold_while`), and the
+/// script goes on only once that builds says it holds it. It comes before the
+/// script turns job control on, so the shell reports nothing about that
+/// builds. This Mac's own command needs no other: the builds that runs the
+/// script holds one.
+fn awake_script(host: &Host, worktree: &str, command: &[String]) -> String {
+    if host.target.is_none() {
+        return String::new();
+    }
+    let what = format!("`{}` in {worktree}, for another Mac", command.join(" "));
+    format!(
+        r#"if [ "$(uname -s)" = Darwin ]; then
+  rm -f "$job/awake"
+  mkfifo "$job/awake" || exit 95
+  "$HOME/.local/bin/builds" {hold} "$$" {what} </dev/null >"$job/awake" 2>"$job/awake.err" 5<&- &
+  if ! IFS= read -r held <"$job/awake" || [ "$held" != {held} ]; then
+    echo "builds could not keep host {host} awake, so it did not run the command: $(cat "$job/awake.err")" >&2
+    {tmp_cleanup}exit 98
+  fi
+  rm -f "$job/awake" "$job/awake.err"
+fi
+"#,
+        hold = crate::awake::HOLD_COMMAND,
+        what = sh_quote(&what),
+        held = crate::awake::HELD,
+        host = host.name,
+        tmp_cleanup = crate::run_tmp::remote_cleanup(host),
     )
 }
 
@@ -1071,7 +1104,7 @@ pub fn start_job<'a>(
     source: &Path,
     request: &Request,
 ) -> Result<Start<'a>> {
-    let awake = KeepAwake::for_host(host, &format!("a job of {}", request.repo))?;
+    let awake = KeepAwake::for_host(&places.power, host, &format!("a job of {}", request.repo))?;
     let sha = commit_of(source, &request.what)?;
     let pinned = pinned_name(source)?;
     let id = job_id();

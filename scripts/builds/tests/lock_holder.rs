@@ -166,6 +166,7 @@ impl Demo {
         let mut command = Command::new(BUILDS);
         command
             .env("BUILDS_ROOT", self.dir.join("volume"))
+            .env("BUILDS_POWER_RECORD", self.dir.join("power"))
             .env("HOME", self.dir.join("home"))
             .env_remove("CLAUDE_CODE_SESSION_ID")
             .env_remove("CODEX_SESSION_ID")
@@ -543,7 +544,7 @@ fn a_cargo_run_on_another_host_builds_for_the_worktree_it_was_run_from() {
     let made = Command::new("mkfifo").arg(&started).status().unwrap();
     assert!(made.success(), "mkfifo");
     demo.host_m1(&format!(
-        "#!/bin/sh\n[ \"$1\" = setup ] && exit 0\n[ \"$1\" = cargo ] || exit 1\necho started > '{}'\nexec sleep 30\n",
+        "#!/bin/sh\n[ \"$1\" != __hold-awake ] || exec '{BUILDS}' \"$@\"\n[ \"$1\" = setup ] && exit 0\n[ \"$1\" = cargo ] || exit 1\necho started > '{}'\nexec sleep 30\n",
         started.display()
     ));
     let (said, heard) = std::sync::mpsc::channel();

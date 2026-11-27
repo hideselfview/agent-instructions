@@ -40,6 +40,12 @@ fn run(dir: &Path, args: &[&str]) -> Output {
     output
 }
 
+/// The line of a host's stand-in `builds` that runs the builds under test to
+/// keep the host awake, as a host's builds does while it runs a command.
+fn hold_awake_with_the_builds_under_test() -> String {
+    format!("[ \"$1\" != __hold-awake ] || exec '{BUILDS}' \"$@\"\n")
+}
+
 fn script(path: &Path, text: &str) {
     std::fs::write(path, text).unwrap();
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -62,7 +68,10 @@ impl World {
         // real one would link the build folders into this Mac's build volume.
         for home in [&remote_home, &second_home] {
             std::fs::create_dir_all(home.join(".local/bin")).unwrap();
-            script(&home.join(".local/bin/builds"), "#!/bin/sh\n");
+            script(
+                &home.join(".local/bin/builds"),
+                &format!("#!/bin/sh\n{}", hold_awake_with_the_builds_under_test()),
+            );
         }
         std::fs::create_dir_all(dir.join("home")).unwrap();
         programs::programs_folder(&dir.join("home"));
@@ -170,6 +179,7 @@ cd "$home" && HOME="$home" BUILDS_VOLUME="$home/no-volume" PATH='{bin}':"$PATH" 
             .args(args)
             .current_dir(&self.source)
             .env("BUILDS_ROOT", self.dir.join("volume"))
+            .env("BUILDS_POWER_RECORD", self.dir.join("power"))
             .env("HOME", self.dir.join("home"))
             .env_remove("CLAUDE_CODE_SESSION_ID")
             .env_remove("CODEX_SESSION_ID")
@@ -373,6 +383,69 @@ fn a_step_runs_in_the_hosts_checkout_and_its_output_comes_back_behind_the_checko
             .exists(),
         "the build is recorded on this Mac under the entry's name"
     );
+}
+
+/// An app build whose step runs on a host keeps both Macs awake: this one from
+/// the build's start to its end, answering the host's connection, and the host
+/// while the step's command runs there.
+#[test]
+fn a_step_on_a_host_keeps_this_mac_and_the_host_awake() {
+    let world = World::new("awake");
+    let output = world.app_build(&["main", "hello"]);
+    assert!(output.status.success(), "{}", text(&output.stderr));
+    let record = std::fs::read_to_string(world.dir.join("power")).unwrap();
+    let lines: Vec<&str> = record.lines().collect();
+    let found = |start: &str, parts: &[&str]| {
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.starts_with(start) && parts.iter().all(|part| line.contains(part))),
+            "no `{start}` line holding {parts:?} in:\n{record}"
+        );
+    };
+    for end in ["take", "release"] {
+        found(
+            &format!("{end} PreventUserIdleSystemSleep "),
+            &["builds: app-build demo main hello"],
+        );
+        found(
+            &format!("{end} NetworkClientActive "),
+            &["builds: demo's app checkout app-1 on host m1"],
+        );
+    }
+    found(
+        "take PreventUserIdleSystemSleep ",
+        &["hello.sh", "demo-worktrees/app-1, for another Mac"],
+    );
+}
+
+/// A host's builds keeps the host awake from before it says so until the
+/// process it watches, the script of another Mac's command, ends.
+#[test]
+fn a_hosts_hold_ends_with_the_process_it_watches() {
+    let world = World::new("hold");
+    let mut script = Command::new("cat").stdin(Stdio::piped()).spawn().unwrap();
+    let mut hold = world
+        .builds(&["__hold-awake", &script.id().to_string(), "a command"])
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut said = String::new();
+    BufReader::new(hold.stdout.take().unwrap())
+        .read_line(&mut said)
+        .unwrap();
+    assert_eq!(said, "held\n");
+    let taken = format!(
+        "PreventUserIdleSystemSleep {} builds: a command\n",
+        hold.id()
+    );
+    let record = || std::fs::read_to_string(world.dir.join("power")).unwrap();
+    assert_eq!(record(), format!("take {taken}"));
+    // Its stdin closed, cat ends.
+    drop(script.stdin.take());
+    script.wait().unwrap();
+    assert!(hold.wait().unwrap().success());
+    assert_eq!(record(), format!("take {taken}release {taken}"));
 }
 
 #[test]

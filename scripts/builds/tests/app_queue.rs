@@ -118,6 +118,7 @@ impl Volume {
         let mut command = Command::new(BUILDS);
         command
             .env("BUILDS_ROOT", self.dir.join("volume"))
+            .env("BUILDS_POWER_RECORD", self.dir.join("power"))
             .env("HOME", self.dir.join("home"))
             .env("PATH", path_with(&self.dir.join("bin")))
             .env_remove("CLAUDE_CODE_SESSION_ID")

@@ -233,6 +233,29 @@ impl Drop for Running {
     }
 }
 
+/// Whether `builds review <args>` runs reviewers: every form but those that
+/// only read the records, write a verdict to them or wait for one. Matches
+/// the forms `cmd_review` takes.
+pub fn runs_reviewers(args: &[String]) -> bool {
+    args.first().is_some_and(|word| {
+        !matches!(
+            word.as_str(),
+            "groups"
+                | "wait"
+                | "settle"
+                | "dispute"
+                | "keep"
+                | "show"
+                | "key"
+                | "check-landing"
+                | "landed"
+                | "misses"
+                | "rates"
+                | "scores"
+        )
+    })
+}
+
 pub fn cmd_review(tool: &Tool, args: &[String]) -> Result<()> {
     let Some((command, rest)) = args.split_first() else {
         fail!("{USAGE}")

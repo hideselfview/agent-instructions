@@ -71,6 +71,7 @@ impl Scratch {
             codex_program: self.dir.join("codex"),
             claude_program: self.dir.join("claude"),
             ioreg_program: self.dir.join("ioreg"),
+            power: crate::awake::Power::Record(self.dir.join("power")),
             fonts: None,
         }
     }
@@ -219,13 +220,20 @@ pub fn git_out(dir: &Path, args: &[&str]) -> String {
 }
 
 /// Writes a host's `builds` into <home>'s ~/.local/bin, where host setup
-/// installs it: a shell script that runs the lines <body>.
+/// installs it: a shell script that says it keeps the host awake when a job's
+/// script asks it to, taking no assertion, and runs the lines <body> for every
+/// other command.
 pub fn host_builds(home: &Path, body: &str) {
     use std::os::unix::fs::PermissionsExt;
     let bin = crate::links::bin(home);
     std::fs::create_dir_all(&bin).expect("creatable");
     let program = bin.join("builds");
-    std::fs::write(&program, format!("#!/bin/sh\n{body}\n")).expect("writable");
+    let hold = format!(
+        "[ \"$1\" != {} ] || {{ echo {}; exit 0; }}",
+        crate::awake::HOLD_COMMAND,
+        crate::awake::HELD
+    );
+    std::fs::write(&program, format!("#!/bin/sh\n{hold}\n{body}\n")).expect("writable");
     std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755))
         .expect("the fake builds can be made runnable");
 }

@@ -56,6 +56,7 @@ fn a_step_run_by_programs_hold_finds_python_3_11_or_later_before_macos_3_9() {
         .env("HOME", &home)
         .env("XDG_CACHE_HOME", dir.join("cache"))
         .env("BUILDS_ROOT", dir.join("volume"))
+        .env("BUILDS_POWER_RECORD", dir.join("power"))
         .env("BUILDS_LISTS", dir.join("lists"))
         .env("PATH", path)
         .env_remove("CLAUDE_CODE_SESSION_ID")

@@ -223,6 +223,14 @@ fn main() -> ExitCode {
             Err(error) => exit_code_after(app_lock_guard::COMMAND, error),
         };
     }
+    if let [word, pid, what] = args.as_slice()
+        && word == awake::HOLD_COMMAND
+    {
+        return match hold_awake(pid, what) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => exit_code_after(awake::HOLD_COMMAND, error),
+        };
+    }
     if let Some(fail) = links::run_as(&program, &args) {
         text::note(fail.text());
         return ExitCode::from(1);
@@ -285,6 +293,11 @@ fn run_command(args: &[String], session: ack::agent::Session) -> ExitCode {
     if let Err(fail) = claimed_branch::gate(command, nested, &session) {
         return exit_code_after(command, fail);
     }
+    // Held until the command ends, the measuring of what it wrote included.
+    let _awake = match awake_for(command, rest) {
+        Ok(held) => held,
+        Err(fail) => return exit_code_after(command, fail),
+    };
     // Held until the command ends: dropping it deletes the run's temporary
     // folder.
     let _tmp = match Places::from_env().and_then(|places| run_tmp::enter(&places, command, rest)) {
@@ -301,6 +314,28 @@ fn run_command(args: &[String], session: ack::agent::Session) -> ExitCode {
         Ok(()) => ExitCode::SUCCESS,
         Err(fail) => exit_code_after(command, fail),
     }
+}
+
+/// Keeps this Mac awake while `builds <command> <args>` runs, when it runs
+/// work (`awake::does_work`).
+fn awake_for(command: &str, args: &[String]) -> Result<Option<awake::KeepAwake>> {
+    if !awake::does_work(command, args) {
+        return Ok(None);
+    }
+    let what = std::iter::once(command)
+        .chain(args.iter().map(String::as_str))
+        .collect::<Vec<_>>()
+        .join(" ");
+    awake::KeepAwake::while_working(&Places::from_env()?.power, &what).map(Some)
+}
+
+/// `builds __hold-awake <pid> <what>` (`awake::hold_while`), which a job's
+/// script runs on a host.
+fn hold_awake(pid: &std::ffi::OsStr, what: &std::ffi::OsStr) -> Result<()> {
+    let Some(pid) = pid.to_str().and_then(|pid| pid.parse().ok()) else {
+        crate::fail!("{} takes a process id", awake::HOLD_COMMAND);
+    };
+    awake::hold_while(&Places::from_env()?.power, pid, &what.to_string_lossy())
 }
 
 /// The command that <args> name: the first word that is not `--agent ID`, ""

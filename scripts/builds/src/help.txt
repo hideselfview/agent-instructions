@@ -2451,17 +2451,29 @@ uses the host again. `builds host list` probes every host, and so does every
 cannot start, or whose UI tests timed out turning on automation mode, refuses
 mac app builds only (APP BUILDS).
 
+No Mac that builds uses goes to idle sleep while builds works on it or for
+it. Each builds process that runs work holds macOS's power assertion
+PreventUserIdleSystemSleep from its start to its end, which keeps the Mac
+from sleeping when nobody uses it, on battery or on power, and `pmset -g
+assertions` lists it under builds' name with the command. Those processes are
+`builds agent run` and `resume`, which keep running while their agent does,
+`cargo`, `lake`, `lock`, `app-build`, `build-app`, `remote run` and `remote
+step`, a `shots` command that runs the checker, `review` in each form that
+runs reviewers, `land`, `health`, `checks run`, `item take`, `new`, `setup`,
+`app-checkout`, `app-clone`, `prune`, `install`, `host` and `tool`. A command
+that only reads or waits, such as `review wait` or `judge listen`, holds
+none, and neither does the dashboard, whose own runs are builds processes
+that do. When builds runs a command on a host that is a Mac, a builds there
+holds the assertion until the command ends, and the command does not run when
+it cannot.
+
 While builds works on a host over ssh, in a lane's app checkout there or in
-a job of `builds remote run` or `builds cargo`, it keeps this Mac awake with
-two of macOS's power assertions, which `pmset -g assertions` lists under
-builds' name: PreventUserIdleSystemSleep keeps the Mac from sleeping when
-nobody uses it, on battery or on power, and NetworkClientActive also keeps
-it awake through a maintenance wake while it runs on power. A Mac that sleeps
-answers nothing on its connections, and the host ends a connection that
-gets no answer for about twenty seconds, which stops the command there.
-Neither assertion keeps a Mac on battery awake once its lid closes or
-through a maintenance wake. Work on this Mac alone holds no assertion, since
-a sleep only pauses it. When ssh to a host exits 255, the status it gives
+a job of `builds remote run` or `builds cargo`, it also keeps this Mac awake
+with NetworkClientActive, which keeps it awake through a maintenance wake
+while it runs on power. A Mac that sleeps answers nothing on its
+connections, and the host ends a connection that gets no answer for about
+twenty seconds, which stops the command there. Neither assertion keeps a Mac
+on battery awake once its lid closes or through a maintenance wake. When ssh to a host exits 255, the status it gives
 when its connection fails, builds reads the power log (`pmset -g log`) of
 this Mac and of the host, and says on stderr each sleep either one recorded
 while the command ran: when it began, how long it lasted, the reason macOS

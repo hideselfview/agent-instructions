@@ -175,7 +175,11 @@ pub struct RemoteApp<'a> {
 
 fn app_host(places: &Places, repo: &str, host_name: &str, name: &str) -> Result<(Host, KeepAwake)> {
     let host = host::remote_named(places, &entry_of(host_name, name), host_name)?;
-    let awake = KeepAwake::for_host(&host, &format!("{repo}'s app checkout {name}"))?;
+    let awake = KeepAwake::for_host(
+        &places.power,
+        &host,
+        &format!("{repo}'s app checkout {name}"),
+    )?;
     Ok((host, awake))
 }
 

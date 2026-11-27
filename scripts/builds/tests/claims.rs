@@ -5,6 +5,7 @@
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
+use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -110,11 +111,17 @@ impl Demo {
         self.dir.join("volume")
     }
 
+    /// The file that stands in for macOS's power assertions.
+    fn power_record(&self) -> PathBuf {
+        self.dir.join("power")
+    }
+
     fn builds(&self) -> Command {
         let mut command = Command::new(BUILDS);
         command
             .env("BUILDS_ROOT", self.volume())
             .env("HOME", self.dir.join("home"))
+            .env("BUILDS_POWER_RECORD", self.power_record())
             .env_remove("CLAUDE_CODE_SESSION_ID")
             .env_remove("CODEX_SESSION_ID")
             .env_remove("CODEX_THREAD_ID")
@@ -156,6 +163,25 @@ impl Demo {
     /// Makes demo a project with one item, which runs in the claimed
     /// worktree <top> on <branch> and waits on a condition.
     fn wait_on_a_condition(&self, top: &str, branch: &str) {
+        self.take_an_item(top, branch);
+        self.run(&[
+            "item",
+            "wait",
+            "1",
+            "--on",
+            "condition:step 8 lands",
+            "--until",
+            "ci",
+            "--project",
+            "demo",
+            "--by",
+            "test",
+        ]);
+    }
+
+    /// Makes demo a project with one item, which runs in the claimed
+    /// worktree <top> on <branch>.
+    fn take_an_item(&self, top: &str, branch: &str) {
         let details = self.dir.join("item.md");
         std::fs::write(&details, "Keep the worktree until step 8 lands.\n").unwrap();
         let details = path(&details);
@@ -192,19 +218,6 @@ impl Demo {
             details,
             "--tier",
             "implementation",
-            "--project",
-            "demo",
-            "--by",
-            "test",
-        ]);
-        self.run(&[
-            "item",
-            "wait",
-            "1",
-            "--on",
-            "condition:step 8 lands",
-            "--until",
-            "ci",
             "--project",
             "demo",
             "--by",
@@ -700,6 +713,85 @@ fn new_measures_the_worktree_after_it_copies_build_output_into_it() {
     assert!(
         sizes["target"]["kib"].as_u64().unwrap() >= 3072,
         "the sizes miss the copy: {sizes}"
+    );
+}
+
+/// `agent run` keeps this Mac awake from before it starts claude until claude
+/// has ended: one power assertion, named for the command.
+#[test]
+fn agent_run_keeps_this_mac_awake_until_its_agent_ends() {
+    let demo = Demo::new("awake");
+    let side = path(&demo.side(1)).to_string();
+    demo.run(&["claim", &side, "agent A"]);
+    demo.take_an_item(&side, "work");
+    let projects = demo.dir.join("home/.codex/agent-instructions/projects");
+    std::fs::write(
+        projects.join("demo.md"),
+        "# demo\n\nDemo is a tool.\n\n## Hard limits\n\n- Never edit the main checkout.\n",
+    )
+    .unwrap();
+    // A claude that keeps what the record says while it runs, then answers as
+    // Claude Code does.
+    let bin = demo.dir.join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let during = demo.dir.join("during");
+    let claude = bin.join("claude");
+    std::fs::write(
+        &claude,
+        format!(
+            r#"#!/bin/sh
+cat > /dev/null
+cp '{record}' '{during}'
+printf '%s\n' '{{"type":"system","subtype":"init","session_id":"s","model":"claude-sonnet-5-5","tools":["Bash","Edit","LSP","Monitor","Read","TaskStop","ToolSearch","Write"],"mcp_servers":[],"skills":[]}}'
+printf '%s\n' '{{"type":"result","is_error":false,"result":"Done.","modelUsage":{{"claude-sonnet-5-5":{{"contextWindow":1000000}}}}}}'
+"#,
+            record = demo.power_record().display(),
+            during = during.display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&claude, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let inherited = std::env::var_os("PATH").expect("the tests have a PATH");
+    let with_claude =
+        std::env::join_paths(std::iter::once(bin).chain(std::env::split_paths(&inherited)))
+            .unwrap();
+
+    std::fs::remove_file(demo.power_record()).ok();
+    let run = demo
+        .builds()
+        .env("PATH", with_claude)
+        .current_dir(demo.side(1))
+        .args(["agent", "run", "--role", "implementing", "1"])
+        .args(["--project", "demo", "--by", "test"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let pid = run.id();
+    let output = run.wait_with_output().unwrap();
+    assert!(
+        output.status.success(),
+        "agent run: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let held_by_run = |record: &Path| -> Vec<String> {
+        std::fs::read_to_string(record)
+            .unwrap_or_else(|error| panic!("reading {}: {error}", record.display()))
+            .lines()
+            .filter(|line| line.split(' ').nth(2) == Some(&pid.to_string()))
+            .map(str::to_string)
+            .collect()
+    };
+    let taken = held_by_run(&during);
+    assert_eq!(taken.len(), 1, "while claude ran: {taken:?}");
+    let named = format!("PreventUserIdleSystemSleep {pid} builds: agent run");
+    assert!(taken[0].starts_with(&format!("take {named}")), "{taken:?}");
+    let all = held_by_run(&demo.power_record());
+    assert_eq!(
+        all,
+        [taken[0].clone(), taken[0].replacen("take", "release", 1)],
+        "after the run"
     );
 }
 

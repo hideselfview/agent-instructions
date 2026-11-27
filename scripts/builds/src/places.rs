@@ -101,6 +101,9 @@ pub struct Places {
     /// The `ioreg` that says whether this Mac's screen is locked
     /// (host_screen_lock.rs).
     pub ioreg_program: PathBuf,
+    /// Where builds takes the power assertions that keep this Mac awake
+    /// (awake.rs).
+    pub power: crate::awake::Power,
     /// The folder of the SF Mono files that the boards whose mono stack names
     /// them draw mono text in: the Mac's Terminal.app ships them
     /// (`boards::fonts`).
@@ -143,6 +146,10 @@ impl Places {
             codex_program: PathBuf::from("codex"),
             claude_program: PathBuf::from("claude"),
             ioreg_program: PathBuf::from("ioreg"),
+            power: match std::env::var_os(crate::awake::RECORD_VARIABLE) {
+                Some(record) => crate::awake::Power::Record(PathBuf::from(record)),
+                None => crate::awake::Power::Powerd,
+            },
             fonts: cfg!(target_os = "macos").then(|| PathBuf::from(boards::fonts::TERMINAL_FONTS)),
         })
     }

@@ -16,9 +16,14 @@ const UNIT_FOLDERS: &str = "1.100.0";
 /// with <older>'s too when given.
 fn run(toolchain: &str, layout: &str, older: Option<&str>) {
     let script = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/cargo_units.sh");
+    let power = std::env::temp_dir().join(format!(
+        "builds-test-units-power-{}-{layout}",
+        std::process::id()
+    ));
     let mut command = Command::new("bash");
     command
         .arg(script)
+        .env("BUILDS_POWER_RECORD", &power)
         .env("BUILDS_BIN", env!("CARGO_BIN_EXE_builds"))
         .env("TOOLCHAIN", toolchain)
         .env("LAYOUT", layout)
@@ -30,6 +35,7 @@ fn run(toolchain: &str, layout: &str, older: Option<&str>) {
         command.env("OLDER_TOOLCHAIN", older);
     }
     let output = command.output().unwrap();
+    std::fs::remove_file(&power).unwrap();
     let said = String::from_utf8_lossy(&output.stderr);
     assert!(
         output.status.success() && String::from_utf8_lossy(&output.stdout).trim() == "ok",

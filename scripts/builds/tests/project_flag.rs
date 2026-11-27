@@ -12,6 +12,7 @@ fn command(dir: &PathBuf, session: Option<&str>, args: &[&str]) -> Command {
     command
         .current_dir(dir)
         .env("BUILDS_ROOT", dir.join("volume"))
+        .env("BUILDS_POWER_RECORD", dir.join("power"))
         .env("HOME", dir.join("home"))
         .env("BUILDS_LISTS", dir.join("lists"))
         .env_remove("CLAUDE_CODE_SESSION_ID")

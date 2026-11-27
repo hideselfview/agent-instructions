@@ -1,54 +1,206 @@
-//! Keeping this Mac awake while builds works on another host over ssh.
+//! Keeping each Mac awake while builds works on it or for it, with macOS's
+//! power assertions as IOKit's IOPMLib.h describes them. This module takes
+//! every assertion builds holds.
 //!
-//! A Mac that sleeps answers nothing on its connections. A host that keeps
-//! sending a command's output and hears nothing back ends the connection
-//! within about twenty seconds, which stops the command there: the step or
-//! job fails with ssh's "Connection reset by peer" once this Mac wakes. So
-//! while builds drives work on a host (a lane's app checkout there,
+//! A Mac that idle-sleeps does no work: agents, builds and reviews stop until
+//! someone wakes it. So each builds process that runs work (`does_work`)
+//! holds PreventUserIdleSystemSleep from its start to its end, which keeps
+//! the Mac from sleeping because nobody uses it, on battery as on power. A
+//! command that runs on a host for another Mac has no builds process of its
+//! own there, so the script that runs it starts one that holds the host's
+//! assertion until the script ends (`hold_while`, remote.rs `run_script`).
+//!
+//! A Mac that sleeps also answers nothing on its connections. A host that
+//! keeps sending a command's output and hears nothing back ends the
+//! connection within about twenty seconds, which stops the command there: the
+//! step or job fails with ssh's "Connection reset by peer" once this Mac
+//! wakes. So while builds drives work on a host (a lane's app checkout there,
 //! app_remote.rs, or a job of `builds remote run` and `builds cargo`,
-//! remote.rs), it holds two of macOS's power assertions, as IOKit's
-//! IOPMLib.h describes them: PreventUserIdleSystemSleep keeps the Mac from
-//! sleeping because nobody uses it, on battery as on power, and
-//! NetworkClientActive, on power, also keeps it awake through a maintenance
-//! wake (a dark wake), where the first has no effect. Neither keeps a Mac on
-//! battery awake once its lid closes or through a maintenance wake; when such
-//! a sleep ends a connection, the failure names it (sleeps.rs).
+//! remote.rs), it also holds NetworkClientActive, which on power keeps it
+//! awake through a maintenance wake (a dark wake), where the first has no
+//! effect. Neither keeps a Mac on battery awake once its lid closes or
+//! through a maintenance wake; when such a sleep ends a connection, the
+//! failure names it (sleeps.rs).
 //!
-//! Work on this Mac itself needs neither: a sleep only pauses it. macOS
-//! releases a process's assertions when the process ends, however it ends.
-//! A Linux machine is only ever a host, which drives no other host, so builds
-//! holds nothing there.
+//! macOS releases a process's assertions when the process ends, however it
+//! ends. A Linux machine is only ever a host, and builds holds nothing there.
+
+use std::path::PathBuf;
 
 use crate::fail::Result;
 use crate::host::Host;
 
+/// The variable that names a file to stand in for macOS's assertions, which
+/// builds' tests set: builds then writes there each assertion it takes and
+/// releases, and takes none from macOS.
+pub const RECORD_VARIABLE: &str = "BUILDS_POWER_RECORD";
+
+/// The command line word that makes builds hold a host's assertion for
+/// another Mac's command (`hold_while`).
+pub const HOLD_COMMAND: &str = "__hold-awake";
+
+/// What `hold_while` prints once it holds its assertion.
+pub const HELD: &str = "held";
+
+/// Where builds takes its assertions.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Power {
+    /// macOS's power management daemon.
+    Powerd,
+    /// A file, with a line `take <kind> <pid> <name>` for each assertion
+    /// taken and `release <kind> <pid> <name>` for each released.
+    Record(PathBuf),
+}
+
+/// Whether `builds <command> <args>` runs work that this Mac must stay awake
+/// for: an agent, a build or a job, a review, a landing, a health run, and
+/// the commands that set up checkouts and hosts for them. A command that only
+/// reads, or only waits for a person or another process (`review wait`,
+/// `judge listen`), runs none, and neither does the dashboard, which runs
+/// until it is stopped and starts each of its own runs as a builds process.
+pub fn does_work(command: &str, args: &[String]) -> bool {
+    let first = args.first().map(String::as_str);
+    match command {
+        "agent" => matches!(first, Some("run" | "resume")),
+        "review" => crate::review::runs_reviewers(args),
+        "checks" => first == Some("run"),
+        "item" => first == Some("take"),
+        "land" | "health" | "setup" | "new" | "app-checkout" | "app-clone" | "prune"
+        | "install" | "host" | "tool" => true,
+        _ => crate::run_tmp::starts_work(command, args),
+    }
+}
+
 /// Holds this Mac awake until dropped.
 #[derive(Debug)]
 pub struct KeepAwake {
-    #[cfg(target_os = "macos")]
-    _held: Vec<os::Assertion>,
+    _held: Option<Assertion>,
 }
 
 impl KeepAwake {
-    /// Keeps this Mac awake while builds does <what> on <host>; for this
-    /// Mac's own work it holds nothing. The assertions carry <what> and the
-    /// host as their name, which `pmset -g assertions` shows.
-    pub fn for_host(host: &Host, what: &str) -> Result<KeepAwake> {
+    /// Keeps this Mac from idle sleep while builds does <what>. The
+    /// assertion carries <what> as its name, which `pmset -g assertions`
+    /// shows.
+    pub fn while_working(power: &Power, what: &str) -> Result<KeepAwake> {
+        Ok(KeepAwake {
+            _held: Assertion::on_a_mac(power, "PreventUserIdleSystemSleep", what)?,
+        })
+    }
+
+    /// Keeps this Mac answering its connection while builds does <what> on
+    /// <host>; for this Mac's own work it holds nothing.
+    pub fn for_host(power: &Power, host: &Host, what: &str) -> Result<KeepAwake> {
+        let held = match host.target {
+            Some(_) => Assertion::on_a_mac(
+                power,
+                "NetworkClientActive",
+                &format!("{what} on host {}", host.name),
+            )?,
+            None => None,
+        };
+        Ok(KeepAwake { _held: held })
+    }
+}
+
+/// Holds the assertion for <what> from now until process <pid> ends, and
+/// prints `HELD` once it holds it.
+pub fn hold_while(power: &Power, pid: i32, what: &str) -> Result<()> {
+    #[cfg(target_os = "macos")]
+    {
+        use std::io::Write;
+
+        use crate::fail::Context;
+
+        let queue = crate::kqueue::Queue::new()
+            .context(|| "Builds could not open an event queue to keep this Mac awake".into())?;
+        // Watched before the caller learns the assertion is held, so its end
+        // is never missed.
+        queue
+            .watch_exit(pid)
+            .context(|| format!("Builds could not watch process {pid} to keep this Mac awake"))?;
+        let _awake = KeepAwake::while_working(power, what)?;
+        let mut out = std::io::stdout();
+        writeln!(out, "{HELD}")
+            .and_then(|()| out.flush())
+            .context(|| "Builds could not say that it keeps this Mac awake".into())?;
+        queue
+            .wait(&mut [crate::kqueue::event(0, 0, 0, 0)], None)
+            .context(|| format!("Builds could not wait for process {pid} to end"))?;
+        Ok(())
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let _ = (power, pid, what);
+        crate::fail!("builds keeps only a Mac awake, and this machine runs Linux")
+    }
+}
+
+/// One assertion this process holds; dropping it releases it.
+#[derive(Debug)]
+enum Assertion {
+    #[cfg(target_os = "macos")]
+    Powerd { _held: os::Assertion },
+    #[cfg(target_os = "macos")]
+    Recorded {
+        record: PathBuf,
+        /// The line that took it, past the word `take`.
+        taken: String,
+    },
+}
+
+impl Assertion {
+    /// Takes an assertion of <kind> named for <what>; none on Linux.
+    fn on_a_mac(power: &Power, kind: &str, what: &str) -> Result<Option<Assertion>> {
+        let name = format!("builds: {what}");
         #[cfg(target_os = "macos")]
         {
-            let mut held = Vec::new();
-            if host.target.is_some() {
-                let name = format!("builds: {what} on host {}", host.name);
-                for kind in os::KINDS {
-                    held.push(os::Assertion::take(kind, &name)?);
+            Ok(Some(match power {
+                Power::Powerd => Assertion::Powerd {
+                    _held: os::Assertion::take(kind, &name)?,
+                },
+                Power::Record(record) => {
+                    // One line per assertion: a name may hold a command's
+                    // argument with a newline.
+                    let taken =
+                        format!("{kind} {} {}", std::process::id(), name.replace('\n', " "));
+                    note_in(record, &format!("take {taken}"))?;
+                    Assertion::Recorded {
+                        record: record.clone(),
+                        taken,
+                    }
                 }
-            }
-            Ok(KeepAwake { _held: held })
+            }))
         }
         #[cfg(target_os = "linux")]
         {
-            let _ = (host, what);
-            Ok(KeepAwake {})
+            let _ = (power, kind, name);
+            Ok(None)
+        }
+    }
+}
+
+/// Appends <line> to the record file <record>, in one write.
+#[cfg(target_os = "macos")]
+fn note_in(record: &std::path::Path, line: &str) -> Result<()> {
+    use std::io::Write;
+
+    use crate::fail::Context;
+
+    std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(record)
+        .and_then(|mut file| file.write_all(format!("{line}\n").as_bytes()))
+        .context(|| format!("writing {}", record.display()))
+}
+
+impl Drop for Assertion {
+    fn drop(&mut self) {
+        #[cfg(target_os = "macos")]
+        if let Assertion::Recorded { record, taken } = self
+            && let Err(error) = note_in(record, &format!("release {taken}"))
+        {
+            crate::text::note(error.text());
         }
     }
 }
@@ -60,9 +212,6 @@ mod os {
     use crate::core_foundation::{CFStringRef, CfString};
     use crate::fail;
     use crate::fail::Result;
-
-    /// The assertions builds holds, as IOKit names their types.
-    pub const KINDS: [&str; 2] = ["PreventUserIdleSystemSleep", "NetworkClientActive"];
 
     /// kIOPMAssertionLevelOn.
     const ON: u32 = 255;

@@ -312,6 +312,27 @@ fn this_mac_runs_a_job_without_pushing() {
     assert_eq!(refs(&s.source), "");
 }
 
+#[test]
+fn a_host_that_cannot_stay_awake_runs_no_command() {
+    let s = setup("remote-no-hold");
+    let places = s.scratch.places();
+    // A builds that sets the worktree up and holds no assertion.
+    std::fs::write(
+        s.home.join(".local/bin/builds"),
+        "#!/bin/sh\n[ \"$1\" = setup ] && exit 0\nexit 1\n",
+    )
+    .unwrap();
+    let job = request(
+        What::Ref("main".to_string()),
+        &["sh", "-c", "echo > ../ran"],
+    );
+    let code = run_job(&places, &s.ssh, &s.host, &s.source, &job).unwrap();
+    assert_eq!(code, 98);
+    let wts = s.home.join("dev/demo-worktrees");
+    assert!(!wts.join("ran").exists(), "the command ran");
+    assert!(!wts.join("remote-demo.job").exists());
+}
+
 /// Sends SIGTERM to this test's own process, as a person or a parent stops
 /// `builds`.
 fn stop_this_process() {
