@@ -38,11 +38,11 @@ use crate::fail::{Context, Fail, Result};
 use crate::flock::lock_creating;
 use crate::host::{self, Host, Ssh, sh_quote};
 use crate::manifest::{BuiltTool, built_tools};
+use crate::output::note;
 use crate::places::Places;
 use crate::prune::{Run, prune_listed};
 use crate::remote::{Transport, root_script};
 use crate::setup::Prepare;
-use crate::text::note;
 
 /// The variable that names the toolchain's work folder to `<program> build`.
 pub const WORK_VARIABLE: &str = "BUILDS_TOOL_WORK";
@@ -152,7 +152,7 @@ pub fn cmd_tool(places: &Places, ssh: &Ssh, args: &[String]) -> Result<()> {
         Prepare::Yes
     };
     let dest = ensure(places, ssh, &checkout.top, line, prepare)?;
-    println!("{}", dest.display());
+    crate::output::answer_line(dest.display());
     Ok(())
 }
 
@@ -288,7 +288,7 @@ fn build(top: &Path, line: &BuiltTool, work: &Path, staged: &Path) -> Result<()>
         .env(WORK_VARIABLE, work)
         .current_dir(top)
         .stdin(Stdio::null())
-        .stdout(crate::text::stderr_for_child()?)
+        .stdout(crate::output::stderr_for_child()?)
         .status()
         .context(|| format!("running {} build", program.display()))?;
     if !status.success() {

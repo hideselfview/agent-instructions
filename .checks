@@ -17,7 +17,7 @@ fix mdformat *.md mdformat {files}
 # builds compiles both libraries and the shots checker compiles the boards
 # library, so a change to a library checks each crate that compiles it.
 fix rustfmt scripts/builds/**/*.rs,scripts/boards/**/*.rs,scripts/shots/**/*.rs rustfmt --edition 2024 {files}
-check clippy scripts/builds/**/*.rs,scripts/builds/**/*.sql,scripts/builds/Cargo.toml,scripts/builds/Cargo.lock,scripts/boards/**/*.rs,scripts/boards/Cargo.toml,scripts/shots/**/*.rs,scripts/shots/Cargo.toml,scripts/shots/canvas/*,scripts/shots/harness/** cargo clippy --manifest-path scripts/builds/Cargo.toml --all-targets -- -D warnings
+check clippy scripts/builds/**/*.rs,scripts/builds/**/*.sql,scripts/builds/Cargo.toml,scripts/builds/Cargo.lock,scripts/builds/clippy.toml,scripts/boards/**/*.rs,scripts/boards/Cargo.toml,scripts/shots/**/*.rs,scripts/shots/Cargo.toml,scripts/shots/canvas/*,scripts/shots/harness/** cargo clippy --manifest-path scripts/builds/Cargo.toml --all-targets -- -D warnings
 check clippy-boards scripts/boards/**/*.rs,scripts/boards/Cargo.toml,scripts/boards/Cargo.lock,scripts/boards/runtime/* cargo clippy --manifest-path scripts/boards/Cargo.toml --all-targets -- -D warnings
 check clippy-shots scripts/shots/**/*.rs,scripts/shots/Cargo.toml,scripts/shots/Cargo.lock,scripts/shots/canvas/*,scripts/shots/harness/**,scripts/boards/**/*.rs,scripts/boards/Cargo.toml,scripts/boards/runtime/* cargo clippy --manifest-path scripts/shots/Cargo.toml --all-targets -- -D warnings
 

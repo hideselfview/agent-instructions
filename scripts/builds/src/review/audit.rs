@@ -553,7 +553,7 @@ pub(super) fn check_misses_command(tool: &crate::tool::Tool, args: &Args) -> Res
         model: &model,
         stamp: &stamp,
     })?;
-    print!("{text}");
+    crate::output::answer(text);
     if failed {
         return Err(crate::fail::Fail::Exit(1));
     }

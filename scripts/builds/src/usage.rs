@@ -302,7 +302,7 @@ pub fn cmd_du(args: &[String]) -> Result<()> {
     }
     let paths: Vec<PathBuf> = args.iter().map(PathBuf::from).collect();
     for measured in measure_many(&paths)? {
-        println!("{}", measured.kib);
+        crate::output::answer_line(measured.kib);
     }
     Ok(())
 }

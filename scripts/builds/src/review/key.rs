@@ -70,7 +70,7 @@ pub fn key_command(tool: &Tool, args: &[String]) -> Result<()> {
     let store = Store::named(&tool.places, args.require("project")?)?;
     let checkout = Checkout::find(dir)?;
     let db = store.open_existing()?;
-    println!("{}", landing_key(&db, &checkout.repo(), &checkout.top)?);
+    crate::output::answer_line(landing_key(&db, &checkout.repo(), &checkout.top)?);
     Ok(())
 }
 

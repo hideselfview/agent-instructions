@@ -43,9 +43,9 @@ use crate::hook_stats::{self, Change, CheckRecord, Outcome, Run, StagedFile};
 use crate::host::Load;
 use crate::lists::args::Args;
 use crate::lists::store::{Store, database_of};
+use crate::output::note;
 use crate::places::Places;
 use crate::step_failure::RunResult;
-use crate::text::note;
 use boards::{git, git_text};
 
 const USAGE: &str = "usage: builds checks run [<worktree>] | builds checks run --since <rev> [<worktree>] | builds checks whole [<worktree>] | builds checks list [<worktree>] | builds checks tests --since <rev> [--run] | builds checks stats [--project <project>] [--repo <repo>] [--since <YYYY-MM-DD>] [--change <rev>]";
@@ -84,11 +84,11 @@ pub fn cmd_checks(args: &[String]) -> Result<()> {
         [sub, worktree] if sub == "whole" => whole(&top_of(Path::new(worktree))?),
         [sub, rest @ ..] if sub == "stats" => stats(rest),
         [sub] if sub == "list" => {
-            print!("{}", list_staged(&top_of(Path::new("."))?)?);
+            crate::output::answer(list_staged(&top_of(Path::new("."))?)?);
             Ok(())
         }
         [sub, worktree] if sub == "list" => {
-            print!("{}", list_staged(&top_of(Path::new(worktree))?)?);
+            crate::output::answer(list_staged(&top_of(Path::new(worktree))?)?);
             Ok(())
         }
         [sub, rest @ ..] if sub == "tests" => {
@@ -111,9 +111,10 @@ pub fn cmd_checks(args: &[String]) -> Result<()> {
 /// `whole`: the checks `builds land` runs on a landing's result, run on the
 /// tree at <top> as it is now.
 fn whole(top: &Path) -> Result<()> {
-    let failed = run_whole(top, &mut std::io::stdout())?;
+    let mut out = crate::output::answer_handle();
+    let failed = run_whole(top, &mut crate::output::Report::to(&mut out))?;
     for f in &failed {
-        eprintln!("--- {}\n{}", f.name, f.output.trim_end());
+        crate::output::pass_through(format!("--- {}\n{}\n", f.name, f.output.trim_end()));
     }
     if failed.is_empty() {
         Ok(())
@@ -170,7 +171,7 @@ fn stats(args: &[String]) -> Result<()> {
             rev,
             args.value("repo")?,
         )?;
-        print!("{}", hook_impact::report(&store.project, impact.as_ref()));
+        crate::output::answer(hook_impact::report(&store.project, impact.as_ref()));
         return Ok(());
     }
     let database = store.dir.join(hook_stats::DATABASE);
@@ -179,17 +180,19 @@ fn stats(args: &[String]) -> Result<()> {
         None => hook_stats::repos(&database)?,
     };
     if repos.is_empty() {
-        println!("project {}: no runs recorded", store.project);
+        crate::output::answer_line(format!("project {}: no runs recorded", store.project));
     }
     for (at, repo) in repos.iter().enumerate() {
         let stats = hook_stats::stats(&database, start.unwrap_or(0), repo)?;
         if at > 0 {
-            println!();
+            crate::output::answer_line("");
         }
-        print!(
-            "{}",
-            hook_stats::report(&store.project, repo, since, stats.as_ref())
-        );
+        crate::output::answer(hook_stats::report(
+            &store.project,
+            repo,
+            since,
+            stats.as_ref(),
+        ));
     }
     Ok(())
 }
@@ -706,7 +709,7 @@ fn finish_line<'a>(
         note(format!("{kind} {name}: ok, {}", seconds(ran.took)));
     } else {
         note(format!("{kind} {name}: FAILED, {}", seconds(ran.took)));
-        eprint!("{}", ran.output);
+        crate::output::pass_through(&ran.output);
         failed.push(name);
     }
 }
@@ -720,7 +723,7 @@ pub struct WholeFailure {
 /// Runs every `whole` line of the repo's `.checks` on the tree at <top>,
 /// whatever changed, all at the same time, printing each one's name, result and
 /// time to <out>. Every line runs even after one fails. A repo with no `.checks` has none to run.
-pub fn run_whole(top: &Path, out: &mut dyn std::io::Write) -> Result<Vec<WholeFailure>> {
+pub fn run_whole(top: &Path, out: &mut crate::output::Report) -> Result<Vec<WholeFailure>> {
     if !top.join(CONFIG).is_file() {
         return Ok(Vec::new());
     }
@@ -745,13 +748,12 @@ pub fn run_whole(top: &Path, out: &mut dyn std::io::Write) -> Result<Vec<WholeFa
     let mut failed = Vec::new();
     for (planned, ran) in picked.iter().zip(ran_all) {
         let ran = ran?;
-        let _ = writeln!(
-            out,
+        out.say(format!(
             "whole {}: {}, {}",
             planned.line.name,
             if ran.ok { "ok" } else { "FAILED" },
             seconds(ran.took)
-        );
+        ));
         if !ran.ok {
             failed.push(WholeFailure {
                 name: planned.line.name.clone(),
@@ -759,13 +761,12 @@ pub fn run_whole(top: &Path, out: &mut dyn std::io::Write) -> Result<Vec<WholeFa
             });
         }
     }
-    let _ = writeln!(
-        out,
+    out.say(format!(
         "{} whole checks run, {} failed, {}",
         picked.len(),
         failed.len(),
         seconds(started.elapsed())
-    );
+    ));
     Ok(failed)
 }
 
@@ -853,7 +854,7 @@ fn tests(top: &Path, since: &str, run: bool) -> Result<()> {
     }
     if !run {
         for p in &picked {
-            println!("{}: {}", p.line.name, p.argv.join(" "));
+            crate::output::answer_line(format!("{}: {}", p.line.name, p.argv.join(" ")));
         }
         return Ok(());
     }

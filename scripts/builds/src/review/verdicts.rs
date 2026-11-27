@@ -447,7 +447,7 @@ impl Queries {
         };
         drop(work);
         if changed && let Some(error) = error {
-            crate::text::note(format!(
+            crate::output::note(format!(
                 "reading the rules review of {} in {}: {error}",
                 query.place.0.display(),
                 query.store.project,
@@ -501,7 +501,7 @@ impl Worker<'_> {
         let failure = format!(
             "The dashboard's rules review worker stopped while {operation}. Rust reported {detail}."
         );
-        crate::text::note(&failure);
+        crate::output::note(&failure);
         self.queries
             .work
             .lock()

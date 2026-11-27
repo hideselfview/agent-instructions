@@ -80,7 +80,7 @@ impl Feed {
     ) -> Arc<Feed> {
         let dir: PathBuf = places.lists.clone();
         if let Err(error) = std::fs::create_dir_all(&dir) {
-            eprintln!("builds: creating {}: {error}", dir.display());
+            crate::output::note(format!("creating {}: {error}", dir.display()));
         }
         // Taken before the first read: a write after it is reported by the
         // stream, one before it is in the read.
@@ -351,7 +351,7 @@ fn scan_databases(
             Ok(false) => {}
             Ok(true) => moved.push(path.to_path_buf()),
             Err(error) => {
-                crate::text::note(format!(
+                crate::output::note(format!(
                     "telling whether {} changed: {}",
                     path.display(),
                     error.text()
@@ -366,7 +366,7 @@ fn scan_databases(
 
 fn report_snapshot_fault(snapshot: &Snapshot) {
     if let Err(fault) = snapshot {
-        crate::text::note(format!("reading the project lists: {fault}"));
+        crate::output::note(format!("reading the project lists: {fault}"));
     }
 }
 

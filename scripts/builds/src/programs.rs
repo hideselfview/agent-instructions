@@ -244,7 +244,7 @@ pub fn remove_others(home: &Path, also: &[String]) -> Result<()> {
     let mut keep = vec![env!("BUILDS_SOURCE")];
     keep.extend(also.iter().map(String::as_str));
     for version in remove_unused(home, &keep)? {
-        crate::text::note(format!(
+        crate::output::note(format!(
             "removed {}, which no app build uses",
             folder(home, &version).display()
         ));
@@ -274,6 +274,7 @@ pub fn cmd_programs(places: &crate::places::Places, args: &[String]) -> Result<(
     let here = std::env::current_dir().context(|| "reading the step's folder".to_string())?;
     let xcode_cache = crate::xcode_cache::settings_for(places, &here)?;
     use std::os::unix::process::CommandExt;
+    crate::output::finish();
     let error = std::process::Command::new(&command[0])
         .args(&command[1..])
         .env("PATH", path)

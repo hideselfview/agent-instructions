@@ -814,7 +814,7 @@ pub fn cmd_judge(tool: &Tool, args: &[String]) -> Result<()> {
                 tool.session.caller()?.as_ref(),
                 Messaging::for_session(&tool.session, Recipient::ThisThread)?.as_ref(),
             )?;
-            print!("{said}");
+            crate::output::answer(said);
             Ok(())
         }
         other => fail!("unknown judge command {other}\n{USAGE}"),

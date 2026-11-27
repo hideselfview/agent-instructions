@@ -311,7 +311,7 @@ pub fn ask_and_tell(
             })
             .and_then(|completed| match completed {
                 Some(completed) => {
-                    crate::text::note(format!("Builds could not confirm notification of publish request {id}: {why}"));
+                    crate::output::note(format!("Builds could not confirm notification of publish request {id}: {why}"));
                     Ok(completed)
                 }
                 None => fail!("{why}"),

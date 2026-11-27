@@ -18,10 +18,11 @@ use crate::app_tree;
 use crate::fail;
 use crate::fail::Result;
 use crate::lane::Lane;
+use crate::output::note;
 use crate::places::Places;
 use crate::shot_causes::{self, Others, Run};
 use crate::shots_cache::{self, Cached};
-use crate::text::{note, plural};
+use crate::text::plural;
 
 /// A finding as another run shows it: its scene, level and sentence.
 type Shown = (String, String, String);

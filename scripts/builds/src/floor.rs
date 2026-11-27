@@ -22,9 +22,10 @@ use crate::checkout::{Checkout, Root};
 use crate::evict::{Recreate, Removal};
 use crate::fail::{Fail, Result};
 use crate::manifest::{SHARED_CACHES, build_dirs};
+use crate::output::note;
 use crate::places::{FLOOR_IDLE_MINUTES, FLOOR_INCREMENTAL_IDLE_MINUTES};
 use crate::prune::{Pruner, Run, delete_folder, derived_data};
-use crate::text::{counted, human, human_bytes, local_minute, note};
+use crate::text::{counted, human, human_bytes, local_minute};
 use crate::tool::Tool;
 use crate::units::OpenFiles;
 use crate::units::idle::{Outcome, delete_idle, idle_increments};
@@ -414,7 +415,7 @@ pub fn keep_floor(tool: &Tool, roots: &[Root], pruner: Pruner, run: Run) -> Resu
         "Retire finished side worktrees (builds retire), or delete idle build folders (builds prune --idle <minutes>)."
             .to_string(),
     );
-    eprintln!("{}", lines.join("\n"));
+    crate::output::warn(lines.join("\n"));
     if hard { Err(Fail::Exit(1)) } else { Ok(()) }
 }
 

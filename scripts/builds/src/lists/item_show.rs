@@ -179,18 +179,12 @@ pub fn times(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let lists = store.load()?;
     let db = store.open_existing()?;
     if ids.is_empty() {
-        print!(
-            "{}",
-            crate::card_profile::text(&db, &lists, &ids, tool.now)?
-        );
-        print!("{}", times_text(&lists, &ids, tool.now)?);
+        crate::output::answer(crate::card_profile::text(&db, &lists, &ids, tool.now)?);
+        crate::output::answer(times_text(&lists, &ids, tool.now)?);
     } else {
         for id in &ids {
-            print!("{}", times_text(&lists, &[*id], tool.now)?);
-            print!(
-                "{}",
-                crate::card_profile::text(&db, &lists, &[*id], tool.now)?
-            );
+            crate::output::answer(times_text(&lists, &[*id], tool.now)?);
+            crate::output::answer(crate::card_profile::text(&db, &lists, &[*id], tool.now)?);
         }
     }
     Ok(())
@@ -329,7 +323,7 @@ pub fn show(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         unreachable!("exactly one")
     };
     let store = Store::resolve(&tool.places, &args, cwd)?;
-    print!("{}", render_item(&store.load()?, Id::parse(id)?, tool.now)?);
+    crate::output::answer(render_item(&store.load()?, Id::parse(id)?, tool.now)?);
     Ok(())
 }
 
@@ -403,12 +397,12 @@ pub fn list(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     )?;
     for item in chosen {
         if args.switch("running") && !item.running.is_empty() {
-            println!("{} {}", item.id, item.title);
+            crate::output::answer_line(format!("{} {}", item.id, item.title));
             for running in &item.running {
-                println!("  {}", marker(running)?);
+                crate::output::answer_line(format!("  {}", marker(running)?));
             }
         } else {
-            println!("{}", item_line(&lists, item)?);
+            crate::output::answer_line(item_line(&lists, item)?);
         }
     }
     Ok(())
@@ -417,7 +411,7 @@ pub fn list(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
 /// `builds next [--for design-session] [--project P]`: the ready items of the
 /// coordinator (or of the design session) in dispatch order.
 pub fn next(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
-    print!("{}", next_report(tool, args, cwd)?);
+    crate::output::answer(next_report(tool, args, cwd)?);
     Ok(())
 }
 

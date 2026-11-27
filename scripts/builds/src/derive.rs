@@ -40,9 +40,9 @@ use crate::app_timing::BuildRecords;
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::lane::Lane;
+use crate::output::note;
 use crate::places::Places;
 use crate::shots_declared::ShotDeclarations;
-use crate::text::note;
 use boards::git;
 
 const USAGE: &str = "usage: builds app-build <repo> <ref> [--test <Class>]... [--shots <prefix>]... [--design-shots] [--all-shots <app>]... [--fresh] [--project P]";

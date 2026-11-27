@@ -67,7 +67,12 @@ pub fn cmd_rules_on_edit(places: &Places, rules_root: &Path, args: &[String]) ->
         fail!("{USAGE}");
     }
     let input = agent::hook_input_from_stdin()?;
-    run(places, rules_root, &input, &mut std::io::stdout())
+    run(
+        places,
+        rules_root,
+        &input,
+        &mut crate::output::answer_handle(),
+    )
 }
 
 /// Writes the hook's output for <input> to <out>, then records that the agent

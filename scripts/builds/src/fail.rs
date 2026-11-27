@@ -116,7 +116,7 @@ fn finish_cleanup<T>(
             } else {
                 (then, first)
             };
-            crate::text::note(reported.text());
+            crate::output::note(reported.text());
             Err(returned)
         }
         (first, then) => then.and(first),

@@ -1,0 +1,7 @@
+# output.rs prints everything builds prints (main.rs denies the print macros
+# elsewhere). These reach the streams without one.
+disallowed-methods = [
+    { path = "std::io::stdout", reason = "print through output.rs" },
+    { path = "std::io::stderr", reason = "print through output.rs" },
+    { path = "std::process::Stdio::inherit", reason = "use output::inherit" },
+]

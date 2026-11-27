@@ -18,8 +18,9 @@ use std::path::Path;
 use crate::checkout::Checkout;
 use crate::fail;
 use crate::fail::{Context, Result};
+use crate::output::note;
 use crate::places::Places;
-use crate::text::{local_minute, local_minute_epoch, note};
+use crate::text::{local_minute, local_minute_epoch};
 use crate::whole_file::remove_if_present;
 
 /// The note of a claim in the starting state.

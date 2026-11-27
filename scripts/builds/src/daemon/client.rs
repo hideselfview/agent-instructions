@@ -9,8 +9,8 @@ use std::time::Duration;
 
 use super::{Question, Reply, live};
 use crate::health::Health;
+use crate::output::note;
 use crate::places::Places;
-use crate::text::note;
 
 /// How long a command waits for the daemon to take a note of what it wrote:
 /// the daemon only marks the roots to read again.

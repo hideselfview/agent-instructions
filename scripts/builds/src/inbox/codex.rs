@@ -45,7 +45,7 @@ pub(super) fn queue(thread: &ThreadId, program: &std::path::Path, text: &str) ->
         for line in response.lines() {
             let warning = line.to_ascii_lowercase();
             if warning.starts_with("warning:") {
-                crate::text::note(line);
+                crate::output::note(line);
                 resumed &= !warning.contains("resume");
             }
         }

@@ -17,9 +17,9 @@ use crate::fail;
 use crate::fail::{Context, Fail, Result};
 use serde::{Deserialize, Serialize};
 
+use crate::output::note;
 use crate::places::{LISTS_VARIABLE, Places, ROOT_VARIABLE, build_root, lists_setting};
 use crate::procs::{self, Process, Processes};
-use crate::text::note;
 
 const START_LIMIT: Duration = Duration::from_secs(30);
 const STARTING: &str = "BUILDS_DASHBOARD_RESTART";

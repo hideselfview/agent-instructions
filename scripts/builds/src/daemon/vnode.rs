@@ -70,7 +70,7 @@ impl Watch {
                         Ok(events) if events[0].filter == libc::EVFILT_USER => return,
                         Ok(_) => changed(),
                         Err(error) => {
-                            crate::text::note(format!(
+                            crate::output::note(format!(
                                 "Builds stopped watching {watched}. {error}."
                             ));
                             return;
@@ -86,7 +86,7 @@ impl Drop for Watch {
     fn drop(&mut self) {
         let stop = event(STOP, libc::EVFILT_USER, 0, libc::NOTE_TRIGGER);
         if let Err(error) = self.queue.change(&[stop]) {
-            crate::text::note(format!("Builds could not end a folder watch. {error}."));
+            crate::output::note(format!("Builds could not end a folder watch. {error}."));
         }
     }
 }

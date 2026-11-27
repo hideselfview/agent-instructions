@@ -363,7 +363,7 @@ pub fn cmd_tmpdir(root: &Path, args: &[String]) -> Result<()> {
     let issue = tmpdir_here(root, pid)?;
     let json =
         serde_json::to_string(&issue).context(|| "writing the sccache TMPDIR report".into())?;
-    println!("{json}");
+    crate::output::answer_line(json);
     Ok(())
 }
 
@@ -491,7 +491,7 @@ pub fn wait_for_compiles(pid: u32, limit: Duration) -> Result<()> {
             );
         }
         if !said {
-            crate::text::note(format!(
+            crate::output::note(format!(
                 "waiting for the sccache server (pid {pid}) to finish its {}",
                 crate::text::counted(running, "compile", "compiles")
             ));

@@ -13,7 +13,7 @@ use std::process::{Command, Stdio};
 
 use crate::fail;
 use crate::fail::{Context, Result};
-use crate::text::note;
+use crate::output::note;
 
 /// A program that builds pins to one version.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -759,10 +759,10 @@ pub fn check_landing_command(tool: &Tool, args: &[String]) -> Result<()> {
         asked.scope(),
     )?;
     let Some(why) = refusal(&asked.needs, &verdict) else {
-        println!("{}", taken(&verdict));
+        crate::output::answer_line(taken(&verdict));
         return Ok(());
     };
-    print!("{why}");
+    crate::output::answer(why);
     Err(Fail::Exit(1))
 }
 
@@ -802,7 +802,7 @@ fn record_landed(asked: &Asked, stamp: &Stamp, more: bool) -> Result<Option<i64>
             // A rerun after review landed recorded the landing finds no open
             // review, and so does a key other than the one check-landing
             // judged.
-            crate::text::note(format!(
+            crate::output::note(format!(
                 "review landed: no review of {} in {} is open, so builds records no landing",
                 asked.key, asked.repo
             ));
@@ -852,10 +852,10 @@ pub fn landed_command(tool: &Tool, args: &[String]) -> Result<()> {
     };
     let roll = (super::clock_bits() % 1_000_000) as f64 / 1_000_000.0;
     if let Err(why) = start_audit(&asked, landing, roll) {
-        eprintln!(
-            "builds: the audit of review landing {landing} was not started: {}",
+        crate::output::note(format!(
+            "the audit of review landing {landing} was not started: {}",
             why.text()
-        );
+        ));
     }
     Ok(())
 }

@@ -17,7 +17,7 @@ use crate::lane::Lane;
 use crate::lists::Stamp;
 use crate::lists::args::Args;
 use crate::lists::store::Store;
-use crate::text::note;
+use crate::output::note;
 use crate::tool::Tool;
 
 /// The flag of `builds app-build` that names this command.

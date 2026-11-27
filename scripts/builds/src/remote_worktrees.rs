@@ -20,10 +20,10 @@ use crate::checkout::{file_name, worktrees_of};
 use crate::fail::Result;
 use crate::host::{self, Host, Ssh, clone_path, sh_quote};
 use crate::job_claim::{Holder, Holders, RELEASE_GONE};
+use crate::output::note;
 use crate::places::Places;
 use crate::prune::Run;
 use crate::remote::{JOB_WORKTREE_PREFIX, Transport, root_script};
-use crate::text::note;
 
 /// Who holds a job worktree's claim.
 #[derive(Clone, Debug, PartialEq, Eq)]

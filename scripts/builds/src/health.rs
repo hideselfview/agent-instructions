@@ -2014,7 +2014,9 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
         // Before health reads the claims, so the reading shows what is left.
         match crate::health_fix::release_idle_claims(tool) {
             Ok((released, failed)) => {
-                released.iter().for_each(crate::text::note);
+                for line in &released {
+                    crate::output::note(line);
+                }
                 release_failures = failed;
             }
             Err(error) => release_failures.push(Advice::run(
@@ -2048,7 +2050,7 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
     // report.
     failures_to_print(&result, &release_failures)
         .iter()
-        .for_each(|advice| crate::text::note(advice.line()));
+        .for_each(|advice| crate::output::note(advice.line()));
     result
 }
 
@@ -2097,8 +2099,12 @@ fn report(tool: &Tool, json: bool, stop_junk: bool, release_failures: Vec<Advice
         // Before health reads the reviews, so the reading lists only the
         // ones that still hold work.
         match crate::health_fix::close_dead_reviews(tool) {
-            Ok(lines) => lines.iter().for_each(crate::text::note),
-            Err(error) => crate::text::note(format!(
+            Ok(lines) => {
+                for line in &lines {
+                    crate::output::note(line);
+                }
+            }
+            Err(error) => crate::output::note(format!(
                 "could not check which reviews have nothing left to land: {}",
                 error.text()
             )),
@@ -2108,13 +2114,13 @@ fn report(tool: &Tool, json: bool, stop_junk: bool, release_failures: Vec<Advice
         // Judge the shells now, never from the daemon's last reading.
         let (mut lines, mut failed) = crate::shells::stop(&health(tool)?.shells, tool.places.uid)?;
         if lines.is_empty() {
-            println!("no junk shells");
+            crate::output::say("no junk shells");
         }
         let (zombie_lines, zombie_failed) = crate::proc_limit::stop(tool.places.uid)?;
         lines.extend(zombie_lines);
         failed += zombie_failed;
         for line in lines {
-            println!("{line}");
+            crate::output::say(line);
         }
         return if failed == 0 {
             Ok(())
@@ -2126,11 +2132,11 @@ fn report(tool: &Tool, json: bool, stop_junk: bool, release_failures: Vec<Advice
     let running = crate::claude_sessions::running_now(&tool.places.claude_sessions());
     match &projects {
         Ok(stores) => {
-            crate::health_fix::tell_judges(tool, stores, &running)
-                .iter()
-                .for_each(crate::text::note);
+            for line in &crate::health_fix::tell_judges(tool, stores, &running) {
+                crate::output::note(line);
+            }
         }
-        Err(error) => crate::text::note(judge_discovery_failure(error).advice.line()),
+        Err(error) => crate::output::note(judge_discovery_failure(error).advice.line()),
     }
     let mut loaded = project_lists(&projects);
     let cached = loaded
@@ -2195,7 +2201,9 @@ fn report(tool: &Tool, json: bool, stop_junk: bool, release_failures: Vec<Advice
             },
         },
     );
-    fixed.iter().for_each(crate::text::note);
+    for line in &fixed {
+        crate::output::note(line);
+    }
     let mut scans = Vec::new();
     let mut busy = Vec::new();
     let mut measured = Vec::new();
@@ -2207,17 +2215,17 @@ fn report(tool: &Tool, json: bool, stop_junk: bool, release_failures: Vec<Advice
             match crate::run_tmp::sweep(&tool.places, &ssh, host, &holders) {
                 Ok(swept) => {
                     for folder in swept.deleted {
-                        crate::text::note(format!(
+                        crate::output::note(format!(
                             "deleted the temporary folder {folder} on {place}: the run that made it ended"
                         ));
                     }
                     for entry in swept.unexpected {
-                        crate::text::note(format!(
+                        crate::output::note(format!(
                             "{place} has an entry in its run folders that no run of builds made: {entry}"
                         ));
                     }
                 }
-                Err(fault) => crate::text::note(fault.text()),
+                Err(fault) => crate::output::note(fault.text()),
             }
         }
         measured.push(crate::host_load::Measured {
@@ -2240,7 +2248,9 @@ fn report(tool: &Tool, json: bool, stop_junk: bool, release_failures: Vec<Advice
                 &format!("the stop script on {}", crate::host::place(&host.name)),
             )
         });
-    stops.lines.iter().for_each(crate::text::note);
+    for line in &stops.lines {
+        crate::output::note(line);
+    }
     scanned.orphans = stops.remaining;
     scanned.forget_stopped(&stops.stopped);
     let (mut health, releases) = finish_health(
@@ -2252,7 +2262,9 @@ fn report(tool: &Tool, json: bool, stop_junk: bool, release_failures: Vec<Advice
         &projects,
         &running,
     )?;
-    releases.iter().for_each(crate::text::note);
+    for line in &releases {
+        crate::output::note(line);
+    }
     health.findings.extend(claim_findings(release_failures));
     health.findings.extend(dashboard_finding(dashboard));
     let (prune_line, prune_late) = crate::prune_schedule::health(&tool.places, tool.now);
@@ -2307,7 +2319,7 @@ fn report(tool: &Tool, json: bool, stop_junk: bool, release_failures: Vec<Advice
         Vec::new()
     });
     if json {
-        println!("{}", health_json(&health, &busy));
+        crate::output::answer_line(health_json(&health, &busy));
     } else {
         // The dashboard, prune and the busy processes come before "needs
         // action", which is last.
@@ -2333,7 +2345,7 @@ fn report(tool: &Tool, json: bool, stop_junk: bool, release_failures: Vec<Advice
         }
         out.splice(at..at, before);
         for line in out {
-            println!("{line}");
+            crate::output::answer_line(line);
         }
         crate::health_new::write(&tool.places.home, &caller, &health.findings)?;
     }

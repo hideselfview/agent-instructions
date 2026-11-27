@@ -510,7 +510,7 @@ impl Model {
             .map(|folder| match std::fs::canonicalize(&folder) {
                 Ok(real) => real,
                 Err(error) => {
-                    crate::text::note(format!(
+                    crate::output::note(format!(
                         "following the rules folder {} as named, since its real path can't be read: {error}; the cards read the rules again only when FSEvents reports a change there",
                         folder.display()
                     ));
@@ -599,7 +599,7 @@ impl Model {
             std::thread::sleep(SETTLE);
             let taken = std::mem::take(&mut *self.dirty.lock().expect("no panic holding it"));
             if let Err(error) = self.refresh(taken) {
-                eprintln!("builds: reading the checkouts: {}", error.text());
+                crate::output::note(format!("reading the checkouts: {}", error.text()));
             }
         }
     }
@@ -823,7 +823,7 @@ impl Model {
                 let selected = match selected {
                     Ok(lists) => lists,
                     Err(error) => {
-                        crate::text::note(format!(
+                        crate::output::note(format!(
                             "choosing design lists for {}: {error}",
                             live.top.display()
                         ));
@@ -869,7 +869,7 @@ impl Model {
             let read = self.sample_now();
             drop(reading);
             if let Err(error) = read {
-                crate::text::note(format!("reading health: {error}"));
+                crate::output::note(format!("reading health: {error}"));
             }
             // Pacing: the processes are read at a rate, not on an event. A
             // page that starts watching ends the wait.
@@ -930,14 +930,14 @@ impl Model {
                         self.changes.advance();
                     }
                 }
-                Err(error) => crate::text::note(format!("reading the hosts: {}", error.text())),
+                Err(error) => crate::output::note(format!("reading the hosts: {}", error.text())),
             }
             // When a reading fails, the scan is dropped, so nothing judges
             // from an old one.
             let scan = match self.read_host_scan(&ssh) {
                 Ok(scan) => Some(Arc::new(scan)),
                 Err(error) => {
-                    crate::text::note(format!(
+                    crate::output::note(format!(
                         "hosts: the daemon could not read the hosts' busy processes or which hosts refuse jobs: {}",
                         error.text()
                     ));
@@ -952,7 +952,7 @@ impl Model {
                 ),
                 Err(error) => {
                     let text = format!("reading the compile cache history: {}", error.text());
-                    crate::text::note(&text);
+                    crate::output::note(&text);
                     (Vec::new(), Some(text))
                 }
             };

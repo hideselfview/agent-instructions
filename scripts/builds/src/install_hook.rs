@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 
 use crate::fail;
 use crate::fail::{Context, Result};
-use crate::text::note;
+use crate::output::note;
 use boards::{git, git_text};
 
 const HOOK: &str = "#!/bin/sh

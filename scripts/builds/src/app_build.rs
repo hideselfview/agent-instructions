@@ -131,6 +131,7 @@ use crate::host::{Refused, Ssh};
 use crate::install_gate;
 use crate::lane::Lane;
 use crate::lock::{self, Found, Keep, Ran, Within};
+use crate::output::note;
 use crate::places::Places;
 use crate::programs::Pinned;
 use crate::project_flag::PROJECT;
@@ -139,7 +140,6 @@ use crate::shot_findings;
 use crate::shots_cache;
 use crate::shots_cache::MissCause;
 use crate::shots_declared::ShotDeclarations;
-use crate::text::note;
 use crate::tool::Tool;
 use crate::window_lock::Access;
 
@@ -2066,8 +2066,8 @@ fn build_lane(
         if std::env::var_os(PREFIXED).is_some() {
             // On both streams: each is read by a thread of its own, and a line
             // after the marker in a stream must find the new prefix.
-            println!("{CHECKOUT_MARKER}{}", held.checkout);
-            eprintln!("{CHECKOUT_MARKER}{}", held.checkout);
+            crate::output::answer_line(format!("{CHECKOUT_MARKER}{}", held.checkout));
+            crate::output::answer_line_on_stderr(format!("{CHECKOUT_MARKER}{}", held.checkout));
         }
         if let Site::Remote(remote) = &site {
             let folder = remote.local_folder();
@@ -2866,7 +2866,7 @@ pub fn run_lanes(
         std::thread::spawn(move || {
             copy_lines(
                 stdout,
-                std::io::stdout(),
+                crate::output::child_stdout(),
                 word,
                 out_prefix,
                 out_tail,
@@ -2876,7 +2876,7 @@ pub fn run_lanes(
         std::thread::spawn(move || {
             copy_lines(
                 stderr,
-                std::io::stderr(),
+                crate::output::child_stderr(),
                 err_word,
                 prefix,
                 err_tail,
@@ -3014,12 +3014,12 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
         let config = parse_config(&text)?;
         for step in &config.steps {
             let ci_only = if step.ci_only { " (CI only)" } else { "" };
-            println!(
+            crate::output::answer_line(format!(
                 "{} {} {}{ci_only}",
                 step.lane.word(),
                 step.name,
                 step.command.join(" ")
-            );
+            ));
         }
         for picker in &config.pickers {
             let named =
@@ -3029,12 +3029,12 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
             } else {
                 ""
             };
-            println!(
+            crate::output::answer_line(format!(
                 "{named} {} <{}> {}{place}",
                 picker.kind.flag(),
                 picker.kind.what(),
                 picker.command.join(" ")
-            );
+            ));
         }
         return Ok(());
     }

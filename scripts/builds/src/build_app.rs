@@ -32,8 +32,8 @@ use crate::fail::{Context, Result};
 use crate::host::Ssh;
 use crate::lane::Lane;
 use crate::lock::{self, Where, Within};
+use crate::output::note;
 use crate::places::Places;
-use crate::text::note;
 use crate::tool::Tool;
 
 const USAGE: &str = "usage: builds build-app <repo> <app> [<ref>]";

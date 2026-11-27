@@ -31,9 +31,9 @@ use crate::fail;
 use crate::fail::{Context, Result};
 use crate::host::{Ssh, sh_quote};
 use crate::lock;
+use crate::output::note;
 use crate::places::Places;
 use crate::roots::Changed;
-use crate::text::note;
 use boards::git;
 
 /// What the checkout is put on.

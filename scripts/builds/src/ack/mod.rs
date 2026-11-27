@@ -80,7 +80,7 @@ pub fn gate(
         return Ok(());
     };
     if let Some(notice) = check(places, &identity, project, &current_dir()?)? {
-        eprint!("{notice}");
+        crate::output::warn(notice.trim_end_matches('\n'));
     }
     // SAFETY: no other thread runs yet, so none reads the environment while
     // set_var writes it.
@@ -315,29 +315,23 @@ pub fn outdated(store: &Store, session: &str) -> Result<Option<String>> {
 pub fn cmd_ack(places: &Places, session: &agent::Session, args: &[String]) -> Result<()> {
     let args = Args::parse(args, &["role"], &["compacted", "codex-compacted"])?;
     if args.switch("compacted") {
-        println!("{}", compacted(places, agent::HookInput::from_stdin()?)?);
+        crate::output::answer_line(compacted(places, agent::HookInput::from_stdin()?)?);
         return Ok(());
     }
     if args.switch("codex-compacted") {
-        println!(
-            "{}",
-            codex_compacted(places, agent::HookInput::from_stdin()?)?
-        );
+        crate::output::answer_line(codex_compacted(places, agent::HookInput::from_stdin()?)?);
         return Ok(());
     }
     let Some(identity) = session.identity()? else {
         fail!("Run builds ack from the Codex or Claude Code session reading the rules.");
     };
-    print!(
-        "{}",
-        ack(
-            places,
-            &identity,
-            &args,
-            &current_dir()?,
-            crate::app_timing::now()
-        )?
-    );
+    crate::output::answer(ack(
+        places,
+        &identity,
+        &args,
+        &current_dir()?,
+        crate::app_timing::now(),
+    )?);
     Ok(())
 }
 

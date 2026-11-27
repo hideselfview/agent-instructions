@@ -644,7 +644,7 @@ pub fn cmd_status(tool: &mut Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
     sccache_lines(&mut out);
     out.push(volume_line(&tool.places.root)?);
     for line in out {
-        println!("{line}");
+        crate::output::answer_line(line);
     }
     Ok(())
 }
@@ -932,10 +932,7 @@ pub fn status_json(tool: &mut Tool, with_folders: bool) -> Result<StatusJson> {
 
 fn print_json(tool: &mut Tool, with_folders: bool) -> Result<()> {
     let status = status_json(tool, with_folders)?;
-    println!(
-        "{}",
-        serde_json::to_string(&status).expect("status serializes")
-    );
+    crate::output::answer_line(serde_json::to_string(&status).expect("status serializes"));
     Ok(())
 }
 

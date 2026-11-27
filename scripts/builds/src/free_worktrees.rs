@@ -21,9 +21,9 @@ use crate::claim::Claim;
 use crate::fail::Result;
 use crate::health::places_of;
 use crate::lists::Lists;
+use crate::output::note;
 use crate::procs::{BUILD_NAMES, GitCommits, Processes, build_processes};
 use crate::prune::Run;
-use crate::text::note;
 use crate::tool::Tool;
 use crate::worktree::retire_checkout;
 

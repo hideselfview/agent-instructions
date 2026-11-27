@@ -14,7 +14,7 @@ use super::{
 };
 use crate::fail;
 use crate::fail::{Result, gone};
-use crate::text::note;
+use crate::output::note;
 
 /// Finds units' fingerprint folders in either layout. For shared folders it
 /// keeps each profile folder's .fingerprint listing, by unit hash; a build

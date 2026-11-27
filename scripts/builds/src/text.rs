@@ -1,6 +1,6 @@
-//! The tool's ways of saying things: notes on stderr, sizes, local times,
-//! words of a command written for a shell, and directory listings in the
-//! order a shell glob gives them.
+//! The words the tool says things in: sizes, local times, words of a
+//! command written for a shell, and directory listings in the order a shell
+//! glob gives them.
 
 use std::ffi::{CString, OsStr, OsString};
 use std::os::unix::ffi::OsStrExt;
@@ -17,23 +17,6 @@ pub fn hex(bytes: &[u8]) -> String {
 /// `3 files`.
 pub fn plural(count: usize, word: &str) -> String {
     format!("{count} {word}{}", if count == 1 { "" } else { "s" })
-}
-
-/// This process's stderr, to give a child as its stdout: a command whose
-/// stdout carries an answer (`builds tool` prints a folder) shows a child's
-/// output on stderr.
-pub fn stderr_for_child() -> Result<std::process::Stdio> {
-    use std::os::fd::AsFd;
-    let fd = std::io::stderr()
-        .as_fd()
-        .try_clone_to_owned()
-        .context(|| "duplicating stderr".to_string())?;
-    Ok(std::process::Stdio::from(fd))
-}
-
-/// A line on stderr, `builds: <message>`, which agents and hooks read.
-pub fn note(message: impl AsRef<str>) {
-    eprintln!("builds: {}", message.as_ref());
 }
 
 /// <arg> as a shell would need it written, for a command the person reruns.

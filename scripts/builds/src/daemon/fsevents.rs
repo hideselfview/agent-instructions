@@ -146,7 +146,10 @@ impl Stream {
                 *shared.current.lock().expect("no panic holding it") = Some(raw);
                 opened = true;
             }
-            Err(reason) => eprintln!("{} builds: {reason}; trying again", crate::text::clock()),
+            Err(reason) => crate::output::warn(format!(
+                "{} builds: {reason}; trying again",
+                crate::text::clock()
+            )),
         }
         let supervisor = shared.clone();
         let wrapped = move || {
@@ -184,10 +187,10 @@ fn supervise(
             let now = system::current_event_id();
             match open(now) {
                 Ok(raw) => {
-                    eprintln!(
+                    crate::output::warn(format!(
                         "{} builds: FSEvents stream open again (event id {now})",
                         crate::text::clock()
-                    );
+                    ));
                     *shared.current.lock().expect("no panic holding it") = Some(raw);
                     following = true;
                     backoff = std::time::Duration::from_secs(1);
@@ -195,11 +198,11 @@ fn supervise(
                     wrapped();
                 }
                 Err(reason) => {
-                    eprintln!(
+                    crate::output::warn(format!(
                         "{} builds: {reason}; trying again in {}s",
                         crate::text::clock(),
                         backoff.as_secs()
-                    );
+                    ));
                     let wanted = shared.wanted.lock().expect("no panic holding it");
                     let (wanted, _) = shared
                         .wake
@@ -236,10 +239,10 @@ fn supervise(
         };
         match why {
             Some(why) => {
-                eprintln!(
+                crate::output::warn(format!(
                     "{} builds: FSEvents stream made again: {why}",
                     crate::text::clock()
-                );
+                ));
                 *shared.current.lock().expect("no panic holding it") = None;
                 following = false;
             }

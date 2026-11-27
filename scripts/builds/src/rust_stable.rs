@@ -21,8 +21,8 @@ use crate::fail::{Context, Fail, Result};
 use crate::lists::item::{Audience, ItemDraft};
 use crate::lists::store::{Store, stores};
 use crate::lists::{Stamp, area, rust_check, rust_release};
+use crate::output::note;
 use crate::places::Places;
-use crate::text::note;
 
 /// How often the daemon reads the manifest.
 pub const CHECK_HOURS: u64 = 6;

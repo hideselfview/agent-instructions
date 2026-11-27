@@ -17,10 +17,11 @@ use serde::Deserialize;
 use crate::checkout::Checkout;
 use crate::fail;
 use crate::fail::{Context, Result};
+use crate::output::note;
 use crate::places::Places;
 use crate::shot_findings;
 use crate::shots_cache::Cached;
-use crate::text::{note, plural};
+use crate::text::plural;
 
 const USAGE: &str =
     "usage: builds shots check-program <repo> <ref> <app> <prefix> [--checkout <folder>]";
@@ -154,7 +155,7 @@ fn build(top: &Path) -> Result<PathBuf> {
         .args(["cargo", "build", "--release"])
         .current_dir(top.join(PROGRAM_CRATE))
         .stdin(Stdio::null())
-        .stdout(crate::text::stderr_for_child()?)
+        .stdout(crate::output::stderr_for_child()?)
         .status()
         .context(|| "running builds cargo build".to_string())?;
     if !built.success() {
@@ -212,7 +213,7 @@ pub fn cmd(places: &Places, args: &[String]) -> Result<()> {
         &cached.key.versions.comparison[..cached.key.versions.comparison.len().min(12)],
         top.display()
     ));
-    print!("{report}");
+    crate::output::answer(report);
     Ok(())
 }
 

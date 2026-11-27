@@ -582,7 +582,7 @@ pub fn cmd_agent(places: &Places, args: &[String]) -> Result<()> {
             "usage: builds agent start   (a Claude Code hook runs it, with the hook's input on standard input)"
         );
     }
-    println!("{}", start(places, HookInput::from_stdin()?)?);
+    crate::output::answer_line(start(places, HookInput::from_stdin()?)?);
     Ok(())
 }
 

@@ -41,7 +41,7 @@ const USAGE: &str = "usage: builds question ask --title T --kind question|your-s
 
 pub fn cmd_question(tool: &Tool, args: &[String]) -> Result<()> {
     let cwd = std::env::current_dir().context(|| "reading the current directory".to_string())?;
-    print!("{}", run(tool, args, &cwd)?);
+    crate::output::answer(run(tool, args, &cwd)?);
     Ok(())
 }
 

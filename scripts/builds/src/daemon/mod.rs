@@ -48,8 +48,8 @@ use serde::{Deserialize, Serialize};
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::health::Health;
+use crate::output::note;
 use crate::places::DASHBOARD_PORT;
-use crate::text::note;
 use crate::tool::Tool;
 use model::Model;
 use runs::Runs;
@@ -212,6 +212,7 @@ pub fn cmd_dashboard(tool: &Tool, args: &[String]) -> Result<()> {
             _ => fail!("usage: builds dashboard [--port <port>] [--listen <address>]"),
         }
     }
+    crate::output::keep_every_line();
     tool.places.require_volume()?;
     let web = match std::net::TcpListener::bind(("127.0.0.1", port)) {
         Ok(web) => web,

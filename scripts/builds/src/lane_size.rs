@@ -41,10 +41,11 @@ use crate::fail::{Context, Result};
 use crate::holder_run::HolderRun;
 use crate::host::{self, Host, Probe, Ssh};
 use crate::lane::{AddedBy, AppCheckout, Lane, Removed};
+use crate::output::note;
 use crate::places::Places;
 use crate::prune::Run;
 use crate::queue::{self, Queue};
-use crate::text::{human, minutes_since, note};
+use crate::text::{human, minutes_since};
 use boards::app_build::Platform;
 
 /// The most app checkouts a lane has. On 2026-11-16, the busiest day

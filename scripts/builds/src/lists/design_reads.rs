@@ -131,7 +131,7 @@ impl DesignReads {
         }
         let (outcome, changed) = self.read_at(lists, repo, top, git, false);
         if changed && let Err(error) = outcome {
-            crate::text::note(format!(
+            crate::output::note(format!(
                 "reading design coverage for {} in {}: {error}",
                 top.display(),
                 lists.project

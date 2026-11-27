@@ -280,7 +280,7 @@ fn start_after_build(checkout: &Checkout, root: &Path) {
         command.spawn().map(|_| ())
     })();
     if let Err(error) = started {
-        crate::text::note(format!(
+        crate::output::note(format!(
             "starting the prune of the build copies this build replaced: {error}"
         ));
     }
@@ -451,7 +451,7 @@ pub fn cmd_cargo(args: &[String], changed: &Changed) -> Result<()> {
     let tree = tree.and_then(|read| match read.join().expect("the read does not panic") {
         Ok(tree) => Some(tree),
         Err(error) => {
-            crate::text::note(format!(
+            crate::output::note(format!(
                 "builds could not read the commit this cargo run ran on: {error}"
             ));
             None
@@ -478,7 +478,7 @@ pub fn cmd_cargo(args: &[String], changed: &Changed) -> Result<()> {
             )
         });
         if let Err(error) = recorded {
-            crate::text::note(format!(
+            crate::output::note(format!(
                 "builds could not record this cargo run: {}",
                 error.text()
             ));
@@ -538,7 +538,7 @@ fn warm_host(places: &Places, checkout: &Checkout, key: &RunKey) -> Option<Strin
         last_host(&conn, key, &path)
     };
     read().unwrap_or_else(|error| {
-        crate::text::note(format!(
+        crate::output::note(format!(
             "builds could not read where this checkout's last cargo {} ran, so it places the run by room alone: {}",
             key.subcommand,
             error.text()
@@ -696,20 +696,23 @@ fn run_here(
         .stderr(if relayed {
             Stdio::piped()
         } else {
-            Stdio::inherit()
+            crate::output::inherit()
         })
         .spawn()
         .context(|| "running cargo".to_string())?;
     let relay = child.stderr.take().map(|stderr| {
         crate::lock_wait::relay(
             stderr,
-            crate::cargo_run_outcome::Tee::new(std::io::stderr(), watch.clone()),
+            crate::cargo_run_outcome::Tee::new(crate::output::child_stderr(), watch.clone()),
         )
     });
     let stdout = child.stdout.take().expect("piped above");
     let recorded = record(
         BufReader::new(stdout),
-        &mut crate::cargo_run_outcome::Tee::new(std::io::stdout().lock(), watch.clone()),
+        &mut crate::cargo_run_outcome::Tee::new(
+            crate::output::child_stdout().lock(),
+            watch.clone(),
+        ),
     );
     let status = child.wait().context(|| "waiting for cargo".to_string())?;
     let lock_wait = relay.map(|relay| relay.join().expect("the relay does not panic"));
@@ -721,7 +724,7 @@ fn run_here(
     let recorded = match recorded {
         Ok(code) | Err(Fail::Exit(code)) => code,
         Err(error) => {
-            crate::text::note(error.text());
+            crate::output::note(error.text());
             1
         }
     };
@@ -804,7 +807,7 @@ fn mutants_args(args: &[String], load: f64, band: crate::host_band::Band) -> Vec
     let (words, note) =
         crate::cargo_mutants::capped(args, crate::cargo_mutants::jobs_cap(load, band));
     if let Some(note) = note {
-        crate::text::note(note);
+        crate::output::note(note);
     }
     words
 }

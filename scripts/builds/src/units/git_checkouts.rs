@@ -7,8 +7,9 @@ use std::path::{Path, PathBuf};
 
 use super::remove;
 use crate::fail::Result;
+use crate::output::note;
 use crate::prune::Run;
-use crate::text::{counted, human_bytes, note};
+use crate::text::{counted, human_bytes};
 use crate::usage::{Seen, bytes_with};
 
 /// The git commits <lockfiles> (Cargo.lock files) pin: each

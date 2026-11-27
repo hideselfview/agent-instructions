@@ -119,7 +119,7 @@ pub fn hold_while(power: &Power, pid: i32, what: &str) -> Result<()> {
             .watch_exit(pid)
             .context(|| format!("Builds could not watch process {pid} to keep this Mac awake"))?;
         let _awake = KeepAwake::while_working(power, what)?;
-        let mut out = std::io::stdout();
+        let mut out = crate::output::answer_handle();
         writeln!(out, "{HELD}")
             .and_then(|()| out.flush())
             .context(|| "Builds could not say that it keeps this Mac awake".into())?;
@@ -200,7 +200,7 @@ impl Drop for Assertion {
         if let Assertion::Recorded { record, taken } = self
             && let Err(error) = note_in(record, &format!("release {taken}"))
         {
-            crate::text::note(error.text());
+            crate::output::note(error.text());
         }
     }
 }
@@ -257,7 +257,7 @@ mod os {
         fn drop(&mut self) {
             let code = unsafe { IOPMAssertionRelease(self.0) };
             if code != 0 {
-                crate::text::note(format!(
+                crate::output::note(format!(
                     "macOS refused to release builds' power assertion {}: IOKit returned {code:#x}, so this Mac stays awake until this process ends",
                     self.0
                 ));

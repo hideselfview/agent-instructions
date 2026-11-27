@@ -707,6 +707,121 @@ fn a_prune_of_many_pictures_prints_one_line_for_their_folder() {
     assert!(!boards.exists(), "the real prune kept the files");
 }
 
+/// The most lines a command may print about its work, however much of it
+/// there is: a few kinds of message, each capped.
+const MOST_LINES: usize = 90;
+
+/// How many things each of these tests gives a command: more than
+/// MOST_LINES, so a line for each would pass it.
+const MANY: usize = 100;
+
+/// Runs <command>, whose input makes it say something about each of many
+/// things, and returns what it printed, which stays within `MOST_LINES` and
+/// counts what it left out. No free-space floor applies, so what it deletes
+/// does not depend on how full this Mac's disk is.
+fn within_the_most_lines(mut command: Command) {
+    for floor in [
+        "BUILDS_FREE_FLOOR_GIB",
+        "BUILDS_FLOOR_MARGIN_GIB",
+        "BUILDS_HARD_FLOOR_GIB",
+    ] {
+        command.env(floor, "0");
+    }
+    let output = command.output().unwrap();
+    let said = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(output.status.success(), "{command:?}: {said}");
+    let lines = said.lines().count();
+    assert!(
+        lines <= MOST_LINES,
+        "{command:?} printed {lines} lines:\n{said}"
+    );
+    assert!(
+        said.contains("builds: left out "),
+        "{command:?} counted nothing it left out:\n{said}"
+    );
+}
+
+/// <count> folders of a cargo build in the demo's temporary folder, which
+/// nothing wrote to for an hour.
+fn idle_temp_builds(demo: &Demo, count: usize) {
+    let an_hour_ago = std::time::SystemTime::now() - Duration::from_secs(3600);
+    for n in 0..count {
+        let folder = demo.temp().join(format!("probe-{n}/target"));
+        std::fs::create_dir_all(&folder).unwrap();
+        let info = folder.join(".rustc_info.json");
+        std::fs::write(&info, "{}").unwrap();
+        for path in [&info, &folder] {
+            std::fs::File::open(path)
+                .and_then(|file| file.set_modified(an_hour_ago))
+                .unwrap();
+        }
+    }
+}
+
+#[test]
+fn a_prune_of_many_gone_checkouts_and_temp_builds_prints_few_lines() {
+    let demo = Demo::new("many-prune");
+    for n in 0..MANY {
+        let root = demo.volume().join(format!("demo/gone-{n}"));
+        std::fs::create_dir_all(&root).unwrap();
+        let gone = demo.dir.join(format!("no-checkout-{n}"));
+        std::fs::write(root.join(".checkout"), format!("{}\n", gone.display())).unwrap();
+    }
+    idle_temp_builds(&demo, MANY);
+    for args in [&["prune", "--dry-run"][..], &["prune"][..]] {
+        let mut command = demo.builds();
+        command.args(args);
+        within_the_most_lines(command);
+    }
+    assert!(
+        !demo.volume().join("demo/gone-99").exists(),
+        "the prune stopped at what it printed"
+    );
+}
+
+#[test]
+fn setup_and_new_over_many_folders_print_few_lines() {
+    let demo = Demo::new("many-setup");
+    let side = demo.side(1);
+    let entries: String = (0..MANY).map(|n| format!("out/{n} 1G\n")).collect();
+    std::fs::write(side.join(".build-dirs"), format!("target 1G\n{entries}")).unwrap();
+    for n in 0..MANY {
+        std::fs::create_dir_all(side.join(format!("out/{n}"))).unwrap();
+    }
+    let mut setup = demo.builds();
+    setup.arg("setup").arg(&side);
+    within_the_most_lines(setup);
+    idle_temp_builds(&demo, MANY);
+    let mut new = demo.builds();
+    new.arg("new").arg(demo.main()).args(["--for", "agent A"]);
+    within_the_most_lines(new);
+}
+
+#[test]
+fn a_hook_of_many_checks_prints_few_lines() {
+    let demo = Demo::new("many-checks");
+    let main = demo.main();
+    let checks: String = (0..MANY)
+        .map(|n| format!("check c{n} *.txt true\n"))
+        .collect();
+    std::fs::write(main.join(".checks"), checks).unwrap();
+    std::fs::write(main.join("a.txt"), "a\n").unwrap();
+    let added = Command::new("git")
+        .arg("-C")
+        .arg(&main)
+        .args(["add", ".checks", "a.txt"])
+        .status()
+        .unwrap();
+    assert!(added.success());
+    let mut run = demo.builds();
+    run.current_dir(&main).args(["checks", "run"]);
+    within_the_most_lines(run);
+}
+
 /// Run from a folder in no checkout, each form of app-checkout that changes a
 /// checkout on this Mac tells the dashboard of that checkout's build root, and
 /// adding one measures the root.

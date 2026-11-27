@@ -51,7 +51,7 @@ pub fn record_once(model: &Model, at: i64) -> Result<()> {
         let written = crate::db::open(&store.database(), crate::db::Make::Never)
             .and_then(|mut db| card_state::follow(&mut db, at, cards, &unread));
         if let Err(error) = written {
-            crate::text::note(format!(
+            crate::output::note(format!(
                 "recording the cards' states in project {}: {}",
                 store.project,
                 error.text()
@@ -71,7 +71,7 @@ pub fn start(model: Arc<Model>) -> Result<()> {
             loop {
                 seen = model.wait_change(seen);
                 if let Err(error) = record_once(&model, super::model::now_seconds()) {
-                    crate::text::note(format!("recording the cards' states: {}", error.text()));
+                    crate::output::note(format!("recording the cards' states: {}", error.text()));
                 }
                 std::thread::sleep(EVERY);
             }

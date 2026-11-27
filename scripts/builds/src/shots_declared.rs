@@ -15,7 +15,7 @@ use crate::app_config::{CONFIG, run_git};
 use crate::fail;
 use crate::fail::{Fail, Result};
 use crate::lane::Lane;
-use crate::text::note;
+use crate::output::note;
 
 /// How many nearest prefixes a refusal names.
 const NEAREST: usize = 6;

@@ -308,7 +308,7 @@ impl Runs {
             Ok(watch) => LogWatch::Watching(watch),
             Err(error) => {
                 let why = format!("watching {}: {error}", log.display());
-                eprintln!("builds: {why}");
+                crate::output::note(&why);
                 LogWatch::Failed(why)
             }
         }
@@ -528,10 +528,10 @@ impl Runs {
                 outcome: RunEnd::of_code(crate::fail::exit_code(status)),
             },
             Err(error) => {
-                eprintln!(
-                    "builds: waiting for {} {}'s build: {error}",
+                crate::output::note(format!(
+                    "waiting for {} {}'s build: {error}",
                     started.repo, started.lane
-                );
+                ));
                 Ended {
                     at: now_seconds(),
                     code: None,
@@ -551,7 +551,7 @@ impl Runs {
                 // can't be written is said, and a restart then shows this
                 // run as one whose end wasn't seen.
                 if let Err(error) = write_record(&self.dir, &run.record, lane) {
-                    eprintln!("builds: {}", error.text());
+                    crate::output::note(error.text());
                 }
             }
         }

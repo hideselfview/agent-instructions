@@ -17,8 +17,8 @@
 use crate::app_remote::host_of;
 use crate::fail::Result;
 use crate::lane_size::{CheckoutLock, RepoLane, Waited, last_use, lock_checkout, wait_checkout};
+use crate::output::note;
 use crate::queue::Queue;
-use crate::text::note;
 
 /// The entries of <used>, `(entry, when a build last let go of its lock)`,
 /// that a new checkout may start from, warmest first: the ones some build

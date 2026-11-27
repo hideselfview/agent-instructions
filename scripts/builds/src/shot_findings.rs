@@ -54,11 +54,11 @@ use crate::fail;
 use crate::fail::{Context, Fail, Result};
 use crate::host::sh_quote;
 use crate::lane::Lane;
+use crate::output::note;
 use crate::places::Places;
 use crate::shot_causes;
 use crate::shots_cache::{self, Cached, Key};
 use crate::shots_compare_again::short;
-use crate::text::note;
 
 /// The line the shots program's own output starts after: cargo's, for the
 /// command it runs.
@@ -262,7 +262,7 @@ pub fn versions_in(folder: &Path) -> Result<crate::shots_program::Versions> {
 /// Prints <cached>: a line to say which run it is, then its text.
 pub fn print(cached: &Cached) {
     note_run(cached);
-    print!("{}", cached.findings);
+    crate::output::answer(&cached.findings);
 }
 
 /// Says on stderr which run <cached> is: its commit, lane and prefix, how old
@@ -427,7 +427,7 @@ pub fn cmd_findings(places: &Places, args: &[String]) -> Result<()> {
         shot_causes::lines(&run)
     };
     note_run(&cached);
-    print!("{text}");
+    crate::output::answer(text);
     note_report(&cached);
     Ok(())
 }

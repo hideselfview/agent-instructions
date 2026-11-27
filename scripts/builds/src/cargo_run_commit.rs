@@ -33,7 +33,7 @@ pub fn record(db: &Connection, run: i64, top: &Path, state: &TreeState) -> Resul
             match on_run_branch(top, &state.head, state.branch.as_deref(), run_branch) {
                 Ok(on) => Some(!on),
                 Err(error) => {
-                    crate::text::note(format!(
+                    crate::output::note(format!(
                         "builds could not tell whether this cargo run's commit is on branch {run_branch}: {error}"
                     ));
                     None

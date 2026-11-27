@@ -25,8 +25,8 @@ pub fn cmd_stage(args: &[String]) -> Result<()> {
     let (folder, shot) = stage_args(args)?;
     let fixture = Fixture::load(&folder, &shot)?;
     let listener = bind()?;
-    println!("{}", address(port_of(&listener)?, &fixture));
-    std::io::stdout()
+    crate::output::answer_line(address(port_of(&listener)?, &fixture));
+    crate::output::answer_handle()
         .flush()
         .context(|| "writing the page's address".to_string())?;
     let names: Arc<[String]> = names_of(&listener)?.into();

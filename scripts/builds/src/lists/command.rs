@@ -11,7 +11,7 @@ use crate::lists::project::{self, GlobKind, NewProject, parse_globs};
 use crate::lists::store::{Store, project_of};
 use crate::lists::view::View;
 use crate::lists::{Stamp, show};
-use crate::text::note;
+use crate::output::note;
 use crate::tool::Tool;
 
 const USAGE: &str = "usage: builds lists init PROJECT --repos R,R [--canvas yes|no] [--design-places R:GLOB,...] [--design-sources R:GLOB,...] [--spec-files R:GLOB,...] [--by WHO]\n       builds lists add-repo PROJECT REPO [--by WHO]\n       builds lists design-globs PROJECT [--canvas yes|no] [--design-places R:GLOB,...] [--design-sources R:GLOB,...] [--spec-files R:GLOB,...] [--by WHO]\n       builds lists show [--json | --tag T] [--project P]\n       builds lists project-of DIR";
@@ -163,9 +163,9 @@ fn show(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         let view = View::build(&lists, tool.now)?;
         let text =
             serde_json::to_string_pretty(&view).context(|| "writing the lists JSON".to_string())?;
-        println!("{text}");
+        crate::output::answer_line(text);
     } else {
-        print!("{}", show::render(&lists, wanted)?);
+        crate::output::answer(show::render(&lists, wanted)?);
     }
     Ok(())
 }
@@ -177,7 +177,7 @@ fn project_of_command(tool: &Tool, args: &[String]) -> Result<()> {
     };
     let checkout = Checkout::find(dir)?;
     if let Some(project) = project_of(&tool.places, &checkout, None)? {
-        println!("{project}");
+        crate::output::answer_line(project);
     }
     Ok(())
 }

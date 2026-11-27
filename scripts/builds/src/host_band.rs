@@ -69,15 +69,15 @@ pub fn cmd_band(tool: &crate::tool::Tool, args: &[String]) -> Result<()> {
     };
     crate::host::set_band(&tool.places, name, band)?;
     match band {
-        Some(band) => println!(
+        Some(band) => crate::output::say(format!(
             "{} has a 5-minute load band of {}",
             crate::host::place(name),
             band.text()
-        ),
-        None => println!(
+        )),
+        None => crate::output::say(format!(
             "{} has no load band; health judges it by the shares of its cores",
             crate::host::place(name)
-        ),
+        )),
     }
     Ok(())
 }

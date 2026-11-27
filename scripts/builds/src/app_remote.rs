@@ -40,9 +40,9 @@ use crate::fail;
 use crate::fail::{Context, Result};
 use crate::host::{self, Host, Ssh, clone_path, sh_quote};
 use crate::lane::Lane;
+use crate::output::note;
 use crate::places::Places;
 use crate::remote::{JOBS_REF, Transport, job_id, release_script, root_script, worktree_in};
-use crate::text::note;
 use boards::app_build::Platform;
 
 /// What separates the host from the checkout's name in a lane's entry.

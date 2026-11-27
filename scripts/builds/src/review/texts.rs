@@ -133,7 +133,7 @@ fn group(places: &Places) -> Result<Option<Group>> {
                 {
                     fail!("The published review run is missing {}.", used.display());
                 }
-                crate::text::note(format!(
+                crate::output::note(format!(
                     "{} disappeared during prune planning",
                     folder.display()
                 ));

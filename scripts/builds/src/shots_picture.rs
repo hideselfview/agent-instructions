@@ -11,7 +11,7 @@ use crate::daemon::component_shots::{Side, picture_file};
 use crate::fail;
 use crate::fail::Result;
 use crate::lane::Lane;
-use crate::text::note;
+use crate::output::note;
 use crate::tool::Tool;
 
 const USAGE: &str = "usage: builds shots picture <repo> <ref> <scene> board|shot [--project P]";
@@ -80,7 +80,7 @@ pub fn cmd(tool: &Tool, args: &[String]) -> Result<()> {
             }
         }
     };
-    println!("{}", picture.display());
+    crate::output::answer_line(picture.display());
     Ok(())
 }
 

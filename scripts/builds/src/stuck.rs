@@ -615,7 +615,7 @@ fn read_activity(
                                 if stays {
                                     without_folder.push(row.pid.to_string());
                                 } else {
-                                    crate::text::note(format!(
+                                    crate::output::note(format!(
                                         "busy processes on {}: PID {} exited after the scan",
                                         host.name, row.pid
                                     ));

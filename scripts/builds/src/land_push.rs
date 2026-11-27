@@ -88,7 +88,7 @@ impl Landing<'_> {
 
     /// Runs the repo's whole-tree checks and compile check on the result:
     /// the text of what failed, when something did.
-    fn check_result(&self, out: &mut dyn Write) -> Result<std::result::Result<(), String>> {
+    fn check_result(&self, out: &mut Report) -> Result<std::result::Result<(), String>> {
         if self.workdir.join(".land-checks").exists() {
             return Ok(Err(
                 "CHECK FAILED on the result, nothing pushed: .land-checks\nthe repo has a .land-checks file, which builds land no longer reads; \
@@ -133,7 +133,7 @@ impl Landing<'_> {
     /// Puts the commits on origin/main and returns their copies there, or
     /// refuses after it checks out what the worktree had when the landing
     /// began. A refused push starts again from a fresh fetch.
-    pub(super) fn put_on_main(&self, out: &mut dyn Write) -> Result<Vec<String>> {
+    pub(super) fn put_on_main(&self, out: &mut Report) -> Result<Vec<String>> {
         let dir = &self.workdir;
         for _ in 0..ATTEMPTS {
             let fetched = {
@@ -141,7 +141,7 @@ impl Landing<'_> {
                 git_ok(dir, &["fetch", "-q", "origin"])
             };
             if !fetched {
-                let _ = writeln!(out, "fetch failed");
+                out.say("fetch failed");
                 continue;
             }
             let picking = self.timing(StepKind::Pick);
@@ -149,7 +149,7 @@ impl Landing<'_> {
             let on_main = match self.pick()? {
                 Picked::Applied(on_main) => on_main,
                 Picked::OnMain { on_main, said } => {
-                    let _ = writeln!(out, "{said}");
+                    out.say(&said);
                     return Ok(on_main);
                 }
                 Picked::Refused(said) => {
@@ -199,7 +199,7 @@ impl Landing<'_> {
                     .map(|sha| git_text(dir, &["log", "--oneline", "-1", sha]).unwrap_or_default())
                     .collect();
                 if !shown.is_empty() {
-                    let _ = writeln!(out, "{}", shown.join("\n"));
+                    out.say(shown.join("\n"));
                 }
                 drop(pushing);
                 return Ok(on_main);
@@ -209,7 +209,7 @@ impl Landing<'_> {
                 .lines()
                 .rfind(|line| !line.starts_with("hint"))
                 .unwrap_or("");
-            let _ = writeln!(out, "push failed: {last_line}");
+            out.say(format!("push failed: {last_line}"));
         }
         self.go_back(out);
         Err(refuse(

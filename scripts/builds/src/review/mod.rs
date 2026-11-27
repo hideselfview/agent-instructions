@@ -1065,18 +1065,15 @@ fn call_mechanical(
     };
     let stamp = Stamp::resolve(tool.now, args, &checkout.top)?;
     let by = runner.map_or("the person", |caller| caller.id.as_str());
-    print!(
-        "{}",
-        marked_mechanical::call_mechanical(
-            &store,
-            &checkout.repo(),
-            &checkout.top,
-            base,
-            &key,
-            (by, checked_by),
-            &stamp,
-        )?
-    );
+    crate::output::answer(marked_mechanical::call_mechanical(
+        &store,
+        &checkout.repo(),
+        &checkout.top,
+        base,
+        &key,
+        (by, checked_by),
+        &stamp,
+    )?);
     Ok(())
 }
 
@@ -1099,11 +1096,13 @@ fn run_command(tool: &Tool, args: &[String]) -> Result<()> {
         return call_mechanical(tool, &args, &checked_by, caller.as_ref());
     }
     let (reported, to_settle) = run_review(tool, &args, caller.as_ref())?;
-    print!("{}", reported.text);
+    crate::output::answer(reported.text);
     if let Some(refusal) = &reported.refusal {
-        print!("{refusal}");
+        crate::output::answer(refusal);
         if let Some(landing) = reported.landing {
-            println!("builds review show {landing} lists every run of this landing");
+            crate::output::answer_line(format!(
+                "builds review show {landing} lists every run of this landing"
+            ));
         }
     }
     if let Some(Pending {
@@ -1112,17 +1111,14 @@ fn run_command(tool: &Tool, args: &[String]) -> Result<()> {
         stamp,
     }) = to_settle
     {
-        print!(
-            "{}",
-            tell_settlers(
-                tool,
-                &store,
-                &stamp,
-                &to_settle,
-                caller.as_ref(),
-                Messaging::for_session(&tool.session, Recipient::Coordinator)?.as_ref(),
-            )?
-        );
+        crate::output::answer(tell_settlers(
+            tool,
+            &store,
+            &stamp,
+            &to_settle,
+            caller.as_ref(),
+            Messaging::for_session(&tool.session, Recipient::Coordinator)?.as_ref(),
+        )?);
     }
     match reported.refusal {
         Some(_) => Err(Fail::Exit(1)),
@@ -1230,7 +1226,7 @@ fn tell_judge_waiting(
     running: &[crate::claude_sessions::Running],
 ) -> Result<()> {
     for line in judge_told::tell_waiting(store, stamp, sessions, running)? {
-        println!("{line}");
+        crate::output::answer_line(line);
     }
     Ok(())
 }
@@ -1240,7 +1236,7 @@ fn tell_judge_waiting(
 fn wait_command(tool: &Tool, args: &[String]) -> Result<()> {
     let (store, landing) = wait_target(&tool.places, args, &tool.dir)?;
     drop(store.open_existing()?);
-    print!("{}", judge::wait(&store, landing, judge::WAIT_LIMIT)?);
+    crate::output::answer(judge::wait(&store, landing, judge::WAIT_LIMIT)?);
     Ok(())
 }
 
@@ -1286,7 +1282,7 @@ fn copy_command(tool: &Tool, args: &[String]) -> Result<()> {
         reviewer: &tool.reviewer.program_for(args.value("reviewer")?),
         stamp: &stamp,
     })?;
-    print!("{}", checked.text);
+    crate::output::answer(checked.text);
     if checked.clean {
         Ok(())
     } else {
@@ -1486,9 +1482,9 @@ fn settle(tool: &Tool, args: &[String], caller: Option<&Caller>) -> Result<()> {
             record::settle_again(db, id, why, stamp.at, &stamp.by)
         })?;
         judge::tell_waits(&store.dir)?;
-        println!(
+        crate::output::answer_line(format!(
             "You settled finding {id} again, as dropped; the finding keeps its first settle beside the second."
-        );
+        ));
         return tell_judge_waiting(&store, &stamp, &sessions, &running);
     }
     if by_person {
@@ -1497,9 +1493,9 @@ fn settle(tool: &Tool, args: &[String], caller: Option<&Caller>) -> Result<()> {
             record::allow(db, id, why, stamp.at, &stamp.by)
         })?;
         judge::tell_waits(&store.dir)?;
-        println!(
+        crate::output::answer_line(format!(
             "finding {id} stays confirmed, and the person allowed it to land: builds land no longer waits on it"
-        );
+        ));
         return tell_judge_waiting(&store, &stamp, &sessions, &running);
     }
     let held = store.write(&stamp, &format!("review settle {id}"), |db| {
@@ -1514,9 +1510,9 @@ fn settle(tool: &Tool, args: &[String], caller: Option<&Caller>) -> Result<()> {
         }
     })?;
     judge::tell_waits(&store.dir)?;
-    println!("finding {id} settled {how}");
+    crate::output::answer_line(format!("finding {id} settled {how}"));
     if let Some(held) = held {
-        println!("{}", held_words(&held));
+        crate::output::answer_line(held_words(&held));
     }
     tell_judge_waiting(&store, &stamp, &sessions, &running)
 }
@@ -1566,18 +1562,15 @@ fn dispute_command(
     let finding = store.write(&stamp, &format!("review dispute {id}"), |db| {
         judge::dispute(db, id, why, &stamp)
     })?;
-    print!(
-        "{}",
-        judge::tell(
-            &store,
-            &stamp,
-            &sessions,
-            &running,
-            &judge::dispute_notice(&conn, &store.project, &finding)?,
-            caller,
-            own,
-        )?
-    );
+    crate::output::answer(judge::tell(
+        &store,
+        &stamp,
+        &sessions,
+        &running,
+        &judge::dispute_notice(&conn, &store.project, &finding)?,
+        caller,
+        own,
+    )?);
     tell_judge_waiting(&store, &stamp, &sessions, &running)
 }
 
@@ -1604,9 +1597,13 @@ fn keep_command(tool: &Tool, args: &[String], caller: Option<&Caller>) -> Result
     })?;
     judge::tell_waits(&store.dir)?;
     if again {
-        println!("finding {id} stays confirmed: you corrected the reason you kept it");
+        crate::output::answer_line(format!(
+            "finding {id} stays confirmed: you corrected the reason you kept it"
+        ));
     } else {
-        println!("finding {id} stays confirmed: you kept it after its dispute");
+        crate::output::answer_line(format!(
+            "finding {id} stays confirmed: you kept it after its dispute"
+        ));
     }
     tell_judge_waiting(&store, &stamp, &sessions, &running)
 }
@@ -1621,7 +1618,7 @@ fn show(tool: &Tool, args: &[String]) -> Result<()> {
         .parse()
         .map_err(|_| Fail::Message(format!("'{landing}' is not a landing number")))?;
     let (_, conn) = store_of(tool, &args)?;
-    print!("{}", show_text(&conn, id)?);
+    crate::output::answer(show_text(&conn, id)?);
     Ok(())
 }
 
@@ -1772,9 +1769,9 @@ fn replay(tool: &Tool, args: &[String]) -> Result<()> {
             Some(model) => format!("{model}, rules of {}", root.display()),
             None => format!("rules of {}", root.display()),
         };
-        print!("{}", cases::comparison(&current, &results, &name));
+        crate::output::answer(cases::comparison(&current, &results, &name));
     } else {
-        print!("{}", cases::report(&results));
+        crate::output::answer(cases::report(&results));
     }
     if failed {
         return Err(Fail::Exit(1));
@@ -1817,7 +1814,7 @@ fn replay_landings(tool: &Tool, args: &Args) -> Result<()> {
         groups: &args.values("group"),
         stamp: &stamp,
     })?;
-    print!("{}", replayed.text);
+    crate::output::answer(replayed.text);
     if replayed.failed {
         return Err(Fail::Exit(1));
     }
@@ -1880,7 +1877,7 @@ fn audit_command(tool: &Tool, args: &[String]) -> Result<()> {
         stamp: &stamp,
         seed,
     })?;
-    print!("{text}");
+    crate::output::answer(text);
     Ok(())
 }
 
@@ -1904,13 +1901,13 @@ fn misses(tool: &Tool, args: &[String]) -> Result<()> {
     let (_, conn) = store_of(tool, &args)?;
     let open = audit::open_misses(&conn)?;
     for (landing, finding) in &open {
-        println!("landing {landing}:");
-        print!("{}", render::finding_text(finding));
+        crate::output::answer_line(format!("landing {landing}:"));
+        crate::output::answer(render::finding_text(finding));
     }
-    println!(
+    crate::output::answer_line(format!(
         "builds found {} that nobody has settled",
         crate::text::counted(open.len(), "candidate miss", "candidate misses")
-    );
+    ));
     Ok(())
 }
 
@@ -1921,7 +1918,7 @@ fn rates(tool: &Tool, args: &[String]) -> Result<()> {
     let (_, conn) = store_of(tool, &args)?;
     let root = rules_root(&args)?;
     for rate in audit::rates(&conn, &group_names(&root)?)? {
-        println!(
+        crate::output::answer_line(format!(
             "{}: {} audits, {} confirmed misses; the latest {}: {}{}",
             rate.group,
             rate.audits,
@@ -1929,7 +1926,7 @@ fn rates(tool: &Tool, args: &[String]) -> Result<()> {
             rate.recent_audits,
             rate.recent_misses,
             if rate.risen() { " (risen)" } else { "" }
-        );
+        ));
     }
     Ok(())
 }
@@ -1940,10 +1937,10 @@ fn scores(tool: &Tool, args: &[String]) -> Result<()> {
     let args = Args::parse(args, &[], &[])?;
     args.exactly(0, USAGE)?;
     let (store, conn) = store_of(tool, &args)?;
-    print!(
-        "{}",
-        score::store_report(&store.project, &score::of_store(&conn)?)
-    );
+    crate::output::answer(score::store_report(
+        &store.project,
+        &score::of_store(&conn)?,
+    ));
     Ok(())
 }
 
@@ -2043,7 +2040,10 @@ fn case_command(tool: &Tool, args: &[String]) -> Result<()> {
         None => cases::Addition::Clean { rule: &rule },
     };
     let dir = cases::add(Path::new(root), &name, &project, &repo, &patch, &[addition])?;
-    println!("case {name} written in {}; commit it", dir.display());
+    crate::output::answer_line(format!(
+        "case {name} written in {}; commit it",
+        dir.display()
+    ));
     Ok(())
 }
 
@@ -2083,9 +2083,12 @@ fn list_groups(tool: &Tool, args: &[String]) -> Result<()> {
 
 fn print_group<'a>(group: &groups::Group, slugs: impl Iterator<Item = &'a str>) {
     let kind = if group.copy { ", copy review only" } else { "" };
-    println!("{} ({}{kind}): {}", group.name, group.model, group.question);
+    crate::output::answer_line(format!(
+        "{} ({}{kind}): {}",
+        group.name, group.model, group.question
+    ));
     for slug in slugs {
-        println!("  {slug}");
+        crate::output::answer_line(format!("  {slug}"));
     }
 }
 

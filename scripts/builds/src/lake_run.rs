@@ -236,7 +236,7 @@ impl Runner {
             .command
             .args(["query", &self.executable])
             .stdin(std::process::Stdio::null())
-            .stderr(std::process::Stdio::inherit())
+            .stderr(crate::output::inherit())
             .output()
             .context(|| format!("running lake in {}", package.display()))?;
         if !output.status.success() {

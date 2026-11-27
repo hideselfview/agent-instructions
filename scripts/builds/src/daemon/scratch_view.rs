@@ -302,10 +302,10 @@ pub fn named_worktrees(main: &Path) -> Result<Vec<(String, PathBuf)>> {
             // git lists a worktree whose folder someone deleted until
             // `git worktree prune` forgets it; it holds no files.
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                eprintln!(
-                    "builds: the scratch list leaves out {}, a worktree that git lists and whose folder is gone",
+                crate::output::note(format!(
+                    "the scratch list leaves out {}, a worktree that git lists and whose folder is gone",
                     listed.top.display()
-                );
+                ));
                 continue;
             }
             Err(error) => fail!("reading {}: {error}", listed.top.display()),

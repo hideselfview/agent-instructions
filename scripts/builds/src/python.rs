@@ -94,7 +94,7 @@ fn prepare(path: &OsStr, extra: &[PathBuf], folder: &Path) -> Result<Option<OsSt
     match found {
         Some(found) => {
             for problem in &problems {
-                crate::text::note(format!("python: {problem}"));
+                crate::output::note(format!("python: {problem}"));
             }
             crate::built_tools::point(&python3, &found)?
         }

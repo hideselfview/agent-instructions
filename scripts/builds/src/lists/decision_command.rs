@@ -17,7 +17,8 @@ use crate::lists::draft::{require_draft_briefs, work_or_why};
 use crate::lists::item::ItemDraft;
 use crate::lists::store::{self, Store};
 use crate::lists::{Decision, Id, Lists, PlanRef, Stamp, Standing, day};
-use crate::text::{local_minute, note};
+use crate::output::note;
+use crate::text::local_minute;
 use crate::tool::Tool;
 
 const USAGE: &str = "usage: builds decision add --request FILE [--by WHO]\n       builds decision edit N [--title T] [--body-file FILE] [--by WHO]\n       builds decision find WORD... \n       builds decision show N\n       builds decision list [--plan PATH] [--since YYYY-MM-DD]\n(every command takes --project P)";
@@ -151,7 +152,7 @@ fn find(tool: &Tool, args: &[String], cwd: &std::path::Path) -> Result<()> {
     }
     let lists = Store::resolve(&tool.places, &args, cwd)?.load()?;
     for decision in matching(&lists, words) {
-        println!("{}", line(decision));
+        crate::output::answer_line(line(decision));
     }
     Ok(())
 }
@@ -181,7 +182,7 @@ fn list(tool: &Tool, args: &[String], cwd: &std::path::Path) -> Result<()> {
             (Some(p), Some(_)) => format!(" [{}]", p.number),
             _ => String::new(),
         };
-        println!("{}{number}", line(decision));
+        crate::output::answer_line(format!("{}{number}", line(decision)));
     }
     Ok(())
 }
@@ -237,7 +238,7 @@ fn show(tool: &Tool, args: &[String], cwd: &std::path::Path) -> Result<()> {
     let Some(decision) = lists.decision(id) else {
         fail!("{id} is not a decision")
     };
-    print!("{}", render(&lists, decision));
+    crate::output::answer(render(&lists, decision));
     Ok(())
 }
 

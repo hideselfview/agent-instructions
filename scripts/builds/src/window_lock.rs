@@ -17,8 +17,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::fail;
 use crate::fail::{Context, Result};
+use crate::output::note;
 use crate::places::Places;
-use crate::text::note;
 
 /// How a step uses the host's windows and displays.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]

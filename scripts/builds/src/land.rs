@@ -153,6 +153,7 @@ use crate::fail;
 use crate::fail::{Context, Fail, Result};
 use crate::land_run::{LandRun, Step, StepKind};
 use crate::lists::Id;
+use crate::output::Report;
 use crate::text::shell_word;
 use boards::git;
 
@@ -163,12 +164,12 @@ const ATTEMPTS: usize = 5;
 
 pub fn cmd_land(tool: &crate::tool::Tool, args: &[String]) -> Result<()> {
     let stores = hold_stores()?;
-    let stdout = std::io::stdout();
+    let mut stdout = crate::output::answer_handle().lock();
     land_recorded(
         &tool.places,
         &tool.program,
         args,
-        &mut stdout.lock(),
+        &mut Report::to(&mut stdout),
         stores,
     )
 }
@@ -198,7 +199,7 @@ fn land_recorded(
     places: &crate::places::Places,
     program: &Path,
     args: &[String],
-    out: &mut dyn Write,
+    out: &mut Report,
     stores: Option<crate::install_gate::Holding<'_>>,
 ) -> Result<()> {
     let Ended {
@@ -224,13 +225,13 @@ fn record_run(places: &crate::places::Places, run: &LandRun) {
         run,
     );
     if let Err(error) = written {
-        crate::text::note(format!("this landing was not recorded: {}", error.text()));
+        crate::output::note(format!("this landing was not recorded: {}", error.text()));
     }
 }
 
 /// Ends the landing with <message> on <out> and exit status 1.
-fn refuse(out: &mut dyn Write, message: impl AsRef<str>) -> Fail {
-    let _ = writeln!(out, "{}", message.as_ref());
+fn refuse(out: &mut Report, message: impl AsRef<str>) -> Fail {
+    out.pass_through(message.as_ref());
     Fail::Exit(1)
 }
 
@@ -348,22 +349,20 @@ pub fn read_holder(file: &mut std::fs::File, path: &Path) -> Result<String> {
 /// landing holds for its turn. While another landing holds it, says on <out>
 /// that this one waits for <whose> turn and which landing holds it: the
 /// holder writes <me> into the file once it has the lock.
-fn take_turn(path: &Path, whose: &str, me: &str, out: &mut dyn Write) -> Result<std::fs::File> {
+fn take_turn(path: &Path, whose: &str, me: &str, out: &mut Report) -> Result<std::fs::File> {
     let mut file = crate::flock::open_creating(path)?;
     if !crate::flock::try_lock(&file, libc::LOCK_EX, path)? {
         let holder = read_holder(&mut file, path)?;
-        let _ = writeln!(
-            out,
+        out.say(format!(
             "waiting for {whose} to finish first: {}",
             if holder.is_empty() {
                 "another landing holds it"
             } else {
                 &holder
             }
-        );
-        let _ = out.flush();
+        ));
         crate::flock::lock(&file, libc::LOCK_EX, path)?;
-        let _ = writeln!(out, "{whose} finished, so this landing has its turn");
+        out.say(format!("{whose} finished, so this landing has its turn"));
     }
     write_turn(&mut file, path, me)?;
     Ok(file)
@@ -391,7 +390,7 @@ fn shell_words(args: &[String]) -> String {
 fn lock_worktree(
     worktree: &Path,
     args: &[String],
-    out: &mut dyn Write,
+    out: &mut Report,
 ) -> Result<(std::fs::File, PathBuf)> {
     let git_dir = git_text(worktree, &["rev-parse", "--absolute-git-dir"])
         .ok_or_else(|| Fail::Message(format!("{} is not a git worktree", worktree.display())))?;
@@ -486,7 +485,7 @@ impl Start {
 /// Refuses a worktree with uncommitted changes, untracked files included:
 /// they are its agent's work in progress, and the checkouts land makes would
 /// carry them into the result or stop on them.
-fn require_clean(dir: &Path, out: &mut dyn Write) -> Result<()> {
+fn require_clean(dir: &Path, out: &mut Report) -> Result<()> {
     let Some(status) = git_text(dir, &["status", "--porcelain"]) else {
         return Err(refuse(
             out,
@@ -515,7 +514,7 @@ fn resolve_on_head(
     dir: &Path,
     start: &Start,
     shas: &[String],
-    out: &mut dyn Write,
+    out: &mut Report,
 ) -> Result<Vec<String>> {
     let mut full = Vec::new();
     for sha in shas {
@@ -549,7 +548,7 @@ fn resolve_on_head(
 fn waiting_commits(
     dir: &Path,
     start: &Start,
-    out: &mut dyn Write,
+    out: &mut Report,
 ) -> Result<Vec<crate::side_git::Commit>> {
     crate::side_git::waiting_to_land(dir, start.rev()).map_err(|error| {
         refuse(
@@ -565,7 +564,7 @@ fn waiting_commits(
 /// The commits of the worktree's branch that origin/main lacks, oldest first,
 /// for a landing that names none; says which it took. Refuses a branch that
 /// holds none.
-fn branch_commits(dir: &Path, start: &Start, out: &mut dyn Write) -> Result<Vec<String>> {
+fn branch_commits(dir: &Path, start: &Start, out: &mut Report) -> Result<Vec<String>> {
     let mut waiting = waiting_commits(dir, start, out)?;
     if waiting.is_empty() {
         return Err(refuse(
@@ -577,17 +576,16 @@ fn branch_commits(dir: &Path, start: &Start, out: &mut dyn Write) -> Result<Vec<
         ));
     }
     waiting.reverse();
-    let _ = writeln!(
-        out,
+    out.say(format!(
         "no commit named: landing the {} commit(s) of {} that origin/main lacks, oldest first: {}",
         waiting.len(),
         start.name(),
         crate::unlanded::commit_words(&waiting)
-    );
+    ));
     Ok(waiting.into_iter().map(|c| c.full).collect())
 }
 
-fn parse(args: &[String], out: &mut dyn Write) -> Result<Request> {
+fn parse(args: &[String], out: &mut Report) -> Result<Request> {
     let mut items = Vec::new();
     let mut designs: Vec<Id> = Vec::new();
     let mut project: Option<String> = None;
@@ -750,7 +748,7 @@ impl Landing<'_> {
     /// Refuses `--done N` while the branch holds commits that this landing
     /// does not put on origin/main: the item stays open for them, which
     /// `--part N` does. A landing without `--done` has nothing to check.
-    fn check_done_leaves_nothing(&self, out: &mut dyn Write) -> Result<()> {
+    fn check_done_leaves_nothing(&self, out: &mut Report) -> Result<()> {
         if !self.request.items.iter().any(|word| word == "--done") {
             return Ok(());
         }
@@ -762,7 +760,7 @@ impl Landing<'_> {
         if left.is_empty() {
             return Ok(());
         }
-        let _ = writeln!(out, "LANDING REFUSED, land fetched and pushed nothing:");
+        out.say("LANDING REFUSED, land fetched and pushed nothing:");
         Err(refuse(
             out,
             format!(
@@ -775,7 +773,7 @@ impl Landing<'_> {
     }
 
     /// The checks of the lists that run before anything is fetched or picked.
-    fn check_lists(&self, out: &mut dyn Write) -> Result<()> {
+    fn check_lists(&self, out: &mut Report) -> Result<()> {
         let request = &self.request;
         let workdir = self.workdir.display();
         let Some(Recording { project, key, .. }) = &self.recording else {
@@ -821,10 +819,7 @@ impl Landing<'_> {
                 self.run_line(&self.with_items(&["design", "only"], false, &request.shas, project))
             });
             if !only {
-                let _ = writeln!(
-                    out,
-                    "LANDING REFUSED, land fetched and pushed nothing: --design alone lands only commits that are all design files; name the work item with --done N or --part N"
-                );
+                out.say("LANDING REFUSED, land fetched and pushed nothing: --design alone lands only commits that are all design files; name the work item with --done N or --part N");
                 return Err(refuse(out, said));
             }
         } else {
@@ -835,7 +830,7 @@ impl Landing<'_> {
                 project,
             ));
             if !ok {
-                let _ = writeln!(out, "LANDING REFUSED, land fetched and pushed nothing:");
+                out.say("LANDING REFUSED, land fetched and pushed nothing:");
                 return Err(refuse(out, said));
             }
             self.check_done_leaves_nothing(out)?;
@@ -844,10 +839,7 @@ impl Landing<'_> {
         // landing needs a design change only for the other places.
         let needs_design = places.lines().any(|line| !line.starts_with("spec "));
         if needs_design && request.designs.is_empty() {
-            let _ = writeln!(
-                out,
-                "LANDING REFUSED, land fetched and pushed nothing: the commits change design places; name each design change that resolves them with --design N"
-            );
+            out.say("LANDING REFUSED, land fetched and pushed nothing: the commits change design places; name each design change that resolves them with --design N");
             return Err(refuse(out, places));
         }
         if places.is_empty() && !request.designs.is_empty() {
@@ -870,17 +862,17 @@ impl Landing<'_> {
             line.push(project.clone());
             let (ok, said) = self.run_line(&line);
             if !ok {
-                let _ = writeln!(out, "LANDING REFUSED, land fetched and pushed nothing:");
+                out.say("LANDING REFUSED, land fetched and pushed nothing:");
                 return Err(refuse(out, said));
             }
         }
         let (ok, said) = self.run_line(&self.review_line("check-landing", project, key));
         if !ok {
-            let _ = writeln!(out, "LANDING REFUSED, land fetched and pushed nothing:");
+            out.say("LANDING REFUSED, land fetched and pushed nothing:");
             return Err(refuse(out, said));
         }
         if said.starts_with(crate::review::marked_mechanical::TAKEN) {
-            let _ = writeln!(out, "{}", said.trim_end());
+            out.pass_through(said.trim_end());
         }
         Ok(())
     }
@@ -891,7 +883,7 @@ impl Landing<'_> {
     /// fetched, and prints the lines it says of dropped shots prefixes and of
     /// pairs the base never rendered. A lane with no covering build ends the
     /// landing with the command's refusal.
-    fn check_app_builds(&self, out: &mut dyn Write) -> Result<()> {
+    fn check_app_builds(&self, out: &mut Report) -> Result<()> {
         if self.recording.is_none() {
             return Ok(());
         }
@@ -918,7 +910,7 @@ impl Landing<'_> {
         let said = String::from_utf8_lossy(&output.stdout).trim().to_string();
         if output.status.success() {
             if !said.is_empty() {
-                let _ = writeln!(out, "{said}");
+                out.pass_through(&said);
             }
             return Ok(());
         }
@@ -936,7 +928,7 @@ impl Landing<'_> {
     /// or only spec lines is another concern, which keeps its own commit. The branch must end at the
     /// last commit, since land moves it only there. Refuses, before it
     /// changes anything, when the squash would change a file.
-    fn squash_design(&mut self, out: &mut dyn Write) -> Result<()> {
+    fn squash_design(&mut self, out: &mut Report) -> Result<()> {
         let Some(Recording { project, .. }) = &self.recording else {
             return Ok(());
         };
@@ -958,11 +950,10 @@ impl Landing<'_> {
         *self.design_only.borrow_mut() = Some((only, said.clone()));
         if !only {
             // A broken check fails again in the lists check that follows.
-            let _ = writeln!(
-                out,
+            out.say(format!(
                 "not squashing the commits of design change {}: {said}",
                 self.request.designs[0].0
-            );
+            ));
             return Ok(());
         }
         // Only the commits of design files are the change's rounds. A commit of
@@ -1003,11 +994,8 @@ impl Landing<'_> {
                 .take_while(|&&design| design)
                 .count();
         if end - first < 2 || is_design[end..].contains(&true) {
-            let _ = writeln!(
-                out,
-                "not squashing the commits of design change {}: its design commits are not two or more in a row",
-                design.0
-            );
+            out.say(format!("not squashing the commits of design change {}: its design commits are not two or more in a row",
+                design.0));
             return Ok(());
         }
         let (ok, title) = self.builds(&[
@@ -1065,13 +1053,10 @@ impl Landing<'_> {
         if let Start::Detached(sha) = &mut self.start {
             *sha = squashed.clone();
         }
-        let _ = writeln!(
-            out,
-            "squashed {} commits of design change {} into one, which with the commits after it ends at {squashed}, the tree of {last}; the branch is now at it, so a later landing names {}",
+        out.say(format!("squashed {} commits of design change {} into one, which with the commits after it ends at {squashed}, the tree of {last}; the branch is now at it, so a later landing names {}",
             end - first,
             design.0,
-            landed.join(" ")
-        );
+            landed.join(" ")));
         self.request.shas = landed;
         self.squashed.set(true);
         Ok(())
@@ -1101,7 +1086,7 @@ impl Landing<'_> {
     /// and `builds review landed` with the commits as given and, when commits
     /// of the branch still wait to land (<waiting>), `--more-to-land`. Each is idempotent, so a failure prints
     /// the rerun. Says whether every record was written.
-    fn record(&self, on_main: &[String], waiting: bool, out: &mut dyn Write) -> bool {
+    fn record(&self, on_main: &[String], waiting: bool, out: &mut Report) -> bool {
         let Some(Recording { project, by, key }) = &self.recording else {
             return true;
         };
@@ -1133,9 +1118,9 @@ impl Landing<'_> {
             let (ok, said) = self.run_line(&line);
             if !ok {
                 all_written = false;
-                let _ = writeln!(out, "LANDED, NOT RECORDED: {said}");
+                out.say(format!("LANDED, NOT RECORDED: {said}"));
                 let words: Vec<String> = line.iter().map(|word| shell_word(word)).collect();
-                let _ = writeln!(out, "rerun: builds {}", words.join(" "));
+                out.say(format!("rerun: builds {}", words.join(" ")));
             }
         }
         all_written
@@ -1143,28 +1128,24 @@ impl Landing<'_> {
 
     /// Checks out the branch or commit the worktree had when the landing
     /// began, after a refusal, and prints what went wrong when git fails.
-    fn go_back(&self, out: &mut dyn Write) {
+    fn go_back(&self, out: &mut Report) {
         let mut reset = git(&self.workdir);
         reset.args(["reset", "-q", "--hard"]);
         let (reset, said) = merged(reset);
         if !reset {
             // A checkout after a failed reset would carry the refused
             // landing's files onto the branch as uncommitted changes.
-            let _ = writeln!(
-                out,
-                "could not reset {} to drop the refused landing's files, so it stays on the refused result; reset it and check out {} by hand:\n{said}",
+            out.say(format!("could not reset {} to drop the refused landing's files, so it stays on the refused result; reset it and check out {} by hand:\n{said}",
                 self.workdir.display(),
-                self.start.name()
-            );
+                self.start.name()));
             return;
         }
         if !self.start.check_out(&self.workdir) {
-            let _ = writeln!(
-                out,
+            out.say(format!(
                 "could not check out {} again in {}; check it out by hand",
                 self.start.name(),
                 self.workdir.display()
-            );
+            ));
         }
     }
 
@@ -1173,27 +1154,23 @@ impl Landing<'_> {
     /// that branch out again. Prints which, and how many commits wait to land
     /// there. When git fails to say what waits, land treats it as commits
     /// waiting, so the worktree keeps its claim.
-    fn leave(&self, out: &mut dyn Write) -> bool {
+    fn leave(&self, out: &mut Report) -> bool {
         let dir = self.workdir.display();
         let start = self.start.name();
         let waiting = match crate::side_git::waiting_to_land(&self.workdir, self.start.rev()) {
             Ok(waiting) if waiting.is_empty() => {
-                let _ = writeln!(
-                    out,
+                out.say(format!(
                     "{dir} is detached at the landed commit: nothing on its {start} waits to land"
-                );
+                ));
                 return false;
             }
             Ok(waiting) => format!("{} commit(s) there wait to land", waiting.len()),
             Err(error) => format!("reading what waits to land there failed: {error}"),
         };
         if self.start.check_out(&self.workdir) {
-            let _ = writeln!(out, "{dir} is back on its {start}: {waiting}");
+            out.say(format!("{dir} is back on its {start}: {waiting}"));
         } else {
-            let _ = writeln!(
-                out,
-                "{dir} stays at the landed commit, since git could not check out its {start} again: {waiting}"
-            );
+            out.say(format!("{dir} stays at the landed commit, since git could not check out its {start} again: {waiting}"));
         }
         true
     }
@@ -1203,16 +1180,18 @@ impl Landing<'_> {
     /// result. When `builds release` refuses, for example because an item
     /// still runs there, the worktree keeps its claim and the landing still
     /// succeeds: the commits are on origin/main.
-    fn release(&self, out: &mut dyn Write) {
+    fn release(&self, out: &mut Report) {
         let dir = self.workdir.display().to_string();
         let checkout = match crate::checkout::Checkout::at(&self.workdir) {
             Ok(Some(checkout)) => checkout,
             Ok(None) => {
-                let _ = writeln!(out, "kept the claim of {dir}: git finds no checkout there");
+                out.say(format!(
+                    "kept the claim of {dir}: git finds no checkout there"
+                ));
                 return;
             }
             Err(error) => {
-                let _ = writeln!(out, "kept the claim of {dir}: {}", error.text());
+                out.say(format!("kept the claim of {dir}: {}", error.text()));
                 return;
             }
         };
@@ -1221,16 +1200,16 @@ impl Landing<'_> {
         }
         let (ok, said) = self.builds(&["release", &dir]);
         if ok {
-            let _ = writeln!(out, "released {dir}");
+            out.say(format!("released {dir}"));
         } else {
-            let _ = writeln!(out, "kept the claim of {dir}: {said}");
+            out.say(format!("kept the claim of {dir}: {said}"));
         }
     }
 
     /// After the push: leaves the worktree, records the landing, and releases
     /// the worktree when its agent has nothing left there. The main checkout
     /// moves only after land writes the record of the run (`land_recorded`).
-    fn finish(&self, on_main: &[String], out: &mut dyn Write) -> Result<()> {
+    fn finish(&self, on_main: &[String], out: &mut Report) -> Result<()> {
         let waiting = {
             let _timing = self.timing(StepKind::Finish);
             self.leave(out)
@@ -1293,7 +1272,7 @@ impl Landing<'_> {
 
 /// The name on the worktree's claim, which the records after the push give as
 /// who landed; refuses a worktree with no claim.
-fn require_claim(workdir: &Path, out: &mut dyn Write) -> Result<String> {
+fn require_claim(workdir: &Path, out: &mut Report) -> Result<String> {
     let claim = match crate::checkout::Checkout::at(workdir)? {
         Some(checkout) => crate::claim::Claim::read(&checkout.claim_file())?,
         None => None,
@@ -1314,12 +1293,11 @@ fn require_claim(workdir: &Path, out: &mut dyn Write) -> Result<String> {
 /// and prints a MAIN CHECKOUT BEHIND line, which says why and gives the
 /// command to run, when the checkout is not on main or git refuses the
 /// fast-forward (the person's commits or uncommitted edits there stop it).
-fn forward_main_checkout(workdir: &Path, out: &mut dyn Write) {
-    let behind = |out: &mut dyn Write, what: String| {
-        let _ = writeln!(
-            out,
+fn forward_main_checkout(workdir: &Path, out: &mut Report) {
+    let behind = |out: &mut Report, what: String| {
+        out.say(format!(
             "MAIN CHECKOUT BEHIND: the landing is on origin/main, but {what}"
-        );
+        ));
     };
     let main = match crate::checkout::Checkout::at(workdir) {
         Ok(Some(checkout)) => checkout.main,
@@ -1364,13 +1342,12 @@ fn forward_main_checkout(workdir: &Path, out: &mut dyn Write) {
     merge.args(["merge", "--ff-only", "origin/main"]);
     let (ok, said) = merged(merge);
     if ok {
-        let _ = writeln!(
-            out,
+        out.say(format!(
             "fast-forwarded the main checkout {} to origin/main",
             main.display()
-        );
+        ));
         if !said.is_empty() {
-            let _ = writeln!(out, "{said}");
+            out.pass_through(&said);
         }
     } else {
         behind(
@@ -1389,13 +1366,12 @@ fn forward_main_checkout(workdir: &Path, out: &mut dyn Write) {
 /// and git does not report the hook's failure, so land reads the record
 /// install.sh leaves (`main_checkout::failed_install`). A failure from an
 /// earlier landing stays until an install succeeds.
-fn report_failed_install(main: &Path, out: &mut dyn Write) {
+fn report_failed_install(main: &Path, out: &mut Report) {
     if let Some(words) = crate::main_checkout::failed_install_words(main) {
-        let _ = writeln!(
-            out,
+        out.say(format!(
             "INSTALL FAILED: {words}. Once the cause is fixed, run: {}",
             crate::main_checkout::install_command(main)
-        );
+        ));
     }
 }
 
@@ -1425,7 +1401,7 @@ impl Ended {
 /// The landing, with the program that answers the `builds` commands it runs
 /// (this program; tests pass a stand-in) and <out> for what it says. Land
 /// holds the worktree's lock only until it has run.
-fn land_profiled(program: &Path, args: &[String], out: &mut dyn Write) -> Ended {
+fn land_profiled(program: &Path, args: &[String], out: &mut Report) -> Ended {
     let started_at = crate::app_timing::now();
     let began = Moment::now();
     let Some((worktree, rest)) = args.split_first() else {
@@ -1461,7 +1437,7 @@ fn land_profiled(program: &Path, args: &[String], out: &mut dyn Write) -> Ended 
     let run = match landing.run_record(started_at, began) {
         Ok(run) => run.map(Box::new),
         Err(error) => {
-            crate::text::note(format!("this landing was not recorded: {}", error.text()));
+            crate::output::note(format!("this landing was not recorded: {}", error.text()));
             None
         }
     };
@@ -1477,7 +1453,7 @@ fn open_landing<'a>(
     program: &'a Path,
     workdir: PathBuf,
     args: &[String],
-    out: &mut dyn Write,
+    out: &mut Report,
 ) -> Result<Landing<'a>> {
     let mut request = parse(args, out)?;
     let start = Start::read(&workdir)?;
@@ -1504,7 +1480,7 @@ fn open_landing<'a>(
 impl Landing<'_> {
     /// Reads the project, checks the lists and the branch's app builds, puts
     /// the commits on origin/main and finishes.
-    fn proceed(&mut self, out: &mut dyn Write) -> Result<()> {
+    fn proceed(&mut self, out: &mut Report) -> Result<()> {
         let (ok, project) =
             self.builds(&["lists", "project-of", &self.workdir.display().to_string()]);
         if !ok {

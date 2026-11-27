@@ -181,7 +181,7 @@ pub fn sudo_step(
     if !at_terminal {
         fail!("{lacking}, and no one is at this terminal to type the sudo password. {then}");
     }
-    crate::text::note(format!(
+    crate::output::note(format!(
         "running {shown} on {place} through sudo, which asks for the password there"
     ));
     if let Err(failed) = run(&commands.join(" && ")) {
@@ -1359,10 +1359,10 @@ pub fn cmd_host(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
     match args {
         [add_word, name, target] if add_word == "add" => {
             let host = add(&tool.places, ssh, name, target)?;
-            println!(
+            crate::output::say(format!(
                 "added host {} ({}, {} cores)",
                 host.name, target, host.cores
-            );
+            ));
             Ok(())
         }
         [word, name] if word == "setup" => crate::host_setup::cmd_setup(tool, ssh, name),
@@ -1379,18 +1379,20 @@ pub fn cmd_host(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
                 fail!("no host named {name} (`builds host list`)");
             }
             clear_refusal(&tool.places, Refused::Xcode, name)?;
-            println!("mac app builds use the app checkouts on host {name} again");
+            crate::output::say(format!(
+                "mac app builds use the app checkouts on host {name} again"
+            ));
             Ok(())
         }
         [word, name] if word == "remove" => {
             remove(&tool.places, name)?;
-            println!("removed host {name}");
+            crate::output::say(format!("removed host {name}"));
             Ok(())
         }
         [word] if word == "cache" => crate::sccache_history::cmd_cache(tool),
         [word] if word == "list" => {
             for (host, probe) in probe_all(&tool.places, ssh, all(&tool.places)?) {
-                println!("{}", list_line(&host, &probe));
+                crate::output::answer_line(list_line(&host, &probe));
             }
             Ok(())
         }

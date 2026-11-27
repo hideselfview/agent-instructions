@@ -22,9 +22,9 @@ use crate::fail::{Context, Fail, Result};
 use crate::free_worktrees::find_free;
 use crate::host::Ssh;
 use crate::lane::{AppCheckout, Lane, require_app_checkout_name};
+use crate::output::note;
 use crate::roots::delete;
 use crate::setup::setup;
-use crate::text::note;
 use crate::tool::Tool;
 use boards::{git, git_text};
 
@@ -78,7 +78,7 @@ pub fn cmd_new(tool: &Tool, ssh: &crate::host::Ssh, args: &[String]) -> Result<(
     };
     let who = who.unwrap_or_else(|| "builds new".to_string());
     let handed = hand_out(tool, ssh, &repo_path, start, &who, project.as_deref())?;
-    println!("{}", handed.checkout.top.display());
+    crate::output::answer_line(handed.checkout.top.display());
     Ok(())
 }
 

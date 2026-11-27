@@ -78,6 +78,7 @@ pub fn run(args: &[OsString]) -> Result<std::convert::Infallible> {
     use std::os::unix::process::CommandExt;
     let out_dir = std::env::var_os("OUT_DIR").map(PathBuf::from);
     let added = added_arg(out_dir.as_deref())?;
+    crate::output::finish();
     let error = std::process::Command::new(SCCACHE)
         .args(args)
         .args(added)

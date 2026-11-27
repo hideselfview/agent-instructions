@@ -40,10 +40,10 @@ use crate::checkout::Checkout;
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
 use crate::host::{self, Host, Ssh};
+use crate::output::note;
 use crate::places::Places;
 use crate::procs::{Place, Processes, live_args, place_of_process};
 use crate::remote::{self, Job, Request, SSH_FAILED, Start, Transport, What};
-use crate::text::note;
 
 /// The environment variable naming a program to run before cargo (`Before`).
 pub const BEFORE_VARIABLE: &str = "BUILDS_CARGO_BEFORE";

@@ -13,10 +13,11 @@ use crate::fail;
 use crate::fail::{Context, Fail, Result};
 use crate::free_worktrees::retire_free;
 use crate::manifest::{SHARED_CACHES, SharedCache, build_dirs, has_manifest};
+use crate::output::note;
 use crate::places::{DERIVED_DATA_CAP_KIB, DERIVED_DATA_IDLE_MINUTES, FLOOR_IDLE_MINUTES, Places};
 use crate::roots::delete;
 use crate::temp_builds::temp_build_folders;
-use crate::text::{human, note};
+use crate::text::human;
 use crate::tool::Tool;
 use crate::trees::prune_trees;
 use crate::units;
@@ -895,7 +896,7 @@ fn prune_hosts(
             Ok(said) => {
                 for line in said.lines().filter(|line| !line.is_empty()) {
                     let line = line.strip_prefix("builds: ").unwrap_or(line);
-                    note(format!("host {}: {line}", host.name));
+                    crate::output::relayed(format!("builds: host {}: {line}", host.name));
                 }
             }
             Err(said) => note(said),

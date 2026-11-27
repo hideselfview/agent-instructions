@@ -95,7 +95,7 @@ pub fn remove_or_warn(path: &Path) -> bool {
         Ok(()) => true,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => true,
         Err(error) => {
-            crate::text::note(format!(
+            crate::output::note(format!(
                 "warning: could not finish removing {}: {error}; it stays in the trash for the next emptier",
                 path.display()
             ));
@@ -204,7 +204,7 @@ pub fn empty_now(places: &Places) -> Result<()> {
                 if let Err(error) = std::fs::remove_file(&slot)
                     && error.kind() != std::io::ErrorKind::NotFound
                 {
-                    crate::text::note(format!(
+                    crate::output::note(format!(
                         "warning: could not remove {}: {error}",
                         slot.display()
                     ));
@@ -216,7 +216,7 @@ pub fn empty_now(places: &Places) -> Result<()> {
         if let Err(error) = std::fs::remove_dir(&folder)
             && error.kind() != std::io::ErrorKind::NotFound
         {
-            crate::text::note(format!(
+            crate::output::note(format!(
                 "warning: could not remove {}: {error}",
                 folder.display()
             ));

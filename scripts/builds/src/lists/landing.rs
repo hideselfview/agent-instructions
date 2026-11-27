@@ -38,7 +38,7 @@ use crate::lists::record::close;
 use crate::lists::running::{Ended, Running, end, place_in_repo};
 use crate::lists::store::{self, Store};
 use crate::lists::{Closed, How, Id, Item, Kind, Lists, Located, Stamp, Standing, item_change};
-use crate::text::note;
+use crate::output::note;
 use crate::tool::Tool;
 use boards::git;
 

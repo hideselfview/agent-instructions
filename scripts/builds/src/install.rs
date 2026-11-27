@@ -15,10 +15,11 @@ use crate::checkout::absolute_link_target;
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::manifest::SHARED_CACHES;
+use crate::output::note;
 use crate::places::Places;
 use crate::sccache::{Job, job_serves};
 use crate::sccache_service::Manager;
-use crate::text::{human, note, tilde};
+use crate::text::{human, tilde};
 use crate::tool::Tool;
 
 /// The sccache config file on a host of OS <os>, relative to $HOME: where

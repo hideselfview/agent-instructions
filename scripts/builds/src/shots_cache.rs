@@ -77,11 +77,11 @@ use crate::capped_store::{self, Group, Kept, Use, entries_in, folders_in};
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
 use crate::lane::Lane;
+use crate::output::note;
 use crate::places::Places;
 use crate::prune::Run;
 use crate::shots_in_use::{self, Named};
 use crate::shots_program::Versions;
-use crate::text::note;
 use crate::tool::Tool;
 
 /// The folder on the build volume that holds every repo's runs.

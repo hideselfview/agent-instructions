@@ -80,9 +80,9 @@ use crate::fail::{Context, Fail, Result};
 use crate::holder_run::{HolderRun, RunningStep};
 use crate::host::{self, Ssh};
 use crate::lane::Lane;
+use crate::output::note;
 use crate::places::Places;
 use crate::queue::{self, Queue, Ticket};
-use crate::text::note;
 
 /// The command's process group, for the signal handlers; 0 when none runs.
 static GROUP: AtomicI32 = AtomicI32::new(0);
@@ -1063,12 +1063,16 @@ fn run_group(
     let watch = || keep.lines();
     if let Some(stdout) = child.stdout.take() {
         let (all, watch, done) = (all(), watch(), output_done.clone());
-        std::thread::spawn(move || copy_and_keep(stdout, std::io::stdout(), all, watch, done));
+        std::thread::spawn(move || {
+            copy_and_keep(stdout, crate::output::child_stdout(), all, watch, done)
+        });
         copies += 1;
     }
     if let Some(stderr) = child.stderr.take() {
         let (all, watch, done) = (all(), watch(), output_done.clone());
-        std::thread::spawn(move || copy_and_keep(stderr, std::io::stderr(), all, watch, done));
+        std::thread::spawn(move || {
+            copy_and_keep(stderr, crate::output::child_stderr(), all, watch, done)
+        });
         copies += 1;
     }
     drop(output_done);

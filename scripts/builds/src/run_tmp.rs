@@ -124,7 +124,7 @@ impl Drop for RunTmp {
         // A folder this cannot delete is a run's leftover: the process is
         // gone by then, so the next health pass deletes it (`sweep_here`).
         if let Err(error) = std::fs::remove_dir_all(&self.folder) {
-            crate::text::note(format!(
+            crate::output::note(format!(
                 "deleting the run's temporary folder {}: {error}",
                 self.folder.display()
             ));

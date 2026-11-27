@@ -33,9 +33,9 @@ use crate::fail::{Context, Fail, Result};
 use crate::host::{self, Host, LINUX_ROOT, REMOTE_ROOT, Ssh, VOLUME, choose, clone_path, sh_quote};
 use crate::host_platform::Os;
 use crate::job_claim::Holders;
+use crate::output::note;
 use crate::places::Places;
 use crate::setup::Prepare;
-use crate::text::note;
 use crate::tool::Tool;
 use boards::{git, git_text};
 
@@ -973,12 +973,12 @@ pub fn run_command(
         .stdout(if cargo.is_some() {
             Stdio::piped()
         } else {
-            Stdio::inherit()
+            crate::output::inherit()
         })
         .stderr(if cargo.is_some() {
             Stdio::piped()
         } else {
-            Stdio::inherit()
+            crate::output::inherit()
         })
         // Its own process group: a Ctrl-C reaches builds, which stops the
         // command on the host itself.
@@ -989,7 +989,7 @@ pub fn run_command(
     let relay = child.stderr.take().zip(cargo).map(|(stderr, watch)| {
         crate::lock_wait::relay(
             stderr,
-            crate::cargo_run_outcome::Tee::new(std::io::stderr(), watch.clone()),
+            crate::cargo_run_outcome::Tee::new(crate::output::child_stderr(), watch.clone()),
         )
     });
     let out = child
@@ -1032,7 +1032,7 @@ fn relay_stdout(
     watch: crate::cargo_run_outcome::Watch,
 ) -> std::thread::JoinHandle<()> {
     std::thread::spawn(move || {
-        let mut to = crate::cargo_run_outcome::Tee::new(std::io::stdout(), watch);
+        let mut to = crate::cargo_run_outcome::Tee::new(crate::output::child_stdout(), watch);
         let mut printing = true;
         let mut chunk = [0u8; 8192];
         loop {

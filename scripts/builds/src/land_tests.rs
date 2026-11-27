@@ -4,7 +4,8 @@ use crate::testing::{Scratch, git_out};
 /// The landing in <f>, which records its run in the store of its project in
 /// <f>'s places, when there is one.
 fn land(f: &Fixture, program: &Path, args: &[String], out: &mut dyn Write) -> Result<()> {
-    land_recorded(&f.scratch.places(), program, args, out, None)
+    let places = f.scratch.places();
+    land_recorded(&places, program, args, &mut Report::to(out), None)
 }
 
 /// A fixture: a bare origin and the repo's main checkout, cloned from it,
@@ -188,7 +189,7 @@ fn profiled(f: &Fixture, dir: &Path, args: &[&str], cues: Cues) -> (i32, Option<
     let mut all = vec![dir.display().to_string()];
     all.extend(args.iter().map(|a| a.to_string()));
     let mut out = Vec::new();
-    let Ended { result, run, .. } = land_profiled(&stub, &all, &mut out);
+    let Ended { result, run, .. } = land_profiled(&stub, &all, &mut Report::to(&mut out));
     let code = match result {
         Ok(()) => 0,
         Err(Fail::Exit(code)) => code,
@@ -1465,7 +1466,7 @@ read -t 60 mark <&4 || { echo "the landing in $other did not reach its check"; e
         let places = f.scratch.places();
         std::thread::spawn(move || {
             let mut out = Vec::new();
-            let result = land_recorded(&places, &stub, &args, &mut out, None);
+            let result = land_recorded(&places, &stub, &args, &mut Report::to(&mut out), None);
             (result.is_ok(), String::from_utf8_lossy(&out).into_owned())
         })
     };
@@ -1493,7 +1494,7 @@ fn two_landings_started_together_in_one_worktree_run_one_after_the_other() {
         let places = f.scratch.places();
         std::thread::spawn(move || {
             let mut out = Vec::new();
-            let result = land_recorded(&places, &stub, &args, &mut out, None);
+            let result = land_recorded(&places, &stub, &args, &mut Report::to(&mut out), None);
             (result.is_ok(), String::from_utf8_lossy(&out).into_owned())
         })
     };
@@ -1535,11 +1536,16 @@ fn a_waiting_landing_names_the_landing_it_waits_behind() {
     let f = fixture("land-lock-names", "true\n", None);
     let one = f.side(1, "a");
     let mut first = Vec::new();
-    let held = lock_worktree(&one, &["--done".into(), "7".into()], &mut first).unwrap();
+    let held = lock_worktree(
+        &one,
+        &["--done".into(), "7".into()],
+        &mut Report::to(&mut first),
+    )
+    .unwrap();
     let dir = one.clone();
     let waiter = std::thread::spawn(move || {
         let mut out = Vec::new();
-        lock_worktree(&dir, &[], &mut out).unwrap();
+        lock_worktree(&dir, &[], &mut Report::to(&mut out)).unwrap();
         String::from_utf8_lossy(&out).into_owned()
     });
     std::thread::sleep(std::time::Duration::from_millis(300));
@@ -1835,7 +1841,13 @@ fn an_install_that_moves_the_store_waits_until_the_landing_records_its_run() {
         a,
     ];
     let mut out = Vec::new();
-    let result = land_recorded(&places, &stub, &args, &mut out, Some(stores));
+    let result = land_recorded(
+        &places,
+        &stub,
+        &args,
+        &mut Report::to(&mut out),
+        Some(stores),
+    );
     let out = String::from_utf8_lossy(&out);
     assert!(result.is_ok(), "{out}");
     assert_eq!(
@@ -2202,7 +2214,7 @@ read -t 60 mark <&4 || { echo "the landing in $other did not reach its check"; e
         let (stub, places) = (stub.clone(), f.scratch.places());
         std::thread::spawn(move || {
             let mut out = Vec::new();
-            let result = land_recorded(&places, &stub, &args, &mut out, None);
+            let result = land_recorded(&places, &stub, &args, &mut Report::to(&mut out), None);
             (result.is_ok(), String::from_utf8_lossy(&out).into_owned())
         })
     };

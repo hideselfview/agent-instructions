@@ -501,7 +501,7 @@ pub(super) fn propose_command(tool: &crate::tool::Tool, args: &[String]) -> Resu
         model: &model,
         per_group,
     })?;
-    print!("{}", proposed.text);
+    crate::output::answer(proposed.text);
     if proposed.failed {
         return Err(crate::fail::Fail::Exit(1));
     }

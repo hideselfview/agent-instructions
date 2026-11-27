@@ -1,6 +1,6 @@
 //! Prints the instructions a planner or implementing agent needs for its paths.
 
-use std::io::{self, Write};
+use std::io::Write;
 use std::path::{Component, Path};
 
 use crate::fail;
@@ -20,7 +20,7 @@ pub fn cmd_brief(root: &Path, args: &[String]) -> Result<()> {
         Some(project) => rules::load_project(root, project)?,
         None => rules::load_shared(root)?,
     };
-    io::stdout()
+    crate::output::answer_handle()
         .lock()
         .write_all(render(&paths, &rules).as_bytes())
         .context(|| "writing the brief".to_string())

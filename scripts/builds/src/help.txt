@@ -38,6 +38,30 @@ it does in every repo (LANDING AND REVIEW). To try an edit to builds before
 (scripts/builds/target/debug/builds).
 
 
+OUTPUT
+
+Agents read what builds prints into their context. Everything builds prints is
+one of three things:
+
+  - A message about the work: a `builds:` note, a warning, progress, or a
+    result for one file or checkout. A kind of message is the messages that
+    one place in builds' code prints. A command prints 30 lines of each kind,
+    counting each line of a message that has several. As it ends, it prints
+    one line for each kind that had more: `builds: left out N more lines of
+    one kind, the last of them: <line>`.
+  - Output the caller asked for: help, rules, the text of `builds ack`, what
+    the show, list and status commands report, the report of `builds health`,
+    findings, JSON and paths. builds prints it whole. To see less of a list,
+    narrow it with the command's filters. A landing prints whole the refusal
+    that ends it.
+  - What another program prints, such as cargo, a test, a check or git, and
+    the lines a host's builds printed, which that builds capped there. builds
+    passes it on as it is.
+
+The dashboard serves until something stops it, so it writes every line of its
+log.
+
+
 ACKNOWLEDGING THE RULES
 
 An agent runs `builds ack` to acknowledge the workflow and lists overview at

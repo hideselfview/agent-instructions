@@ -165,11 +165,11 @@ pub fn cmd_cache(tool: &crate::tool::Tool) -> Result<()> {
     let samples = read(&tool.places.home)?;
     let now = crate::app_timing::now();
     for host in crate::host::all(&tool.places)? {
-        println!(
+        crate::output::answer_line(format!(
             "compile cache on {}: {}",
             crate::host::place(&host.name),
             rates_text(&samples, &host.name, now)
-        );
+        ));
     }
     Ok(())
 }

@@ -168,7 +168,7 @@ impl Log {
         if let Err(error) = writeln!(file, "{line}")
             && !self.1.swap(true, std::sync::atomic::Ordering::Relaxed)
         {
-            crate::text::note(format!(
+            crate::output::note(format!(
                 "builds cannot write the agent's log, so `builds agent show` and health see no more of the agent: {error}"
             ));
         }

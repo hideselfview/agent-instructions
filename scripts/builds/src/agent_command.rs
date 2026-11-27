@@ -28,8 +28,8 @@ use crate::lists::spec_check::Brief as BriefFile;
 use crate::lists::store::{Store, resolve_by};
 use crate::lists::{Id, Lists};
 use crate::model_tier::Tier;
+use crate::output::note;
 use crate::review::provider::Provider;
-use crate::text::note;
 use crate::tool::Tool;
 
 const USAGE: &str = "builds agent run --role implementing|planner N [M...] [--brief P] [--message-file F] [--project P] [--by WHO]\n       builds agent resume SESSION [--item N]... [--message-file F] [--project P]\n       builds agent list [--running] [--project P]\n       builds agent show SESSION [--project P]";
@@ -38,15 +38,17 @@ const USAGE: &str = "builds agent run --role implementing|planner N [M...] [--br
 pub fn cmd_agent(tool: &Tool, args: &[String]) -> Result<()> {
     let cwd = current_dir()?;
     match args.split_first() {
-        Some((command, rest)) if command == "run" => run(tool, rest, &cwd, &mut std::io::stdout()),
+        Some((command, rest)) if command == "run" => {
+            run(tool, rest, &cwd, &mut crate::output::answer_handle())
+        }
         Some((command, rest)) if command == "resume" => {
-            resume(tool, rest, &cwd, &mut std::io::stdout())
+            resume(tool, rest, &cwd, &mut crate::output::answer_handle())
         }
         Some((command, rest)) if command == "list" => {
-            crate::agent_list::list(tool, rest, &cwd, &mut std::io::stdout())
+            crate::agent_list::list(tool, rest, &cwd, &mut crate::output::answer_handle())
         }
         Some((command, rest)) if command == "show" => {
-            crate::agent_list::show(tool, rest, &cwd, &mut std::io::stdout())
+            crate::agent_list::show(tool, rest, &cwd, &mut crate::output::answer_handle())
         }
         Some((command, _)) => fail!("builds agent has no command {command}\nusage: {USAGE}"),
         None => fail!("usage: {USAGE}"),

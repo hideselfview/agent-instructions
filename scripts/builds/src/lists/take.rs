@@ -46,8 +46,8 @@ use crate::lists::spec_check::{self, Brief, Setup};
 use crate::lists::store::{self, Store};
 use crate::lists::{Audience, Id, Lists, Stamp};
 use crate::model_tier::Tier;
+use crate::output::note;
 use crate::review::Reviewer;
-use crate::text::note;
 use crate::tool::Tool;
 use crate::worktree::{Handed, Start, hand_out};
 

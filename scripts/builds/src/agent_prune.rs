@@ -15,8 +15,8 @@ use std::path::PathBuf;
 use crate::agent_record;
 use crate::db;
 use crate::fail::Result;
+use crate::output::note;
 use crate::prune::Run;
-use crate::text::note;
 use crate::tool::Tool;
 
 /// The session folders of <agents> to delete: those named in <done> and not

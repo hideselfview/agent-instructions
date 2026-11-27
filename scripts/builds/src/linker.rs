@@ -108,6 +108,7 @@ pub fn added_args(args: &[OsString]) -> Result<Vec<OsString>> {
 pub fn run(args: &[OsString]) -> Result<std::convert::Infallible> {
     use std::os::unix::process::CommandExt;
     let added = added_args(args)?;
+    crate::output::finish();
     let error = std::process::Command::new("cc")
         .args(args)
         .args(added)

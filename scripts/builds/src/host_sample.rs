@@ -43,7 +43,7 @@ pub fn samples_of(answers: &[(Host, std::result::Result<Probe, String>)]) -> Vec
                 memory: probe.memory.pressure,
             }),
             Err(error) => {
-                crate::text::note(format!("host {} gave no sample: {error}", host.name));
+                crate::output::note(format!("host {} gave no sample: {error}", host.name));
                 None
             }
         })
@@ -89,7 +89,7 @@ pub fn sample_once(places: &Places, ssh: &Ssh, at: i64) -> Result<()> {
         let written = crate::db::open(&store.database(), crate::db::Make::Never)
             .and_then(|mut db| record(&mut db, at, &samples));
         if let Err(error) = written {
-            crate::text::note(format!(
+            crate::output::note(format!(
                 "recording the hosts' load in project {}: {}",
                 store.project,
                 error.text()
@@ -108,7 +108,7 @@ pub fn start(places: Places) -> Result<()> {
             let ssh = Ssh::from_env();
             loop {
                 if let Err(error) = sample_once(&places, &ssh, crate::app_timing::now()) {
-                    crate::text::note(format!("sampling the hosts: {}", error.text()));
+                    crate::output::note(format!("sampling the hosts: {}", error.text()));
                 }
                 std::thread::sleep(Duration::from_secs(EVERY_SECONDS));
             }

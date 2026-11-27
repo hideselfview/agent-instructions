@@ -89,7 +89,7 @@ pub fn allowed_of(ticket: &str) -> Result<Where> {
 
 fn where_for_waiter(name: &str) -> Where {
     allowed_of(name).unwrap_or_else(|_| {
-        crate::text::note(format!(
+        crate::output::note(format!(
             "{name} is no ticket of this builds, so builds waits behind it as behind any build"
         ));
         Where::Anywhere
@@ -765,7 +765,7 @@ pub fn takeover(places: &Places, repo: &str, pid: Option<i32>, lane: Option<Lane
 pub fn stop_holder(pid: i32) -> Result<()> {
     match Processes::read()?.get(pid) {
         None => {
-            crate::text::note(format!("process {pid} ended before builds could stop it"));
+            crate::output::note(format!("process {pid} ended before builds could stop it"));
             return Ok(());
         }
         Some(process) if process.name != "builds" => fail!(
@@ -779,7 +779,7 @@ pub fn stop_holder(pid: i32) -> Result<()> {
     }
     let error = std::io::Error::last_os_error();
     if error.raw_os_error() == Some(libc::ESRCH) {
-        crate::text::note(format!("process {pid} ended before builds could stop it"));
+        crate::output::note(format!("process {pid} ended before builds could stop it"));
         return Ok(());
     }
     fail!("stopping the build of process {pid}: {error}")
@@ -834,7 +834,7 @@ pub fn cmd_queue(places: &Places, args: &[String]) -> Result<()> {
                     let checkout = recorded.entry();
                     let lock = places.app_lock_file(repo, lane, checkout);
                     if !crate::flock::is_held(&lock)? {
-                        println!("{} {checkout}: free", lane.word());
+                        crate::output::answer_line(format!("{} {checkout}: free", lane.word()));
                     } else {
                         let real = std::fs::canonicalize(&lock).unwrap_or(lock.clone());
                         let holder = first.iter().find(|pid| {
@@ -843,37 +843,45 @@ pub fn cmd_queue(places: &Places, args: &[String]) -> Result<()> {
                                 .any(|open| *open == real || *open == lock)
                         });
                         match holder {
-                            Some(pid) => println!(
+                            Some(pid) => crate::output::answer_line(format!(
                                 "{} {checkout}: holder {pid} {}",
                                 lane.word(),
                                 command_of(*pid)
-                            ),
-                            None => println!("{} {checkout}: held", lane.word()),
+                            )),
+                            None => crate::output::answer_line(format!(
+                                "{} {checkout}: held",
+                                lane.word()
+                            )),
                         }
                     }
                     if let AddedBy::Builds { at, why } = &recorded.added_by {
-                        println!(
+                        crate::output::answer_line(format!(
                             "{} {checkout}: builds added it at {}: {why}",
                             lane.word(),
                             local_minute(*at)
-                        );
+                        ));
                     }
                 }
                 for removed in places.app_checkouts_removed(repo, lane)? {
-                    println!(
+                    crate::output::answer_line(format!(
                         "{}: builds removed {} at {}: {}",
                         lane.word(),
                         removed.entry,
                         local_minute(removed.at),
                         removed.why
-                    );
+                    ));
                 }
                 let waiting = queue.waiting()?;
                 if waiting.is_empty() {
-                    println!("{}: nobody waits", lane.word());
+                    crate::output::answer_line(format!("{}: nobody waits", lane.word()));
                 }
                 for (at, (pid, _)) in waiting.iter().enumerate() {
-                    println!("{}: {}. {pid} {}", lane.word(), at + 1, command_of(*pid));
+                    crate::output::answer_line(format!(
+                        "{}: {}. {pid} {}",
+                        lane.word(),
+                        at + 1,
+                        command_of(*pid)
+                    ));
                 }
             }
             Ok(())

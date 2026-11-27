@@ -14,8 +14,8 @@ use std::process::{Command, Stdio};
 
 use crate::fail;
 use crate::fail::{Context, Result};
+use crate::output::note;
 use crate::places::Places;
-use crate::text::note;
 
 /// The elan version builds installs on a Mac that has no elan. A Mac that
 /// has another version keeps it: elan only fetches and selects toolchains,
@@ -122,7 +122,7 @@ pub fn ensure_toolchains(
         let status = elan_command(home, &elan(home))
             .args(["toolchain", "install", &toolchain])
             .stdin(Stdio::null())
-            .stdout(crate::text::stderr_for_child()?)
+            .stdout(crate::output::stderr_for_child()?)
             .status()
             .context(|| format!("running {} toolchain install", elan(home).display()))?;
         if !status.success() {
@@ -176,7 +176,7 @@ fn install_elan(home: &Path, download: impl FnOnce(&Path) -> Result<()>) -> Resu
         let status = elan_command(home, &installer)
             .args(["-y", "--no-modify-path", "--default-toolchain", "none"])
             .stdin(Stdio::null())
-            .stdout(crate::text::stderr_for_child()?)
+            .stdout(crate::output::stderr_for_child()?)
             .status()
             .context(|| format!("running {}", installer.display()))?;
         if !status.success() {

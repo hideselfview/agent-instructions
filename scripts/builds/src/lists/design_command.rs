@@ -28,7 +28,7 @@ use crate::tool::Tool;
 const USAGE: &str = "usage: builds design places DIR REV...\n       builds design only DIR REV...\n       builds design record --request FILE\n       builds design amend N --request FILE\n       builds design approve N\n       builds design check N[,N...] DIR REV...\n       builds design landed N DIR SHA...\n       builds design drop N --why WHY\n       builds design show N\n       builds design title N\n       builds design list\n       builds design render DIR BOARD [--theme light|dark] [--now | --at REV]\n       builds design tokens-css DIR\n       builds design publish-find DIR --artifacts FILE [--at REV]\n       builds design publish-files DIR OUT --artifacts FILE (--index FILE | --no-index) [--at REV]\n       builds design publish-last FOLDER --listing FILE [(--index FILE | --no-index) --by WHO [--uploaded FILE]]\n       builds design listen --project P\n       builds design publish take N [--project P] [--by WHO]\n       builds design publish done N --link TITLE=URL... [--project P] [--by WHO]\n       builds design publish failed N --why WHY [--project P] [--by WHO]";
 
 pub fn cmd_design(tool: &Tool, args: &[String]) -> Result<()> {
-    print!("{}", run_to_text(tool, args)?);
+    crate::output::answer(run_to_text(tool, args)?);
     Ok(())
 }
 

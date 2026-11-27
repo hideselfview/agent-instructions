@@ -24,12 +24,12 @@ use std::path::Path;
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::lane::Lane;
+use crate::output::note;
 use crate::places::Places;
 use crate::shot_causes;
 use crate::shots_cache::{self, Cached, Key};
 use crate::shots_check_program;
 use crate::shots_program::VERSIONS;
-use crate::text::note;
 
 /// The files of a report that hold findings, which the comparison makes again
 /// and so a run made from another run does not take over.

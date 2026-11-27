@@ -232,20 +232,20 @@ pub fn cmd_setup(tool: &Tool, ssh: &Ssh, name: &str) -> Result<()> {
     if host.target.is_some() {
         let set_up = setup_host(&tool.places, ssh, &host, os, at_terminal, &tool.program)?;
         for line in set_up.said.lines() {
-            println!("host {name}: {line}");
+            crate::output::answer_line(format!("host {name}: {line}"));
         }
-        println!(
+        crate::output::say(format!(
             "installed builds on host {name}, with its builds root in {}; its cores compile at {:.2} of this Mac's speed",
             set_up.root, set_up.speed
-        );
+        ));
     }
     if os == Os::Mac {
         let said = crate::ui_test_settings::set_up(&tool.places, ssh, &host, at_terminal)?;
-        println!("host {name}: {said}");
+        crate::output::say(format!("host {name}: {said}"));
         let said = crate::spotlight::set_up(&tool.places, ssh, &host, at_terminal)?;
-        println!("host {name}: {said}");
+        crate::output::say(format!("host {name}: {said}"));
         let said = crate::fsevents_log::set_up(&tool.places, ssh, &host, at_terminal)?;
-        println!("host {name}: {said}");
+        crate::output::say(format!("host {name}: {said}"));
     }
     Ok(())
 }
@@ -254,7 +254,7 @@ pub fn cmd_setup(tool: &Tool, ssh: &Ssh, name: &str) -> Result<()> {
 /// the line `setup_host` reads.
 pub fn cmd_speed_here() -> Result<()> {
     let took = crate::core_speed::time_compile(&speed_folder())?;
-    println!("{}", crate::core_speed::line(took));
+    crate::output::answer_line(crate::core_speed::line(took));
     Ok(())
 }
 

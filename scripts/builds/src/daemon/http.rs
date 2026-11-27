@@ -150,7 +150,7 @@ fn accept_loop(
                     std::io::ErrorKind::BrokenPipe | std::io::ErrorKind::ConnectionReset
                 )
             {
-                eprintln!("builds: serving a request: {error}");
+                crate::output::note(format!("serving a request: {error}"));
             }
         });
     }
@@ -210,7 +210,7 @@ fn serve_font(stream: &mut TcpStream, model: &Model, name: &str) -> std::io::Res
         ),
         Err(error) => {
             let message = format!("cannot read the SF Mono file {name}: {error}");
-            crate::text::note(&message);
+            crate::output::note(&message);
             respond(
                 stream,
                 "500 Internal Server Error",
@@ -375,7 +375,7 @@ fn handle(mut stream: TcpStream, names: &[String], model: &Model) -> std::io::Re
                     Some(Ok(())) => json(&mut stream, Ok(b"{}".to_vec())),
                     Some(Err(error)) => {
                         let message = error.text();
-                        crate::text::note(&message);
+                        crate::output::note(&message);
                         json_error(&mut stream, &message)
                     }
                     None => json_error(&mut stream, &no_design_files(project)),
@@ -443,7 +443,7 @@ fn handle(mut stream: TcpStream, names: &[String], model: &Model) -> std::io::Re
             Some(Ok(Some(picture))) => respond(&mut stream, "200 OK", "image/png", &picture),
             Some(Err(error)) => {
                 let message = error.text();
-                crate::text::note(&message);
+                crate::output::note(&message);
                 respond(
                     &mut stream,
                     "500 Internal Server Error",
@@ -812,7 +812,7 @@ fn shots_events(
         };
         if sent.as_ref() != Some(&event) {
             if let Some(error) = error {
-                crate::text::note(error);
+                crate::output::note(error);
             }
             write!(stream, "event: shots\ndata: {event}\n\n")?;
             stream.flush()?;

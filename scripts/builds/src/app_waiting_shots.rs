@@ -19,8 +19,8 @@ use crate::fail::Result;
 use crate::lane::Lane;
 use crate::lists::design_paths::board_scene;
 use crate::lists::{Id, Lists, Resolution};
+use crate::output::note;
 use crate::shots_declared::ShotDeclarations;
-use crate::text::note;
 
 /// A scene whose board change waits on app work.
 #[derive(Clone, Debug, PartialEq, Eq)]

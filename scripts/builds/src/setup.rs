@@ -20,11 +20,11 @@ use crate::fail;
 use crate::fail::{Context, Result};
 use crate::host::Ssh;
 use crate::manifest::{MANIFEST, build_dirs, has_manifest};
+use crate::output::note;
 use crate::prune::{
     Pruner, Run, prune_derived_data, prune_root, prune_shared, prune_tools_and_floor,
 };
 use crate::roots::delete;
-use crate::text::note;
 use crate::tool::Tool;
 
 /// May <checkout> delete <folder>, the folder its link points at today?
@@ -232,7 +232,7 @@ pub fn prepare(top: &Path) -> Result<()> {
         let status = command
             .current_dir(top)
             .stdin(std::process::Stdio::null())
-            .stdout(crate::text::stderr_for_child()?)
+            .stdout(crate::output::stderr_for_child()?)
             .status()
             .context(|| format!("running {}", path.display()))?;
         if !status.success() {

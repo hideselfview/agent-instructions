@@ -267,10 +267,11 @@ pub fn cmd_waits(args: &[String]) -> Result<()> {
     let places = crate::places::Places::from_env()?;
     let store = crate::lists::store::Store::resolve(&places, &args, Path::new("."))?;
     let waits = read(&store.dir.join(crate::db::DATABASE), start)?;
-    print!(
-        "{}",
-        report(&store.project, since, &rows(waits, &crate::text::local_day))
-    );
+    crate::output::answer(report(
+        &store.project,
+        since,
+        &rows(waits, &crate::text::local_day),
+    ));
     Ok(())
 }
 

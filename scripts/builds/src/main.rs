@@ -1,6 +1,15 @@
 //! builds: owns this machine's build volume, /Volumes/Builds, and everything
 //! on it. `builds help` says what it does; src/help.txt is that text.
 
+// Everything builds prints goes through output.rs, which caps what a command
+// says about its work; clippy.toml lists the functions that reach the streams
+// without a print macro. Tests print what they like.
+#![cfg_attr(
+    not(test),
+    deny(clippy::print_stdout, clippy::print_stderr, clippy::disallowed_methods)
+)]
+#![cfg_attr(test, allow(clippy::disallowed_methods))]
+
 mod ack;
 mod agent_command;
 mod agent_launch;
@@ -138,6 +147,7 @@ mod manifest;
 mod migrate;
 mod model_tier;
 mod orphans;
+mod output;
 mod output_excerpt;
 mod places;
 mod proc_limit;
@@ -214,6 +224,12 @@ use places::{Places, Rules};
 use tool::Tool;
 
 fn main() -> ExitCode {
+    let code = run_program();
+    output::finish();
+    code
+}
+
+fn run_program() -> ExitCode {
     let mut argv = std::env::args_os();
     let program = argv.next().unwrap_or_default();
     let args: Vec<std::ffi::OsString> = argv.collect();
@@ -233,7 +249,7 @@ fn main() -> ExitCode {
         };
     }
     if let Some(fail) = links::run_as(&program, &args) {
-        text::note(fail.text());
+        output::note(fail.text());
         return ExitCode::from(1);
     }
     let args: Vec<String> = match std::env::args_os()
@@ -243,7 +259,7 @@ fn main() -> ExitCode {
     {
         Ok(args) => args,
         Err(arg) => {
-            text::note(format!(
+            output::note(format!(
                 "an argument is not UTF-8: {}",
                 arg.to_string_lossy()
             ));
@@ -262,7 +278,7 @@ fn main() -> ExitCode {
 
 fn run_command(args: &[String], session: ack::agent::Session) -> ExitCode {
     let Some((command, rest)) = args.split_first() else {
-        print!("{}", help::HELP);
+        output::answer(help::HELP);
         return ExitCode::from(2);
     };
     let split = match project_flag::split(command, rest) {
@@ -355,7 +371,7 @@ fn exit_code_after(command: &str, fail: Fail) -> ExitCode {
     match fail {
         Fail::Exit(code) => ExitCode::from(code.clamp(0, 255) as u8),
         failure => {
-            text::note(failure.text());
+            output::note(failure.text());
             ExitCode::from(failure_code(command))
         }
     }
@@ -438,14 +454,15 @@ fn enter_stores(command: &str, args: &[String]) -> Result<Option<install_gate::U
             &what,
             &since,
             parent_generation,
-            &mut |line| text::note(line),
+            &mut |line| output::note(line),
         )? {
             install_gate::Entered::Start(uses) => install_gate::use_per_connection(uses),
             install_gate::Entered::RunAgain => return Err(install_gate::run_again()),
         }
         return Ok(None);
     }
-    match install_gate::enter_for_life(&places, pid, &what, &since, &mut |line| text::note(line))? {
+    match install_gate::enter_for_life(&places, pid, &what, &since, &mut |line| output::note(line))?
+    {
         install_gate::Entered::Start(held) => {
             // SAFETY: no other thread runs yet, so none reads the environment
             // while set_var writes it. Every builds command this one starts runs
@@ -488,7 +505,7 @@ fn run(
         "cargo" => return cargo_run::cmd_cargo(args, changed),
         "lake" => return lake_run::cmd_lake(args, changed),
         "version" => {
-            println!("{}", version());
+            output::answer_line(version());
             return Ok(());
         }
         "programs" => return programs::cmd_programs(&Places::from_env()?, args),
@@ -538,7 +555,7 @@ fn run(
         "takeover" => return queue::cmd_takeover(&Places::from_env()?, args),
         "-h" | "--help" | "help" => match help::lookup(args) {
             Ok(text) => {
-                print!("{text}");
+                output::answer(text);
                 return Ok(());
             }
             Err(why) => fail!("{why}"),

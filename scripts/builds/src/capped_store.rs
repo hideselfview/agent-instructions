@@ -29,9 +29,10 @@ use std::path::{Path, PathBuf};
 use crate::evict::HeldPaths;
 use crate::fail;
 use crate::fail::{Context, Result, with_move_cleanup};
+use crate::output::note;
 use crate::places::FLOOR_IDLE_MINUTES;
 use crate::prune::Run;
-use crate::text::{counted, human, note};
+use crate::text::{counted, human};
 use crate::tool::Tool;
 use crate::whole_file::remove_if_present;
 

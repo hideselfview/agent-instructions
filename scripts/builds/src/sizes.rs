@@ -186,7 +186,7 @@ pub fn record_roots(places: &Places, roots: &[PathBuf]) {
     }
     for root in roots {
         if let Err(error) = record(places, root) {
-            crate::text::note(format!(
+            crate::output::note(format!(
                 "sizes: could not measure {}: {}",
                 root.display(),
                 error.text()
@@ -194,7 +194,7 @@ pub fn record_roots(places: &Places, roots: &[PathBuf]) {
             // The old record would show a size from before this command;
             // with none, the dashboard measures the root.
             if let Err(error) = remove(places, root) {
-                crate::text::note(format!("sizes: {}", error.text()));
+                crate::output::note(format!("sizes: {}", error.text()));
             }
         }
     }

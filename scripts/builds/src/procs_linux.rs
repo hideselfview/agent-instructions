@@ -105,7 +105,9 @@ fn ticks_per_second() -> Result<f64> {
 /// be read: a failure says why on stderr, so a reading that fails for a
 /// reason other than the process's exit is not silent.
 fn or_note<T>(result: Result<T>) -> Option<T> {
-    result.map_err(|error| crate::text::note(error.text())).ok()
+    result
+        .map_err(|error| crate::output::note(error.text()))
+        .ok()
 }
 
 /// When the machine booted, seconds since 1970 (`btime` in /proc/stat).

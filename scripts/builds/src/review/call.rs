@@ -250,7 +250,7 @@ pub use super::provider::invoke;
 
 pub fn note_diagnostics(subject: impl std::fmt::Display, diagnostics: &[String]) {
     for diagnostic in diagnostics {
-        crate::text::note(format!("{subject}: {diagnostic}"));
+        crate::output::note(format!("{subject}: {diagnostic}"));
     }
 }
 

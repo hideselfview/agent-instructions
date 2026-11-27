@@ -728,7 +728,7 @@ pub fn move_store(places: &Places, path: &Path, now: i64) -> Result<()> {
     if before(found, BEFORE_SHOTS_ON_VOLUME_STAMP) {
         remove_kept_reports(path)?;
     }
-    crate::text::note(format!("moved {} to today's schema", path.display()));
+    crate::output::note(format!("moved {} to today's schema", path.display()));
     Ok(())
 }
 

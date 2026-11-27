@@ -30,7 +30,7 @@ pub fn relay(
                 Ok(0) => break,
                 Ok(_) => {}
                 Err(error) => {
-                    crate::text::note(format!("reading cargo's messages stopped: {error}"));
+                    crate::output::note(format!("reading cargo's messages stopped: {error}"));
                     break;
                 }
             }

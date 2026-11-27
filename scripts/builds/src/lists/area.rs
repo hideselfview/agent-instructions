@@ -12,7 +12,7 @@ use crate::lists::args::{Args, current_dir};
 use crate::lists::check::title_fault;
 use crate::lists::store::Store;
 use crate::lists::{Id, Stamp, item};
-use crate::text::note;
+use crate::output::note;
 use crate::tool::Tool;
 
 const USAGE: &str = "usage: builds area add NAME [--after AREA]\n       builds area rename OLD NEW\n       builds area move NAME --after AREA\n       builds area remove NAME";

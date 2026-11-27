@@ -504,7 +504,7 @@ pub fn cmd_units(tool: &crate::tool::Tool, args: &[String]) -> Result<()> {
             for (folder, freed_kib) in
                 prune::prune(&rules, run(&args[3])?, &folders, &tool.changed)?
             {
-                println!("{freed_kib}\t{}", folder.display());
+                crate::output::answer_line(format!("{freed_kib}\t{}", folder.display()));
             }
             Ok(())
         }
@@ -515,7 +515,7 @@ pub fn cmd_units(tool: &crate::tool::Tool, args: &[String]) -> Result<()> {
                 run(&args[2])?,
                 &lockfiles,
             )?;
-            println!("{freed}");
+            crate::output::answer_line(freed);
             Ok(())
         }
         Some("after-build") if args.len() == 2 => {

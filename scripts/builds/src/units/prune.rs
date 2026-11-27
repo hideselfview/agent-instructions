@@ -18,9 +18,10 @@ use super::{
 };
 use crate::fail;
 use crate::fail::{Result, gone};
+use crate::output::note;
 use crate::prune::Run;
 use crate::roots::Changed;
-use crate::text::{counted, human_bytes, note};
+use crate::text::{counted, human_bytes};
 use crate::usage::{Seen, bytes_with, freeable};
 
 /// The ages the rules go by, as cutoffs from one moment.

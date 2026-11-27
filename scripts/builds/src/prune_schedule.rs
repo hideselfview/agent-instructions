@@ -21,8 +21,9 @@ use std::time::Duration;
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::health::Advice;
+use crate::output::note;
 use crate::places::Places;
-use crate::text::{local_minute, minutes_since, note};
+use crate::text::{local_minute, minutes_since};
 
 /// What a prune says when another prune holds the prune lock.
 pub const BUSY: &str = "another builds prune is running";

@@ -11,10 +11,10 @@
 use rusqlite::Connection;
 
 use crate::fail::Result;
+use crate::output::note;
 use crate::review::check::{clause_in, squash};
 use crate::review::record::{self, FirstReview};
 use crate::review::rules::Rule;
-use crate::text::note;
 
 /// How many of the branches opened last the list counts.
 pub const BRANCHES: usize = 30;

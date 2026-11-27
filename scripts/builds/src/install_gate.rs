@@ -118,6 +118,7 @@ pub fn run_again() -> Fail {
     // The program takes its own use. A process that holds a use (`hold`)
     // names itself in VARIABLE, and the exec closes the use's file, which
     // ends that use.
+    crate::output::finish();
     let error = std::process::Command::new(&program)
         .args(std::env::args_os().skip(1))
         .env_remove(VARIABLE)
@@ -211,7 +212,7 @@ impl Drop for Use {
         // The use holds the lock, so the path names its file. A file that
         // stays is one that install removes later, since its lock is free.
         if let Err(error) = std::fs::remove_file(&self.path) {
-            crate::text::note(format!(
+            crate::output::note(format!(
                 "removing {}: {error}; the next builds install removes it",
                 self.path.display()
             ));
@@ -406,7 +407,7 @@ impl PerConnection {
             Kind::Command,
             self.pid,
             "builds install runs: this command waits until it finishes",
-            &mut |line| crate::text::note(line),
+            &mut |line| crate::output::note(line),
         )?;
         let taken = take(
             &self.places,
@@ -427,7 +428,7 @@ impl PerConnection {
     /// A use for one connection, waiting at the gate while an install runs;
     /// none while the process holds a command use.
     pub fn take(&self) -> Result<Option<ConnectionUse>> {
-        self.take_saying(&mut |line| crate::text::note(line))
+        self.take_saying(&mut |line| crate::output::note(line))
     }
 
     /// `take`, giving <say> the line that says it waits at the closed gate.
@@ -597,7 +598,7 @@ pub fn hold_current() -> Result<Hold> {
 /// (`run_again`), for a command that `hold_current` found an install ran
 /// under.
 pub fn run_installed(why: &str) -> Fail {
-    crate::text::note(why);
+    crate::output::note(why);
     run_again()
 }
 

@@ -523,7 +523,7 @@ impl<'a> BranchBuilds<'a> {
             },
             &mut |commit, target| {
                 if !crate::git::commit_exists(top, commit)? {
-                    crate::text::note(format!(
+                    crate::output::note(format!(
                         "a passing app build built {commit}, which git does not have in {}, so that build covers nothing",
                         top.display()
                     ));
@@ -566,20 +566,20 @@ pub fn cmd_landing_coverage(places: &Places, args: &[String]) -> Result<()> {
         fail!("git finds no checkout at {worktree}");
     };
     let Some(config) = config_of(top, branch)? else {
-        crate::text::note(format!(
+        crate::output::note(format!(
             "{branch} has no {CONFIG}, so it builds no apps and needs no app build"
         ));
         return Ok(());
     };
     let repo = checkout.repo();
     let Some(records) = BuildRecords::open(places, &repo)? else {
-        crate::text::note(format!(
+        crate::output::note(format!(
             "repo {repo} is in no project, so no store records its app builds and its landings need none"
         ));
         return Ok(());
     };
     let Some(branch_builds) = BranchBuilds::off_main(top, branch, named)? else {
-        crate::text::note(format!(
+        crate::output::note(format!(
             "every commit of {branch} is on origin/main, so it needs no app build"
         ));
         return Ok(());
@@ -594,20 +594,20 @@ pub fn cmd_landing_coverage(places: &Places, args: &[String]) -> Result<()> {
     )?;
     for (lane, drops) in dropped {
         for line in dropped_lines(lane, &drops) {
-            println!("{line}");
+            crate::output::say(line);
         }
         for line in crate::app_waiting_shots::landing_lines(&waiting, lane) {
-            println!("{line}");
+            crate::output::say(line);
         }
     }
     for (lane, run) in &covering {
         for line in unrendered_lines(places, &repo, *lane, run)? {
-            println!("{line}");
+            crate::output::say(line);
         }
     }
     if !unbuilt.is_empty() {
         let unbuilt: Vec<&Unbuilt> = unbuilt.iter().collect();
-        println!("{}", refusal(&repo, worktree, branch, &unbuilt));
+        crate::output::answer_line(refusal(&repo, worktree, branch, &unbuilt));
         return Err(crate::fail::Fail::Exit(1));
     }
     Ok(())

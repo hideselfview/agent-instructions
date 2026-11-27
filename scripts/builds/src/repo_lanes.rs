@@ -50,7 +50,7 @@ pub fn with_files(places: &Places, repo: &str) -> Result<Vec<Lane>> {
         for (app, file) in unnamed {
             match configured.iter().find(|lane| lane.word() == app) {
                 Some(lane) => lanes.push(*lane),
-                None => crate::text::note(format!(
+                None => crate::output::note(format!(
                     "{repo}'s folder on the volume holds {file}, and {CONFIG} at origin/main names no app {app}, so builds leaves that app out"
                 )),
             }
