@@ -2865,7 +2865,11 @@ all, and `health` says so and names the branches. `setup` and
 run which died left behind, and each folder the deleted runs left empty. A
 run fills its staging folder at the top of the folder shots and makes the
 folders of its key only when it puts the run in place, so a run that stops,
-or that builds does not keep, leaves no folder under runs.
+or that builds does not keep, leaves no folder under runs. For each folder
+they clean in shots, a repo's or shots itself, they print one line, however
+many files they delete there: the number of folders and files they deleted, or
+on a dry run would delete, the space that freed and, when the cap made them
+delete, what the folder held and its cap.
 They delete nothing in the folder while a shots step reads or writes it,
 which a step on this Mac does while it runs and a step on a host does while
 builds copies a before run and pictures to the host and the new pictures
@@ -2891,7 +2895,8 @@ use is when it was recorded or when builds last read a text of it, and a run
 used in the last 30 minutes stays. Builds reports an error if a published run
 has no file recording its last use. Once a run's texts are gone, a command
 that needs one (`builds review audit`, `propose`) says so and goes on to the next.
-`status` shows the folder's size against its cap.
+`status` shows the folder's size against its cap. What `setup` and `prune`
+delete there they print in one line, as for a folder in shots.
 
 When xcodebuild fails with "Couldn't check out revision" or "file not found" on
 a SwiftPM dependency (often Sparkle), its cache is corrupt: disconnect any VPN

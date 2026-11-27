@@ -19,8 +19,11 @@
 //! `setup` and `prune` delete units, least recently used first, while a group
 //! of the root is over its cap (`prune`). A unit used in the last
 //! FLOOR_IDLE_MINUTES stays, and so does a unit marked in use (`Kept::InUse`).
+//! One unit may be thousands of files, so the prune says what it deleted in
+//! one line for each group's folder.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
+use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
 
 use crate::evict::HeldPaths;
@@ -28,7 +31,7 @@ use crate::fail;
 use crate::fail::{Context, Result, with_move_cleanup};
 use crate::places::FLOOR_IDLE_MINUTES;
 use crate::prune::Run;
-use crate::text::{human, note};
+use crate::text::{counted, human, note};
 use crate::tool::Tool;
 use crate::whole_file::remove_if_present;
 
@@ -245,8 +248,27 @@ enum Unit {
 
 struct Deletion {
     unit: Unit,
+    kib: u64,
+    /// Why this unit goes, which the line that keeps a unit in use gives.
     reason: String,
 }
+
+/// What the prune deletes in one folder.
+#[derive(Default)]
+struct FolderPlan {
+    /// What the folder holds and its cap, when the cap picks a unit.
+    over_cap: Option<OverCapBy>,
+    steps: Vec<Deletion>,
+}
+
+#[derive(Clone, Copy)]
+struct OverCapBy {
+    held_kib: u64,
+    cap_kib: u64,
+}
+
+/// What the prune deletes, by the folder whose line reports it.
+type Plan = BTreeMap<PathBuf, FolderPlan>;
 
 struct MeasuredUnit {
     used: i64,
@@ -258,7 +280,7 @@ struct MeasuredUnit {
 struct MeasuredGroup {
     folder: PathBuf,
     total: u64,
-    abandoned: Vec<(Deletion, u64)>,
+    abandoned: Vec<Deletion>,
     units: Vec<MeasuredUnit>,
 }
 
@@ -337,19 +359,20 @@ fn plan(
     cap_kib: u64,
     groups: impl FnOnce() -> Result<Option<Vec<Group>>>,
     open_files: impl Fn() -> Result<HeldPaths>,
-) -> Result<Vec<Deletion>> {
+) -> Result<Plan> {
     let staging = folders_in(root)?
         .into_iter()
         .filter(|(name, _)| is_staging(name))
         .map(|(_, folder)| folder)
         .collect::<Vec<_>>();
     let Some(groups) = groups()? else {
-        return Ok(Vec::new());
+        return Ok(Plan::new());
     };
     if !plan_current(root)? {
         note_plan_invalid(root);
-        return Ok(Vec::new());
+        return Ok(Plan::new());
     }
+    let staging_sizes = tool.measure_all(&staging)?;
     let groups = groups
         .into_iter()
         .map(|group| measure_group(tool, cap_kib, group))
@@ -358,18 +381,25 @@ fn plan(
     // Every group has been measured. Read the processes only if selection
     // reaches a folder, as close to the deletion phase as possible.
     let mut open = OpenFiles::Unread(open_files);
-    let mut steps = Vec::new();
-    for folder in staging {
+    let mut plan = Plan::new();
+    for (folder, measured) in staging.into_iter().zip(staging_sizes) {
         let unit = Unit::Folder(Folder::unpinned(folder));
         let reason = "the staging folder of a writer that ended".to_string();
         if open.available(&unit, &reason)? {
-            steps.push(Deletion { unit, reason });
+            plan.entry(root.to_path_buf())
+                .or_default()
+                .steps
+                .push(Deletion {
+                    unit,
+                    kib: measured.kib,
+                    reason,
+                });
         }
     }
     for group in groups {
-        group.choose(cap_kib, recent, &mut open, &mut steps)?;
+        group.choose(cap_kib, recent, &mut open, &mut plan)?;
     }
-    Ok(steps)
+    Ok(plan)
 }
 
 /// Takes the cache's exclusive lock if the current prune still owns a valid plan.
@@ -385,8 +415,8 @@ pub(super) fn lock_plan(root: &Path) -> Result<Option<std::fs::File>> {
     Ok(None)
 }
 
-fn apply_plan(tool: &Tool, run: Run, root: &Path, steps: Vec<Deletion>) -> Result<()> {
-    if steps.is_empty() {
+fn apply_plan(tool: &Tool, run: Run, root: &Path, plan: Plan) -> Result<()> {
+    if plan.is_empty() {
         return Ok(());
     }
     if run.dry() {
@@ -394,39 +424,128 @@ fn apply_plan(tool: &Tool, run: Run, root: &Path, steps: Vec<Deletion>) -> Resul
             return Ok(());
         };
         drop(alone);
-        for step in steps {
-            note(format!(
-                "would delete {} ({})",
-                step.unit.path().display(),
-                step.reason
-            ));
+        for (folder, planned) in plan {
+            let mut cleaned = Cleaned::default();
+            for step in &planned.steps {
+                match &step.unit {
+                    Unit::Folder(_) => cleaned.folders += 1,
+                    Unit::Files(files) => cleaned.files += files.len(),
+                }
+                cleaned.kib += step.kib;
+            }
+            cleaned.report(run, &folder, planned.over_cap);
         }
         return Ok(());
     }
-    let mut trash = None;
-    let mut failures = Ok(());
-    for (index, Deletion { unit, reason }) in steps.into_iter().enumerate() {
+    let mut applying = Applying {
+        tool,
+        root,
+        trash: None,
+        tried: 0,
+        failures: Ok(()),
+    };
+    for (folder, planned) in plan {
+        let mut cleaned = Cleaned::default();
+        let went_on = planned
+            .steps
+            .into_iter()
+            .try_for_each(|step| applying.delete(step, &mut cleaned));
+        cleaned.report(run, &folder, planned.over_cap);
+        if went_on.is_break() {
+            break;
+        }
+    }
+    match applying.trash {
+        Some(slot) => with_move_cleanup(applying.failures, slot.remove_background()),
+        None => applying.failures,
+    }
+}
+
+/// What a prune deleted in one folder, or on a dry run would delete.
+#[derive(Default)]
+struct Cleaned {
+    folders: usize,
+    files: usize,
+    kib: u64,
+    /// The planned entries something else deleted first.
+    gone: usize,
+}
+
+impl Cleaned {
+    /// Says the folder's line, and one for the entries something else
+    /// deleted first.
+    fn report(&self, run: Run, folder: &Path, over_cap: Option<OverCapBy>) {
+        let counts: Vec<String> = [
+            (self.folders, "folder", "folders"),
+            (self.files, "file", "files"),
+        ]
+        .into_iter()
+        .filter(|(count, _, _)| *count > 0)
+        .map(|(count, one, many)| counted(count, one, many))
+        .collect();
+        if !counts.is_empty() {
+            let freed = if run.dry() {
+                "which would free"
+            } else {
+                "which freed"
+            };
+            let why = over_cap.map_or_else(String::new, |over| {
+                format!(
+                    " (the folder held {}, over its {} cap)",
+                    human(over.held_kib),
+                    human(over.cap_kib)
+                )
+            });
+            note(format!(
+                "{} {} in {}, {freed} {}{why}",
+                run.deleted(),
+                counts.join(" and "),
+                folder.display(),
+                human(self.kib)
+            ));
+        }
+        if self.gone > 0 {
+            note(format!(
+                "something else deleted {} in {} before the prune did",
+                counted(self.gone, "entry", "entries"),
+                folder.display()
+            ));
+        }
+    }
+}
+
+/// The deletions of one prune as it carries them out.
+struct Applying<'a> {
+    tool: &'a Tool,
+    root: &'a Path,
+    trash: Option<crate::trash::Slot>,
+    /// How many units the prune has started to delete, which names each
+    /// folder's place in the trash slot.
+    tried: usize,
+    failures: Result<()>,
+}
+
+impl Applying<'_> {
+    /// Deletes <step>'s unit and counts what went in <cleaned>. Breaks when
+    /// the prune must delete nothing more.
+    fn delete(&mut self, step: Deletion, cleaned: &mut Cleaned) -> ControlFlow<()> {
+        let Deletion { unit, kib, .. } = step;
+        let root = self.root;
         let target = match &unit {
             Unit::Folder(folder) => {
-                let slot = match &trash {
+                let slot = match &self.trash {
                     Some(slot) => slot,
                     None => {
                         // The trash lock can wait for an emptier. Check the
                         // plan first, then release the cache lock to get a slot.
                         match lock_plan(root) {
                             Ok(Some(alone)) => drop(alone),
-                            Ok(None) => break,
-                            Err(error) => {
-                                failures = with_move_cleanup(failures, Err(error));
-                                break;
-                            }
+                            Ok(None) => return ControlFlow::Break(()),
+                            Err(error) => return self.stop(error),
                         }
-                        match crate::trash::Slot::make(&tool.places) {
-                            Ok(slot) => trash.insert(slot),
-                            Err(error) => {
-                                failures = with_move_cleanup(failures, Err(error));
-                                break;
-                            }
+                        match crate::trash::Slot::make(&self.tool.places) {
+                            Ok(slot) => self.trash.insert(slot),
+                            Err(error) => return self.stop(error),
                         }
                     }
                 };
@@ -439,32 +558,43 @@ fn apply_plan(tool: &Tool, run: Run, root: &Path, steps: Vec<Deletion>) -> Resul
         };
         let alone = match lock_plan(root) {
             Ok(Some(alone)) => alone,
-            Ok(None) => break,
-            Err(error) => {
-                failures = with_move_cleanup(failures, Err(error));
-                break;
-            }
+            Ok(None) => return ControlFlow::Break(()),
+            Err(error) => return self.stop(error),
         };
-        let mut changes = Vec::new();
-        let deleted = target.delete(index, &mut changes).and_then(|()| {
-            if changes.iter().any(|entry| entry.removed) {
+        let mut removed = Vec::new();
+        let unlinked = target.delete(self.tried, &mut removed);
+        self.tried += 1;
+        let any = removed.contains(&true);
+        if unlinked.is_ok() && any {
+            cleaned.kib += kib;
+        }
+        let deleted = unlinked.and_then(|()| {
+            if any {
                 remove_empty_parents(root, unit.path())?;
             }
             Ok(())
         });
         drop(alone);
-        for entry in changes {
-            if entry.removed {
-                note(format!("deleted {} ({reason})", entry.path.display()));
-            } else {
-                note_disappeared(entry.path);
+        for removed in removed {
+            match (removed, &unit) {
+                (true, Unit::Folder(_)) => cleaned.folders += 1,
+                (true, Unit::Files(_)) => cleaned.files += 1,
+                (false, _) => cleaned.gone += 1,
             }
         }
-        failures = with_move_cleanup(failures, deleted);
+        self.keep(deleted);
+        ControlFlow::Continue(())
     }
-    match trash {
-        Some(slot) => with_move_cleanup(failures, slot.remove_background()),
-        None => failures,
+
+    /// Adds <result>'s failure to the ones the prune returns.
+    fn keep(&mut self, result: Result<()>) {
+        let earlier = std::mem::replace(&mut self.failures, Ok(()));
+        self.failures = with_move_cleanup(earlier, result);
+    }
+
+    fn stop(&mut self, error: fail::Fail) -> ControlFlow<()> {
+        self.keep(Err(error));
+        ControlFlow::Break(())
     }
 }
 
@@ -494,30 +624,21 @@ enum Target<'a> {
     Files(&'a [PathBuf]),
 }
 
-/// What happened to one path, reported after the cache lock is released.
-struct Deleted<'a> {
-    path: &'a Path,
-    removed: bool,
-}
-
-impl<'a> Target<'a> {
-    fn delete(self, index: usize, changes: &mut Vec<Deleted<'a>>) -> Result<()> {
+impl Target<'_> {
+    /// Deletes the unit's paths in order, adding to <removed> whether each
+    /// one was still there.
+    fn delete(self, index: usize, removed: &mut Vec<bool>) -> Result<()> {
         match self {
             Self::Folder { path, slot } => {
-                let removed = crate::evict::move_to_slot(
+                removed.push(crate::evict::move_to_slot(
                     path,
                     &slot.path,
                     std::ffi::OsStr::new(&index.to_string()),
-                )?;
-                changes.push(Deleted { path, removed });
+                )?);
             }
             Self::Files(files) => {
                 for file in files {
-                    let removed = remove_if_present(file)?;
-                    changes.push(Deleted {
-                        path: file,
-                        removed,
-                    });
+                    removed.push(remove_if_present(file)?);
                 }
             }
         }
@@ -596,13 +717,11 @@ fn measure_group(tool: &Tool, cap_kib: u64, group: Group) -> Result<MeasuredGrou
                     "{}, the staging folder of a writer that ended",
                     human(measured.kib)
                 );
-                abandoned.push((
-                    Deletion {
-                        unit: Unit::Folder(Folder::unpinned(folder)),
-                        reason,
-                    },
-                    measured.kib,
-                ));
+                abandoned.push(Deletion {
+                    unit: Unit::Folder(Folder::unpinned(folder)),
+                    kib: measured.kib,
+                    reason,
+                });
             }
             Kept::Loose { file } => {
                 let kib = file_kib(&file)?;
@@ -610,13 +729,11 @@ fn measure_group(tool: &Tool, cap_kib: u64, group: Group) -> Result<MeasuredGrou
                     "{}, a half-written file from a writer that ended",
                     human(kib)
                 );
-                abandoned.push((
-                    Deletion {
-                        unit: Unit::Files(vec![file]),
-                        reason,
-                    },
+                abandoned.push(Deletion {
+                    unit: Unit::Files(vec![file]),
                     kib,
-                ));
+                    reason,
+                });
             }
             Kept::Folder {
                 folder,
@@ -687,12 +804,14 @@ impl MeasuredGroup {
         cap_kib: u64,
         recent: i64,
         open: &mut OpenFiles<impl Fn() -> Result<HeldPaths>>,
-        steps: &mut Vec<Deletion>,
+        plan: &mut Plan,
     ) -> Result<()> {
         let mut total = self.total;
-        for (step, kib) in self.abandoned {
+        let mut steps = Vec::new();
+        let mut over_cap = None;
+        for step in self.abandoned {
             if open.available(&step.unit, &step.reason)? {
-                total = total.saturating_sub(kib);
+                total = total.saturating_sub(step.kib);
                 steps.push(step);
             }
         }
@@ -715,8 +834,17 @@ impl MeasuredGroup {
             );
             if open.available(&unit, &reason)? {
                 total = total.saturating_sub(kib);
-                steps.push(Deletion { unit, reason });
+                over_cap = Some(OverCapBy {
+                    held_kib: self.total,
+                    cap_kib,
+                });
+                steps.push(Deletion { unit, kib, reason });
             }
+        }
+        if !steps.is_empty() {
+            let folder = plan.entry(self.folder).or_default();
+            folder.over_cap = folder.over_cap.or(over_cap);
+            folder.steps.extend(steps);
         }
         Ok(())
     }

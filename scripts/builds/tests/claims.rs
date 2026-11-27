@@ -629,6 +629,41 @@ fn prune_keeps_a_claimed_folder_over_its_cap_and_deletes_it_once_released() {
     );
 }
 
+/// However many pictures a prune deletes from a folder, it prints one line
+/// for the folder, dry or real.
+#[test]
+fn a_prune_of_many_pictures_prints_one_line_for_their_folder() {
+    let demo = Demo::new("pictures");
+    let repo = demo.volume().join("shots/demo");
+    let boards = repo.join("pictures/boards");
+    std::fs::create_dir_all(&boards).unwrap();
+    // A list with no picture beside it is what a run that ended left, which
+    // a prune deletes whatever the folder holds.
+    for picture in 0..40 {
+        std::fs::write(boards.join(format!("{picture}.json")), "{}").unwrap();
+    }
+    for (args, verb) in [
+        (&["prune", "--dry-run"][..], "would delete"),
+        (&["prune"][..], "deleted"),
+    ] {
+        let out = demo.builds().args(args).output().unwrap();
+        let said = String::from_utf8_lossy(&out.stderr);
+        assert!(out.status.success(), "builds {args:?}: {said}");
+        let lines: Vec<&str> = said
+            .lines()
+            .filter(|line| line.contains("shots/demo"))
+            .collect();
+        assert_eq!(lines.len(), 1, "builds {args:?}: {said}");
+        assert!(
+            lines[0].starts_with(&format!("builds: {verb} 40 files in "))
+                && lines[0].contains("shots/demo, "),
+            "{}",
+            lines[0]
+        );
+    }
+    assert!(!boards.exists(), "the real prune kept the files");
+}
+
 /// Run from a folder in no checkout, each form of app-checkout that changes a
 /// checkout on this Mac tells the dashboard of that checkout's build root, and
 /// adding one measures the root.

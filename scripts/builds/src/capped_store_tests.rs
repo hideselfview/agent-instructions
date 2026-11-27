@@ -348,17 +348,14 @@ fn missing_files_are_not_counted_as_a_deletion() {
     let missing = scratch.dir.join("gone");
     let second = scratch.dir.join("second");
     let files = [missing, second.clone()];
-    let mut changes = Vec::new();
+    let mut removed = Vec::new();
 
-    Target::Files(&files).delete(0, &mut changes).unwrap();
-    assert!(changes.iter().all(|entry| !entry.removed));
-    changes.clear();
+    Target::Files(&files).delete(0, &mut removed).unwrap();
+    assert_eq!(removed, [false, false]);
+    removed.clear();
     std::fs::write(&second, "entry").unwrap();
-    Target::Files(&files).delete(0, &mut changes).unwrap();
-    assert_eq!(changes[0].path, files[0]);
-    assert!(!changes[0].removed);
-    assert_eq!(changes[1].path, second);
-    assert!(changes[1].removed);
+    Target::Files(&files).delete(0, &mut removed).unwrap();
+    assert_eq!(removed, [false, true]);
     assert!(!second.exists());
 }
 
@@ -379,14 +376,21 @@ fn an_unlink_failure_after_a_refused_move_still_fails_the_cache_prune() {
     let steps = vec![
         Deletion {
             unit: Unit::Folder(Folder::unpinned(refused.clone())),
+            kib: 400,
             reason: "old run".into(),
         },
         Deletion {
             unit: Unit::Files(vec![bad_file.clone()]),
+            kib: 0,
             reason: "old file".into(),
         },
     ];
-    let error = apply_plan(&tool, Run::Real, &root, steps).unwrap_err();
+    let folder_plan = FolderPlan {
+        over_cap: None,
+        steps,
+    };
+    let plan = Plan::from([(root.clone(), folder_plan)]);
+    let error = apply_plan(&tool, Run::Real, &root, plan).unwrap_err();
     std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700)).unwrap();
 
     assert!(matches!(error, fail::Fail::Message(_)), "{error:?}");
